@@ -220,6 +220,45 @@ kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
   komutlarının (`cp a ~/b`) kök dışı yazması engellenmez, Otomatik modda sorulur.
   `restrict_to_root` ikisini birden kapatır.
 
+### Otomatik kip denetçisi (risk sınıflandırıcısı) — `/auto-mode`
+
+Claude Code'un auto mode sınıflandırıcısının Fusion karşılığı. Otomatik kipte kuralların
+**soracağı** bir çağrı (`git push`, proje dışına yazma, `brew install`, uzak sunucu, MCP'de
+uzak yazma…) önce küçük/hızlı bir modele sorulur. Model yalnız **senin mesajlarını** ve
+eylemi görür (araç çıktısı, web sayfası, dosya içeriği gönderilmez; sırlar maskelenir):
+
+- "güvenli" derse çağrı **sorulmadan** çalışır; akışta `denetçi (model): güvenli…` satırı kalır.
+- "riskli" derse onay kartı açılır; kartta `Denetçi: <gerekçe>` yazar.
+- Model yoksa, anahtar kurulu değilse, zaman aşımında ya da cevap bozuksa **kurallar geçerli**
+  (eski davranış: sorulur). Üst üste 3 model hatasından sonra oturumun kalanında model çağrılmaz.
+- Yıkıcı işlem (`rm -rf`, `git reset --hard`, uzakta silme/harcama), `ask` kuralı, `sudo`,
+  sistem ayarı, ortam dökümü (`printenv`), `curl … | sh`, veritabanı silme, satır içi kodla
+  silme ve girişli tarayıcı oturumu **hiçbir ayarda** modele bırakılmaz; her zaman sorulur.
+- Üst üste **3** ya da oturumda toplam **20** "riskli" model kararında oturum **Manuel**e
+  düşer (kalıcı ayar değişmez). Geri dönmek: `/auto-mode devam`, masaüstünde besteci
+  çubuğundaki **Otomatik'e dön** ya da izin modundan Otomatik'i yeniden seçmek.
+- Alt ajanların çağrıları denetçiye girmez (niyetleri model yazımıdır); kurallar geçerlidir.
+
+Ayar `runtime.auto_classifier` (`fusion config set runtime.auto_classifier off`):
+`off` (yalnız kurallar) · `ask_only` (varsayılan: sorulacakları sınıflandır) · `on` (ek olarak
+salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur, yavaşlatır).
+Model `runtime.auto_classifier_model` (boş = hakem rolü ve yedekleri; web oturumu olamaz),
+süre sınırı `runtime.auto_classifier_timeout_s` (12 sn).
+
+```
+/auto-mode                 # ayar, model, sayaçlar, son 5 karar
+/auto-mode devam           # Manuel'e düşen oturumu Otomatik'e döndür
+/auto-mode off|ask_only|on # ayarı kalıcı yaz (kapat | ac | tum de olur)
+fusion auto-mode durum
+fusion auto-mode ayar off
+fusion auto-mode dene "git push origin main" --niyet "değişiklikleri main'e pushla"
+```
+
+Masaüstü: izin modu düğmesinin yanında **Denetçi** rozeti (ipucunda model ve engel sayacı),
+Ayarlar › İzinler › **Otomatik kip denetçisi** kartı (ayar, son kararlar, Otomatik'e dön). RPC:
+`oto.durum`, `oto.ayar {deger}`, `oto.devam`. Olaylar `AutoReviewDecided` ve `AutoModeFellBack`
+akışta kalıcı adım olur ve denetim günlüğüne `tur: sınıflandırıcı` etiketiyle yazılır.
+
 ### Proje güveni masaüstünde
 
 İndirilmiş bir proje kendi `config.yaml`'ı (MCP sunucuları, doğrulama komutları),
