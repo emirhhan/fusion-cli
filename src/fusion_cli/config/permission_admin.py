@@ -16,6 +16,7 @@ from ..core.errors import ConfigError
 from . import trust
 from .models import Config
 from .permission_rules import (
+    LAYER_FUSION,
     LAYER_LOCAL,
     LAYER_PROJECT,
     PermissionDecision,
@@ -26,6 +27,7 @@ from .permission_rules import (
     list_rule_rows,
     load_permission_rules,
     parse_rule,
+    read_rules_file,
     remove_rule,
     rule_layers,
     user_permissions_file,
@@ -84,19 +86,66 @@ def add_permission_rule(
     return RuleChange(rule, target, changed)
 
 
-def remove_permission_rule(root: Path, rule: PermissionRule) -> RuleChange | None:
-    """Kuralı taşıyan İLK katmandan sil; hiçbir katmanda yoksa `None`.
+#: Fusion'ın YAZDIĞI katmanlar; ötekiler (`~/.claude/settings.json`, proje `settings.json`)
+#: Claude Code'un dosyalarıdır ve yalnız okunur (tasarım kararı 3).
+WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_LOCAL})
 
-    Proje dosyasından silmek, dosya güveniliyorsa karmayı tazeler; güvenilmiyorsa
-    dosya güvensiz kalmaya devam eder (silmek izin AÇMAZ).
+
+def is_rule_removable(root: Path, layer_name: str) -> bool:
+    """Bu katmandaki bir satır Fusion'dan silinebilir mi? (RPC/arayüz `silinebilir`.)
+
+    Yazılabilir katman olmalı; yerel dosya ayrıca GÜVENİLİR olmalı (güvenilmeyen
+    dosyadan silmek karmayı tazeler ve kalan `Bash(*)`ı aktif ederdi).
     """
-    for layer in rule_layers(root):
+    if layer_name not in WRITABLE_LAYERS:
+        return False
+    return layer_name != LAYER_LOCAL or trust.is_permissions_trusted(root)
+
+
+def remove_permission_rule(
+    root: Path, rule: PermissionRule, *, path: Path | None = None
+) -> RuleChange | None:
+    """Kuralı taşıyan ilk YAZILABİLİR katmandan (ya da `path` verilmişse o dosyadan) sil.
+
+    Hiçbir katmanda yoksa `None`. Salt okunur katmandan (Claude'un dosyaları) ya da
+    güvenilmeyen yerel dosyadan silme `ConfigError` ile REDDEDİLİR. Ölçüldü (31 Ekim):
+    güven kontrolü silmeden sonra ve `config.yaml` güvenine bakıyordu; güvenilmeyen
+    dosyadan masum bir satır silinince karma tazeleniyor ve dosyadaki `Bash(*)` allow
+    aktif oluyordu. Tersi de vardı: Fusion'ın yazdığı (sentinel kayıtlı) dosyadan silince
+    karma tazelenmiyor, kalan deny kuralları da düşüyordu. Artık yerel dosyadan silmenin
+    tek koşulu dosyanın SİLMEDEN ÖNCE güvenilir olmasıdır; silindikten sonra karma
+    koşulsuz tazelenir.
+    """
+    layers = [layer for layer in rule_layers(root) if path is None or layer.path == path]
+    if path is not None and not layers:
+        raise ConfigError(f"İzin dosyası bilinen bir katman değil: {path}")
+    for layer in layers:
+        if not _holds_rule(layer.path, rule):
+            continue
+        if layer.name not in WRITABLE_LAYERS:
+            raise ConfigError(
+                f"{layer.description} salt okunur ({layer.path}); kuralı o dosyadan elle kaldır."
+            )
+        trusted_before = layer.name != LAYER_LOCAL or trust.is_permissions_trusted(root)
+        if not trusted_before:
+            raise ConfigError(
+                f"Proje yerel izin dosyası güvenilmiyor ({layer.path}); silmek izin açmaz. "
+                "Önce `fusion trust` ile dosyayı güvenilir yap ya da elle düzenle."
+            )
         if not remove_rule(layer.path, rule):
             continue
-        if layer.name == LAYER_LOCAL and trust.resolve_project_trust(root).trusted:
+        if layer.name == LAYER_LOCAL:
             trust.record_permissions_digest(root)
         return RuleChange(rule, layer.path, True)
     return None
+
+
+def _holds_rule(path: Path, rule: PermissionRule) -> bool:
+    return any(found == rule_without_source(rule) for found in read_rules_file(path))
+
+
+def rule_without_source(rule: PermissionRule) -> PermissionRule:
+    return PermissionRule(rule.tool, rule.specifier, rule.decision)
 
 
 def rule_rows(root: Path) -> tuple[RuleRow, ...]:
@@ -113,7 +162,13 @@ def rules_payload(root: Path, config: Config) -> dict[str, object]:
     return {
         "ok": True,
         "kurallar": [
-            {"kalip": row.pattern, "karar": row.decision, "kaynak": row.source, "dosya": row.path}
+            {
+                "kalip": row.pattern,
+                "karar": row.decision,
+                "kaynak": row.source,
+                "dosya": row.path,
+                "silinebilir": is_rule_removable(root, row.source.split(" ", 1)[0]),
+            }
             for row in list_rule_rows(root)
         ],
         "guvensiz_katmanlar": list(loaded.untrusted_layers),

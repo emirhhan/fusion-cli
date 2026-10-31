@@ -31,6 +31,8 @@ export interface PermissionRuleRow {
   karar: RuleDecision;
   kaynak: string;
   dosya: string;
+  /** Fusion bu satırı silebilir mi? Claude'un dosyaları ve güvenilmeyen yerel dosya salt okunur. */
+  silinebilir?: boolean;
 }
 
 export interface TrustInfo {
@@ -57,6 +59,9 @@ export const KARAR_ETIKETI: Record<RuleDecision, string> = {
   ask: "Her zaman sor",
   deny: "Yasakla",
 };
+
+/** Salt okunur satırın sil düğmesi ipucu: Claude'un dosyaları ve güvenilmeyen yerel dosya. */
+const SALT_OKUNUR_IPUCU = "Bu dosya Fusion tarafından yazılmaz (Claude'un dosyası ya da güvenilmeyen yerel dosya); kuralı dosyadan elle kaldır.";
 
 const KAYNAK_ETIKETI: Record<string, string> = {
   fusion: "Fusion (kullanıcı)",
@@ -149,7 +154,8 @@ export function Permissions({
     if (!metin) return;
     if (await run("izin.ekle", { kalip: metin, karar, kapsam }, "Kural eklenemedi.")) setKalip("");
   };
-  const removeRule = (row: PermissionRuleRow) => void run("izin.sil", { kalip: row.kalip, karar: row.karar }, "Kural silinemedi.");
+  // Satırın DOSYASI da gider: aynı kural birden çok katmanda varsa tıklanan satır silinir.
+  const removeRule = (row: PermissionRuleRow) => void run("izin.sil", { kalip: row.kalip, karar: row.karar, dosya: row.dosya }, "Kural silinemedi.");
   const setBlock = (anahtar: string, deger: boolean) => void run("izin.engel", { anahtar, deger }, "Engel değiştirilemedi.");
   const changeTrust = async (name: "proje.guven_ver" | "proje.guven_kaldir") => {
     setConfirmUntrust(false);
@@ -297,7 +303,14 @@ export function Permissions({
                     <td><span className="permissions__decision" data-decision={row.karar}>{KARAR_ETIKETI[row.karar] ?? row.karar}</span></td>
                     <td title={row.dosya}>{kaynakEtiketi(row.kaynak)}</td>
                     <td>
-                      <Button aria-label={`${row.kalip} kuralını sil`} disabled={busy} icon="close" iconOnly onClick={() => removeRule(row)} />
+                      <Button
+                        aria-label={`${row.kalip} kuralını sil`}
+                        disabled={busy || row.silinebilir === false}
+                        icon="close"
+                        iconOnly
+                        onClick={() => removeRule(row)}
+                        title={row.silinebilir === false ? SALT_OKUNUR_IPUCU : undefined}
+                      />
                     </td>
                   </tr>
                 ))}

@@ -176,3 +176,118 @@ async def test_proje_guven_rpc_dusurulen_bolumleri_soyler_ve_guven_verir(proje):
         assert session._state.allowed_commands == frozenset()
     finally:
         await session.close()
+
+
+# --- remove_permission_rule: katmanlar ve güven ------------------------------------ #
+
+
+def _yaz(path: Path, veri: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(veri), encoding="utf-8")
+
+
+def test_sil_guvenilmeyen_yerel_dosyadan_reddedilir_ve_izin_acmaz(proje):
+    """Ölçüldü (31 Ekim): güven kontrolü silmeden SONRA ve config güvenine bakıyordu; çekilen
+    bir `Bash(*)` taşıyan güvenilmeyen dosyadan masum bir satır silinince karma tazeleniyor
+    ve `Bash(*)` allow aktif oluyordu."""
+    from fusion_cli.config import permission_admin
+    from fusion_cli.config.permission_rules import format_rule, load_permission_rules
+    from fusion_cli.core.errors import ConfigError
+
+    trust.trust_project(proje)
+    yerel = proje / PROJECT_PERMISSIONS_PATH
+    _yaz(yerel, {"permissions": {"allow": ["Bash(*)", "Bash(ls *)"]}})
+    assert not trust.is_permissions_trusted(proje)
+    kural = permission_admin.parse_pattern("Bash(ls *)", permission_admin.parse_decision("allow"))
+    with pytest.raises(ConfigError, match="güvenilmiyor"):
+        permission_admin.remove_permission_rule(proje, kural)
+    assert _oku(yerel)["permissions"]["allow"] == ["Bash(*)", "Bash(ls *)"]
+    assert not trust.is_permissions_trusted(proje)
+    yuklenen = load_permission_rules(proje)
+    assert "Bash(*)" not in {format_rule(k) for k in yuklenen.rules}
+
+
+def test_sil_fusionun_yazdigi_yerel_dosyada_karmayi_tazeler_kalan_kurallar_dusmez(proje):
+    """Proje hiç `fusion trust` edilmemiş (sentinel kayıt); Fusion'ın yazdığı dosyadan silince
+    kalan deny kuralı güvenilir kalmalı. Ölçüldü (31 Ekim): karma tazelenmiyor, dosya bütünüyle
+    (deny dahil) düşüyordu."""
+    from fusion_cli.config import permission_admin
+    from fusion_cli.config.permission_rules import format_rule, load_permission_rules
+
+    izin = permission_admin.parse_pattern("Bash(ls *)", permission_admin.parse_decision("allow"))
+    yasak = permission_admin.parse_pattern("Bash(rm *)", permission_admin.parse_decision("deny"))
+    permission_admin.add_permission_rule(proje, izin)
+    permission_admin.add_permission_rule(proje, yasak)
+    assert not trust.resolve_project_trust(proje).trusted
+    silindi = permission_admin.remove_permission_rule(proje, izin)
+    assert silindi is not None and silindi.path == proje / PROJECT_PERMISSIONS_PATH
+    assert trust.is_permissions_trusted(proje)
+    yuklenen = load_permission_rules(proje)
+    assert {format_rule(k) for k in yuklenen.rules} == {"Bash(rm *)"}
+    assert yuklenen.untrusted_layers == ()
+
+
+def test_sil_salt_okunur_katmanlardan_reddedilir(proje, _izole_ev):
+    """`~/.claude/settings.json` ve proje `.claude/settings.json` Fusion tarafından YAZILMAZ."""
+    from fusion_cli.config import permission_admin
+    from fusion_cli.config.permission_rules import rule_layers
+    from fusion_cli.core.errors import ConfigError
+
+    katmanlar = {k.name: k for k in rule_layers(proje)}
+    _yaz(katmanlar["kullanici"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
+    _yaz(katmanlar["proje"].path, {"permissions": {"deny": ["Read(.env)", "Bash(rm *)"]}})
+    trust.trust_project(proje)
+    kural = permission_admin.parse_pattern("Bash(rm *)", permission_admin.parse_decision("deny"))
+    with pytest.raises(ConfigError, match="salt okunur"):
+        permission_admin.remove_permission_rule(proje, kural)
+    assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == ["Bash(rm *)"]
+    assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Read(.env)", "Bash(rm *)"]
+    assert trust.is_project_settings_trusted(proje)
+
+
+def test_sil_dosya_verilirse_yalniz_o_katmandan_siler(proje):
+    from fusion_cli.config import permission_admin
+
+    kural = permission_admin.parse_pattern("Bash(ls *)", permission_admin.parse_decision("allow"))
+    permission_admin.add_permission_rule(proje, kural, user_level=True)
+    permission_admin.add_permission_rule(proje, kural)
+    yerel = proje / PROJECT_PERMISSIONS_PATH
+    silindi = permission_admin.remove_permission_rule(proje, kural, path=yerel)
+    assert silindi is not None and silindi.path == yerel
+    assert _oku(yerel)["permissions"]["allow"] == []
+    assert _oku(user_permissions_file())["permissions"]["allow"] == ["Bash(ls *)"]
+    # Satır tablosu hangi satırın silinebildiğini söyler.
+    satirlar = permission_admin.rules_payload(proje, make_config())["kurallar"]
+    assert all(s["silinebilir"] is True for s in satirlar)
+
+
+async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _izole_ev):
+    from fusion_cli.config.permission_rules import rule_layers
+
+    katmanlar = {k.name: k for k in rule_layers(proje)}
+    _yaz(katmanlar["kullanici"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
+    lines: list[str] = []
+    session = AppSession(lines.append, root=proje, home=proje / "ev")
+    try:
+        await _rpc(session, lines, "izin.ekle", {"kalip": "Bash(rm *)", "karar": "deny"})
+        tablo = await _rpc(session, lines, "izin.kurallar")
+        satirlar = {k["kaynak"]: k for k in tablo["kurallar"]}
+        assert satirlar["kullanici"]["silinebilir"] is False
+        assert satirlar["yerel"]["silinebilir"] is True
+        ret = await _rpc(
+            session,
+            lines,
+            "izin.sil",
+            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["kullanici"]["dosya"]},
+        )
+        assert ret["ok"] is False and "salt okunur" in ret["metin"]
+        silindi = await _rpc(
+            session,
+            lines,
+            "izin.sil",
+            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["yerel"]["dosya"]},
+        )
+        assert silindi["ok"] is True and silindi["dosya"] == satirlar["yerel"]["dosya"]
+        assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == ["Bash(rm *)"]
+    finally:
+        await session.close()

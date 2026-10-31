@@ -2,7 +2,7 @@
 
     izin.kurallar        tüm katmanlardaki kurallar + engeller + hedef dosya
     izin.ekle            {kalip, karar, kapsam: "proje"|"kullanici"}
-    izin.sil             {kalip, karar}
+    izin.sil             {kalip, karar, dosya?}  (dosya: tablodaki satırın dosyası)
     izin.engel           {anahtar: block_reads_outside_root|block_writes_outside_root, deger: bool}
     proje.guven_durum    TrustReport: güvenildi mi, neden, düşürülen bölümler
     proje.guven_ver      fusion trust eşdeğeri
@@ -69,8 +69,11 @@ def remove_rule(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         rule = permission_admin.parse_pattern(data.get("kalip"), decision)
     except ValueError:
         return {"ok": False, "metin": messages.PERMISSIONS_USAGE}
+    dosya = data.get("dosya")
     try:
-        removed = permission_admin.remove_permission_rule(root, rule)
+        removed = permission_admin.remove_permission_rule(
+            root, rule, path=Path(dosya) if isinstance(dosya, str) and dosya else None
+        )
     except ConfigError as error:
         return {"ok": False, "metin": str(error)}
     if removed is None:

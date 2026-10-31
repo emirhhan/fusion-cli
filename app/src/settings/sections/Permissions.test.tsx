@@ -29,7 +29,7 @@ afterEach(cleanup);
 
 describe("Permissions — izin kuralı tablosu (P-003)", () => {
   it("kuralları kalıp · karar · kaynak ile listeler ve silme isteğini gönderir", async () => {
-    const fake = client([kural, { ...kural, kalip: "Edit(/.env)", karar: "deny", kaynak: "kullanici (güvenilmiyor)" }]);
+    const fake = client([kural, { ...kural, kalip: "Edit(/.env)", karar: "deny", kaynak: "kullanici (güvenilmiyor)", dosya: "/ev/.claude/settings.json", silinebilir: false }]);
     render(<Permissions client={fake} kok="/proje" kokleSinirli={false} mod="auto" />);
     await waitFor(() => expect(screen.getByText("Bash(npm test *)")).toBeTruthy());
     const tablo = within(screen.getByRole("table"));
@@ -38,7 +38,11 @@ describe("Permissions — izin kuralı tablosu (P-003)", () => {
     expect(tablo.getByText("Proje (yerel)")).toBeTruthy();
     expect(tablo.getByText("Claude (kullanıcı) (güvenilmiyor)")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Bash(npm test *) kuralını sil" }));
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("izin.sil", { kalip: "Bash(npm test *)", karar: "allow" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("izin.sil", { kalip: "Bash(npm test *)", karar: "allow", dosya: "/proje/.claude/settings.local.json" }));
+    // Salt okunur satır (Claude'un dosyası) silinemez: düğme kapalı, ipucu söyler.
+    const kapali = screen.getByRole("button", { name: "Edit(/.env) kuralını sil" }) as HTMLButtonElement;
+    expect(kapali.disabled).toBe(true);
+    expect(kapali.title).toContain("elle kaldır");
   });
 
   it("formdan kural ekler; hatalı kalıpta çekirdeğin Türkçe mesajını gösterir", async () => {
