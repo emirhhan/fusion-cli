@@ -78,9 +78,9 @@ export function General({
             işaretiyle görünür ve tıklandığı anda uygulanıp kaydedilir. */}
         <div className="settings__row">
           <span id="settings-language-label">{t("gorunum.dil")}</span>
-          <div aria-labelledby="settings-language-label" className="settings__choice" id="settings-language" role="radiogroup" tabIndex={-1}>
+          <div aria-labelledby="settings-language-label" className="settings__segmented" id="settings-language" role="radiogroup" tabIndex={-1}>
             {LANGUAGES.map((secenek) => (
-              <label className="settings__choice-option" data-selected={language === secenek} key={secenek} lang={secenek}>
+              <label className="settings__segment-option" data-selected={language === secenek} key={secenek} lang={secenek}>
                 <input
                   checked={language === secenek}
                   name="settings-language"
@@ -88,7 +88,7 @@ export function General({
                   type="radio"
                   value={secenek}
                 />
-                <span aria-hidden="true" className="settings__choice-check">{language === secenek ? "✓" : ""}</span>
+                <span aria-hidden="true" className="settings__segment-check">{language === secenek ? "✓" : ""}</span>
                 <span>{LANGUAGE_NAMES[secenek]}</span>
               </label>
             ))}

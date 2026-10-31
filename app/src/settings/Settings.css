@@ -26,13 +26,13 @@
 .settings__row { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; }
 .settings__row > span { color: var(--text-secondary); font-size: var(--text-sm); }
 /* İki-üç seçenekli tercih (dil): seçili seçenek dolu zemin + onay işaretiyle görünür. */
-.settings__choice { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; }
-.settings__choice-option { align-items: center; border-radius: var(--radius-pill); color: var(--text-secondary); cursor: pointer; display: inline-flex; font-size: var(--text-sm); gap: var(--space-1); min-height: 32px; padding: 0 var(--space-3) 0 var(--space-2); position: relative; }
-.settings__choice-option:hover { color: var(--text-primary); }
-.settings__choice-option[data-selected="true"] { background: var(--surface-selected, var(--surface-hover)); color: var(--text-primary); font-weight: 600; }
-.settings__choice-option input { height: 1px; margin: 0; opacity: 0; position: absolute; width: 1px; }
-.settings__choice-option:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.settings__choice-check { display: inline-block; text-align: center; width: 1em; }
+.settings__segmented { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; }
+.settings__segment-option { align-items: center; border-radius: var(--radius-pill); color: var(--text-secondary); cursor: pointer; display: inline-flex; font-size: var(--text-sm); gap: var(--space-1); min-height: 32px; padding: 0 var(--space-3) 0 var(--space-2); position: relative; }
+.settings__segment-option:hover { color: var(--text-primary); }
+.settings__segment-option[data-selected="true"] { background: var(--surface-selected, var(--surface-hover)); color: var(--text-primary); font-weight: 600; }
+.settings__segment-option input { height: 1px; margin: 0; opacity: 0; position: absolute; width: 1px; }
+.settings__segment-option:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.settings__segment-check { display: inline-block; text-align: center; width: 1em; }
 .settings__row select { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; font-size: var(--text-sm); min-height: 40px; padding: 0 var(--space-3); }
 /* ChatGPT ayar satırı: metin solda, anahtar sağda. Onay kutusu tarayıcının
    varsayılan mavi kutusu olarak görünüyordu; aynı input anahtara biçimlenir. */
