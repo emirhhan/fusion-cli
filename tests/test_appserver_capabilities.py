@@ -125,3 +125,37 @@ async def test_katalog_alt_ajan_ayarlarini_gosterir(tmp_path: Path):
     # Alanı olmayan (yerleşik) ajan boş sözlük taşır; eski istemci bozulmaz.
     yerlesik = next(item for item in result["ajanlar"] if item["kaynak"] == "fusion")
     assert yerlesik["ayarlar"] == {}
+
+
+async def test_ajan_ayrintisi_bellegi_gosterir_ve_siler(tmp_path: Path):
+    """P-055: `yetenek.detay` ajan belleğini taşır; `yetenek.bellek_sil` dizini kaldırır."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+    from tests.fakes import make_config
+
+    home = tmp_path / "home"
+    root = tmp_path / "project"
+    root.mkdir()
+    agent_dir = home / ".claude/agents"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "kodcu.md").write_text(
+        "---\nname: kodcu\ndescription: Kodlar\nmemory: project\n---\nAjan", encoding="utf-8"
+    )
+    (agent_dir / "duz.md").write_text("---\nname: duz\ndescription: D\n---\nAjan", encoding="utf-8")
+    bellek = open_agent_memory(make_config(), root, "kodcu", "project")
+    assert bellek is not None
+    bellek.remember("testler", "önce pytest; anahtar sk-abcdefghijklmnopqrstuvwxyz0123456789")
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    detay = await _request(session, lines, "yetenek.detay", {"tur": "ajan", "ad": "kodcu"})
+    assert detay["bellek"]["kapsam"] == "project" and detay["bellek"]["konular"] == ["testler"]
+    assert detay["bellek"]["satir"] > 0 and "testler" in detay["bellek"]["metin"]
+    duz = await _request(session, lines, "yetenek.detay", {"tur": "ajan", "ad": "duz"})
+    assert "bellek" not in duz
+
+    silme = await _request(session, lines, "yetenek.bellek_sil", {"ad": "kodcu"})
+    assert silme == {"ok": True, "ad": "kodcu", "silindi": True}
+    assert not (root / ".fusion" / "ajan-bellek" / "kodcu").exists()
+    yok = await _request(session, lines, "yetenek.bellek_sil", {"ad": "duz"})
+    assert yok["ok"] is False
+    await session.close()

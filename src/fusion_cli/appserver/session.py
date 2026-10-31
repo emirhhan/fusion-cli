@@ -971,6 +971,12 @@ class AppSession:
             return detail(
                 self._all_capabilities, self._state.config, self._state.root, request.data
             )
+        if request.name == "yetenek.bellek_sil":
+            from .capabilities import clear_agent_memory
+
+            return clear_agent_memory(
+                self._all_capabilities, self._state.config, self._state.root, request.data
+            )
         if request.name == "yetenek.etkinlik":
             return self._set_capability_enabled(request.data)
         if request.name == "yetenek.kullan":

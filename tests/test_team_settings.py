@@ -221,3 +221,37 @@ def test_tanimdaki_bilinmeyen_arac_adi_uyarilir_ama_ajan_cozulur(tmp_path, caplo
     assert persona.unknown_tools == ("Uydurma",)
     assert persona.tools is not None and "read_file" in persona.tools
     assert any("tanınmayan araç" in kayit.message for kayit in caplog.records)
+
+
+async def test_bellek_alanli_alt_ajan_kendi_bellegini_ve_araclarini_alir(tmp_path):
+    """P-055: `memory: project` olan ajan kendi BELLEK.md'sini ve remember aracını alır."""
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "kodcu.md").write_text(
+        "---\nname: kodcu\ndescription: d\ntools: Read\nmemory: project\n---\ngövde",
+        encoding="utf-8",
+    )
+    (ajanlar / "duz.md").write_text(
+        "---\nname: duz\ndescription: d\ntools: Read\n---\ngövde", encoding="utf-8"
+    )
+    deps, _ = _deps(tmp_path)
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen[task] = (sub_deps.plain_memory, kwargs["allowed_tools"])
+        if sub_deps.plain_memory is not None:
+            sub_deps.plain_memory.remember("testler", "önce testleri çalıştır")
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    arac = spawn_agent_tool(deps, depth=0, run_agent=_sahte_ajan)
+    await arac.run({"task": "a", "uzman": "kodcu", "salt_okunur": True}, deps.tool_context)
+    await arac.run({"task": "b", "uzman": "duz"}, deps.tool_context)
+
+    bellek, araclar = gorulen["a"]
+    assert bellek is not None and bellek.directory == tmp_path / ".fusion" / "ajan-bellek" / "kodcu"
+    assert {"remember", "memory_read"} <= set(araclar or ())
+    assert (
+        "önce testleri" in (tmp_path / ".fusion/ajan-bellek/kodcu/konular/testler.md").read_text()
+    )
+    # Bellek alanı olmayan üye ne bellek ne aracı alır.
+    assert gorulen["b"][0] is None and "remember" not in (gorulen["b"][1] or ())

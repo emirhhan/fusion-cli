@@ -178,6 +178,23 @@ Alt ajan bir izin isterse terminal, masaüstü kartı ve Telegram bildirimi
 "Alt ajan izin istiyor: Denetçi (denetci-3f9a1c)" diye kimin istediğini söyler. Masaüstü:
 Beceriler › Ajanlar › ayrıntı panelinde tanımdaki ayarlar listelenir.
 
+### Alt ajan belleği (`memory: user | project | local`)
+
+Tanımında `memory` alanı olan ajan, oturumlar arasında kendi `BELLEK.md` + `konular/`
+dizinini tutar ve her çalışmasında ilk 200 satırı istemine alır; `remember`/`memory_read`
+araçları kısıtlı araç kümesinde de ona açıktır. Projenin otomatik belleğini devralmaz.
+
+| Kapsam | Dizin |
+|---|---|
+| `user` | `<bellek dizini>/ajan-bellek/<ad>/` (her projede aynı) |
+| `project` | `<proje>/.fusion/ajan-bellek/<ad>/` (depoya girer, ekiple paylaşılır) |
+| `local` | `<proje>/.fusion/ajan-bellek-yerel/<ad>/` (otomatik `.gitignore`, git dışı) |
+
+- `/memory ajan <ad>` → kapsam, yol, satır sayısı, konular ve indeks metni ·
+  `/memory ajan <ad> sil` → belleği sıfırla. Otomatik bellek kapalıyken de çalışır.
+- Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil").
+- RPC: `yetenek.detay` yanıtında `bellek`, silme için `yetenek.bellek_sil {ad}`.
+
 ---
 
 ## 9) Başka sağlayıcı / anahtar ekleme

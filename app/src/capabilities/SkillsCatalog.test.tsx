@@ -15,7 +15,11 @@ function client() {
         talimatlar: [{ ad: "CLAUDE.md", kaynak: "proje", tur: "talimat", aciklama: "Proje talimatı", etkin: true, izinler: [] }],
         mcp: [{ ad: "github", aciklama: "GitHub araçları", kaynak: "fusion", tur: "mcp", etkin: true, izinler: ["dış araçlar"] }],
       };
-      if (name === "yetenek.detay") return { ok: true, ...data, icerik: "Tam uzmanlık talimatı", kesildi: false };
+      if (name === "yetenek.detay") return {
+        ok: true, ...data, icerik: "Tam uzmanlık talimatı", kesildi: false,
+        ...(data.ad === "reviewer" ? { bellek: { kapsam: "project", dizin: "/p/.fusion/ajan-bellek/reviewer", satir: 3, konular: ["testler"], metin: "# Fusion belleği\n- testler önce" } } : {}),
+      };
+      if (name === "yetenek.bellek_sil") return { ok: true, ad: data.ad, silindi: true };
       return { ok: true, ...data };
     }),
   } as unknown as ProtocolClient;
@@ -66,6 +70,24 @@ describe("SkillsCatalog", () => {
     // Ayarı olmayan beceride liste hiç çizilmez.
     fireEvent.click(screen.getByRole("button", { name: "frontend-design ayrıntılarını aç" }));
     expect(screen.queryByLabelText("Ajan ayarları")).toBeNull();
+  });
+
+  it("ajan belleğini gösterir ve silebilir (P-055)", async () => {
+    const fake = client();
+    render(<SkillsCatalog client={fake} onClose={() => undefined} />);
+    await screen.findByText("reviewer");
+    fireEvent.click(screen.getByRole("button", { name: "reviewer ayrıntılarını aç" }));
+    const bellek = await screen.findByLabelText("Ajan belleği");
+    expect(bellek.textContent).toContain("Kalıcı bellek · proje");
+    expect(bellek.textContent).toContain("3 satır");
+    expect(bellek.textContent).toContain("testler önce");
+    fireEvent.click(screen.getByRole("button", { name: "Belleği sil" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("yetenek.bellek_sil", { ad: "reviewer" }));
+    await waitFor(() => expect(screen.getByLabelText("Ajan belleği").textContent).toContain("Henüz boş"));
+    // Bellek alanı olmayan beceride bölüm yok.
+    fireEvent.click(screen.getByRole("button", { name: "frontend-design ayrıntılarını aç" }));
+    await screen.findByText("Tam uzmanlık talimatı");
+    expect(screen.queryByLabelText("Ajan belleği")).toBeNull();
   });
 
   it("arar, detay açar, oturumluk kapatır ve sonraki tur için seçer", async () => {

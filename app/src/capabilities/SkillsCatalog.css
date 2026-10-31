@@ -50,3 +50,7 @@
 .skills-catalog__settings div { display: grid; gap: 2px; }
 .skills-catalog__settings dt { color: var(--text-secondary); font-size: var(--text-xs); }
 .skills-catalog__settings dd { font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; }
+.skills-catalog__memory { border-top: 1px solid var(--border-subtle); display: grid; gap: 8px; padding-top: 12px; }
+.skills-catalog__memory h3 { font-size: var(--text-sm); font-weight: 600; margin: 0; }
+.skills-catalog__memory p { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; overflow-wrap: anywhere; }
+.skills-catalog__memory pre { max-height: 200px; }

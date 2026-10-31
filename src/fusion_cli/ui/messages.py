@@ -737,6 +737,17 @@ MEMORY_IMPORTED = "{count} dosya {source} belleğinden içe aktarıldı → {pat
 MEMORY_IMPORT_NONE = "{source} belleği bulunamadı ({path})."
 MEMORY_IMPORT_USAGE = "Kullanım: /memory import claude"
 MEMORY_TOPIC_NONE = "Bu konuda bellek yok. Konular: {topics}"
+MEMORY_AGENT_USAGE = "Kullanım: /memory ajan <ad> [sil]"
+MEMORY_AGENT_UNKNOWN = "'{agent}' adlı ajan yok (bkz. Beceriler › Ajanlar ya da find_agent)."
+MEMORY_AGENT_NO_SCOPE = (
+    "'{agent}' ajanının kalıcı belleği yok; tanımına `memory: user|project|local` ekle."
+)
+MEMORY_AGENT_STATUS = (
+    "{agent} belleği ({scope}): {path} ({lines} satır, {kb:.1f} KB); konular: {topics}"
+)
+MEMORY_AGENT_EMPTY = "{agent} belleği ({scope}) henüz boş: {path}"
+MEMORY_AGENT_CLEARED = "{agent} belleği silindi."
+MEMORY_AGENT_CLEAR_NONE = "{agent} belleği zaten yok."
 MEMORY_NOTE_SAVED = "Not belleğe yazıldı ({path}, {lines} satır)."
 MEMORY_NOTE_EMPTY = "`#` ile başlayan satır not olarak belleğe yazılır; not boş olamaz."
 CMD_MODELS = "yapılandırılmış modeller"

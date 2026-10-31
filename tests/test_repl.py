@@ -1328,3 +1328,32 @@ def test_memory_import_claude_bellegini_alir(state, registry):
         ),
         "import claude",
     )
+
+
+def test_memory_ajan_alt_komutu_ajan_bellegini_gosterir_ve_siler(state, registry, tmp_path):
+    """P-055: `/memory ajan <ad>` kapsamı, yolu ve metni; `sil` dizini kaldırır."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "kodcu.md").write_text(
+        "---\nname: kodcu\ndescription: d\nmemory: local\n---\ngövde", encoding="utf-8"
+    )
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert komut.handler(state, "ajan") == "Kullanım: /memory ajan <ad> [sil]"
+    assert "adlı ajan yok" in komut.handler(state, "ajan yok-boyle")
+    assert "kalıcı belleği yok" in komut.handler(state, "ajan arastirmaci")
+    assert "henüz boş" in komut.handler(state, "ajan kodcu")
+
+    bellek = open_agent_memory(state.config, state.root, "kodcu", "local")
+    assert bellek is not None
+    bellek.remember("stil", "kısa yanıt")
+    durum = komut.handler(state, "ajan kodcu")
+    assert "kodcu belleği (local)" in durum and "kısa yanıt" in durum and "konular: stil" in durum
+
+    assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği silindi."
+    assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği zaten yok."

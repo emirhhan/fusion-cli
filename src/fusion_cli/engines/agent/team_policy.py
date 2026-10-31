@@ -10,6 +10,7 @@ from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
 from .team_scope import derive_sub_context
+from .team_settings import MEMORY_TOOL_NAMES
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -58,6 +59,10 @@ def allowed_tools(
                     if not deps.base_registry.is_remote(name)
                     or name.split("__", 1)[0] in persona.mcp_servers
                 }
+    if allowed is not None and persona.memory_scope:
+        # Kısıtlı araç kümesi ajan belleğini kapatmasın: `remember` proje dışına, salt
+        # kendi dizinine yazar (P-055).
+        allowed = allowed | MEMORY_TOOL_NAMES
     scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed
@@ -66,7 +71,10 @@ def allowed_tools(
         for tool in deps.base_registry
         if not tool.mutating or (not subtask.read_only and tool.name in EDIT_TOOLS)
     }
-    return safe if allowed is None else allowed & safe
+    narrowed = safe if allowed is None else allowed & safe
+    # `safe` temel defterden türer; bellek araçları çalışma-anı defterindedir ve ajan
+    # belleği olan üyeye salt-okur görevde de açıktır.
+    return narrowed | MEMORY_TOOL_NAMES if persona.memory_scope else narrowed
 
 
 def member_brief(persona: Persona, subtask: SubTask, *, skills: str = "") -> str:

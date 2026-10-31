@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from ...core.reasoning import ReasoningEffort
 from ...core.types import ModelSpec
+from ...memory.plain_memory import PlainMemory, open_agent_memory
 from ...tools.capabilities import Capability, load_skill_text
 from .approval import ApprovalMode, ApprovalPolicy, ApprovalRequest, Decision, parse_mode
 from .approval import strictest_mode as strictest_mode
@@ -110,6 +111,23 @@ def child_config(config: Config, persona: Persona) -> Config:
         return config
     return dataclasses.replace(
         config, runtime=dataclasses.replace(config.runtime, reasoning_effort=effort)
+    )
+
+
+#: Ajan belleği olan üyeye kısıtlı araç kümesinde de açılan araçlar (P-055).
+MEMORY_TOOL_NAMES = frozenset({"remember", "memory_read"})
+
+
+def child_memory(deps: AgentDeps, persona: Persona) -> PlainMemory | None:
+    """`memory: user|project|local` alanı varsa alt ajanın KENDİ belleği; yoksa None.
+
+    Alt ajan projenin otomatik belleğini (P-036) devralmaz: Claude Code'da da ajan belleği
+    ajana özeldir ve ana oturumun MEMORY.md'si alt ajana gitmez.
+    """
+    if not persona.memory_scope:
+        return None
+    return open_agent_memory(
+        deps.config, deps.tool_context.root, persona.name, persona.memory_scope
     )
 
 

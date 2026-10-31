@@ -118,6 +118,18 @@ def agent_memory_dir(config: Config, root: Path, agent: str, scope: str) -> Path
     return None
 
 
+def open_agent_memory(config: Config, root: Path, agent: str, scope: str) -> PlainMemory | None:
+    """Alt ajanın kalıcı belleği (P-055): kapsam geçersizse None.
+
+    `local` kapsam git'e girmez: ilk yazmada `.fusion/ajan-bellek-yerel/.gitignore` (`*`)
+    oluşur. Blok etiketi `ajan:<ad>` olur ki model kimin notu olduğunu görsün.
+    """
+    directory = agent_memory_dir(config, root, agent, scope)
+    if directory is None:
+        return None
+    return PlainMemory(directory, label=f"ajan:{agent}", ignore_parent_in_git=scope == "local")
+
+
 def build_plain_memory(config: Config, root: Path) -> PlainMemory | None:
     """`runtime.auto_memory` açıksa projenin belleği, kapalıysa None (araç hiç sunulmaz)."""
     if not getattr(config.runtime, "auto_memory", True):
@@ -140,10 +152,14 @@ def _clean_entry(text: str) -> str:
 class PlainMemory:
     """Bir dizindeki `BELLEK.md` + `konular/*.md`. Dosya yoksa ilk yazmada oluşur."""
 
-    def __init__(self, directory: Path, *, label: str = "proje") -> None:
+    def __init__(
+        self, directory: Path, *, label: str = "proje", ignore_parent_in_git: bool = False
+    ) -> None:
         self.directory = directory
         #: Blokta görünen kaynak etiketi (`proje` ya da alt ajan adı).
         self.label = label
+        #: İlk yazmada üst dizine `*` içeren `.gitignore` koy (yerel ajan belleği).
+        self._ignore_parent_in_git = ignore_parent_in_git
         self._lock = threading.Lock()
 
     @property
@@ -294,6 +310,10 @@ class PlainMemory:
     def _ensure_index(self) -> None:
         if self.index_path.is_file():
             return
+        if self._ignore_parent_in_git:
+            marker = self.directory.parent / ".gitignore"
+            if not marker.is_file():
+                self._write(marker, "*\n")
         self._write(self.index_path, _INDEX_PREAMBLE + f"\n{TOPICS_HEADER}\n")
 
     def _link_topic(self, slug: str, hint: str) -> None:

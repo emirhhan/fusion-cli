@@ -115,3 +115,22 @@ def test_clear_dizini_siler(tmp_path):
     assert bellek.clear() is True
     assert not Path(tmp_path / "b").exists()
     assert bellek.clear() is False
+
+
+def test_yerel_ajan_bellegi_git_disinda_kalir(tmp_path):
+    """P-055: `memory: local` ilk yazmada `.fusion/ajan-bellek-yerel/.gitignore` koyar."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    config = make_config()
+    kok = tmp_path / "proje"
+    yerel = open_agent_memory(config, kok, "kodcu", "local")
+    proje = open_agent_memory(config, kok, "kodcu", "project")
+    assert yerel is not None and proje is not None
+    assert open_agent_memory(config, kok, "kodcu", "yok") is None
+
+    yerel.note("yerel not")
+    proje.note("proje notu")
+
+    assert (kok / ".fusion" / "ajan-bellek-yerel" / ".gitignore").read_text() == "*\n"
+    assert not (kok / ".fusion" / "ajan-bellek" / ".gitignore").exists()
+    assert 'kaynak="ajan:kodcu"' in yerel.prompt_block()

@@ -8,6 +8,7 @@ from typing import Any
 from ..config.models import Config
 from ..core.redaction import redact
 from ..engines.agent.project_instructions import CANDIDATE_FILENAMES
+from ..memory.plain_memory import PlainMemoryError, open_agent_memory
 from ..tools.capabilities import (
     Capability,
     CapabilityRegistry,
@@ -168,10 +169,46 @@ def detail(
         return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
     if not content:
         return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
-    return {
+    payload: dict[str, Any] = {
         "ok": True,
         "tur": kind,
         "ad": name,
         "icerik": content,
         "kesildi": len(content) >= _DETAIL_BUDGET,
     }
+    if kind == "ajan" and item is not None and item.memory:
+        payload["bellek"] = agent_memory_view(item, config, root)
+    return payload
+
+
+def agent_memory_view(item: Capability, config: Config, root: Path) -> dict[str, Any] | None:
+    """Ajanın kalıcı belleği (P-055): kapsam, dizin, satır sayısı, konular ve indeks metni."""
+    memory = open_agent_memory(config, root, item.name, item.memory)
+    if memory is None:
+        return None
+    status = memory.status()
+    return {
+        "kapsam": item.memory,
+        "dizin": str(memory.directory),
+        "dosya": str(memory.index_path),
+        "satir": status.index_lines,
+        "konular": list(status.topics),
+        "metin": redact(memory.read()),
+    }
+
+
+def clear_agent_memory(
+    registry: CapabilityRegistry, config: Config, root: Path, data: dict[str, Any]
+) -> dict[str, Any]:
+    """`yetenek.bellek_sil {ad}`: ajanın bellek dizinini sil; yoksa `silindi: false`."""
+    item = registry.get_agent(str(data.get("ad", "")))
+    if item is None or not item.memory:
+        return {"ok": False, "metin": "Bu ajanın kalıcı belleği yok."}
+    memory = open_agent_memory(config, root, item.name, item.memory)
+    if memory is None:
+        return {"ok": False, "metin": "Bu ajanın kalıcı belleği yok."}
+    try:
+        cleared = memory.clear()
+    except PlainMemoryError as error:
+        return {"ok": False, "metin": str(error)}
+    return {"ok": True, "ad": item.name, "silindi": cleared}

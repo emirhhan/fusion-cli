@@ -89,6 +89,42 @@ function AgentSettings({ ayarlar }: { ayarlar: Record<string, unknown> }) {
   );
 }
 
+/** `yetenek.detay` ile gelen ajan belleği (P-055). */
+interface AgentMemoryInfo {
+  kapsam: string;
+  dizin: string;
+  satir: number;
+  konular: string[];
+  metin: string;
+}
+
+const SCOPE_LABELS: Record<string, string> = { user: "kullanıcı geneli", project: "proje", local: "yerel (git dışı)" };
+
+function memoryFrom(raw: unknown): AgentMemoryInfo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const info = raw as Record<string, unknown>;
+  if (typeof info.kapsam !== "string" || typeof info.dizin !== "string") return null;
+  return {
+    kapsam: info.kapsam,
+    dizin: info.dizin,
+    satir: typeof info.satir === "number" ? info.satir : 0,
+    konular: Array.isArray(info.konular) ? info.konular.map(String) : [],
+    metin: typeof info.metin === "string" ? info.metin : "",
+  };
+}
+
+/** Ajanın kalıcı belleği: kapsam, dizin, indeks metni ve silme düğmesi. */
+function AgentMemory({ info, onClear }: { info: AgentMemoryInfo; onClear: () => void }) {
+  return (
+    <section aria-label="Ajan belleği" className="skills-catalog__memory">
+      <h3>Kalıcı bellek · {SCOPE_LABELS[info.kapsam] ?? info.kapsam}</h3>
+      <p>{info.dizin} · {info.satir} satır{info.konular.length > 0 ? ` · konular: ${info.konular.join(", ")}` : ""}</p>
+      {info.metin ? <pre>{info.metin}</pre> : <p>Henüz boş; ajan ilk çalışmasında yazar.</p>}
+      <button disabled={!info.metin && info.konular.length === 0} onClick={onClear} type="button">Belleği sil</button>
+    </section>
+  );
+}
+
 const kindLabels: Record<CapabilityKind, string> = {
   beceri: "Beceri", ajan: "Ajan", talimat: "Proje talimatı", mcp: "MCP",
 };
@@ -109,6 +145,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const [kind, setKind] = useState<CapabilityKind | "tümü">("tümü");
   const [selected, setSelected] = useState<CatalogItem | null>(null);
   const [detail, setDetail] = useState("");
+  const [memory, setMemory] = useState<AgentMemoryInfo | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(0);
@@ -142,11 +179,13 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     const requestId = ++openRequest.current;
     setSelected(item);
     setDetail("");
+    setMemory(null);
     setNotice("");
     void client.request("yetenek.detay", { tur: item.tur, ad: item.kimlik }).then((payload) => {
       if (requestId !== openRequest.current) return;
       if (payload.ok !== true || typeof payload.icerik !== "string") throw new Error(String(payload.metin ?? "Ayrıntı alınamadı."));
       setDetail(payload.icerik);
+      setMemory(memoryFrom(payload.bellek));
     }).catch((reason) => { if (requestId === openRequest.current) setError(String(reason)); });
   };
 
@@ -157,6 +196,16 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
       setItems((current) => current.map((entry) => entry.tur === item.tur && entry.kimlik === item.kimlik ? { ...entry, etkin: enabled } : entry));
       setSelected((current) => current?.tur === item.tur && current.kimlik === item.kimlik ? { ...current, etkin: enabled } : current);
     }).catch((reason) => setError(String(reason)));
+  };
+
+  const clearMemory = (item: CatalogItem) => {
+    const requestId = openRequest.current;
+    void client.request("yetenek.bellek_sil", { ad: item.kimlik }).then((payload) => {
+      if (requestId !== openRequest.current) return;
+      if (payload.ok !== true) throw new Error(String(payload.metin ?? "Bellek silinemedi."));
+      setMemory((current) => current ? { ...current, satir: 0, konular: [], metin: "" } : current);
+      setNotice(`${item.ad} belleği silindi.`);
+    }).catch((reason) => { if (requestId === openRequest.current) setNotice(String(reason)); });
   };
 
   const queueNext = (item: CatalogItem) => {
@@ -205,7 +254,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
           {digerleri.length > 0 && <div className="skills-catalog__grid">{digerleri.map(kart)}</div>}
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>
     </main>

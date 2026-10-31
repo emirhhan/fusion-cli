@@ -336,6 +336,8 @@ async def _run_child(
         approval_revision=deps.approval_revision,
         approval_mode=getattr(deps, "approval_mode", None),
         policy_for_mode=getattr(deps, "policy_for_mode", None),
+        # Tanımdaki `memory` alanı: ajana özel BELLEK.md (P-055); blok ve araçlar bundan gelir.
+        plain_memory=team_settings.child_memory(deps, persona),
         effect_recorder=deps.effect_recorder,
         ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
     )
