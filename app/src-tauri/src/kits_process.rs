@@ -57,7 +57,10 @@ pub fn kits_data_dir(
 ) -> PathBuf {
     let root = match windows_local_data {
         Some(local) => local.to_path_buf(),
-        None => match xdg_data_home.map(str::trim).filter(|value| !value.is_empty()) {
+        None => match xdg_data_home
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             Some(xdg) => PathBuf::from(xdg),
             None => home.join(".local/share"),
         },
