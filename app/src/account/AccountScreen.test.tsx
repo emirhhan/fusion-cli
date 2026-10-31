@@ -64,8 +64,8 @@ describe("AccountScreen", () => {
     render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
-    fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
-    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "🚀" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avatar: Zeynep" }));
+    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "fusion:zeynep" }));
   });
 
   test("tek hesap varken değiştirilecek hesap olmadığı söylenir", () => {

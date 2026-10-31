@@ -1,5 +1,6 @@
 import { LANGUAGE_NAMES } from "../i18n/language";
 import { useLanguage } from "../i18n/useLanguage";
+import { AvatarView } from "../account/AvatarPicker";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
@@ -485,11 +486,11 @@ export function Sidebar({
   const profileName = hesap?.kullanici_adi ?? "Hesap yok";
   const profileMenuLabel = hesap ? `${profileName} hesap menüsü` : "Hesap menüsü";
   const profileDetail = hesap?.eposta ?? "Giriş yapılmadı";
-  const profileInitials =
-    hesap?.avatar ||
-    (hesap
-      ? hesap.kullanici_adi.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
-      : "?");
+  // Hazır avatar, yüklenen görsel ya da baş harfler: Hesabım'daki görünümün AYNISI.
+  // Eskiden avatar metni olduğu gibi basılıyordu; görsel yolu menüde yazı olarak çıkıyordu.
+  const profileAvatar = hesap
+    ? <AvatarView avatar={hesap.avatar} kullaniciAdi={hesap.kullanici_adi} />
+    : "?";
 
   const profileFooter = (
       <div className="sidebar__bottom">
@@ -506,7 +507,7 @@ export function Sidebar({
           {profileOpen && (
             <div aria-label="Profil menüsü" className="sidebar__profile-menu" lang={language} role="menu">
               <button aria-label={hesap ? `${profileName} · ${t("menu.hesabim")}` : t("menu.hesabim")} className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
-                <span className="sidebar__avatar">{profileInitials}</span>
+                <span className="sidebar__avatar">{profileAvatar}</span>
                 <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
@@ -537,7 +538,7 @@ export function Sidebar({
             onClick={() => setProfileOpen((open) => !open)}
             type="button"
           >
-            <span className="sidebar__avatar">{profileInitials}</span>
+            <span className="sidebar__avatar">{profileAvatar}</span>
             <span className="sidebar__profile-copy sidebar__label"><strong>{profileName}</strong><small>{profileDetail}</small></span>
             <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(hesap)} />
           </button>

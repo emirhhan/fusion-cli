@@ -172,8 +172,12 @@
   font-size: var(--text-xs);
   height: 28px;
   justify-content: center;
+  overflow: hidden;
   width: 28px;
 }
+/* Hazır avatarın kendi pastel zemini var; vurgu rengi halkası görünmesin. */
+.sidebar__avatar:has(> img) { background: transparent; }
+.sidebar__avatar > img { border-radius: 50%; display: block; height: 100%; object-fit: cover; width: 100%; }
 .sidebar__profile-copy { display: grid; line-height: 1.18; min-width: 0; }
 .sidebar__profile-copy strong {
   font-size: var(--text-xs);

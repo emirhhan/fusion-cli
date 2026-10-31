@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 import { assetUrl } from "../platform/assetUrl";
 import { hesapBasHarfleri } from "./types";
+import { FUSION_AVATARLARI, VARSAYILAN_FUSION_AVATARI, fusionAvatarDegeri, fusionAvatariBul } from "./fusionAvatars";
 import "./account.css";
 
 /**
- * Avatar seçici — emoji ızgarası ya da kullanıcının kendi görseli.
+ * Avatar seçici — Fusion'ın 7 hazır avatarı ya da kullanıcının kendi görseli.
  *
- * `avatar` alanı TEK bir metindir ve iki biçimden birini taşır: emoji ya da
- * hesabın dizinine kopyalanmış görselin mutlak yolu. Ayrım yol ayıracına
- * bakılarak yapılır; ikinci bir alan açmak şemayı ve tüm çağıranları
- * değiştirmeyi gerektirirdi.
+ * `avatar` alanı TEK bir metindir ve şu biçimlerden birini taşır: hazır avatar
+ * (`fusion:<kimlik>`), hesabın dizinine kopyalanmış görselin mutlak yolu ya da
+ * (eski sürümlerden kalan) emoji. Ayrım değere bakılarak yapılır; ikinci bir alan
+ * açmak şemayı ve tüm çağıranları değiştirmeyi gerektirirdi. Emoji artık
+ * seçilemez; eski emoji seçimi olan hesapta varsayılan hazır avatar görünür.
  */
 
 /** Yol ayıracı taşıyan avatar bir dosyadır; taşımayan emojidir. */
@@ -18,30 +20,29 @@ export function gorselAvatarMi(avatar: string): boolean {
   return avatar.includes("/") || avatar.includes("\\");
 }
 
-/** Kısa, ürünle uyumlu bir emoji seti. Tam emoji klavyesi burada gereksiz. */
-const EMOJILER = [
-  "🏍️", "🛵", "🏁", "⚙️", "🔧", "🛠️",
-  "🚀", "⚡", "🔥", "💡", "🎯", "🧠",
-  "🐺", "🦊", "🐙", "🦉", "🐉", "🦅",
-  "🎮", "🎧", "🎸", "📷", "☕", "🌙",
-] as const;
 
 export interface AvatarPickerProps {
   avatar: string;
   kullaniciAdi: string;
-  /** Seçim yapıldığında çağrılır: emoji ya da kopyalanmış dosyanın yolu. */
+  /** Seçim yapıldığında çağrılır: `fusion:<kimlik>` ya da kopyalanmış dosyanın yolu. */
   onSelect: (avatar: string) => void;
   /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. Verilmezse yükleme düğmesi çizilmez. */
   onUpload?: () => Promise<string | null>;
 }
 
-/** Avatarın kendisi — görsel, emoji ya da baş harfler. */
+/** Avatarın kendisi — hazır avatar, yüklenen görsel ya da baş harfler. */
 export function AvatarView({ avatar, kullaniciAdi }: { avatar: string; kullaniciAdi: string }) {
-  const kaynak = gorselAvatarMi(avatar) ? assetUrl(avatar) : null;
-  if (kaynak) return <img alt="" className="account-avatar__image" src={kaynak} />;
-  // Kabuk yokken (test, tarayıcı) dosya adresi üretilemez; baş harfler kalır.
-  if (gorselAvatarMi(avatar)) return <>{hesapBasHarfleri({ kullanici_adi: kullaniciAdi })}</>;
-  return <>{avatar || hesapBasHarfleri({ kullanici_adi: kullaniciAdi })}</>;
+  const basHarfler = hesapBasHarfleri({ kullanici_adi: kullaniciAdi });
+  if (!avatar) return <>{basHarfler}</>;
+  const hazir = fusionAvatariBul(avatar);
+  if (hazir) return <img alt="" className="account-avatar__image" data-avatar={hazir.id} src={hazir.src} />;
+  if (gorselAvatarMi(avatar)) {
+    const kaynak = assetUrl(avatar);
+    // Kabuk yokken (test, tarayıcı) dosya adresi üretilemez; baş harfler kalır.
+    return kaynak ? <img alt="" className="account-avatar__image" src={kaynak} /> : <>{basHarfler}</>;
+  }
+  // Eski sürümün emoji seçimi: emoji artık sunulmuyor, varsayılan hazır avatar gösterilir.
+  return <img alt="" className="account-avatar__image" data-avatar={VARSAYILAN_FUSION_AVATARI.id} src={VARSAYILAN_FUSION_AVATARI.src} />;
 }
 
 export function AvatarPicker({ avatar, kullaniciAdi, onSelect, onUpload }: AvatarPickerProps) {
@@ -87,24 +88,29 @@ export function AvatarPicker({ avatar, kullaniciAdi, onSelect, onUpload }: Avata
 
       {acik && (
         <div aria-label="Avatar seçenekleri" className="account-avatar__menu" role="dialog">
+          <p className="account-avatar__title">Avatar seç</p>
           <div className="account-avatar__grid">
-            {EMOJILER.map((emoji) => (
-              <button
-                aria-label={`Avatar: ${emoji}`}
-                aria-pressed={avatar === emoji}
-                className="account-avatar__option"
-                key={emoji}
-                onClick={() => {
-                  onSelect(emoji);
-                  setAcik(false);
-                }}
-                type="button"
-              >
-                {emoji}
-              </button>
-            ))}
+            {FUSION_AVATARLARI.map((secenek) => {
+              const deger = fusionAvatarDegeri(secenek);
+              return (
+                <button
+                  aria-label={`Avatar: ${secenek.ad}`}
+                  aria-pressed={avatar === deger}
+                  className="account-avatar__option"
+                  key={secenek.id}
+                  onClick={() => {
+                    onSelect(deger);
+                    setAcik(false);
+                  }}
+                  title={secenek.ad}
+                  type="button"
+                >
+                  <img alt="" src={secenek.src} />
+                </button>
+              );
+            })}
           </div>
-          <div className="account-avatar__foot">
+          {(onUpload || avatar) && <div className="account-avatar__foot">
             {onUpload && (
               <Button
                 loading={mesgul}
@@ -140,7 +146,7 @@ export function AvatarPicker({ avatar, kullaniciAdi, onSelect, onUpload }: Avata
                 Kaldır
               </button>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>

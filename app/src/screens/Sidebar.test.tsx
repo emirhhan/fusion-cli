@@ -173,6 +173,21 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("seçilen hazır avatar hem sol alttaki düğmede hem menünün profil satırında görünür", () => {
+    render(<Sidebar etkin={null} hesap={{ kullanici_adi: "Emirhan", eposta: "e@ornek.com", avatar: "fusion:can" }} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
+    const tetikleyici = screen.getByRole("button", { name: /hesap menüsü/i });
+    expect(tetikleyici.querySelector("img")?.getAttribute("data-avatar")).toBe("can");
+    fireEvent.click(tetikleyici);
+    expect(screen.getByRole("menuitem", { name: "Emirhan · Hesabım" }).querySelector("img")?.getAttribute("data-avatar")).toBe("can");
+  });
+
+  it("eski emoji avatarı menüde yazı olarak değil varsayılan avatar olarak görünür", () => {
+    render(<Sidebar etkin={null} hesap={{ kullanici_adi: "Emirhan", eposta: "e@ornek.com", avatar: "🚀" }} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
+    const tetikleyici = screen.getByRole("button", { name: /hesap menüsü/i });
+    expect(tetikleyici.textContent).not.toContain("🚀");
+    expect(tetikleyici.querySelector("img")).toBeTruthy();
+  });
+
   it("Dil satırı seçili dili gösterir; dil değişince menü hemen o dile geçer", () => {
     render(<Sidebar etkin={null} hesap={{ kullanici_adi: "k", eposta: "e@ornek.com", avatar: "" }} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
