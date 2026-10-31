@@ -27,6 +27,7 @@ import json
 import os
 import signal
 import socket
+import ssl
 import sys
 import tempfile
 import threading
@@ -279,9 +280,36 @@ async def wait_until_serving(
     return False
 
 
+def loopback_tls_context() -> ssl.SSLContext:
+    """Yalnız loopback için: yerel geliştirme sertifikası (mkcert, basicSsl) imzasız olabilir."""
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+def tls_context_for(url: str) -> ssl.SSLContext | None:
+    """`https://localhost` için sorgusuz bağlam; uzak ya da http adreste None (doğrulama sürer).
+
+    Ölçüldü (31 Ekim, inceleme): `responds` varsayılan doğrulamayla bağlanıyordu; kendinden
+    imzalı yerel https sunucusu launch.json'da hiç "ayakta" sayılmıyordu. Venv Python'u macOS
+    Keychain'e bakmadığı için mkcert kökü de güvenilmez.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or ""
+    except ValueError:
+        return None
+    if parsed.scheme != "https":
+        return None
+    if (f"[{host}]" if ":" in host else host) not in LOCAL_HOSTS:
+        return None
+    return loopback_tls_context()
+
+
 def responds(url: str) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=5):
+        with urllib.request.urlopen(url, timeout=5, context=tls_context_for(url)):
             return True
     except urllib.error.HTTPError:
         return True  # 404/500 de "sunucu ayakta" demektir; içerik yoklamada ölçülür

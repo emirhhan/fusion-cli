@@ -7,12 +7,13 @@ ve nihai adres yine loopback'te kalmak zorundadır; uzak https panelde açılmaz
 
 from __future__ import annotations
 
-import ssl
 from http.client import HTTPMessage
 from typing import IO, Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+
+from ..tools.preview_server import loopback_tls_context
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _LOCAL_SCHEMES = frozenset({"http", "https"})
@@ -93,14 +94,6 @@ def _result_from_response(response: _Response) -> dict[str, Any]:
     }
 
 
-def _loopback_tls() -> ssl.SSLContext:
-    """Yalnız loopback için: yerel geliştirme sertifikası (mkcert, basicSsl) imzasız olabilir."""
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
-
-
 def validate_web_preview(
     data: dict[str, Any],
     *,
@@ -114,7 +107,7 @@ def validate_web_preview(
         return {"ok": False, "metin": "Yalnız localhost adresleri önizlenebilir."}
     request = Request(str(url), headers={"User-Agent": "Fusion-Preview/1"})
     client = opener or cast(
-        _Opener, build_opener(_LocalRedirectHandler(), HTTPSHandler(context=_loopback_tls()))
+        _Opener, build_opener(_LocalRedirectHandler(), HTTPSHandler(context=loopback_tls_context()))
     )
     try:
         response = client.open(request, timeout=timeout)

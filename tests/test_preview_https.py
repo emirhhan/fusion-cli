@@ -133,3 +133,32 @@ def test_paket_csp_yerel_httpsi_cerceveler_uzak_httpsi_cercevelemez():
         kaynaklar = frame.split()
         assert "https://localhost:*" in kaynaklar and "https://127.0.0.1:*" in kaynaklar
         assert "https:" not in kaynaklar and "*" not in kaynaklar
+
+
+def test_launch_hatti_kendinden_imzali_yerel_httpsi_ayakta_sayar(https_sunucu):
+    # Ölçüldü (31 Ekim, inceleme): `responds` varsayılan doğrulamayla urlopen yapıyordu;
+    # launch.json'daki https://localhost sunucusu hiç "ayakta" sayılmıyor, 5/45 sn sonra
+    # "yanıt vermedi" hatası veriyordu.
+    assert preview_server.responds(https_sunucu) is True
+    ip_adresi = https_sunucu.replace("localhost", "127.0.0.1")
+    assert preview_server.responds(ip_adresi) is True
+
+
+async def test_launch_attach_yerel_httpsde_acilir(https_sunucu, tmp_path):
+    from fusion_cli.tools.preview_launch import LaunchConfig, start_launch, stop_launch
+
+    yapilandirma = LaunchConfig(name="tls", executable=None, args=(), port=None, url=https_sunucu)
+    try:
+        onizleme = await start_launch(tmp_path, yapilandirma)
+        assert onizleme.url.startswith("https://localhost:")
+    finally:
+        stop_launch(tmp_path, "tls")
+
+
+def test_uzak_httpste_sertifika_dogrulamasi_kapanmaz():
+    from fusion_cli.tools.preview_server import tls_context_for
+
+    assert tls_context_for("https://example.com/") is None
+    assert tls_context_for("http://localhost:3000/") is None
+    baglam = tls_context_for("https://localhost:8443/")
+    assert baglam is not None and baglam.verify_mode == ssl.CERT_NONE
