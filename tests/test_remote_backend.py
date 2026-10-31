@@ -113,3 +113,60 @@ async def test_kademe_secilemezse_gorev_failed_olur(tmp_path: Path) -> None:
     await backend.start("r1", "görev", lambda kind, payload: events.append((kind, payload)))
     assert [name for name, _ in session.requests] == ["kademe.sec"]
     assert events[-1][0] == "failed"
+
+
+def _goal_session(session: _Session, turns: list[dict[str, Any]], on_turn: Any = None) -> None:
+    """`tur.calistir` sırayla `turns` sonuçlarını döndürür; diğer istekler 'ok'."""
+
+    async def handle(request: Any) -> None:
+        session.requests.append((request.name, request.data))
+        data: dict[str, Any] = {"ok": True}
+        if request.name == "tur.calistir":
+            data = turns.pop(0)
+            if on_turn is not None:
+                await on_turn()
+        session.writer(json.dumps({"tip": "sonuc", "id": request.id, "veri": data}))
+
+    session.handle = handle  # type: ignore[method-assign]
+
+
+async def test_uzak_gorev_hedef_devamini_surer_ve_karari_ozete_yazar(tmp_path: Path) -> None:
+    """Ölçüldü (31 Ekim): uzak istemci (`/goal` etkin sohbette) `hedef_devam`ı yok sayıyordu;
+    hedef ilk turdan sonra telefonda hiç ilerlemiyor, karar metni de görünmüyordu."""
+    backend, session = _backend(tmp_path)
+    _goal_session(
+        session,
+        [
+            {
+                "ok": True,
+                "metin": "bir test kırık",
+                "hedef": {"eylem": "devam", "metin": "◎ Hedef henüz karşılanmadı"},
+                "hedef_devam": "Hedefi sürdür",
+            },
+            {"ok": True, "metin": "hepsi yeşil", "hedef": {"eylem": "tamam", "metin": "✓ Hedef"}},
+        ],
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    await backend.start("r1", "testleri düzelt", lambda kind, p: events.append((kind, p)))
+
+    turlar = [data["gorev"] for name, data in session.requests if name == "tur.calistir"]
+    assert turlar == ["testleri düzelt", "Hedefi sürdür"]
+    assert events[-1][0] == "done"
+    assert "hepsi yeşil" in events[-1][1]["summary"] and "✓ Hedef" in events[-1][1]["summary"]
+
+
+async def test_uzak_gorev_iptal_edilince_hedef_devami_baslamaz(tmp_path: Path) -> None:
+    backend, session = _backend(tmp_path)
+
+    async def kes() -> None:
+        await backend.cancel("r1")
+
+    _goal_session(
+        session,
+        [{"ok": True, "metin": "yarım", "hedef": {"metin": "◎"}, "hedef_devam": "sürdür"}],
+        on_turn=kes,
+    )
+    await backend.start("r1", "görev", lambda *_: None)
+
+    assert [name for name, _ in session.requests].count("tur.calistir") == 1

@@ -61,6 +61,8 @@ class AppSessionBackend:
         self._sink: EventSink | None = None
         self._results: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._options: dict[str, dict[str, Any]] = {}
+        #: `cancel` çağrılan görev: `/goal` devam zinciri bir sonraki turu başlatmaz.
+        self._cancelled_run: str | None = None
         self._session = session_factory(self._on_line)
 
     def _on_line(self, line: str) -> None:
@@ -140,18 +142,31 @@ class AppSessionBackend:
             turn: dict[str, Any] = {"gorev": prompt}
             if options.get("attachments"):
                 turn["ekler"] = options["attachments"]
-            try:
-                result = await self._request("tur.calistir", turn, TURN_TIMEOUT_SECONDS)
-            except TimeoutError:
-                await self._stop_after_timeout()
-                sink("failed", {"summary": "Görev zaman aşımına uğradı ve durduruldu."})
-                return
+            while True:
+                try:
+                    result = await self._request("tur.calistir", turn, TURN_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    await self._stop_after_timeout()
+                    sink("failed", {"summary": "Görev zaman aşımına uğradı ve durduruldu."})
+                    return
+                # `/goal` (P-058): masaüstü gibi uzak görev de devam turunu sürer; tavanı ve
+                # duraklamayı oturum belirler. Ölçüldü (31 Ekim): `hedef_devam` yok sayılıyordu.
+                continuation = result.get("hedef_devam")
+                if not isinstance(continuation, str) or self._cancelled_run == run_id:
+                    break
+                sink("event", {"olay": "StatusChanged", "message": _goal_text(result)})
+                turn = {"gorev": continuation}
             ok = bool(result.get("ok", True))
-            sink("done" if ok else "failed", {"summary": str(result.get("metin", ""))})
+            summary = "\n\n".join(
+                part for part in (str(result.get("metin", "")), _goal_text(result)) if part
+            )
+            sink("done" if ok else "failed", {"summary": summary})
         finally:
             self._options.pop(run_id, None)
             self._active_run = None
             self._sink = None
+            if self._cancelled_run == run_id:
+                self._cancelled_run = None
 
     async def _stop_after_timeout(self) -> None:
         """Zaman aşımında turu oturum tarafında da kes; hata terminal olayı engellemez."""
@@ -163,6 +178,7 @@ class AppSessionBackend:
     async def cancel(self, run_id: str) -> bool:
         if run_id != self._active_run:
             return False
+        self._cancelled_run = run_id
         request_id = "uzak-" + uuid.uuid4().hex
         await self._session.handle(Request(request_id, "tur.kes", {}))
         return True
@@ -183,3 +199,10 @@ class AppSessionBackend:
 
     def kits(self) -> list[dict[str, Any]]:
         return []
+
+
+def _goal_text(result: dict[str, Any]) -> str:
+    """Tur sonucundaki `/goal` karar metni (yoksa boş)."""
+    goal = result.get("hedef")
+    text = goal.get("metin") if isinstance(goal, dict) else None
+    return text if isinstance(text, str) else ""
