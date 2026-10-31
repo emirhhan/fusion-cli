@@ -1418,3 +1418,40 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+# --- Kancalar (P-009) ---------------------------------------------------------- #
+
+CMD_HOOKS = "Kancaları (hooks) listele: olay · eşleştirici · komut · kaynak"
+HOOKS_PERMISSION_NOTICE = "Fusion izin istiyor: {tool}"
+HOOKS_TOOL_BLOCKED = (
+    "KANCA ENGELLEDİ ({event}): {reason}\n"
+    "Bu çağrı çalışmadı; gerekçeye göre farklı bir yol dene ya da kullanıcıya sor."
+)
+HOOKS_TURN_HALTED = "Kanca turu durdurdu ({event}): {reason}"
+HOOKS_NO_REASON = "gerekçe verilmedi"
+HOOKS_POST_FEEDBACK = "KANCA GERİ BİLDİRİMİ ({event}): {reason}"
+HOOKS_CONTEXT_NOTE = "KANCA BAĞLAMI ({event}):\n{context}"
+HOOKS_PROMPT_BLOCKED = "İstem bir kanca tarafından engellendi (UserPromptSubmit): {reason}"
+HOOKS_STOP_CONTINUE = (
+    "[{event} kancası] Durmana izin verilmedi. Gerekçe: {reason}\n"
+    "İşe devam et; gereken bitince kısa bir özetle bitir."
+)
+HOOKS_ERROR = "Kanca hatası — {detail}"
+HOOKS_SYSTEM = "Kanca: {text}"
+HOOKS_LIST_EMPTY = (
+    "Tanımlı kanca yok. Biçim ve örnekler: docs/KANCALAR.md — Fusion: {path}, "
+    'Claude: ~/.claude/settings.json, proje: .claude/settings.json ("hooks" bloğu).'
+)
+HOOKS_LIST_HEADER = "Kancalar — {active} etkin, {skipped} atlanan:"
+HOOKS_LIST_DISABLED = "Kancalar kapalı: {reason}"
+HOOKS_LIST_UNTRUSTED = (
+    "Güvenilmediği için kancaları çalıştırılmayan katmanlar: {layers}. "
+    "Dosyaları gözden geçirdiysen `fusion trust` ile etkinleştir."
+)
+HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"
+HOOKS_TEST_UNKNOWN_EVENT = "Bilinmeyen olay: {given}. Olaylar: {events}"
+HOOKS_TEST_BAD_INPUT = "--input geçerli bir JSON nesnesi olmalı: {error}"
+HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."
+HOOKS_TEST_RESULT = (
+    "{event}: {ran} kanca çalıştı · engel: {blocked} · izin: {permission} · durdur: {halt}"
+)

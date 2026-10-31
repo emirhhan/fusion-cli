@@ -162,6 +162,14 @@ runtime:
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []
+  # Genel kancalar (P-009): PreToolUse/PostToolUse/Stop/SessionStart… olaylarına komut bağlar.
+  # Tanımlar <yapılandırma>/hooks.json, ~/.claude/settings.json ve (güvenilen projede)
+  # .claude/settings(.local).json `hooks` bloğundan okunur. false = hiçbiri çalışmaz.
+  hooks_enabled: true
+  # Claude Code dosyalarındaki kancalar da okunsun mu (false = yalnız Fusion'ın hooks.json'ı).
+  claude_hooks: true
+  # Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
+  hook_timeout_s: 60
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |

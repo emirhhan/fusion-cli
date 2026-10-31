@@ -26,6 +26,7 @@ from ...core.worktree import Worktree
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...engines.agent.team import Persona
+from ...engines.hooks.session import HookSession, open_hook_session
 from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
@@ -100,6 +101,8 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
+    hook_session: HookSession | None = field(default=None, kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
@@ -271,6 +274,17 @@ class ReplState:
         attach_rule_writer(self.approval_memory, lambda: self.root)
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
+
+    def hooks(self) -> HookSession:
+        """Oturumun kanca yürütücüsü (P-009); kök değişirse (worktree) yeniden kurulur."""
+        if self.hook_session is None or self.hook_session.root != self.root:
+            self.hook_session = open_hook_session(
+                self.root,
+                self.config,
+                session_id=self.conversation_id,
+                permission_mode=lambda: self.approval.value,
+            )
+        return self.hook_session
 
     def permission_rules(self) -> PermissionRuleSet:
         """İzin kuralları her turda dosyadan taze okunur (P-001).

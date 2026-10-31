@@ -33,6 +33,7 @@ from ...ui.picker import Choice, pick
 from . import (
     config_command,
     export_commands,
+    hooks_command,
     keybinding_commands,
     loop_command,
     macros,
@@ -959,6 +960,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         ("izinler",),
         group="Onay modu",
         usage="[list|add|remove] …",
+    ),
+    SlashCommand(
+        "hooks", messages.CMD_HOOKS, hooks_command.hooks, ("kancalar",), group="Onay modu"
     ),
     SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),

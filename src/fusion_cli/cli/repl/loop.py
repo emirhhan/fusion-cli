@@ -57,6 +57,7 @@ from ...core.types import FusionResult
 from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
+from ...engines.hooks.notify import notifying
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
@@ -176,6 +177,8 @@ async def run_repl(
             console.print(f"[{theme.INFO}]{escape(notice)}[/{theme.INFO}]")
         return await _run_surface(state, config, console, resume)
     finally:
+        if state.hook_session is not None:
+            await state.hook_session.end("prompt_input_exit")
         # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
         if worktree is not None and state.worktree is not None:
             console.print(
@@ -704,12 +707,16 @@ async def _agent_turn(
         transport = state.remotion_transport
         if transport is None and state.remotion_browser is not None:
             transport = browser_transport(state.remotion_browser)
+        # `Notification` kancası onay sorusundan hemen önce (P-009).
+        confirm_prompter = notifying(prompter, state.hooks())
         deps = AgentDeps(
             config=state.config,
             publisher=bus,
-            policy=build_policy(state.approval, prompter, state.approval_memory),
+            policy=build_policy(state.approval, confirm_prompter, state.approval_memory),
             approval_mode=lambda: state.approval,
-            policy_for_mode=lambda wanted: build_policy(wanted, prompter, state.approval_memory),
+            policy_for_mode=lambda wanted: build_policy(
+                wanted, confirm_prompter, state.approval_memory
+            ),
             tool_context=tool_context,
             asker=prompter,
             code_index=state.memory.code_index if state.memory.enabled else None,
@@ -719,6 +726,7 @@ async def _agent_turn(
             home=state.home,
             allowed_commands=state.allowed_commands,
             permission_rules=state.permission_rules(),
+            hooks=state.hooks(),
             background=background,
             verifier=build_verifier(
                 state.config,
@@ -852,6 +860,7 @@ def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
 async def compact_history(state: ReplState) -> str:
     """`/compact`: uzun geçmişi özetleyerek kısalt."""
     before = len(state.history)
+    await state.hooks().pre_compact("manual")
     state.history = await compress(state.history, config=state.config)
     after = len(state.history)
     if after >= before:

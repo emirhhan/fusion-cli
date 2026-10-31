@@ -242,6 +242,13 @@ class RuntimeConfig:
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()
+    #: Genel kanca sistemi (P-009, `config/hooks.py`): false = hiçbir kanca çalışmaz.
+    hooks_enabled: bool = True
+    #: Claude Code dosyalarındaki (`~/.claude/settings.json`, proje `.claude/`) kancalar da
+    #: okunsun mu? Proje dosyaları ayrıca `fusion trust` ister.
+    claude_hooks: bool = True
+    #: Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
+    hook_timeout_s: float = 60.0
     #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).

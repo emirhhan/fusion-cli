@@ -67,6 +67,8 @@ from ..engines.agent.tool_filter import DeniedToolsPolicy
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
+from ..engines.hooks.notify import notifying
+from ..engines.hooks.session import HookSession, open_hook_session
 from ..engines.retention import purge_local_state_daily
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
@@ -225,6 +227,7 @@ async def run_agent_task(
     cron: SessionCron | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
+    hooks: HookSession | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -309,8 +312,17 @@ async def run_agent_task(
         if require_remotion_kit:
             tool_context.remotion_contract.require()
 
+        # Kancalar (P-009): oturum vermediyse (tek atış) bu tur için kurulur ve sonda kapanır.
+        hook_session = hooks or open_hook_session(
+            tool_context.root,
+            config,
+            session_id=conversation_id,
+            permission_mode=lambda: (current_approval() if current_approval else mode).value,
+        )
+        confirm_prompter = notifying(prompter, hook_session)
+
         def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
-            policy: ApprovalPolicy = build_policy(active_mode, prompter, approval_memory)
+            policy: ApprovalPolicy = build_policy(active_mode, confirm_prompter, approval_memory)
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
         deps = AgentDeps(
@@ -355,6 +367,7 @@ async def run_agent_task(
                 block_reads_outside_root=config.runtime.block_reads_outside_root,
                 block_writes_outside_root=config.runtime.block_writes_outside_root,
             ),
+            hooks=hook_session,
             verifier=build_verifier(
                 config,
                 root=tool_context.root,
@@ -401,6 +414,8 @@ async def run_agent_task(
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
             # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
             desktop_lock.release(token=tool_context.job_scope)
+            if hooks is None:
+                await hook_session.end("other")
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt

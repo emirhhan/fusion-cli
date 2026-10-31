@@ -28,6 +28,7 @@ import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
+from functools import partial
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
@@ -52,6 +53,7 @@ from ...core.events import (
     ChangesDigested,
     Channel,
     ContextCompressed,
+    ErrorOccurred,
     EventPublisher,
     ExecutionRouteSelected,
     GateEscalated,
@@ -133,6 +135,7 @@ from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
+from ..hooks.session import HookSession
 from . import (
     compaction,
     denial,
@@ -175,6 +178,14 @@ from .expertise import (
     is_worktree_task,
 )
 from .history import needs_compression, total_chars
+from .hook_bridge import (
+    ToolNote,
+    continue_until_stop_allowed,
+    post_tool_use,
+    pre_compact,
+    pre_tool_use,
+    user_prompt_submit,
+)
 from .instruction_rules import discover_rules
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
@@ -467,6 +478,10 @@ class AgentDeps:
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
+    #: Oturumun kancaları (P-009, `engines/hooks`); `None` = kanca yok (eski çağıranlar).
+    hooks: HookSession | None = None
+    #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
+    agent_type: str = ""
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -603,10 +618,20 @@ async def run_agent(
     iç turlar ve alt ajanlar plan yazmaz.
     """
     try:
-        outcome = await _run_agent(
-            task,
-            deps,
-            history=history,
+        # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
+        root_turn = depth == 0 and not internal
+        prompt_gate = await user_prompt_submit(deps, task) if root_turn else None
+        if prompt_gate is not None and prompt_gate.blocked is not None:
+            # Sebep burada yayınlanır; `budget_stopped` çağıranın ikinci kez basmasını önler.
+            deps.publisher.publish(ErrorOccurred(prompt_gate.blocked))
+            blocked = AgentOutcome(prompt_gate.blocked, [*(history or [])], ok=False)
+            blocked.budget_stopped = True
+            return blocked
+        if prompt_gate is not None and prompt_gate.context:
+            extra_system = "\n\n".join(part for part in (extra_system, prompt_gate.context) if part)
+        turn = partial(
+            _run_agent,
+            deps=deps,
             plan_mode=plan_mode,
             chat_mode=chat_mode,
             extra_system=extra_system,
@@ -622,6 +647,16 @@ async def run_agent(
             workflow=workflow,
             denied_tools=denied_tools,
         )
+        outcome = await turn(task, history=history)
+        subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
+        if root_turn or subagent:
+            # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
+            outcome = await continue_until_stop_allowed(
+                deps,
+                outcome,
+                lambda prompt, past: turn(prompt, history=past),
+                subagent=subagent,
+            )
         if plan_mode and depth == 0 and not internal:
             from .plan_mode import record_plan
 
@@ -3715,6 +3750,17 @@ async def _run_tools(
                 )
                 if hook_note is not None:
                     govde = f"{govde}\n\n{hook_note}"
+        post_hook = (
+            await post_tool_use(deps, call.name, args, result.output, ok=outcome is ToolOutcome.OK)
+            if outcome in (ToolOutcome.OK, ToolOutcome.FAILED)
+            else ToolNote()
+        )
+        if post_hook.replaced_output is not None:
+            govde = post_hook.replaced_output
+        if post_hook.note is not None:
+            govde = f"{govde}\n\n{post_hook.note}"
+        if post_hook.halt:
+            budget.halt(BudgetStop.USER_DENIED)
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
@@ -3810,12 +3856,19 @@ async def _execute(
         return ToolResult.failure(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
+    # PreToolUse kancası (P-009) onaydan ÖNCE: engel, argüman değişikliği, allow/ask kararı.
+    hook_gate = await pre_tool_use(deps, call.name, args)
+    if hook_gate.blocked is not None:
+        return ToolResult.failure(hook_gate.blocked), (
+            ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED
+        )
+    args = hook_gate.arguments
     # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
     # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu
     # ajana açar (sorulur). Ölçüldü (31 Ekim): yalnız `mutating` kapı olduğu için
     # varsayılan profil hiç sorulmadan yükleniyordu. İzin kuralı (ask/deny) okuma
     # araçlarını da kapıdan geçirir (P-001).
-    rules = getattr(deps, "permission_rules", None)
+    rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
     if tool is not None and (
         tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
     ):
@@ -4342,6 +4395,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
         return True
     before = len(messages)
     before_chars = total_chars(gorunur)
+    await pre_compact(deps, "auto")
     compacted = await compaction.compact_in_turn(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )

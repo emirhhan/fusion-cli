@@ -46,6 +46,7 @@ from . import (
     eval_commands,
     gh_action_command,
     headless,
+    hooks_commands,
     kit_commands,
     knowledge_commands,
     mcp_commands,
@@ -88,6 +89,8 @@ app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
 app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
+# Kancalar (P-009): `fusion hooks list|test`; Claude Code `/hooks` karşılığı.
+app.add_typer(hooks_commands.app, name="hooks")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()

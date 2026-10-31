@@ -380,3 +380,46 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
             parts.append(re.escape(char))
         index += 1
     return re.compile("".join(parts))
+
+
+#: Kanca yükünde (`tool_name`) gösterilen birincil Claude adı (P-009); listede olmayan
+#: araç kendi adıyla gider.
+_CLAUDE_PRIMARY: dict[str, str] = {
+    "read_file": "Read",
+    "view_file": "Read",
+    "write_file": "Write",
+    "edit_file": "Edit",
+    "multi_edit": "MultiEdit",
+    "glob": "Glob",
+    "grep_search": "Grep",
+    "search_code": "Grep",
+    "list_dir": "LS",
+    "list_files": "LS",
+    "web_fetch": "WebFetch",
+    "web_search": "WebSearch",
+    "spawn_agent": "Agent",
+    "spawn_agents": "Agent",
+    "invoke_agent": "Agent",
+    "read_skill": "Skill",
+    "todo_write": "TodoWrite",
+}
+
+
+def claude_tool_names(tool_name: str) -> tuple[str, ...]:
+    """Fusion aracının kanca eşleştiricisinde tanınan adları: birincil Claude adı önce.
+
+    `Bash` kabuk ailesinin hepsini (takma adlar dahil), `Edit|Write` bütün yerel yazma
+    araçlarını kapsar (izin kurallarıyla aynı tablo). MCP aracı `sunucu__araç` Fusion'da,
+    Claude'da `mcp__sunucu__araç` adını taşır; ikisi de eşleşir.
+    """
+    names: list[str] = []
+    primary = _CLAUDE_PRIMARY.get(tool_name)
+    if tool_family(tool_name) is ToolFamily.SHELL:
+        primary = "Bash"
+    if primary is not None:
+        names.append(primary)
+    names.extend(claude for claude, tools in _CLAUDE_TOOLS.items() if tool_name in tools)
+    if "__" in tool_name and not tool_name.startswith(_MCP_PREFIX):
+        names.append(f"{_MCP_PREFIX}{tool_name}")
+    names.append(tool_name)
+    return tuple(dict.fromkeys(names))

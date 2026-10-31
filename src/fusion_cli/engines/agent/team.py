@@ -376,6 +376,9 @@ async def _run_child(
         plain_memory=team_settings.child_memory(deps, persona),
         effect_recorder=deps.effect_recorder,
         ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
+        # Kancalar (P-009) alt ajanda da çalışır; `SubagentStop` eşleştiricisi türe bakar.
+        hooks=getattr(deps, "hooks", None),
+        agent_type=persona.name,
     )
     # Tanımdaki `model` yalnız bu alt ajanın çağrılarını değiştirir (P-034).
     sub_deps.active_model_override = team_settings.child_model(persona, deps.config.agent)

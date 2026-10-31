@@ -151,6 +151,7 @@ from .history import (
     search_sessions,
 )
 from .history_view import visible_history
+from .hooks_routes import HOOK_ROUTES, dispatch_hooks
 from .hosted_connectors import (
     add_hosted_connector,
     hosted_provider_rows,
@@ -902,6 +903,8 @@ class AppSession:
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
+        if request.name in HOOK_ROUTES:
+            return dispatch_hooks(request.name, self._state.hooks())
         if request.name in DESKTOP_PERMISSION_ROUTES:
             # Sistem istemi bloklayıcıdır (TCC penceresi); olay döngüsü dışında.
             return await asyncio.to_thread(dispatch_desktop_permission, request.name, request.data)
@@ -2893,6 +2896,7 @@ class AppSession:
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
+                hooks=self._state.hooks(),
             )
 
         # `enter_worktree`/`exit_worktree` isteği: kök tur ortasında değişmez, tur bitince
@@ -3356,6 +3360,9 @@ class AppSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
         await self._voice_background.close()
+        if self._state.hook_session is not None:
+            # SessionEnd kancası (P-009): yalnız başlamış (en az bir tur koşmuş) oturumda.
+            await self._state.hook_session.end("other")
         self._report_voice_background_failures()
         if self._voice_preparations:
             await asyncio.gather(*self._voice_preparations, return_exceptions=True)
