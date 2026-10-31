@@ -194,6 +194,10 @@ class RemoteController:
             return _fail("Bilinmeyen uzak erişim isteği.")
         return await handler(data)
 
+    def awaiting_approval(self, code: str) -> str | None:
+        """Kodu girmiş ve onay bekleyen cihazın adı (terminal kipinde onay sorusu için)."""
+        return self._pairing.awaiting_approval(code) if code else None
+
     async def _status(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,

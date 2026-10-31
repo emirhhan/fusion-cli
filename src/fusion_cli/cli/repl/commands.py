@@ -805,7 +805,19 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    # İşleyici boş: `/rc` asenkron çalışır, döngüler `repl.remote_control.run` ile ele alır.
+    SlashCommand(
+        "rc",
+        messages.CMD_RC,
+        lambda state, argument: "",
+        ("remote-control",),
+        group="Bilgi",
+        usage="[kod|onayla|durum|durdur]",
+    ),
 )
+
+#: Asenkron çalışan ve konsola kendi yazan komut: `/rc` (uzaktan kontrol).
+ASYNC_COMMANDS = frozenset({"rc"})
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.

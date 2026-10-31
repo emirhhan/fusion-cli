@@ -33,6 +33,7 @@ from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..remote.constants import DEFAULT_REMOTE_PORT
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -727,6 +728,56 @@ def mcp_add(
     template = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
     console.print(template.format(name=name))
     console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
+
+
+@app.command(name="remote-control")
+def remote_control(
+    port: int = typer.Option(DEFAULT_REMOTE_PORT, "--port", "-p", help="Dinlenecek port."),
+    local_only: bool = typer.Option(
+        False,
+        "--yerel",
+        help="Yalnız bu bilgisayar (127.0.0.1), tünel bayrağı olmadan. Varsayılan: özel tünel "
+        "(Tailscale/Cloudflare) arkasında dinleme.",
+    ),
+    telegram: bool = typer.Option(
+        False, "--telegram", help="Anahtarlıktaki bot belirteciyle Telegram köprüsünü de bağla."
+    ),
+    scopes: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--kapsam",
+            help="Varsayılanlara ek kapsam (ör. project.write). Yüksek yetkili kapsam terminalde "
+            "onay ister. Birden çok kez verilebilir.",
+        ),
+    ] = None,
+    approval_hours: float = typer.Option(
+        0.0,
+        "--onay-saat",
+        help="Eşleşen cihaza bu kadar saat uzaktan onay yetkisi ver (0 = verme; en çok 168).",
+    ),
+) -> None:
+    """Oturumu masaüstü uygulaması olmadan telefondan/Telegram'dan sür (`claude remote-control`).
+
+    Aynı süreçte uzak HTTP yüzünü açar, eşleştirme kodunu ve adresi (segno kuruluysa QR'ı)
+    basar; görevler bu bilgisayarda çalışır, onaylar telefona gider. Ctrl-C ile durur.
+    """
+    from ..accounts import activate_account, remembered_account
+    from .remote_control import RemoteControlOptions, run_remote_control
+
+    # Masaüstüyle aynı hesap/dizin: hatırlanan hesap yapılandırma okunmadan önce seçilir.
+    hesap = remembered_account()
+    if hesap:
+        activate_account(hesap)
+    options = RemoteControlOptions(
+        root=Path.cwd(),
+        home=Path.home(),
+        port=port,
+        tunnel=not local_only,
+        telegram=telegram,
+        extra_scopes=tuple(scopes or ()),
+        approval_hours=approval_hours,
+    )
+    raise typer.Exit(asyncio.run(run_remote_control(options, console)))
 
 
 @app.command()

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_checked, revision
@@ -24,6 +25,9 @@ from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
 from .macros import Mode
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
+    from ...remote.host import RemoteControlHost
 
 
 def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
@@ -120,6 +124,8 @@ class ReplState:
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
+    remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:

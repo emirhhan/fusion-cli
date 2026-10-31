@@ -113,6 +113,34 @@ Erişim bir kez açılıp dinleme başlamışsa çalışır (`fusion.remote.inus
   hangisinde yapıldıysa orada kalır (başka yerde yeniden giriş gerekir). iOS'un depoyu temizlemesi
   (7 gün kullanılmayan site verisi) gerçek cihazda sınanmadı.
 
+## Masaüstüsüz uzaktan kontrol: `fusion remote-control` ve `/rc` (P-039)
+Claude Code'un `claude remote-control` / `/remote-control` örneği: masaüstü uygulaması açık olmadan
+terminaldeki oturum telefondan ya da Telegram'dan sürülür. İkinci bir motor yoktur; aynı
+`RemoteController` + `AppSession` yürütücüsü **terminal sürecinde** kalkar (`remote/host.py`).
+
+- **Komut:** `fusion remote-control [--port 8791] [--yerel] [--telegram] [--kapsam project.write]…
+  [--onay-saat 18]`. Başlarken adres, eşleştirme kodu (2 dk) ve `segno` kuruluysa terminal QR'ı
+  basılır (`pip install 'fusion-cli[remote]'`; segno yoksa adres+kod yeter). Varsayılan dinleme
+  `127.0.0.1` + güvenilir özel tünel bayrağı (Tailscale/Cloudflare); `--yerel` tünelsiz, yalnız bu
+  bilgisayar. Ctrl-C durdurur; sunucu ve denetleyici temiz kapanır.
+- **Eşleştirme:** varsayılan kapsamlarda (`project.read`, `agent.run`, `agent.cancel`) doğru kodu
+  giren telefon kendiliğinden bağlanır. `--kapsam` ile yüksek yetkili kapsam seçildiyse cihaz kodu
+  girince terminal "`<ad> kodu girdi. Bu cihaza izin verilsin mi? [e/H]`" sorar; boş cevap/`h`
+  reddeder, kod düşer ve yeni kod basılır. Süresi dolan kullanılmamış kod kendiliğinden yenilenir.
+  `--onay-saat N` eşleşen cihaza N saat uzaktan onay yetkisi verir (P-040; tavan 168).
+- **Terminal akışı:** 2 sn'de bir durum farkı satır olur: "X bağlandı.", "Onay bekliyor: … —
+  telefondan ya da Telegram'dan cevapla.", "Görev r1: running — …". Onaylar terminalden değil
+  telefondan/Telegram'dan verilir (bu komut masaüstü onay penceresinin yerini tutmaz).
+- **REPL `/rc`:** `fusion` içinde `/rc` (takma ad `/remote-control`) aynı sunucuyu REPL sürecinde
+  açar; `/rc kod` yeni kod, `/rc onayla` kodu girmiş cihazı onaylar, `/rc durum` özet,
+  `/rc durdur` kapatır; REPL kapanırken sunucu kendiliğinden kapanır. Telefondan açılan görevler
+  ayrı bir `AppSession` sohbetinde yürür; REPL'in kendi sohbeti karışmaz.
+- **Telegram:** `--telegram` anahtarlıktaki bot belirtecini kullanır; belirteç yoksa uyarı basılır,
+  HTTP yüzü yine kalkar (belirteç bir kez masaüstünden Ayarlar › Uzaktan Erişim'de kaydedilir).
+- **Sınırlar:** tünel komutu (`tailscale serve …`) kullanıcı tarafından çalıştırılır; komut
+  çalışırken aynı hesapta masaüstü `uzak.baslat` aynı portu alamaz (biri kapatılır). Claude Code'un
+  `--spawn worktree` / `--capacity` seçenekleri yoktur.
+
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
 `uzak.baslat|durdur`, `uzak.ekran_bekleyen|onayla|kes|onizleme`, `uzak.telegram_baglan|kes`, `uzak.gorevler`, `uzak.onay_cevapla`,

@@ -35,9 +35,11 @@ from . import (
     model_flows,
     profiles_flow,
     provider_flow,
+    remote_control,
     verify_flow,
 )
 from .commands import (
+    ASYNC_COMMANDS,
     RENDERED_COMMANDS,
     RESUME_LIST_LIMIT,
     build_registry,
@@ -357,6 +359,10 @@ class _TuiSession:
             await help_view.render(command.name, self._state, self._registry, self._out)
             self._tui.sync_conversation()
             return
+        if command.name in ASYNC_COMMANDS:
+            await remote_control.run(self._state, argument, self._out)
+            self._tui.sync_conversation()
+            return
         # Basit seçiciler (mode/level/effort): uygulama-içi modalla çöz, seçileni argüman yap.
         if command.name in _IN_APP_CHOICE and not argument.strip():
             builder, title = _IN_APP_CHOICE[command.name]
@@ -642,6 +648,7 @@ async def run_tui_repl(state: ReplState, console: Console) -> int:
         session.tui.restore_wheel_modes()
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
+    await remote_control.shutdown(state)
     await session.background.drain()
     for failure in session.background.failures:
         _logger.warning("arka plan işi başarısız: %s", failure)

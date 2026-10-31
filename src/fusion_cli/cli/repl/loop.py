@@ -61,8 +61,15 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros
-from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
+from . import help_view, history_view, macros, remote_control
+from .commands import (
+    ASYNC_COMMANDS,
+    RENDERED_COMMANDS,
+    CommandRegistry,
+    build_registry,
+    is_command_line,
+    parse,
+)
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
@@ -163,6 +170,7 @@ async def run_repl(
                 continue
             await _handle_safely(line.strip(), state, registry, reader, console, background)
     finally:
+        await remote_control.shutdown(state)
         await _shutdown(background, console)
     return 0
 
@@ -304,6 +312,9 @@ async def _run_command(
 
     if command.name in RENDERED_COMMANDS:
         await help_view.render(command.name, state, registry, console)
+        return
+    if command.name in ASYNC_COMMANDS:
+        await remote_control.run(state, argument, console)
         return
 
     result = command.handler(state, argument)

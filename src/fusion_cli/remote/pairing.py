@@ -156,6 +156,16 @@ class PairingService:
             self._on_paired(device)
         return device
 
+    def awaiting_approval(self, code: str) -> str | None:
+        """Cihaz kodu girdi, masaüstü/terminal onayı bekliyor: cihaz adı; değilse `None`."""
+        try:
+            pending = self._lookup(code)
+        except PairingError:
+            return None
+        if pending.submitted and pending.approved_device is None:
+            return pending.device_name or "Adsız cihaz"
+        return None
+
     def is_approved(self, code: str) -> bool:
         """Kod girildi ve cihaz kaydı oluştu mu (teslim bekliyor)?"""
         try:
