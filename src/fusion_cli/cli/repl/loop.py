@@ -492,6 +492,8 @@ async def _drive_agent(
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
+    # Beceri ekleri bu motorda kullanılmaz; bekleyip sonraki agent turuna sızmasın.
+    state.take_pending_extras()
     renderer = ConsoleRenderer(
         console, show_all_answers=state.show_all_answers, show_call_details=True
     )

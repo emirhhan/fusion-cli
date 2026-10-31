@@ -566,6 +566,9 @@ REPL_SKILL_FORK_NOTE = (
 REPL_SKILL_MODEL_NOTE = (
     "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
 )
+REPL_SKILL_ENGINE_NOTE = (
+    "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
+)
 CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"

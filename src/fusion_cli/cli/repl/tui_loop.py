@@ -628,6 +628,8 @@ class _TuiSession:
         sinks = (renderer, work, self._transcript_store, pump, self._state.cost)
         try:
             if self._state.engine is Engine.FUSION:
+                # Beceri ekleri bu motorda kullanılmaz; sonraki agent turuna sızmasın.
+                self._state.take_pending_extras()
                 self._state.last_fusion = await run_task(
                     line,
                     self._state.config,
