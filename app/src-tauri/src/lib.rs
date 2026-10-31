@@ -646,6 +646,15 @@ fn tepsi_durum(calisan: u32, app: tauri::AppHandle) -> Result<(), String> {
     tepsi::durum(&app, calisan)
 }
 
+/// Arayüz dinleyicisi kurulunca çağrılır: soğuk açılışta gelen `fusion://` hedefini verir
+/// (yoksa `None`) ve bundan sonra hedeflerin olayla yayınlanmasını açar (P-064).
+#[tauri::command]
+fn derin_baglanti_al(
+    bekleyen: tauri::State<derin_baglanti::Bekleyen>,
+) -> Option<derin_baglanti::DerinBaglanti> {
+    bekleyen.al()
+}
+
 #[tauri::command]
 async fn kits_baslat(
     app: tauri::AppHandle,
@@ -918,6 +927,7 @@ pub fn run() {
         })
         .manage(SpeechManager::new())
         .manage(tepsi::TepsiDurumu::default())
+        .manage(derin_baglanti::Bekleyen::default())
         .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
             let output_app = app.handle().clone();
@@ -995,7 +1005,8 @@ pub fn run() {
             izin_ayarlari_ac,
             kits_baslat,
             tepsi_ayarla,
-            tepsi_durum
+            tepsi_durum,
+            derin_baglanti_al
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

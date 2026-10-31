@@ -9,8 +9,11 @@
 //! yayınlar. Arayüz hedefi tekrar DOĞRULAR (kayıtlı sohbet var mı, bölüm tanınıyor mu):
 //! dış kaynaktan gelen adres güvenilmez veri sayılır.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 /// Arayüzün dinlediği olay adı.
 pub const OLAY: &str = "uygulama://derin-baglanti";
@@ -62,12 +65,56 @@ pub fn argumanlardan(args: &[String]) -> Option<DerinBaglanti> {
     args.iter().find_map(|arg| coz(arg))
 }
 
-/// Ana pencereyi öne getir ve hedefi arayüze yayınla.
+/// Arayüz dinleyicisi kurulmadan gelen hedefin bekletildiği yer (soğuk açılış).
+///
+/// Ölçüldü (31 Ekim): uygulama kapalıyken tıklanan `fusion://sohbet/x` için macOS
+/// `RunEvent::Opened`'ı arayüz yüklenmeden veriyor; `emit` o anda kimseye ulaşmıyor ve
+/// Tauri olayı kuyruklamıyor — bağlantı sessizce kayboluyordu. Arayüz hazır olunca
+/// `derin_baglanti_al` komutuyla bekleyen hedefi çeker; ondan sonrası yayınla gider.
+#[derive(Default)]
+pub struct Bekleyen {
+    hazir: AtomicBool,
+    hedef: Mutex<Option<DerinBaglanti>>,
+}
+
+/// `Bekleyen::yonlendir` kararı.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Teslim {
+    /// Arayüz dinliyor: olay yayınlanır.
+    Yayinla,
+    /// Arayüz henüz yok: hedef saklandı, `al` ile teslim edilecek.
+    Beklet,
+}
+
+impl Bekleyen {
+    pub fn yonlendir(&self, hedef: &DerinBaglanti) -> Teslim {
+        if self.hazir.load(Ordering::SeqCst) {
+            return Teslim::Yayinla;
+        }
+        // Son gelen kazanır: açılışta iki bağlantı tıklanırsa kullanıcı sonuncuyu bekler.
+        *self.hedef.lock().unwrap_or_else(|zehir| zehir.into_inner()) = Some(hedef.clone());
+        Teslim::Beklet
+    }
+
+    /// Arayüz hazır: bekleyen hedefi (varsa) ver ve bundan sonra yayınla yoluna geç.
+    pub fn al(&self) -> Option<DerinBaglanti> {
+        self.hazir.store(true, Ordering::SeqCst);
+        self.hedef
+            .lock()
+            .unwrap_or_else(|zehir| zehir.into_inner())
+            .take()
+    }
+}
+
+/// Ana pencereyi öne getir ve hedefi arayüze ilet (dinleyici yoksa beklet).
 pub fn ilet(app: &tauri::AppHandle, hedef: &DerinBaglanti) {
     if let Some(ana) = app.get_webview_window_main() {
         let _ = ana.unminimize();
         let _ = ana.show();
         let _ = ana.set_focus();
+    }
+    if app.state::<Bekleyen>().yonlendir(hedef) == Teslim::Beklet {
+        return;
     }
     if let Err(hata) = app.emit(OLAY, hedef) {
         eprintln!("[fusion][derin-baglanti] olay yayınlanamadı: {hata}");
@@ -84,13 +131,19 @@ impl AnaPencere for tauri::AppHandle {
     }
 }
 
+/// Yüzde kodunu çöz (`%2F` → `/`, `+` → boşluk); bozuk `%` dizisi olduğu gibi kalır.
+///
+/// Yalnız BAYT düzeyinde çalışır: iki onaltılık basamak `is_ascii_hexdigit` ile denetlenir,
+/// metin hiç dilimlenmez. Ölçüldü (31 Ekim): `&metin[i+1..i+3]` dilimi `%aé` gibi girdide
+/// çok baytlı karakterin ortasına düşüp panik atıyor; dış kaynaklı adres uygulamayı
+/// kapatıyordu.
 fn yuzde_coz(metin: &str) -> String {
     let bayt = metin.as_bytes();
     let mut sonuc = Vec::with_capacity(bayt.len());
     let mut i = 0;
     while i < bayt.len() {
-        if bayt[i] == b'%' && i + 2 < bayt.len() {
-            if let Ok(deger) = u8::from_str_radix(&metin[i + 1..i + 3], 16) {
+        if bayt[i] == b'%' {
+            if let Some(deger) = onaltilik_cift(bayt.get(i + 1), bayt.get(i + 2)) {
                 sonuc.push(deger);
                 i += 3;
                 continue;
@@ -100,6 +153,13 @@ fn yuzde_coz(metin: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&sonuc).into_owned()
+}
+
+fn onaltilik_cift(ust: Option<&u8>, alt: Option<&u8>) -> Option<u8> {
+    // ASCII dışı bayt `char`'a dönüşünce `to_digit` None verir; dilimleme yok.
+    let ust = (*ust? as char).to_digit(16)?;
+    let alt = (*alt? as char).to_digit(16)?;
+    Some((ust * 16 + alt) as u8)
 }
 
 #[cfg(test)]
@@ -163,6 +223,46 @@ mod tests {
             argumanlardan(&["fusion-desktop".into(), "fusion://sohbet/q1".into()]),
             Some(DerinBaglanti::Sohbet { id: "q1".into() })
         );
+    }
+
+    #[test]
+    fn yuzde_kodu_cok_baytli_karakterin_ortasina_dusunce_panik_atmaz() {
+        // Ölçüldü (31 Ekim): `%a` ardından 'é' gelince `&metin[i+1..i+3]` char sınırı
+        // dışında kalıyor ve dışarıdan gelen adres uygulamayı çökertiyordu.
+        assert_eq!(yuzde_coz("%aé"), "%aé");
+        assert_eq!(yuzde_coz("%é"), "%é");
+        assert_eq!(yuzde_coz("%a"), "%a");
+        assert_eq!(yuzde_coz("%"), "%");
+        assert_eq!(yuzde_coz("%zz"), "%zz");
+        assert_eq!(yuzde_coz("a+b%20c"), "a b c");
+        assert_eq!(
+            coz("fusion://yeni?kok=%aé"),
+            Some(DerinBaglanti::Yeni {
+                kok: Some("%aé".into())
+            })
+        );
+        assert_eq!(coz("fusion://sohbet/%aé"), None);
+        assert_eq!(
+            coz("fusion://ayarlar/%aé"),
+            Some(DerinBaglanti::Ayarlar {
+                bolum: Some("%aé".into())
+            })
+        );
+    }
+
+    #[test]
+    fn arayuz_hazir_olmadan_gelen_hedef_bekletilir_ve_bir_kez_teslim_edilir() {
+        let bekleyen = Bekleyen::default();
+        let ilk = DerinBaglanti::Sohbet { id: "a".into() };
+        let son = DerinBaglanti::Ayarlar { bolum: None };
+        assert_eq!(bekleyen.yonlendir(&ilk), Teslim::Beklet);
+        assert_eq!(bekleyen.yonlendir(&son), Teslim::Beklet);
+        // Arayüz hazır: son gelen teslim edilir, ikinci çekiş boş döner.
+        assert_eq!(bekleyen.al(), Some(son));
+        assert_eq!(bekleyen.al(), None);
+        // Bundan sonra gelen yayınlanır, bekletilmez.
+        assert_eq!(bekleyen.yonlendir(&ilk), Teslim::Yayinla);
+        assert_eq!(bekleyen.al(), None);
     }
 
     #[test]
