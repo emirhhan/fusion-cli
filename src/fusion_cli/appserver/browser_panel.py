@@ -6,8 +6,11 @@ devredemiyordu. Panel ajanla AYNI tarayıcıyı gösterir (`browser.panel_agent`
 
 - görüntü CDP ekran yayınıdır, panel `tarayici_panel.kare` ile çeker (bkz. `browser_live`);
 - sekmeler, adres, geri/ileri/yenile, tıklama/kaydırma/yazma kullanıcıdan gelir;
-- tur sürerken kullanıcı girdisi denetimi kendiliğinden devralır; ajanın tarayıcı aracı
-  "Ajana bırak" denene kadar bekler (`browser_shared.control_gate`);
+- tur sürerken kullanıcının tıklaması/yazması/gezinmesi denetimi kendiliğinden devralır;
+  ajanın tarayıcı aracı "Ajana bırak" denene kadar bekler (`browser_shared.control_gate`).
+  İzlemek için kaydırmak devralmaz; kendiliğinden devralınan denetim tur bitince ajana döner
+  (açık "Devral" kullanıcıda kalır). Ölçüldü (31 Ekim, inceleme): tekerlek bile denetimi
+  alıyor, denetim tur sonrasına taşınıp sonraki turu 300 sn bekletiyordu;
 - profil seçimi: temiz oturum (varsayılan), "Panel oturumu" (çerezler çıkışta saklanır —
   Claude Code "Keep cookies") ya da `fusion browser` profilleri. Kullanıcının yüklediği
   girişli oturumu ajan yalnız "Ajan bu oturumu kullanabilir" açıkken görür; yoksa tur kendi
@@ -82,6 +85,8 @@ class BrowserPanel:
         #: Kullanıcının panelde yüklediği girişli oturum ve ajanın onu kullanma izni.
         self._user_profile = ""
         self.profile_consent = False
+        #: Denetim tur sürerken girdiyle KENDİLİĞİNDEN mi alındı? (tur bitince geri verilir)
+        self._auto_control = False
         self._handlers: dict[str, Handler] = {
             "durum": self._status,
             "ac": self._open,
@@ -95,7 +100,7 @@ class BrowserPanel:
             "sekme_sec": self._input(lambda live, data: live.select_tab(data.get("no"))),
             "sekme_kapat": self._input(lambda live, data: live.close_tab(data.get("no"))),
             "tikla": self._input(self._click),
-            "kaydir": self._input(
+            "kaydir": self._view(
                 lambda live, data: live.scroll(
                     data.get("x"), data.get("y"), data.get("dx", 0), data.get("dy", 0)
                 )
@@ -183,6 +188,7 @@ class BrowserPanel:
             "profil": session.active_profile if is_open and session is not None else "",
             "kullanici_profili": self._user_profile,
             "denetim": "kullanici" if session is not None and session.user_control else "ajan",
+            "ajan_bekliyor": session is not None and session.agent_waiting,
             SETTING_AGENT: self.agent_shares,
             SETTING_CONSENT: self.profile_consent,
             "ajan_goruyor": self.agent_sees,
@@ -267,15 +273,16 @@ class BrowserPanel:
             session = self._shared.current
             if session is None or not session.is_open:
                 return _error("Tarayıcı açık değil; panelde bir adres aç.")
-            if self._agent_busy():
+            if self._agent_busy() and not session.user_control:
                 session.take_control()
+                self._auto_control = True
             await action(self._view_of(session), data)
             return _ok(**self._state())
 
         return run
 
     def _view(self, action: Callable[[LiveView, dict[str, Any]], Awaitable[None]]) -> Handler:
-        """Görünüm değişikliği (boyut/tema): denetimi devralmaz."""
+        """Görünüm değişikliği (boyut/tema, kaydırma): denetimi devralmaz."""
 
         async def run(data: dict[str, Any]) -> dict[str, Any]:
             session = self._shared.current
@@ -298,13 +305,22 @@ class BrowserPanel:
 
     async def _take(self, _data: dict[str, Any]) -> dict[str, Any]:
         self._shared.session().take_control()
+        self._auto_control = False
         return _ok(**self._state())
 
     async def _release(self, _data: dict[str, Any]) -> dict[str, Any]:
         session = self._shared.current
         if session is not None:
             session.release_control()
+        self._auto_control = False
         return _ok(**self._state())
+
+    def turn_finished(self) -> None:
+        """Ajan turu bitti: girdiyle kendiliğinden devralınan denetim ajana döner."""
+        session = self._shared.current
+        if self._auto_control and session is not None:
+            session.release_control()
+        self._auto_control = False
 
     # ------------------------------------------------------------------ öğe seçici
     async def _element(self, data: dict[str, Any]) -> tuple[Any, browser_picker.PickedElement]:

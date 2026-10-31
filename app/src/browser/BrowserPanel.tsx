@@ -176,14 +176,18 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
       )}
 
       {userHasControl ? (
-        <div className="browser-banner browser-banner--user" role="status">
-          <span><strong>Denetim sende.</strong> Ajanın tarayıcı eylemleri sen bırakana kadar bekler.</span>
+        <div className="browser-banner browser-banner--user" data-waiting={state?.ajanBekliyor || undefined} role="status">
+          {state?.ajanBekliyor ? (
+            <span><strong>Ajan seni bekliyor.</strong> İşin bitince denetimi ajana bırak.</span>
+          ) : (
+            <span><strong>Denetim sende.</strong> Ajanın tarayıcı eylemleri sen bırakana kadar bekler.</span>
+          )}
           <button onClick={() => void call("birak")} type="button">Ajana bırak</button>
         </div>
       ) : agentWorking ? (
         <div className="browser-banner browser-banner--agent" role="status">
           <span className="browser-banner__pulse" aria-hidden="true" />
-          <span>Ajan bu tarayıcıyı kullanıyor; tıklarsan denetim sana geçer.</span>
+          <span>Ajan bu tarayıcıyı kullanıyor; tıklar ya da yazarsan denetim sana geçer.</span>
           <button onClick={() => void call("devral")} type="button">Devral</button>
         </div>
       ) : null}

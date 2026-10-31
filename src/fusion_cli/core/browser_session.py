@@ -63,6 +63,8 @@ class BrowserSession:
         self._user_control = False
         self._released = asyncio.Event()
         self._released.set()
+        #: Denetimin bırakılmasını bekleyen ajan aracı sayısı (panel "Ajan seni bekliyor" der).
+        self._waiting = 0
 
     @property
     def is_open(self) -> bool:
@@ -71,6 +73,10 @@ class BrowserSession:
     @property
     def user_control(self) -> bool:
         return self._user_control
+
+    @property
+    def agent_waiting(self) -> bool:
+        return self._waiting > 0
 
     def take_control(self) -> None:
         """Kullanıcı tarayıcıyı devraldı (P-045): ajan eylemleri `wait_for_control`'da bekler."""
@@ -86,8 +92,12 @@ class BrowserSession:
         """Kullanıcı denetimi bırakana kadar bekle; süre dolarsa False (iptal yayılır)."""
         if not self._user_control:
             return True
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._released.wait(), timeout_s)
+        self._waiting += 1
+        try:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._released.wait(), timeout_s)
+        finally:
+            self._waiting -= 1
         return not self._user_control
 
     def derive(self) -> BrowserSession:

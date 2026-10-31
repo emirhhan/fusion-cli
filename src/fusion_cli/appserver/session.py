@@ -2954,6 +2954,7 @@ class AppSession:
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
+            self._browser_panel.turn_finished()
             await child_runs.close()
             if self._turn is owned_turn:
                 self._child_runs = None

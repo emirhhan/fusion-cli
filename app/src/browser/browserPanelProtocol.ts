@@ -19,6 +19,8 @@ export interface BrowserState {
   profil: string;
   kullaniciProfili: string;
   denetim: "kullanici" | "ajan";
+  /** Ajanın tarayıcı aracı kullanıcının denetimi bırakmasını bekliyor. */
+  ajanBekliyor: boolean;
   ajanPaylasir: boolean;
   profilOnayi: boolean;
   ajanGoruyor: boolean;
@@ -50,6 +52,7 @@ export function decodeState(payload: Record<string, unknown>): BrowserState {
     profil: text(payload.profil),
     kullaniciProfili: text(payload.kullanici_profili),
     denetim: payload.denetim === "kullanici" ? "kullanici" : "ajan",
+    ajanBekliyor: payload.ajan_bekliyor === true,
     ajanPaylasir: payload.ajan_paylasir !== false,
     profilOnayi: payload.profil_onayi === true,
     ajanGoruyor: payload.ajan_goruyor === true,

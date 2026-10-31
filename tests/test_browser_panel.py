@@ -317,6 +317,47 @@ async def test_tur_surerken_kullanici_tiklamasi_devralir_ajan_birakilinca_surer(
 
 
 @gercek_tarayici
+async def test_tur_surerken_kaydirma_devralmaz_tur_bitince_kendiliginden_devralma_doner(
+    panel, site
+):
+    # Ölçüldü (31 Ekim, inceleme): izlemek için tekerlekle kaydırmak denetimi kullanıcıya
+    # geçiriyor, ajanın sonraki aracı 300 sn bekliyordu; denetim tur bitince de kullanıcıda
+    # kaldığından sonraki turun ilk tarayıcı çağrısı da sessizce bekliyordu.
+    await panel.handle("tarayici_panel.ac", {"url": site})
+    await _kare(panel)
+    oturum = panel.turn_browser()
+    panel.durum["tur"] = True
+
+    yanit = await panel.handle("tarayici_panel.kaydir", {"x": 0.5, "y": 0.5, "dy": 120})
+    assert yanit["ok"] and yanit["denetim"] == "ajan" and not oturum.user_control
+
+    x, y = await _orta(panel, "#ad")
+    await panel.handle("tarayici_panel.tikla", {"x": x, "y": y})
+    assert oturum.user_control
+    baglam = ToolContext(root=Path(), browser=oturum)
+    ajan = asyncio.ensure_future(browser_tools.browser_read({}, baglam))
+    for _ in range(40):
+        if (await panel.handle("tarayici_panel.durum", {}))["ajan_bekliyor"]:
+            break
+        await asyncio.sleep(0.05)
+    assert (await panel.handle("tarayici_panel.durum", {}))["ajan_bekliyor"] is True
+
+    panel.durum["tur"] = False
+    panel.turn_finished()
+
+    assert not oturum.user_control  # kendiliğinden devralınan denetim ajana döndü
+    sonuc = await asyncio.wait_for(ajan, 10)
+    assert sonuc.ok
+    assert (await panel.handle("tarayici_panel.durum", {}))["ajan_bekliyor"] is False
+
+
+async def test_acik_devral_tur_bitince_kullanicida_kalir(panel):
+    await panel.handle("tarayici_panel.devral", {})
+    panel.turn_finished()
+    assert panel.turn_browser().user_control  # kullanıcı bilerek aldı: o bırakır
+
+
+@gercek_tarayici
 async def test_oge_secici_benzersiz_secici_ve_proje_ici_goruntu_doner(panel, site, tmp_path):
     await panel.handle("tarayici_panel.ac", {"url": site})
     await _kare(panel)

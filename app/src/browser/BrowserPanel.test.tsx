@@ -5,11 +5,11 @@ import { BrowserPanel } from "./BrowserPanel";
 
 afterEach(cleanup);
 
-interface Durum { acik: boolean; denetim: string; kullanici_profili: string; tur_suruyor: boolean; ajan_goruyor: boolean }
+interface Durum { acik: boolean; denetim: string; kullanici_profili: string; tur_suruyor: boolean; ajan_goruyor: boolean; ajan_bekliyor: boolean }
 
 function istemci(baslangic: Partial<Durum> = {}) {
   const durum: Durum = {
-    acik: false, denetim: "ajan", kullanici_profili: "", tur_suruyor: false, ajan_goruyor: true, ...baslangic,
+    acik: false, denetim: "ajan", kullanici_profili: "", tur_suruyor: false, ajan_goruyor: true, ajan_bekliyor: false, ...baslangic,
   };
   const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
     const ad = name.replace("tarayici_panel.", "");
@@ -74,6 +74,13 @@ describe("BrowserPanel (uygulama içi tarayıcı, P-045)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Ajana bırak" }));
 
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("tarayici_panel.birak", {}));
+  });
+
+  it("ajan aracı denetimi beklerken bunu açıkça söyler", async () => {
+    const client = istemci({ acik: true, denetim: "kullanici", tur_suruyor: true, ajan_bekliyor: true });
+    render(<BrowserPanel client={client} />);
+    expect((await screen.findByText("Ajan seni bekliyor.")).closest("[role=status]")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ajana bırak" })).toBeTruthy();
   });
 
   it("ajan çalışırken Devral düğmesi görünür", async () => {

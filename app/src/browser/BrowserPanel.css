@@ -132,6 +132,7 @@
 }
 
 .browser-banner--user { background: var(--surface-accent-subtle); color: var(--text-primary); }
+.browser-banner--user[data-waiting] { box-shadow: inset 3px 0 0 var(--text-warning); }
 .browser-banner--agent { background: var(--surface-hover); color: var(--text-secondary); }
 .browser-banner button { background: var(--control-primary); color: var(--text-inverse); padding: 0 var(--space-3); }
 
