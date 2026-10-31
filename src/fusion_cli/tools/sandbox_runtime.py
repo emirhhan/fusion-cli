@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.redaction import is_secret_env_name
-from ..core.sandbox_policy import SandboxPolicy, is_excluded_command
+from ..core.sandbox_policy import PROTECTED_ANCHORS, SandboxPolicy, is_excluded_command
 from ..core.sandbox_proxy import DomainProxy
 from ..core.shell_sandbox import (
     SHELL_SANDBOX_WRITE_ROOT,
@@ -228,7 +228,7 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
     if not run.plan.is_active:
         return notes
     if returncode != 0 and "Operation not permitted" in stderr:
-        notes.append(_denied_hint(run.policy))
+        notes.append(_denied_hint(run.policy, stderr))
     if run.proxy is not None:
         hosts = list(dict.fromkeys(item.host for item in run.proxy.denials_since(run.mark)))
         if hosts:
@@ -248,12 +248,17 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
     return notes
 
 
-def _denied_hint(policy: SandboxPolicy) -> str:
+def _denied_hint(policy: SandboxPolicy, stderr: str = "") -> str:
     hint = (
         "Komut sandbox içinde çalışıyor (runtime.shell_sandbox=write_root): yazma yalnız proje "
         "kökü, --add-dir, sandbox.allow_write ve geçici dizinlere açık; sandbox.deny_read "
         "yolları okunamaz."
     )
+    if any(f"{anchor}/" in stderr or f"{anchor}:" in stderr for anchor in PROTECTED_ANCHORS):
+        hint += (
+            " .git/config, .git/hooks, .claude/.fusion ayar dosyaları ve .mcp.json sandbox "
+            "içinden hiç yazılamaz (git init, git remote add, git push -u bunlara yazar)."
+        )
     if policy.allow_unsandboxed:
         hint += (
             " Gerçekten gerekiyorsa run_shell(unsandboxed=true) ile yeniden dene "

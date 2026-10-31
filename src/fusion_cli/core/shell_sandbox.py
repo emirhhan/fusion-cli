@@ -27,7 +27,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .sandbox_policy import SandboxPolicy
+from .sandbox_policy import (
+    PROTECTED_ANCHORS,
+    SandboxPolicy,
+    protected_anchors,
+    protected_write_paths,
+)
 from .shell_sandbox_linux import LINUX_BRIDGE_PORT, LinuxTools, linux_sandbox_argv
 
 SHELL_SANDBOX_OFF = "off"
@@ -107,7 +112,7 @@ def _network_rules(policy: SandboxPolicy, proxy: ProxyEndpoint | None) -> str:
     return rules
 
 
-def _profile(write_count: int, read_count: int, network: str = "") -> str:
+def _profile(write_count: int, read_count: int, network: str = "", guard: str = "") -> str:
     """SBPL profili: her şeye izin ver, yazmayı kapat, kökleri geri aç, okuma/ağ kısıtla."""
     allowed = " ".join(f'(subpath (param "W{index}"))' for index in range(write_count))
     devices = " ".join(f'(literal "{path}")' for path in _DEVICE_FILES)
@@ -118,7 +123,25 @@ def _profile(write_count: int, read_count: int, network: str = "") -> str:
     if read_count:
         denied = " ".join(f'(subpath (param "R{index}"))' for index in range(read_count))
         profile += f"\n(deny file-read* {denied})"
-    return profile + network
+    return profile + guard + network
+
+
+def _guard_rules(protected: int, literals: int, anchors: int) -> str:
+    """Zorunlu yazma engeli (kök altında da): korumalı yollar, `.git` girdisi, taşıma engeli.
+
+    SBPL'de sonraki kural önceliklidir; bu kurallar köklerin yazma iznini geçersiz kılar.
+    `.git` yalnız kendisi (literal) kapalıdır: içine nesne/ref/index yazmak (`git commit`)
+    serbest kalır, ama `.git`'i dosya (`gitdir:`) ya da bağlantı yapmak ve taşımak kapanır.
+    """
+    if not protected:
+        return ""
+    paths = " ".join(f'(subpath (param "P{index}"))' for index in range(protected))
+    paths += "".join(f' (literal (param "G{index}"))' for index in range(literals))
+    rules = f"\n(deny file-write* {paths})"
+    if anchors:
+        moved = " ".join(f'(literal (param "A{index}"))' for index in range(anchors))
+        rules += f"\n(deny file-write-unlink {moved})"
+    return rules
 
 
 def _darwin_prefix(
@@ -126,11 +149,22 @@ def _darwin_prefix(
     policy: SandboxPolicy,
     executable: str,
     proxy: ProxyEndpoint | None,
+    guarded: Sequence[Path] = (),
 ) -> tuple[str, ...]:
     denied = tuple(dict.fromkeys(path.resolve() for path in policy.deny_read))
+    protected = protected_write_paths(guarded)
+    git_entries = tuple(root / PROTECTED_ANCHORS[0] for root in guarded)
+    anchors = tuple(
+        path for path in protected_anchors(guarded) if path.name != PROTECTED_ANCHORS[0]
+    )
     parameters = [item for index, path in enumerate(roots) for item in ("-D", f"W{index}={path}")]
     parameters += [item for index, path in enumerate(denied) for item in ("-D", f"R{index}={path}")]
-    profile = _profile(len(roots), len(denied), _network_rules(policy, proxy))
+    for prefix, paths in (("P", protected), ("G", git_entries), ("A", anchors)):
+        parameters += [
+            item for index, path in enumerate(paths) for item in ("-D", f"{prefix}{index}={path}")
+        ]
+    guard = _guard_rules(len(protected), len(git_entries), len(anchors))
+    profile = _profile(len(roots), len(denied), _network_rules(policy, proxy), guard)
     return (executable, *parameters, "-p", profile)
 
 
@@ -178,20 +212,24 @@ def plan_shell_sandbox(
             for path in (*writable_roots, *rules.extra_write, *_temporary_directories())
         )
     )
+    # Geçici dizinler hariç: korumalı yollar proje kökleri ve kullanıcının ek kökleri içindir.
+    guarded = tuple(dict.fromkeys(path.resolve() for path in (*writable_roots, *rules.extra_write)))
     hide = rules.hide_secret_env
     if system == "darwin":
         if executable is None or not Path(executable).exists():
             return _unavailable("sandbox-exec bulunamadı", rules)
         address = f"http://127.0.0.1:{proxy.port}" if proxy is not None and proxy.port else None
         return SandboxPlan(
-            prefix=_darwin_prefix(roots, rules, executable, proxy),
+            prefix=_darwin_prefix(roots, rules, executable, proxy, guarded),
             env=_proxy_env(rules, address),
             hide_secret_env=hide,
         )
     if system.startswith("linux"):
         tools = linux_tools or LinuxTools(shutil.which("bwrap"), shutil.which("socat"))
         socket_path = proxy.unix_path if proxy is not None else None
-        argv = linux_sandbox_argv(roots, rules, tools, proxy_socket=socket_path)
+        argv = linux_sandbox_argv(
+            roots, rules, tools, proxy_socket=socket_path, protected_roots=guarded
+        )
         if argv.unavailable:
             return _unavailable(argv.unavailable, rules)
         address = f"http://127.0.0.1:{LINUX_BRIDGE_PORT}" if socket_path is not None else None

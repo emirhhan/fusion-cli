@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .sandbox_policy import SandboxPolicy
+from .sandbox_policy import PROTECTED_ANCHORS, SandboxPolicy, protected_write_paths
 
 __all__ = ["LINUX_BRIDGE_PORT", "LinuxSandboxArgv", "LinuxTools", "linux_sandbox_argv"]
 
@@ -45,11 +45,39 @@ class LinuxSandboxArgv:
     unavailable: str = ""
 
 
-def _mounts(roots: Sequence[Path], deny_read: Sequence[Path]) -> list[str]:
+def _guards(protected_roots: Sequence[Path]) -> list[str]:
+    """Kök altında zorunlu yazma engeli (`core.sandbox_policy.PROTECTED_WRITE_PATHS`).
+
+    `.git`/`.claude`/`.fusion` dizinleri kendi üstüne bağlanır: bağlama noktası
+    taşınamaz (EBUSY), içleri yazılabilir kalır. Var olan korumalı yol salt okunur
+    bağlanır; `.git/hooks` yoksa boş, salt okunur tmpfs konur. Bilinen sınır: bwrap var
+    olmayan dosyayı koruyamaz (ör. `.mcp.json` yoksa oluşturulabilir; Fusion'ın güven
+    karması bu dosyalar değişince projeyi güvenilmez sayar).
+    """
+    arguments: list[str] = []
+    for root in protected_roots:
+        for anchor in PROTECTED_ANCHORS:
+            path = root / anchor
+            if path.is_dir():
+                arguments += ["--bind", str(path), str(path)]
+            elif path.exists():
+                arguments += ["--ro-bind", str(path), str(path)]
+        for path in protected_write_paths((root,)):
+            if path.exists():
+                arguments += ["--ro-bind", str(path), str(path)]
+            elif path.name == "hooks" and path.parent.is_dir():
+                arguments += ["--tmpfs", str(path), "--remount-ro", str(path)]
+    return arguments
+
+
+def _mounts(
+    roots: Sequence[Path], deny_read: Sequence[Path], protected_roots: Sequence[Path] = ()
+) -> list[str]:
     arguments = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
     for root in roots:
         if root.exists():
             arguments += ["--bind", str(root), str(root)]
+    arguments += _guards(protected_roots)
     for path in deny_read:
         if path.is_dir():
             arguments += ["--tmpfs", str(path)]
@@ -74,13 +102,14 @@ def linux_sandbox_argv(
     tools: LinuxTools,
     *,
     proxy_socket: Path | None = None,
+    protected_roots: Sequence[Path] = (),
 ) -> LinuxSandboxArgv:
     """bwrap önekini kur; kurulamıyorsa nedenini döndür."""
     if tools.bwrap is None:
         return LinuxSandboxArgv(
             unavailable="bubblewrap (bwrap) bulunamadı (kur: apt install bubblewrap)"
         )
-    arguments = [tools.bwrap, "--die-with-parent", *_mounts(roots, policy.deny_read)]
+    arguments = [tools.bwrap, "--die-with-parent", *_mounts(roots, policy.deny_read, protected_roots)]
     if not policy.restricts_network:
         return LinuxSandboxArgv(prefix=(*arguments, "--"))
     arguments.append("--unshare-net")

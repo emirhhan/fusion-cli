@@ -13,6 +13,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,10 +21,14 @@ __all__ = [
     "NETWORK_ALLOWLIST",
     "NETWORK_MODES",
     "NETWORK_OPEN",
+    "PROTECTED_ANCHORS",
+    "PROTECTED_WRITE_PATHS",
     "SandboxPolicy",
     "domain_allowed",
     "is_excluded_command",
     "normalize_domain",
+    "protected_anchors",
+    "protected_write_paths",
 ]
 
 #: Ağ kısıtı yok (eski davranış).
@@ -36,6 +41,26 @@ NETWORK_MODES = (NETWORK_OPEN, NETWORK_ALLOWLIST)
 _DOMAIN = re.compile(
     r"^(\*\.)?[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)*$"
 )
+#: Yazılabilir kökün altında bile sandbox içinden YAZILAMAYAN yollar (köke göreli).
+#:
+#: Claude Code'un zorunlu deny-write listesi ve Codex'in `.git`'i salt okunur bağlaması
+#: gibi: Fusion'ın sandbox'sız `git` aracı `.git/config`'teki `core.fsmonitor`'u ve
+#: `.git/hooks`'u çalıştırır; ayar/launch/MCP dosyaları izin ve süreç başlatma taşır.
+#: Ölçüldü (31 Ekim): sandbox içinden `.git/config`'e fsmonitor yazılıp `git status`
+#: (salt okunur, sorusuz) çağrılınca komut sandbox DIŞINDA çalıştı.
+PROTECTED_WRITE_PATHS: tuple[str, ...] = (
+    ".git/config",
+    ".git/config.worktree",
+    ".git/hooks",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/launch.json",
+    ".fusion/launch.json",
+    ".fusion/tools",
+    ".mcp.json",
+)
+#: Korumalı yolları içeren dizinler: taşınamaz/silinemez (`mv .git x`, düzenle, geri taşı).
+PROTECTED_ANCHORS: tuple[str, ...] = (".git", ".claude", ".fusion")
 #: Bu işaretlerden biri olan komut bileşiktir; sandbox dışı listesiyle eşleşmez.
 _COMPOUND_MARKERS = (";", "&", "|", "`", "$(", "\n", ">", "<")
 
@@ -118,3 +143,21 @@ def is_excluded_command(command: str, patterns: tuple[str, ...]) -> bool:
         if wanted and words[: len(wanted)] == wanted:
             return True
     return False
+
+
+def protected_write_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
+    """Köklerin altındaki korumalı yollar (var olmasalar da; macOS yolu yoksa da korur)."""
+    return tuple(
+        dict.fromkeys(root / relative for root in roots for relative in PROTECTED_WRITE_PATHS)
+    )
+
+
+def protected_anchors(roots: Sequence[Path]) -> tuple[Path, ...]:
+    """Taşınması engellenen dizinler; kökün kendisi de (iç içe yazılabilir kökler için)."""
+    return tuple(
+        dict.fromkeys(
+            path
+            for root in roots
+            for path in (root, *(root / anchor for anchor in PROTECTED_ANCHORS))
+        )
+    )
