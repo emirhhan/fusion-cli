@@ -1186,7 +1186,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.EKIP_CMD_TEAM,
         team_commands.team_command,
         group="Agent",
-        usage="[goster|sil|mesaj] [ad] | <hedef>",
+        usage="[goster|sil|mesaj] [ad] | [kur] <hedef>",
     ),
     SlashCommand(
         "workflows",

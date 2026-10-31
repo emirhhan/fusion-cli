@@ -138,12 +138,16 @@ birbirine, lidere ya da herkese mesaj atar.
 
 ```
 /team                              ekipler ve görev ilerlemesi
-/team <hedef>                      lider ekibi kursun ve çalıştırsın
+/team [kur] <hedef>                lider ekibi kursun ve çalıştırsın
 /team goster <ad>                  pano + lidere gelen son mesajlar
 /team mesaj <ad> <üye> <metin>     ekibi sürdür, üyeye mesaj ilet
 /team sil <ad>                     panoyu ve gelen kutularını sil
 fusion ekip [liste|goster|sil] [--kok <dizin>]
 ```
+
+Alt komut yalnız biçimi tutunca çalışır: `liste` tek başına, `goster`/`sil` tek bir kayıtlı
+ekip adıyla, `mesaj` kayıtlı ekiple. "sil eski logları temizle" gibi bir cümle hedef
+sayılır; belirsizlikte `/team kur <hedef>` yazın.
 
 **Masaüstü.** Sohbette ekibin panosu (üyeler, Bekliyor / Çalışıyor / Bitti sütunları,
 posta kutusu) ve altında üye kartları görünür. Ajanlar sekmesindeki **Ekipler** listesi

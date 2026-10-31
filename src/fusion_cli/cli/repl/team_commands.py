@@ -4,7 +4,13 @@
     /team goster <ad>              pano: görevler, üyeler, lidere gelen son mesajlar
     /team sil <ad>                 panoyu ve gelen kutularını sil
     /team mesaj <ad> <üye> <metin> ekibi sürdür, üyeye mesaj ilet
-    /team <hedef>                  lider (ana ajan) ekibi kursun ve çalıştırsın
+    /team [kur] <hedef>            lider (ana ajan) ekibi kursun ve çalıştırsın
+
+Alt komut yalnız biçimi tutunca çalışır (`liste` tek başına; `goster`/`sil` tek adla;
+`mesaj` kayıtlı ekip adı ister, yoksa `kur` ipucu verir); "sil eski logları temizle"
+gibi cümle hedef sayılır. Ölçüldü
+(31 Ekim): ilk kelime her durumda alt komut sayılıyor, "list the open PRs" ekip listesi,
+"sil eski loglari temizle" "adlı ekip yok" dönüyordu.
 
 Kurma/sürdürme bir ajan turu hazırlar (`pending_task`); masaüstü aynı komutu çalıştırır.
 Metin Rich işaretlemesi taşımaz (REPL sonucu işaretlemeli basar).
@@ -12,7 +18,7 @@ Metin Rich işaretlemesi taşımaz (REPL sonucu işaretlemeli basar).
 
 from __future__ import annotations
 
-from ...engines.agent.team_board import LEAD, TeamError, TeamStore
+from ...engines.agent.team_board import LEAD, NAME_PATTERN, TeamError, TeamStore
 from ...engines.agent.team_tools_member import render_board
 from .state import Engine, ReplState
 
@@ -20,9 +26,10 @@ from .state import Engine, ReplState
 LEAD_MESSAGES = 10
 
 USAGE = (
-    "Kullanım: /team [goster <ad>] | sil <ad> | mesaj <ad> <üye> <metin> | <hedef>\n"
+    "Kullanım: /team [goster <ad>] | sil <ad> | mesaj <ad> <üye> <metin> | [kur] <hedef>\n"
     "Panolar: .fusion/ekip/<ad>/ (görev listesi + gelen kutuları)."
 )
+BUILD_HINT = " Bu bir hedefse: /team kur <hedef>"
 NONE_SAVED = "Henüz ekip yok. '/team <hedef>' ile lider bir ekip kursun."
 BUILD_TASK = (
     "Bu iş için bir ajan EKİBİ kur ve team_run aracıyla çalıştır. Hedef: {goal}\n"
@@ -35,31 +42,47 @@ MESSAGE_TASK = (
 )
 
 
+_LIST = frozenset({"liste", "list"})
+_SHOW = frozenset({"goster", "göster", "show"})
+_DELETE = frozenset({"sil", "delete"})
+_MESSAGE = frozenset({"mesaj", "message"})
+_BUILD = frozenset({"kur", "build"})
+
+
 def team_command(state: ReplState, argument: str) -> str:
     store = TeamStore(state.root)
-    word, _, rest = argument.strip().partition(" ")
-    action = word.casefold()
-    if not action or action in {"liste", "list"}:
+    text = argument.strip()
+    word, _, rest = text.partition(" ")
+    action, rest = word.casefold(), rest.strip()
+    if not text or (action in _LIST and not rest):
         return overview(store)
-    if action in {"goster", "göster", "show"}:
-        return show(store, rest.strip()) if rest.strip() else USAGE
-    if action in {"sil", "delete"}:
-        name = rest.strip()
-        if not name:
-            return USAGE
-        return f"Silindi: {name}" if store.delete(name) else f"'{name}' adlı ekip yok."
-    if action in {"mesaj", "message"}:
-        parts = rest.strip().split(" ", 2)
+    if action in _BUILD:
+        return _build(state, rest) if rest else USAGE
+    if action in _SHOW | _DELETE and rest and " " not in rest:
+        if rest not in store.names():
+            # Tek kelimelik geçerli ad: büyük olasılıkla yanlış yazılmış ekip adı.
+            if NAME_PATTERN.match(rest):
+                return f"'{rest}' adlı ekip yok.{BUILD_HINT}\n\n{overview(store)}"
+            return _build(state, text)
+        if action in _SHOW:
+            return show(store, rest)
+        return f"Silindi: {rest}" if store.delete(rest) else f"'{rest}' adlı ekip yok."
+    if action in _MESSAGE:
+        parts = rest.split(" ", 2)
         if len(parts) < 3 or not parts[2].strip():
             return USAGE
-        team, member, text = parts
+        team, member, message = parts
         if team not in store.names():
-            return f"'{team}' adlı ekip yok.\n\n{overview(store)}"
+            return f"'{team}' adlı ekip yok.{BUILD_HINT}\n\n{overview(store)}"
         state.engine = Engine.AGENT
-        state.pending_task = MESSAGE_TASK.format(team=team, member=member, text=text.strip())
+        state.pending_task = MESSAGE_TASK.format(team=team, member=member, text=message.strip())
         return f"'{team}' ekibi sürdürülüyor…"
+    return _build(state, text)
+
+
+def _build(state: ReplState, goal: str) -> str:
     state.engine = Engine.AGENT
-    state.pending_task = BUILD_TASK.format(goal=argument.strip())
+    state.pending_task = BUILD_TASK.format(goal=goal)
     return "Lider ekibi kuruyor…"
 
 
