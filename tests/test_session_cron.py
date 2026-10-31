@@ -151,3 +151,41 @@ def test_kaynak_sozluge_yazilir_eski_kayit_kullanici_sayilir() -> None:
         "gorevler": [{"id": "x", "prompt": "a", "kind": "aralik", "created_at": 0, "next_due": 60}]
     }
     assert SessionCron.from_dict(eski).get("x").source is Source.USER  # type: ignore[union-attr]
+
+
+@pytest.fixture
+def berlin(monkeypatch):
+    """Yaz saatli bir yerel dilim (25 Ekim 2026 03:00'te CEST → CET)."""
+    import time
+
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset yok")
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_cron_vadesi_yaz_saati_gecisinde_yerel_saati_korur(berlin) -> None:
+    """Ölçüldü (31 Ekim): `astimezone()` sabit ofset veriyordu; 24 Ekim'de kurulan
+    '0 9 * * *' 25 Ekim'de yerel 08:00'da tetikleniyordu."""
+    kurulus = datetime(2026, 10, 24, 10, 0).astimezone().timestamp()
+    cron = SessionCron()
+    gorev = cron.create_cron("rapor", "0 9 * * *", now=kurulus)
+    ilk = datetime.fromtimestamp(gorev.next_due)
+    assert (ilk.day, ilk.hour, ilk.minute) == (25, 9, 0)
+    sonraki = cron.complete(gorev.id, now=gorev.next_due)
+    assert sonraki is not None
+    ikinci = datetime.fromtimestamp(sonraki.next_due)
+    assert (ikinci.day, ikinci.hour) == (26, 9)
+
+
+def test_cron_en_kucuk_aralik_ifadeden_hesaplanir() -> None:
+    from fusion_cli.core.session_cron import cron_min_gap_minutes
+
+    assert cron_min_gap_minutes(parse_cron("* 9 * * *")) == 1
+    assert cron_min_gap_minutes(parse_cron("*/15 * * * *")) == 15
+    assert cron_min_gap_minutes(parse_cron("0 9 * * *")) == 1440
+    assert cron_min_gap_minutes(parse_cron("50 8 * * *")) == 1440
+    assert cron_min_gap_minutes(parse_cron("55 8,9 * * *")) == 60

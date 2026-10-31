@@ -438,7 +438,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
                 {draft.tur === "cron" && <label>Cron<input aria-describedby="schedule-cron-help" onChange={(event) => update({ cron: event.target.value })} placeholder="0 9 * * 1-5" required spellCheck={false} value={draft.cron} /></label>}
                 {draft.tur === "aralik" && <label>Dakika<input min={15} onChange={(event) => update({ dakika: event.target.value })} required type="number" value={draft.dakika} /></label>}
               </div>
-              {draft.tur === "cron" && <p className="schedule__hint" id="schedule-cron-help">dakika saat ayın-günü ay haftanın-günü · en seyrek 15 dakikada bir</p>}
+              {draft.tur === "cron" && <p className="schedule__hint" id="schedule-cron-help">dakika saat ayın-günü ay haftanın-günü · en sık 15 dakikada bir</p>}
               {draft.tur === "haftalik" && (
                 <div aria-label="Günler" className="schedule__days" role="group">
                   {DAY_LABELS.map((label, day) => (

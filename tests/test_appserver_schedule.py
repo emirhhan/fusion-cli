@@ -330,3 +330,18 @@ def test_cron_gorevi_kaydedilir_ve_ifade_normalize_edilir(tmp_path):
     assert sonuc["ok"] is True
     assert sonuc["gorev"]["cron"] == "0 9 * * 1-5"
     assert "dakika" not in sonuc["gorev"]
+
+
+@pytest.mark.parametrize("ifade", ["*/1 9 * * *", "* 9 * * *", "0,5 9 * * *", "50,59 9 * * *"])
+def test_cron_siklik_denetimi_ilk_vadeden_bagimsiz(ifade):
+    """Ölçüldü (31 Ekim): saat 08:00'da '*/1 9 * * *' kaydediliyordu (ilk vade 1 saat
+    sonra); ilk çalışmadan sonra `_advance` hata yutup görevi sessizce kapatıyordu."""
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    with pytest.raises(schedule.ScheduleError):
+        schedule.next_run({"tur": "cron", "cron": ifade}, sabah)
+
+
+@pytest.mark.parametrize("ifade", ["*/15 * * * *", "0 9 * * *", "0,30 9-18 * * 1-5"])
+def test_cron_yeterince_seyrek_ifade_kabul_edilir(ifade):
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    assert schedule.next_run({"tur": "cron", "cron": ifade}, sabah) is not None

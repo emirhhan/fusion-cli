@@ -394,4 +394,6 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   üretir (P-014 `--resume` gelince aynı dosya devralınır).
 - Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
   `cron.sil` de var). Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
-  (en seyrek 15 dakikada bir).
+  (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
+  `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
+  kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.

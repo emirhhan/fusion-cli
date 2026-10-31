@@ -25,7 +25,12 @@ from pathlib import Path
 from typing import Any, ParamSpec
 
 from ..config.paths import user_data_dir
-from ..core.session_cron import CronSpec, SessionCronError, cron_next, parse_cron
+from ..core.session_cron import (
+    SessionCronError,
+    cron_min_gap_minutes,
+    cron_next_local,
+    parse_cron,
+)
 from .schedule_delivery import (
     acknowledge_delivery,
     add_delivery,
@@ -183,18 +188,19 @@ def next_run(spec: dict[str, Any], after: datetime) -> float | None:
             raise ScheduleError("Cron ifadesi gerekli (dakika saat gün ay hafta-günü).")
         try:
             parsed = parse_cron(expression)
-            upcoming = cron_next(parsed, after if after.tzinfo is not None else after.astimezone())
         except SessionCronError as error:
             raise ScheduleError(str(error)) from error
-        # Yerel saat yorumu; en sık her 15 dakika (aralıklı görevle aynı taban).
-        if (
-            upcoming.timestamp() - after.timestamp() < MIN_INTERVAL_MINUTES * 60
-            and _cron_too_frequent(parsed, upcoming)
-        ):
+        # Sıklık ifadenin kendisinden ölçülür, ilk vadeden değil. Ölçüldü (31 Ekim):
+        # 08:00'da kaydedilen '* 9 * * *' denetimi geçiyor, ilk çalışmadan sonra
+        # `_advance` hatayı yutup görevi sessizce kapatıyordu.
+        if cron_min_gap_minutes(parsed) < MIN_INTERVAL_MINUTES:
             raise ScheduleError(
-                f"Cron ifadesi en seyrek {MIN_INTERVAL_MINUTES} dakikada bir çalışmalı."
+                f"Cron ifadesi en sık {MIN_INTERVAL_MINUTES} dakikada bir çalışabilir."
             )
-        return upcoming.timestamp()
+        try:
+            return cron_next_local(parsed, after.timestamp())
+        except SessionCronError as error:
+            raise ScheduleError(str(error)) from error
     if kind not in (KIND_DAILY, KIND_WEEKLY):
         raise ScheduleError("Bilinmeyen zamanlama türü.")
     hour, minute = _clock(spec.get("saat"))
@@ -210,15 +216,6 @@ def next_run(spec: dict[str, Any], after: datetime) -> float | None:
         if moment > after and wall.weekday() in days:
             return moment.timestamp()
     raise ScheduleError("Sıradaki çalışma hesaplanamadı.")
-
-
-def _cron_too_frequent(spec: CronSpec, moment: datetime) -> bool:
-    """Eşleşmeden sonraki eşleşme 15 dakikadan yakınsa ifade çok sık demektir."""
-    try:
-        following = cron_next(spec, moment)
-    except SessionCronError:
-        return False
-    return (following - moment).total_seconds() < MIN_INTERVAL_MINUTES * 60
 
 
 def _weekdays(value: object) -> frozenset[int]:

@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
+from itertools import pairwise
 from uuid import uuid4
 
 from .errors import FusionError
@@ -181,6 +182,30 @@ def cron_next(spec: CronSpec, after: datetime) -> datetime:
     raise SessionCronError("Cron ifadesi önümüzdeki bir yıl içinde hiç eşleşmiyor.")
 
 
+def cron_next_local(spec: CronSpec, after: float) -> float:
+    """`after` (epoch) anından sonraki eşleşme; ifade YEREL duvar saatinde yorumlanır.
+
+    Ölçüldü (31 Ekim): `astimezone()` sabit ofset verir; gün eklemek ofseti korur ve
+    yaz saati geçişinden sonra '0 9 * * *' yerel 08:00'da tetikleniyordu. Aday saf
+    yerel saatte üretilir, ofset o günün gerçek ofsetiyle sonradan bağlanır.
+    """
+    wall = datetime.fromtimestamp(after)
+    return cron_next(spec, wall).astimezone().timestamp()
+
+
+def cron_min_gap_minutes(spec: CronSpec) -> int:
+    """İfadenin ardışık iki eşleşmesi arasındaki en küçük fark (dakika).
+
+    İlk vadeye değil ifadenin kendisine bakar: '* 9 * * *' saat 08:00'da kurulsa
+    bile 1 dakikalıktır. Gün sınırı ardışık iki günün eşleştiği varsayılarak
+    hesaplanır (temkinli taraf).
+    """
+    times = sorted(hour * 60 + minute for hour in spec.hours for minute in spec.minutes)
+    gaps = [later - earlier for earlier, later in pairwise(times)]
+    gaps.append(times[0] + 24 * 60 - times[-1])
+    return min(gaps)
+
+
 # --- Görevler ------------------------------------------------------------------- #
 
 
@@ -266,7 +291,7 @@ class SessionCron:
         self, prompt: str, expression: str, *, now: float, source: Source = Source.USER
     ) -> CronTask:
         spec = parse_cron(expression)
-        due = cron_next(spec, datetime.fromtimestamp(now).astimezone()).timestamp()
+        due = cron_next_local(spec, now)
         return self._add(
             prompt, Kind.CRON, now, due, cron=" ".join(expression.split()), source=source
         )
@@ -315,7 +340,7 @@ class SessionCron:
             next_due = now + task.every_s
         else:
             spec = parse_cron(task.cron)
-            next_due = cron_next(spec, datetime.fromtimestamp(now).astimezone()).timestamp()
+            next_due = cron_next_local(spec, now)
         updated = replace(task, runs=task.runs + 1, last_run_at=now, next_due=next_due)
         self._tasks[task_id] = updated
         return updated
