@@ -179,6 +179,7 @@ def test_bosta_izleyici_yalniz_tur_sonrasi_ve_bir_kez_tetikler():
 
 async def test_bosta_gozcusu_notification_idle_prompt_kancasini_calistirir(tmp_path):
     import asyncio
+    import itertools
 
     from fusion_cli.engines.hooks.idle import watch_idle
 
@@ -188,23 +189,21 @@ async def test_bosta_gozcusu_notification_idle_prompt_kancasini_calistirir(tmp_p
         _kayit_kancasi(tmp_path, HookEvent.SESSION_START),
     )
     await session.start()
-    saat = iter(range(0, 10_000, 30))
+    saat = itertools.count(0, 30)
     mesgul = iter([True, False, False, False, False])
-    kararlar = []
+    geldi = asyncio.Event()
     gozcu = asyncio.ensure_future(
         watch_idle(
             lambda: session,
             lambda: next(mesgul, False),
             lambda: 60.0,
-            on_verdict=kararlar.append,
+            on_verdict=lambda _karar: geldi.set(),
             poll_s=0,
             clock=lambda: float(next(saat)),
         )
     )
-    for _ in range(200):
-        await asyncio.sleep(0.01)
-        if kararlar:
-            break
+    # Kanca süreci yüklü makinede yavaş açılabilir: süre değil olay beklenir.
+    await asyncio.wait_for(geldi.wait(), 30)
     gozcu.cancel()
     with pytest.raises(asyncio.CancelledError):
         await gozcu
