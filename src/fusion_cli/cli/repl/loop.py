@@ -251,8 +251,10 @@ async def _run_surface(
         kind="repl",
         emit=lambda text: console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]"),
         inject=reader.inject,
-        is_busy=lambda: False,
+        # Ölçüldü (31 Ekim): `lambda: False` idi; tur sürerken eş listesi "boşta" diyordu.
+        is_busy=lambda: bool(handling),
     )
+    handling: list[str] = []
 
     try:
         while state.running:
@@ -261,7 +263,11 @@ async def _run_surface(
                 break
             if not line.strip():
                 continue
-            await _handle_safely(line.strip(), state, registry, reader, console, background)
+            handling.append(line)
+            try:
+                await _handle_safely(line.strip(), state, registry, reader, console, background)
+            finally:
+                handling.clear()
             cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
         cron_watcher.cancel()
