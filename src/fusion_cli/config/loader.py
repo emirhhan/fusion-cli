@@ -316,11 +316,13 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "skill_index_chars",
         "dynamic_workflow_max_concurrent",
         "dynamic_workflow_confirm_agents",
+        "agent_team_max_wakes",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
-    if runtime.dynamic_workflow_max_agents < 1:
-        raise ConfigError("runtime.dynamic_workflow_max_agents: en az 1 olmalı.")
+    for name in ("dynamic_workflow_max_agents", "agent_team_max_members", "agent_team_max_runs"):
+        if getattr(runtime, name) < 1:
+            raise ConfigError(f"runtime.{name}: en az 1 olmalı.")
     if runtime.desktop_screenshot_max_width < 256:
         raise ConfigError("runtime.desktop_screenshot_max_width: en az 256 piksel olmalı.")
     if runtime.escalation_model.strip() and "/" not in runtime.escalation_model:

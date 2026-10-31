@@ -47,6 +47,7 @@ from . import (
     rewind,
     session_resume,
     status_line,
+    team_commands,
     verify_flow,
     view_commands,
     workflow_commands,
@@ -1179,6 +1180,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    SlashCommand(
+        "team",
+        messages.EKIP_CMD_TEAM,
+        team_commands.team_command,
+        group="Agent",
+        usage="[goster|sil|mesaj] [ad] | <hedef>",
     ),
     SlashCommand(
         "workflows",

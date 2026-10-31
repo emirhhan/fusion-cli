@@ -60,6 +60,8 @@ class TeamBoardChanged(Event):
     tasks: tuple[TeamTaskView, ...] = ()
     members: tuple[TeamMemberView, ...] = ()
     messages: tuple[TeamMessageView, ...] = ()
+    #: Masaüstünde bu ekibin ajan kartlarının toplandığı grup boyu (`SubAgentStarted`).
+    group_size: int = 1
 
 
 @dataclass(frozen=True, slots=True)

@@ -167,6 +167,16 @@ runtime:
   dynamic_workflow_max_concurrent: 0
   # Bu kadar ya da daha çok ajanlı koşu önce sorulur (maliyet uyarısı); 0 = sorma.
   dynamic_workflow_confirm_agents: 10
+  # Ajan ekipleri (P-061): `team_run` aracı ve `/team`. false = kapalı.
+  agent_teams: true
+  # Ekibin en fazla üyesi.
+  agent_team_max_members: 5
+  # Boşa düşen üyenin iş/mesaj gelince yeniden uyandırılma sayısı.
+  agent_team_max_wakes: 3
+  # Tek team_run çağrısındaki toplam üye koşusu (uyanmalar dahil).
+  agent_team_max_runs: 16
+  # Yeni ekip kurulmadan önce maliyet uyarısıyla sor.
+  agent_team_confirm: true
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []

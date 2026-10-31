@@ -1424,4 +1424,5 @@ VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {erro
 # Ekip ve iş akışı (P-061/P-062)
 # --------------------------------------------------------------------------- #
 
+EKIP_CMD_TEAM = "Ajan ekipleri: lider + üyeler, paylaşımlı görev listesi ve posta kutusu"
 AKIS_CMD_WORKFLOWS = "Dinamik iş akışları: kayıtlılar, koşular, iptal, çalıştır"

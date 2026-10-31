@@ -6,12 +6,13 @@ Fusion'da alt ajanlar üç katmanda çalışır:
 |--------|----------|--------------|
 | Tek ya da paralel alt ajan | Birkaç bağımsız iş | `spawn_agent`, `spawn_agents`, `/subtask` |
 | Dinamik iş akışı (P-062) | Çok sayıda ajan, evreler, boru hattı | `workflow_run`, `/workflows` |
+| Ajan ekibi (P-061) | Birbirine yazan, görev paylaşan üyeler | `team_run`, `/team` |
 
 Hepsi aynı alt ajan çekirdeğini kullanır: kişilik (`uzman`), araç süzgeci, yazma alanı,
 `izolasyon: worktree`, masaüstündeki ajan kartları ve "Durdur" düğmesi aynen geçerlidir.
-İş akışı yalnız ana ajana sunulur (iç içe iş akışı yok) ve araç şemaları yalnız
+İkisi de yalnız ana ajana sunulur (iç içe ekip/iş akışı yok) ve araç şemaları yalnız
 istek bu türdense modele gider: "iş akışı", "workflow", "ultracode", "paralel ajan" gibi
-sözler iş akışını açar.
+sözler iş akışını, "ekip", "takım", "team" ekibi açar.
 
 ## Dinamik iş akışları (`workflow_run`, `/workflows`)
 
@@ -94,3 +95,66 @@ kapatır.
 
 **Bilinen fark.** Claude Code iş akışlarını arka planda koşturur ve sohbet sürer; Fusion'da
 koşu, onu başlatan turun içinde biter (tur iptal edilirse koşu da durur).
+
+## Ajan ekipleri (`team_run`, `/team`)
+
+Claude Code agent teams karşılığı: **lider** ana ajandır, **üyeler** aynı anda koşan alt
+ajanlardır. Üyeler paylaşımlı görev listesinden görev alır, bitirir, yeni görev ekler ve
+birbirine, lidere ya da herkese mesaj atar.
+
+```json
+{"ad": "site", "hedef": "Açılış sayfasını yap",
+ "uyeler": [
+   {"ad": "tasarim", "uzman": "tasarimci", "yazma_alani": ["site/css"]},
+   {"ad": "kod", "uzman": "kodcu", "yazma_alani": ["site/js"]},
+   {"ad": "denetci", "uzman": "testci", "salt_okunur": true}],
+ "gorevler": [
+   {"baslik": "Renk paleti", "atanan": "tasarim"},
+   {"baslik": "Etkileşim", "atanan": "kod"},
+   {"baslik": "Son kontrol", "bagimli": ["Renk paleti", "g2"]}]}
+```
+
+- Görevler sırayla `g1`, `g2`… kimliği alır; `bagimli` kimlik ya da aynı çağrıdaki görevin
+  başlığıdır. Bağımlılığı bitmemiş görev alınamaz, başarısız bağımlılık raporda
+  "engellendi" görünür. Görev alma atomiktir (iki üye aynı görevi alamaz).
+- Üye araçları yalnız üyelere sunulur: `team_board` (pano + yeni mesajlar),
+  `team_task` (`al` / `bitir` / `ekle`), `team_send` (`kime`: üye, `lider`, `herkes`).
+  `tools:` listesi dar olan kişilik de bu üç aracı görür.
+- **Boşta bekleme (TeammateIdle).** Koşusu biten üyenin üzerinde kalan görev panoya geri
+  döner; üye, kendisine alınabilir görev ya da mesaj gelince yeniden uyandırılır.
+  Kimse çalışmıyor ve kimsenin işi yoksa ekip biter; lider panonun son hâlini, lidere
+  gelen mesajları ve üye özetlerini rapor olarak alır.
+- **Sürdürme.** Pano `.fusion/ekip/<ad>/pano.json`, gelen kutuları
+  `.fusion/ekip/<ad>/gelen_kutusu/<üye>.jsonl` dosyalarındadır. Aynı `ad` ile yeniden
+  `team_run` (yeni `gorevler` ve `mesajlar` ile) kaldığı yerden sürer.
+
+**Komutlar.**
+
+```
+/team                              ekipler ve görev ilerlemesi
+/team <hedef>                      lider ekibi kursun ve çalıştırsın
+/team goster <ad>                  pano + lidere gelen son mesajlar
+/team mesaj <ad> <üye> <metin>     ekibi sürdür, üyeye mesaj ilet
+/team sil <ad>                     panoyu ve gelen kutularını sil
+fusion ekip [liste|goster|sil] [--kok <dizin>]
+```
+
+**Masaüstü.** Sohbette ekibin panosu (üyeler, Bekliyor / Çalışıyor / Bitti sütunları,
+posta kutusu) ve altında üye kartları görünür. Ajanlar sekmesindeki **Ekipler** listesi
+"Pano" ile `/team goster` çalıştırır (RPC: `ekip.liste`, `ekip.pano`, `ekip.sil`).
+
+**Ayarlar** (`runtime:`):
+
+| Ayar | Varsayılan | Anlamı |
+|------|-----------|--------|
+| `agent_teams` | `true` | `false` = araç sunulmaz |
+| `agent_team_max_members` | `5` | Ekibin en fazla üyesi |
+| `agent_team_max_wakes` | `3` | Boşa düşen üyenin yeniden uyandırılma sayısı |
+| `agent_team_max_runs` | `16` | Tek `team_run` çağrısındaki toplam üye koşusu |
+| `agent_team_confirm` | `true` | Yeni ekip kurulmadan önce maliyet uyarısıyla sor |
+
+**Bilinen farklar.** Claude Code'da lider üyeler çalışırken sohbete devam eder ve üyeler
+tmux/iTerm bölmesinde görünebilir; Fusion'da ekip, `team_run` çağrısının içinde koşar ve
+masaüstü panosunda izlenir. `TaskCreated` / `TaskCompleted` / `TeammateIdle` kanca
+olayları henüz kanca sistemine bağlı değildir.
+

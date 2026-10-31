@@ -52,6 +52,7 @@ from . import (
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
+    team_cli,
     trash_commands,
     usage_commands,
     workflow_cli,
@@ -81,6 +82,7 @@ app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(kit_commands.app, name="kit")
 app.add_typer(workflow_cli.app, name="workflows")
+app.add_typer(team_cli.app, name="ekip")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.

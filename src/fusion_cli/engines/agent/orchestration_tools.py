@@ -2,6 +2,7 @@
 
 - `register_orchestration_tools`: `build_agent_registry` çağırır; araçlar yalnız ana
   ajana (derinlik 0) sunulur — iç içe ekip/iş akışı yok (Claude Code ile aynı sınır).
+  Ekip üyelerinin pano araçları (`team_tools_member`) yalnız üyenin defterine girer.
 - `ORCHESTRATION_SCOPED_TOOLS` + `orchestration_task_kinds`: şemalar yalnız isteğin
   gerçekten ekip/iş akışı istediği turda modele gider (istem bütçesi; bkz. `SCOPED_TOOLS`).
 """
@@ -13,15 +14,18 @@ from typing import TYPE_CHECKING
 
 from ...tools.registry import ToolRegistry
 from .team import RunAgent
+from .team_tools import team_run_tool
 from .workflow_tools import workflow_run_tool
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
 
 WORKFLOW_KIND = "is_akisi"
+TEAM_KIND = "ekip"
 
 ORCHESTRATION_SCOPED_TOOLS: dict[str, str] = {
     "workflow_run": WORKFLOW_KIND,
+    "team_run": TEAM_KIND,
 }
 ORCHESTRATION_KINDS = frozenset(ORCHESTRATION_SCOPED_TOOLS.values())
 
@@ -29,6 +33,8 @@ _WORKFLOW_TASK = re.compile(
     r"i[sş] ak[ıi][sş]|workflow|ultracode|orkestra|boru hatt|pipeline|fan-?out|"
     r"(çok|çoklu|paralel|birden çok|onlarca|yüzlerce) (alt )?ajan"
 )
+
+_TEAM_TASK = re.compile(r"\bekip|\btak[ıi]m\b|\bteam|teammate|ajan ekib|ekip arkada[sş]")
 
 
 def orchestration_task_kinds(task: str) -> set[str]:
@@ -38,6 +44,8 @@ def orchestration_task_kinds(task: str) -> set[str]:
     kinds: set[str] = set()
     if _WORKFLOW_TASK.search(text):
         kinds.add(WORKFLOW_KIND)
+    if _TEAM_TASK.search(text):
+        kinds.add(TEAM_KIND)
     return kinds
 
 
@@ -47,3 +55,4 @@ def register_orchestration_tools(
     if depth != 0:
         return
     registry.register(workflow_run_tool(deps, depth=depth, run_agent=run_agent))
+    registry.register(team_run_tool(deps, depth=depth, run_agent=run_agent))

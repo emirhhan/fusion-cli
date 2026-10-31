@@ -87,3 +87,99 @@ async def test_akis_rpcleri_liste_kosu_ve_iptal(tmp_path):
     assert kosu["ok"] and kosu["kosu"]["status"] == "calisiyor"
     assert iptal["ok"] and store.cancel_requested("k1")
     assert eksik == {"ok": False, "metin": "Koşu kimliği gerekli."}
+
+
+# --------------------------------------------------------------------------- #
+# Ekip (P-061)
+# --------------------------------------------------------------------------- #
+
+
+def _ekip(tmp_path):
+    from fusion_cli.engines.agent.team_board import (
+        TeamBoard,
+        TeamMember,
+        TeamMessage,
+        TeamStore,
+        TeamTask,
+    )
+
+    store = TeamStore(tmp_path)
+    store.save(
+        TeamBoard(
+            "site",
+            "Açılış sayfası",
+            (TeamMember("kod", "kodcu"), TeamMember("tasarim")),
+            (TeamTask("g1", "Palet", status="tamam", owner="tasarim"), TeamTask("g2", "JS")),
+        )
+    )
+    store.append("site", TeamMessage("kod", "lider", "JS yarım, API anahtarı yok"))
+    return store
+
+
+def test_team_komutu_listeler_gosterir_ve_ekip_kurmayi_tura_hazirlar(tmp_path):
+    from fusion_cli.cli.repl.team_commands import team_command
+
+    _ekip(tmp_path)
+    state = _state(tmp_path)
+
+    liste = team_command(state, "")
+    goster = team_command(state, "goster site")
+    kur = team_command(state, "giriş sayfasını üç kişiyle yap")
+
+    assert "site  1/2 görev · üyeler: kod, tasarim — Açılış sayfası" in liste
+    assert "- g2 bekliyor: JS" in goster and "kod: JS yarım" in goster
+    assert "Lider ekibi" in kur
+    assert (
+        "team_run" in state.pending_task and "giriş sayfasını üç kişiyle yap" in state.pending_task
+    )
+
+
+def test_team_mesaj_ekibi_surdurur_bilinmeyen_ekibi_reddeder(tmp_path):
+    from fusion_cli.cli.repl.team_commands import team_command
+
+    _ekip(tmp_path)
+    state = _state(tmp_path)
+
+    assert "yok" in team_command(state, "mesaj baska kod selam")
+    assert state.pending_task == ""
+    team_command(state, "mesaj site kod anahtar .env.example içinde")
+    assert '(ad: "site")' in state.pending_task and "kod üyesine" in state.pending_task
+
+
+def test_fusion_ekip_cli_listeler_gosterir_siler(tmp_path):
+    from fusion_cli.cli.team_cli import app as team_app
+
+    _ekip(tmp_path)
+    runner = CliRunner()
+
+    liste = runner.invoke(team_app, ["liste", "--kok", str(tmp_path)])
+    goster = runner.invoke(team_app, ["goster", "site", "--kok", str(tmp_path)])
+    sil = runner.invoke(team_app, ["sil", "site", "--kok", str(tmp_path)])
+    yok = runner.invoke(team_app, ["sil", "site", "--kok", str(tmp_path)])
+
+    assert liste.exit_code == 0 and "site" in liste.output
+    assert goster.exit_code == 0 and "Palet" in goster.output
+    assert sil.exit_code == 0 and not (tmp_path / ".fusion/ekip/site").exists()
+    assert yok.exit_code == 1
+
+
+async def test_ekip_rpcleri_liste_pano_sil(tmp_path):
+    _ekip(tmp_path)
+
+    liste = await dispatch_orchestration("ekip.liste", {}, tmp_path)
+    pano = await dispatch_orchestration("ekip.pano", {"ad": "site"}, tmp_path)
+    sil = await dispatch_orchestration("ekip.sil", {"ad": "site"}, tmp_path)
+    yok = await dispatch_orchestration("ekip.pano", {"ad": "site"}, tmp_path)
+
+    assert liste["ekipler"] == [
+        {
+            "ad": "site",
+            "hedef": "Açılış sayfası",
+            "uyeler": ["kod", "tasarim"],
+            "gorev": 2,
+            "tamam": 1,
+            "guncellendi": 0.0,
+        }
+    ]
+    assert pano["ok"] and pano["pano"]["lider_mesajlari"][0]["text"].startswith("JS yarım")
+    assert sil["ok"] and yok == {"ok": False, "metin": "Bu adla ekip yok."}

@@ -5,6 +5,7 @@ import type { Mesaj } from "../screens/Conversation";
 import { ekipOlayi } from "./ekipOlaylari";
 import { OrchestrationPanel } from "./OrchestrationPanel";
 import { orkestrasyonOlayi } from "./orkestrasyon";
+import { TeamBoard } from "./TeamBoard";
 import { WorkflowBoard } from "./WorkflowBoard";
 
 afterEach(cleanup);
@@ -71,5 +72,57 @@ describe("İş akışları paneli", () => {
     expect(onCommand).toHaveBeenCalledWith("/workflows rapor");
     await vi.waitFor(() => expect(request).toHaveBeenCalledWith("akis.iptal", { kimlik: "k1" }));
     expect(screen.getByText(/1\/2 adım · 2 ajan/)).toBeTruthy();
+  });
+});
+
+function panoOlayi(status: string) {
+  return {
+    olay: "TeamBoardChanged", team: "site", goal: "Açılış sayfası", status, group_size: 16,
+    tasks: [
+      { id: "g1", title: "Palet", status: "tamam", owner: "tasarim", depends_on: [], result: "ok" },
+      { id: "g2", title: "JS", status: "calisiyor", owner: "kod", depends_on: ["g1"], result: "" },
+      { id: "g3", title: "Test", status: "basarisiz", owner: "kod", depends_on: [], result: "anahtar yok" },
+    ],
+    members: [{ name: "kod", persona: "kodcu", status: "calisiyor", sub_id: "kod-1", wakes: 1 }],
+    messages: [{ sender: "kod", recipient: "lider", text: "JS yarım", at: 1 }],
+  };
+}
+
+describe("ekip panosu", () => {
+  it("koşan ekibin panosu yerinde güncellenir, bitmiş ekip yeni turda yeni pano açar", () => {
+    let akis = orkestrasyonOlayi([], panoOlayi("calisiyor"))!;
+    akis = orkestrasyonOlayi(akis, panoOlayi("bitti"))!;
+    akis = orkestrasyonOlayi(akis, panoOlayi("calisiyor"))!;
+
+    expect(akis).toHaveLength(2);
+    expect(akis[0].pano?.durum).toBe("bitti");
+    expect(akis[1].grupBoyutu).toBe(16);
+  });
+
+  it("görevleri sütunlarda, üyeleri ve posta kutusunu gösterir", () => {
+    const mesaj = orkestrasyonOlayi([], panoOlayi("calisiyor"))![0];
+    render(<TeamBoard pano={mesaj.pano!} running />);
+
+    expect(screen.getByText("Bekliyor · 0")).toBeTruthy();
+    expect(screen.getByText("Çalışıyor · 1")).toBeTruthy();
+    expect(screen.getByText("Bitti · 2")).toBeTruthy();
+    expect(screen.getByText("başarısız: anahtar yok")).toBeTruthy();
+    expect(screen.getByText(/çalışıyor · 1 uyanma/)).toBeTruthy();
+    expect(screen.getByText("kod → lider")).toBeTruthy();
+  });
+
+  it("panel ekip panosunu /team goster ile açar", async () => {
+    const request = vi.fn(async (name: string) => name === "ekip.liste"
+      ? { ok: true, ekipler: [{ ad: "site", hedef: "Açılış", gorev: 3, tamam: 1 }] }
+      : { ok: true, tanimlar: [], kosular: [] });
+    const client = { request, onEvent: () => () => undefined } as unknown as ProtocolClient;
+    const onCommand = vi.fn();
+    render(<OrchestrationPanel client={client} onCommand={onCommand} />);
+
+    (await screen.findByText("Pano")).click();
+
+    expect(onCommand).toHaveBeenCalledWith("/team goster site");
+    expect(screen.getByText("1/3 görev · Açılış")).toBeTruthy();
+    expect(screen.queryByText("İş akışları")).toBeNull();
   });
 });

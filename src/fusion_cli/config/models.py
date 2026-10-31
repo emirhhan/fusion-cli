@@ -249,6 +249,17 @@ class RuntimeConfig:
     dynamic_workflow_max_concurrent: int = 0
     #: Bu kadar ya da daha çok ajan başlatacak koşu önce kullanıcıya sorulur; 0 = sorma.
     dynamic_workflow_confirm_agents: int = 10
+    #: Ajan ekipleri (P-061, `team_run`, `/team`): lider + eşzamanlı üyeler, paylaşımlı
+    #: görev listesi ve posta kutusu (`.fusion/ekip/<ad>/`). False = araç sunulmaz.
+    agent_teams: bool = True
+    #: Bir ekibin en fazla üyesi (Claude Code önerisi 3-5).
+    agent_team_max_members: int = 5
+    #: Koşusu biten üyenin iş/mesaj gelince en fazla kaç kez yeniden uyandırılacağı.
+    agent_team_max_wakes: int = 3
+    #: Tek `team_run` çağrısındaki toplam üye koşusu (uyanmalar dahil) tavanı.
+    agent_team_max_runs: int = 16
+    #: Yeni ekip kurulmadan önce maliyet uyarısıyla sorulsun mu (ekip ~7 kat token).
+    agent_team_confirm: bool = True
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()
