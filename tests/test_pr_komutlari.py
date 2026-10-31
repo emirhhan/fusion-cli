@@ -8,6 +8,7 @@ aracı ve makrosu yoktu.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from types import SimpleNamespace
 
@@ -20,7 +21,7 @@ from fusion_cli.cli.repl import macros
 from fusion_cli.cli.repl.commands import build_registry
 from fusion_cli.core.errors import FusionError
 from fusion_cli.core.tools import ToolContext, ToolEffect, ToolFamily, tool_family
-from fusion_cli.tools import github_cli
+from fusion_cli.tools import auto_policy, github_cli
 from fusion_cli.tools.builtin import build_registry as build_tools
 
 runner = CliRunner()
@@ -37,11 +38,12 @@ runner = CliRunner()
         "pr checks 12",
         "run view 7 --log-failed",
         "api repos/a/b/pulls/1/comments",
-        "auth status",
+        "api repos/a/b/pulls -X GET --paginate --jq .[].title",
+        "api --method=GET repos/a/b -H 'Accept: application/vnd.github+json' -q .name",
     ],
 )
 def test_salt_okunur_gh_komutlari_kabul_edilir(komut):
-    assert github_cli.gh_reads_only(komut.split())
+    assert github_cli.gh_reads_only(shlex.split(komut))
 
 
 @pytest.mark.parametrize(
@@ -53,13 +55,50 @@ def test_salt_okunur_gh_komutlari_kabul_edilir(komut):
         "api repos/a/b/issues -f title=x",
         "api -X DELETE repos/a/b",
         "api --method POST repos/a/b",
+        # Ölçüldü (31 Ekim): eşittir biçimli ve bitişik kısa bayraklar tam eşleşme
+        # kontrolünden kaçıyordu; gh alan verilince varsayılan POST yapar.
+        "api repos/o/r/issues/1/comments --field=body=hi",
+        "api repos/o/r/issues/1/comments --raw-field=a=b",
+        "api repos/o/r/issues --input=f.json",
+        "api repos/o/r/issues -fbody=hi",
+        "api repos/o/r/issues -Fbody=@f",
+        "api repos/o/r --bilinmeyen-bayrak",
+        # Tarayıcı açan ve token gösteren bayraklar da salt-okur değildir.
+        "pr view 12 --web",
+        "pr view 12 -w",
+        "pr view 12 -cw",
+        "repo view --web",
+        "auth status",
+        "auth status --show-token",
         "pr",
         "",
         "repo delete a/b",
     ],
 )
 def test_yazan_gh_komutlari_reddedilir(komut):
-    assert not github_cli.gh_reads_only(komut.split())
+    assert not github_cli.gh_reads_only(shlex.split(komut))
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "gh api -X POST repos/o/r/issues -f title=x",
+        "gh api repos/o/r/issues/1/comments --field=body=hi",
+        "gh workflow run ci.yml",
+        "gh run cancel 12",
+        "gh secret set TOKEN",
+        "gh release create v1",
+        "gh pr create --title x",
+    ],
+)
+def test_run_shell_yazan_gh_cagrisi_otomatik_kipte_sorulur(komut, tmp_path):
+    """Ölçüldü (31 Ekim): `gh api -X POST`, `gh workflow run` onaysız geçiyordu."""
+    assert "gh" in (auto_policy.auto_risk(komut, tmp_path) or "")
+
+
+def test_run_shell_okuyan_gh_cagrisi_otomatik_kipte_sorulmaz(tmp_path):
+    assert auto_policy.auto_risk("gh pr view 12 --comments", tmp_path) is None
+    assert auto_policy.auto_risk("gh api repos/o/r/pulls --paginate", tmp_path) is None
 
 
 def test_gh_araci_yazan_komutu_calistirmadan_reddeder(tmp_path, monkeypatch):

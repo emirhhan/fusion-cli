@@ -36,6 +36,7 @@ from .command_policy import (
 )
 from .command_semantics import awk_reads_only, git_reads_only, sed_reads_only
 from .delete_preview import inline_code_danger
+from .github_cli import gh_reads_only
 
 #: Komutun önüne gelip asıl komutu değiştirmeyen sözcükler (`time`, `nohup`, `do`).
 _PREFIX_WORDS = frozenset(
@@ -74,10 +75,43 @@ _OUTWARD_SUBCOMMANDS = {
     "twine": {"upload"},
     "supabase": {"deploy", "push"},
 }
-#: `gh` ile GitHub'da bir şey değiştiren eylemler.
+#: `gh` ile GitHub'da bir şey değiştiren eylemler (komuttan bağımsız alt komut adları).
 _GH_WRITES = frozenset(
-    {"create", "merge", "close", "delete", "edit", "comment", "review", "upload", "fork"}
+    {
+        "create",
+        "merge",
+        "close",
+        "delete",
+        "edit",
+        "comment",
+        "review",
+        "upload",
+        "fork",
+        "reopen",
+        "lock",
+        "unlock",
+        "ready",
+        "transfer",
+        "pin",
+        "unpin",
+        "set",
+        "enable",
+        "disable",
+        "cancel",
+        "rerun",
+        "sync",
+        "rename",
+        "archive",
+        "unarchive",
+    }
 )
+#: Yalnız belirli `gh <komut>` altında yazma anlamına gelen alt komutlar: `gh workflow run`
+#: iş akışı tetikler, `gh run list` ise okur. Ölçüldü (31 Ekim): `gh workflow run` ve
+#: `gh api -X POST` onaysız geçiyordu; `api` için `github_cli.gh_reads_only` kapısı kullanılır.
+_GH_COMMAND_WRITES: dict[str, frozenset[str]] = {
+    "workflow": frozenset({"run"}),
+    "cache": frozenset({"delete"}),
+}
 #: Veritabanını silen ifadeler (SQL ya da çerçeve komutu).
 _DB_DROP = re.compile(
     r"(?i)\bdrop\s+(database|schema|table)\b|\btruncate\s+table\b|\bdb:drop\b|"
@@ -277,7 +311,7 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
         return f"dışarıya yayınlıyor ({name} {sub})"
     if name in _DEPLOY_COMMANDS or sub in _OUTWARD_SUBCOMMANDS.get(name, ()):
         return f"bulut/dağıtım hesabında işlem yapıyor ({name})"
-    if name == "gh" and any(argument in _GH_WRITES for argument in arguments[1:3]):
+    if name == "gh" and _gh_writes(arguments):
         return "GitHub'da değişiklik yapıyor (gh)"
     if name in _REMOTE_COMMANDS or (name == "rsync" and any(_is_remote(a) for a in arguments)):
         return f"uzak sunucuya bağlanıyor ({name})"
@@ -287,6 +321,20 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
     if script.endswith(_SCRIPT_SUFFIXES) and is_outward_script(script):
         return f"dağıtım/yayın betiği ({script})"
     return None
+
+
+def _gh_writes(arguments: list[str]) -> bool:
+    """`gh …` GitHub'da bir şey değiştiriyor mu? `api` için salt-okur kapısının tersi."""
+    if not arguments:
+        return False
+    if arguments[0] == "api":
+        return not gh_reads_only(arguments)
+    head = [argument for argument in arguments[:3] if not argument.startswith("-")]
+    if any(argument in _GH_WRITES for argument in head[1:3]):
+        return True
+    return bool(head) and any(
+        argument in _GH_COMMAND_WRITES.get(head[0], frozenset()) for argument in head[1:3]
+    )
 
 
 def _outward_run(arguments: list[str]) -> bool:
