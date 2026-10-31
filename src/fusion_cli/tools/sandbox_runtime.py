@@ -47,6 +47,8 @@ _LOG = logging.getLogger(__name__)
 
 #: `run_shell` argümanı: sandbox dışında çalıştırma isteği.
 UNSANDBOXED_ARG = "unsandboxed"
+#: Prob planındaki sahte proxy soketi (açılmaz; yalnız "proxy gerekir" bilgisini taşır).
+_PROBE_SOCKET = Path(tempfile.gettempdir()) / "fusion-sandbox-prob" / "proxy.sock"
 OUTSIDE_REQUESTED = "istek"
 OUTSIDE_EXCLUDED = "liste"
 #: Kabukların ağ hatası belirtileri (ağ kapalıyken ipucu vermek için).
@@ -153,12 +155,24 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
 
 
 def probe_plan(context: ToolContext) -> SandboxPlan:
-    """Proxy BAŞLATMADAN plan: sandbox kurulabilir mi, kurulamıyorsa ne olur? (onay, durum)."""
+    """Proxy BAŞLATMADAN plan: sandbox kurulabilir mi, kurulamıyorsa ne olur? (onay, durum).
+
+    Proxy gerekecekse sahte uçla planlanır; böylece gerçek çalıştırmadaki denetimler
+    (Linux'ta socat) burada da yapılır. Ölçüldü (31 Ekim): socat yokken prob proxy'siz
+    planlayıp "aktif" diyordu, `auto_allow` sormadan onaylıyordu, gerçek plan ise
+    kurulamayıp komut sandbox'sız ve ağı açık koşuyordu.
+    """
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
+    probe = (
+        ProxyEndpoint(port=1, unix_path=_PROBE_SOCKET)
+        if policy.restricts_network and policy.allowed_domains
+        else None
+    )
     return plan_shell_sandbox(
         getattr(context, "shell_sandbox", "off"),
         (context.root, *context.extra_roots),
         policy=policy,
+        proxy=probe,
     )
 
 
