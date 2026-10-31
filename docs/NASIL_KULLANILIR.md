@@ -256,6 +256,26 @@ fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
 
 ---
 
+## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
+
+`/cost` bu oturumu gösterir. `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
+kullanım günlüğünden **bu oturum / son 24 saat / son 7 gün / son 30 gün** pencerelerini ve
+"kim harcadı" kırılımını (ana ajan, alt ajan, arka plan; model; MCP sunucusu; beceri)
+verir. Masaüstünde Ayarlar → Kullanım aynı veriyi "Son dönem" ve "Kim harcadı" olarak
+gösterir.
+
+```
+fusion usage --days 30
+fusion insights                 # tek dosya HTML rapor → bellek dizinine yazar, yolu basar
+fusion insights --out rapor.html --days 7
+```
+
+Günlük `memory_dir/usage.jsonl` dosyasıdır; yalnız sayı tutar (rol, model, token, maliyet,
+MCP sunucu adı, beceri adı) — istem metni, argüman ya da çıktı yazılmaz; 90 günden eski
+satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }`.
+
+---
+
 ## 13) Uygulama içindeki gerçek terminal
 
 Masaüstü uygulamasında sağdaki çalışma panelinden **Terminal** sekmesini aç ve

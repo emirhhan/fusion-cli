@@ -300,6 +300,11 @@ runtime:
   # `cost_limit` sebebiyle kapanır (`fusion agent --max-budget-usd`). Ücretsiz ya da
   # maliyeti bilinmeyen model tavanı doldurmaz.
   agent_max_cost_usd: null
+  # Kullanım günlüğü: model çağrısı (rol, model, token, maliyet), MCP araç çağrısı
+  # (sunucu adı) ve yüklenen beceri `memory_dir/usage.jsonl`'e yazılır; `/usage`,
+  # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
+  # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
+  usage_log: true
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

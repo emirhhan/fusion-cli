@@ -317,6 +317,9 @@ class RuntimeConfig:
     #: Agent turunun BİLİNEN maliyeti (USD) için tavan; `None` = tavan yok. Dolunca tur
     #: `BudgetStop.COST_LIMIT` ile kapanır (`fusion agent --max-budget-usd`; P-026).
     agent_max_cost_usd: float | None = None
+    #: Model çağrısı/MCP/beceri kullanımını `memory_dir/usage.jsonl`'e yaz (`/usage` pencereleri,
+    #: `fusion insights`). İstem metni yazılmaz. False = yalnız oturum sayacı (P-056).
+    usage_log: bool = True
 
 
 @dataclass(frozen=True, slots=True)

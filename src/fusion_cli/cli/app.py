@@ -39,6 +39,7 @@ from .app_host import AppHostDependencies
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .doctor import DoctorReport
+from ..observability.usage_log import open_usage_log
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
@@ -51,6 +52,7 @@ from . import (
     paperclip_command,
     prompt_opt_commands,
     trash_commands,
+    usage_commands,
 )
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
@@ -76,6 +78,9 @@ app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
 app.add_typer(mcp_commands.mcp_app, name="mcp")
+# `/usage` ve `/insights` karşılıkları (P-056).
+app.command(name="usage")(usage_commands.usage)
+app.command(name="insights")(usage_commands.insights)
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
@@ -163,7 +168,11 @@ def run(
         console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
     )
     observers = build_observers(
-        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+        task,
+        renderer=renderer,
+        as_json=as_json,
+        trace_dir=config.memory_dir / "traces",
+        usage_log=open_usage_log(config),
     )
     result = _run_observed(
         with_web_cleanup(
@@ -393,6 +402,7 @@ def agent(
         renderer=None if options.output_format is headless.OutputFormat.JSON else renderer,
         as_json=streaming,
         trace_dir=config.memory_dir / "traces",
+        usage_log=open_usage_log(config),
     )
     if streaming:
         sys.stdout.write(

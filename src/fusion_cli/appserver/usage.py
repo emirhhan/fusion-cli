@@ -5,19 +5,21 @@ Rakamlar UYDURULMAZ: token sayıları ve maliyet sağlayıcı sınırında hesap
 `ModelCallFinished` olayıyla gelen `TokenUsage`'tan toplanır (bkz.
 `core/types.py::TokenUsage`), güvenilirlik ise `HealthRegistry`'den okunur.
 
-Sayaç OTURUM ÖMÜRLÜDÜR ve diske yazılmaz: kalıcı bir kullanım kaydı tutmak
-kullanıcının hangi modele ne sorduğunun geçmişini biriktirmek olurdu; bunun
-için açık bir talep yok.
+Sayaç OTURUM ÖMÜRLÜDÜR ve diske yazılmaz. Kalıcı pencereler (24s/7g/30g) ayrı bir
+günlükten gelir (`observability/usage_log.py`, P-056): o günlük yalnız sayıları tutar,
+istem metni yazmaz ve `runtime.usage_log: false` ile kapatılır.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.events import Event, ModelCallAbandoned, ModelCallFinished
 from ..core.health import CircuitPhase, HealthRegistry
 from ..core.types import TokenUsage
+from ..observability.usage_log import UsageLog, summarize
 
 
 @dataclass
@@ -113,6 +115,47 @@ def health_payload(health: HealthRegistry | None) -> list[dict[str, Any]]:
     return rows
 
 
-def usage_status(meter: UsageMeter, health: HealthRegistry | None) -> dict[str, Any]:
-    """`kullanim.durum`: bu oturumun tüketimi ve model sağlığı."""
-    return {"ok": True, "kullanim": meter.payload(), "saglik": health_payload(health)}
+def usage_status(
+    meter: UsageMeter, health: HealthRegistry | None, *, usage_log: UsageLog | None = None
+) -> dict[str, Any]:
+    """`kullanim.durum`: bu oturumun tüketimi, model sağlığı ve (günlük açıksa) pencereler.
+
+    `gecmis` 24s/7g/30g toplamlarını, `atif` 7 günlük kırılımı (ana/alt ajan, arka plan,
+    MCP sunucusu, beceri) taşır. Günlük kapalıysa ikisi de boş; sayaç değişmez (P-056).
+    """
+    payload: dict[str, Any] = {
+        "ok": True,
+        "kullanim": meter.payload(),
+        "saglik": health_payload(health),
+        "gecmis": [],
+        "atif": {"kaynaklar": [], "mcp": [], "beceriler": []},
+        "gunluk_acik": usage_log is not None,
+    }
+    if usage_log is None:
+        return payload
+    summary = summarize(usage_log.read(), now=time.time(), session_id=usage_log.session_id)
+    payload["gecmis"] = [
+        {
+            "pencere": label,
+            "cagri": bucket.calls,
+            "toplam_token": bucket.usage.total_tokens,
+            "maliyet_usd": round(bucket.usage.cost_usd, 6),
+            "maliyet_tam": bucket.cost_complete,
+        }
+        for label, bucket in summary.windows[1:]
+    ]
+    payload["atif"] = {
+        "pencere": summary.window_label,
+        "kaynaklar": [
+            {
+                "ad": row.label,
+                "cagri": row.calls,
+                "toplam_token": row.tokens,
+                "maliyet_usd": round(row.cost_usd, 6),
+            }
+            for row in summary.by_actor
+        ],
+        "mcp": [{"ad": server, "cagri": count} for server, count in summary.mcp_calls],
+        "beceriler": [{"ad": skill, "cagri": count} for skill, count in summary.skills],
+    }
+    return payload

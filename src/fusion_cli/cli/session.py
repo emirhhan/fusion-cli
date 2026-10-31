@@ -495,6 +495,7 @@ def build_observers(
     renderer: EventSink | None = None,
     as_json: bool = False,
     trace_dir: Path | None = None,
+    usage_log: EventSink | None = None,
 ) -> Observers:
     """Turu izleyecek dinleyicileri kur.
 
@@ -513,6 +514,9 @@ def build_observers(
     elif renderer is not None:
         sinks.append(renderer)
     sinks.extend((cost, tracer))
+    # Kalıcı kullanım günlüğü (P-056): maliyet toplayıcıyla AYNI olayları dinler.
+    if usage_log is not None:
+        sinks.append(usage_log)
     trace = open_trace(trace_dir)
     if trace is not None:
         sinks.append(trace)

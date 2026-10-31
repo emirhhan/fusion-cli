@@ -22,6 +22,7 @@ from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
+from ...observability.usage_log import UsageLog
 from ...tools.capabilities import CapabilityRegistry
 from .macros import Mode
 
@@ -102,6 +103,8 @@ class ReplState:
     last_fusion: FusionResult | None = None
     #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
     cost: CostTracker = field(default_factory=CostTracker)
+    #: Kalıcı kullanım günlüğü (`/usage` pencereleri; P-056). Ayar kapalıysa None.
+    usage_log: UsageLog | None = None
     #: Son agent turunun dosya değişiklikleri — `/undo` bunu geri alır.
     #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
     #: elle değişiklikleri sessizce ezme riski taşır.
