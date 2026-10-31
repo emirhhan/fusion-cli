@@ -34,13 +34,16 @@ BUDGET_WARN_RATIO = 0.7
 
 #: Depo talimatında izin/onay/gizlilik kurallarını değiştirmeye çalışan kalıplar. Bu satırlar
 #: Fusion'da etkisizdir (güvenilmez etiket), ama kullanıcı görsün: başkasının deposundan
-#: gelen bir dosya bunu deniyorsa haberi olmalı.
+#: gelen bir dosya bunu deniyorsa haberi olmalı. Yalnız KURAL DEĞİŞTİRME kalıpları: `secret`,
+#: `token`, `şifre` gibi genel sözcükler "sırları commit etme" satırlarını işaretleyip uyarı
+#: yorgunluğu yaratıyordu (ölçüldü 31 Ekim). Sır SIZDIRMA denemesi ayrı kalıpla yakalanır.
 _SUSPICIOUS = re.compile(
     r"onay(sız| sorma| isteme| bekleme)|izin (sorma|isteme)|sormadan (yap|çalıştır|sil)"
     r"|bypass|skip (the )?(permission|approval|confirmation)s?|without (asking|confirmation)"
     r"|ignore (all |any |the )?(previous|prior|safety|security|system) (rules|instructions)"
     r"|disable (safety|security|sandbox)|dangerously|--no-verify|rm -rf /|sudo "
-    r"|api[_ -]?key|secret|token|şifre|parola",
+    r"|(print|echo|cat|göster|yazdır|gönder|paylaş)\S*\s+[^\n]{0,40}"
+    r"(api[_ -]?key|secret|token|şifre|parola|credential|\.env\b)",
     re.IGNORECASE,
 )
 
@@ -131,7 +134,9 @@ def _scan_suspicious(item: InstructionFile) -> tuple[SuspiciousLine, ...]:
     return tuple(found)
 
 
-_VERIFY_WORDS = re.compile(r"pytest|npm (run )?test|vitest|cargo test|go test|make test|test", re.I)
+_VERIFY_WORDS = re.compile(
+    r"pytest|npm (run )?test|vitest|cargo test|go test|make test|\btests?\b", re.I
+)
 
 
 def _mentions_verification(root: Path, files: list[InstructionFile]) -> bool:

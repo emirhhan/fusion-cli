@@ -50,7 +50,9 @@ def test_supheli_satirlar_ve_dogrulama_eksigi_raporlanir(proje):
 
     satirlar = {(s.source, s.line_no) for s in denetim.suspicious}
     assert ("CLAUDE.md", 2) in satirlar
-    assert ("CLAUDE.md", 3) in satirlar
+    # "API_KEY'i .env'den oku" zararsız bir sır kuralıdır; genel sözcükler uyarı yorgunluğu
+    # yaratıyordu (ölçüldü 31 Ekim) — yalnız kural-değiştirme kalıpları işaretlenir.
+    assert ("CLAUDE.md", 3) not in satirlar
     assert any("izin/onay/sır" in s for s in denetim.suggestions)
     assert any("Doğrulama" in s for s in denetim.suggestions)
     metin = render_audit(denetim)
@@ -130,3 +132,12 @@ def test_fusion_init_cli_komutu_edits_kipinde_gorevi_kosar(proje, monkeypatch):
     assert sonuc.exit_code == 0, sonuc.output
     assert "`CLAUDE.md`" in str(seen["task"])
     assert getattr(seen["mode"], "value", seen["mode"]) == "edits"
+
+
+def test_latest_sozcugu_dogrulama_komutu_sayilmaz(proje, tmp_path):
+    """Ölçüldü: `|test` kalıbı 'latest' ile eşleşip doğrulama eksiğini gizliyordu."""
+    (proje / "AGENTS.md").write_text("Her zaman latest sürümü kullan.\n", "utf-8")
+
+    denetim = audit_instructions(proje, tmp_path / "ev")
+
+    assert any("Doğrulama" in s for s in denetim.suggestions)
