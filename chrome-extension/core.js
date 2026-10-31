@@ -1176,15 +1176,30 @@ export async function monitorEnabled() {
   return stored !== false;
 }
 
+/** Kayıt çağrıları tek zincirde: getRegistered → unregister → register adımları atomik değil. */
+let monitorChain = Promise.resolve();
+
 /**
  * Sayfa izleyicisini (pageMonitor.js) yalnız kullanıcının izin verdiği sitelere, belge
  * yüklenmeye başlarken, ANA dünyada kayıtlı içerik betiği olarak ekle (P-042). `debugger`
  * izni istenmez. İzleme kapalıysa ya da izinli site yoksa kayıt kaldırılır.
+ *
+ * Ölçüldü (31 Ekim, bağımsız inceleme): `permissions.onAdded`/`onRemoved`/`storage.onChanged`
+ * eşzamanlı çağırınca ikinci kayıt "Duplicate script ID" ile düşüyor ve ikinci site izleyicisiz
+ * kalıyordu; çağrılar artık sırayla çalışır. Ekran görüntüsü/kayıt için verilen `<all_urls>`
+ * izni izleyiciyi HER siteye kuruyordu; artık yalnız site başına verilmiş izinler sayılır
+ * (o sitelerde izleyici yoksa ilk okuma şimdi ekler ve ipucu döner).
  */
-export async function registerMonitor() {
+export function registerMonitor() {
+  const run = monitorChain.then(registerMonitorNow);
+  monitorChain = run.catch(() => undefined);
+  return run;
+}
+
+async function registerMonitorNow() {
   const enabled = await monitorEnabled();
   const granted = enabled ? (await chrome.permissions.getAll()).origins || [] : [];
-  const origins = granted.filter((origin) => /^(<all_urls>|https?:\/\/)/.test(origin) && !origin.startsWith("http://127.0.0.1"));
+  const origins = granted.filter((origin) => /^https?:\/\//.test(origin) && !origin.startsWith("http://127.0.0.1"));
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [MONITOR_SCRIPT_ID] }).catch(() => []);
   if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [MONITOR_SCRIPT_ID] });
   if (!origins.length) return { registered: false };
@@ -1330,6 +1345,7 @@ export async function execute(command) {
   if (command.islem === "window_new") {
     // Yeni pencere (isteğe bağlı adresle); açılan sekme bağlanır.
     const url = veri.url ? new URL(veri.url) : null;
+    if (url && !/^https?:$/.test(url.protocol)) throw new Error("Yeni pencerede yalnız http(s) adresi açılabilir.");
     if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.");
     const created = await chrome.windows.create({ url: url ? url.href : undefined, focused: true, state: "normal" });
     const tab = created.tabs?.[0];
@@ -1342,6 +1358,11 @@ export async function execute(command) {
   if (command.islem === "tab_group") {
     const ids = (Array.isArray(veri.ids) ? veri.ids : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
     if (!ids.length) throw new Error("Gruplanacak sekme kimlikleri verilmedi ('tabs' çıktısındaki id'ler).");
+    // 'tabs' yalnız http(s) sekmelerini listeler; gruplama da o kümenin dışına çıkmaz (chrome://, kapanmış id).
+    const members = await Promise.all(ids.map((id) => chrome.tabs.get(id).catch(() => null)));
+    if (members.some((member) => !member || !/^https?:/.test(member.url || ""))) {
+      throw new Error("Yalnız 'tabs' çıktısındaki http(s) sekmeleri gruplanabilir.");
+    }
     const groupId = await chrome.tabs.group({ tabIds: ids });
     const title = String(veri.title || "").slice(0, 60);
     if (title && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title });

@@ -57,8 +57,9 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 - Panel turlarında sunucu tarafı `web_fetch`/`web_search` yoktur (girişli oturumu görmez).
 - Konsol/ağ izleyicisi istek ve yanıt BAŞLIKLARINI (çerez, Authorization) hiç kaydetmez; gövde yalnız metin/JSON
   türünde, akış okuyucuyla 16 KB'ta kesilip iptal edilir (`truncated: true`), `text/event-stream` hiç okunmaz;
-  bekleyen istek sayısı başlıkta düşer. Fusion çıktıyı `redact` ile maskeler. İzleyici yalnız kullanıcının izin verdiği
-  sitelere kayıtlıdır ve manifestte `debugger`/`webRequest` izni yoktur.
+  bekleyen istek sayısı başlıkta düşer. Fusion çıktıyı `redact` ile maskeler. İzleyici yalnız kullanıcının TEK TEK izin verdiği
+  sitelere kayıtlıdır (ekran görüntüsü/kayıt için verilen `<all_urls>` izni izleyiciyi kurmaz; o sitelerde ilk
+  okuma izleyiciyi şimdi ekler ve ipucu döner) ve manifestte `debugger`/`webRequest` izni yoktur.
 
 ## Doğrulanmayanlar
 

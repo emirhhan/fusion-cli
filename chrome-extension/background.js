@@ -14,8 +14,9 @@ chrome.commands?.onCommand.addListener((command) => {
   if (command === "fusion-stop") chrome.runtime.sendMessage({ type: "fusion.stop" }).catch(() => undefined);
 });
 
-// Konsol/ağ izleyicisi yalnız izinli sitelere kayıtlıdır; izin ya da ayar değişince yenilenir.
-const refreshMonitor = () => registerMonitor().catch(() => undefined);
+// Konsol/ağ izleyicisi yalnız izinli sitelere kayıtlıdır; izin ya da ayar değişince yenilenir
+// (core.js çağrıları sıraya koyar). Hata yutulmaz: hizmet çalışanı günlüğüne düşer.
+const refreshMonitor = () => registerMonitor().catch((cause) => console.warn("Fusion izleyici kaydı:", cause));
 chrome.permissions.onAdded.addListener(refreshMonitor);
 chrome.permissions.onRemoved.addListener(refreshMonitor);
 chrome.storage.onChanged.addListener((changes, area) => {
