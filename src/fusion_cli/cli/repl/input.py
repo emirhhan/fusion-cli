@@ -115,13 +115,14 @@ class ReplInput:
     def inject(self, line: str) -> bool:
         """Bekleyen istemi bu satırla sonlandır (zamanlanmış görev, P-038).
 
-        Yalnız etkileşimli istem beklerken çalışır; aksi hâlde False döner ve çağıran
-        görevi düşürmez, sonraki boşta ana bırakır.
+        Yalnız etkileşimli istem BOŞ beklerken çalışır; aksi hâlde False döner ve
+        çağıran görevi düşürmez, sonraki boşta ana bırakır. Ölçüldü (31 Ekim): tampon
+        doluyken `app.exit` kullanıcının yarım yazdığı satırı atıyordu.
         """
         if self._session is None or not self._waiting:
             return False
         app = self._session.app
-        if not app.is_running:
+        if not app.is_running or app.current_buffer.text.strip():
             return False
         app.exit(result=line)
         return True

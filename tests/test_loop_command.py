@@ -462,3 +462,47 @@ async def test_tui_ajan_zamanlamasi_slash_satirini_tur_olarak_calistirir(
         await session._task
     assert turlar == ["/bypass"] and komutlar == []
     assert state.approval is not ApprovalMode.BYPASS
+
+
+# --- Gerçek ReplInput.inject (prompt_toolkit) ------------------------------------- #
+
+
+async def _gercek_istem(tmp_path: Path, monkeypatch):
+    """Gerçek ReplInput istemini borulu girdiyle aç."""
+    from fusion_cli.cli.repl.input import ReplInput
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    reader = ReplInput(tmp_path / "history", ["/help"], mode=ApprovalMode.AUTO)
+    assert reader.interactive
+    prompt = asyncio.ensure_future(reader.prompt())
+    await asyncio.sleep(0.2)
+    return reader, prompt
+
+
+async def test_gercek_istem_bosken_inject_satiri_verir(tmp_path: Path, monkeypatch) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        reader, prompt = await _gercek_istem(tmp_path, monkeypatch)
+        assert reader.inject("testleri koştur") is True
+        assert await asyncio.wait_for(prompt, 2) == "testleri koştur"
+
+
+async def test_gercek_istem_doluyken_inject_yazilani_silmez(tmp_path: Path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): yarım yazılmış satır varken vade gelince `app.exit` tamponu
+    atıyor, kullanıcının yazdığı kayboluyordu."""
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        reader, prompt = await _gercek_istem(tmp_path, monkeypatch)
+        pipe.send_text("yarım mesaj")
+        await asyncio.sleep(0.2)
+        assert reader.inject("testleri koştur") is False
+        assert not prompt.done()
+        pipe.send_text(" bitti\r")
+        assert await asyncio.wait_for(prompt, 2) == "yarım mesaj bitti"
