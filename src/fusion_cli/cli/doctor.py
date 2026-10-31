@@ -35,6 +35,7 @@ from ..config.loader import load_config, load_environment
 from ..config.models import Config
 from ..config.paths import env_file_candidates, memory_dir, user_config_dir
 from ..config.readiness import Readiness, ReadinessReport, evaluate
+from ..config.sandbox_admin import sandbox_status
 from ..core.clock import SystemClock
 from ..core.errors import ConfigError
 from ..core.model_capability import CapabilityEvidence, ModelCapability, ToolSupport
@@ -100,6 +101,7 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     checks.append(_memory())
     checks.append(_path_check())
     checks.extend(_optional())
+    checks.append(sandbox_check(config))
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
@@ -264,6 +266,25 @@ def _path_check() -> Check:
         "PATH'te bulunamadı",
         ok=False,
         remedy=ipucu or "Kurulum dizinindeki bin/Scripts klasörünü PATH'e ekle.",
+    )
+
+
+def sandbox_check(config: Config) -> Check:
+    """Kabuk sandbox'ı (P-010): kapalıysa bilgi, açık ve kurulamıyorsa kaldı."""
+    from ..ui import messages
+
+    status = sandbox_status(config, Path.cwd())
+    value = f"{'açık' if status.enabled else 'kapalı'} · {status.platform} · ağ {status.network}"
+    if not status.enabled:
+        return Check(messages.SANDBOX_DOCTOR_NAME, value, ok=None)
+    if status.available:
+        return Check(messages.SANDBOX_DOCTOR_NAME, value, ok=True)
+    effect = "çalıştırılmıyor" if status.fail_if_unavailable else "sandbox'sız çalışıyor"
+    return Check(
+        messages.SANDBOX_DOCTOR_NAME,
+        f"{value} · {status.reason}",
+        ok=False,
+        remedy=messages.SANDBOX_DOCTOR_REMEDY.format(effect=effect),
     )
 
 

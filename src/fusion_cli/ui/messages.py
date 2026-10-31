@@ -376,6 +376,30 @@ REPL_PREVIEW_WARNING = "! {warning}"
 REPL_PREVIEW_UNTRUSTED = (
     "Komutlu yapılandırmalar bu proje güvenilmediği için çalışmaz: `fusion trust` ile onayla."
 )
+#: `/tarayici` (P-045): ajanla paylaşılan, turlar arasında açık kalan görünür tarayıcı.
+TARAYICI_PANEL_OFF = (
+    "Paylaşılan tarayıcı kapalı: ajan her turda kendi görünmez tarayıcısını açıp kapatır. "
+    "`/tarayici ac` ile görünür, turlar arasında açık kalan bir pencereye geç."
+)
+TARAYICI_PANEL_ON = (
+    "Paylaşılan tarayıcı açık: ajanın tarayıcı eylemleri görünür pencerede yürür ve turlar "
+    "arasında açık kalır. Pencerede sen de gezinebilirsin; ajanı bekletmek için "
+    "`/tarayici devral`, devretmek için `/tarayici birak`."
+)
+TARAYICI_PANEL_STATUS = "Paylaşılan tarayıcı: {state} · denetim: {control}{profile}"
+TARAYICI_PANEL_NOT_STARTED = "pencere ajanın ilk tarayıcı eyleminde açılır"
+TARAYICI_PANEL_TAB = "{marker} {index}. {url}"
+TARAYICI_PANEL_CONTROL_USER = "sende (ajan bekliyor)"
+TARAYICI_PANEL_CONTROL_AGENT = "ajanda"
+TARAYICI_PANEL_TAKEN = (
+    "Denetim sende: ajanın tarayıcı eylemleri sen `/tarayici birak` diyene kadar bekler "
+    "(en çok 5 dk)."
+)
+TARAYICI_PANEL_RELEASED = "Denetim ajana geçti; bekleyen tarayıcı eylemi sürer."
+TARAYICI_PANEL_CLOSED = "Paylaşılan tarayıcı kapatıldı; ajan yine tur başına tarayıcı kullanır."
+TARAYICI_PANEL_NEEDS_ON = "Önce `/tarayici ac` ile paylaşılan tarayıcıyı aç."
+TARAYICI_PANEL_USAGE = "Kullanım: /tarayici [ac | devral | birak | kapat]"
+CMD_TARAYICI = "ajanla paylaşılan görünür tarayıcı: izle, devral, bırak (P-045)"
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
@@ -629,9 +653,7 @@ REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile 
 REPL_SKILL_FORK_NOTE = (
     "context: fork — bu beceri ana bağlamı devralan bir alt ajanda çalışacak (/subtask gibi)."
 )
-REPL_SKILL_MODEL_NOTE = (
-    "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
-)
+REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
 REPL_SKILL_ENGINE_NOTE = (
     "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
 )
@@ -718,11 +740,27 @@ MCP_SAVE_FAILED = "kaydedilemedi: {error}"
 CONNECTOR_RECONNECTED = "Yeniden bağlandı: {names}."
 CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satırda."
 MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
+MCP_PROMPT_QUEUED = "MCP istemi /{name} sıradaki turda sunucudan alınıp çalıştırılacak."
+MCP_PROMPT_DEFAULT = "{server} MCP istemi"
+MCP_PROMPT_UNLISTED = "MCP istemi (liste henüz yüklenmedi)"
+MCP_PROMPT_UNLISTED_QUEUED = (
+    "MCP istem listesi henüz yüklenmedi; /{name} sıradaki turda sunucular bağlanınca çözülecek."
+)
+MCP_PROMPT_ROW = "/{name} {usage} — {description}"
+MCP_RESOURCE_ROW = "@{server}:{uri} — {name}"
+MCP_PROMPTS_EMPTY = (
+    "Bilinen MCP istemi yok. Sunucular ilk turda bağlanır; istem sunan bir sunucu bağlıysa "
+    "liste bir turdan sonra dolar."
+)
+MCP_RESOURCES_EMPTY = (
+    "Bilinen MCP kaynağı yok. Sunucular ilk turda bağlanır; kaynak sunan sunucu bağlandıktan "
+    "sonra `@sunucu:uri` ile anabilirsin."
+)
 MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 )
-MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje"}
+MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje", "plugin": "eklenti"}
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
 MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"
@@ -968,7 +1006,10 @@ REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
 )
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
-CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
+CMD_MCP = (
+    "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]; "
+    "/mcp prompts, /mcp resources"
+)
 CMD_SKILLS = (
     "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
 )
@@ -1344,9 +1385,9 @@ MENTION_UNREADABLE = "@{raw} okunamadı: {error}"
 MENTION_NOT_FILE = "dosya ya da dizin değil"
 MENTION_TOO_MANY = "Tek mesajda en fazla {limit} dosya anması işlenir; fazlası atlandı."
 MENTION_RESOURCE_UNSUPPORTED = (
-    "@{raw}: MCP kaynak anması henüz desteklenmiyor (köprüde resources/read yok); "
-    "sunucunun aracını sohbette iste."
+    "@{raw}: '{server}' adlı MCP sunucusu tanımlı değil; kaynak eklenmedi (`/mcp` ile listele)."
 )
+MENTION_RESOURCE_QUEUED = "@{raw}: MCP kaynağı turda sunucudan okunup bağlama eklenecek."
 
 # --- /config ve fusion config get/set/list (P-029) ------------------------- #
 CMD_CONFIG = "ayarları gör/değiştir: /config [filtre] · /config <yol> · /config <yol>=<değer>"
@@ -1418,3 +1459,171 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+
+# --------------------------------------------------------------------------- #
+# Ekip ve iş akışı (P-061/P-062)
+# --------------------------------------------------------------------------- #
+
+EKIP_CMD_TEAM = "Ajan ekipleri: lider + üyeler, paylaşımlı görev listesi ve posta kutusu"
+AKIS_CMD_WORKFLOWS = "Dinamik iş akışları: kayıtlılar, koşular, iptal, çalıştır"
+
+#: Terminalde canlı pano yerine basılan tek satırlık ilerleme (P-061/P-062).
+AKIS_PROGRESS = "İş akışı '{name}' · {status}{phase} · {done}/{total} adım · {agents}/{limit} ajan"
+AKIS_STARTED = "İş akışı '{name}' başladı: {total} adım (durdurmak için /workflows iptal {run_id})"
+EKIP_PROGRESS = "Ekip '{team}' · {status} · {done}/{total} görev · {members}"
+
+# --- Kancalar (P-009) ---------------------------------------------------------- #
+
+CMD_HOOKS = "Kancaları (hooks) listele: olay · eşleştirici · komut · kaynak"
+HOOKS_PERMISSION_NOTICE = "Fusion izin istiyor: {tool}"
+HOOKS_TOOL_BLOCKED = (
+    "KANCA ENGELLEDİ ({event}): {reason}\n"
+    "Bu çağrı çalışmadı; gerekçeye göre farklı bir yol dene ya da kullanıcıya sor."
+)
+HOOKS_TURN_HALTED = "Kanca turu durdurdu ({event}): {reason}"
+HOOKS_NO_REASON = "gerekçe verilmedi"
+HOOKS_POST_FEEDBACK = "KANCA GERİ BİLDİRİMİ ({event}): {reason}"
+HOOKS_CONTEXT_NOTE = "KANCA BAĞLAMI ({event}):\n{context}"
+HOOKS_PROMPT_BLOCKED = "İstem bir kanca tarafından engellendi (UserPromptSubmit): {reason}"
+HOOKS_STOP_CONTINUE = (
+    "[{event} kancası] Durmana izin verilmedi. Gerekçe: {reason}\n"
+    "İşe devam et; gereken bitince kısa bir özetle bitir."
+)
+HOOKS_ERROR = "Kanca hatası — {detail}"
+HOOKS_SYSTEM = "Kanca: {text}"
+HOOKS_LIST_EMPTY = (
+    "Tanımlı kanca yok. Biçim ve örnekler: docs/KANCALAR.md — Fusion: {path}, "
+    'Claude: ~/.claude/settings.json, proje: .claude/settings.json ("hooks" bloğu).'
+)
+HOOKS_LIST_HEADER = "Kancalar — {active} etkin, {skipped} atlanan:"
+HOOKS_LIST_DISABLED = "Kancalar kapalı: {reason}"
+HOOKS_LIST_UNTRUSTED = (
+    "Güvenilmediği için kancaları çalıştırılmayan katmanlar: {layers}. "
+    "Dosyaları gözden geçirdiysen `fusion trust` ile etkinleştir."
+)
+HOOKS_LIST_IGNORED_DISABLE = (
+    "Güvenilmeyen katmandaki disableAllHooks yok sayıldı ({layers}): depo senin kancalarını "
+    "kapatamaz. Bilerek istiyorsan `fusion trust` ya da kendi dosyanda kapat."
+)
+HOOKS_TRUST_ENABLED = (
+    "Bu projenin kanca (hook) komutları artık her araç çağrısında senin yetkinle çalışır: "
+    "{files}. Gözden geçir: fusion hooks list"
+)
+HOOKS_FLAG_INVALID = (
+    "Kanca anahtarı ya da değeri geçersiz (hooks_enabled|claude_hooks, true|false)."
+)
+HOOKS_FLAG_FAILED = "Kanca ayarı yazılamadı: {error}"
+#: Bir dosyadaki `disableAllHooks` kancaları kapattığında oturumda bir kez.
+HOOKS_DISABLED_NOTICE = "Kancalar bu oturumda kapalı: {reason}"
+HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"
+HOOKS_TEST_UNKNOWN_EVENT = "Bilinmeyen olay: {given}. Olaylar: {events}"
+HOOKS_TEST_BAD_INPUT = "--input geçerli bir JSON nesnesi olmalı: {error}"
+HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."
+HOOKS_TEST_RESULT = (
+    "{event}: {ran} kanca çalıştı · engel: {blocked} · izin: {permission} · durdur: {halt}"
+)
+
+# --- Kabuk sandbox'ı (P-010): /sandbox, fusion sandbox, doctor ------------------------- #
+CMD_SANDBOX = "kabuk sandbox'ı: durum · aç/kapat · ağ allowlist'i (izin/engelle alan adı)"
+SANDBOX_USAGE = (
+    "Kullanım: /sandbox [on|off] · /sandbox ag open|allowlist · /sandbox izin <alan-adı> · "
+    "/sandbox engelle <alan-adı> · /sandbox kaldir <alan-adı> · "
+    "/sandbox oto|zorunlu|disari|sir|localhost on|off"
+)
+SANDBOX_STATE_ON = "AÇIK (write_root)"
+SANDBOX_STATE_OFF = "kapalı (runtime.shell_sandbox=off)"
+SANDBOX_TITLE = "Kabuk sandbox'ı: {state}"
+SANDBOX_PLATFORM = "  Platform     : {platform} — {availability}"
+SANDBOX_AVAILABLE = "kurulabilir"
+SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
+SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
+SANDBOX_READ = "  Okuma engeli : {paths}"
+SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
+SANDBOX_NETWORK_ALLOWLIST = (
+    "  Ağ           : yalnız izinli alan adları — {allowed}{denied}; localhost {localhost}"
+)
+SANDBOX_NETWORK_NONE = "hiçbiri (dış ağ kapalı)"
+SANDBOX_FLAGS = (
+    "  Davranış     : sandbox dışı istek {outside} · sorusuz çalıştırma {auto} · "
+    "kurulamazsa {fail} · sır ortamı {secrets}"
+)
+SANDBOX_EXCLUDED = "  Sandbox dışı : {commands}"
+SANDBOX_HINT = "Değiştir: /sandbox on|off, /sandbox izin github.com, /config sandbox.<alan>=<değer>"
+SANDBOX_CHANGED = "Kaydedildi: {setting} = {value} ({path})"
+SANDBOX_DOCTOR_NAME = "Kabuk sandbox'ı"
+SANDBOX_DOCTOR_REMEDY = (
+    "Sandbox açık ama kurulamıyor; komutlar {effect}. macOS'ta /usr/bin/sandbox-exec, Linux'ta "
+    "bubblewrap (+ allowlist için socat) gerekir; ya da /sandbox off."
+)
+
+# --- Otomatik kip denetçisi (P-011) ----------------------------------------- #
+CMD_AUTO_MODE = "otomatik kip denetçisi: durum, ayar (off|ask_only|on), Manuel'e düştüyse devam"
+AUTO_REVIEW_DECIDED = "denetçi ({source}): {verdict} — {summary} · {reason}"
+#: Kurallı yedek: model bakmadı, kuralın kararı geçerli.
+AUTO_REVIEW_DECIDED_RULE = "denetçi modeli yok, kurallar geçerli — {summary} · {reason}"
+AUTO_REVIEW_VERDICT_LABELS = {"guvenli": "güvenli, sorulmadı", "riskli": "riskli, soruluyor"}
+AUTO_REVIEW_SOURCE_LABELS = {"model": "model", "kural": "kural", "onbellek": "önbellek"}
+AUTO_REVIEW_FELL_BACK = (
+    "Otomatik kip Manuel'e düştü: {reason}. Bundan sonra okuma dışındaki her işlem sorulur. "
+    "Otomatik'e dönmek için: /auto-mode devam (masaüstünde: izin modu › Otomatik)."
+)
+AUTO_REVIEW_SETTING_LABELS = {
+    "off": "kapalı (yalnız kurallar)",
+    "ask_only": "sorulacakları sınıflandır",
+    "on": "sorulacaklar + tüm yazan kabuk komutları",
+}
+AUTO_REVIEW_STATUS = (
+    "Denetçi: {setting} · model: {model}\n"
+    "Engel: üst üste {consecutive}/{consecutive_limit}, toplam {total}/{total_limit} · "
+    "kip düşüşü: {trips}{fell_back}{offline}"
+)
+AUTO_REVIEW_DATA_NOTE = (
+    "Açıkken {model} modeline son {count} mesajın ve eylem (komut/yol; dosya içeriği değil) "
+    "gider, sırlar maskelenir; o sağlayıcının kotasını kullanır."
+)
+AUTO_REVIEW_STATUS_FELL_BACK = " · ŞU AN MANUEL'E DÜŞMÜŞ ({reason})"
+AUTO_REVIEW_STATUS_OFFLINE = " · model erişilemiyor, kurallı yedek"
+AUTO_REVIEW_STATUS_RECENT = "Son kararlar:"
+AUTO_REVIEW_STATUS_RECENT_LINE = "  {verdict} [{source}] {tool}: {summary} — {reason}"
+AUTO_REVIEW_RESUMED = "Otomatik kipe dönüldü; denetçi sayaçları sıfırlandı."
+AUTO_REVIEW_RESUMED_KEPT = "Denetçi sayaçları sıfırlandı; izin kipi ({mode}) değişmedi."
+AUTO_REVIEW_SET = "Denetçi ayarı → {setting} ({path})."
+AUTO_REVIEW_SET_UNSAVED = "Denetçi ayarı bu oturum için {setting}; dosyaya yazılamadı: {error}"
+AUTO_REVIEW_USAGE = "Kullanım: /auto-mode [durum] · /auto-mode devam · /auto-mode <off|ask_only|on>"
+AUTO_REVIEW_TRY_RESULT = "Karar: {verdict} [{source}] — {reason}"
+AUTO_REVIEW_TRY_SKIPPED = (
+    "Bu komut denetçiye gitmez: {reason}. (Otomatik kipte kural kararı geçerli.)"
+)
+AUTO_REVIEW_TRY_NOT_RISKY = (
+    "kural bu komutu sormuyor (okuma ya da proje içi iş); `on` ayarında yazan komuta da bakılır"
+)
+AUTO_REVIEW_TRY_FIXED = (
+    "kuralın sabit riski var (sudo, sistem ayarı, | sh, silme…), her zaman sorulur"
+)
+
+# --- Eklenti paketi ve içe aktarma (P-059, P-071) ------------------------------- #
+EKLENTI_CMD_PLUGIN = "eklentileri listele/kur/aç/kapat/kaldır, pazar yerleri: /plugin kur <kaynak>"
+EKLENTI_CMD_IMPORT = "Claude Code/Codex/Gemini/Cursor yapılandırmasını taşı (önizle, --yes uygula)"
+EKLENTI_CMD_RELEASE_NOTES = "sürüm notlarını göster (CHANGELOG)"
+EKLENTI_MCP_REMOVE = (
+    "'{name}' bir eklentinin MCP sunucusu; kaldırmak yerine eklentiyi kapat: "
+    "fusion eklenti kapat <eklenti>"
+)
+EKLENTI_MCP_TRUST = (
+    "'{name}' bir eklentinin MCP sunucusu; güveni kalıcı tutulmaz, her araç çağrısı onay ister. "
+    "Kapatmak için: fusion eklenti kapat <eklenti>"
+)
+
+# Bilgisayar kullanımı (P-007, P-033) — `BILGISAYAR_` önekli.
+BILGISAYAR_APPROVAL_SESSION = "Bu oturumda {app} için izin ver"
+BILGISAYAR_APPROVAL_NEVER = "Her zaman reddet"
+BILGISAYAR_APPROVAL_NEVER_DESC = "{app} reddedilen uygulamalara eklenir (Ayarlar › Bu bilgisayar)."
+BILGISAYAR_APPROVAL_TARGET = "Uygulama: {app} · kademe: {level}"
+BILGISAYAR_CONFIRM_SESSION_HINT = "o = bu oturumda {app} için izin ver"
+BILGISAYAR_DENIED_NOT_SAVED = "{app} bu tur için reddedildi (ret listesine yazılamadı)."
+BILGISAYAR_CONFIRM_NEVER_HINT = "r = {app} uygulamasını her zaman reddet"
+BILGISAYAR_ESC_STOPPED = "Esc ile durduruldu: Fusion bilgisayarı kullanmayı bıraktı."
+BILGISAYAR_DENIED_IN_TURN = (
+    "Kullanıcı {app} uygulamasını reddedilen uygulamalara ekledi; bu uygulamada eylem yapma."
+)

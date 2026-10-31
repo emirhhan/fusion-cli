@@ -9,7 +9,8 @@ describe("Inspector", () => {
   it("bağlamsal araçları erişilebilir sekmeler olarak sunar", () => {
     render(<Inspector />);
     expect(screen.getByRole("tablist", { name: "Denetçi araçları" })).toBeTruthy();
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    // Dosyalar, Değişiklikler, Terminal, Önizleme, Tarayıcı (P-045), Ajanlar.
+    expect(screen.getAllByRole("tab")).toHaveLength(6);
     expect(screen.getByRole("tabpanel")).toBeTruthy();
   });
 

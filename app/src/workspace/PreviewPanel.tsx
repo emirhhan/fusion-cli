@@ -13,16 +13,20 @@ interface PreviewAsset { yol: string; tur: PreviewKind; mime: string; boyut: num
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-/** Yerel geliştirme sunucusu adresi mi? Uygulamanın KENDİ kökeni (geliştirmede Vite portu) hariç:
- * `allow-same-origin` + `allow-scripts` ile kendini çerçeveleyen sayfa sandbox'ını söker (U4-48).
- * Üretimde uygulama `tauri://localhost` olduğundan loopback http adresiyle çakışmaz. */
+const LOCAL_PROTOCOLS = ["http:", "https:"];
+
+/** Yerel geliştirme sunucusu adresi mi (http ya da https loopback, P-041)? Uygulamanın KENDİ
+ * kökeni (geliştirmede Vite portu) hariç: `allow-same-origin` + `allow-scripts` ile kendini
+ * çerçeveleyen sayfa sandbox'ını söker (U4-48). Üretimde uygulama `tauri://localhost` olduğundan
+ * loopback adresle çakışmaz. */
 export function isLocalPreviewUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    if (url.protocol !== "http:" || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
+    if (!LOCAL_PROTOCOLS.includes(url.protocol) || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
     const own = window.location;
-    const ownIsLoopback = own.protocol === "http:" && LOOPBACK_HOSTS.includes(own.hostname);
-    return !(ownIsLoopback && (url.port || "80") === (own.port || "80"));
+    const ownIsLoopback = own.protocol === url.protocol && LOOPBACK_HOSTS.includes(own.hostname);
+    const defaultPort = url.protocol === "https:" ? "443" : "80";
+    return !(ownIsLoopback && (url.port || defaultPort) === (own.port || defaultPort));
   } catch {
     return false;
   }
@@ -66,6 +70,18 @@ export interface PreviewPanelProps {
   /** Ajanın başlattığı önizleme (`PreviewReady`): gelince web kipinde açılır. `seq`
    *  aynı adresin yeniden istenmesini (sayfa yenilensin) ayırt eder. */
   requestedUrl?: { url: string; seq: number } | null;
+  /** Uygulama içi Tarayıcı paneline aktar (P-045): uzak adres ya da öğe seçici (`pick`). */
+  onOpenInBrowser?: (url: string, pick?: boolean) => void;
+}
+
+/** Önizlemeye gömülemeyen ama Tarayıcı panelinde açılabilen adres (http/https). */
+function browsableUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 async function openWithSystem(url: string): Promise<void> {
@@ -83,6 +99,7 @@ export function PreviewPanel({
   selectedPath,
   requestedUrl = null,
   revision = 0,
+  onOpenInBrowser,
 }: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -92,8 +109,12 @@ export function PreviewPanel({
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [addressError, setAddressError] = useState<string | null>(null);
+  /** Önizlemeye gömülemeyen adres: Tarayıcı paneline aktarılabilir. */
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
+  /** Kendinden imzalı yerel https: WebView iframe'i boş bırakabilir, Tarayıcı paneli önerilir. */
+  const [tlsNote, setTlsNote] = useState<string | null>(null);
   const [frameChecking, setFrameChecking] = useState(false);
   const [frameRevision, setFrameRevision] = useState(0);
   const [viewportId, setViewportId] = useState<string>(DEFAULT_VIEWPORT_ID);
@@ -170,8 +191,12 @@ export function PreviewPanel({
       if (result.ok !== true || typeof result.url !== "string" || !isLocalPreviewUrl(result.url)) {
         setFrameError(typeof result.metin === "string" ? result.metin : "Yerel önizleme doğrulanamadı.");
         setFrameErrorUrl(value);
+        setTlsNote(null);
         return null;
       }
+      setTlsNote(result.kendinden_imzali === true
+        ? (typeof result.not === "string" && result.not ? result.not : "Sertifika kendinden imzalı.")
+        : null);
       return result.url;
     } catch (reason) {
       if (run !== validationRun.current) return null;
@@ -187,10 +212,12 @@ export function PreviewPanel({
     if (!isLocalPreviewUrl(value)) {
       validationRun.current += 1;
       setFrameChecking(false);
-      setAddressError("Güvenlik için uygulama içine yalnız localhost adresleri açılabilir.");
+      setRemoteUrl(onOpenInBrowser ? browsableUrl(value) : null);
+      setAddressError("Güvenlik için önizlemeye yalnız localhost adresleri gömülür.");
       return;
     }
     setAddressError(null);
+    setRemoteUrl(null);
     const verified = await validateAddress(value);
     if (!verified || inputValueRef.current.trim() !== value) return;
     const next = history.slice(0, historyIndex + 1);
@@ -285,6 +312,7 @@ export function PreviewPanel({
                   inputValueRef.current = event.target.value;
                   setInput(event.target.value);
                   setAddressError(null);
+                  setRemoteUrl(null);
                   setFrameChecking(false);
                   setFrameError(null);
                   setFrameErrorUrl(null);
@@ -315,10 +343,28 @@ export function PreviewPanel({
                   title="Ekran görüntüsü al"
                   type="button"
                 >◧</button>
+                {onOpenInBrowser && (
+                  <button
+                    aria-label="Öğe seç (Tarayıcı panelinde)"
+                    disabled={!localUrl}
+                    onClick={() => { if (localUrl) onOpenInBrowser(localUrl, true); }}
+                    title="Öğe seç: sayfayı Tarayıcı panelinde açar, tıkladığın öğe sohbete eklenir"
+                    type="button"
+                  >⌖</button>
+                )}
                 <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
               </div>
             </div>
-            {addressError && <p className="preview-panel__address-error" role="alert">{addressError}</p>}
+            {addressError && (
+              <p className="preview-panel__address-error" role="alert">
+                {addressError}
+                {remoteUrl && onOpenInBrowser && (
+                  <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(remoteUrl)} type="button">
+                    Tarayıcı panelinde aç
+                  </button>
+                )}
+              </p>
+            )}
             <PreviewLaunch
               client={client}
               disabled={frameChecking}
@@ -342,7 +388,17 @@ export function PreviewPanel({
               {frameErrorUrl && <button onClick={() => void launchExternal(frameErrorUrl)} type="button">Dışarıda aç</button>}
             </div>
           ) : localUrl ? (
-            <div className="preview-panel__stage">
+            <div className="preview-panel__stage" data-note={tlsNote ? "tls" : undefined}>
+              {tlsNote && (
+                <p className="preview-panel__tls-note" role="status">
+                  {tlsNote}
+                  {onOpenInBrowser && (
+                    <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(localUrl)} type="button">
+                      Tarayıcı panelinde aç
+                    </button>
+                  )}
+                </p>
+              )}
               <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport.id}>
                 <iframe
                   className="preview-panel__frame"

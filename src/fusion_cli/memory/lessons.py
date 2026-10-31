@@ -21,7 +21,14 @@ from pathlib import Path
 from typing import Any
 
 from ..core.clock import SystemClock
-from ..core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
+from ..core.memory import (
+    AGENT_LESSON_TAG_PREFIX,
+    DEFAULT_LESSON_CONFIDENCE,
+    Lesson,
+    LessonKind,
+    LessonSource,
+    visible_to,
+)
 from ..core.protocols import Clock
 from .hybrid import (
     CANDIDATE_MULTIPLIER,
@@ -135,6 +142,9 @@ class ChromaLessonMemory:
                 documents, metadatas, distances, lexical, fused, strict=False
             )
         )
+        # Kişilik süzgeci (P-055): kendi belleği olan ajanın dersi yalnız o ajana döner;
+        # ana ajan ve başka ajanlar görmez. Etiketsiz ders herkese açıktır.
+        candidates = tuple(item for item in candidates if visible_to(item.lesson.tags, tags))
         # Workspace süzgeci skorlamadan ÖNCE uygulanır: başka projenin dersi
         # aday havuzunda kalırsa iyi bir dersi sıralamada geriye itebilir.
         if workspace is not None:
@@ -142,7 +152,9 @@ class ChromaLessonMemory:
             # O PROJEYE ait ders, etiket kesişimi ise AYNI TEKNOLOJİDEKİ her
             # projede geçerli ders. Ölçüldü: üçüncü katman yokken 38 Godot dersi
             # yeni bir Godot projesinde hiç görünmüyordu.
-            istenen = set(tags)
+            # Ajan etiketi teknoloji katmanı değildir: projeye özel ajan dersi başka projeye
+            # yalnız ajan etiketi ortak diye taşınmasın (P-055).
+            istenen = {tag for tag in tags if not tag.startswith(AGENT_LESSON_TAG_PREFIX)}
             candidates = tuple(
                 item
                 for item in candidates

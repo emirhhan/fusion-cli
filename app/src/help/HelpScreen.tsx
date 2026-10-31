@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
+import { ACTION_LABELS, DEFAULT_BINDINGS, formatKey, isMacPlatform, keysForAction } from "../shortcuts/keys";
 import "./help.css";
 
 /**
@@ -24,9 +25,20 @@ const KISAYOLLAR: Kisayol[] = [
   { tus: "Enter", ne: "Görevi gönder" },
   { tus: "Shift + Enter", ne: "Alt satıra geç" },
   { tus: "Shift + Tab", ne: "İzin modunu değiştir (Otomatik / Manuel / Düzenlemeleri kabul et / Plan)" },
-  { tus: "/", ne: "Komut paletini aç" },
+  { tus: "/", ne: "Görev kutusunda komut listesini aç" },
   { tus: "Esc", ne: "Açık menüyü ya da seçiciyi kapat" },
 ];
+
+/** Uygulama kısayolları varsayılan tablodan gelir (P-046); kişisel bağlar Ayarlar › Kısayollar'dadır. */
+const UYGULAMA_EYLEMLERI = ["palet", "dosya_ara", "yeni_sohbet", "ayarlar", "kenar_cubugu", "terminal", "kisayollar"];
+
+function uygulamaKisayollari(mac: boolean): Kisayol[] {
+  const satirlar = UYGULAMA_EYLEMLERI.flatMap((eylem) => {
+    const tus = keysForAction({ ...DEFAULT_BINDINGS }, eylem)[0];
+    return tus ? [{ tus: formatKey(tus, mac), ne: ACTION_LABELS[eylem] ?? eylem }] : [];
+  });
+  return [...satirlar, { tus: `${formatKey("mod+1", mac)} … ${formatKey("mod+9", mac)}`, ne: "Açık sohbetler arasında geç" }];
+}
 
 interface Soru {
   baslik: string;
@@ -94,7 +106,7 @@ export function HelpScreen({
       <section className="help__card">
         <h3>Kısayollar</h3>
         <dl className="help__shortcuts">
-          {KISAYOLLAR.map((kisayol) => (
+          {[...KISAYOLLAR, ...uygulamaKisayollari(isMacPlatform())].map((kisayol) => (
             <div key={kisayol.tus}>
               <dt><kbd>{kisayol.tus}</kbd></dt>
               <dd>{kisayol.ne}</dd>

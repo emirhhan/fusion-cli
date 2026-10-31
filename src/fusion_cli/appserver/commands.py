@@ -94,10 +94,12 @@ PickerCall = Callable[..., str | None]
 #: ve `/branch` komutları da burada kalır: masaüstünün sekme modeli bunları kendi
 #: istekleriyle (`sohbet.listele`, `sohbet.dallan`) yapar; slash yolu sekmeyi şaşırtırdı.
 _UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume", "branch")
-#: Yalnız terminale özgü komutlar: masaüstünde karşılığı yok (tema/görünüm/tuş bağı/durum
+#: Yalnız terminale özgü komutlar: masaüstünde karşılığı yok (tema/görünüm/vim/durum
 #: satırı prompt_toolkit'e aittir). Ölçüldü (31 Ekim): "destekleniyor" görünüp kalıcı config
-#: ya da keybindings.json yazıyor, masaüstünde hiçbir etkisi olmuyordu.
-_TERMINAL_ONLY = frozenset({"theme", "tui", "search", "vim", "keybindings", "statusline"})
+#: yazıyor, masaüstünde hiçbir etkisi olmuyordu. `/keybindings` artık burada değil: aynı
+#: dosyanın `masaustu` bağlamı masaüstü kısayollarıdır ve uygulama komutu Ayarlar ›
+#: Kısayollar'a yönlendirir (P-046).
+_TERMINAL_ONLY = frozenset({"theme", "tui", "search", "vim", "statusline"})
 
 
 def _is_unsupported_interactive(name: str) -> bool:

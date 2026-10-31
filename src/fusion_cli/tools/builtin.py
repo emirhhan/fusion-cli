@@ -18,6 +18,7 @@ from . import (
     desktop_background,
     desktop_inspect,
     desktop_mouse,
+    desktop_policy,
     desktop_screen,
     download,
     files,
@@ -82,12 +83,14 @@ _TOOLS: tuple[Tool, ...] = (
         description=("Pencereyi öne getirmeden AX öğelerini incele; eylem için güncel ref kullan."),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_inspect"],
         run=desktop_background.desktop_background_inspect,
+        effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
         name="desktop_background_screenshot",
         description=("Arka plandaki pencereyi ScreenCaptureKit ile yakala; odağı değiştirmez."),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_screenshot"],
         run=desktop_background.desktop_background_screenshot,
+        effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
         name="desktop_background_action",
@@ -539,6 +542,8 @@ _TOOLS: tuple[Tool, ...] = (
             {
                 "command": _STRING,
                 "background": {"type": "boolean"},
+                # Sandbox dışı istek (P-010): her seferinde açık onay; açıklama bütçe için kısa.
+                "unsandboxed": {"type": "boolean", "description": "sandbox dışı (onaylı)"},
                 "expected_outputs": {
                     "type": "array",
                     "items": _STRING,

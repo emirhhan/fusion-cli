@@ -18,6 +18,24 @@ from __future__ import annotations
 
 import re
 
+#: Sır taşıdığı ADINDAN anlaşılan ortam değişkenleri (sağlayıcı anahtarları, belirteçler).
+#: Önizleme sunucusu ve sandbox içindeki `run_shell` bu adları çocuk sürece geçirmez.
+#: Ölçüldü (31 Ekim): çıplak `API_KEY`/`TOKEN`, `AWS_ACCESS_KEY_ID`, `STRIPE_KEY`,
+#: `DATABASE_URL` ve `*_CREDENTIALS` yakalanmıyordu (ek `_` ön koşulu).
+SECRET_ENV_NAME = re.compile(
+    r"(_API_KEY|_APIKEY|_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_PASSWD|_PRIVATE_KEY"
+    r"|_DATABASE_URL|_DSN)$"
+    r"|^(API_KEY|APIKEY|TOKEN|ACCESS_TOKEN|DATABASE_URL)$"
+    r"|PASSWORD|SECRET|ACCESS_KEY|CREDENTIAL",
+    re.IGNORECASE,
+)
+
+
+def is_secret_env_name(name: str) -> bool:
+    """Ortam değişkeni adı sır gibi mi görünüyor (`OPENAI_API_KEY`, `GH_TOKEN`)?"""
+    return SECRET_ENV_NAME.search(name) is not None
+
+
 #: Atamanın sağ tarafı: tırnaklı değer boşluk/virgül içerse de TAMAMEN sırdır.
 #: Son kol, kapanmamış tırnakla başlayan değeri de (kesilmiş log) yakalar.
 _VALUE = r"""(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|["']?[^"'\s,}]+)"""

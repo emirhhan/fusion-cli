@@ -12,6 +12,7 @@ from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
 from .team_scope import derive_sub_context
 from .team_settings import MEMORY_TOOL_NAMES
+from .team_tools_member import TEAM_MEMBER_TOOLS
 
 _LOG = logging.getLogger(__name__)
 
@@ -71,6 +72,11 @@ def allowed_tools(
     memory_tools = _memory_tools(persona, subtask)
     if allowed is not None and memory_tools:
         allowed = allowed | memory_tools
+    # Ekip üyesinin pano araçları (P-061) rol kısıtından (`tools:`) bağımsız açıktır: üye
+    # görev alamazsa ekip kilitlenir. Yalnız üyenin defterinde bulunurlar.
+    team_tools = TEAM_MEMBER_TOOLS & set(available)
+    if allowed is not None and team_tools:
+        allowed = allowed | team_tools
     scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed

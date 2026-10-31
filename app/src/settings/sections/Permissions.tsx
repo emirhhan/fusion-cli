@@ -4,6 +4,9 @@ import { errorMessage, operationResult } from "../../protocol/result";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
+import { HookList } from "./Hooks";
+import { SandboxCard } from "./SandboxCard";
+import { AutoReviewCard } from "./AutoReviewCard";
 import "./Permissions.css";
 
 /**
@@ -213,6 +216,8 @@ export function Permissions({
         </p>
       </article>
 
+      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} />}
+
       <article className="settings__card">
         <h3>Proje klasörü</h3>
         <p className="settings__stat">{kok || "—"}</p>
@@ -349,6 +354,8 @@ export function Permissions({
           )}
         </article>
       )}
+      {client && <HookList client={client} key={guven ? String(guven.guvenildi) : "?"} />}
+      {client && <SandboxCard client={client} />}
     </>
   );
 }

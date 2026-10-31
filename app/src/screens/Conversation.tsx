@@ -14,6 +14,8 @@ import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
 import { AgentActivity } from "./AgentActivity";
+import { OrchestrationBoard } from "../team/OrchestrationBoard";
+import type { EkipPanosu, IsAkisiDurumu } from "../team/orkestrasyon";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
 import { ImageGenerationCard } from "./ImageGenerationCard";
@@ -79,6 +81,10 @@ export interface Mesaj {
   ajanlar?: AjanKarti[];
   /** Yalnız `rol === "ekip"` için: aynı anda başlatılan ajan sayısı. */
   grupBoyutu?: number;
+  /** Yalnız `rol === "ekip"` için: bu mesajın iş akışı panosu (P-062). */
+  akis?: IsAkisiDurumu;
+  /** Yalnız `rol === "ekip"` için: bu mesajın ekip panosu (P-061). */
+  pano?: EkipPanosu;
 }
 
 /**
@@ -410,6 +416,7 @@ export function Conversation({
             );
           }
           if (message.rol === "ekip") return <div className="conversation__message conversation__message--event" key={message.id}>
+            <OrchestrationBoard message={message} running={running} />
             <AgentActivity agents={message.ajanlar ?? []} running={running} />
             {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
           </div>;

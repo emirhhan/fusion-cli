@@ -42,6 +42,21 @@ describe("useModalFocus — katmanlar", () => {
   });
 });
 
+describe("useModalFocus — işlenmiş Escape", () => {
+  // Ölçüldü (31 Ekim): modalın üstündeki bir katman (palet, açılır liste) Escape'i kendi kapanışı için
+  // işleyip `preventDefault` etse de window dinleyicisi modalı da kapatıyordu; yazılan metin gidiyordu.
+  it("içerideki öğe Escape'i işlediyse modal kapanmaz", () => {
+    const kapat = vi.fn();
+    render(<Katman ad="ic" onClose={kapat} />);
+    const dugme = screen.getByRole("button", { name: "ic-düğme" });
+    dugme.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+    fireEvent.keyDown(dugme, { key: "Escape" });
+    expect(kapat).not.toHaveBeenCalled();
+    fireEvent.keyDown(dugme, { key: "Escape" });
+    expect(kapat).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("useModalFocus — arka plan", () => {
   // Ölçüldü (30 Ekim, U6-37): modal #root içinde (portal değil) çizilince kök modalı içerdiği için
   // inert yapılmıyor, arka plan sekmeyle erişilebilir kalıyordu.

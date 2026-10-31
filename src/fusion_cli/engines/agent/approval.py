@@ -34,6 +34,7 @@ from typing import Protocol
 
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.permissions import is_allowed
+from ...core.desktop_settings import DesktopTarget
 from ...core.errors import ConfigError
 from ...core.tools import (
     AuthorizationScope,
@@ -44,6 +45,7 @@ from ...core.tools import (
     ToolFamily,
     tool_family,
 )
+from ...tools import desktop_policy
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
@@ -54,6 +56,9 @@ from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
+from .auto_guard import AutoReviewState
+from .desktop_approval import apply_desktop, consent_description
+from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -239,6 +244,12 @@ class ApprovalRequest:
     pre_ask: str | None = None
     #: Eşleşen izin kuralının yazımı (`Bash(npm run *)`); kartta gösterilir.
     rule: str | None = None
+    #: Masaüstü eyleminin hedef uygulaması (P-007); kart "Mail · tam kontrol" gösterir.
+    desktop_target: DesktopTarget | None = None
+    #: Araçtan bağımsız oturum izni anahtarı (uygulama başına masaüstü onayı, P-007).
+    consent_key: str | None = None
+    #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
+    desktop_blocked: bool = False
 
     @property
     def can_remember(self) -> bool:
@@ -267,6 +278,9 @@ class ApprovalRequest:
     @property
     def remembered_scope_description(self) -> str | None:
         """Uzak oturum iznini tüm arayüzlerde aynı açık kapsamla anlat."""
+        desktop = consent_description(self)
+        if desktop is not None and self.can_remember:
+            return desktop
         scope = self.authorization_scope
         if (
             not self.can_remember
@@ -315,6 +329,8 @@ class ApprovalMemory:
         self.rule_writer: Callable[[ApprovalRequest], str] | None = None
         #: Kullanıcıya gösterilecek bekleyen bildirimler (kural yazıldı / yazılamadı).
         self.notices: list[str] = []
+        #: Otomatik kip denetçisinin oturum durumu: engel sayaçları, kip düşüşü (P-011).
+        self.auto_review = AutoReviewState(remembered=self.is_remembered)
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
@@ -374,7 +390,22 @@ class AutoApproval(_AskingApproval):
     soruyor, sormasın" dedi. Beyaz liste artık "Düzenlemeleri kabul et" kipidir.
     """
 
+    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
+        super().__init__(prompter, memory)
+        guard = self._memory.auto_review
+        #: Kurulduğu andaki düşüş sayısı; tur ortasında denetçi kipi düşürürse (P-011) bu
+        #: politika kalan çağrılarda Manuel gibi davranır.
+        self._trips = guard.trips
+        if guard.on_fallback is not None:
+            # Sahip düşüşte kipi Manuel'e çeker; Otomatik politika kuruluyorsa kip yeniden
+            # seçilmiştir. Sahipsiz (`fusion run`) düşüş kalıcıdır: alt ajanın yeni
+            # politikası onu silmemeli (ölçüldü, 31 Ekim).
+            guard.acknowledge_auto()
+
     def _allows(self, request: ApprovalRequest) -> bool:
+        guard = self._memory.auto_review
+        if guard.trips != self._trips or (guard.fell_back and guard.on_fallback is None):
+            return request.read_only
         return request.risk is None
 
 
@@ -403,10 +434,20 @@ class PlanApproval:
     uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
     kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
     tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
+
+    "Her seferinde sorulur" diyen istek (`pre_ask`: `ask` kuralı, sandbox dışı
+    çalıştırma) plan kipinde sorulamayacağı için ENGELLENİR. Ölçüldü (31 Ekim):
+    `cat ~/.kube/config` + `unsandboxed=true` plan kipinde sorulmadan sandbox dışında
+    çalışıyordu.
     """
 
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
-        if request.read_only and request.danger is None and request.pre_denied is None:
+        if (
+            request.read_only
+            and request.danger is None
+            and request.pre_denied is None
+            and request.pre_ask is None
+        ):
             return Decision.ALLOW
         return Decision.BLOCKED
 
@@ -470,7 +511,7 @@ async def resolve_request(
     effect = await tool.effect_resolver(args, context) if tool.effect_resolver is not None else None
     touched = context.touched if context is not None else ()
     extra_roots = tuple(context.extra_roots) if context is not None else ()
-    return build_request(
+    request = build_request(
         tool,
         args,
         allowed_commands,
@@ -480,6 +521,13 @@ async def resolve_request(
         extra_roots=extra_roots,
         rules=rules,
     )
+    # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
+    request = apply_sandbox_policy(request, context)
+    if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
+        return request
+    # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
+    assessment = await desktop_policy.assess(tool.name, args, context)
+    return apply_desktop(request, assessment, consent=context.desktop_settings.app_consent)
 
 
 def build_request(
@@ -722,6 +770,9 @@ def _scope(request: ApprovalRequest) -> str | None:
     """
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    if request.consent_key is not None:
+        # Uygulama başına masaüstü onayı: aynı uygulamada tıklama ve yazma tek izindir.
+        return request.consent_key
     if request.outside_dir is not None:
         # Proje DIŞINA yazan dosya aracı: izin yalnız bu dizine verilir.
         return f"{request.tool.name}:{request.outside_dir}"

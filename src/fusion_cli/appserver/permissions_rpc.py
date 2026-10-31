@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import permission_admin, trust
+from ..config.hooks import untrusted_hook_files
 from ..config.models import Config
 from ..core.errors import ConfigError
 from ..ui import messages
@@ -113,6 +114,8 @@ def trust_status(root: Path) -> dict[str, Any]:
         "dusurulen_bolumler": list(report.dropped_sections),
         "yok_sayilan_dosyalar": list(report.ignored_files),
         "yuklenmeyen_araclar": report.forged_tools,
+        # Güven bu dosyaların kanca komutlarını da açar (P-009); şerit bunu söyler.
+        "kanca_dosyalari": list(untrusted_hook_files(root)),
         "kok": str(root),
     }
 

@@ -28,6 +28,7 @@ import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
+from functools import partial
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
@@ -52,6 +53,7 @@ from ...core.events import (
     ChangesDigested,
     Channel,
     ContextCompressed,
+    ErrorOccurred,
     EventPublisher,
     ExecutionRouteSelected,
     GateEscalated,
@@ -132,10 +134,13 @@ from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
+from ..effects.pull_request import disclose_unverified_pr
 from ..effects.runner import maybe_run_effect_workflow
+from ..hooks.session import HookSession
 from . import (
     compaction,
     denial,
+    desktop_approval,
     gate_escalation,
     learning_steps,
     liveness,
@@ -154,6 +159,7 @@ from .approval import (
     Denial,
     resolve_request,
 )
+from .auto_guard import AutoReviewState
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -176,6 +182,15 @@ from .expertise import (
     is_worktree_task,
 )
 from .history import needs_compression, total_chars
+from .hook_bridge import (
+    ToolNote,
+    continue_until_stop_allowed,
+    hook_halt_text,
+    post_tool_use,
+    pre_compact,
+    pre_tool_use,
+    user_prompt_submit,
+)
 from .instruction_rules import discover_rules
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
@@ -216,6 +231,12 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .nested_skills import discover_nested_skills
+from .orchestration_tools import (
+    ORCHESTRATION_KINDS,
+    ORCHESTRATION_SCOPED_TOOLS,
+    orchestration_task_kinds,
+)
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -229,6 +250,7 @@ from .project_instructions import (
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
+from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
@@ -338,6 +360,9 @@ def _decision_message(
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
+    if request is not None and request.pre_denied is not None and request.desktop_blocked:
+        # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
+        return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
     if request is not None and request.pre_denied is not None:
         # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
         return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
@@ -458,6 +483,9 @@ class AgentDeps:
     capabilities: CapabilityRegistry | None = None
     #: Düz metin otomatik bellek (P-036). Yoksa `remember`/`memory_read` sunulmaz, blok eklenmez.
     plain_memory: PlainMemory | None = None
+    #: Derslerin sahibi ajan (P-055): kendi belleği olan alt ajanda adı; çıkarılan dersler
+    #: `ajan:<ad>` etiketi alır ve yalnız o ajan geri çağırır. Boş = ortak ders havuzu.
+    lesson_owner: str = ""
     #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
@@ -468,6 +496,13 @@ class AgentDeps:
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
+    #: Oturumun kancaları (P-009, `engines/hooks`); `None` = kanca yok (eski çağıranlar).
+    hooks: HookSession | None = None
+    #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
+    agent_type: str = ""
+    #: Otomatik kip denetçisinin oturum durumu (P-011; `ApprovalMemory.auto_review`). `None` =
+    #: denetçi yok (eski çağıranlar, alt ajanlar); `getattr(deps, "auto_review", None)` ile okunur.
+    auto_review: AutoReviewState | None = None
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -604,10 +639,20 @@ async def run_agent(
     iç turlar ve alt ajanlar plan yazmaz.
     """
     try:
-        outcome = await _run_agent(
-            task,
-            deps,
-            history=history,
+        # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
+        root_turn = depth == 0 and not internal
+        prompt_gate = await user_prompt_submit(deps, task) if root_turn else None
+        if prompt_gate is not None and prompt_gate.blocked is not None:
+            # Sebep burada yayınlanır; `budget_stopped` çağıranın ikinci kez basmasını önler.
+            deps.publisher.publish(ErrorOccurred(prompt_gate.blocked))
+            blocked = AgentOutcome(prompt_gate.blocked, [*(history or [])], ok=False)
+            blocked.budget_stopped = True
+            return blocked
+        if prompt_gate is not None and prompt_gate.context:
+            extra_system = "\n\n".join(part for part in (extra_system, prompt_gate.context) if part)
+        turn = partial(
+            _run_agent,
+            deps=deps,
             plan_mode=plan_mode,
             chat_mode=chat_mode,
             extra_system=extra_system,
@@ -623,6 +668,16 @@ async def run_agent(
             workflow=workflow,
             denied_tools=denied_tools,
         )
+        outcome = await turn(task, history=history)
+        subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
+        if root_turn or subagent:
+            # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
+            outcome = await continue_until_stop_allowed(
+                deps,
+                outcome,
+                lambda prompt, past: turn(prompt, history=past),
+                subagent=subagent,
+            )
         if plan_mode and depth == 0 and not internal:
             from .plan_mode import record_plan
 
@@ -698,7 +753,15 @@ async def _run_agent(
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
         deps.tool_context.task_kinds.difference_update(
-            {"oyun", "remotion", "masaustu", "worktree", "arka_plan", WIDENED_KIND}
+            {
+                "oyun",
+                "remotion",
+                "masaustu",
+                "worktree",
+                "arka_plan",
+                WIDENED_KIND,
+                *ORCHESTRATION_KINDS,
+            }
         )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
@@ -710,6 +773,7 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("worktree")
         if is_agent_task_request(task, deps):
             deps.tool_context.task_kinds.add("arka_plan")
+        deps.tool_context.task_kinds.update(orchestration_task_kinds(task, deps.tool_context.root))
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -1177,6 +1241,8 @@ async def _run_agent(
     # bekletemez.
     if not chat_mode and not internal and depth == 0:
         ensure_limitations_disclosed(outcome, deps)
+        # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
+        disclose_unverified_pr(outcome)
     _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     await learning_steps.learn(
@@ -1201,8 +1267,10 @@ async def _run_agent(
     # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
     # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
-    if depth == 0 and deps.tool_context.browser.is_open:
-        await deps.tool_context.browser.close()
+    # Paylaşılan tarayıcının (P-045, panel/`/tarayici`) sahibi panel/REPL'dir: açık kalır.
+    browser = deps.tool_context.browser
+    if depth == 0 and browser.is_open and not browser.persistent:
+        await browser.close()
     return outcome
 
 
@@ -1414,6 +1482,10 @@ class _State:
     #: durdurur (bkz. `denial.DENIAL_STOP_ANSWER`); yalnızca `budget.stop is
     #: BudgetStop.USER_DENIED` iken anlamlıdır.
     denied_tool_name: str | None = None
+    #: Kanca `continue: false` ile turu durdurduysa kullanıcıya gösterilecek gerekçe
+    #: (P-009). Durdurma `USER_DENIED` düzeneğini kullanır (kalan çağrılar atlanır, model
+    #: bir daha çağrılmaz) ama metin kullanıcı reddi DEĞİLDİR.
+    hook_halt: str | None = None
 
 
 async def _drive(
@@ -1452,7 +1524,8 @@ async def _drive(
             # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
             # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
             return _outcome(
-                denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                state.hook_halt
+                or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
                 messages,
                 state,
             )
@@ -2647,6 +2720,8 @@ SCOPED_TOOLS: dict[str, str] = {
     "list_agents": "arka_plan",
     "send_message": "arka_plan",
     "stop_agent": "arka_plan",
+    # Ekip ve iş akışı araçları yalnız o türden istekte (P-061/P-062).
+    **ORCHESTRATION_SCOPED_TOOLS,
 }
 
 
@@ -2863,10 +2938,12 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
+    hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
+        hedefler.append(hedef)
         yuk = load_nested_instructions(
             kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
         )
@@ -2876,6 +2953,10 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         deps.publisher.publish(
             NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
         )
+    # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
+    beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
+    if beceri_notu is not None:
+        messages.append(beceri_notu)
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
@@ -3339,7 +3420,7 @@ async def _run_tools(
             # yanıtındaki kalan çağrılar hiç çalıştırılmaz — kullanıcının kararı bir
             # sonraki çağrıda yok sayılmamalı. Sağlayıcı sözleşmesi yine de her
             # `tool_call`'a bir sonuç ister; bu yüzden "atlandı" mesajı gönderilir.
-            output = denial.SKIPPED_TOOL_RESULT
+            output = denial.SKIPPED_TOOL_RESULT if state.hook_halt is None else state.hook_halt
             deps.publisher.publish(
                 ToolExecuted(
                     name=call.name,
@@ -3609,7 +3690,9 @@ async def _run_tools(
             # Bu bir hata ya da bütçe olayı DEĞİLDİR — insan GERÇEKTEN "hayır"
             # dedi. Tur burada durur (`_drive` bir sonraki döngü başında bunu
             # görüp modeli bir daha çağırmadan döner); aynı yanıttaki KALAN
-            # çağrılar döngünün başındaki kontrolle atlanır.
+            # çağrılar döngünün başındaki kontrolle atlanır. PreToolUse kancasının
+            # `continue: false` kararı da bu yoldan durur, metni kancanınkidir.
+            state.hook_halt = hook_halt_text(result)
             state.denied_tool_name = call.name
             budget.halt(BudgetStop.USER_DENIED)
         # Duvar ve ulaşılamaz kaynak, kanıt kapısı açısından AYNI durumdur: iş bu
@@ -3722,6 +3805,20 @@ async def _run_tools(
                 )
                 if hook_note is not None:
                     govde = f"{govde}\n\n{hook_note}"
+        post_hook = (
+            await post_tool_use(
+                deps, call.name, args, result.output, ok=outcome is ToolOutcome.OK, call_id=call.id
+            )
+            if outcome in (ToolOutcome.OK, ToolOutcome.FAILED)
+            else ToolNote()
+        )
+        if post_hook.replaced_output is not None:
+            govde = post_hook.replaced_output
+        if post_hook.note is not None:
+            govde = f"{govde}\n\n{post_hook.note}"
+        if post_hook.halt is not None:
+            state.hook_halt = post_hook.halt
+            budget.halt(BudgetStop.USER_DENIED)
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
@@ -3817,12 +3914,17 @@ async def _execute(
         return ToolResult.failure(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
+    # PreToolUse kancası (P-009) onaydan ÖNCE: engel, argüman değişikliği, allow/ask kararı.
+    hook_gate = await pre_tool_use(deps, call.name, args, call.id)
+    if hook_gate.blocked is not None:
+        return hook_gate.failure(), (ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED)
+    args = hook_gate.arguments
     # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
     # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu
     # ajana açar (sorulur). Ölçüldü (31 Ekim): yalnız `mutating` kapı olduğu için
     # varsayılan profil hiç sorulmadan yükleniyordu. İzin kuralı (ask/deny) okuma
     # araçlarını da kapıdan geçirir (P-001).
-    rules = getattr(deps, "permission_rules", None)
+    rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
     if tool is not None and (
         tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
     ):
@@ -3836,6 +3938,15 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
+        # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır. Eşik bu
+        # çağrıda aşılıp kip Manuel'e düştüyse yeni kip bu çağrının kapsamıdır (riskli karar
+        # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
+        guard = getattr(deps, "auto_review", None)
+        trips = guard.trips if guard is not None else 0
+        request = await review_auto_request(request, deps)
+        if guard is not None and guard.trips != trips:
+            revision = deps.approval_revision() if deps.approval_revision else None
+            policy = deps.policy_factory() if deps.policy_factory else deps.policy
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
@@ -4349,6 +4460,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
         return True
     before = len(messages)
     before_chars = total_chars(gorunur)
+    await pre_compact(deps, "auto")
     compacted = await compaction.compact_in_turn(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )

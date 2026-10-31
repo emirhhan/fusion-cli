@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+from .auto_review import ReviewSource, ReviewVerdict
 from .types import FusionResult, ModelResult
 
 
@@ -216,6 +217,11 @@ class ToolExecuted(Event):
     #: `run_shell` için proje kökü parmak izi sonucu: "değişmedi" | "N dosya değişti: ..." |
     #: "ölçülemedi: neden". Boş = ölçüm denenmedi (salt-okunur komut, ayar kapalı).
     workspace: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopEscapeStopped(Event):
+    """Kullanıcı fiziksel Esc ile masaüstü turunu durdurdu (P-033); arayüz nedenini gösterir."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -836,6 +842,31 @@ class TurnOutcome(Event):
 @dataclass(frozen=True, slots=True)
 class TurnFinished(Event):
     """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
+
+
+@dataclass(frozen=True, slots=True)
+class AutoReviewDecided(Event):
+    """Otomatik kip denetçisi bir çağrıyı sınıflandırdı (P-011).
+
+    `source` modelin mi, kurallı yedeğin mi, önbelleğin mi karar verdiğini söyler;
+    sayaçlar karardan SONRAKİ değerlerdir. Denetim günlüğü ve arayüz izi buradan beslenir.
+    """
+
+    tool: str
+    verdict: ReviewVerdict
+    reason: str
+    source: ReviewSource
+    summary: str
+    consecutive: int
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
+class AutoModeFellBack(Event):
+    """Denetçinin engel eşiği aşıldı; oturum Otomatik'ten Manuel kipe düştü (P-011)."""
+
+    reason: str
+    trips: int
 
 
 @runtime_checkable
