@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 
+from rich.markup import escape
 from rich.table import Table
 
 from ..core.background_tasks import BackgroundTask, TaskStatus
@@ -68,12 +69,14 @@ def task_table(tasks: Sequence[BackgroundTask], *, now: float | None = None) -> 
         table.add_column(header, overflow="fold")
     for task in ordered(tasks):
         style = getattr(theme, _STATUS_STYLE[task.status])
+        # Ad ve ayrıntı model/kullanıcı metnidir: Rich markup sayılmasın. Ölçüldü (31 Ekim):
+        # `[/etc/hosts]` MarkupError ile tabloyu çökertiyordu.
         table.add_row(
             task.id,
-            task.name,
+            escape(task.name),
             f"[{style}]{status_label(task)}[/{style}]",
             age(moment - task.updated_at),
-            detail_text(task)[:120],
+            escape(detail_text(task)[:120]),
         )
     return table
 
