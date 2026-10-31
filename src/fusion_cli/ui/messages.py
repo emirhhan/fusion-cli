@@ -1457,7 +1457,9 @@ AUTO_REVIEW_TRY_RESULT = "Karar: {verdict} [{source}] — {reason}"
 AUTO_REVIEW_TRY_SKIPPED = (
     "Bu komut denetçiye gitmez: {reason}. (Otomatik kipte kural kararı geçerli.)"
 )
-AUTO_REVIEW_TRY_NOT_RISKY = "komut yalnız okuyor; denetçi salt okunur komuta bakmaz"
+AUTO_REVIEW_TRY_NOT_RISKY = (
+    "kural bu komutu sormuyor (okuma ya da proje içi iş); `on` ayarında yazan komuta da bakılır"
+)
 AUTO_REVIEW_TRY_FIXED = (
     "kuralın sabit riski var (sudo, sistem ayarı, | sh, silme…), her zaman sorulur"
 )

@@ -332,3 +332,96 @@ def test_akis_satiri_kural_kaynagini_model_karari_gibi_gostermez():
     assert "kurallar geçerli" in kural and "riskli" not in kural
     model = decided_line(_olay(ReviewSource.MODEL, ReviewVerdict.SAFE))
     assert model.startswith("denetçi (model): güvenli")
+
+
+# --- Eksik yüzeyler: fusion auto-mode, oto.* hata yolu, alt ajan --------------- #
+
+
+def _cli(*args):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli import auto_mode_commands
+
+    return CliRunner().invoke(auto_mode_commands.app, list(args))
+
+
+def test_fusion_auto_mode_durum_ve_ayar_kalici_yazar(monkeypatch, tmp_path):
+    dosya = tmp_path / "config.yaml"
+    dosya.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("FUSION_CONFIG", str(dosya))
+    sonuc = _cli("durum")
+    assert sonuc.exit_code == 0 and "Denetçi: off" in sonuc.output
+    assert _cli("ayar", "ac").exit_code == 0
+    sonra = _cli("durum")
+    assert "ask_only" in sonra.output and "modeline" in sonra.output
+    assert load_config().runtime.auto_classifier is AutoClassifierMode.ASK_ONLY
+    assert yaml.safe_load(dosya.read_text(encoding="utf-8"))["runtime"]["auto_classifier"] == (
+        "ask_only"
+    )
+    assert _cli("ayar", "belki").exit_code != 0
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"), [("git log --oneline", "sormuyor"), ("sudo launchctl list", "sabit")]
+)
+def test_fusion_auto_mode_dene_modele_gitmeyen_komutu_aciklar(monkeypatch, komut, beklenen):
+    saglayici = _classifier(monkeypatch, _verdict("guvenli"))
+    sonuc = _cli("dene", komut)
+    assert sonuc.exit_code == 0 and "denetçiye gitmez" in sonuc.output
+    assert beklenen in sonuc.output and saglayici.calls == 0
+
+
+def test_fusion_auto_mode_dene_modelin_kararini_gosterir(monkeypatch):
+    saglayici = _classifier(monkeypatch, _verdict("riskli"))
+    monkeypatch.setattr(risk_classifier, "is_usable", lambda *_: True)
+    sonuc = _cli("dene", "git push origin main", "--niyet", "testleri düzelt")
+    assert sonuc.exit_code == 0 and "Karar: riskli" in sonuc.output and "[model]" in sonuc.output
+    assert "testleri düzelt" in saglayici.seen_messages[0][0].content
+
+
+def test_oto_rpc_bilinmeyen_istek_ve_bos_deger_hata_doner(tmp_path):
+    state = _state(tmp_path)
+    assert auto_review_rpc.handle(state, Request("1", "oto.yok", {}))["ok"] is False
+    bos = auto_review_rpc.handle(state, Request("2", "oto.ayar", {}))
+    assert bos["ok"] is False and bos["metin"].startswith("Kullanım")
+    assert state.config.runtime.auto_classifier is AutoClassifierMode.OFF
+
+
+async def test_alt_ajan_denetciye_girmez_kurallarla_sorulur(monkeypatch, tmp_path):
+    """Belgedeki söz: alt ajanın çağrısı denetçiye gitmez (niyeti model yazımıdır), aynı
+    oturum kipinde kuralın sorduğu `git push` sorulur."""
+    from types import SimpleNamespace
+
+    from fusion_cli.engines.agent.risk_classifier import review_auto_request
+    from fusion_cli.engines.agent.team import SubTask, run_subagent
+
+    saglayici = _classifier(monkeypatch, _verdict("guvenli"))
+    memory = ApprovalMemory()
+    prompter = _CountingReject()
+    deps = AgentDeps(
+        config=make_config(runtime={"auto_classifier": AutoClassifierMode.ON}),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, prompter, memory),
+        tool_context=ToolContext(root=tmp_path),
+        approval_mode=lambda: ApprovalMode.AUTO,
+        policy_for_mode=lambda mode: build_policy(mode, prompter, memory),
+        auto_review=memory.auto_review,
+    )
+    gorulen = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        istek = build_request(
+            Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None),
+            {"command": "git push origin main"},
+            root=tmp_path,
+        )
+        gorulen["istek"] = await review_auto_request(istek, sub_deps)
+        gorulen["karar"] = await sub_deps.policy.decide(gorulen["istek"])
+        gorulen["auto_review"] = getattr(sub_deps, "auto_review", None)
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    await run_subagent(deps, SubTask("pushla"), depth=0, run_agent=_sahte_ajan)
+
+    assert gorulen["auto_review"] is None and saglayici.calls == 0
+    assert gorulen["istek"].risk is not None
+    assert gorulen["karar"] is Decision.DENIED and prompter.calls == 1
