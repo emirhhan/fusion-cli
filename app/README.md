@@ -30,9 +30,12 @@ npm ci
 ```bash
 npm run tauri dev   # yerel uygulamayı aç
 npm run check       # React, TypeScript ve Rust kalite kapıları
-npm run bundle:mac  # paketli runtime + imzasız Fusion.app ve DMG
+npm run bundle:mac  # Kits + paketli runtime + imzasız Fusion.app ve DMG
 ```
 
+Paket her zaman Fusion Kits'i içerir; `bundle:mac` önce `kits:prepare` ile Kits'i
+son commit'ten derleyip paketler (Node 24+ için `FUSION_KITS_NODE`, ayrıntı:
+`docs/UPDATES.md` › Kits paketlemesi).
 Üretilen dosyalar `src-tauri/target/release/bundle/` altındadır. Apple Developer
 hesabı kullanılmadığı için imzalama ve notarization yapılmaz.
 
