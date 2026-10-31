@@ -92,7 +92,7 @@ def test_bg_konusmayi_devralir_ve_bypass_miras_almaz(state, launches):
 
 def test_ctrl_b_kesilen_turu_arka_plana_tasir(state, launches):
     text = interrupted_to_background(state, "testleri düzelt")
-    assert "arka plana alındı" in text
+    assert "arka planda baştan başladı" in text
     assert "testleri düzelt" in _store(state).tasks()[0].prompt
 
 
@@ -339,7 +339,7 @@ async def test_tam_ekranda_ctrl_b_suren_turu_arka_plan_gorevine_tasir(
 
     tasks = agent_tasks.task_store(state.config.memory_dir).tasks()
     assert len(tasks) == 1 and "uzun refaktörü yap" in tasks[0].prompt
-    assert "arka plana alındı" in session.tui.transcript
+    assert "arka planda baştan başladı" in session.tui.transcript
     # Kullanıcı durdurmadı, taşıdı: "tur iptal edildi" uyarısı basılmaz.
     from fusion_cli.ui import messages
 

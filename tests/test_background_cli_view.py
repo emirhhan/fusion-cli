@@ -66,3 +66,23 @@ def test_repl_tasks_clean_yalniz_bu_proje_all_ile_tumu(tmp_path):
     assert [task.root for task in store.tasks()] == [str(there.resolve())]
     tasks_command(state, "clean all")
     assert store.tasks() == ()
+
+
+def test_ctrl_b_kesilen_turun_dokundugu_dosyalari_devir_istemine_ekler(tmp_path, monkeypatch):
+    # Ölçüldü (31 Ekim): Ctrl+B turu iptal edip görevi baştan başlatıyordu; kesilen turun
+    # düzenlediği dosyalar devredilmediği için işçi aynı değişikliği tekrarlayabiliyordu.
+    from fusion_cli.cli.repl.background_commands import interrupted_to_background
+    from fusion_cli.core.changeset import ChangeSet
+
+    monkeypatch.setattr(agent_tasks, "spawn_detached", lambda *args: 1)
+    config = make_config(memory_dir=tmp_path / "bellek")
+    state = ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path / "ev")
+    changes = ChangeSet()
+    changes.record(tmp_path / "src" / "app.py")
+    state.last_changes = changes
+
+    notice = interrupted_to_background(state, "testleri düzelt")
+
+    prompt = agent_tasks.task_store(config.memory_dir).tasks()[0].prompt
+    assert "src/app.py" in prompt and "yeniden" in prompt
+    assert "baştan" in notice

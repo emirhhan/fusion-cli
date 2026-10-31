@@ -83,8 +83,15 @@ BG_CONTINUE_PROMPT = (
     "Kullanıcı şu görevi arka plana aldı; konuşmanın bağlamıyla kaldığın yerden sürdür ve "
     "bitir:\n\n{task}"
 )
+BG_HANDOFF_TOUCHED = (
+    "\n\nKesilen turda şu dosyalar zaten değiştirildi; değişiklikleri yeniden yapma, önce "
+    "güncel hâllerini oku ve kaldığın yerden sürdür:\n{files}"
+)
 BG_STARTED = "↗ arka plan görevi başladı: {id} ({name}) · /tasks ile izle, bitince haber verilir"
-BG_MOVED = "↗ tur arka plana alındı: {id} ({name}) · /tasks show {id} · terminal serbest"
+BG_MOVED = (
+    "↗ tur kesildi, görev arka planda baştan başladı: {id} ({name}) · /tasks show {id} · "
+    "terminal serbest"
+)
 BG_TASKS_EMPTY = (
     "Arka plan görevi yok. /bg <görev> ile başlat; tam ekranda Ctrl+B süren turu taşır."
 )

@@ -55,13 +55,39 @@ def background_command(state: ReplState, argument: str) -> str:
     return texts.BG_STARTED.format(id=task.id, name=task.name)
 
 
+#: Devir isteminde listelenecek en çok dosya.
+_HANDOFF_FILES = 20
+
+
 def interrupted_to_background(state: ReplState, line: str) -> str:
-    """Ctrl+B: kesilen turun görevini aynı bağlamla arka planda sürdür."""
+    """Ctrl+B: kesilen turun görevini aynı bağlamla arka planda YENİDEN başlat.
+
+    Claude Code çalışan işi kesintisiz taşır; Fusion'da tur iptal edilir ve görev işçide
+    baştan başlar (süren araç çağrısı devredilemez). Ölçüldü (31 Ekim): kesilen turun
+    düzenlediği dosyalar devredilmiyordu; işçi aynı değişikliği tekrarlayabiliyordu. Artık
+    dokunulan dosyalar devir istemine girer ve bildirim "baştan başladı" der.
+    """
+    prompt = texts.BG_CONTINUE_PROMPT.format(task=line)
+    touched = _touched_files(state)
+    if touched:
+        prompt += texts.BG_HANDOFF_TOUCHED.format(files="\n".join(f"- {p}" for p in touched))
     try:
-        task = start_background(state, texts.BG_CONTINUE_PROMPT.format(task=line))
+        task = start_background(state, prompt)
     except BackgroundTaskError as error:
         return str(error)
     return texts.BG_MOVED.format(id=task.id, name=task.name)
+
+
+def _touched_files(state: ReplState) -> list[str]:
+    changes = getattr(state, "last_changes", None)
+    paths = getattr(changes, "paths", ()) if changes is not None else ()
+    shown: list[str] = []
+    for path in paths[:_HANDOFF_FILES]:
+        try:
+            shown.append(str(Path(path).relative_to(state.root)))
+        except ValueError:
+            shown.append(str(path))
+    return shown
 
 
 def tasks_command(state: ReplState, argument: str) -> str:
