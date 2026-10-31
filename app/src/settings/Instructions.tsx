@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import "./Instructions.css";
 
 /** `ayar.talimat` ile gelen, tur başında bağlama giren talimat dosyası. */
 export interface InstructionLayer {
@@ -147,25 +148,32 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
         </small>
       </div>
       {notice && <p className="settings__hint" role="status">{notice}</p>}
-      <h4>Tur başında yüklenen talimat dosyaları</h4>
       {layers.length === 0 ? (
-        <p className="settings__hint">
-          Bu klasörde CLAUDE.md / AGENTS.md ya da ~/.claude/CLAUDE.md bulunmadı. Sohbette <code>/init</code> ile oluşturabilirsin.
-        </p>
+        <>
+          <h4 className="instructions__layers-title">Tur başında yüklenen talimat dosyaları</h4>
+          <p className="settings__hint">
+            Bu klasörde CLAUDE.md / AGENTS.md ya da ~/.claude/CLAUDE.md bulunmadı. Sohbette <code>/init</code> ile oluşturabilirsin.
+          </p>
+        </>
       ) : (
-        <ul aria-label="Yüklenen talimat katmanları" className="settings__list">
-          {layers.map((layer) => (
-            <li key={`${layer.katman}:${layer.kaynak}`}>
-              <strong>{layer.kaynak}</strong>
-              <code>
-                {LAYER_LABELS[layer.katman] ?? layer.katman} · {layer.karakter} karakter
-                {layer.kirpilan > 0 ? ` · ${layer.kirpilan} kırpıldı` : ""}
-                {layer.katman === "kural" ? ` · ${layer.kapsam.length > 0 ? layer.kapsam.join(", ") : "her yerde"}` : ""}
-                {layer.guvenilir ? "" : " · depo içeriği"}
-              </code>
-            </li>
-          ))}
-        </ul>
+        // Kural dosyaları çoğalınca liste ekranı boyluyordu: varsayılan kapalı, başlıkta sayı;
+        // açılınca kendi içinde kayar ve uzun yollar satırı taşırmadan kırılır.
+        <details className="instructions__layers">
+          <summary>Tur başında yüklenen talimat dosyaları ({layers.length})</summary>
+          <ul aria-label="Yüklenen talimat katmanları" className="instructions__layer-list">
+            {layers.map((layer) => (
+              <li key={`${layer.katman}:${layer.kaynak}`}>
+                <strong title={layer.kaynak}>{layer.kaynak}</strong>
+                <small>
+                  {LAYER_LABELS[layer.katman] ?? layer.katman} · {layer.karakter} karakter
+                  {layer.kirpilan > 0 ? ` · ${layer.kirpilan} kırpıldı` : ""}
+                  {layer.katman === "kural" ? ` · ${layer.kapsam.length > 0 ? layer.kapsam.join(", ") : "her yerde"}` : ""}
+                  {layer.guvenilir ? "" : " · depo içeriği"}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {layerNotes.map((note) => <p className="settings__hint" key={note} role="note">{note}</p>)}
       {suggestions.length > 0 && (

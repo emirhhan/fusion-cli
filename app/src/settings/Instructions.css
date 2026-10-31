@@ -1,0 +1,31 @@
+/* Ayarlar › Kişiselleştirme › tur başında yüklenen talimat dosyaları. */
+.instructions__layers-title { font-size: var(--text-sm); font-weight: 600; margin: var(--space-6) 0 0; }
+.instructions__layers {
+  border: 1px solid var(--settings-border);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-6);
+}
+.instructions__layers > summary {
+  align-items: center;
+  border-radius: var(--radius-md);
+  color: var(--settings-text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  gap: var(--space-2);
+  list-style: none;
+  padding: var(--space-4) var(--space-5);
+}
+.instructions__layers > summary::-webkit-details-marker { display: none; }
+.instructions__layers > summary::after { color: var(--settings-muted); content: "⌄"; margin-inline-start: auto; }
+.instructions__layers[open] > summary { border-bottom: 1px solid var(--settings-border); border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.instructions__layers[open] > summary::after { content: "⌃"; }
+.instructions__layers > summary:hover { background: var(--settings-input-bg); }
+.instructions__layers > summary:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
+/* Açılınca kendi içinde kayar; sayfa uzamaz. */
+.instructions__layer-list { display: grid; list-style: none; margin: 0; max-height: min(22rem, 50vh); overflow-y: auto; padding: 0; }
+.instructions__layer-list li { display: grid; gap: 2px; min-width: 0; padding: var(--space-3) var(--space-5); }
+.instructions__layer-list li + li { border-top: 1px solid var(--settings-border); }
+.instructions__layer-list strong { font-size: var(--text-sm); font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.instructions__layer-list small { color: var(--settings-muted); font-family: var(--font-mono); font-size: var(--text-2xs); overflow-wrap: anywhere; }

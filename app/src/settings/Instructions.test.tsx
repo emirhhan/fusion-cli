@@ -110,3 +110,15 @@ it("kural dosyalarını kapsamıyla listeler", async () => {
   expect(liste.textContent).toContain("Kural · 90 karakter · src/**/*.tsx, *.css · depo içeriği");
   expect(liste.textContent).toContain("Kural · 40 karakter · her yerde");
 });
+
+it("talimat dosyaları varsayılan kapalı açılır-kapanır listede, başlıkta sayıyla durur", async () => {
+  const katmanlar = Array.from({ length: 12 }, (_, sira) => ({ kaynak: `/Users/ornek/cok/uzun/bir/yol/kural-${sira}.md`, katman: "kural", karakter: 100, kirpilan: 0, guvenilir: true, kapsam: [] }));
+  const client = istemci(async (ad) => ad === "ayar.talimat" ? { ok: true, metin: "", sinir: 4000, katmanlar } : { ok: true });
+  render(<Instructions client={client} />);
+  const ozet = await screen.findByText("Tur başında yüklenen talimat dosyaları (12)");
+  const acilir = ozet.closest("details") as HTMLDetailsElement;
+  expect(acilir.open).toBe(false);
+  expect(screen.getByLabelText("Yüklenen talimat katmanları").querySelectorAll("li")).toHaveLength(12);
+  fireEvent.click(ozet);
+  expect(acilir.open).toBe(true);
+});
