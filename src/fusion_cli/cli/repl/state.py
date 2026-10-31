@@ -31,6 +31,7 @@ from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
 from ...observability.usage_log import UsageLog
 from ...tools.capabilities import CapabilityRegistry
+from ...tools.capability_overrides import registry_from_config
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
 
@@ -253,14 +254,9 @@ class ReplState:
 
     def __post_init__(self) -> None:
         if self.capabilities is None:
-            # `capabilities.disabled` kalıcı kapatma listesi her oturumda uygulanır (P-051).
-            disabled = frozenset(getattr(self.config.capabilities, "disabled", ()))
-            self.capabilities = CapabilityRegistry(
-                self.home,
-                self.root,
-                disabled_skills=disabled,
-                disabled_agents=disabled,
-                extra_roots=self.extra_roots,
+            # `capabilities.disabled` ve `overrides` her oturumda uygulanır (P-051).
+            self.capabilities = registry_from_config(
+                self.config, self.home, self.root, extra_roots=self.extra_roots
             )
         if self.plain_memory is None:
             self.plain_memory = build_plain_memory(self.config, self.root)

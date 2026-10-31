@@ -90,6 +90,7 @@ from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt
+from ..tools.capability_overrides import registry_from_config
 from ..tools.safe_delete import is_container_root, project_folders
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
@@ -3041,13 +3042,13 @@ class AppSession:
 
     def _refresh_capabilities(self) -> None:
         # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).
-        kalici = frozenset(getattr(self._state.config.capabilities, "disabled", ()))
-        self._state.capabilities = CapabilityRegistry(
+        self._state.capabilities = registry_from_config(
+            self._state.config,
             self._state.home,
             self._state.root,
-            disabled_skills=frozenset(self._disabled_skills) | kalici,
-            disabled_agents=frozenset(self._disabled_agents) | kalici,
             extra_roots=self._state.extra_roots,
+            session_disabled_skills=frozenset(self._disabled_skills),
+            session_disabled_agents=frozenset(self._disabled_agents),
         )
         self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
 

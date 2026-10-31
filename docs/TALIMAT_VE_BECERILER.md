@@ -131,6 +131,7 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
 | `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
+| `capabilities.overrides: {ad: görünürlük}` (config.yaml; Claude Code `skillOverrides`) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde görmez, yalnız `/ad` ile), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
 ## `/init` ve `/doctor prompt`
 

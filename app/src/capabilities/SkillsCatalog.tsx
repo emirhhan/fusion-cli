@@ -72,7 +72,7 @@ function sourceLabels(source: string): string {
 const SETTING_LABELS: Record<string, string> = {
   model: "Model", izin_kipi: "İzin kipi", en_fazla_tur: "En fazla tur", beceriler: "Ön yüklenen beceriler",
   mcp: "MCP sunucuları", bellek: "Kalıcı bellek", efor: "Efor", arka_plan: "Arka plan", yalitim: "Yalıtım",
-  kancalar: "Kancalar", yasak_araclar: "Yasak araçlar", baglam: "Bağlam",
+  kancalar: "Kancalar", yasak_araclar: "Yasak araçlar", baglam: "Bağlam", gorunurluk: "Görünürlük",
 };
 
 function settingText(value: unknown): string {

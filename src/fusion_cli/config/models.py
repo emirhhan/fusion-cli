@@ -382,6 +382,37 @@ class RuntimeConfig:
     usage_log: bool = True
 
 
+class SkillVisibility(StrEnum):
+    """Becerinin görünürlüğü (Claude Code `skillOverrides`; P-051). Türkçe adlar da kabul edilir."""
+
+    #: Olağan: dizinde ad + açıklama, model ve kullanıcı çağırabilir.
+    ON = "on"
+    #: Dizinde yalnız ad (açıklama bağlam harcamaz); çağrı serbest.
+    NAME_ONLY = "name-only"
+    #: Yalnız kullanıcı `/ad` ile çağırır; model dizinde görmez, kendiliğinden yüklemez.
+    USER_INVOCABLE_ONLY = "user-invocable-only"
+    #: Hiç sunulmaz (kalıcı kapatma ile aynı).
+    OFF = "off"
+
+    @classmethod
+    def _missing_(cls, value: object) -> SkillVisibility | None:
+        # YAML 1.1 tırnaksız `off`/`on` yazımını boolean okur (ölçüldü 31 Ekim: `x: off`
+        # "geçersiz değer False" veriyordu); kullanıcının kastettiği açıktır.
+        if isinstance(value, bool):
+            return cls.ON if value else cls.OFF
+        aliases = {
+            "acik": cls.ON,
+            "açık": cls.ON,
+            "yalniz-ad": cls.NAME_ONLY,
+            "yalnız-ad": cls.NAME_ONLY,
+            "yalniz-kullanici": cls.USER_INVOCABLE_ONLY,
+            "yalnız-kullanıcı": cls.USER_INVOCABLE_ONLY,
+            "kapali": cls.OFF,
+            "kapalı": cls.OFF,
+        }
+        return aliases.get(str(value).strip().lower())
+
+
 @dataclass(frozen=True, slots=True)
 class CapabilitiesConfig:
     """Beceri/ajan kataloğu tercihleri (P-051)."""
@@ -389,6 +420,8 @@ class CapabilitiesConfig:
     #: Kalıcı olarak kapatılan beceri/ajan adları (düz ad ya da `ad@kaynak:kimlik`). Masaüstü
     #: kataloğundaki oturumluk kapatmadan farklı: her oturumda uygulanır.
     disabled: tuple[str, ...] = ()
+    #: Beceri adı (ya da `ad@kaynak:kimlik`) → görünürlük; listede olmayan beceri `on`.
+    overrides: dict[str, SkillVisibility] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

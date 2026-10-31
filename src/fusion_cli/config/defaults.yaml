@@ -912,8 +912,12 @@ mcp_servers: []
 
 # Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
 # (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+# `overrides`: beceri adı → görünürlük (Claude Code `skillOverrides`): on | name-only (dizinde
+# yalnız ad) | user-invocable-only (yalnız /ad ile, model kendiliğinden yüklemez) | off.
+# Türkçe: acik | yalniz-ad | yalniz-kullanici | kapali. Örnek: `overrides: {pdf: name-only}`.
 capabilities:
   disabled: []
+  overrides: {}
 
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:

@@ -80,6 +80,7 @@ from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
 from ..tools import desktop_lock
 from ..tools.capabilities import CapabilityRegistry
+from ..tools.capability_overrides import registry_from_config
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
 from .mcp_notice import new_failure_lines
@@ -339,7 +340,9 @@ async def run_agent_task(
             lessons=store.lessons,
             capabilities=capabilities
             or (
-                CapabilityRegistry(home, tool_context.root, extra_roots=tool_context.extra_roots)
+                registry_from_config(
+                    config, home, tool_context.root, extra_roots=tool_context.extra_roots
+                )
                 if home is not None
                 else None
             ),

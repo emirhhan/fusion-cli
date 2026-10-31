@@ -22,11 +22,14 @@ from __future__ import annotations
 import functools
 import hashlib
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config.models import SkillVisibility
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from .capability_merge import merge_capability as _merge
+from .capability_overrides import apply_overrides
 from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
@@ -148,6 +151,8 @@ class Capability:
     hooks: tuple[str, ...] = ()
     #: `disallowedTools`: Claude adlarıyla; `tools`'tan sonra uygulanır.
     disallowed_tools: tuple[str, ...] = ()
+    #: `capabilities.overrides: {ad: name-only}` → dizinde yalnız ad (P-051).
+    describe_in_index: bool = True
 
     @property
     def qualified_name(self) -> str:
@@ -269,12 +274,14 @@ class CapabilityRegistry:
         disabled_skills: frozenset[str] = frozenset(),
         disabled_agents: frozenset[str] = frozenset(),
         extra_roots: tuple[Path, ...] = (),
+        overrides: Mapping[str, SkillVisibility] | None = None,
     ) -> None:
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
         self._disabled_agents = disabled_agents
         self._extra_roots = extra_roots
+        self._overrides: Mapping[str, SkillVisibility] = dict(overrides or {})
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
         self._signature: tuple[tuple[str, int], ...] | None = None
@@ -287,6 +294,7 @@ class CapabilityRegistry:
             disabled_skills=self._disabled_skills,
             disabled_agents=self._disabled_agents,
             extra_roots=extra_roots,
+            overrides=self._overrides,
         )
 
     def invalidate(self) -> None:
@@ -312,11 +320,14 @@ class CapabilityRegistry:
         self._refresh_if_changed()
         skills = self._skills
         if skills is None:
-            skills = tuple(
-                item
-                for item in self._discover_skills()
-                if item.name not in self._disabled_skills
-                and item.qualified_name not in self._disabled_skills
+            skills = apply_overrides(
+                tuple(
+                    item
+                    for item in self._discover_skills()
+                    if item.name not in self._disabled_skills
+                    and item.qualified_name not in self._disabled_skills
+                ),
+                self._overrides,
             )
             self._skills = skills
         return skills
