@@ -572,3 +572,41 @@ def test_desteklenmeyen_mcp_alani_yalniz_o_sunucuyu_atlar_eklenti_kurulur(tmp_pa
     assert "eski" in skipped and "cwdli" in skipped and "atlandı" in skipped
     item = plugin_install.install_plugin(str(source), approve=_yes)
     assert item.status == plugin_store.STATUS_ACTIVE
+
+
+def test_eklenti_koku_degiskeni_beceri_komut_ve_ajan_govdesinde_cozulur(tmp_path):
+    from fusion_cli.tools.capabilities import load_agent_prompt
+    from fusion_cli.tools.skill_commands import TemplateEnv, build_invocation
+    from fusion_cli.tools.skill_pages import read_skill_page
+
+    source = _plugin(tmp_path / "kaynak")
+    (source / "commands" / "yayinla.md").write_text(
+        "bash ${CLAUDE_PLUGIN_ROOT}/scripts/rapor.sh $ARGUMENTS\n", encoding="utf-8"
+    )
+    (source / "skills" / "ozet" / "SKILL.md").write_text(
+        "---\nname: ozet\ndescription: Özetle\n---\nÇalıştır: ${FUSION_PLUGIN_ROOT}/bin/x\n",
+        encoding="utf-8",
+    )
+    (source / "agents" / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: Denetçi\n---\nKurallar: ${CLAUDE_PLUGIN_ROOT}/KURAL.md\n",
+        encoding="utf-8",
+    )
+    plugin_install.install_plugin(str(source), approve=_yes)
+    installed = str(plugin_store.plugins_dir() / "rapor-araclari")
+    registry = CapabilityRegistry(tmp_path / "ev", tmp_path / "proje")
+    env = TemplateEnv(skill_dir=tmp_path, project_dir=tmp_path / "proje")
+
+    command = registry.get_skill("rapor-araclari:yayinla")
+    skill = registry.get_skill("rapor-araclari:ozet")
+    agent = registry.get_agent("rapor-araclari:denetci")
+    assert command is not None and skill is not None and agent is not None
+    task = build_invocation(command, "q3", env, shell_allowed=False).task.strip()
+    assert task == f"bash {installed}/scripts/rapor.sh q3"
+    assert f"{installed}/bin/x" in build_invocation(skill, "", env, shell_allowed=False).context
+    assert f"{installed}/KURAL.md" in load_agent_prompt(agent.path)
+    from fusion_cli.tools.plugin_capabilities import with_plugin_root
+
+    page = read_skill_page(skill.path)
+    assert f"{installed}/bin/x" in with_plugin_root(page.text, skill.path)
+    # Eklenti dışı dosyada değişken olduğu gibi kalır.
+    assert with_plugin_root("${CLAUDE_PLUGIN_ROOT}", tmp_path / "x.md") == "${CLAUDE_PLUGIN_ROOT}"

@@ -34,7 +34,7 @@ from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
 from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
-from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills
+from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills, with_plugin_root
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -246,6 +246,7 @@ def load_agent_prompt(path: Path) -> str:
             return ""
         instructions = data.get("developer_instructions")
         return instructions if isinstance(instructions, str) else ""
+    text = with_plugin_root(text, path)
     stripped = text.lstrip()
     if not stripped.startswith("---"):
         return text

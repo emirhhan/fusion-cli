@@ -298,6 +298,17 @@ def plugin_hook_blocks(
     return tuple(blocks)
 
 
+def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
+    """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil)."""
+    try:
+        root = (base or plugins_dir()).resolve()
+        relative = path.resolve().relative_to(root)
+    except (OSError, ValueError):
+        return None
+    first = relative.parts[0] if len(relative.parts) > 1 else ""
+    return root / first if first and not first.startswith(".") else None
+
+
 def state_signature(base: Path | None = None) -> tuple[str, int] | None:
     """Kayıt dosyasının (yol, mtime_ns) imzası: kur/kapat/kaldır katalog önbelleğini yeniler."""
     path = state_file(base)

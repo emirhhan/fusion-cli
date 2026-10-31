@@ -4,6 +4,10 @@ Claude Code'daki gibi her bileşen eklenti adıyla öneklenir: `skills/rapor/SKI
 `/eklenti:rapor`. Önek, üçüncü taraf bir eklentinin kullanıcının kendi becerisini aynı adla
 GÖLGELEMESİNİ önler. Kaynak etiketi `eklenti`dir: `!`cmd`` bağlamı çalıştırılmaz ve beceri
 dizininde depo içeriği gibi işaretlenir.
+
+Gövdedeki `${CLAUDE_PLUGIN_ROOT}` / `${FUSION_PLUGIN_ROOT}` eklentinin kurulu klasörüne çözülür
+(`with_plugin_root`). Ölçüldü (31 Ekim): değişken yalnız kanca ve MCP JSON'unda çözülüyordu;
+`bash ${CLAUDE_PLUGIN_ROOT}/scripts/x.sh` diyen komut ve beceriler modele değişkeni ham veriyordu.
 """
 
 from __future__ import annotations
@@ -13,7 +17,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..config.plugin_store import active_plugins
+from ..config.plugin_store import active_plugins, plugin_root_of
+from ..core.plugins import ROOT_VARIABLES, substitute_root
 from .frontmatter import body_after_frontmatter
 
 if TYPE_CHECKING:
@@ -26,6 +31,14 @@ _SUMMARY_CHARS = 120
 
 #: `capabilities._to_capability` imzası (döngüsel içe aktarmayı önlemek için çağırandan gelir).
 Converter = Callable[..., "Capability"]
+
+
+def with_plugin_root(text: str, path: Path) -> str:
+    """Kurulu eklenti dosyasının metninde kök değişkenlerini çöz; eklenti dışında dokunma."""
+    if not any(variable in text for variable in ROOT_VARIABLES):
+        return text
+    root = plugin_root_of(path)
+    return substitute_root(text, str(root)) if root is not None else text
 
 
 def _prefixed(capability: Capability, plugin: str, name: str = "") -> Capability:

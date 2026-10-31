@@ -28,6 +28,7 @@ from pathlib import Path
 from ..core.redaction import redact
 from .auto_policy import auto_risk, is_read_only_command
 from .frontmatter import NO_TOOLS, body_after_frontmatter, parse_frontmatter
+from .plugin_capabilities import with_plugin_root
 from .safety import danger_reason
 
 #: Komut dosyası kökleri: (ev/kök altı yol, kaynak etiketi, ev dizininde mi).
@@ -263,6 +264,7 @@ def build_invocation(
     except OSError as error:
         return SkillInvocation(task=argument, notes=(f"beceri okunamadı: {error}",))
     body = body_after_frontmatter(raw).replace("{SKILL_DIR}", str(capability.path.parent))
+    body = with_plugin_root(body, capability.path)
     rendered = render_template(body, argument, env)
     rendered, notes = expand_shell_context(
         rendered, cwd=env.project_dir, allowed=shell_allowed, read_only=shell_read_only

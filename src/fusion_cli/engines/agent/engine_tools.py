@@ -41,6 +41,7 @@ from ...tools.capabilities import (
 )
 from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
+from ...tools.plugin_capabilities import with_plugin_root
 from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
@@ -858,7 +859,8 @@ def _skill_page_result(path: Path, args: ToolArgs, offset: int) -> ToolResult:
     )
     if page.error:
         return ToolResult.failure(page.error)
-    text = f"[revision={page.revision}]\n{page.text}"
+    # Eklenti becerisinde `${CLAUDE_PLUGIN_ROOT}` kurulu klasöre çözülür (sayfa ham metne göre).
+    text = f"[revision={page.revision}]\n{with_plugin_root(page.text, path)}"
     if page.next_offset is not None:
         text += (
             f"\n\n[KIRPILDI: Devamı için read_skill(offset={page.next_offset}). "
