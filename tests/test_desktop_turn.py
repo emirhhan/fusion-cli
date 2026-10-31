@@ -214,7 +214,9 @@ def test_esc_ile_durdurma_bildirilir(monkeypatch):
     assert events == [{"olay": COMPUTER_EVENT, "aktif": False, "esc": False, "esc_ile_durdu": True}]
 
 
-async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(tmp_path, monkeypatch):
+async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: None)
     fake = _FakeIo()
     context = ToolContext(root=tmp_path)

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import base64
 import json
-import subprocess
 import struct
+import subprocess
 import zlib
 from pathlib import Path
 
@@ -73,9 +73,7 @@ def test_bolge_yakalama_da_dislamali_yerel_yoldan_gider(tmp_path, monkeypatch, s
     monkeypatch.setattr(desktop_screen, "_exclude_pids", lambda: [10])
     context = _context(tmp_path, denied_apps=("1Password",))
 
-    result = desktop_screen.desktop_screenshot(
-        {"path": "r.png", "region": "100,50,80,40"}, context
-    )
+    result = desktop_screen.desktop_screenshot({"path": "r.png", "region": "100,50,80,40"}, context)
 
     assert result.ok, result.output
     assert screen == []

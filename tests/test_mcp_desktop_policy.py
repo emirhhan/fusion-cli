@@ -46,12 +46,17 @@ async def test_bilgisayar_kullanimi_kapaliysa_masaustu_araclari_sunulmaz(tmp_pat
 @pytest.mark.parametrize(
     ("answer", "needle"),
     [
-        ({"ok": True, "app": "1Password", "bundle": "com.1password.1password", "pid": 9}, "engelli"),
+        (
+            {"ok": True, "app": "1Password", "bundle": "com.1password.1password", "pid": 9},
+            "engelli",
+        ),
         ({"ok": False, "metin": "izin yok"}, "okunamadı"),
         ({"ok": True, "app": "Mail", "bundle": "com.apple.mail", "pid": 9}, "reddedilen"),
     ],
 )
-async def test_masaustu_politikasi_mcp_cagrisinda_da_uygulanir(tmp_path, monkeypatch, answer, needle):
+async def test_masaustu_politikasi_mcp_cagrisinda_da_uygulanir(
+    tmp_path, monkeypatch, answer, needle
+):
     async def fake(_request):
         return answer
 

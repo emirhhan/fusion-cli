@@ -43,9 +43,7 @@ DELETE_REASON = "{app} içinde {chord} seçili öğeyi siler ya da çöpe taşı
 FOCUSED_ENTER_REASON = "{app} içinde Enter odaktaki {element} düğmesine basar"
 
 #: Basılı tutma ve bırakma da öğeye basar (`down` + `up` = tık).
-_CLICK_ACTIONS = frozenset(
-    {"click", "double_click", "triple_click", "middle_click", "down", "up"}
-)
+_CLICK_ACTIONS = frozenset({"click", "double_click", "triple_click", "middle_click", "down", "up"})
 #: Tıklanınca bir şey yapmayan, yalnız odak alan metin giriş rolleri (AX öneki atılmış).
 _TEXT_ROLES = frozenset({"TextField", "TextArea", "SearchField", "ComboBox", "SecureTextField"})
 _ENTER = frozenset({"enter", "numpadenter"})

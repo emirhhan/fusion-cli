@@ -131,7 +131,7 @@ async def test_hedef_okunamazsa_oturum_izni_hatirlanmaz(tmp_path, probe):
 
 
 async def test_arka_plan_hedefi_okunamazsa_kapanir(tmp_path, probe):
-    """Arka plan araçları yardımcıyla çalışır: hedef doğrulanamıyorsa ret listesi de denetlenemez."""
+    """Arka plan araçları yardımcıyla çalışır: hedef doğrulanamazsa ret listesi denetlenemez."""
     probe.answer = {"ok": False, "metin": "Süreç bulunamadı."}
     for name in ("desktop_background_screenshot", "desktop_background_inspect"):
         request, decision, prompter = await _decide(

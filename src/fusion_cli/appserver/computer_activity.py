@@ -43,7 +43,9 @@ class ComputerActivityWatch:
             return
         if isinstance(event, DesktopEscapeStopped):
             self._active = False
-            self._emit({"olay": COMPUTER_EVENT, "aktif": False, "esc": False, "esc_ile_durdu": True})
+            self._emit(
+                {"olay": COMPUTER_EVENT, "aktif": False, "esc": False, "esc_ile_durdu": True}
+            )
             return
         if (
             isinstance(event, ToolExecuted)

@@ -28,7 +28,9 @@ def _retina(monkeypatch, *, width_px: int = 2880, displays=None) -> list[list[st
     """Ana ekran 1440x900 nokta; screencapture 2x piksel yazar, sips istenen genişliğe iner."""
     monkeypatch.setattr(desktop_screen, "_mac_only", lambda: None)
     monkeypatch.setattr(desktop_screen, "_screen_recording_denied", lambda: False)
-    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width, *_, **__: None)
+    monkeypatch.setattr(
+        desktop_screen, "_native_capture", lambda display, max_width, *_, **__: None
+    )
     # Geri düşüşte ekrandaki engelli uygulama denetimi gerçek pencereleri okumasın.
     monkeypatch.setattr(desktop_screen, "_hidden_apps_on_screen", lambda settings: ())
     monkeypatch.setattr(
@@ -178,8 +180,9 @@ def test_fusion_penceresi_haric_yakalama_once_denenir(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(
         desktop_screen,
         "_native_capture",
-        lambda display, max_width, *_, **__: istekler.append((display, max_width))
-        or _png(1568, 980),
+        lambda display, max_width, *_, **__: (
+            istekler.append((display, max_width)) or _png(1568, 980)
+        ),
     )
     context = ToolContext(root=tmp_path)
 
