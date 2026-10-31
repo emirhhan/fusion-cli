@@ -82,13 +82,17 @@ def subagent_budget_exhausted(deps: AgentDeps) -> str | None:
 def child_step_limit(deps: AgentDeps, depth: int, requested: int | None = None) -> int | None:
     """Derinliğe göre azalan adım bütçesi: her kat öncekinin yarısı.
 
-    `requested` (kişiliğin `max_turns` alanı) daha darsa o geçerlidir. Derinlik 0'ın
-    çocuğu tam bütçeyi alır; daha içteki ajanlar bağlamı katlamasın diye yarılanır.
+    `requested` (kişiliğin `max_turns` alanı) daha darsa o geçerlidir ama yapılandırılmış
+    `agent_max_steps` tavanını AŞAMAZ (ölçüldü, 31 Ekim: depodan gelen `maxTurns: 500`
+    derinlik 0'da tek başına geçerli oluyordu). Derinlik 0'ın çocuğu tam bütçeyi alır; daha
+    içteki ajanlar bağlamı katlamasın diye yarılanır.
     """
     halved: int | None = None
     base = deps.config.runtime.agent_max_steps
     if depth >= 1 and base:
         halved = max(MIN_CHILD_STEPS, base >> depth)
+    if requested and base:
+        requested = min(requested, base)
     candidates = [limit for limit in (halved, requested) if limit is not None and limit > 0]
     return min(candidates) if candidates else None
 
@@ -356,7 +360,8 @@ async def _run_child(
         execution=_child_execution(deps, subtask),
         policy_factory=policy_factory,
         approval_revision=deps.approval_revision,
-        approval_mode=getattr(deps, "approval_mode", None),
+        # Torun bu ajanın SIKILAŞTIRILMIŞ kipini temel alır, oturumun kipini değil.
+        approval_mode=team_settings.child_approval_mode(deps, persona),
         policy_for_mode=getattr(deps, "policy_for_mode", None),
         # Tanımdaki `memory` alanı: ajana özel BELLEK.md (P-055); blok ve araçlar bundan gelir.
         plain_memory=team_settings.child_memory(deps, persona),

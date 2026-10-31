@@ -610,6 +610,10 @@ def test_cocuk_adim_butcesi_derinlikle_yarilanir(tmp_path):
     assert child_step_limit(deps, 10) == MIN_CHILD_STEPS
     # Kişiliğin `max_turns` alanı daha darsa o geçerlidir.
     assert child_step_limit(deps, 1, requested=5) == 5
+    # Ölçüldü (31 Ekim): derinlik 0'da `maxTurns: 500` tek başına geçerli oluyordu ve
+    # kullanıcının `agent_max_steps` tavanı (64) alt ajan için deliniyordu.
+    assert child_step_limit(deps, 0, requested=500) == 64
+    assert child_step_limit(deps, 1, requested=500) == 32
 
 
 def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):

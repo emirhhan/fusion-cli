@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,8 @@ from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
 from .team_scope import derive_sub_context
 from .team_settings import MEMORY_TOOL_NAMES
+
+_LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -55,16 +58,19 @@ def allowed_tools(
             # yasaklı MCP araçları kalıyordu; yasak da izin gibi defter adlarına açılır.
             allowed = allowed - expand_tool_patterns(set(persona.disallowed_tools), available)
             if persona.mcp_servers:
+                _warn_unknown_servers(deps, persona, available)
                 allowed = {
                     name
                     for name in allowed
                     if not deps.base_registry.is_remote(name)
                     or name.split("__", 1)[0] in persona.mcp_servers
                 }
-    if allowed is not None and persona.memory_scope:
-        # Kısıtlı araç kümesi ajan belleğini kapatmasın: `remember` proje dışına, salt
-        # kendi dizinine yazar (P-055).
-        allowed = allowed | MEMORY_TOOL_NAMES
+    # Ajan belleği olan üyenin bellek araçları (P-055): yasak listesindekiler açılmaz ve
+    # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
+    # denen görevde .fusion/ altına yazıyordu; `disallowedTools: remember` de deliniyordu).
+    memory_tools = _memory_tools(persona, subtask)
+    if allowed is not None and memory_tools:
+        allowed = allowed | memory_tools
     scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed
@@ -74,9 +80,27 @@ def allowed_tools(
         if not tool.mutating or (not subtask.read_only and tool.name in EDIT_TOOLS)
     }
     narrowed = safe if allowed is None else allowed & safe
-    # `safe` temel defterden türer; bellek araçları çalışma-anı defterindedir ve ajan
-    # belleği olan üyeye salt-okur görevde de açıktır.
-    return narrowed | MEMORY_TOOL_NAMES if persona.memory_scope else narrowed
+    # `safe` temel defterden türer; bellek araçları çalışma-anı defterindedir.
+    return narrowed | memory_tools if memory_tools else narrowed
+
+
+def _memory_tools(persona: Persona, subtask: SubTask) -> set[str]:
+    if not persona.memory_scope:
+        return set()
+    tools = set(MEMORY_TOOL_NAMES) - set(persona.disallowed_tools)
+    return tools - {"remember"} if subtask.read_only else tools
+
+
+def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[str, ...]) -> None:
+    """`mcpServers` Fusion'da yalnız SÜZGEÇTİR (Claude Code'daki gibi sunucu tanımlamaz):
+    yapılandırmada olmayan ad sessizce 'araç yok' sonucu verirdi, günlüğe uyarı düşer."""
+    known = {name.split("__", 1)[0] for name in available if deps.base_registry.is_remote(name)}
+    missing = sorted(set(persona.mcp_servers) - known)
+    if missing:
+        _LOG.warning(
+            "ajan tanımındaki MCP sunucusu yapılandırmada yok; mcpServers yalnız süzgeçtir",
+            extra={"ajan": persona.name, "sunucular": missing},
+        )
 
 
 def member_brief(

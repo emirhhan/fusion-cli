@@ -8,6 +8,7 @@ ajanın kipini ve araç kümesini aynen alıyor, onay kartı "kim istiyor"u söy
 from __future__ import annotations
 
 import dataclasses
+import logging
 from types import SimpleNamespace
 
 from fusion_cli.core.reasoning import ReasoningEffort
@@ -90,6 +91,72 @@ def test_alt_ajan_politikasi_ust_kipi_sikilastirir_gevsetmez(tmp_path):
     policy, factory = team_settings.child_policies(deps, _persona(permission_mode="uydurma"), "x")
     assert isinstance(policy, team_settings.LabeledPolicy) and len(kurulan) == 2
     assert factory is None  # üstte `policy_factory` yoktu
+
+
+def test_torun_ajanin_kipi_ust_ajanin_sikilastirilmis_kipine_gore_hesaplanir(tmp_path):
+    """Ölçüldü (31 Ekim): çocuğa `approval_mode` oturumun lambda'sı (auto) aktarılıyordu;
+    `permissionMode: plan` ajan A'nın çocuğu B (`acceptEdits`) strictest(auto, acceptEdits)
+    = acceptEdits ile dosya yazabiliyordu. Torun, A'nın sıkılaştırılmış kipini temel alır."""
+    deps, kurulan = _deps(tmp_path)
+
+    cocuk_kipi = team_settings.child_approval_mode(deps, _persona(permission_mode="plan"))
+    assert cocuk_kipi is not None and cocuk_kipi() is ApprovalMode.PLAN
+    # Kip istemeyen çocuk üstün kipini olduğu gibi devralır.
+    duz = team_settings.child_approval_mode(deps, _persona())
+    assert duz is not None and duz() is ApprovalMode.AUTO
+
+    deps.approval_mode = cocuk_kipi
+    team_settings.child_policies(deps, _persona(permission_mode="acceptEdits"), "torun")
+    assert kurulan[-1] is ApprovalMode.PLAN
+
+
+def test_bellek_araclari_yasagi_ve_salt_okur_sozlesmesini_asmaz(tmp_path):
+    """Ölçüldü (31 Ekim): `remember`/`memory_read` disallowedTools'a ve salt-okur göreve
+    bakılmadan ekleniyordu; 'dosya değiştirme' denen görevde remember .fusion/ altına yazardı."""
+
+    class _BosDefter:
+        def is_remote(self, name: str) -> bool:
+            return "__" in name
+
+        def __iter__(self):
+            return iter(())
+
+    deps = SimpleNamespace(base_registry=_BosDefter(), tool_context=ToolContext(root=tmp_path))
+    mevcut = ("read_file", "remember", "memory_read")
+
+    yasakli = _persona(memory_scope="project", disallowed_tools=frozenset({"remember"}))
+    assert allowed_tools(deps, yasakli, SubTask("iş"), available=mevcut) == {
+        "read_file",
+        "memory_read",
+    }
+    bellekli = _persona(memory_scope="project", tools=frozenset({"read_file"}))
+    assert allowed_tools(deps, bellekli, SubTask("iş"), available=mevcut) == {
+        "read_file",
+        "remember",
+        "memory_read",
+    }
+    salt = allowed_tools(deps, bellekli, SubTask("iş", read_only=True), available=mevcut)
+    assert salt is not None and "memory_read" in salt and "remember" not in salt
+
+
+def test_yapilandirilmamis_mcp_sunucusu_uyarilir(tmp_path, caplog):
+    """`mcpServers` Claude Code'da ajana özel sunucu TANIMLAR; Fusion'da yalnız süzgeçtir.
+    Mevcut uzak araçlarda olmayan sunucu adı sessiz kalmasın."""
+    deps = SimpleNamespace(
+        base_registry=SimpleNamespace(is_remote=lambda name: "__" in name),
+        tool_context=ToolContext(root=tmp_path),
+    )
+    mevcut = ("read_file", "github__search")
+
+    with caplog.at_level(logging.WARNING):
+        sonuc = allowed_tools(
+            deps, _persona(mcp_servers=("github", "playwright")), SubTask("iş"), available=mevcut
+        )
+
+    assert sonuc == {"read_file", "github__search"}
+    assert any(
+        "playwright" in str(record.__dict__.get("sunucular", "")) for record in caplog.records
+    )
 
 
 async def test_etiketli_politika_istege_ajan_kimligi_basar():
@@ -267,7 +334,8 @@ async def test_bellek_alanli_alt_ajan_kendi_bellegini_ve_araclarini_alir(tmp_pat
 
     bellek, araclar = gorulen["a"]
     assert bellek is not None and bellek.directory == tmp_path / ".fusion" / "ajan-bellek" / "kodcu"
-    assert {"remember", "memory_read"} <= set(araclar or ())
+    # Salt-okur görevde yalnız okuma aracı açılır; `remember` yazma sözleşmesini aşmaz.
+    assert "memory_read" in set(araclar or ()) and "remember" not in set(araclar or ())
     assert (
         "önce testleri" in (tmp_path / ".fusion/ajan-bellek/kodcu/konular/testler.md").read_text()
     )

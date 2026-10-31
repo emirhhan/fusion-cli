@@ -87,6 +87,21 @@ def child_policies(
     return _build(), _build
 
 
+def child_approval_mode(deps: AgentDeps, persona: Persona) -> Callable[[], ApprovalMode] | None:
+    """Çocuğa devredilen kip okuyucusu: `strictest(üst, çocuğun istediği)`.
+
+    Ölçüldü (31 Ekim): çocuğa oturumun `approval_mode` lambda'sı aynen aktarılıyordu;
+    `permissionMode: plan` ajanın başlattığı torun kendi `acceptEdits` isteğini oturumun
+    `auto` kipiyle kıyaslayıp plan kipinden çıkıyordu. Torun artık üstünün sıkılaştırılmış
+    kipini görür; kip isteği olmayan çocukta üstün okuyucusu aynen geçer.
+    """
+    current = getattr(deps, "approval_mode", None)
+    wanted = requested_mode(persona)
+    if current is None or wanted is None:
+        return current
+    return lambda: strictest_mode(current(), wanted)
+
+
 def child_model(persona: Persona, parent: ModelSpec) -> ModelSpec | None:
     """`model` alanı `<sağlayıcı>/<model>` ise bu alt ajana özel spec; takma ad = miras."""
     model = persona.model.strip()
