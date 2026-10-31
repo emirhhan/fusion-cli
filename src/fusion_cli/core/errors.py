@@ -30,6 +30,10 @@ class PathAccessError(FusionError):
     """Kısıtlı kipte proje kökü dışına çıkan bir dosya yoluna erişilmek istendi."""
 
 
+class BrowserProfileError(FusionError):
+    """Tarayıcı profili / çerez içe aktarma başarısız: dosya bozuk, profil yok, çözülemedi."""
+
+
 class WorkspaceConflictError(FusionError):
     """İzole aday çalışırken asıl proje aynı dosyada değişti."""
 
@@ -52,3 +56,11 @@ class CleanupFailedError(FusionError):
 
 class ProcessCancelledError(FusionError):
     """Süreç ağacı temizlendikten sonra bildirilen çağrı iptali."""
+
+
+class SessionNotFoundError(FusionError):
+    """`--continue`/`--resume` ile istenen Fusion sohbeti bu projede bulunamadı."""
+
+
+class WorktreeError(FusionError):
+    """Git çalışma ağacı (worktree) oluşturulamadı, bulunamadı ya da kaldırılamadı."""

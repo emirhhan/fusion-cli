@@ -45,6 +45,24 @@ SKIPPED_TOOL_RESULT = (
     "Bu turda önceki bir işlem reddedildiği için tur durduruldu; bu çağrı hiç çalıştırılmadı."
 )
 
+#: Kullanıcı GEREKÇEYLE reddetti (P-013). Tur SÜRER: gerekçe modele araç sonucu olarak
+#: gider ve model yolunu ona göre değiştirir; aynı işi başka yoldan yine denemek
+#: kullanıcının kararını yok saymaktır. `{note}` kullanıcının yazdığı not.
+DENIED_WITH_NOTE_RESULT = (
+    "Kullanıcı bu işlemi reddetti ve gerekçesini yazdı: «{note}». Bu gerekçeye göre "
+    "planını değiştir; aynı işlemi başka bir yoldan yapmaya çalışma. Gerekçe başka bir "
+    "yol gösteriyorsa onu izle, göstermiyorsa nasıl devam edeceğini kullanıcıya sor."
+)
+
+#: Bir izin KURALI (`permissions.deny`) ya da kök-dışı engel çağrıyı kapattı (P-001/P-002).
+#: Kullanıcıya SORULMADI; kuralı kullanıcı yazdı ve yalnız kullanıcı değiştirir.
+RULE_DENIED_TOOL_RESULT = (
+    "Bu çağrı bir izin kuralıyla engellendi, kullanıcıya sorulmadı: {reason}. Bu yol "
+    "kapalıdır; kuralı aşmaya çalışma (başka araç/komutla aynı işi yapma). Onay "
+    "gerektirmeyen başka bir yol dene; yoksa kullanıcıya kuralı `/permissions` ile "
+    "gevşetebileceğini söyle."
+)
+
 #: Onay SORULAMADI (oturum etkileşimsiz: TTY yok, boru hattı, CI). Kullanıcının
 #: reddiyle KARIŞTIRILMAMALI — burada tur SÜRER, modelden onay gerektirmeyen bir
 #: yol denemesi istenir.

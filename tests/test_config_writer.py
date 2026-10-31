@@ -338,3 +338,23 @@ def test_web_oturumu_olcum_kimligi_yazilip_geri_okunur(tmp_path):
     assert yazilan["tool_evaluation_adapter_revision"] == web_adapter_revision()
     assert geri.tool_evaluation_scope == oturum.tool_evaluation_scope
     assert web_evaluation_matches(geri)
+
+
+def test_tarayici_ayari_yazilir_ve_diger_bolumler_korunur(tmp_path):
+    """P-023: `browser.default_profile` kalıcı yazılır; tip uyuşmazlığı reddedilir."""
+    from fusion_cli.config.writer import write_browser_setting
+
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text("runtime:\n  engine: agent\n", encoding="utf-8")
+    config = load_config()
+
+    write_browser_setting(config, "default_profile", "is", path=hedef)
+    write_browser_setting(config, "headless", False, path=hedef)
+
+    ham = yaml.safe_load(hedef.read_text(encoding="utf-8"))
+    assert ham["browser"] == {"default_profile": "is", "headless": False}
+    assert ham["runtime"] == {"engine": "agent"}
+    with pytest.raises(ValueError):
+        write_browser_setting(config, "headless", "evet", path=hedef)
+    with pytest.raises(ValueError):
+        write_browser_setting(config, "bilinmeyen", True, path=hedef)

@@ -14,6 +14,7 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Sequence
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,21 @@ from ...core.events import Event
 from ...core.leak_filter import is_harness_note, strip_harness_leaks
 from ...core.redaction import redact
 from ...core.types import Message
+from ...core.worktree import project_root_of
 
 _MAX_SNAPSHOT_BYTES = 1_500_000
 _MAX_HISTORY_MESSAGES = 100
+
+#: Sohbete ad verme olayı (`/rename`, `--name`). Mesaj değildir; listede başlık olur.
+_NAME_EVENT = "ConversationNamed"
+#: Konuşmanın geri sarıldığı olay (`/rewind`): ilk `keep_users` kullanıcı mesajı ve
+#: cevapları kalır, sonrası düşer. Sayım KULLANICI mesajıyla yapılır: motor geçmişindeki
+#: araç/ara mesajlar transcript'te yoktur, kullanıcı mesajı ise iki tarafta da birdir.
+#: Olay günlüğü EKLEMELİDİR; silinen mesajlar denetim için dosyada kalır, yalnız
+#: yüklemede atlanır.
+_REWIND_EVENT = "ConversationRewound"
+#: `--resume <kimlik-öneki>` için önekin en az uzunluğu; daha kısası yanlış sohbeti açar.
+_ID_PREFIX_MIN = 6
 
 
 def load_transcript_messages(
@@ -55,6 +68,11 @@ def load_transcript_messages(
         if _conversation_digest(event.get("session_id")) in deleted:
             continue
         if conversation_id is not None and event.get("session_id") != conversation_id:
+            continue
+        if event.get("event") == _REWIND_EVENT:
+            keep = event.get("keep_users")
+            if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 0:
+                _truncate_after_users(messages, keep)
             continue
         text = event.get("text")
         if not isinstance(text, str) or not text.strip():
@@ -104,6 +122,30 @@ def read_workspace_events(base_dir: Path, root: Path) -> list[dict[str, object]]
         if not skipping:
             records.append(event)
     return records
+
+
+def _truncate_after_users(messages: list[Message], keep_users: int) -> None:
+    """Listeyi `keep_users + 1`. kullanıcı mesajından itibaren kes (yerinde)."""
+    seen = 0
+    for index, message in enumerate(messages):
+        if message.role != "user":
+            continue
+        if seen == keep_users:
+            del messages[index:]
+            return
+        seen += 1
+
+
+def _truncate_roles(roles: list[str], keep_users: int) -> None:
+    """`_truncate_after_users`'ın rol listesi biçimi (liste sayımı için)."""
+    seen = 0
+    for index, role in enumerate(roles):
+        if role != "user":
+            continue
+        if seen == keep_users:
+            del roles[index:]
+            return
+        seen += 1
 
 
 def _upsert_message(messages: list[Message], message: Message) -> None:
@@ -204,8 +246,14 @@ def validate_conversation_move(
 
 
 def _workspace_digest(root: Path) -> str:
-    """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın."""
-    return hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+    """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın.
+
+    Git çalışma ağacı (`.fusion/worktrees/<ad>`) ana projenin anahtarını kullanır: `/worktree`
+    ve `--worktree` konuşmayı bölmez, `--continue` ağacın içinden de projenin sohbetini bulur.
+    """
+    return hashlib.sha256(str(project_root_of(root.expanduser().resolve())).encode()).hexdigest()[
+        :16
+    ]
 
 
 #: Sohbet listesinde gösterilecek başlığın en fazla uzunluğu.
@@ -223,6 +271,76 @@ class ConversationRef:
     title: str
     updated_at: float
     message_count: int
+    #: Kullanıcının verdiği ad (`/rename`, `--name`); yoksa boş. Varsa `title` da budur.
+    name: str = ""
+
+
+def find_conversation(base_dir: Path, root: Path, query: str) -> ConversationRef | None:
+    """`--resume <kimlik|ad|kimlik-öneki>` sorgusunu bu projedeki tek bir sohbete çöz.
+
+    Sıra: tam kimlik → ad (büyük/küçük duyarsız) → tek eşleşen kimlik öneki
+    (en az `_ID_PREFIX_MIN` karakter). Birden çok sohbet önekle eşleşirse hiçbiri
+    seçilmez: yanlış sohbeti açmak, bulamamaktan kötüdür.
+    """
+    wanted = query.strip()
+    if not wanted:
+        return None
+    refs = list_conversations(base_dir, root)
+    for ref in refs:
+        if ref.conversation_id == wanted:
+            return ref
+    folded = wanted.casefold()
+    named = [ref for ref in refs if ref.name and ref.name.casefold() == folded]
+    if len(named) == 1:
+        return named[0]
+    if len(wanted) >= _ID_PREFIX_MIN:
+        prefixed = [ref for ref in refs if ref.conversation_id.startswith(wanted)]
+        if len(prefixed) == 1:
+            return prefixed[0]
+    return None
+
+
+def conversation_prefix(messages: Sequence[Message]) -> list[Message]:
+    """Transcript'e yazılabilir kullanıcı/cevap mesajları: harness notları ve boş metin dışarıda.
+
+    Ölçüldü (31 Ekim): `/branch` motor geçmişini olduğu gibi veriyordu; FUSION_NOT: notunu
+    `record_user` atlıyor, doğrulama uyuşmazlık görüp `ValueError` fırlatıyordu; öneksiz
+    harness notu (compaction özeti) ise kopyaya sıradan kullanıcı mesajı olarak giriyordu.
+    """
+    return [
+        message
+        for message in messages
+        if message.role in {"user", "assistant"}
+        and message.content.strip()
+        and not message.harness_note
+        and not (message.role == "user" and is_harness_note(message.content))
+    ]
+
+
+def copy_conversation(
+    base_dir: Path, root: Path, messages: Sequence[Message], *, target_id: str, name: str = ""
+) -> int:
+    """Kullanıcı/cevap mesajlarını YENİ bir sohbet kimliğine yaz; yazılan sayıyı döndür.
+
+    `/branch`, `--fork-session` ve masaüstü `sohbet.dallan` aynı çekirdeği kullanır.
+    Yazılan geçmiş geri okunarak doğrulanır; eşleşmezse yarım sohbet silinir ve
+    `ValueError` fırlatılır — kullanıcı "dallandı" sanıp boş bir sohbette kalmasın.
+    """
+    prefix = conversation_prefix(messages)
+    if not any(message.role == "user" for message in prefix):
+        raise ValueError("Kopyalanacak kullanıcı mesajı yok.")
+    store = TranscriptStore(base_dir, root, conversation_id=target_id)
+    if name.strip():
+        store.record_name(name.strip())
+    for message in prefix:
+        record = store.record_user if message.role == "user" else store.record_assistant
+        record(message.content, message_id=str(uuid.uuid4()))
+    restored = load_transcript_messages(base_dir, root, conversation_id=target_id)
+    expected = [redact(message.content) for message in prefix][-_MAX_HISTORY_MESSAGES:]
+    if [message.content for message in restored] != expected:
+        delete_conversation(base_dir, root, target_id)
+        raise ValueError("Yeni sohbet geçmişi doğrulanamadı.")
+    return len(restored)
 
 
 def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...]:
@@ -243,25 +361,41 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
         return ()
     deleted = _deleted_conversations(path.parent)
     titles: dict[str, str] = {}
+    names: dict[str, str] = {}
     stamps: dict[str, float] = {}
-    counts: dict[str, int] = {}
+    #: Sohbet başına mesaj rolleri; geri sarma olayı listeyi keser, sayım yüklenenle eşleşir.
+    roles: dict[str, list[str]] = {}
     for line in lines:
         try:
             event = json.loads(line)
         except (json.JSONDecodeError, TypeError):
             continue
-        if not isinstance(event, dict) or event.get("event") not in {
-            "UserMessage",
-            "TurnAnswered",
-        }:
+        if not isinstance(event, dict):
             continue
         conversation = event.get("session_id")
         if _conversation_digest(conversation) in deleted:
             continue
+        if event.get("event") == _NAME_EVENT:
+            # Son verilen ad geçerlidir; ad bir mesaj değildir, sayılmaz ve zaman damgası vermez.
+            name = event.get("name")
+            if isinstance(conversation, str) and isinstance(name, str) and name.strip():
+                names[conversation] = redact(name.strip())[:TITLE_BUDGET]
+            continue
+        if event.get("event") == _REWIND_EVENT and isinstance(conversation, str):
+            keep = event.get("keep_users")
+            if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 0:
+                _truncate_roles(roles.setdefault(conversation, []), keep)
+            continue
+        if event.get("event") not in {"UserMessage", "TurnAnswered"}:
+            continue
         text = event.get("text")
         if not isinstance(conversation, str) or not isinstance(text, str) or not text.strip():
             continue
-        counts[conversation] = counts.get(conversation, 0) + 1
+        if event.get("event") == "UserMessage" and is_harness_note(text):
+            continue
+        roles.setdefault(conversation, []).append(
+            "user" if event.get("event") == "UserMessage" else "assistant"
+        )
         stamp = event.get("timestamp")
         if isinstance(stamp, (int, float)):
             stamps[conversation] = max(stamps.get(conversation, 0.0), float(stamp))
@@ -270,9 +404,10 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
     refs = tuple(
         ConversationRef(
             conversation_id=conversation,
-            title=title,
+            title=names.get(conversation) or title,
             updated_at=stamps.get(conversation, 0.0),
-            message_count=counts.get(conversation, 0),
+            message_count=len(roles.get(conversation, ())),
+            name=names.get(conversation, ""),
         )
         for conversation, title in titles.items()
     )
@@ -284,6 +419,8 @@ class TranscriptStore:
 
     def __init__(self, base_dir: Path, root: Path, *, conversation_id: str | None = None) -> None:
         digest = _workspace_digest(root)
+        #: Bağlanılan proje kökü; `/worktree` kökü değiştirince depo yeniden bağlanır.
+        self.root = root.expanduser().resolve()
         self.base_dir = base_dir.expanduser().resolve() / "transcripts" / digest
         self.base_dir.mkdir(parents=True, exist_ok=True)
         # İzin daraltma bir sıkılaştırmadır, ön koşul değil: chmod desteklemeyen
@@ -344,6 +481,17 @@ class TranscriptStore:
                 **({"message_id": message_id} if message_id else {}),
             }
         )
+
+    def record_name(self, name: str) -> None:
+        """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
+        self._append({"event": _NAME_EVENT, "name": name})
+
+    def record_rewind(self, keep_users: int) -> None:
+        """Konuşmayı ilk `keep_users` kullanıcı mesajına (ve cevaplarına) geri sar (`/rewind`).
+
+        Dosyadan hiçbir satır silinmez; yükleyici bu olaydan sonra fazlasını atlar.
+        """
+        self._append({"event": _REWIND_EVENT, "keep_users": max(0, keep_users)})
 
     def handle(self, event: Event) -> None:
         # JSONL sınırı: alan değerleri olay tipine göre değişir ve `_jsonable`

@@ -1,11 +1,26 @@
-import { execute } from "./core.js";
+import { execute, MONITOR_KEY, registerMonitor } from "./core.js";
 
 const HOST = "com.fusion.browser";
 
-// Araç çubuğu eylemi activeTab iznini verir; paneli aynı eylemden açıyoruz.
+// Araç çubuğu eylemi activeTab iznini verir; paneli aynı eylemden açıyoruz. Manifestteki
+// `_execute_action` kısayolu (Ctrl/⌘+Shift+F) da aynı dinleyiciye düşer (P-073).
 chrome.action.onClicked.addListener(async (tab) => {
   if (tab.id === undefined) return;
   await chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// Klavye kısayolu "fusion-stop": süren turu panele durdurtur (sayfadaki Durdur hapı gibi).
+chrome.commands?.onCommand.addListener((command) => {
+  if (command === "fusion-stop") chrome.runtime.sendMessage({ type: "fusion.stop" }).catch(() => undefined);
+});
+
+// Konsol/ağ izleyicisi yalnız izinli sitelere kayıtlıdır; izin ya da ayar değişince yenilenir
+// (core.js çağrıları sıraya koyar). Hata yutulmaz: hizmet çalışanı günlüğüne düşer.
+const refreshMonitor = () => registerMonitor().catch((cause) => console.warn("Fusion izleyici kaydı:", cause));
+chrome.permissions.onAdded.addListener(refreshMonitor);
+chrome.permissions.onRemoved.addListener(refreshMonitor);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && MONITOR_KEY in changes) void refreshMonitor();
 });
 
 /**
@@ -68,6 +83,6 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
   return false;
 });
 
-chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
-chrome.runtime.onInstalled.addListener(() => void ensureOffscreen());
+chrome.runtime.onStartup.addListener(() => { void ensureOffscreen(); void refreshMonitor(); });
+chrome.runtime.onInstalled.addListener(() => { void ensureOffscreen(); void refreshMonitor(); });
 void ensureOffscreen();

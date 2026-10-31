@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PermissionPrompt } from "../permissions/PermissionPrompt";
 import { usePermissions } from "../permissions/usePermissions";
-import type { PermissionBridge } from "../permissions/types";
+import { hasSettingsLink, type PermissionBridge } from "../permissions/types";
 import { nativePermissionBridge } from "../platform/permissions";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
@@ -94,7 +94,7 @@ export function ControlPanel({
 
       {permissions.activeKind && (
         <PermissionPrompt
-          canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+          canOpenSettings={hasSettingsLink(permissions.activeKind)}
           error={permissions.error}
           isRequesting={permissions.isRequesting}
           kind={permissions.activeKind}

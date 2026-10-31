@@ -52,9 +52,7 @@ _CLASSIFY_CHARS = 6_000
 _WRITE = frozenset(
     {"edit_file", "multi_edit", "write_file", "make_tool", "scaffold_web", "extract_archive"}
 )
-_PREVIEW = frozenset(
-    {"start_preview", "preview_console", "preview_network", "preview_screenshot"}
-)
+_PREVIEW = frozenset({"start_preview", "preview_console", "preview_network", "preview_screenshot"})
 _BROWSER = frozenset(
     {
         "browser_open", "browser_click", "browser_type", "browser_read", "browser_screenshot",

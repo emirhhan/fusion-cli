@@ -124,6 +124,18 @@ function tarayiciGenel(fiil: string): (args: Record<string, unknown>) => string 
   return () => `tarayıcı ile ${fiil}`;
 }
 
+const MASAUSTU_FARE: Record<string, string> = {
+  click: "bir öğeye tıklanıyor",
+  right_click: "sağ tıklanıyor",
+  double_click: "çift tıklanıyor",
+  triple_click: "üç kez tıklanıyor",
+  middle_click: "orta tuşla tıklanıyor",
+  drag: "sürükleniyor",
+  hover: "imleç bir öğenin üstüne götürülüyor",
+  down: "fare basılı tutuluyor",
+  up: "fare bırakılıyor",
+};
+
 function masaustuGenel(fiil: string): (args: Record<string, unknown>) => string {
   return () => `masaüstünde ${fiil}`;
 }
@@ -199,7 +211,12 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
     return hedef ? `masaüstünde ${hedef} açılıyor` : "masaüstünde uygulama açılıyor";
   },
   desktop_screenshot: masaustuGenel("ekran görüntüsü alınıyor"),
+  desktop_displays: masaustuGenel("ekranlar listeleniyor"),
   desktop_click: masaustuGenel("bir öğeye tıklanıyor"),
+  desktop_mouse: (args) => {
+    const fiil = MASAUSTU_FARE[String(args.action ?? "click")] ?? "fare kullanılıyor";
+    return `masaüstünde ${fiil}`;
+  },
   desktop_type: masaustuGenel("yazı yazılıyor"),
   desktop_key: masaustuGenel("tuşa basılıyor"),
   desktop_scroll: masaustuGenel("sayfa kaydırılıyor"),

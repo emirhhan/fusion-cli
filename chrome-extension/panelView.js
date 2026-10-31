@@ -207,6 +207,22 @@ export function renderAsk(container, question, onAnswer) {
   container.focus();
 }
 
+/** Kayıtlı kısayollar listesi: "/ad" ve görevin başı; "Kaldır" kısayolu siler. */
+export function renderShortcuts(list, empty, shortcuts, onRemove) {
+  list.replaceChildren(...shortcuts.map((shortcut) => {
+    const item = el("li", "sites__row");
+    const name = el("span", "sites__name", `/${shortcut.ad}`);
+    name.title = String(shortcut.metin).slice(0, 300);
+    item.append(name);
+    const remove = el("button", "chip-button chip-button--quiet", "Kaldır");
+    remove.type = "button";
+    remove.addEventListener("click", () => onRemove(shortcut.ad));
+    item.append(remove);
+    return item;
+  }));
+  empty.hidden = shortcuts.length > 0;
+}
+
 /** İzinli siteler listesi; her satırın "Kaldır" düğmesi izni geri alır. */
 export function renderSites(list, empty, origins, onRemove) {
   list.replaceChildren(...origins.map((origin) => {

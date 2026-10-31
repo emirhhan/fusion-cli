@@ -12,10 +12,13 @@ import asyncio
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from rich.console import Console
 from rich.markup import escape
 
+from ...config import keybindings
+from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -27,15 +30,24 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
     help_view,
     history_view,
     macros,
     model_flows,
+    output_style_command,
+    prefixes,
     profiles_flow,
     provider_flow,
+    rewind,
+    session_resume,
+    status_line,
+    status_view,
     verify_flow,
+    view_commands,
+    worktrees,
 )
 from .commands import (
     RENDERED_COMMANDS,
@@ -45,10 +57,12 @@ from .commands import (
     parse,
     resume_choices,
 )
-from .loop import apply_auto_profile
+from .completion import ReplCompleter
+from .loop import apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
+from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
-from .transcript_store import TranscriptStore
+from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
 from .work_line import WorkLineSink
 
@@ -95,9 +109,13 @@ class _PumpSink:
 class TuiPrompter:
     """Motor onay/soru çağrılarını `FusionTui` modaline köprüler."""
 
-    def __init__(self, tui: FusionTui, drain: object) -> None:
+    def __init__(self, tui: FusionTui, drain: object, root: Path | None = None) -> None:
         self._tui = tui
         self._drain = drain
+        self._root = root
+
+    def _state_root(self) -> Path | None:
+        return self._root
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         await _maybe_drain(self._drain)
@@ -121,6 +139,16 @@ class TuiPrompter:
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
+            if request.can_persist:
+                from ...engines.agent.permission_persist import always_description
+
+                choices.append(
+                    Choice(
+                        "always",
+                        messages.TUI_APPROVAL_ALWAYS,
+                        always_description(request, self._state_root()),
+                    )
+                )
             if not request.danger:
                 choices.append(deny)
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
@@ -128,6 +156,8 @@ class TuiPrompter:
                 return ApprovalAnswer.ONCE
             if answer == "session" and request.can_remember:
                 return ApprovalAnswer.SESSION
+            if answer == "always" and request.can_persist:
+                return ApprovalAnswer.ALWAYS
             return ApprovalAnswer.DENY
         finally:
             if previous_work is None:
@@ -207,7 +237,7 @@ class _TuiSession:
 
     def __init__(self, state: ReplState) -> None:
         self._state = state
-        self._registry = build_registry(state.home)
+        self._registry = build_registry(state.home, skills=lambda: state.capabilities)
         self._task: asyncio.Task[None] | None = None
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
@@ -227,9 +257,15 @@ class _TuiSession:
             on_cycle_mode=self._cycle,
             initial_transcript="",  # TUI isolation: yalnız mevcut oturum
             on_transcript_change=None,
+            completer=ReplCompleter(
+                self._registry.completion_words, (state.root, *state.extra_roots)
+            ),
+            # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
+            on_rewind=lambda: self._submit("/rewind"),
         )
         self._out = self._tui.console
-        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
+        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain, self._state.root)
+        self._custom_status = ""
         self._sync_status()
 
     @property
@@ -275,7 +311,23 @@ class _TuiSession:
         return self._task is not None and not self._task.done()
 
     def _sync_status(self) -> None:
-        self._tui.set_status(self._state.approval.value, self._state.engine.value)
+        vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
+        self._tui.set_vim(vim)
+        self._tui.set_status(
+            self._state.approval.value,
+            self._state.engine.value,
+            status_view.context_label(self._state),
+            self._custom_status,
+            vim=vim,
+        )
+        # Tuş dosyası değiştiyse yeniden başlatmadan uygula (P-067).
+        if keybindings.has_changed(self._tui.keymap):
+            self._tui.rebind(keybindings.load_keymap(self._tui.keymap.path))
+
+    async def _refresh_custom_status(self) -> None:
+        """Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; sonucu durum satırına gider."""
+        self._custom_status = await status_line.status_line_text(self._state)
+        self._sync_status()
 
     def _echo(self, renderable: object) -> None:
         """Konuşmaya bir şey yaz ve ekranı tazele."""
@@ -314,10 +366,23 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if is_command_line(line):
+            line = skill_prefix_to_slash(line, self._registry.is_dynamic)
+            # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
+            if (shell := prefixes.shell_command(line)) is not None:
+                await run_shell_prefix_line(shell, self._state, self._out)
+                self._tui.sync_conversation()
+            elif (note := prefixes.memory_note(line)) is not None:
+                self._echo(
+                    f"[{theme.DIM}]{escape(prefixes.add_memory_note(self._state, note))}"
+                    f"[/{theme.DIM}]"
+                )
+            elif is_command_line(line):
                 await self._command(line)
             else:
+                for mention_note in apply_mentions(line, self._state):
+                    self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
+                await self._refresh_custom_status()
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
             # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
@@ -365,11 +430,53 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "theme" and not argument.strip():
+            selected = await self._tui.await_choice(
+                messages.THEME_TITLE, view_commands.theme_choices(self._state)
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
+        elif command.name == "search":
+            # Arama yalnız tam ekranda anlamlı (P-070): konuşma tamponu buradadır.
+            needle = argument.strip()
+            if not needle:
+                self._echo(f"[{theme.DIM}]{messages.SEARCH_USAGE}[/{theme.DIM}]")
+                return
+            count = self._tui.scroll_to_match(needle)
+            text = (
+                messages.SEARCH_FOUND.format(text=needle, count=count)
+                if count
+                else messages.SEARCH_NOT_FOUND.format(text=needle)
+            )
+            self._echo(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+            return
+        elif command.name == "output-style" and not argument.strip():
+            # Çıktı stili (P-068): uygulama-içi modalla seç, seçileni argüman yap.
+            selected = await self._tui.await_choice(
+                messages.OUTPUT_STYLE_TITLE, output_style_command.style_choices(self._state)
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
         elif command.name == "development":
             # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.
             await self._run_development()
             return
+        elif command.name == "resume" and not argument.strip():
+            # Fusion'ın kendi sohbetleri: aynı modal deseni, liste transcript deposundan.
+            resolved = await self._resolve_own_resume()
+            if resolved is None:
+                return
+            argument = resolved
+        elif command.name == "rewind":
+            resolved = await self._resolve_rewind_argument(argument)
+            if resolved is None:
+                return
+            argument = resolved
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -411,8 +518,11 @@ class _TuiSession:
             )
             return
         result = command.handler(self._state, argument)
+        if command.name == "theme":
+            self._tui.refresh_style()
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        self._sync_conversation_binding()
         self._arm_reminders()
         self._sync_status()
         if not self._state.running:
@@ -445,6 +555,64 @@ class _TuiSession:
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
+
+    def _sync_conversation_binding(self) -> None:
+        """Komut sohbet kimliğini (`/resume`, `/branch`) ya da kökü (`/worktree`) değiştirdiyse
+        transcript deposunu yeniden bağla; yoksa yeni turlar eski sohbete yazılırdı."""
+        store = self._transcript_store
+        if store.session_id == self._state.conversation_id and store.root == self._state.root:
+            return
+        self._transcript_store = TranscriptStore(
+            self._state.config.memory_dir,
+            self._state.root,
+            conversation_id=self._state.conversation_id,
+        )
+
+    async def _resolve_rewind_argument(self, argument: str) -> str | None:
+        """`/rewind` için eksik parçaları (tur, kapsam) uygulama-içi modalla tamamla.
+
+        Dönen metin tam argümandır (`"3 kod"`); işleyici onu seçici açmadan uygular.
+        Vazgeçilirse ya da geri sarılacak tur yoksa `None` döner.
+        """
+        entries = self._state.checkpoints.entries()
+        if not entries:
+            self._echo(f"[{theme.DIM}]{messages.REWIND_NOTHING}[/{theme.DIM}]")
+            return None
+        index, scope, error = rewind.parse_arguments(argument, self._state.checkpoints)
+        if error:
+            self._echo(f"[{theme.WARN}]{escape(error)}[/{theme.WARN}]")
+            return None
+        if index is None:
+            picked = await self._tui.await_choice(
+                messages.REWIND_PICK_TURN, rewind.turn_choices(entries)
+            )
+            if picked is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return None
+            index = int(picked)
+        if scope is None:
+            chosen = await self._tui.await_choice(
+                messages.REWIND_PICK_SCOPE, rewind.scope_choices()
+            )
+            if chosen is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return None
+            return f"{index} {chosen}"
+        return f"{index} {scope.value}"
+
+    async def _resolve_own_resume(self) -> str | None:
+        """`/resume` (Fusion sohbetleri) için uygulama-içi seçim; vazgeçilirse `None`."""
+        refs = list_conversations(self._state.config.memory_dir, self._state.root)
+        if not refs:
+            self._echo(f"[{theme.DIM}]{messages.SESSION_LIST_EMPTY}[/{theme.DIM}]")
+            return None
+        selected = await self._tui.await_choice(
+            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs)
+        )
+        if selected is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return None
+        return selected
 
     async def _resolve_resume_argument(self, command_name: str) -> str | None:
         """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
@@ -533,6 +701,8 @@ class _TuiSession:
         sinks = (renderer, work, self._transcript_store, pump, self._state.cost)
         try:
             if self._state.engine is Engine.FUSION:
+                # Beceri ekleri bu motorda kullanılmaz; sonraki agent turuna sızmasın.
+                self._state.take_pending_extras()
                 self._state.last_fusion = await run_task(
                     line,
                     self._state.config,
@@ -545,10 +715,16 @@ class _TuiSession:
             else:
                 # Bağlam BURADA kurulur ve saklanır: `/undo` turun değişiklik
                 # kümesine erişebilmek zorundadır.
+                # Tur checkpoint'i: konuşma kopyası + bu turun değişiklik kümesi (`/rewind`).
+                checkpoint = self._state.checkpoints.begin(line, self._state.history)
                 tool_context = ToolContext(
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
+                    browser=browser_session_from(self._state.config),
+                    block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
+                    block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
+                    changes=checkpoint.changes,
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
@@ -558,8 +734,9 @@ class _TuiSession:
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
                 digest = self._state.take_pending_digest()
+                extras = self._state.take_pending_extras()
                 turn_extra_system = "\n\n".join(
-                    part for part in (macros.mode_prompt(mode), digest) if part
+                    part for part in (macros.mode_prompt(mode), digest, extras.context) if part
                 )
                 try:
                     outcome = await run_agent_task(
@@ -586,6 +763,7 @@ class _TuiSession:
                         approval_memory=self._state.approval_memory,
                         step_limit=macros.mode_step_limit(mode),
                         workflow=macros.mode_workflow(mode),
+                        allowed_tools=extras.merged_tools(None),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
@@ -598,13 +776,23 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
+                # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
+                print_rule_notices(self._tui.console, self._state.approval_memory)
+                # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır.
+                switched = worktrees.apply_switch(self._state, tool_context)
+                if switched:
+                    self._echo(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+                    self._sync_conversation_binding()
         finally:
             renderer.abort()
             self._tui.clear_work()
             self._tui.sync_conversation()
 
 
-def _print_startup(session: _TuiSession, state: ReplState) -> None:
+def _print_startup(
+    session: _TuiSession, state: ReplState, resume: session_resume.ResumeTarget | None = None
+) -> None:
     """Açılış kutusunu ve varsa son oturum listesini konuşma alanına yaz.
 
     Liste boşsa (kayıtlı oturum yoksa) hiçbir şey basılmaz — düz konsol
@@ -613,6 +801,10 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     from .loop import apprentice_switch_notice, session_info
 
     banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
+    if resume is not None:
+        session.tui.console.print(
+            f"[{theme.DIM}]{escape(session_resume.launch_notice(resume))}[/{theme.DIM}]"
+        )
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
         session.tui.console.print(bildirim)
@@ -624,11 +816,13 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     session.tui.sync_conversation()
 
 
-async def run_tui_repl(state: ReplState, console: Console) -> int:
+async def run_tui_repl(
+    state: ReplState, console: Console, *, resume: session_resume.ResumeTarget | None = None
+) -> int:
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
-    _print_startup(session, state)
+    _print_startup(session, state, resume)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl

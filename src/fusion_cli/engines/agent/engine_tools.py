@@ -822,7 +822,8 @@ def _register_capability_tools(
 def _find_skill_tool(library: CapabilityRegistry) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         query = str(args.get("query", ""))
-        hits = search(library.skills(), query)
+        # `disable-model-invocation` beceriler modele görünmez; yalnız kullanıcı `/ad` ile çağırır.
+        hits = search(tuple(s for s in library.skills() if s.model_invocable), query)
         return ToolResult(_format(hits) or "(eşleşen skill yok)")
 
     return Tool(

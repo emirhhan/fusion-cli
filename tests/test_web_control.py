@@ -190,3 +190,39 @@ def test_giris_surecleri_toplu_kapanista_kendi_surec_grubuyla_sonlandirilir(monk
     web_control.stop_all_login_processes()
 
     killpg.assert_called_once()
+
+
+def test_giris_alt_surecinin_hatasi_panele_tasinir():
+    """Ölçüldü (31 Ekim): stderr DEVNULL'daydı; 'playwright install chromium' talimatı
+    kullanıcıya hiç ulaşmıyordu."""
+    from fusion_cli.appserver.control import web_login_state
+
+    pid = web_control._spawn_login(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('Giriş penceresi için playwright gerekli: "
+            "playwright install chromium\\n'); sys.exit(1)",
+        ]
+    )
+    web_control._LOGIN_PROCESSES[pid].wait(timeout=30)
+    dosya = web_control._LOGIN_ERRORS[pid]
+
+    durum = web_login_state(pid)
+
+    assert durum["ok"] is False and durum["acik"] is False
+    assert "playwright install chromium" in durum["metin"]
+    assert not dosya.exists(), "hata dosyası silinmedi"
+    assert web_control.login_error_text(pid) == ""
+    web_control._LOGIN_PROCESSES.pop(pid, None)
+
+
+def test_basarili_kapanista_hata_metni_yok():
+    from fusion_cli.appserver.control import web_login_state
+
+    pid = web_control._spawn_login([sys.executable, "-c", "pass"])
+    web_control._LOGIN_PROCESSES[pid].wait(timeout=30)
+
+    assert web_login_state(pid) == {"ok": True, "acik": False}
+    web_control.stop_all_login_processes()
+    assert pid not in web_control._LOGIN_ERRORS

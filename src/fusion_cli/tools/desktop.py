@@ -2,21 +2,33 @@
 
 from __future__ import annotations
 
-import base64
 import ctypes
 import subprocess
 import sys
-from typing import cast
+import time
+from typing import Any, cast
 
-from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import optional_str, require_str
-from .files import writable_path
+from . import desktop_lock
+from .args import require_str
+from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
+from .key_spec import (
+    HOLD_MS_MAX,
+    KEY_NAME_ALIASES,
+    REPEAT_MAX,
+    KeyChord,
+    normalize_key_name,
+    parse_key_sequence,
+)
 
 SCREENSHOT_MAX_BYTES = 12_000_000
 DESKTOP_COMMAND_TIMEOUT_S = 15
 DESKTOP_TEXT_MAX_CHARS = 10_000
 DESKTOP_SCROLL_MAX_LINES = 100
+#: Bir `desktop_key` çağrısının basılı tutma toplamı (ms): repeat × akor × hold_ms bunu aşamaz.
+#: Ölçüldü (31 Ekim): 50 × 32 × 5000 ms ≈ 2,2 saat senkron bloklanıyor, kilit 5. dakikada
+#: bayatlayıp devralınıyor ve iki tur aynı anda klavye gönderiyordu; iptal yolu yok.
+DESKTOP_KEY_TOTAL_HOLD_MS_MAX = 30_000
 #: macOS sanal tuş kodları (ANSI). Eskiden yalnız 16 tuş vardı: `return`, `esc`, `delete`,
 #: Home/End/PageUp/PageDown, F1-F12, rakamlar ve `x n t l r q p o` yoktu (Cmd+L/T/R/N/X çalışmazdı).
 KEY_CODES = {
@@ -29,30 +41,23 @@ KEY_CODES = {
     "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
     "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
     "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "9": 25, "7": 26, "8": 28, "0": 29,
+    # Noktalama (ANSI): `cmd+-`/`cmd+=` yakınlaştırma, `cmd+,` ayarlar, `cmd+/` yorum.
+    "-": 27, "=": 24, "[": 33, "]": 30, ";": 41, "'": 39, ",": 43, ".": 47, "/": 44,
+    "\\": 42, "`": 50, "+": 24,
+    "f13": 105, "f14": 107, "f15": 113, "f16": 106, "f17": 64, "f18": 79, "f19": 80, "f20": 90,
+    "capslock": 57,
 }  # fmt: skip
-#: Başka araç takımlarının tuş adları.
-KEY_ALIASES = {
-    "return": "enter", "esc": "escape", "delete": "backspace", "del": "backspace",
-    "pgup": "pageup", "page_up": "pageup", "pgdn": "pagedown", "page_down": "pagedown",
-    "arrowleft": "left", "arrowright": "right", "arrowup": "up", "arrowdown": "down",
-    "forward_delete": "forwarddelete",
-}  # fmt: skip
+#: Başka araç takımlarının tuş adları (tek kaynak: `key_spec.KEY_NAME_ALIASES`).
+KEY_ALIASES = KEY_NAME_ALIASES
 
 
 def resolve_key(name: str) -> int | None:
     """Tuş adı (takma adlar dahil, büyük/küçük harf duyarsız) -> sanal tuş kodu."""
-    key = name.strip().lower()
-    return KEY_CODES.get(KEY_ALIASES.get(key, key))
+    return KEY_CODES.get(normalize_key_name(name))
 
 
-ACCESSIBILITY_ERROR = (
-    "macOS Erişilebilirlik izni yok. Sistem Ayarları > Gizlilik ve Güvenlik > "
-    "Erişilebilirlik bölümünde Fusion'a izin ver; sonra uygulamayı yeniden aç."
-)
-
-
-class _Point(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+#: Geriye uyumlu ad; metnin tek kaynağı `desktop_permissions.MESSAGES`.
+ACCESSIBILITY_ERROR = MESSAGES[ACCESSIBILITY]
 
 
 def _mac_only() -> str | None:
@@ -123,89 +128,6 @@ def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(f"Uygulama açıldı: {name}")
 
 
-def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Ekranı çalışma alanına kaydet ve görseli modele aktar."""
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    target = writable_path(context, optional_str(args, "path", ".fusion/tmp/masaustu-ekrani.png"))
-    if target.suffix.lower() != ".png":
-        return ToolResult.failure("Ekran görüntüsü yolu .png ile bitmeli.")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        context.changes.record(target)
-        result = subprocess.run(
-            ["screencapture", "-x", "-t", "png", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=DESKTOP_COMMAND_TIMEOUT_S,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return ToolResult.failure(f"Ekran görüntüsü alınamadı: {exc}")
-    if result.returncode or not target.is_file():
-        return ToolResult.failure(
-            "Ekran görüntüsü alınamadı. Sistem Ayarları > Gizlilik ve Güvenlik > "
-            "Ekran Kaydı bölümünde Fusion iznini kontrol et. " + result.stderr.strip()
-        )
-    if target.stat().st_size > SCREENSHOT_MAX_BYTES:
-        # Çözünürlük parametresi yok: sınırı aşan görüntü kendiliğinden küçültülür (`sips`).
-        shrink = subprocess.run(
-            ["sips", "-Z", "1600", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=DESKTOP_COMMAND_TIMEOUT_S,
-            check=False,
-        )
-        if shrink.returncode or target.stat().st_size > SCREENSHOT_MAX_BYTES:
-            return ToolResult.failure(
-                "Ekran görüntüsü sınırı aştı ve küçültülemedi; pencereyi küçült ya da "
-                "desktop_background_screenshot ile tek pencere al."
-            )
-    context.touched.add(target)
-    image = ToolContent.image("image/png", base64.b64encode(target.read_bytes()).decode("ascii"))
-    return ToolResult(f"Ekran görüntüsü: {target}", content=(image,))
-
-
-def _post_mouse_click(framework: ctypes.CDLL, x: int, y: int) -> None:
-    framework.CGEventCreateMouseEvent.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-        _Point,
-        ctypes.c_uint32,
-    ]
-    framework.CGEventCreateMouseEvent.restype = ctypes.c_void_p
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    framework.CFRelease.argtypes = [ctypes.c_void_p]
-    for event_type in (1, 2):  # kCGEventLeftMouseDown / kCGEventLeftMouseUp
-        event = framework.CGEventCreateMouseEvent(None, event_type, _Point(x, y), 0)
-        if not event:
-            raise RuntimeError("Fare olayı oluşturulamadı")
-        try:
-            framework.CGEventPost(0, event)  # kCGHIDEventTap
-        finally:
-            framework.CFRelease(event)
-
-
-def desktop_click(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Ekran koordinatına sol tık gönder."""
-    del context
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    x, y = args.get("x"), args.get("y")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in (x, y)):
-        return ToolResult.failure("x ve y sıfırdan büyük veya eşit tam sayı olmalı.")
-    try:
-        framework = _framework()
-        if not _trusted(framework):
-            return ToolResult.failure(ACCESSIBILITY_ERROR)
-        _post_mouse_click(framework, cast(int, x), cast(int, y))
-    except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Fare tıklaması gönderilemedi: {exc}")
-    return ToolResult(f"Tıklandı: ({x}, {y})")
-
-
 def _post_text(framework: ctypes.CDLL, value: str) -> None:
     framework.CGEventCreateKeyboardEvent.argtypes = [
         ctypes.c_void_p,
@@ -235,17 +157,19 @@ def _post_text(framework: ctypes.CDLL, value: str) -> None:
 
 def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Odaklı alana Unicode metin gönder; içeriği sonuçta tekrar etme."""
-    del context
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
     value = require_str(args, "text")
     if len(value) > DESKTOP_TEXT_MAX_CHARS:
         return ToolResult.failure("Yazılacak metin sınırı aştı.")
+    busy = desktop_lock.claim(token=context.job_scope)
+    if busy:
+        return ToolResult.failure(busy)
     try:
         framework = _framework()
         if not _trusted(framework):
-            return ToolResult.failure(ACCESSIBILITY_ERROR)
+            return permission_failure(ACCESSIBILITY)
         _post_text(framework, value)
     except (OSError, RuntimeError) as exc:
         return ToolResult.failure(f"Metin yazılamadı: {exc}")
@@ -260,6 +184,7 @@ def _post_key(
     shift: bool,
     option: bool = False,
     control: bool = False,
+    hold_ms: int = 0,
 ) -> None:
     framework.CGEventCreateKeyboardEvent.argtypes = [
         ctypes.c_void_p,
@@ -270,12 +195,7 @@ def _post_key(
     framework.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
     framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     framework.CFRelease.argtypes = [ctypes.c_void_p]
-    flags = (
-        (1 << 20 if command else 0)
-        | (1 << 17 if shift else 0)
-        | (1 << 19 if option else 0)
-        | (1 << 18 if control else 0)
-    )
+    flags = modifier_flags(command=command, shift=shift, option=option, control=control)
     for is_down in (True, False):
         event = framework.CGEventCreateKeyboardEvent(None, code, is_down)
         if not event:
@@ -285,68 +205,94 @@ def _post_key(
             framework.CGEventPost(0, event)
         finally:
             framework.CFRelease(event)
+        if is_down and hold_ms > 0:
+            # Basılı tutma: tuş aşağıdayken bekle (uzun basış, oyun/kısayol tekrarı).
+            time.sleep(hold_ms / 1000)
+
+
+def modifier_flags(
+    *, command: bool = False, shift: bool = False, option: bool = False, control: bool = False
+) -> int:
+    """CGEventFlags bit maskesi (kCGEventFlagMaskCommand/Shift/Alternate/Control)."""
+    return (
+        (1 << 20 if command else 0)
+        | (1 << 17 if shift else 0)
+        | (1 << 19 if option else 0)
+        | (1 << 18 if control else 0)
+    )
+
+
+def _bounded_int(args: ToolArgs, name: str, low: int, high: int, default: int) -> int | None:
+    value = args.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        return None
+    return value
+
+
+def _key_chords(args: ToolArgs) -> tuple[KeyChord, ...] | str:
+    """Dizgi + eski boolean bayraklar → akorlar; hata metni döner."""
+    raw_flags: dict[str, bool] = {}
+    for name in ("command", "shift", "option", "control"):
+        value = args.get(name, False)
+        if not isinstance(value, bool):
+            return "command, shift, option ve control doğru/yanlış olmalı."
+        raw_flags[name] = value
+    try:
+        chords = parse_key_sequence(require_str(args, "key"))
+    except ValueError as exc:
+        return str(exc)
+    unknown = [chord.key for chord in chords if resolve_key(chord.key) is None]
+    if unknown:
+        return (
+            f"Desteklenmeyen tuş: {', '.join(unknown)}. Örnekler: enter/return, esc, delete, tab, "
+            "space, ok tuşları, home/end/pageup/pagedown, f1-f20, a-z, 0-9, noktalama; "
+            "kısayol için cmd+shift+4, dizi için 'cmd+l enter'."
+        )
+    return tuple(chord.with_flags(**raw_flags) for chord in chords)
+
+
+def _post_chord(framework: ctypes.CDLL, chord: KeyChord, hold_ms: int) -> None:
+    """Akoru `_post_key`'e geçir; yalnız açık olan ek bayraklar iletilir (test sözleşmesi)."""
+    code = cast(int, resolve_key(chord.key))
+    extra: dict[str, Any] = {name: True for name in ("option", "control") if getattr(chord, name)}
+    if hold_ms:
+        extra["hold_ms"] = hold_ms
+    _post_key(framework, code, command=chord.command, shift=chord.shift, **extra)
 
 
 def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Odaklı uygulamaya özel tuş veya Command/Shift kısayolu gönder."""
-    del context
+    """Odaklı uygulamaya tuş dizgisi gönder: `cmd+shift+4 enter`, tekrar ve basılı tutma."""
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
-    key = require_str(args, "key").lower()
-    code = resolve_key(key)
-    if code is None:
+    chords = _key_chords(args)
+    if isinstance(chords, str):
+        return ToolResult.failure(chords)
+    repeat = _bounded_int(args, "repeat", 1, REPEAT_MAX, 1)
+    hold_ms = _bounded_int(args, "hold_ms", 0, HOLD_MS_MAX, 0)
+    if repeat is None or hold_ms is None:
         return ToolResult.failure(
-            f"Desteklenmeyen tuş: {key}. Örnekler: enter/return, esc, delete, tab, space, ok "
-            "tuşları, home/end/pageup/pagedown, f1-f12, a-z, 0-9."
+            f"repeat 1-{REPEAT_MAX} arasında, hold_ms 0-{HOLD_MS_MAX} arasında tam sayı olmalı."
         )
-    raw_flags = {name: args.get(name, False) for name in ("command", "shift", "option", "control")}
-    flags = {name: value for name, value in raw_flags.items() if isinstance(value, bool)}
-    if len(flags) != len(raw_flags):
-        return ToolResult.failure("command, shift, option ve control doğru/yanlış olmalı.")
+    total_hold_ms = repeat * len(chords) * hold_ms
+    if total_hold_ms > DESKTOP_KEY_TOTAL_HOLD_MS_MAX:
+        return ToolResult.failure(
+            f"Toplam basılı tutma süresi {total_hold_ms / 1000:.0f} sn; en çok "
+            f"{DESKTOP_KEY_TOTAL_HOLD_MS_MAX // 1000} sn (repeat × tuş sayısı × hold_ms). "
+            "Çağrıyı parçala ya da hold_ms'i küçült."
+        )
+    busy = desktop_lock.claim(token=context.job_scope)
+    if busy:
+        return ToolResult.failure(busy)
     try:
         framework = _framework()
         if not _trusted(framework):
-            return ToolResult.failure(ACCESSIBILITY_ERROR)
-        extra = {name: True for name in ("option", "control") if flags[name]}
-        _post_key(framework, code, command=flags["command"], shift=flags["shift"], **extra)
+            return permission_failure(ACCESSIBILITY)
+        for _ in range(repeat):
+            for chord in chords:
+                _post_chord(framework, chord, hold_ms)
     except (OSError, RuntimeError) as exc:
         return ToolResult.failure(f"Tuş gönderilemedi: {exc}")
-    return ToolResult(f"Tuş gönderildi: {key}")
-
-
-def _post_scroll(framework: ctypes.CDLL, lines: int) -> None:
-    framework.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    framework.CFRelease.argtypes = [ctypes.c_void_p]
-    event = framework.CGEventCreateScrollWheelEvent(None, 1, 1, lines)
-    if not event:
-        raise RuntimeError("Kaydırma olayı oluşturulamadı")
-    try:
-        framework.CGEventPost(0, event)
-    finally:
-        framework.CFRelease(event)
-
-
-def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Odaklı pencerede dikey kaydır; pozitif yukarı, negatif aşağıdır."""
-    del context
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    lines = args.get("lines")
-    if (
-        not isinstance(lines, int)
-        or isinstance(lines, bool)
-        or lines == 0
-        or abs(lines) > DESKTOP_SCROLL_MAX_LINES
-    ):
-        return ToolResult.failure("lines -100 ile 100 arasında sıfır olmayan tam sayı olmalı.")
-    try:
-        framework = _framework()
-        if not _trusted(framework):
-            return ToolResult.failure(ACCESSIBILITY_ERROR)
-        _post_scroll(framework, lines)
-    except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Kaydırma gönderilemedi: {exc}")
-    return ToolResult(f"{abs(lines)} satır {'yukarı' if lines > 0 else 'aşağı'} kaydırıldı.")
+    label = ", ".join(chord.label() for chord in chords)
+    suffix = f" (×{repeat})" if repeat > 1 else ""
+    return ToolResult(f"Tuş gönderildi: {label}{suffix}")
