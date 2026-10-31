@@ -510,7 +510,8 @@ async def _run_command(
                 current = asyncio.current_task()
                 if current is not None and current.cancelling():
                     raise
-                console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
+                cancelled = messages.ASYNC_COMMAND_CANCELLED.format(name=command.name)
+                console.print(f"[{theme.WARN}]{cancelled}[/{theme.WARN}]")
         return
 
     result = command.handler(state, argument)

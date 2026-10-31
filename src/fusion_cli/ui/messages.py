@@ -1530,6 +1530,8 @@ VOICE_LISTENING = "🎤 Dinliyorum… konuş; susunca biter (Ctrl-C/Esc iptal)."
 VOICE_NOTHING_HEARD = "Ses algılanmadı. Mikrofon izni ve giriş aygıtını kontrol edip yeniden dene."
 VOICE_HEARD = "🎤 {text}"
 VOICE_PREFILLED = "🎤 İsteme yazıldı: {text}\nDüzenleyip Enter'a bas."
+#: Ctrl-C ile kesilen asenkron komut (`/voice`, `/rc`); tur değil, komut iptal edildi.
+ASYNC_COMMAND_CANCELLED = "/{name} iptal edildi"
 VOICE_FALLBACK_HINT = "(Boş Enter dikte metnini gönderir; yazdığın satır onun yerine geçer.)"
 VOICE_STATUS = "Konuşma tanıma: {path} · dil {language} (cihaz üstü; ses buluta gitmez)"
 VOICE_STATUS_MISSING = (

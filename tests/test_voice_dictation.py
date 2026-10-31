@@ -213,3 +213,24 @@ async def test_duz_input_yedeginde_bos_enter_dikte_metnini_gonderir(tmp_path, mo
 
     assert await reader.prompt(default="testleri çalıştır") == "testleri çalıştır"
     assert await reader.prompt(default="testleri çalıştır") == "kendi satırım"
+
+
+async def test_iptal_edilen_dikte_kendi_mesajini_yazar(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): Ctrl-C ile kesilen `/voice` ya da `/rc` 'tur durduruldu' yazıyordu."""
+    import asyncio
+
+    from fusion_cli.cli.repl import async_commands, loop
+
+    state = _state(tmp_path, "")
+
+    async def kesilen(*_a, **_k):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(async_commands, "run", kesilen)
+    console = Console(record=True, width=200)
+
+    await loop._run_command("/dikte", state, build_registry(), object(), console)  # type: ignore[arg-type]
+
+    cikti = console.export_text()
+    assert messages.ASYNC_COMMAND_CANCELLED.format(name="voice") in cikti
+    assert messages.REPL_TURN_CANCELLED not in cikti
