@@ -1881,6 +1881,7 @@ class AppSession:
     async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:
         """`tarayici.*` (P-024): dosya/Chrome okuma ve şifreleme bloklar, thread'e alınır."""
         from . import browser_profiles as rpc
+        from .kits_profile_routes import KITS_PROFILE_ROUTES, dispatch_kits_profile
 
         store = self._browser_profiles
         data = request.data
@@ -1894,6 +1895,15 @@ class AppSession:
             return await asyncio.to_thread(rpc.import_profile, store, data)
         if request.name == "tarayici.sil":
             return await asyncio.to_thread(rpc.delete_profile, store, data)
+        if request.name in KITS_PROFILE_ROUTES:
+            # Kit tarayıcısına profil (P-023): onay hostta; yanıt yalnız o iframe'e gider.
+            return await asyncio.to_thread(
+                dispatch_kits_profile, request.name, store, self._state.config, data
+            )
+        if request.name == "tarayici.web_oturumlari":
+            return await asyncio.to_thread(rpc.web_sessions, data)
+        if request.name == "tarayici.web_oturumu_aktar":
+            return await rpc.import_from_web_session(store, data)
         if request.name == "tarayici.giris":
             return rpc.start_login(data)
         if request.name == "tarayici.giris_durumu":

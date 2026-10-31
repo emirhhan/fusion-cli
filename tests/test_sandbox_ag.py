@@ -203,3 +203,35 @@ def test_bos_allowlistte_localhost_acik_dis_ag_kapali(tmp_path, sunucu, monkeypa
 
     assert yerel.ok and "yerel-sunucu" in yerel.output
     assert not dis.ok and "Sandbox ağı kapalı" in dis.output
+
+
+@macos_sandbox
+@pytest.mark.parametrize("ag", ["open", "allowlist"])
+def test_fusion_chrome_cdp_portu_sandboxtan_erisilemez_dev_sunucusu_erisilir(
+    tmp_path, sunucu, monkeypatch, ag
+):
+    """Ölçüldü (1 Kasım): ağ open iken `curl 127.0.0.1:<CDP>` sandbox içinden yanıt alıyordu."""
+    monkeypatch.setattr(shell_sandbox, "_temporary_directories", lambda: ())
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "veri"))
+    monkeypatch.delenv("FUSION_WORKSPACE_ISOLATION", raising=False)
+    cdp = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Cevap)
+    threading.Thread(target=cdp.serve_forever, daemon=True).start()
+    profil = tmp_path / "veri" / "fusion-cli" / "web_profiles" / "gemini_web" / "main"
+    profil.mkdir(parents=True)
+    (profil / "DevToolsActivePort").write_text(f"{cdp.server_address[1]}\n/devtools/browser/x\n")
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    context = _context(proje, SandboxPolicy(network=ag))
+    try:
+        tarayici = shell.run_shell(
+            {"command": f"curl -sS -m 5 --noproxy '*' http://127.0.0.1:{cdp.server_address[1]}/"},
+            context,
+        )
+        gelistirme = shell.run_shell(
+            {"command": f"curl -sS -m 5 --noproxy '*' http://127.0.0.1:{sunucu}/"}, context
+        )
+    finally:
+        cdp.shutdown()
+        cdp.server_close()
+    assert not tarayici.ok and "yerel-sunucu" not in tarayici.output
+    assert gelistirme.ok and "yerel-sunucu" in gelistirme.output

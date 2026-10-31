@@ -26,6 +26,10 @@ export interface SandboxStatus {
   localhost: boolean;
   ek_yazma: string[];
   okuma_engeli: string[];
+  /** Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`); eski çekirdek göndermez. */
+  okuma_izni?: string[];
+  /** Fusion Chrome'unun hata ayıklama (CDP) portu korumasının kapsamı; eski çekirdek göndermez. */
+  cdp_korumasi?: string;
   zorunlu: boolean;
   disari_izinli: boolean;
   oto_izin: boolean;
@@ -148,7 +152,7 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
             <div className="sandbox__domains">
               <ToggleRow
                 checked={status.localhost}
-                description="Yerel geliştirme sunucusu ve veritabanı (localhost) açık kalır. Fusion'ın kendi yerel dinleyicileri (ör. tarayıcı hata ayıklama portu) de buna dahildir."
+                description="Yerel geliştirme sunucusu ve veritabanı (localhost) açık kalır. Fusion'ın web profil tarayıcısının hata ayıklama portu bu izinle de kapalıdır."
                 disabled={busy}
                 onChange={(deger) => void act("localhost", deger)}
                 title="localhost'a izin ver"
@@ -224,12 +228,22 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
               />
             )}
           </div>
+          {status.cdp_korumasi && (
+            <p className="settings__hint">Tarayıcı hata ayıklama portu: {status.cdp_korumasi}.</p>
+          )}
           <details className="sandbox__paths">
             <summary>Okunamayan yollar ({status.okuma_engeli.length})</summary>
             <ul>{status.okuma_engeli.map((yol) => <li key={yol}><code>{yol}</code></li>)}</ul>
+            {(status.okuma_izni ?? []).length > 0 && (
+              <p className="settings__hint">
+                Varsayılan engelden bilerek açılanlar: {(status.okuma_izni ?? []).map((yol) => <code key={yol}>{yol} </code>)}
+              </p>
+            )}
           </details>
           <p className="settings__hint">
             Ek yazma dizini, okuma listesi ve sandbox dışı komutlar: <code>/config sandbox.allow_write=~/.npm</code>,{" "}
+            <code>/config sandbox.deny_read=~/ozel</code> (varsayılana eklenir),{" "}
+            <code>/config sandbox.allow_read=~/.kube</code> (varsayılandan çıkarır),{" "}
             <code>/config sandbox.excluded_commands=docker</code>.
             {status.disari_komutlar.length > 0 && <> Sandbox dışı: {status.disari_komutlar.join(", ")}.</>}
           </p>

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from .errors import BrowserProfileError
+from .network_address import is_public_ip
 
 #: Dosya ayrıştırma hatası: aynı kökten türer ki CLI sınırı tek tipte yakalasın.
 CookieFileError = BrowserProfileError
@@ -243,6 +244,34 @@ def domain_allowed(domain: str, allowed: tuple[str, ...]) -> bool:
     """`sub.example.com`, `example.com` izniyle kapsanır; `notexample.com` kapsanmaz."""
     host = normalize_domain(domain)
     return any(host == item or host.endswith("." + item) for item in map(normalize_domain, allowed))
+
+
+#: İç ağ ad sonekleri: bu alanların çerezi ajan/Kit tarayıcısına taşınmaz (P-023).
+_INTERNAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
+#: Alan adı etiketi: harf/rakam/tire; IP değilse en az bir nokta istenir.
+_DOMAIN_NAME = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,62})(\.[a-z0-9_]([a-z0-9_-]{0,62}))*$")
+_IP_LITERAL = re.compile(r"^[0-9.]+$|:")
+
+
+def internal_domain_reason(domain: str) -> str | None:
+    """Alan adı oturum taşımaya uygun mu? Değilse Türkçe gerekçe, uygunsa None.
+
+    Ad çözümlemesi yapmaz (saf): yerel/özel IP, `localhost`, iç ağ sonekleri ve tek
+    etiketli adlar (`intranet`, `com`) reddedilir. Tek etiketli ad hem iç ağ makinesidir
+    hem de `-d com` gibi bütün bir üst alanı kapsayacak bir süzgeçtir.
+    """
+    clean = normalize_domain(domain).strip("[]")
+    if not clean:
+        return "alan adı boş"
+    if _IP_LITERAL.search(clean):
+        return None if is_public_ip(clean) else f"özel/yerel ağ adresi ({clean})"
+    if clean == "localhost" or clean.endswith(_INTERNAL_SUFFIXES):
+        return f"iç ağ adı ({clean})"
+    if not _DOMAIN_NAME.match(clean):
+        return f"geçersiz alan adı ({clean})"
+    if "." not in clean:
+        return f"tek etiketli ad ({clean}); tam alan adı yaz (ör. example.com)"
+    return None
 
 
 def filter_by_domains(

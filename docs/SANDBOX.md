@@ -37,14 +37,27 @@ olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar
   yürütür. `git add/commit/checkout/fetch` çalışır; `git init`, `git remote add`,
   `git push -u`, `git config` bu dosyalara yazdığı için sandbox içinde düşer — gerekirse
   `unsandboxed=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
-- **Okuma:** `sandbox.deny_read` yolları okunamaz. Varsayılan liste: `~/.ssh`, `~/.aws`,
-  `~/.gnupg`, `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
+- **Okuma:** varsayılan okuma engeli her zaman uygulanır: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+  `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.password-store`, `~/Library/Keychains`, `~/.config/gh`,
   `~/.config/git/credentials`, `~/.pypirc`. Fusion'ın yüklediği her `.env` (`FUSION_HOME/.env`,
-  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri listede
-  yazılmasa da her zaman engellidir. **Dikkat:** `sandbox.deny_read` yazarsan liste varsayılanın
-  YERİNE geçer; yol eklerken varsayılanları da yaz. `~/.npmrc` bilinçli olarak listede yok
-  (npm her kurulumda okur).
+  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri de her
+  zaman engellidir. `sandbox.deny_read` bu listeye **eklenir**; varsayılandan bir yolu bilerek
+  açmak için `sandbox.allow_read` yazılır (ör. `["~/.kube"]`). `allow_read`'de okuma engelinde
+  olmayan bir yol yapılandırma hatasıdır; Fusion'ın sır dosyaları bu yolla açılamaz. `~/.npmrc`
+  bilinçli olarak listede yok (npm her kurulumda okur).
+
+  ```yaml
+  sandbox:
+    deny_read: ["~/ozel-anahtarlar"]   # varsayılana eklenir
+    allow_read: ["~/.kube"]            # kubectl sandbox içinde çalışsın
+  ```
+
+  **Eski davranış (1 Kasım öncesi):** `sandbox.deny_read` yazılınca liste varsayılanın YERİNE
+  geçiyordu; tek yol ekleyen kullanıcı `~/.ssh` gibi korumaları kaybediyordu. Varsayılanı
+  da kopyalayan eski yapılandırmalar aynı sonucu verir (yinelenenler birleşir). Bir varsayılanı
+  listeden silerek açan eski yapılandırma artık o yolu yeniden engeller; açık kalması için
+  `allow_read`'e yazın.
 - **Ağ:** `sandbox.network: open` (varsayılan, kısıtsız) ya da `allowlist`. Allowlist'te komut
   yalnız Fusion'ın yerel proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir);
   proxy yalnız `allowed_domains`'e bağlanır, `denied_domains` her zaman önce gelir. İzinli bir
@@ -54,10 +67,22 @@ olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar
 - **Sır ortamı:** `hide_secret_env: true` iken sandbox içindeki komutun ortamından adı sır gibi
   görünen değişkenler (`*_API_KEY`, `*_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`, `*ACCESS_KEY*`,
   `*CREDENTIAL*`, `API_KEY`, `TOKEN`, `DATABASE_URL`) çıkarılır. Komut başarısız olursa gizlenen
-  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu **kaza önleyicidir, güvenlik
-  sınırı değildir**: aynı kullanıcının başka süreçlerinin ortamı (kabuk, üst süreçler)
-  macOS'ta `sysctl(KERN_PROCARGS2)` ile okunabilir; sırrı kabukta `export` etmek yerine
-  Fusion kasasında tutun.
+  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu macOS'ta **kaza önleyicidir,
+  güvenlik sınırı değildir** (aşağıya bakın); sırrı kabukta `export` etmek yerine Fusion
+  kasasında ya da `.env`'de tutun.
+- **Başka süreçlerin ortamı:** Linux'ta komut kendi PID ad alanında ve taze `/proc` ile çalışır;
+  başka süreçlerin `/proc/<pid>/environ`'ı görünmez. macOS'ta aynı kullanıcının Apple imzalı
+  olmayan süreçlerinin (Fusion'ın Python'u, node, VS Code/iTerm gibi uygulamalar) **başlangıç**
+  ortamı `sysctl(KERN_PROCARGS2)` ile okunabilir (`ps eww` sandbox içinde hiç çalışmaz, ama aynı
+  çağrı ctypes ile yapılır). Ölçüldü (1 Kasım, macOS 27, gerçek `sandbox-exec`): Seatbelt'te bunu
+  kesen işlem yok — `(deny process-info*)` (`target self`/`same-sandbox` ile), `(deny sysctl-read)`,
+  `(deny sysctl*)`, `sysctl-name "kern.procargs2"` ve yalnız `process-exec`+`file-read*` izinli
+  `(deny default)` profili de okumayı engellemedi; `process-info*` reddi yalnız `proc_pidpath`
+  türü bilgileri keser ve araçları bozacağı için eklenmedi. Fusion'ın süreç başladıktan sonra
+  yüklediği sırlar (`.env`, kasa) bu yolla görünmez; görünen, Fusion'ı başlatan kabuğun `export`
+  ettikleridir. Masaüstü uygulaması Finder'dan açıldığında kabuk ortamını taşımaz.
+  Kanarya testi: `tests/test_sandbox_sinirlar.py::test_macos_seatbelt_baska_surecin_baslangic_ortamini_kesemez_olcum`
+  (Apple bir kanca eklerse düşer).
 
 ```text
 /sandbox ag allowlist
@@ -74,7 +99,12 @@ fusion sandbox oto on             # aynı bayraklar terminalden
 sonra yalnız listedeki adlar erişilebilir (npm, pip dahil diğer trafik kapanır).
 
 Engellenen bağlantıdan sonra modele `Sandbox ağı engelledi: <alan>` notu gider; izin vermek
-kullanıcının kararıdır.
+kullanıcının kararıdır. Her komutun kendi proxy'si vardır: eşzamanlı komutların (arka plan
+işi, alt ajan) retleri birbirine karışmaz. Ön plan komutunun proxy'si komut bitince, arka plan
+işininki iş süreci bitince kapanır; işin ret notu günlüğün sonuna (`job_status` çıktısı)
+eklenir. İşin kendi içinde arka plana attığı ve işten uzun yaşayan süreçler (`npm run dev &`)
+iş bitince ağ erişimini kaybeder. `/sandbox izin` sonrası yeni politika bir sonraki komutta
+geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 
 ## Sandbox dışında çalıştırma
 
@@ -94,6 +124,8 @@ kullanıcının kararıdır.
 | `sandbox.allow_localhost` | `true` | Allowlist kipinde `localhost`'a doğrudan erişim |
 | `sandbox.hide_secret_env` | `true` | Sır görünümlü ortam değişkenlerini gizle (yukarıya bakın) |
 | `sandbox.allow_write` | `[]` | Ek yazılabilir dizinler, ör. `["~/.npm", "~/.cache/pip"]` |
+| `sandbox.deny_read` | `[]` | Varsayılan okuma engeline EK yollar |
+| `sandbox.allow_read` | `[]` | Varsayılan okuma engelinden bilerek açılan yollar |
 
 Hepsi `/config sandbox.<alan>=<değer>` ile de değişir, ör. `/config sandbox.allow_write=~/.npm`.
 Güvenilmeyen bir projenin `config.yaml`'ındaki `sandbox:` bölümü uygulanmaz (`fusion trust`).
@@ -117,13 +149,20 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
   `unsandboxed=true` (onaylı) kullanın.
 - Paket önbellekleri (`~/.npm`, `~/.cache`) `allow_write`'a eklenmedikçe yazılamaz.
 - **localhost ve yerel dinleyiciler:** ağ `open` iken ya da `allow_localhost: true` ile sandbox
-  içindeki komut 127.0.0.1 portlarına bağlanabilir. Fusion'ın açtığı Chrome hata ayıklama portu
-  (CDP, kimlik doğrulamasız) da buna dahildir; port dosyası (`DevToolsActivePort`) okuma
-  engelinde olsa da port taranarak bulunabilir ve oturumlu tarayıcı sürülebilir. Oturumlu web
-  profilleriyle çalışırken `network: allowlist` + `allow_localhost: false` kullanın.
-- Ağ ret notu proxy başınadır: aynı politikada eşzamanlı çalışan komutların (arka plan işi,
-  alt ajanlar) engellenen adları birbirinin notuna düşebilir. `/sandbox izin` ile politika
-  değiştikçe eski proxy süreç kapanana kadar açık kalır (eski arka plan işleri onu kullanır).
+  içindeki komut 127.0.0.1 portlarına (dev sunucusu, veritabanı) bağlanabilir. İstisna: Fusion'ın
+  web model profillerinin paylaşılan Chrome'u loopback'te kimlik doğrulamasız bir hata ayıklama
+  portu (CDP) açar; bu port her komutta `web_profiles/*/*/DevToolsActivePort`'tan okunur ve
+  sandbox'a kapatılır. macOS'ta Seatbelt kuralıyla her ağ kipinde; proxy de (ör. `127.0.0.1`
+  açıkça izinliyken) her bağlantıda yeniden bakar. Linux'ta allowlist kipinde komut ayrı ağ ad
+  alanında olduğundan ana makinenin localhost'una zaten ulaşamaz; **ağ `open` iken Linux'ta
+  korunmaz** (bwrap port süzemez) — oturumlu web profilleriyle `network: allowlist` kullanın.
+  macOS'ta Seatbelt kuralı komut başlarken yazılır: uzun süren bir arka plan işi başladıktan
+  SONRA açılan Chrome'un portu o işe doğrudan bağlantıda kapalı değildir (proxy yolu kapalıdır).
+  Neden `--remote-debugging-pipe` değil: bu Chrome başlatan süreçten bağımsız yaşar ve masaüstünün
+  her sekme süreci ona bağlanır; boru tek sürece bağlıdır, ayrı bir aracı süreç gerektirirdi.
+  Ajanın `browser_*` tarayıcısı ve doğrulama tarayıcıları Playwright ile zaten boru kullanır.
+  Kullanıcının kendi `--remote-debugging-port` ile açtığı Chrome kapsanmaz. Durum: `/sandbox`
+  "Tarayıcı CDP" satırı, masaüstü kartı.
 - Linux (bubblewrap): komut kendi PID/IPC ad alanında ve yeni oturumda çalışır (host `/proc`
   görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
   deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven

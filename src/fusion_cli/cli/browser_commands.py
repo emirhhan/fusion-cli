@@ -35,6 +35,13 @@ from ..engines.browser_profiles import (
     preview_chrome_profile,
     preview_cookie_file,
 )
+from ..engines.web_session_import import (
+    available_web_sessions,
+    find_web_session,
+    import_web_session,
+    preview_web_session,
+    validate_domains,
+)
 from ..providers.chrome_cookies import list_chrome_profiles
 
 app = typer.Typer(
@@ -64,6 +71,13 @@ _KEYCHAIN_NOTE = (
     "[yellow]Not:[/yellow] macOS Keychain izin diyaloğu çıkabilir; Chrome'un çerez anahtarı "
     "için 'İzin ver' seçilmeli."
 )
+
+_WEB_SESSION_WARNING = (
+    "[yellow]Dikkat:[/yellow] {provider} abonelik oturumunun bu alan adlarındaki çerezleri "
+    "ajanın tarayıcısına kopyalanır. Tek yönlüdür; model oturumu değişmez. Profili yükleyen her "
+    "ajan çağrısı ayrıca onay ister."
+)
+_NO_WEB_SESSIONS = "Bu bilgisayarda web model oturumu yok. Önce: fusion web-login chatgpt_web"
 
 ProfileOption = Annotated[str, typer.Option("--profile", "-p", help="Fusion profil adı.")]
 DomainOption = Annotated[
@@ -235,6 +249,48 @@ def import_chrome(
         if sys.platform == "darwin":
             console.print(_KEYCHAIN_NOTE)
         _print_saved(import_chrome_profile(_store(), source, profile, domains=domains))
+
+    _run(action)
+
+
+@app.command("web-sessions")
+def web_sessions() -> None:
+    """Bu bilgisayardaki web MODEL oturumlarını listele (çerez okunmaz)."""
+
+    def action() -> None:
+        found = available_web_sessions()
+        if not found:
+            console.print(_NO_WEB_SESSIONS)
+            return
+        table = Table(title="Web model oturumları")
+        table.add_column("Sağlayıcı")
+        table.add_column("Hesap")
+        for item in found:
+            table.add_row(item.provider, item.account)
+        console.print(table)
+
+    _run(action)
+
+
+@app.command("import-web-session")
+def import_web_session_command(
+    provider: Annotated[
+        str, typer.Argument(help="Web sağlayıcısı: chatgpt, claude, gemini, copilot.")
+    ],
+    profile: ProfileOption,
+    domain: DomainOption = None,
+    account: Annotated[str, typer.Option("--account", help="Web oturumu hesabı.")] = "main",
+    yes: YesOption = False,
+) -> None:
+    """Web model oturumunun seçilen alan adlarını bir Fusion profiline TEK YÖNLÜ kopyala."""
+
+    def action() -> None:
+        domains = validate_domains(_domains(domain))
+        source = find_web_session(provider, account)
+        preview = preview_web_session(source, domains)
+        console.print(_WEB_SESSION_WARNING.format(provider=source.provider))
+        _confirm(ImportPreview(preview.matching or domains, 0, source.provider), profile, yes)
+        _print_saved(asyncio.run(import_web_session(_store(), source, profile, domains)))
 
     _run(action)
 

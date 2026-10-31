@@ -91,6 +91,9 @@ class SandboxPolicy:
     auto_allow: bool = False
     #: Sandbox içindeki komutun ortamından sır gibi görünen değişkenler (`*_TOKEN`…) çıkarılır.
     hide_secret_env: bool = True
+    #: Her kipte kapalı loopback portları: Fusion Chrome'larının CDP portu (çalışma anında
+    #: `tools.sandbox_cdp` doldurur; yapılandırmadan gelmez). Yalnız macOS Seatbelt uygular.
+    denied_local_ports: tuple[int, ...] = ()
 
     @property
     def restricts_network(self) -> bool:

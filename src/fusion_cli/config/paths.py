@@ -137,7 +137,12 @@ def web_profile_dir(provider: str, account: str) -> Path:
     olmadığına bakarak `login_verified` bayrağını doğrular ve `providers`
     katmanına import edemez. Tarayıcı katmanı da aynı fonksiyonu kullanır.
     """
-    return user_data_dir() / "web_profiles" / _slug(provider) / _slug(account)
+    return web_profiles_root() / _slug(provider) / _slug(account)
+
+
+def web_profiles_root() -> Path:
+    """Web sağlayıcı tarayıcı profillerinin kökü (`web_profiles/<sağlayıcı>/<hesap>`)."""
+    return user_data_dir() / "web_profiles"
 
 
 def browser_profiles_dir() -> Path:

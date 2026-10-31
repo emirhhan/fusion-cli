@@ -400,6 +400,23 @@ TARAYICI_PANEL_CLOSED = "Paylaşılan tarayıcı kapatıldı; ajan yine tur baş
 TARAYICI_PANEL_NEEDS_ON = "Önce `/tarayici ac` ile paylaşılan tarayıcıyı aç."
 TARAYICI_PANEL_USAGE = "Kullanım: /tarayici [ac | devral | birak | kapat]"
 CMD_TARAYICI = "ajanla paylaşılan görünür tarayıcı: izle, devral, bırak (P-045)"
+# --- Web model oturumundan profil aktarma (P-023) --- #
+WEBOTURUM_CMD = "web model oturumunun seçilen sitelerini ajan tarayıcı profiline kopyala"
+WEBOTURUM_USAGE = (
+    "Kullanım: /oturum-aktar <sağlayıcı> <profil> <alan adı>… [--hesap <ad>] [--yes]\n"
+    "Örnek: /oturum-aktar chatgpt gpt chatgpt.com"
+)
+WEBOTURUM_PREVIEW = (
+    "{provider}/{account} oturumundan '{name}' profiline kopyalanacak alan adları: {domains}\n"
+    "Dikkat: abonelik oturumunun bu sitelerdeki çerezleri ajanın tarayıcısına açılır. Tek "
+    "yönlüdür; model oturumu değişmez. Profili yükleyen her ajan çağrısı ayrıca onay ister.\n"
+    "Onaylamak için aynı komutu --yes ile yinele."
+)
+WEBOTURUM_DONE = "Profil yazıldı: {name} — {count} çerez, {domains} alan adı"
+WEBOTURUM_DESKTOP = (
+    "Masaüstünde Ayarlar › Web oturumları › Model oturumundan aktar'ı kullan; terminalde: "
+    "fusion browser import-web-session <sağlayıcı> -p <profil> -d <alan>"
+)
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
@@ -1674,11 +1691,15 @@ SANDBOX_AVAILABLE = "kurulabilir"
 SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
 SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
 SANDBOX_READ = "  Okuma engeli : {paths}"
+SANDBOX_READ_OPENED = (
+    "  Okuma izni   : {paths} (varsayılan engelden bilerek açıldı: sandbox.allow_read)"
+)
 SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
 SANDBOX_NETWORK_ALLOWLIST = (
     "  Ağ           : yalnız izinli alan adları — {allowed}{denied}; localhost {localhost}"
 )
 SANDBOX_NETWORK_NONE = "hiçbiri (dış ağ kapalı)"
+SANDBOX_DEBUG_PORTS = "  Tarayıcı CDP : Fusion Chrome'unun hata ayıklama portu {guard}"
 SANDBOX_FLAGS = (
     "  Davranış     : sandbox dışı istek {outside} · sorusuz çalıştırma {auto} · "
     "kurulamazsa {fail} · sır ortamı {secrets}"

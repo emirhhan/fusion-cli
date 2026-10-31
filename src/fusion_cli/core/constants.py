@@ -336,3 +336,7 @@ NIM_PROBE_CACHE_TTL_S = 10 * 60.0
 #: Oturum kapanırken sürmekte olan model seçimi/doğrulaması görevlerini en çok bu kadar bekle
 #: (saniye); NIM araç doğrulaması 90 sn'ye kadar sürebilir ve kapanışı geciktirmemeli.
 MODEL_SELECTION_CLOSE_WAIT_S = 5.0
+
+#: Chrome'un `--remote-debugging-port` ile profil dizinine yazdığı port dosyası. Paylaşılan web
+#: profil tarayıcısı okur; kabuk sandbox'ı bu portları sandbox'taki komuta kapatır (P-010).
+DEVTOOLS_PORT_FILE = "DevToolsActivePort"

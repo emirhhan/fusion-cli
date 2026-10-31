@@ -22,6 +22,10 @@ function fakeClient(overrides: Record<string, unknown> = {}) {
     if (name === "tarayici.profiller") return { ok: true, profiller: [profil], varsayilan: "", anahtar_var: true, etkin: true, ...overrides };
     if (name === "tarayici.dosya_onizle") return { ok: true, alan_adlari: ["example.com", "other.net"], cerez_sayisi: 3 };
     if (name === "tarayici.ice_aktar") return { ok: true, metin: "'yeni' profili yazıldı." };
+    if (name === "tarayici.web_oturumlari") return data.saglayici
+      ? { ok: true, oturumlar: [{ saglayici: "chatgpt_web", hesap: "main" }], alan_adlari: ["chatgpt.com", "google.com"] }
+      : { ok: true, oturumlar: [{ saglayici: "chatgpt_web", hesap: "main" }] };
+    if (name === "tarayici.web_oturumu_aktar") return { ok: true, metin: "'gpt' profili yazıldı." };
     if (name === "tarayici.sil") return { ok: true, metin: "'is' silindi." };
     if (name === "tarayici.varsayilan") return { ok: true, varsayilan: String(data.ad) };
     return { ok: true };
@@ -62,6 +66,30 @@ describe("WebSessions", () => {
       expect(request).toHaveBeenCalledWith("tarayici.ice_aktar", { ad: "yeni", alan_adlari: ["example.com"], yol: "/tmp/cookies.txt" }),
     );
     expect(await screen.findByText("'yeni' profili yazıldı.")).toBeTruthy();
+  });
+
+  it("model oturumundan aktarma uyarı gösterir, hiçbir site hazır seçili gelmez ve yalnız işaretlenenleri gönderir", async () => {
+    const { client, request } = fakeClient();
+    render(<WebSessions client={client} />);
+    await screen.findByText("is");
+
+    fireEvent.click(screen.getByRole("button", { name: /Model oturumundan aktar/ }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("tarayici.web_oturumlari", {}));
+    expect(screen.getByRole("note").textContent).toContain("Tek yönlüdür");
+    fireEvent.change(screen.getByLabelText("Profil adı"), { target: { value: "gpt" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Alan adlarını göster" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "Alan adlarını göster" }));
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith("tarayici.web_oturumlari", { saglayici: "chatgpt_web", hesap: "main" }));
+    expect(await screen.findByLabelText("google.com")).toHaveProperty("checked", false);
+    expect(screen.getByRole("button", { name: "İçe aktar" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByLabelText("chatgpt.com"));
+    fireEvent.click(screen.getByRole("button", { name: "İçe aktar" }));
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith("tarayici.web_oturumu_aktar", {
+      ad: "gpt", alan_adlari: ["chatgpt.com"], saglayici: "chatgpt_web", hesap: "main",
+    }));
+    expect(document.body.textContent).not.toContain(GIZLI);
   });
 
   it("silme iki adımlıdır: ilk tık onay ister, ikinci tık siler", async () => {

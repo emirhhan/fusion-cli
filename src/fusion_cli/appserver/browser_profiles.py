@@ -22,6 +22,12 @@ from ..engines.browser_profiles import (
     preview_chrome_profile,
     preview_cookie_file,
 )
+from ..engines.web_session_import import (
+    available_web_sessions,
+    find_web_session,
+    import_web_session,
+    preview_web_session,
+)
 from ..providers.chrome_cookies import list_chrome_profiles
 
 _CHROME_NEED_DOMAIN = (
@@ -186,3 +192,44 @@ def set_default(config: Config, data: dict[str, Any], store: BrowserProfileStore
     except (FusionError, ValueError) as error:
         return {"ok": False, "metin": str(error)}
     return {"ok": True, "varsayilan": name}
+
+
+def web_sessions(data: dict[str, Any]) -> dict[str, Any]:
+    """`tarayici.web_oturumlari`: web model oturumları; seçiliyse alan adları (değer yok)."""
+    try:
+        rows = [
+            {"saglayici": item.provider, "hesap": item.account} for item in available_web_sessions()
+        ]
+        provider = str(data.get("saglayici") or "").strip()
+        preview = None
+        if provider:
+            source = find_web_session(provider, str(data.get("hesap") or "main"))
+            preview = preview_web_session(source)
+    except FusionError as error:
+        return _fail(error)
+    result: dict[str, Any] = {"ok": True, "oturumlar": rows}
+    if preview is not None:
+        result["alan_adlari"] = list(preview.domains)
+    return result
+
+
+async def import_from_web_session(
+    store: BrowserProfileStore, data: dict[str, Any]
+) -> dict[str, Any]:
+    """`tarayici.web_oturumu_aktar`: `{saglayici, hesap, ad, alan_adlari}` → şifreli profil.
+
+    Onay masaüstündedir: kullanıcı alan adlarını işaretleyip "Aktar"a basar; hiçbiri hazır
+    seçili gelmez ve boş seçimle bu RPC reddeder (CLI'daki `-d` zorunluluğu).
+    """
+    if not store.available:
+        return {"ok": False, "metin": _KEY_MISSING}
+    try:
+        source = find_web_session(
+            str(data.get("saglayici") or ""), str(data.get("hesap") or "main")
+        )
+        summary = await import_web_session(
+            store, source, str(data.get("ad") or "").strip(), _domains(data.get("alan_adlari"))
+        )
+    except FusionError as error:
+        return _fail(error)
+    return {"ok": True, "profil": _row(summary), "metin": f"'{summary.name}' profili yazıldı."}

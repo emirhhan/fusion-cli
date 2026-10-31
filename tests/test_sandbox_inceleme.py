@@ -310,10 +310,10 @@ def test_fusion_home_env_ve_temel_dizin_env_her_zaman_okuma_engelinde(tmp_path, 
 
 
 def test_varsayilan_okuma_engeli_gh_ve_git_kimligini_kapsar():
-    from fusion_cli.config.sandbox_config import SandboxConfig
+    from fusion_cli.config.sandbox_config import DEFAULT_DENY_READ
 
     for yol in ("~/.config/gh", "~/.config/git/credentials", "~/.pypirc"):
-        assert yol in SandboxConfig().deny_read
+        assert yol in DEFAULT_DENY_READ
 
 
 # --- 9. yüzeyler: notlar, gerçek ayar adı, CLI bayrakları -------------------- #

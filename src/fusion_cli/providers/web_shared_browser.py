@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ..core.constants import DEVTOOLS_PORT_FILE
 from ..core.window_mode import WindowMode, resolve_window_mode
 from .macos_window import (
     UNSUPPORTED_MESSAGE,
@@ -44,8 +45,6 @@ if sys.platform != "win32":
 else:  # pragma: no cover - Windows'ta kilit dosyası yedeği kullanılır
     fcntl = None
 
-#: Chrome'un profil dizinine yazdığı hata ayıklama portu dosyası.
-DEVTOOLS_PORT_FILE = "DevToolsActivePort"
 LOCK_FILE = ".fusion-browser.lock"
 LEASE_DIR = ".fusion-leases"
 #: Kilit ve port dosyası yoklama aralığı. Yalnız bekleme sıklığıdır; toplam
