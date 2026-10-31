@@ -33,6 +33,7 @@ from ...ui.picker import Choice, pick
 from . import (
     config_command,
     export_commands,
+    import_command,
     keybinding_commands,
     loop_command,
     macros,
@@ -1185,6 +1186,23 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         worktrees.worktree_command,
         group="Agent",
         usage="[ad|cik|liste]",
+    ),
+    # İçe aktarma ve sürüm notları (P-071); gövdeler kendi modüllerinde.
+    SlashCommand(
+        "import",
+        messages.EKLENTI_CMD_IMPORT,
+        import_command.import_command,
+        ("ice-aktar",),
+        group="Bilgi",
+        usage="<claude|codex|gemini|cursor> [--dry-run|--yes]",
+    ),
+    SlashCommand(
+        "release-notes",
+        messages.EKLENTI_CMD_RELEASE_NOTES,
+        import_command.release_notes_command,
+        ("surum-notlari",),
+        group="Bilgi",
+        usage="[sürüm|liste]",
     ),
 )
 

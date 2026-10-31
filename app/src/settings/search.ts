@@ -25,7 +25,8 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Kullanım sayacı", keywords: "sayaç token maliyet kullanım istatistik" },
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Hız sınırları ve kota", keywords: "kota limit hız sınırı 429 bekletiyor dakika istek" },
   { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm güncellemesi", keywords: "sürüm yeni sürüm yükle güncelle" },
-  { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı" },
+  { section: "guncellemeler", id: "settings-release-notes", label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı changelog release notes" },
+  { section: "kisisellestirme", id: "settings-import", label: "Başka araçtan içe aktar", keywords: "import içe aktar taşı claude code codex gemini cursor mcp izin komut kural" },
   { section: "uzak", id: "settings-remote", label: "Uzaktan kontrol", keywords: "remote control telefondan sür başlık anahtar /rc" },
 ];
 export function searchSettings(query: string): SettingsRow[] {

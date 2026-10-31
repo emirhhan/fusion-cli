@@ -27,7 +27,7 @@ import shlex
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from functools import partial
 from itertools import count
@@ -141,6 +141,7 @@ from .desktop_permission_routes import (
     dispatch_desktop_permission,
 )
 from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
+from .extension_routes import EXTENSION_ROUTES, ExtensionContext, dispatch_extension
 from .file_search import FileSearchIndex, search_project_files
 from .history import (
     PreparedResume,
@@ -810,6 +811,9 @@ class AppSession:
                 return {"ok": False, "metin": "Soru kimliği veya cevap geçersiz."}
             accepted = self.pending.answer(identifier, answer)
             return {"ok": accepted, "questionId": identifier}
+        if request.name in EXTENSION_ROUTES:
+            # Eklentiler, içe aktarma, sürüm notları (P-059, P-071): `extension_routes`.
+            return await self._extension_rpc(request.name, request.data)
         if request.name in KITS_ROUTES:
             # Fusion → Kit gelen kutusu (P-063); araçlarla aynı istemci.
             return await dispatch_kits(request.name, request.data)
@@ -3050,6 +3054,15 @@ class AppSession:
             extra_roots=self._state.extra_roots,
         )
         self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
+
+    async def _extension_rpc(self, name: str, data: Mapping[str, Any]) -> dict[str, Any]:
+        context = ExtensionContext(self._state.root, self._home, self._state.config)
+        result = await dispatch_extension(name, data, context)
+        if result.config is not None:
+            self._state.config = result.config
+        if result.payload.get("yenile") is True:
+            self._reload_capabilities()
+        return result.payload
 
     def _reload_capabilities(self) -> dict[str, Any]:
         """`yetenek.yenile`: kataloğu diskten yeniden tara."""

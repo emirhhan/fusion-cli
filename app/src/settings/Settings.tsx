@@ -8,6 +8,8 @@ import { Icon, type IconName } from "../ui/Icon";
 import { UpdatePanel } from "../control/UpdatePanel";
 import { Instructions } from "./Instructions";
 import { AutoMemoryPanel } from "./AutoMemoryPanel";
+import { ImportPanel } from "./ImportPanel";
+import { ReleaseNotesPanel } from "./ReleaseNotesPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { UsagePanel } from "./UsagePanel";
 import { VoicePreferences } from "./VoicePreferences";
@@ -338,7 +340,7 @@ export function Settings({
 
           {bolum === "bildirimler" && <Notifications />}
 
-          {bolum === "kisisellestirme" && <><AutoMemoryPanel client={client} /><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
+          {bolum === "kisisellestirme" && <><AutoMemoryPanel client={client} /><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /><ImportPanel client={client} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
 
@@ -363,7 +365,7 @@ export function Settings({
 
           {bolum === "uzak" && <RemoteAccess client={client} />}
 
-          {bolum === "guncellemeler" && <UpdatePanel turnRunning={turnRunning} />}
+          {bolum === "guncellemeler" && <><UpdatePanel turnRunning={turnRunning} /><ReleaseNotesPanel client={client} /></>}
 
           {bolum === "nasil" && <HowTo onOpenSettings={setBolum} />}
 

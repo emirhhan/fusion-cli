@@ -57,6 +57,7 @@ from . import (
 )
 from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
+from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import persona_turn
@@ -89,6 +90,8 @@ app.command(name="insights")(usage_commands.insights)
 app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
 app.command("paperclip")(paperclip_command.paperclip)
+# `fusion import`, `fusion release-notes`, `fusion eklenti` (P-071, P-059).
+register_extension_commands(app)
 
 console = Console()
 #: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
