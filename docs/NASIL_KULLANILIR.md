@@ -958,3 +958,18 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
   `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
   kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.
+
+## Arka plan görevleri ve oturumlar arası mesaj (`/bg`, `/tasks`, `/list-agents`)
+
+```text
+/bg tüm testleri koştur ve kırılanları düzelt   # arka planda başlar, terminal serbest
+/tasks                                          # girdi bekleyen → çalışan → biten
+/tasks answer gorev-1a2b evet                   # onay bekleyen göreve cevap
+@gorev-1a2b CHANGELOG'u da güncelle             # devam mesajı (bitmişse yeniden başlar)
+/list-agents                                    # açık öteki Fusion oturumları
+@backend-oturumu API şeması değişti, testleri koştur
+```
+
+Tam ekranda tur sürerken **Ctrl+B** turu arka plana taşır. Terminalden: `fusion agent --bg
+"görev"`, izlemek için `fusion agents --izle`. Ayrıntı ve ayarlar:
+[ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md).

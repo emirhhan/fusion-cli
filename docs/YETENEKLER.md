@@ -27,6 +27,8 @@ Fusion iki şeyi tek üründe birleştirir:
 | Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory` uygulanır; `mcpServers` yalnız süzgeç; `background`/`isolation`/`hooks` okunur, uygulanmaz |
 | Oturum kişiliği (`fusion --agent`, `/persona`) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `explore`, `plan`); masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
+| Arka plan ajan görevleri (`fusion agent --bg`, `fusion agents`, `/bg`, `/tasks`, Ctrl+B) | Turdan bağımsız, ayrı süreçte koşan görev; girdi/bitiş bildirimi, devam mesajı, sonucun sıradaki tura teslimi; masaüstünde Ajanlar sekmesi — bkz. `ARKA_PLAN_GOREVLERI.md` |
+| Oturumlar arası mesaj (`/list-agents`, `@oturum`, `list_agents`/`send_message`) | Açık REPL/masaüstü oturumları birbirine mesaj atar; gelen mesaj etiketli güvenilmez girdi, `runtime.cross_session_inbound` accept/hold/refuse |
 | Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
 | Uzaktan kontrol (`fusion remote-control`, `/rc`) | Terminal oturumunu masaüstü uygulaması olmadan telefondan/Telegram'dan sür; QR + eşleştirme kodu, onaylar telefona gider (bkz. docs/uzaktan) |
 | Hesap ve kota göstergesi | Hesabım › Sağlayıcı hesapları (web sağlayıcısıyla giriş durumu), Ayarlar › Gelişmiş › "Hız sınırları ve kota" (`kullanim.durum.limitler`: ayarlı dakikalık sınır + sağlayıcının o an bekletmesi), Güncellemeler'de kurulu sürüm ve sürüm notları |
@@ -47,8 +49,8 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
-- Alt ajanı arka planda koşturma (`background`), tanımdaki `isolation` alanını uygulama (çağrıda
-  `subtask(izolasyon="worktree")` var) ve
+- Ajan tanımındaki `background: true` ve `isolation` alanlarını uygulama (çağrıda
+  `spawn_agent(arka_plan=true)` ve `subtask(izolasyon="worktree")` var) ve
   `--agents '<json>'` satır içi ajan tanımı; tanımlar şimdilik yalnız dosyadan okunur.
 
 ## Bilerek yapılmayanlar
