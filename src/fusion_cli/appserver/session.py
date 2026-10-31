@@ -35,8 +35,6 @@ from pathlib import Path
 from typing import Any
 
 from ..cli.repl import macros, worktrees
-from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
-from ..cli.repl import macros
 from ..cli.repl.commands import RENDERED_COMMANDS, attach_skill_commands, build_registry
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.state import Engine, ReplState
