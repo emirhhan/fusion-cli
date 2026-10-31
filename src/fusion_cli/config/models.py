@@ -244,9 +244,10 @@ class RuntimeConfig:
     post_edit_commands: tuple[str, ...] = ()
     #: Genel kanca sistemi (P-009, `config/hooks.py`): false = hiçbir kanca çalışmaz.
     hooks_enabled: bool = True
-    #: Claude Code dosyalarındaki (`~/.claude/settings.json`, proje `.claude/`) kancalar da
-    #: okunsun mu? Proje dosyaları ayrıca `fusion trust` ister.
-    claude_hooks: bool = True
+    #: `~/.claude/settings.json` kancaları da çalışsın mı? Varsayılan kapalı: oradaki Claude
+    #: betikleri (ECC vb.) Fusion'ın her araç çağrısında çalışır. Proje `.claude/` dosyaları
+    #: bu anahtardan bağımsızdır (`fusion trust` ister).
+    claude_hooks: bool = False
     #: Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
     hook_timeout_s: float = 60.0
     #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API

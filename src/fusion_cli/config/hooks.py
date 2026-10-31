@@ -16,9 +16,12 @@ kullanıcının koruyucu (engelleyen) kancalarını kapatmak gevşetmedir. Ölç
 güvenilmeyen depodaki `{"disableAllHooks": true}` kullanıcının bütün kancalarını sessizce
 kapatıyordu; artık yok sayılır ve listede uyarı olarak görünür.
 
-Kapatma: `runtime.hooks_enabled: false` hepsini, `runtime.claude_hooks: false` yalnız
-Claude dosyalarını (kullanıcı + proje) kapatır; `FUSION_HOOKS=off` ortam değişkeni de
-hepsini kapatır (test ve acil durum için).
+Kapatma: `runtime.hooks_enabled: false` hepsini kapatır; `FUSION_HOOKS=off` ortam değişkeni
+de (test ve acil durum için). `runtime.claude_hooks` (varsayılan false) yalnız
+`~/.claude/settings.json`'ı yönetir: oradaki betikler (ECC vb.) Claude'un kendi durum
+dosyalarına yazabilir, her araç çağrısına süreç gecikmesi ekler ve araç girdi/çıktısını
+görür; bu yüzden açıkça seçilir. Kapalıyken kancaları listede gerekçesiyle görünür. Proje
+dosyaları `fusion trust` ile açılır (bu anahtardan bağımsız).
 """
 
 from __future__ import annotations
@@ -61,6 +64,7 @@ PROJECT_DIR_VARIABLES = ("FUSION_PROJECT_DIR", "CLAUDE_PROJECT_DIR")
 DISABLE_ALL_KEY = "disableAllHooks"
 
 REASON_UNTRUSTED = "proje güvenilmiyor (fusion trust)"
+REASON_CLAUDE_OFF = "Claude kullanıcı kancaları kapalı (runtime.claude_hooks: true ile aç)"
 REASON_HANDLER = "tür desteklenmiyor: {kind} (yalnız command)"
 REASON_EVENT = "Fusion bu olayı tetiklemiyor"
 REASON_UNKNOWN_EVENT = "bilinmeyen olay"
@@ -74,7 +78,7 @@ class HookLayer:
     name: str
     path: Path
     requires_trust: bool = False
-    #: Claude Code'un dosyası mı? (`runtime.claude_hooks: false` bunları atlar.)
+    #: Claude Code'un kullanıcı dosyası mı? (`runtime.claude_hooks: false` bunu atlar.)
     is_claude: bool = False
 
 
@@ -84,10 +88,8 @@ def hook_layers(root: Path, home: Path | None = None) -> tuple[HookLayer, ...]:
     return (
         HookLayer(LAYER_FUSION, user_config_dir() / USER_HOOKS_NAME),
         HookLayer(LAYER_USER, base / CLAUDE_USER_SETTINGS, is_claude=True),
-        HookLayer(LAYER_PROJECT, root / PROJECT_SETTINGS_PATH, requires_trust=True, is_claude=True),
-        HookLayer(
-            LAYER_LOCAL, root / PROJECT_PERMISSIONS_PATH, requires_trust=True, is_claude=True
-        ),
+        HookLayer(LAYER_PROJECT, root / PROJECT_SETTINGS_PATH, requires_trust=True),
+        HookLayer(LAYER_LOCAL, root / PROJECT_PERMISSIONS_PATH, requires_trust=True),
     )
 
 
@@ -109,7 +111,7 @@ def load_hooks(
     root: Path,
     *,
     enabled: bool = True,
-    include_claude: bool = True,
+    include_claude: bool = False,
     default_timeout_s: float = 60.0,
     home: Path | None = None,
 ) -> HookSet:
@@ -124,10 +126,17 @@ def load_hooks(
     ignored_disable: list[str] = []
     disabled: str | None = None
     for layer in hook_layers(root, home):
-        if layer.is_claude and not include_claude:
-            continue
         data = _read_json(layer.path)
         if data is None:
+            continue
+        if layer.is_claude and not include_claude:
+            found, _ = parse_hooks_block(
+                data.get("hooks"),
+                source=layer.name,
+                path=layer.path,
+                default_timeout_s=default_timeout_s,
+            )
+            skipped.extend(_as_skip(command, REASON_CLAUDE_OFF) for command in found)
             continue
         trusted = not layer.requires_trust or _is_trusted(layer, root)
         if data.get("disableAllHooks") is True:

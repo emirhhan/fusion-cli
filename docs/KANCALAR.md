@@ -3,14 +3,15 @@
 Kanca, bir olaya (araç çağrısı, istem gönderimi, tur sonu…) bağlanan kabuk komutudur.
 Fusion olay anında komutu çalıştırır, **stdin'e olayın JSON'unu** yazar ve **çıkış kodu +
 stdout JSON'undan** kararı okur. Biçim ve olay adları Claude Code ile aynıdır:
-`~/.claude/settings.json` içindeki kancalar Fusion'da da çalışır.
+`~/.claude/settings.json` içindeki kancalar `runtime.claude_hooks: true` ile Fusion'da da
+çalışır (varsayılan kapalı; aşağıya bakın).
 
 ## Nerede tanımlanır
 
 | Katman | Dosya | Koşul |
 |---|---|---|
 | Fusion (kullanıcı) | `<yapılandırma dizini>/hooks.json` (`fusion hooks list` yolu gösterir) | her zaman |
-| Claude (kullanıcı) | `~/.claude/settings.json` | `runtime.claude_hooks: true` |
+| Claude (kullanıcı) | `~/.claude/settings.json` | `runtime.claude_hooks: true` (varsayılan false) |
 | Proje | `.claude/settings.json` | `fusion trust` + içerik o günden beri aynı |
 | Proje (yerel) | `.claude/settings.local.json` | `fusion trust` + içerik o günden beri aynı |
 
@@ -95,9 +96,17 @@ modele giden çıktıyı değiştirir.
 ```yaml
 runtime:
   hooks_enabled: true    # false = hiçbir kanca çalışmaz
-  claude_hooks: true     # false = yalnız Fusion'ın hooks.json'ı
+  claude_hooks: false    # true = ~/.claude/settings.json kancaları da çalışır
   hook_timeout_s: 60     # süresi yazılmamış kanca; tek kanca en çok 600 sn
 ```
+
+**Neden `claude_hooks` varsayılan kapalı:** oradaki betikler (ECC ve benzeri eklentiler)
+Claude için yazılmıştır; Fusion'ın her araç çağrısında çalışır (1-2 süreç gecikmesi), araç
+girdi/çıktısını görür ve Claude'un kendi durum dosyalarına (`~/.claude`) Fusion oturumlarını
+yazabilir. Kapalıyken `fusion hooks list` bu kancaları "atlandı: Claude kullanıcı kancaları
+kapalı" diye gösterir; açmak için `fusion config set runtime.claude_hooks true` ya da
+masaüstünde Ayarlar › İzinler › Kancalar. Proje `.claude/settings(.local).json` kancaları
+bu anahtardan bağımsızdır, `fusion trust` ile açılır.
 
 `"disableAllHooks": true` Fusion/Claude kullanıcı dosyasında ya da **güvenilen** proje
 dosyasında hepsini kapatır; kapatma oturumda bir kez "Kancalar bu oturumda kapalı" diye

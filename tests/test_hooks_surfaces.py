@@ -15,7 +15,6 @@ from fusion_cli.cli import hooks_commands
 from fusion_cli.cli.repl.commands import build_registry
 from fusion_cli.config import hooks as hooks_config
 from fusion_cli.config import trust
-from fusion_cli.engines.hooks.session import open_hook_session
 
 from .fakes import make_config
 
@@ -132,23 +131,39 @@ def test_kanca_listesi_bossa_nasil_eklenecegini_soyler(tmp_path):
 
 def test_masaustu_kanca_listele_rpc(proje):
     assert "kanca.listele" in HOOK_ROUTES
-    session = open_hook_session(proje, make_config())
-    payload = dispatch_hooks("kanca.listele", session)
+    state = _repl_durumu(proje)
+    payload = dispatch_hooks("kanca.listele", state)
     assert payload["ok"] is True and payload["guvensiz_katmanlar"] == ["proje"]
+    assert payload["etkin"] is True and payload["claude_kancalari"] is False
     olaylar = {(row["olay"], row["atlandi"]) for row in payload["kancalar"]}
     assert ("PreToolUse", "") in olaylar
     assert ("Stop", hooks_config.REASON_UNTRUSTED) in olaylar
     assert payload["kullanici_dosyasi"].endswith("hooks.json")
     # Güven verildikten sonra liste hemen güncellenir (istek anında okunur).
     trust.trust_project(proje)
-    payload = dispatch_hooks("kanca.listele", session)
+    payload = dispatch_hooks("kanca.listele", state)
     assert ("Stop", "") in {(row["olay"], row["atlandi"]) for row in payload["kancalar"]}
-    assert dispatch_hooks("kanca.yok", session)["ok"] is False
+    assert dispatch_hooks("kanca.yok", state)["ok"] is False
+
+
+def test_masaustu_kanca_ayar_rpc_yazar_ve_acik_oturumda_etkili(proje):
+    state = _repl_durumu(proje)
+    kapali = dispatch_hooks("kanca.ayar", state, {"anahtar": "hooks_enabled", "deger": False})
+    assert kapali["ok"] is True and kapali["etkin"] is False
+    assert state.config.runtime.hooks_enabled is False
+    assert state.hooks().refresh().disabled_reason == "runtime.hooks_enabled: false"
+    # `make_config` yazma hedefi geçici dosyadır (gerçek kullanıcı config'i değil).
+    assert "hooks_enabled: false" in state.config.source.read_text(encoding="utf-8")
+    acik = dispatch_hooks("kanca.ayar", state, {"anahtar": "claude_hooks", "deger": True})
+    assert acik["claude_kancalari"] is True
+    hatali = dispatch_hooks("kanca.ayar", state, {"anahtar": "temperature", "deger": True})
+    assert hatali["ok"] is False and "geçersiz" in hatali["metin"]
 
 
 def test_yapilandirma_varsayilanlari_tutarli():
     runtime = make_config().runtime
-    assert runtime.hooks_enabled is True and runtime.claude_hooks is True
+    # Claude kullanıcı dosyası (ECC vb. betikler) varsayılan kapalı; açıkça seçilir.
+    assert runtime.hooks_enabled is True and runtime.claude_hooks is False
     assert runtime.hook_timeout_s == 60.0
 
 

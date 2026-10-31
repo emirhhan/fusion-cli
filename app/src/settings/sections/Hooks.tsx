@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProtocolClient } from "../../protocol/client";
-import { errorMessage } from "../../protocol/result";
+import { errorMessage, operationResult } from "../../protocol/result";
+import { ToggleRow } from "../PanelParts";
 
 /**
  * Kancalar (P-009) — Claude Code `/hooks` gibi salt okunur liste.
@@ -8,7 +9,10 @@ import { errorMessage } from "../../protocol/result";
  * PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart… olaylarına bağlı kabuk
  * komutları. Tanımlar Fusion'ın `hooks.json`'ında, `~/.claude/settings.json`'da ve güvenilen
  * projenin `.claude/settings(.local).json` dosyalarında durur; düzenleme dosyada yapılır.
+ * İki anahtar buradan değişir (`kanca.ayar`): tüm kancalar ve `~/.claude` kancaları.
  */
+
+type HookFlag = "hooks_enabled" | "claude_hooks";
 
 export interface HookRow {
   olay: string;
@@ -30,6 +34,10 @@ interface HooksPayload {
   /** `disableAllHooks` taşıyan ama güvenilmediği için yok sayılan katmanlar. */
   yok_sayilan_kapatma?: string[];
   kullanici_dosyasi?: string;
+  /** `runtime.hooks_enabled`. */
+  etkin?: boolean;
+  /** `runtime.claude_hooks`: `~/.claude/settings.json` kancaları çalışsın mı. */
+  claude_kancalari?: boolean;
 }
 
 const KAYNAK_ETIKETI: Record<string, string> = {
@@ -42,6 +50,7 @@ const KAYNAK_ETIKETI: Record<string, string> = {
 export function HookList({ client }: { client: ProtocolClient }) {
   const [payload, setPayload] = useState<HooksPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -59,6 +68,21 @@ export function HookList({ client }: { client: ProtocolClient }) {
     return () => { active = false; };
   }, [client]);
 
+  const setFlag = async (anahtar: HookFlag, deger: boolean) => {
+    setBusy(true);
+    try {
+      const result = (await client.request("kanca.ayar", { anahtar, deger })) as HooksPayload;
+      const outcome = operationResult(result, "Kanca ayarı değiştirilemedi.");
+      if (!outcome.ok) throw new Error(outcome.message);
+      setPayload(result);
+      setError(null);
+    } catch (reason) {
+      setError(`Kanca ayarı değiştirilemedi: ${errorMessage(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const rows = payload?.kancalar ?? [];
   const guvensiz = payload?.guvensiz_katmanlar ?? [];
   const yokSayilan = payload?.yok_sayilan_kapatma ?? [];
@@ -74,6 +98,24 @@ export function HookList({ client }: { client: ProtocolClient }) {
         </div>
       </div>
       {error && <p className="settings__hint" role="alert">{error}</p>}
+      {payload && typeof payload.etkin === "boolean" && (
+        <div className="permissions__blocks">
+          <ToggleRow
+            checked={payload.etkin}
+            disabled={busy}
+            title="Kancaları çalıştır"
+            description="Kapalıyken hiçbir kanca çalışmaz (runtime.hooks_enabled). Açık oturumda bir sonraki görevde etkili olur."
+            onChange={(deger) => void setFlag("hooks_enabled", deger)}
+          />
+          <ToggleRow
+            checked={payload.claude_kancalari === true}
+            disabled={busy}
+            title="Claude Code kancalarını da çalıştır"
+            description="~/.claude/settings.json içindeki kancalar (ECC gibi eklentiler) her araç çağrısında çalışır, araç girdi/çıktısını görür. Proje kancaları bundan bağımsızdır, proje güveni ister."
+            onChange={(deger) => void setFlag("claude_hooks", deger)}
+          />
+        </div>
+      )}
       {payload?.kapali && <p className="settings__hint" role="status"><strong>Kancalar kapalı:</strong> {payload.kapali}</p>}
       {yokSayilan.length > 0 && (
         <p className="settings__hint" role="status">

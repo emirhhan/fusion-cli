@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../../protocol/client";
 import { HookList, type HookRow } from "./Hooks";
@@ -38,6 +38,27 @@ describe("HookList — kanca listesi (P-009)", () => {
   it("güvenilmeyen depodaki disableAllHooks'un yok sayıldığını söyler", async () => {
     render(<HookList client={client({ kancalar: [satir], yok_sayilan_kapatma: ["proje"] })} />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("disableAllHooks yok sayıldı (Proje)"));
+  });
+
+  it("anahtarlarla kancaları ve Claude kancalarını açıp kapatır", async () => {
+    const request = vi.fn(async (name: string, data?: Record<string, unknown>) =>
+      name === "kanca.ayar"
+        ? { ok: true, kancalar: [satir], etkin: true, claude_kancalari: data?.deger === true }
+        : { ok: true, kancalar: [satir], etkin: true, claude_kancalari: false });
+    render(<HookList client={{ request } as unknown as ProtocolClient} />);
+    const claude = await screen.findByRole("switch", { name: "Claude Code kancalarını da çalıştır" });
+    expect((claude as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(claude);
+    await waitFor(() => expect(request).toHaveBeenCalledWith("kanca.ayar", { anahtar: "claude_hooks", deger: true }));
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Claude Code kancalarını da çalıştır" }) as HTMLInputElement).checked).toBe(true));
+  });
+
+  it("ayar yazılamazsa nedenini gösterir", async () => {
+    const request = vi.fn(async (name: string) =>
+      name === "kanca.ayar" ? { ok: false, metin: "disk dolu" } : { ok: true, kancalar: [], etkin: true, claude_kancalari: false });
+    render(<HookList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("switch", { name: "Kancaları çalıştır" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Kanca ayarı değiştirilemedi: disk dolu"));
   });
 
   it("çekirdek hatasını Türkçe gösterir", async () => {

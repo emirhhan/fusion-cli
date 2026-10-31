@@ -166,8 +166,9 @@ runtime:
   # Tanımlar <yapılandırma>/hooks.json, ~/.claude/settings.json ve (güvenilen projede)
   # .claude/settings(.local).json `hooks` bloğundan okunur. false = hiçbiri çalışmaz.
   hooks_enabled: true
-  # Claude Code dosyalarındaki kancalar da okunsun mu (false = yalnız Fusion'ın hooks.json'ı).
-  claude_hooks: true
+  # ~/.claude/settings.json kancaları da çalışsın mı? Kapalıyken `fusion hooks list` onları
+  # "atlandı" diye gösterir. Proje .claude/ dosyaları bu anahtardan bağımsızdır (fusion trust).
+  claude_hooks: false
   # Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
   hook_timeout_s: 60
   temperature: 0.3

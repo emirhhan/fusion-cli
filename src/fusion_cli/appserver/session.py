@@ -904,7 +904,7 @@ class AppSession:
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
         if request.name in HOOK_ROUTES:
-            return dispatch_hooks(request.name, self._state.hooks())
+            return dispatch_hooks(request.name, self._state, request.data)
         if request.name in DESKTOP_PERMISSION_ROUTES:
             # Sistem istemi bloklayıcıdır (TCC penceresi); olay döngüsü dışında.
             return await asyncio.to_thread(dispatch_desktop_permission, request.name, request.data)

@@ -1452,6 +1452,10 @@ HOOKS_LIST_IGNORED_DISABLE = (
     "Güvenilmeyen katmandaki disableAllHooks yok sayıldı ({layers}): depo senin kancalarını "
     "kapatamaz. Bilerek istiyorsan `fusion trust` ya da kendi dosyanda kapat."
 )
+HOOKS_FLAG_INVALID = (
+    "Kanca anahtarı ya da değeri geçersiz (hooks_enabled|claude_hooks, true|false)."
+)
+HOOKS_FLAG_FAILED = "Kanca ayarı yazılamadı: {error}"
 #: Bir dosyadaki `disableAllHooks` kancaları kapattığında oturumda bir kez.
 HOOKS_DISABLED_NOTICE = "Kancalar bu oturumda kapalı: {reason}"
 HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"

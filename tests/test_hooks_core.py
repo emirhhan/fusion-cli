@@ -184,7 +184,7 @@ def test_kullanici_dosyalari_okunur_proje_dosyasi_guven_ister(tmp_path, _izole_e
     _ayar(hooks_config.user_hooks_file(), {"Stop": _grup("fusion-kanca")})
     _ayar(_izole_ev / ".claude" / "settings.json", {"PreToolUse": _grup("claude-kanca", "Bash")})
     _ayar(proje / ".claude" / "settings.json", {"PreToolUse": _grup("depo-kancasi")})
-    hooks = hooks_config.load_hooks(proje)
+    hooks = hooks_config.load_hooks(proje, include_claude=True)
     assert {c.command for c in hooks.commands} == {"fusion-kanca", "claude-kanca"}
     assert hooks.untrusted_layers == ("proje",)
     assert any(s.detail == "depo-kancasi" for s in hooks.skipped)
@@ -221,6 +221,10 @@ def test_kapatma_anahtarlari_ve_claude_dosyalari_secimi(tmp_path, _izole_ev, mon
     assert hooks_config.load_hooks(tmp_path, enabled=False).disabled_reason
     only_fusion = hooks_config.load_hooks(tmp_path, include_claude=False)
     assert [c.command for c in only_fusion.commands] == ["fusion"]
+    # Kapalı Claude dosyasının kancaları listede gerekçesiyle görünür (kullanıcı bilsin).
+    assert [(s.detail, s.reason) for s in only_fusion.skipped] == [
+        ("claude", hooks_config.REASON_CLAUDE_OFF)
+    ]
     monkeypatch.setenv("FUSION_HOOKS", "off")
     assert hooks_config.load_hooks(tmp_path).disabled_reason == "FUSION_HOOKS=off"
 
@@ -306,3 +310,17 @@ async def test_stdini_okumayan_kanca_da_calisir(tmp_path):
         environment=hooks_config.hook_environment(tmp_path),
     )
     assert run.exit_code == 0 and run.stdout.strip() == "merhaba"
+
+
+def test_claude_hooks_kapaliyken_guvenilen_proje_kancalari_calisir(tmp_path, _izole_ev):
+    # `runtime.claude_hooks` yalnız ~/.claude/settings.json'ı yönetir; proje dosyası güvenle açılır.
+    _ayar(
+        _izole_ev / ".claude" / "settings.json",
+        {"Stop": _grup("claude"), "x": []},
+        disableAllHooks=True,
+    )
+    _ayar(tmp_path / ".claude" / "settings.json", {"Stop": _grup("depo")})
+    trust.trust_project(tmp_path)
+    hooks = hooks_config.load_hooks(tmp_path, include_claude=False)
+    assert hooks.disabled_reason is None
+    assert [c.command for c in hooks.commands] == ["depo"]
