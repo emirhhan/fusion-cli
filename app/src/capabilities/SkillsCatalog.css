@@ -54,3 +54,5 @@
 .skills-catalog__memory h3 { font-size: var(--text-sm); font-weight: 600; margin: 0; }
 .skills-catalog__memory p { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; overflow-wrap: anywhere; }
 .skills-catalog__memory pre { max-height: 200px; }
+.skills-catalog__memory-confirm { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.skills-catalog__memory-confirm span { color: var(--text-secondary); flex: 1 1 100%; font-size: var(--text-xs); }

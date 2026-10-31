@@ -149,8 +149,9 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
   (ayara kalıcı yazılır: `runtime.auto_memory`) · `/memory edit` → `$EDITOR`'da aç ·
   `/memory list` · `/memory <konu>` → konu dosyasını göster ·
   `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.
-- `# kullanıcı kısa yanıt ister` gibi `#` ile başlayan satır modele gitmez, belleğe not
-  olarak yazılır.
+- `# kullanıcı kısa yanıt ister` gibi `# ` (kare + boşluk) ile başlayan TEK satır modele
+  gitmez, belleğe not olarak yazılır. `#1234 düzelt`, `## Başlık` ve çok satırlı yapıştırma
+  olağan istemdir; bellek kapalıyken `#` satırı da modele gider.
 - Dizin: `runtime.auto_memory_dir` (boş = varsayılan). Masaüstü: Ayarlar › Kişiselleştirme ›
   **Otomatik bellek** paneli (Markdown düzenleyici, "bu oturumda ilk N satır yüklendi",
   Claude'dan içe aktar).
@@ -166,10 +167,10 @@ Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`,
 |---|---|
 | `tools`, `disallowedTools` / `yasak_araclar` | Araç kümesi yalnız DARALIR; `mcp__sunucu__arac` ve `mcp__sunucu` (tüm araçları) tanınır; `Agent`, `Skill`, `AskUserQuestion`, `NotebookEdit`, `TodoWrite` eşlenir; tanınmayan ad günlüğe uyarı düşer |
 | `model` | `<sağlayıcı>/<model>` biçimiyse yalnız o alt ajanın çağrıları o modele gider; `inherit`/`sonnet` gibi takma adlar üst ajanı kullanır |
-| `permissionMode` / `izin_kipi` | Üst kipi yalnız SIKILAŞTIRIR: `auto` oturumda `plan` isteyen ajan plan kipinde koşar, `bypass` isteyen `auto`da kalır |
-| `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı (derinliğe göre yarılanan bütçeden küçükse o geçerli) |
+| `permissionMode` / `izin_kipi` | Üst kipi yalnız SIKILAŞTIRIR: `auto` oturumda `plan` isteyen ajan plan kipinde koşar, `bypass` isteyen `auto`da kalır; torun ajan üstünün sıkılaştırılmış kipini temel alır |
+| `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı; derinliğe göre yarılanan bütçeden ve `runtime.agent_max_steps`'ten küçükse o geçerli (büyüğü aşamaz) |
 | `skills` / `beceriler` | Başlangıçta yüklenen beceriler (en fazla 32, 24 KB) |
-| `mcpServers` | Yalnız bu sunucuların MCP araçları açılır |
+| `mcpServers` | Yalnız SÜZGEÇ: ana yapılandırmada bağlı sunuculardan yalnız bu adlılar açılır. Claude Code'daki gibi yeni sunucu TANIMLAMAZ, satır içi sunucu tanımı okunmaz; yapılandırmada olmayan ad günlüğe uyarı düşer |
 | `effort` / `efor` | `low` · `medium` · `high`: yalnız o alt ajanın düşünme yoğunluğu |
 | `memory` / `bellek` | `user` · `project` · `local`: ajana özel kalıcı bellek (bkz. aşağı) |
 | `background`, `isolation`, `hooks` | Okunur ve katalogda gösterilir; Fusion'da alt ajan tur içinde biter ve kendi worktree'si yoktur, uygulanmaz |
@@ -182,7 +183,10 @@ Beceriler › Ajanlar › ayrıntı panelinde tanımdaki ayarlar listelenir.
 
 Tanımında `memory` alanı olan ajan, oturumlar arasında kendi `BELLEK.md` + `konular/`
 dizinini tutar ve her çalışmasında ilk 200 satırı istemine alır; `remember`/`memory_read`
-araçları kısıtlı araç kümesinde de ona açıktır. Projenin otomatik belleğini devralmaz.
+araçları kısıtlı araç kümesinde de ona açıktır (`disallowedTools`'ta yasaklanan açılmaz;
+salt-okur görevde yalnız `memory_read` kalır). Projenin otomatik belleğini devralmaz.
+Bellek yazmaları sınır dizinin (proje kökü ya da bellek dizini) dışına çıkamaz: depodan gelen
+sembolik bağ izlenmez, yazma reddedilir.
 
 | Kapsam | Dizin |
 |---|---|
@@ -192,14 +196,16 @@ araçları kısıtlı araç kümesinde de ona açıktır. Projenin otomatik bell
 
 - `/memory ajan <ad>` → kapsam, yol, satır sayısı, konular ve indeks metni ·
   `/memory ajan <ad> sil` → belleği sıfırla. Otomatik bellek kapalıyken de çalışır.
-- Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil").
+- Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil" →
+  "Evet, sil / Vazgeç" onayı; silme geri alınamaz).
 - RPC: `yetenek.detay` yanıtında `bellek`, silme için `yetenek.bellek_sil {ad}`.
 
 ### Oturumu bir ajan kişiliğiyle açmak (`--agent`, `/persona`)
 
 Claude Code'un `claude --agent <ad>` karşılığı: oturumun tamamı bir ajan tanımıyla çalışır;
 tanımın gövdesi her turun sistem istemine girer, `tools`/`disallowedTools` kümesi araçları
-daraltır. Yerleşik iki kişilik var: **`explore`** (Kâşif — salt-okur keşif: Read/Grep/Glob/LS)
+daraltır (`tools` yazılmayıp yalnız `disallowedTools` verilmişse yasak, araç defteri
+kurulduktan sonra `mcp__sunucu` deseni açılarak uygulanır). Yerleşik iki kişilik var: **`explore`** (Kâşif — salt-okur keşif: Read/Grep/Glob/LS)
 ve **`plan`** (Planlayıcı — değiştirmeden plan çıkarır). Kendi `.claude/agents/<ad>.md`
 tanımların da kullanılabilir.
 

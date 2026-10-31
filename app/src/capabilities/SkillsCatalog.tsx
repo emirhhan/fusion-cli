@@ -113,14 +113,27 @@ function memoryFrom(raw: unknown): AgentMemoryInfo | null {
   };
 }
 
-/** Ajanın kalıcı belleği: kapsam, dizin, indeks metni ve silme düğmesi. */
+/** Ajanın kalıcı belleği: kapsam, dizin, indeks metni ve iki adımlı silme (onay). */
 function AgentMemory({ info, onClear }: { info: AgentMemoryInfo; onClear: () => void }) {
+  // Silme geri alınamaz (proje kapsamında git'e girmiş dosyalar dahil): tek tık yerine
+  // "Evet, sil / Vazgeç" adımı; başka öğe açılınca onay sıfırlanır.
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => setConfirming(false), [info.dizin]);
+  const empty = !info.metin && info.konular.length === 0;
   return (
     <section aria-label="Ajan belleği" className="skills-catalog__memory">
       <h3>Kalıcı bellek · {SCOPE_LABELS[info.kapsam] ?? info.kapsam}</h3>
       <p>{info.dizin} · {info.satir} satır{info.konular.length > 0 ? ` · konular: ${info.konular.join(", ")}` : ""}</p>
       {info.metin ? <pre>{info.metin}</pre> : <p>Henüz boş; ajan ilk çalışmasında yazar.</p>}
-      <button disabled={!info.metin && info.konular.length === 0} onClick={onClear} type="button">Belleği sil</button>
+      {confirming ? (
+        <div className="skills-catalog__memory-confirm" role="group" aria-label="Silme onayı">
+          <span>Bu ajanın belleği ({info.dizin}) tamamen silinecek; geri alınamaz.</span>
+          <button onClick={() => { setConfirming(false); onClear(); }} type="button">Evet, sil</button>
+          <button onClick={() => setConfirming(false)} type="button">Vazgeç</button>
+        </div>
+      ) : (
+        <button disabled={empty} onClick={() => setConfirming(true)} type="button">Belleği sil</button>
+      )}
     </section>
   );
 }

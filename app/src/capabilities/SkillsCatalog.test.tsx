@@ -81,7 +81,14 @@ describe("SkillsCatalog", () => {
     expect(bellek.textContent).toContain("Kalıcı bellek · proje");
     expect(bellek.textContent).toContain("3 satır");
     expect(bellek.textContent).toContain("testler önce");
+    // Ölçüldü (31 Ekim): tek tık onaysız rmtree çalıştırıyordu; silme iki adımlıdır ve
+    // "Vazgeç" hiçbir istek göndermez.
     fireEvent.click(screen.getByRole("button", { name: "Belleği sil" }));
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(fake.request).not.toHaveBeenCalledWith("yetenek.bellek_sil", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Belleği sil" }));
+    expect(bellek.textContent).toContain("geri alınamaz");
+    fireEvent.click(screen.getByRole("button", { name: "Evet, sil" }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("yetenek.bellek_sil", { ad: "reviewer" }));
     await waitFor(() => expect(screen.getByLabelText("Ajan belleği").textContent).toContain("Henüz boş"));
     // Bellek alanı olmayan beceride bölüm yok.
