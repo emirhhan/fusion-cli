@@ -650,13 +650,18 @@
 }
 
 /* ChatGPT Uygulamalar ızgarası. */
+/* Uygulama ızgarası başlık ve öne çıkan kartlarla AYNI sayfa sütununda durur; satırın iç
+   boşluğu kartlarınkiyle eş olduğu için simgeler de kart simgeleriyle hizalanır. Eskiden ızgara
+   sütun sınırı olmadan iki yana 7 px taşıyor, simgeler kartlardan 24 px solda başlıyordu. */
 .connectors__grid {
   display: grid;
-  gap: 4px 16px;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   list-style: none;
-  margin: var(--space-4) 0 0;
+  margin: var(--space-4) auto 0;
+  max-width: var(--page-max-width);
   padding: 0;
+  width: 100%;
 }
 .connectors__app {
   align-items: center;
@@ -664,7 +669,7 @@
   display: grid;
   gap: 12px;
   grid-template-columns: 40px minmax(0, 1fr) auto;
-  padding: 12px;
+  padding: var(--space-3) var(--space-4);
   transition: background var(--duration-fast) var(--ease-standard);
 }
 .connectors__app:hover { background: var(--surface-hover); }

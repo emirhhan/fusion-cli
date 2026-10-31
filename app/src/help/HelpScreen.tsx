@@ -99,7 +99,6 @@ export function HelpScreen({
       <PageHeader
         actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
         description="Kısayollar, sık sorulanlar ve bir şey ters gittiğinde ne yapılacağı."
-        eyebrow="Yardım"
         title="Yardım"
       />
 
