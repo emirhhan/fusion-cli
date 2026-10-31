@@ -61,9 +61,15 @@ export function normalizeKey(raw: string): string | null {
   return compose(parts, key);
 }
 
-/** Bağlanamayan tuşun nedeni; bağlanabiliyorsa `null`. */
+/** Windows/Linux'ta `ctrl` = `mod`: kanonik tuşun orada eşleştiği biçim (Python `effective_desktop_key`). */
+function withoutCtrl(key: string): string {
+  const [parts, final] = split(key);
+  return compose([...new Set(parts.map((part) => (part === "ctrl" ? "mod" : part)))], final);
+}
+
+/** Bağlanamayan tuşun nedeni; bağlanabiliyorsa `null`. `ctrl+c` de Windows'ta Ctrl+C olduğu için ayrılmıştır. */
 export function keyProblem(key: string): string | null {
-  if (RESERVED.has(key)) return "Bu sistem kısayolu (kopyala, yapıştır, kapat…) bağlanamaz.";
+  if (RESERVED.has(key) || RESERVED.has(withoutCtrl(key))) return "Bu sistem kısayolu (kopyala, yapıştır, kapat…) bağlanamaz.";
   const [parts, final] = split(key);
   const hasModifier = parts.some((part) => part === "mod" || part === "ctrl" || part === "alt");
   if (!hasModifier && !/^f\d{1,2}$/.test(final)) return "⌘/Ctrl, ⌃ ya da ⌥ ile birlikte basmalısın (yalnız F1-F12 tek başına olur).";
@@ -113,9 +119,8 @@ export function effectiveBindings(baglar: Record<string, string>, mac: boolean):
     const canonical = normalizeKey(spec);
     if (!canonical) continue;
     if (mac) { table.set(canonical, action); continue; }
-    const [parts, key] = split(canonical);
-    const mapped = [...new Set(parts.map((part) => (part === "ctrl" ? "mod" : part)))];
-    table.set(compose(mapped, key), action);
+    const mapped = withoutCtrl(canonical);
+    if (!RESERVED.has(mapped)) table.set(mapped, action);
   }
   return table;
 }

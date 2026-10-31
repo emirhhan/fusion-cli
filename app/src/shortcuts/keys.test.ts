@@ -62,6 +62,14 @@ describe("klavye olayı → tuş", () => {
     expect(table.get("mod+k")).toBe("palet");
     expect(effectiveBindings({ "ctrl+t": "terminal" }, true).get("ctrl+t")).toBe("terminal");
   });
+
+  it("ctrl+ yazımı sistem tuşu korumasını aşamaz (Windows'ta Ctrl+C kopyalamadır)", () => {
+    // Ölçüldü (31 Ekim): `ctrl+c` ayrılmış listede yoktu; Windows'ta mod+c'ye eşlenip yutuluyordu.
+    expect(keyProblem("ctrl+c")).toBeTruthy();
+    expect(keyProblem("ctrl+v")).toBeTruthy();
+    expect(keyProblem("ctrl+k")).toBeNull();
+    expect(effectiveBindings({ "ctrl+c": "terminal", "ctrl+k": "palet" }, false).has("mod+c")).toBe(false);
+  });
 });
 
 describe("gösterim ve yük doğrulama", () => {

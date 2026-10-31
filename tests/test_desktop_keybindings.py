@@ -193,3 +193,41 @@ def test_rpc_sifirla_cakismayi_tusla_doner(tmp_path: Path):
     assert conflict["tus"] == "mod+k" and "mod+k" in conflict["metin"]
     done = keybindings_rpc.reset({"eylem": "palet", "zorla": True}, path=path)
     assert done["ok"] and done["baglar"]["mod+k"] == "palet"
+
+
+@pytest.mark.parametrize("key", ["ctrl+c", "ctrl+v", "ctrl+x", "ctrl+z", "ctrl+a", "ctrl+w"])
+def test_ctrl_yazimi_ayrilmis_tus_korumasini_asamaz(tmp_path: Path, key: str):
+    """Ölçüldü (31 Ekim): Windows/Linux'ta `ctrl` = `mod` olduğu hâlde `ctrl+c` kabul ediliyordu;
+    global dinleyici Ctrl+C'yi yutup kopyalamayı bozuyordu."""
+    assert desktop_key_problem(key)
+    assert bind_action(tmp_path / "k.json", CONTEXT_DESKTOP, "terminal", key, force=True).problem
+    assert (
+        keybindings_rpc.assign({"eylem": "terminal", "tus": key}, path=tmp_path / "k.json")["ok"]
+        is False
+    )
+
+
+def test_elle_yazilan_ctrl_sistem_tusu_yuklenmez(tmp_path: Path):
+    path = tmp_path / "keybindings.json"
+    path.write_text(json.dumps({"masaustu": {"ctrl+c": "terminal"}}), encoding="utf-8")
+    keymap = keybindings.load_keymap(path)
+    assert "ctrl+c" not in keymap.bindings(CONTEXT_DESKTOP)
+    assert any("masaustu.ctrl+c:" in warning for warning in keymap.warnings)
+
+
+def test_windowsta_ctrl_ve_mod_ayni_tus_sayilir(tmp_path: Path):
+    """Ölçüldü (31 Ekim): Windows'ta `ctrl+k`, `mod+k` ile aynı tuşken çakışma sorulmuyordu."""
+    path = tmp_path / "keybindings.json"
+    other = bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=False, mac=False)
+    assert not other.ok and other.conflict == "palet"
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=False, mac=True).ok
+    path.unlink()
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=True, mac=False).ok
+    table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
+    assert table["ctrl+k"] == "terminal" and "mod+k" not in table
+    # Paletin varsayılana dönüşü de aynı fiziksel tuşu tutan bağı çakışma sayar.
+    reset = reset_action(path, CONTEXT_DESKTOP, "palet", mac=False)
+    assert not reset.ok and reset.conflict == "terminal" and reset.key == "ctrl+k"
+    assert reset_action(path, CONTEXT_DESKTOP, "palet", force=True, mac=False).ok
+    table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
+    assert table["mod+k"] == "palet" and "ctrl+k" not in table

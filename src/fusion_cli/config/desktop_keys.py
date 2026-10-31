@@ -13,6 +13,7 @@ yazarken her harfte tetiklenirdi. Kopyala/yapıştır/çıkış gibi sistem tuş
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
@@ -79,9 +80,32 @@ def normalize_desktop_key(raw: str) -> str | None:
     return "+".join([*ordered, key])
 
 
+def host_is_mac() -> bool:
+    """Masaüstü arayüzü çekirdekle aynı makinede çalışır; `mod`un anlamı buradan çıkar."""
+    return sys.platform == "darwin"
+
+
+def effective_desktop_key(key: str, *, mac: bool) -> str:
+    """Kanonik tuşun bu platformda eşleştiği tuş: Windows/Linux'ta `ctrl` = `mod`.
+
+    Arayüzdeki `effectiveBindings` ile aynı eşleme; `mod+ctrl+k` orada `mod+k` olur.
+    """
+    if mac:
+        return key
+    parts, final = _split(key)
+    mapped = {"mod" if part == "ctrl" else part for part in parts}
+    return "+".join([*(modifier for modifier in MODIFIERS if modifier in mapped), final])
+
+
 def desktop_key_problem(key: str) -> str | None:
-    """Kanonik tuş bağlanabilir mi? Değilse kısa Türkçe neden."""
-    if key in desktop_key_data().reserved:
+    """Kanonik tuş bağlanabilir mi? Değilse kısa Türkçe neden.
+
+    Ölçüldü (31 Ekim): ayrılmış liste yalnız `mod+c` yazımını tanıyordu; Windows/Linux'ta `ctrl`
+    `mod`a eşlendiği için `ctrl+c` kabul edilip Ctrl+C her yerde yutuluyordu. Ayrılmış denetim
+    `ctrl`→`mod` eşlenmiş biçime de bakar (macOS'ta ⌃A/⌃E metin alanının kendi tuşlarıdır).
+    """
+    reserved = desktop_key_data().reserved
+    if key in reserved or effective_desktop_key(key, mac=False) in reserved:
         return "sistem kısayolu (kopyala/yapıştır/kapat), bağlanamaz"
     parts, final = _split(key)
     has_modifier = any(part in ("mod", "ctrl", "alt") for part in parts)

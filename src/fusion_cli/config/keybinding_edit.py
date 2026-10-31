@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
 from ..core.errors import ConfigError
+from .desktop_keys import CONTEXT_DESKTOP, effective_desktop_key, host_is_mac
 from .keybindings import default_keymap, is_valid_action, load_keymap, normalize_key
 
 #: Bağlam tablosu; okunamayan değerler de korunduğu için değer tipi geniştir.
@@ -34,11 +35,24 @@ class KeyEditResult:
     key: str | None = None
 
 
-def bind_action(path: Path, context: str, action: str, key: str, *, force: bool) -> KeyEditResult:
+def _effective(context: str, mac: bool | None) -> Callable[[str], str]:
+    """Çakışma denetiminin tuş eşitliği: masaüstünde bu platformda AYNI fiziksel tuş.
+
+    Ölçüldü (31 Ekim): Windows'ta `mod+k` ve `ctrl+k` aynı tuşa düşüyor ama ayrı sayılıyordu.
+    """
+    if context != CONTEXT_DESKTOP:
+        return lambda key: key
+    on_mac = host_is_mac() if mac is None else mac
+    return lambda key: effective_desktop_key(key, mac=on_mac)
+
+
+def bind_action(
+    path: Path, context: str, action: str, key: str, *, force: bool, mac: bool | None = None
+) -> KeyEditResult:
     """`action` eylemini YALNIZ `key` tuşuna bağla (eylemin önceki tuşları kalkar).
 
-    Tuş başka bir eyleme bağlıysa `force` olmadan çakışma döner; `force` ile o eylem bu
-    tuşu kaybeder.
+    Tuş (bu platformda aynı tuşa düşen yazımlar dahil) başka bir eyleme bağlıysa `force`
+    olmadan çakışma döner; `force` ile o eylem bu tuşu kaybeder.
     """
     canonical, problem = normalize_key(context, key)
     if canonical is None:
@@ -46,13 +60,20 @@ def bind_action(path: Path, context: str, action: str, key: str, *, force: bool)
     if not is_valid_action(context, action):
         return KeyEditResult(False, problem=f"bilinmeyen eylem: {action}")
     current = load_keymap(path).bindings(context)
-    holder = current.get(canonical)
-    if holder is not None and holder != action and not force:
-        return KeyEditResult(False, conflict=holder)
+    effective = _effective(context, mac)
+    holders = {
+        held: value
+        for held, value in current.items()
+        if value != action and effective(held) == effective(canonical)
+    }
+    if holders and not force:
+        return KeyEditResult(False, conflict=next(iter(holders.values())))
     defaults = default_keymap().get(context, {})
 
     def change(table: Table) -> None:
         _drop_action_keys(table, current, defaults, action, keep=canonical)
+        for held, holder in holders.items():
+            _release(table, defaults, held, holder)
         if defaults.get(canonical) == action:
             table.pop(canonical, None)
         else:
@@ -73,7 +94,12 @@ def unbind_action(path: Path, context: str, action: str) -> KeyEditResult:
 
 
 def reset_action(
-    path: Path, context: str, action: str | None, *, force: bool = False
+    path: Path,
+    context: str,
+    action: str | None,
+    *,
+    force: bool = False,
+    mac: bool | None = None,
 ) -> KeyEditResult:
     """Eylemi (ya da `None` ile bütün bağlamı) varsayılana döndür.
 
@@ -88,10 +114,12 @@ def reset_action(
         _edit(path, context, lambda table: table.clear())
         return KeyEditResult(True)
     current = load_keymap(path).bindings(context)
+    effective = _effective(context, mac)
+    restored = {effective(key) for key, value in defaults.items() if value == action}
     taken = {
-        key: current[key]
-        for key, value in defaults.items()
-        if value == action and current.get(key) not in (None, action)
+        key: value
+        for key, value in current.items()
+        if value != action and effective(key) in restored
     }
     if taken and not force:
         key, holder = next(iter(taken.items()))
@@ -99,8 +127,10 @@ def reset_action(
 
     def change(table: Table) -> None:
         for key, value in list(table.items()):
-            if value == action or key in taken or (value is None and defaults.get(key) == action):
+            if value == action or (value is None and defaults.get(key) == action):
                 del table[key]
+        for key, holder in taken.items():
+            _release(table, defaults, key, holder)
 
     _edit(path, context, change)
     return KeyEditResult(True)
@@ -121,6 +151,14 @@ def _drop_action_keys(
             table[key] = None
         else:
             table.pop(key, None)
+
+
+def _release(table: Table, defaults: dict[str, str], key: str, holder: str) -> None:
+    """`holder` eylemi `key` tuşunu bıraksın: varsayılan bağ `null` olur, kullanıcı bağı silinir."""
+    if defaults.get(key) == holder:
+        table[key] = None
+    else:
+        table.pop(key, None)
 
 
 def _edit(path: Path, context: str, change: Callable[[Table], None]) -> None:
