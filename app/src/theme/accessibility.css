@@ -85,3 +85,13 @@
   position: static;
   transform: none;
 }
+
+/* Yüksek kontrastta KAPALI anahtar görünür kalır: koyu temada --border-strong açık gri
+   olduğundan beyaz düğme açık gri zeminde kayboluyordu (açık/kapalı ayırt edilemiyordu).
+   Kapalı iz koyu zemin + belirgin kenar çizgisi alır; ölçüler değişmez, taşma olmaz. */
+:root[data-contrast="high"] .settings__row--check input[type="checkbox"]:not(:checked),
+:root[data-contrast="high"] .settings input[type="checkbox"][aria-label="Hafızayı kullan"]:not(:checked),
+:root[data-contrast="high"] .rm__switch input:not(:checked) + .rm__switch-ui {
+  background: var(--surface-selected);
+  box-shadow: inset 0 0 0 2px var(--border-strong);
+}

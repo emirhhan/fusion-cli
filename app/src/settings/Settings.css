@@ -384,14 +384,22 @@
   border-bottom: 1px solid var(--settings-border);
   min-height: 59px;
 }
-.settings__panel .settings__row > span { color: var(--settings-text); font-size: 14px; }
+/* 0.875rem = 14 px (normal ölçekte aynı); ham piksel yazı boyutu ayarı "Çok büyük"te
+   etiketleri küçük bırakıp değerleri büyütüyordu ve satır dengesiz görünüyordu. */
+.settings__panel .settings__row > span { color: var(--settings-text); font-size: var(--text-sm); }
 .settings__panel .settings__row select {
   background: transparent;
   border: 0;
   color: var(--settings-text);
-  max-width: 190px;
+  /* Sabit 190 px büyük yazı boyutunda "Fusion (camgöbeği)" gibi seçenekleri kesiyordu;
+     genişlik artık yazıyla ölçeklenir ve satırın yarısını geçmez. */
+  flex: 0 1 auto;
+  max-width: min(55%, 18rem);
+  min-width: 0;
   text-align: right;
+  text-overflow: ellipsis;
 }
+.settings__panel .settings__row > span { min-width: 0; overflow-wrap: anywhere; }
 .settings__panel .settings__hint { color: var(--settings-muted); margin: 6px 0 0; }
 .settings__close:focus-visible, .settings__search:focus-visible,
 .settings__nav button:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
