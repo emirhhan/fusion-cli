@@ -166,7 +166,8 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       <PanelIntro title="Uzaktan Erişim">
         Görevler bu bilgisayarda çalışır; uyku, kilit veya kapalı bilgisayarda ilerlemez. Riskli işlemler
         (masaüstü kontrolü, dış servis yazma, silme) burada ya da imzalı telefonda ikinci teyitle onaylanır;
-        Telegram'dan yalnız reddedilir.
+        Telegram bunları yalnız reddeder. İkinci teyit istemeyen onaylar kapsamı yeten Telegram cihazından
+        da verilebilir; aşağıdaki &quot;Uzaktan onay&quot; yetki şartı Telegram için de geçerlidir.
       </PanelIntro>
       {(message || pollMessage) && <p className="px-error" role="alert">{message || pollMessage}</p>}
       {notice && <p className="px-note" role="status">{notice}</p>}

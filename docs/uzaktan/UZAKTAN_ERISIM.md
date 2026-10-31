@@ -14,7 +14,9 @@ kimlik, yetki ve olay katmanıdır (`src/fusion_cli/remote/`).
   deneme 15 dakika kilitler. İptal edilen cihaz anında reddedilir.
 - **Step-up:** masaüstü kontrolü, MCP yazma, tehlikeli ve sınıflandırılamayan işlemler **imzalı
   telefonda** (PWA) yalnız kapsam + tek işleme bağlı ikinci teyitle (`approvals.challenge` →
-  `approvals.respond{confirmation}`) onaylanır; Telegram'dan yalnız reddedilir. "Bu oturumda izin
+  `approvals.respond{confirmation}`) onaylanır; Telegram bunları yalnız reddeder. İkinci teyit
+  istemeyen onaylar kapsamı yeten Telegram cihazından "İzin ver" düğmesiyle de verilebilir (P-040;
+  yetki şartı Telegram için de geçerlidir, sohbet uçtan uca şifreli değildir). "Bu oturumda izin
   ver" de aynı ikinci teyidi ister; ikinci teyit eksik kapsamı kapatmaz.
 - **Cihaz başına süreli onay yetkisi (P-040):** Ayarlar › Uzaktan Erişim › *Uzaktan onay* ›
   "cihaz başına süreli yetki iste" açıkken bir cihaz, masaüstünün verdiği süresi dolmamış yetki
@@ -119,24 +121,40 @@ terminaldeki oturum telefondan ya da Telegram'dan sürülür. İkinci bir motor 
 `RemoteController` + `AppSession` yürütücüsü **terminal sürecinde** kalkar (`remote/host.py`).
 
 - **Komut:** `fusion remote-control [--port 8791] [--yerel] [--telegram] [--kapsam project.write]…
-  [--onay-saat 18]`. Başlarken adres, eşleştirme kodu (2 dk) ve `segno` kuruluysa terminal QR'ı
-  basılır (`pip install 'fusion-cli[remote]'`; segno yoksa adres+kod yeter). Varsayılan dinleme
-  `127.0.0.1` + güvenilir özel tünel bayrağı (Tailscale/Cloudflare); `--yerel` tünelsiz, yalnız bu
-  bilgisayar. Ctrl-C durdurur; sunucu ve denetleyici temiz kapanır.
+  [--onay-saat 18] [--adres https://mac.tailnet.ts.net]`. Başlarken yerel adres, **telefon adresi**
+  (tünel), eşleştirme kodu (2 dk) ve `segno` kuruluysa terminal QR'ı basılır
+  (`pip install 'fusion-cli[remote]'`; segno yoksa adres+kod yeter). Telefon adresi `--adres` ile
+  verilir; verilmezse `tailscale status --json`'dan `https://<makine>.<tailnet>.ts.net` okunur.
+  QR bu adresi **kodla birlikte** (`?kod=…`) kodlar; PWA kodu alana yazar, Eşleştir'e dokunmak
+  kalır. Tünel adresi bulunamazsa QR basılmaz (127.0.0.1 telefonda açılmaz) ve yol gösterilir.
+  Varsayılan dinleme `127.0.0.1` + güvenilir özel tünel bayrağı (Tailscale/Cloudflare); `--yerel`
+  tünelsiz, yalnız bu bilgisayar. Ctrl-C durdurur; sunucu ve denetleyici temiz kapanır — açık bir
+  onay sorusu kapanışı bekletmez.
 - **Eşleştirme:** varsayılan kapsamlarda (`project.read`, `agent.run`, `agent.cancel`) doğru kodu
-  giren telefon kendiliğinden bağlanır. `--kapsam` ile yüksek yetkili kapsam seçildiyse cihaz kodu
-  girince terminal "`<ad> kodu girdi. Bu cihaza izin verilsin mi? [e/H]`" sorar; boş cevap/`h`
-  reddeder, kod düşer ve yeni kod basılır. Süresi dolan kullanılmamış kod kendiliğinden yenilenir.
-  `--onay-saat N` eşleşen cihaza N saat uzaktan onay yetkisi verir (P-040; tavan 168).
+  giren telefon kendiliğinden bağlanır. `--kapsam` ile yüksek yetkili kapsam seçildiyse (ve her
+  Telegram eşleşmesinde) cihaz kodu girince terminal "`<ad> kodu girdi. Bu cihaza izin verilsin mi?
+  [e/H]`" sorar; soru yoklamayı durdurmaz. Boş cevap/`h` reddeder, kod düşer ve yeni kod basılır.
+  Soru askıdayken kodun 2 dakikası dolarsa "onay süresi doldu; cevabın yok sayıldı" denir (ret
+  değildir) ve yeni kod basılır. Süresi dolan kullanılmamış kod kendiliğinden yenilenir.
+  `--onay-saat N` (0–168; aralık dışı komut başlamadan reddedilir) eşleşen cihaza N saat uzaktan
+  onay yetkisi verir (P-040). Masaüstünde "cihaz başına süreli yetki iste" kapalıysa bu yetkinin
+  etkisi yoktur; komut bunu başlarken söyler.
 - **Terminal akışı:** 2 sn'de bir durum farkı satır olur: "X bağlandı.", "Onay bekliyor: … —
-  telefondan ya da Telegram'dan cevapla.", "Görev r1: running — …". Onaylar terminalden değil
-  telefondan/Telegram'dan verilir (bu komut masaüstü onay penceresinin yerini tutmaz).
+  telefondan ya da Telegram'dan cevapla.", "Görev r1: running — …". Görev onayları terminalden
+  değil telefondan/Telegram'dan verilir (bu komut masaüstü onay penceresinin yerini tutmaz).
 - **REPL `/rc`:** `fusion` içinde `/rc` (takma ad `/remote-control`) aynı sunucuyu REPL sürecinde
-  açar; `/rc kod` yeni kod, `/rc onayla` kodu girmiş cihazı onaylar, `/rc durum` özet,
-  `/rc durdur` kapatır; REPL kapanırken sunucu kendiliğinden kapanır. Telefondan açılan görevler
-  ayrı bir `AppSession` sohbetinde yürür; REPL'in kendi sohbeti karışmaz.
+  açar; `/rc kod` yeni PWA kodu, `/rc telegram` Telegram köprüsünü bağlar ve `/pair` kodunu basar,
+  `/rc kod telegram` onu yeniler, `/rc onayla` kodu girmiş cihazı onaylar, `/rc durum` özet (onay
+  bekleyen cihaz varsa adıyla yazar), `/rc durdur` kapatır; REPL kapanırken sunucu kendiliğinden
+  kapanır. Başlatma yarıda düşerse (kod üretilemedi vb.) sunucu geri kapatılır, port açık kalmaz.
+  REPL'de arka plan yoklaması yoktur: kodu girmiş cihazı `/rc durum` ile görüp `/rc onayla` ile
+  onaylarsın. Telefondan açılan görevler ayrı bir `AppSession` sohbetinde yürür; REPL'in kendi
+  sohbeti karışmaz.
 - **Telegram:** `--telegram` anahtarlıktaki bot belirtecini kullanır; belirteç yoksa uyarı basılır,
   HTTP yüzü yine kalkar (belirteç bir kez masaüstünden Ayarlar › Uzaktan Erişim'de kaydedilir).
+  Bağlandıysa PWA kodundan **ayrı** bir Telegram kodu basılır: bota `/pair <KOD>` yazılır, eşleşme
+  her zaman bu terminalde onaylanır (Telegram kanalı kendiliğinden eşleşmez). PWA kodu botta, bot
+  kodu PWA'da geçmez.
 - **Sınırlar:** tünel komutu (`tailscale serve …`) kullanıcı tarafından çalıştırılır; komut
   çalışırken aynı hesapta masaüstü `uzak.baslat` aynı portu alamaz (biri kapatılır). Claude Code'un
   `--spawn worktree` / `--capacity` seçenekleri yoktur.
@@ -144,7 +162,8 @@ terminaldeki oturum telefondan ya da Telegram'dan sürülür. İkinci bir motor 
   nokta kapalı/yeşil (dinliyor)/sarı (onay bekliyor), özet "2 cihaz · 1 onay bekliyor". Tıklanınca
   Ayarlar › Uzaktan Erişim açılır (kod üret, cihazlar, onaylar). Yoklama (`uzak.durum`,
   `uzak.bekleyen`, 20 sn) yalnız uzaktan erişimi bir kez kurmuş kullanıcıda çalışır; kurmamışta
-  anahtar "kapalı" görünür ve hiç istek atılmaz.
+  anahtar "kapalı" görünür ve hiç istek atılmaz. Oturum içinde ilk kez kurulunca (Ayarlar'da sunucu
+  açılınca) bayrak olayı (`fusion:remote-inuse`) yoklamayı yeniden başlatmasız açar.
 
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
@@ -172,5 +191,6 @@ belirteci yapıştır → *Bağlan*. (3) *Telegram için kod oluştur* (2 dk). (
 
 Mac uyurken/kapalıyken görev ilerlemez. Yüksek yetkili işlemler (masaüstü kontrolü, dış servis,
 silme) Fusion'daki *Bekleyen onaylar* bölümünden ya da imzalı telefonda ikinci teyitle onaylanır;
-Telegram'dan yalnız reddedilir. Push bildirimi (Web Push/VAPID) bu sürümde yok: PWA yoklama ile,
-Telegram bot mesajıyla haber verir.
+Telegram bunları yalnız reddeder, ikinci teyit istemeyen onayları ise kapsamı yeten (ve yetki şartı
+açıksa yetkili) Telegram cihazı "İzin ver" ile verebilir. Push bildirimi (Web Push/VAPID) bu
+sürümde yok: PWA yoklama ile, Telegram bot mesajıyla haber verir.

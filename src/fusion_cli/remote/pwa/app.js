@@ -2,6 +2,7 @@ import { approvalCard, pendingFromEvents } from "./approvals.js";
 import { createApi, postJson } from "./api.js";
 import { createChat, newChatId } from "./chat.js";
 import { h, icon } from "./dom.js";
+import { pairingCodeFromSearch, stripPairingCode } from "./pair-link.js";
 import { createScreenView } from "./screen-view.js";
 import { importKey } from "./signing.js";
 import { kv } from "./store.js";
@@ -383,7 +384,14 @@ async function main() {
   device = (await kv("get", "device").catch(() => null)) ?? null;
   if (device) return start();
   $("eslestir").hidden = false;
-  void loadAuthOptions();
-  say("");
+  // Terminal QR'ındaki `?kod=`: kodu alana yaz, adresten düşür (geçmişte kalmasın), kod formunu aç.
+  const linked = pairingCodeFromSearch(location.search);
+  if (linked) {
+    $("kod").value = linked;
+    history.replaceState(null, "", stripPairingCode(location.href));
+  }
+  await loadAuthOptions();
+  if (linked) showLogin(false, true);
+  say(linked ? "Kod QR'dan alındı; Eşleştir'e dokun." : "");
 }
 main();

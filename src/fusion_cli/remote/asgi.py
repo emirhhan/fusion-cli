@@ -41,6 +41,7 @@ _STATIC = {
             "chat",
             "dom",
             "media",
+            "pair-link",
             "screen-stream",
             "screen-view",
             "dock",
