@@ -1198,8 +1198,10 @@ async def _run_agent(
     # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
     # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
-    if depth == 0 and deps.tool_context.browser.is_open:
-        await deps.tool_context.browser.close()
+    # Paylaşılan tarayıcının (P-045, panel/`/tarayici`) sahibi panel/REPL'dir: açık kalır.
+    browser = deps.tool_context.browser
+    if depth == 0 and browser.is_open and not browser.persistent:
+        await browser.close()
     return outcome
 
 

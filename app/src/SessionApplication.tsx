@@ -70,6 +70,8 @@ import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
 import { TestsPanel } from "./workspace/TestsPanel";
 import { PreviewPanel } from "./workspace/PreviewPanel";
+import { BrowserPanel, type BrowserPick } from "./browser/BrowserPanel";
+import { useBrowserInspector } from "./browser/useBrowserInspector";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
@@ -339,6 +341,7 @@ function ProjectInspector({
   requestedPreview = null,
   agents,
   onCommand,
+  onBrowserPick,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
@@ -358,8 +361,12 @@ function ProjectInspector({
   width: number;
   requestedPreview?: { url: string; seq: number } | null;
   agents?: TeamCardsProps;
+  /** Tarayıcı panelinde seçilen öğe/görüntü sohbete eklenir (P-045). */
+  onBrowserPick?: (pick: BrowserPick) => void;
 }) {
   const [revision, setRevision] = useState(0);
+  const showBrowser = useCallback(() => onActiveTabChange("browser"), [onActiveTabChange]);
+  const browser = useBrowserInspector(client, showBrowser);
   const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
@@ -395,8 +402,9 @@ function ProjectInspector({
         ),
         terminal: <TerminalPanel cwd={root} />,
         preview: (
-          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
+          <PreviewPanel client={client} onOpenInBrowser={browser.openInBrowser} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
         ),
+        browser: <BrowserPanel client={client} onPick={onBrowserPick} request={browser.request} />,
       }}
     />
   );
@@ -2034,6 +2042,22 @@ export function SessionUygulama({
           onCollapsedChange={inspectorLayout.setCollapsed}
           onHeightChange={inspectorLayout.setHeight}
           onCommand={(line) => void executeCommand(line)}
+          onBrowserPick={(pick) => {
+            // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
+            if (pick.yol) {
+              const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
+              setAttachments((current) => ({
+                ...current,
+                [active.id]: [...(current[active.id] ?? []).filter((item) => item.path !== image.path), image],
+              }));
+            }
+            if (pick.metin) {
+              setDrafts((current) => {
+                const before = current[active.id] ?? "";
+                return { ...current, [active.id]: before ? `${before}\n${pick.metin}` : pick.metin };
+              });
+            }
+          }}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}

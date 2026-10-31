@@ -52,6 +52,7 @@ from . import (
     workspace_commands,
     worktrees,
 )
+from .browser_command import browser_command
 from .macros import Mode
 from .preview_command import preview_command
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -973,6 +974,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         aliases=("preview",),
         group="Agent",
         usage="[ad]",
+    ),
+    SlashCommand(
+        "tarayici",
+        messages.CMD_TARAYICI,
+        browser_command,
+        group="Agent",
+        usage="[ac|devral|birak|kapat]",
     ),
     SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
     SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),

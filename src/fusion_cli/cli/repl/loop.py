@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
-from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.changeset import ChangeSet
@@ -70,6 +69,7 @@ from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
+    browser_command,
     cron_store,
     help_view,
     history_view,
@@ -258,6 +258,7 @@ async def _run_surface(
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
         await remote_control.shutdown(state)
+        await browser_command.shutdown(state)
         await _shutdown(background, console)
     return 0
 
@@ -834,7 +835,8 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             block_reads_outside_root=state.config.runtime.block_reads_outside_root,
             block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
-            browser=browser_session_from(state.config),
+            browser=browser_command.turn_browser(state),
+            local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
         ),

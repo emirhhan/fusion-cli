@@ -6,6 +6,7 @@ bağlanıp düşüyor ya da o portta yanıt veren BAŞKA sunucu önizlemede gör
 
 from __future__ import annotations
 
+import random
 import socket
 import sys
 from pathlib import Path
@@ -29,12 +30,20 @@ def _sunuculari_kapat(tmp_path, monkeypatch):
 @pytest.fixture
 def dolu_port():
     """Dinlemede tutulan bir port (başka bir sunucunun açık olduğu durum)."""
-    # Geçici (ephemeral) aralık dışından: orada komşu portlar giden bağlantılarca tutulabilir.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", preview_server.free_port()))
-    sock.listen(1)
-    yield int(sock.getsockname()[1])
-    sock.close()
+    # Geçici (ephemeral) aralık dışından (orada komşu portlar giden bağlantılarca tutulur) ve
+    # önizleme aralığından (8770+) uzak: paralel koşan önizleme testleriyle çakışmasın.
+    for aday in random.sample(range(20_000, 30_000), 200):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", aday))
+        except OSError:
+            sock.close()
+            continue
+        sock.listen(1)
+        yield aday
+        sock.close()
+        return
+    pytest.skip("boş port bulunamadı")
 
 
 def _http_sunucu(port_arg: str, port: int, **kw) -> LaunchConfig:

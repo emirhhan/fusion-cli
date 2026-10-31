@@ -1,0 +1,220 @@
+/* Uygulama içi Tarayıcı paneli (P-045). Önizleme panelinin araç çubuğu ölçüleriyle aynı dili
+   konuşur; canlı görüntü kendi zemininde, sayfa çerçevesi gibi gölgeli durur. */
+.browser-panel {
+  container-type: inline-size;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.browser-panel__sr-only {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.browser-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: auto minmax(140px, 1fr) auto auto;
+  padding: var(--space-2) 0;
+}
+
+.browser-toolbar__nav,
+.browser-toolbar__actions { display: flex; }
+
+.browser-toolbar form { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
+
+.browser-toolbar input,
+.browser-toolbar select,
+.browser-session select {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  min-height: 36px;
+  min-width: 0;
+}
+
+.browser-toolbar input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); padding: 0 var(--space-3); }
+.browser-toolbar select { border-radius: var(--radius-sm); max-width: 112px; padding: 0 var(--space-2); }
+
+.browser-toolbar button,
+.browser-tabs button,
+.browser-banner button,
+.browser-session button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+}
+
+.browser-toolbar form button {
+  background: var(--control-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-inverse);
+  padding: 0 var(--space-3);
+}
+
+.browser-toolbar button:hover:not(:disabled),
+.browser-tabs button:hover,
+.browser-session button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.browser-toolbar button:active:not(:disabled),
+.browser-banner button:active { transform: scale(0.96); }
+.browser-toolbar button:disabled { opacity: 0.35; }
+.browser-toolbar button[aria-pressed="true"] { background: var(--surface-accent-subtle); color: var(--accent-text); }
+.browser-toolbar button:focus-visible,
+.browser-tabs button:focus-visible,
+.browser-live:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+@container (max-width: 440px) {
+  .browser-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .browser-toolbar__nav { grid-column: 1; grid-row: 1; }
+  .browser-toolbar select { grid-column: 2; grid-row: 1; }
+  .browser-toolbar form { grid-column: 1; grid-row: 2; }
+  .browser-toolbar__actions { grid-column: 2; grid-row: 2; }
+}
+
+.browser-tabs {
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  padding: var(--space-1) 0;
+}
+
+.browser-tabs__tab {
+  align-items: center;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  display: flex;
+  max-width: 200px;
+  min-width: 0;
+}
+
+.browser-tabs__tab > button:first-child {
+  font-size: var(--text-xs);
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tabs__tab[data-active="true"] { background: var(--surface-selected); }
+.browser-tabs__tab[data-active="true"] > button:first-child { color: var(--text-primary); }
+.browser-tabs__close { min-width: 28px !important; }
+
+.browser-banner {
+  align-items: center;
+  border-radius: var(--radius-sm);
+  display: flex;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  justify-content: space-between;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+}
+
+.browser-banner--user { background: var(--surface-accent-subtle); color: var(--text-primary); }
+.browser-banner--agent { background: var(--surface-hover); color: var(--text-secondary); }
+.browser-banner button { background: var(--control-primary); color: var(--text-inverse); padding: 0 var(--space-3); }
+
+.browser-banner__pulse {
+  animation: browser-pulse 1.4s var(--ease-standard) infinite;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  flex: 0 0 auto;
+  height: 8px;
+  width: 8px;
+}
+
+@keyframes browser-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-banner__pulse { animation: none; }
+}
+
+.browser-panel__error { color: var(--text-danger); font-size: var(--text-xs); margin: var(--space-2) 0 0; }
+
+.browser-panel__stage {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  padding-top: var(--space-2);
+}
+
+.browser-live {
+  align-items: flex-start;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.browser-live__image {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 24px rgb(0 0 0 / 0.12);
+  cursor: default;
+  display: block;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+}
+
+.browser-live[data-picking="true"] .browser-live__image { cursor: crosshair; }
+
+.browser-live__highlight {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-2xs);
+  pointer-events: none;
+  position: absolute;
+}
+
+.browser-panel__empty {
+  align-content: center;
+  color: var(--text-secondary);
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.browser-panel__empty strong { color: var(--text-primary); }
+.browser-panel__empty p { font-size: var(--text-xs); margin: 0; max-width: 34ch; }
+
+.browser-session {
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.browser-session label { align-items: center; color: var(--text-secondary); display: flex; gap: var(--space-2); }
+.browser-session select { border-radius: var(--radius-sm); padding: 0 var(--space-2); }
+.browser-session__check--warn { color: var(--text-warning); }
+.browser-session button { margin-left: auto; padding: 0 var(--space-3); }

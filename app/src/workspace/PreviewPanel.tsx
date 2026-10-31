@@ -70,6 +70,18 @@ export interface PreviewPanelProps {
   /** Ajanın başlattığı önizleme (`PreviewReady`): gelince web kipinde açılır. `seq`
    *  aynı adresin yeniden istenmesini (sayfa yenilensin) ayırt eder. */
   requestedUrl?: { url: string; seq: number } | null;
+  /** Uygulama içi Tarayıcı paneline aktar (P-045): uzak adres ya da öğe seçici (`pick`). */
+  onOpenInBrowser?: (url: string, pick?: boolean) => void;
+}
+
+/** Önizlemeye gömülemeyen ama Tarayıcı panelinde açılabilen adres (http/https). */
+function browsableUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 async function openWithSystem(url: string): Promise<void> {
@@ -87,6 +99,7 @@ export function PreviewPanel({
   selectedPath,
   requestedUrl = null,
   revision = 0,
+  onOpenInBrowser,
 }: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -96,6 +109,8 @@ export function PreviewPanel({
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [addressError, setAddressError] = useState<string | null>(null);
+  /** Önizlemeye gömülemeyen adres: Tarayıcı paneline aktarılabilir. */
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
   const [frameChecking, setFrameChecking] = useState(false);
@@ -191,10 +206,12 @@ export function PreviewPanel({
     if (!isLocalPreviewUrl(value)) {
       validationRun.current += 1;
       setFrameChecking(false);
-      setAddressError("Güvenlik için uygulama içine yalnız localhost adresleri açılabilir.");
+      setRemoteUrl(onOpenInBrowser ? browsableUrl(value) : null);
+      setAddressError("Güvenlik için önizlemeye yalnız localhost adresleri gömülür.");
       return;
     }
     setAddressError(null);
+    setRemoteUrl(null);
     const verified = await validateAddress(value);
     if (!verified || inputValueRef.current.trim() !== value) return;
     const next = history.slice(0, historyIndex + 1);
@@ -289,6 +306,7 @@ export function PreviewPanel({
                   inputValueRef.current = event.target.value;
                   setInput(event.target.value);
                   setAddressError(null);
+                  setRemoteUrl(null);
                   setFrameChecking(false);
                   setFrameError(null);
                   setFrameErrorUrl(null);
@@ -319,10 +337,28 @@ export function PreviewPanel({
                   title="Ekran görüntüsü al"
                   type="button"
                 >◧</button>
+                {onOpenInBrowser && (
+                  <button
+                    aria-label="Öğe seç (Tarayıcı panelinde)"
+                    disabled={!localUrl}
+                    onClick={() => { if (localUrl) onOpenInBrowser(localUrl, true); }}
+                    title="Öğe seç: sayfayı Tarayıcı panelinde açar, tıkladığın öğe sohbete eklenir"
+                    type="button"
+                  >⌖</button>
+                )}
                 <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
               </div>
             </div>
-            {addressError && <p className="preview-panel__address-error" role="alert">{addressError}</p>}
+            {addressError && (
+              <p className="preview-panel__address-error" role="alert">
+                {addressError}
+                {remoteUrl && onOpenInBrowser && (
+                  <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(remoteUrl)} type="button">
+                    Tarayıcı panelinde aç
+                  </button>
+                )}
+              </p>
+            )}
             <PreviewLaunch
               client={client}
               disabled={frameChecking}

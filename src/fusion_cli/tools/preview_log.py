@@ -156,7 +156,7 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
         from playwright.async_api import async_playwright
     except ImportError:
         return PageLog(url, error=PLAYWRIGHT_MISSING)
-    collector = _Collector()
+    collector = PageEventCollector()
     try:
         async with async_playwright() as driver:
             try:
@@ -205,24 +205,25 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
     return PageLog(url, collector.console_entries(), collector.network_entries(), shot)
 
 
-def save_screenshot(root: Path, data: bytes) -> str:
-    """Görüntüyü proje içine yaz; köke göreli yol döner (yazılamazsa boş).
+def save_screenshot(root: Path, data: bytes, relative: Path = SCREENSHOT_FILE) -> str:
+    """Görüntüyü proje içine (`relative`) yaz; köke göreli yol döner (yazılamazsa boş).
 
     Hedef sembolik bağsa ya da kök dışına çözülüyorsa YAZILMAZ. Ölçüldü (31 Ekim): depo
     `.fusion/onizleme-ekran.png -> ~/.zshrc` bağı taşıyınca `write_bytes` o dosyayı eziyordu.
+    Tarayıcı panelinin öğe seçimleri (`browser_picker`) aynı kapıdan yazılır.
     """
     try:
-        target = root / SCREENSHOT_FILE
+        target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink() or target.parent.is_symlink():
             return ""
         gercek_kok = root.resolve()
-        if target.parent.resolve() != gercek_kok / SCREENSHOT_FILE.parent:
+        if target.parent.resolve() != gercek_kok / relative.parent:
             return ""
         target.write_bytes(data)
     except OSError:
         return ""
-    return SCREENSHOT_FILE.as_posix()
+    return relative.as_posix()
 
 
 def format_console(log: PageLog, *, limit: int = 60, only_errors: bool = False) -> str:
@@ -267,8 +268,11 @@ def format_network(log: PageLog, *, limit: int = 80, only_failed: bool = False) 
 
 
 @dataclass
-class _Collector:
-    """Playwright olaylarını sınırlı tamponlarda toplar; birikim sırasına göre döndürür."""
+class PageEventCollector:
+    """Playwright olaylarını sınırlı tamponlarda toplar; birikim sırasına göre döndürür.
+
+    Tarayıcı panelinin canlı konsolu (`browser_live`) da bunu kullanır: aynı sınırlar.
+    """
 
     _console: list[ConsoleEntry] = field(default_factory=list)
     _requests: dict[int, NetworkEntry] = field(default_factory=dict)

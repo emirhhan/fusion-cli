@@ -111,6 +111,30 @@ describe("PreviewPanel", () => {
     expect(screen.getByRole("button", { name: "Dışarıda aç" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("uzak adresi Tarayıcı paneline, yerel sayfayı öğe seçiciyle Tarayıcı paneline aktarır (P-045)", async () => {
+    const onOpenInBrowser = vi.fn();
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200 }
+        : { ok: true }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} onOpenInBrowser={onOpenInBrowser} selectedPath={null} />);
+
+    const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
+    fireEvent.change(address, { target: { value: "https://example.com/a" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tarayıcı panelinde aç" }));
+    expect(onOpenInBrowser).toHaveBeenCalledWith("https://example.com/a");
+
+    fireEvent.change(address, { target: { value: "http://localhost:3001/" } });
+    expect(screen.queryByRole("button", { name: "Tarayıcı panelinde aç" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    const sec = screen.getByRole("button", { name: "Öğe seç (Tarayıcı panelinde)" });
+    await waitFor(() => expect(sec.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(sec);
+    expect(onOpenInBrowser).toHaveBeenLastCalledWith("http://localhost:3001/", true);
+  });
+
   it("yerel web geçmişinde geri, ileri, yenile ve harici aç eylemlerini yönetir", async () => {
     const openExternal = vi.fn(async () => undefined);
     const client = {

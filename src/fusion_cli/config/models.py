@@ -402,6 +402,9 @@ class BrowserConfig:
     default_profile: str = ""
     #: Tarayıcı penceresi görünmez (true) ya da görünür (false) açılır.
     headless: bool = True
+    #: Masaüstü Tarayıcı paneli (P-045): ajanın `browser_*` araçları paneldeki paylaşılan
+    #: tarayıcıda çalışır (canlı izlenir, devralınır). false: tur başına ayrı başsız tarayıcı.
+    panel_agent: bool = True
 
 
 @dataclass(frozen=True, slots=True)

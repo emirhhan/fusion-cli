@@ -23,6 +23,7 @@ from ..config.models import Config, mcp_secret_env_names
 from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
+from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
@@ -225,6 +226,7 @@ async def run_agent_task(
     cron: SessionCron | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
+    browser: BrowserSession | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -243,6 +245,9 @@ async def run_agent_task(
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
     soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
+
+    `browser` (P-045) paylaşılan tarayıcıdır (masaüstü Tarayıcı paneli): verilirse tur onu
+    kullanır, yerel izin kümesi onunkidir ve tur sonunda kapatılmaz (`persistent`).
 
     `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
     ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
@@ -276,7 +281,10 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
-            browser=browser_session_from(config),
+            browser=browser or browser_session_from(config),
+            local_origins=(
+                browser.origins if browser is not None and browser.origins is not None else set()
+            ),
             block_reads_outside_root=config.runtime.block_reads_outside_root,
             block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi

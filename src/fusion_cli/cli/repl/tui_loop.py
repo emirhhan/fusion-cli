@@ -20,7 +20,6 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...config import keybindings
-from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -37,6 +36,7 @@ from ...ui.text import summarize_error
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
+    browser_command,
     cron_store,
     help_view,
     history_view,
@@ -802,7 +802,8 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                     cron=self._state.cron,
-                    browser=browser_session_from(self._state.config),
+                    browser=browser_command.turn_browser(self._state),
+                    local_origins=browser_command.turn_origins(self._state),
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
@@ -940,6 +941,7 @@ async def run_tui_repl(
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await remote_control.shutdown(state)
+    await browser_command.shutdown(state)
     await session.background.drain()
     for failure in session.background.failures:
         _logger.warning("arka plan işi başarısız: %s", failure)

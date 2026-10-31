@@ -30,6 +30,7 @@ from ..core.errors import BrowserProfileError
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
+from .browser_shared import control_gate
 from .browser_target import TargetError, fill_or_select, resolve
 from .files import writable_path
 from .mirror import (
@@ -65,7 +66,7 @@ _KURULUM_TALIMATI = (
 _LOCAL_PREFIXES = ("localhost", "127.0.0.1", "[::1]")
 
 
-def _normalize_url(raw: str) -> str:
+def normalize_url(raw: str) -> str:
     """Şemasız adrese şema ekle: yerel sunucu `http://` (TLS yok), diğerleri `https://`.
 
     Ölçüldü (30 Ekim): `localhost:3000` otomatik `https://` alıp TLS hatası veriyordu.
@@ -87,7 +88,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     `profile` (P-023): `fusion browser` ile kurulan kullanıcı oturumu profili; çerezleri
     yalnız onaylı alan adlarında yüklenir. `headed`: pencere görünür açılır.
     """
-    url = _normalize_url(require_str(args, "url"))
+    url = normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
     reason = browser_block_reason(url, context.local_origins)
@@ -205,6 +206,8 @@ async def browser_tabs_list(args: ToolArgs, context: ToolContext) -> ToolResult:
     del args
     if not context.browser.is_open:
         return ToolResult.failure("Açık bir tarayıcı yok — önce browser_open kullan.")
+    if engel := await control_gate(context.browser):
+        return ToolResult.failure(engel)
     pages = await context.browser.pages()
     rows: list[str] = []
     for index, page in enumerate(pages, start=1):
@@ -221,6 +224,8 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
         return ToolResult.failure("'index' 1'den başlayan bir tam sayı olmalı.")
     if not context.browser.is_open:
         return ToolResult.failure("Açık bir tarayıcı yok — önce browser_open kullan.")
+    if engel := await control_gate(context.browser):
+        return ToolResult.failure(engel)
     pages = await context.browser.pages()
     if raw_index > len(pages):
         return ToolResult.failure(f"{raw_index} numaralı sekme yok; browser_tabs_list kullan.")
@@ -230,7 +235,7 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
 
 async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Aynı oturumda yeni sekme aç ve izin verilen adrese git."""
-    url = _normalize_url(require_str(args, "url"))
+    url = normalize_url(require_str(args, "url"))
     reason = browser_block_reason(url, context.local_origins)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
@@ -308,7 +313,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
     page.on("response", _yanit)
     try:
         if url:
-            url = _normalize_url(url)
+            url = normalize_url(url)
             reason = browser_block_reason(url, context.local_origins)
             if reason is not None:
                 return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
@@ -366,6 +371,9 @@ async def browser_close(args: ToolArgs, context: ToolContext) -> ToolResult:
     del args
     if not context.browser.is_open:
         return ToolResult("tarayıcı zaten kapalı")
+    if context.browser.persistent:
+        # Paylaşılan tarayıcı (panel / `/tarayici`) kullanıcınındır; ajan onu kapatamaz.
+        return ToolResult("tarayıcı kullanıcıyla paylaşılıyor; açık bırakıldı (panelden kapanır)")
     await context.browser.close()
     return ToolResult("tarayıcı kapatıldı")
 
@@ -389,11 +397,19 @@ async def _sayfa(
     sürüyorsa yeniden başlatılmaz: iki profilin çerezleri aynı bağlamda karışmasın.
     """
     oturum = context.browser
+    # Kullanıcı devraldıysa (P-045) bırakana kadar beklenir; ajan onunla yarışmaz.
+    if engel := await control_gate(oturum):
+        return None, engel
     if _is_open(oturum):
         if profile and profile != oturum.active_profile:
+            cozum = (
+                "profili Tarayıcı panelinden değiştirmesini kullanıcıdan iste"
+                if oturum.persistent
+                else "önce browser_close çağır"
+            )
             return None, (
                 f"Tarayıcı zaten '{oturum.active_profile or 'profilsiz'}' oturumuyla açık; "
-                f"'{profile}' profili için önce browser_close çağır."
+                f"'{profile}' profili için {cozum}."
             )
         return oturum.page, ""
     if not baslatma:
@@ -401,7 +417,7 @@ async def _sayfa(
     async with _START_LOCKS.setdefault(oturum, asyncio.Lock()):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
-        return await _oturumu_baslat(context, profile=profile, headed=headed)
+        return await start_session(oturum, context.local_origins, profile=profile, headed=headed)
 
 
 def _is_open(oturum: BrowserSession) -> bool:
@@ -433,18 +449,26 @@ def _profile_state(
     return state, ""
 
 
-async def _oturumu_baslat(
-    context: ToolContext, *, profile: str = "", headed: bool = False
+async def start_session(
+    oturum: BrowserSession,
+    local_origins: set[str],
+    *,
+    profile: str = "",
+    headed: bool = False,
+    store: BrowserProfileStore | None = None,
 ) -> tuple[Any, str]:
-    oturum = context.browser
+    """Oturumu başlat: Chromium + (varsa) profil çerezleri + istek kapısı; (sayfa, hata).
 
+    Tarayıcı paneli (P-045) de bu yoldan açar: güvenlik kapısı ve profil kuralları ajanla
+    AYNIDIR. `local_origins` canlı kümedir (izin verilen yerel adresler).
+    """
     try:
         # Ağır ve OPSİYONEL bağımlılık: yalnızca araç gerçekten çağrıldığında yüklenir.
         from playwright.async_api import async_playwright
     except ImportError:
         return None, _KURULUM_TALIMATI
 
-    store = default_browser_profile_store()
+    store = store or default_browser_profile_store()
     state, hata = _profile_state(oturum, profile, store)
     if hata:
         return None, hata
@@ -459,7 +483,7 @@ async def _oturumu_baslat(
         )
         # Yönlendirme, alt kaynak ve yeni sekme istekleri de `browser_block_reason`
         # kapısından geçer; yalnız ilk adresi denetlemek yetmezdi (T1-07).
-        await install_request_guard(oturum.context, context.local_origins)
+        await install_request_guard(oturum.context, local_origins)
         oturum.page = await oturum.context.new_page()
     except Exception as exc:
         await oturum.close()

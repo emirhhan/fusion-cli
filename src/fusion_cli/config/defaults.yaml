@@ -946,3 +946,6 @@ browser:
   # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
   # gibi insan müdahalesi gereken işler için).
   headless: true
+  # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
+  # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
+  panel_agent: true

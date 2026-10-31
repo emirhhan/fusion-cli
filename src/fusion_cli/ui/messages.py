@@ -376,6 +376,30 @@ REPL_PREVIEW_WARNING = "! {warning}"
 REPL_PREVIEW_UNTRUSTED = (
     "Komutlu yapılandırmalar bu proje güvenilmediği için çalışmaz: `fusion trust` ile onayla."
 )
+#: `/tarayici` (P-045): ajanla paylaşılan, turlar arasında açık kalan görünür tarayıcı.
+TARAYICI_PANEL_OFF = (
+    "Paylaşılan tarayıcı kapalı: ajan her turda kendi görünmez tarayıcısını açıp kapatır. "
+    "`/tarayici ac` ile görünür, turlar arasında açık kalan bir pencereye geç."
+)
+TARAYICI_PANEL_ON = (
+    "Paylaşılan tarayıcı açık: ajanın tarayıcı eylemleri görünür pencerede yürür ve turlar "
+    "arasında açık kalır. Pencerede sen de gezinebilirsin; ajanı bekletmek için "
+    "`/tarayici devral`, devretmek için `/tarayici birak`."
+)
+TARAYICI_PANEL_STATUS = "Paylaşılan tarayıcı: {state} · denetim: {control}{profile}"
+TARAYICI_PANEL_NOT_STARTED = "pencere ajanın ilk tarayıcı eyleminde açılır"
+TARAYICI_PANEL_TAB = "{marker} {index}. {url}"
+TARAYICI_PANEL_CONTROL_USER = "sende (ajan bekliyor)"
+TARAYICI_PANEL_CONTROL_AGENT = "ajanda"
+TARAYICI_PANEL_TAKEN = (
+    "Denetim sende: ajanın tarayıcı eylemleri sen `/tarayici birak` diyene kadar bekler "
+    "(en çok 5 dk)."
+)
+TARAYICI_PANEL_RELEASED = "Denetim ajana geçti; bekleyen tarayıcı eylemi sürer."
+TARAYICI_PANEL_CLOSED = "Paylaşılan tarayıcı kapatıldı; ajan yine tur başına tarayıcı kullanır."
+TARAYICI_PANEL_NEEDS_ON = "Önce `/tarayici ac` ile paylaşılan tarayıcıyı aç."
+TARAYICI_PANEL_USAGE = "Kullanım: /tarayici [ac | devral | birak | kapat]"
+CMD_TARAYICI = "ajanla paylaşılan görünür tarayıcı: izle, devral, bırak (P-045)"
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"

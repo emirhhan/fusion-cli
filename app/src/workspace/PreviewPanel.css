@@ -294,3 +294,15 @@
   .preview-panel__toolbar { grid-template-columns: auto minmax(0, 1fr) auto; }
   .preview-panel__toolbar select { display: none; }
 }
+
+/* Uzak adresi Tarayıcı paneline aktaran satır içi düğme (P-045). */
+.preview-panel__inline-action {
+  background: transparent;
+  border: 0;
+  color: var(--accent-text);
+  font-size: inherit;
+  margin-left: var(--space-2);
+  padding: 0;
+  text-decoration: underline;
+}
+.preview-panel__inline-action:hover { color: var(--text-primary); }

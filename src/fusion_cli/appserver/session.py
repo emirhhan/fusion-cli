@@ -97,6 +97,8 @@ from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
+from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
+from .browser_panel import BrowserPanel
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
@@ -506,6 +508,13 @@ class AppSession:
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
         # Ajan tarayıcısı profilleri (P-023/P-024); sır deposuyla aynı ana anahtar.
         self._browser_profiles = default_browser_profile_store()
+        # Uygulama içi Tarayıcı paneli (P-045): ajanla paylaşılan tarayıcının sahibi.
+        self._browser_panel = BrowserPanel(
+            config=lambda: self._state.config,
+            root=lambda: self._state.root,
+            turn_running=lambda: self._turn is not None and not self._turn.done(),
+            store=lambda: self._browser_profiles,
+        )
         self._remote: RemoteController | None = None
         self._personal_memory = PersonalMemory(config.memory_dir)
         from ..memory.image_job_store import ImageJobStore
@@ -1363,6 +1372,8 @@ class AppSession:
             return web_login_state(request.data.get("pid"))
         if request.name.startswith("tarayici."):
             return await self._browser_profile_rpc(request)
+        if request.name.startswith(BROWSER_PANEL_RPC):
+            return await self._browser_panel.handle(request.name, request.data)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "cron.listele":
@@ -2893,6 +2904,7 @@ class AppSession:
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
+                browser=self._browser_panel.turn_browser(),
             )
 
         # `enter_worktree`/`exit_worktree` isteği: kök tur ortasında değişmez, tur bitince
@@ -3379,6 +3391,7 @@ class AppSession:
             self._mcp_connections.close,
             self._chrome.close,
             self._processes.close,
+            self._browser_panel.close,
             close_all_browser_sessions,
             stop_all_login_processes,
             *([self._remote.aclose] if self._remote is not None else []),

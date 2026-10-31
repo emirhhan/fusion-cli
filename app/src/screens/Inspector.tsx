@@ -22,7 +22,7 @@ import "./Inspector.css";
 
 type InspectorStatus = "ready" | "loading" | "error";
 /** Proje araçları ve canlı alt ajanlar için bağlamsal sekmeler. */
-export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "agents";
+export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "browser" | "agents";
 
 const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "agents", label: "Ajanlar", icon: "sparkle" },
@@ -30,6 +30,7 @@ const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "changes", label: "Değişiklikler", icon: "changes" },
   { id: "terminal", label: "Terminal", icon: "terminal" },
   { id: "preview", label: "Önizleme", icon: "preview" },
+  { id: "browser", label: "Tarayıcı", icon: "globe" },
 ];
 
 interface InspectorProps {

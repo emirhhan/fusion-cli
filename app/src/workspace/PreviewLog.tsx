@@ -56,11 +56,13 @@ export interface PreviewLogProps {
   client: ProtocolClient;
   url: string;
   onClose: () => void;
+  /** Günlüğü veren istek: önizleme için o anın ölçümü, Tarayıcı panelinde (P-045) canlı birikim. */
+  rpc?: string;
 }
 
 type LogTab = "konsol" | "ag";
 
-export function PreviewLog({ client, url, onClose }: PreviewLogProps) {
+export function PreviewLog({ client, url, onClose, rpc = "onizleme.gunluk" }: PreviewLogProps) {
   const [tab, setTab] = useState<LogTab>("konsol");
   const [result, setResult] = useState<PageLogResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,12 +74,12 @@ export function PreviewLog({ client, url, onClose }: PreviewLogProps) {
     let active = true;
     setLoading(true);
     setError(null);
-    void client.request("onizleme.gunluk", { url })
+    void client.request(rpc, { url })
       .then((payload) => { if (active) setResult(decodePageLog(payload)); })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [client, url, run]);
+  }, [client, url, run, rpc]);
 
   const konsol = result?.konsol.filter((row) => !onlyProblems || ["error", "pageerror", "warning"].includes(row.seviye)) ?? [];
   const ag = result?.ag.filter((row) => !onlyProblems || row.basarisiz) ?? [];
