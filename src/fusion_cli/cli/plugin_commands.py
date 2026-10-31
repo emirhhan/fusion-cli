@@ -3,8 +3,9 @@
 fusion eklenti kur <yol|https://…|sahip/repo|ad@pazar> [--yes] [--dry-run] [--karma <sha256>]
 fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--hepsi] | kaldir <ad>
 fusion eklenti guven <ad>            değişmiş eklentiyi yeniden onayla
+fusion eklenti guncelle <ad> [--yes] kaydedildiği kaynaktan yeniden çek (Claude `plugin update`)
 fusion eklenti kesfet [pazar]        kayıtlı pazarlardaki eklentiler
-fusion eklenti pazar ekle|liste|kaldir
+fusion eklenti pazar ekle|liste|guncelle|kaldir
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from ..config.plugin_layout import validate_plugin
 from ..config.plugin_store import inspect_plugin, installed_plugins, load_state, plugins_dir
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
+from ..tools import plugin_update
 from .plugin_view import (
     DIGEST_HINT,
     format_catalog,
@@ -44,6 +46,9 @@ REMOVED = "Kaldırıldı (çöpte): {name}"
 TOGGLED = "{name}: {state}"
 ALL_TOGGLED = "Bütün eklentiler: {state}"
 TRUSTED = "Onaylandı: {name} (karma yenilendi)"
+UPDATED = "Güncellendi: {name}{version}. Bileşenler yeni turda/oturumda etkin olur."
+UP_TO_DATE = "Zaten güncel: {name}"
+MARKET_UPDATED = "Pazar güncellendi: {name}. Eklentileri gör: fusion eklenti kesfet {name}"
 MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti kesfet {name}"
 MARKET_REMOVED = "Pazar kaldırıldı: {name}"
 
@@ -185,6 +190,24 @@ def trust(
     _run(lambda: TRUSTED.format(name=plugins.trust_plugin(name, approve=approve).name))
 
 
+@app.command("guncelle")
+def update(
+    name: str = typer.Argument(..., help="Eklenti adı"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
+    digest: str = typer.Option("", "--karma", help="Önizlenen karma; içerik değiştiyse kurulmaz."),
+) -> None:
+    """Eklentiyi kaydedildiği kaynaktan yeniden çek; yeni içerik önizlenir ve onay ister."""
+
+    def act() -> str:
+        result = plugin_update.update_plugin(name, approve=approver(yes), expected_digest=digest)
+        if not result.changed:
+            return UP_TO_DATE.format(name=name)
+        version = f" {result.record.version}" if result.record.version else ""
+        return UPDATED.format(name=name, version=version)
+
+    _run(act)
+
+
 @app.command("kesfet")
 def discover(marketplace: str = typer.Argument("", help="Yalnız bu pazar")) -> None:
     """Kayıtlı pazarlardaki eklentiler (✓ kurulu)."""
@@ -212,6 +235,17 @@ def market_list() -> None:
     _run(lambda: format_marketplaces(load_state()))
 
 
+@market_app.command("guncelle")
+def market_update(name: str = typer.Argument(..., help="Pazar adı")) -> None:
+    """Git pazarını yeniden klonla (yerel pazar zaten diskten okunur)."""
+
+    def act() -> str:
+        plugin_update.update_marketplace(name)
+        return MARKET_UPDATED.format(name=name)
+
+    _run(act)
+
+
 @market_app.command("kaldir")
 def market_remove(name: str = typer.Argument(..., help="Pazar adı")) -> None:
     """Pazar kaydını sil (kurulu eklentiler kalır)."""
@@ -234,9 +268,15 @@ for _alias, _command in (
     ("disable", disable),
     ("uninstall", uninstall),
     ("trust", trust),
+    ("update", update),
     ("discover", discover),
 ):
     app.command(_alias, hidden=True)(_command)
-for _alias, _command in (("add", market_add), ("list", market_list), ("remove", market_remove)):
+for _alias, _command in (
+    ("add", market_add),
+    ("list", market_list),
+    ("update", market_update),
+    ("remove", market_remove),
+):
     market_app.command(_alias, hidden=True)(_command)
 app.add_typer(market_app, name="marketplace", hidden=True)

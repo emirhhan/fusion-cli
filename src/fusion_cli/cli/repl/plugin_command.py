@@ -3,7 +3,7 @@
 /plugin                         kurulu eklentiler
 /plugin kur <kaynak> [--yes]    kanca/MCP içeren eklenti --yes ister (önce önizleme gösterilir)
 /plugin dogrula <yol|ad> · ac|kapat <ad|--hepsi> · kaldir <ad> · guven <ad> --yes
-/plugin kesfet [pazar] · /plugin pazar ekle|liste|kaldir …
+/plugin guncelle <ad> [--yes] · /plugin kesfet [pazar] · /plugin pazar ekle|liste|guncelle|kaldir …
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from ...config.plugin_layout import validate_plugin
 from ...config.plugin_store import installed_plugins, load_state, plugins_dir
 from ...core.plugins import PluginError
 from ...tools import plugin_install as plugins
+from ...tools import plugin_update
 from ..plugin_view import (
     format_catalog,
     format_installed,
@@ -27,13 +28,16 @@ from .state import ReplState
 
 USAGE = (
     "Kullanım: /plugin [liste | kur <kaynak> [--yes] | dogrula <yol> | ac|kapat <ad|--hepsi> | "
-    "kaldir <ad> | guven <ad> --yes | kesfet [pazar] | pazar ekle|liste|kaldir]"
+    "kaldir <ad> | guven <ad> --yes | guncelle <ad> [--yes] | kesfet [pazar] | "
+    "pazar ekle|liste|guncelle|kaldir]"
 )
 NEEDS_YES = "İnceledikten sonra onayla: /plugin {verb} {target} --yes"
 INSTALLED = (
     "Kuruldu: {name} ({status}). Bileşenler yeni turda kataloğa girer; MCP yeniden başlatınca."
 )
 DONE = "{name}: {state}"
+UP_TO_DATE = "Zaten güncel: {name}"
+UPDATED = "Güncellendi: {name}{version}. Bileşenler yeni turda kataloğa girer."
 _YES = frozenset({"--yes", "-y", "evet"})
 #: `(fiil, hedef)` → kullanıcıya gösterilen son önizlemenin karması. `--yes` ikinci çalıştırması
 #: kaynağı YENİDEN çeker; karma farklıysa (araya giren değişiklik) kurulmaz.
@@ -49,6 +53,7 @@ _ALIASES = {
     "uninstall": "kaldir",
     "remove": "kaldir",
     "trust": "guven",
+    "update": "guncelle",
     "discover": "kesfet",
     "marketplace": "pazar",
 }
@@ -125,6 +130,23 @@ def _trust(rest: list[str], confirmed: bool) -> str:
     return "\n".join([*notes, DONE.format(name=record.name, state="onaylandı")])
 
 
+def _update(rest: list[str], confirmed: bool) -> str:
+    if len(rest) != 1:
+        return USAGE
+    notes: list[str] = []
+    try:
+        result = plugin_update.update_plugin(
+            rest[0],
+            approve=_approval("guncelle", rest[0], confirmed, notes),
+            expected_digest=_SHOWN.pop(("guncelle", rest[0]), "") if confirmed else "",
+        )
+    except PluginError as error:
+        return "\n".join([*notes, str(error)])
+    if not result.changed:
+        return UP_TO_DATE.format(name=rest[0])
+    return "\n".join([*notes, UPDATED.format(name=rest[0], version=result.record.version or "")])
+
+
 def _validate(rest: list[str], confirmed: bool) -> str:
     del confirmed
     if len(rest) != 1:
@@ -172,6 +194,9 @@ def _market(rest: list[str], confirmed: bool) -> str:
     if action in {"ekle", "add"} and len(rest) == 2:
         record = plugins.add_marketplace(rest[1])
         return DONE.format(name=record.name, state=f"pazar eklendi ({record.kind})")
+    if action in {"guncelle", "update"} and len(rest) == 2:
+        plugin_update.update_marketplace(rest[1])
+        return DONE.format(name=rest[1], state="pazar güncellendi")
     if action in {"kaldir", "remove"} and len(rest) == 2:
         plugins.remove_marketplace(rest[1])
         return DONE.format(name=rest[1], state="pazar kaldırıldı")
@@ -186,6 +211,7 @@ _HANDLERS: dict[str, Callable[[list[str], bool], str]] = {
     "kapat": _toggle(False),
     "kaldir": _remove,
     "guven": _trust,
+    "guncelle": _update,
     "kesfet": _discover,
     "pazar": _market,
 }

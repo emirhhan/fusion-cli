@@ -83,3 +83,29 @@ it("değişmiş eklentiyi tek tıkla onaylamaz: önce güncel içeriği gösteri
   await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.guven", { ad: "bicimci", onay: true, beklenen_karma: "b".repeat(64) }));
   expect(await screen.findByText("bicimci yeniden onaylandı.")).toBeTruthy();
 });
+
+it("güncelle önce yeni içeriği gösterir, doğrula sonucu bildirir, pazar güncellenir", async () => {
+  const kurulu = { ad: "bicimci", surum: "0.1.0", aciklama: "", durum: "etkin", ayrinti: "", kaynak: "./b", pazar: "", etkin: true, calistirilabilir: true, bilesenler: bilesen };
+  const yeni = { ...onizleme, surum: "0.2.0", kancalar: ["Stop: yeni"], karma: "c".repeat(64) };
+  const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
+    if (name === "eklenti.listele") return { ok: true, eklentiler: [kurulu], pazarlar: [{ ad: "ekip", kaynak: "o/r", tur: "git" }] };
+    if (name === "eklenti.guncelle" && data.onay !== true) return { ok: false, onay_gerekli: true, metin: "incele", onizleme: yeni };
+    if (name === "eklenti.guncelle") return { ok: true, yenile: true, guncel: false, eklentiler: [{ ...kurulu, surum: "0.2.0" }], pazarlar: [{ ad: "ekip", kaynak: "o/r", tur: "git" }] };
+    if (name === "eklenti.dogrula") return { ok: true, gecerli: true, butunluk: "etkin", hatalar: [], uyarilar: ["açıklama yok"] };
+    if (name === "eklenti.pazar_guncelle") return { ok: true, eklentiler: [kurulu], pazarlar: [{ ad: "ekip", kaynak: "o/r", tur: "git" }] };
+    return { ok: false };
+  });
+  render(<PluginsPanel client={{ request } as unknown as ProtocolClient} />);
+  fireEvent.click(await screen.findByRole("button", { name: "bicimci güncelle" }));
+  expect(await screen.findByText("Stop: yeni")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Onaylıyorum, güncelle" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.guncelle", { ad: "bicimci", onay: true, beklenen_karma: "c".repeat(64) }));
+  expect(await screen.findByText("bicimci güncellendi.")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "bicimci doğrula" }));
+  expect(await screen.findByText(/bicimci geçerli · bütünlük: etkin · açıklama yok/)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("tab", { name: /Pazarlar/ }));
+  fireEvent.click(screen.getByRole("button", { name: "ekip pazarını güncelle" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.pazar_guncelle", { ad: "ekip" }));
+});

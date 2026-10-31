@@ -718,3 +718,91 @@ def test_guven_bildirim_adi_degismisse_reddeder(tmp_path):
 
     with pytest.raises(PluginError, match="adı değişti"):
         plugin_install.trust_plugin("rapor-araclari", approve=_yes)
+
+
+# --- Güncelleme (Claude Code `plugin update` / `marketplace update`) --------------- #
+
+
+def test_eklenti_guncelle_yeni_icerigi_onayla_kurar_eskiyi_cope_atar_durumu_korur(tmp_path):
+    from fusion_cli.tools import plugin_update
+
+    source = _plugin(tmp_path / "kaynak")
+    plugin_install.install_plugin(str(source), approve=_yes)
+    plugin_install.set_plugin_enabled("rapor-araclari", False)
+
+    same = plugin_update.update_plugin("rapor-araclari", approve=_yes)
+    assert same.changed is False
+
+    (source / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "rapor-araclari", "version": "1.3.0"}), encoding="utf-8"
+    )
+    _plugin_hooks = source / "hooks"
+    _plugin_hooks.mkdir()
+    (_plugin_hooks / "hooks.json").write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "yeni"}]}]}}),
+        encoding="utf-8",
+    )
+    seen: list[plugin_install.PluginPreview] = []
+
+    def decline(preview: plugin_install.PluginPreview) -> bool:
+        seen.append(preview)
+        return False
+
+    with pytest.raises(PluginError, match="onaylanmadı"):
+        plugin_update.update_plugin("rapor-araclari", approve=decline)
+    assert plugin_store.load_state().plugin("rapor-araclari").version == "1.2.0"  # type: ignore[union-attr]
+    assert seen[0].report.hook_lines == ("Stop: yeni",)
+
+    with pytest.raises(PluginError, match="değişti"):
+        plugin_update.update_plugin("rapor-araclari", approve=_yes, expected_digest="0" * 64)
+
+    result = plugin_update.update_plugin(
+        "rapor-araclari", approve=_yes, expected_digest=seen[0].digest
+    )
+    assert result.changed is True
+    record = plugin_store.load_state().plugin("rapor-araclari")
+    assert record is not None and record.version == "1.3.0"
+    assert record.enabled is False and record.exec_approved is True
+    (item,) = plugin_store.installed_plugins()
+    assert item.status == plugin_store.STATUS_DISABLED
+
+
+def test_pazar_guncelle_yeni_girdileri_okur_baska_adi_reddeder(tmp_path):
+    from fusion_cli.tools import plugin_update
+
+    folder = _market(tmp_path / "pazar")
+    manifest = folder / ".claude-plugin" / "marketplace.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["plugins"] = data["plugins"][:1]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    plugin_install.add_marketplace(str(folder))
+
+    _plugin(folder / "plugins" / "ikinci", "ikinci")
+    data["plugins"].append({"name": "ikinci", "source": "./plugins/ikinci"})
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    plugin_update.update_marketplace("ekip")
+    assert {e.entry.name for e in plugin_install.browse("ekip")} == {"rapor-araclari", "ikinci"}
+
+    data["name"] = "baska"
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(PluginError, match="adı değişti"):
+        plugin_update.update_marketplace("ekip")
+
+
+def test_cli_ve_repl_guncelle_komutlari(tmp_path):
+    runner = CliRunner()
+    source = _plugin(tmp_path / "kaynak")
+    assert runner.invoke(plugin_app, ["kur", str(source)]).exit_code == 0
+    up = runner.invoke(plugin_app, ["guncelle", "rapor-araclari"])
+    assert up.exit_code == 0 and "güncel" in up.output
+    assert runner.invoke(plugin_app, ["update", "rapor-araclari"]).exit_code == 0
+
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    home.mkdir()
+    root.mkdir()
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
+    state = ReplState(config=load_config(config_file), memory=null_memory(), root=root, home=home)
+    command = build_registry(home, skills=lambda: state.capabilities).get("plugin")
+    assert command is not None
+    assert "güncel" in command.handler(state, "guncelle rapor-araclari")

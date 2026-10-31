@@ -3,6 +3,8 @@
     eklenti.listele | eklenti.onizle {kaynak} | eklenti.kur {kaynak, onay, beklenen_karma}
     eklenti.etkinlik {ad|hepsi, etkin} | eklenti.kaldir {ad}
     eklenti.guven {ad} → önizleme · {ad, onay, beklenen_karma} → onay
+    eklenti.guncelle {ad, onay?, beklenen_karma?} | eklenti.dogrula {ad}
+    eklenti.pazar_guncelle {ad}
     eklenti.kesfet {pazar?} | eklenti.pazar_ekle {kaynak} | eklenti.pazar_kaldir {ad}
     ice_aktar.onizle {kaynak} | ice_aktar.uygula {kaynak}
     surum.notlari {surum?}
@@ -28,17 +30,20 @@ from .. import __version__
 from ..config.importers import ImportPlan, apply_plan, build_plan, default_secrets
 from ..config.loader import refresh_plugin_mcp_servers
 from ..config.models import Config, McpScope
-from ..config.plugin_layout import PluginLayout, server_target
+from ..config.plugin_layout import PluginLayout, server_target, validate_plugin
 from ..config.plugin_store import (
     PLUGIN_HOOKS_ACTIVE,
     InstalledPlugin,
+    inspect_plugin,
     installed_plugins,
     load_state,
+    plugins_dir,
 )
 from ..config.release_notes import changelog_path, load_sections, release_notes_text
 from ..core.errors import ConfigError
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
+from ..tools import plugin_update
 
 EXTENSION_ROUTES = frozenset(
     {
@@ -48,9 +53,12 @@ EXTENSION_ROUTES = frozenset(
         "eklenti.etkinlik",
         "eklenti.kaldir",
         "eklenti.guven",
+        "eklenti.guncelle",
+        "eklenti.dogrula",
         "eklenti.kesfet",
         "eklenti.pazar_ekle",
         "eklenti.pazar_kaldir",
+        "eklenti.pazar_guncelle",
         "ice_aktar.onizle",
         "ice_aktar.uygula",
         "surum.notlari",
@@ -211,6 +219,47 @@ def _trust(plugin: str, data: Mapping[str, object]) -> dict[str, Any]:
     return {**_list(), "yenile": True}
 
 
+def _update(data: Mapping[str, object]) -> dict[str, Any]:
+    """`eklenti.guncelle`: kurulumla aynı onay/karma kapıları; içerik aynıysa `guncel: true`."""
+    plugin = _text(data, "ad")
+    if not plugin:
+        return {"ok": False, "metin": NEEDS_NAME}
+    approved = data.get("onay") is True
+    seen: list[dict[str, Any]] = []
+
+    def approve(preview: plugins.PluginPreview) -> bool:
+        seen.append(_preview(preview))
+        return approved or not preview.is_executable
+
+    try:
+        result = plugin_update.update_plugin(
+            plugin, approve=approve, expected_digest=_text(data, "beklenen_karma")
+        )
+    except PluginError as error:
+        if seen and seen[0]["calistirilabilir"] and not approved:
+            return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}
+        return {"ok": False, "metin": str(error)}
+    return {**_list(), "yenile": result.changed, "guncel": not result.changed}
+
+
+def _validate(data: Mapping[str, object]) -> dict[str, Any]:
+    """`eklenti.dogrula` (CLI `fusion eklenti dogrula <ad>`): bildirim/bileşen/bütünlük raporu."""
+    record = load_state().plugin(_text(data, "ad"))
+    if record is None:
+        return {"ok": False, "metin": plugins.ERR_NOT_INSTALLED.format(name=_text(data, "ad"))}
+    report = validate_plugin(plugins_dir() / record.name)
+    item = inspect_plugin(record)
+    return {
+        "ok": True,
+        "ad": record.name,
+        "gecerli": report.ok,
+        "hatalar": list(report.errors),
+        "uyarilar": list(report.warnings),
+        "butunluk": item.status,
+        "ayrinti": item.detail,
+    }
+
+
 def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
     if name == "eklenti.kesfet":
         entries = plugins.browse(_text(data, "pazar"))
@@ -232,6 +281,8 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
         if not source:
             return {"ok": False, "metin": NEEDS_SOURCE}
         plugins.add_marketplace(source)
+    elif name == "eklenti.pazar_guncelle":
+        plugin_update.update_marketplace(_text(data, "ad"))
     else:
         plugins.remove_marketplace(_text(data, "ad"))
     return _list()
@@ -321,6 +372,10 @@ def _dispatch_sync(
             return _with_plugin_servers(_install(data), context)
         if name in {"eklenti.etkinlik", "eklenti.kaldir", "eklenti.guven"}:
             return _with_plugin_servers(_plugin_action(name, data), context)
+        if name == "eklenti.guncelle":
+            return _with_plugin_servers(_update(data), context)
+        if name == "eklenti.dogrula":
+            return ExtensionResult(_validate(data))
         if name.startswith("eklenti."):
             return ExtensionResult(_market(name, data))
         if name.startswith("ice_aktar."):

@@ -171,3 +171,32 @@ def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
     assert "plugin_veri_db" in {s.name for s in state.config.mcp_servers}
     command.handler(state, "kapat veri")
     assert "plugin_veri_db" not in {s.name for s in state.config.mcp_servers}
+
+
+def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
+    context = _context(tmp_path)
+    source = _hooked_plugin(tmp_path / "kaynak")
+    assert _call("eklenti.kur", {"kaynak": str(source), "onay": True}, context)["ok"]
+
+    same = _call("eklenti.guncelle", {"ad": "bicimci"}, context)
+    assert same["ok"] is True and same["guncel"] is True
+
+    (source / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "yeni"}]}]}}),
+        encoding="utf-8",
+    )
+    asked = _call("eklenti.guncelle", {"ad": "bicimci"}, context)
+    assert asked["onay_gerekli"] is True
+    assert asked["onizleme"]["kancalar"] == ["Stop: yeni"]  # type: ignore[index]
+    karma = asked["onizleme"]["karma"]  # type: ignore[index]
+    done = _call(
+        "eklenti.guncelle", {"ad": "bicimci", "onay": True, "beklenen_karma": karma}, context
+    )
+    assert done["ok"] is True and done["yenile"] is True and done["guncel"] is False
+
+    checked = _call("eklenti.dogrula", {"ad": "bicimci"}, context)
+    assert checked["ok"] is True and checked["gecerli"] is True
+    assert checked["butunluk"] == "etkin" and checked["hatalar"] == []
+    assert _call("eklenti.dogrula", {"ad": "yok"}, context)["ok"] is False
+    missing = _call("eklenti.pazar_guncelle", {"ad": "yok"}, context)
+    assert missing["ok"] is False and "Pazar yok" in str(missing["metin"])

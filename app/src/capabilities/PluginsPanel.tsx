@@ -26,7 +26,9 @@ interface Preview {
   calistirilabilir: boolean; baglam_maliyeti: number; uyarilar: string[]; hatalar: string[]; karma: string;
 }
 /** Ekrandaki önizleme: yeni kurulum mu, değişmiş eklentinin yeniden onayı mı. */
-type PendingPreview = { mode: "kur"; kaynak: string; data: Preview } | { mode: "guven"; ad: string; data: Preview };
+type PendingPreview =
+  | { mode: "kur"; kaynak: string; data: Preview }
+  | { mode: "guven" | "guncelle"; ad: string; data: Preview };
 interface CatalogEntry { ad: string; pazar: string; surum: string; aciklama: string; kurulu: boolean }
 interface Marketplace { ad: string; kaynak: string; tur: string }
 
@@ -85,11 +87,14 @@ const STATUS_TONE: Record<string, string> = { etkin: "on", kapalı: "off", deği
 
 type Tab = "kurulu" | "kesfet" | "pazarlar";
 
-interface PreviewCardProps { preview: Preview; reapprove: boolean; onConfirm: () => void; onCancel: () => void; busy: boolean }
+interface PreviewCardProps { preview: Preview; mode: PendingPreview["mode"]; onConfirm: () => void; onCancel: () => void; busy: boolean }
 
-function PreviewCard({ preview, reapprove, onConfirm, onCancel, busy }: PreviewCardProps) {
+const CONFIRM_LABEL: Record<PendingPreview["mode"], string> = { kur: "Onaylıyorum, kur", guven: "Onaylıyorum", guncelle: "Onaylıyorum, güncelle" };
+
+function PreviewCard({ preview, mode, onConfirm, onCancel, busy }: PreviewCardProps) {
   const blocked = preview.hatalar.length > 0;
-  const confirmLabel = reapprove ? "Onaylıyorum" : preview.calistirilabilir ? "Onaylıyorum, kur" : "Kur";
+  const reapprove = mode === "guven";
+  const confirmLabel = mode === "kur" && !preview.calistirilabilir ? "Kur" : CONFIRM_LABEL[mode];
   return (
     <section aria-label="Eklenti önizlemesi" className="plugins-panel__preview">
       <h3>{preview.ad} {preview.surum}</h3>
@@ -174,17 +179,43 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
     } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
   };
 
+  /** Güncelle: içerik aynıysa "zaten güncel"; kanca/MCP içeren yeni içerik önce önizlenir. */
+  const askUpdate = async (ad: string) => {
+    setBusy(true); setError(null); setNotice(""); setPreview(null);
+    try {
+      const payload = await client.request("eklenti.guncelle", { ad });
+      const data = previewFrom(payload.onizleme);
+      if (payload.onay_gerekli === true && data) { setPreview({ mode: "guncelle", ad, data }); return; }
+      if (payload.ok !== true) throw new Error(str(payload.metin) || "Güncellenemedi.");
+      applyList(payload);
+      setNotice(payload.guncel === true ? `${ad} zaten güncel.` : `${ad} güncellendi.`);
+      if (payload.yenile === true) onChanged?.();
+    } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
+  };
+
+  const validate = async (ad: string) => {
+    setBusy(true); setError(null); setNotice("");
+    try {
+      const payload = await client.request("eklenti.dogrula", { ad });
+      if (payload.ok !== true) throw new Error(str(payload.metin) || "Doğrulanamadı.");
+      const problems = [...texts(payload.hatalar), ...texts(payload.uyarilar)];
+      const head = payload.gecerli === true ? `${ad} geçerli` : `${ad} geçersiz`;
+      setNotice(`${head} · bütünlük: ${str(payload.butunluk)}${problems.length ? ` · ${problems.join(" · ")}` : ""}`);
+    } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
+  };
+
   const confirmPreview = async () => {
     if (!preview) return;
     const beklenen_karma = preview.data.karma;
     // Önizleme kullanıcıya gösterildi: onay bu tıklamadır ve yalnız gösterilen içerik için geçerli.
-    const done = preview.mode === "guven"
-      ? await run("eklenti.guven", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} yeniden onaylandı.`)
-      : await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma }, `${preview.data.ad} kuruldu.`);
+    let done: Record<string, unknown> | null;
+    if (preview.mode === "kur") done = await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma }, `${preview.data.ad} kuruldu.`);
+    else if (preview.mode === "guven") done = await run("eklenti.guven", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} yeniden onaylandı.`);
+    else done = await run("eklenti.guncelle", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} güncellendi.`);
     if (done) { setPreview(null); if (preview.mode === "kur") setSource(""); }
   };
 
-  const card = preview && <PreviewCard busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmPreview()} preview={preview.data} reapprove={preview.mode === "guven"} />;
+  const card = preview && <PreviewCard busy={busy} mode={preview.mode} onCancel={() => setPreview(null)} onConfirm={() => void confirmPreview()} preview={preview.data} />;
 
   const discover = async () => {
     setTab("kesfet"); setBusy(true); setError(null);
@@ -227,6 +258,8 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
                 </div>
                 <div className="plugins-panel__actions">
                   {plugin.durum === "değişmiş" && <button disabled={busy} onClick={() => void askReapproval(plugin.ad)} type="button">İncele ve yeniden onayla</button>}
+                  <button aria-label={`${plugin.ad} güncelle`} disabled={busy} onClick={() => void askUpdate(plugin.ad)} type="button">Güncelle</button>
+                  <button aria-label={`${plugin.ad} doğrula`} disabled={busy} onClick={() => void validate(plugin.ad)} type="button">Doğrula</button>
                   <button aria-checked={plugin.etkin} aria-label={`${plugin.ad} etkin`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.etkinlik", { ad: plugin.ad, etkin: !plugin.etkin }, `${plugin.ad} ${plugin.etkin ? "kapatıldı" : "açıldı"}.`)} role="switch" type="button"><span /></button>
                   {confirmRemove === plugin.ad ? (
                     <>
@@ -269,7 +302,10 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
             {markets.map((market) => (
               <li className="plugins-panel__item" key={market.ad}>
                 <div className="plugins-panel__text"><strong>{market.ad}</strong><small>{market.tur} · {market.kaynak}</small></div>
-                <button disabled={busy} onClick={() => void run("eklenti.pazar_kaldir", { ad: market.ad }, `${market.ad} pazarı kaldırıldı.`)} type="button">Kaldır</button>
+                <div className="plugins-panel__actions">
+                  <button aria-label={`${market.ad} pazarını güncelle`} disabled={busy} onClick={() => void run("eklenti.pazar_guncelle", { ad: market.ad }, `${market.ad} pazarı güncellendi.`)} type="button">Güncelle</button>
+                  <button disabled={busy} onClick={() => void run("eklenti.pazar_kaldir", { ad: market.ad }, `${market.ad} pazarı kaldırıldı.`)} type="button">Kaldır</button>
+                </div>
               </li>
             ))}
           </ul>

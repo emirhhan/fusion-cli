@@ -193,6 +193,11 @@ def _check_url(url: str) -> str | None:
     return addresses[0]
 
 
+def markets_dir(root: Path) -> Path:
+    """Git pazarlarının klon klasörü (`<eklentiler>/.pazarlar`)."""
+    return root / _MARKETS_DIRNAME
+
+
 @contextmanager
 def _workspace(base: Path) -> Iterator[Path]:
     temp_root = base / _TEMP_DIRNAME
@@ -457,7 +462,7 @@ def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord
             _clone(url, clone)
             market = read_marketplace(clone)
             _check_market_name(market.name, url, root)
-            destination = root / _MARKETS_DIRNAME / market.name
+            destination = markets_dir(root) / market.name
             shutil.rmtree(destination, ignore_errors=True)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(clone), destination)
@@ -480,7 +485,7 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> None:
     record = state.marketplace(name)
     if record is None:
         raise PluginError(ERR_NO_MARKET.format(name=name))
-    clones = (root / _MARKETS_DIRNAME).resolve()
+    clones = markets_dir(root).resolve()
     folder = Path(record.path).resolve()
     # Yalnız Fusion'ın kendi klonu silinir: elle bozulmuş kayıttaki `~/Belgeler` silinmez.
     if record.kind == "git" and folder.is_relative_to(clones) and folder != clones:
