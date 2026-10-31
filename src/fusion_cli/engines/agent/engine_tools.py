@@ -146,6 +146,12 @@ def build_agent_registry(
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:
         extended.register(recent_actions_tool(memory_dir, conversation))
+    if getattr(deps.tool_context, "cron", None) is not None:
+        from ...core.clock import SystemClock
+        from ...tools.cron_tools import cron_tools
+
+        for cron_tool in cron_tools(SystemClock()):
+            extended.register(cron_tool)
     _register_forged_tools(extended, deps)
     runtime = getattr(deps.config, "runtime", None)
     kapali = frozenset(getattr(runtime, "disabled_tools", ()))

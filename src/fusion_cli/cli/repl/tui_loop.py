@@ -9,8 +9,10 @@ Ctrl-C fusion'dan çıkar. Onay/soru, `FusionTui`'nin modal desteğiyle köprül
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sys
+import time
 from collections.abc import Callable, Sequence
 
 from rich.console import Console
@@ -30,6 +32,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..session import run_agent_task, run_task
 from . import (
+    cron_store,
     help_view,
     history_view,
     macros,
@@ -47,7 +50,7 @@ from .commands import (
     parse,
     resume_choices,
 )
-from .loop import apply_auto_profile
+from .loop import CRON_POLL_S, apply_auto_profile
 from .partial_turn import PartialTurn
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore
@@ -255,6 +258,26 @@ class _TuiSession:
             return
         self._task = asyncio.ensure_future(self._handle(line))
 
+    async def _cron_watcher(self) -> None:
+        """Vadesi gelen zamanlanmış görevi tur yokken `_submit` yoluyla ver (P-038)."""
+        while self._state.running:
+            await asyncio.sleep(CRON_POLL_S)
+            if self._busy:
+                continue
+            now = time.time()
+            due = self._state.cron.due(now)
+            if not due:
+                continue
+            task = due[0]
+            self._state.cron.complete(task.id, now=now)
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_FIRED.format(id=task.id))}[/{theme.DIM}]"
+            )
+            cron_store.save(
+                self._state.config.memory_dir, self._state.conversation_id, self._state.cron
+            )
+            self._submit(task.prompt)
+
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
             self._task.cancel()
@@ -342,6 +365,9 @@ class _TuiSession:
         finally:
             self._tui.clear_work()
             self._sync_status()
+            cron_store.save(
+                self._state.config.memory_dir, self._state.conversation_id, self._state.cron
+            )
             if not self._state.running:
                 self._tui.request_exit()
             elif self._queue:
@@ -574,6 +600,7 @@ class _TuiSession:
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
+                    cron=self._state.cron,
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
@@ -659,6 +686,9 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
 async def run_tui_repl(state: ReplState, console: Console) -> int:
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
+    state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # Gözcü ayrı sahipli görevdir (bkz. loop.run_repl): drain onu beklemesin.
+    cron_watcher = asyncio.ensure_future(session._cron_watcher())
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state)
 
@@ -672,6 +702,9 @@ async def run_tui_repl(state: ReplState, console: Console) -> int:
     finally:
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
         session.tui.restore_wheel_modes()
+        cron_watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cron_watcher
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await session.background.drain()

@@ -34,12 +34,19 @@ describe("describeSchedule", () => {
 });
 
 describe("draftPayload", () => {
-  const taslak = { baslik: "", dakika: "30", gorev: "iş", gunler: [1], kok: "/p", saat: "08:15", tarih: "", tur: "gunluk" as const };
+  const taslak = { baslik: "", cron: "", dakika: "30", gorev: "iş", gunler: [1], kok: "/p", saat: "08:15", tarih: "", tur: "gunluk" as const };
 
   it("türe göre yalnız ilgili alanları gönderir", () => {
     expect(draftPayload(taslak)).toEqual({ baslik: "", gorev: "iş", kok: "/p", tur: "gunluk", saat: "08:15" });
     expect(draftPayload({ ...taslak, tur: "aralik" })).toMatchObject({ dakika: 30 });
     expect(draftPayload({ ...taslak, tur: "haftalik" })).toMatchObject({ gunler: [1], saat: "08:15" });
+  });
+
+  // P-038: masaüstü zamanlayıcıya cron ifadesi.
+  it("cron türünde ifadeyi normalize eder, 5 alan değilse Türkçe hata verir", () => {
+    expect(draftPayload({ ...taslak, cron: "  0  9 * *   1-5 ", tur: "cron" })).toEqual({ baslik: "", gorev: "iş", kok: "/p", tur: "cron", cron: "0 9 * * 1-5" });
+    expect(draftPayload({ ...taslak, cron: "0 9 * *", tur: "cron" })).toContain("5 alan");
+    expect(describeSchedule({ tur: "cron", cron: "*/30 * * * *" })).toBe("Cron */30 * * * *");
   });
 
   it("tek seferlikte tarih yoksa hata, varsa epoch saniye verir", () => {
@@ -303,7 +310,7 @@ it("görev menüsündeki bağlantı gerçek görev kartına odaklanır", async (
 // Ölçüldü (30 Ekim): haftalık görev günsüz, geçmiş tarihli bir kez, 5 dakikalık aralık kabul ediliyordu;
 // silme tek tıktı; runNow hatası yakalanmıyor; bozuk görev kaydı kartı çökertiyordu (U5-54..56, U5-58).
 describe("zamanlama doğrulama ve dayanıklılık (30 Ekim)", () => {
-  const taslak = { baslik: "", dakika: "30", gorev: "iş", gunler: [1], kok: "/p", saat: "08:15", tarih: "", tur: "gunluk" as const };
+  const taslak = { baslik: "", cron: "", dakika: "30", gorev: "iş", gunler: [1], kok: "/p", saat: "08:15", tarih: "", tur: "gunluk" as const };
 
   it("günsüz haftalık, geçmiş tarihli bir kez ve kısa aralık reddedilir", () => {
     expect(draftPayload({ ...taslak, tur: "haftalik", gunler: [] })).toBe("Haftalık görev için en az bir gün seç.");

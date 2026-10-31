@@ -17,6 +17,7 @@ from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
+from ...core.session_cron import SessionCron
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
@@ -155,6 +156,8 @@ class ReplState:
     approval_memory: ApprovalMemory = field(default_factory=ApprovalMemory)
     #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
     reminders: list[Reminder] = field(default_factory=list)
+    #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
+    cron: SessionCron = field(default_factory=SessionCron)
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
 

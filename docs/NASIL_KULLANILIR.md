@@ -313,6 +313,7 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
 | `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
+| `/loop 5m <görev>` · `/loop list` · `/loop stop [id]` | Görevi aralıkla yinele (oturum boyunca) |
 | `/good` · `/bad` | Fusion'a geri bildirim |
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
@@ -368,3 +369,26 @@ taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` il
 (Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
 yalnız yol basılır.
+
+---
+
+## Oturum zamanlayıcısı: `/loop` ve `cron_*` araçları
+
+Claude Code'un `/loop` ve `CronCreate/List/Delete`, `ScheduleWakeup` araçlarının karşılığı.
+Görevler **oturumla yaşar**: en çok 50 görev, en az 1 dakika aralık, 7 gün sonra düşer.
+Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tur** olarak
+gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
+
+- `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
+- `/loop <görev>` → varsayılan 10 dk; argümansız `/loop` → `.claude/loop.md` (proje ya da ev),
+  yoksa yerleşik bakım görevi.
+- `/loop list`, `/loop stop <id>`, `/loop stop all`.
+- Ajan araçları: `cron_create {prompt, every|cron|in}`, `cron_list`, `cron_delete {id}`,
+  `schedule_wakeup {in, note}` (uzun dış iş için kendini uyandırma). Cron 5 alanlıdır:
+  `*/15 9-18 * * 1-5`.
+- Kayıt: `memory_dir/oturum-cron/<sohbet>.json`; masaüstü sekmesi aynı kimlikle açılınca
+  süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği
+  üretir (P-014 `--resume` gelince aynı dosya devralınır).
+- Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
+  `cron.sil` de var). Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
+  (en seyrek 15 dakikada bir).

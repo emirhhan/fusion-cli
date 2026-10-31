@@ -111,6 +111,7 @@ import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
 import { pickScheduleClient } from "./schedule/pickScheduleClient";
+import { useSessionCron } from "./schedule/useSessionCron";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
@@ -753,6 +754,11 @@ export function SessionUygulama({
       baslik: "Zamanlanmış görev başlatılmadı",
       metin: `"${task.baslik}" güvenli biçimde başlatılamadı (${reason}). Görev gönderilmedi; yeniden dene.`,
     }),
+  });
+  // Oturum zamanlayıcısı (/loop, cron_*): vadesi gelen görev sohbet boştayken normal tur olur (P-038).
+  useSessionCron({
+    session: active ? { id: active.id, status: active.status, running: active.running, question: active.question, client: active.client } : null,
+    send: controller.send,
   });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {

@@ -31,6 +31,7 @@ from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import (
+    loop_command,
     macros,
     model_flows,
     plan_card,
@@ -852,6 +853,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    SlashCommand(
+        "loop",
+        messages.CMD_LOOP,
+        loop_command.command,
+        group="Makro",
+        usage="[aralık] <görev|/komut> | list | stop [id]",
+    ),
 )
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü

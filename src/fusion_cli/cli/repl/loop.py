@@ -20,6 +20,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -63,7 +64,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros, plan_card
+from . import cron_store, help_view, history_view, macros, plan_card
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -155,6 +156,10 @@ async def run_repl(
         console.print(recent, highlight=False)
         console.print()
     _sync_status_bar(reader, state, background)
+    state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
+    # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
+    cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
 
     try:
         while state.running:
@@ -164,9 +169,38 @@ async def run_repl(
             if not line.strip():
                 continue
             await _handle_safely(line.strip(), state, registry, reader, console, background)
+            cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
+        cron_watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cron_watcher
         await _shutdown(background, console)
     return 0
+
+
+#: Zamanlayıcı vadesi bu sıklıkla yoklanır; görev en az 1 dakikalık olduğundan yeter.
+CRON_POLL_S = 1.0
+
+
+async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -> None:
+    """Vadesi gelen `/loop`/`cron_*` görevini REPL boştayken yeni satır olarak ver (P-038).
+
+    Tur sürerken ya da istem açık değilken beklenir; görev düşmez. Satır istem
+    üzerinden girer (`ReplInput.inject`) ki komut da (`/verify`) görev de aynı yoldan
+    işlensin.
+    """
+    while state.running:
+        await asyncio.sleep(CRON_POLL_S)
+        now = time.time()
+        due = state.cron.due(now)
+        if not due:
+            continue
+        task = due[0]
+        if not reader.inject(task.prompt):
+            continue
+        state.cron.complete(task.id, now=now)
+        console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")
+        cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
 
 
 def _arm_reminders(state: ReplState, console: Console, background: BackgroundTasks) -> None:
@@ -512,6 +546,7 @@ async def _agent_turn(
             extra_roots=state.extra_roots,
             restrict_to_root=state.config.runtime.restrict_to_root,
             remotion_browser=state.remotion_browser,
+            cron=state.cron,
         )
         partial = PartialTurn()
         prompter = ConsolePrompter(

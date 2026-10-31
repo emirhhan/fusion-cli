@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import macros
+from ..cli.repl import cron_store, macros
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
@@ -1232,6 +1232,12 @@ class AppSession:
             return web_login_state(request.data.get("pid"))
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
+        if request.name == "cron.listele":
+            return self._cron_list()
+        if request.name == "cron.sil":
+            return self._cron_delete(request.data)
+        if request.name == "cron.vadesi_gelenler":
+            return self._cron_due()
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
@@ -1474,6 +1480,9 @@ class AppSession:
             yeni_kimlik = sohbet_value.strip()
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
+            if conversation_changed:
+                # Süresi dolmamış zamanlanmış görevler aynı sekmeyle geri gelir (P-038).
+                self._state.cron = cron_store.load(self._state.config.memory_dir, yeni_kimlik)
         if new_root is not None:
             root_changed = new_root.resolve() != self._root.resolve()
             self._root = new_root
@@ -1779,6 +1788,51 @@ class AppSession:
         self._note_persist_warning(persist_engine(self._state.config, engine.value))
         return None
 
+    # --- Oturum zamanlayıcısı (P-038) ------------------------------------------- #
+
+    def _cron_save(self) -> None:
+        cron_store.save(
+            self._state.config.memory_dir, self._conversation_id or "app", self._state.cron
+        )
+
+    def _cron_list(self) -> dict[str, Any]:
+        """`cron.listele`: sekmenin zamanlanmış görevleri."""
+        tasks = self._state.cron.list(time.time())
+        return {"ok": True, "gorevler": [task.to_dict() for task in tasks]}
+
+    def _cron_delete(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`cron.sil {id}`; `id: "all"` hepsini durdurur."""
+        task_id = data.get("id")
+        if not isinstance(task_id, str) or not task_id.strip():
+            return {"ok": False, "metin": "Görev kimliği gerekli."}
+        if task_id == "all":
+            count = self._state.cron.clear()
+        else:
+            count = 1 if self._state.cron.delete(task_id) else 0
+        self._cron_save()
+        if count == 0:
+            return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
+        return {"ok": True, "silinen": count}
+
+    def _cron_due(self) -> dict[str, Any]:
+        """`cron.vadesi_gelenler`: boştaysa vadesi gelen görevleri ver ve ilerlet.
+
+        Arayüz dönen görevleri normal tur olarak gönderir. Tur sürerken boş liste döner;
+        görev düşmez, sonraki yoklamada gelir. Aynı görev iki kez verilmez (ilerletilir).
+        """
+        if self._turn is not None and not self._turn.done():
+            return {"ok": True, "gorevler": [], "mesgul": True}
+        now = time.time()
+        due = self._state.cron.due(now)
+        if not due:
+            return {"ok": True, "gorevler": []}
+        verilen = []
+        for task in due[:1]:
+            self._state.cron.complete(task.id, now=now)
+            verilen.append({"id": task.id, "gorev": task.prompt})
+        self._cron_save()
+        return {"ok": True, "gorevler": verilen}
+
     def _status(self) -> dict[str, Any]:
         return {
             "ok": True,
@@ -1955,6 +2009,7 @@ class AppSession:
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
         # Görev arayüze döner, arayüz onu normal tur olarak gönderir; kip ise o
         # tura burada taşınır.
+        self._cron_save()
         task, mode = self._state.take_pending()
         if not task:
             return result
@@ -2357,6 +2412,7 @@ class AppSession:
                 extra_roots=self._state.extra_roots,
                 home=self._state.home,
                 history=history,
+                cron=None if browser_only else self._state.cron,
                 chrome_bridge=self._chrome,
                 allowed_tools=(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
@@ -2510,6 +2566,7 @@ class AppSession:
             if receipt is not None:
                 continued["_retry_safe"] = False
             return continued
+        self._cron_save()
         cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin}
         if receipt is not None:
             cevap["_retry_safe"] = (

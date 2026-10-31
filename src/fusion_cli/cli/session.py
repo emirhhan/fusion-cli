@@ -37,6 +37,7 @@ from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
+from ..core.session_cron import SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
 from ..core.tools import ChromeControl, ToolContext
@@ -189,6 +190,7 @@ async def run_agent_task(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    cron: SessionCron | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -243,6 +245,9 @@ async def run_agent_task(
             post_edit_syntax_check=config.runtime.post_edit_syntax_check,
             shell_fingerprint=config.runtime.shell_workspace_fingerprint,
         )
+        if cron is not None:
+            # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
+            tool_context = replace(tool_context, cron=cron)
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.

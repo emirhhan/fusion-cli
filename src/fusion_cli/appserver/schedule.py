@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, ParamSpec
 
 from ..config.paths import user_data_dir
+from ..core.session_cron import CronSpec, SessionCronError, cron_next, parse_cron
 from .schedule_delivery import (
     acknowledge_delivery,
     add_delivery,
@@ -38,7 +39,11 @@ KIND_ONCE = "bir_kez"
 KIND_DAILY = "gunluk"
 KIND_WEEKLY = "haftalik"
 KIND_INTERVAL = "aralik"
-KINDS = (KIND_ONCE, KIND_DAILY, KIND_WEEKLY, KIND_INTERVAL)
+#: Cron ifadesi (5 alan); ayrıştırıcı oturum zamanlayıcısıyla ortak (`core.session_cron`, P-038).
+KIND_CRON = "cron"
+KINDS = (KIND_ONCE, KIND_DAILY, KIND_WEEKLY, KIND_INTERVAL, KIND_CRON)
+#: Zamanlama türüne göre taşınan alanlar; tür değişince öteki türün alanı düşer.
+SPEC_KEYS = ("zaman", "saat", "gunler", "dakika", "cron")
 
 #: En kısa yineleme aralığı (dakika). Her çalışma yeni bir sohbet ve model turu
 #: açar; ücretsiz sağlayıcı kotası (NIM 40 istek/dk) daha sık tetiklemeyi kaldırmaz.
@@ -172,6 +177,24 @@ def next_run(spec: dict[str, Any], after: datetime) -> float | None:
         if minutes < MIN_INTERVAL_MINUTES:
             raise ScheduleError(f"Aralık en az {MIN_INTERVAL_MINUTES} dakika olmalı.")
         return (after + timedelta(minutes=minutes)).timestamp()
+    if kind == KIND_CRON:
+        expression = spec.get("cron")
+        if not isinstance(expression, str) or not expression.strip():
+            raise ScheduleError("Cron ifadesi gerekli (dakika saat gün ay hafta-günü).")
+        try:
+            parsed = parse_cron(expression)
+            upcoming = cron_next(parsed, after if after.tzinfo is not None else after.astimezone())
+        except SessionCronError as error:
+            raise ScheduleError(str(error)) from error
+        # Yerel saat yorumu; en sık her 15 dakika (aralıklı görevle aynı taban).
+        if (
+            upcoming.timestamp() - after.timestamp() < MIN_INTERVAL_MINUTES * 60
+            and _cron_too_frequent(parsed, upcoming)
+        ):
+            raise ScheduleError(
+                f"Cron ifadesi en seyrek {MIN_INTERVAL_MINUTES} dakikada bir çalışmalı."
+            )
+        return upcoming.timestamp()
     if kind not in (KIND_DAILY, KIND_WEEKLY):
         raise ScheduleError("Bilinmeyen zamanlama türü.")
     hour, minute = _clock(spec.get("saat"))
@@ -187,6 +210,15 @@ def next_run(spec: dict[str, Any], after: datetime) -> float | None:
         if moment > after and wall.weekday() in days:
             return moment.timestamp()
     raise ScheduleError("Sıradaki çalışma hesaplanamadı.")
+
+
+def _cron_too_frequent(spec: CronSpec, moment: datetime) -> bool:
+    """Eşleşmeden sonraki eşleşme 15 dakikadan yakınsa ifade çok sık demektir."""
+    try:
+        following = cron_next(spec, moment)
+    except SessionCronError:
+        return False
+    return (following - moment).total_seconds() < MIN_INTERVAL_MINUTES * 60
 
 
 def _weekdays(value: object) -> frozenset[int]:
@@ -212,9 +244,11 @@ def _validated(data: dict[str, Any], now: datetime) -> dict[str, Any]:
     if kind not in KINDS:
         raise ScheduleError("Bilinmeyen zamanlama türü.")
     spec: dict[str, Any] = {"tur": kind}
-    for key in ("zaman", "saat", "gunler", "dakika"):
+    for key in SPEC_KEYS:
         if data.get(key) is not None:
             spec[key] = data[key]
+    if isinstance(spec.get("cron"), str):
+        spec["cron"] = " ".join(spec["cron"].split())
     upcoming = next_run(spec, now)
     if upcoming is None:
         raise ScheduleError("Seçilen zaman geçmişte kaldı.")
@@ -280,7 +314,7 @@ def save_schedule(
             if existing is None:
                 return {"ok": False, "metin": "Güncellenecek görev bulunamadı."}
             saved = {**existing, **record}
-            for key in ("zaman", "saat", "gunler", "dakika"):
+            for key in SPEC_KEYS:
                 if key not in record:
                     saved.pop(key, None)
             items = [saved if item.get("id") == schedule_id else item for item in items]

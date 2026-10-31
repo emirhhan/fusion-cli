@@ -17,6 +17,7 @@ interface ScheduleScreenProps {
 
 interface Draft {
   baslik: string;
+  cron: string;
   dakika: string;
   gorev: string;
   gunler: number[];
@@ -31,6 +32,7 @@ const KIND_LABEL: Record<ScheduleKind, string> = {
   gunluk: "Her gün",
   haftalik: "Haftanın günleri",
   aralik: "Belirli aralıkla",
+  cron: "Cron ifadesi",
 };
 
 type Tab = "mine" | "templates";
@@ -52,7 +54,7 @@ function draftFromTemplate(template: ScheduleTemplate, root: string): Draft {
 }
 
 function emptyDraft(root: string): Draft {
-  return { baslik: "", dakika: "60", gorev: "", gunler: [0], kok: root, saat: "09:00", tarih: "", tur: "gunluk" };
+  return { baslik: "", cron: "0 9 * * 1-5", dakika: "60", gorev: "", gunler: [0], kok: root, saat: "09:00", tarih: "", tur: "gunluk" };
 }
 
 /** Taslağı çekirdeğin beklediği alanlara çevir; eksik zamanı Türkçe hata olarak döndür. */
@@ -71,6 +73,12 @@ export function draftPayload(draft: Draft, now: number = Date.now()): Record<str
     const dakika = Number.parseInt(draft.dakika, 10);
     if (!Number.isFinite(dakika) || dakika < EN_AZ_ARALIK_DAKIKA) return `Aralık en az ${EN_AZ_ARALIK_DAKIKA} dakika olmalı.`;
     return { ...base, dakika };
+  }
+  if (draft.tur === "cron") {
+    // Beş alan: dakika saat ayın-günü ay haftanın-günü. Ayrıntılı doğrulama çekirdekte (Türkçe hata).
+    const cron = draft.cron.trim().split(/\s+/).join(" ");
+    if (cron.split(" ").length !== 5) return "Cron ifadesi 5 alan olmalı: dakika saat gün ay hafta-günü (ör. 0 9 * * 1-5).";
+    return { ...base, cron };
   }
   const moment = new Date(`${draft.tarih}T${draft.saat}`).getTime();
   if (!draft.tarih || Number.isNaN(moment)) return "Tek seferlik görev için tarih ve saat seç.";
@@ -426,9 +434,11 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
                   </select>
                 </label>
                 {draft.tur === "bir_kez" && <label>Tarih<input onChange={(event) => update({ tarih: event.target.value })} required type="date" value={draft.tarih} /></label>}
-                {draft.tur !== "aralik" && <label>Saat<input onChange={(event) => update({ saat: event.target.value })} required type="time" value={draft.saat} /></label>}
+                {draft.tur !== "aralik" && draft.tur !== "cron" && <label>Saat<input onChange={(event) => update({ saat: event.target.value })} required type="time" value={draft.saat} /></label>}
+                {draft.tur === "cron" && <label>Cron<input aria-describedby="schedule-cron-help" onChange={(event) => update({ cron: event.target.value })} placeholder="0 9 * * 1-5" required spellCheck={false} value={draft.cron} /></label>}
                 {draft.tur === "aralik" && <label>Dakika<input min={15} onChange={(event) => update({ dakika: event.target.value })} required type="number" value={draft.dakika} /></label>}
               </div>
+              {draft.tur === "cron" && <p className="schedule__hint" id="schedule-cron-help">dakika saat ayın-günü ay haftanın-günü · en seyrek 15 dakikada bir</p>}
               {draft.tur === "haftalik" && (
                 <div aria-label="Günler" className="schedule__days" role="group">
                   {DAY_LABELS.map((label, day) => (
