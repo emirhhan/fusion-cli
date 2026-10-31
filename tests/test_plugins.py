@@ -540,3 +540,35 @@ def test_kisa_sha_pini_reddedilir_ve_klon_guvenli_git_ayarlariyla_yapilir(tmp_pa
     assert "http.followRedirects=false" in joined
     assert "protocol.allow=never" in joined and "protocol.https.allow=always" in joined
     assert "http.curloptResolve=github.com:443:140.82.112.3" in joined
+
+
+def test_desteklenmeyen_mcp_alani_yalniz_o_sunucuyu_atlar_eklenti_kurulur(tmp_path):
+    source = _plugin(tmp_path / "kaynak", mcp=True)
+    (source / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "iyi": {"command": "srv"},
+                    "bas-kli": {
+                        "type": "http",
+                        "url": "https://api.example.com/mcp",
+                        "headers": {"Authorization": "Bearer ${API_TOKEN}"},
+                    },
+                    "eski": {"type": "sse", "url": "https://x.example.com/sse"},
+                    "cwdli": {"command": "x", "cwd": "/tmp", "timeout": 5},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_plugin(source)
+
+    assert report.ok, report.errors
+    servers = {s.name: s for s in report.servers}
+    assert set(servers) == {"plugin_rapor_araclari_iyi", "plugin_rapor_araclari_bas_kli"}
+    assert servers["plugin_rapor_araclari_bas_kli"].token_env == "API_TOKEN"
+    skipped = " ".join(report.warnings)
+    assert "eski" in skipped and "cwdli" in skipped and "atlandı" in skipped
+    item = plugin_install.install_plugin(str(source), approve=_yes)
+    assert item.status == plugin_store.STATUS_ACTIVE

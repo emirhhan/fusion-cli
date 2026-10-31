@@ -46,6 +46,9 @@ ERR_TOO_BIG = "eklenti çok büyük: en çok {files} dosya / {mb} MB"
 ERR_NO_COMPONENTS = "eklentide hiçbir bileşen yok (skills/, commands/, agents/, hooks, .mcp.json)"
 ERR_HOOKS = "{path}: kanca dosyası geçersiz: {error}"
 ERR_MCP = "{path}: MCP tanımı geçersiz: {error}"
+WARN_MCP_SKIPPED = (
+    "{path}: '{server}' MCP sunucusu atlandı ({error}); eklentinin geri kalanı kurulur"
+)
 WARN_NO_DESCRIPTION = "{path}: açıklama (description) yok; model ne zaman kullanacağını bilemez"
 WARN_NO_MANIFEST = "plugin.json yok; ad klasörden alındı ({name})"
 
@@ -204,7 +207,8 @@ def validate_plugin(root: Path) -> ValidationReport:
         errors.append(str(error))
     servers: tuple[McpServerConfig, ...] = ()
     try:
-        servers = mcp_servers(layout)
+        servers, skipped = _mcp_servers(layout)
+        warnings.extend(skipped)
     except PluginError as error:
         errors.append(str(error))
     return ValidationReport(layout, tuple(errors), tuple(warnings), servers, hook_count, lines)
@@ -309,6 +313,17 @@ def server_name(plugin: str, server: str) -> str:
 
 def mcp_servers(layout: PluginLayout) -> tuple[McpServerConfig, ...]:
     """Eklentinin MCP sunucuları; `unreviewed` güvenle (her araç çağrısı onay ister)."""
+    return _mcp_servers(layout)[0]
+
+
+def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tuple[str, ...]]:
+    """`(sunucular, atlananların uyarıları)`.
+
+    Ölçüldü (31 Ekim): tek bir sunucunun desteklenmeyen alanı (`headers`, `type: sse`, `cwd`…)
+    `.mcp.json`'ın tamamını, dolayısıyla eklentinin beceri/komutları dahil HİÇBİR şeyini
+    kurulamaz yapıyordu. Sunucular tek tek ayrıştırılır; desteklenmeyen sunucu gerekçeyle
+    atlanır. `Authorization: Bearer ${VAR}` başlığı Fusion'ın `token_env` alanına iner.
+    """
     root = str(layout.root)
     documents: list[tuple[str, object]] = [
         (path.name, _load_json(path, ERR_MCP)) for path in layout.mcp_files
@@ -316,21 +331,40 @@ def mcp_servers(layout: PluginLayout) -> tuple[McpServerConfig, ...]:
     if layout.manifest.inline_mcp:
         documents.append(("plugin.json", {"mcpServers": json.loads(layout.manifest.inline_mcp)}))
     servers: list[McpServerConfig] = []
+    skipped: list[str] = []
     for label, raw in documents:
         data = _substituted(raw, root)
-        if isinstance(data, Mapping) and "mcpServers" not in data:
-            data = {
-                "mcpServers": data
-            }  # Claude eklentilerinde kök doğrudan sunucu sözlüğü olabilir
-        try:
-            parsed = parse_project_mcp(data)
-        except ConfigError as error:
-            raise PluginError(ERR_MCP.format(path=label, error=error)) from error
-        servers.extend(
-            replace(item, name=server_name(layout.name, item.name), scope=McpScope.PLUGIN)
-            for item in parsed
-        )
-    return tuple(servers)
+        if isinstance(data, Mapping) and "mcpServers" in data:
+            data = data["mcpServers"]
+        # Claude eklentilerinde kök doğrudan sunucu sözlüğü olabilir.
+        if not isinstance(data, Mapping):
+            raise PluginError(ERR_MCP.format(path=label, error="'mcpServers' nesne olmalı"))
+        for raw_name, entry in data.items():
+            try:
+                server = _plugin_server(str(raw_name), entry)
+            except ConfigError as error:
+                skipped.append(WARN_MCP_SKIPPED.format(path=label, server=raw_name, error=error))
+                continue
+            servers.append(
+                replace(server, name=server_name(layout.name, server.name), scope=McpScope.PLUGIN)
+            )
+    return tuple(servers), tuple(skipped)
+
+
+_BEARER_REF = re.compile(r"^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$", re.IGNORECASE)
+
+
+def _plugin_server(name: str, entry: object) -> McpServerConfig:
+    """Tek sunucu; yalnız `Authorization: Bearer ${VAR}` başlığı desteklenir (→ `token_env`)."""
+    token_env = ""
+    if isinstance(entry, Mapping) and isinstance(entry.get("headers"), Mapping):
+        headers = {str(k).lower(): v for k, v in entry["headers"].items()}
+        bearer = _BEARER_REF.match(str(headers.pop("authorization", "")).strip())
+        if bearer and not headers:
+            token_env = bearer.group(1)
+            entry = {key: value for key, value in entry.items() if key != "headers"}
+    (server,) = parse_project_mcp({"mcpServers": {name: entry}})
+    return replace(server, token_env=token_env) if token_env else server
 
 
 def context_cost(layout: PluginLayout) -> int:
