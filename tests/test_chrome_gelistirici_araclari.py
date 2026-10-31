@@ -262,13 +262,50 @@ async def test_yeni_pencere_ic_ag_korumasindan_gecer():
 
 
 async def test_yeni_eylemlerin_onay_etkisi():
-    for islem in ("console", "network", "record", "shortcuts", "shortcut", "window"):
+    for islem in ("console", "network", "shortcuts", "shortcut", "window"):
         assert (
             await chrome.chrome_action_effect({"action": islem}, None) is ToolEffect.REMOTE_READ
         ), islem
     assert (
         await chrome.chrome_action_effect({"action": "group"}, None) is ToolEffect.REMOTE_INTERACT
     )
+    # Ölçüldü (31 Ekim, bağımsız inceleme): `record` REMOTE_READ sayılıyordu; `stop` proje
+    # köküne dosya yazar, `start` ekranı 60 sn boyunca yakalar. Tek karelik `screenshot`
+    # ile aynı sınıfta olamaz.
+    for deger in ("start", "stop", None):
+        args = {"action": "record", **({"value": deger} if deger else {})}
+        assert await chrome.chrome_action_effect(args, None) is ToolEffect.REMOTE_INTERACT, deger
+
+
+async def test_ekran_kaydi_plan_kipinde_engellenir_manuel_kipte_sorulur():
+    from fusion_cli.engines.agent.approval import (
+        ApprovalMode,
+        Decision,
+        build_policy,
+        build_request,
+    )
+    from fusion_cli.tools import build_registry
+
+    from .fakes import AlwaysReject
+
+    arac = build_registry().get("chrome_action")
+    for deger in ("start", "stop"):
+        args = {"action": "record", "value": deger}
+        etki = await chrome.chrome_action_effect(args, None)
+        istek = build_request(arac, args, effect=etki)
+        assert istek.read_only is False, deger
+        assert (
+            await build_policy(ApprovalMode.PLAN, AlwaysReject()).decide(istek) is Decision.BLOCKED
+        )
+        assert (
+            await build_policy(ApprovalMode.SECURITY, AlwaysReject()).decide(istek)
+            is Decision.DENIED
+        ), deger
+    # Otomatik kipte sorulmaz: kalıcı iz yok, dosya proje kökünde ve `writable_path` denetiminde.
+    istek = build_request(
+        arac, {"action": "record", "value": "stop"}, effect=ToolEffect.REMOTE_INTERACT
+    )
+    assert await build_policy(ApprovalMode.AUTO, AlwaysReject()).decide(istek) is Decision.ALLOW
 
 
 def test_chrome_acma_komutu_uc_platformda():

@@ -128,17 +128,24 @@ async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
 _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDictionary()
 
 #: Sayfayı YALNIZ okuyan işlemler: hiçbir kipte sorulmaz, plan kipinde serbest.
+#: `window` yeni pencere açar ve `open` gibi yalnız gezinir; `record` BURADA DEĞİL.
 _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "screenshot",
         "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
-        "console", "network", "record", "shortcuts", "shortcut", "window",
+        "console", "network", "shortcuts", "shortcut", "window",
     }
 )  # fmt: skip
 #: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
 #: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
 #: Sekme gruplama kullanıcının sekme düzenini değiştirir ama veri kaybettirmez.
-_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize", "group"})
+#:
+#: Ölçüldü (31 Ekim, bağımsız inceleme): `record` okuma sayılıyordu ve plan/Manuel kipte
+#: sorulmadan geçiyordu. `start` ekranı 60 sn boyunca sürekli yakalar, `stop` proje
+#: köküne (`.fusion/kayitlar`) GIF yazar; plan kipi hiçbir şey yazmamalı, Manuel kip
+#: sormalı. Tek karelik `screenshot` okuma kalır. Otomatik kipte sorulmaz: dosya proje
+#: kökünde ve `writable_path` denetiminden geçer.
+_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize", "group", "record"})
 
 #: Enter'ın mesaj/yorum GÖNDERDİĞİ alanlar (ad, yer tutucu ya da form düğmesi).
 _MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECASE)
@@ -174,7 +181,7 @@ _LOGOUT_LINK = re.compile(r"çıkış yap|oturumu kapat|log ?out|sign ?out", re.
 
 
 async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
-    """Kaydırma, bekleme ve sekme okumadır; seçim ve tuş etkileşimdir.
+    """Kaydırma, bekleme ve sekme okumadır; seçim, tuş ve ekran kaydı etkileşimdir.
 
     Koordinata tıklama (`click_at`) ref'li tıklamayla aynı kuralla denetlenir: noktadaki
     öğenin adı okunur, gönder/sil/satın al gibiyse sorulur. Enter yalnız mesaj/yorum
