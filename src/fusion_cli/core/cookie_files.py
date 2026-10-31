@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from .errors import BrowserProfileError
 
@@ -156,8 +157,19 @@ def parse_json_cookies(text: str) -> tuple[Cookie, ...]:
     return tuple(cookies)
 
 
-def to_storage_state(cookies: tuple[Cookie, ...]) -> dict[str, object]:
-    """Playwright `browser.new_context(storage_state=...)` sözlüğü."""
+#: Playwright `storage_state["origins"]` kaydı: `{"origin": url, "localStorage": [{name, value}]}`.
+#: `value` sırdır (JWT, oturum belirteci): çerez değeriyle aynı kurallarla saklanır.
+Origin = dict[str, object]
+
+
+def to_storage_state(
+    cookies: tuple[Cookie, ...], origins: tuple[Origin, ...] = ()
+) -> dict[str, object]:
+    """Playwright `browser.new_context(storage_state=...)` sözlüğü.
+
+    Ölçüldü (31 Ekim): `origins` hep boş yazılıyordu; oturumu localStorage'da tutan
+    SPA'lar giriş penceresinden sonra girişsiz görünüyordu.
+    """
     return {
         "cookies": [
             {
@@ -172,7 +184,7 @@ def to_storage_state(cookies: tuple[Cookie, ...]) -> dict[str, object]:
             }
             for cookie in cookies
         ],
-        "origins": [],
+        "origins": list(origins),
     }
 
 
@@ -181,6 +193,40 @@ def cookies_from_storage_state(state: object) -> tuple[Cookie, ...]:
     if not isinstance(state, dict):
         return ()
     return parse_json_cookies(json.dumps({"cookies": state.get("cookies") or []}))
+
+
+def origins_from_storage_state(state: object) -> tuple[Origin, ...]:
+    """`storage_state["origins"]` kayıtlarını doğrulayıp döndür; bozuk kayıt/öğe atlanır."""
+    if not isinstance(state, dict) or not isinstance(state.get("origins"), list):
+        return ()
+    result: list[Origin] = []
+    for item in state["origins"]:
+        if not isinstance(item, dict):
+            continue
+        origin = str(item.get("origin") or "").strip()
+        if not origin:
+            continue
+        raw_storage = item.get("localStorage")
+        storage = [
+            {"name": str(entry["name"]), "value": str(entry["value"])}
+            for entry in (raw_storage if isinstance(raw_storage, list) else ())
+            if isinstance(entry, dict) and entry.get("name") is not None and "value" in entry
+        ]
+        result.append({"origin": origin, "localStorage": storage})
+    return tuple(result)
+
+
+def filter_origins_by_domains(
+    origins: tuple[Origin, ...], allowed: tuple[str, ...] | None
+) -> tuple[Origin, ...]:
+    """Yalnız izinli alan adlarının origin kayıtlarını bırak; `None` = süzme yok."""
+    if allowed is None:
+        return origins
+    return tuple(
+        item
+        for item in origins
+        if domain_allowed(urlsplit(str(item.get("origin") or "")).hostname or "", allowed)
+    )
 
 
 def normalize_domain(domain: str) -> str:

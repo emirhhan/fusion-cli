@@ -14,6 +14,8 @@ from fusion_cli.core.cookie_files import (
     CookieFileError,
     cookie_domains,
     filter_by_domains,
+    filter_origins_by_domains,
+    origins_from_storage_state,
     parse_cookie_file,
     parse_json_cookies,
     parse_netscape_cookies,
@@ -138,3 +140,44 @@ def test_gecersiz_profil_adi_reddedilir(ad):
 
 def test_gecerli_profil_adi_oldugu_gibi_doner():
     assert validate_profile_name(" is-hesabi_1 ") == "is-hesabi_1"
+
+
+def test_storage_state_origins_tasir_ve_bozuk_kayitlari_atar():
+    """Ölçüldü (31 Ekim): origins hep boş yazılıyordu; localStorage oturumları kayboluyordu."""
+    origins = (
+        {"origin": "https://app.example.com", "localStorage": [{"name": "jwt", "value": "J"}]},
+    )
+    durum = to_storage_state((), origins=origins)
+    assert durum["origins"] == list(origins)
+
+    okunan = origins_from_storage_state(
+        {
+            "cookies": [],
+            "origins": [
+                origins[0],
+                {"origin": "", "localStorage": []},
+                {
+                    "origin": "https://x.com",
+                    "localStorage": [{"name": "a"}, "bozuk", {"name": "b", "value": 1}],
+                },
+                "bozuk",
+            ],
+        }
+    )
+    assert okunan == (
+        origins[0],
+        {"origin": "https://x.com", "localStorage": [{"name": "b", "value": "1"}]},
+    )
+    assert origins_from_storage_state(None) == ()
+
+
+def test_origins_alan_adi_suzgeci_koku_ve_alt_alan_adini_kapsar():
+    origins = (
+        {"origin": "https://app.example.com", "localStorage": []},
+        {"origin": "https://example.com:8443", "localStorage": []},
+        {"origin": "https://notexample.com", "localStorage": []},
+        {"origin": "bozuk", "localStorage": []},
+    )
+    assert filter_origins_by_domains(origins, None) == origins
+    assert filter_origins_by_domains(origins, ("example.com",)) == origins[:2]
+    assert filter_origins_by_domains(origins, ()) == ()

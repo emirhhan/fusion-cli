@@ -123,3 +123,94 @@ def test_bozuk_meta_veri_listeyi_cokertmez(depo, tmp_path):
     (tmp_path / "browser_profiles" / "bozuk" / "profile.json").write_text("{bozuk", "utf-8")
 
     assert [item.name for item in depo.list()] == ["is"]
+
+
+# --- Bağımsız inceleme bulguları (31 Ekim) ------------------------------------ #
+
+
+def test_guncelleme_onay_listesi_disindaki_cerezleri_yazmaz(depo):
+    """Ölçüldü: kapanışta bağlamın TÜM çerezleri yazılıyordu; onay dışı sitelerin çerezi
+    şifreli dosyada ve özetin alan adı listesinde birikiyordu."""
+    depo.save("is", _cerezler(), source="dosya", allowed_domains=("example.com",))
+
+    depo.update_cookies(
+        "is",
+        (
+            Cookie(name="sid", value="yeni", domain=".example.com"),
+            Cookie(name="trk", value="izleyici", domain="ads.tracker.net"),
+        ),
+    )
+
+    ozet = depo.summary("is")
+    assert ozet.domains == ("example.com",)
+    assert ozet.cookie_count == 1
+    sifreli = (depo.root / "is" / "cookies.enc").read_bytes()
+    assert b"tracker" not in sifreli  # şifreli olsa da yazılmadığını özetten biliyoruz
+
+
+def test_onay_listesi_bos_profil_guncellemede_suzulmez(depo):
+    depo.save("is", _cerezler(), source="giris")
+
+    depo.update_cookies("is", (Cookie(name="t", value="1", domain="other.net"),))
+
+    assert depo.summary("is").domains == ("other.net",)
+
+
+def test_son_kullanim_damgasi_yazilamazsa_oturum_yine_verilir(depo, tmp_path):
+    """Ölçüldü: `last_used_at` yazımı `storage_state`'i düşürüyordu (salt okunur dizin,
+    dolu disk); yalnız bir damga yüzünden `browser_open` hata veriyordu."""
+    depo.save("is", _cerezler(), source="dosya")
+    klasor = tmp_path / "browser_profiles" / "is"
+    klasor.chmod(0o500)
+    try:
+        durum = depo.storage_state("is")
+    finally:
+        klasor.chmod(0o700)
+
+    assert durum["cookies"][0]["value"] == GIZLI_DEGER
+    assert depo.summary("is").last_used_at is None
+
+
+def test_meta_veri_atomik_yazilir(depo, tmp_path):
+    depo.save("is", _cerezler(), source="dosya")
+    depo.storage_state("is")
+
+    kalanlar = [p.name for p in (tmp_path / "browser_profiles" / "is").iterdir()]
+    # Sır deposu `.bak` bırakır (tasarım); geçici `.tmp` kalmamalı.
+    assert not [ad for ad in kalanlar if ad.endswith(".tmp")], kalanlar
+    json.loads((tmp_path / "browser_profiles" / "is" / "profile.json").read_text("utf-8"))
+
+
+def test_ana_anahtar_degisirse_profil_hatasi_doner(depo, tmp_path):
+    """Ölçüldü: `FernetSecretStore.get` ConfigError fırlatıyor, araç yalnız
+    BrowserProfileError yakalıyordu; kullanıcı profil bağlamı olmayan metin görüyordu."""
+    depo.save("is", _cerezler(), source="dosya")
+    baska = BrowserProfileStore(tmp_path / "browser_profiles", secret_key="baska-anahtar")
+
+    with pytest.raises(BrowserProfileError, match="is"):
+        baska.storage_state("is")
+
+
+def test_origins_localstorage_saklanir_ve_onayli_alan_adina_suzulur(depo):
+    """Ölçüldü: `to_storage_state` hep `origins: []` yazıyordu; JWT'yi localStorage'da
+    tutan SPA'lar giriş penceresinden sonra girişsiz görünüyordu."""
+    origins = (
+        {"origin": "https://app.example.com", "localStorage": [{"name": "jwt", "value": "J1"}]},
+        {"origin": "https://other.net", "localStorage": [{"name": "x", "value": "y"}]},
+    )
+    depo.save("is", _cerezler(), source="giris", allowed_domains=("example.com",), origins=origins)
+
+    durum = depo.storage_state("is")
+
+    assert durum["origins"] == [origins[0]]
+    sifresiz = json.dumps(json.loads((depo.root / "is" / "profile.json").read_text("utf-8")))
+    assert "J1" not in sifresiz
+
+    depo.update_cookies(
+        "is",
+        (Cookie(name="sid", value="n", domain=".example.com"),),
+        origins=(
+            {"origin": "https://app.example.com", "localStorage": [{"name": "jwt", "value": "J2"}]},
+        ),
+    )
+    assert depo.storage_state("is")["origins"][0]["localStorage"][0]["value"] == "J2"

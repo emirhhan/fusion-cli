@@ -25,7 +25,7 @@ from typing import Any
 from ..config.browser_profiles import BrowserProfileStore, default_browser_profile_store
 from ..core.browser_session import BrowserSession
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
-from ..core.cookie_files import cookies_from_storage_state
+from ..core.cookie_files import cookies_from_storage_state, origins_from_storage_state
 from ..core.errors import BrowserProfileError
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import is_truthy, optional_str, require_str
@@ -475,7 +475,9 @@ async def _oturumu_baslat(
 
 def _state_saver(store: BrowserProfileStore, name: str) -> Callable[[dict[str, Any]], None]:
     def _save(state: dict[str, Any]) -> None:
-        store.update_cookies(name, cookies_from_storage_state(state))
+        store.update_cookies(
+            name, cookies_from_storage_state(state), origins_from_storage_state(state)
+        )
 
     return _save
 

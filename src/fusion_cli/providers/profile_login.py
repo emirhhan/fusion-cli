@@ -21,7 +21,11 @@ from ..config.browser_profiles import (
     BrowserProfileSummary,
     default_browser_profile_store,
 )
-from ..core.cookie_files import cookies_from_storage_state, validate_profile_name
+from ..core.cookie_files import (
+    cookies_from_storage_state,
+    origins_from_storage_state,
+    validate_profile_name,
+)
 from ..core.errors import BrowserProfileError
 
 #: Kullanıcının son sekmeyi kapatıp kapatmadığı bu aralıkla yoklanır (s).
@@ -83,9 +87,10 @@ async def open_profile_login(
         snapshot = await context.storage_state()
         await browser.close()
     cookies = cookies_from_storage_state(snapshot)
+    origins = origins_from_storage_state(snapshot)
     if store.exists(clean):
-        return store.update_cookies(clean, cookies)
-    return store.save(clean, cookies, source=SOURCE_LOGIN)
+        return store.update_cookies(clean, cookies, origins)
+    return store.save(clean, cookies, source=SOURCE_LOGIN, origins=origins)
 
 
 def _main(argv: list[str]) -> int:

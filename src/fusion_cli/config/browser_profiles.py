@@ -5,7 +5,8 @@ Her profil `browser_profiles/<ad>/` altında iki dosyadır:
 - `profile.json` — AÇIK meta veri: alan adları, çerez sayısı, kaynak, zamanlar ve
   kullanıcının onayladığı alan adı listesi. Çerez DEĞERİ burada yoktur; arayüz ve CLI
   listeleri yalnız bunu okur.
-- `cookies.enc` — Playwright `storage_state` sözlüğü, sır deposuyla AYNI şifreleme
+- `cookies.enc` — Playwright `storage_state` sözlüğü (çerezler + `origins` localStorage),
+  sır deposuyla AYNI şifreleme
   (`FernetSecretStore`: scrypt + Fernet, atomik yazma, `.bak`). Ana anahtar yoksa
   profil kaydedilemez; sessizce açık yazmak yoktur.
 
@@ -29,12 +30,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import time
 
+from ..core.atomic_file import atomic_replace_text
 from ..core.browser_session import BrowserSession
 from ..core.cookie_files import (
     Cookie,
+    Origin,
     cookie_domains,
     cookies_from_storage_state,
     filter_by_domains,
+    filter_origins_by_domains,
+    origins_from_storage_state,
     to_storage_state,
     validate_profile_name,
 )
@@ -140,8 +145,9 @@ class BrowserProfileStore:
         *,
         source: str,
         allowed_domains: tuple[str, ...] | None = None,
+        origins: tuple[Origin, ...] = (),
     ) -> BrowserProfileSummary:
-        """Profili (yeniden) yaz: çerezler şifreli, meta veri açık."""
+        """Profili (yeniden) yaz: çerezler (+ localStorage origins) şifreli, meta veri açık."""
         clean = validate_profile_name(name)
         self._require_key()
         folder = self._root / clean
@@ -157,25 +163,34 @@ class BrowserProfileStore:
             last_used_at=None,
             allowed_domains=tuple(allowed_domains or ()),
         )
-        self._write_cookies(folder, cookies)
+        self._write_cookies(folder, cookies, origins)
         self._write_meta(folder, summary)
         return summary
 
-    def update_cookies(self, name: str, cookies: tuple[Cookie, ...]) -> BrowserProfileSummary:
-        """Tarayıcıdan dönen tazelenmiş oturumu yaz; onay listesi ve kaynak korunur."""
+    def update_cookies(
+        self, name: str, cookies: tuple[Cookie, ...], origins: tuple[Origin, ...] = ()
+    ) -> BrowserProfileSummary:
+        """Tarayıcıdan dönen tazelenmiş oturumu yaz; onay listesi ve kaynak korunur.
+
+        Onay listesi doluysa dışındaki çerezler/origins YAZILMAZ. Ölçüldü (31 Ekim):
+        bağlamın tüm çerezleri yazılıyor, onay dışı sitelerin izleme çerezleri şifreli
+        dosyada ve özetin alan adı listesinde birikiyordu.
+        """
         previous = self.summary(name)
         self._require_key()
         folder = self._root / previous.name
+        allowed = previous.allowed_domains or None
+        kept = filter_by_domains(cookies, allowed)
         summary = BrowserProfileSummary(
             name=previous.name,
-            domains=cookie_domains(cookies),
-            cookie_count=len(cookies),
+            domains=cookie_domains(kept),
+            cookie_count=len(kept),
             source=previous.source,
             imported_at=previous.imported_at,
             last_used_at=previous.last_used_at,
             allowed_domains=previous.allowed_domains,
         )
-        self._write_cookies(folder, cookies)
+        self._write_cookies(folder, kept, filter_origins_by_domains(origins, allowed))
         self._write_meta(folder, summary)
         return summary
 
@@ -184,7 +199,14 @@ class BrowserProfileStore:
         summary = self.summary(name)
         self._require_key()
         folder = self._root / summary.name
-        raw = self._cookie_store(folder).get(_STATE_KEY)
+        try:
+            raw = self._cookie_store(folder).get(_STATE_KEY)
+        except ConfigError as error:
+            # Ana anahtar değişmiş (yeni Mac, Keychain kaybı) ya da dosya bozuk: hata profil
+            # bağlamıyla dönsün ki araç ve CLI tek tipte yakalayıp anlaşılır göstersin.
+            raise BrowserProfileError(
+                f"'{summary.name}' profilinin çerez dosyası çözülemedi: {error}"
+            ) from error
         if raw is None:
             raise BrowserProfileError(f"'{summary.name}' profilinin çerez dosyası eksik.")
         try:
@@ -193,13 +215,22 @@ class BrowserProfileStore:
             raise BrowserProfileError(
                 f"'{summary.name}' profilinin çerez dosyası bozuk."
             ) from error
-        cookies = cookies_from_storage_state(state)
         allowed = summary.allowed_domains or None
-        self._write_meta(
-            folder,
-            BrowserProfileSummary(**{**asdict(summary), "last_used_at": self._clock()}),
+        self._stamp_last_used(folder, summary)
+        return to_storage_state(
+            filter_by_domains(cookies_from_storage_state(state), allowed),
+            filter_origins_by_domains(origins_from_storage_state(state), allowed),
         )
-        return to_storage_state(filter_by_domains(cookies, allowed))
+
+    def _stamp_last_used(self, folder: Path, summary: BrowserProfileSummary) -> None:
+        """`last_used_at` yalnız bilgidir: yazılamazsa oturum yine verilir (loglanır)."""
+        try:
+            self._write_meta(
+                folder,
+                BrowserProfileSummary(**{**asdict(summary), "last_used_at": self._clock()}),
+            )
+        except BrowserProfileError as error:
+            _logger.warning("Profil son kullanım damgası yazılamadı: %s", error)
 
     def delete(self, name: str) -> bool:
         """Profil dizinini kaldır. Vardıysa True."""
@@ -222,16 +253,22 @@ class BrowserProfileStore:
     def _cookie_store(self, folder: Path) -> FernetSecretStore:
         return FernetSecretStore(folder / _COOKIE_FILE, secret_key=self._secret_key)
 
-    def _write_cookies(self, folder: Path, cookies: tuple[Cookie, ...]) -> None:
+    def _write_cookies(
+        self, folder: Path, cookies: tuple[Cookie, ...], origins: tuple[Origin, ...] = ()
+    ) -> None:
         try:
-            self._cookie_store(folder).set(_STATE_KEY, json.dumps(to_storage_state(cookies)))
+            self._cookie_store(folder).set(
+                _STATE_KEY, json.dumps(to_storage_state(cookies, origins))
+            )
         except ConfigError as error:
             raise BrowserProfileError(f"Çerezler şifrelenip yazılamadı: {error}") from error
 
     def _write_meta(self, folder: Path, summary: BrowserProfileSummary) -> None:
+        # Atomik: yarım yazılmış `profile.json` `list()`te profili sessizce yok ediyordu
+        # (masaüstü aynı anda okurken ya da süreç yazma ortasında ölürken; ölçüldü 31 Ekim).
         payload = json.dumps(asdict(summary), ensure_ascii=False, indent=2)
         try:
-            (folder / _META_FILE).write_text(payload, encoding="utf-8")
+            atomic_replace_text(folder / _META_FILE, payload)
         except OSError as error:
             raise BrowserProfileError(f"Profil meta verisi yazılamadı: {error}") from error
 
