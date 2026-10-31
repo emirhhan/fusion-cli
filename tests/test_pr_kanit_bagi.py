@@ -121,3 +121,85 @@ async def test_masaustu_tur_sonrasi_pr_oturum_durumunda(tmp_path: Path, monkeypa
 
     assert _sonuc(satirlar, "3")["pr"] == {"numara": 42, "url": URL, "depo": "acme/web"}
     await oturum.close()
+
+
+# --- Bağımsız inceleme düzeltmeleri (31 Ekim) -------------------------------------- #
+
+
+def test_tool_use_olmayan_ogeler_bagi_dusurmez():
+    """Ölçüldü: sahte sonuçtaki `tool_uses=("mutating",)` `AttributeError` ile turu düşürüyordu."""
+    uses = ("mutating", _shell("gh pr create -f", URL))
+
+    assert session_pull_request(uses) == PullRequestLink("acme/web", 42, URL)
+    assert unverified_pr_notes("PR'ı açtım.", ("mutating",)) == (UNVERIFIED_CREATE,)
+
+
+def test_okuma_bagi_yalniz_gecerli_depodaki_prin_kendi_adresi():
+    """Ölçüldü: çıktıdaki SON adres alınıyordu (gövdedeki 'Fixes …/pull/3' ya da başka depo)."""
+    view = _shell(
+        "gh pr view 9",
+        "title:\tDüzeltme\nurl:\thttps://github.com/acme/web/pull/9\n--\n"
+        "Fixes https://github.com/o/r/pull/3",
+    )
+    other_repo = _shell(
+        "gh pr view 5 --repo baska/depo --comments",
+        "url:\thttps://github.com/baska/depo/pull/5",
+    )
+
+    assert session_pull_request((view,)) == PullRequestLink(
+        "acme/web", 9, "https://github.com/acme/web/pull/9"
+    )
+    assert session_pull_request((other_repo,)) is None
+    assert session_pull_request((view, other_repo)) == session_pull_request((view,))
+
+
+def test_mcp_ve_gh_api_ile_acilan_pr_kanit_sayilir():
+    mcp = ToolUse(
+        name="github__create_pull_request",
+        arguments={"owner": "acme", "repo": "web"},
+        output='{"number": 42, "html_url": "' + URL + '"}',
+    )
+    api = _shell(
+        "gh api repos/acme/web/pulls -f title=T -f head=x -f base=main",
+        '{"url": "https://api.github.com/repos/acme/web/pulls/43", '
+        '"html_url": "https://github.com/acme/web/pull/43"}',
+    )
+    comment = ToolUse(name="github__add_issue_comment", output="ok")
+
+    assert created_pull_requests((mcp,)) == (PullRequestLink("acme/web", 42, URL),)
+    assert created_pull_requests((api,))[0].number == 43
+    assert unverified_pr_notes("PR'ı açtım.", (mcp,)) == ()
+    assert unverified_pr_notes("PR'a yorum yazdım.", (comment,)) == ()
+    # Okuma amaçlı `gh api` (alan/POST yok) oluşturma sayılmaz.
+    assert created_pull_requests((_shell("gh api repos/acme/web/pulls", URL),)) == ()
+
+
+def test_ucuncu_kisi_ve_onceki_is_cumleleri_uyari_uretmez():
+    """Ölçüldü: bu üç cümlede eski regex True veriyordu."""
+    for text in (
+        "PR #5 zaten açıldı.",
+        "Dependabot PR #12 opened.",
+        "The PR was created by Alice.",
+        "PR açmak için /pr yaz.",
+    ):
+        assert unverified_pr_notes(text, ()) == (), text
+    assert unverified_pr_notes("We opened a PR for the fix.", ()) == (UNVERIFIED_CREATE,)
+
+
+def test_onceki_turdaki_kanit_evet_actim_cevabini_uyarmaz():
+    from fusion_cli.core.types import Message, ToolCall
+
+    history = [
+        Message("user", "PR aç"),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(ToolCall("c1", "run_shell", '{"command": "gh pr create --fill"}'),),
+        ),
+        Message("tool", URL, tool_call_id="c1", name="run_shell", ok=True),
+        Message("user", "PR'ı açtın mı?"),
+    ]
+    failed = [*history[:2], Message("tool", URL, tool_call_id="c1", name="run_shell", ok=False)]
+
+    assert unverified_pr_notes("Evet, PR'ı açtım.", (), history) == ()
+    assert unverified_pr_notes("Evet, PR'ı açtım.", (), failed) == (UNVERIFIED_CREATE,)
