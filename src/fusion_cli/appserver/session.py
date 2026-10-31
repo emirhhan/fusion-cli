@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from ..cli.repl import cron_store, macros, worktrees
+from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
@@ -96,6 +97,7 @@ from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, intelligence, ui_prefs
+from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
@@ -892,6 +894,10 @@ class AppSession:
             return load_flow(request.data)
         if request.name in SCHEDULE_ROUTES:
             return SCHEDULE_ROUTES[request.name](request.data)
+        if request.name in BACKGROUND_ROUTES:
+            return dispatch_background(
+                self._state, request.name, request.data, turn_owner=self._conversation_id or "app"
+            )
         if request.name == "kitaplik.liste":
             from .asset_bridge import catalogued_library
 
@@ -3328,6 +3334,8 @@ class AppSession:
         from ..providers.web_control import stop_all_login_processes
 
         self._closed = True
+        # Oturum defterinden çık (P-060): kapanan masaüstü oturumu mesaj almaz.
+        close_link(self._state)
         if self._image_jobs is not None:
             self._image_jobs.stop_accepting()
         images = tuple(self._image_tasks)

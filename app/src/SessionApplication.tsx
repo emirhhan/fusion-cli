@@ -1,6 +1,7 @@
 import { createVoicePlayback } from "./voice/voicePlayback";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
+import { BackgroundAgentsPanel } from "./team/BackgroundAgentsPanel";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
@@ -382,7 +383,13 @@ function ProjectInspector({
       placement={placement}
       width={width}
       content={{
-        agents: <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />,
+        agents: (
+          <>
+            <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />
+            {/* Turdan bağımsız arka plan görevleri + açık oturumlar (P-048/P-060). */}
+            <BackgroundAgentsPanel client={client} onCommand={onCommand} />
+          </>
+        ),
         files: <FileExplorer client={client} key={root} onChanged={changed} onSelected={onSelectPath} root={root} revision={revision} />,
         // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
         // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git
