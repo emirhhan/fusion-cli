@@ -100,6 +100,14 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
   Kapatılırsa ilk ekran eyleminde öndeki uygulama ve Fusion (Fusion.app ya da Fusion'ı çalıştıran
   terminal) dışındaki uygulamalar gizlenir; `desktop.unhide_on_finish` açıksa tur bitince
   (iptal dahil) geri gösterilir.
-- **Ekran görüntüsünden dışlananlar**: Fusion'ın kendi penceresi (ve CLI'de terminal), reddedilen
-  uygulamalar ve engelli kategoriler (yatırım/kripto, parola yöneticileri). Bölge yakalamada
-  (`region=`) ve ScreenCaptureKit'in olmadığı eski sistemlerde dışlama yapılmaz.
+- **Ekran görüntüsünden dışlananlar**: Fusion'ın kendi penceresi (ve CLI'de terminal;
+  `runtime.desktop_exclude_fusion_window`), reddedilen uygulamalar ve engelli kategoriler
+  (yatırım/kripto, parola yöneticileri). Bölge yakalama (`region=`) da ScreenCaptureKit ile
+  dışlamalı yapılır; Fusion dışlamasını kapatmak ret listesi dışlamasını kapatmaz.
+  ScreenCaptureKit yoksa (macOS < 14, yardımcı derlenemedi) `screencapture`'a düşülür; o yol
+  dışlama yapamadığı için ekranda engelli bir uygulamanın penceresi görünüyorsa (ya da pencereler
+  okunamıyorsa) görüntü **alınmaz** ve model kullanıcıdan uygulamayı gizlemesini ister.
+- **Listeler ve erişilebilirlik ağacı**: `desktop_windows` ve `desktop_background_windows`
+  reddedilen/engelli uygulamaların pencerelerini listelemez; öndeki uygulama engelliyse
+  `desktop_accessibility` ağacı vermez. Ad eşleşmesi pencere sahibinin adıyla yapılır; ret
+  listesine paket kimliği yazıldıysa (`com.…`) listelerde ad da eklenmeli.

@@ -262,8 +262,14 @@ if args.count > 1 && args[1] == "list" {
                 }
                 let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
                 var width = max(1, CGDisplayPixelsWide(displayID)), height = max(1, CGDisplayPixelsHigh(displayID))
-                if maxWidth > 0 && width > maxWidth { height = max(1, height * maxWidth / width); width = maxWidth }
                 let configuration = SCStreamConfiguration()
+                // Bölge (region=): ekranın nokta dikdörtgeni; dışlama bölgede de geçerlidir (P-007).
+                if let rect = request["rect"] as? [Double], rect.count == 4, rect[2] > 0, rect[3] > 0 {
+                    let scale = Double(width) / max(1, Double(display.width))
+                    configuration.sourceRect = CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3])
+                    width = max(1, Int(rect[2] * scale)); height = max(1, Int(rect[3] * scale))
+                }
+                if maxWidth > 0 && width > maxWidth { height = max(1, height * maxWidth / width); width = maxWidth }
                 configuration.width = width
                 configuration.height = height
                 configuration.showsCursor = true

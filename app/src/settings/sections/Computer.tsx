@@ -171,7 +171,7 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
         />
       </PanelGroup>
 
-      <PanelGroup note="Fusion bu uygulamalara tıklamaz, yazmaz; ekran görüntüsünde pencereleri gizlenir." title="Reddedilen uygulamalar">
+      <PanelGroup note="Fusion bu uygulamalara tıklamaz, yazmaz; pencereleri ekran görüntüsüne ve pencere listelerine girmez (dışlanamıyorsa görüntü alınmaz)." title="Reddedilen uygulamalar">
         {settings.denied_apps.length === 0 && <p className="px-note">Reddedilen uygulama yok.</p>}
         <ul className="computer-settings__list">
           {settings.denied_apps.map((name) => (
