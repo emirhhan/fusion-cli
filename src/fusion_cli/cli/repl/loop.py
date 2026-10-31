@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
-from ...tools import desktop_lock
+from ...tools import desktop_turn
 from ...tools.remotion_observe import browser_transport
 
 if TYPE_CHECKING:
@@ -746,6 +746,8 @@ async def _agent_turn(
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
         digest = state.take_pending_digest()
+        # Esc ile durdurma bu turun görevine bağlanır (P-033; `tools/desktop_turn`).
+        desktop_turn.begin(tool_context)
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
@@ -813,8 +815,8 @@ async def _agent_turn(
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
             tracer.flush()
-            # Masaüstü kilidi tur ile sınırlıdır (bkz. `tools/desktop_lock`, `cli/session.py`).
-            desktop_lock.release(token=tool_context.job_scope)
+            # Masaüstü kilidi ve oturumu tur ile sınırlıdır (bkz. `tools/desktop_turn`).
+            desktop_turn.finish(tool_context)
     state.history = outcome.messages
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)

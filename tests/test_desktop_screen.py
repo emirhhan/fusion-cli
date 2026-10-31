@@ -28,7 +28,7 @@ def _retina(monkeypatch, *, width_px: int = 2880, displays=None) -> list[list[st
     """Ana ekran 1440x900 nokta; screencapture 2x piksel yazar, sips istenen genişliğe iner."""
     monkeypatch.setattr(desktop_screen, "_mac_only", lambda: None)
     monkeypatch.setattr(desktop_screen, "_screen_recording_denied", lambda: False)
-    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width: None)
+    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width, *_: None)
     monkeypatch.setattr(
         desktop_screen,
         "list_displays",
@@ -176,7 +176,7 @@ def test_fusion_penceresi_haric_yakalama_once_denenir(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(
         desktop_screen,
         "_native_capture",
-        lambda display, max_width: istekler.append((display, max_width)) or _png(1568, 980),
+        lambda display, max_width, *_: istekler.append((display, max_width)) or _png(1568, 980),
     )
     context = ToolContext(root=tmp_path)
 
@@ -188,11 +188,11 @@ def test_fusion_penceresi_haric_yakalama_once_denenir(tmp_path, monkeypatch) -> 
 
 def test_haric_tutma_kapaliysa_veya_basarisizsa_screencapture(tmp_path, monkeypatch) -> None:
     komutlar = _retina(monkeypatch)
-    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width: None)
+    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width, *_: None)
     assert desktop_screen.desktop_screenshot({"path": "a.png"}, ToolContext(root=tmp_path)).ok
     cagrildi: list[int] = []
     monkeypatch.setattr(
-        desktop_screen, "_native_capture", lambda display, max_width: cagrildi.append(1)
+        desktop_screen, "_native_capture", lambda display, max_width, *_: cagrildi.append(1)
     )
     kapali = ToolContext(root=tmp_path, desktop_exclude_fusion_window=False)
     assert desktop_screen.desktop_screenshot({"path": "b.png"}, kapali).ok

@@ -293,3 +293,22 @@ async def observe_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolE
     okunmasın diye bu araçlar da `assess`'ten geçer; okuma olduğu için hiçbir kipte sorulmaz.
     """
     return ToolEffect.REMOTE_READ
+
+
+def capture_exclusions(settings: DesktopSettings) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Ekran görüntüsünden çıkarılacak uygulamalar: (adlar, paket önekleri), küçük harf.
+
+    Reddedilen uygulamalar ve (kategori tablosu açıksa) engelli kategoriler; `app_levels` ile
+    açıkça açılan uygulama hariç. Claude'da denied app'e "dokunulmaz"; Fusion ayrıca penceresini
+    modele göstermez (P-007, P-033).
+    """
+    opened = {name for name, _level in map(parse_app_level, settings.app_levels)}
+    names = {item.strip().casefold() for item in settings.denied_apps if item.strip()}
+    prefixes = set(names)
+    if settings.category_defaults:
+        for category in CATEGORIES:
+            if category.level is not None or category.key == "fusion":
+                continue
+            names.update(name for name in category.names if name not in opened)
+            prefixes.update(category.bundles)
+    return tuple(sorted(names - opened)), tuple(sorted(prefixes - opened))

@@ -12,6 +12,7 @@ Retina pikseli veriyordu; model 2x kaymış noktaya tıklıyordu.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 #: Modele gönderilen ekran görüntüsünün en fazla genişliği (piksel). Claude computer-use
 #: 3456x2234'ü ~1372 genişliğe indirir; 1568 vision modellerinin kayıpsız kenarıdır.
@@ -59,11 +60,22 @@ class DesktopFrame:
         )
 
 
+class DesktopTurnHooks(Protocol):
+    """Turun masaüstü oturumu (P-033): ilk ön plan eyleminde Esc dinleyicisi + gizleme."""
+
+    def foreground_action(self) -> None: ...
+
+
 class DesktopView:
-    """Turun son tam ekran çerçevesi; fare araçları koordinatı buna göre çevirir."""
+    """Turun son tam ekran çerçevesi; fare araçları koordinatı buna göre çevirir.
+
+    `turn`, turu süren yüzeyin (`tools.desktop_turn.begin`) bağladığı oturumdur; bağlanmamışsa
+    (MCP köprüsü, testler) ön plan eylemi yalnız eylemin kendisidir.
+    """
 
     def __init__(self) -> None:
         self.frame: DesktopFrame | None = None
+        self.turn: DesktopTurnHooks | None = None
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""

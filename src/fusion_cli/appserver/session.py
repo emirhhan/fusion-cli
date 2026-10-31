@@ -109,6 +109,7 @@ from .commands import (
     run_command,
     select_development_model,
 )
+from .computer_activity import ComputerActivityWatch
 from .computer_routes import COMPUTER_ROUTES
 from .connectors import (
     add_connector_verified,
@@ -604,6 +605,11 @@ class AppSession:
         self._desktop_activity = DesktopActivity()
         self._desktop_permissions = DesktopPermissionWatch(
             lambda payload: self._writer(encode_event(payload))
+        )
+        # "Fusion bilgisayarı kullanıyor · Esc ile durdur" şeridi (P-033).
+        self._computer_activity = ComputerActivityWatch(
+            lambda payload: self._writer(encode_event(payload)),
+            lambda: self._state.config.desktop,
         )
         from ..mcp_bridge.service import McpConnectionService
 
@@ -2864,7 +2870,13 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, self._desktop_activity, self._desktop_permissions, *trace_sinks),
+                sinks=(
+                    sink,
+                    self._desktop_activity,
+                    self._desktop_permissions,
+                    self._computer_activity,
+                    *trace_sinks,
+                ),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
@@ -2963,6 +2975,7 @@ class AppSession:
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
+            self._computer_activity.clear()
             await child_runs.close()
             if self._turn is owned_turn:
                 self._child_runs = None

@@ -152,6 +152,61 @@ func target() {
         emit(info)
     }
 }
+// Esc ile durdurma (P-033): oturum düzeyinde etkin olay musluğu; Esc'i yutar ve bildirir.
+// Fusion'ın kendi gönderdiği Esc (desktop_key) olayın kaynak pid'inden ayırt edilir.
+var escIgnoredPid: Int64 = 0
+var escTap: CFMachPort?
+func writeLine(_ value: [String: Any]) {
+    if let data = try? JSONSerialization.data(withJSONObject: value) {
+        FileHandle.standardOutput.write(data + Data([0x0a]))
+    }
+}
+func escWatch() {
+    guard AXIsProcessTrusted() else { fail("macOS Erişilebilirlik izni gerekli."); return }
+    let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+    let callback: CGEventTapCallBack = { _, type, event, _ in
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = escTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        let source = event.getIntegerValueField(.eventSourceUnixProcessID)
+        if type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) == 53 && source != escIgnoredPid {
+            writeLine(["esc": true])
+            return nil
+        }
+        return Unmanaged.passUnretained(event)
+    }
+    guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+        eventsOfInterest: mask, callback: callback, userInfo: nil) else { fail("Esc dinleyicisi kurulamadı."); return }
+    escTap = tap
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    writeLine(["ok": true, "status": "watching"])
+    // Ebeveyn stdin'i kapatınca (tur bitti ya da süreç öldü) dinleyici de kapanır.
+    DispatchQueue.global().async { _ = FileHandle.standardInput.readDataToEndOfFile(); exit(0) }
+    CFRunLoopRun()
+}
+// Uygulamaları gizle / geri göster (P-033): yalnız normal (Dock'ta görünen) uygulamalar.
+func hideOthers() {
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    let request = (input.count <= 10_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
+    var keep = Set(((request["keep"] as? [Int]) ?? []).map { pid_t($0) })
+    if let front = NSWorkspace.shared.frontmostApplication { keep.insert(front.processIdentifier) }
+    var hidden: [Int] = []
+    for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isHidden && !keep.contains(app.processIdentifier) {
+        if app.hide() { hidden.append(Int(app.processIdentifier)) }
+    }
+    emit(["ok": true, "hidden": hidden])
+}
+func unhideApps() {
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    let request = (input.count <= 10_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
+    var shown = 0
+    for pid in (request["pids"] as? [Int]) ?? [] {
+        if let app = NSRunningApplication(processIdentifier: pid_t(pid)), app.unhide() { shown += 1 }
+    }
+    emit(["ok": true, "shown": shown])
+}
 let args = CommandLine.arguments
 let rows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 if args.count > 1 && args[1] == "list" {
@@ -176,6 +231,13 @@ if args.count > 1 && args[1] == "list" {
         return ["icon": iconData, "kind": "window", "id": id, "pid": pid, "app": app.localizedName ?? "Uygulama", "title": row[kCGWindowName as String] as? String ?? "", "visible": row[kCGWindowIsOnscreen as String] as? Bool ?? false]
     }
     emit(["ok": true, "windows": windows])
+} else if args.count == 3 && args[1] == "escwatch", let ignored = Int64(args[2]) {
+    escIgnoredPid = ignored
+    escWatch()
+} else if args.count == 2 && args[1] == "hide" {
+    hideOthers()
+} else if args.count == 2 && args[1] == "unhide" {
+    unhideApps()
 } else if args.count == 2 && args[1] == "target" {
     target()
 } else if args.count == 3, args[1] == "screen", let displayID = UInt32(args[2]) {
@@ -185,12 +247,19 @@ if args.count > 1 && args[1] == "list" {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let request = (input.count <= 100_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
         let excludedPids = Set((request["excludePids"] as? [Int]) ?? [])
+        // Reddedilen/engelli uygulamalar da görüntüye girmez (P-007): ad ya da paket öneki.
+        let excludedNames = Set(((request["excludeNames"] as? [String]) ?? []).map { $0.lowercased() })
+        let excludedPrefixes = ((request["excludeBundlePrefixes"] as? [String]) ?? []).map { $0.lowercased() }
         let maxWidth = request["maxWidth"] as? Int ?? 0
         Task {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                 guard let display = content.displays.first(where: { $0.displayID == displayID }) else { fail("Ekran bulunamadı."); exit(0) }
-                let excluded = content.applications.filter { excludedPids.contains(Int($0.processID)) }
+                let excluded = content.applications.filter { app in
+                    let bundle = app.bundleIdentifier.lowercased()
+                    return excludedPids.contains(Int(app.processID)) || excludedNames.contains(app.applicationName.lowercased())
+                        || excludedPrefixes.contains { !bundle.isEmpty && bundle.hasPrefix($0) }
+                }
                 let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
                 var width = max(1, CGDisplayPixelsWide(displayID)), height = max(1, CGDisplayPixelsHigh(displayID))
                 if maxWidth > 0 && width > maxWidth { height = max(1, height * maxWidth / width); width = maxWidth }

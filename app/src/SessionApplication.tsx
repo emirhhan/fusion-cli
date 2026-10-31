@@ -35,6 +35,7 @@ import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessi
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useRemoteStatus } from "./remote/useRemoteStatus";
 import type { SettingsSection } from "./settings/search";
+import { ComputerUseIndicator } from "./computer/ComputerUseIndicator";
 import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
@@ -1799,6 +1800,10 @@ export function SessionUygulama({
       ) : undefined}
       notices={
         <>
+          {/* "Fusion bilgisayarı kullanıyor · Esc ile durdur" (P-033). */}
+          {active && activeClient && (
+            <ComputerUseIndicator client={activeClient} onStop={() => controller.stop(active.id)} running={active.running} />
+          )}
           {gizliDegerSayisi > 0 && (
             <Notification
               baslik="Konuşma devralındı"

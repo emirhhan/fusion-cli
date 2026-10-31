@@ -9,7 +9,7 @@ import time
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_lock
+from . import desktop_lock, desktop_turn
 from .args import require_str
 from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
 from .key_spec import (
@@ -179,6 +179,7 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
+    desktop_turn.foreground_action(context)
     try:
         framework = _framework()
         if not _trusted(framework):
@@ -297,6 +298,7 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
     busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
+    desktop_turn.foreground_action(context)
     try:
         framework = _framework()
         if not _trusted(framework):

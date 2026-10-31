@@ -21,11 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.desktop_frame import DesktopFrame
+from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str
 from .desktop import DESKTOP_COMMAND_TIMEOUT_S, SCREENSHOT_MAX_BYTES, _framework, _mac_only
 from .desktop_permissions import DENIED, SCREEN_RECORDING, permission_failure, probe
+from .desktop_policy import capture_exclusions
 from .files import writable_path
 from .native_desktop import invoke_sync
 
@@ -156,7 +158,14 @@ def _exclude_pids() -> list[int]:
     return [os.getpid(), *_ancestor_pids(os.getpid())]
 
 
-def _native_capture(display: Display, max_width: int) -> bytes | None:
+def fusion_pids() -> list[int]:
+    """Fusion'ın süreçleri (bu süreç + ataları): gizlemede de görünür kalırlar (P-033)."""
+    return _exclude_pids()
+
+
+def _native_capture(
+    display: Display, max_width: int, settings: DesktopSettings | None = None
+) -> bytes | None:
     """Ekranı Fusion'ın (bu süreç + ataları: Fusion.app ya da terminal) pencereleri hariç yakala.
 
     Başarısızsa `None`: çağıran `screencapture` ile tam ekrana düşer (P-033). Yardımcı macOS 14+
@@ -164,7 +173,14 @@ def _native_capture(display: Display, max_width: int) -> bytes | None:
     """
     if not display.identifier:
         return None
-    request = {"excludePids": _exclude_pids(), "maxWidth": max_width}
+    names, prefixes = capture_exclusions(settings or DesktopSettings())
+    request = {
+        "excludePids": _exclude_pids(),
+        "maxWidth": max_width,
+        # Reddedilen / engelli uygulamaların pencereleri de görüntüye girmez (P-007).
+        "excludeNames": list(names),
+        "excludeBundlePrefixes": list(prefixes),
+    }
     try:
         result = invoke_sync(
             "screen", {"kind": "display", "id": display.identifier, "request": request}
@@ -287,7 +303,7 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         context.changes.record(target)
         native = (
-            _native_capture(display, max_width)
+            _native_capture(display, max_width, context.desktop_settings)
             if region is None and context.desktop_exclude_fusion_window
             else None
         )

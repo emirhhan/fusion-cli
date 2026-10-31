@@ -90,6 +90,20 @@ async def _executable() -> Path:
     return binary
 
 
+#: Yardımcının tek atışlık işlemleri; `escwatch` uzun ömürlüdür (bkz. `desktop_escape`).
+_OPERATIONS = frozenset(
+    {"list", "focus", "snapshot", "inspect", "action", "screen", "target", "hide", "unhide"}
+)
+#: Yalnız stdin gövdesi alan işlemler → beklenen hedef türü.
+_BODY_OPERATIONS = {"target": "probe", "hide": "apps", "unhide": "apps"}
+
+
+def executable_sync() -> Path:
+    """Yardımcının yolu (gerekirse derlenir); eşzamanlı çağırandan, ayrı iş parçacığında."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, _executable()).result()
+
+
 def invoke_sync(operation: str, target: dict[str, object]) -> dict[str, object]:
     """Eşzamanlı araçtan (ör. `desktop_screenshot`) yardımcıyı çağır; kendi döngüsünü ayrı iş
     parçacığında kurar ki çağıranın olay döngüsü (varsa) bloklanmasın ya da çakışmasın."""
@@ -103,12 +117,12 @@ class SwiftDesktop:
     async def invoke(self, operation: str, target: dict[str, object]) -> dict[str, object]:
         if sys.platform != "darwin":
             return unavailable("Yerel pencere dock'u yalnız macOS destekliyor.")
-        if operation not in {"list", "focus", "snapshot", "inspect", "action", "screen", "target"}:
+        if operation not in _OPERATIONS:
             return unavailable("Yerel hedef işlemi desteklenmiyor.")
-        if operation == "target":
-            # Eylem hedefi sorgusu (P-007): istek gövdesi nokta / pid / boş (öndeki uygulama).
-            if target.get("kind") != "probe":
-                return unavailable("Hedef sorgusu geçersiz.")
+        if operation in _BODY_OPERATIONS:
+            # Gövdeli işlemler (P-007, P-033): hedef sorgusu (nokta / pid / ön) ve gizle/göster.
+            if target.get("kind") != _BODY_OPERATIONS[operation]:
+                return unavailable("Yerel istek türü geçersiz.")
         elif operation == "screen":
             # Ekran hedefi: yalnız CG ekran kimliği; pencere/pid yok (P-033).
             if target.get("kind") != "display" or type(target.get("id")) is not int:
@@ -126,7 +140,7 @@ class SwiftDesktop:
             arguments = [str(binary), operation]
             if operation == "screen":
                 arguments.append(str(target["id"]))
-            elif operation not in {"list", "target"}:
+            elif operation != "list" and operation not in _BODY_OPERATIONS:
                 arguments += [str(target["id"]), str(target["pid"])]
             payload = json.dumps(target.get("request", {})).encode()
             result = json.loads(await _process(arguments, NATIVE_TIMEOUT_S, payload))

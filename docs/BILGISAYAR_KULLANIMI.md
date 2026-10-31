@@ -83,3 +83,20 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
 - Her uygulamada Cmd/Ctrl+Enter (genellikle gönderir) ve Cmd+Delete (siler/çöpe atar);
   odakta riskli bir düğme varken Enter.
 - Sistem Ayarları'nda her tıklama ve yazma.
+
+## Tur süresince: tek oturum, Esc ile durdurma, gizle / geri göster
+
+- **Tek oturum kilidi**: aynı anda yalnız bir Fusion turu fareyi/klavyeyi kullanır; ikinci
+  oturum "Başka bir Fusion oturumu bilgisayarı kullanıyor" hatası alır.
+- **Esc ile durdur** (`desktop.escape_stops`): ilk fare/klavye eyleminde küresel bir Esc
+  dinleyicisi kurulur (Erişilebilirlik izni). Fiziksel Esc turu durdurur (Ctrl+C / Durdur ile
+  aynı) ve tuş uygulamaya **gitmez**; Fusion'ın kendi gönderdiği `desktop_key key=esc`
+  durdurmaz. Masaüstünde sohbetin üstünde "Fusion bilgisayarı kullanıyor · durdurmak için Esc"
+  şeridi ve **Durdur** düğmesi görünür (`BilgisayarKullaniliyor` olayı).
+- **Arka planda çalış** (`desktop.background`, varsayılan açık): diğer uygulamalar gizlenmez.
+  Kapatılırsa ilk ekran eyleminde öndeki uygulama ve Fusion (Fusion.app ya da Fusion'ı çalıştıran
+  terminal) dışındaki uygulamalar gizlenir; `desktop.unhide_on_finish` açıksa tur bitince
+  (iptal dahil) geri gösterilir.
+- **Ekran görüntüsünden dışlananlar**: Fusion'ın kendi penceresi (ve CLI'de terminal), reddedilen
+  uygulamalar ve engelli kategoriler (yatırım/kripto, parola yöneticileri). Bölge yakalamada
+  (`region=`) ve ScreenCaptureKit'in olmadığı eski sistemlerde dışlama yapılmaz.
