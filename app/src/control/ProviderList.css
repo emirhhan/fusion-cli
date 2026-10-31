@@ -203,9 +203,13 @@
 .pv-head { align-items: end; display: flex; flex-wrap: wrap; gap: var(--space-4); justify-content: space-between; margin-bottom: var(--space-2); }
 .pv-head h3 { font-family: var(--font-heading); font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.01em; margin: 0; }
 .pv-head p { color: var(--text-secondary); font-size: var(--text-sm); margin: 2px 0 0; }
-.pv-group { margin-top: var(--space-6); }
+/* Grup başlığı + açıklama ile kart ızgarası arasındaki boşluk paragraf kenar boşluğuna bırakılmaz:
+   `.control-panel__section p { margin: 0 }` onu sıfırlıyor, açıklama kartların üst kenarına
+   yapışıyordu. Aralık ızgaranın `gap`'inden gelir; hangi kapsayıcıda çizilirse çizilsin aynıdır. */
+.pv-group { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
+.pv-group__title { display: grid; gap: var(--space-1); }
 .pv-group__title h4 { font-size: var(--text-sm); font-weight: 650; letter-spacing: .02em; margin: 0; text-transform: uppercase; color: var(--text-secondary); }
-.pv-group__title p { color: var(--text-secondary); font-size: var(--text-xs); margin: 2px 0 var(--space-3); }
+.pv-group__title p { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
 .pv-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr)); list-style: none; margin: 0; padding: 0; }
 .pv-card {
   align-content: space-between; background: var(--surface-sidebar); border: 1px solid var(--border-subtle);

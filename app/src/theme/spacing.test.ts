@@ -43,4 +43,11 @@ describe("boşluk ve çerçeve regresyonları", () => {
     expect(permissions).toContain(".permissions__table td:last-child:has(> button)");
     expect(rule(permissions, ".permissions__blocks")).toContain("border: 1px solid var(--settings-border)");
   });
+
+  it("etiket + açıklama + kart ızgarası aralığı paragraf kenar boşluğuna değil ızgara gap'ine bağlıdır", () => {
+    // `.control-panel__section p { margin: 0 }` açıklamanın alt boşluğunu sıfırlıyor, kartlar yapışıyordu.
+    expect(rule(css("control/ProviderList.css"), ".pv-group")).toContain("gap: var(--space-3)");
+    expect(rule(css("control/ProviderList.css"), ".pv-group__title p")).toContain("margin: 0");
+    expect(rule(css("settings/sections/RoleModels.css"), ".rm__sub")).toContain("display: grid");
+  });
 });

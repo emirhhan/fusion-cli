@@ -55,8 +55,11 @@
 .rm__check { background: var(--accent); border-radius: 50%; color: var(--accent-on); display: grid; font-size: 12px; height: 20px; place-items: center; position: absolute; right: 10px; top: 10px; width: 20px; }
 .rm__tip { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
 
+/* Etiket + açıklama + kart ızgarası: aralık `gap`'ten gelir (bkz. ProviderList.css `.pv-group`). */
+.rm__sub { display: grid; gap: var(--space-1); }
+.rm__sub > ul { margin-top: var(--space-2); }
 .rm__sub h4 { font-size: var(--text-sm); font-weight: 650; letter-spacing: .02em; margin: var(--space-2) 0 0; text-transform: uppercase; color: var(--text-secondary); }
-.rm__sub > p { color: var(--text-secondary); font-size: var(--text-xs); margin: 2px 0 var(--space-3); }
+.rm__sub > p { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
 .rm__sessions { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .rm__session { align-items: center; background: var(--surface-sidebar); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: grid; gap: var(--space-3); grid-template-columns: 40px 1fr; padding: var(--space-4); }
 .rm__session-name { font-family: var(--font-heading); font-weight: 650; }
