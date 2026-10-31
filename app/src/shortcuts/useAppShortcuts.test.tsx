@@ -8,8 +8,19 @@ afterEach(cleanup);
 function Harness({ handler, mac }: { handler: (action: string) => boolean; mac: boolean }) {
   const ref = useRef(handler);
   ref.current = handler;
-  useGlobalShortcuts({ "mod+k": "palet", "mod+j": "terminal" }, ref, mac);
-  return <div><input aria-label="yaz" /><button {...{ [SHORTCUT_CAPTURE_ATTRIBUTE]: "" }} type="button">kayıt</button></div>;
+  useGlobalShortcuts({ "mod+k": "palet", "mod+j": "terminal", "mod+shift+b": "onizleme" }, ref, mac);
+  return (
+    <div>
+      <input aria-label="yaz" />
+      <button {...{ [SHORTCUT_CAPTURE_ATTRIBUTE]: "" }} type="button">kayıt</button>
+      <div className="xterm"><textarea aria-label="kabuk" ref={swallowLikeXterm} /></div>
+    </div>
+  );
+}
+
+/** xterm işlediği tuşu (Ctrl+harf) iptal eder ve yayılımını durdurur; window dinleyicisi görmez. */
+function swallowLikeXterm(node: HTMLTextAreaElement | null) {
+  node?.addEventListener("keydown", (event) => { if (event.ctrlKey) { event.preventDefault(); event.stopPropagation(); } });
 }
 
 const keydown = (target: EventTarget, init: KeyboardEventInit) => {
@@ -36,6 +47,18 @@ describe("global kısayol dinleyicisi", () => {
     keydown(view.getByText("kayıt"), { key: "j", code: "KeyJ", metaKey: true });
     keydown(input, { key: "x", code: "KeyX", metaKey: true });
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("Windows/Linux'ta terminal odaktayken terminal tuşu ve Ctrl+Shift bağları uygulamaya geçer", () => {
+    // Ölçüldü (31 Ekim): xterm Ctrl+J'yi kabuğa gönderip olayı durdurduğu için terminal paneli
+    // odaktayken Ctrl+J ile kapatılamıyordu. Ctrl+K (satır sonunu sil) gibi tuşlar kabukta kalır.
+    const handler = vi.fn(() => true);
+    const view = render(<Harness handler={handler} mac={false} />);
+    const shell = view.getByLabelText("kabuk");
+    expect(keydown(shell, { key: "j", code: "KeyJ", ctrlKey: true }).defaultPrevented).toBe(true);
+    keydown(shell, { key: "B", code: "KeyB", ctrlKey: true, shiftKey: true });
+    keydown(shell, { key: "k", code: "KeyK", ctrlKey: true });
+    expect(handler.mock.calls).toEqual([["terminal"], ["onizleme"]]);
   });
 
   it("işleyici eylemi işlemezse olay engellenmez", () => {

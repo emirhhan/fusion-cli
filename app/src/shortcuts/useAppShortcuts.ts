@@ -60,11 +60,26 @@ export function useKeymap(client: KeymapClient | null): Keymap {
   return keymap;
 }
 
+/** xterm'in odak öğesi bu seçicinin içindedir. */
+const TERMINAL_SELECTOR = ".xterm";
+
+/**
+ * Windows/Linux'ta terminal odaktayken uygulamaya geçen bağlar. Ölçüldü (31 Ekim): xterm Ctrl+harfi
+ * kabuğa gönderip olayı durdurduğu için terminal Ctrl+J ile kapatılamıyordu. VS Code'un
+ * "kabuğu atla" modeli: terminali aç/kapat tuşu ve Ctrl+Shift bağları (kabuk Ctrl+Shift+J'yi
+ * Ctrl+J'den ayıramaz) uygulamanındır; Ctrl+K/Ctrl+P/Ctrl+B gibi okuma satırı tuşları kabukta kalır.
+ */
+function passesTerminal(key: string, action: string): boolean {
+  return action === "terminal" || /(^|\+)shift\+/.test(key);
+}
+
 /**
  * Tek global dinleyici (P-046). İşleyici eylemi işlediyse `true` döner; o zaman tarayıcının
  * kendi davranışı (Ctrl+P yazdır, Ctrl+N yeni pencere) engellenir.
  *
  * `defaultPrevented` olay atlanır: terminal ⌘K'yı kendi "temizle"si için yakalar ve işaretler.
+ * Windows/Linux'ta terminal odaktayken `passesTerminal` bağları xterm'den ÖNCE (yakalama evresinde)
+ * işlenir.
  */
 export function useGlobalShortcuts(
   baglar: Record<string, string>,
@@ -73,17 +88,33 @@ export function useGlobalShortcuts(
 ): void {
   useEffect(() => {
     const table = effectiveBindings(baglar, mac);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.repeat) return;
+    const resolve = (event: KeyboardEvent): [string, string] | null => {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return null;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(`[${SHORTCUT_CAPTURE_ATTRIBUTE}]`)) return;
+      if (target?.closest(`[${SHORTCUT_CAPTURE_ATTRIBUTE}]`)) return null;
       const key = eventToKey(event, mac);
       const action = key ? table.get(key) : undefined;
-      if (!action || !handlerRef.current(action)) return;
+      return key && action ? [key, action] : null;
+    };
+    const run = (event: KeyboardEvent, action: string) => {
+      if (!handlerRef.current(action)) return;
       event.preventDefault();
       event.stopPropagation();
     };
+    const onKey = (event: KeyboardEvent) => {
+      const found = resolve(event);
+      if (found) run(event, found[1]);
+    };
+    const onTerminalKey = (event: KeyboardEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest(TERMINAL_SELECTOR)) return;
+      const found = resolve(event);
+      if (found && passesTerminal(...found)) run(event, found[1]);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    if (!mac) window.addEventListener("keydown", onTerminalKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onTerminalKey, true);
+    };
   }, [baglar, handlerRef, mac]);
 }
