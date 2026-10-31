@@ -66,7 +66,7 @@ async def test_etkilesimsiz_kipte_tarayici_acilmaz(monkeypatch):
 
     monkeypatch.setattr(oauth_module, "oauth_provider_for", sahte_saglayici)
     monkeypatch.setattr(client_module, "open_mcp_stream", open_stream)
-    monkeypatch.setattr(client_module, "ClientSession", lambda _r, _w: _Session())
+    monkeypatch.setattr(client_module, "ClientSession", lambda _r, _w, **_options: _Session())
 
     async with McpClient((_remote(),), interactive=False):
         pass

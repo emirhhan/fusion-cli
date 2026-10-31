@@ -9,9 +9,16 @@ Katalog bağlantı kurulunca dolar: sunucu henüz hiç bağlanmadıysa ilk turda
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from ...ui import messages
 from .state import ReplState
+
+if TYPE_CHECKING:
+    from .commands import SlashCommand
+
+#: `mcp_bridge.references.SLASH_PREFIX` ile aynı (o modül `mcp` paketini içe aktarır).
+SLASH_PREFIX = "mcp__"
 
 #: Yardım/tamamlama grubu.
 GROUP = "MCP"
@@ -84,3 +91,25 @@ def listing(kind: str) -> str:
         for resource in catalog.resources
     ]
     return "\n".join(rows) if rows else messages.MCP_RESOURCES_EMPTY
+
+
+def unlisted_prompt_command(name: str) -> SlashCommand | None:
+    """Katalogda olmayan `/mcp__…` için geçici komut: görev sıradaki turda çözülür.
+
+    Ölçüldü (31 Ekim): katalog yalnız ilk agent turunda bağlantı kurulunca doluyordu; taze
+    REPL'de `/mcp__github__review-pr 12` "bilinmeyen komut" alıyordu. Tur yürütücüsü önce
+    bağlanır, sonra istemi çözer (`reference_service.expand_mcp_references`); bulunamazsa
+    model çağrılmadan "MCP istemi bulunamadı" denir.
+    """
+    from .commands import SlashCommand
+
+    if not name.startswith(SLASH_PREFIX) or len(name) <= len(SLASH_PREFIX):
+        return None
+
+    def _handler(state: ReplState, argument: str) -> str:
+        if not state.config.mcp_servers:
+            return messages.REPL_UNKNOWN_COMMAND.format(name=name)
+        state.pending_task = f"/{name} {argument}".strip()
+        return messages.MCP_PROMPT_UNLISTED_QUEUED.format(name=name)
+
+    return SlashCommand(name, messages.MCP_PROMPT_UNLISTED, _handler, group=GROUP)

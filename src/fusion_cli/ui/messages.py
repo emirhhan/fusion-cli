@@ -718,6 +718,10 @@ CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satı
 MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
 MCP_PROMPT_QUEUED = "MCP istemi /{name} sıradaki turda sunucudan alınıp çalıştırılacak."
 MCP_PROMPT_DEFAULT = "{server} MCP istemi"
+MCP_PROMPT_UNLISTED = "MCP istemi (liste henüz yüklenmedi)"
+MCP_PROMPT_UNLISTED_QUEUED = (
+    "MCP istem listesi henüz yüklenmedi; /{name} sıradaki turda sunucular bağlanınca çözülecek."
+)
 MCP_PROMPT_ROW = "/{name} {usage} — {description}"
 MCP_RESOURCE_ROW = "@{server}:{uri} — {name}"
 MCP_PROMPTS_EMPTY = (

@@ -80,7 +80,7 @@ async def test_hanging_operation_has_its_own_deadline(
     monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
     session = OfflineSession(stage)
-    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams: session)
+    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams, **_options: session)
     monkeypatch.setattr(client_module, "open_mcp_stream", offline_stream)
     config = McpServerConfig(
         name="offline",
@@ -109,7 +109,7 @@ async def test_offline_public_client_preserves_successful_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = OfflineSession("none")
-    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams: session)
+    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams, **_options: session)
     monkeypatch.setattr(client_module, "open_mcp_stream", offline_stream)
     config = McpServerConfig(
         name="offline",
@@ -127,7 +127,7 @@ async def test_offline_public_client_preserves_successful_result(
 async def test_server_call_budget_overrides_client_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sunucuya verilen kısa bütçe, başka sunucunun uzun varsayılanını kullanmaz."""
     session = OfflineSession("call")
-    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams: session)
+    monkeypatch.setattr(client_module, "ClientSession", lambda *_streams, **_options: session)
     monkeypatch.setattr(client_module, "open_mcp_stream", offline_stream)
     config = McpServerConfig(
         name="offline",

@@ -100,8 +100,9 @@ class McpToolPool:
         #: `clients_for`'da kapatılıp yeniden açılır (eşzamansız olmayan çağıranlar için; P-049).
         self._reconnect_requested: set[str] = set()
         #: Sunucu başına istem/kaynak kataloğu ve onu çeken istemci (P-049): bağlantı
-        #: değişince (yeni istemci) yeniden çekilir, aynı bağlantıda bir kez.
-        self._catalogs: dict[str, tuple[McpClient, McpCatalog]] = {}
+        #: değişince (yeni istemci) yeniden çekilir, aynı bağlantıda bir kez. Çekim
+        #: başarısızsa istemci `None` kalır: sonraki tur yeniden dener.
+        self._catalogs: dict[str, tuple[McpClient | None, McpCatalog]] = {}
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -203,16 +204,21 @@ class McpToolPool:
         # Eski/sahte istemci katalog arayüzü taşımayabilir: katalog yok sayılır.
         for server in getattr(client, "servers", ()):
             cached = self._catalogs.get(server)
-            if cached is not None and cached[0] is client:
+            stale = getattr(client, "catalog_stale", None)
+            if cached is not None and cached[0] is client and not (stale and stale(server)):
                 continue
             try:
                 catalog = await client.catalog(server)
             except Exception as error:  # katalog bir zenginleştirme; tur düşmez, log'lanır
+                # Ölçüldü (31 Ekim): geçici hata (zaman aşımı) boş katalog olarak bağlantı
+                # ömrü boyunca önbelleğe yazılıyordu; `/mcp reconnect`'e kadar "istem
+                # bulunamadı" alınıyordu. Artık bilinen son liste korunur ve yeniden denenir.
                 _LOG.info(
                     "MCP istem/kaynak listesi alınamadı",
                     extra={"sunucu": server, "hata": type(error).__name__},
                 )
-                catalog = McpCatalog()
+                self._catalogs[server] = (None, cached[1] if cached else McpCatalog())
+                continue
             self._catalogs[server] = (client, catalog)
 
     def catalogs(self) -> dict[str, McpCatalog]:

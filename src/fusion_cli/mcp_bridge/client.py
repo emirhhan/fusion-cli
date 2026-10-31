@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
 import tempfile
@@ -39,7 +40,14 @@ from .content import normalize_call_result
 from .failures import STATE_CONNECTED
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
-from .references import McpCatalog, as_uri, fetch_catalog, prompt_text, resource_block
+from .references import (
+    McpCatalog,
+    as_uri,
+    catalog_change_handler,
+    fetch_catalog,
+    prompt_text,
+    resource_block,
+)
 from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
@@ -105,6 +113,8 @@ class McpClient:
         self._timeouts: dict[str, int] = {}
         #: Sunucu başına son keşfedilen araç tanımı özeti; güven kaydıyla karşılaştırılır (M1-16).
         self._tool_digests: dict[str, str] = {}
+        #: `prompts|resources/list_changed` bildiren sunucular: katalog yeniden çekilir (P-049).
+        self._stale_catalogs: set[str] = set()
 
     @property
     def is_stalled(self) -> bool:
@@ -202,7 +212,13 @@ class McpClient:
                     open_mcp_stream(config, auth=auth, errlog=stderr_capture)
                 )
                 session = await stack.enter_async_context(
-                    ClientSession(read, self._tracker.wrap(config.name, write))
+                    ClientSession(
+                        read,
+                        self._tracker.wrap(config.name, write),
+                        message_handler=catalog_change_handler(
+                            functools.partial(self._stale_catalogs.add, config.name)
+                        ),
+                    )
                 )
                 await session.initialize()
                 self._sessions[config.name] = session
@@ -356,8 +372,13 @@ class McpClient:
         """Bağlı sunucu adları."""
         return tuple(self._sessions)
 
+    def catalog_stale(self, server: str) -> bool:
+        """Sunucu son çekimden sonra liste değişikliği bildirdi mi?"""
+        return server in self._stale_catalogs
+
     async def catalog(self, server: str) -> McpCatalog:
         """Sunucunun istem ve kaynak listesi (keşif bütçesiyle sınırlı)."""
+        self._stale_catalogs.discard(server)
         async with asyncio.timeout(self._server_timeout(server, "list_timeout_s")):
             return await fetch_catalog(self._session(server), server)
 

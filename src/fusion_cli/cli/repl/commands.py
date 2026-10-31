@@ -87,6 +87,8 @@ class SlashCommand:
 
 #: Yerleşik olmayan komutları (beceriler) her çağrıda üreten sağlayıcı.
 DynamicCommands = Callable[[], tuple[SlashCommand, ...]]
+#: Listede olmayan ad için son çare çözücü (ör. henüz kataloğu gelmemiş `/mcp__…`).
+FallbackCommand = Callable[[str], SlashCommand | None]
 
 
 @dataclass(slots=True)
@@ -101,6 +103,7 @@ class CommandRegistry:
     _commands: dict[str, SlashCommand] = field(default_factory=dict)
     _by_name: dict[str, SlashCommand] = field(default_factory=dict)
     _dynamic: DynamicCommands | None = None
+    _fallback: FallbackCommand | None = None
 
     def register(self, command: SlashCommand) -> None:
         self._by_name[command.name] = command
@@ -109,6 +112,9 @@ class CommandRegistry:
 
     def set_dynamic(self, provider: DynamicCommands | None) -> None:
         self._dynamic = provider
+
+    def set_fallback(self, resolver: FallbackCommand | None) -> None:
+        self._fallback = resolver
 
     def _dynamic_commands(self) -> tuple[SlashCommand, ...]:
         if self._dynamic is None:
@@ -120,7 +126,10 @@ class CommandRegistry:
         builtin = self._commands.get(wanted)
         if builtin is not None:
             return builtin
-        return next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+        found = next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+        if found is None and self._fallback is not None:
+            return self._fallback(wanted)
+        return found
 
     def is_dynamic(self, name: str) -> bool:
         """Ad bir beceri/komut dosyasına mı çözülüyor (yerleşik değil)?"""
@@ -175,7 +184,7 @@ def attach_skill_commands(
     `build_registry(home)` imzasını değiştirmeden sonradan bağlamak isteyen yüzeyler
     (masaüstü oturumu) için ayrı tutulur.
     """
-    from .mcp_prompt_commands import mcp_prompt_slash_commands
+    from .mcp_prompt_commands import mcp_prompt_slash_commands, unlisted_prompt_command
     from .skill_commands import skill_slash_commands
 
     registry.set_dynamic(
@@ -185,6 +194,7 @@ def attach_skill_commands(
             if isinstance(c, SlashCommand)
         )
     )
+    registry.set_fallback(unlisted_prompt_command)
 
 
 # --------------------------------------------------------------------------- #
