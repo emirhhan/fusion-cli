@@ -22,7 +22,14 @@
 
 .share-dialog header,
 .share-dialog footer { align-items: center; display: flex; justify-content: space-between; }
-.share-dialog footer { justify-content: flex-end; }
+.share-dialog footer { gap: 8px; justify-content: flex-end; }
+.share-dialog__formats { display: flex; gap: 16px; font-size: var(--text-sm); }
+.share-dialog__formats label { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; }
+.share-dialog footer button.share-dialog__secondary {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
 .share-dialog h2 { font-size: var(--text-lg); margin: 0; }
 .share-dialog p { color: var(--text-secondary); font-size: var(--text-sm); margin: 0; }
 .share-dialog textarea {

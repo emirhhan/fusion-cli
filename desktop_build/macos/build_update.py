@@ -11,9 +11,22 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+#: Sürüm notu verilmezse manifeste yazılan metin; uygulama bunu "Sürüm notları" olarak gösterir.
+DEFAULT_NOTES = "Fusion masaüstü güncellemesi. Çalışan görevleri tamamladıktan sonra kur."
 
-def build_update(app: Path, destination: Path, key: Path | None, repository: str) -> None:
-    """DMG ile aynı uygulamayı arşivle; özel anahtarı çıktıya kopyalama."""
+
+def build_update(
+    app: Path,
+    destination: Path,
+    key: Path | None,
+    repository: str,
+    notes: str = DEFAULT_NOTES,
+) -> None:
+    """DMG ile aynı uygulamayı arşivle; özel anahtarı çıktıya kopyalama.
+
+    `notes` manifestin `notes` alanına düz metin olarak yazılır (P-066): masaüstü
+    Ayarlar › Güncellemeler bunu "Sürüm notları" başlığında gösterir. HTML yorumlanmaz.
+    """
     version = plistlib.loads((app / "Contents/Info.plist").read_bytes())[
         "CFBundleShortVersionString"
     ]
@@ -43,7 +56,7 @@ def build_update(app: Path, destination: Path, key: Path | None, repository: str
     )
     manifest = {
         "version": version,
-        "notes": "Fusion masaüstü güncellemesi. Çalışan görevleri tamamladıktan sonra kur.",
+        "notes": notes.strip() or DEFAULT_NOTES,
         "platforms": {
             f"darwin-{architecture}": {
                 "signature": Path(str(archive) + ".sig").read_text().strip(),
@@ -62,10 +75,20 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--key", type=Path)
     parser.add_argument("--repository", default="emirhhan/fusion-cli")
+    parser.add_argument("--notes", help="Sürüm notu (düz metin); uygulamada gösterilir.")
+    parser.add_argument(
+        "--notes-file", type=Path, help="Sürüm notunu dosyadan oku (ör. CHANGELOG bölümü)."
+    )
     args = parser.parse_args()
+    release_notes = (
+        args.notes_file.read_text(encoding="utf-8")
+        if args.notes_file
+        else (args.notes or DEFAULT_NOTES)
+    )
     build_update(
         args.app.resolve(),
         args.output.resolve(),
         args.key.resolve() if args.key else None,
         args.repository,
+        notes=release_notes,
     )

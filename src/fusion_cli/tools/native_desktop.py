@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -89,15 +90,26 @@ async def _executable() -> Path:
     return binary
 
 
+def invoke_sync(operation: str, target: dict[str, object]) -> dict[str, object]:
+    """Eşzamanlı araçtan (ör. `desktop_screenshot`) yardımcıyı çağır; kendi döngüsünü ayrı iş
+    parçacığında kurar ki çağıranın olay döngüsü (varsa) bloklanmasın ya da çakışmasın."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, SwiftDesktop().invoke(operation, target)).result()
+
+
 class SwiftDesktop:
     """Arka plan yakalama ve AX işlemleri genel ekran girdisine dönüşmez."""
 
     async def invoke(self, operation: str, target: dict[str, object]) -> dict[str, object]:
         if sys.platform != "darwin":
             return unavailable("Yerel pencere dock'u yalnız macOS destekliyor.")
-        if operation not in {"list", "focus", "snapshot", "inspect", "action"}:
+        if operation not in {"list", "focus", "snapshot", "inspect", "action", "screen"}:
             return unavailable("Yerel hedef işlemi desteklenmiyor.")
-        if operation != "list" and not (
+        if operation == "screen":
+            # Ekran hedefi: yalnız CG ekran kimliği; pencere/pid yok (P-033).
+            if target.get("kind") != "display" or type(target.get("id")) is not int:
+                return unavailable("Ekran kimliği gerekli.")
+        elif operation != "list" and not (
             target.get("kind") == "window"
             and type(target.get("id")) is int
             and type(target.get("pid")) is int
@@ -108,7 +120,9 @@ class SwiftDesktop:
         try:
             binary = await _executable()
             arguments = [str(binary), operation]
-            if operation != "list":
+            if operation == "screen":
+                arguments.append(str(target["id"]))
+            elif operation != "list":
                 arguments += [str(target["id"]), str(target["pid"])]
             payload = json.dumps(target.get("request", {})).encode()
             result = json.loads(await _process(arguments, NATIVE_TIMEOUT_S, payload))

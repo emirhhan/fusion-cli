@@ -114,3 +114,27 @@ describe("AppHeader", () => {
     expect(screen.queryByRole("combobox", { name: "Tema" })).toBeNull();
   });
 });
+
+// Ölçüldü (31 Ekim, P-066): başlıkta uzaktan kontrol anahtarı yoktu; durum yalnız Ayarlar'da görünüyordu.
+describe("AppHeader uzaktan kontrol anahtarı", () => {
+  it("verilmezse çizilmez", () => {
+    render(<AppHeader inspectorOpen={false} onToggleInspector={vi.fn()} onToggleSidebar={vi.fn()} sidebarCollapsed={false} title="Sohbet" />);
+    expect(screen.queryByRole("button", { name: /Uzaktan kontrol/ })).toBeNull();
+  });
+
+  it("kapalıyken 'kapalı' der ve tıklanınca Uzaktan Erişim ayarını açar", () => {
+    const onOpen = vi.fn();
+    render(<AppHeader inspectorOpen={false} onToggleInspector={vi.fn()} onToggleSidebar={vi.fn()} remote={{ listening: false, deviceCount: 0, pendingApprovals: 0, onOpen }} sidebarCollapsed={false} title="Sohbet" />);
+    const toggle = screen.getByRole("button", { name: "Uzaktan kontrol: kapalı" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("dinlerken cihaz sayısını ve bekleyen onayı özetler", () => {
+    render(<AppHeader inspectorOpen={false} onToggleInspector={vi.fn()} onToggleSidebar={vi.fn()} remote={{ listening: true, deviceCount: 2, pendingApprovals: 1, onOpen: vi.fn() }} sidebarCollapsed={false} title="Sohbet" />);
+    const toggle = screen.getByRole("button", { name: "Uzaktan kontrol: 2 cihaz · 1 onay bekliyor" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.className).toContain("app-header__remote--pending");
+  });
+});

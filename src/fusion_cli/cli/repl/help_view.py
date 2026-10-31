@@ -39,6 +39,14 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         _models(state, console)
     elif name == "cost":
         _cost(state, console)
+    elif name == "status":
+        from .status_view import render_status
+
+        render_status(state, console)
+    elif name == "context":
+        from .status_view import render_context
+
+        render_context(state, console)
     elif name == "compact":
         from .loop import compact_history
 
@@ -58,6 +66,7 @@ async def _doctor(console: Console) -> None:
 
     report = await asyncio.to_thread(diagnose, live=False)
     print_report(report, console)
+    console.print(f"[{theme.DIM}]{messages.REPL_DOCTOR_PROMPT_HINT}[/{theme.DIM}]")
 
 
 def _tips(console: Console) -> None:

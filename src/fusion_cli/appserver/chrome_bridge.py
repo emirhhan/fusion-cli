@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import sys
 import threading
 import time
@@ -485,11 +486,41 @@ class ChromeBridge:
         await writer.drain()
 
 
+#: Linux'ta aranan Chrome/Chromium ikilileri (ilk bulunan açılır).
+LINUX_CHROME_BINARIES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
+
+
+def chrome_launch_command(
+    platform: str, which: Callable[[str], str | None] = shutil.which
+) -> list[str] | None:
+    """Kullanıcının Chrome'unu açan komut; sistem desteklenmiyorsa `None` (P-073).
+
+    macOS arka planda (`-g`) açar; Windows `start chrome` ile kayıtlı Chrome'u bulur;
+    Linux PATH'teki ilk Chrome/Chromium ikilisini kullanır.
+    """
+    if platform == "darwin":
+        return ["open", "-g", "-a", "Google Chrome"]
+    if platform == "win32":
+        return ["cmd", "/c", "start", "", "chrome"]
+    if platform.startswith("linux"):
+        for name in LINUX_CHROME_BINARIES:
+            found = which(name)
+            if found:
+                return [found]
+    return None
+
+
 async def _open_chrome() -> None:
-    """Kullanıcının Chrome'unu aç (macOS); başka sistemde bir şey yapmaz."""
-    if sys.platform == "darwin":
-        process = await asyncio.create_subprocess_exec(
-            "open", "-g", "-a", "Google Chrome",
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )  # fmt: skip
+    """Kullanıcının Chrome'unu aç; desteklenmeyen sistemde bir şey yapmaz."""
+    command = chrome_launch_command(sys.platform)
+    if command is None:
+        return
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        # Linux'ta Chrome ön planda sürer; beklenmez. macOS/Windows başlatıcıları hemen döner.
+        start_new_session=not command[0].startswith(("open", "cmd")),
+    )
+    if command[0] in {"open", "cmd"}:
         await process.wait()

@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
-import { RemoteAccess } from "./RemoteAccess";
+import { RemoteAccess, approvalTrustLabel } from "./RemoteAccess";
 import { REMOTE_SCOPES_KEY } from "./remotePreferences";
 
 beforeEach(() => window.localStorage.clear());
@@ -236,4 +236,40 @@ it("yüksek yetkili kodda 'kendiliğinden bağlanır' denmez; çekirdeğin elle 
   fireEvent.click(await screen.findByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
   expect(await screen.findByText("Cihaz kodu girdikten sonra onayla.")).toBeTruthy();
   expect(screen.queryByText(/kendiliğinden bağlanır/)).toBeNull();
+});
+
+it("uzaktan onay için süreli yetki şartı açılır ve cihaza yetki verilir/kaldırılır (P-040)", async () => {
+  const simdi = Date.now() / 1000;
+  const client = fakeClient({
+    "uzak.cihazlar": {
+      cihazlar: [
+        { deviceId: "dev_1", name: "Telefon", channel: "signed", scopes: [], revoked: false, approvalTrustedUntil: 0 },
+        { deviceId: "dev_2", name: "Tablet", channel: "signed", scopes: [], revoked: false, approvalTrustedUntil: simdi + 2 * 3600 },
+      ],
+    },
+  });
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText("Uzaktan onay için cihaz başına süreli yetki iste"));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayYetkisiIste: true }));
+  fireEvent.click(await screen.findByRole("button", { name: "Onay yetkisi ver (18 sa)" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.onay_yetkisi", { cihazId: "dev_1", saat: 18 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Onay yetkisini kaldır" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.onay_yetkisi", { cihazId: "dev_2", saat: 0 }));
+  expect(screen.getByText(/Onay yetkisi: 1 sa kaldı|Onay yetkisi: 2 sa kaldı/)).toBeTruthy();
+});
+
+it("eşleştirme kodu istenirken seçilirse cihaza 18 saatlik onay yetkisi eklenir", async () => {
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText(/Eşleşen cihaz 18 saat onay verebilsin/));
+  fireEvent.click(screen.getByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.eslestir_baslat", {
+    kanal: "pwa", kapsamlar: ["project.read", "agent.run", "agent.cancel"], onaySaat: 18,
+  }));
+});
+
+it("kalan onay yetkisi saat ya da dakika olarak yazılır; dolmuşsa yok", () => {
+  expect(approvalTrustLabel(undefined, 1000)).toBe("Onay yetkisi yok");
+  expect(approvalTrustLabel(1000 + 7200, 1000)).toBe("Onay yetkisi: 2 sa kaldı");
+  expect(approvalTrustLabel(1000 + 600, 1000)).toBe("Onay yetkisi: 10 dk kaldı");
 });

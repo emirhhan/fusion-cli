@@ -148,10 +148,10 @@ class LocalComputer:
 
 def _native_tools() -> dict[str, Callable[[ToolArgs, ToolContext], ToolResult]]:
     """Gözlem için kullanılan iki salt okunur macOS aracı (tıklama/yazma yok)."""
-    from ..tools import desktop, desktop_inspect
+    from ..tools import desktop_inspect, desktop_screen
 
     return {
-        "desktop_screenshot": desktop.desktop_screenshot,
+        "desktop_screenshot": desktop_screen.desktop_screenshot,
         "desktop_accessibility": desktop_inspect.desktop_accessibility,
     }
 

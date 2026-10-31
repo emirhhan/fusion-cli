@@ -30,6 +30,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -61,6 +62,8 @@ class PreviewKind(StrEnum):
     PHP = "php"
     NODE = "node"
     STATIC = "static"
+    #: Kullanıcının `.fusion/launch.json` ile tanımladığı sunucu (bkz. `preview_launch`).
+    LAUNCH = "launch"
 
 
 class PreviewError(RuntimeError):
@@ -78,10 +81,14 @@ class RunningPreview:
     httpd: http.server.ThreadingHTTPServer | None = None
     #: Son yoklamanın özeti (doğrulama kapısı okur).
     last_probe: dict[str, object] = field(default_factory=dict)
+    #: Süreç bizim değil: zaten çalışan sunucuya bağlanıldı (`launch.json` yalnız `url`).
+    attached: bool = False
+    #: Başlatma anı (monotonik); "en son başlatılan önizleme" seçimi buna bakar.
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
     def alive(self) -> bool:
-        if self.httpd is not None:
+        if self.httpd is not None or self.attached:
             return True
         return self.process is not None and self.process.returncode is None
 
@@ -175,11 +182,11 @@ async def start(
             php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root),
             str(PHP_ROUTER),
         ]  # fmt: skip
-        process, log_path = await _spawn_logged(command, root)
+        process, log_path = await spawn_logged(command, root)
         preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
     else:
         command = await _node_command(root, port)
-        process, log_path = await _spawn_logged(command, root, extra_env={"PORT": str(port)})
+        process, log_path = await spawn_logged(command, root, extra_env={"PORT": str(port)})
         preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
     if not await wait_until_serving(preview.url, process=preview.process):
         raise PreviewError(_failure_message(preview, command))
@@ -188,6 +195,12 @@ async def start(
 
 
 def stop(preview: RunningPreview) -> None:
+    terminate(preview)
+    _RUNNING.pop(preview.root, None)
+
+
+def terminate(preview: RunningPreview) -> None:
+    """Sunucuyu kapat ve günlüğünü sil; defterden DÜŞÜRMEZ (adlı önizlemelerin defteri ayrı)."""
     if preview.httpd is not None:
         preview.httpd.shutdown()
         preview.httpd.server_close()
@@ -198,9 +211,13 @@ def stop(preview: RunningPreview) -> None:
                 preview.process.terminate()
             else:
                 os.killpg(preview.process.pid, signal.SIGTERM)
-    _RUNNING.pop(preview.root, None)
     if preview.log_path is not None:
         preview.log_path.unlink(missing_ok=True)
+
+
+def all_running() -> tuple[RunningPreview, ...]:
+    """Türü dosyalardan anlaşılan çalışan önizlemeler (en eski önce)."""
+    return tuple(preview for preview in _RUNNING.values() if preview.alive)
 
 
 @atexit.register
@@ -256,13 +273,13 @@ async def wait_until_serving(
     while loop.time() < deadline:
         if process is not None and process.returncode is not None:
             return False  # süreç öldü: beklemek boşuna
-        if await asyncio.to_thread(_responds, url):
+        if await asyncio.to_thread(responds, url):
             return True
         await asyncio.sleep(0.5)
     return False
 
 
-def _responds(url: str) -> bool:
+def responds(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=5):
             return True
@@ -292,15 +309,22 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         del format, args
 
 
-async def _spawn_logged(
-    command: list[str], root: Path, extra_env: dict[str, str] | None = None
+async def spawn_logged(
+    command: list[str],
+    root: Path,
+    extra_env: dict[str, str] | None = None,
+    *,
+    env_base: dict[str, str] | None = None,
 ) -> tuple[asyncio.subprocess.Process, Path]:
-    """Süreci başlat; stdout/stderr geçici bir günlüğe gider (hata anında kuyruğu okunur)."""
+    """Süreci başlat; stdout/stderr geçici bir günlüğe gider (hata anında kuyruğu okunur).
+
+    `env_base` verilirse `php_env()` yerine o ortam kullanılır (süzülmüş ortam için).
+    """
     handle, name = tempfile.mkstemp(prefix="fusion-preview-", suffix=".log")
     log_path = Path(name)
     try:
         with os.fdopen(handle, "wb") as log:
-            process = await _spawn(command, root, extra_env, output=log)
+            process = await _spawn(command, root, extra_env, output=log, env_base=env_base)
     except BaseException:
         log_path.unlink(missing_ok=True)  # noqa: ASYNC240 - tek küçük unlink, hata yolunda
         raise
@@ -312,8 +336,10 @@ async def _spawn(
     root: Path,
     extra_env: dict[str, str] | None = None,
     output: BinaryIO | None = None,
+    *,
+    env_base: dict[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
-    env = {**php_env(), **(extra_env or {})}
+    env = {**(env_base if env_base is not None else php_env()), **(extra_env or {})}
     return await asyncio.create_subprocess_exec(
         *command,
         cwd=str(root),

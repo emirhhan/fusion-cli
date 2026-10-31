@@ -36,9 +36,55 @@ def read_instructions() -> str:
         return ""
 
 
-def get_instructions() -> dict[str, Any]:
-    """`ayar.talimat`: kayıtlı metni ve sınırı döndür."""
-    return {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
+def get_instructions(root: Path | None = None, home: Path | None = None) -> dict[str, Any]:
+    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) yüklenen talimat katmanları.
+
+    `katmanlar`: tur başında bağlama giren dosyalar — kaynak adı, katman, karakter, kırpılan
+    karakter ve güvenilir olup olmadığı. `notlar`: atlanan import / dolan bütçe gibi uyarılar.
+    """
+    sonuc: dict[str, Any] = {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
+    if root is None:
+        return sonuc
+    from ..engines.agent.instruction_layers import load_instruction_layers
+
+    yuk = load_instruction_layers(root, home)
+    sonuc["katmanlar"] = [
+        {
+            "kaynak": item.label,
+            "katman": item.layer,
+            "karakter": item.chars,
+            "kirpilan": item.trimmed,
+            "guvenilir": item.trusted,
+        }
+        for item in yuk.files
+    ]
+    # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
+    # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
+    from ..engines.agent.instruction_rules import MAX_RULE_FILE_CHARS, discover_rules, rule_block
+
+    for kural in discover_rules(root, home):
+        _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+        sonuc["katmanlar"].append(
+            {
+                "kaynak": kural.label,
+                "katman": "kural",
+                "karakter": karakter,
+                "kirpilan": 0,
+                "guvenilir": kural.trusted,
+                "kapsam": list(kural.paths),
+            }
+        )
+    sonuc["notlar"] = list(yuk.notes)
+    sonuc["toplam_karakter"] = sum(item.chars for item in yuk.files)
+    # `/doctor prompt` ile aynı öneriler (P-021): arayüz Kişiselleştirme ekranında gösterir.
+    from ..engines.agent.instruction_audit import audit_instructions
+
+    denetim = audit_instructions(root, home)
+    sonuc["oneriler"] = list(denetim.suggestions)
+    sonuc["supheli"] = [
+        {"kaynak": s.source, "satir": s.line_no, "metin": s.text} for s in denetim.suspicious
+    ]
+    return sonuc
 
 
 def save_instructions(value: object) -> dict[str, Any]:

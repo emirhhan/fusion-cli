@@ -15,6 +15,19 @@ from ..core.tools import ToolFamily, tool_family
 
 _FILE_WRITE = {"write_file", "create_file"}
 _FILE_EDIT = {"edit_file", "multi_edit"}
+_MOUSE_TOOLS = {"desktop_mouse", "desktop_click", "desktop_scroll"}
+#: Fare eylemlerinin kart metni; Claude Code'daki önizleme gibi NE yapılacağı ve NEREDE söylenir.
+_MOUSE_LABELS = {
+    "click": "sol tık",
+    "right_click": "sağ tık",
+    "double_click": "çift tık",
+    "triple_click": "üçlü tık",
+    "middle_click": "orta tık",
+    "drag": "sürükle",
+    "hover": "imleci götür",
+    "down": "düğmeyi bas",
+    "up": "düğmeyi bırak",
+}
 
 
 def approval_summary(
@@ -48,6 +61,8 @@ def approval_summary(
         return "Bu git işlemi yapılsın mı?", _text(args, "args", "command", "subcommand")
     if family is ToolFamily.BROWSER:
         return "Tarayıcıda bu işlem yapılsın mı?", _text(args, "url", "text", "selector", "ref")
+    if tool_name in _MOUSE_TOOLS:
+        return "Bilgisayarında bu işlem yapılsın mı?", _mouse_target(tool_name, args)
     if family is ToolFamily.DESKTOP:
         return "Bilgisayarında bu işlem yapılsın mı?", _text(args, "app", "text", "key", "name")
     if family is ToolFamily.WEB:
@@ -62,6 +77,31 @@ def approval_summary(
             return f"{sunucu} üzerinde “{yetenek}” çalıştırılsın mı?", ayrinti[:400]
         return f"{sunucu} üzerinde “{arac}” çalıştırılsın mı?", ""
     return f"“{tool_name}” aracı çalıştırılsın mı?", ""
+
+
+def _mouse_target(tool_name: str, args: Mapping[str, object]) -> str:
+    """'sağ tık (784, 490)' / 'sürükle (10, 20) → (300, 400)' / '5 satır aşağı kaydır (x, y)'."""
+    where = _point(args, "x", "y")
+    if tool_name == "desktop_scroll":
+        parts = []
+        for key, pozitif, negatif in (("lines", "yukarı", "aşağı"), ("delta_x", "sola", "sağa")):
+            value = args.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value:
+                parts.append(f"{abs(value)} satır {pozitif if value > 0 else negatif}")
+        return " ve ".join(parts) + " kaydır" + (f" {where}" if where else "")
+    action = str(args.get("action", "click")) if tool_name == "desktop_mouse" else "click"
+    label = _MOUSE_LABELS.get(action, action)
+    if action == "drag":
+        return f"{label} {where} → {_point(args, 'to_x', 'to_y')}"
+    modifiers = _text(args, "modifiers")
+    return f"{label} {where}" + (f" ({modifiers})" if modifiers else "")
+
+
+def _point(args: Mapping[str, object], key_x: str, key_y: str) -> str:
+    x, y = args.get(key_x), args.get(key_y)
+    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+        return f"({x:g}, {y:g})"
+    return ""
 
 
 def _text(args: Mapping[str, object], *keys: str) -> str:

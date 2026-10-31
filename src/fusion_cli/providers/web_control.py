@@ -12,10 +12,12 @@ düzeltilirken öteki eskirdi.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -47,6 +49,10 @@ class SecretReader(Protocol):
 
 
 _LOGIN_PROCESSES: dict[int, subprocess.Popen[Any]] = {}
+#: Giriş alt sürecinin stderr dosyası (pid → yol): kapanış sebebi panele taşınır.
+_LOGIN_ERRORS: dict[int, Path] = {}
+#: Panelde gösterilecek en uzun hata metni; iz değil, son satırlar.
+_LOGIN_ERROR_MAX_CHARS = 400
 
 
 def login_argv(provider: str, account: str) -> list[str]:
@@ -72,15 +78,54 @@ def start_login(provider: str, account: str) -> int:
     yoklayarak pencerenin kapandığını anlar ve doğrulamayı kendiliğinden çalıştırır;
     kullanıcı elle çerez kopyalamak zorunda kalmaz.
     """
-    argv = login_argv(provider, account)
-    process = subprocess.Popen(
-        argv,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    return _spawn_login(login_argv(provider, account))
+
+
+def start_browser_profile_login(name: str, url: str) -> int:
+    """Tarayıcı profili (P-023) için görünür giriş penceresini başlat; pid döndür.
+
+    Web sağlayıcı girişiyle aynı süreç takibi (`process_alive`, `login_exit_code`):
+    masaüstü paneli pencerenin kapandığını aynı yoklamayla anlar.
+    """
+    from .profile_login import login_argv as profile_login_argv
+
+    return _spawn_login(profile_login_argv(name, url))
+
+
+def _spawn_login(argv: list[str]) -> int:
+    # stderr geçici dosyaya alınır. Ölçüldü (31 Ekim): DEVNULL'dayken playwright/Chromium
+    # kurulu değilse panel yalnız "hata ile kapandı" diyordu; asıl talimat
+    # ("playwright install chromium") hiç görünmüyordu.
+    with tempfile.NamedTemporaryFile(prefix="fusion-giris-", suffix=".log", delete=False) as errors:
+        process = subprocess.Popen(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=errors,
+            start_new_session=True,
+        )
     _LOGIN_PROCESSES[process.pid] = process
+    _LOGIN_ERRORS[process.pid] = Path(errors.name)
     return process.pid
+
+
+def login_error_text(pid: int) -> str:
+    """Kapanmış giriş sürecinin stderr'inden son satırlar (sır içermez: yalnız hata metni).
+
+    Dosya okunduktan sonra silinir; süreç hâlâ yaşıyorsa boş döner.
+    """
+    path = _LOGIN_ERRORS.get(pid)
+    process = _LOGIN_PROCESSES.get(pid)
+    if path is None or (process is not None and process.poll() is None):
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    _LOGIN_ERRORS.pop(pid, None)
+    with contextlib.suppress(OSError):
+        path.unlink()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return " ".join(lines[-3:])[-_LOGIN_ERROR_MAX_CHARS:]
 
 
 def stop_all_login_processes() -> None:
@@ -97,6 +142,10 @@ def stop_all_login_processes() -> None:
             pass
         finally:
             _LOGIN_PROCESSES.pop(pid, None)
+            path = _LOGIN_ERRORS.pop(pid, None)
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    path.unlink()
 
 
 def process_alive(pid: int) -> bool:

@@ -18,7 +18,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
+from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
@@ -49,6 +51,7 @@ from ..core.types import (
     VerdictSource,
     is_rate_limit_error,
 )
+from ..core.worktree import WorktreeSwitch
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import (
     ApprovalMemory,
@@ -72,6 +75,7 @@ from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
+from ..tools import desktop_lock
 from ..tools.capabilities import CapabilityRegistry
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
@@ -152,6 +156,28 @@ def _failure_message(result: FusionResult) -> str:
     return messages.ERROR_NO_ANSWER
 
 
+def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolContext:
+    """Yapılandırmadaki araç ayarlarını bağlama işle (tek yer; her tur yolu bunu çağırır).
+
+    Ölçüldü (31 Ekim): REPL kendi `ToolContext`'ini kurup `run_agent`'a doğrudan veriyordu;
+    `runtime.desktop_screenshot_max_width`, `desktop_exclude_fusion_window` ve daha önce
+    `shell_sandbox`/`edit_fuzzy_match`/`shell_workspace_fingerprint` orada sessizce varsayılanda
+    kalıyordu. TUI ve `fusion run` `run_agent_task` üzerinden geçtiği için etkilenmiyordu.
+    """
+    return replace(
+        tool_context,
+        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
+        hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
+        # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
+        shell_sandbox=config.runtime.shell_sandbox,
+        edit_fuzzy_match=config.runtime.edit_fuzzy_match,
+        post_edit_syntax_check=config.runtime.post_edit_syntax_check,
+        shell_fingerprint=config.runtime.shell_workspace_fingerprint,
+        desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
+        desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+    )
+
+
 async def run_agent_task(
     task: str,
     config: Config,
@@ -191,6 +217,7 @@ async def run_agent_task(
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
     cron: SessionCron | None = None,
+    worktree_switch: WorktreeSwitch | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -231,20 +258,14 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            browser=browser_session_from(config),
+            block_reads_outside_root=config.runtime.block_reads_outside_root,
+            block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
-        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
-        tool_context = replace(
-            tool_context,
-            hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
-            # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
-            shell_sandbox=config.runtime.shell_sandbox,
-            edit_fuzzy_match=config.runtime.edit_fuzzy_match,
-            post_edit_syntax_check=config.runtime.post_edit_syntax_check,
-            shell_fingerprint=config.runtime.shell_workspace_fingerprint,
-        )
+        tool_context = apply_runtime_settings(tool_context, config)
         if cron is not None:
             # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
             tool_context = replace(tool_context, cron=cron)
@@ -252,6 +273,10 @@ async def run_agent_task(
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.
             tool_context = replace(tool_context, changes=changes)
+        if worktree_switch is not None:
+            # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
+            # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
+            tool_context = replace(tool_context, worktree_switch=worktree_switch)
         if conversation_id:
             tool_context = replace(
                 tool_context,
@@ -288,9 +313,18 @@ async def run_agent_task(
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
             capabilities=capabilities
-            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            or (
+                CapabilityRegistry(home, tool_context.root, extra_roots=tool_context.extra_roots)
+                if home is not None
+                else None
+            ),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
+            permission_rules=load_permission_rules(
+                tool_context.root,
+                block_reads_outside_root=config.runtime.block_reads_outside_root,
+                block_writes_outside_root=config.runtime.block_writes_outside_root,
+            ),
             verifier=build_verifier(
                 config,
                 root=tool_context.root,
@@ -314,21 +348,26 @@ async def run_agent_task(
             health=health or build_health(config),
             journal=journal,
         )
-        outcome = await _run_agent_with_mcp(
-            task,
-            deps,
-            config,
-            bus,
-            history=history,
-            mode=mode,
-            extra_system=extra_system,
-            system_prompt=system_prompt,
-            images=images,
-            step_limit=step_limit,
-            chat_mode=chat_mode,
-            workflow=workflow,
-            allowed_tools=allowed_tools,
-        )
+        try:
+            outcome = await _run_agent_with_mcp(
+                task,
+                deps,
+                config,
+                bus,
+                history=history,
+                mode=mode,
+                extra_system=extra_system,
+                system_prompt=system_prompt,
+                images=images,
+                step_limit=step_limit,
+                chat_mode=chat_mode,
+                workflow=workflow,
+                allowed_tools=allowed_tools,
+            )
+        finally:
+            # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
+            # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
+            desktop_lock.release(token=tool_context.job_scope)
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
