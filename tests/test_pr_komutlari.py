@@ -13,10 +13,15 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from fusion_cli.cli import app as app_module
-from fusion_cli.cli.gh_action_command import WORKFLOW_RELATIVE_PATH, install_workflow
+from fusion_cli.cli.gh_action_command import (
+    WORKFLOW_RELATIVE_PATH,
+    install_workflow,
+    workflow_template,
+)
 from fusion_cli.cli.repl import macros
 from fusion_cli.cli.repl.commands import build_registry
 from fusion_cli.core.errors import FusionError
@@ -239,6 +244,17 @@ def test_gh_action_kur_sablonu_yazar_ve_var_olani_ezmez(tmp_path, monkeypatch):
     with pytest.raises(FusionError, match="force"):
         install_workflow(tmp_path)
     assert install_workflow(tmp_path, force=True).is_file()
+
+
+def test_gh_action_sablonu_yorum_yazanin_yetkisini_denetler():
+    """Ölçüldü (31 Ekim): tek koşul `contains(body, '@fusion')` idi; açık depoda herhangi bir
+    kullanıcı sırlı ve yazma yetkili koşuyu tetikleyebiliyordu."""
+    kosul = yaml.safe_load(workflow_template())["jobs"]["fusion"]["if"]
+
+    assert "author_association" in kosul
+    for yetki in ("OWNER", "MEMBER", "COLLABORATOR"):
+        assert yetki in kosul
+    assert "@fusion" in kosul
 
 
 def test_gh_action_bilinmeyen_eylem_hata(tmp_path, monkeypatch):

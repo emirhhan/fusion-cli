@@ -3,6 +3,9 @@
 # Bir issue ya da PR yorumunda "@fusion <görev>" yazıldığında Fusion'ı headless çalıştırır
 # ve sonucu yoruma yazar. Claude Code'un GitHub App iş akışının karşılığıdır.
 #
+# Yalnız depo sahibi, üyesi ya da ortak çalışanı (author_association) tetikleyebilir.
+# `--mode auto` proje içi komutları sormadan çalıştırır; daha kısıtlı istiyorsan `--mode edits`.
+#
 # Gerekenler (Depo → Settings → Secrets and variables → Actions):
 #   FUSION_PROVIDER_KEY  : model sağlayıcı anahtarı (ör. OPENROUTER_API_KEY değeri)
 # `FUSION_CONFIG` ile depodaki bir config.yaml verilebilir; verilmezse paket varsayılanları.
@@ -21,7 +24,12 @@ permissions:
 
 jobs:
   fusion:
-    if: contains(github.event.comment.body, '@fusion')
+    # Yalnız depo sahibi/üyesi/ortak çalışanın yorumu koşuyu tetikler: iş akışı sağlayıcı
+    # sırrı ve yazma yetkili token ile çalışır; açık depoda herkesin "@fusion" yazabilmesi
+    # sır sızıntısı ve kota tüketimi demektir (Claude Code eylemi de yazma yetkisi şart koşar).
+    if: >-
+      contains(github.event.comment.body, '@fusion') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

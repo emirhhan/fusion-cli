@@ -825,6 +825,7 @@ GH_ACTION_NEXT_STEPS = (
     "1. Depo ayarlarında FUSION_PROVIDER_KEY sırrını ekle (model sağlayıcı anahtarı).",
     "2. Dosyayı commit'le ve push et.",
     "3. Bir issue ya da PR yorumuna '@fusion <görev>' yaz; sonuç yoruma gelir.",
+    "   Yalnız depo sahibi/üyesi/ortak çalışanın yorumu tetikler (author_association).",
 )
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
 CMD_RESUME = "{source} oturum geçmişinden devral"
