@@ -454,3 +454,8 @@
 .settings__panel .settings__row-group > .settings__hint { margin-top: var(--space-1); padding-inline-end: var(--space-10); }
 /* Ses kartı: hız sürgüsü açıklamaya yapışık başlamaz. */
 .settings__panel .settings__card .voice-settings { margin-top: var(--space-4); }
+/* Anahtar satırı + ayraç + içerik: satırın alt çizgisinden sonra gelen içerik (giriş kutusu,
+   durum etiketi, metin alanı, not) çizgiye yapışık başlamaz. Eskiden "Hafızayı kullan"
+   çizgisine giriş kutusu, "Otomatik belleği kullan" çizgisine "Bellek henüz boş." yapışıktı. */
+.settings__panel .settings__row + :not(.settings__row, .settings__row-group) { margin-top: var(--space-3); }
+.settings__panel .settings__hint + :is(textarea, .settings__textarea, .settings__memory-add) { margin-top: var(--space-2); }

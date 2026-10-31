@@ -50,4 +50,8 @@ describe("boşluk ve çerçeve regresyonları", () => {
     expect(rule(css("control/ProviderList.css"), ".pv-group__title p")).toContain("margin: 0");
     expect(rule(css("settings/sections/RoleModels.css"), ".rm__sub")).toContain("display: grid");
   });
+
+  it("Ayarlar'da anahtar satırının çizgisinden sonra gelen içerik çizgiye yapışmaz", () => {
+    expect(css("settings/Settings.css")).toContain(".settings__panel .settings__row + :not(.settings__row, .settings__row-group) { margin-top: var(--space-3); }");
+  });
 });
