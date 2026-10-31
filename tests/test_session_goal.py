@@ -572,3 +572,25 @@ async def test_fusion_motorunda_etkin_hedef_degerlendirilmez(state):
     await goal_flow.drive_goal(state, tur, lambda _m: None, judge=yargic)
     assert cagrilar == [] and turlar == []
     assert state.goal is not None and state.goal.is_active
+
+
+async def test_masaustu_chrome_paneli_turu_hedefi_degerlendirmez(tmp_path, monkeypatch):
+    """Yan panel (Claude in Chrome) turu ayrı geçmişle koşar: hedef değerlendirilmez ve
+    bekleyen devam görevinin kipini tüketmez."""
+    from fusion_cli.appserver.session import AppSession
+
+    oturum = AppSession(lambda _s: None, root=tmp_path, home=tmp_path / "ev")
+    oturum._state.goal = new_goal("k", now=0, checkin_minutes=30)
+    oturum._goal_continuation = "sürdür"
+    yargic, cagrilar = _sahte_yargic(GoalVerdict.NOT_MET)
+
+    async def sahte_gorev(task, config, **kwargs):
+        return SimpleNamespace(ok=True, final_text="sayfa açıldı", messages=[])
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", sahte_gorev)
+    monkeypatch.setattr(goal_flow, "judge_goal", yargic)
+
+    sonuc = await oturum._run_turn("sayfayı aç", browser_only=True)
+
+    assert "hedef" not in sonuc and cagrilar == []
+    assert oturum._goal_continuation == "sürdür"

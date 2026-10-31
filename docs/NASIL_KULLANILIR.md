@@ -1008,6 +1008,8 @@ Duraklama ve sınırlar (`/goal devam` sürdürür, `/goal clear` bırakır):
 - **Yalnız agent motoru**: `/fusion` motorunda hedef kurulmaz ve değerlendirilmez (Fusion turu
   sohbet geçmişine yazılmaz, değerlendirici sonucu göremez). Etkin hedef `/agent` ile dönülünce
   sonraki turda yeniden değerlendirilir.
+- Masaüstü yan paneli (Chrome) turları ayrı geçmişle koşar; hedefi değerlendirmez ve devam
+  zincirini bozmaz. Zamanlananlar'dan başlayan tur hedef zincirinin tamamı bitince "bitti" sayılır.
 
 Argümansız `/goal` durumu (değerlendirme, otomatik tur, son karar) yazar. Hedef sohbete bağlı
 kaydedilir (`memory_dir/oturum-hedef/<sohbet>.json`): `fusion --resume` ve masaüstü sekmesi

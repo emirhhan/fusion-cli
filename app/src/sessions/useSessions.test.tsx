@@ -438,6 +438,28 @@ describe("useSessions", () => {
     expect(mesajlar.some((message) => message.ara && message.metin.startsWith("◎ Hedef"))).toBe(true);
   });
 
+  it("/goal devam zincirinde sohbet arada boşta görünmez (Zamanlananlar bitişi erken tetiklenmez)", async () => {
+    const fake = fakeTransport();
+    const gorulen: (boolean | undefined)[] = [];
+    const { result } = renderHook(() => {
+      const value = useSessions(fake.transport);
+      gorulen.push(value.state.sessions.varsayilan?.running);
+      return value;
+    });
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const turlar = () => fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir");
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(turlar()).toHaveLength(1));
+    const basla = gorulen.lastIndexOf(true);
+    act(() => fake.emitResult("varsayilan", turlar()[0].id, {
+      ok: true, metin: "bir test kaldı", hedef: { eylem: "devam", metin: "◎" }, hedef_devam: "Sürdür.",
+    }));
+    await waitFor(() => expect(turlar()).toHaveLength(2));
+
+    expect(gorulen.slice(basla)).not.toContain(false);
+  });
+
   it("/goal devamı sırada kullanıcı mesajı varken gönderilmez, mesaj önce koşar (P-058)", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
