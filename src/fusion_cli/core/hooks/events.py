@@ -32,6 +32,9 @@ class HookEvent(Enum):
     NOTIFICATION = "Notification"
     PRE_COMPACT = "PreCompact"
     CWD_CHANGED = "CwdChanged"
+    TASK_CREATED = "TaskCreated"
+    TASK_COMPLETED = "TaskCompleted"
+    TEAMMATE_IDLE = "TeammateIdle"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -47,6 +50,9 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
     HookEvent.CWD_CHANGED: None,
+    HookEvent.TASK_CREATED: None,
+    HookEvent.TASK_COMPLETED: None,
+    HookEvent.TEAMMATE_IDLE: None,
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -59,6 +65,10 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.USER_PROMPT_SUBMIT,
         HookEvent.STOP,
         HookEvent.SUBAGENT_STOP,
+        # Ekip kapıları (P-061): çıkış 2 görevi eklemez/bitirmez, üyeyi boşa düşürmez.
+        HookEvent.TASK_CREATED,
+        HookEvent.TASK_COMPLETED,
+        HookEvent.TEAMMATE_IDLE,
     }
 )
 
@@ -76,10 +86,7 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "PostToolBatch",
         "MessageDisplay",
         "SubagentStart",
-        "TaskCreated",
-        "TaskCompleted",
         "StopFailure",
-        "TeammateIdle",
         "InstructionsLoaded",
         "ConfigChange",
         "DirectoryAdded",

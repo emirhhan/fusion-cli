@@ -1643,6 +1643,19 @@ HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."
 HOOKS_TEST_RESULT = (
     "{event}: {ran} kanca çalıştı · engel: {blocked} · izin: {permission} · durdur: {halt}"
 )
+#: Ekip kapıları (TaskCreated/TaskCompleted/TeammateIdle, P-061).
+HOOKS_TASK_CREATE_BLOCKED = "KANCA ENGELLEDİ (TaskCreated): görev eklenmedi. Gerekçe: {reason}"
+HOOKS_TASK_COMPLETE_BLOCKED = (
+    "KANCA ENGELLEDİ (TaskCompleted): {task} bitmiş sayılmadı, hâlâ sende. Gerekçe: {reason}\n"
+    "Gerekeni yap, sonra yeniden bitir."
+)
+HOOKS_TEAMMATE_HALTED = (
+    "Kanca ekip üyesini durdurdu ({event}): {reason}. Yeni iş alma; kısa bir özetle bitir."
+)
+HOOKS_TEAMMATE_CONTINUE = (
+    "[TeammateIdle kancası] Boşa düşmene izin verilmedi. Gerekçe: {reason}\n"
+    "team_board ile panoya bak, gerekeni yap ve kısa bir özetle bitir."
+)
 
 # --- Kabuk sandbox'ı (P-010): /sandbox, fusion sandbox, doctor ------------------------- #
 CMD_SANDBOX = "kabuk sandbox'ı: durum · aç/kapat · ağ allowlist'i (izin/engelle alan adı)"

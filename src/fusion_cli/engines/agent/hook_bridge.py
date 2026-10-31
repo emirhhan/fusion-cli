@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from ...config.permission_rules import PermissionDecision, PermissionRule, PermissionRuleSet
-from ...core.events import ErrorOccurred, NarrationPublished
+from ...core.events import ErrorOccurred, EventPublisher, NarrationPublished
 from ...core.hooks.events import HookEvent, HookVerdict
 from ...core.tools import ToolResult
 from ...core.types import Message
@@ -263,11 +263,15 @@ async def pre_compact(deps: AgentDeps, trigger: str) -> None:
 
 
 def _publish(deps: AgentDeps, verdict: HookVerdict) -> None:
+    publish_verdict(deps.publisher, verdict)
+
+
+def publish_verdict(publisher: EventPublisher, verdict: HookVerdict) -> None:
     """`systemMessage` ve engellemeyen hatalar kullanıcıya; model görmez."""
     for text in verdict.system_messages:
-        deps.publisher.publish(NarrationPublished(text=messages.HOOKS_SYSTEM.format(text=text)))
+        publisher.publish(NarrationPublished(text=messages.HOOKS_SYSTEM.format(text=text)))
     for detail in verdict.errors:
-        deps.publisher.publish(ErrorOccurred(messages.HOOKS_ERROR.format(detail=detail)))
+        publisher.publish(ErrorOccurred(messages.HOOKS_ERROR.format(detail=detail)))
 
 
 def tool_hook_fields(

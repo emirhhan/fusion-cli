@@ -37,6 +37,7 @@ from .team_board import (
     TeamStore,
     TeamTask,
 )
+from .team_hooks import TeamGate, TeamHooks
 
 #: Panoda (olayda) taşınan son mesaj sayısı ve mesaj önizlemesi.
 BOARD_MESSAGES = 20
@@ -75,8 +76,13 @@ class TeamSession:
         *,
         group_size: int = 1,
         unread: dict[str, int] | None = None,
+        hooks: TeamHooks | None = None,
     ) -> None:
         self._store, self._publisher, self._now = store, publisher, now
+        #: Kanca kapıları (TaskCreated/TaskCompleted, P-009); yoksa her kapı açık.
+        self.hooks = hooks or TeamHooks(None, publisher, board.name)
+        #: Bir kancanın `continue: false` ile durdurduğu üyeler (yeniden uyandırılmaz).
+        self.halted: set[str] = set()
         #: Alıcı → okunmamış mesaj sayısı; bellekte tutulur (bekleme koşulu dosya okumaz).
         self._unread_counts = dict(unread or {})
         self.board = board
@@ -123,6 +129,10 @@ class TeamSession:
             done = dataclasses.replace(
                 task, status=DONE if ok else FAILED, result=result[:RESULT_CHARS]
             )
+            if ok:
+                gate = await self.hooks.task_completed(done, member)
+                if not self._admit(member, gate):
+                    raise TeamError(gate.completion_refusal(task_id))
             await self._commit(self.board.with_task(done))
             return done
 
@@ -156,8 +166,17 @@ class TeamSession:
             assignee=assignee,
             created_by=creator,
         )
+        gate = await self.hooks.task_created(task, creator)
+        if not self._admit(creator, gate):
+            raise TeamError(gate.creation_refusal())
         await self._commit(self.board.with_task(task))
         return task
+
+    def _admit(self, member: str, gate: TeamGate) -> bool:
+        """Kapı açık mı? `continue: false` üyeyi durdurulmuşlara ekler."""
+        if gate.halt is not None and member in self.members:
+            self.halted.add(member)
+        return gate.is_open
 
     # -- posta ------------------------------------------------------------- #
 

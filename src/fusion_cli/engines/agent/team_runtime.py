@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from ...core.clock import SystemClock
 from ...core.errors import PathAccessError
+from .hook_bridge import session_of
 from .orchestration_runs import (
     BudgetedRuns,
     ScopeGate,
@@ -30,7 +31,7 @@ from .orchestration_runs import (
     turn_budget_refusal,
     turn_remaining,
 )
-from .team import RunAgent, SubTask, run_subagent
+from .team import RunAgent, SubRun, SubTask, run_subagent
 from .team_board import (
     DONE,
     LEAD,
@@ -44,6 +45,7 @@ from .team_board import (
     TeamTask,
     check_name,
 )
+from .team_hooks import TeamHooks
 from .team_policy import cap_report
 from .team_scope import derive_sub_context
 from .team_session import TeamSession, unread_counts
@@ -196,9 +198,11 @@ class TeamRun:
         member_deps = orchestration_deps(
             self._deps, self._runs, agent_limit=self._limits.max_runs, registry=registry
         )
+        # `TeammateIdle` engelinde üyenin boşa düşmeden yeniden koşacağı istem.
+        feedback: str | None = None
         try:
             while True:
-                if not session.has_work(name):
+                if feedback is None and not session.has_work(name):
                     await session.member_idle(
                         name,
                         sub_id=session.members[name].sub_id,
@@ -212,26 +216,39 @@ class TeamRun:
                     or self._runs.started_total >= self._limits.max_runs
                 ):
                     break
-                prompt = FIRST_PROMPT if state.runs == 0 else self._wake_prompt(name)
+                prompt = feedback or (FIRST_PROMPT if state.runs == 0 else self._wake_prompt(name))
                 if state.runs:
                     await session.wake(name)
-                subtask = self._subtask(member, prompt)
-                # "sırada": kapıyı bekleyen üye boşta sayılmaz (ekip erken bitmesin).
-                await session.member_queued(name)
-                async with self._gate.hold(self._gate_key(subtask)):
-                    await session.member_started(name)
-                    run = await run_subagent(
-                        member_deps,
-                        subtask,
-                        depth=self._depth,
-                        run_agent=self._run_agent,
-                        group_size=session.group_size,
-                    )
+                run = await self._run_member(member, member_deps, prompt)
+                feedback = None
+                if run.status not in {"budget", "cancelled"} and name not in session.halted:
+                    gate = await session.hooks.teammate_idle(name)
+                    if gate.halt is not None:
+                        session.halted.add(name)
+                    elif gate.blocked is not None:
+                        feedback = gate.idle_prompt()
+                        continue
                 await session.member_idle(name, sub_id=run.sub_id, summary=run.text)
-                if run.status in {"budget", "cancelled"}:
+                if run.status in {"budget", "cancelled"} or name in session.halted:
                     break
         finally:
             await session.member_done(name)
+
+    async def _run_member(self, member: TeamMember, member_deps: AgentDeps, prompt: str) -> SubRun:
+        """Üyenin tek koşusu: yazma alanı kapısını bekler ("sırada"), sonra koşar."""
+        session = self._session
+        subtask = self._subtask(member, prompt)
+        # "sırada": kapıyı bekleyen üye boşta sayılmaz (ekip erken bitmesin).
+        await session.member_queued(member.name)
+        async with self._gate.hold(self._gate_key(subtask)):
+            await session.member_started(member.name)
+            return await run_subagent(
+                member_deps,
+                subtask,
+                depth=self._depth,
+                run_agent=self._run_agent,
+                group_size=session.group_size,
+            )
 
     def _gate_key(self, subtask: SubTask) -> tuple[Path, ...] | None:
         """Salt okur ve çalışma ağacındaki üye `()`, alanı bilinen yazar alanı, kalan `None`."""
@@ -353,7 +370,13 @@ async def run_agent_team(
     board = prepare_board(existing, request, limits, clock.now())
     unread = await asyncio.to_thread(unread_counts, store, board)
     session = TeamSession(
-        store, board, deps.publisher, clock.now, group_size=limits.max_runs, unread=unread
+        store,
+        board,
+        deps.publisher,
+        clock.now,
+        group_size=limits.max_runs,
+        unread=unread,
+        hooks=TeamHooks(session_of(deps), deps.publisher, board.name),
     )
     created: dict[str, str] = {}
     for task in request.tasks:
