@@ -364,3 +364,45 @@ async def test_tum_kollari_basarisiz_paralel_adimdan_sonra_zincir_kesilir(tmp_pa
 
     assert sorted(gorulen) == ["a", "b"]
     assert sonuc.agents == 2 and sonuc.status == "yarim"
+
+
+# -- tur geneli orkestrasyon tavanı ------------------------------------------- #
+
+
+async def test_ayni_turda_art_arda_is_akisi_tur_tavanini_asamaz(tmp_path):
+    from fusion_cli.engines.agent.workflow_tools import workflow_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _deps, _ok
+
+    deps = _deps(tmp_path, RecordingSink(), dynamic_workflow_max_agents=5)
+    baslayan: list[str] = []
+
+    async def _ajan(task, sub_deps, **kwargs):
+        baslayan.append(task)
+        return _ok(task)
+
+    arac = workflow_run_tool(deps, depth=0, run_agent=_ajan)
+    tanim = {"ad": "uc", "adimlar": [{"paralel": ["a", "b", "c"]}]}
+
+    ilk = await arac.run({"tanim": tanim}, deps.tool_context)
+    ikinci = await arac.run({"tanim": tanim}, deps.tool_context)
+
+    assert ilk.ok, ilk.output
+    assert not ikinci.ok and "tur" in ikinci.output and "5" in ikinci.output
+    assert len(baslayan) == 3
+
+
+async def test_tur_tavani_dolunca_ekip_baslamaz_kalan_payla_sinirlanir(tmp_path):
+    from fusion_cli.engines.agent.team_tools import team_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_agent_teams import _deps
+
+    deps = _deps(tmp_path, RecordingSink(), dynamic_workflow_max_agents=5, agent_team_max_runs=16)
+    deps.child_runs.started_total = 5
+
+    sonuc = await team_run_tool(deps, depth=0, run_agent=_uye_ajani([0], [0])).run(
+        _ekip([{"ad": "kod", "salt_okunur": True}]), deps.tool_context
+    )
+
+    assert not sonuc.ok and "tur" in sonuc.output
+    assert TeamStore(tmp_path).load("kapi") is None

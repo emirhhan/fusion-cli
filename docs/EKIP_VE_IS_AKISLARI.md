@@ -91,7 +91,10 @@ bölümü kayıtlı akışları "Çalıştır" ile başlatır, koşanı "Durdur"
 
 Koşunun ajan bütçesi turun `max_subagents_per_turn` tavanından ayrıdır; ajanlar yine de
 oturumun alt ajan sahibine bağlıdır, bu yüzden tur iptali ve karttaki "Durdur" onları da
-kapatır.
+kapatır. `dynamic_workflow_max_agents` aynı zamanda **tur geneli** tavandır: aynı turda
+art arda `workflow_run` / `team_run` çağrıları (ve turdaki diğer alt ajanlar) toplamda bu
+sayıyı aşamaz; aşacak koşu başlamadan reddedilir. Maliyet sorusu soracak arayüz yoksa
+(`fusion -p` gibi) bu tavan tek güvenlik sınırıdır.
 
 **Bilinen fark.** Claude Code iş akışlarını arka planda koşturur ve sohbet sürer; Fusion'da
 koşu, onu başlatan turun içinde biter (tur iptal edilirse koşu da durur).

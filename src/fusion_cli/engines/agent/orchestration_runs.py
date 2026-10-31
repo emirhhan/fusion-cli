@@ -8,6 +8,10 @@ yazma alanı, çalışma ağacı, kart olayları aynen geçerli); burada yalnız
   bütçesi turun `max_subagents_per_turn` tavanından ayrıdır.
 - `orchestration_deps`: üst `AgentDeps`'in sığ kopyası; bütçe, araç defteri ve tavan
   yalnız bu koşu için değişir, paylaşılan nesneler (yayıncı, bağlam, bütçe) aynen kalır.
+- `turn_remaining`: koşuların bütçesi ayrı olsa da TUR genelinde bir tavan vardır
+  (`runtime.dynamic_workflow_max_agents`): aynı turda art arda `workflow_run`/`team_run`
+  çağrısı bu sayıyı aşamaz. Ölçüldü (31 Ekim): her koşu kendi 50'lik bütçesini
+  alıyordu; N çağrı 50*N ajan başlatabiliyordu (asker yoksa hiç sorulmadan).
 - `ScopeGate`: eşzamanlı ajanların yazma alanı kapısı. `schedule_waves` kuralının canlı
   karşılığı: salt okuyan herkesle koşar, alanı bildiren yazar çakışmayanlarla koşar, alanı
   belirsiz yazar tek başına koşar.
@@ -30,6 +34,32 @@ from .team_scope import paths_overlap
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
+
+
+#: Yapılandırma okunamazsa tur geneli orkestrasyon tavanı (`dynamic_workflow_max_agents`).
+DEFAULT_TURN_CEILING = 50
+TURN_BUDGET_MESSAGE = (
+    "Bu turda zaten {started} alt ajan başladı; ekip ve iş akışları için tur tavanı "
+    "{ceiling} (runtime.dynamic_workflow_max_agents). Bu koşu {needed} ajan istiyor: "
+    "işi küçült ya da yeni turda sürdür."
+)
+
+
+def turn_remaining(deps: AgentDeps) -> tuple[int, int]:
+    """(kalan, tavan): kök turda ekip/iş akışlarına kalan alt ajan payı."""
+    runtime = deps.config.runtime
+    ceiling = max(1, int(getattr(runtime, "dynamic_workflow_max_agents", DEFAULT_TURN_CEILING)))
+    started = int(getattr(deps.child_runs, "started_total", 0))
+    return max(0, ceiling - started), ceiling
+
+
+def turn_budget_refusal(deps: AgentDeps, needed: int) -> str | None:
+    """`needed` ajan tur tavanına sığmıyorsa modele dönecek mesaj."""
+    remaining, ceiling = turn_remaining(deps)
+    if needed <= remaining:
+        return None
+    started = int(getattr(deps.child_runs, "started_total", 0))
+    return TURN_BUDGET_MESSAGE.format(started=started, ceiling=ceiling, needed=needed)
 
 
 class BudgetedRuns(ChildRuns):

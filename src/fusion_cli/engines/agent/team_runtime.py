@@ -27,6 +27,8 @@ from .orchestration_runs import (
     gate_scope,
     orchestration_deps,
     registry_with,
+    turn_budget_refusal,
+    turn_remaining,
 )
 from .team import RunAgent, SubTask, run_subagent
 from .team_board import (
@@ -341,6 +343,11 @@ async def run_agent_team(
     """Panoyu hazırla, liderin görev/mesajlarını işle ve üyeleri koştur."""
     check_name(request.name)
     limits = team_limits(deps)
+    # Tur geneli tavan: kalan pay üye koşusu tavanını daraltır, hiç pay yoksa başlamaz.
+    remaining, _ = turn_remaining(deps)
+    if remaining < 1:
+        raise TeamError(turn_budget_refusal(deps, 1) or "")
+    limits = replace(limits, max_runs=min(limits.max_runs, remaining))
     clock = deps.budget.clock if deps.budget is not None else SystemClock()
     existing = await asyncio.to_thread(store.load, request.name)
     board = prepare_board(existing, request, limits, clock.now())

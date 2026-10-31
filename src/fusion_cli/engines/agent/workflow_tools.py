@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from ...config.paths import user_config_dir
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .arg_coerce import coerce_bool
+from .orchestration_runs import turn_budget_refusal
 from .team import RunAgent
 from .workflow_plan import bind_inputs, expand
 from .workflow_runtime import check_plan, run_workflow, workflow_limits
@@ -51,6 +52,8 @@ def workflow_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
             plan = expand(spec, inputs)
             limits = workflow_limits(deps, spec)
             count = check_plan(plan, limits)
+            if (refusal := turn_budget_refusal(deps, count)) is not None:
+                return ToolResult.failure(refusal)
             if not await _confirmed(deps, spec, count, limits.concurrency):
                 return ToolResult.failure(DECLINED_MESSAGE)
             saved = ""

@@ -9,6 +9,7 @@ from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .arg_coerce import coerce_list
 
 # `_parse_read_only`: spawn_agents ile AYNI açık-güvenli `salt_okunur` okuması (tek kaynak).
+from .orchestration_runs import turn_budget_refusal
 from .team import RunAgent, _parse_read_only
 from .team_board import TeamError, TeamMember, TeamStore, check_name
 from .team_runtime import NewTask, TeamRequest, run_agent_team, team_limits
@@ -34,6 +35,9 @@ def team_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
         store = TeamStore(context.root)
         try:
             request = parse_request(args)
+            # Tur tavanı dolduysa kullanıcıya maliyet sorusu sorulmadan reddedilir.
+            if (refusal := turn_budget_refusal(deps, 1)) is not None:
+                return ToolResult.failure(refusal)
             is_new = await asyncio.to_thread(store.load, request.name) is None
             if is_new and not await _confirmed(deps, request):
                 return ToolResult.failure(DECLINED_MESSAGE)
