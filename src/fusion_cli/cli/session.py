@@ -32,6 +32,7 @@ from ..core.events import (
     FollowupsSuggested,
     FusionCompleted,
     NoFileChanges,
+    StatusChanged,
     TurnFinished,
     TurnOutcome,
 )
@@ -529,6 +530,21 @@ async def _run_agent_with_mcp(
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
     # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
     deps.tool_context.available_tools.update(eklenen)
+    if config.mcp_servers:
+        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantı kurulduktan sonra çözülür (P-049).
+        from ..mcp_bridge.reference_service import expand_mcp_references
+
+        expansion = await expand_mcp_references(task, config.mcp_servers)
+        for note in expansion.notes:
+            bus.publish(StatusChanged(note))
+        for warning in expansion.warnings:
+            bus.publish(ErrorOccurred(warning, fatal=False))
+        if expansion.error:
+            bus.publish(ErrorOccurred(expansion.error, fatal=True))
+            return AgentOutcome(final_text=expansion.error, messages=list(history or []), ok=False)
+        task = expansion.task
+        if expansion.context:
+            extra_system = "\n\n".join(part for part in (extra_system, expansion.context) if part)
     return await _run()
 
 

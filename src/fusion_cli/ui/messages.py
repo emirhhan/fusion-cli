@@ -716,6 +716,18 @@ MCP_SAVE_FAILED = "kaydedilemedi: {error}"
 CONNECTOR_RECONNECTED = "Yeniden bağlandı: {names}."
 CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satırda."
 MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
+MCP_PROMPT_QUEUED = "MCP istemi /{name} sıradaki turda sunucudan alınıp çalıştırılacak."
+MCP_PROMPT_DEFAULT = "{server} MCP istemi"
+MCP_PROMPT_ROW = "/{name} {usage} — {description}"
+MCP_RESOURCE_ROW = "@{server}:{uri} — {name}"
+MCP_PROMPTS_EMPTY = (
+    "Bilinen MCP istemi yok. Sunucular ilk turda bağlanır; istem sunan bir sunucu bağlıysa "
+    "liste bir turdan sonra dolar."
+)
+MCP_RESOURCES_EMPTY = (
+    "Bilinen MCP kaynağı yok. Sunucular ilk turda bağlanır; kaynak sunan sunucu bağlandıktan "
+    "sonra `@sunucu:uri` ile anabilirsin."
+)
 MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
@@ -966,7 +978,10 @@ REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
 )
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
-CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
+CMD_MCP = (
+    "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]; "
+    "/mcp prompts, /mcp resources"
+)
 CMD_SKILLS = (
     "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
 )
@@ -1342,9 +1357,9 @@ MENTION_UNREADABLE = "@{raw} okunamadı: {error}"
 MENTION_NOT_FILE = "dosya ya da dizin değil"
 MENTION_TOO_MANY = "Tek mesajda en fazla {limit} dosya anması işlenir; fazlası atlandı."
 MENTION_RESOURCE_UNSUPPORTED = (
-    "@{raw}: MCP kaynak anması henüz desteklenmiyor (köprüde resources/read yok); "
-    "sunucunun aracını sohbette iste."
+    "@{raw}: '{server}' adlı MCP sunucusu tanımlı değil; kaynak eklenmedi (`/mcp` ile listele)."
 )
+MENTION_RESOURCE_QUEUED = "@{raw}: MCP kaynağı turda sunucudan okunup bağlama eklenecek."
 
 # --- /config ve fusion config get/set/list (P-029) ------------------------- #
 CMD_CONFIG = "ayarları gör/değiştir: /config [filtre] · /config <yol> · /config <yol>=<değer>"

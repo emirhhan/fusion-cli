@@ -637,6 +637,22 @@ async def _drive_agent(
         console.print(
             f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
         )
+    if state.config.mcp_servers:
+        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantıdan sonra çözülür (P-049).
+        from ...engines.agent.loop import AgentOutcome as _Outcome
+        from ...mcp_bridge.reference_service import expand_mcp_references
+
+        expansion = await expand_mcp_references(line, state.config.mcp_servers)
+        for note in (*expansion.notes, *expansion.warnings):
+            console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        if expansion.error:
+            console.print(f"[{theme.WARN}]{escape(expansion.error)}[/{theme.WARN}]")
+            return _Outcome(final_text="", messages=list(state.history), ok=False)
+        line = expansion.task
+        if expansion.context:
+            kwargs["extra_system"] = "\n\n".join(
+                part for part in (extra_system, expansion.context) if part
+            )
     return await run_agent(line, deps, **kwargs)
 
 

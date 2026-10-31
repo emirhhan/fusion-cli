@@ -175,10 +175,15 @@ def attach_skill_commands(
     `build_registry(home)` imzasını değiştirmeden sonradan bağlamak isteyen yüzeyler
     (masaüstü oturumu) için ayrı tutulur.
     """
+    from .mcp_prompt_commands import mcp_prompt_slash_commands
     from .skill_commands import skill_slash_commands
 
     registry.set_dynamic(
-        lambda: tuple(c for c in skill_slash_commands(skills()) if isinstance(c, SlashCommand))
+        lambda: tuple(
+            c
+            for c in (*skill_slash_commands(skills()), *mcp_prompt_slash_commands())
+            if isinstance(c, SlashCommand)
+        )
     )
 
 
@@ -559,6 +564,11 @@ def _mcp(state: ReplState, argument: str) -> str:
             )
             for sunucu in state.config.mcp_servers
         )
+
+    if alt_komut in ("prompts", "istemler", "resources", "kaynaklar"):
+        from .mcp_prompt_commands import listing
+
+        return listing(alt_komut)
 
     if alt_komut == "reconnect":
         # Claude Code `/mcp reconnect <sunucu>|all` (P-049). İşleyici eşzamansız bekleyemez;

@@ -39,6 +39,7 @@ from .content import normalize_call_result
 from .failures import STATE_CONNECTED
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
+from .references import McpCatalog, as_uri, fetch_catalog, prompt_text, resource_block
 from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
@@ -347,6 +348,30 @@ class McpClient:
                 )
                 await notify_cancel(session, scope, self._server_timeout(server, "close_timeout_s"))
                 raise
+
+    # --- İstemler ve kaynaklar (P-049; bkz. `references.py`) ----------------------- #
+
+    @property
+    def servers(self) -> tuple[str, ...]:
+        """Bağlı sunucu adları."""
+        return tuple(self._sessions)
+
+    async def catalog(self, server: str) -> McpCatalog:
+        """Sunucunun istem ve kaynak listesi (keşif bütçesiyle sınırlı)."""
+        async with asyncio.timeout(self._server_timeout(server, "list_timeout_s")):
+            return await fetch_catalog(self._session(server), server)
+
+    async def get_prompt(self, server: str, name: str, arguments: dict[str, str]) -> str:
+        """`prompts/get` → görev metni."""
+        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+            result = await self._session(server).get_prompt(name, arguments or None)
+        return prompt_text(result)
+
+    async def read_resource(self, server: str, uri: str) -> str:
+        """`resources/read` → maskeli, sınırlı bağlam bloğu."""
+        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+            result = await self._session(server).read_resource(as_uri(uri))
+        return resource_block(server, uri, result)
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.

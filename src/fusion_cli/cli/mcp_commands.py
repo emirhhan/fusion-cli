@@ -3,7 +3,7 @@
     fusion mcp                       → Fusion araçlarını MCP sunucusu olarak aç (eski davranış)
     fusion mcp add <ad> <komut> …    → dış sunucu ekle (--transport, --scope, --env, --token-env)
     fusion mcp add-json <ad> <json>  → Claude Code JSON tanımıyla ekle
-    fusion mcp remove|list|tools|login|reconnect
+    fusion mcp remove|list|tools|prompts|resources|login|reconnect
 
 Eski `fusion mcp-add` / `fusion mcp-tools` komutları aynı işlevlere bağlı takma ad olarak
 kalır. Kapsamlar: `user` kullanıcının `config.yaml`'ı, `project` kökteki `.mcp.json`
@@ -39,6 +39,7 @@ from ..config.writer import write_mcp_servers
 from ..core.errors import ConfigError, FusionError
 from ..core.redaction import redact
 from ..ui import messages, theme
+from . import mcp_reference_commands
 
 console = Console()
 
@@ -349,6 +350,11 @@ def _run_connected(
         raise FusionError(timeout_message) from error
     except Exception as error:
         raise FusionError(messages.MCP_CONNECT_FAILED.format(error=error)) from error
+
+
+# İstem/kaynak listeleri ayrı modülde (P-049); komut adları bu alt grupta.
+mcp_app.command("prompts")(mcp_reference_commands.prompts)
+mcp_app.command("resources")(mcp_reference_commands.resources)
 
 
 @mcp_app.command("tools")

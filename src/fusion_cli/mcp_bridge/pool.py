@@ -26,14 +26,17 @@ from .hosted import AskSession, HostedConnectorClient
 from .identity import duplicate_of, unique_configs, unique_hosted_configs
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
+from .references import McpCatalog
 
 __all__ = [
     "McpToolPool",
     "close_mcp_pool",
+    "connected_mcp_client",
     "drop_mcp_connection",
     "ensure_hosted_tools",
     "ensure_mcp_tools",
     "forget_mcp_failure",
+    "mcp_catalogs",
     "mcp_pool_statuses",
     "new_mcp_failures",
     "request_mcp_reconnect",
@@ -96,6 +99,9 @@ class McpToolPool:
         #: `/mcp reconnect` ile düşürülmesi istenen sunucular: canlı girdi bir sonraki
         #: `clients_for`'da kapatılıp yeniden açılır (eşzamansız olmayan çağıranlar için; P-049).
         self._reconnect_requested: set[str] = set()
+        #: Sunucu başına istem/kaynak kataloğu ve onu çeken istemci (P-049): bağlantı
+        #: değişince (yeni istemci) yeniden çekilir, aynı bağlantıda bir kez.
+        self._catalogs: dict[str, tuple[McpClient, McpCatalog]] = {}
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -186,6 +192,32 @@ class McpToolPool:
                 if (entry := self._entries.get(config.name)) is not None
                 and entry.client is not None
             )
+
+    def connected_client(self, name: str) -> McpClient | None:
+        """Sunucunun bu döngüdeki canlı istemcisi; yoksa None."""
+        entry = self._entries.get(name)
+        return entry.client if entry is not None else None
+
+    async def refresh_catalog(self, client: McpClient) -> None:
+        """İstemcinin sunucuları için istem/kaynak kataloğunu (yalnız ilk kez) çek."""
+        # Eski/sahte istemci katalog arayüzü taşımayabilir: katalog yok sayılır.
+        for server in getattr(client, "servers", ()):
+            cached = self._catalogs.get(server)
+            if cached is not None and cached[0] is client:
+                continue
+            try:
+                catalog = await client.catalog(server)
+            except Exception as error:  # katalog bir zenginleştirme; tur düşmez, log'lanır
+                _LOG.info(
+                    "MCP istem/kaynak listesi alınamadı",
+                    extra={"sunucu": server, "hata": type(error).__name__},
+                )
+                catalog = McpCatalog()
+            self._catalogs[server] = (client, catalog)
+
+    def catalogs(self) -> dict[str, McpCatalog]:
+        """Sunucu → son bilinen katalog (bağlantısı düşmüş olanlar dahil, en son hâli)."""
+        return {name: catalog for name, (_client, catalog) in self._catalogs.items()}
 
     def _report_duplicates(self, configs: tuple[McpServerConfig, ...]) -> None:
         for duplicate, original in duplicate_of(configs).items():
@@ -407,7 +439,20 @@ async def ensure_mcp_tools(
         except Exception as error:  # tek sunucunun kopması turu düşürmez; log'lanır
             _LOG.warning("MCP araç keşfi başarısız", extra={"hata": type(error).__name__})
             await _POOL.discard_client(client)
+            continue
+        # İstem/kaynak kataloğu (P-049): `/mcp__s__p` tamamlaması ve `@s:kaynak` için.
+        await _POOL.refresh_catalog(client)
     return tuple(added)
+
+
+def mcp_catalogs() -> dict[str, McpCatalog]:
+    """Bilinen sunucuların istem/kaynak kataloğu (senkron; slash tamamlama için)."""
+    return _POOL.catalogs()
+
+
+def connected_mcp_client(name: str) -> McpClient | None:
+    """Sunucunun canlı istemcisi (tur içinde, bağlantı kurulduktan sonra)."""
+    return _POOL.connected_client(name)
 
 
 def new_mcp_failures(configs: tuple[McpServerConfig, ...]) -> tuple[McpConnectionStatus, ...]:

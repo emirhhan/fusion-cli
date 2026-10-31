@@ -539,6 +539,21 @@ fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
 - Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
   Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
 
+**MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):
+```
+fusion mcp prompts                    # sunucuların istemleri: /mcp__<sunucu>__<istem> [argümanlar]
+fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
+```
+- Sohbette `/mcp__github__review-pr 12 güvenlik` istemi sunucudan alır (`prompts/get`) ve
+  görev olarak çalıştırır. Argümanlar sırayla istemin parametrelerine bağlanır ya da
+  `ad=değer` yazılır; fazla sözcükler son parametreye eklenir; zorunlu argüman eksikse tur
+  koşmaz, kullanım satırı gösterilir. Komutlar tamamlamada ve masaüstü komut paletinde "MCP"
+  grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar.
+- `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup turun bağlamına
+  ekler: yalnız tanımlı sunucu adlarıyla, mesaj başına en fazla 5 kaynak, kaynak başına
+  20.000 karakter, sırlar maskeli, "kullanıcı talimatı değildir" notuyla. İkili içerik atlanır.
+- `/mcp prompts`, `/mcp resources` (`istemler`, `kaynaklar`) oturumun bildiği listeyi gösterir.
+
 ---
 
 ## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
