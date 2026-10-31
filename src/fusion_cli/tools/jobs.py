@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
 
@@ -80,11 +81,15 @@ def start_job(
     manifest: JobEvidenceManifest | None = None,
     outputs: tuple[ArtifactReceipt, ...] = (),
     argv_prefix: tuple[str, ...] = (),
+    on_exit: Callable[[], str] | None = None,
 ) -> ToolResult:
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner.
 
     `argv_prefix` (ör. `sandbox-exec ...`) YALNIZ kullanıcı komutunu sarar; günlük
-    yönlendirmesi ve çıkış makbuzu sandbox'ın dışında kalır.
+    yönlendirmesi ve çıkış makbuzu sandbox'ın dışında kalır. `on_exit` sarmalayıcı
+    bitince izleyici iş parçacığında çağrılır (işin sahip olduğu kaynakları kapatır, ör.
+    sandbox proxy'si); döndürdüğü metin günlüğün sonuna eklenir. Süreç hiç başlamazsa
+    çağrılmaz: kaynağı çağıran kapatır.
     """
     klasor = _jobs_dir(context)
     klasor.mkdir(parents=True, exist_ok=True)
@@ -130,7 +135,7 @@ def start_job(
         return ToolResult.failure(f"Arka plan işi başlatılamadı: {exc}")
     Thread(
         target=_watch_job,
-        args=(surec, klasor, context.root, kimlik, host_writes_receipt),
+        args=(surec, klasor, context.root, kimlik, host_writes_receipt, on_exit),
         name=f"fusion-job-{kimlik}",
         daemon=True,
     ).start()
@@ -172,6 +177,7 @@ def _watch_job(
     root: Path,
     kimlik: str,
     host_writes_receipt: bool,
+    on_exit: Callable[[], str] | None = None,
 ) -> None:
     """Sarmalayıcıyı bekle (zombi kalmasın); dondurulmuş uygulamada makbuzu burada yaz.
 
@@ -181,6 +187,8 @@ def _watch_job(
     (başarı sayılmaz; `observe_delivery`).
     """
     surec.wait()
+    if on_exit is not None:
+        _finish_owned(on_exit, klasor / f"{kimlik}.log", kimlik)
     if not host_writes_receipt:
         return
     code = _read_exit(klasor, kimlik)
@@ -191,6 +199,17 @@ def _watch_job(
         save_completion(klasor, root, kimlik, code)
     except (OSError, ValueError):
         _LOG.exception("İş tamamlanma makbuzu host süreçte yazılamadı", extra={"is": kimlik})
+
+
+def _finish_owned(on_exit: Callable[[], str], gunluk: Path, kimlik: str) -> None:
+    """İşin kaynaklarını kapat; notu günlüğe ekle. Hata izleyiciyi düşürmez, log'lanır."""
+    try:
+        note = on_exit()
+        if note:
+            with gunluk.open("a", encoding="utf-8") as stream:
+                stream.write(note)
+    except (OSError, ValueError):
+        _LOG.exception("Arka plan işinin kaynakları kapatılamadı", extra={"is": kimlik})
 
 
 def _await_receipt(klasor: Path, kimlik: str) -> None:

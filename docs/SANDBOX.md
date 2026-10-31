@@ -87,7 +87,12 @@ fusion sandbox oto on             # aynı bayraklar terminalden
 sonra yalnız listedeki adlar erişilebilir (npm, pip dahil diğer trafik kapanır).
 
 Engellenen bağlantıdan sonra modele `Sandbox ağı engelledi: <alan>` notu gider; izin vermek
-kullanıcının kararıdır.
+kullanıcının kararıdır. Her komutun kendi proxy'si vardır: eşzamanlı komutların (arka plan
+işi, alt ajan) retleri birbirine karışmaz. Ön plan komutunun proxy'si komut bitince, arka plan
+işininki iş süreci bitince kapanır; işin ret notu günlüğün sonuna (`job_status` çıktısı)
+eklenir. İşin kendi içinde arka plana attığı ve işten uzun yaşayan süreçler (`npm run dev &`)
+iş bitince ağ erişimini kaybeder. `/sandbox izin` sonrası yeni politika bir sonraki komutta
+geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 
 ## Sandbox dışında çalıştırma
 
@@ -136,9 +141,6 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
   (CDP, kimlik doğrulamasız) da buna dahildir; port dosyası (`DevToolsActivePort`) okuma
   engelinde olsa da port taranarak bulunabilir ve oturumlu tarayıcı sürülebilir. Oturumlu web
   profilleriyle çalışırken `network: allowlist` + `allow_localhost: false` kullanın.
-- Ağ ret notu proxy başınadır: aynı politikada eşzamanlı çalışan komutların (arka plan işi,
-  alt ajanlar) engellenen adları birbirinin notuna düşebilir. `/sandbox izin` ile politika
-  değiştikçe eski proxy süreç kapanana kadar açık kalır (eski arka plan işleri onu kullanır).
 - Linux (bubblewrap): komut kendi PID/IPC ad alanında ve yeni oturumda çalışır (host `/proc`
   görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
   deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven

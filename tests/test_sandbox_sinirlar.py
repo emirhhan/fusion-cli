@@ -3,10 +3,14 @@
 Ölçüldü (1 Kasım, eca48854):
 - `sandbox.deny_read` yazan kullanıcının listesi varsayılanın YERİNE geçiyordu: tek bir yol
   ekleyen `~/.ssh`, `~/.aws`… korumasını sessizce kaybediyordu.
+- Ağ proxy'si politika başına süreç boyunca paylaşılıyordu: eşzamanlı iki komutun
+  engellenen adları birbirinin notuna düşüyor, politika değişince eski proxy kapanmıyordu.
 """
 
 from __future__ import annotations
 
+import socket
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -20,7 +24,12 @@ from fusion_cli.config.sandbox_config import (
     sandbox_policy,
     validate_sandbox,
 )
+from fusion_cli.core import shell_sandbox
 from fusion_cli.core.errors import ConfigError
+from fusion_cli.core.sandbox_policy import SandboxPolicy
+from fusion_cli.core.tools import ToolContext
+from fusion_cli.tools import sandbox_runtime, shell
+from fusion_cli.tools.jobs import job_status
 from tests.fakes import make_config
 
 # --- inceleme-8: okuma engeli varsayılanı her zaman uygulanır --------------- #
@@ -87,3 +96,140 @@ def test_eski_tam_liste_yazan_yapilandirma_ayni_engeli_uretir(tmp_path):
     config = _yukle(tmp_path, f"sandbox:\n  deny_read:\n{satirlar}")
     policy = sandbox_policy(config.sandbox, home=tmp_path, root=tmp_path)
     assert len(policy.deny_read) == len(DEFAULT_DENY_READ)
+
+
+# --- inceleme-11: proxy komut başına; sahibi bitince kapanır ------------------ #
+
+_ALLOWLIST = SandboxPolicy(network="allowlist", allowed_domains=("izinli.test",))
+
+
+def _ctx(root: Path, policy: SandboxPolicy = _ALLOWLIST) -> ToolContext:
+    return ToolContext(root=root, shell_sandbox="write_root", sandbox_policy=policy)
+
+
+def _connect_reddi(proxy, host: str) -> None:
+    """Proxy'ye izinsiz bir ad için CONNECT gönder (yalnız TCP uçlu proxy)."""
+    with socket.create_connection(("127.0.0.1", proxy.port), timeout=5) as baglanti:
+        baglanti.sendall(f"CONNECT {host}:443 HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+        baglanti.recv(4096)
+
+
+@pytest.fixture
+def tcp_proxy(monkeypatch):
+    """Proxy'yi platformdan bağımsız TCP uçla kur (Linux'ta da port üzerinden sınanır)."""
+    monkeypatch.setattr(sandbox_runtime, "_uses_unix_proxy", lambda: False)
+    monkeypatch.setattr(shell_sandbox, "_temporary_directories", lambda: ())
+
+
+def test_eszamanli_komutlarin_ag_retleri_birbirine_karismaz(tmp_path, tcp_proxy):
+    birinci = sandbox_runtime.prepare_sandbox("curl a", {}, _ctx(tmp_path))
+    ikinci = sandbox_runtime.prepare_sandbox("curl b", {}, _ctx(tmp_path))
+    try:
+        assert birinci.proxy is not None and ikinci.proxy is not None
+        assert birinci.proxy is not ikinci.proxy
+        _connect_reddi(birinci.proxy, "kotu.test")
+
+        assert any("kotu.test" in not_ for not_ in sandbox_runtime.sandbox_notes(birinci, 1, ""))
+        assert not any("kotu.test" in not_ for not_ in sandbox_runtime.sandbox_notes(ikinci, 1, ""))
+    finally:
+        sandbox_runtime.release_sandbox(birinci)
+        sandbox_runtime.release_sandbox(ikinci)
+
+
+def test_birakilan_proxy_kapanir_ve_ikinci_birakma_zararsiz(tmp_path, tcp_proxy):
+    run = sandbox_runtime.prepare_sandbox("curl a", {}, _ctx(tmp_path))
+    assert run.proxy is not None and run.proxy.is_running
+    port = run.proxy.port
+
+    sandbox_runtime.release_sandbox(run)
+    sandbox_runtime.release_sandbox(run)
+
+    assert not run.proxy.is_running
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=1).close()
+
+
+def test_unix_soketli_proxy_birakilinca_gecici_dizini_de_siler(tmp_path, monkeypatch):
+    monkeypatch.setattr(sandbox_runtime, "_uses_unix_proxy", lambda: True)
+    run = sandbox_runtime.prepare_sandbox("curl a", {}, _ctx(tmp_path))
+    assert run.proxy is not None and run.proxy.unix_path is not None
+    klasor = run.proxy.unix_path.parent
+    assert klasor.is_dir()
+
+    sandbox_runtime.release_sandbox(run)
+
+    assert not klasor.exists()
+
+
+class _Casus:
+    """`shell.prepare_sandbox` çağrılarını kaydeden sarmal."""
+
+    def __init__(self) -> None:
+        self.runs: list[sandbox_runtime.SandboxRun] = []
+
+    def __call__(self, command, args, context):
+        run = sandbox_runtime.prepare_sandbox(command, args, context)
+        self.runs.append(run)
+        return run
+
+
+def _bekle(kosul, sure_s: float = 10.0) -> bool:
+    bitis = time.monotonic() + sure_s
+    while time.monotonic() < bitis:
+        if kosul():
+            return True
+        time.sleep(0.05)
+    return kosul()
+
+
+def test_on_plan_komutunun_proxysi_komut_bitince_kapanir(tmp_path, tcp_proxy, monkeypatch):
+    casus = _Casus()
+    monkeypatch.setattr(shell, "prepare_sandbox", casus)
+
+    sonuc = shell.run_shell({"command": "echo merhaba"}, _ctx(tmp_path))
+
+    assert "merhaba" in sonuc.output
+    (run,) = casus.runs
+    assert run.proxy is not None and not run.proxy.is_running
+
+
+def test_arka_plan_isinin_proxysi_is_bitene_kadar_yasar_sonra_kapanir(
+    tmp_path, tcp_proxy, monkeypatch
+):
+    casus = _Casus()
+    monkeypatch.setattr(shell, "prepare_sandbox", casus)
+    monkeypatch.setattr(sandbox_runtime, "plan_shell_sandbox", _sandboxsiz_plan)
+    context = _ctx(tmp_path)
+    tetik = tmp_path / "bitir"
+
+    basladi = shell.run_shell(
+        {"command": f"while [ ! -f {tetik} ]; do sleep 0.05; done", "background": True}, context
+    )
+    (run,) = casus.runs
+    kimlik = basladi.output.split("Arka plan işi başladı: ")[1].split()[0]
+
+    assert run.proxy is not None and run.proxy.is_running
+    _connect_reddi(run.proxy, "kotu.test")
+    tetik.write_text("x")
+    job_status({"id": kimlik, "wait_s": 10}, context)
+
+    assert _bekle(lambda: not run.proxy.is_running)
+    gunluk = tmp_path / ".fusion" / "is" / f"{kimlik}.log"
+    assert _bekle(lambda: "Sandbox ağı engelledi: kotu.test" in gunluk.read_text())
+
+
+def _sandboxsiz_plan(*args, **kwargs):
+    """Gerçek plan + önek boş: komut her platformda sandbox'sız koşar, proxy yine kurulur."""
+    plan = shell_sandbox.plan_shell_sandbox(*args, **kwargs)
+    return replace(plan, prefix=("env",))
+
+
+def test_ret_kaydi_ham_ad_tutmaz(tmp_path, tcp_proxy):
+    run = sandbox_runtime.prepare_sandbox("curl a", {}, _ctx(tmp_path))
+    try:
+        assert run.proxy is not None
+        _connect_reddi(run.proxy, "Kotu.TEST.")
+        _connect_reddi(run.proxy, "talimat:sil")
+        assert [item.host for item in run.proxy.denials_since(0)] == ["kotu.test", ""]
+    finally:
+        sandbox_runtime.release_sandbox(run)
