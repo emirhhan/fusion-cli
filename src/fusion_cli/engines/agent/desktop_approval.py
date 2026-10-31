@@ -11,8 +11,11 @@ Kip tablosu (`approval.py`'nin kurallarıyla):
 - plan: masaüstü eylemi yapılmaz (okuma değil).
 - bypass: oturum onayı sorulmaz; riskli eylem yine sorulur, engel yine geçerlidir.
 
-Hedef çözülemezse (izin yok, yardımcı yok) istek değişmez: aracın kendi temkinli etkisi
-(`REMOTE_WRITE`, otomatik kipte her çağrıda sorulur) geçerli kalır.
+Hedef çözülemezse (Erişilebilirlik izni yok, yardımcı derlenemedi, nokta AX'te okunamadı)
+ret listesi, engelli kategori ve Fusion koruması denetlenemez: çağrı `REMOTE_DESTRUCTIVE`
+olur ve her kipte (İzinleri atla dahil) her seferinde sorulur, oturum iznine dönüşmez.
+Ölçüldü (31 Ekim): bu durumda istek `REMOTE_WRITE` kalıyordu; bypass yalnız yıkıcıyı sorduğu
+için `denied_apps=["1Password"]` ya da Fusion'ın onay kartı korumasız kalıyordu.
 """
 
 from __future__ import annotations
@@ -34,9 +37,10 @@ CONSENT_SCOPE = (
     "Bu oturum boyunca yalnız {app} için ({level}); riskli eylemler (gönder, sil, öde, "
     "Terminal'de Enter) yine her seferinde sorulur. Başka uygulama ayrıca sorulur."
 )
-#: Hedef çözülemediğinde kartta görünen not.
+#: Hedef çözülemediğinde kartta görünen gerekçe (her kipte, her seferinde sorulur).
 UNKNOWN_TARGET_NOTE = (
-    "Hedef uygulama okunamadı (Erişilebilirlik izni?); bu çağrı tek başına sorulur."
+    "Hedef uygulama okunamadı (Erişilebilirlik izni?); reddedilen uygulamalar denetlenemedi, "
+    "bu çağrı her seferinde sorulur"
 )
 #: Engellenen masaüstü çağrısının modele dönen metni.
 DESKTOP_BLOCKED_RESULT = (
@@ -63,12 +67,24 @@ def apply_desktop(
     target = assessment.target
     if assessment.blocked is not None:
         return replace(
-            request, pre_denied=request.pre_denied or assessment.blocked, desktop_target=target
+            request,
+            pre_denied=request.pre_denied or assessment.blocked,
+            desktop_target=target,
+            # Önce gelen izin kuralı engeli kendi metnini korur.
+            desktop_blocked=request.pre_denied is None,
         )
     if target is None:
         if assessment.required is DesktopLevel.OBSERVE:
             return request
-        return replace(request, note=request.note or UNKNOWN_TARGET_NOTE)
+        # Fail-closed: engel denetlenemedi; bypass dahil sorulur ve hatırlanmaz (`danger`).
+        return replace(
+            request,
+            effect=ToolEffect.REMOTE_DESTRUCTIVE,
+            danger=request.danger or UNKNOWN_TARGET_NOTE,
+            risk=UNKNOWN_TARGET_NOTE,
+            unattended_safe=False,
+            read_only=False,
+        )
     if assessment.required is DesktopLevel.OBSERVE:
         # Bakmak (öne getirme, arka plan görüntüsü) onay gerektirmez; yalnız engel uygulanır.
         return replace(request, desktop_target=target)

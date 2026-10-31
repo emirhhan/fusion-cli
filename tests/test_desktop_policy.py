@@ -254,7 +254,7 @@ async def test_desktop_open_ada_gore_engellenir(tmp_path, probe):
     assert decision is Decision.BLOCKED and probe.requests == []
 
 
-async def test_hedef_okunamazsa_eski_temkinli_onay(tmp_path, probe):
+async def test_hedef_okunamazsa_her_seferinde_sorulur(tmp_path, probe):
     probe.answer = {"ok": False, "metin": "izin yok"}
     memory = ApprovalMemory()
     prompter = _Prompter(ApprovalAnswer.SESSION)
@@ -262,7 +262,7 @@ async def test_hedef_okunamazsa_eski_temkinli_onay(tmp_path, probe):
         request, _decision, _ = await _decide(
             "desktop_click", {"x": 5, "y": 5}, _context(tmp_path), prompter=prompter, memory=memory
         )
-    assert request.effect is ToolEffect.REMOTE_WRITE and request.desktop_target is None
+    assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE and request.desktop_target is None
     assert len(prompter.asked) == 2
 
 

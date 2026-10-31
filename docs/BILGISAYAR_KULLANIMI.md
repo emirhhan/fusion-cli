@@ -67,8 +67,11 @@ Kademeler: **yalnız bak** = ekran görüntüsü ve öne getirme; **tıkla** = t
 kaydırma; **tam kontrol** = ayrıca yazma, tuş/kısayol, sürükleme. Sıra: ret listesi →
 Fusion → `desktop.app_levels` → kategori → `desktop.control_level` tavanı. Engelli uygulama ya
 da yetmeyen kademe her kipte (İzinleri atla dahil) sorulmadan kapanır ve modele önerilen yol
-söylenir. Hedef okunamazsa (Erişilebilirlik izni yok) çağrı eski temkinli yolla, her seferinde
-sorulur.
+söylenir. Hedef okunamazsa (Erişilebilirlik izni yok, yardımcı derlenemedi, noktadaki öğe
+okunamadı) ret listesi denetlenemez: tıklama/yazma her kipte (**İzinleri atla dahil**) her
+seferinde sorulur ve oturum iznine dönüşmez; arka plan araçları (`desktop_background_*`) ise
+sorulmadan kapanır. Arka plan araçlarında `pid` metin (`"1234"`) ya da `1234.0` gelse de araçla
+aynı kuralla çözülür.
 
 ## Riskli eylemler (her seferinde sorulur)
 

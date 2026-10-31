@@ -246,6 +246,8 @@ class ApprovalRequest:
     desktop_target: DesktopTarget | None = None
     #: Araçtan bağımsız oturum izni anahtarı (uygulama başına masaüstü onayı, P-007).
     consent_key: str | None = None
+    #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
+    desktop_blocked: bool = False
 
     @property
     def can_remember(self) -> bool:

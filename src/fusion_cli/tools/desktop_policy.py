@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget, parse_app_level
 from ..core.tools import ToolArgs, ToolContext, ToolEffect
+from .args import coerce_int
 from .desktop_risk import risky_reason
 from .native_desktop import SwiftDesktop
 
@@ -41,6 +42,10 @@ CATEGORY_BLOCKED_REASON = (
     "desktop.app_levels ile açar"
 )
 LEVEL_REASON = "{app} için kademe '{level}', bu eylem '{required}' ister. {hint}"
+#: Arka plan aracının hedefi (pid) doğrulanamadı: ret listesi denetlenemez, çağrı kapanır.
+UNVERIFIED_REASON = (
+    "hedef uygulama doğrulanamadı (geçerli window_id ve pid gerekli; pencere kapanmış olabilir)"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +131,7 @@ class DesktopAssessment:
 
     #: Eylemin istediği kademe.
     required: DesktopLevel
-    #: Çözülen hedef; çözülemediyse None (çağrı eski temkinli onayla sorulur).
+    #: Çözülen hedef; çözülemediyse None (çağrı her kipte, her seferinde sorulur).
     target: DesktopTarget | None = None
     #: Sorulmadan kapanma gerekçesi (ret listesi, engelli kategori, yetmeyen kademe).
     blocked: str | None = None
@@ -200,11 +205,24 @@ async def _swift_probe(request: dict[str, object]) -> Mapping[str, object]:
     return await SwiftDesktop().invoke("target", {"kind": "probe", "request": request})
 
 
+def background_pid(args: ToolArgs) -> int | None:
+    """Arka plan aracının pid'i, aracın kendi kuralıyla (`desktop_background._target`).
+
+    Ölçüldü (31 Ekim): politika yalnız `type(pid) is int` kabul ediyordu; araç ise "1234" ve
+    1234.0'ı da çözer. Metin pid'de politika ÖNDEKİ uygulamayı değerlendiriyor, eylem başka
+    sürece (ör. ret listesindeki parola yöneticisine) gidiyordu.
+    """
+    window, pid = coerce_int(args.get("window_id")), coerce_int(args.get("pid"))
+    if window is None or pid is None or window <= 0 or pid <= 0:
+        return None
+    return pid
+
+
 def _probe_request(tool_name: str, args: ToolArgs, context: ToolContext) -> dict[str, object]:
     """Yardımcıya sorulacak hedef: nokta (son görüntünün pikseli → ekran noktası), pid ya da ön."""
-    pid = args.get("pid")
-    if tool_name.startswith("desktop_background_") and type(pid) is int and pid > 0:
-        return {"pid": pid}
+    if tool_name.startswith("desktop_background_"):
+        pid = background_pid(args)
+        return {"pid": pid} if pid is not None else {}
     frame = context.desktop.frame
     pixel = (_number(args.get("x")), _number(args.get("y")))
     if tool_name not in _POINT_TOOLS or frame is None or pixel[0] is None or pixel[1] is None:
@@ -238,6 +256,9 @@ async def resolve_target(
     if tool_name in _NAMED_TOOLS:
         app = args.get("app")
         return (app.strip(), "", 0, "") if isinstance(app, str) and app.strip() else None
+    if tool_name.startswith("desktop_background_") and background_pid(args) is None:
+        # Geçersiz pid'de öndeki uygulamayı yoklamak yanlış hedefi değerlendirirdi.
+        return None
     answer = await (probe or _swift_probe)(_probe_request(tool_name, args, context))
     if answer.get("ok") is not True or not isinstance(answer.get("app"), str):
         return None
@@ -258,6 +279,9 @@ async def assess(
     if required is None:
         return None
     resolved = await resolve_target(tool_name, args, context, probe)
+    if resolved is None and tool_name.startswith("desktop_background_"):
+        # Arka plan araçları zaten yardımcıyla çalışır: hedef doğrulanamıyorsa kapat (fail-closed).
+        return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     if resolved is None:
         return DesktopAssessment(required)
     app, bundle, pid, element = resolved

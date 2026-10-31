@@ -338,7 +338,7 @@ def _decision_message(
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
-    if request is not None and request.pre_denied is not None and request.desktop_target:
+    if request is not None and request.pre_denied is not None and request.desktop_blocked:
         # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
         return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
     if request is not None and request.pre_denied is not None:
