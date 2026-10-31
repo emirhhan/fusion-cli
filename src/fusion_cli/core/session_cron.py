@@ -303,6 +303,15 @@ class SessionCron:
         seconds = parse_interval(delay)
         return self._add(prompt, Kind.ONCE, now, now + seconds, source=source)
 
+    def restore(self, task: CronTask) -> None:
+        """Verilip gönderilemeyen görevin önceki hâlini geri koy (masaüstü `cron.geri_ver`)."""
+        self._tasks[task.id] = task
+
+    def merged(self, other: SessionCron) -> SessionCron:
+        """İki listenin birleşimi (yeni nesne); aynı kimlikte `other` kazanır, tavan korunur."""
+        tasks = {**self._tasks, **other._tasks}
+        return SessionCron(tuple(tasks.values())[:MAX_TASKS])
+
     def delete(self, task_id: str) -> bool:
         return self._tasks.pop(task_id, None) is not None
 

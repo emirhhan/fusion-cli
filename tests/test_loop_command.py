@@ -506,3 +506,121 @@ async def test_gercek_istem_doluyken_inject_yazilani_silmez(tmp_path: Path, monk
         assert not prompt.done()
         pipe.send_text(" bitti\r")
         assert await asyncio.wait_for(prompt, 2) == "yarım mesaj bitti"
+
+
+# --- Masaüstü RPC: geri verme, meşgul, sohbet değişimi (inceleme bulgusu) --------- #
+
+
+def _app_oturumu(tmp_path: Path, monkeypatch, simdi: list[float]):
+    import json
+
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    monkeypatch.setattr("fusion_cli.appserver.session.time.time", lambda: simdi[0])
+    sayac = iter(range(1000))
+
+    async def rpc(ad: str, veri: dict | None = None) -> dict:
+        kimlik = f"r{next(sayac)}"
+        await oturum.handle(Request(id=kimlik, name=ad, data=veri or {}))
+        for satir in reversed(satirlar):
+            paket = json.loads(satir)
+            if paket.get("tip") == "sonuc" and paket.get("id") == kimlik:
+                return paket["veri"]
+        raise AssertionError(f"sonuç yok: {ad}")
+
+    return oturum, rpc
+
+
+async def test_masaustu_gonderilemeyen_gorev_geri_verilir(tmp_path: Path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): `cron.vadesi_gelenler` görevi göndermeden ilerletiyordu;
+    arayüz gönderemezse (sekme meşgul) o vade boşa gidiyor, tek seferlik görev
+    tamamen kayboluyordu."""
+    simdi = [1_800_000_000.0]
+    oturum, rpc = _app_oturumu(tmp_path, monkeypatch, simdi)
+    tek = oturum._state.cron.create_once("uyan", "2m", now=simdi[0])
+    simdi[0] += 121
+    vade = await rpc("cron.vadesi_gelenler")
+    assert [g["id"] for g in vade["gorevler"]] == [tek.id]
+    assert oturum._state.cron.get(tek.id) is None
+
+    geri = await rpc("cron.geri_ver", {"id": tek.id})
+    assert geri["ok"] is True
+    assert (await rpc("cron.vadesi_gelenler"))["gorevler"][0]["id"] == tek.id
+    # Verilmemiş görev geri verilemez; ikinci geri verme reddedilir.
+    assert (await rpc("cron.geri_ver", {"id": "yok"}))["ok"] is False
+
+
+async def test_masaustu_tur_surerken_bos_liste_verir(tmp_path: Path, monkeypatch) -> None:
+    simdi = [1_800_000_000.0]
+    oturum, rpc = _app_oturumu(tmp_path, monkeypatch, simdi)
+    gorev = oturum._state.cron.create_interval("a", "5m", now=simdi[0])
+    simdi[0] += 301
+    oturum._turn = asyncio.get_running_loop().create_future()
+    try:
+        cevap = await rpc("cron.vadesi_gelenler")
+    finally:
+        oturum._turn.set_result(None)
+    assert cevap["gorevler"] == [] and cevap["mesgul"] is True
+    assert oturum._state.cron.get(gorev.id).runs == 0  # type: ignore[union-attr]
+
+
+async def test_kimliksiz_oturum_gorevleri_sohbet_kimligine_tasinir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Ölçüldü (31 Ekim): sohbet kimliği gelmeden kurulan görev, kimlik gelince
+    `cron_store.load` ile değiştirilip düşüyordu."""
+    import time
+
+    # Gerçek saat: yükleme bayat kayıt süpürmesini dosya zamanına göre yapar.
+    simdi = [time.time()]
+    oturum, rpc = _app_oturumu(tmp_path, monkeypatch, simdi)
+    gorev = oturum._state.cron.create_interval("stok", "5m", now=simdi[0])
+    oturum._cron_save()
+    memory_dir = oturum._state.config.memory_dir
+    assert cron_store.store_path(memory_dir, "app").exists()
+
+    await rpc("oturum.baslat", {"sohbet_id": "sohbet-1"})
+
+    assert oturum._state.cron.get(gorev.id) is not None
+    assert cron_store.load(memory_dir, "sohbet-1").get(gorev.id) is not None
+    assert not cron_store.store_path(memory_dir, "app").exists()
+
+
+def test_bayat_kayitlar_temizlenir_tazeler_kalir(tmp_path: Path) -> None:
+    """Terminal REPL'i her açılışta yeni kimlik ürettiğinden kayıtlar birikiyordu."""
+    import os
+
+    from fusion_cli.core.session_cron import MAX_AGE_S
+
+    simdi = 1_800_000_000.0
+    taze = SessionCron()
+    taze.create_interval("a", "5m", now=simdi)
+    cron_store.save(tmp_path, "taze", taze)
+    cron_store.save(tmp_path, "bayat", taze)
+    bayat = cron_store.store_path(tmp_path, "bayat")
+    os.utime(bayat, (simdi - MAX_AGE_S - 10, simdi - MAX_AGE_S - 10))
+    os.utime(cron_store.store_path(tmp_path, "taze"), (simdi, simdi))
+
+    assert cron_store.sweep_stale(tmp_path, now=simdi) == 1
+    assert not bayat.exists() and cron_store.store_path(tmp_path, "taze").exists()
+
+
+def test_yukleme_bayat_kayitlari_supurur(tmp_path: Path) -> None:
+    import os
+    import time
+
+    from fusion_cli.core.session_cron import MAX_AGE_S
+
+    cron = SessionCron()
+    cron.create_interval("a", "5m", now=time.time())
+    cron_store.save(tmp_path, "eski-repl", cron)
+    eski = cron_store.store_path(tmp_path, "eski-repl")
+    gecmis = time.time() - MAX_AGE_S - 60
+    os.utime(eski, (gecmis, gecmis))
+
+    assert len(cron_store.load(tmp_path, "yeni-repl")) == 0
+    assert not eski.exists()

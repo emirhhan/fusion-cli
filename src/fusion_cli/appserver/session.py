@@ -62,6 +62,7 @@ from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
+from ..core.session_cron import CronTask, SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
 from ..core.submission import SubmissionReceipt, SubmissionRepository
@@ -488,6 +489,8 @@ class AppSession:
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
+        #: Son `cron.vadesi_gelenler` ile verilen görevin ilerletilmeden önceki hâli.
+        self._cron_given: dict[str, CronTask] = {}
         #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
@@ -1238,6 +1241,8 @@ class AppSession:
             return self._cron_delete(request.data)
         if request.name == "cron.vadesi_gelenler":
             return self._cron_due()
+        if request.name == "cron.geri_ver":
+            return self._cron_give_back(request.data)
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
@@ -1478,11 +1483,21 @@ class AppSession:
         conversation_changed = False
         if isinstance(sohbet_value, str) and sohbet_value.strip():
             yeni_kimlik = sohbet_value.strip()
+            onceki_kimlik = self._conversation_id
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
             if conversation_changed:
                 # Süresi dolmamış zamanlanmış görevler aynı sekmeyle geri gelir (P-038).
-                self._state.cron = cron_store.load(self._state.config.memory_dir, yeni_kimlik)
+                # Kimliksiz ("app") kurulan görevler yeni kimliğe taşınır; ölçüldü (31 Ekim):
+                # load ile değiştirilip düşüyordu.
+                memory_dir = self._state.config.memory_dir
+                loaded = cron_store.load(memory_dir, yeni_kimlik)
+                if onceki_kimlik is None and len(self._state.cron):
+                    loaded = self._state.cron.merged(loaded)
+                    cron_store.save(memory_dir, "app", SessionCron())
+                self._state.cron = loaded
+                self._cron_given = {}
+                cron_store.save(memory_dir, yeni_kimlik, loaded)
         if new_root is not None:
             root_changed = new_root.resolve() != self._root.resolve()
             self._root = new_root
@@ -1828,10 +1843,27 @@ class AppSession:
             return {"ok": True, "gorevler": []}
         verilen = []
         for task in due[:1]:
+            # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
+            self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
             verilen.append({"id": task.id, "gorev": task.prompt, "kaynak": task.source.value})
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
+
+    def _cron_give_back(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`cron.geri_ver {id}`: son verilen görev gönderilemedi; önceki hâline döndür.
+
+        Ölçüldü (31 Ekim): `cron.vadesi_gelenler` görevi vermeden önce ilerletiyordu;
+        arayüz gönderemeyince o vade boşa gidiyor, tek seferlik görev kayboluyordu.
+        """
+        task_id = data.get("id")
+        task = self._cron_given.get(task_id) if isinstance(task_id, str) else None
+        if task is None:
+            return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
+        self._cron_given = {}
+        self._state.cron.restore(task)
+        self._cron_save()
+        return {"ok": True}
 
     def _status(self) -> dict[str, Any]:
         return {
