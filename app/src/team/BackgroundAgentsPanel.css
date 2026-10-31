@@ -19,3 +19,7 @@
 .bg-agents__chip { flex: none; font-size: var(--text-xs, 11px); color: var(--text-secondary); border: 1px solid var(--border-subtle); border-radius: 999px; padding: 1px 8px; }
 .bg-agents__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .bg-agents__output { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; font-size: var(--text-xs, 11px); background: var(--surface-base, transparent); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 6px); padding: 8px; }
+.bg-agents__pending { display: grid; gap: 6px; min-width: 0; }
+.bg-agents__pending summary { cursor: pointer; font-size: var(--text-sm); color: var(--text-secondary); }
+.bg-agents__danger { margin: 0; font-size: var(--text-sm); color: var(--danger-text, var(--text-primary)); }
+.bg-agents button[aria-pressed="true"] { border-color: var(--accent-text); }

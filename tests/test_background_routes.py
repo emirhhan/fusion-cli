@@ -109,3 +109,27 @@ def test_gecersiz_istek_ok_false_doner(state):
     assert dispatch_background(state, "arkaplan.baslat", {"gorev": " "})["ok"] is False
     assert dispatch_background(state, "esler.al", {"no": "1"})["ok"] is False
     assert "arkaplan.durum" in BACKGROUND_ROUTES
+
+
+def test_girdi_bekleyen_gorev_satiri_soru_turunu_ve_secenekleri_tasir(state):
+    store = agent_tasks.task_store(state.config.memory_dir)
+    task = store.create("iş", root=state.root, name="soran")
+    store.update(task.id, status=TaskStatus.NEEDS_INPUT, question="Hangi veritabanı?")
+    store.heartbeat(task.id)
+    store.ask(task.id, "1", {"tur": "soru", "ozet": "Hangi veritabanı?", "secenekler": ["pg"]})
+
+    row = dispatch_background(state, "arkaplan.durum", {})["gorevler"][0]
+    answered = dispatch_background(state, "arkaplan.cevapla", {"id": "soran", "cevap": "Postgres"})
+
+    assert row["soru"]["tur"] == "soru" and row["soru"]["secenekler"] == ["pg"]
+    assert answered["ok"] and store.take_answer(task.id, "1") == "Postgres"
+
+
+def test_onay_bekleyen_goreve_serbest_metin_acik_hatayla_doner(state):
+    store = agent_tasks.task_store(state.config.memory_dir)
+    task = store.create("iş", root=state.root, name="onayci")
+    store.ask(task.id, "1", {"tur": "onay", "ozet": "run_shell onayı"})
+
+    result = dispatch_background(state, "arkaplan.cevapla", {"id": "onayci", "cevap": "Postgres"})
+
+    assert result["ok"] is False and "evet" in result["metin"]

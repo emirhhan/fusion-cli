@@ -18,7 +18,8 @@ from typing import Any
 from ..cli.repl import agent_link
 from ..cli.repl.background_commands import start_background
 from ..cli.repl.state import ReplState
-from ..core.background_tasks import BackgroundTask, BackgroundTaskError
+from ..core.background_store import BackgroundTaskStore
+from ..core.background_tasks import BackgroundTask, BackgroundTaskError, TaskStatus
 from ..core.peers import InboundPolicy, PeerRecord, inbound_turn_text
 from ..tools import agent_tasks
 from ..ui import background_messages as texts
@@ -48,12 +49,23 @@ def _link(state: ReplState) -> agent_link.AgentLink:
     return link
 
 
-def task_payload(task: BackgroundTask) -> dict[str, Any]:
-    return {
+def task_payload(task: BackgroundTask, question: dict[str, object] | None = None) -> dict[str, Any]:
+    """Panel satırı; girdi bekleyen görevde bekleyen istek (`soru`: tur, ozet, arguman,
+    tehlike, secenekler) de gelir. Ölçüldü (31 Ekim): panel soru türünü bilmediği için
+    serbest metinli `ask_user` sorusunu cevaplayamıyordu."""
+    payload: dict[str, Any] = {
         **task.to_dict(),
         "durum_etiketi": texts.BG_STATUS_LABELS.get(task.status.value, task.status.value),
         "etkin": task.is_active,
     }
+    if question is not None:
+        payload["soru"] = question
+    return payload
+
+
+def _row(store: BackgroundTaskStore, task: BackgroundTask) -> dict[str, Any]:
+    waiting = task.status is TaskStatus.NEEDS_INPUT
+    return task_payload(task, store.pending_question(task.id) if waiting else None)
 
 
 def _peer_payload(peer: PeerRecord) -> dict[str, Any]:
@@ -74,7 +86,7 @@ def _status(state: ReplState, turn_owner: str) -> dict[str, Any]:
     return {
         "ok": True,
         "acik": bool(getattr(state.config.runtime, "background_agents", True)),
-        "gorevler": [task_payload(task) for task in link.store.tasks(root=state.root)],
+        "gorevler": [_row(link.store, task) for task in link.store.tasks(root=state.root)],
         "oturumlar": [_peer_payload(peer) for peer in peers],
         "bekleyen": [
             {"no": index, "kimden": message.sender_name, "metin": message.text}

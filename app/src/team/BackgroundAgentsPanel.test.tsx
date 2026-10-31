@@ -90,3 +90,28 @@ it("ayar kapalıysa başlatma formu yerine açıklama gösterir", async () => {
   expect(await screen.findByText(/runtime.background_agents/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Arka planda başlat" })).toBeNull();
 });
+
+it("serbest metinli soruyu cevaplar; seçenek düğmesi ve tam onay çağrısı gösterilir", async () => {
+  const asking = {
+    ...status,
+    gorevler: [
+      { id: "d1d2d3d4", name: "soran", status: "girdi_bekliyor", durum_etiketi: "girdi bekliyor", etkin: true, question: "Hangi veritabanı?", soru: { tur: "soru", ozet: "Hangi veritabanı?", secenekler: ["sqlite"], onerilen: "sqlite" } },
+      { id: "e1e2e3e4", name: "onayci", status: "girdi_bekliyor", durum_etiketi: "girdi bekliyor", etkin: true, question: "run_shell onayı: rm…", soru: { tur: "onay", ozet: "run_shell onayı: rm…", arguman: '{"command": "rm -rf build"}', tehlike: "kalıcı silme" } },
+    ],
+  };
+  const { client, calls } = fakeClient(asking);
+  render(<BackgroundAgentsPanel client={client} notify={vi.fn()} pollMs={60_000} />);
+  await screen.findByText("soran");
+
+  // Soru türünde onay düğmesi yok; cevap kutusu `arkaplan.cevapla` çağırır (mesaj değil).
+  expect(screen.getAllByRole("button", { name: "Onayla" })).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("soran sorusuna cevap"), { target: { value: "Postgres" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cevapla" }));
+  await waitFor(() => expect(calls).toContainEqual(["arkaplan.cevapla", { id: "d1d2d3d4", cevap: "Postgres" }]));
+  expect(calls.some(([name]) => name === "arkaplan.mesaj")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "sqlite" }));
+  await waitFor(() => expect(calls).toContainEqual(["arkaplan.cevapla", { id: "d1d2d3d4", cevap: "sqlite" }]));
+
+  expect(screen.getByLabelText("onayci onaylanacak çağrı").textContent).toContain("rm -rf build");
+  expect(screen.getByText("Risk: kalıcı silme")).toBeTruthy();
+});

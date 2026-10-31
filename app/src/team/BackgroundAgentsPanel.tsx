@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { osBildirimiGonder } from "../notifications/osNotice";
+import { BackgroundPendingInput, parsePendingRequest, type PendingRequest } from "./BackgroundPendingInput";
 import "./BackgroundAgentsPanel.css";
 
 /** Panelin konuştuğu uç (`ProtocolClient` ile uyumlu, testte sahte verilir). */
@@ -16,6 +17,8 @@ export interface BackgroundTaskRow {
   active: boolean;
   detail: string;
   question: string;
+  /** Yalnız girdi bekleyen görevde: onay mı serbest metinli soru mu, ayrıntısıyla. */
+  pending: PendingRequest | null;
 }
 
 export interface PeerRow { id: string; ad: string; tur: string; kok: string }
@@ -39,6 +42,7 @@ function parseTask(value: unknown): BackgroundTaskRow | null {
     active: raw.etkin === true,
     detail: text(raw.question) || text(raw.summary) || text(raw.note) || text(raw.prompt),
     question: text(raw.question),
+    pending: raw.status === "girdi_bekliyor" ? parsePendingRequest(raw.soru, text(raw.question)) : null,
   };
 }
 
@@ -181,12 +185,12 @@ export function BackgroundAgentsPanel({ client, onCommand, pollMs = BACKGROUND_P
                 <span className="bg-agents__chip">{task.label}</span>
               </div>
               <p className="bg-agents__detail" title={task.detail}>{task.detail}</p>
-              {task.status === "girdi_bekliyor" && (
-                <div aria-label={`${task.name} onayı`} className="bg-agents__actions" role="group">
-                  <button onClick={() => void call("arkaplan.cevapla", { id: task.id, cevap: "evet" })} type="button">Onayla</button>
-                  <button onClick={() => void call("arkaplan.cevapla", { id: task.id, cevap: "oturum" })} type="button">Bu görevde hep</button>
-                  <button onClick={() => void call("arkaplan.cevapla", { id: task.id, cevap: "hayir" })} type="button">Reddet</button>
-                </div>
+              {task.pending && (
+                <BackgroundPendingInput
+                  onAnswer={async (cevap) => (await call("arkaplan.cevapla", { id: task.id, cevap })) !== null}
+                  request={task.pending}
+                  taskName={task.name}
+                />
               )}
               <div className="bg-agents__actions">
                 <button aria-expanded={detail?.id === task.id} onClick={() => void show(task.id)} type="button">Ayrıntı</button>
@@ -200,7 +204,7 @@ export function BackgroundAgentsPanel({ client, onCommand, pollMs = BACKGROUND_P
                 <input
                   aria-label={`${task.name} görevine mesaj`}
                   onChange={(event) => setReplies((current) => ({ ...current, [task.id]: event.target.value }))}
-                  placeholder={task.status === "girdi_bekliyor" ? "Cevap ya da devam mesajı" : "Devam mesajı"}
+                  placeholder={task.active ? "Devam mesajı (sıradaki turda)" : "Devam mesajı (görevi sürdürür)"}
                   value={replies[task.id] ?? ""}
                 />
                 <button disabled={!(replies[task.id] ?? "").trim()} type="submit">Gönder</button>
