@@ -816,7 +816,8 @@ async def _agent_turn(
             renderer.abort()
             tracer.flush()
             # Masaüstü kilidi ve oturumu tur ile sınırlıdır (bkz. `tools/desktop_turn`).
-            desktop_turn.finish(tool_context)
+            if desktop_turn.finish(tool_context):
+                console.print(f"[{theme.WARN}]{messages.BILGISAYAR_ESC_STOPPED}[/{theme.WARN}]")
     state.history = outcome.messages
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)

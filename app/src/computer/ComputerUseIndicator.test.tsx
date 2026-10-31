@@ -37,4 +37,17 @@ describe("ComputerUseIndicator", () => {
     rerender(<ComputerUseIndicator client={api} onStop={vi.fn()} running={false} />);
     expect(screen.queryByRole("status")).toBeNull();
   });
+
+  it("Esc ile durdurulunca nedeni söyler, yeni tur başlayınca kaybolur", () => {
+    const api = client();
+    const { rerender } = render(<ComputerUseIndicator client={api} onStop={vi.fn()} running />);
+    api.emit({ olay: "BilgisayarKullaniliyor", aktif: true, esc: true });
+    api.emit({ olay: "BilgisayarKullaniliyor", aktif: false, esc: false, esc_ile_durdu: true });
+    rerender(<ComputerUseIndicator client={api} onStop={vi.fn()} running={false} />);
+    expect(screen.getByRole("status").textContent).toContain("Esc ile durduruldu");
+    expect(screen.queryByRole("button", { name: "Durdur" })).toBeNull();
+
+    rerender(<ComputerUseIndicator client={api} onStop={vi.fn()} running />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });

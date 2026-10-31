@@ -20,3 +20,7 @@
   .computer-indicator__dot { animation: computer-indicator-pulse 1.6s ease-in-out infinite; }
 }
 @keyframes computer-indicator-pulse { 50% { opacity: 0.35; } }
+
+.computer-indicator--stopped {
+  opacity: 0.85;
+}

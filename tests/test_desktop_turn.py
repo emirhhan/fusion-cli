@@ -15,7 +15,13 @@ import pytest
 
 from fusion_cli.appserver.computer_activity import COMPUTER_EVENT, ComputerActivityWatch
 from fusion_cli.core.desktop_settings import DesktopSettings
-from fusion_cli.core.events import ToolStarted, TurnFinished
+from fusion_cli.core.events import (
+    DesktopEscapeStopped,
+    ToolExecuted,
+    ToolOutcome,
+    ToolStarted,
+    TurnFinished,
+)
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import desktop, desktop_lock, desktop_screen, desktop_turn
 from fusion_cli.tools.desktop_escape import EscapeWatch
@@ -164,13 +170,18 @@ def test_esc_dinleyicisi_kurulamazsa_tur_surer(tmp_path):
     assert watch.error == "izin yok"
 
 
-def test_gosterge_olayi_turda_bir_kez_acilir_ve_kapanir():
+def _executed(name: str, outcome: ToolOutcome = ToolOutcome.OK) -> ToolExecuted:
+    return ToolExecuted(name=name, args={}, outcome=outcome, output="")
+
+
+def test_gosterge_olayi_turda_bir_kez_acilir_ve_kapanir(monkeypatch):
+    monkeypatch.setattr(desktop_turn, "escape_listening", lambda: True)
     events: list[dict[str, object]] = []
     watch = ComputerActivityWatch(events.append, lambda: DesktopSettings())
 
-    watch.handle(ToolStarted(name="desktop_screenshot", args={}))
-    watch.handle(ToolStarted(name="desktop_click", args={"x": 1, "y": 1}))
-    watch.handle(ToolStarted(name="desktop_key", args={"key": "a"}))
+    watch.handle(_executed("desktop_screenshot"))
+    watch.handle(_executed("desktop_click"))
+    watch.handle(_executed("desktop_key"))
     watch.handle(TurnFinished())
     watch.clear()
 
@@ -178,6 +189,44 @@ def test_gosterge_olayi_turda_bir_kez_acilir_ve_kapanir():
         {"olay": COMPUTER_EVENT, "aktif": True, "esc": True},
         {"olay": COMPUTER_EVENT, "aktif": False, "esc": False},
     ]
+
+
+def test_gosterge_eylem_gercekten_olunca_acilir_esc_dinleyiciye_baglidir(monkeypatch):
+    """Ölçüldü (31 Ekim): şerit `ToolStarted`'da (araç kendi denetiminden önce) açılıyor ve
+    Esc dinleyicisi kurulamasa da `escape_stops` ayarına bakıp "durdurmak için Esc" diyordu."""
+    monkeypatch.setattr(desktop_turn, "escape_listening", lambda: False)
+    events: list[dict[str, object]] = []
+    watch = ComputerActivityWatch(events.append, lambda: DesktopSettings(escape_stops=True))
+
+    watch.handle(ToolStarted(name="desktop_click", args={}))
+    watch.handle(_executed("desktop_click", ToolOutcome.FAILED))
+    watch.handle(_executed("desktop_click", ToolOutcome.BLOCKED))
+    assert events == []
+    watch.handle(_executed("desktop_click"))
+    assert events == [{"olay": COMPUTER_EVENT, "aktif": True, "esc": False}]
+
+
+def test_esc_ile_durdurma_bildirilir(monkeypatch):
+    """Ölçüldü (31 Ekim): `stopped_by_escape` hiç okunmuyordu; kullanıcı genel iptal görüyordu."""
+    events: list[dict[str, object]] = []
+    watch = ComputerActivityWatch(events.append, lambda: DesktopSettings())
+    watch.handle(DesktopEscapeStopped())
+    assert events == [{"olay": COMPUTER_EVENT, "aktif": False, "esc": False, "esc_ile_durdu": True}]
+
+
+async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop_lock, "release", lambda **kw: None)
+    fake = _FakeIo()
+    context = ToolContext(root=tmp_path)
+    turn = desktop_turn.begin(context, fake.io())
+    assert turn is not None and not desktop_turn.escape_listening()
+    desktop_turn.foreground_action(context)
+    assert desktop_turn.escape_listening()
+    turn._escape()
+    assert desktop_turn.finish(context) is True
+    assert not desktop_turn.escape_listening()
+    desktop_turn.begin(context, fake.io())
+    assert desktop_turn.finish(context) is False
 
 
 def test_reddedilen_ve_engelli_uygulamalar_goruntuden_dislanir(monkeypatch):

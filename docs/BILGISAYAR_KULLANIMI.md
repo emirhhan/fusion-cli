@@ -100,8 +100,11 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
 - **Esc ile durdur** (`desktop.escape_stops`): ilk fare/klavye eyleminde küresel bir Esc
   dinleyicisi kurulur (Erişilebilirlik izni). Fiziksel Esc turu durdurur (Ctrl+C / Durdur ile
   aynı) ve tuş uygulamaya **gitmez**; Fusion'ın kendi gönderdiği `desktop_key key=esc`
-  durdurmaz. Masaüstünde sohbetin üstünde "Fusion bilgisayarı kullanıyor · durdurmak için Esc"
-  şeridi ve **Durdur** düğmesi görünür (`BilgisayarKullaniliyor` olayı).
+  durdurmaz. Masaüstünde ilk başarılı fare/klavye eyleminden sonra sohbetin üstünde "Fusion
+  bilgisayarı kullanıyor · durdurmak için Esc" şeridi ve **Durdur** düğmesi görünür
+  (`BilgisayarKullaniliyor` olayı); "· durdurmak için Esc" yalnız dinleyici gerçekten kurulduysa
+  yazar (Erişilebilirlik izni yoksa kurulamaz). Esc ile durdurulan turdan sonra "Esc ile
+  durduruldu" notu görünür; terminalde aynı cümle basılır.
 - **Arka planda çalış** (`desktop.background`, varsayılan açık): diğer uygulamalar gizlenmez.
   Kapatılırsa ilk ekran eyleminde öndeki uygulama, eylemin hedef uygulaması ve Fusion (Fusion.app ya da Fusion'ı çalıştıran
   terminal) dışındaki uygulamalar gizlenir; `desktop.unhide_on_finish` açıksa tur bitince

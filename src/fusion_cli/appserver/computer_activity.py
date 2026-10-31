@@ -1,8 +1,10 @@
 """ "Fusion bilgisayarı kullanıyor" göstergesinin olayları (P-033).
 
 Claude CLI computer use bir bildirim gösterir: "Claude is using your computer · press Esc to
-stop". Masaüstünde bu sink ilk ön plan eylemiyle (fare/klavye) `BilgisayarKullaniliyor
-{aktif: true, esc}` yayar, tur bitince ya da iptal edilince `aktif: false`. Arayüz bunu
+stop". Masaüstünde bu sink ilk BAŞARILI ön plan eylemiyle (fare/klavye) `BilgisayarKullaniliyor
+{aktif: true, esc}` yayar, tur bitince ya da iptal edilince `aktif: false`; Esc ile durdurulunca
+`esc_ile_durdu: true` da eklenir. `esc` ayara değil Esc dinleyicisinin gerçekten kurulmasına
+bağlıdır (Erişilebilirlik izni yoksa dinleyici kurulamaz, şerit Esc demez). Arayüz bunu
 sohbetin üstünde bir şerit olarak gösterir (`app/src/computer/ComputerUseIndicator.tsx`).
 Ölçüldü (31 Ekim): `masaustu.etkinlik`in arayüzde tüketicisi yoktu; kullanıcı fare kendi
 elindeyken ajanın da ekranı kullandığını göremiyordu.
@@ -13,7 +15,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..core.desktop_settings import DesktopSettings
-from ..core.events import Event, ToolStarted, TurnFinished
+from ..core.events import DesktopEscapeStopped, Event, ToolExecuted, ToolOutcome, TurnFinished
+from ..tools import desktop_turn
 
 COMPUTER_EVENT = "BilgisayarKullaniliyor"
 #: Ekranı (işaretçi/klavye) fiilen kullanan araçlar; okuma ve arka plan araçları değil.
@@ -38,11 +41,21 @@ class ComputerActivityWatch:
         if isinstance(event, TurnFinished):
             self.clear()
             return
-        if isinstance(event, ToolStarted) and event.name in FOREGROUND_TOOLS and not self._active:
+        if isinstance(event, DesktopEscapeStopped):
+            self._active = False
+            self._emit({"olay": COMPUTER_EVENT, "aktif": False, "esc": False, "esc_ile_durdu": True})
+            return
+        if (
+            isinstance(event, ToolExecuted)
+            and event.outcome is ToolOutcome.OK
+            and event.name in FOREGROUND_TOOLS
+            and not self._active
+        ):
+            # Ölçüldü (31 Ekim): şerit `ToolStarted`'da açılıyordu (araç kilit/çerçeve
+            # denetiminde kapansa da); `esc` de dinleyiciye değil ayara bakıyordu.
             self._active = True
-            self._emit(
-                {"olay": COMPUTER_EVENT, "aktif": True, "esc": self._settings().escape_stops}
-            )
+            esc = self._settings().escape_stops and desktop_turn.escape_listening()
+            self._emit({"olay": COMPUTER_EVENT, "aktif": True, "esc": esc})
 
     def clear(self) -> None:
         """Tur sonu ya da iptal: gösterge kapanır (açık değilse olay yayılmaz)."""

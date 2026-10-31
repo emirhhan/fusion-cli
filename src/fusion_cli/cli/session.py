@@ -26,6 +26,7 @@ from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
+    DesktopEscapeStopped,
     ErrorOccurred,
     EventSink,
     FilesChanged,
@@ -404,7 +405,8 @@ async def run_agent_task(
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
             # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
             # Esc dinleyicisi kapanır, gizlenen uygulamalar geri gelir (P-033).
-            desktop_turn.finish(tool_context)
+            if desktop_turn.finish(tool_context):
+                bus.publish(DesktopEscapeStopped())
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt

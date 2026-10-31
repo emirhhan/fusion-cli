@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -31,6 +32,14 @@ from ..core.tools import ToolContext
 from . import desktop_lock
 
 _logger = logging.getLogger(__name__)
+#: Esc dinleyicisi gerçekten kurulmuş turlar (gösterge "durdurmak için Esc"i buna bağlar).
+#: Masaüstü kilidi süreç genelinde tek olduğu için aynı anda en çok bir tur ön plandadır.
+_LISTENING: weakref.WeakSet[DesktopTurn] = weakref.WeakSet()
+
+
+def escape_listening() -> bool:
+    """Ön plandaki bir turda Esc dinleyicisi kurulu mu? (kurulamadıysa gösterge Esc demez)."""
+    return any(turn.escape_active for turn in list(_LISTENING))
 
 
 def _default_hide(keep: Sequence[int]) -> tuple[int, ...]:
@@ -72,7 +81,7 @@ class DesktopTurnIo:
     keep_pids: Callable[[], tuple[int, ...]] = _default_keep
 
 
-@dataclass
+@dataclass(eq=False)  # kimlikle karşılaştırılır: `_LISTENING` kümesinde tutulur
 class DesktopTurn:
     """Bir turun masaüstü oturumu; araç iş parçacıklarından çağrılabilir (kilitli)."""
 
@@ -99,6 +108,8 @@ class DesktopTurn:
             self._started = True
             if self.settings.escape_stops:
                 self._stop_escape = self.io.start_escape(self._escape)
+                if self._stop_escape is not None:
+                    _LISTENING.add(self)
             if not self.settings.background:
                 extra = tuple(pid for pid in keep if pid > 0)
                 self._hidden = self.io.hide((*self.io.keep_pids(), *extra))
@@ -112,6 +123,7 @@ class DesktopTurn:
         with self._lock:
             stop, self._stop_escape = self._stop_escape, None
             hidden, self._hidden = self._hidden, ()
+        _LISTENING.discard(self)
         if stop is not None:
             stop()
         if hidden and self.settings.unhide_on_finish:
@@ -139,16 +151,22 @@ def begin(context: ToolContext, io: DesktopTurnIo | None = None) -> DesktopTurn 
     return turn
 
 
-def finish(context: ToolContext) -> None:
-    """Tur sonu (iptal/hata dahil): oturumu kapat ve masaüstü kilidini bırak."""
+def finish(context: ToolContext) -> bool:
+    """Tur sonu (iptal/hata dahil): oturumu kapat, kilidi bırak; Esc ile durduysa True.
+
+    Ölçüldü (31 Ekim): `stopped_by_escape` hiç okunmuyordu; kullanıcı Esc ile durdurduğunu
+    değil genel "Tur iptal edildi"yi görüyordu. Çağıran (REPL, `run_agent_task`) bunu söyler.
+    """
     turn = context.desktop.turn
     context.desktop.turn = None
+    stopped = isinstance(turn, DesktopTurn) and turn.stopped_by_escape
     if isinstance(turn, DesktopTurn):
         try:
             turn.close()
         except (OSError, RuntimeError, ValueError):
             _logger.warning("Masaüstü oturumu kapatılamadı", exc_info=True)
     desktop_lock.release(token=context.job_scope)
+    return stopped
 
 
 def foreground_action(context: ToolContext) -> None:
