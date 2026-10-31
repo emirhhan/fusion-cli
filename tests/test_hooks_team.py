@@ -222,3 +222,36 @@ async def test_continue_false_uyeyi_durdurur_yeniden_uyandirilmaz(tmp_path):
     assert not sonuclar[0].ok and "kota doldu" in sonuclar[0].output
     # Görev panoda bekliyor ama üye durduruldu: yeniden koşmadı.
     assert len(sonuclar) == 1 and "- a: 1 koşu" in sonuc.output
+
+
+# --- SubagentStop: ekip üyeleri ve iş akışı ajanları gerçek döngüden geçer ---------- #
+
+
+async def test_subagentstop_ekip_uyesi_ve_is_akisi_ajaninda_tetiklenir(tmp_path, monkeypatch):
+    """Ölçüldü (1 Kasım): üyeler ve iş akışı düğümleri `run_subagent` → `run_agent`
+    (`Channel.SUBAGENT`, `deps.hooks` aktarılır) yolundan koştuğu için SubagentStop zaten
+    tetikleniyor; bu test bağlantıyı gerçek ajan döngüsüyle sabitler."""
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.workflow_tools import workflow_run_tool
+    from tests.fakes import ScriptedProvider, model_result
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    hook = _kanca(tmp_path, HookEvent.SUBAGENT_STOP, "")
+    # Uyanma yok: görevi bitirmeyen üye ikinci kez koşmasın (betik iki cevaplık).
+    deps = _deps(tmp_path, hook, agent_team_max_wakes=0)
+    provider = ScriptedProvider([model_result("üye bitti"), model_result("düğüm bitti")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+
+    ekip = await _calistir(
+        deps,
+        agent_loop.run_agent,
+        {"ad": "tek", "hedef": "x", "uyeler": [{"ad": "a"}], "gorevler": [{"baslik": "iş"}]},
+    )
+    akis = await workflow_run_tool(deps, depth=0, run_agent=agent_loop.run_agent).run(
+        {"tanim": {"ad": "selam", "adimlar": ["selam de"]}}, deps.tool_context
+    )
+
+    assert ekip.output and akis.ok, akis.output
+    yukler = _yukler(tmp_path, HookEvent.SUBAGENT_STOP)
+    assert [y["last_assistant_message"] for y in yukler] == ["üye bitti", "düğüm bitti"]
+    assert all(y["hook_event_name"] == "SubagentStop" and "agent_type" in y for y in yukler)
