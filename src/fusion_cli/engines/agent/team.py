@@ -21,7 +21,13 @@ from ...core.errors import PathAccessError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
-from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools, unmapped_tools
+from ...tools.capabilities import (
+    CapabilityRegistry,
+    expand_tool_patterns,
+    load_agent_prompt,
+    map_tools,
+    unmapped_tools,
+)
 from . import team_fork, team_settings
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import cap_report as _cap_report
@@ -134,6 +140,17 @@ class SubTask:
     #: Ana konuşmanın bağlamını devral (fork, P-054): alt ajan temiz değil, ana geçmişin
     #: kırpılmış görünümüyle başlar. `/subtask`, `baglam_miras: true` ve `context: fork`.
     inherit_context: bool = False
+    #: Üst turun bu göreve kattığı ek sistem notu (oturum kişiliği, seçilen beceri metni,
+    #: kip istemi): üyenin kendi talimatından SONRA brife girer. Ölçüldü (31 Ekim): fork
+    #: turu bunları atıyordu, `context: fork` becerisi boş çalışıyordu.
+    brief: str = ""
+    #: Üst turun araç TAVANI (`None` = sınırsız): üyenin kümesiyle kesişir, genişletmez.
+    #: Salt-okur oturum kişiliği fork içinde yazamasın diye.
+    tool_cap: frozenset[str] | None = None
+    #: Görev mesajına eklenen görseller (data URI); fork turunda kullanıcının ekleri.
+    images: tuple[str, ...] = ()
+    #: Üst turun adım tavanı; kişiliğin `maxTurns`'ü ve derinlik bütçesiyle en küçüğü geçer.
+    step_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,8 +381,15 @@ async def _run_child(
                 skills=team_settings.preloaded_skills(deps, persona),
                 fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
             ),
-            allowed_tools=_allowed_tools(deps, persona, subtask, available=available),
-            step_limit=child_step_limit(deps, depth, requested=persona.max_turns or None),
+            allowed_tools=_capped_tools(
+                _allowed_tools(deps, persona, subtask, available=available),
+                subtask.tool_cap,
+                available,
+            ),
+            step_limit=child_step_limit(
+                deps, depth, requested=_min_limit(persona.max_turns or None, subtask.step_limit)
+            ),
+            images=subtask.images,
         )
     finally:
         try:
@@ -375,6 +399,21 @@ async def _run_child(
             # Alt ajanın `play_probe` ile sınadığı oyun parent kapanışında yeniden oynanmasın
             # (A4-41): kanıt da parent'a döner.
             deps.tool_context.probed_games.update(sub_deps.tool_context.probed_games)
+
+
+def _capped_tools(
+    allowed: set[str] | None, cap: frozenset[str] | None, available: tuple[str, ...]
+) -> set[str] | None:
+    """Üst turun araç tavanıyla kesişim: tavan yoksa aynen, varsa yalnız daralır."""
+    if cap is None:
+        return allowed
+    expanded = expand_tool_patterns(set(cap), available)
+    return expanded if allowed is None else allowed & expanded
+
+
+def _min_limit(*limits: int | None) -> int | None:
+    values = [limit for limit in limits if limit is not None and limit > 0]
+    return min(values) if values else None
 
 
 async def run_team(

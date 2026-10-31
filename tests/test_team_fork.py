@@ -104,16 +104,32 @@ async def test_run_forked_turn_ana_gecmise_yalniz_ozeti_ekler(tmp_path, monkeypa
     deps = _deps(tmp_path)
     gecmis = [Message("system", "S"), Message("user", "önceki"), Message("assistant", "cevap")]
 
+    gorulen: dict[str, object] = {}
+
     async def _sahte_ajan(task, sub_deps, **kwargs):
         assert [m.content for m in kwargs["history"]] == ["önceki", "cevap"]
+        gorulen.update(kwargs)
         return SimpleNamespace(final_text="alt görev özeti", ok=True, tool_calls_made=3)
 
     monkeypatch.setattr("fusion_cli.engines.agent.loop.run_agent", _sahte_ajan)
     sonuc = await team_fork.run_forked_turn(
-        "testleri çalıştır", deps, history=gecmis, extra_system="yoksayılır", step_limit=5
+        "testleri çalıştır",
+        deps,
+        history=gecmis,
+        extra_system="# Oturum kişiliği: Keşif\nyalnız oku",
+        allowed_tools={"read_file", "write_file"},
+        images=("data:image/png;base64,AAAA",),
+        step_limit=5,
     )
 
     assert sonuc.final_text == "alt görev özeti" and sonuc.ok and sonuc.tool_calls_made == 3
+    # Ölçüldü (31 Ekim): `**_ignored` oturum kişiliğini, `context: fork` becerisinin metnini,
+    # araç kısıtını ve görselleri atıyordu; salt-okur kişilik fork içinde yazabiliyordu.
+    assert "yalnız oku" in str(gorulen["extra_system"])
+    assert team_fork.FORK_BRIEF in str(gorulen["extra_system"])
+    assert gorulen["allowed_tools"] == {"read_file", "write_file"}
+    assert gorulen["images"] == ("data:image/png;base64,AAAA",)
+    assert gorulen["step_limit"] == 5
     assert [m.content for m in sonuc.messages] == [
         "S",
         "önceki",
@@ -203,3 +219,27 @@ def test_fork_kirpmasi_basi_kopuk_arac_sonucuyla_baslamaz():
     for index, message in enumerate(fork):
         if message.role == "tool":
             assert fork[index - 1].role == "tool" or fork[index - 1].tool_calls
+
+
+async def test_fork_arac_tavani_kisiligin_kumesini_yalniz_daraltir(tmp_path, monkeypatch):
+    """Üstten gelen tavan (`allowed_tools`) üyenin kendi kümesiyle KESİŞİR; genişletmez."""
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "dar.md").write_text(
+        "---\nname: dar\ndescription: d\ntools: Read, Write\n---\ngövde", encoding="utf-8"
+    )
+    deps = _deps(tmp_path)
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen["allowed_tools"] = kwargs["allowed_tools"]
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    await run_subagent(
+        deps,
+        SubTask("a", persona="dar", tool_cap=frozenset({"read_file", "run_shell"})),
+        depth=0,
+        run_agent=_sahte_ajan,
+    )
+
+    assert gorulen["allowed_tools"] == {"read_file"}

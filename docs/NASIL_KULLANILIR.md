@@ -224,8 +224,10 @@ ara işi ana bağlamı şişirmeden yürütmek için.
 - Model kendi kararıyla: `spawn_agent(task=…, baglam_miras=true)`.
 - Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
   otomatik fork alt ajanda koşar.
-- Kısıtlar: fork turunda oturum kişiliği notu ve kip istemi alt ajana geçmez (kendi kişilik
-  notu ve `FORK_BRIEF` açıklaması vardır); plan kipinde fork salt-okur koşar.
+- Fork turuna oturum kişiliğinin notu ve araç kısıtı (yalnız daraltır), seçilen becerinin
+  metni, kip istemi, görsel ekler ve adım tavanı aynen geçer; alt ajan bunların üstüne kendi
+  `FORK_BRIEF` açıklamasını alır. Plan kipinde fork salt-okur koşar. Canlı geçmişin sonundaki
+  cevapsız araç çağrısı (o an çalışan `spawn_agent`) devredilmez.
 
 ---
 

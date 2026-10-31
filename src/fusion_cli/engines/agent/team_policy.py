@@ -84,6 +84,8 @@ def member_brief(
     parts = [persona.prompt.strip()] if persona.prompt.strip() else []
     if skills:
         parts.append(skills)
+    if subtask.brief.strip():
+        parts.append(subtask.brief.strip())
     if fork_note:
         parts.append(fork_note)
     if subtask.read_only:

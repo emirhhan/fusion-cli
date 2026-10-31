@@ -124,22 +124,41 @@ async def run_forked_turn(
     *,
     history: list[Message] | None = None,
     plan_mode: bool = False,
+    extra_system: str = "",
+    allowed_tools: set[str] | None = None,
+    images: tuple[str, ...] = (),
+    step_limit: int | None = None,
     **_ignored: object,
 ) -> AgentOutcome:
     """`/subtask <görev>`: turu fork alt ajan olarak koştur, ana geçmişe yalnız özeti ekle.
 
     `run_agent` ile aynı imzayı taşır ki REPL, TUI ve masaüstü turu çağıranı değiştirmeden
-    bu yola geçebilsin. `extra_system`/`step_limit` gibi tur ayarları alt ajanın kendi
-    kişilik notu ve bütçesiyle değiştirildiği için yok sayılır.
+    bu yola geçebilsin. Turun oturum kişiliği/beceri metni (`extra_system`) alt ajanın
+    brifine, araç kısıtı (`allowed_tools`) araç TAVANI olarak, görseller ve adım tavanı
+    aynen geçer. Ölçüldü (31 Ekim): bunlar `**_ignored` ile atılıyordu; `context: fork`
+    becerisinin talimatı hiç uygulanmıyor, salt-okur kişilik fork içinde yazabiliyordu.
+    `chat_mode`/`workflow` gibi kalan tur ayarları alt ajanda anlamsızdır, yok sayılır.
     """
     from .loop import AgentOutcome, run_agent
     from .team import SubTask, run_subagent
 
     snapshot = list(history or [])
     deps.live_history = lambda: snapshot
-    subtask = SubTask(task=task.strip(), read_only=plan_mode, inherit_context=True)
+    subtask = SubTask(
+        task=task.strip(),
+        read_only=plan_mode,
+        inherit_context=True,
+        brief=extra_system,
+        tool_cap=frozenset(allowed_tools) if allowed_tools is not None else None,
+        images=tuple(images),
+        step_limit=step_limit,
+    )
     run = await run_subagent(deps, subtask, depth=0, run_agent=run_agent)
-    messages = [*snapshot, Message("user", task), Message("assistant", run.text)]
+    messages = [
+        *snapshot,
+        Message("user", task, images=tuple(images)),
+        Message("assistant", run.text),
+    ]
     return AgentOutcome(
         final_text=run.text,
         messages=messages,
