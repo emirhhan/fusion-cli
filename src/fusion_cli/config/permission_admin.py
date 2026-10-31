@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from ..ui import messages
 from . import trust
 from .models import Config
 from .permission_rules import (
@@ -69,6 +70,9 @@ class RuleChange:
     rule: PermissionRule
     path: Path
     changed: bool
+    #: Proje istenmişti ama izin dosyası güvenilmediği için kullanıcı dosyasına düşüldü
+    #: (kapsam: TÜM projeler). Çağıran bunu kullanıcıya açıkça söyler.
+    fell_back: bool = False
 
     @property
     def pattern(self) -> str:
@@ -76,14 +80,23 @@ class RuleChange:
 
 
 def add_permission_rule(
-    root: Path, rule: PermissionRule, *, user_level: bool = False
+    root: Path, rule: PermissionRule, *, user_level: bool = False, strict_project: bool = False
 ) -> RuleChange:
-    """Kuralı hedef dosyaya ekle; proje dosyasına yazıldıysa güven karmasını tazele."""
+    """Kuralı hedef dosyaya ekle; proje dosyasına yazıldıysa güven karmasını tazele.
+
+    Proje izin dosyası güvenilmiyorsa hedef kullanıcı dosyasına düşer ve `fell_back` işaretlenir
+    (ölçüldü, 31 Ekim: masaüstünde "Bu proje" seçilirken kural sessizce tüm projelere
+    yazılıyordu). `strict_project` ile bu düşüş `ConfigError` olur (masaüstü "Bu proje" kapsamı).
+    """
+    project_target = root / trust.PROJECT_PERMISSIONS_PATH
     target = user_permissions_file() if user_level else project_rule_file(root)
+    fell_back = not user_level and target != project_target
+    if fell_back and strict_project:
+        raise ConfigError(messages.PERMISSIONS_PROJECT_UNTRUSTED)
     changed = add_rule(target, rule)
-    if changed and target == root / trust.PROJECT_PERMISSIONS_PATH:
+    if changed and target == project_target:
         trust.record_permissions_digest(root)
-    return RuleChange(rule, target, changed)
+    return RuleChange(rule, target, changed, fell_back)
 
 
 #: Fusion'ın YAZDIĞI katmanlar; ötekiler (`~/.claude/settings.json`, proje `settings.json`)
@@ -100,6 +113,14 @@ def is_rule_removable(root: Path, layer_name: str) -> bool:
     if layer_name not in WRITABLE_LAYERS:
         return False
     return layer_name != LAYER_LOCAL or trust.is_permissions_trusted(root)
+
+
+def added_message(change: RuleChange, decision: PermissionDecision) -> str:
+    """Ekleme sonucunun metni; kullanıcı dosyasına düşüldüyse kapsamı (TÜM PROJELER) söyler."""
+    template = (
+        messages.PERMISSIONS_ADDED_FALLBACK if change.fell_back else messages.PERMISSIONS_ADDED
+    )
+    return template.format(rule=change.pattern, decision=decision.value, path=change.path)
 
 
 def remove_permission_rule(

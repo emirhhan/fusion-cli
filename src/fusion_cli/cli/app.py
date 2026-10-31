@@ -32,7 +32,7 @@ from ..config.readiness import Readiness, evaluate
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -52,6 +52,7 @@ from . import (
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl
+from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -323,6 +324,9 @@ def agent(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
 
+    # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
+    # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
+    approval_memory = attach_rule_writer(ApprovalMemory(), root)
     outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
@@ -343,12 +347,14 @@ def agent(
                 home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
+                approval_memory=approval_memory,
             )
         ),
         renderer,
         observers,
     )
     observers.finish()
+    print_rule_notices(console, approval_memory)
     _print_usage(observers, quiet=quiet or as_json)
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
@@ -536,9 +542,7 @@ def permissions(
         if action == "add":
             change = permission_admin.add_permission_rule(root, rule, user_level=user)
             text = (
-                messages.PERMISSIONS_ADDED.format(
-                    rule=change.pattern, decision=karar.value, path=change.path
-                )
+                permission_admin.added_message(change, karar)
                 if change.changed
                 else messages.PERMISSIONS_EXISTS.format(rule=change.pattern, decision=karar.value)
             )

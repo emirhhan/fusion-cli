@@ -377,6 +377,25 @@ def test_guvenilmeyen_izin_dosyasi_varsa_kullanici_dosyasina_yazilir(tmp_path):
     assert persist_target(proje) == user_permissions_file()
 
 
+def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(tmp_path):
+    """Ölçüldü (31 Ekim): proje izin dosyası güvenilmiyorken kural sessizce kullanıcının
+    permissions.json'ına yazılıyor, kart 'her oturumda geçerli olur' deyip kapsamı söylemiyordu."""
+    from fusion_cli.appserver.bridges import _approval_options
+    from fusion_cli.engines.agent.permission_persist import always_description
+
+    proje = tmp_path / "proje"
+    (proje / ".claude").mkdir(parents=True)
+    istek = build_request(_arac(), {"command": "npm test"}, root=proje)
+    # İzin dosyası yok → projeye yazılır; açıklama kapsam genişletmez.
+    assert "tüm projeler" not in always_description(istek, proje).lower()
+    (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
+    aciklama = always_description(istek, proje)
+    assert "tüm projeler" in aciklama.lower() and "Bash(npm test *)" in aciklama
+    assert str(user_permissions_file()) in aciklama
+    secenekler = {s["deger"]: s for s in _approval_options(istek, proje)}
+    assert "tüm projeler" in secenekler["always"]["aciklama"].lower()
+
+
 async def test_yikici_istekte_bir_daha_sorma_kural_yazmaz(tmp_path):
     bellek = ApprovalMemory()
     yazildi: list[str] = []

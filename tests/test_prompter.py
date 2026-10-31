@@ -306,3 +306,48 @@ def test_terminal_cevabi_karar_harfi_sonrasi_notu_tasir(tmp_path):
     yikici = build_request(_arac("run_shell"), {"command": "git push --force"}, root=tmp_path)
     assert parse_console_answer("k", yikici, enter_approves=False) is True
     assert parse_console_answer("", yikici, enter_approves=False) is False
+
+
+async def test_kalici_izin_ipucu_yalniz_kalicilastirilabilen_istekte(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): yıkıcı/uzak istekte de 'k: kalıcı izin' ipucu basılıyordu, oysa `k`
+    orada sıradan evet sayılır."""
+    monkeypatch.setattr("sys.stdin", io.StringIO("e\n"))
+    prompter, buffer = _prompter(tmp_path)
+    prompter._interactive = True
+    monkeypatch.setattr(prompter, "_ask", lambda prompt: "e")
+    await prompter.confirm(
+        build_request(_arac("run_shell"), {"command": "npm test"}, root=tmp_path)
+    )
+    assert "k: kalıcı izin" in buffer.getvalue()
+    buffer.truncate(0)
+    buffer.seek(0)
+    await prompter.confirm(
+        build_request(_arac("run_shell"), {"command": "git push --force"}, root=tmp_path)
+    )
+    cikti = buffer.getvalue()
+    assert "h <gerekçe>" in cikti and "k: kalıcı izin" not in cikti
+
+
+def test_fusion_run_onay_hafizasi_kalici_kural_yazicisiyla_kurulur(tmp_path, monkeypatch):
+    """`fusion run` yolunda `k` kalıcı kural yazmıyordu: `rule_writer` bağlanmamıştı (ölçüldü,
+    31 Ekim). Ortak yardımcı hafızayı kurar ve bildirimi biçimler."""
+    from fusion_cli.cli.rule_notices import attach_rule_writer, rule_notice_lines
+    from fusion_cli.config import trust
+    from fusion_cli.engines.agent.approval import ApprovalMemory
+
+    ev = tmp_path / "ev"
+    ev.mkdir()
+    monkeypatch.setenv("HOME", str(ev))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(ev / ".config"))
+    monkeypatch.setattr(trust, "trust_store_file", lambda: ev / "guven.json")
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    bellek = attach_rule_writer(ApprovalMemory(), proje)
+    assert bellek.rule_writer is not None
+    istek = build_request(_arac("run_shell"), {"command": "npm test"}, root=proje)
+    bellek.notices.append(bellek.rule_writer(istek))
+    satirlar = rule_notice_lines(bellek)
+    assert len(satirlar) == 1 and satirlar[0].startswith("İzin kuralı kaydedildi")
+    assert "Bash(npm test *)" in satirlar[0]
+    assert (proje / ".claude" / "settings.local.json").is_file()
+    assert rule_notice_lines(bellek) == []

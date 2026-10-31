@@ -53,9 +53,7 @@ def permissions(state: ReplState, argument: str) -> str:
                 return messages.PERMISSIONS_EXISTS.format(
                     rule=change.pattern, decision=decision.value
                 )
-            return messages.PERMISSIONS_ADDED.format(
-                rule=change.pattern, decision=decision.value, path=change.path
-            )
+            return permission_admin.added_message(change, decision)
         removed = permission_admin.remove_permission_rule(state.root, rule)
     except ConfigError as error:
         return str(error)

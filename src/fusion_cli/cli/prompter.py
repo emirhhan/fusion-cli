@@ -73,9 +73,14 @@ class ConsolePrompter:
                 )
             is_dangerous = request.danger is not None
             if self._interactive:
-                self._console.print(
-                    f"[{theme.DIM}]{escape(messages.CONFIRM_NOTE_HINT)}[/{theme.DIM}]"
+                # `k` yalnız kalıcılaştırılabilen istekte kural yazar; ötekinde ipucu verilmez
+                # (ölçüldü, 31 Ekim: yıkıcı istekte de gösteriliyor, `k` sıradan evet sayılıyordu).
+                hint = (
+                    messages.CONFIRM_NOTE_HINT
+                    if request.can_persist
+                    else messages.CONFIRM_NOTE_HINT_NO_PERSIST
                 )
+                self._console.print(f"[{theme.DIM}]{escape(hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )

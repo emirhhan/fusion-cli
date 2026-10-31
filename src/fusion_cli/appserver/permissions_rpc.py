@@ -1,7 +1,7 @@
 """Masaüstü `izin.*` ve `proje.guven_*` istekleri (P-003, P-012).
 
     izin.kurallar        tüm katmanlardaki kurallar + engeller + hedef dosya
-    izin.ekle            {kalip, karar, kapsam: "proje"|"kullanici"}
+    izin.ekle            {kalip, karar, kapsam: "proje"|"kullanici"}  (proje: güvenilmiyorsa hata)
     izin.sil             {kalip, karar, dosya?}  (dosya: tablodaki satırın dosyası)
     izin.engel           {anahtar: block_reads_outside_root|block_writes_outside_root, deger: bool}
     proje.guven_durum    TrustReport: güvenildi mi, neden, düşürülen bölümler
@@ -42,8 +42,13 @@ def add_rule(root: Path, data: dict[str, Any]) -> dict[str, Any]:
             "metin": messages.PERMISSIONS_BAD_PATTERN.format(given=data.get("kalip")),
         }
     try:
+        # Masaüstünde kapsam AÇIKÇA seçilir: "Bu proje" güvenilmeyen projede sessizce
+        # kullanıcı dosyasına düşmez, hata döner (P-003).
         change = permission_admin.add_permission_rule(
-            root, rule, user_level=data.get("kapsam") == "kullanici"
+            root,
+            rule,
+            user_level=data.get("kapsam") == "kullanici",
+            strict_project=data.get("kapsam") == "proje",
         )
     except ConfigError as error:
         return {"ok": False, "metin": str(error)}

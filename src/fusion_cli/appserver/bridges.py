@@ -22,7 +22,7 @@ from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
-from ..engines.agent.permission_persist import rule_for_request
+from ..engines.agent.permission_persist import always_description
 from ..ui import messages
 from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
@@ -334,9 +334,8 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
             {
                 "deger": "always",
                 "etiket": messages.TUI_APPROVAL_ALWAYS,
-                "aciklama": messages.TUI_APPROVAL_ALWAYS_DESC.format(
-                    rule=rule_for_request(request, root).pattern
-                ),
+                # Kapsamı da söyler: kullanıcı dosyasına düşüyorsa "TÜM PROJELER" (P-003).
+                "aciklama": always_description(request, root),
             }
         )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})

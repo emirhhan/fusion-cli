@@ -334,12 +334,19 @@ TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yo
 #: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
 TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
 TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
+#: Proje izin dosyası güvenilmiyorsa kural kullanıcı dosyasına düşer: kapsam TÜM projelerdir.
+TUI_APPROVAL_ALWAYS_DESC_USER = (
+    "{rule} kuralı TÜM PROJELER için kullanıcı dosyasına yazılır ({path}; bu projenin izin "
+    "dosyası güvenilmiyor) ve her oturumda geçerli olur."
+)
 #: Onay kartında eşleşen izin kuralı bilgisi.
 APPROVAL_RULE_NOTE = "izin kuralı: {rule}"
 #: Kalıcı kural yazıldı / yazılamadı bildirimi (`ApprovalMemory.notices`).
 PERMISSION_RULE_SAVED = "İzin kuralı kaydedildi: {summary}"
 #: Terminalde ret gerekçesi ipucu (P-013): `h gerekçe` yazılır, gerekçe modele gider.
 CONFIRM_NOTE_HINT = "  (h <gerekçe>: ret nedenini modele ilet · k: kalıcı izin, bir daha sorma)"
+#: Kalıcılaştırılamayan (yıkıcı, uzak, ask kurallı) istekte `k` sıradan evettir; ipucu sunulmaz.
+CONFIRM_NOTE_HINT_NO_PERSIST = "  (h <gerekçe>: ret nedenini modele ilet)"
 #: Tam-ekran/TUI'de argümansız seçici komutu çağrılınca gösterilen yönlendirme.
 TUI_PICKER_NEEDS_ARG = "/{name} bu görünümde argüman ister. Örnek: /level high. Ayrıntı: /help."
 
@@ -730,6 +737,15 @@ PERMISSIONS_ADDED = "İzin kuralı eklendi: {rule} [{decision}] → {path}"
 PERMISSIONS_EXISTS = "Bu kural zaten var: {rule} [{decision}]"
 PERMISSIONS_REMOVED = "İzin kuralı silindi: {rule} [{decision}] ({path})"
 PERMISSIONS_NOT_FOUND = "Kural bulunamadı: {rule} [{decision}]"
+#: Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına düştü: kapsam tüm projeler.
+PERMISSIONS_ADDED_FALLBACK = (
+    "İzin kuralı eklendi: {rule} [{decision}] ({path}) — TÜM PROJELER için: bu projenin izin "
+    "dosyası güvenilmiyor (fusion trust)"
+)
+PERMISSIONS_PROJECT_UNTRUSTED = (
+    "Kural projeye yazılamadı: proje izin dosyası güvenilmiyor. 'Tüm projeler' kapsamını seç "
+    "ya da dosyayı gözden geçirip projeye güven (fusion trust)."
+)
 PERMISSIONS_UNTRUSTED_LAYERS = (
     "Güvenilmediği için allow kuralları yok sayılan katmanlar: {layers} "
     "(deny/ask geçerli; fusion trust)"

@@ -61,6 +61,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
+from ..rule_notices import print_rule_notices
 from . import help_view, history_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
@@ -587,11 +588,7 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
-            for notice in state.approval_memory.take_notices():
-                console.print(
-                    f"[{theme.INFO}]{escape(messages.PERMISSION_RULE_SAVED.format(summary=notice))}"
-                    f"[/{theme.INFO}]"
-                )
+            print_rule_notices(console, state.approval_memory)
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root

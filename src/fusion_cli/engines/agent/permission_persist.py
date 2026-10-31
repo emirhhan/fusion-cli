@@ -17,10 +17,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...config.permission_admin import add_permission_rule, project_rule_file
-from ...config.permission_rules import PermissionDecision, PermissionRule, format_rule
+from ...config.permission_rules import (
+    PermissionDecision,
+    PermissionRule,
+    format_rule,
+    user_permissions_file,
+)
 from ...core.tools import ToolFamily, tool_family
 from ...tools.auto_policy import command_words
 from ...tools.write_targets import FILE_WRITE_TOOLS
+from ...ui import messages
 from .approval import ApprovalRequest
 
 
@@ -79,6 +85,21 @@ def _dir_glob(raw: str, root: Path | None) -> str:
 def persist_target(root: Path) -> Path:
     """Kuralın yazılacağı dosya: güvenilen projede yerel ayar, değilse kullanıcı dosyası."""
     return project_rule_file(root)
+
+
+def always_description(request: ApprovalRequest, root: Path | None) -> str:
+    """Onay kartındaki "bir daha sorma" seçeneğinin açıklaması: kural + KAPSAM.
+
+    Ölçüldü (31 Ekim): proje izin dosyası güvenilmiyorken kural sessizce kullanıcının
+    `permissions.json`'ına düşüyor, kart yalnız 'her oturumda geçerli olur' diyordu; kullanıcı
+    'bu proje' sanıp tüm projelere izin yazıyordu. Hedef kullanıcı dosyasıysa açıkça söylenir.
+    """
+    rule = rule_for_request(request, root).pattern
+    if root is not None and persist_target(root) == user_permissions_file():
+        return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(
+            rule=rule, path=user_permissions_file()
+        )
+    return messages.TUI_APPROVAL_ALWAYS_DESC.format(rule=rule)
 
 
 def remember_always(root: Path, request: ApprovalRequest) -> str:

@@ -20,11 +20,11 @@ from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
-from ...engines.agent.permission_persist import remember_always
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
+from ..rule_notices import attach_rule_writer
 from .macros import Mode
 
 
@@ -171,7 +171,7 @@ class ReplState:
             self.allowed_commands = load_allowed_commands(self.root)
         # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
         # okunur, böylece proje değişince yeni projeye yazılır.
-        self.approval_memory.rule_writer = lambda request: remember_always(self.root, request)
+        attach_rule_writer(self.approval_memory, lambda: self.root)
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
 

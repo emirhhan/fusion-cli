@@ -291,3 +291,47 @@ async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _
         assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == ["Bash(rm *)"]
     finally:
         await session.close()
+
+
+# --- Kapsam: proje dosyası güvenilmiyorken kullanıcı dosyasına düşme ---------------- #
+
+
+def _guvenilmeyen_yerel(proje: Path) -> None:
+    _yaz(proje / PROJECT_PERMISSIONS_PATH, {"permissions": {"allow": ["Bash(*)"]}})
+    assert not trust.is_permissions_trusted(proje)
+
+
+def test_repl_ekle_kullanici_dosyasina_dusunce_tum_projeler_der(proje):
+    """Ölçüldü (31 Ekim): 'projeye yaz' varsayılanı güvenilmeyen projede sessizce tüm projeleri
+    etkileyen kullanıcı dosyasına yazıyordu; çıktı yalnız yolu gösteriyordu."""
+    _guvenilmeyen_yerel(proje)
+    sonuc = permissions(_state(proje), "add allow Bash(npm test *)")
+    assert "eklendi" in sonuc and str(user_permissions_file()) in sonuc
+    assert "tüm projeler" in sonuc.lower()
+    # Açıkça --user istenirse not gerekmez.
+    sonuc = permissions(_state(proje), "add allow Bash(pytest *) --user")
+    assert "tüm projeler" not in sonuc.lower()
+
+
+async def test_izin_rpc_ekle_proje_kapsami_guvenilmeyen_projede_reddedilir(proje):
+    _guvenilmeyen_yerel(proje)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=proje, home=proje / "ev")
+    try:
+        ret = await _rpc(
+            session,
+            lines,
+            "izin.ekle",
+            {"kalip": "Bash(npm test *)", "karar": "allow", "kapsam": "proje"},
+        )
+        assert ret["ok"] is False and "güvenilmiyor" in ret["metin"]
+        assert not user_permissions_file().is_file()
+        tamam = await _rpc(
+            session,
+            lines,
+            "izin.ekle",
+            {"kalip": "Bash(npm test *)", "karar": "allow", "kapsam": "kullanici"},
+        )
+        assert tamam["ok"] is True and tamam["dosya"] == str(user_permissions_file())
+    finally:
+        await session.close()

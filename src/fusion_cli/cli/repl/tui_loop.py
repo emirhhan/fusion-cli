@@ -28,6 +28,7 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
     help_view,
@@ -127,15 +128,13 @@ class TuiPrompter:
                     )
                 )
             if request.can_persist:
-                from ...engines.agent.permission_persist import rule_for_request
+                from ...engines.agent.permission_persist import always_description
 
                 choices.append(
                     Choice(
                         "always",
                         messages.TUI_APPROVAL_ALWAYS,
-                        messages.TUI_APPROVAL_ALWAYS_DESC.format(
-                            rule=rule_for_request(request, self._state_root()).pattern
-                        ),
+                        always_description(request, self._state_root()),
                     )
                 )
             if not request.danger:
@@ -619,6 +618,9 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
+                # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
+                print_rule_notices(self._tui.console, self._state.approval_memory)
         finally:
             renderer.abort()
             self._tui.clear_work()
