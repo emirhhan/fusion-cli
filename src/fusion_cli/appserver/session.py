@@ -1978,6 +1978,36 @@ class AppSession:
         self._next_turn_mode = mode
         return {**result, "gorev": task}
 
+    async def _prefix_reply(self, task: str) -> dict[str, Any] | None:
+        """`! komut` ve `# not` yerel cevap döner; `@dosya` blokları sonraki turun bağlamına girer.
+
+        Ölçüldü (31 Ekim): masaüstünde önekler düz mesaj olarak modele gidiyordu (yarım
+        yüzey). Terminal yüzeyiyle aynı saf fonksiyonlar (`cli/repl/prefixes.py`) kullanılır;
+        kabuk çıktısı Markdown çiti içinde arayüze yazılır, bağlam bloğu maskeli ve etiketli.
+        """
+        from ..cli.repl import prefixes
+        from ..cli.repl.loop import apply_mentions
+
+        if (command := prefixes.shell_command(task)) is not None:
+            result = await prefixes.run_shell_prefix(self._state, command)
+            parts: list[str] = []
+            if result.output:
+                parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
+            if result.context_block:
+                parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
+            parts.extend(result.notes)
+            return {"ok": result.ok, "metin": "\n\n".join(parts), "yerel_yanit": True}
+        if (note := prefixes.memory_note(task)) is not None:
+            return {
+                "ok": True,
+                "metin": prefixes.add_memory_note(self._state, note),
+                "yerel_yanit": True,
+            }
+        for mention_note in apply_mentions(task, self._state):
+            # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
+            logging.getLogger(__name__).info("@anma: %s", mention_note)
+        return None
+
     async def _select_model(self, data: dict[str, Any]) -> dict[str, Any]:
         """`model.sec {kaynak, model}`: yapısal model seçimi (U1-40).
 
@@ -2280,6 +2310,11 @@ class AppSession:
                     reply, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
                 )
                 return {"ok": True, "metin": reply, "yerel_yanit": True}
+        if not browser_only and not attachment_context and not images:
+            # REPL önekleri (P-022) masaüstünde de geçerli; `!`/`#` model çağırmaz.
+            local = await self._prefix_reply(task)
+            if local is not None:
+                return local
         image_command = None if browser_only else parse_image_command(task)
         if image_command is not None and not attachment_context and not images:
             ok, markdown = await run_image_command(self._state.config, image_command)

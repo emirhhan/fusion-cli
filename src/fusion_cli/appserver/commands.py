@@ -92,11 +92,19 @@ PickerCall = Callable[..., str | None]
 #: (bkz. `cli/repl/commands.py::_resume`). Appserver'da terminal yok; bu yüzden
 #: bunlar `run_command`'a hiç girmeden açıkça reddedilir.
 _UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume",)
+#: Yalnız terminale özgü komutlar: masaüstünde karşılığı yok (tema/görünüm/tuş bağı/durum
+#: satırı prompt_toolkit'e aittir). Ölçüldü (31 Ekim): "destekleniyor" görünüp kalıcı config
+#: ya da keybindings.json yazıyor, masaüstünde hiçbir etkisi olmuyordu.
+_TERMINAL_ONLY = frozenset({"theme", "tui", "search", "vim", "keybindings", "statusline"})
 
 
 def _is_unsupported_interactive(name: str) -> bool:
     """Bu komut köprülenmemiş bir etkileşimli dal mı? (terminal işleyicisine düşer)"""
     return any(name.startswith(prefix) for prefix in _UNSUPPORTED_INTERACTIVE_PREFIXES)
+
+
+def _is_terminal_only(name: str) -> bool:
+    return name in _TERMINAL_ONLY
 
 
 def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
@@ -112,7 +120,9 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
             "aciklama": command.summary,
             "grup": command.group,
             "kullanim": command.usage,
-            "destekleniyor": not _is_unsupported_interactive(command.name),
+            "destekleniyor": not (
+                _is_unsupported_interactive(command.name) or _is_terminal_only(command.name)
+            ),
         }
         for command in registry.all()
     ]
@@ -179,6 +189,8 @@ def run_command(
     canonical = command.name
     if _is_unsupported_interactive(canonical):
         return _error(messages.APP_COMMAND_UNSUPPORTED_INTERACTIVE)
+    if _is_terminal_only(canonical):
+        return _error(messages.APP_COMMAND_TERMINAL_ONLY)
     try:
         payload = command_choices(state, canonical, argument)
         if payload is not None:

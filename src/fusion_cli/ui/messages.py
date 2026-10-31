@@ -440,6 +440,9 @@ APP_COMMAND_UNKNOWN = "Bilinmeyen komut."
 APP_COMMAND_FAILED = "Komut çalıştırılamadı."
 APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
 #: Terminal seçicisi gerektiren ama protokole köprülenmemiş komut (örn. `/resume<kaynak>`).
+APP_COMMAND_TERMINAL_ONLY = (
+    "Bu komut yalnız terminal oturumunda (fusion) geçerli; masaüstünde karşılığı yok."
+)
 APP_COMMAND_UNSUPPORTED_INTERACTIVE = (
     "Bu komut uygulama protokolünde desteklenmiyor (terminal seçicisi gerektiriyor)."
 )

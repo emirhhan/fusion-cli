@@ -300,6 +300,8 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 
 ### Önekler: `!`, `@`, `#`
 
+Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `# not` kaydedilir, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
+
 | Yaz | Ne olur |
 |-----|---------|
 | `! git status` | Komut **doğrudan** çalışır (model çağrılmaz). Çıktı ekrana basılır ve bir sonraki mesajın bağlamına "kullanıcının çalıştırdığı kabuk çıktısı" olarak girer. Plan kipinde çalışmaz. Silmeler yine çöpe gider, ezilen dosya `/undo` kaydına girer. |
@@ -337,9 +339,13 @@ Erişilebilen bölümler `runtime.*` ve `embedding.*`; tip dataclass alanından 
 
 ### Çıktı stili: `/output-style`
 
+Proje dizinindeki stil (`.claude/output-styles`, `.fusion/cikti-stilleri`) yerleşik ya da kullanıcı stiliyle aynı adı taşıyorsa `fusion trust` verilmeden onu GÖLGELEYEMEZ (yeni adlar yine listelenir).
+
 `varsayilan` · `ozlu` · `aciklayici` · `ogretici`. Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine kodlama talimatlarından sonra eklenir; `runtime.output_style` ile kalıcı.
 
 ### Durum satırı betiği: `/statusline`
+
+`runtime.status_line_command` kabuk komutu çalıştırır; güven kaydı olmayan projenin `config.yaml`'ından gelirse (`verification_commands` gibi) `fusion trust` verilene kadar düşürülür.
 
 ```
 /statusline jq -r '.model.id + " · %" + (.context_window.percent|tostring)'
@@ -349,11 +355,15 @@ Betik her tur sonunda stdin'den JSON alır (`model`, `workspace`, `cost`, `conte
 
 ### Görünüm: `/theme`, `/tui`, `/search`
 
+Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (masaüstü teması ayarlardan). `fusion config set runtime.terminal_theme`/`runtime.tui` yalnız geçerli değerleri kabul eder.
+
 - `/theme` → `koyu` · `acik` · `ansi` · `daltonizm`; anında uygulanır, `runtime.terminal_theme` ile kalıcı. Masaüstü teması ayrıdır (Ayarlar › Genel).
 - `/tui inline` / `/tui fullscreen` → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı).
 - `/search <metin>` → tam ekran konuşmasında son eşleşmeye kaydırır; `End` canlı akışa döner.
 
 ### Tuş bağları ve vim: `/keybindings`, `/vim`
+
+Yalnız terminal (masaüstünde desteklenmiyor). Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser.
 
 `/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
 ```json
