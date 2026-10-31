@@ -5,6 +5,8 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
 ## Yayımlanmamış
 
+## 0.7.19 — 2026-11-01
+
 ### Claude Code / Codex paritesi (31 Ekim 2026)
 
 - İzinler: Claude Code `permissions.allow/ask/deny` kalıpları (Bash, Read, Edit, WebFetch, Agent, mcp__…) dört katmandan okunur ve okuma/web araçlarında da uygulanır; kabuk sarmalayıcıları (`sh -c`, `eval`, `sudo`) kuralı aşamaz. `/permissions`, `fusion permissions` ve Ayarlar › İzinler kural tablosu.
@@ -38,6 +40,14 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - `/goal <koşul>`: koşul karşılanana kadar turlar kendiliğinden sürer (hakem modeli değerlendirir); `/cd <yol>` çalışma dizinini değiştirir (`Cd(...)` izin kuralı); `/voice` cihaz üstü dikte; aralıksız `/loop` kendi temposunu seçer.
 - Beceriler: `capabilities.overrides` ile görünürlük, becerinin `model`/`effort` alanı o turda uygulanır, monorepo alt klasör becerileri; MCP istemleri `/mcp__sunucu__istem` ve kaynakları `@sunucu:uri`; oturum PR'a bağlanır ve durum satırında görünür.
 - Kits: bilgisayar panelinde canlı izleme ve GIF kaydı.
+
+#### 3. tur (1 Kasım)
+
+- Web model oturumunun (ChatGPT/Claude/Gemini/Copilot) seçilen siteleri ajan tarayıcı profiline tek yönlü ve onaylı kopyalanır: `fusion browser import-web-session`, `/oturum-aktar`, Ayarlar › Web oturumları › Model oturumundan aktar; otomatik paylaşım yok, iç ağ adları reddedilir.
+- Kit'ler bir Fusion tarayıcı profilini yalnız istenen siteler için, her seferinde onayla ve bellek içi kendi tarayıcılarına yükler (`fusion_profile`).
+- Sandbox: `sandbox.deny_read` artık varsayılan okuma engeline eklenir (varsayılandan yol açmak için `sandbox.allow_read`); Fusion'ın web profil Chrome'unun hata ayıklama (CDP) portu sandbox'taki komutlara kapalı; ağ proxy'si komut başına açılır ve komut/iş bitince kapanır.
+- Kancalar: `/cd` CwdChanged olayını tetikler; ekip görevleri TaskCreated/TaskCompleted/TeammateIdle ile denetlenir; `http` türü kanca (iç ağ korumalı), boşta bekleme bildirimi (`idle_prompt`), özetleme sonrası SessionStart(compact); kanca dökümünde araç çağrıları; `/reset` yeni oturum kimliği verir.
+- `team_run(arka_plan=true)`: ekip arka plan görevinde koşar, lider sohbete devam eder.
 
 - "web push bildirimi", "pushState" gibi isim olarak geçen push artık modeli atlayan git push akışını başlatmaz.
 - Gateway bu bilgisayar dışından gelen isteği yalnız belirteçle kabul eder; belirteçsiz ağ bind'i başlamaz (`fusion serve --token`).
