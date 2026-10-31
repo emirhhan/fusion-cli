@@ -396,6 +396,32 @@ def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(
     assert "tüm projeler" in secenekler["always"]["aciklama"].lower()
 
 
+async def test_yazici_bagli_degilse_bir_daha_sorma_oturumda_hatirlanir_bildirim_uretmez(tmp_path):
+    """`rule_writer is None` dalı (paperclip gibi yazıcısız yüzey): izin verilir, oturumda
+    hatırlanır, dosyaya yazılmaz, bildirim yoktur."""
+    bellek = ApprovalMemory()
+    assert bellek.rule_writer is None
+    karar, _ = await _karar(
+        ApprovalMode.SECURITY,
+        _arac(),
+        {"command": "npm test"},
+        tmp_path,
+        prompter=_Kaydeden(ApprovalAnswer.ALWAYS),
+        memory=bellek,
+    )
+    assert karar is Decision.ALLOW and bellek.take_notices() == []
+    assert not (tmp_path / trust.PROJECT_PERMISSIONS_PATH).exists()
+    karar, prompter = await _karar(
+        ApprovalMode.SECURITY,
+        _arac(),
+        {"command": "npm test"},
+        tmp_path,
+        prompter=_Kaydeden(ApprovalAnswer.DENY),
+        memory=bellek,
+    )
+    assert karar is Decision.ALLOW and prompter.soruldu == []
+
+
 async def test_yikici_istekte_bir_daha_sorma_kural_yazmaz(tmp_path):
     bellek = ApprovalMemory()
     yazildi: list[str] = []

@@ -145,8 +145,22 @@ Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kök
 `~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
 `mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
 **deny → yıkıcı komut → ask → allow → çalışma modu**. `deny` "İzinleri atla" modunda da
-geçerlidir; `ask` Otomatik modda bile sordurur. Kabuk zincirleri (`a && b`) parça parça
-değerlendirilir: bir parça yasaksa tamamı yasak, hepsi izinliyse sorulmaz.
+geçerlidir; `ask` Otomatik modda bile sordurur ve oturum hafızasıyla susturulamaz. Kurallar
+yalnız yazan araçlarda değil **okuma, arama ve web araçlarında da** uygulanır
+(`Read(~/.ssh/**)` deny → `read_file`, `search_code`, `glob`; `WebFetch(domain:x)` → `web_fetch`).
+Arama/listeleme aracına `path` verilmediyse kök alınır: deny/ask kuralının kapsamı aramanın
+içindeyse arama da yasaklanır/sorulur. `Agent(...)`/`Task(...)` çekirdekteki `spawn_agent`,
+`spawn_agents` araçlarını kapsar; `Edit/Write(...)` indirme, arşiv açma ve görsel üretme
+araçlarının hedefini de kapsar.
+
+Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak, hepsi
+izinliyse sorulmaz. Sarmalayıcılar açılır: `sh -c '…'`, `eval`, `timeout 5 …`, `sudo …`,
+`/bin/rm` içindeki komut da kurala karşı denenir. Dosyaya yönlendirme (`> x`, `>> x`, `| tee x`)
+içeren komut `allow` ile serbest kalmaz (deny/ask yine uygulanır). Bilinen sınır: `python -c "…"`
+gibi satır içi kodun içi kurallara karşı çözülmez; o yol ayrı risk denetiminden geçer.
+
+Güvenilmeyen proje dosyasından (`fusion trust` yapılmamış ya da içerik değişmiş) yalnız
+**allow** kuralları düşer; deny ve ask kuralları yine okunur.
 
 ```
 /permissions                              # listele
@@ -157,24 +171,40 @@ fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
 ```
 
 Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
+Silme yalnız Fusion'ın yazdığı dosyalarda çalışır (`permissions.json` ve güvenilir
+`settings.local.json`); `~/.claude/settings.json` ve proje `settings.json` salt okunurdur
+(sil düğmesi kapalı, kuralı dosyadan elle kaldır). Güvenilmeyen yerel dosyadan silme reddedilir:
+silmek izin açmaz. Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına yazılır ve bu
+**tüm projeleri** etkiler; kart ve komut çıktısı bunu açıkça söyler, masaüstünde "Bu proje"
+kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
 
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
 - Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar
-  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Yıkıcı
-  işlemlerde bu seçenek çıkmaz. Terminalde `k` tuşu.
+  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Yorumlayıcı ve
+  başlatıcılarda (`python`, `bash`, `node`, `npx`, `find`, `xargs`, `ssh`, `curl`…) ve ilk iki
+  sözcüğü düz olmayan komutlarda kural komutun **kendisidir** (`Bash(python -m pytest)`), genel
+  `python *` yazılmaz. Yıkıcı işlemlerde ve `ask` kurallı istekte bu seçenek çıkmaz. Terminalde
+  (`fusion`, `fusion run`) `k` tuşu; kural yazıldı/yazılamadı bildirimi tur sonunda basılır.
 - Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
   modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
-  Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar.
+  Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar. Bilinen sınır: **evet**
+  cevabıyla yazılan not modele iletilmez (yalnız ret notu gider); etkiler (`effects`) yolundaki
+  onaylarda not gösterilmez.
 
 ### Korumalı yollar ve klasör dışı
 
 - `.git/`, `.claude/`, `.fusion/tools/`, `.codex/`, `.cursor/rules/`, `.github/workflows/`
-  altına yazan her çağrı (dosya aracı ya da kabuk komutu) **her modda** sorulur ve oturum
-  iznine dönüşmez; okumak serbesttir.
+  altına yazan her çağrı (dosya aracı, indirme/arşiv/görsel aracı ya da kabuk komutu) **her
+  modda** sorulur ve oturum iznine dönüşmez; okumak serbesttir. Kabukta `cd .git && …` sonrası
+  göreli hedefler, `tar -C`, `curl -o`, `unzip -d` de yakalanır; karşılaştırma büyük/küçük harf
+  duyarsızdır (`.GIT/config`). Bilinen sınır: `python -c "open('.git/x','w')"` statik olarak
+  çözülmez.
 - `runtime.block_reads_outside_root` / `runtime.block_writes_outside_root` (Ayarlar › İzinler ›
   Proje klasörü anahtarları): açıkken proje klasörü (+ `--add-dir`) dışını okumak / dışına
-  yazmak sorulmadan engellenir; modele dizinin `--add-dir` ile açılabileceği söylenir.
+  yazmak sorulmadan engellenir; modele dizinin `--add-dir` ile açılabileceği söylenir. Yazma
+  engeli kabuk yönlendirmesini de kapsar (`echo x > ~/.zshrc`, `| tee /etc/hosts`); başka kabuk
+  komutlarının (`cp a ~/b`) kök dışı yazması engellenmez, Otomatik modda sorulur.
   `restrict_to_root` ikisini birden kapatır.
 
 ### Proje güveni masaüstünde
