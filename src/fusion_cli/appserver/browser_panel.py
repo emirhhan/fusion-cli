@@ -30,7 +30,7 @@ from ..config.browser_profiles import BrowserProfileStore, default_browser_profi
 from ..config.models import Config
 from ..core.browser_session import BrowserSession
 from ..tools import browser_picker
-from ..tools.browser import start_session
+from ..tools.browser import start_lock, start_session
 from ..tools.browser_live import LiveInputError, LiveView
 from ..tools.browser_shared import SharedBrowser
 from .browser_panel_payloads import (
@@ -84,7 +84,6 @@ class BrowserPanel:
         self._save_agent_share = save_agent_share
         self._shared = SharedBrowser(self._new_session)
         self._live: LiveView | None = None
-        self._lock = asyncio.Lock()
         #: Panelden verilen oturum içi seçim; None ise `browser.panel_agent` geçerlidir.
         self._agent_choice: bool | None = None
         #: Kullanıcının panelde yüklediği girişli oturum ve ajanın onu kullanma izni.
@@ -209,7 +208,7 @@ class BrowserPanel:
 
     async def _ensure_open(self, profile: str = "") -> tuple[BrowserSession | None, str]:
         session = self._shared.session()
-        async with self._lock:
+        async with start_lock(session):
             if session.is_open:
                 return session, ""
             page, error = await start_session(

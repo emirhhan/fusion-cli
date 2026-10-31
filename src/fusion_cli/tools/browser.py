@@ -400,6 +400,15 @@ async def browser_close(args: ToolArgs, context: ToolContext) -> ToolResult:
 _START_LOCKS: weakref.WeakKeyDictionary[BrowserSession, asyncio.Lock] = weakref.WeakKeyDictionary()
 
 
+def start_lock(oturum: BrowserSession) -> asyncio.Lock:
+    """Oturumun başlatma kilidi; ajan aracı ve Tarayıcı paneli (P-045) AYNI kilidi kullanır.
+
+    Ölçüldü (31 Ekim, inceleme): panelin ayrı kilidi vardı; panel ve ajan aynı paylaşılan
+    oturumu eşzamanlı açınca ikinci Chromium birincinin üstüne yazılıp sızıyordu.
+    """
+    return _START_LOCKS.setdefault(oturum, asyncio.Lock())
+
+
 async def _sayfa(
     context: ToolContext, *, baslatma: bool = True, profile: str = "", headed: bool = False
 ) -> tuple[Any, str]:
@@ -426,7 +435,7 @@ async def _sayfa(
         return oturum.page, ""
     if not baslatma:
         return None, "Açık bir sayfa yok — önce browser_open ile bir adres aç."
-    async with _START_LOCKS.setdefault(oturum, asyncio.Lock()):
+    async with start_lock(oturum):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
         return await start_session(oturum, context.local_origins, profile=profile, headed=headed)

@@ -234,6 +234,34 @@ async def test_profil_acilamazsa_secilen_profil_oturumda_kalmaz(panel, monkeypat
     assert tur is not None and tur.profile_name != PANEL_PROFILE
 
 
+async def test_panel_ve_ajan_ayni_anda_baslatinca_tek_chromium_acilir(panel, monkeypatch):
+    # Ölçüldü (31 Ekim, inceleme): panelin kilidi ile ajan aracının `_START_LOCKS` kilidi
+    # ayrıydı; ikisi aynı oturumu eşzamanlı açınca ikinci Chromium birincinin üstüne yazılıp
+    # sızıyordu.
+    baslatmalar: list[str] = []
+
+    async def _ac(oturum, origins, *, profile="", headed=False, store=None):
+        baslatmalar.append("ac")
+        await asyncio.sleep(0.05)
+        oturum.page = object()
+        return oturum.page, ""
+
+    monkeypatch.setattr("fusion_cli.appserver.browser_panel.start_session", _ac)
+    monkeypatch.setattr(browser_tools, "start_session", _ac)
+    monkeypatch.setattr(
+        "fusion_cli.tools.browser_live.LiveView.watch_context", lambda self, baglam: None
+    )
+    oturum = panel.turn_browser()
+    baglam = ToolContext(root=Path(), browser=oturum)
+
+    await asyncio.gather(
+        panel.handle("tarayici_panel.ac", {}),
+        browser_tools._sayfa(baglam),  # ajanın başlatma yolu
+    )
+
+    assert baslatmalar == ["ac"]
+
+
 async def test_bilinmeyen_istek_ve_kapali_tarayici_girdisi_anlasilir_hata(panel):
     assert "Bilinmeyen" in (await panel.handle("tarayici_panel.uc", {}))["metin"]
     yanit = await panel.handle("tarayici_panel.tikla", {"x": 0.5, "y": 0.5})
