@@ -748,6 +748,20 @@ gibi sistem kısayolları bağlanamaz. `komut:<ad>` bir slash komutunu çalışt
 `geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `sohbet_1`…`sohbet_9`.
 Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
+- **Varsayılana döndür**: eylemin varsayılan tuşunu başka bir eylem devraldıysa Fusion sorar;
+  **Taşı** tuşu geri alır (öbür eylem tuşsuz kalır).
+- **Windows/Linux**: dosyadaki `ctrl+…` ile `mod+…` aynı tuştur; çakışma buna göre sorulur ve
+  `ctrl+c`/`ctrl+v` gibi yazımlar da sistem kısayolu sayılıp bağlanmaz.
+- **Diyalog açıkken** (geri bildirim, paylaş, onay, proje…) kısayollar ve palet çalışmaz; Ayarlar
+  ve palet bunun dışındadır.
+- **Terminal odaktayken** macOS'ta ⌘ tuşları uygulamanındır (⌘K terminali temizler). Windows/Linux'ta
+  Ctrl+harf kabuğa gider (Ctrl+K satır sonunu siler, Ctrl+P geçmiş); yalnız terminali aç/kapat tuşu
+  (Ctrl+J) ve Ctrl+Shift bağları uygulamaya geçer.
+- Terminalde `/keybindings` yalnız terminal bağlamlarını (`giris`, `tui`) gösterir ve örnek dosyaya
+  yalnız onları yazar; masaüstü bölümü Ayarlar › Kısayollar'dan yönetilir.
+- Kısayol uçları (`kisayol.*`) yalnız masaüstü oturumuna açıktır; uzaktan kontrol (telefon/PWA)
+  bunları çağıramaz.
+
 ---
 
 ## 15) REPL önekleri, durum, dışa aktarma ve görünüm (Claude Code paritesi)
