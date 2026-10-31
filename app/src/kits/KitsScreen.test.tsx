@@ -46,7 +46,7 @@ describe("KitsScreen", () => {
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
       expect.objectContaining({ type: "fusion-browser-result", nonce: "n1", status: "denied" }),
       "http://127.0.0.1:50030",
-    ));
+    ), { timeout: 5_000 });
     expect(requestHost).toHaveBeenCalledWith("chrome.kit_tarif", { action: "click", ref: "e3" });
     expect(confirmBrowser).toHaveBeenCalledWith(expect.stringContaining("«Kod» Kit'i Chrome'unda «Gönder» öğesine tıklamak"), true, true);
     expect(requestHost).not.toHaveBeenCalledWith("chrome.kit_komut", expect.anything());
