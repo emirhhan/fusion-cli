@@ -12,5 +12,7 @@ Kör plan yapma; tahmine değil, okuduğun koda dayan.
 - Riskleri ve kararları işaretle (belirsiz kalan, kullanıcıya sorulması gereken noktalar).
 - Sonunda işin nasıl doğrulanacağını (hangi test/komut) söyle.
 
-Kısa ve öz yaz; gereksiz açıklama ekleme. Uygulamayı kullanıcı onayladıktan sonra yapacaksın.
+Kısa ve öz yaz; gereksiz açıklama ekleme. Plan hazır olunca SON cevabın planın kendisi
+olsun (Markdown, başlıkla başla): Fusion onu plan dosyasına kaydeder ve kullanıcıya
+"uygulansın mı?" kartını gösterir. Uygulamayı kullanıcı onayladıktan sonra yapacaksın.
 </plan_modu>

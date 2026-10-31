@@ -28,6 +28,8 @@ interface ConnectorRow {
   arac_sayisi?: number;
   durum?: string;
   komut: string;
+  /** Kaydın kaynağı: `project` kökteki `.mcp.json`'dan (Claude Code ile ortak), `user` config.yaml. */
+  kapsam?: "user" | "project";
   mesaj?: string | null;
   /** Satırın taşıması. `hosted` KATALOGDA yoktur ama çekirdek onu döndürür:
    *  barındırmalı bağlantılar ayrı depoda yaşar ve ayrı uçtan silinir. Tipin
@@ -539,6 +541,11 @@ export function ConnectorsScreen({
                   <li className="connectors__row" data-state={row.durum} key={row.ad}>
                     <div className="connectors__row-main">
                       <strong>{entryLabel(row.ad)}</strong>
+                      {row.kapsam === "project" && (
+                        <span className="connectors__scope" title="Proje kökündeki .mcp.json kaydı">
+                          proje
+                        </span>
+                      )}
                       <span className="connectors__status">
                         {STATE_LABELS[row.durum ?? "yapilandirildi"] ?? "Durum bilinmiyor"}
                       </span>
@@ -602,6 +609,19 @@ export function ConnectorsScreen({
                       >
                         Test et
                       </button>
+                      {/* Claude Code `/mcp reconnect` (P-049): havuzdaki bağlantı düşürülüp
+                          yeniden kurulur; barındırmalı bağlantının yerel oturumu yoktur. */}
+                      {!hosted && (
+                        <button
+                          disabled={mesgul(`reconnect:${row.ad}`) || pending}
+                          onClick={() =>
+                            void run("baglanti.yeniden_baglan", { ad: row.ad }, `reconnect:${row.ad}`)
+                          }
+                          type="button"
+                        >
+                          Yeniden bağlan
+                        </button>
+                      )}
                       {remote && row.durum === "bagli" && (
                         <button
                           disabled={mesgul(`logout:${row.ad}`)}

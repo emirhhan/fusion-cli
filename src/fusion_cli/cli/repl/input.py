@@ -92,6 +92,8 @@ class ReplInput:
         #: gönderiminden önce temizlenir; yalnızca o satır boyunca yaşar.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
+        #: İstem açık mı? `inject` yalnız bu sırada satır verebilir.
+        self._waiting = False
         if sys.stdin.isatty():
             self._session = _build_session(self, history_path, words, roots)
 
@@ -138,6 +140,21 @@ class ReplInput:
             line = line.replace(token, text)
         return line
 
+    def inject(self, line: str) -> bool:
+        """Bekleyen istemi bu satırla sonlandır (zamanlanmış görev, P-038).
+
+        Yalnız etkileşimli istem BOŞ beklerken çalışır; aksi hâlde False döner ve
+        çağıran görevi düşürmez, sonraki boşta ana bırakır. Ölçüldü (31 Ekim): tampon
+        doluyken `app.exit` kullanıcının yarım yazdığı satırı atıyordu.
+        """
+        if self._session is None or not self._waiting:
+            return False
+        app = self._session.app
+        if not app.is_running or app.current_buffer.text.strip():
+            return False
+        app.exit(result=line)
+        return True
+
     async def prompt(self) -> str:
         # Yer tutucular yalnızca içinde bulunulan satır boyunca geçerli.
         self._pastes.clear()
@@ -151,7 +168,11 @@ class ReplInput:
         # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.
         self._reload_keymap_if_changed()
         self._session.editing_mode = _editing_mode(self.vim_mode)
-        line = await self._session.prompt_async(self._prompt_message)
+        self._waiting = True
+        try:
+            line = await self._session.prompt_async(self._prompt_message)
+        finally:
+            self._waiting = False
         if self._bound_command is not None:
             # Tuşa bağlı komut (`komut:<ad>`): yazılan metin yerine o komut gönderilir.
             bound, self._bound_command = self._bound_command, None

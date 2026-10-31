@@ -31,6 +31,7 @@ from .job_evidence import JobCompletion
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
+from .session_cron import SessionCron
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
 from .worktree import WorktreeSwitch
@@ -93,6 +94,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "bash": ToolFamily.SHELL,
     "execute_command": ToolFamily.SHELL,
     "git": ToolFamily.VCS,
+    "gh": ToolFamily.VCS,
     "browser_open": ToolFamily.BROWSER,
     "chrome_page": ToolFamily.BROWSER,
     "chrome_click": ToolFamily.BROWSER,
@@ -147,6 +149,10 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "find_skill": ToolFamily.META,
     "read_skill": ToolFamily.META,
     "find_agent": ToolFamily.META,
+    "cron_create": ToolFamily.META,
+    "cron_list": ToolFamily.META,
+    "cron_delete": ToolFamily.META,
+    "schedule_wakeup": ToolFamily.META,
     # Kits gelen kutusu: Kit'e iş devretmek delegasyon, listeleme/durum yardımcıdır.
     "kits_list": ToolFamily.META,
     "kit_send": ToolFamily.DELEGATION,
@@ -381,6 +387,8 @@ class ToolContext:
     available_tools: set[str] = field(default_factory=set)
     #: Açık kit iskele aracı sonradan kaydeder; genel Remotion projeleri opt-in kalır.
     remotion_contract: KitContractState = field(default_factory=KitContractState)
+    #: Oturumun zamanlayıcısı (`cron_*`, `schedule_wakeup`); tek atışlık turda yok (P-038).
+    cron: SessionCron | None = None
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).

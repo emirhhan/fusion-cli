@@ -53,6 +53,9 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const oneriSonuc = takipOnerileri(messages, event);
   if (oneriSonuc) return oneriSonuc;
 
+  const planSonuc = planKarti(messages, event);
+  if (planSonuc) return planSonuc;
+
   const adim = olayAdimi(event);
   if (!adim) return messages;
 
@@ -224,6 +227,17 @@ function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesa
     .map(([etiket, gorev]) => ({ etiket, gorev }));
   if (oneriler.length === 0) return messages;
   return [...messages, { rol: "oneriler", metin: "", oneriler }];
+}
+
+/**
+ * Plan kipinde biten turun plan dosyası kartı (P-025). Aynı sohbetin planı tek
+ * dosyadır: aynı yol yeniden gelirse eski kart güncellenir, alt alta çoğalmaz.
+ */
+function planKarti(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "PlanDrafted" || typeof event.path !== "string" || !event.path) return null;
+  const baslik = typeof event.title === "string" && event.title ? event.title : "Plan";
+  const kart: Mesaj = { rol: "plan", metin: baslik, plan: { yol: event.path, baslik } };
+  return [...araAnlatimiSabitle(messages).filter((m) => !(m.rol === "plan" && m.plan?.yol === event.path)), kart];
 }
 
 /**

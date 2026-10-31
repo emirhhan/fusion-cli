@@ -22,6 +22,8 @@ def rendered() -> str:
 # 30 Ekim 2026 (T1-40): chrome_action şeması eylem `enum`'u ve her eylem için `value` anlamını
 # taşır (+~600 karakter). Zayıf modeller bu bilgiyi yalnız başarısızlık mesajlarından öğreniyor ve
 # her model aynı deneme-yanılma turlarını yaşıyordu; tek seferlik bütçe artışı turdan tasarruf eder.
+# 31 Ekim 2026 (P-057): salt-okunur `gh` aracı eklendi (+~200 karakter; açıklaması zaten en
+# kısa hâlinde). Ölçüldü (dalda): 11_605.
 # 31 Ekim 2026 (P-042/043/044/073): chrome_action'a console/network/record/shortcut/window/group
 # eylemleri ve chrome_page'e tree/depth/ref parametreleri eklendi (ölçüldü: 11_400 → 11_818,
 # +418 karakter). Açıklamalar kısaltıldı; kalan artış eylem adları ve değer biçimleridir.

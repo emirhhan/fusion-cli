@@ -124,6 +124,7 @@ import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
 import { pickScheduleClient } from "./schedule/pickScheduleClient";
+import { useSessionCron } from "./schedule/useSessionCron";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
@@ -337,10 +338,13 @@ function ProjectInspector({
   width,
   requestedPreview = null,
   agents,
+  onCommand,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
   collapsed: boolean;
+  /** Değişiklikler panelindeki makro düğmeleri slash komutunu bununla gönderir. */
+  onCommand?: (line: string) => void;
   height: number;
   onActiveTabChange: (tab: InspectorTabId) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -385,7 +389,7 @@ function ProjectInspector({
         // durumunu ikinci kez gösteriyordu.
         changes: (
           <>
-            <ChangesPanel client={client} onChanged={changed} revision={revision} />
+            <ChangesPanel client={client} onChanged={changed} onCommand={onCommand} revision={revision} />
             <TestsPanel client={client} processes={processes} revision={revision} />
           </>
         ),
@@ -525,6 +529,8 @@ export function SessionUygulama({
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
+  /** Etkin sohbetin slash yönlendiricisi; zamanlanmış kullanıcı görevi komut olarak çalışsın (P-038). */
+  const cronCommandRef = useRef<((task: string) => boolean) | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   //: "Kit'e gönder" penceresine konan yanıt metni; `null` kapalı (P-063).
@@ -810,6 +816,13 @@ export function SessionUygulama({
       metin: `"${task.baslik}" güvenli biçimde başlatılamadı (${reason}). Görev gönderilmedi; yeniden dene.`,
     }),
   });
+  // Oturum zamanlayıcısı (/loop, cron_*): vadesi gelen görev sohbet boştayken normal tur olur (P-038).
+  // Kullanıcının `/loop 30m /verify` görevi komut olur; ajanın kurduğu satır her zaman düz turdur.
+  useSessionCron({
+    session: active ? { id: active.id, status: active.status, running: active.running, question: active.question, client: active.client } : null,
+    send: (id, task, source) =>
+      (source === "kullanici" && active?.id === id && cronCommandRef.current?.(task)) || controller.send(id, task),
+  });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {
       setSurfaceSection(section);
@@ -826,7 +839,7 @@ export function SessionUygulama({
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
-      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
+      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} sessionClient={active?.status === "ready" ? active.client : null} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
       kits={<KitsScreen onDeliveryClient={setDeliveryClient} onScheduleApproval={notifyKitsApproval} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
@@ -1464,6 +1477,11 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
+  cronCommandRef.current = (task: string) => {
+    if (!task.startsWith("/") || startsWithFilePath(task) || isImageCommand(task) || skillFrom(task)) return false;
+    void executeCommand(task);
+    return true;
+  };
   const send = (rawTask: string) => {
     // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
     const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
@@ -2015,6 +2033,7 @@ export function SessionUygulama({
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
           onHeightChange={inspectorLayout.setHeight}
+          onCommand={(line) => void executeCommand(line)}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}

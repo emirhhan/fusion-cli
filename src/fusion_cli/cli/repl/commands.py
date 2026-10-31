@@ -34,12 +34,14 @@ from . import (
     config_command,
     export_commands,
     keybinding_commands,
+    loop_command,
     macros,
     memory_commands,
     model_flows,
     output_style_command,
     permissions_command,
     persona_commands,
+    plan_card,
     profiles_flow,
     provider_flow,
     rewind,
@@ -547,9 +549,33 @@ def _mcp(state: ReplState, argument: str) -> str:
         # Argümanlarda gömülü token olabilir (`--token=…`): listeye ve transcript'e MASKELİ
         # girer (L2-28).
         return "\n".join(
-            redact(f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip())
+            redact(
+                messages.MCP_LIST_ROW.format(
+                    name=sunucu.name,
+                    scope=messages.MCP_SCOPE_LABELS.get(sunucu.scope.value, sunucu.scope.value),
+                    transport=sunucu.transport.value,
+                    target=sunucu.url or f"{sunucu.command} {' '.join(sunucu.args)}".rstrip(),
+                )
+            )
             for sunucu in state.config.mcp_servers
         )
+
+    if alt_komut == "reconnect":
+        # Claude Code `/mcp reconnect <sunucu>|all` (P-049). İşleyici eşzamansız bekleyemez;
+        # havuz düşürmeyi sonraki turun bağlanma adımına erteler.
+        from ...mcp_bridge.pool import request_mcp_reconnect
+
+        hedef = kalan.strip()
+        if not hedef:
+            return messages.MCP_RECONNECT_USAGE
+        if hedef == "all":
+            for sunucu in state.config.mcp_servers:
+                request_mcp_reconnect(sunucu.name)
+            return messages.MCP_RECONNECT_ALL_SCHEDULED.format(count=len(state.config.mcp_servers))
+        if not any(sunucu.name == hedef for sunucu in state.config.mcp_servers):
+            return messages.MCP_NOT_FOUND.format(name=hedef)
+        request_mcp_reconnect(hedef)
+        return messages.MCP_RECONNECT_SCHEDULED.format(name=hedef)
 
     if alt_komut in ("remove", "del", "delete"):
         ad = kalan.strip()
@@ -833,11 +859,41 @@ def _macro(name: str) -> Handler:
         if macro.argument_required and not argument.strip():
             return messages.REPL_MACRO_NEEDS_ARGUMENT.format(name=name)
         state.engine = Engine.AGENT
-        state.pending_task = macro.build(argument)
+        task = macro.build(argument)
+        # Claude Code'daki gibi: kullanıcı aynı adlı bir skill tanımladıysa
+        # (`.claude/skills/<ad>/SKILL.md`) onun gövdesi yerleşik metnin ÖNÜNE
+        # eklenir; yerleşik metin silinmez, kullanıcı kuralı önceliklidir.
+        override = macro_skill_override(state, name)
+        lines = [messages.REPL_MACRO_STARTED.format(name=name)]
+        if override is not None:
+            body, path = override
+            task = f"{body.strip()}\n\n{task}"
+            lines.append(messages.REPL_MACRO_SKILL_PREPENDED.format(name=name, path=path))
+        state.pending_task = task
         state.pending_mode = macro.mode
-        return messages.REPL_MACRO_STARTED.format(name=name)
+        return "\n".join(lines)
 
     return _handler
+
+
+def macro_skill_override(state: ReplState, name: str) -> tuple[str, Path] | None:
+    """Makroyla aynı adlı kullanıcı skill'inin gövdesi ve yolu; yoksa None.
+
+    Boş gövde ya da okunamayan dosya "yok" sayılır: bozuk bir skill yerleşik makroyu
+    susturmamalı.
+    """
+    from ...tools.capabilities import load_agent_prompt
+
+    if state.capabilities is None:
+        return None
+    wanted = name.casefold()
+    for skill in state.capabilities.skills():
+        if skill.name.casefold() != wanted:
+            continue
+        body = load_agent_prompt(skill.path)
+        if body.strip() and not body.startswith("HATA:"):
+            return body, skill.path
+    return None
 
 
 def _schedule(state: ReplState, argument: str) -> str:
@@ -892,7 +948,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         ("manual", "manuel"),
         group="Onay modu",
     ),
-    SlashCommand("plan", messages.CMD_PLAN, _set_mode(ApprovalMode.PLAN), group="Onay modu"),
+    SlashCommand(
+        "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[goster|ac]"
+    ),
     SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
     SlashCommand(
         "permissions",
@@ -981,6 +1039,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[no] [kod|konuşma|ikisi]",
     ),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("usage", messages.CMD_USAGE, lambda state, argument: "", group="Bilgi"),
     SlashCommand(
         "config",
         messages.CMD_CONFIG,
@@ -1007,18 +1066,27 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             name,
             summary,
             _macro(name),
+            aliases=aliases,
             group="Makro",
             usage="<görev>" if macros.MACROS[name].argument_required else "[görev]",
         )
-        for name, summary in (
-            ("goal", messages.CMD_GOAL),
-            ("grill-me", messages.CMD_GRILL),
-            ("bug", messages.CMD_BUG),
-            ("commit", messages.CMD_COMMIT),
-            ("review", messages.CMD_REVIEW),
-            ("browser", messages.CMD_BROWSER),
-            ("btw", messages.CMD_BTW),
-            ("plan-yurut", messages.CMD_PLAN_RUN),
+        for name, summary, aliases in (
+            ("goal", messages.CMD_GOAL, ()),
+            ("grill-me", messages.CMD_GRILL, ()),
+            ("bug", messages.CMD_BUG, ()),
+            ("commit", messages.CMD_COMMIT, ()),
+            # Claude Code'daki ad da tanınır; aynı makro, ikinci yol değil.
+            ("review", messages.CMD_REVIEW, ("code-review",)),
+            ("browser", messages.CMD_BROWSER, ()),
+            ("btw", messages.CMD_BTW, ()),
+            ("plan-yurut", messages.CMD_PLAN_RUN, ()),
+            ("simplify", messages.CMD_SIMPLIFY, ()),
+            ("security-review", messages.CMD_SECURITY_REVIEW, ()),
+            ("debug", messages.CMD_DEBUG, ()),
+            ("batch", messages.CMD_BATCH, ()),
+            ("pr", messages.CMD_PR, ()),
+            ("pr-comments", messages.CMD_PR_COMMENTS, ()),
+            ("autofix-pr", messages.CMD_AUTOFIX_PR, ()),
         )
     ),
     SlashCommand(
@@ -1039,6 +1107,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    SlashCommand(
+        "loop",
+        messages.CMD_LOOP,
+        loop_command.command,
+        group="Makro",
+        usage="[aralık] <görev|/komut> | list | stop [id]",
+    ),
     # İşleyici boş: `/rc` asenkron çalışır, döngüler `repl.remote_control.run` ile ele alır.
     SlashCommand(
         "rc",
@@ -1119,8 +1194,32 @@ ASYNC_COMMANDS = frozenset({"rc"})
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
 RENDERED_COMMANDS = frozenset(
-    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost", "status", "context"}
+    {
+        "help",
+        "tips",
+        "clear",
+        "stats",
+        "lessons",
+        "models",
+        "compact",
+        "cost",
+        "usage",
+        "status",
+        "context",
+        "doctor",
+    }
 )
+
+#: Argümansız hâli kendi basan, argümanla işleyiciye düşen komutlar: `/doctor` kurulum
+#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt` talimat denetimini döndürür.
+RENDERED_WHEN_BARE = frozenset({"doctor"})
+
+
+def renders_itself(name: str, argument: str) -> bool:
+    """Komut çıktısını `help_view.render` mı basar, yoksa işleyici mi döndürür?"""
+    if name not in RENDERED_COMMANDS:
+        return False
+    return not (name in RENDERED_WHEN_BARE and argument.strip())
 
 
 def is_command_line(line: str) -> bool:

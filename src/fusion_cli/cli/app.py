@@ -10,13 +10,14 @@ anlaşılır bir mesajla gösterilir; stack trace kullanıcıya basılmaz.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import logging.handlers
 import sys
-from collections.abc import Coroutine
-from dataclasses import fields, replace
+from collections.abc import Awaitable, Callable, Coroutine
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar
 
 import typer
 from rich.console import Console
@@ -34,29 +35,31 @@ from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..core.worktree import Worktree, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
+from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
 from ..ui import messages, theme
-from .app_host import AppHostDependencies
-
-if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
-    from .doctor import DoctorReport
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
     browser_commands,
     capability_commands,
     eval_commands,
+    gh_action_command,
+    headless,
     kit_commands,
     knowledge_commands,
+    mcp_commands,
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
     trash_commands,
+    usage_commands,
 )
+from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
-from .repl.persona_commands import PersonaTurn
+from .repl.persona_commands import persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
@@ -78,6 +81,12 @@ app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(kit_commands.app, name="kit")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
+# `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
+app.add_typer(mcp_commands.mcp_app, name="mcp")
+# `/usage` ve `/insights` karşılıkları (P-056).
+app.command(name="usage")(usage_commands.usage)
+app.command(name="insights")(usage_commands.insights)
+app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
 app.command("paperclip")(paperclip_command.paperclip)
 
@@ -87,7 +96,7 @@ console = Console()
 #: metin istemcide ayrıştırma hatasıdır (L1-11).
 error_console = Console(stderr=True)
 #: `fusion mcp-tools` sunuculara bağlanıp araç keşfederken en fazla bekleyeceği süre (sn).
-MCP_TOOLS_TIMEOUT_S = 60.0
+MCP_TOOLS_TIMEOUT_S = mcp_commands.MCP_TOOLS_TIMEOUT_S
 
 T = TypeVar("T")
 
@@ -243,7 +252,11 @@ def run(
         console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
     )
     observers = build_observers(
-        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+        task,
+        renderer=renderer,
+        as_json=as_json,
+        trace_dir=config.memory_dir / "traces",
+        usage_log=open_usage_log(config),
     )
     result = _run_observed(
         with_web_cleanup(
@@ -278,34 +291,15 @@ def doctor(
     Çıkış kodu 1 YALNIZ kurulum kullanılamazsa (agent rolü çalışmıyor); PATH ya da yazılamayan
     dizin gibi diğer sorunlar için betikler `--json` çıktısındaki `ok` alanına bakmalı.
     """
-    from .doctor import diagnose, to_dict
+    from .doctor import diagnose, print_report, to_dict
 
     rapor = diagnose(live=live)
     if as_json:
         console.print_json(data=to_dict(rapor))
     else:
-        _print_doctor(rapor)
+        print_report(rapor, console)
     # Çıkış kodu betikler içindir: kurulum kullanılamaz durumdaysa sıfır dışı.
     raise typer.Exit(0 if rapor.readiness.state is not Readiness.NOT_READY else 1)
-
-
-def _print_doctor(report: DoctorReport) -> None:
-    """Tanıyı oku-yazılabilir biçimde bas. Sır içermez."""
-    console.print()
-    for check in report.checks:
-        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
-        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
-        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {escape(check.value)}")
-        if check.remedy:
-            console.print(f"  [{theme.DIM}]→ {escape(check.remedy)}[/{theme.DIM}]")
-    console.print()
-    durum = report.readiness.state
-    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
-        durum, theme.ERROR
-    )
-    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
-    for sebep in report.readiness.reasons:
-        console.print(f"  [{theme.DIM}]{escape(sebep)}[/{theme.DIM}]")
 
 
 @app.command()
@@ -372,7 +366,10 @@ def uninstall(
 
 @app.command()
 def agent(
-    task: str = typer.Argument(..., help="Agent'a verilecek görev."),
+    task: str = typer.Argument(
+        "",
+        help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
+    ),
     mode: str = typer.Option(
         "auto",
         "--mode",
@@ -385,7 +382,65 @@ def agent(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
     as_json: bool = typer.Option(
-        False, "--json", help="Olayları satır satır JSON olarak yaz (betikler için)."
+        False, "--json", help="`--output-format stream-json` kısaltması (olaylar JSONL)."
+    ),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Çıktı biçimi: text | json (tek sonuç nesnesi) | stream-json (olay başına satır).",
+    ),
+    json_schema: Annotated[
+        Path | None,
+        typer.Option(
+            "--json-schema",
+            help="Nihai cevabın uyması gereken JSON şeması dosyası; uymazsa çıkış kodu 1.",
+        ),
+    ] = None,
+    max_turns: int | None = typer.Option(
+        None, "--max-turns", min=1, help="Bu tur için model çağrısı üst sınırı."
+    ),
+    max_budget_usd: float | None = typer.Option(
+        None,
+        "--max-budget-usd",
+        min=0.0,
+        help="Bilinen maliyet bu tutara (USD) ulaşınca tur durur.",
+    ),
+    allowed_tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allowed-tools",
+            help="Modele YALNIZ bu araçlar sunulur (virgülle ya da tekrarla).",
+        ),
+    ] = None,
+    disallowed_tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--disallowed-tools",
+            help="Bu araçlar sorulmadan engellenir (virgülle ya da tekrarla).",
+        ),
+    ] = None,
+    append_system_prompt: str | None = typer.Option(
+        None, "--append-system-prompt", help="Sistem istemine eklenecek ek metin."
+    ),
+    bare: bool = typer.Option(
+        False, "--bare", help="Bellek, MCP/bağlayıcı ve proje talimatı yüklemeden çalış."
+    ),
+    agent_name: str | None = typer.Option(
+        None, "--agent", help="Baş ajan tanımı (.claude/agents/<ad>.md): sistem metni ve araç seti."
+    ),
+    permission_channel: str | None = typer.Option(
+        None,
+        "--permission-channel",
+        help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
+    ),
+    permission_timeout: float = typer.Option(
+        headless.DEFAULT_PERMISSION_TIMEOUT,
+        "--permission-timeout",
+        min=1.0,
+        help="Onay kanalında cevap bekleme süresi (saniye); dolunca 'sorulamadı' sayılır.",
+    ),
+    from_pr: int | None = typer.Option(
+        None, "--from-pr", min=1, help="Görevin başına bu PR'ın özetini ekle (gh ile okunur)."
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
     add_dir: Annotated[
@@ -393,14 +448,6 @@ def agent(
         typer.Option(
             "--add-dir",
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
-        ),
-    ] = None,
-    agent_persona: Annotated[
-        str | None,
-        typer.Option(
-            "--agent",
-            help="Görevi bu ajan tanımıyla çalıştır (ör. explore, plan ya da "
-            ".claude/agents'taki bir ad): gövdesi sistem istemine girer, araçları daralır.",
         ),
     ] = None,
     worktree: Annotated[
@@ -413,23 +460,67 @@ def agent(
     ] = "",
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
-    if not task.strip():
-        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
-    approval = _parse_mode(mode)
-
-    config = _session_config()
+    options = _headless_options(
+        task,
+        mode=mode,
+        as_json=as_json,
+        output_format=output_format,
+        json_schema=json_schema,
+        agent_name=agent_name,
+        permission_channel=permission_channel,
+        append_system_prompt=append_system_prompt,
+        allowed_tools=allowed_tools,
+        disallowed_tools=disallowed_tools,
+        from_pr=from_pr,
+    )
+    config = headless.apply_limits(
+        _session_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
+    )
     try:
         root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
-    if tree is not None and worktree.strip() and not as_json:
+    streaming = options.output_format is headless.OutputFormat.STREAM_JSON
+    text_output = options.output_format is headless.OutputFormat.TEXT
+    silent = quiet or not text_output
+    # json/stream-json'da stdout makine çıktısıdır: bildirimler yalnız metin kipinde basılır.
+    if tree is not None and worktree.strip() and text_output:
         _print_worktree_notice(tree)
-    persona_turn = _session_persona(agent_persona, root)
-    renderer = ConsoleRenderer(console, show_progress=not quiet)
+    renderer = ConsoleRenderer(console, show_progress=not silent)
     observers = build_observers(
-        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+        options.task,
+        renderer=None if options.output_format is headless.OutputFormat.JSON else renderer,
+        as_json=streaming,
+        trace_dir=config.memory_dir / "traces",
+        usage_log=open_usage_log(config),
     )
+    if streaming:
+        sys.stdout.write(
+            headless.system_init_line(
+                config, options.approval, root=root, channel=options.channel_name
+            )
+            + "\n"
+        )
+        sys.stdout.flush()
+    tool_context = ToolContext(
+        root=root,
+        extra_roots=tuple(add_dir or ()),
+        restrict_to_root=config.runtime.restrict_to_root,
+    )
+
+    def _prompter(
+        flush: Callable[[], Awaitable[None]],
+    ) -> ConsolePrompter | headless.JsonLinesPrompter:
+        if options.channel is headless.PermissionChannel.STDIN:
+            # Olay satırları yalnız stream-json'da stdout'a gider; json/text'te stdout
+            # sonuç içindir, istekler stderr'e yazılır (cevaplar yine stdin'den okunur).
+            return headless.JsonLinesPrompter(
+                stdout=sys.stdout if streaming else sys.stderr,
+                timeout=permission_timeout,
+            )
+        return ConsolePrompter(console, tool_context, flush=flush)
+
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
     switch = WorktreeSwitch()
@@ -440,26 +531,20 @@ def agent(
     outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
-                task,
+                options.task,
                 config,
                 sinks=observers.sinks,
-                prompter_factory=lambda flush: ConsolePrompter(
-                    console,
-                    ToolContext(
-                        root=root,
-                        extra_roots=tuple(add_dir or ()),
-                        restrict_to_root=config.runtime.restrict_to_root,
-                    ),
-                    flush=flush,
-                ),
-                mode=approval,
+                prompter_factory=_prompter,
+                mode=options.approval,
                 root=root,
                 home=Path.home(),
-                memory=open_memory(config, root=root, enabled=not no_memory),
+                memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
                 extra_roots=tuple(add_dir or ()),
-                extra_system=persona_turn.extra_system,
-                allowed_tools=persona_turn.allowed_tools,
-                denied_tools=persona_turn.denied_tools,
+                extra_system=options.extra_system,
+                allowed_tools=options.allowed_tools,
+                denied_tools=options.denied_tools,
+                strict_tool_names=True,
+                interactive=True if options.channel is not None else None,
                 approval_memory=approval_memory,
                 worktree_switch=switch,
             )
@@ -468,16 +553,134 @@ def agent(
         observers,
     )
     observers.finish()
-    print_rule_notices(console, approval_memory)
+    # Kural bildirimi kaybolmasın ama makine çıktısını da bozmasın: metin dışı kipte stderr.
+    print_rule_notices(console if text_output else error_console, approval_memory)
     opened, _exit_requested = switch.take()
-    if opened is not None and not as_json:
+    if opened is not None and text_output:
         _print_worktree_notice(opened)
-    _print_usage(observers, quiet=quiet or as_json)
+    structured = (
+        headless.structured_result(outcome.final_text, options.schema)
+        if options.schema is not None
+        else None
+    )
+    if options.output_format is headless.OutputFormat.JSON:
+        sonuc = headless.result_object(
+            final_text=outcome.final_text,
+            ok=bool(outcome.ok),
+            budget_stopped=bool(getattr(outcome, "budget_stopped", False)),
+            stop_reason=getattr(outcome, "stop_reason", None),
+            model_calls=int(getattr(outcome, "model_calls_made", 0)),
+            cost=observers.cost,
+            structured=structured,
+        )
+        sys.stdout.write(json.dumps(sonuc, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    else:
+        _print_usage(observers, quiet=silent)
+        if structured is not None and not structured.ok:
+            for hata in structured.errors:
+                error_console.print(f"[{theme.ERROR}]{escape(hata)}[/{theme.ERROR}]")
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
-    # betikler başarısızlığı yakalayamıyordu (L1-46).
+    # betikler başarısızlığı yakalayamıyordu (L1-46). Şemaya uymayan cevap da başarısızdır.
     if not outcome.final_text.strip() or not outcome.ok:
         raise typer.Exit(1)
+    if structured is not None and not structured.ok:
+        raise typer.Exit(1)
+
+
+@dataclass(frozen=True, slots=True)
+class _HeadlessOptions:
+    """`fusion agent` bayraklarının çözülmüş hâli (komut gövdesi ince kalsın)."""
+
+    task: str
+    approval: ApprovalMode
+    output_format: headless.OutputFormat
+    schema: dict[str, object] | None
+    extra_system: str
+    allowed_tools: set[str] | None
+    denied_tools: frozenset[str]
+    channel: headless.PermissionChannel | None
+
+    @property
+    def channel_name(self) -> str | None:
+        return self.channel.value if self.channel is not None else None
+
+
+def _headless_options(
+    raw_task: str,
+    *,
+    mode: str,
+    as_json: bool,
+    output_format: str,
+    json_schema: Path | None,
+    agent_name: str | None,
+    permission_channel: str | None,
+    append_system_prompt: str | None,
+    allowed_tools: list[str] | None,
+    disallowed_tools: list[str] | None,
+    from_pr: int | None = None,
+) -> _HeadlessOptions:
+    """Bayrakları doğrula ve çöz; her hata Typer'ın `BadParameter` mesajına döner."""
+    try:
+        fmt = headless.parse_output_format("stream-json" if as_json else output_format)
+        channel = headless.parse_permission_channel(permission_channel)
+        schema = headless.load_schema(json_schema) if json_schema is not None else None
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+    # Çakışma stdin OKUNMADAN denetlenir: aksi hâlde görev tüketilip hata sonra geliyordu.
+    if channel is not None and raw_task.strip() in ("", "-"):
+        raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
+    task = headless.read_task(raw_task, sys.stdin, is_tty=sys.stdin.isatty())
+    if not task:
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    if from_pr is not None:
+        # `--from-pr N` (Claude Code): PR özeti görevin başına eklenir (P-057).
+        from ..tools.github_cli import pr_context
+
+        try:
+            task = f"{pr_context(from_pr, root=Path.cwd())}\n\n{task}"
+        except RuntimeError as error:
+            raise typer.BadParameter(messages.HEADLESS_FROM_PR_FAILED.format(error=error)) from None
+    parts: list[str] = []
+    persona_denied: frozenset[str] = frozenset()
+    allowed = headless.parse_tool_list(allowed_tools)
+    if allowed is not None:
+        allowed = headless.map_claude_tool_names(allowed)
+    if agent_name:
+        try:
+            persona = headless.resolve_agent(agent_name, home=Path.home(), root=Path.cwd())
+        except ValueError as error:
+            raise typer.BadParameter(str(error)) from None
+        # REPL `--agent`/`/persona` ile aynı etki (P-053): kişilik başlığı + gövde sistem
+        # ekine; `tools` izinli kümeyle KESİŞİR, `disallowedTools` yasaklılara EKLENİR.
+        turn = persona_turn(persona)
+        if turn.extra_system:
+            parts.append(turn.extra_system)
+        if turn.allowed_tools is not None:
+            allowed = (
+                frozenset(turn.allowed_tools)
+                if allowed is None
+                else allowed & frozenset(turn.allowed_tools)
+            )
+        persona_denied = turn.denied_tools
+    if append_system_prompt:
+        parts.append(append_system_prompt)
+    if schema is not None:
+        parts.append(headless.schema_instruction(schema))
+    return _HeadlessOptions(
+        task=task,
+        approval=_parse_mode(mode),
+        output_format=fmt,
+        schema=schema,
+        extra_system="\n\n".join(parts),
+        allowed_tools=set(allowed) if allowed is not None else None,
+        denied_tools=headless.map_claude_tool_names(
+            headless.parse_tool_list(disallowed_tools) or frozenset()
+        )
+        | persona_denied,
+        channel=channel,
+    )
 
 
 @app.command()
@@ -537,19 +740,6 @@ def _run_observed(
         renderer.abort()
         observers.finish()
         raise
-
-
-def _session_persona(name: str | None, root: Path) -> PersonaTurn:
-    """`--agent <ad>` (P-053): ajan tanımını bul; yoksa açık hata, sessiz düşüş yok."""
-    if not name or not name.strip():
-        return PersonaTurn()
-    from ..tools.capabilities import CapabilityRegistry
-    from .repl.persona_commands import persona_turn, resolve_session_persona
-
-    persona = resolve_session_persona(CapabilityRegistry(Path.home(), root), name)
-    if persona is None:
-        raise typer.BadParameter(messages.PERSONA_UNKNOWN.format(name=name.strip()))
-    return persona_turn(persona)
 
 
 def _parse_mode(raw: str) -> ApprovalMode:
@@ -791,26 +981,6 @@ def adopt_data(
     console.print("Etkinleştirmek için: FUSION_WORKSPACE_ISOLATION=1")
 
 
-@app.command()
-def mcp(
-    write: bool = typer.Option(
-        False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."
-    ),
-) -> None:
-    """Fusion araçlarını bir MCP sunucusu olarak aç (stdio).
-
-    MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
-    araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
-    """
-    # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
-    try:
-        from ..mcp_bridge.server import run_stdio
-    except ImportError:
-        typer.echo(messages.MCP_MISSING_DEP, err=True)
-        raise typer.Exit(code=1) from None
-    asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
-
-
 @app.command(name="chrome-host", hidden=True)
 def chrome_host() -> None:
     """Chrome eklentisinin yerel mesajlaşma sunucusu (Chrome başlatır, elle değil)."""
@@ -919,43 +1089,13 @@ def app_protocol(ctx: typer.Context) -> None:
         asyncio.run(run_stdio(Path.cwd(), Path.home()))
 
 
-@app.command(name="mcp-tools")
+@app.command(name="mcp-tools", hidden=True)
 def mcp_tools() -> None:
-    """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
-    config = _session_config()
-    if not config.mcp_servers:
-        console.print(messages.MCP_NO_SERVERS)
-        return
-    try:
-        from ..mcp_bridge.client import McpClient
-    except ImportError:
-        console.print(f"[red]{messages.MCP_MISSING_DEP}[/red]")
-        raise typer.Exit(code=1) from None
-
-    async def _run() -> None:
-        async with McpClient(config.mcp_servers) as client:
-            for server in config.mcp_servers:
-                tools = await client.list_tools(server.name)
-                console.print(f"[bold]{escape(server.name)}[/bold] — {len(tools)} araç:")
-                for tool in tools:
-                    console.print(
-                        f"  [{theme.ACCENT}]{escape(tool.name)}[/{theme.ACCENT}] — "
-                        f"{escape(tool.description or '')}"
-                    )
-
-    try:
-        asyncio.run(asyncio.wait_for(_run(), timeout=MCP_TOOLS_TIMEOUT_S))
-    except FusionError:
-        raise
-    except TimeoutError as error:
-        # Bağlanamayan sunucu komutu sonsuza dek bekletmesin ve çıplak traceback vermesin
-        # (L1-26).
-        raise FusionError(messages.MCP_TOOLS_TIMEOUT.format(seconds=MCP_TOOLS_TIMEOUT_S)) from error
-    except Exception as error:
-        raise FusionError(messages.MCP_CONNECT_FAILED.format(error=error)) from error
+    """`fusion mcp tools` takma adı (eski betikler için)."""
+    mcp_commands.list_remote_tools(_session_config(), timeout_s=MCP_TOOLS_TIMEOUT_S)
 
 
-@app.command(name="mcp-add")
+@app.command(name="mcp-add", hidden=True)
 def mcp_add(
     name: Annotated[str, typer.Argument(help="Sunucuya vereceğin kısa ad (ör. github).")],
     command: Annotated[str, typer.Argument(help="Çalıştırılacak komut (ör. npx).")],
@@ -964,28 +1104,8 @@ def mcp_add(
         typer.Argument(help="Komuta verilecek argümanlar. `-` ile başlıyorsa önce -- koy."),
     ] = None,
 ) -> None:
-    """Dış bir MCP sunucusunu `config.yaml`'a ekle; kullanıcı config'i elle düzenlemez.
-
-    Agent bu komutu KENDİ dosya araçlarıyla DEĞİL, yalnızca bu CLI komutunu shell'de
-    çalıştırarak tetikler — `config.yaml` agent'ın genel yazma sınırının dışındadır
-    (güvenlik sınırı, docs/WEB_PROVIDERS.md ile aynı ilke).
-
-    Örnek: `fusion mcp-add github npx -- -y @modelcontextprotocol/server-github`
-    (argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart).
-    """
-    from ..config.models import McpServerConfig
-    from ..config.writer import write_mcp_servers
-
-    config = load_config()
-    kalanlar = tuple(server for server in config.mcp_servers if server.name != name)
-    yeniden_yazildi = len(kalanlar) != len(config.mcp_servers)
-    yeni = McpServerConfig(name=name, command=command, args=tuple(args or ()))
-    guncellenmis = replace(config, mcp_servers=(*kalanlar, yeni))
-
-    path = write_mcp_servers(guncellenmis)
-    template = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
-    console.print(template.format(name=name))
-    console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
+    """`fusion mcp add` takma adı (eski betikler için): stdio sunucusunu config.yaml'a ekle."""
+    mcp_commands.add_server(name, command, tuple(args or ()))
 
 
 @app.command(name="remote-control")

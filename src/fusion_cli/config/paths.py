@@ -248,3 +248,25 @@ def env_file_candidates() -> tuple[Path, ...]:
     candidates.append(Path.cwd() / ".env")
     candidates.append(user_config_dir() / ".env")
     return tuple(candidates)
+
+
+def plans_dir() -> Path:
+    """Plan kipinde yazılan plan dosyaları (Claude Code'un `~/.claude/plans/` karşılığı).
+
+    Yapılandırma kökü altındadır: plan kullanıcının niyetidir, önbellek değil;
+    hesap ayrımı varsa hesabın kendi dizinine düşer.
+    """
+    return user_config_dir() / "plans"
+
+
+def preferred_editor() -> str | None:
+    """Kullanıcının metin editörü (`VISUAL`, yoksa `EDITOR`); tanımlı değilse None.
+
+    Ortam burada okunur (RULES "ortam erişimi config katmanındadır"); REPL `/plan ac`
+    sonucu yalnız kullanır.
+    """
+    for name in ("VISUAL", "EDITOR"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None

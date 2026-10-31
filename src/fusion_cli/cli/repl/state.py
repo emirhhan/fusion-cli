@@ -19,6 +19,7 @@ from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
+from ...core.session_cron import SessionCron
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
@@ -28,6 +29,7 @@ from ...engines.agent.team import Persona
 from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
+from ...observability.usage_log import UsageLog
 from ...tools.capabilities import CapabilityRegistry
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
@@ -133,6 +135,8 @@ class ReplState:
     last_fusion: FusionResult | None = None
     #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
     cost: CostTracker = field(default_factory=CostTracker)
+    #: Kalıcı kullanım günlüğü (`/usage` pencereleri; P-056). Ayar kapalıysa None.
+    usage_log: UsageLog | None = None
     #: Son agent turunun dosya değişiklikleri — `/undo` bunu geri alır.
     #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
     #: elle değişiklikleri sessizce ezme riski taşır.
@@ -159,6 +163,11 @@ class ReplState:
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.
+    pending_plan: Path | None = None
+    #: Sıradaki satır ajanın zamanladığı görevdir: slash ile başlasa da KOMUT değil, tur
+    #: olarak çalışır (bkz. `core.session_cron.Source`). Satır işlenince sıfırlanır.
+    scheduled_turn_only: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
@@ -191,6 +200,11 @@ class ReplState:
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
 
+    def take_scheduled_turn_only(self) -> bool:
+        """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""
+        value, self.scheduled_turn_only = self.scheduled_turn_only, False
+        return value
+
     def refresh_capability_roots(self) -> None:
         """`/add-dir` sonrası beceri kataloğunu ek köklerle yeniden kur (P-052)."""
         if self.capabilities is not None:
@@ -209,6 +223,8 @@ class ReplState:
     approval_memory: ApprovalMemory = field(default_factory=ApprovalMemory)
     #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
     reminders: list[Reminder] = field(default_factory=list)
+    #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
+    cron: SessionCron = field(default_factory=SessionCron)
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
 

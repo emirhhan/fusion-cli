@@ -9,8 +9,10 @@ Ctrl-C fusion'dan çıkar. Onay/soru, `FusionTui`'nin modal desteğiyle köprül
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
+from ...core.session_cron import Source
 from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
@@ -34,11 +37,13 @@ from ...ui.text import summarize_error
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
+    cron_store,
     help_view,
     history_view,
     macros,
     model_flows,
     output_style_command,
+    plan_card,
     prefixes,
     profiles_flow,
     provider_flow,
@@ -53,15 +58,15 @@ from . import (
 )
 from .commands import (
     ASYNC_COMMANDS,
-    RENDERED_COMMANDS,
     RESUME_LIST_LIMIT,
     build_registry,
     is_command_line,
     parse,
+    renders_itself,
     resume_choices,
 )
 from .completion import ReplCompleter
-from .loop import apply_auto_profile, apply_mentions, run_shell_prefix_line
+from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
@@ -293,6 +298,31 @@ class _TuiSession:
             return
         self._task = asyncio.ensure_future(self._handle(line))
 
+    async def _cron_watcher(self) -> None:
+        """Vadesi gelen zamanlanmış görevi tur yokken `_submit` yoluyla ver (P-038).
+
+        Ajanın kurduğu görev yalnız TUR olur; slash satırı komut olarak işlenmez
+        (bkz. `loop._cron_watcher`).
+        """
+        while self._state.running:
+            await asyncio.sleep(CRON_POLL_S)
+            if self._busy:
+                continue
+            now = time.time()
+            due = self._state.cron.due(now)
+            if not due:
+                continue
+            task = due[0]
+            self._state.scheduled_turn_only = task.source is Source.AGENT
+            self._state.cron.complete(task.id, now=now)
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_FIRED.format(id=task.id))}[/{theme.DIM}]"
+            )
+            cron_store.save(
+                self._state.config.memory_dir, self._state.conversation_id, self._state.cron
+            )
+            self._submit(task.prompt)
+
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
             self._task.cancel()
@@ -370,23 +400,30 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            line = skill_prefix_to_slash(line, self._registry.is_dynamic)
+            # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `loop._cron_watcher`).
+            scheduled_turn = self._state.take_scheduled_turn_only()
+            if not scheduled_turn:
+                line = skill_prefix_to_slash(line, self._registry.is_dynamic)
             # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
-            if (shell := prefixes.shell_command(line)) is not None:
+            if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
                 await run_shell_prefix_line(shell, self._state, self._out)
                 self._tui.sync_conversation()
-            elif (note := prefixes.pending_memory_note(self._state, line)) is not None:
+            elif (
+                not scheduled_turn
+                and (note := prefixes.pending_memory_note(self._state, line)) is not None
+            ):
                 # `# not` düz metin belleğe yazılır (P-036); bellek kapalıysa olağan istem.
                 self._echo(
                     f"[{theme.DIM}]{escape(prefixes.add_memory_note(self._state, note))}"
                     f"[/{theme.DIM}]"
                 )
-            elif is_command_line(line):
+            elif is_command_line(line) and not scheduled_turn:
                 await self._command(line)
             else:
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
+                await self._offer_plan_card()
                 await self._refresh_custom_status()
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
@@ -409,6 +446,9 @@ class _TuiSession:
         finally:
             self._tui.clear_work()
             self._sync_status()
+            cron_store.save(
+                self._state.config.memory_dir, self._state.conversation_id, self._state.cron
+            )
             if not self._state.running:
                 self._tui.request_exit()
             elif self._queue:
@@ -423,7 +463,7 @@ class _TuiSession:
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
             return
-        if command.name in RENDERED_COMMANDS:
+        if renders_itself(command.name, argument):
             await help_view.render(command.name, self._state, self._registry, self._out)
             self._tui.sync_conversation()
             return
@@ -539,6 +579,28 @@ class _TuiSession:
         pending, mode = self._state.take_pending()
         if pending:
             await self._turn(pending, mode=mode)
+            await self._offer_plan_card()
+
+    async def _offer_plan_card(self) -> None:
+        """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025).
+
+        Seçim uygulama-içi modaldır (`await_choice`): iç içe prompt_toolkit seçicisi TUI'yi bozar.
+        """
+        pending = self._state.pending_plan
+        if pending is None:
+            return
+        self._echo(f"[{theme.DIM}]{escape(messages.PLAN_SAVED.format(path=pending))}[/{theme.DIM}]")
+        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices()))
+        mode = plan_card.mode_for(selected)
+        if mode is None:
+            self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")
+            return
+        task = plan_card.accept(self._state, mode)
+        self._echo(
+            f"[{theme.DIM}]{messages.REPL_MODE_CHANGED.format(mode=mode.value)}[/{theme.DIM}]"
+        )
+        self._sync_status()
+        await self._turn(task)
 
     async def _apply_flow(
         self, flow: Callable[[model_flows.Picker], model_flows.FlowResult]
@@ -707,7 +769,16 @@ class _TuiSession:
             show_all_answers=self._state.show_all_answers,
         )
         pump = _PumpSink(self._tui.sync_conversation)
-        sinks = (renderer, work, self._transcript_store, pump, self._state.cost)
+        # Kalıcı kullanım günlüğü (P-056) satır-içi yolla aynı biçimde TUI'yi de besler.
+        usage_log = self._state.usage_log
+        sinks = (
+            renderer,
+            work,
+            self._transcript_store,
+            pump,
+            self._state.cost,
+            *((usage_log,) if usage_log is not None else ()),
+        )
         try:
             if self._state.engine is Engine.FUSION:
                 # Beceri ekleri bu motorda kullanılmaz; sonraki agent turuna sızmasın.
@@ -730,6 +801,7 @@ class _TuiSession:
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
+                    cron=self._state.cron,
                     browser=browser_session_from(self._state.config),
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
@@ -797,6 +869,10 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
+                # açılır (bkz. `loop._run_turn`).
+                if outcome.plan_path is not None:
+                    self._state.pending_plan = outcome.plan_path
                 # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
                 # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
                 print_rule_notices(self._tui.console, self._state.approval_memory)
@@ -842,6 +918,9 @@ async def run_tui_repl(
 ) -> int:
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
+    state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # Gözcü ayrı sahipli görevdir (bkz. loop.run_repl): drain onu beklemesin.
+    cron_watcher = asyncio.ensure_future(session._cron_watcher())
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
 
@@ -855,6 +934,9 @@ async def run_tui_repl(
     finally:
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
         session.tui.restore_wheel_modes()
+        cron_watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cron_watcher
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await remote_control.shutdown(state)

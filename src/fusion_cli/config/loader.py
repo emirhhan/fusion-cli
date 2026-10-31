@@ -182,6 +182,9 @@ def load_config(path: str | Path | None = None) -> Config:
         # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı
         # olmayan kullanıcı her rolde önce başarısız bir çağrı yapıp yedeğe düşerdi.
         yapilandirma = _assemble(merged, source)
+        # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
+        # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
+        yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -390,6 +393,18 @@ def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
     return tuple(
         _build(HostedConnectorConfig, item, f"hosted_connectors[{index}]")
         for index, item in enumerate(raw)
+    )
+
+
+def _with_project_mcp_servers(config: Config, root: Path) -> Config:
+    """Güvenilen projenin `.mcp.json` sunucularını kullanıcı kayıtlarına ekle."""
+    from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
+
+    project_servers = trusted_project_mcp_servers(root)
+    if not project_servers:
+        return config
+    return dataclasses.replace(
+        config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
     )
 
 

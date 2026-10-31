@@ -262,5 +262,14 @@
 .schedule__upcoming button { align-items: center; border: 0; border-radius: var(--radius-sm); display: flex; gap: var(--space-2); text-align: left; width: 100%; }
 .schedule__upcoming button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .schedule__upcoming svg { flex: none; }
+.session-cron { border-top: 1px solid var(--border-subtle); display: grid; gap: var(--space-2); padding-top: var(--space-4); }
+.session-cron h2 { color: var(--text-secondary); font-size: var(--text-xs); font-weight: 500; margin: 0; }
+.session-cron ul { display: grid; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+.session-cron__item { align-items: center; display: flex; gap: var(--space-2); min-width: 0; }
+.session-cron__body { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.session-cron__prompt { color: var(--text-primary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-cron__meta { align-items: center; color: var(--text-secondary); display: flex; font-size: 11px; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-cron__stop { flex: none; font-size: 12px; padding: 2px var(--space-2); }
+.session-cron code { font-size: 11px; }
 .schedule__content { display: flex; flex-direction: column; gap: var(--space-5); min-height: 0; min-width: 0; overflow-y: auto; padding: calc(var(--titlebar-inset, 0px) + var(--space-6)) var(--space-6); }
 @media (max-width: 620px) { .schedule { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); } .schedule__sidebar { border-bottom: 1px solid var(--border-subtle); border-right: 0; max-height: 40dvh; } }

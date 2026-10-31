@@ -309,6 +309,19 @@ runtime:
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
   nested_instructions: true
+  # Proje talimatı (AGENTS.md/CLAUDE.md) ve dış araç bellekleri tur başında okunsun mu?
+  # False yalnız `fusion agent --bare` gibi betik koşularında anlamlıdır (Claude Code
+  # `--bare`: hiçbir ayar/talimat/MCP yüklenmez). Varsayılan açık.
+  project_instructions: true
+  # Agent turunun BİLİNEN maliyeti (USD) için tavan; null = tavan yok. Dolunca tur
+  # `cost_limit` sebebiyle kapanır (`fusion agent --max-budget-usd`). Ücretsiz ya da
+  # maliyeti bilinmeyen model tavanı doldurmaz.
+  agent_max_cost_usd: null
+  # Kullanım günlüğü: model çağrısı (rol, model, token, maliyet), MCP araç çağrısı
+  # (sunucu adı) ve yüklenen beceri `memory_dir/usage.jsonl`'e yazılır; `/usage`,
+  # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
+  # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
+  usage_log: true
   # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
   # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
   output_style: varsayilan
@@ -386,6 +399,8 @@ runtime:
   # Eski "auto" değeri off olarak okunur.
   workflow_mode: "off"
   workflow_max_model_calls: 12
+  # Plan kipinde biten turun planı plans/<sohbet>.md dosyasına yazılır (/plan goster, /plan ac).
+  plan_files: true
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
   workflow_planning_calls: 2

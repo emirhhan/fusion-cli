@@ -692,3 +692,14 @@
 .connectors__guide { color: var(--text-primary); display: grid; font-size: var(--text-sm); gap: 8px; line-height: 1.5; margin: 0 0 12px; padding-left: 20px; }
 .connectors__guide-link { list-style: none; margin-left: -20px; }
 .connectors__guide-link a { color: var(--accent-text); font-weight: 550; }
+
+/* Proje kapsamlı (.mcp.json) kayıt rozeti (P-049). */
+.connectors__scope {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
+  opacity: 0.8;
+}

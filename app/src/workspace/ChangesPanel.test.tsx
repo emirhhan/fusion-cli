@@ -61,3 +61,36 @@ it("geri alma hatası listeyi silmez, uyarı olarak üstte görünür (U4-45)", 
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Dosya kilitli.");
   expect(screen.getByText("b.py")).toBeTruthy();
 });
+
+// P-050: Değişiklikler panelinden tek tıkla `/security-review` ve `/simplify` makroları.
+it("makro düğmesi slash komutunu gönderir ve değişiklik yokken de görünür", async () => {
+  let receive: ((line: string) => void) | null = null;
+  const client = new ProtocolClient(
+    (line) => {
+      const request = JSON.parse(line) as { id: string; ad: string };
+      const veri = { ok: true, degisiklikler: [] };
+      queueMicrotask(() => receive?.(JSON.stringify({ tip: "sonuc", id: request.id, veri })));
+    },
+    (handler) => { receive = handler; },
+  );
+  const sent: string[] = [];
+  render(<ChangesPanel client={client} onCommand={(line) => sent.push(line)} revision={0} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Güvenlik incelemesi" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sadeleştir" }));
+  expect(sent).toEqual(["/security-review", "/simplify"]);
+  expect(screen.getByText("Bu oturumda doğrudan düzenlenen dosya yok.")).toBeTruthy();
+});
+
+it("onCommand verilmeyince makro çubuğu çizilmez", async () => {
+  let receive: ((line: string) => void) | null = null;
+  const client = new ProtocolClient(
+    (line) => {
+      const request = JSON.parse(line) as { id: string; ad: string };
+      queueMicrotask(() => receive?.(JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true, degisiklikler: [] } })));
+    },
+    (handler) => { receive = handler; },
+  );
+  render(<ChangesPanel client={client} revision={0} />);
+  await screen.findByText("Bu oturumda doğrudan düzenlenen dosya yok.");
+  expect(screen.queryByRole("group", { name: "İş-akışı makroları" })).toBeNull();
+});

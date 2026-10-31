@@ -39,7 +39,7 @@ from ..core.constants import FILE_LOCK_POLL_S
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
-from .models import Config, McpTransport
+from .models import Config, McpScope, McpTransport
 from .paths import user_config_candidates, user_config_dir
 
 _fcntl: ModuleType | None
@@ -387,11 +387,14 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     target = path or _target_path(config)
     with config_lock(target):
         existing = _read_existing(target)
-        existing["mcp_servers"] = [
+        # Proje kapsamlı kayıtlar (`.mcp.json`) kullanıcı dosyasına KOPYALANMAZ; onları
+        # `config.mcp_json` yazar (P-049).
+        user_entries = [
             {
                 key: value
                 for key, value in {
                     "name": server.name,
+                    "env_literals": [list(pair) for pair in server.env_literals],
                     "command": server.command,
                     "args": list(server.args),
                     "transport": server.transport.value,
@@ -419,9 +422,35 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                 and not (key == "transport" and value == McpTransport.STDIO.value)
             }
             for server in config.mcp_servers
+            if server.scope is McpScope.USER
+        ]
+        existing["mcp_servers"] = [
+            *_shadowed_user_entries(existing.get("mcp_servers"), config),
+            *user_entries,
         ]
         _atomic_write(target, existing)
     return target
+
+
+def _shadowed_user_entries(raw: object, config: Config) -> list[dict[str, object]]:
+    """Dosyada duran ama bellekte proje kaydının gölgelediği kullanıcı kayıtları (ham hâliyle).
+
+    Ölçüldü (31 Ekim): yükleme aynı adlı kullanıcı kaydını listeden atıyor; kullanıcı kapsamlı
+    herhangi bir yazma (`mcp add other`) gölgelenen kaydı config.yaml'dan siliyordu.
+    Kullanıcının verisine dokunulmaz: yalnız bellekte adı HİÇ olmayan (kullanıcı kapsamında
+    yeniden tanımlanmamış) ve bir proje kaydıyla gölgelenen girdiler korunur.
+    """
+    if not isinstance(raw, list):
+        return []
+    project_names = {s.name for s in config.mcp_servers if s.scope is McpScope.PROJECT}
+    user_names = {s.name for s in config.mcp_servers if s.scope is McpScope.USER}
+    return [
+        entry
+        for entry in raw
+        if isinstance(entry, dict)
+        and entry.get("name") in project_names
+        and entry.get("name") not in user_names
+    ]
 
 
 def _target_path(config: Config) -> Path:

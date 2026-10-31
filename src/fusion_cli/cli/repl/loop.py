@@ -20,6 +20,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,6 +51,7 @@ from ...core.events import (
     TurnFinished,
 )
 from ...core.followups import suggest_followups
+from ...core.session_cron import Source
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
 from ...core.worktree import Worktree
@@ -58,6 +60,7 @@ from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
+from ...observability.usage_log import open_usage_log
 from ...providers.capabilities import apprentice_active
 from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
@@ -67,10 +70,12 @@ from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
+    cron_store,
     help_view,
     history_view,
     macros,
     persona_commands,
+    plan_card,
     prefixes,
     remote_control,
     session_resume,
@@ -80,11 +85,11 @@ from . import (
 )
 from .commands import (
     ASYNC_COMMANDS,
-    RENDERED_COMMANDS,
     CommandRegistry,
     build_registry,
     is_command_line,
     parse,
+    renders_itself,
 )
 from .input import ReplInput
 from .macros import Mode
@@ -158,6 +163,8 @@ async def run_repl(
         health=build_health(config),
         worktree=worktree,
     )
+    # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
+    state.usage_log = open_usage_log(config)
     if resume is not None:
         session_resume.apply_target(state, resume)
     try:
@@ -232,6 +239,10 @@ async def _run_surface(
         console.print(recent, highlight=False)
         console.print()
     _sync_status_bar(reader, state, background)
+    state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
+    # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
+    cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
 
     try:
         while state.running:
@@ -241,10 +252,42 @@ async def _run_surface(
             if not line.strip():
                 continue
             await _handle_safely(line.strip(), state, registry, reader, console, background)
+            cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
+        cron_watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cron_watcher
         await remote_control.shutdown(state)
         await _shutdown(background, console)
     return 0
+
+
+#: Zamanlayıcı vadesi bu sıklıkla yoklanır; görev en az 1 dakikalık olduğundan yeter.
+CRON_POLL_S = 1.0
+
+
+async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -> None:
+    """Vadesi gelen `/loop`/`cron_*` görevini REPL boştayken yeni satır olarak ver (P-038).
+
+    Tur sürerken ya da istem açık değilken beklenir; görev düşmez. Satır istem
+    üzerinden girer (`ReplInput.inject`) ki komut da (`/verify`) görev de aynı yoldan
+    işlensin. Ajanın kurduğu görev (`Source.AGENT`) yalnız TUR olur: `_handle` slash
+    satırını komut olarak çalıştırmaz (onaysız `cron_create` kip yükseltemesin).
+    """
+    while state.running:
+        await asyncio.sleep(CRON_POLL_S)
+        now = time.time()
+        due = state.cron.due(now)
+        if not due:
+            continue
+        task = due[0]
+        state.scheduled_turn_only = task.source is Source.AGENT
+        if not reader.inject(task.prompt):
+            state.scheduled_turn_only = False
+            continue
+        state.cron.complete(task.id, now=now)
+        console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")
+        cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
 
 
 def _arm_reminders(state: ReplState, console: Console, background: BackgroundTasks) -> None:
@@ -355,19 +398,24 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
-    # Önekler (P-022): `!` kabuk ve `#` not model çağırmaz; `@dosya` bağlama eklenir.
-    if (shell := prefixes.shell_command(line)) is not None:
-        await run_shell_prefix_line(shell, state, console)
-        _sync_status_bar(reader, state, background)
-        return
-    if (note := prefixes.pending_memory_note(state, line)) is not None:
-        # `# not` düz metin belleğe yazılır (Claude Code kısayolu, P-036); bellek kapalıysa
-        # satır olağan istemdir.
-        console.print(f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]")
-        return
-    # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
-    line = skill_prefix_to_slash(line, registry.is_dynamic)
-    if is_command_line(line):
+    # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `_cron_watcher`).
+    scheduled_turn = state.take_scheduled_turn_only()
+    if not scheduled_turn:
+        # Önekler (P-022): `!` kabuk ve `#` not model çağırmaz; `@dosya` bağlama eklenir.
+        if (shell := prefixes.shell_command(line)) is not None:
+            await run_shell_prefix_line(shell, state, console)
+            _sync_status_bar(reader, state, background)
+            return
+        if (note := prefixes.pending_memory_note(state, line)) is not None:
+            # `# not` düz metin belleğe yazılır (Claude Code kısayolu, P-036); bellek
+            # kapalıysa satır olağan istemdir.
+            console.print(
+                f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]"
+            )
+            return
+        # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
+        line = skill_prefix_to_slash(line, registry.is_dynamic)
+    if is_command_line(line) and not scheduled_turn:
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
         # kalsın diye çalıştırma buraya bırakılmıştır.
@@ -375,6 +423,7 @@ async def _handle(
         task, mode = state.take_pending()
         if task:
             await _run_turn(task, state, console, background, mode=mode)
+            await _offer_plan_card(state, console, background, reader)
             # Tur bir arka plan ders çıkarımı BAŞLATMIŞ olabilir; bir sonraki
             # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
             _sync_status_bar(reader, state, background)
@@ -382,6 +431,7 @@ async def _handle(
     for note in apply_mentions(line, state):
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
     await _run_turn(line, state, console, background)
+    await _offer_plan_card(state, console, background, reader)
     _sync_status_bar(reader, state, background)
     # Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; yerleşik satırın yerine geçer.
     reader.custom_status = await status_line.status_line_text(state)
@@ -412,6 +462,16 @@ async def run_shell_prefix_line(command: str, state: ReplState, console: Console
         console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
 
 
+async def _offer_plan_card(
+    state: ReplState, console: Console, background: BackgroundTasks, reader: ReplInput
+) -> None:
+    """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025)."""
+    task = await plan_card.offer(state, console, interactive=reader.interactive)
+    reader.mode = state.approval
+    if task:
+        await _run_turn(task, state, console, background)
+
+
 async def _run_command(
     line: str, state: ReplState, registry: CommandRegistry, reader: ReplInput, console: Console
 ) -> None:
@@ -423,7 +483,7 @@ async def _run_command(
         )
         return
 
-    if command.name in RENDERED_COMMANDS:
+    if renders_itself(command.name, argument):
         await help_view.render(command.name, state, registry, console)
         return
     if command.name in ASYNC_COMMANDS:
@@ -594,7 +654,7 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
             line,
             state.config,
             # Maliyet toplayıcı OTURUM boyunca yaşar: her tur aynı toplayıcıyı besler.
-            sinks=(renderer, state.cost, tracer),
+            sinks=(renderer, state.cost, tracer, *((state.usage_log,) if state.usage_log else ())),
             task_type=state.task_type,
             synthesis=state.synthesis,
             memory=state.memory,
@@ -627,6 +687,8 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
+        if state.usage_log is not None:
+            bus.subscribe(state.usage_log)
         # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
         checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = _turn_tool_context(state, checkpoint.changes)
@@ -732,6 +794,12 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
+            # Plan kipinde biten tur plan dosyasını YAZDIYSA (`plan_mode.record_plan`,
+            # `outcome.plan_path`) kart komut döngüsünde, canlı gösterge kapandıktan sonra
+            # açılır. Ölçüldü (31 Ekim): yol koşulsuz kuruluyordu; plan_files=false ya da
+            # yazma hatasında kart olmayan/bayat dosyayı gösteriyordu.
+            if outcome.plan_path is not None:
+                state.pending_plan = outcome.plan_path
             print_rule_notices(console, state.approval_memory)
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
@@ -768,6 +836,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             remotion_browser=state.remotion_browser,
             browser=browser_session_from(state.config),
             changes=changes if changes is not None else ChangeSet(),
+            cron=state.cron,
         ),
         state.config,
     )

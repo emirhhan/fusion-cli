@@ -296,3 +296,52 @@ def test_simdi_calistir_tehlikeli_kokte_reddedilir(tmp_path, monkeypatch):
 
     assert sonuc["ok"] is False
     assert "proje klasörü" in sonuc["metin"]
+
+
+# --- Cron ifadesi (P-038) ------------------------------------------------------- #
+
+
+def test_cron_turu_siradaki_zamani_ifadeden_hesaplar():
+    assert schedule.next_run({"tur": "cron", "cron": "30 10 * * *"}, NOW) == _at(5, 10, 30)
+    assert schedule.next_run({"tur": "cron", "cron": "0 9 * * *"}, NOW) == _at(6, 9)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"tur": "cron"},
+        {"tur": "cron", "cron": "bozuk"},
+        {"tur": "cron", "cron": "*/5 * * * *"},
+        {"tur": "cron", "cron": "* * * * *"},
+    ],
+)
+def test_cron_eksik_bozuk_ya_da_cok_sik_ifade_reddedilir(spec):
+    with pytest.raises(schedule.ScheduleError):
+        schedule.next_run(spec, NOW)
+
+
+def test_cron_gorevi_kaydedilir_ve_ifade_normalize_edilir(tmp_path):
+    path = tmp_path / "z.json"
+    sonuc = schedule.save_schedule(
+        {"gorev": "rapor", "kok": str(tmp_path), "tur": "cron", "cron": " 0  9 * * 1-5 "},
+        path,
+        NOW,
+    )
+    assert sonuc["ok"] is True
+    assert sonuc["gorev"]["cron"] == "0 9 * * 1-5"
+    assert "dakika" not in sonuc["gorev"]
+
+
+@pytest.mark.parametrize("ifade", ["*/1 9 * * *", "* 9 * * *", "0,5 9 * * *", "50,59 9 * * *"])
+def test_cron_siklik_denetimi_ilk_vadeden_bagimsiz(ifade):
+    """Ölçüldü (31 Ekim): saat 08:00'da '*/1 9 * * *' kaydediliyordu (ilk vade 1 saat
+    sonra); ilk çalışmadan sonra `_advance` hata yutup görevi sessizce kapatıyordu."""
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    with pytest.raises(schedule.ScheduleError):
+        schedule.next_run({"tur": "cron", "cron": ifade}, sabah)
+
+
+@pytest.mark.parametrize("ifade", ["*/15 * * * *", "0 9 * * *", "0,30 9-18 * * 1-5"])
+def test_cron_yeterince_seyrek_ifade_kabul_edilir(ifade):
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    assert schedule.next_run({"tur": "cron", "cron": ifade}, sabah) is not None

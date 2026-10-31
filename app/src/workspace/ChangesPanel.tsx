@@ -13,7 +13,28 @@ interface ChangeItem {
 interface ChangesPanelProps {
   client: ProtocolClient;
   onChanged?: () => void;
+  /** Verilirse panelde iş-akışı makroları (`/security-review`, `/simplify`) düğme olarak sunulur. */
+  onCommand?: (line: string) => void;
   revision: number;
+}
+
+/** Değişiklikler panelinden tek tıkla başlatılan yerleşik makrolar (çekirdekle aynı adlar). */
+export const CHANGES_MACROS: readonly { etiket: string; komut: string; aciklama: string }[] = [
+  { etiket: "Güvenlik incelemesi", komut: "/security-review", aciklama: "Değişiklikleri OWASP başlıklarıyla tara" },
+  { etiket: "Sadeleştir", komut: "/simplify", aciklama: "Değişen kodu yeniden kullanım ve verimlilik için sadeleştir" },
+];
+
+function MacroBar({ onCommand }: { onCommand?: (line: string) => void }) {
+  if (!onCommand) return null;
+  return (
+    <div aria-label="İş-akışı makroları" className="changes-panel__macros" role="group">
+      {CHANGES_MACROS.map((macro) => (
+        <button key={macro.komut} onClick={() => onCommand(macro.komut)} title={macro.aciklama} type="button">
+          {macro.etiket}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function decode(payload: Record<string, unknown>): ChangeItem[] {
@@ -34,7 +55,7 @@ function decode(payload: Record<string, unknown>): ChangeItem[] {
   });
 }
 
-export function ChangesPanel({ client, onChanged, revision }: ChangesPanelProps) {
+export function ChangesPanel({ client, onChanged, onCommand, revision }: ChangesPanelProps) {
   const [changes, setChanges] = useState<ChangeItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,10 +89,20 @@ export function ChangesPanel({ client, onChanged, revision }: ChangesPanelProps)
 
   if (loading) return <p className="changes-panel__state">Değişiklikler yükleniyor…</p>;
   if (error) return <p className="changes-panel__state changes-panel__state--error" role="alert">{error}</p>;
-  if (changes.length === 0) return <p className="changes-panel__state">Bu oturumda doğrudan düzenlenen dosya yok.</p>;
+  // Makro çubuğu oturumda değişiklik yokken de durur: güvenlik incelemesi `git diff`
+  // üzerinden çalışır, kullanıcının elle yaptığı değişiklikleri de kapsar.
+  if (changes.length === 0) {
+    return (
+      <div className="changes-panel">
+        <MacroBar onCommand={onCommand} />
+        <p className="changes-panel__state">Bu oturumda doğrudan düzenlenen dosya yok.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="changes-panel">
+      <MacroBar onCommand={onCommand} />
       {actionError && <p className="changes-panel__state changes-panel__state--error" role="alert">{actionError}</p>}
       {changes.map((change) => (
         <article className="changes-panel__item" key={change.yol}>

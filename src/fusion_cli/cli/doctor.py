@@ -28,6 +28,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+
 from ..config.keys import NIM_ENV, OPENROUTER_ENV, ProviderKeys, detect
 from ..config.loader import load_config, load_environment
 from ..config.models import Config
@@ -101,6 +103,33 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
+
+
+def print_report(report: DoctorReport, console: Console) -> None:
+    """Tanıyı okunabilir biçimde bas. Sır içermez.
+
+    `fusion doctor` ve REPL/masaüstü `/doctor` aynı basıcıyı kullanır; iki yüzey
+    ayrışmasın diye çıktı burada tek kez tanımlanır.
+    """
+    from rich.markup import escape
+
+    from ..ui import messages, theme
+
+    console.print()
+    for check in report.checks:
+        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
+        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
+        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {escape(check.value)}")
+        if check.remedy:
+            console.print(f"  [{theme.DIM}]→ {escape(check.remedy)}[/{theme.DIM}]")
+    console.print()
+    durum = report.readiness.state
+    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
+        durum, theme.ERROR
+    )
+    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
+    for sebep in report.readiness.reasons:
+        console.print(f"  [{theme.DIM}]{escape(sebep)}[/{theme.DIM}]")
 
 
 def to_dict(report: DoctorReport) -> dict[str, Any]:

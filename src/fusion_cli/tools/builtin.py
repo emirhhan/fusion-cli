@@ -21,6 +21,7 @@ from . import (
     desktop_screen,
     download,
     files,
+    github_cli,
     jobs,
     kits,
     planning,
@@ -517,6 +518,18 @@ _TOOLS: tuple[Tool, ...] = (
             ["subcommand"],
         ),
         run=shell.git,
+    ),
+    Tool(
+        name="gh",
+        # Kısa tutulur: emüle araç istemi bütçeye tabidir (`test_tool_emulation_diet`).
+        description="Salt-okunur gh: pr view/diff/checks, issue, run view, api GET; onaysız. "
+        "Yazan gh komutları run_shell ile (onay istenir).",
+        parameters=_schema(
+            {"args": {**_STRING, "description": "gh argümanları, ör: pr view 12 --comments"}},
+            ["args"],
+        ),
+        run=github_cli.gh,
+        effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
         name="run_shell",

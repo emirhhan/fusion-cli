@@ -39,6 +39,7 @@ from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
+from ..core.session_cron import SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
 from ..core.tools import ChromeControl, ToolContext
@@ -55,12 +56,14 @@ from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import (
     ApprovalMemory,
     ApprovalMode,
+    ApprovalPolicy,
     build_policy,
     may_run_unasked_commands,
 )
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.tool_filter import DeniedToolsPolicy
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
@@ -219,12 +222,22 @@ async def run_agent_task(
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
+    cron: SessionCron | None = None,
+    strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
     `turn_runner` verilirse `run_agent` yerine o koşar (aynı imza): `/subtask` turu fork alt
     ajanda yürüten `team_fork.run_forked_turn` böyle takılır (P-054).
+
+    `denied_tools` (headless `--disallowed-tools`, oturum kişiliğinin `disallowedTools`u;
+    P-026/P-053) adı geçen araçları modelin kümesinden çıkarır ve sormadan engelleyen bir
+    sarmalayıcıyı seçili onay politikasının üstüne koyar.
+
+    `strict_tool_names` (headless) izin/yasak listesinde bu oturumda bulunmayan bir ad
+    varsa modeli hiç çağırmadan başarısız döner: yazım hatası sessizce araçsız tur ya da
+    kapanmamış bir yasak demekti (31 Ekim).
 
     `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
@@ -271,6 +284,9 @@ async def run_agent_task(
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
         tool_context = apply_runtime_settings(tool_context, config)
+        if cron is not None:
+            # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
+            tool_context = replace(tool_context, cron=cron)
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.
@@ -292,21 +308,26 @@ async def run_agent_task(
             remotion_transport = browser_transport(tool_context.remotion_browser)
         if require_remotion_kit:
             tool_context.remotion_contract.require()
+
+        def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
+            policy: ApprovalPolicy = build_policy(active_mode, prompter, approval_memory)
+            return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
+
         deps = AgentDeps(
             config=config,
             deadline=deadline,
             publisher=bus,
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
-            policy=build_policy(mode, prompter, approval_memory),
+            policy=_policy(mode),
+            denied_tools=frozenset(denied_tools),
             steering=steering,
             child_runs=child_runs if child_runs is not None else ChildRuns(),
             selected_skill=selected_skill,
-            policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
-            if current_approval
-            else None,
+            policy_factory=(lambda: _policy(current_approval())) if current_approval else None,
+            # Alt ajan kipi (P-034) üst kipten SIKILAŞTIRILIR; aynı yasak sarmalayıcısıyla kurulur.
             approval_mode=current_approval or (lambda: mode),
-            policy_for_mode=lambda wanted: build_policy(wanted, prompter, approval_memory),
+            policy_for_mode=_policy,
             approval_revision=(
                 lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
             )
@@ -374,6 +395,7 @@ async def run_agent_task(
                 allowed_tools=allowed_tools,
                 denied_tools=denied_tools,
                 turn_runner=turn_runner,
+                strict_tool_names=strict_tool_names,
             )
         finally:
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
@@ -438,6 +460,7 @@ async def _run_agent_with_mcp(
     allowed_tools: set[str] | None = None,
     denied_tools: frozenset[str] = frozenset(),
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
+    strict_tool_names: bool = False,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -452,6 +475,12 @@ async def _run_agent_with_mcp(
     runner = turn_runner or run_agent
 
     async def _run() -> AgentOutcome:
+        if strict_tool_names:
+            # MCP araçları bağlandıktan SONRA denetlenir: `<sunucu>__<araç>` adları ancak
+            # o zaman defterdedir.
+            rejected = _reject_unknown_tools(deps, allowed_tools, bus)
+            if rejected is not None:
+                return rejected
         return await runner(
             task,
             deps,
@@ -500,6 +529,28 @@ async def _run_agent_with_mcp(
     return await _run()
 
 
+def _reject_unknown_tools(
+    deps: AgentDeps, allowed_tools: set[str] | None, bus: EventBus
+) -> AgentOutcome | None:
+    """İzin/yasak listesinde defterde olmayan ad varsa başarısız sonuç; yoksa None."""
+    from ..engines.agent.engine_tools import build_agent_registry
+    from ..engines.agent.loop import ALWAYS_ALLOWED
+    from .headless import unknown_tool_message
+
+    requested = set(allowed_tools or ()) | set(deps.denied_tools)
+    if not requested:
+        return None
+    known = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
+    # `runtime.disabled_tools` ile kapatılmış araç geçerli bir addır; "bilinmeyen" denmez.
+    known |= ALWAYS_ALLOWED | set(getattr(deps.config.runtime, "disabled_tools", ()))
+    unknown = requested - known
+    if not unknown:
+        return None
+    text = unknown_tool_message(unknown, known)
+    bus.publish(ErrorOccurred(text, fatal=True))
+    return AgentOutcome(final_text=text, messages=[], ok=False)
+
+
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
     """Değişen yolları kullanıcıya gösterilecek biçimde (köke göreli) ver."""
     from ..tools.files import display_path
@@ -545,6 +596,7 @@ def build_observers(
     renderer: EventSink | None = None,
     as_json: bool = False,
     trace_dir: Path | None = None,
+    usage_log: EventSink | None = None,
 ) -> Observers:
     """Turu izleyecek dinleyicileri kur.
 
@@ -563,6 +615,9 @@ def build_observers(
     elif renderer is not None:
         sinks.append(renderer)
     sinks.extend((cost, tracer))
+    # Kalıcı kullanım günlüğü (P-056): maliyet toplayıcıyla AYNI olayları dinler.
+    if usage_log is not None:
+        sinks.append(usage_log)
     trace = open_trace(trace_dir)
     if trace is not None:
         sinks.append(trace)

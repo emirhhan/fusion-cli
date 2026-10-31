@@ -311,3 +311,21 @@ describe("olay akışı kenar durumları (30 Ekim)", () => {
     expect(kartlar[1].gorevler?.[0].metin).toBe("Yeni plan");
   });
 });
+
+// P-025: plan kipinde biten tur plan dosyasını yazar; sohbette tek kart durur.
+describe("PlanDrafted", () => {
+  it("plan kartı ekler ve aynı yol yeniden gelirse çoğaltmaz", () => {
+    let mesajlar: Mesaj[] = [{ rol: "asistan", metin: "# Plan\n1. a" }];
+    mesajlar = olayEkle(mesajlar, { olay: "PlanDrafted", path: "/p/s-1.md", title: "Plan" });
+    mesajlar = olayEkle(mesajlar, { olay: "PlanDrafted", path: "/p/s-1.md", title: "Plan v2" });
+
+    const kartlar = mesajlar.filter((m) => m.rol === "plan");
+    expect(kartlar).toHaveLength(1);
+    expect(kartlar[0].plan).toEqual({ yol: "/p/s-1.md", baslik: "Plan v2" });
+    expect(mesajlar[0].rol).toBe("asistan");
+  });
+
+  it("yolsuz olay kart açmaz", () => {
+    expect(olayEkle([], { olay: "PlanDrafted", title: "Plan" })).toEqual([]);
+  });
+});

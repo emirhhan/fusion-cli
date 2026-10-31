@@ -239,6 +239,23 @@ COST_UNKNOWN = "maliyet bilinmiyor"
 COST_TOTAL_UNCERTAIN = " · en az (+{unknown} çağrının tüketimi bilinmiyor)"
 COST_FREE_NOTE = "yapılandırılmış modeller ücretsiz olduğu için maliyet 0 görünür"
 COST_EMPTY = "Henüz model çağrısı yapılmadı."
+# --- /usage, fusion usage, fusion insights (P-056) --- #
+USAGE_WINDOWS_TITLE = "Kullanım"
+USAGE_COL_WINDOW = "Pencere"
+USAGE_COL_SOURCE = "Kaynak"
+USAGE_COL_TOKENS = "Token"
+USAGE_ATTRIBUTION_TITLE = "Kim harcadı ({window})"
+USAGE_MODEL_ROW = "model · {model}"
+USAGE_MCP_ROW = "MCP · {server}"
+USAGE_SKILL_ROW = "beceri · {skill}"
+USAGE_LOG_PATH = "günlük: {path}"
+USAGE_LOG_DISABLED = "kullanım günlüğü kapalı (runtime.usage_log: false); yalnız bu oturum sayılır"
+USAGE_EMPTY = "Günlükte henüz kayıt yok."
+USAGE_INSIGHTS_WRITTEN = "Kullanım raporu yazıldı: {path}"
+USAGE_INSIGHTS_DISABLED = (
+    "Kullanım günlüğü kapalı (runtime.usage_log: false); rapor üretilemedi. "
+    "Ayarı aç ve birkaç tur çalış."
+)
 TRACING_ENABLED = "Langfuse izleme açık"
 TRACING_DISABLED = "Langfuse izleme kapalı: {reason}"
 CATALOG_OPENROUTER = "OpenRouter — ücretsiz modeller"
@@ -301,6 +318,28 @@ TURN_FAILED = "Görev başarısız · {duration}"
 RUN_EMPTY_TASK = "Görev metni boş olamaz."
 RUN_UNKNOWN_TASK_TYPE = "Bilinmeyen görev tipi: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_MODE = "Bilinmeyen onay modu: {given}. Geçerli olanlar: {valid}"
+# --- headless (`fusion agent` betik bayrakları; P-026) --- #
+HEADLESS_UNKNOWN_FORMAT = "Bilinmeyen çıktı biçimi: {given}. Geçerli olanlar: {valid}"
+HEADLESS_SCHEMA_UNREADABLE = "JSON şeması okunamadı ({path}): {error}"
+HEADLESS_AGENT_NOT_FOUND = (
+    "'{name}' adlı ajan tanımı bulunamadı (.claude/agents/<ad>.md). Mevcut ajanlar: {available}"
+)
+HEADLESS_AGENT_NONE = "yok"
+HEADLESS_STDIN_CHANNEL_CONFLICT = (
+    "Görev stdin'den okunurken onay kanalı da stdin olamaz; görevi argüman olarak ver."
+)
+HEADLESS_UNKNOWN_TOOLS = (
+    "Bilinmeyen araç adı: {names}.{hint} Bu oturumdaki araçlar için docs/HEADLESS.md'ye bak; "
+    "MCP araçları `<sunucu>__<araç>` biçimindedir."
+)
+HEADLESS_TOOL_SUGGESTION = " Şunu mu demek istediniz: {suggestions}?"
+HEADLESS_UNKNOWN_CHANNEL = "Bilinmeyen onay kanalı: {given}. Geçerli olanlar: {valid}"
+HEADLESS_SCHEMA_INSTRUCTION = (
+    "NİHAİ CEVAP BİÇİMİ: Son cevabın yalnızca aşağıdaki JSON şemasına uyan TEK bir JSON "
+    "nesnesi olsun; açıklama, başlık ya da kod çiti ekleme.\n{schema}"
+)
+HEADLESS_STRUCTURED_NOT_JSON = "nihai cevap geçerli bir JSON değil: {error}"
+HEADLESS_STRUCTURED_INVALID = "nihai cevap şemaya uymuyor ({count} hata)"
 RUN_UNKNOWN_FEEDBACK = "Bilinmeyen geri bildirim: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_ENGINE = "Bilinmeyen motor: {given}. Geçerli olanlar: {valid}"
 
@@ -528,6 +567,7 @@ APP_TURN_STOP_REASONS = {
     "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi",
     "empty_responses": "model art arda boş yanıt verdi",
     "context_thrash": "bağlam her sıkıştırmadan hemen sonra yeniden doldu",
+    "cost_limit": "turun maliyet tavanına (USD) ulaşıldı",
 }
 #: Model hiç metin üretmeden tur bütçeyle kesildiğinde gösterilen özet başlığı.
 #:
@@ -667,10 +707,39 @@ MCP_ADDED = "'{name}' MCP sunucusu eklendi. Etkinleşmesi için Fusion'ı yenide
 MCP_REPLACED = "'{name}' adlı sunucu zaten vardı, yeni komutla güncellendi."
 MCP_REMOVED = "'{name}' MCP sunucusu kaldırıldı."
 MCP_NOT_FOUND = "'{name}' adlı bir MCP sunucusu yok."
-MCP_USAGE = "kullanım: /mcp  ·  /mcp add <ad> <komut> [argüman…]  ·  /mcp remove <ad>"
+MCP_USAGE = (
+    "kullanım: /mcp  ·  /mcp add <ad> <komut> [argüman…]  ·  /mcp remove <ad>  ·  "
+    "/mcp reconnect <ad>|all"
+)
 MCP_ADD_USAGE = "kullanım: /mcp add <ad> <komut> [argüman…]"
 MCP_REMOVE_USAGE = "kullanım: /mcp remove <ad>"
 MCP_SAVE_FAILED = "kaydedilemedi: {error}"
+# --- `fusion mcp` alt grubu ve kapsamlar (P-049) --- #
+CONNECTOR_RECONNECTED = "Yeniden bağlandı: {names}."
+CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satırda."
+MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
+MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
+MCP_RECONNECT_ALL_SCHEDULED = (
+    "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
+)
+MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje"}
+MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
+MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
+MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"
+MCP_PROJECT_NO_TOKEN_ENV = (
+    "--token-env proje kapsamında (.mcp.json) desteklenmiyor: dosya biçimi token alanı taşımaz. "
+    "Kullanıcı kapsamına yaz (--scope user) ya da sırrı env ile başvuru olarak ver."
+)
+MCP_ADD_NEEDS_URL = (
+    "http sunucusu için adres gerekli: fusion mcp add <ad> --transport http --url <adres>"
+)
+MCP_ADD_JSON_INVALID = "JSON tanımı okunamadı: {error}"
+MCP_LOGIN_RESULT = "{name}: {state}{detail}"
+MCP_LOGIN_TIMEOUT = "'{name}' girişi {seconds:.0f} sn içinde tamamlanmadı."
+MCP_LIST_ROW = "· {name} [{scope} · {transport}] {target}"
+MCP_LIST_HEADER_PROJECT_HINT = (
+    "Proje kaydı: {path} (yalnız güvenilen projede yüklenir; fusion trust)"
+)
 CMD_PROFILES = "profilleri gör / düzenle: /profiles · /profiles edit <profil> [incompatible]"
 
 # --- Execution profili (/mode) --------------------------------------------- #
@@ -769,6 +838,30 @@ CMD_FUSION = "fusion motoruna geç (çoklu model + hakem)"
 CMD_AUTO = "otomatik: Fusion karar verir, yalnız riskli işlemde sorar"
 CMD_EDITS = "düzenlemeleri kabul et: dosya düzenlemeleri sorulmaz, komutlar sorulur"
 CMD_PLAN = "plan: değişiklik yapma, yalnız oku ve planla"
+#: `/plan` alt komutları ve kabul kartı (P-025).
+PLAN_USAGE = "Kullanım: /plan (kipe geç) · /plan goster (planı yaz) · /plan ac (editörde aç)"
+PLAN_NONE = (
+    "Bu sohbette kayıtlı plan yok. Plan kipinde bir görev ver; biten tur plan dosyasını yazar."
+)
+PLAN_SAVED = "Plan dosyası: {path}"
+PLAN_UNTITLED = "Plan"
+PLAN_NO_EDITOR = "VISUAL/EDITOR tanımlı değil. Plan dosyası: {path}"
+PLAN_OPENED = "{editor} ile açıldı: {path}"
+PLAN_EDITOR_FAILED = "Editör çalıştırılamadı ({error}). Plan dosyası: {path}"
+PLAN_CARD_TITLE = "Plan hazır — bu plan uygulansın mı?"
+PLAN_CARD_AUTO = "Evet, otomatik kipte uygula"
+PLAN_CARD_AUTO_DESC = "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar."
+PLAN_CARD_EDITS = "Evet, düzenlemeleri kabul ederek uygula"
+PLAN_CARD_EDITS_DESC = "Dosya düzenlemeleri sorulmaz; komutlar için izin ister."
+PLAN_CARD_SECURITY = "Evet, her adımda sor"
+PLAN_CARD_SECURITY_DESC = "Manuel kipte uygular; her yazma ve komut için izin ister."
+PLAN_CARD_KEEP = "Hayır, planlamaya devam et"
+PLAN_CARD_KEEP_DESC = "Plan kipinde kalır; planı birlikte düzeltebilirsiniz."
+PLAN_KEEP_PLANNING = "Plan kipinde kalındı; planı düzeltmek için yazmaya devam et."
+PLAN_IMPLEMENT_TASK = (
+    "Planı onaylıyorum. Şimdi {path} dosyasındaki planı adım adım uygula ve her adımdan "
+    "sonra doğrula."
+)
 CMD_SECURITY = "manuel: okuma dışındaki her işlemi tek tek sor"
 CMD_BYPASS = "izinleri atla: hiçbir şey sorma (silinen yine çöpe gider)"
 CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
@@ -851,6 +944,7 @@ MEMORY_NOTE_SAVED = "Not belleğe yazıldı ({path}, {lines} satır)."
 MEMORY_NOTE_EMPTY = "`#` ile başlayan satır not olarak belleğe yazılır; not boş olamaz."
 CMD_MODELS = "yapılandırılmış modeller"
 CMD_COST = "oturumda harcanan token ve tahmini maliyet"
+CMD_USAGE = "kullanım: bu oturum / 24 saat / 7 gün; model, alt ajan, MCP ve beceri kırılımı"
 CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
 UNDO_NOTHING = "Geri alınacak bir değişiklik yok."
 UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"
@@ -862,7 +956,12 @@ CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
-CMD_DOCTOR = "talimat denetimi: yüklenen dosyalar, kırpma, şüpheli satırlar (prompt)"
+CMD_DOCTOR = (
+    "kurulum denetimi: ne eksik, neden önemli, ne yapmalı · "
+    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar)"
+)
+#: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
+REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
 CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
 REPL_DOCTOR_SETUP_HINT = (
@@ -891,7 +990,43 @@ CMD_REVIEW = "mevcut değişiklikleri güvenlik ve mimari açısından incele"
 CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"
+# --- PR/CI makroları ve gh-action (P-057) --- #
+CMD_PR = "mevcut dal için gh ile PR aç (başlık, gövde, test planı)"
+CMD_PR_COMMENTS = "PR inceleme yorumlarını oku ve dosya:satır ile özetle"
+CMD_AUTOFIX_PR = "PR'daki başarısız CI ve yorumları düzelt, push et, bildir"
+HEADLESS_FROM_PR_FAILED = "PR bağlamı alınamadı: {error}"
+GH_ACTION_USAGE = "kullanım: fusion gh-action kur [--force]"
+GH_ACTION_EXISTS = "{path} zaten var; ezmek için --force."
+GH_ACTION_WRITE_FAILED = "İş akışı yazılamadı ({path}): {error}"
+GH_ACTION_INSTALLED = "GitHub Actions iş akışı yazıldı: {path}"
+GH_ACTION_NEXT_STEPS = (
+    "1. Depo ayarlarında FUSION_PROVIDER_KEY sırrını ekle (model sağlayıcı anahtarı).",
+    "2. Dosyayı commit'le ve push et.",
+    "3. Bir issue ya da PR yorumuna '@fusion <görev>' yaz; sonuç yoruma gelir.",
+    "   Yalnız depo sahibi/üyesi/ortak çalışanın yorumu tetikler (author_association).",
+)
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
+CMD_LOOP = "görevi aralıkla yinele (/loop 5m <görev>); list · stop [id]"
+LOOP_USAGE = "Kullanım: /loop [aralık] <görev|/komut> · /loop list · /loop stop [id|all]"
+LOOP_SET = (
+    "döngü kuruldu ({id}): her {every} → {prompt}  (en az {min} dk; /loop stop {id} ile durur)"
+)
+LOOP_EMPTY = "Zamanlanmış görev yok."
+LOOP_LIST_TITLE = "{count} zamanlanmış görev:"
+LOOP_STOPPED = "döngü durdu: {id}"
+LOOP_STOPPED_ALL = "{count} döngü durdu"
+LOOP_NOT_FOUND = "Görev bulunamadı: {id} (/loop list)"
+LOOP_FIRED = "⏰ zamanlanmış görev çalışıyor ({id}) · durdurmak için /loop stop {id}"
+LOOP_COMMAND_BLOCKED = (
+    "/{name} zamanlanmış görev olamaz: onay kipini, modeli ya da oturumu değiştiren komutlar "
+    "yalnız elle çalışır."
+)
+CMD_SIMPLIFY = "değişen kodu sadeleştir: yeniden kullanım, verimlilik, soyutlama (hata avı değil)"
+CMD_SECURITY_REVIEW = "değişiklikleri OWASP başlıklarıyla güvenlik taramasından geçir"
+CMD_DEBUG = "Fusion'ın kendi sorununu teşhis et (doctor + son eylemler)"
+CMD_BATCH = "talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula"
+#: Makroyla aynı adlı kullanıcı skill'i bulununca gövdesi görevin önüne eklenir.
+REPL_MACRO_SKILL_PREPENDED = "{name} için kullanıcı skill'i öne alındı: {path}"
 CMD_RC = "uzaktan kontrol: telefondan/Telegram'dan sür · /rc [kod|onayla|durum|telegram|durdur]"
 CMD_RESUME = "{source} oturum geçmişinden devral"
 HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."

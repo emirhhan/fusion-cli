@@ -34,8 +34,8 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import macros, worktrees
-from ..cli.repl.commands import RENDERED_COMMANDS, attach_skill_commands, build_registry
+from ..cli.repl import cron_store, macros, worktrees
+from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.state import Engine, ReplState
@@ -66,6 +66,7 @@ from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
+from ..core.session_cron import CronTask, SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
 from ..core.submission import SubmissionReceipt, SubmissionRepository
@@ -84,6 +85,7 @@ from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
+from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
@@ -425,12 +427,17 @@ class _MeteredSink:
     çağrı yolu eklendiğinde sayaç kendiliğinden görür.
     """
 
-    def __init__(self, inner: ProtocolSink, meter: UsageMeter) -> None:
+    def __init__(
+        self, inner: ProtocolSink, meter: UsageMeter, usage_log: UsageLog | None = None
+    ) -> None:
         self._inner = inner
         self._meter = meter
+        self._usage_log = usage_log
 
     def handle(self, event: Event) -> None:
         self._meter.observe(event)
+        if self._usage_log is not None:
+            self._usage_log.handle(event)
         self._inner.handle(event)
 
 
@@ -531,6 +538,8 @@ class AppSession:
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
+        #: Son `cron.vadesi_gelenler` ile verilen görevin ilerletilmeden önceki hâli.
+        self._cron_given: dict[str, CronTask] = {}
         #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
@@ -578,6 +587,8 @@ class AppSession:
         self._taken_skill: SkillSelection | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
+        #: Kalıcı kullanım günlüğü (P-056); ayar kapalıysa None. Oturum sayacı değişmez.
+        self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
         self._chrome = ChromeBridge(
@@ -1140,6 +1151,7 @@ class AppSession:
                 self._usage,
                 self._state.health,
                 self._state.config.runtime.rate_limit_per_minute,
+                usage_log=self._usage_log,
             )
         if request.name == "hesap.durum":
             return self._accounts.status()
@@ -1241,11 +1253,33 @@ class AppSession:
             return self._change_connectors(remove_hosted_connector, request.data)
         if request.name == "baglanti.panel_ac":
             return await self._open_connector_panel(request.data)
+        if request.name == "baglanti.yeniden_baglan":
+            # Claude Code `/mcp reconnect <sunucu>|all` (P-049): havuzdaki bağlantı düşürülür,
+            # park kaydı silinir, yeniden yoklanır.
+            wanted = str(request.data.get("ad", "")).strip()
+            targets = [
+                server
+                for server in self._state.config.mcp_servers
+                if wanted in ("", "all") or server.name == wanted
+            ]
+            if not targets:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            statuses = [
+                status_payload(await self._mcp_connections.reconnect(server)) for server in targets
+            ]
+            ok = all(item["ok"] for item in statuses)
+            names = ", ".join(server.name for server in targets)
+            metin = (
+                messages.CONNECTOR_RECONNECTED if ok else messages.CONNECTOR_RECONNECT_FAILED
+            ).format(names=names)
+            return {"ok": ok, "sunucular": statuses, "metin": metin}
         if request.name == "baglanti.sil":
             server = self._connector(request.data.get("ad"))
             if server is not None:
                 await self._mcp_connections.logout(server)
-            return self._change_connectors(remove_connector, request.data)
+            return self._change_connectors(
+                partial(remove_connector, root=self._state.root), request.data
+            )
         if request.name == "ses.ayar":
             return voice_settings(request.data)
         if request.name == "ses.durdur":
@@ -1331,6 +1365,14 @@ class AppSession:
             return await self._browser_profile_rpc(request)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
+        if request.name == "cron.listele":
+            return self._cron_list()
+        if request.name == "cron.sil":
+            return self._cron_delete(request.data)
+        if request.name == "cron.vadesi_gelenler":
+            return self._cron_due()
+        if request.name == "cron.geri_ver":
+            return self._cron_give_back(request.data)
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
@@ -1609,8 +1651,21 @@ class AppSession:
         conversation_changed = False
         if isinstance(sohbet_value, str) and sohbet_value.strip():
             yeni_kimlik = sohbet_value.strip()
+            onceki_kimlik = self._conversation_id
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
+            if conversation_changed:
+                # Süresi dolmamış zamanlanmış görevler aynı sekmeyle geri gelir (P-038).
+                # Kimliksiz ("app") kurulan görevler yeni kimliğe taşınır; ölçüldü (31 Ekim):
+                # load ile değiştirilip düşüyordu.
+                memory_dir = self._state.config.memory_dir
+                loaded = cron_store.load(memory_dir, yeni_kimlik)
+                if onceki_kimlik is None and len(self._state.cron):
+                    loaded = self._state.cron.merged(loaded)
+                    cron_store.save(memory_dir, "app", SessionCron())
+                self._state.cron = loaded
+                self._cron_given = {}
+                cron_store.save(memory_dir, yeni_kimlik, loaded)
         if new_root is not None:
             self._apply_root(new_root)
             capability_roots_changed = True
@@ -1969,6 +2024,68 @@ class AppSession:
         self._note_persist_warning(persist_engine(self._state.config, engine.value))
         return None
 
+    # --- Oturum zamanlayıcısı (P-038) ------------------------------------------- #
+
+    def _cron_save(self) -> None:
+        cron_store.save(
+            self._state.config.memory_dir, self._conversation_id or "app", self._state.cron
+        )
+
+    def _cron_list(self) -> dict[str, Any]:
+        """`cron.listele`: sekmenin zamanlanmış görevleri."""
+        tasks = self._state.cron.list(time.time())
+        return {"ok": True, "gorevler": [task.to_dict() for task in tasks]}
+
+    def _cron_delete(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`cron.sil {id}`; `id: "all"` hepsini durdurur."""
+        task_id = data.get("id")
+        if not isinstance(task_id, str) or not task_id.strip():
+            return {"ok": False, "metin": "Görev kimliği gerekli."}
+        if task_id == "all":
+            count = self._state.cron.clear()
+        else:
+            count = 1 if self._state.cron.delete(task_id) else 0
+        self._cron_save()
+        if count == 0:
+            return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
+        return {"ok": True, "silinen": count}
+
+    def _cron_due(self) -> dict[str, Any]:
+        """`cron.vadesi_gelenler`: boştaysa vadesi gelen görevleri ver ve ilerlet.
+
+        Arayüz dönen görevleri normal tur olarak gönderir. Tur sürerken boş liste döner;
+        görev düşmez, sonraki yoklamada gelir. Aynı görev iki kez verilmez (ilerletilir).
+        """
+        if self._turn is not None and not self._turn.done():
+            return {"ok": True, "gorevler": [], "mesgul": True}
+        now = time.time()
+        due = self._state.cron.due(now)
+        if not due:
+            return {"ok": True, "gorevler": []}
+        verilen = []
+        for task in due[:1]:
+            # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
+            self._cron_given = {task.id: task}
+            self._state.cron.complete(task.id, now=now)
+            verilen.append({"id": task.id, "gorev": task.prompt, "kaynak": task.source.value})
+        self._cron_save()
+        return {"ok": True, "gorevler": verilen}
+
+    def _cron_give_back(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`cron.geri_ver {id}`: son verilen görev gönderilemedi; önceki hâline döndür.
+
+        Ölçüldü (31 Ekim): `cron.vadesi_gelenler` görevi vermeden önce ilerletiyordu;
+        arayüz gönderemeyince o vade boşa gidiyor, tek seferlik görev kayboluyordu.
+        """
+        task_id = data.get("id")
+        task = self._cron_given.get(task_id) if isinstance(task_id, str) else None
+        if task is None:
+            return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
+        self._cron_given = {}
+        self._state.cron.restore(task)
+        self._cron_save()
+        return {"ok": True}
+
     def _permissions_rpc(self, request: Request) -> dict[str, Any]:
         """İzin kuralı tablosu ve proje güveni (P-003, P-012); bkz. `permissions_rpc`."""
         from . import permissions_rpc
@@ -2155,7 +2272,7 @@ class AppSession:
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             self._state.history.clear()
             return {"ok": True, "metin": "", "temizle": True}
-        if command is not None and command.name in RENDERED_COMMANDS:
+        if command is not None and renders_itself(command.name, argument):
             return {
                 "ok": True,
                 "metin": await render_command_text(self._registry, self._state, command.name),
@@ -2225,6 +2342,7 @@ class AppSession:
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
         # Görev arayüze döner, arayüz onu normal tur olarak gönderir; kip ise o
         # tura burada taşınır.
+        self._cron_save()
         task, mode = self._state.take_pending()
         if not task:
             return result
@@ -2649,7 +2767,9 @@ class AppSession:
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
         sink = LibrarySink(
             _MeteredSink(
-                ProtocolSink(writer, receipt=receipt, sequence=event_sequence), self._usage
+                ProtocolSink(writer, receipt=receipt, sequence=event_sequence),
+                self._usage,
+                self._usage_log,
             ),
             self._state.root,
         )
@@ -2730,6 +2850,7 @@ class AppSession:
                 extra_roots=self._state.extra_roots,
                 home=self._state.home,
                 history=history,
+                cron=None if browser_only else self._state.cron,
                 chrome_bridge=self._chrome,
                 allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
@@ -2901,6 +3022,7 @@ class AppSession:
             if receipt is not None:
                 continued["_retry_safe"] = False
             return {**root_payload, **continued}
+        self._cron_save()
         if switched:
             metin = f"{metin}\n\n{switched}".strip()
         cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin, **root_payload}

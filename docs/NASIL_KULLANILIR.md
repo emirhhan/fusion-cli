@@ -467,6 +467,23 @@ o aracın ayarlarında:
 Artık o araç Fusion üzerinden çalışır: yedekleme, sağlık, çok-hesap otomatik devrede.
 Durdurmak için `fusion serve`'ün olduğu terminalde **Ctrl-C**.
 
+**Hangi rotalar var?** Santral üç API ailesini konuşur; hepsi aynı profil/model çözümünü,
+önbelleği, sır maskesini ve telemetriyi paylaşır:
+
+| Rota | Kim kullanır | Not |
+|------|--------------|-----|
+| `POST /v1/chat/completions` | OpenAI-uyumlu araçlar (Cursor, Cline, Kits) | akış ve araç çağrısı |
+| `POST /v1/responses` | Codex CLI, yeni OpenAI SDK'ları (`OPENAI_BASE_URL`) | `input`/`instructions`, `response.*` akış olayları |
+| `POST /v1/messages` | Claude SDK'ları, Claude Code (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) | `system`, `tools[].input_schema`, Anthropic SSE olayları |
+| `POST /v1/messages/count_tokens` | Claude Code bağlam ölçümü | kaba tahmin (~4 karakter = 1 token) |
+| `POST /v1/embeddings` | gömme isteyen araçlar | `embedding.provider` (nim ya da yerel ONNX); kurulu değilse 501 |
+| `GET /v1/models` | model listesi | profiller + yapılandırılmış modeller |
+
+Ağdan (loopback dışı) gelen istemci `fusion serve --token` belirtecini `Authorization: Bearer`
+**ya da** `x-api-key` başlığıyla verir; Anthropic SDK'larında `ANTHROPIC_API_KEY=<belirteç>`
+yeter. Başarısız sağlayıcı her rotada 502 ve maskeli hata metniyle döner; `/v1/responses`
+yalnız `function` araçlarını çevirir, `developer` rolü sistem mesajı sayılır.
+
 ---
 
 ## 12) MCP köprüsü (alet paylaşımı)
@@ -488,9 +505,73 @@ mcp_servers:
 ```
 Bağlı sunucuların aletlerini görmek için:
 ```
-fusion mcp-tools
+fusion mcp tools          # eski ad: fusion mcp-tools
 ```
 Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayınla).
+
+**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile aynı kalıp):
+```
+fusion mcp add github npx -- -y @modelcontextprotocol/server-github     # stdio, kullanıcı kapsamı
+fusion mcp add linear --transport http --url https://mcp.linear.app/mcp  # uzak sunucu (OAuth)
+fusion mcp add postgres --scope project npx -- -y server-postgres        # projeye (.mcp.json)
+fusion mcp add-json fetch '{"command":"uvx","args":["mcp-server-fetch"]}'
+fusion mcp list                      # kapsam ve taşımayla; sırlar maskeli
+fusion mcp remove <ad>               # kayıtlı olduğu dosyadan siler
+fusion mcp login <ad>                # OAuth girişi (tarayıcı açılır), token şifreli depoda
+fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
+```
+- `--scope user` (varsayılan) kaydı `config.yaml`'a, `--scope project` kök dizindeki
+  `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
+  varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
+  güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
+  kullanıcı kaydını geçer (kullanıcı kaydı `config.yaml`'da durur, silinmez). Güvenilmeyen bir
+  `.mcp.json` üzerine `--scope project` ile yazılmaz: önce `fusion trust`. Ekleme/silme
+  dosyada yalnız ilgili adı değiştirir; takımın diğer girdileri korunur. `--token-env` proje
+  kapsamında yoktur (dosya biçimi taşımaz); kullanıcı kapsamına yaz.
+- Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
+  başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
+- `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
+  düz değerdir.
+- Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
+  Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
+
+---
+
+## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
+
+`/cost` bu oturumu gösterir. `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
+kullanım günlüğünden **bu oturum / son 24 saat / son 7 gün / son 30 gün** pencerelerini ve
+"kim harcadı" kırılımını (ana ajan, alt ajan, arka plan; model; MCP sunucusu; beceri)
+verir. Masaüstünde Ayarlar → Kullanım aynı veriyi "Son dönem" ve "Kim harcadı" olarak
+gösterir.
+
+```
+fusion usage --days 30
+fusion insights                 # tek dosya HTML rapor → bellek dizinine yazar, yolu basar
+fusion insights --out rapor.html --days 7
+```
+
+Günlük `memory_dir/usage.jsonl` dosyasıdır; yalnız sayı tutar (rol, model, token, maliyet,
+MCP sunucu adı, beceri adı) — istem metni, argüman ya da çıktı yazılmaz; 90 günden eski
+satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }`.
+
+---
+
+## 12c) PR ve CI → `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`, `gh-action`
+
+GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış olmalı.
+
+- Ajan **salt-okunur `gh` aracına** onaysız sahiptir: `pr view N --comments`, `pr diff N`,
+  `pr checks N`, `run view`, `api …` (yalnız GET). Yazan komutlar (`gh pr create`,
+  `gh pr comment`, `gh pr merge`) `run_shell` ile çalışır ve **onay ister**.
+- Sohbette: `/pr [bağlam]` mevcut dal için PR açar (başlık, gövde, test planı);
+  `/pr-comments [no]` inceleme yorumlarını dosya:satır ile özetler, kod değiştirmez;
+  `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
+- Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
+  (başlık, dallar, açıklama, adres) ekler.
+- CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
+  PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
+  tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
 
 ---
 
@@ -762,7 +843,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
 | `/model` | Model değiştir |
-| `/plan` | Önce planla, değiştirme |
+| `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
 | `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |
@@ -772,6 +853,12 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
 | `/verify` | Test/lint çalıştır |
+| `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
+| `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
+| `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
+| `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
+| `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
+| `/loop 5m <görev>` · `/loop list` · `/loop stop [id]` | Görevi aralıkla yinele (oturum boyunca) |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |
 | `/good` · `/bad` | Fusion'a geri bildirim |
@@ -799,3 +886,75 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 - **Yavaş** → `/mode low` ya da `/effort low`.
 
 Takıldığın her yerde `/help` yaz — bütün komutlar orada.
+
+---
+
+## İş-akışı makroları (`/simplify`, `/security-review`, `/debug`, `/batch`)
+
+Claude Code'un paketli becerileriyle aynı adları taşırlar; Fusion'da hazır görev metni
+olarak çalışır, agent'ın davranışını değiştirmezler.
+
+- `/security-review` argümansız çalışma ağacındaki tüm değişiklikleri (`git diff`,
+  staged + unstaged) tarar; `/security-review src/api/` gibi bir yol verilirse kapsam
+  o olur. Bulgular `[KRİTİK|YÜKSEK|ORTA|DÜŞÜK]` başlıklarıyla, `dosya:satır` yerleriyle
+  listelenir; kod değiştirilmez, sır değeri rapora yazılmaz.
+- Masaüstünde **Değişiklikler** panelinin üstündeki "Güvenlik incelemesi" ve
+  "Sadeleştir" düğmeleri aynı komutları gönderir.
+- Kendi kuralını öne almak için `.claude/skills/<ad>/SKILL.md` yaz (ör.
+  `.claude/skills/security-review/SKILL.md`): gövdesi yerleşik metnin ÖNÜNE eklenir,
+  yerleşik metin silinmez.
+
+---
+
+## Plan kipi: plan dosyası ve kabul kartı
+
+`/plan` ile plan kipine geçince agent yalnız okur ve planlar. Tur bitince plan
+`~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
+ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
+ve "Plan hazır — uygulansın mı?" kartı çıkar:
+
+- **Evet, otomatik kipte uygula** → `auto` kipine geçer ve planı uygulamaya başlar.
+- **Evet, düzenlemeleri kabul ederek uygula** → `edits` kipi.
+- **Evet, her adımda sor** → `security` (manuel) kipi.
+- **Hayır, planlamaya devam et** → plan kipinde kalır.
+
+Plan kipindeki her cevap plan sayılmaz: soruyla biten ya da başlıksız/listesiz kısa cevap
+("Hangi veritabanı?") dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
+yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum boyunca verilen
+izinler sıfırlanır; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
+(Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
+"Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
+yalnız yol basılır.
+
+---
+
+## Oturum zamanlayıcısı: `/loop` ve `cron_*` araçları
+
+Claude Code'un `/loop` ve `CronCreate/List/Delete`, `ScheduleWakeup` araçlarının karşılığı.
+Görevler **oturumla yaşar**: en çok 50 görev, en az 1 dakika aralık, 7 gün sonra düşer.
+Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tur** olarak
+gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
+
+- `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
+- `/loop <görev>` → varsayılan 10 dk; argümansız `/loop` → `.claude/loop.md` (proje ya da ev),
+  yoksa yerleşik bakım görevi.
+- `/loop list`, `/loop stop <id>`, `/loop stop all`.
+- Ajan araçları: `cron_create {prompt, every|cron|in}`, `cron_list`, `cron_delete {id}`,
+  `schedule_wakeup {in, note}` (uzun dış iş için kendini uyandırma). Cron 5 alanlıdır:
+  `*/15 9-18 * * 1-5`.
+- Kayıt: `memory_dir/oturum-cron/<sohbet>.json`; masaüstü sekmesi aynı kimlikle açılınca
+  süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği
+  üretir (P-014 `--resume` gelince aynı dosya devralınır).
+- Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
+  `cron.sil` de var). Kullanıcının kurduğu `/loop 30m /verify` masaüstünde de komut olarak
+  çalışır; ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
+  tur olur, slash komutu olarak çalışmaz. Gönderilemeyen görev `cron.geri_ver` ile geri
+  verilir, vade boşa gitmez. İstemde yarım yazılmış satır varken vade beklenir, yazılan silinmez.
+  Sohbet kimliği gelmeden kurulan görevler kimlik gelince o sohbete taşınır; 7 günden eski
+  kayıt dosyaları yüklemede süpürülür.
+- Masaüstü **Zamanlananlar** kenar çubuğundaki "Bu sohbetin döngüleri" bölümü etkin sohbetin
+  `/loop`/`cron_*` görevlerini (zamanlama, sıradaki vade, ajan kurduysa işareti) gösterir;
+  "Durdur" `/loop stop <id>` ile aynıdır. Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
+  (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
+  `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
+  kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.

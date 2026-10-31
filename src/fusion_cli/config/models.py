@@ -168,6 +168,9 @@ class RuntimeConfig:
     # onarımı için hak kalmadı ve koşu iskeletle "tamamlandı" dedi. 3 ile her iki
     # onarım aynı planlama evresinde yapılabilir.
     workflow_planning_calls: int = 3
+    #: Plan kipinde biten turun planı `plans/<sohbet>.md` dosyasına yazılır ve
+    #: `PlanDrafted` yayınlanır (P-025). Kapalıyken plan yalnız sohbette kalır.
+    plan_files: bool = True
     #: Her plan adımının bağımsız model çağrısı zarfı.
     #
     # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına
@@ -368,6 +371,15 @@ class RuntimeConfig:
     #: disclosure davranışı). 0 = dizin kapalı (yalnız find_skill). Küçük pencereli modelde
     #: pencerenin %2'sini aşmaz.
     skill_index_chars: int = 4_000
+    #: Proje talimatı ve dış araç bellekleri tur başında okunsun mu? `fusion agent --bare`
+    #: kapatır (Claude Code `--bare`); varsayılan açık (P-026).
+    project_instructions: bool = True
+    #: Agent turunun BİLİNEN maliyeti (USD) için tavan; `None` = tavan yok. Dolunca tur
+    #: `BudgetStop.COST_LIMIT` ile kapanır (`fusion agent --max-budget-usd`; P-026).
+    agent_max_cost_usd: float | None = None
+    #: Model çağrısı/MCP/beceri kullanımını `memory_dir/usage.jsonl`'e yaz (`/usage` pencereleri,
+    #: `fusion insights`). İstem metni yazılmaz. False = yalnız oturum sayacı (P-056).
+    usage_log: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +419,18 @@ class McpTransport(StrEnum):
 
     STDIO = "stdio"
     STREAMABLE_HTTP = "streamable_http"
+
+
+class McpScope(StrEnum):
+    """Sunucu kaydının yaşadığı yer (Claude Code `--scope`).
+
+    `user`: kullanıcının `config.yaml`'ı (eski kayıtların tümü). `project`: proje kökündeki
+    `.mcp.json` (Claude Code ile ortak biçim); yalnız güvenilen projede yüklenir ve
+    `config.yaml`'a yazılmaz (P-049).
+    """
+
+    USER = "user"
+    PROJECT = "project"
 
 
 class McpTrust(StrEnum):
@@ -463,6 +487,13 @@ class McpServerConfig:
     #: İzin listesinden sonra sunucu başına en fazla bu kadar araç kaydedilir (sunucunun
     #: verdiği sırayla ilk N; fazlası günlüğe yazılır). `None` = sınır yok.
     max_tools: int | None = None
+    #: Kaydın kaynağı: `user` (config.yaml) ya da `project` (.mcp.json). Yazıcılar kaydı
+    #: yalnız kendi kapsamının dosyasına yazar (P-049).
+    scope: McpScope = McpScope.USER
+    #: Stdio sürecine verilecek SIR OLMAYAN ortam değerleri `(ad, değer)`; değer
+    #: `${VAR:-varsayılan}` başvurusu taşıyabilir ve bağlantı anında çözülür. Sırlar buraya
+    #: yazılmaz, `env_names` ile şifreli depodan gelir. `.mcp.json` `env` alanı buraya iner.
+    env_literals: tuple[tuple[str, str], ...] = ()
 
     @property
     def secret_env_names(self) -> tuple[str, ...]:

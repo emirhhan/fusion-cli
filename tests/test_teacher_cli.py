@@ -51,7 +51,9 @@ def test_teacher_lesson_sync_kapatir_ve_kalicilastirir(tmp_path):
 
 
 def test_agent_komutu_bilinmeyen_kisilikte_acik_hata_verir(tmp_path):
-    """P-053: `fusion agent --agent <yok>` sessizce varsayılana düşmez."""
+    """P-053: `fusion agent --agent <yok>` sessizce varsayılana düşmez.
+
+    Main'in headless `--agent`'ı ile birleşti (31 Ekim): hata mevcut ajanları da listeler."""
     hedef = tmp_path / "config.yaml"
     hedef.write_text("{}\n", encoding="utf-8")
 
@@ -62,4 +64,35 @@ def test_agent_komutu_bilinmeyen_kisilikte_acik_hata_verir(tmp_path):
     )
 
     assert result.exit_code != 0
-    assert "yok-boyle" in result.output and "adlı ajan yok" in result.output
+    assert "yok-boyle" in result.output and "bulunamadı" in result.output
+
+
+def test_agent_kisiligi_baslik_kesisim_ve_yasak_birlesimi_uygular(tmp_path, monkeypatch):
+    """Birleştirme (31 Ekim): headless `--agent` REPL kişiliğiyle aynı etkiyi verir —
+    başlıklı sistem eki, `--allowed-tools` ile `tools` kesişimi, yasakların birleşimi."""
+    ev = tmp_path / "ev"
+    ajanlar = ev / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: d\ndisallowedTools: Bash\n---\nYalnız oku.",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(ev))
+    monkeypatch.chdir(tmp_path)
+
+    secenek = app_module._headless_options(
+        "işi yap",
+        mode="auto",
+        as_json=False,
+        output_format="text",
+        json_schema=None,
+        agent_name="denetci",
+        permission_channel=None,
+        append_system_prompt=None,
+        allowed_tools=None,
+        disallowed_tools=["WebFetch"],
+    )
+
+    assert "# Oturum kişiliği:" in secenek.extra_system and "Yalnız oku." in secenek.extra_system
+    assert secenek.allowed_tools is None
+    assert "run_shell" in secenek.denied_tools and "web_fetch" in secenek.denied_tools
