@@ -69,6 +69,35 @@ def test_create_worktree_dizin_dal_kunye_ve_include(repo):
     assert core_worktree.enter_worktree(tree.path, "deneme") == tree, "içinden tekrar girilir"
 
 
+def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):
+    """Ölçüldü (31 Ekim): `../outside.txt` deseni `.fusion/worktrees/outside.txt` olarak ağaç
+    DIŞINA yazılıyor, `/etc/hosts`'a işaret eden symlink'in içeriği ağaçta düz dosya oluyordu.
+    `.worktreeinclude` depoyla gelen güvenilmeyen bir dosyadır."""
+    (tmp_path / "outside.txt").write_text("DIŞ SIR", encoding="utf-8")
+    (repo / "baglanti.txt").symlink_to(tmp_path / "outside.txt")
+    (repo / "ic").mkdir()
+    (repo / "ic" / "ayar.local").write_text("IC=1", encoding="utf-8")
+    (repo / "disa-dizin").symlink_to(tmp_path)
+    (repo / ".worktreeinclude").write_text(
+        "../outside.txt\n"
+        f"{tmp_path / 'outside.txt'}\n"
+        "baglanti.txt\n"
+        "disa-dizin/outside.txt\n"
+        "ic/*.local\n"
+        ".env\n",
+        encoding="utf-8",
+    )
+
+    tree = core_worktree.enter_worktree(repo, "guvenli")
+
+    assert set(tree.included) == {"ic/ayar.local", ".env"}, tree.included
+    assert not (repo / ".fusion" / "worktrees" / "outside.txt").exists(), "ağaç dışına yazıldı"
+    assert not (tree.path / "baglanti.txt").exists(), "symlink hedefi kopyalandı"
+    assert not (tree.path / "outside.txt").exists()
+    assert not (tree.path / "disa-dizin").exists()
+    assert (tree.path / "ic" / "ayar.local").read_text(encoding="utf-8") == "IC=1"
+
+
 def test_gecersiz_ad_ve_git_disi_dizin_reddedilir(repo, tmp_path):
     for bad in ("../kacak", "a/b", "", ".."):
         with pytest.raises(WorktreeError):

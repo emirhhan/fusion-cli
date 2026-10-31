@@ -215,6 +215,12 @@ def copy_includes(origin: Path, target: Path) -> tuple[Path, ...]:
 
     Desenler depo köküne göre glob'dur; `.git` ve `.fusion` altı asla kopyalanmaz.
     Kopyalanan yolları (hedefe göreli) döndürür.
+
+    Dosya depoyla gelir, yani güvenilmez. Ölçüldü (31 Ekim): `../x` deseni ve depo dışına
+    işaret eden symlink depo DIŞINDAN okunup ağaca (ya da ağacın dışına) yazılıyordu;
+    `restrict_to_root`'un koruduğu sırlar böylece ajanın köküne taşınırdı. Bu yüzden `..`
+    ve mutlak desen reddedilir, symlink'ler atlanır, kaynak da hedef de kendi kökünün içinde
+    kalmak zorundadır.
     """
     include = origin / INCLUDE_FILE
     try:
@@ -225,19 +231,57 @@ def copy_includes(origin: Path, target: Path) -> tuple[Path, ...]:
         ]
     except OSError:
         return ()
+    origin_real = origin.resolve()
+    target_real = target.resolve()
     copied: list[Path] = []
     for pattern in patterns:
+        if not _is_safe_include_pattern(pattern):
+            continue
         for source in sorted(origin.glob(pattern)):
             relative = source.relative_to(origin)
-            if not source.is_file() or relative.parts[0] in {".git", ".fusion"}:
+            if relative.parts[0] in {".git", ".fusion"}:
+                continue
+            if not _is_inside(source, origin_real) or not source.is_file():
                 continue
             destination = target / relative
-            if destination.exists():
+            if not _is_inside(destination, target_real, must_exist=False) or destination.exists():
                 continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
             copied.append(relative)
     return tuple(copied)
+
+
+def _is_safe_include_pattern(pattern: str) -> bool:
+    """Desen depo kökünün içinde kalır mı? `..` parçası ve mutlak yol dışarı çıkabilir."""
+    parts = Path(pattern).parts
+    return bool(parts) and not Path(pattern).is_absolute() and ".." not in parts
+
+
+def _is_inside(path: Path, root_real: Path, *, must_exist: bool = True) -> bool:
+    """`path` (= kök / göreli), symlink izlemeden ve çözüldükten sonra `root_real` altında mı?
+
+    Göreli yolun hiçbir parçası symlink olamaz: `disa-dizin/x` symlink dizin üzerinden depo
+    dışına çıkar; `resolve()` tek başına bunu yakalar ama depo İÇİNE işaret eden link de
+    kopyalanmamalı (git onu dosya değil link olarak taşır). Kökün kendisi symlink'li bir
+    yoldan verilmiş olabilir (macOS `/tmp`); o yüzden yalnız kökten SONRAKİ parçalar sınanır.
+    """
+    try:
+        resolved = path.resolve(strict=must_exist)
+    except OSError:
+        return False
+    if resolved != root_real and root_real not in resolved.parents:
+        return False
+    try:
+        relative = resolved.relative_to(root_real)
+    except ValueError:
+        return False
+    probe = path.parent
+    for _ in relative.parts:
+        if probe.is_symlink():
+            return False
+        probe = probe.parent
+    return not path.is_symlink()
 
 
 def is_dirty(worktree: Worktree) -> bool:
