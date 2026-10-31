@@ -212,7 +212,8 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_mouse",
         description=(
-            "macOS fare eylemi; x,y son desktop_screenshot görüntüsünün pikselidir. action: "
+            "macOS fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
+            "pikselidir (görüntü yoksa önce al). action: "
             "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
             "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."
         ),
@@ -234,7 +235,10 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_click",
-        description="macOS ekranında x/y noktasına sol tıkla (x,y son ekran görüntüsünün pikseli).",
+        description=(
+            "macOS ekranında x/y noktasına sol tıkla (x,y bu turdaki son ekran görüntüsünün "
+            "pikseli; görüntü yoksa önce desktop_screenshot)."
+        ),
         parameters=_schema({"x": _NUMBER, "y": _NUMBER}, ["x", "y"]),
         run=desktop_mouse.desktop_click,
         mutating=True,

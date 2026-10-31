@@ -72,13 +72,19 @@ def test_retina_koordinati_ekran_noktasina_cevrilir(tmp_path, monkeypatch) -> No
     assert (planlar[0][1].x, planlar[0][1].y) == (720.0, 450.0)
 
 
-def test_cerceve_yokken_koordinat_nokta_sayilir(tmp_path, monkeypatch) -> None:
+def test_cerceve_yokken_once_ekran_goruntusu_istenir(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): çerçevesiz x,y nokta sayılıyor, ikinci turda ~%10 kayıp tıklıyordu."""
     planlar = _izinli(monkeypatch)
+    monkeypatch.setattr(desktop_mouse, "_post_scroll", lambda loaded, lines, delta_x=0: None)
+    context = ToolContext(root=tmp_path)
 
-    assert desktop_mouse.desktop_mouse(
-        {"action": "hover", "x": 5, "y": 6}, ToolContext(root=tmp_path)
-    ).ok
-    assert (planlar[0][0].x, planlar[0][0].y) == (5.0, 6.0)
+    sonuc = desktop_mouse.desktop_mouse({"action": "hover", "x": 5, "y": 6}, context)
+    kaydirma = desktop_mouse.desktop_scroll({"lines": 2, "x": 5, "y": 6}, context)
+
+    assert not sonuc.ok and "desktop_screenshot" in sonuc.output
+    assert not kaydirma.ok and "desktop_screenshot" in kaydirma.output
+    assert planlar == []
+    assert desktop_mouse.desktop_scroll({"lines": 2}, context).ok  # koordinatsız kaydırma serbest
 
 
 def test_goruntu_disi_koordinat_reddedilir(tmp_path, monkeypatch) -> None:
@@ -107,6 +113,7 @@ def test_surukleme_araci_hedef_ister_ve_cevirir(tmp_path, monkeypatch) -> None:
 def test_gecersiz_girdiler_reddedilir(tmp_path, monkeypatch) -> None:
     _izinli(monkeypatch)
     context = ToolContext(root=tmp_path)
+    _retina(context)
 
     assert not desktop_mouse.desktop_mouse({"action": "kick", "x": 1, "y": 1}, context).ok
     assert not desktop_mouse.desktop_mouse({"action": "click", "x": True, "y": 1}, context).ok
@@ -121,8 +128,10 @@ def test_gecersiz_girdiler_reddedilir(tmp_path, monkeypatch) -> None:
 
 def test_izin_yokken_fare_olayi_gonderilmez(tmp_path, monkeypatch) -> None:
     planlar = _izinli(monkeypatch, trusted=False)
+    context = ToolContext(root=tmp_path)
+    _retina(context)
 
-    sonuc = desktop_mouse.desktop_click({"x": 50, "y": 40}, ToolContext(root=tmp_path))
+    sonuc = desktop_mouse.desktop_click({"x": 50, "y": 40}, context)
 
     assert not sonuc.ok and "Erişilebilirlik" in sonuc.output and planlar == []
     assert sonuc.structured is not None and sonuc.structured["izin_gerekli"] == "accessibility"

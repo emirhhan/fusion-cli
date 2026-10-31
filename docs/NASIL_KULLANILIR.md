@@ -313,7 +313,8 @@ Fusion'ı yeniden açmak gerekebilir. TCC istemi Fusion.app adına açılır (si
 `runtime.desktop_screenshot_max_width` (1568 px) genişliğe küçültür ve çerçeveyi bildirir:
 "Görüntü 1568x980 px; ekran 1: 1440x900 nokta … 1 görüntü pikseli = 0.92 nokta". Fare
 araçlarına verilen `x,y` HER ZAMAN bu görüntünün pikselidir; Fusion ekran noktasına çevirir
-(Retina 2x sorunu yok). `region="x,y,w,h"` bölgeyi büyütür (kırpık; tıklama tam görüntü
+(Retina 2x sorunu yok). Çerçeve tur ile yaşar: yeni turda tıklamadan önce yeni görüntü gerekir,
+yoksa araç "önce desktop_screenshot al" der (önceki turun pikseliyle kayık tıklama yerine). `region="x,y,w,h"` bölgeyi büyütür (kırpık; tıklama tam görüntü
 koordinatıyla), `display=N` ekran seçer, `desktop_displays` ekranları listeler.
 `runtime.desktop_exclude_fusion_window: true` ile Fusion'ın kendi penceresi (CLI'de terminal)
 görüntüden çıkarılır (macOS 14+ ScreenCaptureKit; yoksa tam ekran).

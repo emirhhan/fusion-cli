@@ -172,9 +172,23 @@ def _modifier_bits(value: object) -> int | None:
     return modifier_flags(**flags)
 
 
+NO_FRAME_MESSAGE = (
+    "Bu turda henüz ekran görüntüsü yok; önce desktop_screenshot al. x,y o görüntünün pikseli "
+    "olmalı (önceki turun görüntüsü geçmez)."
+)
+
+
 def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, float] | str:
+    """Görüntü pikseli → ekran noktası; çerçeve yoksa açık hata (sessiz %10 kayma yerine).
+
+    Ölçüldü (31 Ekim): çerçeve yokken x,y nokta sayılıyordu; REPL/TUI/masaüstü her turda yeni
+    `ToolContext` kurduğu için ikinci turda önceki görüntünün pikseliyle tıklanınca Retina'da
+    ~%10 kayarak yanlış öğeye gidiyor ve hata vermiyordu.
+    """
     frame = context.desktop.frame
-    if frame is not None and not frame.contains_pixel(*pixel):
+    if frame is None:
+        return NO_FRAME_MESSAGE
+    if not frame.contains_pixel(*pixel):
         return (
             f"Koordinat görüntünün dışında: son ekran görüntüsü {frame.image_width}x"
             f"{frame.image_height} px. x,y bu görüntünün pikseli olmalı."
