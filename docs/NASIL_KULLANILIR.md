@@ -970,6 +970,7 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
 @backend-oturumu API şeması değişti, testleri koştur
 ```
 
-Tam ekranda tur sürerken **Ctrl+B** turu arka plana taşır. Terminalden: `fusion agent --bg
+Tam ekranda tur sürerken **Ctrl+B** turu keser ve görevi arka planda baştan başlatır
+(değişen dosyalar devredilir). Terminalden: `fusion agent --bg
 "görev"`, izlemek için `fusion agents --izle`. Ayrıntı ve ayarlar:
 [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md).

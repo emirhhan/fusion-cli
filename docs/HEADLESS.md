@@ -161,3 +161,8 @@ hemen döner; olaylar aynı JSON-Lines biçiminde `<bellek>/arka-plan/<kimlik>/o
 dosyasına gider, onay istekleri `fusion agents cevapla` ile cevaplanır. İzleme ve yönetim:
 `fusion agents` (bkz. [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md)).
 
+Kısıt bayrakları işçiye taşınır: `--allowed-tools`, `--disallowed-tools`, `--max-budget-usd`,
+`--max-turns`, `--add-dir`, `--append-system-prompt`, `--no-memory`, `--bare`, `--worktree`
+ve global `--set`/`--profile`. `--output-format`/`--json`, `--json-schema` ve
+`--permission-channel` `--bg` ile açık hatayla (çıkış kodu 2) reddedilir.
+
