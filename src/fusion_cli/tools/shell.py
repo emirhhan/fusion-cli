@@ -47,8 +47,10 @@ from .remotion_shell_guard import (
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 from .sandbox_runtime import (
     SandboxRun,
+    background_exit_note,
     delete_blocked,
     prepare_sandbox,
+    release_sandbox,
     sandbox_env,
     sandbox_notes,
 )
@@ -99,20 +101,38 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
         run = prepare_sandbox(command, args, context)
         if run.plan.refused:
+            release_sandbox(run)
             return ToolResult.failure(run.plan.refused)
-        started = start_job(
-            command,
-            context,
-            sandbox_env(_shell_env(context), run),
-            manifest=manifest,
-            outputs=outputs,
-            argv_prefix=run.plan.prefix,
-        )
+        # Proxy işe aittir: iş süreci bitince kapanır (iş başlamazsa hemen).
+        started: ToolResult | None = None
+        try:
+            started = start_job(
+                command,
+                context,
+                sandbox_env(_shell_env(context), run),
+                manifest=manifest,
+                outputs=outputs,
+                argv_prefix=run.plan.prefix,
+                on_exit=lambda: background_exit_note(run),
+            )
+        finally:
+            if started is None or not started.ok:
+                release_sandbox(run)
         notes = _once_notice(run) + "".join(
             f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
         )
         return replace(started, output=f"{started.output}{notes}") if notes else started
     run = prepare_sandbox(command, args, context)
+    try:
+        return _run_foreground(command, context, run, integrity_error)
+    finally:
+        release_sandbox(run)
+
+
+def _run_foreground(
+    command: str, context: ToolContext, run: SandboxRun, integrity_error: str | None
+) -> ToolResult:
+    """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır)."""
     if run.plan.refused:
         return ToolResult.failure(run.plan.refused)
     before, skipped = _fingerprint_before(command, context)

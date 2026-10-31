@@ -1676,11 +1676,15 @@ SANDBOX_AVAILABLE = "kurulabilir"
 SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
 SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
 SANDBOX_READ = "  Okuma engeli : {paths}"
+SANDBOX_READ_OPENED = (
+    "  Okuma izni   : {paths} (varsayılan engelden bilerek açıldı: sandbox.allow_read)"
+)
 SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
 SANDBOX_NETWORK_ALLOWLIST = (
     "  Ağ           : yalnız izinli alan adları — {allowed}{denied}; localhost {localhost}"
 )
 SANDBOX_NETWORK_NONE = "hiçbiri (dış ağ kapalı)"
+SANDBOX_DEBUG_PORTS = "  Tarayıcı CDP : Fusion Chrome'unun hata ayıklama portu {guard}"
 SANDBOX_FLAGS = (
     "  Davranış     : sandbox dışı istek {outside} · sorusuz çalıştırma {auto} · "
     "kurulamazsa {fail} · sır ortamı {secrets}"

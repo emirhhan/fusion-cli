@@ -112,6 +112,17 @@ def _network_rules(policy: SandboxPolicy, proxy: ProxyEndpoint | None) -> str:
     return rules
 
 
+def _local_port_rules(ports: Sequence[int]) -> str:
+    """Kapalı loopback portları (CDP). Ağ kurallarından SONRA gelir; SBPL'de sonraki önceliklidir.
+
+    Ölçüldü (1 Kasım, gerçek sandbox-exec): `(remote ip "localhost:P")` reddi 127.0.0.1, ::1
+    ve `localhost` adına bağlantıyı EPERM ile keser; diğer portlar açık kalır.
+    """
+    return "".join(
+        f'\n(deny network-outbound (remote ip "localhost:{int(port)}"))' for port in ports
+    )
+
+
 def _profile(write_count: int, read_count: int, network: str = "", guard: str = "") -> str:
     """SBPL profili: her şeye izin ver, yazmayı kapat, kökleri geri aç, okuma/ağ kısıtla."""
     allowed = " ".join(f'(subpath (param "W{index}"))' for index in range(write_count))
@@ -164,7 +175,8 @@ def _darwin_prefix(
             item for index, path in enumerate(paths) for item in ("-D", f"{prefix}{index}={path}")
         ]
     guard = _guard_rules(len(protected), len(git_entries), len(anchors))
-    profile = _profile(len(roots), len(denied), _network_rules(policy, proxy), guard)
+    network = _network_rules(policy, proxy) + _local_port_rules(policy.denied_local_ports)
+    profile = _profile(len(roots), len(denied), network, guard)
     return (executable, *parameters, "-p", profile)
 
 

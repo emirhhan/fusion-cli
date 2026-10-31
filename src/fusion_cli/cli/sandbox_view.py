@@ -78,6 +78,8 @@ def format_status(status: SandboxStatus) -> str:
         messages.SANDBOX_WRITE.format(extra=extra),
         messages.SANDBOX_READ.format(paths=", ".join(status.deny_read) or "—"),
     ]
+    if status.allow_read:
+        lines.append(messages.SANDBOX_READ_OPENED.format(paths=", ".join(status.allow_read)))
     if status.network == "allowlist":
         denied = f"; yasak: {', '.join(status.denied_domains)}" if status.denied_domains else ""
         lines.append(
@@ -89,6 +91,8 @@ def format_status(status: SandboxStatus) -> str:
         )
     else:
         lines.append(messages.SANDBOX_NETWORK_OPEN)
+    if status.debug_ports:
+        lines.append(messages.SANDBOX_DEBUG_PORTS.format(guard=status.debug_ports))
     lines.append(
         messages.SANDBOX_FLAGS.format(
             outside="onaylı" if status.allow_unsandboxed else "reddedilir",

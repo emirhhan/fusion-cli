@@ -4,6 +4,12 @@
 alan adı proxy'si başlatılır ve komut bittikten sonra modele eyleme dönük not üretilir
 (engellenen yazma/okuma, engellenen alan adı, sandbox dışı çalıştırma).
 
+Proxy KOMUT başınadır ve sahibine bağlıdır: ön plan komutu bitince, arka plan işi ise
+süreci bitince `release_sandbox` ile kapanır. Ölçüldü (1 Kasım): proxy politika başına
+süreç boyunca paylaşılıyordu; eşzamanlı komutların (arka plan işi, alt ajan) engellenen
+adları birbirinin notuna düşüyor, `/sandbox izin` sonrası eski proxy süreç kapanana
+kadar açık kalıyordu.
+
 Sandbox dışı çalıştırma iki yoldan olur ve ikisi de onay akışından geçer
 (`engines.agent.sandbox_approval`): model `unsandboxed=true` ister (her seferinde açık
 onay; `sandbox.allow_unsandboxed=false` ise istek yok sayılır) ya da komut
@@ -12,11 +18,11 @@ onay; `sandbox.allow_unsandboxed=false` ise istek yok sayılır) ya da komut
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import tempfile
-import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..core.redaction import is_secret_env_name
@@ -35,15 +41,18 @@ from ..core.shell_sandbox import (
     temporary_roots,
 )
 from ..core.tools import ToolArgs, ToolContext
+from .sandbox_cdp import fusion_debug_ports
 
 __all__ = [
     "OUTSIDE_EXCLUDED",
     "OUTSIDE_REQUESTED",
     "SandboxRun",
+    "background_exit_note",
     "delete_blocked",
     "outside_reason",
     "prepare_sandbox",
     "probe_plan",
+    "release_sandbox",
     "sandbox_env",
     "sandbox_notes",
 ]
@@ -87,31 +96,9 @@ class SandboxRun:
     hidden_env: tuple[str, ...] = ()
 
 
-class _ProxyPool:
-    """Politika başına tek proxy; süreç boyunca yaşar.
-
-    Bilinçli süreç-kapsamlı durum (`shell._SHOWN_SANDBOX_NOTICES` gibi): arka plan işi
-    turdan sonra da ağ isteyebilir, proxy tur bağlamıyla birlikte ölürse iş kopardı.
-    Thread'ler daemon'dur; süreç kapanınca dinleyici de kapanır.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._proxies: dict[tuple[tuple[str, ...], tuple[str, ...], bool], DomainProxy] = {}
-
-    def get(self, policy: SandboxPolicy, *, unix: bool) -> DomainProxy:
-        key = (policy.allowed_domains, policy.denied_domains, unix)
-        with self._lock:
-            proxy = self._proxies.get(key)
-            if proxy is None:
-                path = Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / "proxy.sock" if unix else None
-                proxy = DomainProxy(policy, unix_path=path)
-                proxy.start()
-                self._proxies[key] = proxy
-            return proxy
-
-
-_PROXIES = _ProxyPool()
+def _uses_unix_proxy() -> bool:
+    """Linux'ta proxy Unix soketidir (ağ ad alanına bağlanır); macOS'ta loopback portu."""
+    return sys.platform.startswith("linux")
 
 
 def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | None:
@@ -130,11 +117,18 @@ def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | 
 
 
 def _proxy(policy: SandboxPolicy, notices: list[str]) -> DomainProxy | None:
+    """Bu komuta özel proxy (sahibi `release_sandbox` ile kapatır)."""
     if not (policy.restricts_network and policy.allowed_domains):
         return None
+    path = (
+        Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / "proxy.sock" if _uses_unix_proxy() else None
+    )
+    proxy = DomainProxy(policy, unix_path=path, blocked_ports=fusion_debug_ports)
     try:
-        return _PROXIES.get(policy, unix=sys.platform.startswith("linux"))
+        proxy.start()
+        return proxy
     except OSError as error:
+        _remove_socket_dir(path)
         _LOG.warning("sandbox proxy başlatılamadı", extra={"hata": str(error)})
         notices.append(f"Sandbox ağ proxy'si başlatılamadı ({error}); dış ağ tamamen kapalı.")
         return None
@@ -152,6 +146,9 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
         run.notices.append(
             "unsandboxed=true yok sayıldı: sandbox.allow_unsandboxed kapalı; komut sandbox içinde."
         )
+    # Fusion Chrome'larının CDP portları her kipte kapalı (Seatbelt; proxy her bağlantıda bakar).
+    policy = replace(policy, denied_local_ports=fusion_debug_ports())
+    run.policy = policy
     run.proxy = _proxy(policy, run.notices)
     endpoint = (
         ProxyEndpoint(port=run.proxy.port, unix_path=run.proxy.unix_path)
@@ -163,6 +160,30 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
     )
     run.mark = run.proxy.mark() if run.proxy is not None else 0
     return run
+
+
+def _remove_socket_dir(path: Path | None) -> None:
+    if path is not None:
+        path.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            path.parent.rmdir()
+
+
+def release_sandbox(run: SandboxRun) -> None:
+    """Komutun proxy'sini kapat (Linux'ta soket dizini de silinir); ikinci çağrı zararsız."""
+    if run.proxy is None:
+        return
+    run.proxy.close()
+    _remove_socket_dir(run.proxy.unix_path)
+
+
+def background_exit_note(run: SandboxRun) -> str:
+    """Arka plan işi bitince günlüğe eklenecek ağ ret notu; proxy de kapatılır."""
+    try:
+        hosts = _denied_hosts(run.proxy, run.mark) if run.proxy is not None else []
+    finally:
+        release_sandbox(run)
+    return f"FUSION_NOT: {_denied_note(hosts)}\n" if hosts else ""
 
 
 def probe_plan(context: ToolContext) -> SandboxPlan:
@@ -253,10 +274,7 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
     if run.proxy is not None:
         hosts = _denied_hosts(run.proxy, run.mark)
         if hosts:
-            notes.append(
-                f"Sandbox ağı engelledi: {', '.join(hosts)}. Gerekliyse kullanıcı izin verir: "
-                f"/sandbox izin {hosts[0]}"
-            )
+            notes.append(_denied_note(hosts))
     elif (
         run.policy.restricts_network
         and returncode != 0
@@ -267,6 +285,13 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
             "Gerekliyse kullanıcı izin verir: /sandbox izin <alan-adı>"
         )
     return notes
+
+
+def _denied_note(hosts: list[str]) -> str:
+    return (
+        f"Sandbox ağı engelledi: {', '.join(hosts)}. Gerekliyse kullanıcı izin verir: "
+        f"/sandbox izin {hosts[0]}"
+    )
 
 
 def _denied_hosts(proxy: DomainProxy, mark: int) -> list[str]:
