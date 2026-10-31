@@ -8,6 +8,11 @@ yüzeylerde yaşar: REPL `cli/repl/plan_card.py`, masaüstü `SessionApplication
 
 Ölçüldü (31 Ekim): plan kipinde tur bitince plan hiçbir yere yazılmıyordu; kullanıcı
 planı ancak sohbet geçmişinden geri kaydırarak bulabiliyordu.
+
+Claude Code'un açık `ExitPlanMode` adımı burada yok; bu yüzden plan kipindeki HER
+cevap plan sayılmaz: soru ("Hangi veritabanı?") ve kısa sohbet cevapları
+`looks_like_plan` ile ayrılır, önceki plan dosyasına dokunulmaz ve kart açılmaz.
+Yeni plan eskisinin üzerine yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır.
 """
 
 from __future__ import annotations
@@ -27,6 +32,12 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 #: Sohbet kimliği boşsa (tek atışlık `fusion agent`) kullanılan dosya adı.
 _DEFAULT_STEM = "oturum"
+#: Üzerine yazılan önceki planın saklandığı dosya eki.
+_PREVIOUS_SUFFIX = ".onceki.md"
+#: Markdown liste ögesi: `- a`, `* a`, `1. a`, `1) a`.
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
+#: Bir planı "plan" saymak için gereken en az liste ögesi (başlık yoksa).
+_MIN_LIST_ITEMS = 2
 
 
 def plan_path(conversation_id: str) -> Path:
@@ -35,12 +46,41 @@ def plan_path(conversation_id: str) -> Path:
     return plans_dir() / f"{stem}.md"
 
 
+def previous_plan_path(conversation_id: str) -> Path:
+    """Üzerine yazılan önceki planın yedeği (`<sohbet>.onceki.md`)."""
+    path = plan_path(conversation_id)
+    return path.with_name(path.stem + _PREVIOUS_SUFFIX)
+
+
 def save_plan(conversation_id: str, markdown: str) -> Path:
-    """Planı dosyaya yaz (üzerine yazar: aynı sohbetin planı tek dosyadır)."""
+    """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır, eskisi `.onceki.md`ye alınır."""
     path = plan_path(conversation_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        previous = path.read_text(encoding="utf-8")
+    except OSError:
+        previous = None
+    if previous is not None and previous != markdown:
+        previous_plan_path(conversation_id).write_text(previous, encoding="utf-8")
     path.write_text(markdown, encoding="utf-8")
     return path
+
+
+def looks_like_plan(markdown: str) -> bool:
+    """Cevap plan mı, yoksa soru/sohbet mi?
+
+    Plan: Markdown başlığı var (istem başlıkla başlamasını ister) YA DA en az iki liste
+    ögesi var ve hiçbir satır soruyla bitmiyor. Soruyla biten ya da düz tek paragraf
+    cevaplar plan değildir; önceki plan korunur, kart açılmaz.
+    """
+    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+    if not lines:
+        return False
+    if any(line.startswith("#") for line in lines):
+        return True
+    if any(line.endswith("?") for line in lines):
+        return False
+    return sum(1 for line in lines if _LIST_ITEM.match(line)) >= _MIN_LIST_ITEMS
 
 
 def read_plan(conversation_id: str) -> str | None:
@@ -70,10 +110,13 @@ def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> P
     """Plan kipindeki başarılı turun cevabını plan dosyasına yaz ve olayını yayınla.
 
     Plan kipi dışında, başarısız ya da boş turda ve `runtime.plan_files` kapalıyken
-    hiçbir şey yapılmaz. Yazma hatası turu düşürmez: plan sohbette zaten duruyor.
+    hiçbir şey yapılmaz; plana benzemeyen cevap (soru, kısa sohbet) da yazılmaz
+    (`looks_like_plan`). Yazma hatası turu düşürmez: plan sohbette zaten duruyor.
     """
     text = outcome.final_text.strip()
     if not plan_mode or not outcome.ok or not text or not deps.config.runtime.plan_files:
+        return None
+    if not looks_like_plan(text):
         return None
     try:
         path = save_plan(deps.conversation_id, outcome.final_text)

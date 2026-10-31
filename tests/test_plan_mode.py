@@ -119,6 +119,50 @@ def test_plan_kipi_disi_bos_ya_da_basarisiz_tur_plan_yazmaz(
     assert not any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
+@pytest.mark.parametrize(
+    ("text", "plan"),
+    [
+        ("# Plan\n1. a", True),
+        ("## Giriş ekranı\nRiskler: cache mi, db mi?\n1. a\n2. b", True),
+        ("1. Oku\n2. Yaz\n3. Test et", True),
+        ("Hangi veritabanını tercih edersin?", False),
+        ("İki seçenek var:\n1. Postgres\n2. SQLite\nHangisi?", False),
+        ("Tamam, devam edelim.", False),
+    ],
+)
+def test_plan_metni_soru_ve_sohbetten_ayrilir(text: str, plan: bool) -> None:
+    assert plan_mode.looks_like_plan(text) is plan
+
+
+def test_soru_cevabi_onceki_plani_silmez_ve_kart_acmaz(tmp_path: Path) -> None:
+    """İnceleme bulgusu (orta): plan kipindeki her cevap plan sayılıp dosyayı eziyordu.
+
+    Ölçüldü (31 Ekim): "Hangi veritabanını tercih edersin?" cevabı plans/<sohbet>.md'yi
+    gerçek planın üzerine yazıyor ve "uygulansın mı?" kartı açıyordu.
+    """
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    plan_mode.record_plan(_outcome("# Plan\n1. a\n2. b"), deps, plan_mode=True)
+
+    yol = plan_mode.record_plan(
+        _outcome("Hangi veritabanını tercih edersin?"), deps, plan_mode=True
+    )
+
+    assert yol is None
+    assert plan_mode.read_plan(deps.conversation_id) == "# Plan\n1. a\n2. b"
+    assert len([e for e in sink.events if isinstance(e, PlanDrafted)]) == 1
+
+
+def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
+    deps = _deps(tmp_path, RecordingSink())
+    plan_mode.record_plan(_outcome("# Plan v1\n1. a"), deps, plan_mode=True)
+    yol = plan_mode.record_plan(_outcome("# Plan v2\n1. b"), deps, plan_mode=True)
+
+    assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan v2\n1. b"
+    yedek = plan_mode.previous_plan_path(deps.conversation_id)
+    assert yedek.read_text(encoding="utf-8") == "# Plan v1\n1. a"
+
+
 def test_plan_dosyasi_ayarla_kapatilabilir(tmp_path: Path) -> None:
     sink = RecordingSink()
     deps = _deps(tmp_path, sink, runtime={"plan_files": False})

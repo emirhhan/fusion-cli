@@ -365,8 +365,10 @@ ve "Plan hazır — uygulansın mı?" kartı çıkar:
 - **Evet, her adımda sor** → `security` (manuel) kipi.
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
 
-Kabulde oturum boyunca verilen izinler sıfırlanır; uygulama görevi plan dosyasının yolunu
-taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
+Plan kipindeki her cevap plan sayılmaz: soruyla biten ya da başlıksız/listesiz kısa cevap
+("Hangi veritabanı?") dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
+yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum boyunca verilen
+izinler sıfırlanır; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
 (Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
 yalnız yol basılır.
