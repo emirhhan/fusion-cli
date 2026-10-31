@@ -28,14 +28,15 @@ USAGE = (
     "Kullanım: /plugin [liste | kur <kaynak> [--yes] | dogrula <yol> | ac|kapat <ad|--hepsi> | "
     "kaldir <ad> | guven <ad> --yes | kesfet [pazar] | pazar ekle|liste|kaldir]"
 )
-NEEDS_YES = (
-    "Bu eklenti komut çalıştırabilir. İnceledikten sonra onayla: /plugin {verb} {target} --yes"
-)
+NEEDS_YES = "İnceledikten sonra onayla: /plugin {verb} {target} --yes"
 INSTALLED = (
     "Kuruldu: {name} ({status}). Bileşenler yeni turda kataloğa girer; MCP yeniden başlatınca."
 )
 DONE = "{name}: {state}"
 _YES = frozenset({"--yes", "-y", "evet"})
+#: `(fiil, hedef)` → kullanıcıya gösterilen son önizlemenin karması. `--yes` ikinci çalıştırması
+#: kaynağı YENİDEN çeker; karma farklıysa (araya giren değişiklik) kurulmaz.
+_SHOWN: dict[tuple[str, str], str] = {}
 _ALL = frozenset({"--hepsi", "--all", "hepsi"})
 _ALIASES = {
     "list": "liste",
@@ -75,11 +76,14 @@ def _list(rest: list[str], confirmed: bool) -> str:
 
 
 def _approval(
-    verb: str, target: str, confirmed: bool, notes: list[str]
+    verb: str, target: str, confirmed: bool, notes: list[str], *, always: bool = False
 ) -> plugins.ApprovalCallback:
+    """`always`: yeniden onayda (guven) içerik değiştiği için her eklenti `--yes` ister."""
+
     def approve(preview: plugins.PluginPreview) -> bool:
         notes.append(format_preview(preview))
-        if preview.is_executable and not confirmed:
+        if (preview.is_executable or always) and not confirmed:
+            _SHOWN[(verb, target)] = preview.digest
             notes.append(NEEDS_YES.format(verb=verb, target=target))
             return False
         return True
@@ -92,7 +96,11 @@ def _install(rest: list[str], confirmed: bool) -> str:
         return USAGE
     notes: list[str] = []
     try:
-        item = plugins.install_plugin(rest[0], approve=_approval("kur", rest[0], confirmed, notes))
+        item = plugins.install_plugin(
+            rest[0],
+            approve=_approval("kur", rest[0], confirmed, notes),
+            expected_digest=_SHOWN.pop(("kur", rest[0]), "") if confirmed else "",
+        )
     except PluginError as error:
         return "\n".join([*notes, str(error)])
     return "\n".join([*notes, INSTALLED.format(name=item.record.name, status=item.status)])
@@ -104,7 +112,9 @@ def _trust(rest: list[str], confirmed: bool) -> str:
     notes: list[str] = []
     try:
         record = plugins.trust_plugin(
-            rest[0], approve=_approval("guven", rest[0], confirmed, notes)
+            rest[0],
+            approve=_approval("guven", rest[0], confirmed, notes, always=True),
+            expected_digest=_SHOWN.pop(("guven", rest[0]), "") if confirmed else "",
         )
     except PluginError as error:
         return "\n".join([*notes, str(error)])

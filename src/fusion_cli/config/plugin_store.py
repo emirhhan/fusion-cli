@@ -41,6 +41,11 @@ STATE_VERSION = 1
 PLUGINS_ENV = "FUSION_PLUGINS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
 
+#: Eklenti kancaları çalıştırılıyor mu? Kanca yükleyicisi (P-009, `config/hooks.py`)
+#: `plugin_hook_blocks()`'u tükettiğinde True olur. O zamana dek önizleme ve liste kancanın
+#: TETİKLENMEDİĞİNİ açıkça söyler: "etkin" görünen kancanın çalıştığı sanılmasın.
+PLUGIN_HOOKS_ACTIVE = False
+
 #: Kayıt durumları (kullanıcıya bu adlarla görünür).
 STATUS_ACTIVE = "etkin"
 STATUS_DISABLED = "kapalı"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..config.plugin_layout import PluginLayout, ValidationReport
-from ..config.plugin_store import InstalledPlugin, PluginState
+from ..config.plugin_layout import PluginLayout, ValidationReport, server_target
+from ..config.plugin_store import PLUGIN_HOOKS_ACTIVE, InstalledPlugin, PluginState
 from ..tools.plugin_install import CatalogEntry, PluginPreview
 
 EMPTY = (
@@ -14,6 +14,13 @@ ALL_OFF = "Bütün eklentiler kapalı (fusion eklenti ac --hepsi ile açılır).
 EXEC_WARNING = (
     "DİKKAT: bu eklenti Fusion dışında komut çalıştırabilir ({parts}). Kancalar her olayda, MCP "
     "sunucuları oturum açılışında başlar; MCP araç çağrıları yine onay ister."
+)
+HOOKS_NOT_RUN = (
+    "Not: Fusion bu sürümde eklenti kancalarını henüz ÇALIŞTIRMIYOR; kancalar onaylansa da "
+    "tetiklenmez (kanca desteği ayrıca gelecek)."
+)
+DIGEST_HINT = (
+    "  karma: {digest} (onaylamak için: fusion eklenti kur {source} --yes --karma {digest})"
 )
 NO_MARKETS = "Kayıtlı pazar yok. Örnek: fusion eklenti pazar ekle resmi"
 NO_ENTRIES = "Pazarlarda eklenti bulunamadı."
@@ -54,6 +61,8 @@ def format_installed(items: tuple[InstalledPlugin, ...], state: PluginState) -> 
         rows.append(f"  {record.name}{version} — {item.status} · {summary} · {origin}")
         if item.detail and item.layout is not None:
             rows.append(f"      {item.detail} (yeniden onay: fusion eklenti guven {record.name})")
+    if not PLUGIN_HOOKS_ACTIVE and any(i.layout and i.layout.has_hooks for i in items):
+        rows.append(HOOKS_NOT_RUN)
     return "\n".join(rows)
 
 
@@ -71,13 +80,17 @@ def format_preview(preview: PluginPreview) -> str:
     ]
     if manifest.author:
         rows.append(f"  yazar: {manifest.author}")
+    rows.extend(f"  kanca: {line}" for line in report.hook_lines)
     rows.extend(
-        f"  MCP: {server.name} ({server.command or server.url})" for server in report.servers
+        f"  MCP: {server.name} → {server_target(server, report.layout.root)}"
+        for server in report.servers
     )
     rows.extend(f"  ! {warning}" for warning in report.warnings)
     rows.extend(f"  ✗ {error}" for error in report.errors)
     if report.layout.is_executable:
         rows.append(EXEC_WARNING.format(parts=exec_parts(report.layout)))
+    if report.layout.has_hooks and not PLUGIN_HOOKS_ACTIVE:
+        rows.append(HOOKS_NOT_RUN)
     return "\n".join(rows)
 
 

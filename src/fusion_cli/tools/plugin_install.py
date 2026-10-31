@@ -66,6 +66,10 @@ ERR_SOURCE = (
 ERR_URL = "Yalnız genel https adresleri klonlanır: {url}"
 ERR_NO_ENTRY = "'{name}' hiçbir kayıtlı pazarda yok. Pazarlar: fusion eklenti pazar liste"
 ERR_AMBIGUOUS = "'{name}' birden çok pazarda var: {markets}. ad@pazar biçimini kullan."
+ERR_CHANGED = (
+    "Eklenti önizlemeden sonra değişti (karma {expected} → {actual}); hiçbir şey yazılmadı. "
+    "Güncel içeriği yeniden önizleyip onayla."
+)
 ERR_SHA = "Commit uyuşmuyor: pazar {expected} bekliyor, klon {actual}. Kurulmadı."
 ERR_NO_MARKET = "Pazar yok: {name}"
 ERR_MARKET_FILE = "Pazar bildirimi bulunamadı (.claude-plugin/marketplace.json): {path}"
@@ -78,6 +82,9 @@ class PluginPreview:
     report: ValidationReport
     source: str
     context_tokens: int
+    #: Gösterilen içeriğin karması: kur/güven isteği bunu `expected_digest` olarak geri yollar.
+    digest: str = ""
+    commit: str = ""
 
     @property
     def name(self) -> str:
@@ -201,16 +208,36 @@ def preview_plugin(spec: str, *, base: Path | None = None) -> PluginPreview:
     root = base or plugins_dir()
     resolved = _resolve(spec, load_state(root))
     with _workspace(root) as workspace:
-        folder, _commit = _fetch(resolved, workspace)
+        folder, commit = _fetch(resolved, workspace)
         report = validate_plugin(folder)
         tokens = context_cost(report.layout) if report.layout else 0
         # Geçici klasör silinir; özet yalnız sayı/ad/uyarı olarak gösterilir.
-        return PluginPreview(report, spec, tokens)
+        return PluginPreview(report, spec, tokens, _safe_digest(folder, report), commit)
+
+
+def _safe_digest(folder: Path, report: ValidationReport) -> str:
+    """Boyut sınırını aşan klasörde karma yok (rapor zaten hata taşır)."""
+    try:
+        return tree_digest(folder) if report.layout is not None else ""
+    except PluginError:
+        return ""
+
+
+def _check_expected(expected: str, actual: str) -> None:
+    """Ölçüldü (31 Ekim): önizleme ve kurulum iki ayrı çekişti; kullanıcının onayladığı
+    içerik ile kurulan içerik farklı olabiliyordu (pinsiz git HEAD'i, yerel klasör)."""
+    if expected and expected.strip().lower() != actual:
+        raise PluginError(ERR_CHANGED.format(expected=expected[:12], actual=actual[:12]))
 
 
 def install_plugin(
-    spec: str, *, approve: ApprovalCallback, base: Path | None = None
+    spec: str,
+    *,
+    approve: ApprovalCallback,
+    base: Path | None = None,
+    expected_digest: str = "",
 ) -> InstalledPlugin:
+    """Kur. `expected_digest` verildiyse çekilen içerik önizlemedekiyle aynı olmalıdır."""
     root = base or plugins_dir()
     state = load_state(root)
     resolved = _resolve(spec, state)
@@ -222,7 +249,9 @@ def install_plugin(
         name = report.layout.name
         if state.plugin(name) is not None or (root / name).exists():
             raise PluginError(ERR_EXISTS.format(name=name))
-        preview = PluginPreview(report, spec, context_cost(report.layout))
+        digest = tree_digest(folder)
+        _check_expected(expected_digest, digest)
+        preview = PluginPreview(report, spec, context_cost(report.layout), digest, commit)
         executable = report.layout.is_executable
         if not approve(preview):
             raise PluginError(ERR_DECLINED)
@@ -276,7 +305,13 @@ def set_all_disabled(disabled: bool, *, base: Path | None = None) -> None:
     save_state(replace(load_state(root), all_disabled=disabled), root)
 
 
-def trust_plugin(name: str, *, approve: ApprovalCallback, base: Path | None = None) -> PluginRecord:
+def trust_plugin(
+    name: str,
+    *,
+    approve: ApprovalCallback,
+    base: Path | None = None,
+    expected_digest: str = "",
+) -> PluginRecord:
     """Değişmiş eklentinin güncel içeriğini yeniden onayla (karma ve çalıştırma onayı yenilenir)."""
     root = base or plugins_dir()
     state = load_state(root)
@@ -286,11 +321,16 @@ def trust_plugin(name: str, *, approve: ApprovalCallback, base: Path | None = No
     report = validate_plugin(root / name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
-    if not approve(PluginPreview(report, record.source, context_cost(report.layout))):
+    digest = tree_digest(root / name)
+    _check_expected(expected_digest, digest)
+    preview = PluginPreview(
+        report, record.source, context_cost(report.layout), digest, record.commit
+    )
+    if not approve(preview):
         raise PluginError(ERR_DECLINED)
     updated = replace(
         record,
-        digest=tree_digest(root / name),
+        digest=digest,
         version=report.layout.manifest.version,
         exec_approved=report.layout.is_executable,
     )

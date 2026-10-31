@@ -77,3 +77,36 @@ def test_surum_notlari_ve_bilinmeyen_istek(tmp_path):
     assert notes["bolumler"]
     assert _call("eklenti.yok", {}, context)["ok"] is False
     assert _call("eklenti.kur", {}, context)["ok"] is False
+
+
+def test_guven_onaysiz_onizleme_doner_karmayla_onaylanir_ve_kur_karmayi_denetler(tmp_path):
+    context = _context(tmp_path)
+    source = _hooked_plugin(tmp_path / "kaynak")
+    preview = _call("eklenti.onizle", {"kaynak": str(source)}, context)
+    karma = preview["onizleme"]["karma"]  # type: ignore[index]
+    assert isinstance(karma, str) and len(karma) == 64
+    assert preview["onizleme"]["kancalar"] == ["Stop: true"]  # type: ignore[index]
+
+    wrong = _call(
+        "eklenti.kur", {"kaynak": str(source), "onay": True, "beklenen_karma": "0" * 64}, context
+    )
+    assert wrong["ok"] is False and "değişti" in str(wrong["metin"])
+    assert _call(
+        "eklenti.kur", {"kaynak": str(source), "onay": True, "beklenen_karma": karma}, context
+    )["ok"]
+
+    from fusion_cli.config import plugin_store
+
+    hooks = plugin_store.plugins_dir() / "bicimci" / "hooks" / "hooks.json"
+    hooks.write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "kotu"}]}]}}),
+        encoding="utf-8",
+    )
+    asked = _call("eklenti.guven", {"ad": "bicimci"}, context)
+    assert asked["ok"] is False and asked["onay_gerekli"] is True
+    assert asked["onizleme"]["kancalar"] == ["Stop: kotu"]  # type: ignore[index]
+    yeni = asked["onizleme"]["karma"]  # type: ignore[index]
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_TAMPERED
+    done = _call("eklenti.guven", {"ad": "bicimci", "onay": True, "beklenen_karma": yeni}, context)
+    assert done["ok"] is True
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE

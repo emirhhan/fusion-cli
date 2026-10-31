@@ -1,13 +1,17 @@
 """Masaüstü RPC'leri: eklentiler (P-059), içe aktarma ve sürüm notları (P-071).
 
-    eklenti.listele | eklenti.onizle {kaynak} | eklenti.kur {kaynak, onay}
-    eklenti.etkinlik {ad|hepsi, etkin} | eklenti.kaldir {ad} | eklenti.guven {ad, onay}
+    eklenti.listele | eklenti.onizle {kaynak} | eklenti.kur {kaynak, onay, beklenen_karma}
+    eklenti.etkinlik {ad|hepsi, etkin} | eklenti.kaldir {ad}
+    eklenti.guven {ad} → önizleme · {ad, onay, beklenen_karma} → onay
     eklenti.kesfet {pazar?} | eklenti.pazar_ekle {kaynak} | eklenti.pazar_kaldir {ad}
     ice_aktar.onizle {kaynak} | ice_aktar.uygula {kaynak}
     surum.notlari {surum?}
 
 CLI ve REPL ile aynı işlevleri çağırır. Kanca/MCP içeren eklenti `onay: true` olmadan
 kurulmaz; yanıt `onay_gerekli` ve önizlemeyi taşır, arayüz kullanıcıya gösterip yeniden ister.
+Önizleme içeriğin karmasını (`karma`) taşır; onaylı istek bunu `beklenen_karma` olarak geri
+yollar ve araya giren değişiklik (pinsiz git HEAD'i, yerel klasör) kurulmaz. `eklenti.guven`
+onaysız çağrıda yalnız güncel içeriğin önizlemesini döner.
 Yanıtta `yenile: true` varsa oturum beceri kataloğunu yeniden tarar. Sır değeri hiçbir yanıtta
 yer almaz.
 """
@@ -23,8 +27,13 @@ from typing import Any
 from .. import __version__
 from ..config.importers import ImportPlan, apply_plan, build_plan, default_secrets
 from ..config.models import Config
-from ..config.plugin_layout import PluginLayout, ValidationReport
-from ..config.plugin_store import InstalledPlugin, installed_plugins, load_state
+from ..config.plugin_layout import PluginLayout, server_target
+from ..config.plugin_store import (
+    PLUGIN_HOOKS_ACTIVE,
+    InstalledPlugin,
+    installed_plugins,
+    load_state,
+)
 from ..config.release_notes import changelog_path, load_sections, release_notes_text
 from ..core.errors import ConfigError
 from ..core.plugins import PluginError
@@ -50,6 +59,7 @@ EXTENSION_ROUTES = frozenset(
 NEEDS_SOURCE = "Kaynak ver: klasör, https git adresi, sahip/repo ya da ad@pazar."
 NEEDS_NAME = "Eklenti adı ver."
 NEEDS_APPROVAL = "Bu eklenti komut çalıştırabilir (kanca/MCP); incele ve onayla."
+NEEDS_REAPPROVAL = "Eklentinin dosyaları değişti; güncel içeriği incele ve onayla."
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,8 +110,10 @@ def _installed(item: InstalledPlugin) -> dict[str, Any]:
     }
 
 
-def _preview(report: ValidationReport, tokens: int) -> dict[str, Any]:
+def _preview(preview: plugins.PluginPreview) -> dict[str, Any]:
+    report = preview.report
     layout = report.layout
+    root = layout.root if layout else Path()
     return {
         "ad": layout.name if layout else "",
         "surum": layout.manifest.version if layout else "",
@@ -109,9 +121,13 @@ def _preview(report: ValidationReport, tokens: int) -> dict[str, Any]:
         "yazar": layout.manifest.author if layout else "",
         "bilesenler": _components(layout) if layout else {},
         "kanca_sayisi": report.hook_count,
-        "mcp": [{"ad": s.name, "hedef": s.command or s.url} for s in report.servers],
+        "kancalar": list(report.hook_lines),
+        "kancalar_calismaz": bool(layout and layout.has_hooks) and not PLUGIN_HOOKS_ACTIVE,
+        "mcp": [{"ad": s.name, "hedef": server_target(s, root)} for s in report.servers],
         "calistirilabilir": bool(layout and layout.is_executable),
-        "baglam_maliyeti": tokens,
+        "baglam_maliyeti": preview.context_tokens,
+        "karma": preview.digest,
+        "commit": preview.commit[:12],
         "uyarilar": list(report.warnings),
         "hatalar": list(report.errors),
     }
@@ -135,11 +151,13 @@ def _install(data: Mapping[str, object]) -> dict[str, Any]:
     seen: list[dict[str, Any]] = []
 
     def approve(preview: plugins.PluginPreview) -> bool:
-        seen.append(_preview(preview.report, preview.context_tokens))
+        seen.append(_preview(preview))
         return approved or not preview.is_executable
 
     try:
-        item = plugins.install_plugin(source, approve=approve)
+        item = plugins.install_plugin(
+            source, approve=approve, expected_digest=_text(data, "beklenen_karma")
+        )
     except PluginError as error:
         if seen and seen[0]["calistirilabilir"] and not approved:
             return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}
@@ -162,9 +180,31 @@ def _plugin_action(name: str, data: Mapping[str, object]) -> dict[str, Any]:
         return {"ok": False, "metin": NEEDS_NAME}
     if name == "eklenti.kaldir":
         plugins.uninstall_plugin(plugin)
-    else:  # eklenti.guven
-        approved = data.get("onay") is True
-        plugins.trust_plugin(plugin, approve=lambda _preview: approved)
+        return {**_list(), "yenile": True}
+    return _trust(plugin, data)
+
+
+def _trust(plugin: str, data: Mapping[str, object]) -> dict[str, Any]:
+    """Ölçüldü (31 Ekim): "Yeniden onayla" tek tıkla `onay: true` yolluyor, değişen içerik
+    (yeni kanca/MCP) hiç gösterilmeden çalıştırılabilir oluyordu. Onaysız çağrı önizleme döner."""
+    seen: list[dict[str, Any]] = []
+    approved = data.get("onay") is True
+
+    def approve(preview: plugins.PluginPreview) -> bool:
+        seen.append(_preview(preview))
+        return approved
+
+    try:
+        plugins.trust_plugin(plugin, approve=approve, expected_digest=_text(data, "beklenen_karma"))
+    except PluginError as error:
+        if seen and not approved:
+            return {
+                "ok": False,
+                "onay_gerekli": True,
+                "metin": NEEDS_REAPPROVAL,
+                "onizleme": seen[0],
+            }
+        return {"ok": False, "metin": str(error)}
     return {**_list(), "yenile": True}
 
 
@@ -255,9 +295,8 @@ def _dispatch_sync(
             source = _text(data, "kaynak")
             if not source:
                 return ExtensionResult({"ok": False, "metin": NEEDS_SOURCE})
-            preview = plugins.preview_plugin(source)
             return ExtensionResult(
-                {"ok": True, "onizleme": _preview(preview.report, preview.context_tokens)}
+                {"ok": True, "onizleme": _preview(plugins.preview_plugin(source))}
             )
         if name == "eklenti.kur":
             return ExtensionResult(_install(data))

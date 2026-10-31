@@ -22,7 +22,7 @@ from .common import FUSION_COMMANDS, Collector, copy_item, markdown_files
 from .mcp_map import map_codex_server, map_json_server
 from .model import ImportItem, ImportKind, ImportStatus, RuleImport
 
-NATIVE_PERMISSIONS = "izinler ve kancalar Fusion'da doğrudan geçerli"
+NATIVE_PERMISSIONS = "izinler Fusion'da doğrudan geçerli (kancalar bu sürümde çalıştırılmaz)"
 NATIVE_INSTRUCTIONS = "talimat her turda doğrudan okunuyor"
 NATIVE_SKILLS = "beceri/ajan/komut kataloğunda doğrudan görünüyor"
 NATIVE_PROJECT_MCP = "proje .mcp.json doğrudan okunuyor (fusion trust ile)"

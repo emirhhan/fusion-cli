@@ -1,6 +1,6 @@
 """`fusion eklenti …` (takma ad `fusion plugin …`) — eklenti paketleri ve pazar yerleri (P-059).
 
-fusion eklenti kur <yol|https://…|sahip/repo|ad@pazar> [--yes] [--dry-run]
+fusion eklenti kur <yol|https://…|sahip/repo|ad@pazar> [--yes] [--dry-run] [--karma <sha256>]
 fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--hepsi] | kaldir <ad>
 fusion eklenti guven <ad>            değişmiş eklentiyi yeniden onayla
 fusion eklenti kesfet [pazar]        kayıtlı pazarlardaki eklentiler
@@ -22,6 +22,7 @@ from ..config.plugin_store import inspect_plugin, installed_plugins, load_state,
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from .plugin_view import (
+    DIGEST_HINT,
     format_catalog,
     format_installed,
     format_marketplaces,
@@ -77,14 +78,25 @@ def install(
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Yalnız doğrula ve özetle."),
+    digest: str = typer.Option(
+        "", "--karma", help="--dry-run'da gösterilen karma; içerik değiştiyse kurulmaz."
+    ),
 ) -> None:
     """Eklentiyi kur (betik çalıştırılmaz; kanca/MCP içeriyorsa açık onay ister)."""
     if dry_run:
-        _run(lambda: format_preview(plugins.preview_plugin(source)))
+
+        def preview() -> str:
+            shown = plugins.preview_plugin(source)
+            text = format_preview(shown)
+            if shown.is_executable and shown.digest:
+                text += "\n" + DIGEST_HINT.format(digest=shown.digest, source=source)
+            return text
+
+        _run(preview)
         return
 
     def act() -> str:
-        item = plugins.install_plugin(source, approve=approver(yes))
+        item = plugins.install_plugin(source, approve=approver(yes), expected_digest=digest)
         return INSTALLED.format(name=item.record.name, status=item.status)
 
     _run(act)

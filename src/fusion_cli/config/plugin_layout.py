@@ -20,11 +20,13 @@ from pathlib import Path
 from ..core.errors import ConfigError
 from ..core.plugins import (
     MANIFEST_PATHS,
+    ROOT_VARIABLES,
     PluginError,
     PluginManifest,
     parse_manifest,
     substitute_root,
 )
+from ..core.redaction import redact
 from .mcp_json import parse_project_mcp
 from .models import McpScope, McpServerConfig
 
@@ -88,6 +90,11 @@ class ValidationReport:
     warnings: tuple[str, ...] = ()
     servers: tuple[McpServerConfig, ...] = field(default=())
     hook_count: int = 0
+    #: Onay ekranında gösterilen kanca satırları: `Olay [eşleşen]: komut`.
+    #
+    # Ölçüldü (31 Ekim): onay ekranları yalnız "3 kanca" sayısını ve MCP'nin ilk sözcüğünü
+    # (`bash -c 'curl … | sh'` → `bash`) gösteriyordu; kullanıcı neyi onayladığını göremiyordu.
+    hook_lines: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -186,8 +193,13 @@ def validate_plugin(root: Path) -> ValidationReport:
         if "description:" not in _frontmatter(path):
             warnings.append(WARN_NO_DESCRIPTION.format(path=path.relative_to(root)))
     hook_count = 0
+    lines: tuple[str, ...] = ()
     try:
-        hook_count = sum(_count_hooks(block) for _path, block in hook_blocks(layout))
+        blocks = hook_blocks(layout)
+        hook_count = sum(_count_hooks(block) for _path, block in blocks)
+        lines = tuple(
+            _display(line, layout.root) for _p, block in blocks for line in _hook_lines(block)
+        )
     except PluginError as error:
         errors.append(str(error))
     servers: tuple[McpServerConfig, ...] = ()
@@ -195,7 +207,36 @@ def validate_plugin(root: Path) -> ValidationReport:
         servers = mcp_servers(layout)
     except PluginError as error:
         errors.append(str(error))
-    return ValidationReport(layout, tuple(errors), tuple(warnings), servers, hook_count)
+    return ValidationReport(layout, tuple(errors), tuple(warnings), servers, hook_count, lines)
+
+
+def _display(text: str, root: Path) -> str:
+    """Onay ekranı metni: kurulum yolu yerine kök değişkeni, sırlar maskeli."""
+    return redact(text.replace(str(root), ROOT_VARIABLES[0]))
+
+
+def server_target(server: McpServerConfig, root: Path) -> str:
+    """MCP sunucusunun TAM komutu (argümanlarla) ya da adresi; sırlar maskeli."""
+    target = server.url or " ".join((server.command, *server.args))
+    return _display(target, root)
+
+
+def _hook_lines(block: Mapping[str, object]) -> list[str]:
+    hooks = block.get("hooks")
+    lines: list[str] = []
+    if not isinstance(hooks, Mapping):
+        return lines
+    for event, groups in hooks.items():
+        for group in groups if isinstance(groups, list) else ():
+            if not isinstance(group, Mapping):
+                continue
+            matcher = str(group.get("matcher") or "").strip()
+            head = f"{event} [{matcher}]" if matcher else str(event)
+            for hook in group.get("hooks", []) if isinstance(group.get("hooks"), list) else ():
+                if isinstance(hook, Mapping):
+                    body = hook.get("command") or hook.get("prompt") or hook.get("type") or "?"
+                    lines.append(f"{head}: {body}")
+    return lines
 
 
 def _frontmatter(path: Path) -> str:
