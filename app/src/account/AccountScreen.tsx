@@ -1,88 +1,20 @@
-import { useEffect, useState } from "react";
-import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
-import { AvatarPicker, AvatarView } from "./AvatarPicker";
-import { GIRIS_ONERISI_ANAHTARI, type Hesap } from "./types";
-import type { AccountController } from "./useAccount";
+import { AccountProfile, type AccountProfileProps } from "./AccountProfile";
 import "./account.css";
 
 /**
- * Hesabım ekranı — profil, hesap değiştirme ve silme.
- *
- * Silme GERİ ALINAMAZ ve ürünün sözü budur: hesap gidince ona ait ayarlar da
- * gider. Bu yüzden onay, kullanıcı adını ELLE yazdırarak alınır; tek tıkla
- * silinebilen bir şey için bu ağır, geri getirilemeyen bir şey için değil.
+ * Hesabım sayfası — tam sayfa kabuğu. İçerik `AccountProfile`dadır; Ayarlar › Hesap
+ * aynı bileşeni gösterir.
  */
-
-/** Hesap ekranındaki sağlayıcı satırı (P-066): yalnız ad ve bağlı/değil; ayrıntı Kontrol Paneli'nde. */
-interface ProviderAccountRow {
-  ad: string;
-  bagli: boolean;
-  hesap?: string;
-  id: string;
-  kart_id?: string;
-  profil_var?: boolean;
-}
-
 export function AccountScreen({
-  account,
-  client,
   onClose,
-  onOpenProviders,
-  onPickAvatarFile,
-}: {
-  account: AccountController;
-  client?: ProtocolClient;
-  onClose: () => void;
-  /**
-   * "Sağlayıcıyla giriş" kısayolu (P-066): Claude Code'un "Claude hesabıyla giriş"
-   * karşılığı Fusion'da web sağlayıcısı oturumudur (ChatGPT, Claude…). Giriş akışı
-   * TEK yerde, Kontrol Paneli'ndedir; burası yalnız durumu gösterir ve oraya götürür.
-   */
-  onOpenProviders?: (providerId: string) => void;
-  /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. */
-  onPickAvatarFile?: () => Promise<string | null>;
-}) {
-  const durum = account.durum;
+  ...profile
+}: Omit<AccountProfileProps, "layout"> & { onClose: () => void }) {
+  const durum = profile.account.durum;
   const etkin = durum?.hesaplar.find((item) => item.kimlik === durum.etkin) ?? null;
-  const [taslak, setTaslak] = useState<Hesap | null>(etkin);
-  const [silOnayi, setSilOnayi] = useState("");
-  // Silme, kullanıcı adı onayına EK olarak parolayı (ya da kurtarma kodunu) yeniden doğrular (U5-33).
-  const [silKaniti, setSilKaniti] = useState("");
-  const [kodlaSil, setKodlaSil] = useState(false);
-  const [bilgi, setBilgi] = useState<string | null>(null);
-  const [usage, setUsage] = useState<{ cagri: number; toplam_token: number } | null>(null);
-  const [providers, setProviders] = useState<ProviderAccountRow[] | null>(null);
 
-  useEffect(() => {
-    setTaslak(etkin);
-  // Reset the edit draft when the active account changes, not during each keystroke.
-  }, [etkin?.kimlik]);
-
-  useEffect(() => {
-    if (!client || !onOpenProviders) return;
-    let alive = true;
-    void client.request("web.saglayicilar", {}).then((value) => {
-      const result = value as { ok?: boolean; saglayicilar?: ProviderAccountRow[] };
-      if (alive && result.ok && Array.isArray(result.saglayicilar)) setProviders(result.saglayicilar);
-    }).catch(() => {
-      // Liste okunamazsa bölüm çizilmez; giriş yine Kontrol Paneli'nden yapılabilir.
-    });
-    return () => { alive = false; };
-  }, [client, onOpenProviders]);
-
-  useEffect(() => {
-    if (!client) return;
-    let alive = true;
-    void client.request("kullanim.durum", {}).then((value) => {
-      const result = value as { ok?: boolean; kullanim?: { cagri: number; toplam_token: number } };
-      if (alive && result.ok && result.kullanim) setUsage(result.kullanim);
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [client]);
-
-  if (!durum || !etkin || !taslak) {
+  if (!etkin) {
     return (
       <main className="account-screen">
         <PageHeader
@@ -95,188 +27,12 @@ export function AccountScreen({
     );
   }
 
-  const digerHesaplar = durum.hesaplar.filter((item) => item.kimlik !== etkin.kimlik);
-
   return (
     <main className="account-screen">
       <div className="account-screen__toolbar">
         <Button onClick={onClose} variant="secondary">Kapat</Button>
       </div>
-
-      {account.hata && <p className="account__error" role="alert">{account.hata}</p>}
-      {bilgi && <p className="account__notice" role="status">{bilgi}</p>}
-
-      <div className="account-screen__content">
-      <section className="account-screen__hero" aria-label="Profil">
-        <div className="account-screen__hero-avatar">
-          {/* Avatar TIKLANABİLİR: seçim burada yapılır, kayıt formunda değil. */}
-          <AvatarPicker
-            avatar={taslak.avatar}
-            kullaniciAdi={taslak.kullanici_adi}
-            onSelect={(avatar) => {
-              const previousAvatar = taslak.avatar;
-              setTaslak({ ...taslak, avatar });
-              void account.guncelle({ ...etkin, avatar }).then((tamam) => {
-                if (tamam) setBilgi("Avatar güncellendi.");
-                else setTaslak((current) => current ? { ...current, avatar: previousAvatar } : current);
-              });
-            }}
-            onUpload={onPickAvatarFile}
-          />
-        </div>
-        <h2>{etkin.kullanici_adi}</h2>
-        <p>{etkin.eposta}</p>
-        <span className="account-screen__local">Bu bilgisayardaki hesap</span>
-        {usage && (
-          <dl className="account-screen__stats" aria-label="Bu oturumdaki kullanım">
-            <div><dt>Model çağrısı</dt><dd>{usage.cagri.toLocaleString("tr-TR")}</dd></div>
-            <div><dt>Token</dt><dd>{usage.toplam_token.toLocaleString("tr-TR")}</dd></div>
-          </dl>
-        )}
-      </section>
-
-      {onOpenProviders && providers && (
-        <section aria-labelledby="hesap-saglayicilar" className="account-screen__section account-screen__section--open">
-          <h3 id="hesap-saglayicilar">Sağlayıcı hesapları</h3>
-          <p className="account__hint">
-            Kendi aboneliğinle çalışan sağlayıcılar (anahtar gerekmez). Giriş ayrı bir pencerede
-            yapılır; oturum bu bilgisayarda kalır, Fusion sunucusuna gitmez.
-          </p>
-          {providers.length === 0 ? (
-            <p className="account__hint">Web sağlayıcısı tanımlı değil.</p>
-          ) : (
-            <ul className="account-screen__list">
-              {providers.map((row) => {
-                const title = row.hesap && row.hesap !== "main" ? `${row.ad} · ${row.hesap}` : row.ad;
-                const durum = row.bagli ? "Bağlı" : row.profil_var ? "Giriş doğrulanmadı" : "Giriş yapılmadı";
-                return (
-                  <li key={row.kart_id ?? row.id}>
-                    <div>
-                      <strong>{title}</strong>
-                      <small>{durum}</small>
-                    </div>
-                    <Button onClick={() => onOpenProviders(row.id)} variant="secondary">
-                      {row.bagli ? "Yönet" : "Sağlayıcıyla giriş yap"}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      )}
-
-      <details className="account-screen__section">
-        <summary>Profili düzenle</summary>
-        <div className="account-screen__section-body">
-        <label htmlFor="hesap-duzenle-ad">Kullanıcı adı</label>
-        <input
-          id="hesap-duzenle-ad"
-          onChange={(event) => setTaslak({ ...taslak, kullanici_adi: event.target.value })}
-          value={taslak.kullanici_adi}
-        />
-        <label htmlFor="hesap-duzenle-eposta">E-posta</label>
-        <input
-          id="hesap-duzenle-eposta"
-          onChange={(event) => setTaslak({ ...taslak, eposta: event.target.value })}
-          type="email"
-          value={taslak.eposta}
-        />
-        <Button
-          onClick={() => {
-            void account.guncelle(taslak).then((tamam) => {
-              if (tamam) setBilgi("Profil güncellendi.");
-            });
-          }}
-          variant="primary"
-        >
-          Kaydet
-        </Button>
-        </div>
-      </details>
-
-      <details className="account-screen__section">
-        <summary>Hesap yönetimi</summary>
-        <div className="account-screen__section-body">
-        <h3>Hesap değiştir</h3>
-        {digerHesaplar.length === 0 ? (
-          <p className="account__hint">
-            Bu bilgisayarda başka hesap yok. Çıkış yapıp yeni bir hesap açabilirsin.
-          </p>
-        ) : (
-          <ul className="account-screen__list">
-            {digerHesaplar.map((item) => (
-              <li key={item.kimlik}>
-                <span className="account-screen__avatar account-screen__avatar--small">
-                  <AvatarView avatar={item.avatar} kullaniciAdi={item.kullanici_adi} />
-                </span>
-                <div>
-                  <strong>{item.kullanici_adi}</strong>
-                  <small>{item.eposta}</small>
-                </div>
-                {/* Geçiş çıkıştan geçer: her hesabın kendi yapılandırması var ve
-                    o ancak yeni bir çekirdek sürecinde okunur. */}
-                <Button
-                  onClick={() => {
-                    try { sessionStorage.setItem(GIRIS_ONERISI_ANAHTARI, item.eposta || item.kullanici_adi); } catch { /* öneri isteğe bağlı */ }
-                    void account.cikis().then((tamam) => { if (tamam) window.location.reload(); });
-                  }}
-                  variant="secondary"
-                >
-                  Bu hesaba geç
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-        </div>
-      </details>
-
-      <details className="account-screen__section account-screen__section--danger">
-        <summary>Hesabı sil</summary>
-        <div className="account-screen__section-body">
-        <p className="account__hint">
-          Hesap ve ona ait ayarlar (sağlayıcı oturumları, MCP bağlantıları, model
-          tercihleri) kalıcı olarak silinir. Geri alınamaz.
-        </p>
-        <label htmlFor="hesap-sil-onay">
-          Onaylamak için kullanıcı adını yaz: <code>{etkin.kullanici_adi}</code>
-        </label>
-        <input
-          id="hesap-sil-onay"
-          onChange={(event) => setSilOnayi(event.target.value)}
-          value={silOnayi}
-        />
-        <label htmlFor="hesap-sil-kanit">{kodlaSil ? "Kurtarma kodun" : "Parolan"}</label>
-        <input
-          autoComplete={kodlaSil ? "off" : "current-password"}
-          id="hesap-sil-kanit"
-          onChange={(event) => setSilKaniti(event.target.value)}
-          type={kodlaSil ? "text" : "password"}
-          value={silKaniti}
-        />
-        <button
-          className="account__link"
-          onClick={() => { setKodlaSil((acik) => !acik); setSilKaniti(""); }}
-          type="button"
-        >
-          {kodlaSil ? "Parolamla sileyim" : "Parolamı unuttum: kurtarma koduyla sil"}
-        </button>
-        <Button
-          disabled={silOnayi !== etkin.kullanici_adi || !silKaniti.trim()}
-          onClick={() => {
-            const kanit = kodlaSil ? { kurtarma_kodu: silKaniti.trim() } : { parola: silKaniti };
-            void account.sil(etkin.kimlik, kanit).then((tamam) => {
-              if (tamam) window.location.reload();
-            });
-          }}
-          variant="danger"
-        >
-          Hesabı kalıcı olarak sil
-        </Button>
-        </div>
-      </details>
-      </div>
+      <AccountProfile {...profile} layout="page" />
     </main>
   );
 }

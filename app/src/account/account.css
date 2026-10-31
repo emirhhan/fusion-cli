@@ -379,3 +379,23 @@
 .account-screen__section--open { display: grid; gap: var(--space-2); padding: 20px 22px 22px; }
 .account-screen__section--open h3 { font-size: 15px; font-weight: 600; margin: 0; }
 .account-screen__section--open .account-screen__list button { margin-top: 0; }
+
+/* Ayarlar › Hesap: aynı hesap içeriği sütuna sola hizalı oturur (Hesabım ortalar).
+   Avatar solda, ad/e-posta/rozet sağında; sayaçlar ve kartlar tam genişlikte. */
+.account-screen__content[data-layout="embedded"] { gap: var(--space-3); margin: var(--space-5) 0 0; max-width: none; }
+.account-screen__content[data-layout="embedded"] .account-screen__hero {
+  align-items: center;
+  column-gap: var(--space-5);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-items: start;
+  padding: 0 0 var(--space-2);
+  row-gap: var(--space-1);
+  text-align: start;
+}
+.account-screen__content[data-layout="embedded"] .account-screen__hero-avatar { grid-row: 1 / span 3; padding-bottom: var(--space-3); }
+.account-screen__content[data-layout="embedded"] .account-screen__hero h2 { font-size: var(--text-xl); letter-spacing: -0.02em; margin: 0; overflow-wrap: anywhere; }
+.account-screen__content[data-layout="embedded"] .account-screen__hero p { overflow-wrap: anywhere; }
+.account-screen__content[data-layout="embedded"] .account-screen__local { margin-top: var(--space-1); }
+.account-screen__content[data-layout="embedded"] .account-screen__stats { grid-column: 1 / -1; justify-content: flex-start; margin-top: var(--space-5); padding-top: var(--space-4); }
+.account-screen__content[data-layout="embedded"] .account-screen__hero-avatar .account-avatar__menu { inset-inline-start: 0; transform: none; }

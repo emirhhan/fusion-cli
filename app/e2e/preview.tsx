@@ -2,6 +2,7 @@ import { AgentPanel } from "../src/team/AgentPanel";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "../src/theme/tokens.css";
+import "../src/theme/accessibility.css";
 import "../src/brand/brand.css";
 import "../src/App.css";
 import { Approval } from "../src/dialogs/Approval";
@@ -33,6 +34,7 @@ import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 import { AccountScreen } from "../src/account/AccountScreen";
+import { AccountProfile } from "../src/account/AccountProfile";
 import { HelpScreen } from "../src/help/HelpScreen";
 import { FeedbackDialog } from "../src/feedback/FeedbackDialog";
 import type { SettingsSection } from "../src/settings/search";
@@ -510,7 +512,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} onOpenProviders={() => undefined} /> : help ? <HelpScreen onClose={() => undefined} onOpenSettings={() => undefined} surum="0.7.19" /> : settings ? <Settings client={workspaceClient} initialSection={settingsSection} onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} onOpenProviders={() => undefined} /> : help ? <HelpScreen onClose={() => undefined} onOpenSettings={() => undefined} surum="0.7.19" /> : settings ? <Settings accountContent={<AccountProfile account={accountPreview} client={workspaceClient} layout="embedded" onOpenProviders={() => undefined} />} client={workspaceClient} initialSection={settingsSection} onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
           {feedback && <FeedbackDialog initial={{ tur: "geri-bildirim" }} loadVersion={async () => "0.7.19"} onClose={() => undefined} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}

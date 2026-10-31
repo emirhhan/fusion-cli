@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, operationResult, type CommandResult } from "../protocol/result";
 import { SECTION_HEADING_ID, searchSettings, type SettingsSection } from "./search";
 import type { ProtocolClient } from "../protocol/client";
@@ -92,6 +92,8 @@ interface SettingsProps {
   themePreference: ThemePreference;
   /** Hesabım ekranını açar. Verilmezse hesap bölümü yalnız bilgi gösterir. */
   onOpenAccount?: () => void;
+  /** Ayarlar › Hesap'ta DOĞRUDAN gösterilen hesap içeriği (Hesabım'la aynı `AccountProfile`). */
+  accountContent?: ReactNode;
   onChangeRoot?: () => void;
   onRunCommand?: (command: string) => void | CommandResult | Promise<void | CommandResult>;
   /** Etkin oturumda tur sürüyor mu? Sürüyorsa uygulama güncellemesi kurulamaz (yeniden başlatma turu keser). */
@@ -101,6 +103,7 @@ interface SettingsProps {
 }
 
 export function Settings({
+  accountContent,
   client,
   initialSection = "genel",
   initialFocus,
@@ -328,20 +331,22 @@ export function Settings({
           )}
 
           {bolum === "hesap" && (
-            <article className="settings__card">
+            // Hesap içeriği `settings__card` DEĞİL: kartın düğme/başlık biçimleri avatarı ve
+            // sağlayıcı kartını bozuyordu; içerik kendi (Hesabım'la ortak) biçimini taşır.
+            <section aria-label="Hesap" className="settings__account" id="settings-account">
               <p className="settings__hint">
                 Hesabın, parolan ve avatarın bu bilgisayarda tutulur. Hiçbir bilgi
                 sunucuya gönderilmez; hesabı silersen ya da Fusion'ı kaldırırsan
                 verileri de gider.
               </p>
-              {onOpenAccount && (
+              {accountContent ?? (onOpenAccount && (
                 <div className="settings__actions">
                   <Button onClick={onOpenAccount} variant="secondary">
                     Hesabımı aç
                   </Button>
                 </div>
-              )}
-            </article>
+              ))}
+            </section>
           )}
 
           {bolum === "modeller" && (

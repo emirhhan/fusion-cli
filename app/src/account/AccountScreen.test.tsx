@@ -167,3 +167,17 @@ describe("AccountScreen sağlayıcı hesapları", () => {
     expect((client.request as ReturnType<typeof vi.fn>).mock.calls.some(([name]) => name === "web.saglayicilar")).toBe(false);
   });
 });
+
+describe("AccountProfile — Hesabım ve Ayarlar › Hesap aynı içerik", () => {
+  test("Ayarlar'a gömülü içerik ad, e-posta, avatar değiştirme ve profil düzenlemeyi doğrudan gösterir", async () => {
+    const { AccountProfile } = await import("./AccountProfile");
+    render(<AccountProfile account={denetleyici([KULLANICI, IKINCI])} layout="embedded" />);
+    expect(screen.getByRole("heading", { name: "kullanici" })).toBeTruthy();
+    expect(screen.getByText("e@ornek.com")).toBeTruthy();
+    expect(screen.getByText("Profili düzenle")).toBeTruthy();
+    expect(screen.getByText("Hesap yönetimi")).toBeTruthy();
+    expect(document.querySelector('.account-screen__content[data-layout="embedded"]')).not.toBeNull();
+    // Gömülü içerikte "Kapat" yoktur; o yalnız Hesabım sayfasının kabuğundadır.
+    expect(screen.queryByRole("button", { name: "Kapat" })).toBeNull();
+  });
+});

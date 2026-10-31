@@ -112,6 +112,7 @@ import { openVoiceWindow } from "./voice/windowBridge";
 import { buildVoiceRequest, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
+import { AccountProfile } from "./account/AccountProfile";
 import { useAccount } from "./account/useAccount";
 import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
 import { clearProgress } from "./onboarding/persistence";
@@ -1707,6 +1708,28 @@ export function SessionUygulama({
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={activeProjectName} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
+  // Hesabım sayfası ve Ayarlar › Hesap AYNI hesap içeriğini (AccountProfile) gösterir.
+  const accountProfileProps = {
+    account,
+    client: active.client,
+    onOpenProviders: (providerId: string) => {
+      setControlProviderId(providerId);
+      setControlTitle("Sağlayıcı hesapları");
+      setPage("control");
+    },
+    onPickAvatarFile: async () => {
+      // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
+      // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
+      const secilen = await selectFiles(active.root).catch(() => []);
+      const yol = secilen[0];
+      const kimlik = account.durum?.etkin;
+      if (!yol || !kimlik) return null;
+      const sonuc = await active.client
+        .request("hesap.avatar_yukle", { kimlik, yol })
+        .catch(() => null);
+      return sonuc?.ok === true && typeof sonuc.avatar === "string" ? sonuc.avatar : null;
+    },
+  };
   const content = mediaPage
     ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
     : page === "skills"
@@ -1725,30 +1748,7 @@ export function SessionUygulama({
       : page === "connectors"
         ? <ConnectorsScreen client={active.client} onClose={closePage} />
       : page === "account"
-        ? (
-          <AccountScreen
-            account={account}
-            client={active.client}
-            onClose={closePage}
-            onOpenProviders={(providerId) => {
-              setControlProviderId(providerId);
-              setControlTitle("Sağlayıcı hesapları");
-              setPage("control");
-            }}
-            onPickAvatarFile={async () => {
-              // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
-              // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
-              const secilen = await selectFiles(active.root).catch(() => []);
-              const yol = secilen[0];
-              const kimlik = account.durum?.etkin;
-              if (!yol || !kimlik) return null;
-              const sonuc = await active.client
-                .request("hesap.avatar_yukle", { kimlik, yol })
-                .catch(() => null);
-              return sonuc?.ok === true && typeof sonuc.avatar === "string" ? sonuc.avatar : null;
-            }}
-          />
-        )
+        ? <AccountScreen {...accountProfileProps} onClose={closePage} />
       : page === "settings"
         ? (
           <Settings
@@ -1759,6 +1759,7 @@ export function SessionUygulama({
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
+            accountContent={<AccountProfile {...accountProfileProps} layout="embedded" />}
             onReopenSetup={() => { clearProgress(); setPage("chat"); setShowOnboarding(true); }}
             onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}

@@ -567,3 +567,11 @@ describe("Settings — kurulumu yeniden aç (U5-47)", () => {
     expect(screen.queryByRole("button", { name: "Kurulumu yeniden aç" })).toBeNull();
   });
 });
+
+describe("Ayarlar › Hesap", () => {
+  it("hesap içeriğini doğrudan gösterir; ayrı bir 'Hesabımı aç' adımı yoktur", () => {
+    render(<Settings accountContent={<div data-testid="hesap-icerigi">Kullanici</div>} client={client() as unknown as ProtocolClient} initialSection="hesap" onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference="dark" />);
+    expect(screen.getByTestId("hesap-icerigi").textContent).toBe("Kullanici");
+    expect(screen.queryByRole("button", { name: "Hesabımı aç" })).toBeNull();
+  });
+});
