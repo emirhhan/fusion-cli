@@ -181,6 +181,7 @@ from .history import needs_compression, total_chars
 from .hook_bridge import (
     ToolNote,
     continue_until_stop_allowed,
+    hook_halt_text,
     post_tool_use,
     pre_compact,
     pre_tool_use,
@@ -1446,6 +1447,10 @@ class _State:
     #: durdurur (bkz. `denial.DENIAL_STOP_ANSWER`); yalnızca `budget.stop is
     #: BudgetStop.USER_DENIED` iken anlamlıdır.
     denied_tool_name: str | None = None
+    #: Kanca `continue: false` ile turu durdurduysa kullanıcıya gösterilecek gerekçe
+    #: (P-009). Durdurma `USER_DENIED` düzeneğini kullanır (kalan çağrılar atlanır, model
+    #: bir daha çağrılmaz) ama metin kullanıcı reddi DEĞİLDİR.
+    hook_halt: str | None = None
 
 
 async def _drive(
@@ -1484,7 +1489,8 @@ async def _drive(
             # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
             # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
             return _outcome(
-                denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                state.hook_halt
+                or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
                 messages,
                 state,
             )
@@ -3367,7 +3373,7 @@ async def _run_tools(
             # yanıtındaki kalan çağrılar hiç çalıştırılmaz — kullanıcının kararı bir
             # sonraki çağrıda yok sayılmamalı. Sağlayıcı sözleşmesi yine de her
             # `tool_call`'a bir sonuç ister; bu yüzden "atlandı" mesajı gönderilir.
-            output = denial.SKIPPED_TOOL_RESULT
+            output = denial.SKIPPED_TOOL_RESULT if state.hook_halt is None else state.hook_halt
             deps.publisher.publish(
                 ToolExecuted(
                     name=call.name,
@@ -3637,7 +3643,9 @@ async def _run_tools(
             # Bu bir hata ya da bütçe olayı DEĞİLDİR — insan GERÇEKTEN "hayır"
             # dedi. Tur burada durur (`_drive` bir sonraki döngü başında bunu
             # görüp modeli bir daha çağırmadan döner); aynı yanıttaki KALAN
-            # çağrılar döngünün başındaki kontrolle atlanır.
+            # çağrılar döngünün başındaki kontrolle atlanır. PreToolUse kancasının
+            # `continue: false` kararı da bu yoldan durur, metni kancanınkidir.
+            state.hook_halt = hook_halt_text(result)
             state.denied_tool_name = call.name
             budget.halt(BudgetStop.USER_DENIED)
         # Duvar ve ulaşılamaz kaynak, kanıt kapısı açısından AYNI durumdur: iş bu
@@ -3759,7 +3767,8 @@ async def _run_tools(
             govde = post_hook.replaced_output
         if post_hook.note is not None:
             govde = f"{govde}\n\n{post_hook.note}"
-        if post_hook.halt:
+        if post_hook.halt is not None:
+            state.hook_halt = post_hook.halt
             budget.halt(BudgetStop.USER_DENIED)
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
@@ -3859,9 +3868,7 @@ async def _execute(
     # PreToolUse kancası (P-009) onaydan ÖNCE: engel, argüman değişikliği, allow/ask kararı.
     hook_gate = await pre_tool_use(deps, call.name, args)
     if hook_gate.blocked is not None:
-        return ToolResult.failure(hook_gate.blocked), (
-            ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED
-        )
+        return hook_gate.failure(), (ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED)
     args = hook_gate.arguments
     # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
     # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu

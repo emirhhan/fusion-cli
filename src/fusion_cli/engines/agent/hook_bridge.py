@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 from ...config.permission_rules import PermissionDecision, PermissionRule, PermissionRuleSet
 from ...core.events import ErrorOccurred, NarrationPublished
 from ...core.hooks.events import HookEvent, HookVerdict
+from ...core.tools import ToolResult
 from ...core.types import Message
 from ...tools.permission_match import claude_tool_names
 from ...ui import messages
@@ -36,6 +37,8 @@ MAX_STOP_CONTINUATIONS = 3
 HOOK_TOOL_OUTPUT_CHARS = 20_000
 #: Hook kararıyla eklenen izin kuralının kaynak adı (onay kartında görünür).
 HOOK_RULE_SOURCE = "kanca"
+#: Kanca durdurmasının araç sonucundaki işareti (`structured` alanı).
+HOOK_HALT_KEY = "hook_halt"
 #: Claude betiklerinin beklediği dosya argümanı adı ↔ Fusion'ınki.
 _CLAUDE_PATH_KEY = "file_path"
 _FUSION_PATH_KEY = "path"
@@ -43,6 +46,12 @@ _FUSION_PATH_KEY = "path"
 
 def session_of(deps: AgentDeps) -> HookSession | None:
     return getattr(deps, "hooks", None)
+
+
+def hook_halt_text(result: ToolResult) -> str | None:
+    """PreToolUse `continue: false` ile engellenen sonucun kullanıcı metni; değilse `None`."""
+    marker = (result.structured or {}).get(HOOK_HALT_KEY)
+    return marker if isinstance(marker, str) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,10 +64,16 @@ class ToolGate:
     halt: bool = False
     permission: str | None = None
 
+    def failure(self) -> ToolResult:
+        """Engellenen çağrının sonucu; `continue: false` ise durdurma işaretli."""
+        marker = {HOOK_HALT_KEY: self.blocked} if self.halt else None
+        return ToolResult.failure(self.blocked or "", structured=marker)
+
     def rules(self, current: PermissionRuleSet | None, tool_name: str) -> PermissionRuleSet | None:
         """Kancanın allow/ask kararı bu çağrıya özel kural olur (en kısıtlayıcı kazanır)."""
         if self.permission is None:
             return current
+        # Belirteçsiz kural aracın bütün çağrılarına uyar (kabuk zinciri dahil).
         rule = PermissionRule(
             tool_name, None, PermissionDecision(self.permission), HOOK_RULE_SOURCE
         )
@@ -94,7 +109,8 @@ class ToolNote:
 
     note: str | None = None
     replaced_output: str | None = None
-    halt: bool = False
+    #: `continue: false`: turu durduran kullanıcı metni (`None` = sürer).
+    halt: str | None = None
 
 
 async def post_tool_use(
@@ -119,10 +135,12 @@ async def post_tool_use(
         notes.append(
             messages.HOOKS_CONTEXT_NOTE.format(event=event.value, context=verdict.context_text)
         )
+    halt: str | None = None
     if verdict.halt:
         reason = verdict.stop_reason or messages.HOOKS_NO_REASON
-        notes.append(messages.HOOKS_TURN_HALTED.format(event=event.value, reason=reason))
-    return ToolNote("\n\n".join(notes) or None, verdict.updated_output, verdict.halt)
+        halt = messages.HOOKS_TURN_HALTED.format(event=event.value, reason=reason)
+        notes.append(halt)
+    return ToolNote("\n\n".join(notes) or None, verdict.updated_output, halt)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +200,8 @@ async def stop_continuation(
 class _Transcript(Protocol):
     final_text: str
     messages: list[Message]
+    ok: bool
+    budget_stopped: bool
 
 
 OutcomeT = TypeVar("OutcomeT", bound=_Transcript)
@@ -194,8 +214,16 @@ async def continue_until_stop_allowed(
     *,
     subagent: bool,
 ) -> OutcomeT:
-    """Stop kancası izin verene (ya da sınır dolana) kadar turu gerekçeyle sürdür."""
+    """Stop kancası izin verene (ya da sınır dolana) kadar turu gerekçeyle sürdür.
+
+    Yalnız temiz biten turda sorulur: bütçe/adım sınırı, model hatası, kullanıcı reddi ve
+    kanca `continue: false` durdurmasında Stop tetiklenmez (Claude da kesintide ve sınır
+    hatasında çalıştırmaz). Ölçüldü (31 Ekim): `agent_max_steps: 1` ile kesilen turda Stop
+    kancası 3 kez çağrılıp aynı durdurulmuş bütçeyle ajanı yeniden başlatıyordu.
+    """
     for continuation in range(MAX_STOP_CONTINUATIONS):
+        if not _ended_cleanly(deps, outcome):
+            return outcome
         prompt = await stop_continuation(
             deps, outcome.final_text, subagent=subagent, continuations=continuation
         )
@@ -203,6 +231,12 @@ async def continue_until_stop_allowed(
             return outcome
         outcome = await rerun(prompt, outcome.messages)
     return outcome
+
+
+def _ended_cleanly(deps: AgentDeps, outcome: _Transcript) -> bool:
+    budget = getattr(deps, "budget", None)
+    stopped = budget is not None and budget.stop is not None
+    return outcome.ok and not outcome.budget_stopped and not stopped
 
 
 async def pre_compact(deps: AgentDeps, trigger: str) -> None:

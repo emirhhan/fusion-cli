@@ -499,3 +499,83 @@ async def test_belirtecsiz_bash_kurali_her_kabuk_komutuna_uyar(tmp_path):
         rules = PermissionRuleSet((parse_rule("Bash", decision, source="t"),))
         hit = evaluate(rules, "run_shell", {"command": "ls -la && git status"}, tmp_path)
         assert hit is not None and hit.decision is decision
+
+
+_HALT = "print(json.dumps({'continue': False, 'stopReason': 'bakım modu'}))\n"
+
+
+async def test_continue_false_kullaniciya_kanca_gerekcesini_soyler_ret_metnini_degil(
+    monkeypatch, tmp_path
+):
+    session = _oturum(tmp_path, _kanca(tmp_path, HookEvent.PRE_TOOL_USE, _HALT))
+    outcome, provider, _, _ = await _tur(monkeypatch, tmp_path, _yaz("a.txt"), session)
+    assert provider.calls == 1
+    assert "bakım modu" in outcome.final_text
+    assert "onaylamadınız" not in outcome.final_text
+
+
+async def test_posttooluse_continue_false_gerekceyle_durur(monkeypatch, tmp_path):
+    session = _oturum(tmp_path, _kanca(tmp_path, HookEvent.POST_TOOL_USE, _HALT))
+    outcome, provider, _, _ = await _tur(monkeypatch, tmp_path, _yaz("a.txt"), session)
+    assert provider.calls == 1 and (tmp_path / "a.txt").exists()
+    assert "bakım modu" in outcome.final_text
+    assert "onaylamadınız" not in outcome.final_text
+
+
+_STOP_BLOK = "print(json.dumps({'decision': 'block', 'reason': 'testleri koş'}))\n"
+
+
+async def test_stop_kancasi_kanca_durdurmasindan_sonra_turu_acamaz(monkeypatch, tmp_path):
+    kayit = tmp_path / "stop.jsonl"
+    session = _oturum(
+        tmp_path,
+        _kanca(tmp_path, HookEvent.PRE_TOOL_USE, _HALT),
+        _kayit_kancasi(tmp_path, HookEvent.STOP, kayit),
+        _kanca(tmp_path, HookEvent.STOP, _STOP_BLOK),
+    )
+    _, provider, _, _ = await _tur(
+        monkeypatch, tmp_path, [*_yaz("a.txt"), model_result("yine")], session
+    )
+    assert provider.calls == 1 and _satirlar(kayit) == []
+
+
+async def test_stop_kancasi_kullanici_reddinden_sonra_calismaz(monkeypatch, tmp_path):
+    kayit = tmp_path / "stop.jsonl"
+    session = _oturum(
+        tmp_path,
+        _kayit_kancasi(tmp_path, HookEvent.STOP, kayit),
+        _kanca(tmp_path, HookEvent.STOP, _STOP_BLOK),
+    )
+    sink = RecordingSink()
+    provider = ScriptedProvider([*_yaz("a.txt"), model_result("yine")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.SECURITY, _Reddeden()),
+        tool_context=ToolContext(root=tmp_path),
+        hooks=session,
+    )
+    outcome = await run_agent("iş", deps)
+    assert "onaylamadınız" in outcome.final_text
+    assert provider.calls == 1 and _satirlar(kayit) == []
+
+
+async def test_stop_kancasi_butce_sinirinda_calismaz(monkeypatch, tmp_path):
+    kayit = tmp_path / "stop.jsonl"
+    session = _oturum(
+        tmp_path,
+        _kayit_kancasi(tmp_path, HookEvent.STOP, kayit),
+        _kanca(tmp_path, HookEvent.STOP, _STOP_BLOK),
+    )
+    provider = ScriptedProvider([*_yaz("a.txt"), model_result("yine")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+    deps = AgentDeps(
+        config=make_config(runtime={"agent_max_steps": 1}),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, _Kaydeden()),
+        tool_context=ToolContext(root=tmp_path),
+        hooks=session,
+    )
+    outcome = await run_agent("iş", deps)
+    assert outcome.budget_stopped and _satirlar(kayit) == []
