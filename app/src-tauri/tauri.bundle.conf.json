@@ -1,8 +1,7 @@
 {
   "bundle": {
     "targets": [
-      "app",
-      "dmg"
+      "app"
     ],
     "resources": {
       "resources/runtime/runtime-manifest.json": "runtime/runtime-manifest.json",
