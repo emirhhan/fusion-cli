@@ -36,6 +36,7 @@ from ..core.background_tasks import (
     summarize,
 )
 from ..core.clock import SystemClock
+from ..core.file_lease import FileLease
 from ..core.peers import INBOUND_TAG
 from ..core.redaction import redact
 from ..core.tools import ToolContext
@@ -144,8 +145,38 @@ class FileQuestionPrompter:
 TurnRunner = Callable[[BackgroundTask, str, list[Message]], Awaitable[tuple[str, bool]]]
 
 
+#: Ömür kilidini bekleme süresi (saniye): biten önceki işçi kilidi bırakırken yeni işçi
+#: başlayabilir (gelen mesaj bitmiş görevi yeniden başlatır).
+_LEASE_WAIT_S = 5.0
+
+
+async def _acquire_lease(lease: FileLease) -> bool:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _LEASE_WAIT_S
+    while not lease.try_acquire():
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(_POLL_S / 5)
+    return True
+
+
 async def run_task_loop(store: BackgroundTaskStore, task_id: str, run_turn: TurnRunner) -> int:
-    """Görevin bütün turlarını koştur; çıkış kodu 0 = tamamlandı."""
+    """Görevin bütün turlarını koştur; çıkış kodu 0 = tamamlandı.
+
+    İşçi ömür kilidini (`isci.kilit`) alamazsa başka bir işçi canlıdır: hiçbir şeye
+    dokunmadan çıkar (aynı kayıtta iki işçi yarışmaz, özgün istem ikinci kez koşmaz).
+    """
+    lease = store.worker_lease(task_id)
+    if not await _acquire_lease(lease):
+        _LOG.warning("arka plan görevinin başka bir işçisi çalışıyor; bu işçi çıkıyor")
+        return 0
+    try:
+        return await _run_locked(store, task_id, run_turn)
+    finally:
+        lease.close()
+
+
+async def _run_locked(store: BackgroundTaskStore, task_id: str, run_turn: TurnRunner) -> int:
     if store.stop_requested(task_id) or store.get(task_id).status is TaskStatus.STOPPED:
         # Ölçüldü (31 Ekim): sıradayken durdurulan görevin işçisi geç başlayınca kaydı
         # yeniden "çalışıyor" yapıp durdurma isteğini siliyordu.

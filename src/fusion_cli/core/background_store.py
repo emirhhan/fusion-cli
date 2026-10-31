@@ -28,6 +28,7 @@ from .background_tasks import (
     STOP_FILE,
     TASK_FILE,
     TASK_ID_PATTERN,
+    WORKER_LOCK_FILE,
     BackgroundTask,
     BackgroundTaskError,
     InboxMessage,
@@ -351,13 +352,39 @@ class BackgroundTaskStore:
         )
         return stamped
 
+    def worker_lease(self, task_id: str) -> FileLease:
+        """İşçinin ömür kilidi (`isci.kilit`); işçi açılışta alır, çıkışta bırakır."""
+        return FileLease(self.task_dir(task_id) / WORKER_LOCK_FILE)
+
+    def worker_alive(self, task_id: str) -> bool | None:
+        """Ömür kilidi tutuluyor mu? Kilit dosyası hiç yoksa (eski işçi) bilinmez: None."""
+        if not (self.task_dir(task_id) / WORKER_LOCK_FILE).exists():
+            return None
+        probe = self.worker_lease(task_id)
+        try:
+            free = probe.try_acquire()
+        except OSError:
+            return None
+        probe.close()
+        return not free
+
     def _with_liveness(self, task: BackgroundTask) -> BackgroundTask:
-        """Etkin görünen ama işçisi susmuş görevi `yarim_kaldi` olarak göster (diske yazmaz)."""
+        """Etkin görünen ama işçisi olmayan görevi `yarim_kaldi` olarak göster (diske yazmaz).
+
+        Ölçüldü (31 Ekim): karar yalnız nabız yaşına bağlıydı; Mac uykudan dönünce ya da
+        olay döngüsü 30 sn'den uzun bloke olunca canlı işçi LOST sayılıyor, gelen mesaj
+        ikinci bir işçi başlatıyordu. Artık ömür kilidi belirleyicidir.
+        """
         if not task.is_active:
+            return task
+        alive = self.worker_alive(task.id)
+        if alive:
             return task
         now = self._clock.now()
         if task.status is TaskStatus.QUEUED:
             return task if now - task.updated_at <= QUEUED_GRACE_S else _lost(task)
+        if alive is False:
+            return _lost(task)
         try:
             beat = (self.task_dir(task.id) / HEARTBEAT_FILE).stat().st_mtime
         except FileNotFoundError:

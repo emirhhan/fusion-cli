@@ -15,7 +15,8 @@ Klasör düzeni::
     gelen.jsonl   devam mesajları (send_message / /tasks send); işçi sırayla tur yapar
     soru.json     işçinin bekleyen onay/soru isteği; cevap.json kullanıcının cevabı
     durdur        varsa işçi turu keser ve "durduruldu" ile çıkar
-    nabiz         işçinin yaşam işareti (mtime); bayatsa görev "yarım kaldı" sayılır
+    isci.kilit    işçi ömrü boyunca tutulan kilit; serbestse etkin görev "yarım kaldı"
+    nabiz         işçinin yaşam işareti (mtime); kilidi olmayan eski kayıtta bayatlık ölçütü
     sonuc.md      son turun nihai cevabı; gecmis.json devam turları için konuşma
     olaylar.jsonl işçinin JSON-Lines olay akışı (stdout yönlendirmesi)
 """
@@ -80,6 +81,9 @@ HISTORY_FILE = "gecmis.json"
 LOG_FILE = "olaylar.jsonl"
 ERROR_LOG_FILE = "hata.log"
 LOCK_FILE = "kilit"
+#: İşçinin ÖMRÜ boyunca tuttuğu kilit: süreç ölünce işletim sistemi bırakır. Canlılığın
+#: asıl kanıtı budur; nabız yalnız eski kayıtlar (kilit dosyası yok) ve arayüz ipucu içindir.
+WORKER_LOCK_FILE = "isci.kilit"
 
 
 class BackgroundTaskError(FusionError):
