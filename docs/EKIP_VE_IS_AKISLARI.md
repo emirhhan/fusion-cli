@@ -85,8 +85,9 @@ Koşuyu yürüten süreç kapandıysa kayıt "yarım" görünür.
 
 **Masaüstü.** Sohbette koşunun panosu (evre, ilerleme çubuğu, düğüm durumları) ve
 altında aynı koşunun ajan kartları görünür. Ajanlar sekmesindeki **İş akışları**
-bölümü kayıtlı akışları "Çalıştır" ile başlatır, koşanı "Durdur" ile iptal eder
-(RPC: `akis.liste`, `akis.kosu`, `akis.iptal`).
+bölümü kayıtlı akışları "Çalıştır" ile başlatır, koşanı "Durdur" ile iptal eder,
+"Ayrıntı" ile koşunun düğümlerini ve raporunu açar (RPC: `akis.liste`, `akis.kosu`,
+`akis.iptal`). Bu RPC'leri tanımayan eski bir yan süreçte bölüm hata vermeden gizlenir.
 
 **Bütçe ve ayarlar** (`runtime:`):
 
@@ -159,7 +160,8 @@ sayılır; belirsizlikte `/team kur <hedef>` yazın.
 
 **Masaüstü.** Sohbette ekibin panosu (üyeler, Bekliyor / Çalışıyor / Bitti sütunları,
 posta kutusu) ve altında üye kartları görünür. Ajanlar sekmesindeki **Ekipler** listesi
-"Pano" ile `/team goster` çalıştırır (RPC: `ekip.liste`, `ekip.pano`, `ekip.sil`).
+"Pano" ile `/team goster` çalıştırır, "Sil" iki adımlı onayla panoyu ve gelen kutularını
+siler (RPC: `ekip.liste`, `ekip.pano`, `ekip.sil`).
 
 **Ayarlar** (`runtime:`):
 

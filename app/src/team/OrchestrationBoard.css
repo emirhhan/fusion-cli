@@ -61,7 +61,7 @@
 .orch-panel { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0; }
 .orch-panel__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .orch-panel__row {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2);
   font-size: var(--text-sm); color: var(--text-primary);
 }
 .orch-panel__row small { color: var(--text-secondary); }
@@ -74,6 +74,13 @@
 .orch-panel__button:hover { background: var(--surface-hover); }
 .orch-panel__button:active { background: var(--surface-selected); }
 .orch-panel__button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.orch-panel__button--danger { border-color: var(--text-danger); color: var(--text-danger); }
+.orch-panel__actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+.orch-panel__detail { flex-basis: 100%; display: grid; gap: var(--space-1); padding-left: var(--space-2); border-left: 2px solid var(--border-subtle); }
+.orch-panel__report {
+  margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
+}
 
 /* Ekip panosu: üyeler, üç sütunlu görev listesi, posta kutusu. */
 .orch-board__goal { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }

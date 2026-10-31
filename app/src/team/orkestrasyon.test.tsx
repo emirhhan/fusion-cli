@@ -126,3 +126,72 @@ describe("ekip panosu", () => {
     expect(screen.queryByText("İş akışları")).toBeNull();
   });
 });
+
+describe("inceleme sonrası panel yüzeyleri", () => {
+  function istemci(yanitlar: Record<string, unknown>) {
+    const request = vi.fn(async (name: string) => (yanitlar[name] ?? { ok: true }) as Record<string, unknown>);
+    return { request, client: { request, onEvent: () => () => undefined } as unknown as ProtocolClient };
+  }
+
+  it("ekibi iki adımlı onayla ekip.sil ile siler", async () => {
+    const { request, client } = istemci({
+      "ekip.liste": { ok: true, ekipler: [{ ad: "site", hedef: "", gorev: 1, tamam: 0 }] },
+      "akis.liste": { ok: true, tanimlar: [], kosular: [] },
+    });
+    render(<OrchestrationPanel client={client} />);
+
+    (await screen.findByRole("button", { name: "site ekibini sil" })).click();
+    expect(request).not.toHaveBeenCalledWith("ekip.sil", expect.anything());
+    (await screen.findByRole("button", { name: "Evet, sil" })).click();
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("ekip.sil", { ad: "site" }));
+  });
+
+  it("koşu ayrıntısını akis.kosu ile açar", async () => {
+    const { request, client } = istemci({
+      "ekip.liste": { ok: true, ekipler: [] },
+      "akis.liste": { ok: true, tanimlar: [], kosular: [{ run_id: "k7", name: "rapor", status: "yarim", agents_started: 2, nodes: [{ status: "tamam" }, { status: "basarisiz" }], phase: "", message: "" }] },
+      "akis.kosu": { ok: true, kosu: { run_id: "k7", name: "rapor", status: "yarim", report: "İş akışı 'rapor': yarim", nodes: [
+        { id: "a1", label: "topla", status: "tamam", summary: "" },
+        { id: "a2", label: "yaz", status: "basarisiz", summary: "model düştü" },
+      ] } },
+    });
+    render(<OrchestrationPanel client={client} />);
+
+    (await screen.findByRole("button", { name: "rapor koşusunun ayrıntısı" })).click();
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("akis.kosu", { kimlik: "k7" }));
+    expect(await screen.findByText(/model düştü/)).toBeTruthy();
+    expect(screen.getByText("İş akışı 'rapor': yarim")).toBeTruthy();
+  });
+
+  it("eski yan süreç RPC'yi tanımıyorsa hata şeridi göstermez", async () => {
+    const { client } = istemci({
+      "akis.liste": { ok: false, metin: "Bilinmeyen istek: akis.liste" },
+      "ekip.liste": { ok: false, metin: "Bilinmeyen istek: ekip.liste" },
+    });
+    const { container } = render(<OrchestrationPanel client={client} />);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("tek düğümlü iş akışının kartı panoyla aynı mesaja girer", () => {
+    const tek = { ...ilerleme("calisiyor", "calisiyor"), nodes: [ilerleme("calisiyor", "calisiyor").nodes[0]] };
+    let akis: Mesaj[] = [{ rol: "kullanici", metin: "akış" }];
+    akis = orkestrasyonOlayi(akis, tek)!;
+    akis = ekipOlayi(akis, { olay: "SubAgentStarted", sub_id: "t-1", task: "a.py incele", group_size: 1 })!;
+
+    expect(akis).toHaveLength(2);
+    expect(akis[1].ajanlar?.map((kart) => kart.id)).toEqual(["t-1"]);
+  });
+
+  it("tek başına alt ajan önceki ekip mesajına karışmaz", () => {
+    let akis: Mesaj[] = [{ rol: "kullanici", metin: "yap" }];
+    akis = ekipOlayi(akis, { olay: "SubAgentStarted", sub_id: "s-1", task: "bir", group_size: 1 })!;
+    akis = ekipOlayi(akis, { olay: "SubAgentStarted", sub_id: "s-2", task: "iki", group_size: 1 })!;
+
+    expect(akis).toHaveLength(3);
+  });
+});
