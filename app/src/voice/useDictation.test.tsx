@@ -21,11 +21,11 @@ it("dikteyi taslakta tutar, otomatik göndermez ve başka oturum olayını yoksa
     line?.({ session: 8, line: JSON.stringify({ tur: "son", metin: "yanlış" }) });
     line?.({ session: 7, line: JSON.stringify({ tur: "kismi", metin: "merha" }) });
   });
-  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merha");
+  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merha", false);
   await act(async () => {
     line?.({ session: 7, line: JSON.stringify({ tur: "son", metin: "merhaba" }) });
   });
-  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merhaba");
+  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merhaba", true);
   expect(stop).toHaveBeenCalledTimes(1);
   expect(result.current.listening).toBe(false);
   expect(ended).toBeNull();
@@ -53,7 +53,7 @@ it("başlatma sürerken gelen metni korur ve iptal edilen geç başlangıcı din
     resolveStart?.(4);
     await starting;
   });
-  expect(onText).toHaveBeenCalledWith("chat-1", "Taslak merhaba");
+  expect(onText).toHaveBeenCalledWith("chat-1", "Taslak merhaba", false);
 
   await act(async () => { await result.current.stop(); });
   expect(result.current.listening).toBe(false);

@@ -1038,4 +1038,8 @@ Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gi
 - Terminalden başlatılan yardımcının mikrofon/konuşma tanıma izni macOS'ta terminal
   uygulamana (Terminal, iTerm…) bağlanır; izin yoksa yardımcı hata ya da sessizlik döner ve
   `/voice` bunu "ses algılanmadı" diye bildirir. Masaüstünde `/voice` sohbet kutusunun
-  mikrofonunu açar.
+  mikrofonunu açar (yeniden yazmak kapatır); `/voice gonder` kesin metin gelince taslağı
+  kendiliğinden gönderir; `/voice durum` tanıyıcı ipucunu yazar.
+- Yardımcı bir bölümü kesinleştirip ("son") "ses-bitti" göndermezse dikte 2 sn sonra biter;
+  90 sn üst sınır dolarsa o ana kadar tanınan metin korunur. Zamanlanmış görev (`/loop`)
+  mikrofonu açamaz (`/voice`, `/dikte`).

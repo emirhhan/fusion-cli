@@ -21,9 +21,12 @@ export const runtimeDefault: DictationRuntime = {
   stop: stopSpeechRecognition,
 };
 
-/** Dikte metni composer'a yazar; mesajı kendi başına göndermez. */
+/**
+ * Dikte metni composer'a yazar; mesajı kendi başına göndermez. `final` kesinleşen ("son")
+ * metinde true olur: `/voice gonder` (P-072) yalnız o anda gönderir.
+ */
 export function useDictation(
-  onText: (conversationId: string, text: string) => void,
+  onText: (conversationId: string, text: string, final: boolean) => void,
   runtime: DictationRuntime = runtimeDefault,
 ) {
   const [listening, setListening] = useState(false);
@@ -72,7 +75,7 @@ export function useDictation(
         if (spoken.tur !== "kismi" && spoken.tur !== "son") return;
         const words = spoken.metin?.trim();
         if (!words) return;
-        onTextRef.current(current.conversationId, `${current.base}${current.base.trim() ? " " : ""}${words}`);
+        onTextRef.current(current.conversationId, `${current.base}${current.base.trim() ? " " : ""}${words}`, spoken.tur === "son");
         if (spoken.tur === "son") void stop();
       };
       removeLine = await runtime.onLine(applyLine);

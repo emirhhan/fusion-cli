@@ -1,6 +1,6 @@
 import { createVoicePlayback } from "./voice/voicePlayback";
 import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory";
-import { isDictationCommand } from "./voice/dictationCommand";
+import { dictationSendsOnFinal, isDictationCommand } from "./voice/dictationCommand";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
@@ -658,11 +658,25 @@ export function SessionUygulama({
     active ? { id: active.id, client: active.client } : null,
     setCommandError,
   );
-  const dictation = useDictation((id, text) =>
-    setDrafts((current) => ({ ...current, [id]: text })),
-  );
+  // `/voice gonder` (P-072): kesin metin gelince taslak gönderilir; gönderim taslak güncellendikten
+  // SONRA (efektte) yapılır ki composer temizlensin.
+  const dictationAutoSend = useRef<string | null>(null);
+  const [dictationSend, setDictationSend] = useState<{ id: string; text: string } | null>(null);
+  const sendRef = useRef<((task: string) => unknown) | null>(null);
+  const dictation = useDictation((id, text, final) => {
+    setDrafts((current) => ({ ...current, [id]: text }));
+    if (final && dictationAutoSend.current === id) {
+      dictationAutoSend.current = null;
+      setDictationSend({ id, text });
+    }
+  });
   const dictationRef = useRef(dictation);
   dictationRef.current = dictation;
+  useEffect(() => {
+    if (!dictationSend) return;
+    setDictationSend(null);
+    if (dictationSend.id === activeSessionId) void sendRef.current?.(dictationSend.text);
+  }, [dictationSend, activeSessionId]);
   useEffect(() => {
     if (dictationRef.current.listening) void dictationRef.current.stop();
   }, [activeSessionId]);
@@ -1472,8 +1486,10 @@ export function SessionUygulama({
       if (isCurrent()) setCommandBusy(false);
     }
   };
-  const toggleDictation = () => {
+  const toggleDictation = (sendOnFinal = false) => {
+    dictationAutoSend.current = null;
     if (dictation.listening) { void dictation.stop(); return; }
+    if (sendOnFinal) dictationAutoSend.current = active.id;
     void (async () => {
       if (!(await permissions.ensure("microphone"))) return;
       if (!(await permissions.ensure("speech"))) return;
@@ -1483,7 +1499,7 @@ export function SessionUygulama({
   const executeCommand = (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
     // `/voice` (P-072) terminalde yerel dikte; masaüstünde sohbet kutusunun mikrofonunu açar.
     if (isDictationCommand(input)) {
-      toggleDictation();
+      toggleDictation(dictationSendsOnFinal(input));
       return Promise.resolve({ ok: true, message: "" });
     }
     return trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
@@ -1557,6 +1573,7 @@ export function SessionUygulama({
       });
     }
   };
+  sendRef.current = send;
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
       mesajlar={active.messages}
@@ -1803,7 +1820,7 @@ export function SessionUygulama({
           onVoice={() => void openVoiceWindow()}
           dictating={dictation.listening}
           dictationError={dictation.error}
-          onDictation={toggleDictation}
+          onDictation={() => toggleDictation()}
           onRemoveAttachment={(path) => setAttachments((current) => ({
             ...current,
             [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
