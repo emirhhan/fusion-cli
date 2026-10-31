@@ -20,9 +20,11 @@ export function TopicCard({ topic, seen, size = "compact", onOpenSettings, onMar
       </header>
       <p className="guide-topic__summary">{topic.summary}</p>
       <p className="guide-topic__where"><strong>Nerede:</strong> {topic.where}</p>
-      <figure className="guide-topic__figure">
-        <img alt={topic.imageAlt} decoding="async" height={600} loading="lazy" src={guideImageUrl(topic)} width={960} />
-      </figure>
+      {topic.image && (
+        <figure className="guide-topic__figure">
+          <img alt={topic.imageAlt ?? topic.title} decoding="async" height={600} loading="lazy" src={guideImageUrl(topic) ?? undefined} width={960} />
+        </figure>
+      )}
       <ol className="guide-topic__steps">
         {topic.steps.map((step) => <li key={step}>{step}</li>)}
       </ol>

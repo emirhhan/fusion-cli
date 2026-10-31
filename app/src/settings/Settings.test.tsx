@@ -393,13 +393,14 @@ describe("Settings — Gelişmiş", () => {
 });
 
 describe("Nasıl yapılır", () => {
-  it("Sistem grubunun en altında durur ve konuları ekran görüntüleriyle açar", async () => {
+  it("Sistem grubunun en altında durur ve görevleri kısa başlıklarla, görselsiz listeler", async () => {
     ciz();
     const sistem = screen.getByRole("navigation", { name: "Ayar bölümleri" }).querySelectorAll("button");
     expect(sistem[sistem.length - 1].textContent).toContain("Nasıl yapılır");
     bolum("Nasıl yapılır");
-    expect(await screen.findByRole("heading", { name: "Chrome eklentisi", level: 3 })).toBeTruthy();
-    expect(screen.getAllByRole("img").length).toBeGreaterThan(10);
+    expect(await screen.findByText("Chrome eklentisini kurmak")).toBeTruthy();
+    expect(screen.getByText("Bilgisayar kullanımına izin vermek")).toBeTruthy();
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
   });
 
   it("Ayarlar'da aç düğmesi ilgili ayar bölümüne geçirir", async () => {

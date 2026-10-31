@@ -21,7 +21,7 @@ it("ilk konuyu görseliyle gösterir ve Sonraki konu ile ilerler", () => {
 
 it("konu sekmesine tıklamak görülmüş saymaz; atlanan konu bekleyen kalır", () => {
   render(<GuideTour client={client} />);
-  fireEvent.click(screen.getByRole("button", { name: "Chrome eklentisi" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chrome eklentisini kurmak" }));
   expect(screen.getByText(/Erişilebilirlik/)).toBeTruthy();
   expect(readSeen().size).toBe(0);
   expect(screen.getByText(new RegExp(`${ONBOARDING_TOPICS.length} konu bakılmadı`))).toBeTruthy();
