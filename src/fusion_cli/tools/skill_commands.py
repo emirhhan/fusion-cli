@@ -27,7 +27,7 @@ from pathlib import Path
 
 from ..core.redaction import redact
 from .auto_policy import auto_risk, is_read_only_command
-from .frontmatter import body_after_frontmatter, parse_frontmatter
+from .frontmatter import NO_TOOLS, body_after_frontmatter, parse_frontmatter
 from .safety import danger_reason
 
 #: Komut dosyası kökleri: (ev/kök altı yol, kaynak etiketi, ev dizininde mi).
@@ -268,13 +268,25 @@ def build_invocation(
         rendered, cwd=env.project_dir, allowed=shell_allowed, read_only=shell_read_only
     )
     allowed_tools: set[str] | None = None
-    if capability.allowed_tools:
+    if capability.allowed_tools and capability.allowed_tools != NO_TOOLS:
         # `Bash(git *)` biçiminde komut deseni: araç adı eşlenir, desen kısıtı Fusion'da
         # komut politikasıyla değil onay kipiyle yönetilir; bu not modele değil kullanıcıya.
         names = tuple(name.split("(", 1)[0].strip() for name in capability.allowed_tools)
         allowed_tools = map_tools(names)
         if any("(" in name for name in capability.allowed_tools):
             notes = (*notes, "allowed-tools içindeki komut deseni (örn. Bash(git *)) uygulanmadı")
+        unmapped = [name for name in names if map_tools((name,)) == set()]
+        if allowed_tools == set():
+            # Hiçbir ad Fusion aracına eşlenmedi (`TodoWrite`, `Skill`…): tur araçsız kalmasın.
+            allowed_tools = None
+            notes = (
+                *notes,
+                "allowed-tools: hiçbir ad Fusion aracına eşlenmedi ("
+                + ", ".join(unmapped)
+                + "); kısıt uygulanmadı",
+            )
+        elif unmapped:
+            notes = (*notes, "allowed-tools: eşlenmeyen adlar yok sayıldı: " + ", ".join(unmapped))
     fork = capability.context.strip().lower() == "fork"
     if capability.kind == "komut":
         return SkillInvocation(

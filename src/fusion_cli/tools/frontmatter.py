@@ -118,11 +118,38 @@ def _list_item(line: str) -> str:
 
 
 def parse_tools(value: str) -> tuple[str, ...]:
-    """`tools:` alanını oku: `[a, b]`, `a, b` ya da `'*'` biçimlerini destekler."""
+    """`tools:` alanını oku: `[a, b]`, `a, b`, `a b` ya da `'*'` biçimlerini destekler.
+
+    Açık Agent Skills standardı `allowed-tools: Read Grep` (boşluk) yazar, Claude Code
+    `Read, Grep`; `Bash(git add:*, git commit:*)` içindeki virgül/boşluk ayırıcı değildir.
+    Ölçüldü (31 Ekim): yalnız virgülle bölünüyor, `Read Grep` tek ad sayılıp hiçbir araca
+    eşlenmiyordu.
+    """
     if value in ("'*'", '"*"', "*"):
         return ("*",)
     inner = value[1:-1] if value.startswith("[") and value.endswith("]") else value
-    return tuple(item.strip().strip("'\"") for item in inner.split(",") if item.strip())
+    return tuple(item.strip().strip("'\"") for item in split_tool_names(inner) if item.strip())
+
+
+def split_tool_names(text: str) -> list[str]:
+    """Parantez dışındaki virgül ve boşluklarda böl."""
+    items: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        if depth == 0 and (char == "," or char.isspace()):
+            if current:
+                items.append("".join(current))
+                current = []
+            continue
+        current.append(char)
+    if current:
+        items.append("".join(current))
+    return items
 
 
 def body_after_frontmatter(text: str) -> str:
