@@ -60,8 +60,11 @@ class SessionInfo:
     lesson_count: int | None
 
 
-def gradient(text: str, start: str = theme.ACCENT, end: str = theme.ACCENT_ALT) -> Text:
+def gradient(text: str, start: str | None = None, end: str | None = None) -> Text:
     """Metni karakter karakter iki renk arasında geçişli boya."""
+    # Varsayılanlar ÇAĞRI anında okunur: `/theme` paleti değiştirince imza da değişir (P-070).
+    start = start or theme.ACCENT
+    end = end or theme.ACCENT_ALT
     rendered = Text()
     visible = [char for char in text if char != "\n"]
     total = len(visible)

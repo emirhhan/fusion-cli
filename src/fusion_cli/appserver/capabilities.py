@@ -7,7 +7,8 @@ from typing import Any
 
 from ..config.models import Config
 from ..core.redaction import redact
-from ..engines.agent.project_instructions import CANDIDATE_FILENAMES
+from ..engines.agent.instruction_layers import load_instruction_layers
+from ..engines.agent.instruction_rules import discover_rules
 from ..tools.capabilities import (
     Capability,
     CapabilityRegistry,
@@ -66,6 +67,33 @@ def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
     }
 
 
+def instruction_entries(root: Path, home: Path | None) -> dict[str, tuple[Path, str, str]]:
+    """Katalogdaki talimat öğeleri: ad → (yol, kaynak, açıklama).
+
+    Tur başında yüklenen katmanlar (kullanıcı + proje, `@import` dahil) ve `.claude/rules`
+    kuralları (P-015/P-016). `detail` yalnız bu listedeki yolu okur; serbest yol kabul etmez.
+    """
+    entries: dict[str, tuple[Path, str, str]] = {}
+    for item in load_instruction_layers(root, home).files:
+        kaynak = "kullanici" if item.trusted else "proje"
+        aciklama = {
+            "kullanici": "Genel talimat; her projede tur başında yüklenir",
+            "proje": "Proje talimatı; tur başında yüklenir",
+            "import": "@import ile alınan dosya",
+            "baglanti": "Talimatın işaret ettiği kural dosyası",
+        }.get(item.layer, "")
+        entries.setdefault(item.label, (item.path, kaynak, aciklama))
+    for rule in discover_rules(root, home):
+        kaynak = "kullanici" if rule.trusted else "proje"
+        aciklama = (
+            f"Kural; yalnız şu dosyalara dokununca: {', '.join(rule.paths)}"
+            if rule.is_scoped
+            else "Kural; tur başında yüklenir"
+        )
+        entries.setdefault(rule.label, (rule.path, kaynak, aciklama))
+    return entries
+
+
 def catalog(
     registry: CapabilityRegistry,
     config: Config,
@@ -74,11 +102,11 @@ def catalog(
     disabled_skills: set[str],
     disabled_agents: set[str],
     disabled_mcp: set[str],
+    home: Path | None = None,
 ) -> dict[str, Any]:
     instructions = [
-        {"ad": name, "kaynak": "proje", "etkin": True}
-        for name in CANDIDATE_FILENAMES
-        if (root / name).is_file()
+        {"ad": name, "kaynak": kaynak, "etkin": True, "aciklama": aciklama}
+        for name, (_path, kaynak, aciklama) in instruction_entries(root, home).items()
     ]
     return {
         "ok": True,
@@ -120,6 +148,8 @@ def detail(
     config: Config,
     root: Path,
     data: dict[str, Any],
+    *,
+    home: Path | None = None,
 ) -> dict[str, Any]:
     kind, name = str(data.get("tur", "")), str(data.get("ad", ""))
     if kind == "beceri":
@@ -128,9 +158,9 @@ def detail(
     elif kind == "ajan":
         item = registry.get_agent(name)
         content = load_agent_prompt(item.path)[:_DETAIL_BUDGET] if item else ""
-    elif kind == "talimat" and name in CANDIDATE_FILENAMES:
+    elif kind == "talimat" and name in (entries := instruction_entries(root, home)):
         item = None
-        path = root / name
+        path = entries[name][0]
         try:
             content = path.read_text(encoding="utf-8")[:_DETAIL_BUDGET] if path.is_file() else ""
         except OSError:

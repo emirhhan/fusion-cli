@@ -28,7 +28,8 @@ it('aynı dosya yolu yeni revizyonda eski metni göstermeyi sürdürmez', async 
   rerender(<PreviewPanel client={client} selectedPath="README.md" revision={1} />);
   await screen.findByText('New snapshot');
   expect(screen.queryByText('Old snapshot')).toBeNull();
-  await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  // Yalnız dosya okuması sayılır: panel açılırken launch.json listesi de istenir (P-041).
+  await waitFor(() => expect(request.mock.calls.filter(([name]) => name === 'proje.onizle')).toHaveLength(2));
 });
 
 it('dosya güncellenirken kullanıcının açık Web sekmesi korunur', async () => {
@@ -37,7 +38,8 @@ it('dosya güncellenirken kullanıcının açık Web sekmesi korunur', async () 
   await screen.findByText('a');
   fireEvent.click(screen.getByRole('tab', { name: 'Web' }));
   rerender(<PreviewPanel client={client} selectedPath="README.md" revision={1} />);
-  await waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+  const request = client.request as ReturnType<typeof vi.fn>;
+  await waitFor(() => expect(request.mock.calls.filter(([name]) => name === 'proje.onizle')).toHaveLength(2));
   expect(screen.getByRole('tab', { name: 'Web' }).getAttribute('aria-selected')).toBe('true');
 });
 

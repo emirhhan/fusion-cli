@@ -29,6 +29,7 @@ from ...core.tool_content import ToolContent
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import design_compare, preview_server, shop_flow, site_design
 from ...tools.files import resolve_path
+from ...tools.preview_launch import join_local_page
 from ...tools.preview_probe import SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, PageProbe, probe
 from ...tools.wordpress_setup import (
     WordPressSetup,
@@ -39,6 +40,7 @@ from ...tools.wordpress_setup import (
 )
 from .clone_tools import THEME_BACKUP_DIR
 from .php_verify import WC_STYLES_OFF_NOTE, find_php_executable, woocommerce_styles_disabled
+from .preview_launch_run import launch_hint, run_launch_preview
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -82,6 +84,13 @@ def preview_tool(deps: AgentDeps) -> Tool:
                     "items": {"type": "string"},
                     "description": "kurulacak WordPress.org eklentileri, ör. ['woocommerce']",
                 },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        ".fusion/launch.json içindeki sunucu yapılandırmasının adı (özel komut/"
+                        "port ya da çalışan sunucuya bağlanma); verilirse tür tespiti yapılmaz"
+                    ),
+                },
             },
         },
         run=_run,
@@ -93,6 +102,10 @@ def preview_tool(deps: AgentDeps) -> Tool:
 async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> ToolResult:
     raw = args.get("path")
     root = resolve_path(context, raw) if isinstance(raw, str) and raw.strip() else context.root
+    name = args.get("name")
+    if isinstance(name, str) and name.strip():
+        # Kullanıcının adlandırdığı sunucu (`.fusion/launch.json`, P-041): tür tespiti yok.
+        return await run_launch_preview(deps, root, name.strip(), args.get("page"))
     kind = preview_server.detect_kind(root)
     if kind is None and args.get("kind") == preview_server.PreviewKind.WORDPRESS.value:
         # Boş klasörde "önce WordPress'i kur" modelin doğal ilk adımıdır. Ölçüldü (2 Ekim,
@@ -106,7 +119,7 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
             "wp-content/ ya da dev/start betikli package.json). WordPress sitesi için "
             "start_preview'ı kind='wordpress' ile çağır (e-ticaret: plugins=['woocommerce']): "
             "çekirdeği SQLite ile KENDİSİ kurar ve siteyi açar — wp core download, MySQL ya "
-            "da Docker ile uğraşma. Diğer türlerde önce sayfayı yaz."
+            "da Docker ile uğraşma. Diğer türlerde önce sayfayı yaz." + launch_hint(root)
         )
     plugins = _plugin_slugs(args.get("plugins"))
     if isinstance(plugins, str):
@@ -120,12 +133,9 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         preview = await preview_server.start(
             root, kind, port, php=find_php_executable(), entry=entry
         )
+        url = join_local_page(preview.url, args.get("page"))
     except (preview_server.PreviewError, WordPressSetupError) as error:
         return ToolResult.failure(f"Önizleme başlatılamadı: {error}")
-    page = args.get("page")
-    url = preview.url
-    if isinstance(page, str) and page.strip():
-        url = urljoin(preview.url, page.strip())
     kaynak = await asyncio.to_thread(site_design.reference_pages, root)
     sonuc = await probe(
         url,

@@ -1,4 +1,5 @@
 mod core_process;
+mod derin_baglanti;
 mod kapanis;
 mod kits_process;
 mod onizleme;
@@ -10,6 +11,7 @@ mod runtime_paths;
 mod runtime_smoke;
 mod session_manager;
 mod speech;
+mod tepsi;
 mod terminal;
 
 use std::path::PathBuf;
@@ -635,6 +637,25 @@ fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
 /// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır;
 /// arayüz bu sırada "hazırlanıyor" durumunu gösterir.
 #[tauri::command]
+fn tepsi_ayarla(acik: bool, app: tauri::AppHandle) -> Result<(), String> {
+    tepsi::ayarla(&app, acik)
+}
+
+#[tauri::command]
+fn tepsi_durum(calisan: u32, app: tauri::AppHandle) -> Result<(), String> {
+    tepsi::durum(&app, calisan)
+}
+
+/// Arayüz dinleyicisi kurulunca çağrılır: soğuk açılışta gelen `fusion://` hedefini verir
+/// (yoksa `None`) ve bundan sonra hedeflerin olayla yayınlanmasını açar (P-064).
+#[tauri::command]
+fn derin_baglanti_al(
+    bekleyen: tauri::State<derin_baglanti::Bekleyen>,
+) -> Option<derin_baglanti::DerinBaglanti> {
+    bekleyen.al()
+}
+
+#[tauri::command]
 async fn kits_baslat(
     app: tauri::AppHandle,
     manager: tauri::State<'_, Arc<KitsManager>>,
@@ -891,8 +912,12 @@ pub fn run() {
         // Tek örnek eklentisi DİĞER eklentilerden ÖNCE kaydedilmelidir (eklenti belgesi): ikinci
         // süreç ana pencereyi öne getirip kendi kendine çıkar, hiçbir yönetici (çekirdek, terminal)
         // başlatmaz.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             ana_pencereyi_one_getir(app);
+            // Windows/Linux'ta `fusion://` adresi ikinci örneğin argümanı olarak gelir (P-064).
+            if let Some(hedef) = derin_baglanti::argumanlardan(&args) {
+                derin_baglanti::ilet(app, &hedef);
+            }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
@@ -909,6 +934,8 @@ pub fn run() {
                 .yanit(request.method(), request.uri().path())
         })
         .manage(SpeechManager::new())
+        .manage(tepsi::TepsiDurumu::default())
+        .manage(derin_baglanti::Bekleyen::default())
         .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
             let output_app = app.handle().clone();
@@ -938,12 +965,19 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| {
+            // Tepsi menüsü (P-064): Çıkış da onay akışından geçer, doğrudan kapatmaz.
+            match tepsi::menu_olayi(app, event.id().as_ref()) {
+                tepsi::TepsiKarar::Islendi => return,
+                tepsi::TepsiKarar::CikisIstendi => {
+                    kapatma_iste(app);
+                    return;
+                }
+                tepsi::TepsiKarar::TepsiyeAitDegil => {}
+            }
             #[cfg(target_os = "macos")]
             if event.id() == CIKIS_MENU_KIMLIGI {
                 kapatma_iste(app);
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
         })
         .invoke_handler(tauri::generate_handler![
             cekirdek_baslat,
@@ -977,7 +1011,10 @@ pub fn run() {
             izin_durumu,
             izin_iste,
             izin_ayarlari_ac,
-            kits_baslat
+            kits_baslat,
+            tepsi_ayarla,
+            tepsi_durum,
+            derin_baglanti_al
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -1021,6 +1058,16 @@ pub fn run() {
                 Some(ShutdownRoute::ExitRequested)
             }
             tauri::RunEvent::Exit => Some(ShutdownRoute::Exit),
+            // macOS `fusion://` adresini Launch Services'ten burada verir (P-064).
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                for adres in urls {
+                    if let Some(hedef) = derin_baglanti::coz(adres.as_str()) {
+                        derin_baglanti::ilet(app, &hedef);
+                    }
+                }
+                None
+            }
             _ => None,
         };
         if let Some(route) = route {

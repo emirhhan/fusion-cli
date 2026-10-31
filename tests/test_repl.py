@@ -202,6 +202,17 @@ def test_thinking_ac_kapa(registry, state):
     assert not state.show_thinking
 
 
+def test_zil_ac_kapa(registry, state):
+    """`/zil` tur bitiş zilini açar/kapatır; varsayılan kapalı (P-047)."""
+    assert not state.bell
+
+    _calistir(registry, state, "/zil")
+    assert state.bell
+
+    _calistir(registry, state, "/zil")
+    assert not state.bell
+
+
 def test_sentez_yapilandirmadan_baslar_ve_terslenir(registry, state):
     assert state.synthesis is None  # yapılandırmadaki değer geçerli
 

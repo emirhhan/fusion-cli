@@ -19,6 +19,11 @@ const varsayilan: OsBildirimBagimliliklari = {
 
 export type OsBildirimSonucu = "gonderildi" | "izin-yok" | "odakta" | "kabuk-yok" | "hata";
 
+export interface OsBildirimSecenekleri {
+  /** Pencere odaktayken de gönder: kullanıcı BAŞKA sohbete bakıyordur (P-047). */
+  odaktaDaGonder?: boolean;
+}
+
 /**
  * Kullanıcı uygulamada değilken (zamanlanmış görev onay beklerken) işletim sistemi bildirimi gösterir
  * (U5-57). Uygulama odaktayken uygulama içi şerit yeter; izin yoksa bir kez istenir, verilmezse
@@ -28,9 +33,10 @@ export async function osBildirimiGonder(
   baslik: string,
   metin: string,
   bag: OsBildirimBagimliliklari = varsayilan,
+  secenekler: OsBildirimSecenekleri = {},
 ): Promise<OsBildirimSonucu> {
   if (!bag.kabukVar()) return "kabuk-yok";
-  if (bag.uygulamaOdakta()) return "odakta";
+  if (!secenekler.odaktaDaGonder && bag.uygulamaOdakta()) return "odakta";
   try {
     if (!(await bag.izinVerildi()) && (await bag.izinIste()) !== "granted") return "izin-yok";
     bag.gonder({ title: baslik, body: metin });

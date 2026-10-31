@@ -140,6 +140,15 @@ def web_profile_dir(provider: str, account: str) -> Path:
     return user_data_dir() / "web_profiles" / _slug(provider) / _slug(account)
 
 
+def browser_profiles_dir() -> Path:
+    """Ajan tarayıcısına (`browser_*`) taşınan kullanıcı oturumlarının kökü (P-023).
+
+    `web_profiles/` ile karıştırılmaz: o dizin web MODEL sağlayıcılarının Chrome
+    kullanıcı-veri dizinleridir; burası ad başına şifreli `storage_state` tutar.
+    """
+    return user_data_dir() / "browser_profiles"
+
+
 def _slug(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip()).strip("-._")
     return cleaned or "main"

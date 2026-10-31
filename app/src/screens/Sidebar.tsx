@@ -15,6 +15,8 @@ export interface OturumSatiri {
   session_id: string;
   source: string;
   title: string;
+  /** Bakılmadan tur bitti ya da onay geldi: satırda nokta, erişilebilir adda "okunmamış" (P-047). */
+  okunmamis?: boolean;
 }
 
 export interface ProjeSatiri {
@@ -84,6 +86,8 @@ interface SidebarProps {
   /** Yeni proje için isteğe bağlı klasör seçici; iptalde null. */
   onPickFolder?: () => Promise<string | null>;
   onYeni: () => void;
+  /** Sohbeti aktif sohbetin yanında ikinci bölmede aç (P-064). Verilmezse menüde görünmez. */
+  onSplit?: (id: string) => void | Promise<void>;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
   /** Sol alttaki satır: giriş yapmış YEREL HESAP.
@@ -125,12 +129,13 @@ function hataMetni(error: unknown): string {
 
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
-function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
+function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
   pinned: boolean;
   onPin: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
+  onSplit?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onRemoveFromProject?: () => void | Promise<void>;
   moveTargets: MoveTarget[];
@@ -178,9 +183,10 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
   return (
     <div className="sidebar__session-row">
       <button
-        aria-label={session.title}
+        aria-label={session.okunmamis ? `${session.title} (okunmamış)` : session.title}
         className="sidebar__session"
         data-etkin={active}
+        data-okunmamis={session.okunmamis || undefined}
         onClick={onSelect}
         type="button"
       >
@@ -193,6 +199,7 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
           ? <span aria-hidden="true" className="source-icon sidebar__session-dot" />
           : <SourceIcon size={16} source={session.source} />}
         <span className="sidebar__session-title">{session.title}</span>
+        {session.okunmamis && <span aria-hidden="true" className="sidebar__session-unread" />}
         <span className="sidebar__session-source">
           {session.source === "fusion" ? "" : session.source}
         </span>
@@ -201,6 +208,10 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
         {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
           <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
+          {onSplit && !active && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onSplit).catch((error: unknown) => setDeleteError(hataMetni(error)));
+          }} role="menuitem" type="button">Yan yana aç</button>}
           {moveTargets.length > 0 && <>
             <strong>Projeye taşı</strong>
             {moveTargets.map((target) => <button key={target.key} onClick={() => {
@@ -251,6 +262,7 @@ export function Sidebar({
   onAssign,
   onPickFolder,
   onYeni,
+  onSplit,
   oturumlar,
   projeler = [],
   hesap = null,
@@ -439,6 +451,7 @@ export function Sidebar({
     <SessionButton key={pinKey(session)} session={session} active={session.session_id === etkin}
       pinned={pinnedSessions.includes(pinKey(session))} onPin={() => togglePin(session)}
       onSelect={() => onSec(session.session_id)}
+      onSplit={onSplit ? () => onSplit(session.session_id) : undefined}
       onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); } : undefined}
       onRemoveFromProject={onAssign && session.projectId ? () => onAssign(session.session_id, null) : undefined}
       moveTargets={[

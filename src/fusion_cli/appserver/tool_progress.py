@@ -178,7 +178,28 @@ def _chrome_action(args: Mapping[str, object]) -> str:
         return "chrome ile tuşa basılıyor"
     if action == "screenshot":
         return "chrome ile ekran görüntüsü alınıyor"
-    return "chrome ile sayfa etkileşimi yapılıyor"
+    if action == "console":
+        return "chrome konsolu okunuyor"
+    if action == "network":
+        return "chrome ağ istekleri okunuyor"
+    if action == "record":
+        # `stop` GIF yazar; "kayıt alınıyor" demek yanıltıcıydı (ölçüldü, 31 Ekim).
+        if (_text(args, "value") or "").lower() == "stop":
+            return "chrome ekran kaydı GIF olarak yazılıyor"
+        return "chrome ekran kaydı başlatılıyor"
+    if action == "shortcut":
+        ad = (_text(args, "value") or "").lstrip("/")
+        return f"chrome kısayolu {_quote(ad)} alınıyor" if ad else "chrome kısayolu alınıyor"
+    return _CHROME_ACTION_TEXTS.get(str(action), "chrome ile sayfa etkileşimi yapılıyor")
+
+
+#: Değersiz ya da değeri cümleye girmeyen chrome eylemleri (P-073 pencere/grup/kısayol dahil).
+_CHROME_ACTION_TEXTS = {
+    "window": "chrome ile yeni pencere açılıyor",
+    "group": "chrome ile sekmeler gruplanıyor",
+    "shortcuts": "chrome kısayolları listeleniyor",
+    "tabs": "chrome sekmeleri listeleniyor",
+}
 
 
 def _browser_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
@@ -206,6 +227,19 @@ def _browser_open(args: Mapping[str, object]) -> str:
 def _desktop_open(args: Mapping[str, object]) -> str:
     hedef = _text(args, "path", "uygulama", "app")
     return f"masaüstünde {hedef} açılıyor" if hedef else "masaüstünde uygulama açılıyor"
+
+
+_MOUSE_VERBS = {
+    "click": "bir öğeye tıklanıyor", "right_click": "sağ tıklanıyor",
+    "double_click": "çift tıklanıyor", "triple_click": "üç kez tıklanıyor",
+    "middle_click": "orta tuşla tıklanıyor", "drag": "sürükleniyor",
+    "hover": "imleç bir öğenin üstüne götürülüyor", "down": "fare basılı tutuluyor",
+    "up": "fare bırakılıyor",
+}  # fmt: skip
+
+
+def _desktop_mouse(args: Mapping[str, object]) -> str:
+    return f"masaüstünde {_MOUSE_VERBS.get(str(args.get('action', 'click')), 'fare kullanılıyor')}"
 
 
 def _desktop_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
@@ -261,7 +295,9 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "desktop_apps": _desktop_generic("uygulamalar listeleniyor"),
     "desktop_open": _desktop_open,
     "desktop_screenshot": _desktop_generic("ekran görüntüsü alınıyor"),
+    "desktop_displays": _desktop_generic("ekranlar listeleniyor"),
     "desktop_click": _desktop_generic("bir öğeye tıklanıyor"),
+    "desktop_mouse": _desktop_mouse,
     "desktop_type": _desktop_generic("yazı yazılıyor"),
     "desktop_key": _desktop_generic("tuşa basılıyor"),
     "desktop_scroll": _desktop_generic("sayfa kaydırılıyor"),

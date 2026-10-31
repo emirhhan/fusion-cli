@@ -3,6 +3,7 @@ import { vi } from "vitest";
 /** Eklenti testleri için durumlu, en küçük Chrome API taklidi. */
 export function chromeKit(options: { granted?: (origin: string) => boolean; backgroundVersion?: string | null } = {}) {
   const session = new Map<string, unknown>();
+  const local = new Map<string, unknown>();
   const listeners: ((changes: Record<string, unknown>, area: string) => void)[] = [];
   const tabs = [
     { id: 7, url: "https://example.com/page", title: "Example", active: true, status: "complete", windowId: 1 },
@@ -26,6 +27,16 @@ export function chromeKit(options: { granted?: (origin: string) => boolean; back
           listeners.forEach((l) => l(Object.fromEntries(Object.keys(values).map((k) => [k, {}])), "session"));
         }),
         remove: vi.fn(async (key: string) => { session.delete(key); listeners.forEach((l) => l({ [key]: {} }, "session")); }),
+      },
+      // Konsol/ağ izleyicisi ayarı ve kısayollar `local` alanında yaşar (P-042, P-073).
+      local: {
+        get: vi.fn(async (key: string | string[]) => {
+          const keys = Array.isArray(key) ? key : [key];
+          return Object.fromEntries(keys.filter((k) => local.has(k)).map((k) => [k, local.get(k)]));
+        }),
+        set: vi.fn(async (values: Record<string, unknown>) => {
+          for (const [k, v] of Object.entries(values)) local.set(k, v);
+        }),
       },
       onChanged: { addListener: (l: (typeof listeners)[number]) => listeners.push(l) },
     },
@@ -52,8 +63,14 @@ export function chromeKit(options: { granted?: (origin: string) => boolean; back
     permissions: {
       request: vi.fn(async () => true),
       contains: vi.fn(async ({ origins }: { origins: string[] }) => origins.every((o) => granted(o))),
+      getAll: vi.fn(async () => ({ origins: [] as string[] })),
+      onAdded: { addListener: vi.fn() },
+      onRemoved: { addListener: vi.fn() },
     },
     scripting: {
+      getRegisteredContentScripts: vi.fn(async () => []),
+      registerContentScripts: vi.fn(async () => undefined),
+      unregisterContentScripts: vi.fn(async () => undefined),
       executeScript: vi.fn(async () => [{ result: { title: "Example", url: "https://example.com/page", text: "Page text", elements: [] } }]),
     },
   };

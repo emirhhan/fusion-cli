@@ -101,6 +101,59 @@
   width: 6px;
 }
 
+/* Uzaktan kontrol anahtarı (P-066): hap biçimli, durum noktalı; kapalıyken sessiz,
+   dinlerken yeşil, onay beklerken uyarı rengi. Yalnız renk ve opaklık geçişi (compositor). */
+.app-header__remote {
+  align-items: center;
+  background: var(--surface-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-3);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  white-space: nowrap;
+}
+
+.app-header__remote:hover,
+.app-header__remote:focus-visible {
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.app-header__remote-dot {
+  background: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  height: 6px;
+  opacity: 0.6;
+  width: 6px;
+}
+
+.app-header__remote--on .app-header__remote-dot {
+  background: var(--text-success);
+  opacity: 1;
+}
+
+.app-header__remote--pending .app-header__remote-dot {
+  background: var(--text-warning, #d08a00);
+}
+
+.app-header__remote-summary {
+  opacity: 0.75;
+}
+
+@media (max-width: 920px) {
+  /* Dar pencerede yalnız nokta + etiket kalır; özet `aria-label`da sürer. */
+  .app-header__remote-summary {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   /* Bağlantı durumu dar pencerede de görünür: yalnız "bağlantı kesildi" uyarısı çizilir ve
      gizlenirse kullanıcı kopuk olduğunu anlamıyordu (CSS1-20). */

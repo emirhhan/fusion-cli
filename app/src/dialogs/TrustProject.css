@@ -1,0 +1,24 @@
+/* Proje güven şeridi: proje seçici ile aynı kolon (bkz. DepoUyarisi.css). */
+.trust-project-kolon {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: calc(var(--icerik-en-fazla) + 2 * var(--space-5));
+  padding: 0 var(--space-5);
+  width: 100%;
+}
+.trust-project {
+  display: grid; gap: 6px;
+  margin: var(--space-2) 0;
+  padding: 8px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--text-warning);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-xs); line-height: 1.45;
+}
+.trust-project__metin { margin: 0; }
+.trust-project__metin strong { color: var(--text-primary); }
+.trust-project__hata { color: var(--text-danger); margin: 0; }
+.trust-project__eylemler { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.trust-project__eylemler small { color: var(--text-secondary); }

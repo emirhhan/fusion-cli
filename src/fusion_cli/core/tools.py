@@ -26,12 +26,14 @@ from uuid import uuid4
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .job_evidence import JobCompletion
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
+from .worktree import WorktreeSwitch
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
@@ -107,7 +109,9 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "desktop_window_focus": ToolFamily.DESKTOP,
     "desktop_accessibility": ToolFamily.DESKTOP,
     "desktop_open": ToolFamily.DESKTOP,
+    "desktop_displays": ToolFamily.DESKTOP,
     "desktop_screenshot": ToolFamily.DESKTOP,
+    "desktop_mouse": ToolFamily.DESKTOP,
     "desktop_click": ToolFamily.DESKTOP,
     "desktop_type": ToolFamily.DESKTOP,
     "desktop_key": ToolFamily.DESKTOP,
@@ -170,6 +174,11 @@ class ToolEffect(Enum):
     REMOTE_WRITE = "remote_write"
     #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).
     REMOTE_DESTRUCTIVE = "remote_destructive"
+    #: Kullanıcının GİRİŞLİ oturumunu (çerez profili) ajanın tarayıcısına yükler (P-023).
+    #: Uzak sisteme henüz yazmaz ama ajanı o hesabın yetkisiyle donatır; Claude in
+    #: Chrome kullanıcının oturumunda eylem izni ister, buradaki beklenti aynıdır.
+    #: Her kipte sorulur, plan kipinde yapılmaz; dış işlem defterine GİRMEZ (yazma değil).
+    REMOTE_SESSION = "remote_session"
 
 
 def tool_family(name: str) -> ToolFamily:
@@ -382,11 +391,28 @@ class ToolContext:
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
     #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
     edit_fuzzy_match: bool = field(default=True, kw_only=True)
+    #: Kök (+ `extra_roots`) DIŞINI okuma / DIŞINA yazma tamamen kapalı mı? (P-002)
+    #:
+    #: `restrict_to_root` ikisini birden kapatır; bunlar tek yönü kapatır. Açıkken
+    #: dosya araçları `PathAccessError` verir ve modele `--add-dir` ile açılabileceği söylenir.
+    block_reads_outside_root: bool = field(default=False, kw_only=True)
+    block_writes_outside_root: bool = field(default=False, kw_only=True)
     #: Dosya yazıldıktan sonra JS/TS/PHP sözdizimi hızlı kontrolü (bkz. `tools.sozdizimi_kontrol`).
     post_edit_syntax_check: bool = field(default=True, kw_only=True)
     #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut
     #: mutasyon sayılmaz (bkz. `core.workspace_fingerprint`). Kapalıysa temkinli sınıflandırma.
     shell_fingerprint: bool = field(default=True, kw_only=True)
+    #: Turun son masaüstü ekran görüntüsü çerçevesi: fare araçları görüntü pikselini ekran
+    #: noktasına bununla çevirir (bkz. `core.desktop_frame`). Taşıyıcı nesnedir; paylaşılır.
+    desktop: DesktopView = field(default_factory=DesktopView, kw_only=True)
+    #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
+    #: (`runtime.desktop_screenshot_max_width`).
+    desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
+    #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
+    desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
+    #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
+    #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
+    worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

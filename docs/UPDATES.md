@@ -21,6 +21,9 @@ macOS ilk açılışta ayrıca uyarabilir. Güncellemeler Tauri imzasıyla doğr
   --key /Users/kullanici/.config/fusion-release/updater.key
 ```
 
+   Sürüm notu için `--notes "…"` ya da `--notes-file notlar.md` verin (P-066): manifestin
+   `notes` alanına düz metin yazılır; uygulama Ayarlar › Güncellemeler'de "Sürüm notları ·
+   <sürüm>" başlığında gösterir (HTML yorumlanmaz). Verilmezse genel bir cümle yazılır.
 4. `v<SÜRÜM>` GitHub Release'ine DMG, `.app.tar.gz`, `.sig` ve `latest.json`
 dosyalarını birlikte yükleyin. Manifestteki sürüm, mimari ve URL yayımlanan
 dosyalarla eşleşmelidir. Release'i “latest” olarak işaretleyin.
@@ -31,6 +34,15 @@ kaybolursa mevcut kurulumlar yeni anahtarla imzalanan güncellemeyi kabul etmez.
 İmza sonrası uygulama arşivini değiştirmeyin. Intel ve Apple Silicon manifestleri
 tek `latest.json` altında birleştirilmelidir; tek mimari paket diğerini güncellemez.
 Terminal kurulumu bu mekanizmadan bağımsızdır; `setup.sh` veya `install.ps1` ile yenilenir.
+
+## Sürüm notları ve kanal (P-066)
+
+Ayarlar › Güncellemeler kurulu sürümü ("Kurulu sürüm: 0.7.18 · kanal: kararlı") ve kontrol
+sonrası manifestin `notes` alanını gösterir. Claude Code'un sürüm notları / beta kanalı
+karşılığında **yalnız kararlı kanal** vardır: güncelleyicinin uç noktası `tauri.conf.json`'da
+sabittir (`releases/latest/download/latest.json`). Beta kanalı için ayrı bir `beta.json`
+yayımlamak ve Rust tarafında `updater_builder().endpoints()` ile ikinci uç nokta seçmek
+gerekir; bu bir dağıtım kararıdır, arayüzde sahte bir seçici konmadı.
 
 ## Kimlik bilgileri
 
