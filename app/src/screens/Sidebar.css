@@ -226,18 +226,21 @@
   font-size: var(--text-sm);
   gap: 12px;
   grid-template-columns: 24px minmax(0, 1fr) auto;
-  min-height: 46px;
-  padding: 8px 10px;
+  min-height: 42px;
+  padding: var(--space-2) 10px;
   text-align: left;
 }
 .sidebar__profile-menu > button:hover { background: var(--surface-hover); }
 .sidebar__profile-menu > button > span { grid-column: 2; }
-.sidebar__profile-menu .sidebar__profile-heading { grid-template-columns: 42px minmax(0, 1fr) auto; min-height: 64px; }
+.sidebar__profile-menu .sidebar__profile-heading { grid-template-columns: 42px minmax(0, 1fr) auto; min-height: 60px; }
 .sidebar__profile-menu .sidebar__profile-heading .sidebar__avatar { grid-column: 1; height: 40px; width: 40px; }
 .sidebar__profile-menu .sidebar__profile-copy { grid-column: 2; }
 .sidebar__profile-chevron { grid-column: 3; }
 .sidebar__profile-value { color: var(--text-secondary); font-size: var(--text-xs); grid-column: 3; }
-.sidebar__profile-separator { background: var(--border-subtle); height: 1px; margin: 8px 10px; }
+/* Ayraç menü zemininden metin rengiyle türetilir: koyu temada --border-subtle (#353535)
+   menü zemininin (--surface-menu #353535) AYNISIYDI; çizgi görünmüyor, gruplar arasında
+   açıklaması olmayan 17 px'lik bir boşluk kalıyordu ("Dil" ile "Yardım" arası). */
+.sidebar__profile-separator { background: color-mix(in srgb, var(--text-primary) 12%, transparent); flex: none; height: 1px; margin: var(--space-1) 10px; }
 @keyframes profile-menu-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
 
 .sidebar__section + .sidebar__section {
