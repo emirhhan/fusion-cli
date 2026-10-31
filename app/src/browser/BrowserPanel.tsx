@@ -214,7 +214,7 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
           </div>
         )}
         {drawer === "console" && isOpen && (
-          <PreviewLog client={client} onClose={() => setDrawer("none")} rpc={`${BROWSER_RPC}konsol`} url={snapshot?.url ?? ""} />
+          <PreviewLog clearable client={client} onClose={() => setDrawer("none")} rpc={`${BROWSER_RPC}konsol`} url={snapshot?.url ?? ""} />
         )}
       </div>
 

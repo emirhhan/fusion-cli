@@ -280,6 +280,23 @@ async def test_panel_tiklama_ve_yazma_sayfaya_gider_konsol_okunur(panel, site):
 
 
 @gercek_tarayici
+async def test_konsol_temizlenince_sonraki_gezinmenin_kayitlari_gelir(panel, site):
+    await panel.handle("tarayici_panel.ac", {"url": site})
+    await _kare(panel)
+    await panel.handle("tarayici_panel.konsol", {"temizle": True})
+
+    await panel.handle("tarayici_panel.yenile", {})
+    for _ in range(40):
+        gunluk = await panel.handle("tarayici_panel.konsol", {})
+        if gunluk["konsol"] and gunluk["ag"]:
+            break
+        await asyncio.sleep(0.05)
+
+    assert any("panel-hata" in satir["metin"] for satir in gunluk["konsol"])
+    assert gunluk["ag"] and gunluk["ag"][0]["url"].startswith(site)
+
+
+@gercek_tarayici
 async def test_tur_surerken_kullanici_tiklamasi_devralir_ajan_birakilinca_surer(panel, site):
     await panel.handle("tarayici_panel.ac", {"url": site})
     await _kare(panel)

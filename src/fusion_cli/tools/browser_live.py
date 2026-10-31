@@ -99,7 +99,7 @@ class LiveView:
         self._context: Any = None
         #: Panelde seçilen görünüm ölçüsü; yeni sekmelere de uygulanır.
         self._viewport: tuple[int, int] | None = None
-        self.collector = PageEventCollector()
+        self.collector = PageEventCollector(rolling=True)
 
     @property
     def session(self) -> BrowserSession:
@@ -195,27 +195,33 @@ class LiveView:
                 await cdp.detach()
 
     def watch_context(self, context: PlaywrightObject) -> None:
-        """Bağlamdaki tüm sekmelerin konsolunu/ağını tek toplayıcıda biriktir."""
+        """Bağlamdaki tüm sekmelerin konsolunu/ağını tek toplayıcıda biriktir.
+
+        Dinleyiciler `self.collector`'ı her olayda yeniden okur: temizlik toplayıcıyı
+        değiştirince bağlamı yeniden dinlemek gerekmez. Ölçüldü (31 Ekim, inceleme): eski
+        toplayıcıya bağlı kalan dinleyiciler yüzünden temizlikten sonra kayıt gelmiyordu.
+        """
         if context is self._context:
             return
         self._context = context
-        self.collector = PageEventCollector()
-        collector = self.collector
-        context.on("console", collector.console)
-        context.on("weberror", lambda error: collector.page_error(getattr(error, "error", error)))
-        context.on("request", collector.request)
-        context.on("response", collector.response)
-        context.on("requestfailed", collector.request_failed)
+        self.collector = PageEventCollector(rolling=True)
+        context.on("console", lambda message: self.collector.console(message))
+        context.on(
+            "weberror", lambda error: self.collector.page_error(getattr(error, "error", error))
+        )
+        context.on("request", lambda request: self.collector.request(request))
+        context.on("response", lambda response: self.collector.response(response))
+        context.on("requestfailed", lambda request: self.collector.request_failed(request))
 
     def page_log(self, *, clear: bool = False) -> PageLog:
+        """Birikmiş konsol/ağ kaydı; `clear` ise döndürdükten sonra tampon boşalır."""
         log = PageLog(
             self._page.url if self._page is not None else "",
             self.collector.console_entries(),
             self.collector.network_entries(),
         )
         if clear:
-            self.collector = PageEventCollector()
-            self._context = None
+            self.collector = PageEventCollector(rolling=True)
         return log
 
     # ------------------------------------------------------------------ girdi
