@@ -709,7 +709,7 @@ async def _agent_turn(
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
 
 
-def _turn_tool_context(state: ReplState, changes: ChangeSet) -> ToolContext:
+def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> ToolContext:
     """Turun araç bağlamı; yapılandırma ayarları `run_agent_task` ile aynı yerden işlenir."""
     from ..session import apply_runtime_settings
 
@@ -721,7 +721,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet) -> ToolContext:
             block_reads_outside_root=state.config.runtime.block_reads_outside_root,
             block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
-            changes=changes,
+            changes=changes if changes is not None else ChangeSet(),
         ),
         state.config,
     )
