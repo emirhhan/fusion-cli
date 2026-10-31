@@ -64,6 +64,9 @@ _KURULUM_TALIMATI = (
 
 
 _LOCAL_PREFIXES = ("localhost", "127.0.0.1", "[::1]")
+SHARED_HEADED_NOTE = (
+    "not: headed yok sayıldı; tarayıcı kullanıcıyla paylaşılıyor ve Tarayıcı panelinde görünür."
+)
 
 
 def normalize_url(raw: str) -> str:
@@ -97,6 +100,12 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     profile = optional_str(args, "profile", "").strip()
     headed = is_truthy(args.get("headed"))
+    shared_note = ""
+    if headed and context.browser.persistent:
+        # Paylaşılan tarayıcı (P-045) panelde ya da kullanıcının penceresinde zaten görünür;
+        # `headed` ikinci bir yerel pencere açardı (ölçüldü 31 Ekim, inceleme).
+        headed = False
+        shared_note = SHARED_HEADED_NOTE
     page, hata = await _sayfa(context, profile=profile, headed=headed)
     if page is None:
         return ToolResult.failure(hata)
@@ -106,7 +115,10 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"Sayfa açılamadı: {url} ({type(exc).__name__}: {exc}){blocked_hint(exc)}"
         )
-    return _with_profile_note(await _sayfa_ozeti(page, "açıldı"), context.browser)
+    result = _with_profile_note(await _sayfa_ozeti(page, "açıldı"), context.browser)
+    if shared_note and result.ok:
+        result = replace(result, output=f"{shared_note}\n{result.output}")
+    return result
 
 
 async def browser_open_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect:

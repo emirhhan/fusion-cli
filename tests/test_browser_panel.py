@@ -358,6 +358,29 @@ async def test_acik_devral_tur_bitince_kullanicida_kalir(panel):
 
 
 @gercek_tarayici
+async def test_paylasilan_tarayicida_headed_ikinci_pencere_acmaz(panel, site, monkeypatch):
+    # Ölçüldü (31 Ekim, inceleme): ajan `headed=true` verince paylaşılan oturum görünür
+    # Chromium penceresiyle açılıyor, panelin yanında ikinci bir yerel pencere çıkıyordu.
+    istenen: list[bool] = []
+    gercek = browser_tools.start_session
+
+    async def _izle(oturum, origins, **kw):
+        istenen.append(kw.get("headed", False))
+        return await gercek(oturum, origins, **kw)
+
+    monkeypatch.setattr(browser_tools, "start_session", _izle)
+    oturum = panel.turn_browser()
+    baglam = ToolContext(
+        root=Path(), browser=oturum, local_origins={site.removeprefix("http://").rstrip("/")}
+    )
+
+    sonuc = await browser_tools.browser_open({"url": site, "headed": True}, baglam)
+
+    assert sonuc.ok and istenen == [False]
+    assert "headed yok sayıldı" in sonuc.output
+
+
+@gercek_tarayici
 async def test_oge_secici_benzersiz_secici_ve_proje_ici_goruntu_doner(panel, site, tmp_path):
     await panel.handle("tarayici_panel.ac", {"url": site})
     await _kare(panel)
