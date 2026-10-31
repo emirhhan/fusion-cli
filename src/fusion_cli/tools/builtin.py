@@ -448,16 +448,11 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="gh",
-        description="Salt-okunur GitHub CLI: PR/issue/CI oku (`pr view 12 --comments`, "
-        "`pr diff 12`, `pr checks 12`, `run view`, `api repos/{owner}/{repo}/pulls/12/comments`); "
-        "onaysız. PR oluşturma/yorum/merge için run_shell ile `gh pr create …` (onay istenir).",
+        # Kısa tutulur: emüle araç istemi bütçeye tabidir (`test_tool_emulation_diet`).
+        description="Salt-okunur gh: pr view/diff/checks, issue, run view, api GET; onaysız. "
+        "Yazan gh komutları run_shell ile (onay istenir).",
         parameters=_schema(
-            {
-                "args": {
-                    **_STRING,
-                    "description": "gh argümanları, ör: 'pr view 12 --comments', 'pr checks 12'",
-                }
-            },
+            {"args": {**_STRING, "description": "gh argümanları, ör: pr view 12 --comments"}},
             ["args"],
         ),
         run=github_cli.gh,
