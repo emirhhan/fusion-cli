@@ -1,0 +1,137 @@
+"""Fork alt ajan: ana bağlamı devralan izole alt görev (P-054).
+
+Ölçüldü (31 Ekim): SubTask yalnız görev metni + kişilik taşıyordu; alt ajan ana geçmişi
+görmüyor, `/subtask` yoktu, beceri `context: fork` okunmuyordu.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from fusion_cli.core.types import Message, ToolCall
+from fusion_cli.engines.agent import history as history_rules
+from fusion_cli.engines.agent import team_fork
+from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+from fusion_cli.engines.agent.loop import AgentDeps
+from fusion_cli.engines.agent.team import SubTask, _parse_subtask, run_subagent, spawn_agent_tool
+from fusion_cli.tools.capabilities import CapabilityRegistry
+from tests.agent_harness import Publisher
+from tests.fakes import AlwaysApprove, RecordingSink, make_config
+
+
+def _deps(tmp_path):
+    return AgentDeps(
+        config=make_config(),
+        publisher=Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContextFactory(tmp_path),
+        capabilities=CapabilityRegistry(tmp_path / "ev", tmp_path),
+    )
+
+
+def ToolContextFactory(tmp_path):  # noqa: N802 - kısa yardımcı
+    from fusion_cli.core.tools import ToolContext
+
+    return ToolContext(root=tmp_path)
+
+
+def test_fork_gecmisi_sistemi_dusurur_ve_eski_arac_ciktisini_temizler():
+    uzun = "x" * 40_000
+    gecmis = [
+        Message("system", "SİSTEM"),
+        Message("user", "kök görev"),
+        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file", arguments="{}"),)),
+        Message("tool", uzun, tool_call_id="1"),
+        Message("assistant", "okudum"),
+        Message("user", "devam"),
+        Message("assistant", "", tool_calls=(ToolCall(id="2", name="read_file", arguments="{}"),)),
+        Message("tool", uzun, tool_call_id="2"),
+        Message("assistant", "bitti"),
+    ]
+
+    fork = team_fork.fork_history(gecmis)
+
+    assert fork[0].role == "user" and fork[0].content == "kök görev"
+    assert all(message.role != "system" for message in fork)
+    assert history_rules.total_chars(fork) <= team_fork.FORK_MAX_CHARS
+    # En eski araç çıktısı nota indi; en SON araç çıktısı korunur.
+    assert len(fork[2].content) < 200 and fork[6].content == uzun
+    assert team_fork.fork_history(None) == [] and team_fork.fork_history([]) == []
+
+
+def test_fork_gecmisi_hala_uzunsa_kok_ve_sonu_korur_arayi_notlar():
+    gecmis = [Message("system", "S"), Message("user", "kök")]
+    for index in range(60):
+        gecmis.append(Message("user", f"soru {index} " + "y" * 2_000))
+        gecmis.append(Message("assistant", f"cevap {index} " + "z" * 2_000))
+
+    fork = team_fork.fork_history(gecmis)
+
+    assert fork[0].content == "kök"
+    assert any("çıkarıldı" in message.content for message in fork)
+    assert fork[-1].content.startswith("cevap 59")
+    assert len(fork) <= team_fork.FORK_KEEP_RECENT + 3
+
+
+def test_baglam_miras_alani_kapali_guvenli_okunur():
+    assert _parse_subtask({"task": "a", "baglam_miras": True}).inherit_context is True  # type: ignore[union-attr]
+    assert _parse_subtask({"task": "a", "baglam_miras": "evet"}).inherit_context is True  # type: ignore[union-attr]
+    assert _parse_subtask({"task": "a"}).inherit_context is False  # type: ignore[union-attr]
+    assert _parse_subtask({"task": "a", "baglam_miras": "belki"}).inherit_context is False  # type: ignore[union-attr]
+
+
+async def test_fork_alt_ajan_ana_gecmisi_devralir_temiz_alt_ajan_almaz(tmp_path):
+    deps = _deps(tmp_path)
+    canli = [Message("system", "S"), Message("user", "ana görev"), Message("assistant", "tamam")]
+    deps.live_history = lambda: canli
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen[task] = (kwargs.get("history"), kwargs["extra_system"])
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    arac = spawn_agent_tool(deps, depth=0, run_agent=_sahte_ajan)
+    await arac.run({"task": "fork", "baglam_miras": True}, deps.tool_context)
+    await arac.run({"task": "temiz"}, deps.tool_context)
+
+    fork_gecmis, fork_not = gorulen["fork"]
+    assert [m.content for m in fork_gecmis] == ["ana görev", "tamam"]
+    assert team_fork.FORK_BRIEF in fork_not
+    assert gorulen["temiz"][0] is None and team_fork.FORK_BRIEF not in gorulen["temiz"][1]
+
+
+async def test_run_forked_turn_ana_gecmise_yalniz_ozeti_ekler(tmp_path, monkeypatch):
+    deps = _deps(tmp_path)
+    gecmis = [Message("system", "S"), Message("user", "önceki"), Message("assistant", "cevap")]
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        assert [m.content for m in kwargs["history"]] == ["önceki", "cevap"]
+        return SimpleNamespace(final_text="alt görev özeti", ok=True, tool_calls_made=3)
+
+    monkeypatch.setattr("fusion_cli.engines.agent.loop.run_agent", _sahte_ajan)
+    sonuc = await team_fork.run_forked_turn(
+        "testleri çalıştır", deps, history=gecmis, extra_system="yoksayılır", step_limit=5
+    )
+
+    assert sonuc.final_text == "alt görev özeti" and sonuc.ok and sonuc.tool_calls_made == 3
+    assert [m.content for m in sonuc.messages] == [
+        "S",
+        "önceki",
+        "cevap",
+        "testleri çalıştır",
+        "alt görev özeti",
+    ]
+    assert sonuc.messages[-1].role == "assistant"
+
+
+async def test_live_history_yoksa_fork_temiz_baglamla_kosar(tmp_path):
+    deps = _deps(tmp_path)
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen["history"] = kwargs.get("history")
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    await run_subagent(deps, SubTask("a", inherit_context=True), depth=0, run_agent=_sahte_ajan)
+
+    assert gorulen["history"] == []

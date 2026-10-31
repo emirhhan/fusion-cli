@@ -29,6 +29,8 @@ class Mode(Enum):
     GOAL = "goal"
     GRILL = "grill"
     WORKFLOW = "workflow"
+    #: `/subtask <görev>` (P-054): tur ana bağlamı devralan fork alt ajanda koşar.
+    SUBTASK = "subtask"
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,3 +150,8 @@ def mode_step_limit(mode: Mode) -> int | None:
 def mode_workflow(mode: Mode) -> bool:
     """Kip bu turu plan motorunda yürütmeyi mi istiyor?"""
     return mode is Mode.WORKFLOW
+
+
+def mode_fork(mode: Mode) -> bool:
+    """Kip bu turu ana bağlamı devralan fork alt ajanda mı koşturacak (P-054)?"""
+    return mode is Mode.SUBTASK

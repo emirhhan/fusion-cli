@@ -1379,3 +1379,20 @@ def test_persona_komutu_oturum_kisiligini_secer_ve_kapatir(state, registry):
     assert "kapatıldı" in komut.handler(state, "off") and state.persona is None
     bos = persona_turn(None)
     assert bos.extra_system == "" and bos.allowed_tools is None
+
+
+def test_subtask_komutu_gorevi_fork_kipiyle_hazirlar(state, registry):
+    """P-054: `/subtask <görev>` turu HAZIRLAR; döngü fork alt ajanla koşturur."""
+    from fusion_cli.cli.repl.macros import Mode, mode_fork
+
+    komut = registry.get("subtask")
+    assert komut is not None and registry.get("altgorev") is komut
+    assert (
+        komut.handler(state, "")
+        == "Kullanım: /subtask <alt görev> — ana bağlamı devralan alt ajan çalışır"
+    )
+    assert state.pending_task == ""
+
+    assert "fork alt ajana" in komut.handler(state, "  testleri koştur ve raporla ")
+    assert state.take_pending() == ("testleri koştur ve raporla", Mode.SUBTASK)
+    assert mode_fork(Mode.SUBTASK) and not mode_fork(Mode.GOAL)

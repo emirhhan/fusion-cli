@@ -191,8 +191,12 @@ async def run_agent_task(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
+
+    `turn_runner` verilirse `run_agent` yerine o koşar (aynı imza): `/subtask` turu fork alt
+    ajanda yürüten `team_fork.run_forked_turn` böyle takılır (P-054).
 
     `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
@@ -332,6 +336,7 @@ async def run_agent_task(
             chat_mode=chat_mode,
             workflow=workflow,
             allowed_tools=allowed_tools,
+            turn_runner=turn_runner,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -390,6 +395,7 @@ async def _run_agent_with_mcp(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -401,9 +407,10 @@ async def _run_agent_with_mcp(
     MCP'siz devam eder (REPL ile aynı davranış).
     """
     plan_mode = mode is ApprovalMode.PLAN
+    runner = turn_runner or run_agent
 
     async def _run() -> AgentOutcome:
-        return await run_agent(
+        return await runner(
             task,
             deps,
             history=history,

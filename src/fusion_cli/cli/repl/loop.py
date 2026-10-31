@@ -504,6 +504,7 @@ async def _agent_turn(
     from ...engines.agent import run_agent
     from ...engines.agent.approval import build_policy, may_run_unasked_commands
     from ...engines.agent.loop import AgentDeps
+    from ...engines.agent.team_fork import run_forked_turn
     from ...engines.agent.verification import build_verifier
     from ...memory.checkpoint_store import JsonCheckpointStore
 
@@ -583,7 +584,7 @@ async def _agent_turn(
                 if part
             )
             outcome = await _drive_agent(
-                run_agent,
+                run_forked_turn if macros.mode_fork(mode) else run_agent,
                 line,
                 deps,
                 state,

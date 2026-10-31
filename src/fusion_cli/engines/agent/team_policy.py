@@ -77,11 +77,15 @@ def allowed_tools(
     return narrowed | MEMORY_TOOL_NAMES if persona.memory_scope else narrowed
 
 
-def member_brief(persona: Persona, subtask: SubTask, *, skills: str = "") -> str:
+def member_brief(
+    persona: Persona, subtask: SubTask, *, skills: str = "", fork_note: str = ""
+) -> str:
     """Üyenin talimatı + ön yüklenen beceriler + bu görevin sınırları (modelin göreceği not)."""
     parts = [persona.prompt.strip()] if persona.prompt.strip() else []
     if skills:
         parts.append(skills)
+    if fork_note:
+        parts.append(fork_note)
     if subtask.read_only:
         parts.append("Bu görevde SALT OKUYORSUN: dosya değiştirme, yalnız bulgularını raporla.")
     elif subtask.write_scope:

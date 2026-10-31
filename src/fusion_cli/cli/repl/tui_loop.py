@@ -22,6 +22,7 @@ from ...core.concurrency import BackgroundTasks
 from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
+from ...engines.agent.team_fork import run_forked_turn
 from ...history import source_by_name
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
@@ -599,6 +600,7 @@ class _TuiSession:
                         step_limit=macros.mode_step_limit(mode),
                         workflow=macros.mode_workflow(mode),
                         allowed_tools=persona.allowed_tools,
+                        turn_runner=run_forked_turn if macros.mode_fork(mode) else None,
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).

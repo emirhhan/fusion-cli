@@ -667,6 +667,16 @@ def _ask_line(prompt: str) -> str | None:
         return None
 
 
+def _subtask(state: ReplState, argument: str) -> str:
+    """`/subtask <görev>`: görevi fork alt ajan turu olarak HAZIRLA (P-054); döngü koşturur."""
+    task = argument.strip()
+    if not task:
+        return messages.SUBTASK_USAGE
+    state.pending_task = task
+    state.pending_mode = macros.Mode.SUBTASK
+    return messages.SUBTASK_QUEUED
+
+
 def _macro(name: str) -> Handler:
     """Makroyu çalıştırılacak göreve çevir ve durumda beklet.
 
@@ -764,6 +774,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         ("bellek",),
         group="Bellek",
         usage="[on|off|edit|list|import claude|<konu>]",
+    ),
+    SlashCommand(
+        "subtask",
+        messages.CMD_SUBTASK,
+        _subtask,
+        ("altgorev", "altgörev"),
+        group="Agent",
+        usage="<görev>",
     ),
     SlashCommand(
         "persona",

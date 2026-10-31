@@ -74,6 +74,7 @@ from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.team_fork import run_forked_turn
 from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
@@ -567,6 +568,8 @@ class AppSession:
         self._turn_settled.set()
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
         self._next_turn_mode = macros.Mode.NONE
+        #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
+        self._fork_requested = False
 
     async def handle(self, request: Request) -> None:
         """İsteği çalıştır ve sonucunu yaz. İstisna sızdırmaz."""
@@ -2353,6 +2356,7 @@ class AppSession:
         selected_skill, self._taken_skill = self._taken_skill, None
         inherited_context = self._state.take_pending_digest()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
+        fork_requested, self._fork_requested = self._fork_requested, False
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
@@ -2419,6 +2423,12 @@ class AppSession:
                 conversation_id=self._conversation_id or "app",
                 step_limit=macros.mode_step_limit(turn_mode),
                 workflow=macros.mode_workflow(turn_mode),
+                # `/subtask` ya da `context: fork` beceri: tur fork alt ajanda (P-054).
+                turn_runner=(
+                    run_forked_turn
+                    if (macros.mode_fork(turn_mode) or fork_requested) and not browser_only
+                    else None
+                ),
                 approval_memory=self._state.approval_memory,
                 steering=steering,
                 child_runs=child_runs,
@@ -2624,6 +2634,8 @@ class AppSession:
                 self._taken_skill = SkillSelection(
                     item.qualified_name, page.revision, page.next_offset
                 )
+            if getattr(item, "context", "") == "fork":
+                self._fork_requested = True
             return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}"
         if kind == "ajan":
             item = self._all_capabilities.get_agent(name)

@@ -2390,3 +2390,48 @@ async def test_oturum_baslat_kisilik_kurar_ve_tur_kisiligi_uygular(tmp_path, mon
     assert _sonuc(satirlar, "4")["kisilik"] is None
     await oturum.handle(Request(id="5", name="oturum.durum", data={}))
     assert _sonuc(satirlar, "5")["kisilik"] is None
+
+
+async def test_subtask_komutu_ve_fork_becerisi_turu_fork_kosucusuyla_calistirir(
+    tmp_path, monkeypatch
+):
+    """P-054: masaüstünde `/subtask` görevi döner, sonraki tur fork koşucusuyla koşar; `context:
+    fork` becerisi seçilince de aynı yol."""
+    from fusion_cli.cli import session as cli_session
+    from fusion_cli.engines.agent.team_fork import run_forked_turn
+
+    ev = tmp_path / "ev"
+    beceri = ev / ".claude" / "skills" / "derin-inceleme"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text(
+        "---\nname: derin-inceleme\ndescription: d\ncontext: fork\n---\nİncele.", encoding="utf-8"
+    )
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=ev)
+    gorulen: list[object] = []
+
+    async def _sahte(_task, _config, **kwargs):
+        gorulen.append(kwargs.get("turn_runner"))
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", _sahte)
+
+    await oturum.handle(
+        Request(id="1", name="komut.calistir", data={"ad": "subtask", "arguman": "testleri koştur"})
+    )
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["gorev"] == "testleri koştur"
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": sonuc["gorev"]}))
+    assert gorulen[-1] is run_forked_turn
+
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "sıradan"}))
+    assert gorulen[-1] is None
+
+    await oturum.handle(
+        Request(id="4", name="yetenek.kullan", data={"tur": "beceri", "ad": "derin-inceleme"})
+    )
+    await oturum.handle(Request(id="5", name="tur.calistir", data={"gorev": "incele"}))
+    assert gorulen[-1] is run_forked_turn
+    await oturum.handle(Request(id="6", name="tur.calistir", data={"gorev": "sıradan 2"}))
+    assert gorulen[-1] is None
+    await oturum.close()

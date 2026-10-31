@@ -212,6 +212,21 @@ tanımların da kullanılabilir.
   planlamayı devredebilir. Tanımdaki `model`/`permissionMode` alanları oturum kişiliğinde
   uygulanmaz; oturumun modelini ve kipini `/model`, `/auto` gibi komutlarla sen seçersin.
 
+### Fork alt ajan: `/subtask`, `baglam_miras`, `context: fork`
+
+Olağan alt ajan temiz bağlamla başlar. **Fork** alt ajan bu konuşmanın o ana kadarki
+mesajlarını devralır (sistem mesajı düşer, eski araç çıktıları temizlenir, 60 KB üstü
+kırpılıp notlanır), kendi bütçesiyle izole koşar ve sohbete yalnız özeti eklenir — uzun bir
+ara işi ana bağlamı şişirmeden yürütmek için.
+
+- `/subtask testleri koştur ve raporla` → tur fork alt ajanda koşar (`/altgorev` eş anlamlı);
+  masaüstünde de aynı komut (slash menüsü) çalışır.
+- Model kendi kararıyla: `spawn_agent(task=…, baglam_miras=true)`.
+- Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
+  otomatik fork alt ajanda koşar.
+- Kısıtlar: fork turunda oturum kişiliği notu ve kip istemi alt ajana geçmez (kendi kişilik
+  notu ve `FORK_BRIEF` açıklaması vardır); plan kipinde fork salt-okur koşar.
+
 ---
 
 ## 9) Başka sağlayıcı / anahtar ekleme
@@ -381,6 +396,9 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/effort high` | Düşünme yoğunluğu |
 | `/model` | Model değiştir |
 | `/plan` | Önce planla, değiştirme |
+| `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
+| `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
+| `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |
 | `/undo` | Son değişikliği geri al |
 | `/verify` | Test/lint çalıştır |
 | `/good` · `/bad` | Fusion'a geri bildirim |

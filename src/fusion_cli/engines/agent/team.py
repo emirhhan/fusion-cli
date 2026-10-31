@@ -22,7 +22,7 @@ from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, Sub
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
 from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools, unmapped_tools
-from . import team_settings
+from . import team_fork, team_settings
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import cap_report as _cap_report
 from .team_policy import child_execution as _child_execution
@@ -131,6 +131,9 @@ class SubTask:
     read_only: bool = False
     #: Yazılabilecek yollar (köke göreli). Boş + `read_only=False` = alan belirsiz.
     write_scope: tuple[str, ...] = ()
+    #: Ana konuşmanın bağlamını devral (fork, P-054): alt ajan temiz değil, ana geçmişin
+    #: kırpılmış görünümüyle başlar. `/subtask`, `baglam_miras: true` ve `context: fork`.
+    inherit_context: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,14 +347,22 @@ async def _run_child(
     # Tanımdaki `model` yalnız bu alt ajanın çağrılarını değiştirir (P-034).
     sub_deps.active_model_override = team_settings.child_model(persona, deps.config.agent)
     available = build_agent_registry(sub_deps, depth=depth + 1, run_agent=run_agent).names()
+    # Fork (P-054): ana geçmişin sistemsiz, kırpılmış görünümü alt ajanın başlangıcı olur.
+    inherited = (
+        team_fork.fork_history(team_fork.parent_history(deps)) if subtask.inherit_context else None
+    )
     try:
         return await run_agent(
             subtask.task,
             sub_deps,
+            history=inherited,
             depth=depth + 1,
             self_review=False,
             extra_system=_member_brief(
-                persona, subtask, skills=team_settings.preloaded_skills(deps, persona)
+                persona,
+                subtask,
+                skills=team_settings.preloaded_skills(deps, persona),
+                fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
             ),
             allowed_tools=_allowed_tools(deps, persona, subtask, available=available),
             step_limit=child_step_limit(deps, depth, requested=persona.max_turns or None),
@@ -414,6 +425,11 @@ _SUBTASK_PROPERTIES: dict[str, object] = {
         "gorselci, yonetmen; find_agent ile başkaları aranabilir",
     },
     "salt_okunur": {"type": "boolean", "description": "görev dosya değiştirmeyecekse true"},
+    "baglam_miras": {
+        "type": "boolean",
+        "description": "true ise alt ajan bu konuşmanın bağlamını devralır (fork): uzun "
+        "ara görevi ana bağlamı şişirmeden yürütmek için; varsayılan temiz bağlam",
+    },
     "yazma_alani": {
         "type": "array",
         "items": _STRING,
@@ -528,4 +544,17 @@ def _parse_subtask(args: ToolArgs) -> SubTask | str:
         persona=persona if isinstance(persona, str) else "",
         read_only=_parse_read_only(args.get("salt_okunur")),
         write_scope=tuple(item.strip() for item in scope if item.strip()),
+        inherit_context=_parse_true(args.get("baglam_miras")),
     )
+
+
+_TRUE_WORDS = frozenset({"true", "evet", "1", "yes", "on"})
+
+
+def _parse_true(value: object) -> bool:
+    """`baglam_miras` KAPALI-GÜVENLİ okunur: yalnız açık doğru değer fork açar."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    return isinstance(value, str) and value.strip().casefold() in _TRUE_WORDS

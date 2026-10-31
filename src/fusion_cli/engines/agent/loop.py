@@ -25,7 +25,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -450,6 +450,10 @@ class AgentDeps:
     #: ajan üstün politikasını aynen alır (eski davranış).
     approval_mode: Callable[[], ApprovalMode] | None = None
     policy_for_mode: Callable[[ApprovalMode], ApprovalPolicy] | None = None
+    #: Bu turun ANLIK mesaj listesini veren okuyucu (P-054): fork alt ajan ana bağlamı
+    #: buradan devralır. `_run_agent` mesajları kurduktan sonra atar; alt ajanın kendi
+    #: deps'inde yeniden kurulur, üstünkini görmez.
+    live_history: Callable[[], Sequence[Message]] | None = None
     ancestor_mutation_barrier: Callable[[], bool] | None = None
     #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
     #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
@@ -771,6 +775,10 @@ async def _run_agent(
         system_prompt=system_prompt,
         images=images,
     )
+    if not internal:
+        # Kapanış `messages` ADINI bağlar: özetleme listeyi yeniden bağlasa da fork alt
+        # ajan hep güncel listeyi görür (P-054).
+        deps.live_history = lambda: messages
 
     if depth == 0 and not internal and deps.selected_skill is not None:
         selected = deps.selected_skill
