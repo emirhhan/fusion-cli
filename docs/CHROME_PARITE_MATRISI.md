@@ -8,7 +8,7 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 |---|---|---|
 | `navigate` (url, geri, ileri) | `chrome_navigate`, `chrome_action back/forward/reload` | Var; e2e'de gezinme |
 | `read_page` (erişilebilirlik ağacı, ref'ler) | `chrome_page` (düz liste) ve `chrome_page tree=all|interactive` (girintili rol/ad/durum ağacı; `depth`, `ref` alt ağaç) | Var (P-043); Playwright testi `test_chrome_page_action.py::test_agac_*` |
-| `find` (doğal dil) | `chrome_page query` ("kaydet düğmesi", "e-posta alanı": rol sözcüğü + sözcük eşleşmesi + Türkçe ek atma; tutmazsa alt dize) | Var (P-043, modelsiz sezgisel); küçük modelle anlamsal seçim yok (ücretli çağrı kararı bekliyor) |
+| `find` (doğal dil) | `chrome_page query` ("kaydet düğmesi", "e-posta alanı": rol sözcüğü + sözcük eşleşmesi + Türkçe ek atma; tek rol sözcüğünde ("Menü") o adı taşıyan öğe önde; tutmazsa alt dize) | Var (P-043, modelsiz sezgisel); küçük modelle anlamsal seçim yok (ücretli çağrı kararı bekliyor) |
 | `get_page_text` | `chrome_action text` (sayfa sayfa) | Var |
 | `form_input` (değer, onay kutusu, seçim) | `chrome_type`, `chrome_action select`, `check` | Var; e2e'de form, seçim, onay kutusu |
 | `computer` sol/çift/sağ/üç tık | `chrome_click`, `click_at`, `double_click`, `right_click`, `triple_click` | Var; e2e'de çift/sağ |

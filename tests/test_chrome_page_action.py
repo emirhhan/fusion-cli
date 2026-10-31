@@ -248,3 +248,24 @@ def test_dogal_dilli_find_rol_ve_sozcukleri_anlar(sayfa):
     assert yukle["matches"][0]["name"] == "Görsel yükle"
     # Eski alt dize davranışı korunur.
     assert eski["matches"][0]["name"] == "Hiçbir şey yapmaz"
+
+
+def test_rol_sozcugune_esit_sorgu_o_adi_tasiyan_ogeyi_onde_dondurur(sayfa):
+    # Ölçüldü (31 Ekim, bağımsız inceleme): "Menü" sorgusunda sözcük kalmıyor, rol menuitem
+    # oluyor; sayfada herhangi bir menuitem varsa yedek ad araması hiç çalışmıyor ve "Menü"
+    # yazan hamburger düğmesi dönmüyordu. Eski alt dize davranışı doğru sonucu veriyordu.
+    sayfa.set_content(
+        '<button aria-label="Menü">☰</button>'
+        '<div role="menu"><div role="menuitem" tabindex="0">Profil</div>'
+        '<div role="menuitem" tabindex="0">Çıkış</div></div>'
+        '<button>Select all</button><select aria-label="Beden"><option>S</option></select>'
+    )
+
+    menu = sayfa.islem("find", {"query": "Menü"})
+    secim = sayfa.islem("find", {"query": "Select"})
+
+    assert menu["matches"][0]["name"] == "Menü"
+    # Rol eşleşmeleri (menü öğeleri) listede kalır, ad eşleşmesinin arkasında.
+    assert {m["name"] for m in menu["matches"]} >= {"Menü", "Profil", "Çıkış"}
+    assert secim["matches"][0]["name"] == "Select all"
+    assert any(m["tag"] == "select" for m in secim["matches"])

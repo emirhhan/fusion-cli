@@ -310,7 +310,13 @@ export function pageAction(operation, args) {
         const allWords = words.length > 0 && words.every((word) => wordHits(word, hint));
         let score = 0;
         if (allWords) score = roleOk ? 3 : 2;
-        else if (!words.length && roles.length && roleOk) score = 2;
+        else if (!words.length && roles.length) {
+          // Sorgu rol sözcüğünün kendisi ("Menü", "Select", "Alan"): o adı taşıyan öğe
+          // önde, rol eşleşmeleri arkada. Ölçüldü (31 Ekim): yalnız rol eşleşmesi
+          // puanlandığı için "Menü" yazan hamburger düğmesi yerine menü öğeleri dönüyordu.
+          if (name.includes(term)) score = 3;
+          else if (roleOk) score = 2;
+        }
         if (score && name === term) score += 2;
         best = Math.max(best, score);
       }
