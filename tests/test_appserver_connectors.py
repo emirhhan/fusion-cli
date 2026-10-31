@@ -342,3 +342,27 @@ async def test_basarisiz_baglanti_eklemesi_ortamdaki_eski_sirri_silmez(tmp_path,
     import os
 
     assert os.environ["BRAVE_API_KEY"] == "eski-deger"
+
+
+async def test_baglanti_yeniden_baglan_sunucuyu_yeniler_ve_turkce_metin_doner(tmp_path):
+    """Masaüstü 'Yeniden bağlan' düğmesinin ucu (P-049): sonuç bildirime yazılabilsin."""
+    session, fake = _session(tmp_path)
+    yenilenen: list[str] = []
+
+    async def _reconnect(config):
+        yenilenen.append(config.name)
+        return McpConnectionStatus(server=config.name, state="bagli", tool_count=3)
+
+    fake.reconnect = _reconnect
+    session._state.config = __import__("dataclasses").replace(
+        session._state.config,
+        mcp_servers=(McpServerConfig(name="godot", command="npx"),),
+    )
+
+    result = await session._dispatch(Request("3", "baglanti.yeniden_baglan", {"ad": "godot"}))
+    yok = await session._dispatch(Request("4", "baglanti.yeniden_baglan", {"ad": "yok"}))
+
+    assert yenilenen == ["godot"]
+    assert result["ok"] is True and result["sunucular"][0]["arac_sayisi"] == 3
+    assert "godot" in result["metin"]
+    assert yok == {"ok": False, "metin": "Bağlantı bulunamadı."}

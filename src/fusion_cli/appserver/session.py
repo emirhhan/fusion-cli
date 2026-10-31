@@ -1166,7 +1166,12 @@ class AppSession:
             statuses = [
                 status_payload(await self._mcp_connections.reconnect(server)) for server in targets
             ]
-            return {"ok": all(item["ok"] for item in statuses), "sunucular": statuses}
+            ok = all(item["ok"] for item in statuses)
+            names = ", ".join(server.name for server in targets)
+            metin = (
+                messages.CONNECTOR_RECONNECTED if ok else messages.CONNECTOR_RECONNECT_FAILED
+            ).format(names=names)
+            return {"ok": ok, "sunucular": statuses, "metin": metin}
         if request.name == "baglanti.sil":
             server = self._connector(request.data.get("ad"))
             if server is not None:

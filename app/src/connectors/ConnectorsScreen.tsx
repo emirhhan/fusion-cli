@@ -609,6 +609,19 @@ export function ConnectorsScreen({
                       >
                         Test et
                       </button>
+                      {/* Claude Code `/mcp reconnect` (P-049): havuzdaki bağlantı düşürülüp
+                          yeniden kurulur; barındırmalı bağlantının yerel oturumu yoktur. */}
+                      {!hosted && (
+                        <button
+                          disabled={mesgul(`reconnect:${row.ad}`) || pending}
+                          onClick={() =>
+                            void run("baglanti.yeniden_baglan", { ad: row.ad }, `reconnect:${row.ad}`)
+                          }
+                          type="button"
+                        >
+                          Yeniden bağlan
+                        </button>
+                      )}
                       {remote && row.durum === "bagli" && (
                         <button
                           disabled={mesgul(`logout:${row.ad}`)}

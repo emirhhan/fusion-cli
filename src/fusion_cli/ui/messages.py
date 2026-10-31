@@ -653,6 +653,8 @@ MCP_ADD_USAGE = "kullanım: /mcp add <ad> <komut> [argüman…]"
 MCP_REMOVE_USAGE = "kullanım: /mcp remove <ad>"
 MCP_SAVE_FAILED = "kaydedilemedi: {error}"
 # --- `fusion mcp` alt grubu ve kapsamlar (P-049) --- #
+CONNECTOR_RECONNECTED = "Yeniden bağlandı: {names}."
+CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satırda."
 MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
 MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 MCP_RECONNECT_ALL_SCHEDULED = (
