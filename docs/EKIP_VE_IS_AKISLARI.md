@@ -11,8 +11,10 @@ Fusion'da alt ajanlar üç katmanda çalışır:
 Hepsi aynı alt ajan çekirdeğini kullanır: kişilik (`uzman`), araç süzgeci, yazma alanı,
 `izolasyon: worktree`, masaüstündeki ajan kartları ve "Durdur" düğmesi aynen geçerlidir.
 İkisi de yalnız ana ajana sunulur (iç içe ekip/iş akışı yok) ve araç şemaları yalnız
-istek bu türdense modele gider: "iş akışı", "workflow", "ultracode", "paralel ajan" gibi
-sözler iş akışını, "ekip", "takım", "team" ekibi açar.
+istek bu türdense modele gider: "iş akışı", "workflow", "ultracode", "paralel ajan",
+"alt ajanlar", "fan out" gibi sözler iş akışını, "ekip/ekibi/ekibe", "takım/takımı",
+"team" ekibi açar ("ekipman" açmaz). Kayıtlı bir ekip varken "devam et" / "sürdür" ya da
+ekibin adı, kayıtlı bir iş akışının adı anılınca da ilgili araç sunulur.
 
 ## Dinamik iş akışları (`workflow_run`, `/workflows`)
 
