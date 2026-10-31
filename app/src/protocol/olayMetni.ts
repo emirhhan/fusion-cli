@@ -370,6 +370,22 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         altAjan: true,
       };
     }
+    case "AutoReviewDecided": {
+      // Otomatik kip denetçisi (P-011): kararı ve gerekçesi adım olarak kalır.
+      const guvenli = veri.verdict === "guvenli";
+      const kaynak = veri.source === "kural" ? "kural" : veri.source === "onbellek" ? "önbellek" : "model";
+      return {
+        metin: guvenli ? "denetçi onayladı" : "denetçi riskli buldu",
+        ayrinti: sirlariMaskele(`${String(veri.summary ?? "")} · ${String(veri.reason ?? "")} (${kaynak})`),
+        kalici: true,
+      };
+    }
+    case "AutoModeFellBack":
+      return {
+        metin: "Otomatik kip Manuel'e düştü",
+        ayrinti: `${String(veri.reason ?? "engel eşiği aşıldı")} · okuma dışındaki her işlem sorulacak`,
+        kalici: true,
+      };
     case "ModelFallbackActivated": {
       const gecis = `${String(veri.requested_model || "istenen model")} → ${String(veri.fallback_model || "yedek model")}`;
       const neden = String(veri.reason ?? "");

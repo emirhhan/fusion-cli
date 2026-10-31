@@ -1081,6 +1081,11 @@ class AppSession:
             return self._control_status()
         if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
             return self._permissions_rpc(request)
+        if request.name.startswith("oto."):
+            # Otomatik kip denetçisi (P-011); bkz. `auto_review_rpc`.
+            from .auto_review_rpc import handle as auto_review_rpc
+
+            return auto_review_rpc(self._state, request)
         if request.name == "kontrol.cirak_bildirimi_goruldu":
             return self._ack_apprentice_notice()
         if request.name == "kontrol.anahtar_kaydet":

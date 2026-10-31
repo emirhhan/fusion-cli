@@ -106,3 +106,19 @@ describe("useSessionModes — sohbet başına mod", () => {
     expect(result.current.approval).toBe("plan");
   });
 });
+
+describe("useSessionModes — denetçi kip düşüşü (P-011)", () => {
+  it("AutoModeFellBack olayıyla Manuel'e geçer, adoptApproval ile Otomatik'i benimser", async () => {
+    let dinleyici: ((veri: Record<string, unknown>) => void) | null = null;
+    const c = {
+      ...istemci({ "oturum.durum": { ok: true, mod: "auto", kip: "kod" } }),
+      onEvent: vi.fn((f: (veri: Record<string, unknown>) => void) => { dinleyici = f; return () => undefined; }),
+    };
+    const { result } = renderHook(() => useSessionModes({ id: "a", client: c }, vi.fn()));
+    await waitFor(() => expect(dinleyici).not.toBeNull());
+    act(() => dinleyici?.({ olay: "AutoModeFellBack", reason: "üst üste 3", trips: 1 }));
+    expect(result.current.approval).toBe("security");
+    act(() => result.current.adoptApproval("auto"));
+    expect(result.current.approval).toBe("auto");
+  });
+});

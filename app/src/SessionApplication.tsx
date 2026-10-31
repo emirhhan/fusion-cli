@@ -108,6 +108,7 @@ import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
 import { clearProgress } from "./onboarding/persistence";
 import type { SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { AutoReviewIndicator } from "./permissions/AutoReviewIndicator";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
@@ -652,7 +653,7 @@ export function SessionUygulama({
     return () => { commandOwner.current = generation + 1; };
   }, [activeSessionId]);
   // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
-  const { approval, workspaceMode, persona, changeApproval, changeWorkspace, changePersona } = useSessionModes(
+  const { approval, workspaceMode, persona, changeApproval, adoptApproval, changeWorkspace, changePersona } = useSessionModes(
     active ? { id: active.id, client: active.client } : null,
     setCommandError,
   );
@@ -1734,6 +1735,7 @@ export function SessionUygulama({
           onModelSelect={(option) => void selectModelOption(option)}
           approval={approval}
           onApprovalChange={(next) => void changeApproval(next)}
+          approvalExtra={<AutoReviewIndicator approval={approval} client={active.client} onResumed={() => adoptApproval("auto")} />}
           persona={persona?.ad ?? null}
           personaOptions={personaOptions}
           onPersonaChange={(next) => void changePersona(next)}
