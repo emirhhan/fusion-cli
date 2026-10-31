@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from ...core.clock import SystemClock
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from . import team_background
 from .arg_coerce import coerce_list
 
 # `_parse_read_only`: spawn_agents ile AYNI açık-güvenli `salt_okunur` okuması (tek kaynak).
@@ -35,12 +37,22 @@ def team_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
         store = TeamStore(context.root)
         try:
             request = parse_request(args)
+            # Ekip arka planda koşuyorsa ikinci koşucu açılmaz; mesajlar kutusuna yazılır.
+            active = None
+            if not team_background.is_worker(deps):
+                active = await asyncio.to_thread(
+                    team_background.running_team, deps, context.root, request.name
+                )
+            if active is not None:
+                return await team_background.deliver(request, active, context.root, _now(deps))
             # Tur tavanı dolduysa kullanıcıya maliyet sorusu sorulmadan reddedilir.
             if (refusal := turn_budget_refusal(deps, 1)) is not None:
                 return ToolResult.failure(refusal)
             is_new = await asyncio.to_thread(store.load, request.name) is None
             if is_new and not await _confirmed(deps, request):
                 return ToolResult.failure(DECLINED_MESSAGE)
+            if team_background.wants_background(args, deps):
+                return await team_background.launch(deps, args, request, context.root)
             result = await run_agent_team(
                 deps, request, depth=depth, run_agent=run_agent, store=store
             )
@@ -54,7 +66,8 @@ def team_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
         "listesinden görev alır, birbirine ve sana mesaj atar. Yeni ekipte ad, hedef, uyeler "
         "(ad, uzman, salt_okunur, yazma_alani) ve gorevler (baslik, aciklama, bagimli: id ya "
         "da önceki görevin başlığı, atanan) ver; görevler sırayla g1, g2… olur. Aynı adla "
-        "tekrar çağırınca kaldığı yerden sürer; mesajlar ile üyelere yaz.",
+        "tekrar çağırınca kaldığı yerden sürer; mesajlar ile üyelere yaz. arka_plan=true: "
+        "ekip arka planda koşar, sen sohbete devam edersin.",
         parameters={
             "type": "object",
             "properties": {
@@ -63,11 +76,17 @@ def team_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
                 "uyeler": {"type": "array", "items": {"type": "object"}},
                 "gorevler": {"type": "array", "items": {"type": "object"}},
                 "mesajlar": {"type": "array", "items": {"type": "object"}},
+                "arka_plan": {"type": "boolean"},
             },
             "required": ["ad"],
         },
         run=_run,
     )
+
+
+def _now(deps: AgentDeps) -> float:
+    clock = deps.budget.clock if deps.budget is not None else SystemClock()
+    return clock.now()
 
 
 def parse_request(args: ToolArgs) -> TeamRequest:

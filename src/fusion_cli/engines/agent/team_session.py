@@ -12,6 +12,7 @@ ve kimsenin işi yoksa ekip biter.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 from collections.abc import Callable
 
@@ -46,6 +47,8 @@ PREVIEW_CHARS = 240
 MEMBER_WAITING, MEMBER_RUNNING, MEMBER_IDLE, MEMBER_DONE = "bekliyor", "calisiyor", "bosta", "bitti"
 #: Yazma alanı kapısını bekleyen üye (boşta sayılmaz).
 MEMBER_QUEUED = "sirada"
+#: Boştaki üye gelen kutusu dosyasını bu aralıkla yoklar (sn; başka süreçten mesaj).
+INBOX_POLL_S = 2.0
 
 
 @dataclasses.dataclass(slots=True)
@@ -77,12 +80,14 @@ class TeamSession:
         group_size: int = 1,
         unread: dict[str, int] | None = None,
         hooks: TeamHooks | None = None,
+        inbox_poll_s: float = INBOX_POLL_S,
     ) -> None:
         self._store, self._publisher, self._now = store, publisher, now
         #: Kanca kapıları (TaskCreated/TaskCompleted, P-009); yoksa her kapı açık.
         self.hooks = hooks or TeamHooks(None, publisher, board.name)
         #: Bir kancanın `continue: false` ile durdurduğu üyeler (yeniden uyandırılmaz).
         self.halted: set[str] = set()
+        self._inbox_poll_s = inbox_poll_s
         #: Alıcı → okunmamış mesaj sayısı; bellekte tutulur (bekleme koşulu dosya okumaz).
         self._unread_counts = dict(unread or {})
         self.board = board
@@ -247,10 +252,26 @@ class TeamSession:
             return released
 
     async def wait_for_work(self, member: str) -> bool:
-        """Üyeye iş gelene (True) ya da bütün ekip boşa düşene (False) kadar bekle."""
+        """Üyeye iş gelene (True) ya da bütün ekip boşa düşene (False) kadar bekle.
+
+        Gelen kutusu dosyası da yoklanır: arka planda koşan ekibe (`team_background`) lider
+        başka süreçten mesaj yazar; bellekteki sayaç bunu görmez.
+        """
         async with self._condition:
-            await self._condition.wait_for(lambda: self._has_work(member) or self._all_idle())
+            while not (self._has_work(member) or self._all_idle()):
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._condition.wait(), self._inbox_poll_s)
+                await self._sync_unread()
             return self._has_work(member)
+
+    async def _sync_unread(self) -> None:
+        """Dosyadaki okunmamış mesajları sayaca kat (yalnız artış; okunanı geri açmaz)."""
+        try:
+            counts = await asyncio.to_thread(unread_counts, self._store, self.board)
+        except OSError:
+            return
+        for name, count in counts.items():
+            self._unread_counts[name] = max(count, self._unread_counts.get(name, 0))
 
     async def member_done(self, member: str) -> None:
         async with self._condition:
