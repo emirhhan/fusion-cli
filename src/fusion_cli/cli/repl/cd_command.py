@@ -11,10 +11,10 @@ kökte çalışır. Kök kuralları:
 - eski projenin ek klasörleri ve "oturum boyunca izin ver" kararları taşınmaz
   (`ReplState.rebind_root`); güvenilmeyen projede izin dosyası uyarısı gösterilir.
 
-Model bir sonraki turda dizin değişikliğini bağlam notu olarak görür (Claude Code'un
-`CwdChanged` olayının modele yansıyan kısmı); kanca olayı P-009 birleşince buradan
-tetiklenir. Proje `config.yaml`/`.mcp.json` oturum açılışındaki dizinden okunmuştu ve
-yeniden yüklenmez (masaüstü kök değişimiyle aynı sınır).
+Model bir sonraki turda dizin değişikliğini bağlam notu olarak görür; `CwdChanged`
+kancası (P-009, yük `{old_cwd, new_cwd}`) kuyruğa alınır ve komutu çalıştıran yüzey
+(REPL, TUI, masaüstü) hemen gönderir (`hook_events.flush`). Proje `config.yaml`/`.mcp.json`
+oturum açılışındaki dizinden okunmuştu ve yeniden yüklenmez (masaüstü kök değişimiyle aynı sınır).
 """
 
 from __future__ import annotations
@@ -88,6 +88,7 @@ def change_directory(state: ReplState, target: Path) -> str:
     left_worktree = state.worktree
     state.rebind_root(target)
     state.worktree = worktree_for_path(target)
+    state.hooks().defer_cwd_changed(previous, target)
     prefixes.push_pending_context(state, messages.CD_CONTEXT_NOTE.format(old=previous, new=target))
     lines = [messages.CD_CHANGED.format(old=previous, new=target)]
     if left_worktree is not None and state.worktree != left_worktree:

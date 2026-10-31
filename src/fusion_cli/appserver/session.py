@@ -2452,6 +2452,7 @@ class AppSession:
             # `/worktree <ad>`, `cik` ya da `/cd <yol>` (P-072) oturum kökünü değiştirdi:
             # masaüstü köküyle aynı yoldan (`oturum.baslat{kok}`) hizala, yeni kökü söyle.
             result = {**result, **self._adopt_state_root()}
+            result = await self._flush_hook_events(result)
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
@@ -2493,6 +2494,25 @@ class AppSession:
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
+
+    async def _flush_hook_events(self, result: dict[str, Any]) -> dict[str, Any]:
+        """`/cd` kuyruğa aldığı `CwdChanged` kancasını gönder (P-009); kök değişmediyse atar.
+
+        Tur sürerken kök geri alınır (`_adopt_state_root`): o durumda olay gönderilmez.
+        """
+        from ..cli.repl import hook_events
+
+        session = self._state.hook_session
+        if session is None:
+            return result
+        if result.get("ok") is False:
+            session.drop_deferred()
+            return result
+        lines = await hook_events.flush(self._state)
+        if not lines:
+            return result
+        text = "\n".join(part for part in (str(result.get("metin") or ""), *lines) if part)
+        return {**result, "metin": text}
 
     def _adopt_state_root(self) -> dict[str, Any]:
         """Slash komutu `state.root`'u değiştirdiyse sekmenin kökünü ona taşı (`kok` döner)."""

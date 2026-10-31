@@ -82,6 +82,7 @@ from . import (
     goal_store,
     help_view,
     history_view,
+    hook_events,
     linked_pr,
     loop_command,
     macros,
@@ -547,6 +548,8 @@ async def _run_command(
     _sync_status_bar(reader, state)
     if result:
         console.print(f"[{theme.DIM}]{result}[/{theme.DIM}]")
+    for line in await hook_events.flush(state):
+        console.print(f"[{theme.WARN}]{escape(line)}[/{theme.WARN}]")
     # `level`/`development` model değiştirir: durum satırındaki model adı bayatlamasın.
     if command.name in {
         "agent",

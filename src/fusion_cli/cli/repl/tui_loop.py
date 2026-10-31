@@ -46,6 +46,7 @@ from . import (
     goal_store,
     help_view,
     history_view,
+    hook_events,
     linked_pr,
     loop_command,
     macros,
@@ -671,6 +672,8 @@ class _TuiSession:
             self._tui.refresh_style()
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        for hook_line in await hook_events.flush(self._state):
+            self._echo(f"[{theme.WARN}]{escape(hook_line)}[/{theme.WARN}]")
         self._sync_conversation_binding()
         self._arm_reminders()
         self._sync_status()

@@ -54,6 +54,10 @@ class HookSession:
     _loaded: bool = False
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None
+    #: Eşzamanlı koddan (slash komutu) kuyruğa alınmış olaylar; `flush_deferred` gönderir.
+    _deferred: list[tuple[HookEvent, tuple[str, ...], dict[str, object]]] = field(
+        default_factory=list
+    )
 
     def transcript(self, session_id: str | None = None) -> HookTranscript | None:
         if self.transcript_dir is None:
@@ -110,6 +114,33 @@ class HookSession:
             )
         )
         return merge_verdicts(verdict_from_run(event, run) for run in runs)
+
+    def defer(
+        self,
+        event: HookEvent,
+        *,
+        subjects: tuple[str, ...] = (),
+        fields: Mapping[str, object] | None = None,
+    ) -> None:
+        """Olayı eşzamanlı koddan kuyruğa al (`/cd` işleyicisi); çağıran yüzey `flush_deferred`."""
+        self._deferred.append((event, subjects, dict(fields or {})))
+
+    def defer_cwd_changed(self, old: Path, new: Path) -> None:
+        """`CwdChanged` (Claude Code ile aynı yük): `/cd` oturum kökünü değiştirdi."""
+        self.defer(HookEvent.CWD_CHANGED, fields={"old_cwd": str(old), "new_cwd": str(new)})
+
+    def drop_deferred(self) -> None:
+        """Kuyruktaki olayları gönderilmeden at (değişiklik geri alındı)."""
+        self._deferred.clear()
+
+    async def flush_deferred(self) -> HookVerdict:
+        """Kuyruktaki olayları sırayla gönder; kararları birleştir (engelleyemezler)."""
+        pending, self._deferred = self._deferred, []
+        verdicts = [
+            await self.emit(event, subjects=subjects, fields=fields)
+            for event, subjects, fields in pending
+        ]
+        return merge_verdicts(verdicts) if verdicts else NO_VERDICT
 
     def restart(self, source: str, *, reason: str, session_id: str | None = None) -> None:
         """Sohbet sıfırlandı/değişti: eski oturum `SessionEnd(reason)` alır, yenisi açılır.

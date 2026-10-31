@@ -31,6 +31,7 @@ class HookEvent(Enum):
     SESSION_END = "SessionEnd"
     NOTIFICATION = "Notification"
     PRE_COMPACT = "PreCompact"
+    CWD_CHANGED = "CwdChanged"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -45,6 +46,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
+    HookEvent.CWD_CHANGED: None,
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -80,7 +82,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "TeammateIdle",
         "InstructionsLoaded",
         "ConfigChange",
-        "CwdChanged",
         "DirectoryAdded",
         "FileChanged",
         "WorktreeCreate",
