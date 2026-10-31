@@ -52,9 +52,10 @@ BLOCKED_COMMANDS = frozenset(
         "exit",
         "quit",
         "clear",
-        # Kök değişimi ve mikrofon yalnız kullanıcının elinden (P-072).
+        # Kök değişimi, mikrofon ve uzaktan erişim yalnız kullanıcının elinden (P-072).
         "cd",
         "voice",
+        "rc",
     }
 )
 DEFAULT_MAINTENANCE_PROMPT = (
@@ -139,11 +140,17 @@ def _is_slash(prompt: str) -> bool:
 
 
 def blocked_command(prompt: str) -> str | None:
-    """Görev metni yasaklı bir slash komutuysa adını döndür; değilse None."""
+    """Görev metni yasaklı bir slash komutuysa adını döndür; değilse None.
+
+    Takma ad kanonik ada çevrilir. Ölçüldü (31 Ekim): ham ada bakıldığı için `/dikte`
+    (voice), `/q`, `/dev`, `/manuel` yasağı aşıyordu.
+    """
     # `commands` bu modülü içe aktarır; döngüyü kırmak için burada yüklenir.
-    from .commands import is_command_line, parse
+    from .commands import build_registry, is_command_line, parse
 
     if not is_command_line(prompt):
         return None
     name, _argument = parse(prompt)
-    return name if name in BLOCKED_COMMANDS else None
+    command = build_registry().get(name)
+    canonical = command.name if command is not None else name
+    return name if canonical in BLOCKED_COMMANDS else None

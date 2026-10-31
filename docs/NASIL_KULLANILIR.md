@@ -945,6 +945,9 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   `/loop /verify` gibi komut görevleri sabit 10 dk'dır. Argümansız `/loop` → `.claude/loop.md`
   (proje ya da ev), yoksa yerleşik bakım görevi (o da kendi tempolu).
 - `/loop list`, `/loop stop <id>`, `/loop stop all`.
+- Zamanlanamayan komutlar (takma adlarıyla birlikte): onay kipi (`/auto`, `/bypass`, `/mode`…),
+  model/sağlayıcı, `/clear`, `/exit`, `/loop`, `/cd`, `/voice` (`/dikte`) ve `/rc`
+  (`/remote-control`): kök, mikrofon ve uzaktan erişim yalnız kullanıcının elinden açılır.
 - Ajan araçları: `cron_create {prompt, every|cron|in}`, `cron_list`, `cron_delete {id}`,
   `schedule_wakeup {in, note}` (uzun dış iş için kendini uyandırma). Cron 5 alanlıdır:
   `*/15 9-18 * * 1-5`.

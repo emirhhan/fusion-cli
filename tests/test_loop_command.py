@@ -328,6 +328,15 @@ def test_loop_onay_kipini_degistiren_komutu_zamanlamaz(state: ReplState) -> None
     assert "döngü kuruldu" in _loop(state, "5m /verify")
 
 
+def test_loop_yasakli_komutun_takma_adini_da_zamanlamaz(state: ReplState) -> None:
+    """Ölçüldü (31 Ekim): yasak ham ada bakıyordu; `/loop 5m /dikte` (voice takma adı)
+    kuruluyor, mikrofon zamanlayıcıdan açılabiliyordu (`/q`, `/dev`, `/manuel` de geçiyordu)."""
+    for satir in ("5m /dikte", "/q", "5m /dev", "5m /manuel", "5m /rc", "5m /remote-control"):
+        cikti = _loop(state, satir)
+        assert "zamanlanmış görev olamaz" in cikti, satir
+    assert len(state.cron) == 0
+
+
 async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) -> None:
     from fusion_cli.core.session_cron import Source
 
