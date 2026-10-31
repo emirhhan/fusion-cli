@@ -18,16 +18,37 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+# Betik olarak çalıştırıldığında depo kökü içe aktarma yoluna eklenir.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from desktop_build.kits_bundle import describe, inspect_kits
 
 #: Release'e yüklenen dosya adı. Manifestteki URL bununla BİREBİR eşleşmelidir;
 #: aksi hâlde updater indiremez (workflow'daki "Kurucuyu anlaşılır bir adla
 #: kopyala" adımı bu adı üretir).
 ASSET_NAME = "Fusion-Windows-Kurulum.exe"
+#: `bundle:win`in kurucuya koyduğu Kits kaynakları. `tauri.windows.bundle.conf.json`
+#: bunları tek tek eşler; kurucu yalnız bu dizinden üretilmiş olabilir.
+DEFAULT_KITS_DIR = Path(__file__).resolve().parents[2] / "app/src-tauri/resources/kits"
 
 
-def build_update(installer: Path, destination: Path, version: str, repository: str) -> Path:
-    """Kurucuyu imzala ve `latest.json` yaz; özel anahtarı çıktıya kopyalama."""
+def build_update(
+    installer: Path,
+    destination: Path,
+    version: str,
+    repository: str,
+    kits_dir: Path = DEFAULT_KITS_DIR,
+) -> Path:
+    """Kurucuyu imzala ve `latest.json` yaz; özel anahtarı çıktıya kopyalama.
+
+    Kits'siz kurucu güncelleme olarak yayınlanmaz: paketlenen Kits kaynağı
+    (sunucu, istemci, `node.exe`, manifest) doğrulanmadan imzalama başlamaz.
+    """
+    kits = inspect_kits(kits_dir, node_name="node.exe", macos=False)
+    print(f"Kurucuya giren {describe(kits)}")
     destination.mkdir(parents=True, exist_ok=True)
     hedef = destination / ASSET_NAME
     if installer.resolve() != hedef.resolve():
@@ -84,5 +105,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--repository", default=os.environ.get("GITHUB_REPOSITORY", "emirhhan/fusion-cli")
     )
+    parser.add_argument("--kits-dir", type=Path, default=DEFAULT_KITS_DIR)
     args = parser.parse_args()
-    build_update(args.installer, args.output, args.version, args.repository)
+    build_update(args.installer, args.output, args.version, args.repository, args.kits_dir)

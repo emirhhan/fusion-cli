@@ -26,7 +26,10 @@ def test_manifest_ozetleri_dosyalarla_eslesir(tmp_path: Path) -> None:
     (dist / "alt" / "b.exe").write_bytes(b"beta")
     out = tmp_path / "out"
     code = module.main(
-        ["--version", "1.2.3", "--commit", "abc", "--artifacts", str(dist), "--out", str(out)]
+        [
+            *("--version", "1.2.3", "--commit", "abc", "--artifacts", str(dist)),
+            *("--out", str(out), "--kits-commit", "a" * 40),
+        ]
     )
     assert code == 0
     manifest = json.loads((out / "release-manifest.json").read_text())

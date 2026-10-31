@@ -8,8 +8,14 @@ import os
 import platform
 import plistlib
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
+
+# Betik olarak çalıştırıldığında depo kökü içe aktarma yoluna eklenir.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from desktop_build.kits_bundle import describe, inspect_kits
 
 #: Sürüm notu verilmezse manifeste yazılan metin; uygulama bunu "Sürüm notları" olarak gösterir.
 DEFAULT_NOTES = "Fusion masaüstü güncellemesi. Çalışan görevleri tamamladıktan sonra kur."
@@ -26,7 +32,10 @@ def build_update(
 
     `notes` manifestin `notes` alanına düz metin olarak yazılır (P-066): masaüstü
     Ayarlar › Güncellemeler bunu "Sürüm notları" başlığında gösterir. HTML yorumlanmaz.
+    Kits'siz uygulama güncelleme olarak yayınlanmaz (arşivlemeden önce düşer).
     """
+    kits = inspect_kits(app / "Contents/Resources/kits", node_name="node", macos=True)
+    print(f"Güncellemeye giren {describe(kits)}")
     version = plistlib.loads((app / "Contents/Info.plist").read_bytes())[
         "CFBundleShortVersionString"
     ]
