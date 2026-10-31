@@ -281,3 +281,39 @@ def test_guven_durumu_ve_fusion_trust_kanca_calistiracagini_soyler(proje, monkey
     assert "kanca" in sonuc.output and ".claude/settings.json" in sonuc.output
     # Güvenden sonra uyarı listesi boşalır (kancalar artık etkin).
     assert permissions_rpc.trust_status(proje)["kanca_dosyalari"] == []
+
+
+def test_cli_test_olaya_ozgu_yuk_ve_eslestirici_secimi(tmp_path, monkeypatch):
+    monkeypatch.setattr(hooks_commands, "load_config", make_config)
+    kayit = tmp_path / "yuk.jsonl"
+    script = tmp_path / "yaz.py"
+    script.write_text(
+        "import sys\n"
+        f"open({str(kayit)!r}, 'a', encoding='utf-8').write(sys.stdin.read().strip() + '\\n')\n",
+        encoding="utf-8",
+    )
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    _yaz_ayar(
+        hooks_config.user_hooks_file(),
+        {
+            "Notification": [
+                {"matcher": "permission_prompt", "hooks": [{"type": "command", "command": command}]}
+            ],
+            "Stop": [{"hooks": [{"type": "command", "command": command}]}],
+            "SessionStart": [
+                {"matcher": "resume", "hooks": [{"type": "command", "command": command}]}
+            ],
+        },
+    )
+    runner = CliRunner()
+    for args in (
+        ["Notification"],
+        ["Stop", "--prompt", "bitti"],
+        ["SessionStart", "--subject", "resume"],
+    ):
+        result = runner.invoke(hooks_commands.app, ["test", *args, "--path", str(tmp_path)])
+        assert result.exit_code == 0 and "1 kanca çalıştı" in result.output, result.output
+    bildirim, dur, baslangic = (json.loads(s) for s in kayit.read_text().splitlines())
+    assert bildirim["notification_type"] == "permission_prompt" and bildirim["message"]
+    assert dur["stop_hook_active"] is False and dur["last_assistant_message"] == "bitti"
+    assert baslangic["source"] == "resume"

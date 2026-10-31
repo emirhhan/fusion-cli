@@ -116,7 +116,9 @@ de hepsini kapatır (acil durum ve testler). Eski `runtime.post_edit_commands` a
 
 - `fusion hooks list [--json]` — tüm katmanlar, durum ve atlanma nedeni.
 - `fusion hooks test PreToolUse --tool Bash --input '{"command": "rm -rf x"}'` — eşleşen
-  kancaları gerçekten çalıştırır ve kararı gösterir (engelde çıkış 2).
+  kancaları gerçekten çalıştırır ve kararı gösterir (engelde çıkış 2). Olayın gerçek yükü
+  gönderilir; eşleştirici konusu `--subject` ile seçilir (`SessionStart --subject resume`,
+  `Notification` varsayılan `permission_prompt`, `Stop --prompt "son cevap"`).
 - REPL `/hooks` (`/kancalar`) — salt okunur liste.
 - Masaüstü: Ayarlar › İzinler › **Kancalar** (`kanca.listele` RPC).
 

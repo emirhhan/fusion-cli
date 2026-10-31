@@ -3,6 +3,7 @@
     fusion hooks list [--json]                     tüm katmanlardaki kancalar ve durumları
     fusion hooks test PreToolUse --tool Bash --input '{"command": "rm -rf x"}'
     fusion hooks test UserPromptSubmit --prompt "merhaba"
+    fusion hooks test SessionStart --subject resume   (eşleştirici konusu: source/reason/tür)
 
 `test` eşleşen kancaları GERÇEKTEN çalıştırır (kullanıcının kendi komutları) ve birleşik
 kararı gösterir; engel varsa çıkış kodu 2.
@@ -35,6 +36,16 @@ console = Console()
 _TOOL_EVENTS = frozenset(
     {HookEvent.PRE_TOOL_USE, HookEvent.POST_TOOL_USE, HookEvent.POST_TOOL_USE_FAILURE}
 )
+#: `--subject` verilmezse olayın gerçekte taşıdığı varsayılan konu (Fusion'ın tetiklediği).
+_DEFAULT_SUBJECT: dict[HookEvent, str] = {
+    HookEvent.SESSION_START: "startup",
+    HookEvent.SESSION_END: "other",
+    HookEvent.NOTIFICATION: "permission_prompt",
+    HookEvent.PRE_COMPACT: "manual",
+    HookEvent.SUBAGENT_STOP: "",
+}
+#: Örnek bildirim metni (`Notification` yükü).
+_SAMPLE_NOTIFICATION = "Fusion izin istiyor: run_shell (fusion hooks test)"
 PathOption = Annotated[
     Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
 ]
@@ -67,7 +78,17 @@ def test_hook(
     tool_input: Annotated[
         str, typer.Option("--input", help="Araç argümanları (JSON nesnesi).")
     ] = "{}",
-    prompt: Annotated[str, typer.Option("--prompt", help="UserPromptSubmit istemi.")] = "",
+    prompt: Annotated[
+        str, typer.Option("--prompt", help="UserPromptSubmit istemi / Stop son cevabı.")
+    ] = "",
+    subject: Annotated[
+        str | None,
+        typer.Option(
+            "--subject",
+            help="Eşleştirici konusu: SessionStart source, SessionEnd reason, "
+            "Notification türü, PreCompact tetikleyici, SubagentStop ajan türü.",
+        ),
+    ] = None,
     path: PathOption = Path(),
 ) -> None:
     """Eşleşen kancaları örnek bir olayla çalıştır ve kararı göster."""
@@ -85,7 +106,7 @@ def test_hook(
         raise typer.Exit(code=2)
     session = open_hook_session(path.resolve(), load_config())
     session.refresh()
-    verdict = asyncio.run(_emit(session, parsed, tool, arguments, prompt))
+    verdict = asyncio.run(_emit(session, parsed, tool, arguments, prompt, subject))
     _print_verdict(parsed, verdict)
     if verdict.blocked:
         raise typer.Exit(code=2)
@@ -97,13 +118,34 @@ async def _emit(
     tool: str,
     arguments: dict[str, object],
     prompt: str,
+    subject: str | None = None,
 ) -> HookVerdict:
+    """Olayı ajan döngüsünün gönderdiği yükle tetikle (bkz. `engines/agent/hook_bridge.py`).
+
+    Ölçüldü (31 Ekim): konu `startup|manual|other|''` sabitti, Notification/Stop yükü boştu;
+    `permission_prompt` Notification kancası "eşleşen kanca yok" diyordu.
+    """
     if event in _TOOL_EVENTS:
         return await session.emit(
             event, subjects=claude_tool_names(tool), fields=tool_hook_fields(tool, arguments)
         )
-    fields = {"prompt": prompt} if event is HookEvent.USER_PROMPT_SUBMIT else {}
-    return await session.emit(event, subjects=("startup", "manual", "other", ""), fields=fields)
+    topic = subject if subject is not None else _DEFAULT_SUBJECT.get(event, "")
+    fields: dict[str, object] = {}
+    if event is HookEvent.USER_PROMPT_SUBMIT:
+        fields = {"prompt": prompt}
+    elif event is HookEvent.SESSION_START:
+        fields = {"source": topic}
+    elif event is HookEvent.SESSION_END:
+        fields = {"reason": topic}
+    elif event is HookEvent.NOTIFICATION:
+        fields = {"notification_type": topic, "message": _SAMPLE_NOTIFICATION}
+    elif event is HookEvent.PRE_COMPACT:
+        fields = {"trigger": topic, "custom_instructions": ""}
+    elif event in (HookEvent.STOP, HookEvent.SUBAGENT_STOP):
+        fields = {"stop_hook_active": False, "last_assistant_message": prompt}
+        if event is HookEvent.SUBAGENT_STOP:
+            fields["agent_type"] = topic
+    return await session.emit(event, subjects=(topic,), fields=fields)
 
 
 def _print_verdict(event: HookEvent, verdict: HookVerdict) -> None:
