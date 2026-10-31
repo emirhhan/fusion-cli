@@ -25,6 +25,10 @@ SCREENSHOT_MAX_BYTES = 12_000_000
 DESKTOP_COMMAND_TIMEOUT_S = 15
 DESKTOP_TEXT_MAX_CHARS = 10_000
 DESKTOP_SCROLL_MAX_LINES = 100
+#: Bir `desktop_key` çağrısının basılı tutma toplamı (ms): repeat × akor × hold_ms bunu aşamaz.
+#: Ölçüldü (31 Ekim): 50 × 32 × 5000 ms ≈ 2,2 saat senkron bloklanıyor, kilit 5. dakikada
+#: bayatlayıp devralınıyor ve iki tur aynı anda klavye gönderiyordu; iptal yolu yok.
+DESKTOP_KEY_TOTAL_HOLD_MS_MAX = 30_000
 #: macOS sanal tuş kodları (ANSI). Eskiden yalnız 16 tuş vardı: `return`, `esc`, `delete`,
 #: Home/End/PageUp/PageDown, F1-F12, rakamlar ve `x n t l r q p o` yoktu (Cmd+L/T/R/N/X çalışmazdı).
 KEY_CODES = {
@@ -269,6 +273,13 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
     if repeat is None or hold_ms is None:
         return ToolResult.failure(
             f"repeat 1-{REPEAT_MAX} arasında, hold_ms 0-{HOLD_MS_MAX} arasında tam sayı olmalı."
+        )
+    total_hold_ms = repeat * len(chords) * hold_ms
+    if total_hold_ms > DESKTOP_KEY_TOTAL_HOLD_MS_MAX:
+        return ToolResult.failure(
+            f"Toplam basılı tutma süresi {total_hold_ms / 1000:.0f} sn; en çok "
+            f"{DESKTOP_KEY_TOTAL_HOLD_MS_MAX // 1000} sn (repeat × tuş sayısı × hold_ms). "
+            "Çağrıyı parçala ya da hold_ms'i küçült."
         )
     busy = desktop_lock.claim(token=context.job_scope)
     if busy:

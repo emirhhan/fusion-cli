@@ -187,3 +187,15 @@ def test_asiri_tekrar_ve_tutma_reddedilir(tmp_path, monkeypatch) -> None:
     assert not desktop.desktop_key({"key": "a", "repeat": 999}, context).ok
     assert not desktop.desktop_key({"key": "a", "hold_ms": 99_999}, context).ok
     assert not desktop.desktop_key({"key": "cmd+"}, context).ok
+
+
+def test_toplam_basili_tutma_suresi_sinirli(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): repeat=50 × 3 akor × hold_ms=5000 ≈ 12,5 dk senkron bloklanıyordu."""
+    alinan = _izinli(monkeypatch)
+    context = ToolContext(root=tmp_path)
+
+    sonuc = desktop.desktop_key({"key": "a b c", "repeat": 50, "hold_ms": 5000}, context)
+
+    assert not sonuc.ok and "750 sn" in sonuc.output and "30 sn" in sonuc.output
+    assert alinan == []
+    assert desktop.desktop_key({"key": "a b c", "repeat": 2, "hold_ms": 5000}, context).ok
