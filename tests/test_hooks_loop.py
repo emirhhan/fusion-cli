@@ -637,3 +637,68 @@ async def test_tur_basinda_eklenen_notification_kancasi_ayni_turda_calisir(monke
     )
     assert prompter.soruldu == ["write_file"]
     assert [s["notification_type"] for s in _satirlar(kayit)] == ["permission_prompt"]
+
+
+# --- Uçtan uca kapatma anahtarları ve updatedInput kök dışı ----------------------- #
+
+_DENY = (
+    "print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'deny',"
+    " 'permissionDecisionReason': 'yasak'}}))\n"
+)
+
+
+def _dosyali_oturum(tmp_path: Path, monkeypatch, *, user_file: Path, **runtime) -> HookSession:
+    """Gerçek katman dosyalarından yüklenen oturum (ev ve yapılandırma dizini geçici)."""
+    from fusion_cli.engines.hooks.session import open_hook_session
+
+    script = tmp_path / "deny.py"
+    script.write_text("import json, sys\njson.load(sys.stdin)\n" + _DENY, encoding="utf-8")
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    user_file.parent.mkdir(parents=True, exist_ok=True)
+    user_file.write_text(
+        json.dumps(
+            {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": command}]}]}}
+        ),
+        encoding="utf-8",
+    )
+    return open_hook_session(tmp_path, make_config(runtime=runtime), home=tmp_path / "ev")
+
+
+@pytest.mark.parametrize(
+    ("runtime", "kaynak", "yazildi"),
+    [
+        ({}, "fusion", False),
+        ({"hooks_enabled": False}, "fusion", True),
+        ({}, "claude", True),  # claude_hooks varsayılan kapalı
+        ({"claude_hooks": True}, "claude", False),
+    ],
+)
+async def test_kapatma_anahtarlari_uctan_uca_tur(monkeypatch, tmp_path, runtime, kaynak, yazildi):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "ev" / ".config"))
+    monkeypatch.delenv("FUSION_HOOKS", raising=False)
+    from fusion_cli.config.hooks import user_hooks_file
+
+    user_file = (
+        user_hooks_file() if kaynak == "fusion" else tmp_path / "ev" / ".claude" / "settings.json"
+    )
+    session = _dosyali_oturum(tmp_path, monkeypatch, user_file=user_file, **runtime)
+    await _tur(monkeypatch, tmp_path, _yaz("a.txt"), session)
+    assert (tmp_path / "a.txt").exists() is yazildi
+
+
+async def test_updated_input_kok_disina_yonlendirirse_onay_ve_engel_yeni_hedefe_bakar(
+    monkeypatch, tmp_path
+):
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    dis = tmp_path / "dis.txt"
+    cikti = {"hookSpecificOutput": {"updatedInput": {"file_path": str(dis)}}}
+    yonlendiren = f"print(json.dumps({cikti!r}))\n"
+    session = _oturum(proje, _kanca(tmp_path, HookEvent.PRE_TOOL_USE, yonlendiren))
+    _, _, prompter, _ = await _tur(monkeypatch, proje, _yaz("ic.txt"), session)
+    assert prompter.soruldu == ["write_file"]  # Otomatik kip kök dışı yazmayı sorar
+
+    dis.unlink(missing_ok=True)
+    engel = PermissionRuleSet(block_writes_outside_root=True)
+    _, _, prompter, _ = await _tur(monkeypatch, proje, _yaz("ic.txt"), session, rules=engel)
+    assert not dis.exists() and not (proje / "ic.txt").exists()
