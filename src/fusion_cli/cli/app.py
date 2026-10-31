@@ -16,7 +16,7 @@ import sys
 from collections.abc import Coroutine
 from dataclasses import fields, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar
 
 import typer
 from rich.console import Console
@@ -34,10 +34,6 @@ from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..ui import messages, theme
-from .app_host import AppHostDependencies
-
-if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
-    from .doctor import DoctorReport
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
@@ -49,6 +45,7 @@ from . import (
     prompt_opt_commands,
     trash_commands,
 )
+from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl
@@ -193,34 +190,15 @@ def doctor(
     Çıkış kodu 1 YALNIZ kurulum kullanılamazsa (agent rolü çalışmıyor); PATH ya da yazılamayan
     dizin gibi diğer sorunlar için betikler `--json` çıktısındaki `ok` alanına bakmalı.
     """
-    from .doctor import diagnose, to_dict
+    from .doctor import diagnose, print_report, to_dict
 
     rapor = diagnose(live=live)
     if as_json:
         console.print_json(data=to_dict(rapor))
     else:
-        _print_doctor(rapor)
+        print_report(rapor, console)
     # Çıkış kodu betikler içindir: kurulum kullanılamaz durumdaysa sıfır dışı.
     raise typer.Exit(0 if rapor.readiness.state is not Readiness.NOT_READY else 1)
-
-
-def _print_doctor(report: DoctorReport) -> None:
-    """Tanıyı oku-yazılabilir biçimde bas. Sır içermez."""
-    console.print()
-    for check in report.checks:
-        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
-        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
-        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {escape(check.value)}")
-        if check.remedy:
-            console.print(f"  [{theme.DIM}]→ {escape(check.remedy)}[/{theme.DIM}]")
-    console.print()
-    durum = report.readiness.state
-    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
-        durum, theme.ERROR
-    )
-    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
-    for sebep in report.readiness.reasons:
-        console.print(f"  [{theme.DIM}]{escape(sebep)}[/{theme.DIM}]")
 
 
 @app.command()

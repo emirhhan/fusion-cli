@@ -672,11 +672,41 @@ def _macro(name: str) -> Handler:
         if macro.argument_required and not argument.strip():
             return messages.REPL_MACRO_NEEDS_ARGUMENT.format(name=name)
         state.engine = Engine.AGENT
-        state.pending_task = macro.build(argument)
+        task = macro.build(argument)
+        # Claude Code'daki gibi: kullanıcı aynı adlı bir skill tanımladıysa
+        # (`.claude/skills/<ad>/SKILL.md`) onun gövdesi yerleşik metnin ÖNÜNE
+        # eklenir; yerleşik metin silinmez, kullanıcı kuralı önceliklidir.
+        override = macro_skill_override(state, name)
+        lines = [messages.REPL_MACRO_STARTED.format(name=name)]
+        if override is not None:
+            body, path = override
+            task = f"{body.strip()}\n\n{task}"
+            lines.append(messages.REPL_MACRO_SKILL_PREPENDED.format(name=name, path=path))
+        state.pending_task = task
         state.pending_mode = macro.mode
-        return messages.REPL_MACRO_STARTED.format(name=name)
+        return "\n".join(lines)
 
     return _handler
+
+
+def macro_skill_override(state: ReplState, name: str) -> tuple[str, Path] | None:
+    """Makroyla aynı adlı kullanıcı skill'inin gövdesi ve yolu; yoksa None.
+
+    Boş gövde ya da okunamayan dosya "yok" sayılır: bozuk bir skill yerleşik makroyu
+    susturmamalı.
+    """
+    from ...tools.capabilities import load_agent_prompt
+
+    if state.capabilities is None:
+        return None
+    wanted = name.casefold()
+    for skill in state.capabilities.skills():
+        if skill.name.casefold() != wanted:
+            continue
+        body = load_agent_prompt(skill.path)
+        if body.strip() and not body.startswith("HATA:"):
+            return body, skill.path
+    return None
 
 
 def _schedule(state: ReplState, argument: str) -> str:
@@ -773,20 +803,27 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             name,
             summary,
             _macro(name),
+            aliases=aliases,
             group="Makro",
             usage="<görev>" if macros.MACROS[name].argument_required else "[görev]",
         )
-        for name, summary in (
-            ("goal", messages.CMD_GOAL),
-            ("grill-me", messages.CMD_GRILL),
-            ("bug", messages.CMD_BUG),
-            ("commit", messages.CMD_COMMIT),
-            ("review", messages.CMD_REVIEW),
-            ("browser", messages.CMD_BROWSER),
-            ("btw", messages.CMD_BTW),
-            ("plan-yurut", messages.CMD_PLAN_RUN),
+        for name, summary, aliases in (
+            ("goal", messages.CMD_GOAL, ()),
+            ("grill-me", messages.CMD_GRILL, ()),
+            ("bug", messages.CMD_BUG, ()),
+            ("commit", messages.CMD_COMMIT, ()),
+            # Claude Code'daki ad da tanınır; aynı makro, ikinci yol değil.
+            ("review", messages.CMD_REVIEW, ("code-review",)),
+            ("browser", messages.CMD_BROWSER, ()),
+            ("btw", messages.CMD_BTW, ()),
+            ("plan-yurut", messages.CMD_PLAN_RUN, ()),
+            ("simplify", messages.CMD_SIMPLIFY, ()),
+            ("security-review", messages.CMD_SECURITY_REVIEW, ()),
+            ("debug", messages.CMD_DEBUG, ()),
+            ("batch", messages.CMD_BATCH, ()),
         )
     ),
+    SlashCommand("doctor", messages.CMD_DOCTOR, lambda state, argument: "", group="Bilgi"),
     SlashCommand(
         "cop",
         messages.CMD_TRASH,
@@ -810,7 +847,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
 RENDERED_COMMANDS = frozenset(
-    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost"}
+    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost", "doctor"}
 )
 
 

@@ -324,10 +324,13 @@ function ProjectInspector({
   width,
   requestedPreview = null,
   agents,
+  onCommand,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
   collapsed: boolean;
+  /** Değişiklikler panelindeki makro düğmeleri slash komutunu bununla gönderir. */
+  onCommand?: (line: string) => void;
   height: number;
   onActiveTabChange: (tab: InspectorTabId) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -372,7 +375,7 @@ function ProjectInspector({
         // durumunu ikinci kez gösteriyordu.
         changes: (
           <>
-            <ChangesPanel client={client} onChanged={changed} revision={revision} />
+            <ChangesPanel client={client} onChanged={changed} onCommand={onCommand} revision={revision} />
             <TestsPanel client={client} processes={processes} revision={revision} />
           </>
         ),
@@ -1846,6 +1849,7 @@ export function SessionUygulama({
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
           onHeightChange={inspectorLayout.setHeight}
+          onCommand={(line) => void executeCommand(line)}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}

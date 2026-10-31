@@ -12,14 +12,24 @@ Kipler ayrı tutulur çünkü davranışı değiştirirler:
   checkpoint/devam, final kabulü) yürütür. Varsayılan yol tek döngüdür; plan
   motoru yalnız bu seçimle ya da `workflow_mode: always` ile çalışır.
 
-Diğer makrolar (bug, commit, review, browser) yalnızca hazır görev metnidir; agent'ın
-davranışını değiştirmezler.
+Diğer makrolar (bug, commit, review, browser, simplify, security-review, debug, batch)
+yalnızca hazır görev metnidir; agent'ın davranışını değiştirmezler. Claude Code'un
+yerleşik iş-akışı becerileriyle (`/simplify`, `/security-review`, `/debug`, `/batch`)
+aynı adı taşırlar; kullanıcı `.claude/skills/<ad>/SKILL.md` ile gövdeyi önceleyebilir
+(bkz. `commands._macro`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+
+#: Uzun şablonlar koda gömülmez; paket verisi olarak okunur (RULES "Dil").
+_PROMPTS = Path(__file__).resolve().parents[2] / "engines" / "agent" / "prompts"
+SECURITY_REVIEW_PROMPT = (_PROMPTS / "security_review.md").read_text(encoding="utf-8")
+#: `/security-review` argümansız çağrıldığında denetlenen kapsam.
+SECURITY_REVIEW_DEFAULT_SCOPE = "çalışma ağacındaki tüm değişiklikler (staged ve unstaged)"
 
 
 class Mode(Enum):
@@ -126,6 +136,41 @@ MACROS: dict[str, Macro] = {
             "Yanıtı ana görevin çalışma planına veya dosya değişikliklerine uygulama; "
             "kullanıcı ayrıca isterse ana göreve dön."
         ),
+        argument_required=True,
+    ),
+    "simplify": Macro(
+        task="Çalışma ağacındaki değişen kodu (`git diff`, staged ve unstaged) yeniden "
+        "kullanım, sadeleştirme, verimlilik ve soyutlama düzeyi açısından incele: tekrar "
+        "eden mantığı mevcut yardımcıya bağla, gereksiz dalları ve ölü kodu kaldır, "
+        "pahalı işlemleri sadeleştir. Hata avı YAPMA (onun için /review). Davranışı "
+        "değiştirmeden düzeltmeleri uygula ve ilgili testleri koşturup sonucu bildir.",
+        template="Şunu sadeleştir: {argument}. Yeniden kullanım, sadeleştirme, verimlilik "
+        "ve soyutlama düzeyi açısından incele; davranışı değiştirmeden düzeltmeleri uygula "
+        "ve ilgili testleri koşturup sonucu bildir. Hata avı yapma.",
+    ),
+    "security-review": Macro(
+        task=SECURITY_REVIEW_PROMPT.format(argument=SECURITY_REVIEW_DEFAULT_SCOPE),
+        template=SECURITY_REVIEW_PROMPT,
+    ),
+    "debug": Macro(
+        task="Fusion'ın bu oturumdaki davranışını teşhis et: `fusion doctor --json` "
+        "komutunu çalıştır, `recent_actions` ile son eylemleri ve hataları incele, "
+        "kullanıcının gördüğü belirtiyi bunlarla eşleştir. Kök nedeni (yapılandırma, "
+        "model, izin kipi, sağlayıcı, MCP) ve somut düzeltme adımını söyle. Proje "
+        "kodunu değiştirme; sırları raporda yazma.",
+        template="Fusion'ın şu sorununu teşhis et: {argument}. `fusion doctor --json` "
+        "komutunu çalıştır, `recent_actions` ile son eylemleri ve hataları incele, "
+        "belirtiyi bunlarla eşleştir; kök nedeni ve somut düzeltme adımını söyle. Proje "
+        "kodunu değiştirme; sırları raporda yazma.",
+    ),
+    "batch": Macro(
+        task="",
+        template="Şu talimatı kod tabanının tamamına uygula: {argument}. Önce etkilenen "
+        "dosyaları bul ve işi birbirinden bağımsız 3-10 parçaya böl (dosya ya da klasör "
+        "kümesi). Her parçayı `spawn_agents` ile PARALEL alt ajanlara ver; her ajanın "
+        "`yazma_alani` değerini yalnız kendi dosyalarıyla sınırla ki iki ajan aynı "
+        "dosyaya dokunmasın. Ajanlar bitince sonuçları birleştir, testleri koştur ve "
+        "parça parça özetle.",
         argument_required=True,
     ),
 }

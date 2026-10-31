@@ -43,6 +43,21 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         from .loop import compact_history
 
         console.print(f"[{theme.DIM}]{await compact_history(state)}[/{theme.DIM}]")
+    elif name == "doctor":
+        await _doctor(console)
+
+
+async def _doctor(console: Console) -> None:
+    """`/doctor` — `fusion doctor` ile AYNI tanı ve basıcı; ağ çağrısı yapılmaz.
+
+    Tanı dosya ve ortam okur; olay döngüsünü tutmasın diye iş parçacığında koşar.
+    """
+    import asyncio
+
+    from ..doctor import diagnose, print_report
+
+    report = await asyncio.to_thread(diagnose, live=False)
+    print_report(report, console)
 
 
 def _tips(console: Console) -> None:

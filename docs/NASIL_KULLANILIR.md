@@ -308,6 +308,11 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/plan` | Önce planla, değiştirme |
 | `/undo` | Son değişikliği geri al |
 | `/verify` | Test/lint çalıştır |
+| `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
+| `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
+| `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
+| `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
+| `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
 | `/good` · `/bad` | Fusion'a geri bildirim |
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
@@ -327,3 +332,20 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 - **Yavaş** → `/mode low` ya da `/effort low`.
 
 Takıldığın her yerde `/help` yaz — bütün komutlar orada.
+
+---
+
+## İş-akışı makroları (`/simplify`, `/security-review`, `/debug`, `/batch`)
+
+Claude Code'un paketli becerileriyle aynı adları taşırlar; Fusion'da hazır görev metni
+olarak çalışır, agent'ın davranışını değiştirmezler.
+
+- `/security-review` argümansız çalışma ağacındaki tüm değişiklikleri (`git diff`,
+  staged + unstaged) tarar; `/security-review src/api/` gibi bir yol verilirse kapsam
+  o olur. Bulgular `[KRİTİK|YÜKSEK|ORTA|DÜŞÜK]` başlıklarıyla, `dosya:satır` yerleriyle
+  listelenir; kod değiştirilmez, sır değeri rapora yazılmaz.
+- Masaüstünde **Değişiklikler** panelinin üstündeki "Güvenlik incelemesi" ve
+  "Sadeleştir" düğmeleri aynı komutları gönderir.
+- Kendi kuralını öne almak için `.claude/skills/<ad>/SKILL.md` yaz (ör.
+  `.claude/skills/security-review/SKILL.md`): gövdesi yerleşik metnin ÖNÜNE eklenir,
+  yerleşik metin silinmez.
