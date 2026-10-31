@@ -17,6 +17,8 @@
   const MAX_TEXT = 2000;
   const MAX_BODY = 16384;
   const TEXT_TYPES = /^(application\/(json|.*\+json|javascript|xml|x-www-form-urlencoded)|text\/)/i;
+  // Akış yanıtları (SSE) hiç okunmaz: bitmezler.
+  const STREAM_TYPES = /^text\/event-stream/i;
   const monitor = { console: [], network: [], pending: 0, seq: 0, started: Date.now() };
   Object.defineProperty(globalThis, KEY, { value: monitor, enumerable: false, configurable: false });
 
@@ -71,6 +73,38 @@
     if (error) item.error = String(error && error.message || error).slice(0, MAX_TEXT);
   };
 
+  // Gövde kopyadan akış okuyucuyla alınır ve MAX_BODY'de KESİLİP iptal edilir. Ölçüldü
+  // (31 Ekim, bağımsız inceleme): `clone().text()` SSE/uzun akışta bitene dek tüm gövdeyi
+  // bellekte biriktiriyor, `pending` o süre boyunca düşmüyor ve `wait network_idle` hiç
+  // boşa düşmüyordu. Kopyanın iptali sayfanın kendi yanıtını etkilemez (tee).
+  const readBody = async (response, item) => {
+    try {
+      const reader = response.body && typeof response.body.getReader === "function" ? response.body.getReader() : null;
+      if (!reader) {
+        const text = await response.text();
+        item.size = text.length;
+        item.body = text.slice(0, MAX_BODY);
+        return;
+      }
+      const decoder = new TextDecoder();
+      let text = "";
+      let size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+        if (text.length >= MAX_BODY) {
+          item.truncated = true;
+          reader.cancel().catch(() => undefined);
+          break;
+        }
+      }
+      item.size = size;
+      item.body = text.slice(0, MAX_BODY);
+    } catch { /* gövde okunamadı; istek kaydı (durum, süre) kalır */ }
+  };
+
   const originalFetch = globalThis.fetch;
   if (typeof originalFetch === "function") {
     globalThis.fetch = function fusionFetch(input, init) {
@@ -78,12 +112,9 @@
       const item = start(init && init.method || (input && input.method) || "GET", url, "fetch");
       return originalFetch.apply(this, arguments).then((response) => {
         const type = response.headers.get("content-type") || "";
-        if (TEXT_TYPES.test(type)) {
-          response.clone().text().then((body) => finish(item, response.status, type, body),
-            () => finish(item, response.status, type));
-        } else {
-          finish(item, response.status, type);
-        }
+        // Bekleyen sayısı BAŞLIKTA düşer; gövde ayrı ve sınırlı okunur.
+        finish(item, response.status, type);
+        if ((TEXT_TYPES.test(type) || !type) && !STREAM_TYPES.test(type)) void readBody(response.clone(), item);
         return response;
       }, (error) => { finish(item, 0, "", undefined, error); throw error; });
     };

@@ -56,7 +56,8 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
   mesaj kutusunda Enter, `form submit`, sekme kapatma. Parola/OTP/kart alanlarına yazma ve okuma kapalıdır.
 - Panel turlarında sunucu tarafı `web_fetch`/`web_search` yoktur (girişli oturumu görmez).
 - Konsol/ağ izleyicisi istek ve yanıt BAŞLIKLARINI (çerez, Authorization) hiç kaydetmez; gövde yalnız metin/JSON
-  türünde ve 16 KB'a kadar saklanır; Fusion çıktıyı `redact` ile maskeler. İzleyici yalnız kullanıcının izin verdiği
+  türünde, akış okuyucuyla 16 KB'ta kesilip iptal edilir (`truncated: true`), `text/event-stream` hiç okunmaz;
+  bekleyen istek sayısı başlıkta düşer. Fusion çıktıyı `redact` ile maskeler. İzleyici yalnız kullanıcının izin verdiği
   sitelere kayıtlıdır ve manifestte `debugger`/`webRequest` izni yoktur.
 
 ## Doğrulanmayanlar
