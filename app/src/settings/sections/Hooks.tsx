@@ -27,6 +27,8 @@ interface HooksPayload {
   kancalar?: HookRow[];
   kapali?: string | null;
   guvensiz_katmanlar?: string[];
+  /** `disableAllHooks` taşıyan ama güvenilmediği için yok sayılan katmanlar. */
+  yok_sayilan_kapatma?: string[];
   kullanici_dosyasi?: string;
 }
 
@@ -59,6 +61,7 @@ export function HookList({ client }: { client: ProtocolClient }) {
 
   const rows = payload?.kancalar ?? [];
   const guvensiz = payload?.guvensiz_katmanlar ?? [];
+  const yokSayilan = payload?.yok_sayilan_kapatma ?? [];
   return (
     <article className="settings__card settings__card--wide" id="settings-hooks">
       <div className="settings__card-head">
@@ -72,6 +75,11 @@ export function HookList({ client }: { client: ProtocolClient }) {
       </div>
       {error && <p className="settings__hint" role="alert">{error}</p>}
       {payload?.kapali && <p className="settings__hint" role="status"><strong>Kancalar kapalı:</strong> {payload.kapali}</p>}
+      {yokSayilan.length > 0 && (
+        <p className="settings__hint" role="status">
+          Güvenilmeyen katmandaki <code>disableAllHooks</code> yok sayıldı ({yokSayilan.map((ad) => KAYNAK_ETIKETI[ad] ?? ad).join(", ")}): depo senin kancalarını kapatamaz.
+        </p>
+      )}
       {payload && rows.length === 0 && (
         <p className="settings__hint">
           Tanımlı kanca yok. <code>{payload.kullanici_dosyasi}</code> ya da <code>~/.claude/settings.json</code> içine{" "}

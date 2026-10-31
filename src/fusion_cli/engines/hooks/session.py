@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...config.hooks import hook_environment, load_hooks
+from ...config.hooks import DISABLE_ALL_KEY, hook_environment, load_hooks
 from ...config.models import Config
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookEvent, HookSet, HookVerdict
@@ -39,6 +39,8 @@ class HookSession:
     hooks: HookSet = field(default_factory=HookSet)
     started: bool = False
     ended: bool = False
+    #: Dosyadaki `disableAllHooks` kapatması kullanıcıya bildirildi mi? (oturumda bir kez)
+    disabled_notified: bool = False
     _loaded: bool = False
 
     def refresh(self) -> HookSet:
@@ -46,6 +48,17 @@ class HookSession:
         self.hooks = self.loader()
         self._loaded = True
         return self.hooks
+
+    def disabled_notice(self) -> str | None:
+        """Bir dosya (`disableAllHooks`) kancaları kapattıysa gerekçe; oturumda yalnız bir kez.
+
+        Ayar ya da ortam değişkeniyle kapatma kullanıcının kendi kararıdır, bildirilmez.
+        """
+        reason = self.current().disabled_reason
+        if self.disabled_notified or reason is None or not reason.startswith(DISABLE_ALL_KEY):
+            return None
+        self.disabled_notified = True
+        return reason
 
     def current(self) -> HookSet:
         return self.hooks if self._loaded else self.refresh()

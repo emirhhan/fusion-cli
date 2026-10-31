@@ -92,8 +92,11 @@ runtime:
   hook_timeout_s: 60     # süresi yazılmamış kanca; tek kanca en çok 600 sn
 ```
 
-`"disableAllHooks": true` herhangi bir katmanda hepsini kapatır; `FUSION_HOOKS=off` ortam
-değişkeni de (acil durum ve testler). Eski `runtime.post_edit_commands` aynen çalışır.
+`"disableAllHooks": true` Fusion/Claude kullanıcı dosyasında ya da **güvenilen** proje
+dosyasında hepsini kapatır; kapatma oturumda bir kez "Kancalar bu oturumda kapalı" diye
+bildirilir. Güvenilmeyen depodaki `disableAllHooks` yok sayılır (depo senin koruyucu
+kancalarını kapatamaz) ve listede uyarı olarak görünür. `FUSION_HOOKS=off` ortam değişkeni
+de hepsini kapatır (acil durum ve testler). Eski `runtime.post_edit_commands` aynen çalışır.
 
 - `fusion hooks list [--json]` — tüm katmanlar, durum ve atlanma nedeni.
 - `fusion hooks test PreToolUse --tool Bash --input '{"command": "rm -rf x"}'` — eşleşen

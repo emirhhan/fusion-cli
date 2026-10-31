@@ -157,6 +157,11 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     if session is None:
         return PromptGate()
     session.refresh()
+    notice = session.disabled_notice()
+    if notice is not None:
+        deps.publisher.publish(
+            NarrationPublished(text=messages.HOOKS_DISABLED_NOTICE.format(reason=notice))
+        )
     started = await session.start()
     _publish(deps, started)
     verdict = await session.emit(HookEvent.USER_PROMPT_SUBMIT, fields={"prompt": prompt})

@@ -140,6 +140,8 @@ class HookSet:
     disabled_reason: str | None = None
     #: Dosyası var ama güvenilmediği için kancaları okunmayan katmanlar.
     untrusted_layers: tuple[str, ...] = ()
+    #: `disableAllHooks: true` taşıyan ama güvenilmediği için yok sayılan katmanlar.
+    ignored_disable_layers: tuple[str, ...] = ()
 
     def for_event(self, event: HookEvent, subjects: Iterable[str] = ()) -> tuple[HookCommand, ...]:
         """Olaya ve eşleştiriciye uyan komutlar; aynı komut metni bir kez (Claude gibi)."""

@@ -579,3 +579,17 @@ async def test_stop_kancasi_butce_sinirinda_calismaz(monkeypatch, tmp_path):
     )
     outcome = await run_agent("iş", deps)
     assert outcome.budget_stopped and _satirlar(kayit) == []
+
+
+async def test_dosyadaki_disable_all_hooks_oturumda_bir_kez_bildirilir(monkeypatch, tmp_path):
+    kapali = HookSet(
+        (_kanca(tmp_path, HookEvent.STOP, "sys.exit(2)\n"),),
+        disabled_reason="disableAllHooks (proje: .claude/settings.json)",
+    )
+    session = HookSession(root=tmp_path, loader=lambda: kapali)
+    _, _, _, sink = await _tur(monkeypatch, tmp_path, [model_result("bir")], session)
+    _, _, _, ikinci = await _tur(monkeypatch, tmp_path, [model_result("iki")], session)
+    notlar = [e.text for e in [*sink.events, *ikinci.events] if isinstance(e, NarrationPublished)]
+    assert [n for n in notlar if "Kancalar bu oturumda kapalı" in n] == [
+        "Kancalar bu oturumda kapalı: disableAllHooks (proje: .claude/settings.json)"
+    ]

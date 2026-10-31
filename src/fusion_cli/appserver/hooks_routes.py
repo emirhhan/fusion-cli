@@ -1,7 +1,7 @@
 """Masaüstü `kanca.*` istekleri (P-009): Ayarlar › İzinler'deki kanca listesi.
 
     kanca.listele   {kancalar: [{olay, eslestirici, komut, sure_sn, kaynak, dosya, atlandi}],
-                     kapali, guvensiz_katmanlar, kullanici_dosyasi}
+                     kapali, guvensiz_katmanlar, yok_sayilan_kapatma, kullanici_dosyasi}
 
 Liste salt okunurdur (Claude Code `/hooks` gibi); düzenleme dosyada yapılır. Tanımlar
 istek anında dosyadan okunur: güven verildikten sonra liste hemen güncellenir.
@@ -37,5 +37,6 @@ def dispatch_hooks(name: str, session: HookSession) -> dict[str, Any]:
         ],
         "kapali": hooks.disabled_reason,
         "guvensiz_katmanlar": list(hooks.untrusted_layers),
+        "yok_sayilan_kapatma": list(hooks.ignored_disable_layers),
         "kullanici_dosyasi": str(user_hooks_file()),
     }

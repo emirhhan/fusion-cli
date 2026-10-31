@@ -16,6 +16,9 @@ def hook_list_lines(hooks: HookSet) -> list[str]:
     lines: list[str] = []
     if hooks.disabled_reason is not None:
         lines.append(messages.HOOKS_LIST_DISABLED.format(reason=hooks.disabled_reason))
+    ignored = _ignored_disable_line(hooks)
+    if ignored is not None:
+        lines.append(ignored)
     if not rows:
         lines.append(messages.HOOKS_LIST_EMPTY.format(path=user_hooks_file()))
         return lines
@@ -31,3 +34,11 @@ def hook_list_lines(hooks: HookSet) -> list[str]:
     if hooks.untrusted_layers:
         lines.append(messages.HOOKS_LIST_UNTRUSTED.format(layers=", ".join(hooks.untrusted_layers)))
     return lines
+
+
+def _ignored_disable_line(hooks: HookSet) -> str | None:
+    if not hooks.ignored_disable_layers:
+        return None
+    return messages.HOOKS_LIST_IGNORED_DISABLE.format(
+        layers=", ".join(hooks.ignored_disable_layers)
+    )

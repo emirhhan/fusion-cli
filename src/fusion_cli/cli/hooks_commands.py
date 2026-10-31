@@ -51,6 +51,7 @@ def list_hooks(
         payload = {
             "kapali": hooks.disabled_reason,
             "guvensiz_katmanlar": list(hooks.untrusted_layers),
+            "yok_sayilan_kapatma": list(hooks.ignored_disable_layers),
             "kancalar": [asdict(row) for row in hook_rows(hooks)],
         }
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))

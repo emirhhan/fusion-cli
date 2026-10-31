@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from fusion_cli.cli.hooks_view import hook_list_lines
 from fusion_cli.config import hooks as hooks_config
 from fusion_cli.config import trust
 from fusion_cli.core.hooks.decision import merge_verdicts, verdict_from_run
@@ -194,12 +195,24 @@ def test_kullanici_dosyalari_okunur_proje_dosyasi_guven_ister(tmp_path, _izole_e
     assert "yeni-kanca" not in {c.command for c in hooks_config.load_hooks(proje).commands}
 
 
-def test_disable_all_hooks_guvenilmeyen_dosyadan_da_okunur(tmp_path, _izole_ev):
+def test_disable_all_hooks_guvenilmeyen_projeden_okunmaz_uyari_olarak_gorunur(tmp_path, _izole_ev):
+    # Kullanıcının koruyucu kancalarını kapatmak gevşetmedir: indirilen depo bunu yapamaz.
     _ayar(hooks_config.user_hooks_file(), {"Stop": _grup("x")})
     _ayar(tmp_path / ".claude" / "settings.local.json", {}, disableAllHooks=True)
     hooks = hooks_config.load_hooks(tmp_path)
-    assert hooks.disabled_reason is not None and "disableAllHooks" in hooks.disabled_reason
-    assert hooks.for_event(HookEvent.STOP) == ()
+    assert hooks.disabled_reason is None
+    assert [c.command for c in hooks.for_event(HookEvent.STOP)] == ["x"]
+    assert hooks.ignored_disable_layers == ("yerel",)
+    assert any("disableAllHooks" in line for line in hook_list_lines(hooks))
+    trust.trust_project(tmp_path)
+    trusted = hooks_config.load_hooks(tmp_path)
+    assert trusted.disabled_reason is not None and "disableAllHooks" in trusted.disabled_reason
+    assert trusted.for_event(HookEvent.STOP) == ()
+
+
+def test_disable_all_hooks_kullanici_dosyasindan_okunur(tmp_path, _izole_ev):
+    _ayar(hooks_config.user_hooks_file(), {"Stop": _grup("x")}, disableAllHooks=True)
+    assert hooks_config.load_hooks(tmp_path).disabled_reason is not None
 
 
 def test_kapatma_anahtarlari_ve_claude_dosyalari_secimi(tmp_path, _izole_ev, monkeypatch):

@@ -11,8 +11,10 @@ Katmanlar (okuma sırası): Fusion kullanıcı dosyası (`<yapılandırma>/hooks
 kullanıcı ayarı (`~/.claude/settings.json`), proje `.claude/settings.json` ve
 `.claude/settings.local.json`. Kanca KOD ÇALIŞTIRIR: proje içi iki dosyanın kancaları
 yalnız `fusion trust` sonrası ve içerik o günden beri değişmediyse okunur (izin kurallarının
-allow'u gibi; bkz. `trust.py`). `disableAllHooks: true` kısıtlayıcıdır, güvenilmeyen
-dosyadan da okunur.
+allow'u gibi; bkz. `trust.py`). `disableAllHooks: true` da yalnız güvenilen dosyadan okunur:
+kullanıcının koruyucu (engelleyen) kancalarını kapatmak gevşetmedir. Ölçüldü (31 Ekim):
+güvenilmeyen depodaki `{"disableAllHooks": true}` kullanıcının bütün kancalarını sessizce
+kapatıyordu; artık yok sayılır ve listede uyarı olarak görünür.
 
 Kapatma: `runtime.hooks_enabled: false` hepsini, `runtime.claude_hooks: false` yalnız
 Claude dosyalarını (kullanıcı + proje) kapatır; `FUSION_HOOKS=off` ortam değişkeni de
@@ -55,6 +57,8 @@ HOOKS_ENV = "FUSION_HOOKS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
 #: Kanca sürecine verilen proje kökü değişkenleri (Claude betikleri `$CLAUDE_PROJECT_DIR` kullanır).
 PROJECT_DIR_VARIABLES = ("FUSION_PROJECT_DIR", "CLAUDE_PROJECT_DIR")
+#: Tüm kancaları kapatan dosya anahtarı (Claude Code ile aynı).
+DISABLE_ALL_KEY = "disableAllHooks"
 
 REASON_UNTRUSTED = "proje güvenilmiyor (fusion trust)"
 REASON_HANDLER = "tür desteklenmiyor: {kind} (yalnız command)"
@@ -117,6 +121,7 @@ def load_hooks(
     commands: list[HookCommand] = []
     skipped: list[HookSkip] = []
     untrusted: list[str] = []
+    ignored_disable: list[str] = []
     disabled: str | None = None
     for layer in hook_layers(root, home):
         if layer.is_claude and not include_claude:
@@ -124,9 +129,12 @@ def load_hooks(
         data = _read_json(layer.path)
         if data is None:
             continue
-        if data.get("disableAllHooks") is True and disabled is None:
-            disabled = f"disableAllHooks ({layer.name}: {layer.path})"
         trusted = not layer.requires_trust or _is_trusted(layer, root)
+        if data.get("disableAllHooks") is True:
+            if not trusted:
+                ignored_disable.append(layer.name)
+            elif disabled is None:
+                disabled = f"{DISABLE_ALL_KEY} ({layer.name}: {layer.path})"
         found, skips = parse_hooks_block(
             data.get("hooks"),
             source=layer.name,
@@ -140,7 +148,9 @@ def load_hooks(
             continue
         commands.extend(found)
         skipped.extend(skips)
-    return HookSet(tuple(commands), tuple(skipped), disabled, tuple(untrusted))
+    return HookSet(
+        tuple(commands), tuple(skipped), disabled, tuple(untrusted), tuple(ignored_disable)
+    )
 
 
 def parse_hooks_block(

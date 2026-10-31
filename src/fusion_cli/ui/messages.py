@@ -1448,6 +1448,12 @@ HOOKS_LIST_UNTRUSTED = (
     "Güvenilmediği için kancaları çalıştırılmayan katmanlar: {layers}. "
     "Dosyaları gözden geçirdiysen `fusion trust` ile etkinleştir."
 )
+HOOKS_LIST_IGNORED_DISABLE = (
+    "Güvenilmeyen katmandaki disableAllHooks yok sayıldı ({layers}): depo senin kancalarını "
+    "kapatamaz. Bilerek istiyorsan `fusion trust` ya da kendi dosyanda kapat."
+)
+#: Bir dosyadaki `disableAllHooks` kancaları kapattığında oturumda bir kez.
+HOOKS_DISABLED_NOTICE = "Kancalar bu oturumda kapalı: {reason}"
 HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"
 HOOKS_TEST_UNKNOWN_EVENT = "Bilinmeyen olay: {given}. Olaylar: {events}"
 HOOKS_TEST_BAD_INPUT = "--input geçerli bir JSON nesnesi olmalı: {error}"

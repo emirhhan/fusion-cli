@@ -35,6 +35,11 @@ describe("HookList — kanca listesi (P-009)", () => {
     expect(screen.getByRole("status").textContent).toContain("runtime.hooks_enabled: false");
   });
 
+  it("güvenilmeyen depodaki disableAllHooks'un yok sayıldığını söyler", async () => {
+    render(<HookList client={client({ kancalar: [satir], yok_sayilan_kapatma: ["proje"] })} />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("disableAllHooks yok sayıldı (Proje)"));
+  });
+
   it("çekirdek hatasını Türkçe gösterir", async () => {
     const request = vi.fn(async () => { throw new Error("bağlantı koptu"); });
     render(<HookList client={{ request } as unknown as ProtocolClient} />);
