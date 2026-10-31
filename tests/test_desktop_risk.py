@@ -162,3 +162,37 @@ async def test_terminalde_enter_her_seferinde_sorulur(tmp_path, probe):
             "desktop_key", {"key": "up"}, context, ApprovalMode.AUTO, memory
         )
     assert request.danger is None and prompter.asked == []
+
+
+# --- İnceleme (31 Ekim): down/up, sohbet uygulamasında Enter, rol öneki ------------------------
+
+_SLACK = DesktopTarget("Slack", "com.tinyspeck.slackmacgap")
+_WHATSAPP = DesktopTarget("‎WhatsApp", "")
+
+
+@pytest.mark.parametrize("action", ["down", "up"])
+def test_basili_tutup_birakmak_da_tiklama_sayilir(action):
+    """Ölçüldü (31 Ekim): down+up ile 'Gönder' düğmesi hiç sorulmadan tıklanıyordu."""
+    assert risky_reason("desktop_mouse", {"action": action}, _SEND, "")
+    assert risky_reason("desktop_mouse", {"action": "hover"}, _SEND, "") is None
+
+
+@pytest.mark.parametrize("target", [_SLACK, _WHATSAPP])
+def test_sohbet_uygulamasinda_enter_ve_satir_sonu_gonderir(target):
+    """Ölçüldü (31 Ekim): Slack/WhatsApp'ta düz Enter ve 'merhaba\\n' sorulmadan gönderiyordu."""
+    category = desktop_policy.category_for(target.app, target.bundle)
+    assert category is not None and category.key == "chat"
+    assert risky_reason("desktop_key", {"key": "enter"}, target, "chat")
+    assert risky_reason("desktop_type", {"text": "merhaba\n"}, target, "chat")
+    assert risky_reason("desktop_type", {"text": "merhaba"}, target, "chat") is None
+    # Shift+Enter sohbet uygulamalarında satır ekler, göndermez.
+    assert risky_reason("desktop_key", {"key": "shift+enter"}, target, "chat") is None
+
+
+def test_metin_kutusu_aciklamasi_riskli_sayilmaz_rol_oneki_aranmaz():
+    field = DesktopTarget("Notes", element="TextArea 'Write a post'")
+    assert risky_reason("desktop_click", {}, field, "") is None
+    button = DesktopTarget("Notes", element="Button 'Post'")
+    assert risky_reason("desktop_click", {}, button, "")
+    # Rol adı ("Button") tek başına riskli değil; ad yoksa eşleşme yapılmaz.
+    assert risky_reason("desktop_click", {}, DesktopTarget("Notes", element="Button"), "") is None

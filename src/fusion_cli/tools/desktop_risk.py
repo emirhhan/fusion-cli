@@ -7,13 +7,18 @@ bunu hedef ÖĞEYE bakarak yapar (Chrome'daki `click_is_risky` ile aynı sözcü
 - Tıklanan öğenin (AX rol + başlık/açıklama) adı gönder/sil/öde/çıkış türündense,
 - arka plan `press` hedefinin adı öyleyse (başvuru kimliği adı taşır),
 - Terminal/IDE'de Enter ya da satır sonu içeren metin (komut çalıştırır),
+- sohbet uygulamalarında (Slack, Mesajlar, WhatsApp, Telegram, Discord, Teams…) düz Enter ve
+  satır sonlu metin (mesajı gönderir; Shift+Enter satır ekler, sorulmaz),
 - her uygulamada Cmd/Ctrl+Enter (genellikle mesajı gönderir) ve Cmd+Delete (siler/çöpe atar),
 - odaktaki öğe riskli bir düğmeyken Enter,
 - Sistem Ayarları'nda her eylem.
 
 Riskli çağrı `REMOTE_DESTRUCTIVE` olur: her kipte (İzinleri atla dahil) sorulur, oturum
 iznine dönüşmez. Ölçüldü (31 Ekim): `desktop_click`/`desktop_key` için çözücü yoktu;
-tıklanan noktadaki öğeye hiç bakılmıyordu.
+tıklanan noktadaki öğeye hiç bakılmıyordu. Ölçüldü (31 Ekim, inceleme): `down`/`up` tık
+sayılmıyordu, sohbet uygulamasında Enter göndermesi sorulmuyordu; eşleştirme rol önekini de
+içerdiği için açıklamasında "post" geçen metin kutusu riskli sanılıyordu. Artık yalnız öğenin
+adı aranır ve metin giriş rolleri (alan, metin alanı, arama kutusu) tıklamada riskli sayılmaz.
 """
 
 from __future__ import annotations
@@ -31,11 +36,18 @@ SYSTEM_REASON = "{app}: sistem ayarlarını değiştirebilir; her eylem ayrıca 
 CLICK_REASON = "{app} içinde {element} tıklanıyor (gönder/sil/öde türü)"
 TERMINAL_ENTER_REASON = "{app} içinde Enter komutu çalıştırır"
 TERMINAL_NEWLINE_REASON = "{app} içine satır sonu içeren metin yazmak komutu çalıştırır"
+CHAT_ENTER_REASON = "{app} içinde Enter mesajı gönderir"
+CHAT_NEWLINE_REASON = "{app} içine satır sonu içeren metin yazmak mesajı gönderir"
 MOD_ENTER_REASON = "{app} içinde {chord} genellikle mesajı gönderir"
 DELETE_REASON = "{app} içinde {chord} seçili öğeyi siler ya da çöpe taşır"
 FOCUSED_ENTER_REASON = "{app} içinde Enter odaktaki {element} düğmesine basar"
 
-_CLICK_ACTIONS = frozenset({"click", "double_click", "triple_click", "middle_click"})
+#: Basılı tutma ve bırakma da öğeye basar (`down` + `up` = tık).
+_CLICK_ACTIONS = frozenset(
+    {"click", "double_click", "triple_click", "middle_click", "down", "up"}
+)
+#: Tıklanınca bir şey yapmayan, yalnız odak alan metin giriş rolleri (AX öneki atılmış).
+_TEXT_ROLES = frozenset({"TextField", "TextArea", "SearchField", "ComboBox", "SecureTextField"})
 _ENTER = frozenset({"enter", "numpadenter"})
 _DELETE = frozenset({"backspace", "forwarddelete"})
 _SHELL_CATEGORIES = frozenset({"terminal", "ide"})
@@ -48,7 +60,7 @@ def risky_reason(
     app = target.app
     if category == "system":
         return SYSTEM_REASON.format(app=app)
-    if _is_click(tool_name, args) and target.element and is_risky_label(target.element):
+    if _is_click(tool_name, args) and _risky_element(target.element, clicking=True):
         return CLICK_REASON.format(app=app, element=target.element)
     if tool_name == "desktop_background_action" and args.get("action") == "press":
         label = _ref_label(args.get("ref"))
@@ -56,12 +68,11 @@ def risky_reason(
             return CLICK_REASON.format(app=app, element=f"'{label}'")
     if tool_name == "desktop_type":
         text = args.get("text")
-        if (
-            category in _SHELL_CATEGORIES
-            and isinstance(text, str)
-            and ("\n" in text or "\r" in text)
-        ):
-            return TERMINAL_NEWLINE_REASON.format(app=app)
+        if isinstance(text, str) and ("\n" in text or "\r" in text):
+            if category in _SHELL_CATEGORIES:
+                return TERMINAL_NEWLINE_REASON.format(app=app)
+            if category == "chat":
+                return CHAT_NEWLINE_REASON.format(app=app)
     if tool_name == "desktop_key":
         return _key_reason(args, target, category)
     return None
@@ -71,6 +82,24 @@ def _is_click(tool_name: str, args: ToolArgs) -> bool:
     if tool_name == "desktop_click":
         return True
     return tool_name == "desktop_mouse" and args.get("action", "click") in _CLICK_ACTIONS
+
+
+def _split_element(element: str) -> tuple[str, str]:
+    """`"Button 'Gönder'"` → ("Button", "Gönder"); rol yoksa ("", ad)."""
+    role, quote, rest = element.partition(" '")
+    if quote and rest.endswith("'") and role.isalnum():
+        return role, rest[:-1]
+    return "", element
+
+
+def _risky_element(element: str, *, clicking: bool = False) -> bool:
+    """Öğenin ADI riskli mi? Rol öneki aranmaz; tıklamada metin giriş rolleri riskli değildir."""
+    if not element:
+        return False
+    role, name = _split_element(element)
+    if clicking and role in _TEXT_ROLES:
+        return False
+    return bool(name) and is_risky_label(name)
 
 
 def _key_reason(args: ToolArgs, target: DesktopTarget, category: str) -> str | None:
@@ -102,7 +131,9 @@ def _chord_reason(chord: KeyChord, target: DesktopTarget, category: str) -> str 
             return TERMINAL_ENTER_REASON.format(app=app)
         if chord.command or chord.control:
             return MOD_ENTER_REASON.format(app=app, chord=label)
-        if target.element and is_risky_label(target.element):
+        if category == "chat" and not chord.shift:
+            return CHAT_ENTER_REASON.format(app=app)
+        if _risky_element(target.element):
             return FOCUSED_ENTER_REASON.format(app=app, element=target.element)
     if chord.key in _DELETE and chord.command:
         return DELETE_REASON.format(app=app, chord=label)

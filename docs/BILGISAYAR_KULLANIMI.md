@@ -60,6 +60,7 @@ yapılmaz; İzinleri atla kipinde oturum onayı sorulmaz (riskli eylem yine soru
 | Yatırım / kripto (Binance, MetaTrader, TradingView, Ledger Live, Midas…) | engelli | |
 | Parola yöneticileri (Anahtar Zinciri Erişimi, Parolalar, 1Password, Bitwarden…) | engelli | |
 | Fusion'ın kendisi | engelli | Ayarla da açılmaz: ajan kendi onay kartını onaylayamaz |
+| Sohbet (Slack, Mesajlar, WhatsApp, Telegram, Discord, Teams…) | tam kontrol | Enter ile gönderme her seferinde sorulur |
 | Sistem Ayarları, Finder | tam kontrol | Uyarılı; Sistem Ayarları'nda her eylem ayrıca sorulur |
 | Diğer her şey | tam kontrol | |
 
@@ -81,8 +82,12 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
 - Tıklanan öğenin adı gönder/sil/öde/yayınla/çıkış türündense ("Gönder", "Sil", "Place order",
   "Move to Trash", "Çöp Sepetini Boşalt"…). Sözcük listesi Chrome ile ortaktır
   (`tools/risk_words.py`); öğe adı Erişilebilirlik ağacından okunur, alan değeri okunmaz.
+  Yalnız öğenin adı aranır (rol değil); metin kutusuna tıklamak riskli sayılmaz.
 - Arka plan `press` hedefinin adı aynı türdense.
+- Basılı tutup bırakma (`desktop_mouse action=down|up`) tıklamayla aynı sayılır.
 - Terminal ve IDE'de Enter ya da satır sonu içeren `desktop_type` metni (komut çalıştırır).
+- Sohbet uygulamalarında (Slack, Mesajlar, WhatsApp, Telegram, Discord, Teams, Signal,
+  Messenger) düz Enter ve satır sonu içeren metin (mesajı gönderir); Shift+Enter sorulmaz.
 - Her uygulamada Cmd/Ctrl+Enter (genellikle gönderir) ve Cmd+Delete (siler/çöpe atar);
   odakta riskli bir düğme varken Enter.
 - Sistem Ayarları'nda her tıklama ve yazma.

@@ -20,6 +20,7 @@ yoktu: model Fusion'ın kendi onay kartına bile tıklayabilirdi.
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
@@ -62,12 +63,20 @@ class AppCategory:
     names: tuple[str, ...]
 
     def matches(self, app: str, bundle: str) -> bool:
-        name, ident = app.casefold(), bundle.casefold()
+        name, ident = normalize_app(app), normalize_app(bundle)
         if ident and any(ident.startswith(prefix) for prefix in self.bundles):
             return True
         return bool(name) and any(
             name == item or name.startswith(item + " ") for item in self.names
         )
+
+
+def normalize_app(name: str) -> str:
+    """Karşılaştırma anahtarı: biçim karakterleri atılır, küçük harf.
+
+    Ölçüldü (31 Ekim): WhatsApp'ın adı '\u200eWhatsApp' geliyor; ad eşleşmesi tutmuyordu.
+    """
+    return "".join(char for char in name if unicodedata.category(char) != "Cf").strip().casefold()
 
 
 #: Sıralıdır: ilk eşleşen kazanır (Fusion ve engelliler önce).
@@ -113,6 +122,15 @@ CATEGORIES: tuple[AppCategory, ...] = (
          "intellij idea", "pycharm", "webstorm", "android studio", "goland", "phpstorm"),
     ),
     AppCategory(
+        "chat", "sohbet", DesktopLevel.FULL,
+        "Enter mesajı gönderir; her gönderim ayrıca sorulur (Shift+Enter satır ekler).",
+        ("com.tinyspeck.slackmacgap", "com.apple.mobilesms", "net.whatsapp.whatsapp",
+         "desktop.whatsapp", "ru.keepcoder.telegram", "org.telegram.desktop", "com.hnc.discord",
+         "com.microsoft.teams", "org.whispersystems.signal-desktop", "com.facebook.archon"),
+        ("slack", "messages", "mesajlar", "whatsapp", "telegram", "discord", "microsoft teams",
+         "signal", "messenger"),
+    ),
+    AppCategory(
         "system", "Sistem Ayarları", DesktopLevel.FULL,
         "Sistem ayarlarını değiştirebilir; her eylem ayrıca sorulur.",
         ("com.apple.systempreferences", "com.apple.settings"),
@@ -144,7 +162,7 @@ def category_for(app: str, bundle: str) -> AppCategory | None:
 
 
 def _app_keys(app: str, bundle: str) -> frozenset[str]:
-    return frozenset(item for item in (app.casefold(), bundle.casefold()) if item)
+    return frozenset(item for item in (normalize_app(app), normalize_app(bundle)) if item)
 
 
 def app_level(
@@ -153,7 +171,7 @@ def app_level(
     """Uygulamanın kademesi (None = engelli), kategorisi ve engel gerekçesi."""
     keys = _app_keys(app, bundle)
     category = category_for(app, bundle)
-    if any(item.strip().casefold() in keys for item in settings.denied_apps):
+    if any(normalize_app(item) in keys for item in settings.denied_apps):
         return None, category, DENIED_REASON.format(app=app or bundle)
     if category is not None and category.key == "fusion":
         return None, category, FUSION_REASON
