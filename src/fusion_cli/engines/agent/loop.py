@@ -144,6 +144,7 @@ from . import (
     review,
 )
 from .action_evidence import claimed_effects
+from .agent_task_tools import is_agent_task_request
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import (
     ApprovalMode,
@@ -697,7 +698,7 @@ async def _run_agent(
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
         deps.tool_context.task_kinds.difference_update(
-            {"oyun", "remotion", "masaustu", "worktree", WIDENED_KIND}
+            {"oyun", "remotion", "masaustu", "worktree", "arka_plan", WIDENED_KIND}
         )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
@@ -707,6 +708,8 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("masaustu")
         if is_worktree_task(task):
             deps.tool_context.task_kinds.add("worktree")
+        if is_agent_task_request(task, deps):
+            deps.tool_context.task_kinds.add("arka_plan")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -2640,6 +2643,10 @@ SCOPED_TOOLS: dict[str, str] = {
     # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
     "enter_worktree": "worktree",
     "exit_worktree": "worktree",
+    # Arka plan görevleri / oturumlar arası mesaj (P-048, P-060): yalnız ilgili turda.
+    "list_agents": "arka_plan",
+    "send_message": "arka_plan",
+    "stop_agent": "arka_plan",
 }
 
 

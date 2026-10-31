@@ -45,6 +45,8 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "s-down": "kaydir_asagi",
         "c-d": "kaydir_asagi",
         "c-r": "en_bas",
+        # Süren turu arka plan görevine taşı (P-048; Claude Code Ctrl+B).
+        "c-b": "arka_plana_al",
     },
 }
 #: Bağlam başına geçerli eylemler (`komut:*` hepsinde geçerli).
@@ -61,6 +63,7 @@ ACTIONS: dict[str, frozenset[str]] = {
             "en_son",
             "kaydir_yukari",
             "kaydir_asagi",
+            "arka_plana_al",
         }
     ),
 }

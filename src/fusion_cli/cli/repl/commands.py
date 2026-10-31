@@ -28,9 +28,11 @@ from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capabilities import search as search_capabilities
+from ...ui import background_messages as bg_texts
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import (
+    background_commands,
     config_command,
     export_commands,
     keybinding_commands,
@@ -1178,6 +1180,25 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    SlashCommand(
+        "background",
+        bg_texts.CMD_BACKGROUND,
+        background_commands.background_command,
+        ("bg",),
+        group="Agent",
+        usage="[görev]",
+    ),
+    SlashCommand(
+        "tasks", bg_texts.CMD_TASKS, background_commands.tasks_command, group="Agent", usage="[…]"
+    ),
+    SlashCommand(
+        "list-agents",
+        bg_texts.CMD_LIST_AGENTS,
+        background_commands.list_agents_command,
+        ("peers",),
+        group="Agent",
+        usage="[al|reddet <no>|gonder <ad> <mesaj>]",
     ),
     SlashCommand(
         "worktree",

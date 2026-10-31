@@ -239,6 +239,18 @@ class RuntimeConfig:
     #: Bir kök turda (tüm derinlikler toplam) başlatılabilecek alt ajan sayısı; dolunca
     #: `spawn_agent` "bütçe doldu" döner. Sonsuz ajan ağacı kotayı tüketmesin.
     max_subagents_per_turn: int = 20
+    #: Turdan bağımsız arka plan ajan görevleri (P-048): `/bg`, Ctrl+B, `fusion agent --bg`,
+    #: `spawn_agent(arka_plan=true)`. False = hiçbir yüzey arka plan görevi başlatmaz.
+    background_agents: bool = True
+    #: Aynı anda etkin (sırada/çalışıyor/girdi bekliyor) arka plan görevi tavanı.
+    max_background_agents: int = 4
+    #: Arka plan görevinin onay/soru cevabı için bekleme (saniye); dolunca "sorulamadı".
+    background_input_timeout_s: float = 1800.0
+    #: Oturumlar arası mesajlaşma (P-060): oturum defterine kayıt, list_agents/send_message.
+    cross_session_messaging: bool = True
+    #: Başka oturumdan gelen mesaj: accept (boşta tur olur) | hold (bekletilir; varsayılan)
+    #: | refuse (reddedilir). Claude Code `crossSessionInbound` karşılığı.
+    cross_session_inbound: str = "hold"
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()

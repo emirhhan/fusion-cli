@@ -70,6 +70,7 @@ from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
+    agent_link,
     cron_store,
     help_view,
     history_view,
@@ -83,6 +84,7 @@ from . import (
     view_commands,
     worktrees,
 )
+from .background_commands import route_at_message
 from .commands import (
     ASYNC_COMMANDS,
     CommandRegistry,
@@ -243,6 +245,14 @@ async def _run_surface(
     # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
     # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
     cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
+    # Arka plan görevleri + oturumlar arası mesaj (P-048/P-060): bildirim ve gelen kutusu.
+    link_watcher = agent_link.start_watch(
+        state,
+        kind="repl",
+        emit=lambda text: console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]"),
+        inject=reader.inject,
+        is_busy=lambda: False,
+    )
 
     try:
         while state.running:
@@ -257,6 +267,7 @@ async def _run_surface(
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        await agent_link.stop_watch(state, link_watcher)
         await remote_control.shutdown(state)
         await _shutdown(background, console)
     return 0
@@ -427,6 +438,10 @@ async def _handle(
             # Tur bir arka plan ders çıkarımı BAŞLATMIŞ olabilir; bir sonraki
             # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
             _sync_status_bar(reader, state, background)
+        return
+    # `@oturum mesaj` / `@görev mesaj` (P-060): tur değil, mesaj gönderimi.
+    if not scheduled_turn and (sent := route_at_message(state, line)) is not None:
+        console.print(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
         return
     for note in apply_mentions(line, state):
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")

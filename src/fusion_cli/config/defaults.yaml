@@ -159,6 +159,17 @@ runtime:
   # Bir kök turda toplam başlatılabilecek alt ajan (tüm derinlikler). Dolunca spawn
   # "bütçe doldu" döner.
   max_subagents_per_turn: 20
+  # Arka plan ajan görevleri (P-048): /bg, Ctrl+B, fusion agent --bg, fusion agents.
+  # false = kapalı. Görevler <bellek>/arka-plan/<kimlik>/ altında ayrı süreçte koşar.
+  background_agents: true
+  # Aynı anda etkin arka plan görevi tavanı.
+  max_background_agents: 4
+  # Arka plan görevinin onay/soru cevabını bekleme süresi (saniye).
+  background_input_timeout_s: 1800.0
+  # Oturumlar arası mesajlaşma (P-060): /list-agents, @oturum mesaj, list_agents/send_message.
+  cross_session_messaging: true
+  # Gelen mesaj: accept (boşta etiketli tur) | hold (bekletilir, /list-agents al) | refuse.
+  cross_session_inbound: hold
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []

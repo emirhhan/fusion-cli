@@ -37,6 +37,8 @@ from ...ui.text import summarize_error
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
+    agent_link,
+    background_commands,
     cron_store,
     help_view,
     history_view,
@@ -271,7 +273,12 @@ class _TuiSession:
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),
+            # Ctrl+B: süren turu arka plan görevine taşı (P-048).
+            on_background=self._background_turn,
         )
+        #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
+        self._current_line = ""
+        self._to_background = False
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain, self._state.root)
         self._custom_status = ""
@@ -326,6 +333,29 @@ class _TuiSession:
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
             self._task.cancel()
+
+    def _background_turn(self) -> None:
+        """Ctrl+B: turu kes; iptal yakalayıcısı aynı görevi arka planda sürdürür."""
+        if self._busy and self._task is not None and self._current_line:
+            self._to_background = True
+            self._task.cancel()
+
+    def start_agent_link(self) -> asyncio.Future[None]:
+        """Arka plan bildirimleri ve gelen oturum mesajları (P-048/P-060)."""
+
+        def _inject(text: str) -> bool:
+            if self._busy:
+                return False
+            self._submit(text)
+            return True
+
+        return agent_link.start_watch(
+            self._state,
+            kind="tui",
+            emit=lambda text: self._echo(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]"),
+            inject=_inject,
+            is_busy=lambda: self._busy,
+        )
 
     def _exit(self) -> None:
         self._state.running = False
@@ -395,6 +425,7 @@ class _TuiSession:
         self._echo(f"[{theme.WARN}]{escape(reminder.text)}[/{theme.WARN}]")
 
     async def _handle(self, line: str) -> None:
+        self._current_line = line
         try:
             self._refresh_config()
             self._transcript_store.record_user(line)
@@ -419,6 +450,12 @@ class _TuiSession:
                 )
             elif is_command_line(line) and not scheduled_turn:
                 await self._command(line)
+            elif (
+                not scheduled_turn
+                and (sent := background_commands.route_at_message(self._state, line)) is not None
+            ):
+                # `@oturum mesaj` / `@görev mesaj` (P-060): tur değil, mesaj gönderimi.
+                self._echo(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
             else:
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
@@ -426,6 +463,11 @@ class _TuiSession:
                 await self._offer_plan_card()
                 await self._refresh_custom_status()
         except asyncio.CancelledError:
+            if self._to_background:
+                self._to_background = False
+                moved = background_commands.interrupted_to_background(self._state, line)
+                self._echo(f"[{theme.DIM}]{escape(moved)}[/{theme.DIM}]")
+                return
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
             # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
             # Ölçüldü (30 Ekim): `finally` kuyruğu çalıştırıyor, Esc'e basan kullanıcının
@@ -921,6 +963,7 @@ async def run_tui_repl(
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
     # Gözcü ayrı sahipli görevdir (bkz. loop.run_repl): drain onu beklemesin.
     cron_watcher = asyncio.ensure_future(session._cron_watcher())
+    link_watcher = session.start_agent_link()
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
 
@@ -937,6 +980,7 @@ async def run_tui_repl(
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        await agent_link.stop_watch(state, link_watcher)
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await remote_control.shutdown(state)

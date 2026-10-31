@@ -37,10 +37,13 @@ from ..core.worktree import Worktree, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
+from ..tools.agent_tasks import WORKER_COMMAND
+from ..ui import background_messages as bg_texts
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    agent_commands,
     browser_commands,
     capability_commands,
     eval_commands,
@@ -83,6 +86,9 @@ app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
 app.add_typer(mcp_commands.mcp_app, name="mcp")
+# Arka plan ajan görevleri (P-048): `fusion agents` görünümü + gizli işçi komutu.
+app.add_typer(agent_commands.app, name="agents")
+app.command(name=WORKER_COMMAND, hidden=True)(agent_commands.worker_command)
 # `/usage` ve `/insights` karşılıkları (P-056).
 app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
@@ -458,6 +464,12 @@ def agent(
             help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
         ),
     ] = "",
+    background: bool = typer.Option(
+        False,
+        "--bg",
+        help="Görevi arka planda başlat ve hemen dön; izle: fusion agents (P-048).",
+    ),
+    task_name: str = typer.Option("", "--name", "-n", help="--bg görevinin kısa adı."),
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     options = _headless_options(
@@ -473,6 +485,16 @@ def agent(
         disallowed_tools=disallowed_tools,
         from_pr=from_pr,
     )
+    if background:
+        started = agent_commands.start_from_cli(
+            options.task,
+            mode=options.approval.value,
+            agent=agent_name or "",
+            name=task_name,
+            max_turns=max_turns,
+        )
+        console.print(bg_texts.BG_CLI_STARTED.format(id=started.id, name=started.name))
+        return
     config = headless.apply_limits(
         _session_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
     )

@@ -36,6 +36,7 @@ from .macros import Mode
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
+    from .agent_link import AgentLink
 
 
 def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
@@ -170,6 +171,8 @@ class ReplState:
     scheduled_turn_only: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
+    #: Arka plan görevleri + oturumlar arası mesaj bağlantısı (P-048/P-060); `agent_link.start`.
+    agent_link: AgentLink | None = field(default=None, kw_only=True)
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
     pending_context: str = ""
     #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.

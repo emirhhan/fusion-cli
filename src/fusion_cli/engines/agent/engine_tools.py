@@ -45,6 +45,7 @@ from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
+from .agent_task_tools import agent_task_tools
 from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
@@ -120,6 +121,8 @@ def build_agent_registry(
     extended = _clone(registry, chrome=getattr(deps.tool_context, "chrome", None) is not None)
     extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
     extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
+    for agent_tool in agent_task_tools(deps):
+        extended.register(agent_tool)
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))

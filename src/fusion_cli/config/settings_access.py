@@ -32,6 +32,7 @@ SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": Embe
 SETTING_CHOICES: dict[str, tuple[str, ...]] = {
     "runtime.terminal_theme": ("koyu", "acik", "ansi", "daltonizm"),
     "runtime.tui": ("fullscreen", "inline"),
+    "runtime.cross_session_inbound": ("accept", "hold", "refuse"),
 }
 
 _TRUE = frozenset({"true", "1", "yes", "on", "evet", "açık", "acik", "aç", "ac"})
