@@ -65,14 +65,48 @@ def bind_inputs(
     return bound
 
 
+class _Keys:
+    """Düğüm anahtarları: kullanıcı `id`si aynen, otomatikler (`a<N>`) çakışmadan.
+
+    Ölçüldü (31 Ekim): [{id: a2}, {}, {}] → ['a2', 'a2', 'a3']; iki ajan aynı düğüme
+    iniyor, pano ve başarısız sayısı eksik çıkıyordu.
+    """
+
+    def __init__(self, reserved: set[str]) -> None:
+        self._numbers: Iterator[int] = iter(range(1, 1_000_000))
+        self._taken = set(reserved)
+
+    def next_number(self) -> int:
+        return next(self._numbers)
+
+    def auto(self, prefix: str, number: int) -> str:
+        key = candidate = f"{prefix}a{number}"
+        suffix = 1
+        while key in self._taken:
+            suffix += 1
+            key = f"{candidate}-{suffix}"
+        self._taken.add(key)
+        return key
+
+
 def expand(spec: WorkflowSpec, inputs: BoundInputs) -> PlanGroup:
     """Tanımı somut plana aç: `her` öğeleri çözülür, `{oge}` yerine konur."""
-    counter = iter(range(1, 1_000_000))
-    children = tuple(_expand(step, inputs, counter, phase="") for step in spec.steps)
+    keys = _Keys(_user_ids(spec.steps))
+    children = tuple(_expand(step, inputs, keys, phase="") for step in spec.steps)
     return PlanGroup(children, parallel=False)
 
 
-def _expand(step: Step, inputs: BoundInputs, counter: Iterator[int], *, phase: str) -> PlanNode:
+def _user_ids(steps: tuple[Step, ...]) -> set[str]:
+    found: set[str] = set()
+    for step in steps:
+        if isinstance(step, GroupStep):
+            found |= _user_ids(step.steps)
+        elif isinstance(step, AgentStep) and step.id:
+            found.add(step.id)
+    return found
+
+
+def _expand(step: Step, inputs: BoundInputs, counter: _Keys, *, phase: str) -> PlanNode:
     if isinstance(step, AgentStep):
         return _agent(step, counter, phase=phase)
     if isinstance(step, GroupStep):
@@ -86,22 +120,22 @@ def _expand(step: Step, inputs: BoundInputs, counter: Iterator[int], *, phase: s
 
 def _agent(
     step: AgentStep,
-    counter: Iterator[int],
+    counter: _Keys,
     *,
     phase: str,
     item: tuple[int, str] | None = None,
     key_prefix: str = "",
 ) -> PlanAgent:
-    number = next(counter)
+    number = counter.next_number()
     prompt = step.prompt
     if item is not None:
         prompt = prompt.replace("{oge_no}", str(item[0])).replace("{oge}", item[1])
-    key = step.id or f"{key_prefix}a{number}"
+    key = step.id or counter.auto(key_prefix, number)
     label = step.label or _label(prompt)
     return PlanAgent(key, label, prompt, step.options, phase=phase, result_id=step.id)
 
 
-def _each(step: EachStep, inputs: BoundInputs, counter: Iterator[int], *, phase: str) -> PlanGroup:
+def _each(step: EachStep, inputs: BoundInputs, counter: _Keys, *, phase: str) -> PlanGroup:
     items = step.items
     if step.items_input:
         value = inputs.get(step.items_input, ())
