@@ -42,6 +42,17 @@ BG_TOOL_STARTED = (
     "Arka plan görevi başladı: {id} ({name}). Sonuç bitince sıradaki tura gelir; "
     "durum için list_agents(id={id}), devam için send_message(to={id})."
 )
+BG_TOOL_STARTED_DETACHED = (
+    "Arka plan görevi başladı: {id} ({name}). Bu tek atışlık oturumda sonuç kendiliğinden "
+    "gelmez; list_agents(id={id}, bekle_s=…) ile bekle ya da kullanıcıya fusion agents goster "
+    "{id} komutunu söyle."
+)
+BG_TOOL_WORKTREE = " Görev izole çalışma ağacında: {path} (ağaç korunur)."
+BG_NESTED_WORKER = (
+    "Arka plan görevinin içinden yeni arka plan görevi açılamaz; işi kendin yap ya da "
+    "spawn_agent'ı arka_plan olmadan kullan."
+)
+BG_LIMITS_FAILED = "Arka plan görevi başlatılamadı: {error}"
 BG_DETAIL_PROMPT = "Görev: {prompt}"
 BG_DETAIL_NEEDS_INPUT = "Bekleyen istek: {question} — kullanıcı /tasks answer ile cevaplar."
 BG_DETAIL_RESULT = "Son sonuç:\n{result}"

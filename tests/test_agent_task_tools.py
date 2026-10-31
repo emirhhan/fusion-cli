@@ -178,3 +178,86 @@ def test_kendi_oturum_kaydi_pid_ve_konusmayla_bulunur(tmp_path):
         inbound=InboundPolicy.HOLD,
     )
     assert agent_task_tools._self_peer(registry, deps) == me
+
+
+# ------------------------------------------------- üst turun kısıtları (inceleme bulgusu)
+
+
+async def test_arka_plan_gorevi_ust_turun_arac_kisitlarini_ve_yazma_alanini_tasir(
+    tmp_path, launches
+):
+    deps = _deps(tmp_path)
+    deps.denied_tools = frozenset({"run_shell", "write_file"})
+    deps.execution = SimpleNamespace(allowed_tool_names=frozenset({"read_file", "grep", "edit"}))
+    (tmp_path / "docs").mkdir()
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = await tool.run(
+        {"task": "belgeyi düzelt", "arka_plan": True, "yazma_alani": ["docs/"]},
+        deps.tool_context,
+    )
+
+    assert result.ok, result.output
+    options = agent_tasks.task_store(deps.config.memory_dir).tasks()[0].options
+    assert set(options.denied_tools) == {"run_shell", "write_file"}
+    assert options.allowed_tools == ("edit", "grep", "read_file")
+    assert options.write_scope == (str((tmp_path / "docs").resolve()),)
+
+
+async def test_arka_plan_yazma_alani_kok_disindaysa_baslamaz(tmp_path, launches):
+    deps = _deps(tmp_path)
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = await tool.run(
+        {"task": "x", "arka_plan": True, "yazma_alani": ["/etc"]}, deps.tool_context
+    )
+
+    assert not result.ok and launches == []
+
+
+async def test_isci_icinden_arka_plan_gorevi_acilamaz(tmp_path, launches):
+    deps = _deps(tmp_path)
+    deps.conversation_id = "arka-1234abcd"
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = await tool.run({"task": "x", "arka_plan": True}, deps.tool_context)
+
+    assert not result.ok and launches == []
+
+
+async def test_tek_atista_arac_yaniti_kendiliginden_teslim_vaat_etmez(tmp_path, launches):
+    deps = _deps(tmp_path)
+    deps.conversation_id = "cli"
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = await tool.run({"task": "x", "arka_plan": True}, deps.tool_context)
+
+    assert result.ok and "kendiliğinden gelmez" in result.output
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    import subprocess
+
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    subprocess.run([*git, "add", "a.txt"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "ilk"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+async def test_izolasyon_istenen_arka_plan_gorevi_kendi_calisma_agacinda_kosar(
+    git_repo, launches
+):
+    deps = _deps(git_repo)
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = await tool.run(
+        {"task": "refactor", "arka_plan": True, "izolasyon": "worktree"}, deps.tool_context
+    )
+
+    assert result.ok, result.output
+    task = agent_tasks.task_store(deps.config.memory_dir).tasks()[0]
+    assert task.root != str(git_repo.resolve()) and "arka-" in task.root
+    assert task.root in result.output

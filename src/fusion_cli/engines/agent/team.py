@@ -556,7 +556,7 @@ def spawn_agent_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Too
 
             if depth > 0:
                 return ToolResult.failure(BACKGROUND_DEPTH_MESSAGE)
-            return spawn_background(deps, subtask)
+            return await spawn_background(deps, subtask)
         run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
         return ToolResult(_cap_report(run.text))
 

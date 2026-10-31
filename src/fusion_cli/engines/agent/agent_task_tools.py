@@ -14,16 +14,27 @@ yalnız arka plan/oturum işi konuşulan turda sunulur (`SCOPED_TOOLS`, istem b�
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.background_store import BackgroundTaskStore
-from ...core.background_tasks import BackgroundTask, BackgroundTaskError, TaskStatus
+from ...core.background_tasks import (
+    WORKER_CONVERSATION_PREFIX,
+    BackgroundTask,
+    BackgroundTaskError,
+    TaskOptions,
+    TaskStatus,
+)
+from ...core.errors import PathAccessError, WorktreeError
 from ...core.peers import PeerRecord, PeerRegistry
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import agent_tasks
 from ...ui import background_messages as texts
+from . import team_fork
 from .approval import ApprovalMode
 
 if TYPE_CHECKING:
@@ -95,23 +106,89 @@ def background_mode(deps: AgentDeps) -> str:
     return ApprovalMode.AUTO.value if current is ApprovalMode.BYPASS else current.value
 
 
-def spawn_background(deps: AgentDeps, subtask: SubTask) -> ToolResult:
-    """`spawn_agent(arka_plan=true)`: görevi ayrı süreçte başlat, kimliği hemen döndür."""
+async def spawn_background(deps: AgentDeps, subtask: SubTask) -> ToolResult:
+    """`spawn_agent(arka_plan=true)`: görevi ayrı süreçte başlat, kimliği hemen döndür.
+
+    Üst turun kısıtları aynen taşınır (`run_subagent` yolundaki kesişim kuralı): araç tavanı
+    ve yasakları, yazma alanı, ek kökler, adım tavanı, brif, `baglam_miras` ve `izolasyon`.
+    Ölçüldü (31 Ekim): yalnız görev/kişilik/salt-okur/kip taşınıyordu; salt-okur kişilikli ya da
+    `disallowedTools`lu oturumdan açılan arka plan görevi tam araç setiyle koşuyordu.
+    """
+    if getattr(deps, "conversation_id", "").startswith(WORKER_CONVERSATION_PREFIX):
+        # İşçi de derinlik 0'dır; açacağı görevin sonucunu teslim alacak gözcü yoktur.
+        return ToolResult.failure(texts.BG_NESTED_WORKER)
+    try:
+        root, options = await asyncio.to_thread(_inherited_limits, deps, subtask)
+    except (PathAccessError, WorktreeError) as error:
+        return ToolResult.failure(texts.BG_LIMITS_FAILED.format(error=error))
+    history = (
+        agent_tasks.fork_history(team_fork.parent_history(deps)) if subtask.inherit_context else ()
+    )
     request = agent_tasks.LaunchRequest(
         prompt=subtask.task,
-        root=deps.tool_context.root,
+        root=root,
         name=subtask.persona,
         owner=deps.conversation_id,
         origin="arac",
         mode=background_mode(deps),
         agent=subtask.persona,
         read_only=subtask.read_only,
+        max_turns=subtask.step_limit or 0,
+        history=history,
+        options=options,
     )
     try:
         task = agent_tasks.start_with_settings(_runtime(deps), deps.config.memory_dir, request)
     except BackgroundTaskError as error:
         return ToolResult.failure(str(error))
-    return ToolResult(texts.BG_TOOL_STARTED.format(id=task.id, name=task.name))
+    template = (
+        texts.BG_TOOL_STARTED_DETACHED
+        if deps.conversation_id in _NO_DELIVERY_OWNERS
+        else texts.BG_TOOL_STARTED
+    )
+    worktree_note = (
+        texts.BG_TOOL_WORKTREE.format(path=root) if root != deps.tool_context.root else ""
+    )
+    return ToolResult(template.format(id=task.id, name=task.name) + worktree_note)
+
+
+#: Sonucu sıradaki tura teslim alacak gözcüsü olmayan sahipler (tek atış `fusion agent`).
+_NO_DELIVERY_OWNERS = frozenset({"", "cli"})
+
+
+def _inherited_limits(deps: AgentDeps, subtask: SubTask) -> tuple[Path, TaskOptions]:
+    """Üst turun araç tavanı/yasakları ve yazma alanı; izolasyon istendiyse çalışma ağacı."""
+    from ...core.worktree import enter_worktree
+    from .team_scope import derive_sub_context
+
+    context = deps.tool_context
+    scope = derive_sub_context(context, subtask).write_scope
+    execution = getattr(deps, "execution", None)
+    parent_cap = getattr(execution, "allowed_tool_names", None)
+    caps = [set(cap) for cap in (parent_cap, subtask.tool_cap) if cap is not None]
+    allowed = set.intersection(*caps) if caps else None
+    denied = frozenset(getattr(deps, "denied_tools", ())) | subtask.tool_deny
+    root = context.root
+    if subtask.isolation == "worktree" and not subtask.read_only:
+        name = "arka-" + uuid.uuid4().hex[:8]
+        root = enter_worktree(context.root, name).path
+        # Yazma alanı ana köke göre çözüldü; izole ağaçta aynı göreli yollara çevrilir.
+        scope = tuple(_rebase(path, context.root, root) for path in scope) if scope else scope
+    options = TaskOptions(
+        allowed_tools=tuple(sorted(allowed)) if allowed is not None else None,
+        denied_tools=tuple(sorted(denied)),
+        write_scope=tuple(str(path) for path in scope or ()),
+        extra_roots=tuple(str(path) for path in context.extra_roots),
+        extra_system=subtask.brief,
+    )
+    return root, options
+
+
+def _rebase(path: Path, old_root: Path, new_root: Path) -> Path:
+    try:
+        return new_root / path.relative_to(old_root.resolve())
+    except ValueError:
+        return path  # ek kökteki yol: ağaçtan bağımsız
 
 
 def task_line(task: BackgroundTask) -> str:
