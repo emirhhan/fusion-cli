@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import shutil
 import socket
@@ -27,6 +28,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from ..config import plugin_layout, plugin_store
 from ..config.paths import trash_dir
 from ..config.plugin_layout import ValidationReport, context_cost, tree_digest, validate_plugin
 from ..config.plugin_store import (
@@ -37,7 +39,6 @@ from ..config.plugin_store import (
     inspect_plugin,
     load_state,
     plugins_dir,
-    save_state,
 )
 from ..core.constants import GIT_TIMEOUT_S
 from ..core.network_address import is_public_ip
@@ -75,6 +76,10 @@ ERR_CHANGED = (
 ERR_SHA = "Commit uyuşmuyor: pazar {expected} bekliyor, klon {actual}. Kurulmadı."
 ERR_SHA_FORMAT = "Pazar sha pini en az 7 onaltılık karakter olmalı: {sha!r}. Kurulmadı."
 ERR_NO_MARKET = "Pazar yok: {name}"
+ERR_MARKET_TAKEN = (
+    "'{name}' adlı pazar zaten kayıtlı ({source}); kaynak değişmedi. Değiştirmek için önce "
+    "kaldır: fusion eklenti pazar kaldir {name}"
+)
 ERR_MARKET_FILE = "Pazar bildirimi bulunamadı (.claude-plugin/marketplace.json): {path}"
 
 
@@ -238,10 +243,31 @@ def _clone(url: str, target: Path, *, ref: str = "", sha: str = "") -> str:
     return commit
 
 
+def _check_local_size(folder: Path) -> None:
+    """Kopyalamadan ÖNCE dosya/boyut sınırı (ölçüldü 31 Ekim: `kur ~` GB'larca kopyalıyordu)."""
+    files = size = 0
+    for current, dirs, names in os.walk(folder, followlinks=False):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in names:
+            files += 1
+            try:
+                size += (Path(current) / name).lstat().st_size
+            except OSError:
+                continue
+            if files > plugin_layout.MAX_PLUGIN_FILES or size > plugin_layout.MAX_PLUGIN_BYTES:
+                raise PluginError(
+                    plugin_layout.ERR_TOO_BIG.format(
+                        files=plugin_layout.MAX_PLUGIN_FILES,
+                        mb=plugin_layout.MAX_PLUGIN_BYTES // 2**20,
+                    )
+                )
+
+
 def _fetch(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
     """Kaynağı `workspace/eklenti` altına al; (klasör, commit)."""
     target = workspace / "eklenti"
     if resolved.kind == "yerel":
+        _check_local_size(Path(resolved.location))
         shutil.copytree(
             resolved.location, target, symlinks=True, ignore=shutil.ignore_patterns(".git")
         )
@@ -318,7 +344,12 @@ def install_plugin(
         exec_approved=executable,
         installed_at=time.time(),
     )
-    save_state(load_state(root).with_plugin(record), root)
+    try:
+        plugin_store.update_state(lambda current: current.with_plugin(record), root)
+    except BaseException:
+        # Kayıt yazılamadıysa klasör kayıtsız kalmasın ("zaten kurulu" / "kurulu değil" çelişkisi).
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
     return inspect_plugin(record, root)
 
 
@@ -334,7 +365,7 @@ def uninstall_plugin(name: str, *, base: Path | None = None) -> Path:
             move_to_trash((name,), cwd=root, root=root, home=Path.home(), trash_root=trash_dir())
         except DeleteRefusedError as error:
             raise PluginError(str(error)) from error
-    save_state(state.without_plugin(name), root)
+    plugin_store.update_state(lambda current: current.without_plugin(name), root)
     return folder
 
 
@@ -345,13 +376,13 @@ def set_plugin_enabled(name: str, enabled: bool, *, base: Path | None = None) ->
     if record is None:
         raise PluginError(ERR_NOT_INSTALLED.format(name=name))
     updated = replace(record, enabled=enabled)
-    save_state(state.with_plugin(updated), root)
+    plugin_store.update_state(lambda current: current.with_plugin(updated), root)
     return updated
 
 
 def set_all_disabled(disabled: bool, *, base: Path | None = None) -> None:
     root = base or plugins_dir()
-    save_state(replace(load_state(root), all_disabled=disabled), root)
+    plugin_store.update_state(lambda current: replace(current, all_disabled=disabled), root)
 
 
 def trust_plugin(
@@ -383,7 +414,7 @@ def trust_plugin(
         version=report.layout.manifest.version,
         exec_approved=report.layout.is_executable,
     )
-    save_state(state.with_plugin(updated), root)
+    plugin_store.update_state(lambda current: current.with_plugin(updated), root)
     return updated
 
 
@@ -409,6 +440,7 @@ def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord
     local = Path(text).expanduser()
     if local.is_dir():
         market = read_marketplace(local)
+        _check_market_name(market.name, str(local.resolve()), root)
         record = MarketplaceRecord(
             market.name, str(local.resolve()), "yerel", str(local.resolve()), time.time()
         )
@@ -420,13 +452,22 @@ def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord
             clone = workspace / "pazar"
             _clone(url, clone)
             market = read_marketplace(clone)
+            _check_market_name(market.name, url, root)
             destination = root / _MARKETS_DIRNAME / market.name
             shutil.rmtree(destination, ignore_errors=True)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(clone), destination)
         record = MarketplaceRecord(market.name, url, "git", str(destination), time.time())
-    save_state(load_state(root).with_marketplace(record), root)
+    plugin_store.update_state(lambda current: current.with_marketplace(record), root)
     return record
+
+
+def _check_market_name(name: str, source: str, root: Path) -> None:
+    """Ölçüldü (31 Ekim): aynı adlı başka kaynaklı pazar eskisinin yerine sessizce geçiyor,
+    `ad@pazar` kurulumları yeni (belki saldırgan) depoya gidiyordu. Aynı kaynak = yenileme."""
+    existing = load_state(root).marketplace(name)
+    if existing is not None and existing.source != source:
+        raise PluginError(ERR_MARKET_TAKEN.format(name=name, source=existing.source))
 
 
 def remove_marketplace(name: str, *, base: Path | None = None) -> None:
@@ -435,9 +476,12 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> None:
     record = state.marketplace(name)
     if record is None:
         raise PluginError(ERR_NO_MARKET.format(name=name))
-    if record.kind == "git":
-        shutil.rmtree(Path(record.path), ignore_errors=True)
-    save_state(state.without_marketplace(name), root)
+    clones = (root / _MARKETS_DIRNAME).resolve()
+    folder = Path(record.path).resolve()
+    # Yalnız Fusion'ın kendi klonu silinir: elle bozulmuş kayıttaki `~/Belgeler` silinmez.
+    if record.kind == "git" and folder.is_relative_to(clones) and folder != clones:
+        shutil.rmtree(folder, ignore_errors=True)
+    plugin_store.update_state(lambda current: current.without_marketplace(name), root)
 
 
 def _entries(state: PluginState) -> Iterator[tuple[MarketplaceRecord, MarketplaceEntry]]:

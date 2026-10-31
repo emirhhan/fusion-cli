@@ -610,3 +610,72 @@ def test_eklenti_koku_degiskeni_beceri_komut_ve_ajan_govdesinde_cozulur(tmp_path
     assert f"{installed}/bin/x" in with_plugin_root(page.text, skill.path)
     # Eklenti dışı dosyada değişken olduğu gibi kalır.
     assert with_plugin_root("${CLAUDE_PLUGIN_ROOT}", tmp_path / "x.md") == "${CLAUDE_PLUGIN_ROOT}"
+
+
+def test_ayni_adli_baska_kaynakli_pazar_eskisini_sessizce_degistirmez(tmp_path):
+    first = _market(tmp_path / "pazar1")
+    for folder in (first,):
+        manifest = folder / ".claude-plugin" / "marketplace.json"
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["plugins"] = data["plugins"][:1]
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+    plugin_install.add_marketplace(str(first))
+    import shutil as _shutil
+
+    second = tmp_path / "pazar2"
+    _shutil.copytree(first, second)
+
+    with pytest.raises(PluginError, match="zaten kayıtlı"):
+        plugin_install.add_marketplace(str(second))
+    assert plugin_store.load_state().marketplace("ekip").source == str(first.resolve())  # type: ignore[union-attr]
+    plugin_install.add_marketplace(str(first))  # aynı kaynak: yenileme
+
+
+def test_pazar_kaldir_kayittaki_yolu_pazarlar_disinda_silmez(tmp_path):
+    victim = tmp_path / "Belgeler"
+    victim.mkdir()
+    (victim / "onemli.txt").write_text("x", encoding="utf-8")
+    path = plugin_store.state_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"pazarlar": {"kotu": {"kaynak": "https://x", "tur": "git", "yol": str(victim)}}}
+        ),
+        encoding="utf-8",
+    )
+
+    plugin_install.remove_marketplace("kotu")
+
+    assert (victim / "onemli.txt").is_file()
+    assert plugin_store.load_state().marketplaces == ()
+
+
+def test_buyuk_yerel_klasor_kopyalanmadan_reddedilir(tmp_path, monkeypatch):
+    from fusion_cli.config import plugin_layout
+
+    source = _plugin(tmp_path / "kaynak")
+    monkeypatch.setattr(plugin_layout, "MAX_PLUGIN_FILES", 3)
+
+    def kopyalama(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("sınır aşan klasör kopyalanmamalı")
+
+    monkeypatch.setattr(plugin_install.shutil, "copytree", kopyalama)
+    with pytest.raises(PluginError, match="çok büyük"):
+        plugin_install.preview_plugin(str(source))
+
+
+def test_kayit_yazilamazsa_tasinan_klasor_geri_alinir(tmp_path, monkeypatch):
+    source = _plugin(tmp_path / "kaynak")
+
+    original = plugin_store.save_state
+
+    def bozuk(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr(plugin_store, "save_state", bozuk)
+    with pytest.raises(OSError):
+        plugin_install.install_plugin(str(source), approve=_yes)
+    # `monkeypatch.undo()` KULLANMA: conftest'in XDG yalıtımını da geri alır, gerçek dizine yazar.
+    monkeypatch.setattr(plugin_store, "save_state", original)
+    assert not (plugin_store.plugins_dir() / "rapor-araclari").exists()
+    assert plugin_install.install_plugin(str(source), approve=_yes).status == "etkin"

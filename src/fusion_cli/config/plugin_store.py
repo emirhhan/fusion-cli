@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -222,6 +222,23 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
     }
     atomic_replace_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return path
+
+
+def update_state(
+    change: Callable[[PluginState], PluginState], base: Path | None = None
+) -> PluginState:
+    """Kaydı süreçler arası kilit altında oku-değiştir-yaz.
+
+    Ölçüldü (31 Ekim): masaüstü ve CLI aynı anda kur/aç/kapat yaptığında `kayit.json` son
+    yazanın değerine düşüyordu (kimlik deposu `config_lock` kullanıyor, burada kilit yoktu).
+    """
+    from .writer import config_lock
+
+    path = state_file(base)
+    with config_lock(path):
+        updated = change(load_state(base))
+        save_state(updated, base)
+    return updated
 
 
 def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledPlugin:
