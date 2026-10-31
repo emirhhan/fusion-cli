@@ -530,7 +530,16 @@ class _TuiSession:
             show_all_answers=self._state.show_all_answers,
         )
         pump = _PumpSink(self._tui.sync_conversation)
-        sinks = (renderer, work, self._transcript_store, pump, self._state.cost)
+        # Kalıcı kullanım günlüğü (P-056) satır-içi yolla aynı biçimde TUI'yi de besler.
+        usage_log = self._state.usage_log
+        sinks = (
+            renderer,
+            work,
+            self._transcript_store,
+            pump,
+            self._state.cost,
+            *((usage_log,) if usage_log is not None else ()),
+        )
         try:
             if self._state.engine is Engine.FUSION:
                 self._state.last_fusion = await run_task(

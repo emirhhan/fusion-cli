@@ -595,3 +595,46 @@ async def test_prompter_ask_secici_esc_vazgecildi_der_etkilesimsiz_demez():
     sonuc = await task
     assert sonuc == messages.ASK_DECLINED
     assert sonuc != messages.NO_ANSWER_AVAILABLE
+
+
+async def test_tui_turu_kullanim_gunlugunu_besler(tmp_path, monkeypatch) -> None:
+    """Varsayılan TUI yolu da kalıcı kullanım günlüğünü sinks'e katmalı.
+
+    Ölçüldü (31 Ekim): günlük yalnız satır-içi yola bağlıydı; terminalde `fusion` açıp
+    `/usage` yazan kullanıcı TUI turlarının harcamasını hiç göremiyordu.
+    """
+    from fusion_cli.engines.agent import AgentOutcome
+    from fusion_cli.observability.usage_log import UsageLog
+
+    state = _state(tmp_path)
+    state.usage_log = UsageLog(tmp_path / "usage.jsonl", session_id="tui")
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("görev")
+
+    assert state.usage_log in calls[0]["sinks"]
+
+
+async def test_tui_turu_gunluk_kapaliyken_sinks_degismez(tmp_path, monkeypatch) -> None:
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("görev")
+
+    assert None not in calls[0]["sinks"]
