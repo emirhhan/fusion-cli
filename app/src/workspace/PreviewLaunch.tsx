@@ -15,6 +15,8 @@ export interface LaunchConfigRow {
   url: string;
   baglan: boolean;
   calisiyor: boolean;
+  /** Komutlu ama dosya güvenilmiyor: Başlat yerine "Güven ve başlat" sorulur. */
+  guvenGerekli: boolean;
 }
 
 export interface PreviewLaunchProps {
@@ -36,8 +38,13 @@ function decodeRows(payload: Record<string, unknown>): LaunchConfigRow[] {
       url: row.url,
       baglan: row.baglan === true,
       calisiyor: row.calisiyor === true,
+      guvenGerekli: row.guven_gerekli === true,
     }];
   });
+}
+
+function decodeWarnings(payload: Record<string, unknown>): string[] {
+  return Array.isArray(payload.uyarilar) ? payload.uyarilar.filter((w): w is string => typeof w === "string") : [];
 }
 
 export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLaunchProps) {
@@ -45,6 +52,7 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
   const [selected, setSelected] = useState("");
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,6 +64,7 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
       const next = decodeRows(payload);
       setRows(next);
       setSource(typeof payload.kaynak === "string" ? payload.kaynak : null);
+      setWarnings(decodeWarnings(payload));
       setError(payload.ok === false && typeof payload.metin === "string" ? payload.metin : null);
       setSelected((current) => (next.some((row) => row.ad === current) ? current : next[0]?.ad ?? ""));
     } catch {
@@ -67,11 +76,20 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
 
   const current = rows.find((row) => row.ad === selected) ?? null;
 
-  const start = async () => {
+  const start = async (trustFirst = false) => {
     if (!current) return;
     setBusy(true);
     setError(null);
     try {
+      if (trustFirst) {
+        // Kullanıcı komut metnini seçicide gördü ve "Güven ve başlat"a bastı: dosyanın şu anki
+        // karması güvene alınır (fusion trust ile aynı kayıt); sonradan değişirse güven düşer.
+        const guven = await client.request("onizleme.guven", {});
+        if (guven.ok !== true) {
+          setError(typeof guven.metin === "string" ? guven.metin : "Dosyaya güvenilemedi.");
+          return;
+        }
+      }
       const payload = await client.request("onizleme.baslat", { ad: current.ad });
       if (payload.ok !== true || typeof payload.url !== "string") {
         setError(typeof payload.metin === "string" ? payload.metin : "Sunucu başlatılamadı.");
@@ -121,6 +139,15 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
           </select>
           {current?.calisiyor && !current.baglan ? (
             <button disabled={disabled || busy} onClick={() => void stop()} type="button">Durdur</button>
+          ) : current?.guvenGerekli ? (
+            <button
+              disabled={disabled || busy}
+              onClick={() => void start(true)}
+              title={`${source ?? "launch.json"} güvenilir değil; bu düğme dosyanın şu anki içeriğine güvenir ve komutu çalıştırır: ${current.komut}`}
+              type="button"
+            >
+              {busy ? "Başlatılıyor…" : "Güven ve başlat"}
+            </button>
           ) : (
             <button disabled={disabled || busy || !current} onClick={() => void start()} type="button">
               {busy ? "Başlatılıyor…" : current?.calisiyor ? "Aç" : "Başlat"}
@@ -128,7 +155,15 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
           )}
         </>
       )}
+      {current?.guvenGerekli && !current.calisiyor && (
+        <p className="preview-panel__address-error preview-launch__trust" role="note">
+          Bu komut indirilmiş bir dosyadan geliyor; çalıştırmadan önce oku: <code>{current.komut}</code>
+        </p>
+      )}
       {error && <p className="preview-panel__address-error" role="alert">{error}</p>}
+      {warnings.map((warning) => (
+        <p className="preview-panel__address-error" key={warning} role="note">{warning}</p>
+      ))}
     </div>
   );
 }

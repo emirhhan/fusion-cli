@@ -1,4 +1,4 @@
-"""`/onizleme [ad]`: launch.json sunucularını listele ya da birini ajana başlattır.
+"""`/onizleme [ad | durdur <ad>]`: launch.json sunucularını listele, başlattır, durdur.
 
 Komut işleyicileri senkrondur (bkz. `commands.Handler`); sunucu başlatma ise ağ ve alt
 süreç bekler. Bu yüzden `/onizleme <ad>` sunucuyu kendisi açmaz: isteği bekleyen görev
@@ -18,6 +18,14 @@ def preview_command(state: ReplState, argument: str) -> str:
     name = argument.strip()
     if not name:
         return _listing(state)
+    if name.split(maxsplit=1)[0].lower() in ("durdur", "stop"):
+        # Durdurma ağ beklemez (süreç grubuna SIGTERM): anında yapılır, ajana gitmez.
+        hedef = name.split(maxsplit=1)[1].strip() if " " in name else ""
+        if not hedef:
+            return messages.REPL_PREVIEW_UNKNOWN.format(name="", names=_names(state))
+        if preview_launch.stop_launch(state.root, hedef):
+            return messages.REPL_PREVIEW_STOPPED_OK.format(name=hedef)
+        return messages.REPL_PREVIEW_NOT_RUNNING.format(name=hedef)
     try:
         loaded = preview_launch.load_launch_configs(state.root)
     except LaunchConfigError as error:
@@ -31,6 +39,10 @@ def preview_command(state: ReplState, argument: str) -> str:
     return messages.REPL_PREVIEW_QUEUED.format(name=name)
 
 
+def _names(state: ReplState) -> str:
+    return ", ".join(name for name, _ in preview_launch.running_launches(state.root)) or "-"
+
+
 def _listing(state: ReplState) -> str:
     try:
         loaded = preview_launch.load_launch_configs(state.root)
@@ -39,7 +51,12 @@ def _listing(state: ReplState) -> str:
     root = state.root.resolve()
     detected = [preview for preview in preview_server.all_running() if preview.root == root]
     if not loaded.configs and not detected:
-        return messages.REPL_PREVIEW_NONE.format(file=preview_launch.LAUNCH_FILE)
+        uyarilar = "\n".join(
+            messages.REPL_PREVIEW_WARNING.format(warning=w) for w in loaded.warnings
+        )
+        return messages.REPL_PREVIEW_NONE.format(file=preview_launch.LAUNCH_FILE) + (
+            f"\n{uyarilar}" if uyarilar else ""
+        )
     lines = [messages.REPL_PREVIEW_HEAD.format(source=loaded.source or preview_launch.LAUNCH_FILE)]
     for config in loaded.configs:
         running = preview_launch.running_launch(root, config.name)
@@ -59,4 +76,7 @@ def _listing(state: ReplState) -> str:
         messages.REPL_PREVIEW_DETECTED.format(kind=preview.kind.value, url=preview.url)
         for preview in detected
     )
+    if loaded.needs_trust:
+        lines.append(messages.REPL_PREVIEW_UNTRUSTED)
+    lines.extend(messages.REPL_PREVIEW_WARNING.format(warning=w) for w in loaded.warnings)
     return "\n".join(lines)

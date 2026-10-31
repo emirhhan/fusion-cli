@@ -2,7 +2,9 @@
 
 İndirilmiş bir depo kendi `config.yaml`'ıyla MCP süreci, doğrulama komutu veya bir
 sırrı uzak adrese taşıyan `token_env` tanımlayabilir; `.fusion/tools` altındaki
-Python da araç olarak çalıştırılır. Bu dosyalar ancak kullanıcı projeye güvendikten
+Python da araç olarak çalıştırılır; `.fusion/launch.json` ve `.claude/launch.json`
+içindeki `runtimeExecutable` önizleme sunucusu diye çalıştırılır (ölçüldü 31 Ekim:
+bu dosyalar güven kaydına hiç bağlı değildi). Bu dosyalar ancak kullanıcı projeye güvendikten
 (veya Fusion dosyayı kendisi ürettikten) SONRA ve içerikleri o andaki hâliyle aynı
 kaldıkça etkinleşir. Karar içerik karmasına bağlıdır: güvenden sonra değişen dosya
 yeniden güvensiz sayılır.
@@ -30,6 +32,12 @@ PROJECT_CONFIG_NAME = "config.yaml"
 FORGED_TOOLS_DIR = Path(".fusion") / "tools"
 #: Claude Code'un proje-yerel izin dosyası; `Bash(...)` girdileri onaysız komut sayılır (L2-02).
 PROJECT_PERMISSIONS_PATH = Path(".claude") / "settings.local.json"
+#: Önizleme sunucusu komutu taşıyan dosyalar (`tools/preview_launch` okur; Fusion'ınki önce).
+#: Komutlu yapılandırma yalnız dosya karması güven kaydındaysa çalışır; `url` ile bağlanma serbest.
+PROJECT_LAUNCH_FILES: tuple[Path, ...] = (
+    Path(".fusion") / "launch.json",
+    Path(".claude") / "launch.json",
+)
 _STORE_NAME = "trusted-projects.json"
 _SCHEMA_VERSION = 1
 
@@ -100,9 +108,13 @@ def without_execution_settings(
 
 
 def trust_project(root: Path) -> None:
-    """Projenin şu anki yapılandırmasına ve üretilmiş araçlarına güven."""
+    """Projenin şu anki yapılandırmasına, üretilmiş araçlarına ve launch.json'una güven."""
     files: dict[str, str] = {}
-    for path in sorted((root / FORGED_TOOLS_DIR).glob("*.py")):
+    adaylar = [
+        *sorted((root / FORGED_TOOLS_DIR).glob("*.py")),
+        *(root / relative for relative in PROJECT_LAUNCH_FILES),
+    ]
+    for path in adaylar:
         # Kök dışını gösteren bağ ya da `.py` adlı klasör güvene alınmaz.
         if path.is_symlink() or not path.is_file():
             continue

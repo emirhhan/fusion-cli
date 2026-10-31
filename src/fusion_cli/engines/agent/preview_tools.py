@@ -29,6 +29,7 @@ from ...core.tool_content import ToolContent
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import design_compare, preview_server, shop_flow, site_design
 from ...tools.files import resolve_path
+from ...tools.preview_launch import join_local_page
 from ...tools.preview_probe import SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, PageProbe, probe
 from ...tools.wordpress_setup import (
     WordPressSetup,
@@ -132,12 +133,9 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         preview = await preview_server.start(
             root, kind, port, php=find_php_executable(), entry=entry
         )
+        url = join_local_page(preview.url, args.get("page"))
     except (preview_server.PreviewError, WordPressSetupError) as error:
         return ToolResult.failure(f"Önizleme başlatılamadı: {error}")
-    page = args.get("page")
-    url = preview.url
-    if isinstance(page, str) and page.strip():
-        url = urljoin(preview.url, page.strip())
     kaynak = await asyncio.to_thread(site_design.reference_pages, root)
     sonuc = await probe(
         url,

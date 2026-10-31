@@ -4,8 +4,8 @@
 (WordPress, PHP, Node `dev`/`start`, statik) başlatabiliyordu; monorepo, özel port, Vite
 dışı betik ya da zaten çalışan bir sunucuya "bağlan" için yol yoktu. Claude Code
 masaüstünün `.claude/launch.json` dosyasıyla aynı alanlar kullanılır (`name`,
-`runtimeExecutable`, `runtimeArgs`, `port`, `url`); uyumluluk için `.claude/launch.json`
-da OKUNUR ama yazılmaz. Örnek::
+`runtimeExecutable`, `runtimeArgs`, `port`, `url`, `cwd`, `env`); uyumluluk için
+`.claude/launch.json` da OKUNUR ama yazılmaz. Örnek::
 
     {"version": "0.0.1", "configurations": [
       {"name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173},
@@ -15,6 +15,11 @@ da OKUNUR ama yazılmaz. Örnek::
 - `runtimeExecutable` varsa komut KABUKSUZ (`exec`) başlatılır, `PORT` ortam değişkeni verilir.
 - Yalnız `url` varsa hiçbir şey başlatılmaz; çalışan sunucuya bağlanılır.
 - Adresler yerel (loopback) olmalıdır: önizleme paneli yalnız bunları gömer.
+- Komutlu yapılandırma yalnız dosya GÜVENİLİRSE çalışır (`fusion trust` ya da panelden
+  "Güven ve başlat"); indirilmiş bir deponun launch.json'u onaysız komut çalıştıramaz.
+  Ölçüldü (31 Ekim): `.claude/launch.json` içindeki `/bin/sh -c …` komutu, ajan `start_preview
+  name=` çağırınca `config/trust.py` denetiminden geçmeden tam ortamla başlıyordu.
+- Geçersiz TEK kayıt dosyanın tamamını düşürmez: atlanır ve `warnings` ile bildirilir.
 
 Sunucular `fusion app` süreci yaşadıkça açık kalır; süreç kapanırken hepsi kapatılır.
 """
@@ -24,27 +29,53 @@ from __future__ import annotations
 import asyncio
 import atexit
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
+from ..config import trust
 from ..core.errors import FusionError
 from . import preview_server
 from .preview_server import LOCAL_HOSTS, PreviewError, PreviewKind, RunningPreview
+from .wordpress_setup import php_env
 
 #: Okunma sırası: Fusion'ın kendi dosyası önce, Claude Code'unki uyumluluk için.
-LAUNCH_FILES: tuple[str, ...] = (".fusion/launch.json", ".claude/launch.json")
+LAUNCH_FILES: tuple[str, ...] = tuple(path.as_posix() for path in trust.PROJECT_LAUNCH_FILES)
 #: Yazılan/örneklenen dosya (uyumluluk dosyasına yazılmaz).
 LAUNCH_FILE = LAUNCH_FILES[0]
 #: Yapılandırma adı: menüde ve `start_preview name=` içinde kullanılır; kabuğa gitmez.
-_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,63}$")
+#: İç boşluğa izin verilir ("Web Server" Claude Code'da olağan); baş/son boşluk kırpılır.
+_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:\- ]{0,63}$")
 MAX_CONFIGURATIONS = 20
 MAX_ARGS = 40
+MAX_ENV = 40
+#: Tanınan alanlar; diğerleri yok sayılır ve uyarı olarak bildirilir (ör. `autoPort`).
+KNOWN_FIELDS = frozenset(
+    {"name", "runtimeExecutable", "runtimeArgs", "port", "url", "cwd", "env", "type", "request"}
+)
+#: Alt sürece GEÇMEYEN ortam değişkenleri: sağlayıcı anahtarları ve sırlar. Dev sunucu
+#: bunlara ihtiyaç duymaz; `env` alanıyla açıkça verilen değer yine geçer.
+_SECRET_ENV = re.compile(
+    r"(_API_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_PASSWD|_PRIVATE_KEY)$|PASSWORD|SECRET",
+    re.IGNORECASE,
+)
+_ALLOW_ENV = frozenset({"npm_config_", "NODE_", "PYTHON", "PATH", "HOME", "LANG", "LC_"})
+
+UNTRUSTED_HINT = (
+    "{source} içindeki '{name}' komutu ({command}) çalıştırılmadı: bu dosya güvenilir değil. "
+    'Komutu okuduysan `fusion trust` (ya da panelde "Güven ve başlat") ile onayla; yalnız '
+    "`url` ile çalışan sunucuya bağlanma onay gerektirmez."
+)
 
 
 class LaunchConfigError(FusionError):
     """`launch.json` okunamadı ya da bir yapılandırma geçersiz; mesaj kullanıcıya gider."""
+
+
+class LaunchUntrustedError(LaunchConfigError):
+    """Komutlu yapılandırma var ama dosya güven kaydında değil (`fusion trust`)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +91,12 @@ class LaunchConfig:
     url: str | None
     #: Köke göreli çalışma klasörü ("" = kök).
     cwd: str = ""
+    #: Komuta verilecek ek ortam değişkenleri (`env` alanı).
+    env: tuple[tuple[str, str], ...] = ()
+    #: Dosya karması güven kaydıyla eşleşiyor; False ise komut çalıştırılmaz (bağlanma serbest).
+    trusted: bool = False
+    #: Okunduğu dosya (hata metinleri için); elle kurulanda boş.
+    source: str = ""
 
     @property
     def is_attach(self) -> bool:
@@ -80,15 +117,28 @@ class LaunchConfig:
             return self.url
         return f"http://127.0.0.1:{self.port}/"
 
+    @property
+    def needs_trust(self) -> bool:
+        """Komutlu ama güvenilmeyen: başlatma `LaunchUntrustedError` verir."""
+        return not self.is_attach and not self.trusted
+
 
 @dataclass(frozen=True, slots=True)
 class LaunchConfigs:
     configs: tuple[LaunchConfig, ...]
     #: Okunan dosyanın köke göreli yolu; dosya yoksa None.
     source: str | None
+    #: Atlanan kayıtlar ve yok sayılan alanlar (kullanıcıya gösterilir, dosyayı düşürmez).
+    warnings: tuple[str, ...] = ()
+    #: Okunan dosya güven kaydında mı (komutlu yapılandırmalar için gerekir).
+    trusted: bool = False
 
     def get(self, name: str) -> LaunchConfig | None:
         return next((config for config in self.configs if config.name == name), None)
+
+    @property
+    def needs_trust(self) -> bool:
+        return any(config.needs_trust for config in self.configs)
 
 
 def launch_file(root: Path) -> Path | None:
@@ -101,11 +151,32 @@ def launch_file(root: Path) -> Path | None:
 
 
 def load_launch_configs(root: Path) -> LaunchConfigs:
-    """Dosyayı oku ve doğrula; dosya yoksa boş liste. Bozuk dosya `LaunchConfigError`."""
-    path = launch_file(root)
-    if path is None:
-        return LaunchConfigs((), None)
-    source = path.relative_to(root).as_posix()
+    """Dosyayı oku ve doğrula; dosya yoksa boş liste.
+
+    Bozuk dosya `LaunchConfigError`; ama Fusion dosyası bozukken Claude Code dosyası
+    sağlamsa ona düşülür (bozukluk uyarı olur). Tek geçersiz kayıt atlanır.
+    """
+    ilk_hata: LaunchConfigError | None = None
+    for relative in LAUNCH_FILES:
+        path = root / relative
+        if not path.is_file():
+            continue
+        try:
+            loaded = _load_file(root, path, relative)
+        except LaunchConfigError as error:
+            ilk_hata = ilk_hata or error
+            continue
+        if ilk_hata is not None:
+            return LaunchConfigs(
+                loaded.configs, loaded.source, (str(ilk_hata), *loaded.warnings), loaded.trusted
+            )
+        return loaded
+    if ilk_hata is not None:
+        raise ilk_hata
+    return LaunchConfigs((), None)
+
+
+def _load_file(root: Path, path: Path, source: str) -> LaunchConfigs:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError as error:
@@ -117,11 +188,20 @@ def load_launch_configs(root: Path) -> LaunchConfigs:
     items = raw["configurations"]
     if len(items) > MAX_CONFIGURATIONS:
         raise LaunchConfigError(f"{source}: en fazla {MAX_CONFIGURATIONS} yapılandırma olabilir.")
-    configs = tuple(_parse(source, item) for item in items)
-    names = [config.name for config in configs]
-    if len(set(names)) != len(names):
-        raise LaunchConfigError(f"{source}: yapılandırma adları benzersiz olmalı.")
-    return LaunchConfigs(configs, source)
+    trusted = trust.is_file_trusted(root, path)
+    configs: list[LaunchConfig] = []
+    warnings: list[str] = []
+    for item in items:
+        try:
+            config = _parse(source, item, trusted=trusted, warnings=warnings)
+        except LaunchConfigError as error:
+            warnings.append(f"{error} (kayıt atlandı)")
+            continue
+        if any(existing.name == config.name for existing in configs):
+            warnings.append(f"{source}: '{config.name}' adı tekrar ediyor; ikinci kayıt atlandı.")
+            continue
+        configs.append(config)
+    return LaunchConfigs(tuple(configs), source, tuple(warnings), trusted)
 
 
 def find_launch_config(root: Path, name: str) -> LaunchConfig:
@@ -131,8 +211,11 @@ def find_launch_config(root: Path, name: str) -> LaunchConfig:
     if config is not None:
         return config
     if not loaded.configs:
+        ek = " ".join(loaded.warnings)
         raise LaunchConfigError(
-            f'{LAUNCH_FILE} yok. Örnek: {{"configurations": [{{"name": "web", '
+            (ek + " ")
+            if ek
+            else f'{LAUNCH_FILE} yok. Örnek: {{"configurations": [{{"name": "web", '
             '"runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173}]}'
         )
     adlar = ", ".join(config.name for config in loaded.configs)
@@ -155,10 +238,29 @@ def is_local_url(value: object) -> bool:
     return parsed.scheme == "http" and host in LOCAL_HOSTS
 
 
-def _parse(source: str, item: object) -> LaunchConfig:
+def join_local_page(base: str, page: object) -> str:
+    """`page` yolunu önizleme adresine ekle; aynı yerel kökende kalmazsa `PreviewError`.
+
+    Ölçüldü (31 Ekim): `urljoin(url, "http://169.254.169.254/…")` temel adresi tümüyle
+    değiştiriyor, ölçüm iç ağa istek atıyordu. `page` yalnız yol/sorgu olabilir.
+    """
+    if not isinstance(page, str) or not page.strip():
+        return base
+    joined = urljoin(base, page.strip())
+    if urlparse(joined).netloc != urlparse(base).netloc or not is_local_url(joined):
+        raise PreviewError(
+            f"`page` yalnız yol olabilir (ör. /shop/); başka bir adres verilemez: {page.strip()}"
+        )
+    return joined
+
+
+def _parse(
+    source: str, item: object, *, trusted: bool = False, warnings: list[str] | None = None
+) -> LaunchConfig:
     if not isinstance(item, dict):
         raise LaunchConfigError(f"{source}: her yapılandırma bir nesne olmalı.")
     name = item.get("name")
+    name = name.strip() if isinstance(name, str) else name
     if not isinstance(name, str) or not _NAME.fullmatch(name):
         raise LaunchConfigError(
             f"{source}: `name` harf/rakam/alt çizgiyle başlayan, en çok 64 karakterlik ad olmalı."
@@ -195,8 +297,16 @@ def _parse(source: str, item: object) -> LaunchConfig:
         not isinstance(cwd, str)
         or PurePosixPath(cwd).is_absolute()
         or ".." in PurePosixPath(cwd).parts
+        or ".." in cwd.replace("\\", "/").split("/")
     ):
         raise LaunchConfigError(f"{source} [{name}]: `cwd` köke göreli olmalı (`..` olmaz).")
+    env = _parse_env(source, name, item.get("env"))
+    if warnings is not None:
+        bilinmeyen = sorted(key for key in item if key not in KNOWN_FIELDS)
+        if bilinmeyen:
+            warnings.append(
+                f"{source} [{name}]: desteklenmeyen alan(lar) yok sayıldı: {', '.join(bilinmeyen)}."
+            )
     return LaunchConfig(
         name=name,
         executable=executable.strip() if isinstance(executable, str) else None,
@@ -204,12 +314,52 @@ def _parse(source: str, item: object) -> LaunchConfig:
         port=port,
         url=url,
         cwd=cwd.strip("/"),
+        env=env,
+        trusted=trusted,
+        source=source,
     )
+
+
+def _parse_env(source: str, name: str, raw: object) -> tuple[tuple[str, str], ...]:
+    if raw is None:
+        return ()
+    if (
+        not isinstance(raw, dict)
+        or len(raw) > MAX_ENV
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items())
+        or not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k) for k in raw)
+    ):
+        raise LaunchConfigError(
+            f"{source} [{name}]: `env` en çok {MAX_ENV} `AD: değer` metin çiftinden oluşmalı."
+        )
+    return tuple(sorted(raw.items()))
+
+
+def launch_env(config: LaunchConfig, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Alt sürecin ortamı: PATH/Homebrew düzeltmeli temel, sırlar süzülmüş, `PORT` + `env`.
+
+    Ölçüldü (31 Ekim): süreç `os.environ`'ın tamamıyla (sağlayıcı anahtarları dahil)
+    başlıyordu. Dev sunucu bu anahtarlara ihtiyaç duymaz; kullanıcı gerekli olanı `env`
+    alanıyla açıkça verir.
+    """
+    kaynak = php_env(base if base is not None else dict(os.environ))
+    env = {
+        name: value
+        for name, value in kaynak.items()
+        if not _SECRET_ENV.search(name) or any(name.startswith(ok) for ok in _ALLOW_ENV)
+    }
+    if config.port is not None:
+        env["PORT"] = str(config.port)
+    env.update(config.env)
+    return env
 
 
 #: Çalışan adlı önizlemeler: (kök, ad) → sunucu. `preview_server._RUNNING` kök başına TEK
 #: sunucu tutar; launch.json aynı kökte birden çok sunucu tanımlayabilir.
 _RUNNING: dict[tuple[Path, str], RunningPreview] = {}
+#: (kök, ad) başına başlatma kilidi. Ölçüldü (31 Ekim): kontrol ile kayıt arasında 45 sn'ye
+#: kadar await vardı; eşzamanlı ikinci çağrı birincinin kaydını ezip süreci sahipsiz bırakıyordu.
+_STARTING: dict[tuple[Path, str], asyncio.Lock] = {}
 
 
 def running_launch(root: Path, name: str) -> RunningPreview | None:
@@ -235,41 +385,66 @@ def running_launches(root: Path | None = None) -> tuple[tuple[str, RunningPrevie
 
 
 async def start_launch(root: Path, config: LaunchConfig) -> RunningPreview:
-    """Yapılandırmayı başlat (ya da çalışana bağlan) ve yanıt verene kadar bekle."""
+    """Yapılandırmayı başlat (ya da çalışana bağlan) ve yanıt verene kadar bekle.
+
+    Aynı (kök, ad) için eşzamanlı çağrılar sıraya girer; ikincisi birincinin sunucusunu alır.
+    """
     root = await asyncio.to_thread(root.resolve)
-    existing = running_launch(root, config.name)
-    if existing is not None:
-        return existing
+    key = (root, config.name)
+    lock = _STARTING.get(key)
+    if lock is None:
+        lock = _STARTING[key] = asyncio.Lock()
+    async with lock:
+        existing = running_launch(root, config.name)
+        if existing is not None:
+            return existing
+        preview = await _start(root, config)
+        _RUNNING[key] = preview
+        return preview
+
+
+async def _start(root: Path, config: LaunchConfig) -> RunningPreview:
+    if config.needs_trust:
+        raise LaunchUntrustedError(
+            UNTRUSTED_HINT.format(
+                source=config.source or LAUNCH_FILE, name=config.name, command=config.command_text
+            )
+        )
     url = config.address
     cwd = root / config.cwd if config.cwd else root
     if not await asyncio.to_thread(cwd.is_dir):
         raise PreviewError(f"'{config.name}' çalışma klasörü yok: {config.cwd}")
+    # Sembolik bağ kök dışına çıkaramaz (`cwd: "link"` → ~/...); yalnız sözdizimi denetimi yetmez.
+    gercek = await asyncio.to_thread(cwd.resolve)
+    if gercek != root and root not in gercek.parents:
+        raise PreviewError(
+            f"'{config.name}' çalışma klasörü proje kökü dışına çözülüyor: {config.cwd}"
+        )
     if config.is_attach:
         if not await preview_server.wait_until_serving(url, timeout_s=5.0):
             raise PreviewError(
                 f"'{config.name}' için {url} yanıt vermiyor; sunucuyu başlat ya da yapılandırmaya "
                 "`runtimeExecutable` ekle."
             )
-        preview = RunningPreview(root, PreviewKind.LAUNCH, url, attached=True)
-    else:
-        extra_env = {"PORT": str(config.port)} if config.port is not None else None
-        command = list(config.command)
-        try:
-            process, log_path = await preview_server.spawn_logged(command, cwd, extra_env=extra_env)
-        except OSError as error:
-            raise PreviewError(
-                f"'{config.name}' başlatılamadı: {error} (komut: {config.command_text})"
-            ) from error
-        preview = RunningPreview(root, PreviewKind.LAUNCH, url, process=process, log_path=log_path)
-        if not await preview_server.wait_until_serving(url, process=process):
-            tail = _log_tail(preview)
-            preview_server.terminate(preview)
-            raise PreviewError(
-                f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
-                f"yanıt vermedi. Komut: {config.command_text}"
-                + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
-            )
-    _RUNNING[(root, config.name)] = preview
+        return RunningPreview(root, PreviewKind.LAUNCH, url, attached=True)
+    command = list(config.command)
+    try:
+        process, log_path = await preview_server.spawn_logged(
+            command, gercek, env_base=launch_env(config)
+        )
+    except OSError as error:
+        raise PreviewError(
+            f"'{config.name}' başlatılamadı: {error} (komut: {config.command_text})"
+        ) from error
+    preview = RunningPreview(root, PreviewKind.LAUNCH, url, process=process, log_path=log_path)
+    if not await preview_server.wait_until_serving(url, process=process):
+        tail = _log_tail(preview)
+        preview_server.terminate(preview)
+        raise PreviewError(
+            f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
+            f"yanıt vermedi. Komut: {config.command_text}"
+            + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
+        )
     return preview
 
 
@@ -297,13 +472,37 @@ def stop_all_launches() -> None:
     for key in list(_RUNNING):
         preview = _RUNNING.pop(key)
         preview_server.terminate(preview)
+    _STARTING.clear()
+
+
+def trust_launch_file(root: Path) -> str | None:
+    """Okunan launch.json'un ŞU ANKİ içeriğini güvenilir kaydet; dosya yoksa None.
+
+    Panelden "Güven ve başlat" bunu çağırır: kullanıcı komut metnini görüp onaylamıştır.
+    Dosya sonradan değişirse güven kendiliğinden düşer (karma eşleşmez).
+    """
+    path = launch_file(root)
+    if path is None:
+        return None
+    trust.approve_file(root, path)
+    return path.relative_to(root).as_posix()
 
 
 def default_preview_url(root: Path) -> str | None:
-    """Ajan/arayüz adres vermezse bakılacak sayfa: en son başlatılan çalışan önizleme."""
-    named = [preview for _, preview in running_launches(root)]
-    detected = [
-        preview for preview in preview_server.all_running() if preview.root == root.resolve()
+    """Ajan/arayüz adres vermezse bakılacak sayfa: EN SON başlatılan çalışan önizleme.
+
+    Kök ve alt klasörleri sayılır (`start_preview path=sub name=…` alt kökle kaydedilir).
+    Ölçüldü (31 Ekim): `[*detected, *named]` sırası adlı sunucuyu her zaman kazandırıyordu.
+    """
+    resolved = root.resolve()
+    candidates = [
+        preview
+        for preview in (
+            *(preview for _, preview in running_launches()),
+            *preview_server.all_running(),
+        )
+        if preview.root == resolved or resolved in preview.root.parents
     ]
-    candidates = [*detected, *named]
-    return candidates[-1].url if candidates else None
+    if not candidates:
+        return None
+    return max(candidates, key=lambda preview: preview.started_at).url

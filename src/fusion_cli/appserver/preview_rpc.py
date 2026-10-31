@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..tools import preview_launch
-from ..tools.preview_launch import LaunchConfig, LaunchConfigError
+from ..tools.preview_launch import LaunchConfig, LaunchConfigError, LaunchUntrustedError
 from ..tools.preview_log import (
     COLOR_SCHEMES,
     CaptureOptions,
@@ -32,7 +32,14 @@ RPC_START = "onizleme.baslat"
 RPC_STOP = "onizleme.durdur"
 RPC_LOG = "onizleme.gunluk"
 RPC_SCREENSHOT = "onizleme.ekran_goruntusu"
-PREVIEW_RPC_NAMES = frozenset({RPC_CONFIGS, RPC_START, RPC_STOP, RPC_LOG, RPC_SCREENSHOT})
+#: Okunan launch.json'un şu anki içeriğine güven (kullanıcı komutu panelde görüp onaylar).
+RPC_TRUST = "onizleme.guven"
+PREVIEW_RPC_NAMES = frozenset(
+    {RPC_CONFIGS, RPC_START, RPC_STOP, RPC_LOG, RPC_SCREENSHOT, RPC_TRUST}
+)
+#: Aynı anda tek ekran görüntüsü: her istek bir Chromium açar ve aynı dosyaya yazar. Ölçüldü
+#: (31 Ekim): 320→375→768 hızlı geçişte geç biten 320 isteği dosyayı sonradan eziyordu.
+_SCREENSHOT_LOCK = asyncio.Lock()
 
 _NOT_LOCAL = "Yalnız localhost adresleri okunabilir."
 _NAME_REQUIRED = "Yapılandırma adı (`ad`) gerekir."
@@ -52,6 +59,7 @@ def _config_payload(root: Path, config: LaunchConfig) -> dict[str, Any]:
         "cwd": config.cwd,
         "baglan": config.is_attach,
         "calisiyor": running is not None,
+        "guven_gerekli": config.needs_trust,
     }
 
 
@@ -64,6 +72,8 @@ def list_configs(root: Path) -> dict[str, Any]:
         "ok": True,
         "kaynak": loaded.source,
         "dosya": preview_launch.LAUNCH_FILE,
+        "guvenli": loaded.trusted,
+        "uyarilar": list(loaded.warnings),
         "yapilandirmalar": [_config_payload(root, config) for config in loaded.configs],
     }
 
@@ -75,9 +85,19 @@ async def start_config(root: Path, data: dict[str, Any]) -> dict[str, Any]:
     try:
         config = await asyncio.to_thread(preview_launch.find_launch_config, root, name.strip())
         preview = await preview_launch.start_launch(root, config)
+    except LaunchUntrustedError as error:
+        return {**_error(str(error)), "guven_gerekli": True, "komut": config.command_text}
     except (LaunchConfigError, PreviewError) as error:
         return _error(str(error))
     return {"ok": True, "ad": config.name, "url": preview.url, "komut": config.command_text}
+
+
+def trust_config_file(root: Path) -> dict[str, Any]:
+    """Panelden "Güven ve başlat": okunan launch.json'un şu anki karmasını güvene al."""
+    dosya = preview_launch.trust_launch_file(root)
+    if dosya is None:
+        return _error(f"{preview_launch.LAUNCH_FILE} yok; güvenilecek dosya bulunamadı.")
+    return {"ok": True, "dosya": dosya}
 
 
 def stop_config(root: Path, data: dict[str, Any]) -> dict[str, Any]:
@@ -136,10 +156,11 @@ async def screenshot(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         full_page=bool(data.get("tam_sayfa")),
         color_scheme=scheme if isinstance(scheme, str) and scheme in COLOR_SCHEMES else None,
     )
-    log = await collect_page_log(str(url), options)
-    if log.error or log.screenshot is None:
-        return _error(log.error or "Ekran görüntüsü alınamadı.")
-    yol = await asyncio.to_thread(save_screenshot, root, log.screenshot)
+    async with _SCREENSHOT_LOCK:
+        log = await collect_page_log(str(url), options)
+        if log.error or log.screenshot is None:
+            return _error(log.error or "Ekran görüntüsü alınamadı.")
+        yol = await asyncio.to_thread(save_screenshot, root, log.screenshot)
     return {
         "ok": True,
         "url": log.url,
@@ -164,4 +185,6 @@ async def handle_preview_rpc(root: Path, name: str, data: dict[str, Any]) -> dic
         return await page_log(data)
     if name == RPC_SCREENSHOT:
         return await screenshot(root, data)
+    if name == RPC_TRUST:
+        return await asyncio.to_thread(trust_config_file, root)
     return _error(f"Bilinmeyen önizleme isteği: {name}")

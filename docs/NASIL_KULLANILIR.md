@@ -315,9 +315,22 @@ onun üstüne gelir.
 
 - `runtimeExecutable` + `runtimeArgs`: komut kabuksuz çalıştırılır, `PORT` ortam değişkeni verilir.
 - Yalnız `url`: hiçbir şey başlatılmaz, çalışan sunucuya bağlanılır. Adresler yerel olmalıdır.
-- İsteğe bağlı `cwd` (köke göreli). Sunucular uygulama kapanınca kapatılır.
+- İsteğe bağlı `cwd` (köke göreli, kök dışına çözülemez) ve `env` (`{"AD": "değer"}`).
+  Sunucular uygulama kapanınca kapatılır.
+- **Güven:** komutlu yapılandırma yalnız dosya güvenilirse çalışır — indirilmiş bir deponun
+  `launch.json`'u onaysız komut çalıştıramaz. Onay: terminalde `fusion trust` (config.yaml,
+  `.fusion/tools` ve `.claude/settings.local.json` ile aynı kayıt) ya da panelde komut metnini
+  görüp **Güven ve başlat**. Dosya değişirse güven düşer. Yalnız `url` ile bağlanma onay istemez.
+- Komuta giden ortamdan sağlayıcı anahtarları ve sırlar (`*_API_KEY`, `*_TOKEN`, `*PASSWORD*`…)
+  çıkarılır; sunucunun gerçekten gerektirdiği değeri `env` ile açıkça verin.
+- Geçersiz tek kayıt dosyayı düşürmez: atlanır ve uyarı olarak görünür (panel, `/onizleme`,
+  ajan ipucu). Desteklenmeyen alanlar (`autoPort` vb.) yok sayılır ve uyarı verir. Adlarda iç
+  boşluk serbesttir (`"Web Server"`).
 - Panelde adres çubuğunun altında yapılandırma seçici ve **Başlat / Durdur** görünür.
-- Ajan: `start_preview(name="web")`. CLI: `/onizleme` listeler, `/onizleme web` ajana başlattırır.
+- Ajan: `start_preview(name="web", page="/shop/")` (`page` yalnız yol olabilir). CLI: `/onizleme`
+  listeler, `/onizleme web` ajana başlattırır, `/onizleme durdur web` anında durdurur.
+- Aynı yapılandırmanın eşzamanlı iki başlatması (panel + ajan) tek süreç açar; ikincisi
+  birincinin adresini alır.
 
 **Konsol ve ağ günlüğü** — araç çubuğundaki `≡` düğmesi sayfayı çekirdeğin başsız
 tarayıcısında (Playwright) açıp konsol mesajlarını (seviye, metin, betik:satır) ve ağ
@@ -326,7 +339,14 @@ anın fotoğrafıdır; **↻** yeniden ölçer, "Yalnız sorunlar" süzer. Ajan 
 `preview_console` ve `preview_network` araçlarında (`url` verilmezse son önizleme).
 
 **Ekran görüntüsü** — `◧` düğmesi seçili cihaz boyutunda görüntü alır, sistem/açık/koyu tema
-taklidi seçilebilir; dosya `.fusion/onizleme-ekran.png` olarak proje içine yazılır.
+taklidi seçilebilir; dosya `.fusion/onizleme-ekran.png` olarak proje içine yazılır (sembolik
+bağ ya da kök dışı hedefe yazılmaz). Aynı anda tek yakalama yapılır; hızlı boyut geçişleri
+kısa beklemeyle birleştirilir. Ajan için aynı şey `preview_screenshot(url?, width, height,
+color_scheme, full_page)` aracıdır: görüntü modele döner ve aynı dosyaya yazılır.
+
+Günlük ve ekran görüntüsü tarayıcısı yalnız yerel adreslere çıkar: sayfanın dış adrese
+yönlendirmesi ve dış alt istekleri engellenir, engellenen adres hata metninde söylenir.
+Chromium indirilmemişse mesaj `playwright install chromium` adımını gösterir.
 
 **Cihaz boyutları** — Masaüstü, 1440, 1024, Tablet (768), Mobil (375), Mobil (320).
 Seçim iframe genişliğini ve ekran görüntüsü ölçüsünü birlikte belirler.
@@ -334,6 +354,16 @@ Seçim iframe genişliğini ve ekran görüntüsü ölçüsünü birlikte belirl
 Gereksinim: günlük ve ekran görüntüsü için `pip install 'fusion-cli[web]'` ve
 `playwright install chromium`. Panel yalnız localhost adreslerini gömer; https/uzak adres
 ve öğe seçici bu sürümde yok.
+
+## 16) `fusion://` bağlantıları (masaüstü)
+
+Tarayıcıdan ya da bir belgeden Fusion'ı hedefe açar (Claude Code masaüstündeki `claude://`
+gibi): `fusion://sohbet/<id>` kayıtlı sohbeti, `fusion://ayarlar/bildirimler` ayarların bir
+bölümünü, `fusion://yeni` yeni sohbeti açar. `fusion://yeni?kok=<yüzde-kodlu yol>` ile
+gelen klasör **onaysız uygulanmaz**: `/`, `/Users/<ad>` gibi çok geniş ya da sistem klasörleri
+reddedilir, kalanı bir onay penceresiyle sorulur. Uygulama kapalıyken tıklanan bağlantı
+açılıştan sonra yerine ulaşır. Şema kaydı bu sürümde yalnız macOS paketinde (Info.plist);
+Windows'ta bağlantı ikinci örneğin argümanı olarak işlenir ama kurulumda şema kaydı yoktur.
 
 ---
 

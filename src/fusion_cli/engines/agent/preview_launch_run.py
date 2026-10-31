@@ -9,13 +9,12 @@ paneli ve kapanış kapısı iki yolu ayırt etmesin.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from urllib.parse import urljoin
 
 from ...core.events import PreviewReady
 from ...core.tool_content import ToolContent
 from ...core.tools import ToolResult
 from ...tools import preview_launch
-from ...tools.preview_launch import LaunchConfigError, LaunchConfigs
+from ...tools.preview_launch import LaunchConfigError, LaunchConfigs, join_local_page
 from ...tools.preview_probe import probe
 from ...tools.preview_server import PreviewError, PreviewKind
 
@@ -26,29 +25,47 @@ if TYPE_CHECKING:
 
 
 def launch_hint(root: Path) -> str:
-    """Tür anlaşılmadığında modele gidecek ek: launch.json varsa adlarını say."""
+    """Tür anlaşılmadığında modele gidecek ek: launch.json varsa adlarını say.
+
+    Güvenilmeyen dosyadaki komutlu yapılandırmalar ÖNERİLMEZ: model çağırsa da çalışmaz;
+    kullanıcıya `fusion trust` gerektiği söylenir. Yalnız `url` ile bağlananlar önerilir.
+    """
     try:
         loaded: LaunchConfigs = preview_launch.load_launch_configs(root)
     except LaunchConfigError as error:
         return f" {error}"
     if not loaded.configs:
-        return ""
-    adlar = ", ".join(f"'{config.name}'" for config in loaded.configs)
-    return (
-        f" {loaded.source} içinde tanımlı sunucular: {adlar} — start_preview'ı name='…' ile çağır."
-    )
+        return " " + " ".join(loaded.warnings) if loaded.warnings else ""
+    kullanilabilir = [config for config in loaded.configs if not config.needs_trust]
+    bekleyen = [config for config in loaded.configs if config.needs_trust]
+    parcalar: list[str] = []
+    if kullanilabilir:
+        adlar = ", ".join(f"'{config.name}'" for config in kullanilabilir)
+        parcalar.append(
+            f"{loaded.source} içinde tanımlı sunucular: {adlar} — start_preview'ı name='…' ile "
+            "çağır."
+        )
+    if bekleyen:
+        adlar = ", ".join(f"'{config.name}'" for config in bekleyen)
+        parcalar.append(
+            f"{loaded.source} içindeki komutlu yapılandırmalar ({adlar}) bu proje güvenilmediği "
+            "için çalıştırılmaz; kullanıcı `fusion trust` ile onaylamalı. Onay gelmeden "
+            "start_preview'ı bu adlarla çağırma."
+        )
+    parcalar.extend(loaded.warnings)
+    return " " + " ".join(parcalar)
 
 
 async def run_launch_preview(deps: AgentDeps, root: Path, name: str, page: object) -> ToolResult:
     try:
         config = preview_launch.find_launch_config(root, name)
         preview = await preview_launch.start_launch(root, config)
+        url = join_local_page(preview.url, page)
     except (LaunchConfigError, PreviewError) as error:
         return ToolResult.failure(f"Önizleme başlatılamadı: {error}")
-    url = preview.url
-    if isinstance(page, str) and page.strip():
-        url = urljoin(preview.url, page.strip())
     sonuc = await probe(url)
+    # Kapanış kapısı (site_verify) adlı sunucuyu da buradan okur: ikinci bir geçici sunucu açmaz.
+    preview.last_probe = {"ok": not sonuc.problems, "summary": sonuc.summary(), "url": url}
     if 0 < sonuc.status < 400:
         deps.publisher.publish(
             PreviewReady(url=url, kind=PreviewKind.LAUNCH.value, root=str(root), title=sonuc.title)

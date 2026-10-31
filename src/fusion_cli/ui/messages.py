@@ -331,6 +331,12 @@ REPL_PREVIEW_QUEUED = "'{name}' önizlemesi ajana veriliyor; onaydan sonra adres
 REPL_PREVIEW_TASK = (
     "Önizlemeyi başlat: start_preview aracını name='{name}' ile çağır ve açılan adresi bana söyle."
 )
+REPL_PREVIEW_STOPPED_OK = "'{name}' önizlemesi durduruldu."
+REPL_PREVIEW_NOT_RUNNING = "'{name}' adlı çalışan önizleme yok."
+REPL_PREVIEW_WARNING = "! {warning}"
+REPL_PREVIEW_UNTRUSTED = (
+    "Komutlu yapılandırmalar bu proje güvenilmediği için çalışmaz: `fusion trust` ile onayla."
+)
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"

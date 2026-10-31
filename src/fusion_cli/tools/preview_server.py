@@ -30,6 +30,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -82,6 +83,8 @@ class RunningPreview:
     last_probe: dict[str, object] = field(default_factory=dict)
     #: Süreç bizim değil: zaten çalışan sunucuya bağlanıldı (`launch.json` yalnız `url`).
     attached: bool = False
+    #: Başlatma anı (monotonik); "en son başlatılan önizleme" seçimi buna bakar.
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
     def alive(self) -> bool:
@@ -307,14 +310,21 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 
 async def spawn_logged(
-    command: list[str], root: Path, extra_env: dict[str, str] | None = None
+    command: list[str],
+    root: Path,
+    extra_env: dict[str, str] | None = None,
+    *,
+    env_base: dict[str, str] | None = None,
 ) -> tuple[asyncio.subprocess.Process, Path]:
-    """Süreci başlat; stdout/stderr geçici bir günlüğe gider (hata anında kuyruğu okunur)."""
+    """Süreci başlat; stdout/stderr geçici bir günlüğe gider (hata anında kuyruğu okunur).
+
+    `env_base` verilirse `php_env()` yerine o ortam kullanılır (süzülmüş ortam için).
+    """
     handle, name = tempfile.mkstemp(prefix="fusion-preview-", suffix=".log")
     log_path = Path(name)
     try:
         with os.fdopen(handle, "wb") as log:
-            process = await _spawn(command, root, extra_env, output=log)
+            process = await _spawn(command, root, extra_env, output=log, env_base=env_base)
     except BaseException:
         log_path.unlink(missing_ok=True)  # noqa: ASYNC240 - tek küçük unlink, hata yolunda
         raise
@@ -326,8 +336,10 @@ async def _spawn(
     root: Path,
     extra_env: dict[str, str] | None = None,
     output: BinaryIO | None = None,
+    *,
+    env_base: dict[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
-    env = {**php_env(), **(extra_env or {})}
+    env = {**(env_base if env_base is not None else php_env()), **(extra_env or {})}
     return await asyncio.create_subprocess_exec(
         *command,
         cwd=str(root),

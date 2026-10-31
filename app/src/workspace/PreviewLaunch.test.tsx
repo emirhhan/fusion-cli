@@ -6,8 +6,8 @@ import { PreviewLaunch } from "./PreviewLaunch";
 afterEach(cleanup);
 
 const yapilandirmalar = [
-  { ad: "web", komut: "npm run dev", url: "http://127.0.0.1:5173/", baglan: false, calisiyor: false },
-  { ad: "api", komut: "", url: "http://localhost:8000/", baglan: true, calisiyor: false },
+  { ad: "web", komut: "npm run dev", url: "http://127.0.0.1:5173/", baglan: false, calisiyor: false, guven_gerekli: false },
+  { ad: "api", komut: "", url: "http://localhost:8000/", baglan: true, calisiyor: false, guven_gerekli: false },
 ];
 
 function istemci(baslat: Record<string, unknown> = { ok: true, url: "http://127.0.0.1:5173/" }) {
@@ -68,6 +68,33 @@ describe("PreviewLaunch (launch.json başlatıcı, P-041)", () => {
     render(<PreviewLaunch client={yabanci} onStarted={vi.fn()} />);
     await waitFor(() => expect(yabanci.request).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("güvenilmeyen komut için Başlat yerine Güven ve başlat gösterir; önce güven sonra başlat çağrılır", async () => {
+    // Ölçüldü (31 Ekim): indirilmiş deponun launch.json komutu onaysız çalışıyordu.
+    let guvenli = false;
+    const request = vi.fn(async (name: string) => {
+      if (name === "onizleme.yapilandirmalar") {
+        return {
+          ok: true, kaynak: ".claude/launch.json", guvenli, uyarilar: [".claude/launch.json [x]: `url` gerekir (kayıt atlandı)"],
+          yapilandirmalar: [{ ad: "web", komut: "sh -c evil", url: "http://127.0.0.1:3000/", baglan: false, calisiyor: false, guven_gerekli: !guvenli }],
+        };
+      }
+      if (name === "onizleme.guven") { guvenli = true; return { ok: true, dosya: ".claude/launch.json" }; }
+      if (name === "onizleme.baslat") return guvenli ? { ok: true, url: "http://127.0.0.1:3000/" } : { ok: false, metin: "güvenilir değil", guven_gerekli: true };
+      return { ok: true };
+    });
+    const client = { request } as unknown as ProtocolClient;
+    const onStarted = vi.fn();
+    render(<PreviewLaunch client={client} onStarted={onStarted} />);
+
+    const dugme = await screen.findByRole("button", { name: "Güven ve başlat" });
+    expect(screen.getByText("sh -c evil")).toBeTruthy();
+    expect(screen.getByText(/kayıt atlandı/)).toBeTruthy();
+    fireEvent.click(dugme);
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("http://127.0.0.1:3000/"));
+    const adlar = request.mock.calls.map((c) => c[0]);
+    expect(adlar.indexOf("onizleme.guven")).toBeLessThan(adlar.indexOf("onizleme.baslat"));
   });
 
   it("bozuk launch.json hatasını gösterir", async () => {
