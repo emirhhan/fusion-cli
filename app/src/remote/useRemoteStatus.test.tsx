@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { markRemoteInUse } from "./remoteFlag";
@@ -39,4 +39,17 @@ it("çekirdek hata verirse sessizce kapalı kalır", async () => {
   const { result } = renderHook(() => useRemoteStatus(c));
   await waitFor(() => expect((c.request as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
   expect(result.current).toEqual(KAPALI);
+});
+
+it("oturum içinde uzaktan erişim ilk kez kurulunca anahtar yeniden başlatmasız okumaya başlar", async () => {
+  // Ölçüldü (31 Ekim): bayrak yalnız effect kurulurken okunuyordu; Ayarlar'da sunucu açılsa da
+  // başlık uygulama yeniden başlatılana dek "kapalı" kalıyordu.
+  const c = client();
+  const { result } = renderHook(() => useRemoteStatus(c));
+  expect(result.current).toEqual(KAPALI);
+  act(() => markRemoteInUse(true));
+  await waitFor(() => expect(result.current.known).toBe(true));
+  expect(result.current.deviceCount).toBe(2);
+  act(() => markRemoteInUse(false));
+  await waitFor(() => expect(result.current).toEqual(KAPALI));
 });

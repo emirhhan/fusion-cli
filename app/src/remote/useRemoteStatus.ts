@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
-import { remoteInUse } from "./remoteFlag";
+import { onRemoteInUseChange, remoteInUse } from "./remoteFlag";
 
 /**
  * Sohbet başlığındaki "Uzaktan kontrol" anahtarının verisi (P-066).
@@ -8,7 +8,8 @@ import { remoteInUse } from "./remoteFlag";
  * Claude Code sohbet başlığında Remote Control durumunu gösterir; Fusion'da bu bilgi
  * yalnız Ayarlar › Uzaktan Erişim'in içindeydi. Yoklama YALNIZ uzaktan erişimi bir kez
  * kurmuş kullanıcıda çalışır (`remoteInUse`): kurmamış kullanıcıda `uzak.*` isteği hiç
- * atılmaz, anahtar "kapalı" görünür ve tıklanınca kurulum ekranına götürür.
+ * atılmaz, anahtar "kapalı" görünür ve tıklanınca kurulum ekranına götürür. Bayrak oturum
+ * içinde değişirse (`markRemoteInUse`) yoklama yeniden başlatmasız açılır/kapanır.
  */
 
 export interface RemoteStatus {
@@ -26,6 +27,9 @@ export const UZAK_DURUM_YOKLAMA_MS = 20_000;
 
 export function useRemoteStatus(client: ProtocolClient | null): RemoteStatus {
   const [status, setStatus] = useState<RemoteStatus>(KAPALI);
+  const [inUse, setInUse] = useState<boolean>(remoteInUse);
+
+  useEffect(() => onRemoteInUseChange(setInUse), []);
 
   const load = useCallback(async () => {
     if (!client || !remoteInUse()) return;
@@ -47,7 +51,7 @@ export function useRemoteStatus(client: ProtocolClient | null): RemoteStatus {
   }, [client]);
 
   useEffect(() => {
-    if (!client || !remoteInUse()) {
+    if (!client || !inUse) {
       setStatus(KAPALI);
       return;
     }
@@ -59,7 +63,7 @@ export function useRemoteStatus(client: ProtocolClient | null): RemoteStatus {
       window.clearInterval(timer);
       window.removeEventListener("focus", load);
     };
-  }, [client, load]);
+  }, [client, inUse, load]);
 
   return status;
 }
