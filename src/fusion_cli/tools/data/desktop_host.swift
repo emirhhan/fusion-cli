@@ -102,6 +102,56 @@ func action(_ window: AXUIElement, _ id: Int, _ pid: Int32) {
     } else { fail("Yalnız press ve set_value destekleniyor."); return }
     emit(["ok": result == .success, "status": result == .success ? "executed" : "unavailable", "id": id, "pid": Int(pid), "metin": result == .success ? "Hedef öğede AX işlemi çalıştırıldı; uygulama sonucu yeniden incelenmeli." : "Hedef öğe AX işlemini reddetti."])
 }
+// Eylem hedefi (P-007/P-008): noktadaki ya da öndeki uygulama ve öğe; değer (metin) okunmaz.
+let actionableRoles: Set<String> = ["AXButton", "AXMenuItem", "AXMenuBarItem", "AXLink", "AXCheckBox",
+    "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXTab", "AXDisclosureTriangle"]
+func elementInfo(_ element: AXUIElement) -> [String: Any] {
+    var current: AXUIElement? = element
+    var depth = 0
+    while let candidate = current, depth < 4 {
+        let role = attribute(candidate, kAXRoleAttribute) as? String ?? ""
+        if actionableRoles.contains(role) { break }
+        current = attribute(candidate, kAXParentAttribute).map { unsafeBitCast($0, to: AXUIElement.self) }
+        depth += 1
+    }
+    let chosen = (current.flatMap { actionableRoles.contains(attribute($0, kAXRoleAttribute) as? String ?? "") ? $0 : nil }) ?? element
+    return ["role": attribute(chosen, kAXRoleAttribute) as? String ?? "",
+        "subrole": attribute(chosen, kAXSubroleAttribute) as? String ?? "",
+        "title": attribute(chosen, kAXTitleAttribute) as? String ?? "",
+        "description": attribute(chosen, kAXDescriptionAttribute) as? String ?? "",
+        "help": attribute(chosen, kAXHelpAttribute) as? String ?? ""]
+}
+func appInfo(_ pid: pid_t) -> [String: Any]? {
+    guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+    return ["app": app.localizedName ?? "", "bundle": app.bundleIdentifier ?? "", "pid": Int(pid)]
+}
+func target() {
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    let request = (input.count <= 10_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
+    let trusted = AXIsProcessTrusted()
+    if let point = request["point"] as? [Double], point.count == 2 {
+        guard trusted else { fail("macOS Erişilebilirlik izni gerekli."); return }
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point[0]), Float(point[1]), &element) == .success,
+            let hit = element else { fail("Noktadaki öğe okunamadı."); return }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(hit, &pid) == .success, var info = appInfo(pid) else { fail("Noktadaki uygulama okunamadı."); return }
+        info["ok"] = true
+        info["element"] = elementInfo(hit)
+        emit(info)
+    } else if let pid = request["pid"] as? Int, pid > 0 {
+        guard var info = appInfo(pid_t(pid)) else { fail("Süreç bulunamadı."); return }
+        info["ok"] = true
+        emit(info)
+    } else {
+        guard let front = NSWorkspace.shared.frontmostApplication, var info = appInfo(front.processIdentifier) else { fail("Öndeki uygulama okunamadı."); return }
+        info["ok"] = true
+        if trusted, let focused = attribute(AXUIElementCreateApplication(front.processIdentifier), kAXFocusedUIElementAttribute) {
+            info["element"] = elementInfo(unsafeBitCast(focused, to: AXUIElement.self))
+        }
+        emit(info)
+    }
+}
 let args = CommandLine.arguments
 let rows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 if args.count > 1 && args[1] == "list" {
@@ -126,6 +176,8 @@ if args.count > 1 && args[1] == "list" {
         return ["icon": iconData, "kind": "window", "id": id, "pid": pid, "app": app.localizedName ?? "Uygulama", "title": row[kCGWindowName as String] as? String ?? "", "visible": row[kCGWindowIsOnscreen as String] as? Bool ?? false]
     }
     emit(["ok": true, "windows": windows])
+} else if args.count == 2 && args[1] == "target" {
+    target()
 } else if args.count == 3, args[1] == "screen", let displayID = UInt32(args[2]) {
     // Ekranı Fusion'ın (ve isteyen sürecin) pencereleri HARİÇ yakala (P-033): model kendi
     // sohbet penceresini görmez, görüntü kirlenmez. Yalnız ScreenCaptureKit; geri düşüş yok.

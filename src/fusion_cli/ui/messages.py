@@ -1418,3 +1418,10 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+# Bilgisayar kullanımı (P-007, P-033) — `BILGISAYAR_` önekli.
+BILGISAYAR_APPROVAL_SESSION = "Bu oturumda {app} için izin ver"
+BILGISAYAR_APPROVAL_NEVER = "Her zaman reddet"
+BILGISAYAR_APPROVAL_NEVER_DESC = "{app} reddedilen uygulamalara eklenir (Ayarlar › Bu bilgisayar)."
+BILGISAYAR_APPROVAL_TARGET = "Uygulama: {app} · kademe: {level}"
+BILGISAYAR_CONFIRM_SESSION_HINT = "o = bu oturumda {app} için izin ver"

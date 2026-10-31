@@ -1780,6 +1780,15 @@ class AppSession:
             self._state.config = _refresh_teacher(yeni)
         return sonuc
 
+    async def _deny_desktop_app(self, app: str) -> None:
+        """Onay kartındaki "Her zaman reddet" (P-007): `desktop.denied_apps`'e yaz ve uygula."""
+        sonuc, guncel = await asyncio.to_thread(computer_routes.deny_app, self._state.config, app)
+        if not sonuc.get("ok"):
+            logging.getLogger(__name__).warning(
+                "Reddedilen uygulama kaydedilemedi: %s", sonuc.get("metin")
+            )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
+
     async def _computer_rpc(self, request: Request) -> dict[str, Any]:
         """`bilgisayar.*` (P-006): yazma dosyaya gider; oturum yalnız `desktop:`'u günceller."""
         sonuc, guncel = await asyncio.to_thread(
@@ -2793,6 +2802,7 @@ class AppSession:
             on_closed=self._question_closed,
             # Önizleme aracın esnek eşleşme ayarıyla AYNI olmalı (gerçek diff).
             edit_fuzzy_match=(config_snapshot or self._state.config).runtime.edit_fuzzy_match,
+            on_app_denied=self._deny_desktop_app,
         )
         steering = SteeringQueue()
         child_runs = ChildRuns()

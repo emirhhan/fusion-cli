@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from hashlib import sha256
 from itertools import count
 from pathlib import Path
@@ -152,8 +152,11 @@ class ProtocolPrompter:
         on_closed: Callable[[str], None] | None = None,
         approval_timeout_s: float = APPROVAL_UNANSWERED_TIMEOUT_S,
         edit_fuzzy_match: bool = True,
+        on_app_denied: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._edit_fuzzy_match = edit_fuzzy_match
+        #: Masaüstü kartında "Her zaman reddet" (P-007): uygulamayı `desktop.denied_apps`'e yazar.
+        self._on_app_denied = on_app_denied
         self._writer = writer
         self._approval_timeout_s = approval_timeout_s
         self._pending = pending
@@ -192,6 +195,8 @@ class ProtocolPrompter:
             # Eşleşen izin kuralı ve "not ekle" desteği (P-001, P-013).
             "kural": request.rule,
             "not_alinir": True,
+            # Masaüstü hedefi (P-007): uygulama adı, kademe, kategori uyarısı, tıklanan öğe.
+            "masaustu": _desktop_payload(request),
         }
         data = await self._ask_approval(payload, request)
         choice = data.get("secim")
@@ -205,7 +210,15 @@ class ProtocolPrompter:
             answer = ApprovalAnswer.ALWAYS
         else:
             answer = ApprovalAnswer.DENY
+            if choice == "never":
+                await self._deny_app(request)
         return ApprovalReply(answer, note) if note else answer
+
+    async def _deny_app(self, request: ApprovalRequest) -> None:
+        """Uygulamayı kalıcı ret listesine yaz (sahip oturum yazar ve canlı ayarı günceller)."""
+        target = request.desktop_target
+        if target is not None and self._on_app_denied is not None:
+            await self._on_app_denied(target.app)
 
     def _onizleme(self, request: ApprovalRequest) -> str:
         """Düzenleme onaylarında değişiklik önizlemesi; üretilemezse boş metin."""
@@ -325,8 +338,14 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
     yazılacak kuralı gösterir ki kullanıcı neye izin verdiğini görsün.
     """
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
+    target = request.desktop_target
     if request.can_remember:
-        session = {"deger": "session", "etiket": messages.TUI_APPROVAL_SESSION}
+        label = (
+            messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
+            if target is not None and request.consent_key is not None
+            else messages.TUI_APPROVAL_SESSION
+        )
+        session = {"deger": "session", "etiket": label}
         description = request.remembered_scope_description
         if description:
             session["aciklama"] = description
@@ -341,4 +360,26 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
             }
         )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
+    if target is not None and request.consent_key is not None:
+        options.append(
+            {
+                "deger": "never",
+                "etiket": messages.BILGISAYAR_APPROVAL_NEVER,
+                "aciklama": messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
+            }
+        )
     return options
+
+
+def _desktop_payload(request: ApprovalRequest) -> dict[str, object] | None:
+    target = request.desktop_target
+    if target is None:
+        return None
+    return {
+        "uygulama": target.app,
+        "paket": target.bundle,
+        "kademe": target.level.value,
+        "kademe_etiket": target.level.label,
+        "uyari": target.warning,
+        "oge": target.element,
+    }

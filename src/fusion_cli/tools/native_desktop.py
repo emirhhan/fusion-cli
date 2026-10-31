@@ -103,9 +103,13 @@ class SwiftDesktop:
     async def invoke(self, operation: str, target: dict[str, object]) -> dict[str, object]:
         if sys.platform != "darwin":
             return unavailable("Yerel pencere dock'u yalnız macOS destekliyor.")
-        if operation not in {"list", "focus", "snapshot", "inspect", "action", "screen"}:
+        if operation not in {"list", "focus", "snapshot", "inspect", "action", "screen", "target"}:
             return unavailable("Yerel hedef işlemi desteklenmiyor.")
-        if operation == "screen":
+        if operation == "target":
+            # Eylem hedefi sorgusu (P-007): istek gövdesi nokta / pid / boş (öndeki uygulama).
+            if target.get("kind") != "probe":
+                return unavailable("Hedef sorgusu geçersiz.")
+        elif operation == "screen":
             # Ekran hedefi: yalnız CG ekran kimliği; pencere/pid yok (P-033).
             if target.get("kind") != "display" or type(target.get("id")) is not int:
                 return unavailable("Ekran kimliği gerekli.")
@@ -122,7 +126,7 @@ class SwiftDesktop:
             arguments = [str(binary), operation]
             if operation == "screen":
                 arguments.append(str(target["id"]))
-            elif operation != "list":
+            elif operation not in {"list", "target"}:
                 arguments += [str(target["id"]), str(target["pid"])]
             payload = json.dumps(target.get("request", {})).encode()
             result = json.loads(await _process(arguments, NATIVE_TIMEOUT_S, payload))
