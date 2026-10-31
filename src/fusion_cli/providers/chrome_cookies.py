@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -45,6 +46,14 @@ _KEY_BYTES = 16
 KEY_ITERATIONS = 1003 if sys.platform == "darwin" else 1
 #: Şifreli değerin sürüm öneki.
 _VERSION_PREFIXES = (b"v10", b"v11")
+#: Linux'ta `v11`: gnome-keyring/kwallet'ten alınan parola; sabit "peanuts" ÇÖZMEZ.
+_LINUX_KEYRING_PREFIX = b"v11"
+_LINUX_V11_HINT = (
+    "Linux'ta Chrome çerezleri anahtarlık (gnome-keyring/kwallet, v11) ile şifreli; Fusion "
+    "yalnız 'peanuts' (v10) çözer. Cookie-Editor ile JSON dışa aktarıp "
+    "`fusion browser import-cookies` kullan."
+)
+_logger = logging.getLogger(__name__)
 #: Chrome'un 1601 tabanlı mikrosaniye zaman damgasını Unix'e çevirme sabiti.
 _CHROME_EPOCH_OFFSET_S = 11_644_473_600
 _LOCAL_STATE = "Local State"
@@ -112,6 +121,9 @@ def read_chrome_cookies(
     with _snapshot(profile.cookies_path) as copy:
         rows = _query(copy, _SELECT)
     cookies: list[Cookie] = []
+    skipped = 0
+    keyring_skipped = 0
+    first_error: BrowserProfileError | None = None
     for host, name, encrypted, plain, path, expires_utc, secure, http_only, same_site in rows:
         host_key = str(host or "")
         if not host_key or not name:
@@ -120,7 +132,20 @@ def read_chrome_cookies(
             continue
         value = str(plain or "")
         if encrypted:
-            value = decrypt_value(bytes(encrypted), key, host_key)
+            # Tek bozuk çerez bütün içe aktarmayı düşürmez: atlanır ve sayılır. Ölçüldü
+            # (31 Ekim): Linux'ta anahtarlık etkinken v11 kayıt 'Keychain uyuşmuyor'
+            # hatasıyla hiçbir çerezin yazılmamasına yol açıyordu.
+            try:
+                value = decrypt_value(bytes(encrypted), key, host_key)
+            except BrowserProfileError as error:
+                skipped += 1
+                if bytes(encrypted).startswith(_LINUX_KEYRING_PREFIX) and sys.platform not in (
+                    "darwin",
+                    "win32",
+                ):
+                    keyring_skipped += 1
+                first_error = first_error or error
+                continue
         cookies.append(
             Cookie(
                 name=str(name),
@@ -133,6 +158,16 @@ def read_chrome_cookies(
                 # `0` (none) de geçerli bir değerdir; `or` ile -1'e düşürülmez.
                 same_site=_SAME_SITE.get(int(same_site) if same_site is not None else -1, "Lax"),
             )
+        )
+    if skipped and not cookies and first_error is not None:
+        if keyring_skipped:
+            raise BrowserProfileError(_LINUX_V11_HINT) from first_error
+        raise first_error
+    if skipped:
+        _logger.warning(
+            "Chrome içe aktarma: %d çerez çözülemedi ve atlandı (%d anahtarlık/v11).",
+            skipped,
+            keyring_skipped,
         )
     return tuple(cookies)
 
@@ -196,8 +231,9 @@ def decrypt_value(encrypted: bytes, key: bytes, host_key: str) -> str:
         padded = bytes(decryptor.update(encrypted[3:]) + decryptor.finalize())
         plain = bytes(unpadder.update(padded) + unpadder.finalize())
     except ValueError as error:
+        parola = "Keychain parolası" if sys.platform == "darwin" else "yerel parola"
         raise BrowserProfileError(
-            "Chrome çerezi çözülemedi: Keychain parolası uyuşmuyor ya da biçim yeni."
+            f"Chrome çerezi çözülemedi: {parola} uyuşmuyor ya da biçim yeni."
         ) from error
     digest = hashlib.sha256(host_key.encode()).digest()
     if plain.startswith(digest):

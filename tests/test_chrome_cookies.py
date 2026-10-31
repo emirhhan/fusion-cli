@@ -165,3 +165,39 @@ def test_okuma_veritabanini_kopyalar_asil_dosyaya_dokunmaz(chrome_dizini):
 
     assert profil.cookies_path.stat().st_mtime_ns == once
     assert not list(profil.cookies_path.parent.glob("*.tmp"))
+
+
+def test_cozulemeyen_tek_cerez_atlanir_digerleri_yazilir(tmp_path, monkeypatch, caplog):
+    """Ölçüldü (31 Ekim): tek bozuk/v11 kayıt bütün içe aktarmayı düşürüyordu."""
+    monkeypatch.setattr(chrome_cookies, "safe_storage_password", lambda: PAROLA)
+    db = tmp_path / "Cookies"
+    iyi = _sifrele(b"deger", iterations=chrome_cookies.KEY_ITERATIONS)
+    _veritabani(
+        db,
+        [
+            (".example.com", "sid", iyi, "/", 0, 1, 1, 1),
+            (".example.com", "bozuk", b"v11" + b"\x00" * 16, "/", 0, 1, 1, 1),
+        ],
+    )
+    profil = chrome_cookies.ChromeProfile(directory=tmp_path, label="x", cookies_path=db)
+
+    with caplog.at_level("WARNING"):
+        cerezler = chrome_cookies.read_chrome_cookies(profil)
+
+    assert [c.name for c in cerezler] == ["sid"]
+    assert "1 çerez çözülemedi" in caplog.text
+
+
+def test_hepsi_cozulemezse_hata_linuxta_anahtarlik_ipucu_verir(tmp_path, monkeypatch):
+    monkeypatch.setattr(chrome_cookies, "safe_storage_password", lambda: PAROLA)
+    db = tmp_path / "Cookies"
+    _veritabani(db, [(".example.com", "bozuk", b"v11" + b"\x00" * 16, "/", 0, 1, 1, 1)])
+    profil = chrome_cookies.ChromeProfile(directory=tmp_path, label="x", cookies_path=db)
+
+    monkeypatch.setattr(chrome_cookies.sys, "platform", "linux")
+    with pytest.raises(BrowserProfileError, match="anahtarlık"):
+        chrome_cookies.read_chrome_cookies(profil)
+
+    monkeypatch.setattr(chrome_cookies.sys, "platform", "darwin")
+    with pytest.raises(BrowserProfileError, match="Keychain"):
+        chrome_cookies.read_chrome_cookies(profil)
