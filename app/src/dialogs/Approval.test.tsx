@@ -23,6 +23,26 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("Approval — izin kartı", () => {
+  it("masaüstü onayında uygulama ve kademeyi gösterir; Her zaman reddet `never` gönderir", () => {
+    const onCevap = vi.fn();
+    render(<Approval onCevap={onCevap} soru={{
+      ...temel,
+      arac: "desktop_click",
+      masaustu: { uygulama: "Mail", kademe: "full", kademe_etiket: "tam kontrol", oge: "Button 'Arşivle'" },
+      secenekler: [
+        { deger: "once", etiket: "Evet" },
+        { deger: "session", etiket: "Bu oturumda Mail için izin ver" },
+        { deger: "deny", etiket: "Hayır, başka bir yol dene" },
+        { deger: "never", etiket: "Her zaman reddet" },
+      ],
+    }} />);
+    expect(screen.getByText("Mail")).toBeTruthy();
+    expect(screen.getByText(/tam kontrol · Button 'Arşivle'/)).toBeTruthy();
+    korumaGec();
+    fireEvent.click(screen.getByRole("button", { name: /Her zaman reddet/ }));
+    expect(onCevap).toHaveBeenCalledWith({ secim: "never" });
+  });
+
   it("alt ajanın isteğinde üst etikette kim istediğini yazar", () => {
     render(<Approval soru={{ ...temel, ajan: "Denetçi (denetci-1a2b)" }} onCevap={vi.fn()} />);
     expect(screen.getByText("Alt ajan izin istiyor: Denetçi (denetci-1a2b)")).toBeTruthy();

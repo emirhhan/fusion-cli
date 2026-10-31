@@ -27,6 +27,7 @@ from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
+from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
@@ -421,6 +422,8 @@ class ToolContext:
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
     #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
     desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
+    #: Bilgisayar kullanımı ayarları (`desktop:`; kademe, reddedilen uygulamalar, tur davranışı).
+    desktop_settings: DesktopSettings = field(default_factory=DesktopSettings, kw_only=True)
     #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
     #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
     worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)

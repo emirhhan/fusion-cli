@@ -1,0 +1,26 @@
+/* Bu bilgisayar: reddedilen uygulamalar ve uygulama kademeleri listeleri (P-006). */
+.computer-settings__list { display: grid; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+.computer-settings__list li {
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  justify-content: space-between;
+  padding: 6px 0;
+}
+.computer-settings__add { align-items: center; display: grid; gap: var(--space-2); grid-template-columns: 1fr auto auto; }
+.computer-settings__add input,
+.computer-settings__add select {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+}
+.computer-settings__add input:focus-visible,
+.computer-settings__add select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 720px) { .computer-settings__add { grid-template-columns: 1fr; } }

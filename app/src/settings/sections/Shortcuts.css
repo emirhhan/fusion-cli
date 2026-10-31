@@ -1,0 +1,63 @@
+/* Ayarlar › Kısayollar (P-046) */
+.shortcuts__table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-top: var(--space-3);
+  width: 100%;
+}
+
+.shortcuts__table th,
+.shortcuts__table td {
+  border-bottom: 1px solid var(--settings-border);
+  padding: var(--space-2) var(--space-2);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.shortcuts__table thead th {
+  color: var(--settings-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shortcuts__table tbody th { color: var(--settings-text); font-weight: 500; }
+
+.shortcuts__table kbd {
+  background: var(--settings-input-bg);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-right: var(--space-1);
+  padding: 1px 7px;
+}
+
+.shortcuts__unset { color: var(--settings-muted); }
+
+.shortcuts__row-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.shortcuts__row-actions button[data-kisayol-kaydi] {
+  outline: 2px solid var(--settings-ring);
+  outline-offset: 1px;
+}
+
+.shortcuts__conflict {
+  background: var(--settings-input-bg);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--radius-md);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+}
+
+.shortcuts__warnings {
+  color: var(--text-warning);
+  font-size: var(--text-xs);
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+}

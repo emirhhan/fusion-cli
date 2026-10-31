@@ -5,6 +5,7 @@ import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
 import { SandboxCard } from "./SandboxCard";
+import { AutoReviewCard } from "./AutoReviewCard";
 import "./Permissions.css";
 
 /**
@@ -213,6 +214,8 @@ export function Permissions({
           Sohbet ekranında Shift+Tab ile de değiştirebilirsin.
         </p>
       </article>
+
+      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} />}
 
       <article className="settings__card">
         <h3>Proje klasörü</h3>

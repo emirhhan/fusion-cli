@@ -1,4 +1,9 @@
-export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+export const SETTINGS_SECTIONS = ["genel", "hesap", "bildirimler", "ses", "kisayollar", "kisisellestirme", "modeller", "tarayici", "weboturumlari", "izinler", "bilgisayar", "zeka", "uzak", "guncellemeler", "gelismis", "nasil"] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+/** Dış kaynaktan (derin bağlantı) gelen bölüm adı tanınıyor mu? */
+export function isSettingsSection(value: string | null | undefined): value is SettingsSection {
+  return (SETTINGS_SECTIONS as readonly string[]).includes(value ?? "");
+}
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
 /** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
 export const SECTION_HEADING_ID = "settings-section-heading";
@@ -20,13 +25,16 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik güven trust klasör dışı engel" },
   { section: "izinler", id: "settings-permission-rules", label: "İzin kuralları", keywords: "allow ask deny kural kalıp bash edit read webfetch mcp yasak her zaman sor bir daha sorma" },
   { section: "izinler", id: "settings-sandbox", label: "Kabuk sandbox'ı", keywords: "sandbox kum havuzu seatbelt bubblewrap ağ allowlist alan adı domain proxy okuma engeli ssh" },
+  { section: "bilgisayar", id: "settings-computer", label: "Bilgisayar kullanımı", keywords: "computer use masaüstü ekran tıkla yaz kademe yalnız bak tam kontrol reddedilen uygulama denied apps arka plan esc gizle erişilebilirlik ekran kaydı" },
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "weboturumlari", id: SECTION_HEADING_ID, label: "Web oturumları", keywords: "çerez cookie oturum profil içe aktar chrome giriş tarayıcı" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Kullanım sayacı", keywords: "sayaç token maliyet kullanım istatistik" },
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Hız sınırları ve kota", keywords: "kota limit hız sınırı 429 bekletiyor dakika istek" },
   { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm güncellemesi", keywords: "sürüm yeni sürüm yükle güncelle" },
-  { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı" },
+  { section: "guncellemeler", id: "settings-release-notes", label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı changelog release notes" },
+  { section: "kisisellestirme", id: "settings-import", label: "Başka araçtan içe aktar", keywords: "import içe aktar taşı claude code codex gemini cursor mcp izin komut kural" },
+  { section: "kisayollar", id: "settings-shortcuts", label: "Kısayollar", keywords: "klavye tuş kısayol keybindings komut paleti cmd ctrl yeniden bağla" },
   { section: "uzak", id: "settings-remote", label: "Uzaktan kontrol", keywords: "remote control telefondan sür başlık anahtar /rc" },
 ];
 export function searchSettings(query: string): SettingsRow[] {

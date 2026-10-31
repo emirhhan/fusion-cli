@@ -322,6 +322,21 @@ runtime:
   # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
   # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
   usage_log: true
+  # Otomatik kip denetçisi (P-011; Claude Code auto mode sınıflandırıcısı). Otomatik kipte
+  # kuralların SORACAĞI çağrı (git push, proje dışına yazma, uzak sunucu…) küçük/hızlı rol
+  # modeline kullanıcının mesajlarıyla birlikte sorulur: "güvenli" derse sorulmaz, "riskli"
+  # derse sorulur. Model yok/erişilemezse kurallar geçerli (eski davranış). Yıkıcı işlem,
+  # sudo/sistem ayarı, ortam dökümü, `| sh` ve veritabanı silme HİÇBİR ZAMAN modele bırakılmaz.
+  # Üst üste 3 ya da toplam 20 "riskli" kararda oturum Manuel kipe düşer. Açıkken son 3
+  # kullanıcı mesajı ve eylem (komut/yol) denetçi modelinin sağlayıcısına gider ve onun
+  # (ücretsiz) kotasını kullanır; bu yüzden varsayılan kapalıdır: `/auto-mode ac`.
+  #   off      yalnız kurallar (varsayılan)      ask_only  sorulacakları sınıflandır
+  #   on       ek olarak salt okunur olmayan her kabuk komutunu da sınıflandır (yavaşlatır)
+  auto_classifier: "off"
+  # Boş = hakem (`judge`) modeli ve yedekleri. Dolu: <sağlayıcı>/<model>. Web oturumu olamaz.
+  auto_classifier_model: ""
+  # Tek sınıflandırma çağrısının süre sınırı (saniye); aşılırsa kurallar geçerli olur.
+  auto_classifier_timeout_s: 12.0
   # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
   # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
   output_style: varsayilan
@@ -911,10 +926,38 @@ profile_eligibility:
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
 
+# Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
+# Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
+desktop:
+  # false: desktop_* araçları modele hiç sunulmaz.
+  enabled: true
+  # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
+  control_level: full
+  # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
+  # yöneticisi = engelli. false: her uygulama control_level alır.
+  category_defaults: true
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği).
+  denied_apps: []
+  # Uygulama başına kademe, kategoriyi ezer: ["Terminal=full", "com.apple.Safari=click"].
+  app_levels: []
+  # Bir uygulama oturumda ilk kez kullanılırken sor ("Bu oturum / Reddet / Her zaman reddet").
+  app_consent: true
+  # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
+  # hedef uygulama ve Fusion dışındakiler gizlenir.
+  background: true
+  # Tur bitince Fusion'ın gizlediği uygulamaları yeniden göster.
+  unhide_on_finish: true
+  # Ön plan eylemi süren turda fiziksel Esc turu durdurur (tuş uygulamaya gitmez).
+  escape_stops: true
+
 # Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
 # (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+# `overrides`: beceri adı → görünürlük (Claude Code `skillOverrides`): on | name-only (dizinde
+# yalnız ad) | user-invocable-only (yalnız /ad ile, model kendiliğinden yüklemez) | off.
+# Türkçe: acik | yalniz-ad | yalniz-kullanici | kapali. Örnek: `overrides: {pdf: name-only}`.
 capabilities:
   disabled: []
+  overrides: {}
 
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:
@@ -947,6 +990,9 @@ browser:
   # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
   # gibi insan müdahalesi gereken işler için).
   headless: true
+  # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
+  # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
+  panel_agent: true
 
 # run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
 # runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,

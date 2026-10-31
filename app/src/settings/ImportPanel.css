@@ -1,0 +1,9 @@
+/* İçe aktarma ve sürüm notları panelleri (P-071); yalnız ortak jetonlar. */
+.settings__actions button[aria-pressed="true"] { background: var(--surface-selected); border-color: var(--border-strong); font-weight: 550; }
+.settings__table { border-collapse: collapse; font-size: var(--text-xs); margin-top: var(--space-3); width: 100%; }
+.settings__table th { color: var(--text-secondary); font-weight: 600; text-align: left; }
+.settings__table th, .settings__table td { border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; padding: 6px 8px; vertical-align: top; }
+.settings__table tr[data-status="eklenecek"] td:nth-child(3) { color: var(--text-primary); font-weight: 600; }
+.settings__table tr[data-status="atlandı"] td { color: var(--text-secondary); }
+.settings__pre { background: var(--surface-hover); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 12px; line-height: 1.55; margin: var(--space-3) 0 0; max-height: 420px; overflow: auto; padding: 12px; white-space: pre-wrap; }
+@media (max-width: 640px) { .settings__table th:nth-child(4), .settings__table td:nth-child(4) { display: none; } }

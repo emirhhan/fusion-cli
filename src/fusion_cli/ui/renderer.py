@@ -27,6 +27,8 @@ from rich.text import Text
 
 from ..core.events import (
     ApprenticeHandoff,
+    AutoModeFellBack,
+    AutoReviewDecided,
     CandidatesStarted,
     ChangesDigested,
     Channel,
@@ -83,6 +85,7 @@ from ..core.events import (
 )
 from ..core.types import FusionResult
 from . import messages, theme
+from .auto_review_view import decided_line
 from .diff import render_diff
 from .fusion_view import render_fusion_result
 from .text import (
@@ -200,6 +203,10 @@ class ConsoleRenderer:
                         reason=summarize_error(event.reason),
                     )
                 )
+        elif isinstance(event, AutoReviewDecided):
+            self._status(decided_line(event))
+        elif isinstance(event, AutoModeFellBack):
+            self._warn(messages.AUTO_REVIEW_FELL_BACK.format(reason=event.reason))
         elif isinstance(event, TierDegraded):
             # Yalnız BİLGİLENDİRİR — turu ASLA düşürmez (bkz. olayın docstring'i).
             self._warn(

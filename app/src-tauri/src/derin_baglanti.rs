@@ -106,6 +106,19 @@ impl Bekleyen {
     }
 }
 
+/// Soğuk açılış (Windows/Linux): ilk örneğin kendi argümanındaki `fusion://` adresini beklet.
+///
+/// Ölçüldü (31 Ekim): Windows ve Linux'ta kapalı uygulamaya tıklanan bağlantı ilk sürecin
+/// `argv[1]`'i olarak gelir; tek örnek eklentisi yalnız İKİNCİ sürecin argümanını iletir ve
+/// `setup` ilk sürecin argümanına hiç bakmıyordu — bağlantı uygulamayı açıp hedefe gitmiyordu.
+/// macOS adresi argümanla değil `RunEvent::Opened` ile verir; orada bu çağrı bir şey bulmaz.
+pub fn acilista_beklet(bekleyen: &Bekleyen, args: &[String]) -> bool {
+    match argumanlardan(args) {
+        Some(hedef) => bekleyen.yonlendir(&hedef) == Teslim::Beklet,
+        None => false,
+    }
+}
+
 /// Ana pencereyi öne getir ve hedefi arayüze ilet (dinleyici yoksa beklet).
 pub fn ilet(app: &tauri::AppHandle, hedef: &DerinBaglanti) {
     if let Some(ana) = app.get_webview_window_main() {
@@ -263,6 +276,41 @@ mod tests {
         // Bundan sonra gelen yayınlanır, bekletilmez.
         assert_eq!(bekleyen.yonlendir(&ilk), Teslim::Yayinla);
         assert_eq!(bekleyen.al(), None);
+    }
+
+    #[test]
+    fn soguk_acilista_ilk_surecin_argumani_bekletilir() {
+        let bekleyen = Bekleyen::default();
+        let args = vec![
+            "C:\\Program Files\\Fusion\\Fusion.exe".to_string(),
+            "fusion://sohbet/k9".to_string(),
+        ];
+        assert!(acilista_beklet(&bekleyen, &args));
+        assert_eq!(
+            bekleyen.al(),
+            Some(DerinBaglanti::Sohbet { id: "k9".into() })
+        );
+        // macOS'ta argüman yoktur; hiçbir şey bekletilmez.
+        let bos = Bekleyen::default();
+        assert!(!acilista_beklet(
+            &bos,
+            &["/Applications/Fusion.app".to_string()]
+        ));
+        assert_eq!(bos.al(), None);
+    }
+
+    #[test]
+    fn sema_kaydi_windows_ve_linux_paketleyicisine_verilir() {
+        // Paketleyici (tauri-bundler) `plugins > deep-link > desktop > schemes` alanından NSIS
+        // kayıt defteri girdilerini ve Linux `.desktop` MimeType'ını üretir; çalışma anında eklenti
+        // gerekmez (adres argüman olarak gelir).
+        let yapilandirma: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            yapilandirma["plugins"]["deep-link"]["desktop"]["schemes"][0],
+            SEMA
+        );
+        assert!(include_str!("../Info.plist").contains("<string>fusion</string>"));
     }
 
     #[test]

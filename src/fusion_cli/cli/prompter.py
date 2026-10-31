@@ -26,12 +26,15 @@ from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
 from ..ui.diff import diff_lines
+from .desktop_never import NEVER_WORDS, AppDenials, offers_never
 
 #: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
 #: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
 _AFFIRMATIVE = frozenset({"e", "evet", "y", "yes", "onayla"})
 #: "Bir daha sorma" (kalıcı izin kuralı, P-003) sayılan cevaplar.
 _ALWAYS = frozenset({"k", "kalici", "kalıcı", "always", "a"})
+#: Oturum izni (yalnız hatırlanabilen istekte; ör. masaüstü uygulama onayı, P-007).
+_SESSION = frozenset({"o", "oturum", "session"})
 
 
 class ConsolePrompter:
@@ -44,8 +47,11 @@ class ConsolePrompter:
         *,
         flush: Callable[[], Awaitable[None]] | None = None,
         suspend: Callable[[], AbstractContextManager[None]] | None = None,
+        denials: AppDenials | None = None,
     ) -> None:
         self._console = console
+        #: Masaüstü onayında "Her zaman reddet" (`r`, P-007); yazımı sahip bağlar.
+        self._denials = denials or AppDenials()
         self._tool_context = tool_context
         # Terminali devralmadan önce olay veriyolunu boşaltır. Bunsuz, doğrudan
         # yazdığımız onay paneli veriyolunda bekleyen satırlarla sırasız karışır.
@@ -57,6 +63,9 @@ class ConsolePrompter:
         self._interactive = sys.stdin.isatty()
 
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
+        denied = self._denials.short_circuit(request)
+        if denied is not None:
+            return denied
         with self._suspended():
             await self._drain()
             if request.agent_label:
@@ -73,6 +82,11 @@ class ConsolePrompter:
                 )
             elif request.note:
                 self._console.print(f"[{theme.DIM}]{escape(request.note)}[/{theme.DIM}]")
+            if request.desktop_target is not None:
+                line = messages.BILGISAYAR_APPROVAL_TARGET.format(
+                    app=request.desktop_target.app, level=request.desktop_target.level.label
+                )
+                self._console.print(f"[{theme.INFO}]{escape(line)}[/{theme.INFO}]")
             if request.rule:
                 self._console.print(
                     f"[{theme.DIM}]{escape(messages.APPROVAL_RULE_NOTE.format(rule=request.rule))}[/{theme.DIM}]"
@@ -87,6 +101,12 @@ class ConsolePrompter:
                     else messages.CONFIRM_NOTE_HINT_NO_PERSIST
                 )
                 self._console.print(f"[{theme.DIM}]{escape(hint)}[/{theme.DIM}]")
+                target = request.desktop_target
+                if target is not None and request.consent_key is not None:
+                    session_hint = messages.BILGISAYAR_CONFIRM_SESSION_HINT.format(app=target.app)
+                    self._console.print(f"[{theme.DIM}]{escape(session_hint)}[/{theme.DIM}]")
+                    never_hint = messages.BILGISAYAR_CONFIRM_NEVER_HINT.format(app=target.app)
+                    self._console.print(f"[{theme.DIM}]{escape(never_hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )
@@ -96,6 +116,11 @@ class ConsolePrompter:
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
+        head, _, note = answer.strip().partition(" ")
+        if head.lower() in NEVER_WORDS and offers_never(request):
+            notice = self._denials.deny(request)
+            self._console.print(f"[{theme.WARN}]{escape(notice)}[/{theme.WARN}]")
+            return ApprovalReply(ApprovalAnswer.DENY, note.strip()) if note.strip() else False
         return parse_console_answer(answer, request, enter_approves=not is_dangerous)
 
     async def ask(
@@ -211,6 +236,8 @@ def parse_console_answer(
     word = head.lower()
     if word in _ALWAYS:
         return ApprovalAnswer.ALWAYS if request.can_persist else True
+    if word in _SESSION and request.can_remember:
+        return ApprovalAnswer.SESSION
     decision = _is_affirmative(word, enter_approves=enter_approves)
     if not decision and note.strip():
         return ApprovalReply(False, note.strip())

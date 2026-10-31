@@ -73,6 +73,18 @@ describe("SkillsCatalog", () => {
     expect(screen.queryByLabelText("Ajan ayarları")).toBeNull();
   });
 
+  it("beceri görünürlüğünü (capabilities.overrides) Türkçe etiketle gösterir (P-051)", async () => {
+    const fake = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "yetenek.katalog"
+        ? { ok: true, beceriler: [{ ad: "pdf", aciklama: "PDF", kaynak: "claude", tur: "beceri", etkin: true, izinler: [], ayarlar: { gorunurluk: "dizinde yalnız ad" } }] }
+        : { ok: true, ...data, icerik: "Gövde", kesildi: false }),
+    } as unknown as ProtocolClient;
+    render(<SkillsCatalog client={fake} onClose={() => undefined} />);
+    await screen.findByText("pdf");
+    fireEvent.click(screen.getByRole("button", { name: "pdf ayrıntılarını aç" }));
+    expect(screen.getByLabelText("Ajan ayarları").textContent).toContain("Görünürlükdizinde yalnız ad");
+  });
+
   it("ajan belleğini gösterir ve silebilir (P-055)", async () => {
     const fake = client();
     render(<SkillsCatalog client={fake} onClose={() => undefined} />);

@@ -17,7 +17,7 @@ import re
 import time
 from pathlib import Path
 
-from ..core.events import Event, ToolExecuted
+from ..core.events import AutoModeFellBack, AutoReviewDecided, Event, ToolExecuted
 from ..core.redaction import redact
 
 _LOG = logging.getLogger(__name__)
@@ -31,6 +31,8 @@ AUDIT_OUTPUT_CHARS = 400
 AUDIT_ARG_CHARS = 300
 #: Döndürmede tutulan yedek sayısı (`.jsonl.1` en yeni).
 AUDIT_BACKUPS = 3
+#: Denetçi kayıtlarının `tur` etiketi (araç kayıtlarında alan yoktur; geri uyumlu).
+AUDIT_CLASSIFIER_KIND = "sınıflandırıcı"
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
@@ -79,7 +81,7 @@ def read_recent(path: Path, limit: int) -> list[dict[str, object]]:
 
 
 class AuditSink:
-    """`ToolExecuted` olaylarını kalıcı denetim günlüğüne ekleyen dinleyici."""
+    """`ToolExecuted` ve denetçi (P-011) olaylarını kalıcı denetim günlüğüne ekleyen dinleyici."""
 
     def __init__(self, directory: Path, conversation_id: str, *, root: Path) -> None:
         self._path = audit_path(directory, conversation_id)
@@ -90,9 +92,25 @@ class AuditSink:
         return self._path
 
     def handle(self, event: Event) -> None:
-        if not isinstance(event, ToolExecuted):
+        record = self._record(event)
+        if record is None:
             return
-        record = {
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            if self._path.exists() and self._path.stat().st_size > AUDIT_MAX_BYTES:
+                _rotate(self._path)
+            with self._path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError as error:
+            # Günlük yazılamaması turu düşürmez ama sessiz de kalmaz.
+            _LOG.warning("denetim günlüğü yazılamadı", extra={"hata": str(error)})
+
+    def _record(self, event: Event) -> dict[str, object] | None:
+        if isinstance(event, (AutoReviewDecided, AutoModeFellBack)):
+            return self._review_record(event)
+        if not isinstance(event, ToolExecuted):
+            return None
+        record: dict[str, object] = {
             "zaman": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "kok": self._root,
             "ajan": event.agent_id or "ana",
@@ -105,12 +123,23 @@ class AuditSink:
         }
         if event.workspace:
             record["calisma_alani"] = event.workspace
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            if self._path.exists() and self._path.stat().st_size > AUDIT_MAX_BYTES:
-                _rotate(self._path)
-            with self._path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except OSError as error:
-            # Günlük yazılamaması turu düşürmez ama sessiz de kalmaz.
-            _LOG.warning("denetim günlüğü yazılamadı", extra={"hata": str(error)})
+        return record
+
+    def _review_record(self, event: AutoReviewDecided | AutoModeFellBack) -> dict[str, object]:
+        """Otomatik kip denetçisinin kararı / kip düşüşü (P-011): `tur: sınıflandırıcı`."""
+        record: dict[str, object] = {
+            "zaman": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "kok": self._root,
+            "ajan": event.agent_id or "ana",
+            "tur": AUDIT_CLASSIFIER_KIND,
+        }
+        if isinstance(event, AutoModeFellBack):
+            return {**record, "arac": "-", "sonuc": "manuel-kipe-dustu", "gerekce": event.reason}
+        return {
+            **record,
+            "arac": event.tool,
+            "argumanlar": redact(event.summary),
+            "sonuc": f"sınıflandırıcı:{event.verdict.value}",
+            "gerekce": redact(event.reason),
+            "kaynak": event.source.value,
+        }

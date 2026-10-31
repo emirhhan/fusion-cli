@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from ...config.settings_access import list_settings, read_setting, write_setting
 from ...core.errors import ConfigError
+from ...tools.capability_overrides import registry_from_config
 from ...ui import messages
 from .state import ReplState
 
@@ -37,6 +38,13 @@ def config_command(state: ReplState, argument: str) -> str:
             state.config, target = write_setting(state.config, path.strip(), raw)
         except ConfigError as error:
             return str(error)
+        if path.strip().startswith("capabilities."):
+            # Görünürlük/kapatma bu oturumun beceri kataloğuna hemen yansır (P-051).
+            nested = state.capabilities.nested_roots if state.capabilities else ()
+            state.capabilities = registry_from_config(
+                state.config, state.home, state.root, extra_roots=state.extra_roots
+            )
+            state.capabilities.add_nested_roots(nested)
         return messages.CONFIG_SET_DONE.format(
             path=path.strip(), value=read_setting(state.config, path.strip()), file=target
         )

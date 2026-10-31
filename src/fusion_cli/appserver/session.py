@@ -27,17 +27,18 @@ import shlex
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from functools import partial
 from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import cron_store, macros, worktrees
+from ..cli.repl import cron_store, linked_pr, macros, worktrees
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
+from ..cli.repl.skill_commands import model_override_allowed
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -79,6 +80,7 @@ from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
 from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
@@ -89,14 +91,18 @@ from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
-from ..tools.capabilities import CapabilityRegistry, load_agent_prompt
+from ..tools.capabilities import Capability, CapabilityRegistry, load_agent_prompt
+from ..tools.capability_overrides import registry_from_config
 from ..tools.safe_delete import is_container_root, project_folders
+from ..tools.skill_commands import map_denied_tools
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import auto_memory, intelligence, ui_prefs
+from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
+from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
+from .browser_panel import BrowserPanel
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
@@ -109,6 +115,8 @@ from .commands import (
     run_command,
     select_development_model,
 )
+from .computer_activity import ComputerActivityWatch
+from .computer_routes import COMPUTER_ROUTES
 from .connectors import (
     add_connector_verified,
     connector_secret_values,
@@ -141,6 +149,7 @@ from .desktop_permission_routes import (
     dispatch_desktop_permission,
 )
 from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
+from .extension_routes import EXTENSION_ROUTES, ExtensionContext, dispatch_extension
 from .file_search import FileSearchIndex, search_project_files
 from .history import (
     PreparedResume,
@@ -163,6 +172,7 @@ from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
 from .instructions import get_instructions, instruction_block, save_instructions
+from .keybindings_rpc import KEYBINDING_ROUTES
 from .kits_browser_routes import (
     KITS_BROWSER_DESCRIBE_ROUTE,
     KITS_BROWSER_ROUTES,
@@ -507,6 +517,14 @@ class AppSession:
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
         # Ajan tarayıcısı profilleri (P-023/P-024); sır deposuyla aynı ana anahtar.
         self._browser_profiles = default_browser_profile_store()
+        # Uygulama içi Tarayıcı paneli (P-045): ajanla paylaşılan tarayıcının sahibi.
+        self._browser_panel = BrowserPanel(
+            config=lambda: self._state.config,
+            root=lambda: self._state.root,
+            turn_running=lambda: self._turn is not None and not self._turn.done(),
+            store=lambda: self._browser_profiles,
+            save_agent_share=self._save_panel_agent,
+        )
         self._remote: RemoteController | None = None
         self._personal_memory = PersonalMemory(config.memory_dir)
         from ..memory.image_job_store import ImageJobStore
@@ -604,6 +622,11 @@ class AppSession:
         self._desktop_activity = DesktopActivity()
         self._desktop_permissions = DesktopPermissionWatch(
             lambda payload: self._writer(encode_event(payload))
+        )
+        # "Fusion bilgisayarı kullanıyor · Esc ile durdur" şeridi (P-033).
+        self._computer_activity = ComputerActivityWatch(
+            lambda payload: self._writer(encode_event(payload)),
+            lambda: self._state.config.desktop,
         )
         from ..mcp_bridge.service import McpConnectionService
 
@@ -811,6 +834,9 @@ class AppSession:
                 return {"ok": False, "metin": "Soru kimliği veya cevap geçersiz."}
             accepted = self.pending.answer(identifier, answer)
             return {"ok": accepted, "questionId": identifier}
+        if request.name in EXTENSION_ROUTES:
+            # Eklentiler, içe aktarma, sürüm notları (P-059, P-071): `extension_routes`.
+            return await self._extension_rpc(request.name, request.data)
         if request.name in KITS_ROUTES:
             # Fusion → Kit gelen kutusu (P-063); araçlarla aynı istemci.
             return await dispatch_kits(request.name, request.data)
@@ -893,6 +919,8 @@ class AppSession:
             return load_flow(request.data)
         if request.name in SCHEDULE_ROUTES:
             return SCHEDULE_ROUTES[request.name](request.data)
+        if request.name in KEYBINDING_ROUTES:
+            return KEYBINDING_ROUTES[request.name](request.data)
         if request.name == "kitaplik.liste":
             from .asset_bridge import catalogued_library
 
@@ -1056,7 +1084,7 @@ class AppSession:
             return await await_owned_thread(git_status, self._state.root)
         if request.name == "yetenek.katalog":
             return catalog(
-                self._all_capabilities,
+                self._catalog_registry(),
                 self._state.config,
                 self._state.root,
                 disabled_skills=self._disabled_skills,
@@ -1066,7 +1094,7 @@ class AppSession:
             )
         if request.name == "yetenek.detay":
             return detail(
-                self._all_capabilities,
+                self._catalog_registry(),
                 self._state.config,
                 self._state.root,
                 request.data,
@@ -1090,6 +1118,11 @@ class AppSession:
             return self._control_status()
         if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
             return self._permissions_rpc(request)
+        if request.name.startswith("oto."):
+            # Otomatik kip denetçisi (P-011); bkz. `auto_review_rpc`.
+            from .auto_review_rpc import handle as auto_review_rpc
+
+            return auto_review_rpc(self._state, request)
         if request.name == "kontrol.cirak_bildirimi_goruldu":
             return self._ack_apprentice_notice()
         if request.name == "kontrol.anahtar_kaydet":
@@ -1372,6 +1405,10 @@ class AppSession:
             return web_login_state(request.data.get("pid"))
         if request.name.startswith("tarayici."):
             return await self._browser_profile_rpc(request)
+        if request.name.startswith(BROWSER_PANEL_RPC):
+            return await self._browser_panel.handle(request.name, request.data)
+        if request.name in COMPUTER_ROUTES:
+            return await self._computer_rpc(request)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "cron.listele":
@@ -1465,6 +1502,7 @@ class AppSession:
         await asyncio.to_thread(
             delete_conversation, self._state.config.memory_dir, root, conversation_id
         )
+        linked_pr.save(self._state.config.memory_dir, conversation_id, None)
         await self._submission_store.delete_conversation(
             str(self._state.config.memory_dir.resolve()),
             str(root),
@@ -1606,8 +1644,9 @@ class AppSession:
         # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
         # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
         self._state.conversation_id = self._transcript_store.session_id
-        # Başka sekmenin tur kayıtları bu konuşmaya ait değildir.
+        # Başka sekmenin tur kayıtları ve PR künyesi bu konuşmaya ait değildir.
         self._state.checkpoints.clear()
+        linked_pr.restore(self._state)
         self._restore_interrupted_turn()
 
     def _turn_journal(self, task: str) -> FileTurnJournal:
@@ -1786,6 +1825,30 @@ class AppSession:
             self._state.config = _refresh_teacher(yeni)
         return sonuc
 
+    async def _save_panel_agent(self, value: bool) -> str:
+        """Tarayıcı panelindeki paylaşım seçimini `browser.panel_agent`'a yaz; hata metni."""
+        sonuc = await self._browser_profile_rpc(
+            Request(id="", name="tarayici.ayar", data={"anahtar": "panel_agent", "deger": value})
+        )
+        return "" if sonuc.get("ok") else str(sonuc.get("metin") or "Ayar yazılamadı.")
+
+    async def _deny_desktop_app(self, app: str) -> None:
+        """Onay kartındaki "Her zaman reddet" (P-007): `desktop.denied_apps`'e yaz ve uygula."""
+        sonuc, guncel = await asyncio.to_thread(computer_routes.deny_app, self._state.config, app)
+        if not sonuc.get("ok"):
+            logging.getLogger(__name__).warning(
+                "Reddedilen uygulama kaydedilemedi: %s", sonuc.get("metin")
+            )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
+
+    async def _computer_rpc(self, request: Request) -> dict[str, Any]:
+        """`bilgisayar.*` (P-006): yazma dosyaya gider; oturum yalnız `desktop:`'u günceller."""
+        sonuc, guncel = await asyncio.to_thread(
+            computer_routes.dispatch, self._state.config, request.name, request.data
+        )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
+        return sonuc
+
     async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:
         """`tarayici.*` (P-024): dosya/Chrome okuma ve şifreleme bloklar, thread'e alınır."""
         from . import browser_profiles as rpc
@@ -1823,14 +1886,15 @@ class AppSession:
             if sonuc.get("ok"):
                 tarayici = self._state.config.browser
                 deger = bool(sonuc["deger"])
-                self._state.config = replace(
-                    self._state.config,
-                    browser=(
-                        replace(tarayici, headless=deger)
-                        if sonuc["anahtar"] == "headless"
-                        else replace(tarayici, profiles_enabled=deger)
-                    ),
+                anahtar = sonuc["anahtar"]
+                yeni_tarayici = (
+                    replace(tarayici, headless=deger)
+                    if anahtar == "headless"
+                    else replace(tarayici, panel_agent=deger)
+                    if anahtar == "panel_agent"
+                    else replace(tarayici, profiles_enabled=deger)
                 )
+                self._state.config = replace(self._state.config, browser=yeni_tarayici)
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
 
@@ -2162,6 +2226,16 @@ class AppSession:
             "maliyet_usd": round(self._usage.total.cost_usd, 4),
             # Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler; arayüz uyarır.
             "depo": self._container_projects(),
+            # Oturumun bağlı olduğu PR (P-057); yoksa None. Sohbet şeridi rozeti gösterir.
+            "pr": (
+                {
+                    "numara": self._state.linked_pr.number,
+                    "url": self._state.linked_pr.url,
+                    "depo": self._state.linked_pr.repo,
+                }
+                if self._state.linked_pr is not None
+                else None
+            ),
         }
 
     def _container_projects(self) -> list[str]:
@@ -2280,6 +2354,7 @@ class AppSession:
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             self._state.history.clear()
+            linked_pr.forget(self._state)
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
             return {
@@ -2791,6 +2866,7 @@ class AppSession:
             on_closed=self._question_closed,
             # Önizleme aracın esnek eşleşme ayarıyla AYNI olmalı (gerçek diff).
             edit_fuzzy_match=(config_snapshot or self._state.config).runtime.edit_fuzzy_match,
+            on_app_denied=self._deny_desktop_app,
         )
         steering = SteeringQueue()
         child_runs = ChildRuns()
@@ -2811,6 +2887,8 @@ class AppSession:
         inherited_context = self._state.take_pending_digest()
         # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
         pending_extras = self._state.take_pending_extras()
+        # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
+        config = pending_extras.turn_config(config)
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
         fork_requested, self._fork_requested = self._fork_requested, False
 
@@ -2852,7 +2930,13 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, self._desktop_activity, self._desktop_permissions, *trace_sinks),
+                sinks=(
+                    sink,
+                    self._desktop_activity,
+                    self._desktop_permissions,
+                    self._computer_activity,
+                    *trace_sinks,
+                ),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
@@ -2866,7 +2950,11 @@ class AppSession:
                     if browser_only
                     else persona.allowed_tools
                 ),
-                denied_tools=frozenset() if browser_only else persona.denied_tools,
+                denied_tools=(
+                    frozenset()
+                    if browser_only
+                    else pending_extras.merged_denied(persona.denied_tools)
+                ),
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
@@ -2884,7 +2972,7 @@ class AppSession:
                 workflow=macros.mode_workflow(turn_mode),
                 # `/subtask` ya da `context: fork` beceri: tur fork alt ajanda (P-054).
                 turn_runner=(
-                    run_forked_turn
+                    pending_extras.fork_runner(run_forked_turn)
                     if (macros.mode_fork(turn_mode) or fork_requested) and not browser_only
                     else None
                 ),
@@ -2902,6 +2990,7 @@ class AppSession:
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
+                browser=self._browser_panel.turn_browser(),
             )
 
         # `enter_worktree`/`exit_worktree` isteği: kök tur ortasında değişmez, tur bitince
@@ -2951,6 +3040,8 @@ class AppSession:
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
+            self._browser_panel.turn_finished()
+            self._computer_activity.clear()
             await child_runs.close()
             if self._turn is owned_turn:
                 self._child_runs = None
@@ -2969,6 +3060,9 @@ class AppSession:
             self._chrome_history = outcome.messages
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
+        # Turda açılan/okunan PR sohbetin PR künyesi olur (P-057; `oturum.durum.pr`); künye
+        # çıkarımı korumalıdır, tur kaydını düşürmez.
+        linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
         switched = worktrees.apply_switch_request(self._state, switch)
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
@@ -3050,15 +3144,39 @@ class AppSession:
 
     def _refresh_capabilities(self) -> None:
         # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).
-        kalici = frozenset(getattr(self._state.config.capabilities, "disabled", ()))
-        self._state.capabilities = CapabilityRegistry(
+        # Tembel keşfedilen alt klasör becerileri yeniden kurulan deftere taşınır (ölçüldü
+        # 31 Ekim: yenilemeden sonra kayboluyordu).
+        nested = self._state.capabilities.nested_roots if self._state.capabilities else ()
+        self._state.capabilities = registry_from_config(
+            self._state.config,
             self._state.home,
             self._state.root,
-            disabled_skills=frozenset(self._disabled_skills) | kalici,
-            disabled_agents=frozenset(self._disabled_agents) | kalici,
             extra_roots=self._state.extra_roots,
+            session_disabled_skills=frozenset(self._disabled_skills),
+            session_disabled_agents=frozenset(self._disabled_agents),
         )
+        self._state.capabilities.add_nested_roots(nested)
         self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
+
+    async def _extension_rpc(self, name: str, data: Mapping[str, Any]) -> dict[str, Any]:
+        context = ExtensionContext(self._state.root, self._home, self._state.config)
+        result = await dispatch_extension(name, data, context)
+        if result.config is not None:
+            from ..mcp_bridge import pool
+
+            # Kapatılan/kaldırılan eklentinin MCP süreci beklemeden kapanır (P-059).
+            for server in result.dropped:
+                await pool.drop_mcp_connection(server)
+            self._update_connector_config(result.config)
+        if result.payload.get("yenile") is True:
+            self._reload_capabilities()
+        return result.payload
+
+    def _catalog_registry(self) -> CapabilityRegistry:
+        """Masaüstü katalog defteri; ajanın turda keşfettiği alt klasör becerileri dahil (P-052)."""
+        if self._state.capabilities is not None:
+            self._all_capabilities.add_nested_roots(self._state.capabilities.nested_roots)
+        return self._all_capabilities
 
     def _reload_capabilities(self) -> dict[str, Any]:
         """`yetenek.yenile`: kataloğu diskten yeniden tara."""
@@ -3152,6 +3270,9 @@ class AppSession:
                 )
             if getattr(item, "context", "") == "fork":
                 self._fork_requested = True
+                if not self._state.pending_fork_agent:
+                    self._state.pending_fork_agent = getattr(item, "agent", "")
+            self._queue_skill_turn_settings(item)
             return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}"
         if kind == "ajan":
             item = self._all_capabilities.get_agent(name)
@@ -3163,6 +3284,20 @@ class AppSession:
                 "araçlarını kullanmanı istedi."
             )
         return ""
+
+    def _queue_skill_turn_settings(self, item: Capability) -> None:
+        """Katalogdan seçilen becerinin `model`/`effort`/`disallowed-tools` alanları (P-020).
+
+        Slash yolu (`/beceri`) bunları zaten bekleyen eklere koyar; slash seçimi önceliklidir.
+        """
+        if self._state.pending_model_choice.is_empty:
+            resolution = resolve_turn_model(
+                item.model, item.effort, allow_model=model_override_allowed(self._state, item)
+            )
+            self._state.pending_model_choice = resolution.choice
+        self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
+            item.disallowed_tools
+        )
 
     def _cancel_turn(self) -> dict[str, Any]:
         if self._turn is None or self._turn.done():
@@ -3388,6 +3523,7 @@ class AppSession:
             self._mcp_connections.close,
             self._chrome.close,
             self._processes.close,
+            self._browser_panel.close,
             close_all_browser_sessions,
             stop_all_login_processes,
             *([self._remote.aclose] if self._remote is not None else []),

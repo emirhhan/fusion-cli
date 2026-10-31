@@ -57,6 +57,10 @@ for package in (
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden
+# Sürüm notları (P-071) tek kaynaktan, deponun CHANGELOG'undan okunur. Ölçüldü (31 Ekim): dosya
+# pakete girmediği için Ayarlar › Güncellemeler › Sürüm notları gerçek kullanıcıda her zaman
+# "bu kurulumda yok" diyordu. Çalışma zamanı köküne konur; `changelog_path` orada arar.
+datas.append((os.path.join(_repo_root, "CHANGELOG.md"), "."))
 for distribution in (
     "fusion-cli",
     "litellm",

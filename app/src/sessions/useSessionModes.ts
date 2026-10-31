@@ -5,7 +5,8 @@ import { saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./us
 
 interface ActiveSession {
   id: string;
-  client: Pick<ProtocolClient, "request">;
+  /** `onEvent` verilirse denetçinin kip düşüşü (P-011) arayüze anında yansır. */
+  client: Pick<ProtocolClient, "request"> & Partial<Pick<ProtocolClient, "onEvent">>;
 }
 
 /** Oturum kişiliği (P-053): `oturum.durum.kisilik` → `{ad, unvan}` ya da null. */
@@ -70,6 +71,23 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     return () => { cancelled = true; };
   }, [id, client]);
 
+  useEffect(() => {
+    if (!id || !client?.onEvent) return;
+    // Otomatik kip denetçisi engel eşiğini aştı (P-011): çekirdek oturumu Manuel'e çekti.
+    return client.onEvent((veri) => {
+      if (veri.olay !== "AutoModeFellBack") return;
+      changes.current += 1;
+      setApprovals((current) => ({ ...current, [id]: "security" }));
+    });
+  }, [id, client]);
+
+  /** Çekirdek kipi kendisi değiştirdiğinde (`oto.devam`) arayüz o kipi benimser. */
+  const adoptApproval = useCallback((next: ApprovalMode) => {
+    if (!id) return;
+    changes.current += 1;
+    setApprovals((current) => ({ ...current, [id]: next }));
+  }, [id]);
+
   const request = useCallback(async (patch: Record<string, unknown>, failure: string): Promise<Record<string, unknown> | null> => {
     if (!id || !client) return null;
     changes.current += 1;
@@ -117,6 +135,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     workspaceMode: (id ? workspaces[id] ?? storedWorkspaceMode(id) : null) ?? "kod" as WorkspaceMode,
     persona: (id ? personas[id] : undefined) ?? null,
     changeApproval,
+    adoptApproval,
     changeWorkspace,
     changePersona,
   };
