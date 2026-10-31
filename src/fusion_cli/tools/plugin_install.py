@@ -14,7 +14,9 @@ Kurulum adımları: kaynak geçici klasöre alınır (git `--depth 1`, betik ÇA
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
 import shutil
 import socket
 import tempfile
@@ -71,6 +73,7 @@ ERR_CHANGED = (
     "Güncel içeriği yeniden önizleyip onayla."
 )
 ERR_SHA = "Commit uyuşmuyor: pazar {expected} bekliyor, klon {actual}. Kurulmadı."
+ERR_SHA_FORMAT = "Pazar sha pini en az 7 onaltılık karakter olmalı: {sha!r}. Kurulmadı."
 ERR_NO_MARKET = "Pazar yok: {name}"
 ERR_MARKET_FILE = "Pazar bildirimi bulunamadı (.claude-plugin/marketplace.json): {path}"
 
@@ -105,6 +108,30 @@ class _Resolved:
     marketplace: str = ""
     ref: str = ""
     sha: str = ""
+
+
+#: Klonda git'in kendi başına iç ağa ya da başka protokole gitmesini engelleyen ayarlar.
+#
+# Ölçüldü (31 Ekim): `_check_url` yalnız ilk DNS çözümlemesini denetliyordu; `git clone` kendi
+# çözümlemesini yapıp HTTP yönlendirmesini izliyordu (`http.followRedirects=initial`): genel bir
+# sunucu `302 → http://127.0.0.1/…` ile kör SSRF açabiliyordu. Yönlendirme kapalı, yalnız https,
+# ve (git ≥ 2.37) bağlantı denetlenen IP'ye sabitlenir (`http.curloptResolve`, DNS rebinding).
+_SAFE_GIT_CONFIG: tuple[str, ...] = (
+    "http.followRedirects=false",
+    "protocol.allow=never",
+    "protocol.https.allow=always",
+)
+_SHA = re.compile(r"^[0-9a-f]{7,40}$")
+_FULL_SHA_LENGTH = 40
+
+
+def _git_options(url: str, address: str | None) -> list[str]:
+    options = [item for pair in (("-c", c) for c in _SAFE_GIT_CONFIG) for item in pair]
+    host = urlsplit(url).hostname
+    if address and host:
+        shown = f"[{address}]" if ipaddress.ip_address(address).version == 6 else address
+        options += ["-c", f"http.curloptResolve={host}:443:{shown}"]
+    return options
 
 
 # --- Kaynak çözümleme ----------------------------------------------------------- #
@@ -146,17 +173,18 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
     return _Resolved("git", source.location, record.name, source.ref, source.sha)
 
 
-def _check_url(url: str) -> None:
-    """Klon adresi genel bir https sunucusu mu (iç ağ, kimlik bilgisi, sorgu yok)?"""
+def _check_url(url: str) -> str | None:
+    """Klon adresi genel bir https sunucusu mu (iç ağ, kimlik bilgisi yok)? Denetlenen IP."""
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
         raise PluginError(ERR_URL.format(url=url))
     try:
-        addresses = {info[4][0] for info in socket.getaddrinfo(parts.hostname, 443)}
+        addresses = sorted({str(info[4][0]) for info in socket.getaddrinfo(parts.hostname, 443)})
     except OSError as error:
         raise PluginError(f"{ERR_URL.format(url=url)} ({error})") from error
-    if not addresses or not all(is_public_ip(str(address)) for address in addresses):
+    if not addresses or not all(is_public_ip(address) for address in addresses):
         raise PluginError(ERR_URL.format(url=url))
+    return addresses[0]
 
 
 @contextmanager
@@ -171,19 +199,40 @@ def _workspace(base: Path) -> Iterator[Path]:
 
 
 def _clone(url: str, target: Path, *, ref: str = "", sha: str = "") -> str:
-    _check_url(url)
-    args = ["clone", "--depth", "1", "--quiet"]
-    if ref:
-        args += ["--branch", ref]
+    """Sığ klon; commit döner. Tam (40 karakter) sha pini o commit'i doğrudan çeker.
+
+    Ölçüldü (31 Ekim): pin yalnız `--depth 1` klonunun HEAD'iyle karşılaştırılıyordu; dal ucu
+    ilerleyen depoda pinli eklenti hiç kurulamıyordu. Tek karakterlik pin de kabul ediliyordu.
+    Kısa pin (7-39) dal ucuna eşitse kurulur; değilse tam sha istenir (git kısa sha çekemez).
+    """
+    pin = sha.strip().lower()
+    if pin and not _SHA.match(pin):
+        raise PluginError(ERR_SHA_FORMAT.format(sha=sha))
+    options = _git_options(url, _check_url(url))
+    timeout = capability_install.CLONE_TIMEOUT_S
     try:
-        capability_install._git(
-            [*args, url, str(target)], cwd=target.parent, timeout=capability_install.CLONE_TIMEOUT_S
-        )
+        if len(pin) == _FULL_SHA_LENGTH:
+            capability_install._git(
+                [*options, "init", "--quiet", str(target)], cwd=target.parent, timeout=timeout
+            )
+            capability_install._git(
+                [*options, "fetch", "--depth", "1", "--quiet", url, pin],
+                cwd=target,
+                timeout=timeout,
+            )
+            capability_install._git(
+                ["checkout", "--quiet", "FETCH_HEAD"], cwd=target, timeout=timeout
+            )
+        else:
+            args = [*options, "clone", "--depth", "1", "--quiet"]
+            if ref:
+                args += ["--branch", ref]
+            capability_install._git([*args, url, str(target)], cwd=target.parent, timeout=timeout)
         commit = capability_install._git(["rev-parse", "HEAD"], cwd=target, timeout=GIT_TIMEOUT_S)
     except capability_install.CapabilityInstallError as error:
         raise PluginError(str(error)) from error
-    commit = commit.strip()
-    if sha and not commit.startswith(sha.strip().lower()):
+    commit = commit.strip().lower()
+    if pin and not commit.startswith(pin):
         raise PluginError(ERR_SHA.format(expected=sha, actual=commit[:12]))
     shutil.rmtree(target / ".git", ignore_errors=True)
     return commit

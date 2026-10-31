@@ -310,7 +310,7 @@ def test_git_kaynagi_ic_aga_klonlanmaz(tmp_path):
 
 def test_pazar_sha_uyusmazsa_kurulmaz(tmp_path, monkeypatch):
     def sahte_git(args: list[str], *, cwd: Path, timeout: float) -> str:
-        if args[0] == "clone":
+        if "clone" in args:
             _plugin(Path(args[-1]))
             return ""
         return "f" * 40
@@ -326,7 +326,7 @@ def test_pazar_sha_uyusmazsa_kurulmaz(tmp_path, monkeypatch):
                 "plugins": [
                     {
                         "name": "rapor-araclari",
-                        "source": {"source": "github", "repo": "o/r", "sha": "abc123"},
+                        "source": {"source": "github", "repo": "o/r", "sha": "abc1234"},
                     }
                 ],
             }
@@ -469,3 +469,74 @@ def test_repl_onizleme_ile_yes_arasinda_degisen_eklenti_kurulmaz(tmp_path):
     refused = command.handler(state, f"kur {source} --yes")
     assert "önizlemeden sonra değişti" in refused
     assert plugin_store.load_state().plugins == ()
+
+
+def _sha_market(tmp_path: Path, sha: str) -> None:
+    folder = tmp_path / "pazar"
+    (folder / ".claude-plugin").mkdir(parents=True)
+    (folder / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "ekip",
+                "plugins": [
+                    {
+                        "name": "rapor-araclari",
+                        "source": {"source": "github", "repo": "o/r", "sha": sha},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plugin_install.add_marketplace(str(folder))
+
+
+def test_tam_sha_pini_dal_ucu_ilerlese_de_o_commiti_kurar(tmp_path, monkeypatch):
+    pinned = "1234567" + "a" * 33
+    calls: list[list[str]] = []
+
+    def sahte_git(args: list[str], *, cwd: Path, timeout: float) -> str:
+        calls.append(args)
+        if "init" in args:
+            Path(args[-1]).mkdir(parents=True)
+        elif "checkout" in args:
+            _plugin(cwd)
+        elif "rev-parse" in args:
+            return pinned + "\n"
+        return ""
+
+    monkeypatch.setattr(plugin_install.capability_install, "_git", sahte_git)
+    monkeypatch.setattr(plugin_install, "_check_url", lambda url: None)
+    _sha_market(tmp_path, pinned.upper())
+
+    item = plugin_install.install_plugin("rapor-araclari", approve=_yes)
+
+    assert item.record.commit == pinned
+    fetch = next(args for args in calls if "fetch" in args)
+    assert fetch[-1] == pinned and "--depth" in fetch
+    assert not any("clone" in args for args in calls)
+
+
+def test_kisa_sha_pini_reddedilir_ve_klon_guvenli_git_ayarlariyla_yapilir(tmp_path, monkeypatch):
+    calls: list[list[str]] = []
+
+    def sahte_git(args: list[str], *, cwd: Path, timeout: float) -> str:
+        calls.append(args)
+        if "clone" in args:
+            _plugin(Path(args[-1]))
+        return "f" * 40
+
+    monkeypatch.setattr(plugin_install.capability_install, "_git", sahte_git)
+    monkeypatch.setattr(plugin_install, "_check_url", lambda url: "140.82.112.3")
+    _sha_market(tmp_path, "a")
+
+    with pytest.raises(PluginError, match="en az 7"):
+        plugin_install.install_plugin("rapor-araclari", approve=_yes)
+    assert calls == []
+
+    plugin_install.install_plugin("https://github.com/o/r", approve=_yes)
+    (clone,) = [args for args in calls if "clone" in args]
+    joined = " ".join(clone)
+    assert "http.followRedirects=false" in joined
+    assert "protocol.allow=never" in joined and "protocol.https.allow=always" in joined
+    assert "http.curloptResolve=github.com:443:140.82.112.3" in joined
