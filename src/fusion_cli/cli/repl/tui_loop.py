@@ -317,7 +317,7 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if memory_commands.is_memory_note(line):
+            if memory_commands.takes_memory_note(self._state, line):
                 # `# not` satırı modele gitmez, belleğe yazılır (P-036).
                 self._echo(
                     f"[{theme.DIM}]{escape(memory_commands.save_memory_note(self._state, line))}"

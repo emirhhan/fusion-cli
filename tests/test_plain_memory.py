@@ -193,3 +193,11 @@ def test_ajan_bellek_dizini_kok_disina_cozuluyorsa_yazmaz_ve_silmez(tmp_path):
         bellek.clear()
     assert (disarida / "onemli.txt").read_text(encoding="utf-8") == "dur"
     assert not (disarida / INDEX_FILE).exists()
+
+
+def test_not_cok_satirli_girdiyi_tek_satira_indirir(tmp_path):
+    """`note()` girdiyi tek satır varsayar; `\\n` indeksin satır yapısını bozmasın."""
+    bellek = PlainMemory(tmp_path / "b")
+    bellek.note("ilk satır\nikinci satır\n\nüçüncü")
+    satirlar = [line for line in bellek.read().splitlines() if line.startswith("- ")]
+    assert satirlar == ["- ilk satır ikinci satır üçüncü"]

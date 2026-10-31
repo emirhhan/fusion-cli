@@ -257,8 +257,8 @@ class PlainMemory:
             return MemoryWrite(path=path, created=created, lines=_line_count(path))
 
     def note(self, text: str) -> MemoryWrite:
-        """İndeksin `## Notlar` bölümüne tek satır ekle (`#` kısayolu)."""
-        entry = _clean_entry(text)
+        """`## Notlar` bölümüne tek satır ekle (`#` kısayolu); satır sonları boşluğa iner."""
+        entry = " ".join(_clean_entry(text).split())
         if not entry:
             raise PlainMemoryError("Not boş.")
         with self._lock:

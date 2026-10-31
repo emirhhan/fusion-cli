@@ -24,9 +24,23 @@ IMPORT_SOURCES = ("claude",)
 
 
 def is_memory_note(line: str) -> bool:
-    """`# not` satırı mı? (`##` başlığı ya da tek `#` değil; Claude Code kısayolu.)"""
-    stripped = line.lstrip()
-    return stripped.startswith("#") and not stripped.startswith("##") and len(stripped) > 1
+    """`# not` satırı mı? `#` + boşluk + TEK satır metin (Claude Code kısayolu).
+
+    Ölçüldü (31 Ekim): `#` ile başlayan her satır not sayılıyordu; `#1234 numaralı hatayı
+    düzelt` ve yapıştırılan çok satırlı Markdown modele gitmeden belleğe yazılıyordu.
+    `##` başlığı ve tek `#` not değildir.
+    """
+    stripped = line.strip()
+    if "\n" in stripped or len(stripped) < 3:
+        return False
+    return (
+        stripped[0] == "#" and stripped[1].isspace() and not stripped[2:].lstrip().startswith("#")
+    )
+
+
+def takes_memory_note(state: ReplState, line: str) -> bool:
+    """Satır belleğe mi gider? Bellek KAPALIYKEN `#` satırı yutulmaz, olağan istem olur."""
+    return state.plain_memory is not None and is_memory_note(line)
 
 
 def save_memory_note(state: ReplState, line: str) -> str:

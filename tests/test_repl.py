@@ -1274,6 +1274,11 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     assert not memory_commands.is_memory_note("## başlık") and not memory_commands.is_memory_note(
         "#"
     )
+    # Ölçüldü (31 Ekim): `#1234 numaralı hatayı düzelt` ve yapıştırılan çok satırlı Markdown
+    # da not sayılıp modele gitmiyordu; kısayol `# ` + tek satır ister.
+    assert not memory_commands.is_memory_note("#1234 numaralı hatayı düzelt")
+    assert not memory_commands.is_memory_note("# Başlık\nikinci satır")
+    assert memory_commands.takes_memory_note(state, "# not")
     sonuc = memory_commands.save_memory_note(state, "# kullanıcı kısa yanıt ister")
     assert "Not belleğe yazıldı" in sonuc
     assert "kısa yanıt ister" in state.plain_memory.read()
@@ -1303,6 +1308,8 @@ def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, 
     assert state.plain_memory is None and state.config.runtime.auto_memory is False
     assert komut.handler(state, "") == "Otomatik bellek kapalı. Açmak için: /memory on"
     assert "kapalı" in memory_commands.save_memory_note(state, "# not")
+    # Bellek kapalıyken `#` satırı yutulmaz, olağan istem olarak modele gider.
+    assert not memory_commands.takes_memory_note(state, "# not")
 
     assert "açık" in komut.handler(state, "on")
     assert state.plain_memory is not None

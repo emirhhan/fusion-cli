@@ -287,7 +287,7 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
-    if memory_commands.is_memory_note(line):
+    if memory_commands.takes_memory_note(state, line):
         # `# not` satırı modele gitmez, belleğe yazılır (Claude Code kısayolu, P-036).
         sonuc = memory_commands.save_memory_note(state, line)
         console.print(f"[{theme.DIM}]{escape(sonuc)}[/{theme.DIM}]")
