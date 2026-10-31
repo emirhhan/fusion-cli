@@ -221,3 +221,22 @@ def godot_kesfi_makineden_bagimsiz(monkeypatch):
 
     monkeypatch.delenv("GODOT_BIN", raising=False)
     monkeypatch.setattr(godot, "GODOT_APP_BUNDLES", ())
+
+
+@pytest.fixture(autouse=True)
+def _fusion_gunluk_isleyicisi_sizmaz():
+    """`main()` çağıran testin bağladığı `logs/fusion.log` işleyicisi sonraki teste kalmasın.
+
+    Ölçüldü (31 Ekim, tam paralel koşu): CLI `main()`'i çağıran bir test `fusion_cli`
+    günlüğüne GERÇEK veri dizinindeki dosyayı gösteren işleyici bırakıyordu; aynı süreçteki
+    günlük sızıntısı testi "işleyici zaten var" deyip kendi geçici dosyasını kurmuyordu.
+    """
+    import logging
+
+    kok = logging.getLogger("fusion_cli")
+    onceki = list(kok.handlers)
+    yield
+    for handler in [h for h in kok.handlers if h not in onceki]:
+        if getattr(handler, "_fusion_dosya", False):
+            kok.removeHandler(handler)
+            handler.close()

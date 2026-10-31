@@ -23,6 +23,22 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Plan ve makrolar: plan kipi `plans/<sohbet>.md` dosyasına yazar ve kabul kartı sunar (`/plan goster`, `/plan ac`); `/simplify`, `/security-review`, `/debug`, `/batch`, `/code-review`; `/loop` ve ajan araçları `cron_create/list/delete`, `schedule_wakeup`.
 - Kits: `fusion kit gonder|gelen|liste|durum`, `kit_send` aracı ve `kit.*` RPC'leri; Kit'ler kullanıcının Chrome'unu Fusion onayıyla kullanabilir (`docs/KITS_KOPRUSU.md`).
 
+#### 2. dalga
+
+- Bilgisayar kullanımı: Ayarlar › Bu bilgisayar (aç/kapat, kademe tavanı yalnız bak / tıkla / tam kontrol, reddedilen uygulamalar, uygulama başına kademe; `fusion config set desktop.<alan>`). Uygulama başına oturum onayı ("Bu oturumda Mail için izin ver", "Her zaman reddet"); tarayıcılar yalnız bak, terminal ve IDE'ler tıkla kademesinde; yatırım/kripto ve parola yöneticisi uygulamaları ile Fusion'ın kendi penceresi kapalı.
+- Gönder/sil/öde düğmeleri, Terminal'de ve sohbet uygulamalarında Enter, Sistem Ayarları her seferinde sorulur. Fiziksel Esc turu durdurur; "Fusion bilgisayarı kullanıyor" şeridi; isteğe bağlı olarak tur süresince diğer uygulamaları gizleme.
+- Kancalar (hooks): PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, Notification, PreCompact; Claude Code `settings.json` `hooks` bloğu çalışır, çıkış 2 engeller, kancalar izin kurallarını gevşetemez; `fusion hooks list|test`, `/hooks`; güvenilmeyen projede kapalı.
+- Kabuk sandbox'ı: okuma engeli (~/.ssh, ~/.aws…), alan adı allowlist'li ağ proxy'si, ek yazma dizinleri, Linux bubblewrap, `fail_if_unavailable`; sandbox dışı çalıştırma her seferinde sorulur; `/sandbox`, `fusion sandbox`, Ayarlar › İzinler kartı. `.git/config`, `.git/hooks`, `.mcp.json` sandbox içinden yazılamaz.
+- Otomatik kip denetçisi (varsayılan kapalı, `/auto-mode ac`): sorulacak işlemi küçük model kullanıcının isteğine göre değerlendirir; üst üste 3 / toplam 20 riskli kararda oturum Manuel'e düşer; uzak silme komutları her zaman sorulur.
+- Masaüstü: Tarayıcı paneli (ajanın tarayıcısını canlı izle, Devral / Ajana bırak, öğe seçici); önizlemede https://localhost ve `autoPort`; CLI'de `/tarayici ac`.
+- Masaüstü: ⌘K komut paleti, ⌘P dosyaya git, ⌘N, ⌘,, ⌘B, ⌘J, ⌘1-9 kısayolları ve Ayarlar › Kısayollar (keybindings.json `masaustu` bölümü); `fusion://` Windows/Linux'ta da çalışır.
+- Arka plan ajanları: `fusion agent --bg`, `fusion agents`, `/bg`, `/tasks`, tam ekranda Ctrl+B; `spawn_agent(arka_plan=true)`, `list_agents`, `send_message`, `stop_agent`. Oturumlar arası mesaj: `/list-agents`, `@oturum mesaj` (gelen mesaj güvenilmez girdi, varsayılan bekletilir).
+- Ajan ekipleri (`team_run`, `/team`, `fusion ekip`: lider + üyeler, ortak görev listesi, posta kutusu) ve dinamik iş akışları (`workflow_run`, `/workflows`: JSON tanımla paralel/sıralı alt ajanlar, bütçe ve iptal).
+- Eklentiler: `fusion eklenti` / `/plugin` ile Claude Code biçimli eklenti paketleri ve pazar yerleri (beceri, komut, ajan, çıktı stili, kanca, MCP); değişen eklenti yüklenmez. `/import` ve `fusion import` ile Claude Code, Codex, Gemini CLI ve Cursor'dan MCP, izin, komut ve kural taşıma; `/release-notes`.
+- `/goal <koşul>`: koşul karşılanana kadar turlar kendiliğinden sürer (hakem modeli değerlendirir); `/cd <yol>` çalışma dizinini değiştirir (`Cd(...)` izin kuralı); `/voice` cihaz üstü dikte; aralıksız `/loop` kendi temposunu seçer.
+- Beceriler: `capabilities.overrides` ile görünürlük, becerinin `model`/`effort` alanı o turda uygulanır, monorepo alt klasör becerileri; MCP istemleri `/mcp__sunucu__istem` ve kaynakları `@sunucu:uri`; oturum PR'a bağlanır ve durum satırında görünür.
+- Kits: bilgisayar panelinde canlı izleme ve GIF kaydı.
+
 - "web push bildirimi", "pushState" gibi isim olarak geçen push artık modeli atlayan git push akışını başlatmaz.
 - Gateway bu bilgisayar dışından gelen isteği yalnız belirteçle kabul eder; belirteçsiz ağ bind'i başlamaz (`fusion serve --token`).
 - Güvenilmeyen projenin `config.yaml` ve `.fusion/tools` dosyaları MCP süreci, doğrulama komutu veya araç çalıştıramaz; yeni komut `fusion trust`.
