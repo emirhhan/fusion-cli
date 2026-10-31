@@ -82,6 +82,8 @@ JOB_LOG_TAIL_CHARS = 10_000
 JAVASCRIPT_SYNTAX_TIMEOUT_S = 5.0
 #: Salt-okunur git komutu için zaman aşımı (saniye).
 GIT_TIMEOUT_S = 30.0
+#: Salt-okunur `gh` (GitHub CLI) komutu için zaman aşımı (saniye); ağa çıkar (P-057).
+GH_TIMEOUT_S = 30.0
 #: Web isteği için zaman aşımı (saniye). Bu bir HTTP İSTEĞİ bütçesidir (arama,
 #: sayfa çekme, katalog); bir LLM turunun bütçesi DEĞİLDİR. Tarayıcı tabanlı bir
 #: sohbet turu sayfa yükleme + yazma + tam streaming üretim içerir ve buraya sığmaz;

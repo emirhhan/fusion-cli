@@ -19,6 +19,7 @@ from . import (
     desktop_inspect,
     download,
     files,
+    github_cli,
     jobs,
     planning,
     remotion_render,
@@ -444,6 +445,23 @@ _TOOLS: tuple[Tool, ...] = (
             ["subcommand"],
         ),
         run=shell.git,
+    ),
+    Tool(
+        name="gh",
+        description="Salt-okunur GitHub CLI: PR/issue/CI oku (`pr view 12 --comments`, "
+        "`pr diff 12`, `pr checks 12`, `run view`, `api repos/{owner}/{repo}/pulls/12/comments`); "
+        "onaysız. PR oluşturma/yorum/merge için run_shell ile `gh pr create …` (onay istenir).",
+        parameters=_schema(
+            {
+                "args": {
+                    **_STRING,
+                    "description": "gh argümanları, ör: 'pr view 12 --comments', 'pr checks 12'",
+                }
+            },
+            ["args"],
+        ),
+        run=github_cli.gh,
+        effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
         name="run_shell",

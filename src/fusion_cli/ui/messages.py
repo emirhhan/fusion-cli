@@ -812,6 +812,20 @@ CMD_REVIEW = "mevcut değişiklikleri güvenlik ve mimari açısından incele"
 CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"
+# --- PR/CI makroları ve gh-action (P-057) --- #
+CMD_PR = "mevcut dal için gh ile PR aç (başlık, gövde, test planı)"
+CMD_PR_COMMENTS = "PR inceleme yorumlarını oku ve dosya:satır ile özetle"
+CMD_AUTOFIX_PR = "PR'daki başarısız CI ve yorumları düzelt, push et, bildir"
+HEADLESS_FROM_PR_FAILED = "PR bağlamı alınamadı: {error}"
+GH_ACTION_USAGE = "kullanım: fusion gh-action kur [--force]"
+GH_ACTION_EXISTS = "{path} zaten var; ezmek için --force."
+GH_ACTION_WRITE_FAILED = "İş akışı yazılamadı ({path}): {error}"
+GH_ACTION_INSTALLED = "GitHub Actions iş akışı yazıldı: {path}"
+GH_ACTION_NEXT_STEPS = (
+    "1. Depo ayarlarında FUSION_PROVIDER_KEY sırrını ekle (model sağlayıcı anahtarı).",
+    "2. Dosyayı commit'le ve push et.",
+    "3. Bir issue ya da PR yorumuna '@fusion <görev>' yaz; sonuç yoruma gelir.",
+)
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
 CMD_RESUME = "{source} oturum geçmişinden devral"
 HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."

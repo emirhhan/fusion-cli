@@ -276,6 +276,24 @@ satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }
 
 ---
 
+## 12c) PR ve CI → `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`, `gh-action`
+
+GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış olmalı.
+
+- Ajan **salt-okunur `gh` aracına** onaysız sahiptir: `pr view N --comments`, `pr diff N`,
+  `pr checks N`, `run view`, `api …` (yalnız GET). Yazan komutlar (`gh pr create`,
+  `gh pr comment`, `gh pr merge`) `run_shell` ile çalışır ve **onay ister**.
+- Sohbette: `/pr [bağlam]` mevcut dal için PR açar (başlık, gövde, test planı);
+  `/pr-comments [no]` inceleme yorumlarını dosya:satır ile özetler, kod değiştirmez;
+  `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
+- Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
+  (başlık, dallar, açıklama, adres) ekler.
+- CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
+  PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
+  tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
+
+---
+
 ## 13) Uygulama içindeki gerçek terminal
 
 Masaüstü uygulamasında sağdaki çalışma panelinden **Terminal** sekmesini aç ve

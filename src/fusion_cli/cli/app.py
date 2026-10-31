@@ -45,6 +45,7 @@ from ..ui.tables import cost_summary
 from . import (
     capability_commands,
     eval_commands,
+    gh_action_command,
     headless,
     knowledge_commands,
     mcp_commands,
@@ -81,6 +82,7 @@ app.add_typer(mcp_commands.mcp_app, name="mcp")
 # `/usage` ve `/insights` karşılıkları (P-056).
 app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
+app.command(name="gh-action")(gh_action_command.gh_action)
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
@@ -368,6 +370,9 @@ def agent(
         "--permission-channel",
         help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
     ),
+    from_pr: int | None = typer.Option(
+        None, "--from-pr", min=1, help="Görevin başına bu PR'ın özetini ekle (gh ile okunur)."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
     add_dir: Annotated[
         list[Path] | None,
@@ -389,6 +394,7 @@ def agent(
         append_system_prompt=append_system_prompt,
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
+        from_pr=from_pr,
     )
     config = headless.apply_limits(
         load_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
@@ -508,6 +514,7 @@ def _headless_options(
     append_system_prompt: str | None,
     allowed_tools: list[str] | None,
     disallowed_tools: list[str] | None,
+    from_pr: int | None = None,
 ) -> _HeadlessOptions:
     """Bayrakları doğrula ve çöz; her hata Typer'ın `BadParameter` mesajına döner."""
     try:
@@ -519,6 +526,14 @@ def _headless_options(
     task = headless.read_task(raw_task, sys.stdin, is_tty=sys.stdin.isatty())
     if not task:
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    if from_pr is not None:
+        # `--from-pr N` (Claude Code): PR özeti görevin başına eklenir (P-057).
+        from ..tools.github_cli import pr_context
+
+        try:
+            task = f"{pr_context(from_pr, root=Path.cwd())}\n\n{task}"
+        except RuntimeError as error:
+            raise typer.BadParameter(messages.HEADLESS_FROM_PR_FAILED.format(error=error)) from None
     if channel is not None and raw_task.strip() in ("", "-"):
         raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
     parts: list[str] = []

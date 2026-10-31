@@ -91,6 +91,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "bash": ToolFamily.SHELL,
     "execute_command": ToolFamily.SHELL,
     "git": ToolFamily.VCS,
+    "gh": ToolFamily.VCS,
     "browser_open": ToolFamily.BROWSER,
     "chrome_page": ToolFamily.BROWSER,
     "chrome_click": ToolFamily.BROWSER,

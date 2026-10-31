@@ -89,6 +89,7 @@ where = ["src"]
 # bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
 "fusion_cli.appserver" = ["data/*.json", "data/ema/*"]
+"fusion_cli.cli" = ["templates/*"]
 "fusion_cli.providers" = ["data/*.json"]
 "fusion_cli.config" = ["*.yaml", "roster/*.md", "skills/*/SKILL.md", "skills/*/kit/*"]
 "fusion_cli.tools" = ["scaffold/*", "assets/*", "data/*.swift"]

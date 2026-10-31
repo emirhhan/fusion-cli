@@ -810,6 +810,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("browser", messages.CMD_BROWSER),
             ("btw", messages.CMD_BTW),
             ("plan-yurut", messages.CMD_PLAN_RUN),
+            ("pr", messages.CMD_PR),
+            ("pr-comments", messages.CMD_PR_COMMENTS),
+            ("autofix-pr", messages.CMD_AUTOFIX_PR),
         )
     ),
     SlashCommand(
