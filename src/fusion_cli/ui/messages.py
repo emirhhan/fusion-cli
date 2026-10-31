@@ -903,7 +903,9 @@ CONTEXT_WINDOW = "Model penceresi"
 CONTEXT_EMPTY = "Geçmiş boş: ilk mesajla birlikte sistem istemi ve araç tanımları eklenir."
 
 # --- /export ve /copy (P-028) ---------------------------------------------- #
-CMD_EXPORT = "konuşmayı Markdown/JSON dosyasına ya da panoya aktar: /export [yol] [json] [pano]"
+CMD_EXPORT = (
+    "konuşmayı Markdown/JSON dosyasına ya da panoya aktar: /export [yol] [json] [pano] [zorla]"
+)
 CMD_COPY = "son asistan cevabını panoya kopyala: /copy [N] (sondan N.)"
 EXPORT_DEFAULT_TITLE = "Fusion sohbeti"
 EXPORT_EMPTY = "Aktarılacak konuşma yok: önce bir mesaj gönder."
@@ -914,6 +916,7 @@ EXPORT_OUTSIDE_ROOT = (
     "köke göreli bir yol ver ya da /add-dir ile aç."
 )
 EXPORT_WRITE_FAILED = "Dosya yazılamadı ({path}): {error}"
+EXPORT_EXISTS = "Dosya zaten var, üzerine yazılmadı: {path} — ezmek için sona `zorla` ekle."
 COPY_USAGE = "Kullanım: /copy [N] — N sondan kaçıncı cevap (varsayılan 1)."
 COPY_NOTHING = "Kopyalanacak asistan cevabı yok."
 COPY_DONE = "Son cevap panoya kopyalandı ({chars} karakter)."

@@ -15,6 +15,7 @@ import json
 import re
 import time
 from collections.abc import Callable, Sequence
+from html import escape as html_escape
 
 from .redaction import redact
 from .types import Message, ToolCall
@@ -60,17 +61,34 @@ def _calls_block(calls: Sequence[ToolCall]) -> str:
     return "\n".join(lines)
 
 
+_BACKTICK_RUN = re.compile(r"`{3,}")
+
+
+def _fence_for(body: str) -> str:
+    """Gövdedeki en uzun ``` dizisinden bir uzun çit: içerik çiti kapatıp dışarı çıkamaz."""
+    longest = max((len(run) for run in _BACKTICK_RUN.findall(body)), default=2)
+    return "`" * (longest + 1)
+
+
 def _tool_block(message: Message) -> str:
-    name = message.name or "araç"
+    """Araç sonucu katlanmış ve çitli. Ölçüldü (31 Ekim): içerikteki ``` çiti kapatıyor,
+    ardından gelen `## Siz` çit dışında rol taklit ediyordu; `name` de kaçışsızdı."""
+    name = html_escape(message.name or "araç", quote=False)
     durum = "" if message.ok is None else (" · tamam" if message.ok else " · hata")
-    body = redact(_clip(message.content.strip(), TOOL_OUTPUT_CHARS))
+    body = escape_headings(redact(_clip(message.content.strip(), TOOL_OUTPUT_CHARS)))
+    fence = _fence_for(body)
     head = f"<details><summary>Araç sonucu: {name}{durum}</summary>"
-    return f"{head}\n\n```text\n{body}\n```\n\n</details>"
+    return f"{head}\n\n{fence}text\n{body}\n{fence}\n\n</details>"
+
+
+def _clean_title(title: str) -> str:
+    """Başlık tek satır ve MASKELİ: ilk kullanıcı mesajından gelir, anahtar taşıyabilir."""
+    return redact(" ".join(title.split())) or DEFAULT_TITLE
 
 
 def export_markdown(messages: Sequence[Message], *, title: str = DEFAULT_TITLE) -> str:
     """Konuşmayı Markdown'a çevir. Araç çağrıları/sonuçları katlanmış ve kırpılmış."""
-    parts = [f"# {' '.join(title.split()) or DEFAULT_TITLE}"]
+    parts = [f"# {_clean_title(title)}"]
     for message in _shareable(messages):
         if message.role == "tool":
             parts.append(_tool_block(message))
@@ -103,7 +121,8 @@ def export_json(messages: Sequence[Message], *, title: str = DEFAULT_TITLE) -> s
             row["arac"] = message.name
             row["ok"] = message.ok
         rows.append(row)
-    return json.dumps({"baslik": title, "mesajlar": rows}, ensure_ascii=False, indent=2) + "\n"
+    payload = {"baslik": _clean_title(title), "mesajlar": rows}
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
 def last_answer(messages: Sequence[Message], index: int = 1) -> str | None:
@@ -115,7 +134,8 @@ def last_answer(messages: Sequence[Message], index: int = 1) -> str | None:
     ]
     if index < 1 or index > len(answers):
         return None
-    return answers[-index]
+    # Pano da bir çıkış noktasıdır: cevaptaki anahtar olduğu gibi kopyalanmaz (31 Ekim).
+    return redact(answers[-index])
 
 
 def default_export_name(*, as_json: bool = False, now: Callable[[], float] = time.time) -> str:

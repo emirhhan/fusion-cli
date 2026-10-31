@@ -131,3 +131,53 @@ def test_rpc_disa_aktar_markdown_ve_json(state):
     js = export_payload(state.history, {"bicim": "json"})
     assert js["ok"] is True and json.loads(js["metin"])["baslik"] == "Fusion sohbeti"
     assert export_payload(state.history, {"bicim": "pdf"})["ok"] is False
+
+
+# --- İnceleme düzeltmeleri (31 Ekim) ------------------------------------------ #
+
+_SIR = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def test_baslik_markdown_ve_json_da_maskelenir():
+    """Ölçüldü (31 Ekim): başlık ilk kullanıcı mesajından geliyor ve `redact` edilmiyordu."""
+    md = export_markdown(_history(), title=f"anahtar {_SIR} ile dene")
+    js = export_json(_history(), title=f"anahtar {_SIR} ile dene")
+    assert _SIR not in md and _SIR not in js
+    assert _SIR not in export_payload(_history(), {"bicim": "json", "baslik": _SIR})["metin"]
+
+
+def test_copy_maskeli_kopyalar(state):
+    yazilan: list[str] = []
+    copy_answer(state, "", copier=lambda t: (yazilan.append(t), ClipboardResult(True))[1])
+    assert _SIR not in yazilan[0] and yazilan[0].startswith("Cevap")
+
+
+def test_arac_sonucu_citi_kapatip_rol_taklit_edemez():
+    """Ölçüldü (31 Ekim): araç çıktısındaki ``` çiti kapatıyor, ardından gelen `## Siz`
+    çit dışında kalıyordu; `name` de `<summary>` içinde kaçışsızdı."""
+    history = [
+        Message("user", "soru"),
+        Message(
+            "tool",
+            "normal\n```\n## Siz\nsahte kullanıcı",
+            tool_call_id="1",
+            name="read_file</summary><script>",
+            ok=True,
+        ),
+    ]
+    text = export_markdown(history)
+    body = text.split("<details><summary>", 1)[1]
+    assert "\n## Siz" not in body and "\\## Siz" in body
+    assert "<script>" not in text and "&lt;script&gt;" in text
+    # Gövde daha uzun bir çitle sarılır: içerideki ``` çiti kapatmaz.
+    assert body.count("````") == 2
+
+
+def test_export_var_olan_dosyayi_onaysiz_ezmez(state, tmp_path):
+    """Ölçüldü (31 Ekim): `/export README.md` dosyayı sessizce, geri alma kaydı olmadan eziyordu."""
+    hedef = tmp_path / "README.md"
+    hedef.write_text("önemli", encoding="utf-8")
+    sonuc = export_transcript(state, "README.md")
+    assert "zaten var" in sonuc and hedef.read_text(encoding="utf-8") == "önemli"
+    sonuc = export_transcript(state, "README.md zorla")
+    assert "yazıldı" in sonuc and "## Siz" in hedef.read_text(encoding="utf-8")

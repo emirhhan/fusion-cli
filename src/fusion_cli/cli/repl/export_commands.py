@@ -3,7 +3,9 @@
 `/export [yol] [json] [pano]` konuşmayı dosyaya (varsayılan: proje kökünde
 `fusion-sohbet-<tarih>.md`) ya da panoya yazar. Dosya PROJE KÖKÜ (ya da `--add-dir`
 kökleri) dışına yazılmaz: "proje kökü dışına yazma onaysız olmaz" ilkesi.
-`/copy [N]` sondan N. asistan cevabını panoya kopyalar.
+Var olan dosya onaysız EZİLMEZ: `zorla` sözcüğü istenir (Ölçüldü 31 Ekim: `/export README.md`
+kaynak dosyayı geri alma kaydı olmadan eziyordu). `/copy [N]` sondan N. asistan cevabını
+panoya kopyalar.
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ Copier = Callable[[str], ClipboardResult]
 
 _JSON_FLAGS = frozenset({"json", "--json"})
 _CLIPBOARD_FLAGS = frozenset({"pano", "--pano", "clipboard", "--clipboard"})
+_FORCE_FLAGS = frozenset({"zorla", "--zorla", "force", "--force"})
+_ALL_FLAGS = _JSON_FLAGS | _CLIPBOARD_FLAGS | _FORCE_FLAGS
 
 
 def _title(state: ReplState) -> str:
@@ -53,7 +57,8 @@ def export_transcript(
     words = argument.split()
     as_json = any(word.lower() in _JSON_FLAGS for word in words)
     to_clipboard = any(word.lower() in _CLIPBOARD_FLAGS for word in words)
-    paths = [word for word in words if word.lower() not in _JSON_FLAGS | _CLIPBOARD_FLAGS]
+    force = any(word.lower() in _FORCE_FLAGS for word in words)
+    paths = [word for word in words if word.lower() not in _ALL_FLAGS]
     title = _title(state)
     text = (
         export_json(state.history, title=title)
@@ -73,6 +78,8 @@ def export_transcript(
         return messages.EXPORT_OUTSIDE_ROOT.format(path=target, root=state.root)
     if target.is_dir():
         target = target / default_export_name(as_json=as_json, now=now)
+    if target.exists() and not force:
+        return messages.EXPORT_EXISTS.format(path=target)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
