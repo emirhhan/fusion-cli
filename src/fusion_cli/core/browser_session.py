@@ -87,6 +87,9 @@ class BrowserSession:
         self.context = None
         self.page = None
         self.active_profile = ""
+        # Geri yazıcı oturuma bağlıdır: sıfırlanmazsa sonraki PROFİLSİZ açılışın boş
+        # oturumu önceki profilin üstüne yazılır (ölçüldü 31 Ekim: `is` profili silindi).
+        self.state_saver = None
 
     async def _persist_state(self) -> None:
         """Profil kullanıldıysa güncel çerezleri geri yaz; hata kapanışı engellemez."""

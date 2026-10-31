@@ -55,6 +55,9 @@ class _SahteBaglam:
         return page
 
     async def storage_state(self) -> dict[str, object]:
+        # Profilsiz (boş) bağlam boş oturum döndürür; profilli bağlam tazelenmiş çerez.
+        if self.storage_state_in is None:
+            return {"cookies": [], "origins": []}
         return {
             "cookies": [
                 {
@@ -222,3 +225,19 @@ async def test_acik_oturumda_baska_profil_istenirse_once_kapatmayi_soyler(
     assert not sonuc.ok
     assert "browser_close" in sonuc.output
     assert len(sahte_playwright.contexts) == 1
+
+
+async def test_kapat_sonra_profilsiz_acilis_onceki_profili_ezmez(tmp_path, sahte_playwright, depo):
+    """Ölçüldü (31 Ekim): `state_saver` kapanışta sıfırlanmıyordu; sonraki anonim bağlamın
+    boş oturumu önceki profilin çerezlerini siliyordu."""
+    baglam = ToolContext(root=tmp_path)
+    await browser.browser_open({"url": "https://example.com", "profile": "is"}, baglam)
+    await browser.browser_close({}, baglam)
+    await browser.browser_open({"url": "https://example.com"}, baglam)
+
+    assert baglam.browser.state_saver is None
+    await browser.browser_close({}, baglam)
+
+    durum = depo.storage_state("is")
+    assert [cookie["name"] for cookie in durum["cookies"]] == ["sid"]
+    assert durum["cookies"][0]["value"] == "TAZE"

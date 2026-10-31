@@ -428,9 +428,9 @@ async def _oturumu_baslat(
             f"Tarayıcı başlatılamadı ({type(exc).__name__}: {exc}). "
             "Tarayıcı ikilisi eksikse: playwright install chromium"
         )
-    if state is not None:
-        # Kapanışta tazelenen oturum geri yazılır; hata core'da loglanır, kapanışı kesmez.
-        oturum.state_saver = _state_saver(store, oturum.active_profile)
+    # Kapanışta tazelenen oturum geri yazılır; hata core'da loglanır, kapanışı kesmez.
+    # Her başlatmada YENİDEN belirlenir: profilsiz açılış eski yazıcıyı devralmaz.
+    oturum.state_saver = _state_saver(store, oturum.active_profile) if state is not None else None
     return oturum.page, ""
 
 
