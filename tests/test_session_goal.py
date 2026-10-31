@@ -359,7 +359,88 @@ async def test_masaustu_tur_sonucu_hedef_ve_devam_gorevi_tasir(tmp_path, monkeyp
 
     assert tur["hedef"]["eylem"] == "devam"
     assert "bir test kırık" in tur["hedef_devam"]
-    assert oturum._next_turn_mode is macros.Mode.GOAL
+    # Hedef kipi yalnız bu devam görevine bağlıdır; sıradaki ilgisiz mesaja sızmaz.
+    assert oturum._next_turn_mode is macros.Mode.NONE
+
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": tur["hedef_devam"]}))
+    assert yakalanan["adim"][-1] == macros.MODE_STEP_LIMITS[macros.Mode.GOAL]
+
+
+async def test_masaustu_hedef_kipi_ilgisiz_sonraki_mesaja_sizmaz(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): `_next_turn_mode = GOAL` devamı kimin göndereceğinden bağımsız
+    kuruluyordu; devamı göndermeyen istemcide (Telegram) ya da sırada kullanıcı mesajı varken
+    sonraki ilgisiz tur 'pes etme' istemi ve 100 adımla koşuyordu."""
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    adimlar: list[object] = []
+
+    async def sahte_gorev(task, config, **kwargs):
+        adimlar.append(kwargs.get("step_limit"))
+        return SimpleNamespace(ok=True, final_text="bir test kırık", messages=[])
+
+    async def yargic(condition, history, config, publisher):
+        return GoalJudgement(GoalVerdict.NOT_MET, "bir test kırık")
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", sahte_gorev)
+    monkeypatch.setattr(goal_flow, "judge_goal", yargic)
+
+    await oturum.handle(
+        Request(id="1", name="komut.calistir", data={"ad": "goal", "arguman": "testler geçiyor"})
+    )
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "testler geçiyor"}))
+    assert "hedef_devam" in _sonuc(satirlar, "2")
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "README'yi özetle"}))
+
+    assert adimlar[-1] != macros.MODE_STEP_LIMITS[macros.Mode.GOAL]
+
+
+async def test_masaustu_degerlendirme_surerken_yeni_tur_baslamaz(tmp_path, monkeypatch):
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    basladi = asyncio.Event()
+    birak = asyncio.Event()
+
+    async def sahte_gorev(task, config, **kwargs):
+        return SimpleNamespace(ok=True, final_text="ilerliyor", messages=[])
+
+    async def yavas_yargic(condition, history, config, publisher):
+        basladi.set()
+        await birak.wait()
+        return GoalJudgement(GoalVerdict.MET, "")
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", sahte_gorev)
+    monkeypatch.setattr(goal_flow, "judge_goal", yavas_yargic)
+
+    await oturum.handle(Request(id="1", name="komut.calistir", data={"ad": "goal", "arguman": "k"}))
+    tur = asyncio.ensure_future(
+        oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "k"}))
+    )
+    await asyncio.wait_for(basladi.wait(), 5)
+    try:
+        # Eski kodda bu tur başlar ve kendi değerlendirmesinde takılırdı (zaman aşımı = kırmızı).
+        await asyncio.wait_for(
+            oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "başka iş"})), 3
+        )
+        cd = tmp_path / "baska"
+        cd.mkdir()
+        await asyncio.wait_for(
+            oturum.handle(
+                Request(id="4", name="komut.calistir", data={"ad": "cd", "arguman": str(cd)})
+            ),
+            3,
+        )
+    finally:
+        birak.set()
+    await asyncio.wait_for(tur, 5)
+
+    assert _sonuc(satirlar, "3")["metin"] == messages.APP_TURN_ALREADY_RUNNING
+    assert _sonuc(satirlar, "4")["ok"] is False
 
 
 def _sonuc(satirlar: list[str], kimlik: str) -> dict:

@@ -4,6 +4,9 @@
  * ekler. Arayüz karar metnini sohbete ara not olarak yazar ve devam görevini kullanıcı
  * mesajı olarak göstermeden normal gönderim yolundan sürer; Durdur zinciri keser.
  */
+/** Sırada kullanıcı mesajı varken devam turu üretilmez (çekirdek `GOAL_WAITING_USER` ile aynı). */
+export const GOAL_WAITING_USER = "Sırada mesajın var; hedef onu bekliyor (turdan sonra yeniden değerlendirilir).";
+
 export interface GoalResult {
   /** Kullanıcıya gösterilecek karar metni ("◎ Hedef henüz karşılanmadı — …"). */
   metin: string;

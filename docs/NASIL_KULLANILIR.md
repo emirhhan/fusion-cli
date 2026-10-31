@@ -1012,8 +1012,10 @@ Duraklama ve sınırlar (`/goal devam` sürdürür, `/goal clear` bırakır):
 Argümansız `/goal` durumu (değerlendirme, otomatik tur, son karar) yazar. Hedef sohbete bağlı
 kaydedilir (`memory_dir/oturum-hedef/<sohbet>.json`): `fusion --resume` ve masaüstü sekmesi
 yeniden açılınca geri gelir. Masaüstünde karar sohbete ara not olarak düşer ve devam turu kendi
-cevabıyla görünür. Uzaktan (PWA/Telegram) istemciler kararı görür ama devam turunu kendileri
-başlatmaz.
+cevabıyla görünür; sırada yazdığın mesaj varsa önce o koşar, hedef onun sonunda yeniden
+değerlendirilir. Değerlendirme sürerken sekme meşguldür (yeni tur ve `/cd` bekler). Hedef kipi
+yalnız devam turuna uygulanır. Uzaktan (PWA/Telegram) istemciler kararı görür ama devam turunu
+kendileri başlatmaz; sonraki mesajları normal kipte koşar.
 
 ## Terminalde dikte: `/voice`
 

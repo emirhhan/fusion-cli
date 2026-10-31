@@ -626,6 +626,9 @@ class AppSession:
         self._next_turn_mode = macros.Mode.NONE
         #: Tur sonu `/goal` değerlendirmesi (P-058); `tur.kes` onu da durdurur.
         self._goal_task: asyncio.Task[goal_flow.GoalOutcome | None] | None = None
+        #: Son değerlendirmenin ürettiği devam görevi: hedef kipi YALNIZ bu metinle gelen
+        #: tura uygulanır, ilgisiz sonraki mesaja sızmaz.
+        self._goal_continuation: str | None = None
         #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
         self._fork_requested = False
 
@@ -2277,7 +2280,7 @@ class AppSession:
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
-        turn_running = self._turn is not None and not self._turn.done()
+        turn_running = (self._turn is not None and not self._turn.done()) or self._goal_judging()
         if command is not None and command.name == "cd" and turn_running:
             # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
@@ -2728,7 +2731,7 @@ class AppSession:
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
         await self._iptal_edilen_turu_bekle()
-        if self._turn is not None:
+        if self._turn is not None or self._goal_judging():
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import open_trace, run_agent_task
 
@@ -2818,6 +2821,10 @@ class AppSession:
         # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
         pending_extras = self._state.take_pending_extras()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
+        if not browser_only:
+            continuation, self._goal_continuation = self._goal_continuation, None
+            if turn_mode is macros.Mode.NONE and continuation is not None and task == continuation:
+                turn_mode = macros.Mode.GOAL
         fork_requested, self._fork_requested = self._fork_requested, False
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
@@ -3083,9 +3090,14 @@ class AppSession:
             return {"hedef": {"eylem": "durduruldu", "metin": messages.GOAL_STOPPED}}
         finally:
             self._goal_task = None
-        if outcome is not None and outcome.next_prompt is not None:
-            self._next_turn_mode = macros.Mode.GOAL
+        # Ölçüldü (31 Ekim): burada `_next_turn_mode = GOAL` kuruluyordu; devamı göndermeyen
+        # istemcide (Telegram) ya da sırada kullanıcı mesajı varken kip ilgisiz tura geçiyordu.
+        self._goal_continuation = outcome.next_prompt if outcome is not None else None
         return goal_flow.wire_payload(outcome, self._state)
+
+    def _goal_judging(self) -> bool:
+        """Tur bitti ama hedef değerlendirmesi sürüyor: oturum meşgul sayılır."""
+        return self._goal_task is not None and not self._goal_task.done()
 
     def _refresh_capabilities(self) -> None:
         # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).

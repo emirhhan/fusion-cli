@@ -1,5 +1,5 @@
 import { historyMessages } from "./history";
-import { decodeGoalResult } from "../goal/goalResult";
+import { decodeGoalResult, GOAL_WAITING_USER } from "../goal/goalResult";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
 import { nextAttemptTurnId, normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
@@ -633,11 +633,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         const hata = result.ok === false ? { hata: true } : {};
         const delivery = decodeDeliveryEvidence(result.kanit);
         if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
-        // `/goal` (P-058): karar ara not olur; "henüz değil" ise devam turu sıraya girer.
+        // `/goal` (P-058): karar ara not olur; "henüz değil" ise devam turu sürer. Sırada kullanıcı
+        // mesajı varsa önce o koşar (TUI ile aynı); onun sonunda hedef yeniden değerlendirilir.
         const hedef = decodeGoalResult(result);
         if (hedef) {
           dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: hedef.metin, ara: true } });
-          if (hedef.devam) send(id, hedef.devam, [], false);
+          if (hedef.devam && (kuyruk.current.get(id)?.length ?? 0) > 0) {
+            dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: GOAL_WAITING_USER, ara: true } });
+          } else if (hedef.devam) send(id, hedef.devam, [], false);
         }
       })
       .catch((reason) => {

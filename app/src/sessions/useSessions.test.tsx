@@ -2,6 +2,7 @@ import { saveSubmission } from "./submissionPersistence";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
+import { GOAL_WAITING_USER } from "../goal/goalResult";
 import { initialSessionState, sessionReducer } from "./store";
 import { DEFAULT_TITLE } from "./title";
 import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
@@ -435,6 +436,32 @@ describe("useSessions", () => {
     expect(mesajlar.filter((message) => message.rol === "kullanici").map((message) => message.metin))
       .toEqual(["testleri düzelt"]);
     expect(mesajlar.some((message) => message.ara && message.metin.startsWith("◎ Hedef"))).toBe(true);
+  });
+
+  it("/goal devamı sırada kullanıcı mesajı varken gönderilmez, mesaj önce koşar (P-058)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const turlar = () => fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir");
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(turlar()).toHaveLength(1));
+    act(() => { result.current.send("varsayilan", "README'ye de bak"); });
+    act(() => fake.emitResult("varsayilan", turlar()[0].id, {
+      ok: true,
+      metin: "bir test kaldı",
+      hedef: { eylem: "devam", metin: "◎ Hedef henüz karşılanmadı — bir test kırık · sürdürülüyor (1/20)" },
+      hedef_devam: "Hedef henüz karşılanmadı. Sürdür.",
+    }));
+
+    await waitFor(() => expect(turlar()).toHaveLength(2));
+    expect(turlar()[1].veri.gorev).toBe("README'ye de bak");
+    act(() => fake.emitResult("varsayilan", turlar()[1].id, { ok: true, metin: "baktım" }));
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.running).toBe(false));
+    expect(turlar()).toHaveLength(2);
+    expect(result.current.state.sessions.varsayilan.messages.some(
+      (message) => message.ara && message.metin === GOAL_WAITING_USER,
+    )).toBe(true);
   });
 
   it("/btw yan sorusu için ara komut mesajı göstermez", async () => {
