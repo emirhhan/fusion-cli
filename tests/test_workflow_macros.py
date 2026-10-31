@@ -13,7 +13,12 @@ import pytest
 from rich.console import Console
 
 from fusion_cli.cli.repl import help_view, macros
-from fusion_cli.cli.repl.commands import RENDERED_COMMANDS, build_registry, macro_skill_override
+from fusion_cli.cli.repl.commands import (
+    RENDERED_COMMANDS,
+    build_registry,
+    macro_skill_override,
+    renders_itself,
+)
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.config.loader import load_config
 from fusion_cli.memory.factory import null_memory
@@ -213,3 +218,16 @@ async def test_masaustu_komut_calistir_doctor_rpc_raporu_dondurur(tmp_path, monk
     )
     assert sonuc["ok"] is True
     assert "Sağlayıcı" in sonuc["metin"] and "/login" in sonuc["metin"]
+
+
+def test_doctor_argumansiz_basar_prompt_ile_talimat_denetimine_duser(state: ReplState) -> None:
+    """Birleştirme (31 Ekim): `/doctor` kurulum tanısını basar, `/doctor prompt` main'in
+    talimat denetimini döndürür; ikisi aynı adı paylaşır, biri ötekini gölgelememeli."""
+    assert renders_itself("doctor", "")
+    assert not renders_itself("doctor", "prompt")
+    assert renders_itself("help", "ne")
+    assert not renders_itself("loop", "")
+
+    rapor = build_registry().get("doctor").handler(state, "prompt")  # type: ignore[union-attr]
+
+    assert "fusion doctor" not in rapor
