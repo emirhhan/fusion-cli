@@ -1,7 +1,7 @@
 import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KEYMAP_CHANGED_EVENT, SHORTCUT_CAPTURE_ATTRIBUTE, useGlobalShortcuts, useKeymap } from "./useAppShortcuts";
+import { KEYMAP_CACHE_KEY, KEYMAP_CHANGED_EVENT, SHORTCUT_CAPTURE_ATTRIBUTE, useGlobalShortcuts, useKeymap } from "./useAppShortcuts";
 
 afterEach(cleanup);
 
@@ -56,6 +56,23 @@ describe("tuş tablosu", () => {
     await waitFor(() => expect(result.current.baglar).toEqual({ "mod+y": "terminal" }));
     act(() => { window.dispatchEvent(new CustomEvent(KEYMAP_CHANGED_EVENT, { detail: { ok: true, baglar: { "mod+u": "palet" } } })); });
     expect(result.current.baglar).toEqual({ "mod+u": "palet" });
+  });
+
+  it("çekirdek yokken (boş ekran) son okunan tablo geçerlidir", async () => {
+    // Ölçüldü (31 Ekim): etkin oturum yokken `useKeymap(null)` varsayılan tabloya düşüyordu; kullanıcı
+    // mod+k'yı başka eyleme verdiyse boş ekranda eski bağ çalışıyordu.
+    localStorage.clear();
+    const client = { request: vi.fn(async () => ({ ok: true, baglar: { "mod+t": "terminal" } })) };
+    const first = renderHook(() => useKeymap(client));
+    await waitFor(() => expect(first.result.current.baglar).toEqual({ "mod+t": "terminal" }));
+    first.unmount();
+    const { result } = renderHook(() => useKeymap(null));
+    expect(result.current.baglar).toEqual({ "mod+t": "terminal" });
+    act(() => { window.dispatchEvent(new CustomEvent(KEYMAP_CHANGED_EVENT, { detail: { ok: true, baglar: { "mod+u": "palet" } } })); });
+    expect(renderHook(() => useKeymap(null)).result.current.baglar).toEqual({ "mod+u": "palet" });
+    localStorage.setItem(KEYMAP_CACHE_KEY, "{bozuk");
+    expect(renderHook(() => useKeymap(null)).result.current.baglar["mod+k"]).toBe("palet");
+    localStorage.clear();
   });
 
   it("eski çekirdek isteği tanımazsa varsayılanlar kalır", async () => {
