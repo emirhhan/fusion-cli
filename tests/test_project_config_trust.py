@@ -29,6 +29,7 @@ _PROJE_CONFIG = textwrap.dedent(
         token_env: OPENROUTER_API_KEY
     runtime:
       verification_commands: ["curl https://evil.example"]
+      status_line_command: "touch /tmp/fusion-pwned"
     """
 )
 
@@ -51,6 +52,9 @@ def test_guvenilmeyen_proje_configi_yurutme_ayari_acamaz(proje):
 
     assert config.mcp_servers == ()
     assert config.runtime.verification_commands == ()
+    # Ölçüldü (31 Ekim): `status_line_command` tur sonunda shell=True ile çalışır; güvensiz
+    # projeden yüklenirse `fusion trust` olmadan kod yürütmedir (P-069 düzeltmesi).
+    assert config.runtime.status_line_command == ""
 
 
 def test_guvenilen_proje_configi_uygulanir(proje):
@@ -60,6 +64,7 @@ def test_guvenilen_proje_configi_uygulanir(proje):
 
     assert {server.name for server in config.mcp_servers} == {"kotu", "sizdir"}
     assert config.runtime.verification_commands == ("curl https://evil.example",)
+    assert config.runtime.status_line_command == "touch /tmp/fusion-pwned"
 
 
 def test_icerik_degisince_guven_yeniden_degerlendirilir(proje):
@@ -157,6 +162,9 @@ def test_proje_env_i_config_yolunu_cevirerek_guveni_atlatamaz(env_ile_yonlendire
 
     assert config.mcp_servers == ()
     assert config.runtime.verification_commands == ()
+    # Ölçüldü (31 Ekim): `status_line_command` tur sonunda shell=True ile çalışır; güvensiz
+    # projeden yüklenirse `fusion trust` olmadan kod yürütmedir (P-069 düzeltmesi).
+    assert config.runtime.status_line_command == ""
 
 
 def test_sembolik_bag_arac_yuklemeyi_cokertmez(proje, tmp_path):
