@@ -117,3 +117,12 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
   reddedilen/engelli uygulamaların pencerelerini listelemez; öndeki uygulama engelliyse
   `desktop_accessibility` ağacı vermez. Ad eşleşmesi pencere sahibinin adıyla yapılır; ret
   listesine paket kimliği yazıldıysa (`com.…`) listelerde ad da eklenmeli.
+
+## `fusion mcp` sunucusunda
+
+`fusion mcp` (Fusion'ın araçlarını başka MCP istemcilerine açan sunucu) aynı `desktop:` ayarını
+okur: `desktop.enabled: false` ise `desktop_*` araçları sunulmaz (yapılandırma okunamazsa da
+kapalı sayılır). Açıkken her masaüstü çağrısı politikadan geçer: reddedilen/engelli uygulama
+ve yetmeyen kademe kapanır; MCP'de Fusion kullanıcıya soramadığı için hedefi okunamayan
+eylem ve riskli eylem (gönder/sil, Terminal'de Enter, Sistem Ayarları) de çalıştırılmaz.
+İlk kullanım onayı dış istemcinin kendi araç onayına bırakılır.
