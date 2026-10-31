@@ -9,6 +9,7 @@ import "./Conversation.css";
 import type { OlayAdimi } from "../protocol/olayMetni";
 import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
+import { PlanCard } from "./PlanCard";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
@@ -44,7 +45,9 @@ export interface Mesaj {
   submissionId?: string;
   delivery?: DeliveryEvidence;
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
+  /** Yalnız `rol === "plan"` için: plan kipinde yazılan plan dosyası (P-025). */
+  plan?: { yol: string; baslik: string };
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
   onizleme?: { url: string; baslik?: string; tur?: string };
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
@@ -378,6 +381,13 @@ export function Conversation({
                     </button>
                   ))}
                 </div>
+              </div>
+            );
+          }
+          if (message.rol === "plan" && message.plan) {
+            return (
+              <div className="conversation__message conversation__message--plan" key={message.id}>
+                <PlanCard baslik={message.plan.baslik} yol={message.plan.yol} />
               </div>
             );
           }

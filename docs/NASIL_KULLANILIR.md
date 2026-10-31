@@ -305,7 +305,7 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
 | `/model` | Model değiştir |
-| `/plan` | Önce planla, değiştirme |
+| `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
 | `/undo` | Son değişikliği geri al |
 | `/verify` | Test/lint çalıştır |
 | `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
@@ -349,3 +349,22 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 - Kendi kuralını öne almak için `.claude/skills/<ad>/SKILL.md` yaz (ör.
   `.claude/skills/security-review/SKILL.md`): gövdesi yerleşik metnin ÖNÜNE eklenir,
   yerleşik metin silinmez.
+
+---
+
+## Plan kipi: plan dosyası ve kabul kartı
+
+`/plan` ile plan kipine geçince agent yalnız okur ve planlar. Tur bitince plan
+`~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
+ile kapatılır) ve "Plan hazır — uygulansın mı?" kartı çıkar:
+
+- **Evet, otomatik kipte uygula** → `auto` kipine geçer ve planı uygulamaya başlar.
+- **Evet, düzenlemeleri kabul ederek uygula** → `edits` kipi.
+- **Evet, her adımda sor** → `security` (manuel) kipi.
+- **Hayır, planlamaya devam et** → plan kipinde kalır.
+
+Kabulde oturum boyunca verilen izinler sıfırlanır; uygulama görevi plan dosyasının yolunu
+taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
+(Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
+"Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
+yalnız yol basılır.

@@ -49,6 +49,8 @@ from ...core.events import (
 from ...core.followups import suggest_followups
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
+from ...engines.agent import plan_mode
+from ...engines.agent.approval import ApprovalMode
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
@@ -61,7 +63,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros
+from . import help_view, history_view, macros, plan_card
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -283,12 +285,24 @@ async def _handle(
         task, mode = state.take_pending()
         if task:
             await _run_turn(task, state, console, background, mode=mode)
+            await _offer_plan_card(state, console, background, reader)
             # Tur bir arka plan ders çıkarımı BAŞLATMIŞ olabilir; bir sonraki
             # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
             _sync_status_bar(reader, state, background)
         return
     await _run_turn(line, state, console, background)
+    await _offer_plan_card(state, console, background, reader)
     _sync_status_bar(reader, state, background)
+
+
+async def _offer_plan_card(
+    state: ReplState, console: Console, background: BackgroundTasks, reader: ReplInput
+) -> None:
+    """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025)."""
+    task = await plan_card.offer(state, console, interactive=reader.interactive)
+    reader.mode = state.approval
+    if task:
+        await _run_turn(task, state, console, background)
 
 
 async def _run_command(
@@ -584,6 +598,10 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
+            # Plan kipinde biten tur plan dosyasını yazdı (`plan_mode.record_plan`);
+            # kart komut döngüsünde, canlı gösterge kapandıktan sonra açılır.
+            if state.approval is ApprovalMode.PLAN and outcome.ok and outcome.final_text.strip():
+                state.pending_plan = plan_mode.plan_path(state.conversation_id)
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root

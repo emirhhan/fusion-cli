@@ -804,6 +804,20 @@ class FollowupsSuggested(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class PlanDrafted(Event):
+    """Plan kipindeki tur bitti ve plan dosyaya yazıldı (P-025).
+
+    Arayüz yolu gösterir ("editörde aç"); REPL kabul kartını bunun ardından açar.
+    Plan metni olayda TAŞINMAZ: zaten asistan cevabıdır, dosyadan okunur.
+    """
+
+    #: Plan dosyasının mutlak yolu.
+    path: str
+    #: Planın ilk başlığı (yoksa ilk satırı).
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class TurnOutcome(Event):
     """Runtime'ın kesin tur sonucu; modelin doğal dil iddiasından bağımsızdır.
 

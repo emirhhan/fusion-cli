@@ -20,7 +20,8 @@ from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.tools import ToolContext
-from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ...engines.agent import plan_mode
+from ...engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...history import source_by_name
 from ...ui import banner, messages, theme
@@ -33,6 +34,7 @@ from . import (
     history_view,
     macros,
     model_flows,
+    plan_card,
     profiles_flow,
     provider_flow,
     verify_flow,
@@ -318,6 +320,7 @@ class _TuiSession:
                 await self._command(line)
             else:
                 await self._turn(line)
+                await self._offer_plan_card()
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
             # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
@@ -420,6 +423,28 @@ class _TuiSession:
         pending, mode = self._state.take_pending()
         if pending:
             await self._turn(pending, mode=mode)
+            await self._offer_plan_card()
+
+    async def _offer_plan_card(self) -> None:
+        """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025).
+
+        Seçim uygulama-içi modaldır (`await_choice`): iç içe prompt_toolkit seçicisi TUI'yi bozar.
+        """
+        pending = self._state.pending_plan
+        if pending is None:
+            return
+        self._echo(f"[{theme.DIM}]{escape(messages.PLAN_SAVED.format(path=pending))}[/{theme.DIM}]")
+        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices()))
+        mode = plan_card.mode_for(selected)
+        if mode is None:
+            self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")
+            return
+        task = plan_card.accept(self._state, mode)
+        self._echo(
+            f"[{theme.DIM}]{messages.REPL_MODE_CHANGED.format(mode=mode.value)}[/{theme.DIM}]"
+        )
+        self._sync_status()
+        await self._turn(task)
 
     async def _apply_flow(
         self, flow: Callable[[model_flows.Picker], model_flows.FlowResult]
@@ -598,6 +623,13 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                # Plan kipinde biten tur plan dosyasını yazdı; kart modal kapanınca açılır.
+                if (
+                    self._state.approval is ApprovalMode.PLAN
+                    and outcome.ok
+                    and outcome.final_text.strip()
+                ):
+                    self._state.pending_plan = plan_mode.plan_path(self._state.conversation_id)
         finally:
             renderer.abort()
             self._tui.clear_work()

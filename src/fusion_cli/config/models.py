@@ -168,6 +168,9 @@ class RuntimeConfig:
     # onarımı için hak kalmadı ve koşu iskeletle "tamamlandı" dedi. 3 ile her iki
     # onarım aynı planlama evresinde yapılabilir.
     workflow_planning_calls: int = 3
+    #: Plan kipinde biten turun planı `plans/<sohbet>.md` dosyasına yazılır ve
+    #: `PlanDrafted` yayınlanır (P-025). Kapalıyken plan yalnız sohbette kalır.
+    plan_files: bool = True
     #: Her plan adımının bağımsız model çağrısı zarfı.
     #
     # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına

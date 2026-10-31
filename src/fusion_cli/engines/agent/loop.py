@@ -541,9 +541,13 @@ async def run_agent(
     images: tuple[str, ...] = (),
     workflow: bool = False,
 ) -> AgentOutcome:
-    """Kök turun sahipli sorularını her çıkış yolunda temizle."""
+    """Kök turun sahipli sorularını her çıkış yolunda temizle.
+
+    Plan kipindeki kök tur bitince plan dosyaya yazılır (`plan_mode.record_plan`);
+    iç turlar ve alt ajanlar plan yazmaz.
+    """
     try:
-        return await _run_agent(
+        outcome = await _run_agent(
             task,
             deps,
             history=history,
@@ -561,6 +565,11 @@ async def run_agent(
             images=images,
             workflow=workflow,
         )
+        if plan_mode and depth == 0 and not internal:
+            from .plan_mode import record_plan
+
+            record_plan(outcome, deps, plan_mode=plan_mode)
+        return outcome
     finally:
         if depth == 0 and not internal:
             await deps.questions.close()

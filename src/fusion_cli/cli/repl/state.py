@@ -120,6 +120,8 @@ class ReplState:
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.
+    pending_plan: Path | None = None
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
