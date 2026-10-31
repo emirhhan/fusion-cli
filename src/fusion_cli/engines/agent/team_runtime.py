@@ -94,6 +94,8 @@ class TeamResult:
     status: str
     report: str
     runs: int
+    #: Ekibi beklenmedik biçimde durduran hata (boşsa ekip olağan yoldan bitti).
+    error: str = ""
 
 
 def team_limits(deps: AgentDeps) -> TeamLimits:
@@ -156,19 +158,35 @@ class TeamRun:
 
     async def execute(self) -> TeamResult:
         board = self._session.board
+        error = ""
         try:
             async with asyncio.TaskGroup() as group:
                 for member in board.members:
                     group.create_task(self._member_loop(member))
+        except asyncio.CancelledError:
+            await self._runs.close()
+            await self._session.close("durdu")
+            raise
+        except Exception as failure:  # pano 'calisiyor' kalmasın
+            # Ölçüldü (31 Ekim): üye döngüsündeki bir istisna `session.close` çağrılmadan
+            # yukarı çıkıyor, pano masaüstünde sonsuza dek "Çalışıyor" kalıyordu.
+            _LOG.exception("ekip beklenmedik hatayla durdu", extra={"ekip": board.name})
+            error = _failure_text(failure)
         finally:
             await self._runs.close()
         final = self._session.board
-        status = (
-            "bitti" if final.tasks and all(task.status == DONE for task in final.tasks) else "durdu"
-        )
+        done = final.tasks and all(task.status == DONE for task in final.tasks)
+        status = "bitti" if done and not error else "durdu"
         await self._session.close(status)
-        lead_mail = await self._session.take_inbox(LEAD)
-        return TeamResult(status, self._report(status, lead_mail), self._runs.started_total)
+        try:
+            lead_mail = await self._session.take_inbox(LEAD)
+        except OSError as failure:
+            error = error or _failure_text(failure)
+            lead_mail = []
+        report = self._report(status, lead_mail)
+        if error:
+            report = f"Ekip beklenmedik hatayla durdu: {error}\n\n{report}"
+        return TeamResult(status, report, self._runs.started_total, error)
 
     async def _member_loop(self, member: TeamMember) -> None:
         session, name = self._session, member.name
@@ -276,6 +294,13 @@ class TeamRun:
                 f"- {member.name}: {state.runs} koşu" + (f" — {summary}" if summary else "")
             )
         return cap_report("\n".join(lines))
+
+
+def _failure_text(failure: BaseException) -> str:
+    """İstisna (ya da TaskGroup'un ExceptionGroup'u) için tek satırlık açıklama."""
+    while isinstance(failure, BaseExceptionGroup) and failure.exceptions:
+        failure = failure.exceptions[0]
+    return f"{type(failure).__name__}: {failure}"
 
 
 def _task_line(board: TeamBoard, task: TeamTask) -> str:

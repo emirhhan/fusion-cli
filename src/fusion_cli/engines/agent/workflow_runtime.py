@@ -133,6 +133,12 @@ class WorkflowRun:
             if current is not None and current.cancelling():
                 await self._finish("")
                 raise
+        except Exception as error:  # kayıt ve pano 'calisiyor' kalmasın
+            # Ölçüldü (31 Ekim): yalnız CancelledError yakalanıyordu; başka bir istisnada
+            # `_finish` çağrılmadan çıkılıyor, kayıt canlı pid ile 'calisiyor' kalıyordu.
+            _LOG.exception("iş akışı koşusu beklenmedik hatayla durdu", extra={"kosu": self.run_id})
+            self._status = "hata"
+            self._message = f"Beklenmedik hata: {type(error).__name__}: {error}"
         finally:
             watcher.cancel()
             await asyncio.gather(watcher, return_exceptions=True)
@@ -235,7 +241,17 @@ class WorkflowRun:
                 message=self._message,
             )
         )
-        await asyncio.to_thread(self._store.write_run, self._record(nodes, report=""))
+        await self._write(self._record(nodes, report=""))
+
+    async def _write(self, record: RunRecord) -> None:
+        """Koşu kaydını yaz; disk hatası koşuyu düşürmez (pano olayı zaten yayınlandı)."""
+        try:
+            await asyncio.to_thread(self._store.write_run, record)
+        except OSError as error:
+            _LOG.warning(
+                "iş akışı koşu kaydı yazılamadı",
+                extra={"kosu": self.run_id, "hata": str(error)},
+            )
 
     def _record(self, nodes: tuple[WorkflowNodeView, ...], *, report: str) -> RunRecord:
         finished = self._status != "calisiyor"
@@ -262,9 +278,7 @@ class WorkflowRun:
                 )
         await self._publish()
         if report:
-            await asyncio.to_thread(
-                self._store.write_run, self._record(tuple(self._nodes.values()), report=report)
-            )
+            await self._write(self._record(tuple(self._nodes.values()), report=report))
 
     def _report(self, output: str) -> str:
         counts: dict[str, int] = {}
@@ -275,6 +289,8 @@ class WorkflowRun:
             f"İş akışı '{self._spec.name}' (koşu {self.run_id}): {self._status}; "
             f"{self._runs.started_total} ajan başladı ({summary}).",
         ]
+        if self._message:
+            lines.append(self._message)
         lines.extend(
             f"- {node.status} · {node.id}: {node.label}"
             + (f" → {node.summary}" if node.summary and node.status != "tamam" else "")

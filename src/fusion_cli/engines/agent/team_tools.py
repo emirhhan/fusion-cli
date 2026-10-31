@@ -42,7 +42,7 @@ def team_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
             )
         except TeamError as error:
             return ToolResult.failure(str(error))
-        return ToolResult(result.report)
+        return ToolResult.failure(result.report) if result.error else ToolResult(result.report)
 
     return Tool(
         name="team_run",

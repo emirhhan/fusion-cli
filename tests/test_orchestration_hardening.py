@@ -207,3 +207,75 @@ async def test_ekipte_salt_okur_ve_ayrik_alanli_uyeler_eszamanli_kosar(tmp_path)
 
     assert sonuc.ok and "3/3 görev tamam" in sonuc.output, sonuc.output
     assert en_cok[0] == 3
+
+
+# -- beklenmedik istisna: koşu ve pano 'calisiyor' kalmaz ---------------------- #
+
+
+async def test_kayit_yazilamasa_da_is_akisi_kosusu_biter(tmp_path, monkeypatch):
+    from fusion_cli.core.orchestration_events import WorkflowProgress
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _calistir, _deps, _ok
+
+    def _dolu_disk(self, record):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.workflow_store.WorkflowStore.write_run", _dolu_disk
+    )
+    sink = RecordingSink()
+
+    async def _ajan(task, sub_deps, **kwargs):
+        return _ok(f"<{task}>")
+
+    sonuc, _ = await _calistir(
+        _deps(tmp_path, sink), {"ad": "disk", "adimlar": ["bir", "iki"]}, run_agent=_ajan
+    )
+
+    assert sonuc.status == "tamam" and sonuc.agents == 2
+    assert [o for o in sink.events if isinstance(o, WorkflowProgress)][-1].status == "tamam"
+
+
+async def test_beklenmedik_istisnada_is_akisi_hata_durumuyla_kapanir(tmp_path, monkeypatch):
+    from fusion_cli.core.orchestration_events import WorkflowProgress
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _calistir, _deps, _ok
+
+    def _bozuk(*args, **kwargs):
+        raise ValueError("beklenmedik")
+
+    monkeypatch.setattr("fusion_cli.engines.agent.workflow_runtime.render_prompt", _bozuk)
+    sink = RecordingSink()
+
+    async def _ajan(task, sub_deps, **kwargs):
+        return _ok(task)
+
+    sonuc, store = await _calistir(
+        _deps(tmp_path, sink), {"ad": "bozuk", "adimlar": ["bir"]}, run_agent=_ajan
+    )
+
+    assert sonuc.status == "hata" and "beklenmedik" in sonuc.report
+    kayit = store.run(sonuc.run_id)
+    assert kayit is not None and kayit.status == "hata" and kayit.finished_at > 0
+    assert [o for o in sink.events if isinstance(o, WorkflowProgress)][-1].status == "hata"
+
+
+async def test_beklenmedik_istisnada_ekip_panosu_calisiyor_kalmaz(tmp_path, monkeypatch):
+    from fusion_cli.core.orchestration_events import TeamBoardChanged
+    from fusion_cli.engines.agent.team_tools import team_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_agent_teams import _deps
+
+    async def _bozuk(self, member):
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr("fusion_cli.engines.agent.team_session.TeamSession.member_started", _bozuk)
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+
+    sonuc = await team_run_tool(deps, depth=0, run_agent=_uye_ajani([0], [0])).run(
+        _ekip([{"ad": "kod", "salt_okunur": True}]), deps.tool_context
+    )
+
+    assert not sonuc.ok and "Read-only" in sonuc.output
+    assert [o for o in sink.events if isinstance(o, TeamBoardChanged)][-1].status == "durdu"

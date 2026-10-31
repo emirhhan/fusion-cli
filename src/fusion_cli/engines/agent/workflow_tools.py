@@ -62,7 +62,7 @@ def workflow_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
         except WorkflowError as error:
             return ToolResult.failure(str(error))
         text = result.report + saved
-        return ToolResult.failure(text) if result.status == "iptal" else ToolResult(text)
+        return ToolResult.failure(text) if result.status in {"iptal", "hata"} else ToolResult(text)
 
     return Tool(
         name="workflow_run",
