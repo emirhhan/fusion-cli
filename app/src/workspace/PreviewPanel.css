@@ -220,6 +220,16 @@
 /* Genişlik `previewViewports.ts` listesinden satır içi gelir (320/375/768/1024/1440); panelden
    genişse `max-width` kırpar ve yatay kaydırma açılır. */
 .preview-panel__stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.preview-panel__stage[data-note] { grid-template-rows: auto minmax(0, 1fr) auto; }
+.preview-panel__tls-note {
+  align-items: center;
+  color: var(--text-warning);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
 .preview-panel__actions { display: flex; }
 
 .preview-panel__frame {

@@ -113,6 +113,8 @@ export function PreviewPanel({
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
+  /** Kendinden imzalı yerel https: WebView iframe'i boş bırakabilir, Tarayıcı paneli önerilir. */
+  const [tlsNote, setTlsNote] = useState<string | null>(null);
   const [frameChecking, setFrameChecking] = useState(false);
   const [frameRevision, setFrameRevision] = useState(0);
   const [viewportId, setViewportId] = useState<string>(DEFAULT_VIEWPORT_ID);
@@ -189,8 +191,12 @@ export function PreviewPanel({
       if (result.ok !== true || typeof result.url !== "string" || !isLocalPreviewUrl(result.url)) {
         setFrameError(typeof result.metin === "string" ? result.metin : "Yerel önizleme doğrulanamadı.");
         setFrameErrorUrl(value);
+        setTlsNote(null);
         return null;
       }
+      setTlsNote(result.kendinden_imzali === true
+        ? (typeof result.not === "string" && result.not ? result.not : "Sertifika kendinden imzalı.")
+        : null);
       return result.url;
     } catch (reason) {
       if (run !== validationRun.current) return null;
@@ -382,7 +388,17 @@ export function PreviewPanel({
               {frameErrorUrl && <button onClick={() => void launchExternal(frameErrorUrl)} type="button">Dışarıda aç</button>}
             </div>
           ) : localUrl ? (
-            <div className="preview-panel__stage">
+            <div className="preview-panel__stage" data-note={tlsNote ? "tls" : undefined}>
+              {tlsNote && (
+                <p className="preview-panel__tls-note" role="status">
+                  {tlsNote}
+                  {onOpenInBrowser && (
+                    <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(localUrl)} type="button">
+                      Tarayıcı panelinde aç
+                    </button>
+                  )}
+                </p>
+              )}
               <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport.id}>
                 <iframe
                   className="preview-panel__frame"

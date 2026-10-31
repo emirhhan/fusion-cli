@@ -135,6 +135,24 @@ describe("PreviewPanel", () => {
     expect(onOpenInBrowser).toHaveBeenLastCalledWith("http://localhost:3001/", true);
   });
 
+  it("kendinden imzalı yerel https'te önizleme açılır ve Tarayıcı paneli önerilir", async () => {
+    const onOpenInBrowser = vi.fn();
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200, kendinden_imzali: true, not: "Sertifika sistemce doğrulanamadı (kendinden imzalı)." }
+        : { ok: true }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} onOpenInBrowser={onOpenInBrowser} selectedPath={null} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), { target: { value: "https://localhost:5173/" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+
+    expect(await screen.findByTitle("Yerel geliştirme önizlemesi")).toBeTruthy();
+    expect(screen.getByText(/kendinden imzalı/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tarayıcı panelinde aç" }));
+    expect(onOpenInBrowser).toHaveBeenCalledWith("https://localhost:5173/");
+  });
+
   it("yerel web geçmişinde geri, ileri, yenile ve harici aç eylemlerini yönetir", async () => {
     const openExternal = vi.fn(async () => undefined);
     const client = {

@@ -162,3 +162,12 @@ def test_uzak_httpste_sertifika_dogrulamasi_kapanmaz():
     assert tls_context_for("http://localhost:3000/") is None
     baglam = tls_context_for("https://localhost:8443/")
     assert baglam is not None and baglam.verify_mode == ssl.CERT_NONE
+
+
+def test_kendinden_imzali_sertifika_isaretlenir_panel_onerisi_icin(https_sunucu):
+    # Ölçüldü (31 Ekim, inceleme): doğrulama CERT_NONE ile "gömülebilir" diyordu ama WebView
+    # güvenilmeyen sertifikalı iframe'i boş bırakır ve hata olayı vermez; kullanıcı neden
+    # boş olduğunu göremiyordu. Sonuç işaretlenir, arayüz Tarayıcı panelini önerir.
+    sonuc = validate_web_preview({"url": https_sunucu})
+    assert sonuc["ok"] is True and sonuc["kendinden_imzali"] is True
+    assert "Tarayıcı panel" in sonuc["not"]

@@ -7,6 +7,8 @@ ve nihai adres yine loopback'te kalmak zorundadır; uzak https panelde açılmaz
 
 from __future__ import annotations
 
+import socket
+import ssl
 from http.client import HTTPMessage
 from typing import IO, Any, Protocol, cast
 from urllib.error import HTTPError, URLError
@@ -17,6 +19,10 @@ from ..tools.preview_server import loopback_tls_context
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _LOCAL_SCHEMES = frozenset({"http", "https"})
+SELF_SIGNED_NOTE = (
+    "Sertifika sistemce doğrulanamadı (kendinden imzalı). Önizleme boş kalırsa sayfayı "
+    "Tarayıcı panelinde aç ya da mkcert ile güvenilir yerel sertifika kur."
+)
 
 
 class PreviewValidationError(RuntimeError):
@@ -94,6 +100,30 @@ def _result_from_response(response: _Response) -> dict[str, Any]:
     }
 
 
+def _certificate_trusted(url: str, timeout: float) -> bool:
+    """https adresinin sertifikası varsayılan doğrulamadan geçiyor mu? http için True.
+
+    Ölçüldü (31 Ekim, inceleme): doğrulama loopback'te sertifikayı sorgulamadığı için
+    kendinden imzalı sunucuyu "gömülebilir" sayıyordu; WebView ise güvenilmeyen sertifikalı
+    iframe'i hata olayı vermeden boş bırakır. İşaret arayüze Tarayıcı paneli önerisi olarak
+    gider (mkcert kökü Keychain'deyse WebView kabul eder; engel değil, ipucudur).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return True
+    context = ssl.create_default_context()
+    try:
+        with (
+            socket.create_connection((parsed.hostname, parsed.port or 443), timeout) as raw,
+            context.wrap_socket(raw, server_hostname=parsed.hostname),
+        ):
+            return True
+    except ssl.SSLCertVerificationError:
+        return False
+    except (OSError, ValueError):
+        return True  # bağlantı sorunu sertifika kanıtı değildir; asıl doğrulama yukarıda
+
+
 def validate_web_preview(
     data: dict[str, Any],
     *,
@@ -112,9 +142,12 @@ def validate_web_preview(
     try:
         response = client.open(request, timeout=timeout)
         try:
-            return _result_from_response(response)
+            result = _result_from_response(response)
         finally:
             response.close()
+        if opener is None and result.get("ok") and not _certificate_trusted(result["url"], timeout):
+            return {**result, "kendinden_imzali": True, "not": SELF_SIGNED_NOTE}
+        return result
     except HTTPError as response:
         if 300 <= response.code < 400:
             return {"ok": False, "metin": "Yerel sunucunun yönlendirmesi tamamlanamadı."}
