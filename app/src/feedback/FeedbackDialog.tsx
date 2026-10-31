@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useModalFocus } from "../ui/useModalFocus";
 import { buildIssueUrl, redact, reportBody, supportBundle, type ReportInput, type ReportKind } from "./report";
+import { Button } from "../ui/Button";
+import { PageHeader } from "../ui/PageHeader";
 import "./FeedbackDialog.css";
 
 async function openWithSystem(url: string): Promise<void> {
@@ -45,6 +47,9 @@ export interface FeedbackDialogProps {
   openExternal?: (url: string) => Promise<void>;
   loadVersion?: () => Promise<string>;
   downloadReport?: (text: string) => void;
+  /** "page": profil menüsünden açılan tam sayfa (kenar çubuğu gizli, Kapat önceki ekrana
+   *  döner). "dialog" (varsayılan): hata akışlarından açılan pencere. */
+  variant?: "dialog" | "page";
 }
 
 /**
@@ -53,7 +58,8 @@ export interface FeedbackDialogProps {
  * Sunucu yoktur: "GitHub'da aç" önceden doldurulmuş issue sayfasını sistem
  * tarayıcısında açar, kullanıcı metni orada görüp kendisi gönderir.
  */
-export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem, loadVersion = appVersion, downloadReport = downloadWithBrowser }: FeedbackDialogProps) {
+export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem, loadVersion = appVersion, downloadReport = downloadWithBrowser, variant = "dialog" }: FeedbackDialogProps) {
+  const sayfa = variant === "page";
   const [tur, setTur] = useState<ReportKind>(initial?.tur ?? "geri-bildirim");
   const [mesaj, setMesaj] = useState(initial?.mesaj ?? "");
   const [ayrintiEkle, setAyrintiEkle] = useState(Boolean(initial?.ayrinti));
@@ -65,7 +71,8 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
 
   // Odak tuzağı, arka planı inert yapma ve katmanlı Escape ortak kancadan gelir (iç içe modal
   // tek tuşla birlikte kapanmaz); `onClose` satır içi gelse de kanca en günceli ref'te tutar.
-  useModalFocus(dialogRef, true, onClose, "textarea");
+  // Sayfa kipinde arka plan yoktur: odak tuzağı ve inert kurulmaz, Escape sayfayı kapatmaz.
+  useModalFocus(dialogRef, !sayfa, onClose, "textarea");
   const loadVersionRef = useRef(loadVersion);
 
   useEffect(() => {
@@ -87,13 +94,15 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
     }
   };
 
-  return (
-    <div className="feedback-dialog__backdrop" role="presentation">
-      <section aria-labelledby="feedback-dialog-title" aria-modal="true" className="feedback-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
-        <header>
-          <h2 id="feedback-dialog-title">{tur === "hata" ? "Hata bildir" : "Geri bildirim gönder"}</h2>
-          <button aria-label="Pencereyi kapat" className="feedback-dialog__close" onClick={onClose} type="button">×</button>
-        </header>
+  const baslik = tur === "hata" ? "Hata bildir" : "Geri bildirim gönder";
+  const govde = (
+    <>
+        {!sayfa && (
+          <header>
+            <h2 id="feedback-dialog-title">{baslik}</h2>
+            <button aria-label="Pencereyi kapat" className="feedback-dialog__close" onClick={onClose} type="button">×</button>
+          </header>
+        )}
         <div aria-label="Bildirim türü" className="feedback-dialog__kinds" role="radiogroup">
           <button aria-checked={tur === "hata"} onClick={() => setTur("hata")} role="radio" type="button">Sorun bildir</button>
           <button aria-checked={tur === "geri-bildirim"} onClick={() => setTur("geri-bildirim")} role="radio" type="button">Öneri veya görüş</button>
@@ -138,6 +147,27 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
           <button className="feedback-dialog__secondary" onClick={onClose} type="button">{durum === "acildi" ? "Kapat" : "Vazgeç"}</button>
           <button className="feedback-dialog__primary" disabled={bosMu} onClick={() => void gonder()} type="button">GitHub'da aç</button>
         </footer>
+    </>
+  );
+
+  if (sayfa) {
+    return (
+      <main className="feedback-page">
+        <PageHeader
+          actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
+          description="Bir sorun mu yaşadın ya da bir önerin mi var? Metni burada yaz; GitHub'da göndermeden önce tamamını görürsün."
+          title={baslik}
+        />
+        <section aria-label={baslik} className="feedback-dialog feedback-dialog--page" ref={dialogRef}>
+          {govde}
+        </section>
+      </main>
+    );
+  }
+  return (
+    <div className="feedback-dialog__backdrop" role="presentation">
+      <section aria-labelledby="feedback-dialog-title" aria-modal="true" className="feedback-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
+        {govde}
       </section>
     </div>
   );

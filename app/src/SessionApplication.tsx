@@ -319,6 +319,9 @@ function projectName(root: string): string {
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
+/** Sohbet kenar çubuğunu gizleyen tam sayfalar (Ayarlar'ın davranışı). */
+const TAM_SAYFALAR: readonly string[] = ["settings", "account", "help", "feedback"];
+
 /** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
  * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
 type Page =
@@ -329,6 +332,7 @@ type Page =
   | "help"
   | "settings"
   | "account"
+  | "feedback"
   | "image-create"
   | "video-create";
 
@@ -572,6 +576,11 @@ export function SessionUygulama({
   const pageHistory = useNavigationHistory<Page>("chat");
   const page = pageHistory.current;
   const setPage = pageHistory.push;
+  /** Tam sayfadaki "Kapat": önceki ekrana döner; geçmiş yoksa sohbete. */
+  const closePage = () => {
+    if (pageHistory.canGoBack) pageHistory.back();
+    else setPage("chat");
+  };
   // En soldaki ana menü. Home ve Görsel/Video kabuğun içindeki sayfalardır;
   // diğer üç bölüm tüm yüzeyi kaplar ve sayfa geçmişine girmez.
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
@@ -751,8 +760,14 @@ export function SessionUygulama({
     setNewTaskError(null);
     if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
-      // Rapor penceresi oturum gerektirmez; boş uygulamada da açılır.
-      setFeedback({ tur: "geri-bildirim" });
+      // Menüden açılan geri bildirim Ayarlar gibi TAM SAYFADIR (kenar çubuğu gizli).
+      // Oturum yoksa sayfa çizilemez; rapor yine de pencere olarak açılır.
+      if (active) {
+        setSurfaceSection(null);
+        setPage("feedback");
+      } else {
+        setFeedback({ tur: "geri-bildirim" });
+      }
       return;
     }
     try {
@@ -1475,7 +1490,9 @@ export function SessionUygulama({
       })),
     ],
   };
-  const sectionOwnsSidebar = surfaceSection !== null || page === "settings";
+  // Ayarlar, Hesabım, Yardım ve Geri bildirim tam sayfadır: sohbet kenar çubuğu
+  // (Fusion başlığı, Yeni sohbet, Projeler) bu sayfalarda görünmez.
+  const sectionOwnsSidebar = surfaceSection !== null || TAM_SAYFALAR.includes(page);
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
     return <><Shell
@@ -1536,6 +1553,7 @@ export function SessionUygulama({
       : page === "video-create" ? "Video oluştur"
         : page === "skills" ? "Beceriler ve Ajanlar"
           : page === "help" ? "Yardım"
+            : page === "feedback" ? "Geri bildirim"
             : active.title;
 
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
@@ -1729,7 +1747,7 @@ export function SessionUygulama({
           <AccountScreen
             account={account}
             client={active.client}
-            onClose={() => setPage("chat")}
+            onClose={closePage}
             onOpenProviders={(providerId) => {
               setControlProviderId(providerId);
               setControlTitle("Sağlayıcı hesapları");
@@ -1769,11 +1787,13 @@ export function SessionUygulama({
       : page === "help"
         ? (
           <HelpScreen
-            onClose={() => setPage("chat")}
+            onClose={closePage}
             onOpenSettings={() => setPage("settings")}
             surum={runtimeVersion}
           />
         )
+      : page === "feedback"
+        ? <FeedbackDialog initial={{ tur: "geri-bildirim" }} onClose={closePage} variant="page" />
         : splitSession
           ? (
             <div className="split-view">
