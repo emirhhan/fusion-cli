@@ -23,7 +23,10 @@
       "../../chrome-extension/pageGlow.js": "chrome-extension/pageGlow.js",
       "../../chrome-extension/icons/fusion.svg": "chrome-extension/icons/fusion.svg",
       "../../chrome-extension/icons/fusion-32.png": "chrome-extension/icons/fusion-32.png",
-      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png"
+      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png",
+      "resources/kits/kits-manifest.json": "kits/kits-manifest.json",
+      "resources/kits/node": "kits/node",
+      "resources/kits/app/": "kits/app/"
     },
     "macOS": {
       "minimumSystemVersion": "12.0",

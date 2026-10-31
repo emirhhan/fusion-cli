@@ -22,7 +22,10 @@
       "../../chrome-extension/pageGlow.js": "chrome-extension/pageGlow.js",
       "../../chrome-extension/icons/fusion.svg": "chrome-extension/icons/fusion.svg",
       "../../chrome-extension/icons/fusion-32.png": "chrome-extension/icons/fusion-32.png",
-      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png"
+      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png",
+      "resources/kits/kits-manifest.json": "kits/kits-manifest.json",
+      "resources/kits/node.exe": "kits/node.exe",
+      "resources/kits/app/": "kits/app/"
     },
     "windows": {
       "nsis": {

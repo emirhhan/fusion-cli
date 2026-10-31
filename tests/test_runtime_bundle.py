@@ -412,9 +412,9 @@ def test_desktop_bundle_scripts_build_platform_listen_adapters():
 
     assert "build_adapter.py --platform macos" in scripts["listen:build:mac"]
     assert "build_adapter.py --platform windows" in scripts["listen:build:win"]
-    assert scripts["bundle:mac"].startswith("npm run listen:build:mac &&")
+    assert scripts["bundle:mac"].startswith("npm run kits:prepare && npm run listen:build:mac &&")
     assert "stable_sign_bundle.py --bundle-root" in scripts["bundle:mac"]
-    assert scripts["bundle:win"].startswith("npm run listen:build:win &&")
+    assert scripts["bundle:win"].startswith("npm run kits:prepare && npm run listen:build:win &&")
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS codesign/DMG sözleşme testi")
