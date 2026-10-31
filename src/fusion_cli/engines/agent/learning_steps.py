@@ -17,7 +17,7 @@ from collections.abc import Awaitable
 from typing import TYPE_CHECKING
 
 from ...core.events import LessonsLearned, LessonsRecalled
-from ...core.memory import Lesson
+from ...core.memory import Lesson, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult
 from . import learning
@@ -61,7 +61,11 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
 
     context = deps.tool_context
     sunucular = {ad.split("__", 1)[0] for ad in context.available_tools if "__" in ad}
-    return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular)}))
+    # Kendi belleği olan alt ajanın dersi kişilik etiketi taşır (P-055): çıkarımda yazılır,
+    # geri çağırmada süzgeç olur (`core.memory.visible_to`).
+    owner = getattr(deps, "lesson_owner", "")
+    sahip = {agent_lesson_tag(owner)} if owner else set()
+    return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular), *sahip}))
 
 
 def recall_lessons(query: str, deps: AgentDeps, *, limit: int = RECALL_LIMIT) -> tuple[Lesson, ...]:

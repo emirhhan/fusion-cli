@@ -156,7 +156,7 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
         from playwright.async_api import async_playwright
     except ImportError:
         return PageLog(url, error=PLAYWRIGHT_MISSING)
-    collector = _Collector()
+    collector = PageEventCollector()
     try:
         async with async_playwright() as driver:
             try:
@@ -171,8 +171,12 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
                 }
                 if options.color_scheme in COLOR_SCHEMES:
                     page_options["color_scheme"] = options.color_scheme
+                # Yalnız loopback açılır (yukarıda ve `route` ile); yerel https sertifikası
+                # kendinden imzalı olabilir (P-041), uzak adrese zaten gidilmez.
                 page = await browser.new_page(
-                    proxy=cast("ProxySettings", _BLOCKING_PROXY), **page_options
+                    proxy=cast("ProxySettings", _BLOCKING_PROXY),
+                    ignore_https_errors=True,
+                    **page_options,
                 )
                 page.on("console", collector.console)
                 page.on("pageerror", collector.page_error)
@@ -201,24 +205,25 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
     return PageLog(url, collector.console_entries(), collector.network_entries(), shot)
 
 
-def save_screenshot(root: Path, data: bytes) -> str:
-    """Görüntüyü proje içine yaz; köke göreli yol döner (yazılamazsa boş).
+def save_screenshot(root: Path, data: bytes, relative: Path = SCREENSHOT_FILE) -> str:
+    """Görüntüyü proje içine (`relative`) yaz; köke göreli yol döner (yazılamazsa boş).
 
     Hedef sembolik bağsa ya da kök dışına çözülüyorsa YAZILMAZ. Ölçüldü (31 Ekim): depo
     `.fusion/onizleme-ekran.png -> ~/.zshrc` bağı taşıyınca `write_bytes` o dosyayı eziyordu.
+    Tarayıcı panelinin öğe seçimleri (`browser_picker`) aynı kapıdan yazılır.
     """
     try:
-        target = root / SCREENSHOT_FILE
+        target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink() or target.parent.is_symlink():
             return ""
         gercek_kok = root.resolve()
-        if target.parent.resolve() != gercek_kok / SCREENSHOT_FILE.parent:
+        if target.parent.resolve() != gercek_kok / relative.parent:
             return ""
         target.write_bytes(data)
     except OSError:
         return ""
-    return SCREENSHOT_FILE.as_posix()
+    return relative.as_posix()
 
 
 def format_console(log: PageLog, *, limit: int = 60, only_errors: bool = False) -> str:
@@ -263,14 +268,39 @@ def format_network(log: PageLog, *, limit: int = 80, only_failed: bool = False) 
 
 
 @dataclass
-class _Collector:
-    """Playwright olaylarını sınırlı tamponlarda toplar; birikim sırasına göre döndürür."""
+class PageEventCollector:
+    """Playwright olaylarını sınırlı tamponlarda toplar; birikim sırasına göre döndürür.
+
+    Tarayıcı panelinin canlı konsolu (`browser_live`) da bunu kullanır: aynı sınırlar.
+    Tek sayfa ölçümünde ilk kayıtlar tutulur (asıl neden çoğu zaman ilk hatadır); `rolling`
+    açıkken tampon halkadır, en eskiler düşer. Ölçüldü (31 Ekim, inceleme): tarayıcı ömrü
+    boyunca yaşayan panel toplayıcısı birkaç sayfadan sonra yeni hatayı hiç göstermiyordu.
+    """
 
     _console: list[ConsoleEntry] = field(default_factory=list)
     _requests: dict[int, NetworkEntry] = field(default_factory=dict)
     _order: list[int] = field(default_factory=list)
     #: Loopback dışına çıkmaya çalışan ve engellenen adresler (ilk giren yönlendirmedir).
     blocked: list[str] = field(default_factory=list)
+    #: Halka tampon: dolunca en eski kayıt düşer, yenisi alınır.
+    rolling: bool = False
+
+    def _room_for_console(self) -> bool:
+        if len(self._console) < MAX_CONSOLE_ENTRIES:
+            return True
+        if self.rolling:
+            del self._console[0]
+            return True
+        return False
+
+    def _room_for_request(self) -> bool:
+        if len(self._requests) < MAX_NETWORK_ENTRIES:
+            return True
+        if not self.rolling:
+            return False
+        while self._order and len(self._requests) >= MAX_NETWORK_ENTRIES:
+            self._requests.pop(self._order.pop(0), None)
+        return True
 
     async def route(self, route: Route) -> None:
         url = route.request.url
@@ -282,7 +312,7 @@ class _Collector:
         await route.abort("blockedbyclient")
 
     def console(self, message: ConsoleMessage) -> None:
-        if len(self._console) >= MAX_CONSOLE_ENTRIES:
+        if not self._room_for_console():
             return
         location = message.location
         source = ""
@@ -293,16 +323,20 @@ class _Collector:
         self._console.append(ConsoleEntry(str(message.type), message.text[:MAX_TEXT_CHARS], source))
 
     def page_error(self, error: object) -> None:
-        if len(self._console) < MAX_CONSOLE_ENTRIES:
+        if self._room_for_console():
             self._console.append(ConsoleEntry("pageerror", str(error)[:MAX_TEXT_CHARS]))
 
     def request(self, request: Request) -> None:
         if not allowed_request_url(request.url) and len(self.blocked) < MAX_NETWORK_ENTRIES:
             # Yönlendirme hedefi `route`'a uğramaz; burada görülür ve vekil tarafından kesilir.
             self.blocked.append(request.url[:MAX_TEXT_CHARS])
-        if len(self._requests) >= MAX_NETWORK_ENTRIES:
-            return
         key = id(request)
+        if key in self._requests:
+            # Aynı nesne (ya da `id`'si yeniden kullanılan yeni nesne) iki kez sıraya girmez.
+            self._order.remove(key)
+            del self._requests[key]
+        if not self._room_for_request():
+            return
         self._order.append(key)
         self._requests[key] = NetworkEntry(
             request.method, request.url[:MAX_TEXT_CHARS], 0, request.resource_type

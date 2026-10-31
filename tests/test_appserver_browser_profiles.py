@@ -195,3 +195,34 @@ async def test_tarayici_ayar_headless_ve_profiller_yazilir(oturum, monkeypatch):
     assert _sonuc(satirlar, "24")["ok"] is False
     await session.handle(Request(id="25", name="tarayici.profiller", data={}))
     assert _sonuc(satirlar, "25")["etkin"] is False
+
+
+async def test_panel_ajan_paylasimi_ayarlardan_ve_panelden_kalici_yazilir(oturum, monkeypatch):
+    # Ölçüldü (31 Ekim, inceleme): `ajan_paylasir` panel onay kutusu yalnız oturum içinde
+    # tutuluyordu; uygulama yeniden açılınca sıfırlanıyor, ayar ekranında karşılığı yoktu.
+    from fusion_cli.appserver import browser_profiles as rpc
+
+    session, satirlar = oturum
+    yazilan: dict[str, object] = {}
+    monkeypatch.setattr(
+        rpc, "write_browser_setting", lambda config, key, value: yazilan.update({key: value})
+    )
+
+    await session.handle(
+        Request(id="30", name="tarayici.ayar", data={"anahtar": "panel_agent", "deger": False})
+    )
+    assert _sonuc(satirlar, "30")["ok"] is True
+    assert session._state.config.browser.panel_agent is False
+    await session.handle(Request(id="31", name="tarayici.profiller", data={}))
+    assert _sonuc(satirlar, "31")["panel_ajan"] is False
+
+    await session.handle(
+        Request(
+            id="32",
+            name="tarayici_panel.ayar",
+            data={"anahtar": "ajan_paylasir", "deger": True},
+        )
+    )
+    assert _sonuc(satirlar, "32")["ajan_paylasir"] is True
+    assert yazilan == {"panel_agent": True}
+    assert session._state.config.browser.panel_agent is True

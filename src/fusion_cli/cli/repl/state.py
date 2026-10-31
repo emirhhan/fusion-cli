@@ -6,10 +6,12 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_checked, revision
@@ -18,6 +20,7 @@ from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
+from ...core.pull_request import PullRequestLink
 from ...core.remotion_browser import RemotionBrowser
 from ...core.session_cron import SessionCron
 from ...core.turn_checkpoints import TurnCheckpointLedger
@@ -25,17 +28,20 @@ from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.skill_turn import TurnModelChoice
 from ...engines.agent.team import Persona
 from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
 from ...observability.usage_log import UsageLog
 from ...tools.capabilities import CapabilityRegistry
+from ...tools.capability_overrides import registry_from_config
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
+    from ...tools.browser_shared import SharedBrowser
 
 
 def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
@@ -75,18 +81,41 @@ class Engine(Enum):
 TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
+#: `run_agent`/`run_forked_turn` imzalı tur çalıştırıcısı (bkz. `PendingExtras.fork_runner`).
+# Any: tur çalıştırıcılarının imzası geniş anahtar sözcüklüdür; yalnız sarmalanır.
+TurnRunner = Callable[..., Any]
+
+
 @dataclass(frozen=True, slots=True)
 class PendingExtras:
     """`/beceri` komutunun sıradaki tura taşıdığı ekler (bkz. `ReplState.take_pending_extras`)."""
 
     context: str = ""
     tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort` alanı: yalnız bu turun yapılandırmasını değiştirir (P-020).
+    model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    #: Becerinin `disallowed-tools` alanı (Fusion adları).
+    denied: frozenset[str] = frozenset()
+    #: `context: fork` + `agent:` → fork turunu bu alt ajan tanımı koşar.
+    fork_agent: str = ""
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
         if self.tools is None:
             return base
         return set(self.tools) if base is None else set(self.tools) & base
+
+    def merged_denied(self, base: frozenset[str]) -> frozenset[str]:
+        """Kişiliğin yasaklarıyla birleşim: beceri yasak ekler, kaldıramaz."""
+        return frozenset(base) | self.denied
+
+    def turn_config(self, config: Config) -> Config:
+        """Bu turun yapılandırması (becerinin modeli/eforu); seçim yoksa aynı nesne."""
+        return self.model_choice.apply(config)
+
+    def fork_runner(self, runner: TurnRunner) -> TurnRunner:
+        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla koşar."""
+        return functools.partial(runner, persona=self.fork_agent) if self.fork_agent else runner
 
 
 @dataclass(slots=True)
@@ -170,10 +199,25 @@ class ReplState:
     scheduled_turn_only: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
+    #: `/tarayici ac` ile açılan, ajanla paylaşılan görünür tarayıcı (P-045); kapalıyken None.
+    shared_browser: SharedBrowser | None = field(default=None, kw_only=True)
+    #: `/tarayici kapat` sonrası kapanışı süren paylaşımlar; REPL çıkışında beklenir.
+    closing_browsers: list[SharedBrowser] = field(default_factory=list, kw_only=True)
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
     pending_context: str = ""
     #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
     pending_tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort`, `disallowed-tools` ve fork `agent` alanları (P-020).
+    pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    pending_denied_tools: frozenset[str] = frozenset()
+    pending_fork_agent: str = ""
+    #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
+    linked_pr: PullRequestLink | None = None
+
+    def bind_pull_request(self, link: PullRequestLink | None) -> None:
+        """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
+        if link is not None:
+            self.linked_pr = link
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -212,8 +256,16 @@ class ReplState:
 
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
-        extras = PendingExtras(self.pending_context, self.pending_tools)
+        extras = PendingExtras(
+            self.pending_context,
+            self.pending_tools,
+            self.pending_model_choice,
+            self.pending_denied_tools,
+            self.pending_fork_agent,
+        )
         self.pending_context, self.pending_tools = "", None
+        self.pending_model_choice = TurnModelChoice()
+        self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
         return extras
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
@@ -253,14 +305,9 @@ class ReplState:
 
     def __post_init__(self) -> None:
         if self.capabilities is None:
-            # `capabilities.disabled` kalıcı kapatma listesi her oturumda uygulanır (P-051).
-            disabled = frozenset(getattr(self.config.capabilities, "disabled", ()))
-            self.capabilities = CapabilityRegistry(
-                self.home,
-                self.root,
-                disabled_skills=disabled,
-                disabled_agents=disabled,
-                extra_roots=self.extra_roots,
+            # `capabilities.disabled` ve `overrides` her oturumda uygulanır (P-051).
+            self.capabilities = registry_from_config(
+                self.config, self.home, self.root, extra_roots=self.extra_roots
             )
         if self.plain_memory is None:
             self.plain_memory = build_plain_memory(self.config, self.root)
@@ -325,6 +372,10 @@ class ReplState:
 
     def reset_history(self) -> int:
         """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+        from . import linked_pr
+
         removed = len(self.history)
         self.history = []
+        # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
+        linked_pr.forget(self)
         return removed

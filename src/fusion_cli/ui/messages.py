@@ -376,6 +376,30 @@ REPL_PREVIEW_WARNING = "! {warning}"
 REPL_PREVIEW_UNTRUSTED = (
     "Komutlu yapılandırmalar bu proje güvenilmediği için çalışmaz: `fusion trust` ile onayla."
 )
+#: `/tarayici` (P-045): ajanla paylaşılan, turlar arasında açık kalan görünür tarayıcı.
+TARAYICI_PANEL_OFF = (
+    "Paylaşılan tarayıcı kapalı: ajan her turda kendi görünmez tarayıcısını açıp kapatır. "
+    "`/tarayici ac` ile görünür, turlar arasında açık kalan bir pencereye geç."
+)
+TARAYICI_PANEL_ON = (
+    "Paylaşılan tarayıcı açık: ajanın tarayıcı eylemleri görünür pencerede yürür ve turlar "
+    "arasında açık kalır. Pencerede sen de gezinebilirsin; ajanı bekletmek için "
+    "`/tarayici devral`, devretmek için `/tarayici birak`."
+)
+TARAYICI_PANEL_STATUS = "Paylaşılan tarayıcı: {state} · denetim: {control}{profile}"
+TARAYICI_PANEL_NOT_STARTED = "pencere ajanın ilk tarayıcı eyleminde açılır"
+TARAYICI_PANEL_TAB = "{marker} {index}. {url}"
+TARAYICI_PANEL_CONTROL_USER = "sende (ajan bekliyor)"
+TARAYICI_PANEL_CONTROL_AGENT = "ajanda"
+TARAYICI_PANEL_TAKEN = (
+    "Denetim sende: ajanın tarayıcı eylemleri sen `/tarayici birak` diyene kadar bekler "
+    "(en çok 5 dk)."
+)
+TARAYICI_PANEL_RELEASED = "Denetim ajana geçti; bekleyen tarayıcı eylemi sürer."
+TARAYICI_PANEL_CLOSED = "Paylaşılan tarayıcı kapatıldı; ajan yine tur başına tarayıcı kullanır."
+TARAYICI_PANEL_NEEDS_ON = "Önce `/tarayici ac` ile paylaşılan tarayıcıyı aç."
+TARAYICI_PANEL_USAGE = "Kullanım: /tarayici [ac | devral | birak | kapat]"
+CMD_TARAYICI = "ajanla paylaşılan görünür tarayıcı: izle, devral, bırak (P-045)"
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
@@ -629,9 +653,7 @@ REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile 
 REPL_SKILL_FORK_NOTE = (
     "context: fork — bu beceri ana bağlamı devralan bir alt ajanda çalışacak (/subtask gibi)."
 )
-REPL_SKILL_MODEL_NOTE = (
-    "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
-)
+REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
 REPL_SKILL_ENGINE_NOTE = (
     "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
 )
@@ -718,6 +740,22 @@ MCP_SAVE_FAILED = "kaydedilemedi: {error}"
 CONNECTOR_RECONNECTED = "Yeniden bağlandı: {names}."
 CONNECTOR_RECONNECT_FAILED = "Yeniden bağlanılamadı: {names}. Ayrıntı satırda."
 MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
+MCP_PROMPT_QUEUED = "MCP istemi /{name} sıradaki turda sunucudan alınıp çalıştırılacak."
+MCP_PROMPT_DEFAULT = "{server} MCP istemi"
+MCP_PROMPT_UNLISTED = "MCP istemi (liste henüz yüklenmedi)"
+MCP_PROMPT_UNLISTED_QUEUED = (
+    "MCP istem listesi henüz yüklenmedi; /{name} sıradaki turda sunucular bağlanınca çözülecek."
+)
+MCP_PROMPT_ROW = "/{name} {usage} — {description}"
+MCP_RESOURCE_ROW = "@{server}:{uri} — {name}"
+MCP_PROMPTS_EMPTY = (
+    "Bilinen MCP istemi yok. Sunucular ilk turda bağlanır; istem sunan bir sunucu bağlıysa "
+    "liste bir turdan sonra dolar."
+)
+MCP_RESOURCES_EMPTY = (
+    "Bilinen MCP kaynağı yok. Sunucular ilk turda bağlanır; kaynak sunan sunucu bağlandıktan "
+    "sonra `@sunucu:uri` ile anabilirsin."
+)
 MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
@@ -968,7 +1006,10 @@ REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
 )
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
-CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
+CMD_MCP = (
+    "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]; "
+    "/mcp prompts, /mcp resources"
+)
 CMD_SKILLS = (
     "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
 )
@@ -1344,9 +1385,9 @@ MENTION_UNREADABLE = "@{raw} okunamadı: {error}"
 MENTION_NOT_FILE = "dosya ya da dizin değil"
 MENTION_TOO_MANY = "Tek mesajda en fazla {limit} dosya anması işlenir; fazlası atlandı."
 MENTION_RESOURCE_UNSUPPORTED = (
-    "@{raw}: MCP kaynak anması henüz desteklenmiyor (köprüde resources/read yok); "
-    "sunucunun aracını sohbette iste."
+    "@{raw}: '{server}' adlı MCP sunucusu tanımlı değil; kaynak eklenmedi (`/mcp` ile listele)."
 )
+MENTION_RESOURCE_QUEUED = "@{raw}: MCP kaynağı turda sunucudan okunup bağlama eklenecek."
 
 # --- /config ve fusion config get/set/list (P-029) ------------------------- #
 CMD_CONFIG = "ayarları gör/değiştir: /config [filtre] · /config <yol> · /config <yol>=<değer>"
@@ -1430,4 +1471,17 @@ EKLENTI_MCP_REMOVE = (
 EKLENTI_MCP_TRUST = (
     "'{name}' bir eklentinin MCP sunucusu; güveni kalıcı tutulmaz, her araç çağrısı onay ister. "
     "Kapatmak için: fusion eklenti kapat <eklenti>"
+)
+
+# Bilgisayar kullanımı (P-007, P-033) — `BILGISAYAR_` önekli.
+BILGISAYAR_APPROVAL_SESSION = "Bu oturumda {app} için izin ver"
+BILGISAYAR_APPROVAL_NEVER = "Her zaman reddet"
+BILGISAYAR_APPROVAL_NEVER_DESC = "{app} reddedilen uygulamalara eklenir (Ayarlar › Bu bilgisayar)."
+BILGISAYAR_APPROVAL_TARGET = "Uygulama: {app} · kademe: {level}"
+BILGISAYAR_CONFIRM_SESSION_HINT = "o = bu oturumda {app} için izin ver"
+BILGISAYAR_DENIED_NOT_SAVED = "{app} bu tur için reddedildi (ret listesine yazılamadı)."
+BILGISAYAR_CONFIRM_NEVER_HINT = "r = {app} uygulamasını her zaman reddet"
+BILGISAYAR_ESC_STOPPED = "Esc ile durduruldu: Fusion bilgisayarı kullanmayı bıraktı."
+BILGISAYAR_DENIED_IN_TURN = (
+    "Kullanıcı {app} uygulamasını reddedilen uygulamalara ekledi; bu uygulamada eylem yapma."
 )

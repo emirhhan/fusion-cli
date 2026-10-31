@@ -57,6 +57,7 @@ from . import (
 )
 from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
+from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
@@ -522,7 +523,9 @@ def agent(
                 stdout=sys.stdout if streaming else sys.stderr,
                 timeout=permission_timeout,
             )
-        return ConsolePrompter(console, tool_context, flush=flush)
+        # "Her zaman reddet" (`r`, P-007) tek atışta da ret listesine yazar.
+        denials = AppDenials(config_persist(lambda: config))
+        return ConsolePrompter(console, tool_context, flush=flush, denials=denials)
 
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
@@ -714,6 +717,7 @@ def init(
                     console,
                     ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
                     flush=flush,
+                    denials=AppDenials(config_persist(lambda: config)),
                 ),
                 mode=_parse_mode(mode),
                 root=root,

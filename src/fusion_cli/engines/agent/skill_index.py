@@ -97,7 +97,7 @@ def skill_index_block(registry: CapabilityRegistry | None, budget: int = SKILL_I
     remaining = budget - len(HEADER) - (wrapper_cost if repo else 0)
     shown = 0
     for skill in trusted:
-        line = _line(skill.name, skill.description)
+        line = _line(skill.name, skill.description if skill.describe_in_index else "")
         if len(line) + 1 > remaining:
             break
         lines.append(line)
@@ -105,7 +105,7 @@ def skill_index_block(registry: CapabilityRegistry | None, budget: int = SKILL_I
         shown += 1
     repo_lines: list[str] = []
     for skill in repo:
-        line = neutralize(_line(skill.name, skill.description))
+        line = neutralize(_line(skill.name, skill.description if skill.describe_in_index else ""))
         if len(line) + 1 > remaining:
             break
         repo_lines.append(line)

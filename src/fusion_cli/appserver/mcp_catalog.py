@@ -9,6 +9,7 @@ from typing import Any
 from ..config.models import McpServerConfig
 from ..core.redaction import contains_sensitive
 from ..mcp_bridge.client import McpClient
+from ..mcp_bridge.references import McpCatalog
 from ..mcp_bridge.types import RemoteTool
 
 _LOG = logging.getLogger(__name__)
@@ -66,6 +67,40 @@ def project_tools(tools: list[RemoteTool]) -> dict[str, Any]:
     return {"tools": rows, "total": len(tools), "truncated": len(tools) > 200}
 
 
+def project_references(catalog: McpCatalog) -> dict[str, Any]:
+    """İstem ve kaynak listesi (P-049): sohbette yazılacak `/mcp__…` ve `@sunucu:uri` biçimiyle.
+
+    Ölçüldü (31 Ekim): masaüstünde MCP istemleri yalnız slash paletinde, kaynaklar hiçbir yerde
+    görünmüyordu; Bağlantılar ekranı yalnız araçları listeliyordu.
+    """
+    return {
+        "prompts": [
+            {
+                "command": _text(f"/{prompt.slash_name}", 240),
+                "usage": _text(prompt.usage, 240),
+                "description": _text(prompt.description, 600),
+            }
+            for prompt in catalog.prompts[:200]
+        ],
+        "resources": [
+            {
+                "mention": _text(f"@{resource.server}:{resource.uri}", 600),
+                "name": _text(resource.name or resource.description, 300),
+                "mimeType": _text(resource.mime_type, 120),
+            }
+            for resource in catalog.resources[:200]
+        ],
+    }
+
+
+async def _references(client: McpClient, server: str) -> dict[str, Any]:
+    try:
+        return project_references(await client.catalog(server))
+    except Exception as error:  # istem/kaynak listesi bir zenginleştirme; araç kataloğu düşmez
+        _LOG.info("MCP istem/kaynak listesi okunamadı (%s): %s", server, type(error).__name__)
+        return {"prompts": [], "resources": []}
+
+
 async def _discover(server: McpServerConfig) -> dict[str, Any]:
     async with McpClient((server,), interactive=False) as client:
         status = client.statuses.get(server.name)
@@ -75,7 +110,8 @@ async def _discover(server: McpServerConfig) -> dict[str, Any]:
                 "metin": "Araç kataloğu okunamadı. Bağlantı durumunu kontrol et.",
             }
         tools = await client.list_tools(server.name)
-    return {"ok": True, "schemaVersion": 1, **project_tools(tools)}
+        references = await _references(client, server.name)
+    return {"ok": True, "schemaVersion": 1, **project_tools(tools), **references}
 
 
 async def list_tool_catalog(
