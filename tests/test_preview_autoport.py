@@ -92,6 +92,49 @@ def test_dolu_port_sonraki_bos_porta_kayar(dolu_port):
     assert preview_ports.choose_port(dolu_port, auto_port=False) is None
 
 
+def _time_wait_port() -> int:
+    """Sunucu bağlantıyı önce kapatıp dinlemeyi bırakmış port: TIME_WAIT kalır, dinleyen yok."""
+    for aday in random.sample(range(20_000, 30_000), 200):
+        dinleyen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        dinleyen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            dinleyen.bind(("127.0.0.1", aday))
+        except OSError:
+            dinleyen.close()
+            continue
+        dinleyen.listen(1)
+        istemci = socket.create_connection(("127.0.0.1", aday))
+        kabul, _ = dinleyen.accept()
+        kabul.close()  # sunucu tarafı önce kapatır → sunucu soketi TIME_WAIT'e girer
+        istemci.close()
+        dinleyen.close()
+        return aday
+    pytest.skip("boş port bulunamadı")
+
+
+def test_time_wait_kalan_port_dolu_sayilmaz():
+    # Ölçüldü (31 Ekim, inceleme): SO_REUSEADDR'sız bind TIME_WAIT'li portu ~60 sn "dolu"
+    # gösteriyordu; durdurulup hemen yeniden başlatılan sunucu sessizce başka porta kayıyordu.
+    port = _time_wait_port()
+    assert preview_ports.is_port_busy(port) is False
+    secim = preview_ports.choose_port(port, auto_port=False)
+    assert secim is not None and not secim.moved
+
+
+def test_dinlenen_port_dolu_sayilir(dolu_port):
+    assert preview_ports.is_port_busy(dolu_port) is True
+
+
+def test_tum_arayuzlerde_dinlenen_port_dolu_sayilir():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("0.0.0.0", 0))
+    sock.listen(1)
+    try:
+        assert preview_ports.is_port_busy(sock.getsockname()[1]) is True
+    finally:
+        sock.close()
+
+
 def test_yer_tutucu_ve_adres_portu_degisir():
     assert preview_ports.expand_port(("--port", "${port}", "x"), 5174) == ("--port", "5174", "x")
     assert preview_ports.with_port("http://localhost:5173/app?x=1", 5174) == (

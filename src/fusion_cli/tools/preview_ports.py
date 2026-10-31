@@ -37,18 +37,26 @@ class PortChoice:
 
 
 def is_port_busy(port: int) -> bool:
-    """Port yerelde kullanımda mı? IPv4'te bind denenir, IPv6 loopback'te bağlanılır.
+    """Port yerelde kullanımda mı? IPv4'te bind denenir, iki loopback'te bağlanılır.
 
     Bind sınaması `preview_server.free_port` ile aynı gerekçeyle: bağlantı reddi portun boş
     olduğunu kanıtlamaz. Vite gibi sunucular yalnız `::1`'e bağlanabildiği için o da yoklanır.
+    Ölçüldü (31 Ekim, inceleme): `SO_REUSEADDR`'sız bind, durdurulan sunucunun TIME_WAIT
+    bağlantıları yüzünden portu ~60 sn "dolu" sayıyor, yeniden başlatma başka porta kayıyordu.
+    Node/Vite de `SO_REUSEADDR` ile bağlanır; dinleyen sunucuyu bağlantı yoklaması yakalar.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
         except OSError:
             return True
+    return any(_accepts(host, port) for host in ("127.0.0.1", "::1"))
+
+
+def _accepts(host: str, port: int) -> bool:
     try:
-        with socket.create_connection(("::1", port), timeout=0.2):
+        with socket.create_connection((host, port), timeout=0.2):
             return True
     except OSError:
         return False
