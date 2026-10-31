@@ -370,6 +370,12 @@ def agent(
         "--permission-channel",
         help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
     ),
+    permission_timeout: float = typer.Option(
+        headless.DEFAULT_PERMISSION_TIMEOUT,
+        "--permission-timeout",
+        min=1.0,
+        help="Onay kanalında cevap bekleme süresi (saniye); dolunca 'sorulamadı' sayılır.",
+    ),
     from_pr: int | None = typer.Option(
         None, "--from-pr", min=1, help="Görevin başına bu PR'ın özetini ekle (gh ile okunur)."
     ),
@@ -428,7 +434,12 @@ def agent(
         flush: Callable[[], Awaitable[None]],
     ) -> ConsolePrompter | headless.JsonLinesPrompter:
         if options.channel is headless.PermissionChannel.STDIN:
-            return headless.JsonLinesPrompter()
+            # Olay satırları yalnız stream-json'da stdout'a gider; json/text'te stdout
+            # sonuç içindir, istekler stderr'e yazılır (cevaplar yine stdin'den okunur).
+            return headless.JsonLinesPrompter(
+                stdout=sys.stdout if streaming else sys.stderr,
+                timeout=permission_timeout,
+            )
         return ConsolePrompter(console, tool_context, flush=flush)
 
     outcome = _run_observed(
@@ -523,6 +534,9 @@ def _headless_options(
         schema = headless.load_schema(json_schema) if json_schema is not None else None
     except ValueError as error:
         raise typer.BadParameter(str(error)) from None
+    # Çakışma stdin OKUNMADAN denetlenir: aksi hâlde görev tüketilip hata sonra geliyordu.
+    if channel is not None and raw_task.strip() in ("", "-"):
+        raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
     task = headless.read_task(raw_task, sys.stdin, is_tty=sys.stdin.isatty())
     if not task:
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
@@ -534,8 +548,6 @@ def _headless_options(
             task = f"{pr_context(from_pr, root=Path.cwd())}\n\n{task}"
         except RuntimeError as error:
             raise typer.BadParameter(messages.HEADLESS_FROM_PR_FAILED.format(error=error)) from None
-    if channel is not None and raw_task.strip() in ("", "-"):
-        raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
     parts: list[str] = []
     allowed = headless.parse_tool_list(allowed_tools)
     if agent_name:

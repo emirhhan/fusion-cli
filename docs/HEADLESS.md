@@ -117,7 +117,9 @@ nesnesi olsun"); nihai cevaptan JSON ayıklanır (kod çiti sökülür) ve denet
 ## Dış onay kanalı — `--permission-channel stdin`
 
 Etkileşimsiz oturumda onay istemi normalde `UNAVAILABLE` sayılır (sorulamadı, tur sürer).
-Kanal açıkken istekler stdout'a, kararlar stdin'den JSON-Lines olarak akar:
+Kanal açıkken istekler yazılır, kararlar stdin'den JSON-Lines olarak okunur. İsteklerin
+yazıldığı yer çıktı biçimine bağlıdır: `stream-json`'da stdout (diğer olaylarla aynı akış),
+`json` ve `text`'te **stderr** (stdout tek satırlık sonuç/cevap için ayrılmıştır):
 
 ```text
 stdout → {"event": "ApprovalRequested", "istek_id": "1", "arac": "run_shell", "args": {...}, "tehlike": null, "etki": "..."}
@@ -127,8 +129,17 @@ stdout → {"event": "QuestionAsked", "istek_id": "2", "soru": "...", "secenekle
 stdin  ← {"istek_id": "2", "cevap": "..."}
 ```
 
-Eşleşmeyen kimlik, bozuk satır ya da EOF insan reddi DEĞİLDİR: `UNAVAILABLE` döner.
-Görev stdin'den okunurken kanal da stdin olamaz; görevi argüman olarak ver.
+Eşleşmeyen kimlik, bozuk satır, EOF ya da zaman aşımı insan reddi DEĞİLDİR: `UNAVAILABLE`
+döner. Cevap `--permission-timeout` saniye (varsayılan 300) içinde gelmezse istek
+"sorulamadı" sayılır; bu sürede tur ve zamanlayıcılar çalışmaya devam eder. Zaman aşımına
+uğramış isteğe geç gelen cevap atlanır, sonraki isteğe sayılmaz.
+Görev stdin'den okunurken kanal da stdin olamaz; görevi argüman olarak ver (bu çakışma
+stdin okunmadan bildirilir).
+
+```bash
+fusion agent "testleri düzelt" --permission-channel stdin --permission-timeout 60 \
+  --output-format json 2> istekler.jsonl
+```
 
 ## Çıkış kodları
 

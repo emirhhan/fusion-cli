@@ -383,6 +383,125 @@ def test_onay_kanali_stdin_gorevle_birlikte_kullanilamaz(monkeypatch):
     assert result.exit_code != 0
 
 
+def _boru():
+    """Yazma ucu açık kalan boş boru: okuyan taraf satır gelene dek bekler."""
+    import os
+
+    okuma, yazma = os.pipe()
+    return os.fdopen(okuma, "r", encoding="utf-8"), os.fdopen(yazma, "w", encoding="utf-8")
+
+
+def test_onay_kanali_cevapsiz_kalinca_zaman_asimiyla_sorulamadi_doner_dongu_kilitlenmez():
+    """Ölçüldü (31 Ekim): `_read` olay döngüsü içinde bloklayan `readline` çağırıyordu;
+    cevap gelmezse tur, zaman aşımları ve MCP canlılık zamanlayıcıları dahil donuyordu."""
+    okuma, yazma = _boru()
+    prompter = JsonLinesPrompter(stdin=okuma, stdout=io.StringIO(), timeout=0.3)
+    tikler: list[int] = []
+
+    async def _senaryo():
+        async def _saat():
+            while True:
+                tikler.append(1)
+                await asyncio.sleep(0.02)
+
+        saat = asyncio.create_task(_saat())
+        try:
+            return await asyncio.wait_for(prompter.confirm(_istek()), timeout=5)
+        finally:
+            saat.cancel()
+
+    try:
+        assert asyncio.run(_senaryo()) is ApprovalAnswer.UNAVAILABLE
+        assert len(tikler) >= 5
+    finally:
+        yazma.close()
+        okuma.close()
+
+
+def test_onay_kanali_gec_gelen_eski_cevap_sonraki_istege_sayilmaz():
+    okuma, yazma = _boru()
+    prompter = JsonLinesPrompter(stdin=okuma, stdout=io.StringIO(), timeout=0.2)
+    try:
+        assert asyncio.run(prompter.confirm(_istek())) is ApprovalAnswer.UNAVAILABLE
+        yazma.write('{"istek_id": "1", "karar": "onayla"}\n{"istek_id": "2", "karar": "reddet"}\n')
+        yazma.flush()
+        assert asyncio.run(prompter.confirm(_istek())) is ApprovalAnswer.DENY
+    finally:
+        yazma.close()
+        okuma.close()
+
+
+def test_json_ciktida_onay_olaylari_stderr_e_gider_stdout_tek_satir(monkeypatch):
+    """`--output-format json` tek satır sözü verir; onay olayları stdout'a karışıyordu."""
+
+    async def _sahte(task, config, **kwargs):
+        prompter = kwargs["prompter_factory"](None)
+        await prompter.confirm(_istek())
+        return SimpleNamespace(
+            final_text="tamam", ok=True, budget_stopped=False, stop_reason=None, model_calls_made=1
+        )
+
+    monkeypatch.setattr(app_module, "run_agent_task", _sahte)
+    result = runner.invoke(
+        app_module.app,
+        [
+            "agent",
+            "gorev",
+            "--no-memory",
+            "--output-format",
+            "json",
+            "--permission-channel",
+            "stdin",
+        ],
+        input='{"istek_id": "1", "karar": "onayla"}\n',
+    )
+
+    assert result.exit_code == 0, result.output
+    satirlar = result.stdout.strip().splitlines()
+    assert len(satirlar) == 1 and json.loads(satirlar[0])["type"] == "result"
+    assert "ApprovalRequested" in result.stderr
+
+
+def test_stream_jsonda_onay_olaylari_stdout_ta_kalir(monkeypatch):
+    async def _sahte(task, config, **kwargs):
+        prompter = kwargs["prompter_factory"](None)
+        await prompter.confirm(_istek())
+        return SimpleNamespace(
+            final_text="tamam", ok=True, budget_stopped=False, stop_reason=None, model_calls_made=1
+        )
+
+    monkeypatch.setattr(app_module, "run_agent_task", _sahte)
+    result = runner.invoke(
+        app_module.app,
+        [
+            "agent",
+            "gorev",
+            "--no-memory",
+            "--output-format",
+            "stream-json",
+            "--permission-channel",
+            "stdin",
+        ],
+        input='{"istek_id": "1", "karar": "onayla"}\n',
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ApprovalRequested" in result.stdout
+
+
+def test_onay_kanali_cakismasi_stdin_okunmadan_bildirilir(monkeypatch):
+    from fusion_cli.cli import headless
+
+    def _okuma(*_a, **_k):
+        raise AssertionError("stdin okunmamalıydı")
+
+    monkeypatch.setattr(headless, "read_task", _okuma)
+    _, result = _agent(monkeypatch, ["-", "--permission-channel", "stdin"], input="gorev")
+
+    assert result.exit_code == 2
+    assert "AssertionError" not in result.output
+
+
 # --- --disallowed-tools politikası --------------------------------------------------------- #
 
 

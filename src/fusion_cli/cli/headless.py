@@ -14,15 +14,25 @@ Onay kanalı protokolü (`--permission-channel stdin`, JSON-Lines; bkz. docs/HEA
     stdout → {"event": "QuestionAsked", "istek_id": "2", "soru": "...", "secenekler": [...]}
     stdin  ← {"istek_id": "2", "cevap": "..."}
 
-Eşleşmeyen kimlik, bozuk satır ya da EOF insan reddi DEĞİLDİR: `UNAVAILABLE` döner ve
-tur sürer (bkz. `engines/agent/denial.py`).
+Eşleşmeyen kimlik, bozuk satır, EOF ya da zaman aşımı insan reddi DEĞİLDİR: `UNAVAILABLE`
+döner ve tur sürer (bkz. `engines/agent/denial.py`). Zaman aşımına uğramış isteğe geç gelen
+cevap atlanır; sonraki isteğe sayılmaz.
+
+Ölçüldü (31 Ekim, inceleme): okuma olay döngüsü içinde bloklayan `readline` idi; cevap
+gelmezse tur ve tüm zamanlayıcılar donuyordu. `--output-format json`'da olay satırları
+tek satırlık sonuçla aynı stdout'a karışıyordu. Okuma artık daemon iş parçacığında
+(süreç çıkışını bekletmez), olaylar json/text biçiminde stderr'e gider.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import queue
 import re
 import sys
+import threading
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -67,6 +77,13 @@ _DECISIONS: Mapping[str, ApprovalAnswer] = {
     "reddet": ApprovalAnswer.DENY,
     "deny": ApprovalAnswer.DENY,
 }
+
+#: Onay/soru cevabı için varsayılan bekleme (saniye); `--permission-timeout` ile değişir.
+DEFAULT_PERMISSION_TIMEOUT = 300.0
+#: Okuyucu kuyruğunu yoklama aralığı (saniye); onay gecikmesi için yeterince küçük.
+_POLL_INTERVAL = 0.02
+#: Okuyucu iş parçacığının EOF işareti.
+_EOF = None
 
 #: Nihai cevaptan JSON'u ayıklarken kod çitini söken desen.
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -239,12 +256,70 @@ def result_object(
     }
 
 
+class _LineReader:
+    """stdin'i daemon iş parçacığında satır satır okuyup kuyruğa koyar.
+
+    `asyncio.to_thread` kullanılmaz: bekleyen okuma varken `asyncio.run` kapanışı varsayılan
+    yürütücüyü sonsuza dek bekler. Daemon iş parçacığı süreç çıkışını engellemez. Kuyruk
+    `queue.Queue` olduğundan art arda gelen ayrı olay döngüleriyle de çalışır.
+    """
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._eof = False
+
+    def _start(self) -> None:
+        if self._thread is None:
+            self._thread = threading.Thread(
+                target=self._pump, name="fusion-onay-kanali", daemon=True
+            )
+            self._thread.start()
+
+    def _pump(self) -> None:
+        while True:
+            try:
+                line = self._stream.readline()
+            except (OSError, ValueError):
+                line = ""
+            if not line:
+                self._lines.put(_EOF)
+                return
+            self._lines.put(line)
+
+    async def next_line(self, deadline: float) -> str | None:
+        """Sıradaki satır; EOF ya da süre dolunca None."""
+        if self._eof:
+            return None
+        self._start()
+        while True:
+            try:
+                line = self._lines.get_nowait()
+            except queue.Empty:
+                if time.monotonic() >= deadline:
+                    return None
+                await asyncio.sleep(_POLL_INTERVAL)
+                continue
+            if line is _EOF:
+                self._eof = True
+                return None
+            return line
+
+
 class JsonLinesPrompter:
     """Onay ve soruları JSON-Lines ile dış sürece soran arayüz (`Prompter` + `UserAsker`)."""
 
-    def __init__(self, *, stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
-        self._stdin = stdin or sys.stdin
+    def __init__(
+        self,
+        *,
+        stdin: TextIO | None = None,
+        stdout: TextIO | None = None,
+        timeout: float = DEFAULT_PERMISSION_TIMEOUT,
+    ) -> None:
+        self._reader = _LineReader(stdin or sys.stdin)
         self._stdout = stdout or sys.stdout
+        self._timeout = timeout
         self._counter = 0
 
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
@@ -260,7 +335,7 @@ class JsonLinesPrompter:
                 "etki": request.effect.value,
             }
         )
-        reply = self._read(istek_id)
+        reply = await self._read(istek_id)
         karar = str(reply.get("karar", "")).strip().lower() if reply is not None else ""
         answer = _DECISIONS.get(karar, ApprovalAnswer.UNAVAILABLE)
         self._emit({"event": "ApprovalResolved", "istek_id": istek_id, "karar": answer.value})
@@ -284,7 +359,7 @@ class JsonLinesPrompter:
                 "onerilen": recommended,
             }
         )
-        reply = self._read(istek_id)
+        reply = await self._read(istek_id)
         cevap = str(reply.get("cevap", "")).strip() if reply is not None else ""
         return cevap or messages.NO_ANSWER_AVAILABLE
 
@@ -299,18 +374,24 @@ class JsonLinesPrompter:
         self._stdout.write(redact(line) + "\n")
         self._stdout.flush()
 
-    def _read(self, istek_id: str) -> Mapping[str, object] | None:
-        """Beklenen kimliğe ait satırı oku; EOF/bozuk satır/yanlış kimlik → None."""
-        try:
-            line = self._stdin.readline()
-        except (OSError, ValueError):
-            return None
-        if not line:
-            return None
-        try:
-            reply = json.loads(line)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(reply, dict) or str(reply.get("istek_id", "")) != istek_id:
-            return None
-        return reply
+    async def _read(self, istek_id: str) -> Mapping[str, object] | None:
+        """Beklenen kimliğe ait satırı bekle; EOF/bozuk satır/yanlış kimlik/süre → None.
+
+        Daha önceki (zaman aşımına uğramış) bir isteğin geç cevabı atlanır.
+        """
+        deadline = time.monotonic() + self._timeout
+        while True:
+            line = await self._reader.next_line(deadline)
+            if line is None:
+                return None
+            try:
+                reply = json.loads(line)
+            except json.JSONDecodeError:
+                return None
+            if not isinstance(reply, dict):
+                return None
+            got = str(reply.get("istek_id", ""))
+            if got == istek_id:
+                return reply
+            if not (got.isdigit() and int(got) < int(istek_id)):
+                return None
