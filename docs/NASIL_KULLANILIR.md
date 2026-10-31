@@ -702,10 +702,16 @@ ve öğe seçici bu sürümde yok.
 Tarayıcıdan ya da bir belgeden Fusion'ı hedefe açar (Claude Code masaüstündeki `claude://`
 gibi): `fusion://sohbet/<id>` kayıtlı sohbeti, `fusion://ayarlar/bildirimler` ayarların bir
 bölümünü, `fusion://yeni` yeni sohbeti açar. `fusion://yeni?kok=<yüzde-kodlu yol>` ile
-gelen klasör **onaysız uygulanmaz**: `/`, `/Users/<ad>` gibi çok geniş ya da sistem klasörleri
-reddedilir, kalanı bir onay penceresiyle sorulur. Uygulama kapalıyken tıklanan bağlantı
-açılıştan sonra yerine ulaşır. Şema kaydı bu sürümde yalnız macOS paketinde (Info.plist);
-Windows'ta bağlantı ikinci örneğin argümanı olarak işlenir ama kurulumda şema kaydı yoktur.
+gelen klasör **onaysız uygulanmaz**: `/`, `/Users/<ad>`, `C:\`, `C:\Users\<ad>`, `C:\Windows`,
+`C:\Program Files` gibi çok geniş ya da sistem klasörleri reddedilir, kalanı bir onay penceresiyle
+sorulur (Windows sürücü yolu da kabul edilir). `fusion://ayarlar/<bölüm>` her Ayarlar bölümünü
+açar (`kisayollar`, `izinler`, `uzak`…); tanınmayan ad Genel'e düşer.
+
+Uygulama kapalıyken tıklanan bağlantı açılıştan sonra yerine ulaşır: macOS'ta Launch Services
+(`RunEvent::Opened`), Windows/Linux'ta ilk sürecin argümanı okunur; uygulama açıkken gelen bağlantı
+tek örnek eklentisiyle çalışan pencereye iletilir. Şema kaydı: macOS `Info.plist`, Windows NSIS
+kurulumu ve Linux paketleri `tauri.conf.json` › `plugins.deep-link.desktop.schemes` alanından
+üretilir (kurulumda `HKCU\Software\Classes\fusion`, kaldırmada silinir).
 
 ## 17) Komut paleti ve uygulama kısayolları (masaüstü)
 

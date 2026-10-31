@@ -1,4 +1,9 @@
-export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil" | "kisayollar";
+export const SETTINGS_SECTIONS = ["genel", "hesap", "bildirimler", "ses", "kisayollar", "kisisellestirme", "modeller", "tarayici", "weboturumlari", "izinler", "zeka", "uzak", "guncellemeler", "gelismis", "nasil"] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+/** Dış kaynaktan (derin bağlantı) gelen bölüm adı tanınıyor mu? */
+export function isSettingsSection(value: string | null | undefined): value is SettingsSection {
+  return (SETTINGS_SECTIONS as readonly string[]).includes(value ?? "");
+}
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
 /** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
 export const SECTION_HEADING_ID = "settings-section-heading";

@@ -24,7 +24,7 @@ export function parseDeepLink(payload: unknown): DerinBaglanti | null {
     case "sohbet":
       return typeof yuk.id === "string" && KIMLIK.test(yuk.id) ? { hedef: "sohbet", id: yuk.id } : null;
     case "yeni":
-      return { hedef: "yeni", kok: typeof yuk.kok === "string" && yuk.kok.startsWith("/") ? yuk.kok : null };
+      return { hedef: "yeni", kok: typeof yuk.kok === "string" && isAbsoluteRoot(yuk.kok) ? yuk.kok : null };
     case "ayarlar":
       return { hedef: "ayarlar", bolum: typeof yuk.bolum === "string" && /^[a-z]{1,32}$/.test(yuk.bolum) ? yuk.bolum : null };
     default:
@@ -50,12 +50,33 @@ const SISTEM_KOKLERI = new Set([
 
 export type DeepLinkRootDecision = "onayla" | "reddet";
 
+/** Windows sürücü yolu (`C:\…`, `d:/…`); UNC (`\\sunucu`) kök sayılmaz. */
+const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
+/** Windows'ta proje kökü olamayacak ilk kademe klasörler (küçük harf). */
+const WINDOWS_SISTEM = new Set(["windows", "program files", "program files (x86)", "programdata", "$recycle.bin", "system volume information"]);
+
+/** Mutlak kök mü? POSIX `/…` ya da Windows sürücü yolu (P-064). */
+export function isAbsoluteRoot(kok: string): boolean {
+  return kok.startsWith("/") || WINDOWS_DRIVE.test(kok);
+}
+
+function windowsRootDecision(kok: string): DeepLinkRootDecision {
+  const parca = kok.slice(2).split(/[\\/]/u).filter(Boolean);
+  if (parca.length === 0 || parca.includes("..")) return "reddet";
+  const ilk = parca[0].toLocaleLowerCase("en");
+  if (WINDOWS_SISTEM.has(ilk)) return "reddet";
+  // `C:\Users\ali` ev dizinidir, çok geniştir; sürücü kökü altındaki tek klasör de öyle.
+  if (ilk === "users" ? parca.length < 3 : parca.length < 2) return "reddet";
+  return "onayla";
+}
+
 /**
  * Bağlantıdan gelen kök için karar: çok geniş ya da sistem klasörü ise reddedilir, kalanı
  * kullanıcıya SORULUR (onaysız açılmaz). Ölçüldü (31 Ekim): `fusion://yeni?kok=%2F` kökü
  * `/` olan bir kod sohbeti hazırlıyordu.
  */
 export function deepLinkRootDecision(kok: string): DeepLinkRootDecision {
+  if (WINDOWS_DRIVE.test(kok) && !kok.includes("\0")) return windowsRootDecision(kok);
   if (!kok.startsWith("/") || kok.includes("\0") || /\/\.\.(\/|$)/.test(kok)) return "reddet";
   const parca = parcalar(kok);
   if (parca.length === 0) return "reddet";

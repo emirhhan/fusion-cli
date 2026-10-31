@@ -35,7 +35,7 @@ import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useRemoteStatus } from "./remote/useRemoteStatus";
-import type { SettingsSection } from "./settings/search";
+import { isSettingsSection, type SettingsSection } from "./settings/search";
 import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
@@ -1107,7 +1107,7 @@ export function SessionUygulama({
         void startDesktopChat();
       }
     } else {
-      setSettingsSection(hedef.bolum === "kisisellestirme" || hedef.bolum === "bildirimler" ? hedef.bolum : "genel");
+      setSettingsSection(isSettingsSection(hedef.bolum) ? hedef.bolum : "genel");
       setPage("settings");
     }
   };
