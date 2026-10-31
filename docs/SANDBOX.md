@@ -67,10 +67,22 @@ olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar
 - **Sır ortamı:** `hide_secret_env: true` iken sandbox içindeki komutun ortamından adı sır gibi
   görünen değişkenler (`*_API_KEY`, `*_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`, `*ACCESS_KEY*`,
   `*CREDENTIAL*`, `API_KEY`, `TOKEN`, `DATABASE_URL`) çıkarılır. Komut başarısız olursa gizlenen
-  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu **kaza önleyicidir, güvenlik
-  sınırı değildir**: aynı kullanıcının başka süreçlerinin ortamı (kabuk, üst süreçler)
-  macOS'ta `sysctl(KERN_PROCARGS2)` ile okunabilir; sırrı kabukta `export` etmek yerine
-  Fusion kasasında tutun.
+  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu macOS'ta **kaza önleyicidir,
+  güvenlik sınırı değildir** (aşağıya bakın); sırrı kabukta `export` etmek yerine Fusion
+  kasasında ya da `.env`'de tutun.
+- **Başka süreçlerin ortamı:** Linux'ta komut kendi PID ad alanında ve taze `/proc` ile çalışır;
+  başka süreçlerin `/proc/<pid>/environ`'ı görünmez. macOS'ta aynı kullanıcının Apple imzalı
+  olmayan süreçlerinin (Fusion'ın Python'u, node, VS Code/iTerm gibi uygulamalar) **başlangıç**
+  ortamı `sysctl(KERN_PROCARGS2)` ile okunabilir (`ps eww` sandbox içinde hiç çalışmaz, ama aynı
+  çağrı ctypes ile yapılır). Ölçüldü (1 Kasım, macOS 27, gerçek `sandbox-exec`): Seatbelt'te bunu
+  kesen işlem yok — `(deny process-info*)` (`target self`/`same-sandbox` ile), `(deny sysctl-read)`,
+  `(deny sysctl*)`, `sysctl-name "kern.procargs2"` ve yalnız `process-exec`+`file-read*` izinli
+  `(deny default)` profili de okumayı engellemedi; `process-info*` reddi yalnız `proc_pidpath`
+  türü bilgileri keser ve araçları bozacağı için eklenmedi. Fusion'ın süreç başladıktan sonra
+  yüklediği sırlar (`.env`, kasa) bu yolla görünmez; görünen, Fusion'ı başlatan kabuğun `export`
+  ettikleridir. Masaüstü uygulaması Finder'dan açıldığında kabuk ortamını taşımaz.
+  Kanarya testi: `tests/test_sandbox_sinirlar.py::test_macos_seatbelt_baska_surecin_baslangic_ortamini_kesemez_olcum`
+  (Apple bir kanca eklerse düşer).
 
 ```text
 /sandbox ag allowlist

@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import os
 import socket
+import subprocess
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -305,3 +308,83 @@ def test_linux_open_kipinde_cdp_korumasi_olmadigini_durum_soyler(tmp_path):
     assert "korunmaz" in debug_port_guard("linux", "open")
     assert "ad alanı" in debug_port_guard("linux", "allowlist")
     assert "her kipte" in debug_port_guard("darwin", "open")
+
+
+# --- inceleme-5: başka süreçlerin ortamı ------------------------------------- #
+
+_PROCARGS_PROBE = """
+import ctypes, ctypes.util, sys
+libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+mib = (ctypes.c_int * 3)(1, 49, int(sys.argv[1]))  # CTL_KERN, KERN_PROCARGS2, pid
+size = ctypes.c_size_t(1 << 20)
+buf = ctypes.create_string_buffer(size.value)
+if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+    print("ENGEL", ctypes.get_errno())
+else:
+    raw = buf.raw[: size.value]
+    print("BASLANGIC" if b"SAHTE_BASLANGIC_" + b"DEGERI" in raw else "-",
+          "SONRADAN" if b"SAHTE_SONRADAN_" + b"DEGERI" in raw else "-")
+"""
+
+
+def _seatbelt_calisir() -> bool:
+    sandbox_exec = Path("/usr/bin/sandbox-exec")
+    if sys.platform != "darwin" or not sandbox_exec.exists():
+        return False
+    probe = subprocess.run(
+        [str(sandbox_exec), "-p", "(version 1)(allow default)", "/usr/bin/true"],
+        capture_output=True,
+        check=False,
+    )
+    return probe.returncode == 0
+
+
+@pytest.mark.skipif(not _seatbelt_calisir(), reason="sandbox-exec kullanılamıyor")
+def test_macos_seatbelt_baska_surecin_baslangic_ortamini_kesemez_olcum(tmp_path, monkeypatch):
+    """Kanarya ölçüm (1 Kasım, Darwin 27): Fusion profiliyle de okunur; belge bunu söyler.
+
+    Ayrıca denendi, hiçbiri kesmedi: `(deny process-info*)` (+ `target self/same-sandbox`),
+    `(deny sysctl-read)`, `(deny sysctl*)`, `sysctl-name "kern.procargs2"`, hatta yalnız
+    `process-exec` + `file-read*` izinli `(deny default)`. Bu test düşerse Seatbelt bir
+    kanca kazanmıştır: profile kuralı ekleyip docs/SANDBOX.md'yi güncelle. Süreç başladıktan
+    sonra ortama eklenen değer (Fusion'ın .env/kasa sırları) görünmez.
+    """
+    monkeypatch.setattr(shell_sandbox, "_temporary_directories", lambda: ())
+    hedef = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os, time\nos.environ['SAHTE_SONRADAN'] = 'SAHTE_SONRADAN_' + 'DEGERI'\n"
+            "print('hazir', flush=True)\ntime.sleep(30)",
+        ],
+        env={**os.environ, "SAHTE_BASLANGIC": "SAHTE_BASLANGIC_" + "DEGERI"},
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert hedef.stdout is not None and hedef.stdout.readline().strip() == "hazir"
+        plan = shell_sandbox.plan_shell_sandbox("write_root", (tmp_path,))
+        olcum = subprocess.run(
+            [*plan.prefix, sys.executable, "-I", "-c", _PROCARGS_PROBE, str(hedef.pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    finally:
+        hedef.kill()
+        hedef.wait()
+    assert olcum.stdout.split() == ["BASLANGIC", "-"], olcum.stderr
+
+
+def test_linux_sandbox_kendi_proc_ve_pid_ad_alanini_gorur(tmp_path):
+    """Linux'ta kapalı (24382541): yeni PID ad alanı + üstüne bağlanan taze procfs."""
+    from fusion_cli.core.shell_sandbox_linux import LinuxTools
+
+    plan = shell_sandbox.plan_shell_sandbox(
+        "write_root", (tmp_path,), platform="linux", linux_tools=LinuxTools("/usr/bin/bwrap")
+    )
+    argv = list(plan.prefix)
+    assert "--unshare-pid" in argv
+    assert argv[argv.index("--proc") + 1] == "/proc"
+    assert argv.index("--ro-bind") < argv.index("--proc")
