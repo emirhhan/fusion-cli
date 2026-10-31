@@ -227,3 +227,72 @@ def test_agent_komutu_gunlugu_besler(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     satirlar = (tmp_path / "usage.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(satirlar) == 1 and json.loads(satirlar[0])["tur"] == KIND_MODEL
+
+
+# --- İnceleme düzeltmeleri (31 Ekim): budama yarışı, tip doğrulama, oturum kimliği --- #
+
+
+def test_budama_gerekmiyorsa_dosya_yeniden_yazilmaz(tmp_path):
+    log, _ = _log(tmp_path)
+    log.handle(_model_event())
+    once = log.path.stat()
+
+    assert log.prune() == 0
+    sonra = log.path.stat()
+    assert (sonra.st_ino, sonra.st_mtime_ns) == (once.st_ino, once.st_mtime_ns)
+
+
+def test_budama_sirasinda_eklenen_satir_kaybolmaz(tmp_path, monkeypatch):
+    """Başka süreç budama okuması ile yeniden yazma arasında satır eklerse o satır kalır."""
+    log, saat = _log(tmp_path)
+    saat["t"] = SIMDI - 100 * 86400
+    log.handle(_model_event())
+    saat["t"] = SIMDI
+    log.handle(_model_event())
+    diger = UsageLog(log.path, session_id="s2", clock=lambda: SIMDI)
+    gercek = UsageLog._write_kept
+
+    def _araya_giren(self, target, kept):
+        diger.handle(_model_event())  # O_APPEND ile ikinci süreç
+        gercek(self, target, kept)
+
+    monkeypatch.setattr(UsageLog, "_write_kept", _araya_giren)
+
+    assert log.prune() == 1
+    assert sorted(record.oturum for record in log.read()) == ["s1", "s2"]
+
+
+def test_tipi_bozuk_satir_atlanir_ozet_cokmez(tmp_path):
+    log, _ = _log(tmp_path)
+    log.handle(_model_event())
+    with log.path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"ts": "dün", "oturum": "s1", "tur": "model"}) + "\n")
+        handle.write(
+            json.dumps({"ts": SIMDI, "oturum": "s1", "tur": "model", "girdi_token": "çok"}) + "\n"
+        )
+        handle.write(json.dumps({"ts": SIMDI, "oturum": 7, "tur": "model"}) + "\n")
+
+    kayitlar = log.read(since=SIMDI - 10)
+    ozet = summarize(log.read(), now=SIMDI, session_id="s1")
+
+    assert len(kayitlar) == 1
+    assert dict(ozet.windows)["bu oturum"].calls == 1
+
+
+def test_masaustu_oturum_kimligi_nesne_adresine_dayanmaz(tmp_path, monkeypatch):
+    """`masaustu-{id(self)}` yeniden başlatmada aynı adrese düşüp 'bu oturum'u şişirebiliyordu."""
+    from fusion_cli.appserver import session as appserver_session
+
+    kimlikler: list[str | None] = []
+
+    def _kaydet(config, *, session_id=None):
+        kimlikler.append(session_id)
+        return None
+
+    monkeypatch.setattr(appserver_session, "open_usage_log", _kaydet)
+    oturum = appserver_session.AppSession(lambda _l: None, root=tmp_path, home=tmp_path / "ev")
+    ikinci = appserver_session.AppSession(lambda _l: None, root=tmp_path, home=tmp_path / "ev")
+
+    assert len(kimlikler) == 2 and kimlikler[0] != kimlikler[1]
+    assert all(str(k).startswith("masaustu-") for k in kimlikler)
+    assert kimlikler[0] != f"masaustu-{id(oturum)}" and kimlikler[1] != f"masaustu-{id(ikinci)}"

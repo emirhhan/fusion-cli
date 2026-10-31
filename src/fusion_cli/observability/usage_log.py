@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from pathlib import Path
 
 from ..config.models import Config
@@ -102,7 +103,7 @@ class UsageLog:
     ) -> None:
         self._path = path
         self._clock = clock
-        self.session_id = session_id or f"oturum-{int(clock() * 1000)}"
+        self.session_id = session_id or new_session_id("oturum")
         self._disabled = False
 
     @property
@@ -173,22 +174,48 @@ class UsageLog:
         return tuple(read_records(self._path, since=since))
 
     def prune(self, *, keep_days: int = RETENTION_DAYS) -> int:
-        """Eski satırları at; atılan satır sayısını döndür. Okunamayan dosya dokunulmaz."""
+        """Eski satırları at; atılan satır sayısını döndür. Okunamayan dosya dokunulmaz.
+
+        Ölçüldü (31 Ekim): her açılışta dosya `write_text` ile yerinde yeniden yazılıyordu;
+        aynı anda `O_APPEND` ile ekleyen başka sürecin (CI'da paralel `fusion agent`,
+        masaüstü + terminal) satırı kaybolabiliyor, yazma yarıda kalırsa dosya bozuluyordu.
+        Artık satırlar eklenme sırasında olduğundan ilk satır eşiği geçmiyorsa hiç
+        yazılmaz; gerekirse geçici dosyaya yazılır, okumadan sonra eklenen kuyruk
+        aktarılır ve `Path.replace` ile atomik değiştirilir.
+        """
         if not self._path.is_file():
             return 0
         cutoff = self._clock() - keep_days * 86400.0
         try:
-            lines = self._path.read_text(encoding="utf-8").splitlines()
+            data = self._path.read_bytes()
         except OSError:
             return 0
+        lines = data.decode("utf-8", errors="replace").splitlines()
+        if not lines or _line_ts(lines[0]) >= cutoff:
+            return 0
         kept = [line for line in lines if _line_ts(line) >= cutoff]
-        dropped = len(lines) - len(kept)
-        if dropped:
-            try:
-                self._path.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
-            except OSError:
-                return 0
-        return dropped
+        target = self._path.with_name(f".{self._path.name}.{secrets.token_hex(4)}.tmp")
+        try:
+            self._write_kept(target, kept)
+            with self._path.open("rb") as source:
+                source.seek(len(data))
+                tail = source.read()
+            if tail:
+                with target.open("ab") as handle:
+                    handle.write(tail)
+            target.replace(self._path)
+        except OSError:
+            target.unlink(missing_ok=True)
+            return 0
+        return len(lines) - len(kept)
+
+    def _write_kept(self, target: Path, kept: list[str]) -> None:
+        target.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+
+
+def new_session_id(prefix: str) -> str:
+    """Süreç yeniden başlasa da çakışmayan oturum kimliği (zaman + rastgele ek)."""
+    return f"{prefix}-{int(time.time() * 1000)}-{secrets.token_hex(3)}"
 
 
 def mcp_server_of(tool_name: str) -> str:
@@ -217,13 +244,49 @@ def read_records(path: Path, *, since: float | None = None) -> Iterator[UsageRec
             continue
         try:
             raw = json.loads(line)
-            known = UsageRecord.__dataclass_fields__
-            record = UsageRecord(**{key: value for key, value in raw.items() if key in known})
-        except (ValueError, TypeError):
+        except ValueError:
+            continue
+        record = _record_from(raw)
+        if record is None:
             continue
         if since is not None and record.ts < since:
             continue
         yield record
+
+
+#: Alan tipi → kabul edilen JSON tipleri. `bool` `int`'in alt sınıfı olduğundan ayrı denetlenir.
+_ACCEPTED: dict[str, tuple[type, ...]] = {
+    "float": (int, float),
+    "int": (int,),
+    "str": (str,),
+    "bool": (bool,),
+}
+_FIELD_TYPES: dict[str, str] = {item.name: str(item.type) for item in fields(UsageRecord)}
+_REQUIRED = frozenset(item.name for item in fields(UsageRecord) if item.default is MISSING)
+
+
+def _record_from(raw: object) -> UsageRecord | None:
+    """JSON satırını tipine göre doğrulayıp kayda çevir; uymayan satır None.
+
+    Ölçüldü (31 Ekim): `UsageRecord(**satır)` tipleri denetlemiyordu; `ts` metin olan bir
+    satır `summarize`/`read(since=...)` içinde `TypeError` atıp `/usage`'ı düşürüyordu.
+    """
+    if not isinstance(raw, dict):
+        return None
+    values: dict[str, object] = {}
+    for key, value in raw.items():
+        kind = _FIELD_TYPES.get(key)
+        if kind is None:
+            continue
+        accepted = _ACCEPTED.get(kind, ())
+        if kind != "bool" and isinstance(value, bool):
+            return None
+        if not isinstance(value, accepted):
+            return None
+        values[key] = float(value) if isinstance(value, int) and kind == "float" else value
+    if not _REQUIRED.issubset(values):
+        return None
+    return UsageRecord(**values)  # type: ignore[arg-type]
 
 
 def open_usage_log(config: Config, *, session_id: str | None = None) -> UsageLog | None:

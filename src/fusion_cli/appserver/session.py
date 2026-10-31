@@ -78,7 +78,7 @@ from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
-from ..observability.usage_log import UsageLog, open_usage_log
+from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
@@ -542,7 +542,7 @@ class AppSession:
         self._refresh_capabilities()
         self._usage = UsageMeter()
         #: Kalıcı kullanım günlüğü (P-056); ayar kapalıysa None. Oturum sayacı değişmez.
-        self._usage_log = open_usage_log(self._state.config, session_id=f"masaustu-{id(self)}")
+        self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
         self._chrome = ChromeBridge(
