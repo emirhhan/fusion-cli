@@ -84,7 +84,7 @@ def web_login_state(pid: object) -> dict[str, Any]:
     Panel bunu yoklar; pencere kapandığı anda doğrulamayı KENDİLİĞİNDEN çalıştırır,
     kullanıcı elle çerez kopyalamak zorunda kalmaz.
     """
-    from ..providers.web_control import login_exit_code, process_alive
+    from ..providers.web_control import login_error_text, login_exit_code, process_alive
 
     if not isinstance(pid, (int, str)):
         return {"ok": False, "metin": "Geçersiz süreç kimliği."}
@@ -95,10 +95,15 @@ def web_login_state(pid: object) -> dict[str, Any]:
     alive = process_alive(numeric)
     code = login_exit_code(numeric)
     if not alive and code not in (None, 0):
+        sebep = login_error_text(numeric)
         return {
             "ok": False,
             "acik": False,
-            "metin": "Chrome giriş penceresi hata ile kapandı. Yeniden dene.",
+            "metin": (
+                f"Chrome giriş penceresi hata ile kapandı: {sebep}"
+                if sebep
+                else "Chrome giriş penceresi hata ile kapandı. Yeniden dene."
+            ),
         }
     return {"ok": True, "acik": alive}
 

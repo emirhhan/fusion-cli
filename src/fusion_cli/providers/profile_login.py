@@ -12,6 +12,7 @@ ikilide `fusion browser login` (bkz. `web_control.login_argv` ile aynı gerekçe
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from typing import Any
 
@@ -26,7 +27,7 @@ from ..core.cookie_files import (
     origins_from_storage_state,
     validate_profile_name,
 )
-from ..core.errors import BrowserProfileError
+from ..core.errors import BrowserProfileError, FusionError
 
 #: Kullanıcının son sekmeyi kapatıp kapatmadığı bu aralıkla yoklanır (s).
 _POLL_INTERVAL_S = 0.5
@@ -78,14 +79,22 @@ async def open_profile_login(
         )
         page = await context.new_page()
         await page.goto(url)
-        while context.pages and browser.is_connected():  # noqa: ASYNC110 - kullanıcı bekleniyor
+        # Her yoklamada son başarılı anlık görüntü saklanır. Ölçüldü (31 Ekim): kullanıcı
+        # Cmd+Q ile Chrome'dan çıkarsa bağlantı pencereden önce kopuyor, yalnız döngü
+        # sonunda alınan oturum hiç alınamıyor ve yeni giriş çerezleri kayboluyordu.
+        snapshot: Any = None
+        while context.pages and browser.is_connected():
+            with contextlib.suppress(Exception):
+                snapshot = await context.storage_state()
             await asyncio.sleep(_POLL_INTERVAL_S)
-        if not browser.is_connected():
+        if browser.is_connected():
+            with contextlib.suppress(Exception):
+                snapshot = await context.storage_state()
+            await browser.close()
+        if snapshot is None:
             raise BrowserProfileError(
                 "Tarayıcı beklenmedik biçimde kapandı; oturum kaydedilmedi. Yeniden dene."
             )
-        snapshot = await context.storage_state()
-        await browser.close()
     cookies = cookies_from_storage_state(snapshot)
     origins = origins_from_storage_state(snapshot)
     if store.exists(clean):
@@ -99,7 +108,9 @@ def _main(argv: list[str]) -> int:
         return 2
     try:
         asyncio.run(open_profile_login(default_browser_profile_store(), argv[1], argv[2]))
-    except BrowserProfileError as error:
+    except FusionError as error:
+        # ConfigError (sır deposu/anahtar) da buraya düşer: iz yerine tek satır; masaüstü
+        # bu satırı `tarayici.giris_durumu` yanıtında gösterir.
         sys.stderr.write(f"{error}\n")
         return 1
     return 0
