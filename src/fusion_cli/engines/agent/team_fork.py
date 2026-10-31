@@ -129,6 +129,7 @@ async def run_forked_turn(
     denied_tools: frozenset[str] = frozenset(),
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
+    persona: str = "",
     **_ignored: object,
 ) -> AgentOutcome:
     """`/subtask <görev>`: turu fork alt ajan olarak koştur, ana geçmişe yalnız özeti ekle.
@@ -139,6 +140,7 @@ async def run_forked_turn(
     aynen geçer. Ölçüldü (31 Ekim): bunlar `**_ignored` ile atılıyordu; `context: fork`
     becerisinin talimatı hiç uygulanmıyor, salt-okur kişilik fork içinde yazabiliyordu.
     `chat_mode`/`workflow` gibi kalan tur ayarları alt ajanda anlamsızdır, yok sayılır.
+    `persona`: becerinin `agent:` alanı (P-020); o alt ajan tanımı fork'u koşar.
     """
     from .loop import AgentOutcome, run_agent
     from .team import SubTask, run_subagent
@@ -147,6 +149,7 @@ async def run_forked_turn(
     deps.live_history = lambda: snapshot
     subtask = SubTask(
         task=task.strip(),
+        persona=persona,
         read_only=plan_mode,
         inherit_context=True,
         brief=extra_system,

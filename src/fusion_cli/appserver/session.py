@@ -79,6 +79,7 @@ from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
 from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
@@ -89,9 +90,10 @@ from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
-from ..tools.capabilities import CapabilityRegistry, load_agent_prompt
+from ..tools.capabilities import Capability, CapabilityRegistry, load_agent_prompt
 from ..tools.capability_overrides import registry_from_config
 from ..tools.safe_delete import is_container_root, project_folders
+from ..tools.skill_commands import map_denied_tools
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
@@ -2803,6 +2805,8 @@ class AppSession:
         inherited_context = self._state.take_pending_digest()
         # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
         pending_extras = self._state.take_pending_extras()
+        # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
+        config = pending_extras.turn_config(config)
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
         fork_requested, self._fork_requested = self._fork_requested, False
 
@@ -2858,7 +2862,11 @@ class AppSession:
                     if browser_only
                     else persona.allowed_tools
                 ),
-                denied_tools=frozenset() if browser_only else persona.denied_tools,
+                denied_tools=(
+                    frozenset()
+                    if browser_only
+                    else pending_extras.merged_denied(persona.denied_tools)
+                ),
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
@@ -2876,7 +2884,7 @@ class AppSession:
                 workflow=macros.mode_workflow(turn_mode),
                 # `/subtask` ya da `context: fork` beceri: tur fork alt ajanda (P-054).
                 turn_runner=(
-                    run_forked_turn
+                    pending_extras.fork_runner(run_forked_turn)
                     if (macros.mode_fork(turn_mode) or fork_requested) and not browser_only
                     else None
                 ),
@@ -3144,6 +3152,9 @@ class AppSession:
                 )
             if getattr(item, "context", "") == "fork":
                 self._fork_requested = True
+                if not self._state.pending_fork_agent:
+                    self._state.pending_fork_agent = getattr(item, "agent", "")
+            self._queue_skill_turn_settings(item)
             return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}"
         if kind == "ajan":
             item = self._all_capabilities.get_agent(name)
@@ -3155,6 +3166,18 @@ class AppSession:
                 "araçlarını kullanmanı istedi."
             )
         return ""
+
+    def _queue_skill_turn_settings(self, item: Capability) -> None:
+        """Katalogdan seçilen becerinin `model`/`effort`/`disallowed-tools` alanları (P-020).
+
+        Slash yolu (`/beceri`) bunları zaten bekleyen eklere koyar; slash seçimi önceliklidir.
+        """
+        if self._state.pending_model_choice.is_empty:
+            resolution = resolve_turn_model(item.model, item.effort)
+            self._state.pending_model_choice = resolution.choice
+        self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
+            item.disallowed_tools
+        )
 
     def _cancel_turn(self) -> dict[str, Any]:
         if self._turn is None or self._turn.done():

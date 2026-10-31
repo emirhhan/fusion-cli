@@ -93,8 +93,12 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur; virgül **veya** boşlukla ayrılır (`Read, Grep` ve `Read Grep`), `Bash(git add:*, git commit:*)` tek öğedir — araç adı eşlenir, komut deseni uygulanmaz (not düşer). Fusion aracına eşlenmeyen adlar (`TodoWrite`, `Skill`…) yok sayılır; hiçbiri eşlenmezse kısıt uygulanmaz ve not düşer. **Claude Code'dan fark:** Claude Code bu alanı "onaysız kullanılabilir" (ön-onay) sayar ve diğer araçları kaldırmaz; Fusion ise araç listesini **daraltır**. Gerekçe: depo dosyasından gelen bir alanın onay kapısını açması yetki yükseltme yoluydu; daraltma güvenli taraftır. Becerinin düzenleme/kabuk gerektiren adımı varsa alana `Edit`, `Bash` ekle ya da alanı hiç yazma |
 | `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
 | `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
-| `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
-| `model`, `effort` | Okunur; bu turda uygulanmaz (`/model`, `/effort` ile seç), not düşer |
+| `context: fork` / `baglam` | Tur, ana konuşmayı devralan fork alt ajanda koşar (`/subtask` gibi); beceri gövdesi brife, `allowed-tools` araç tavanına geçer |
+| `agent` / `ajan` | `context: fork` ile: fork'u bu alt ajan tanımı (`.claude/agents/<ad>.md`) koşar; fork yoksa yok sayılır, not düşer |
+| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `inherit`, `sonnet`, `opus`, `haiku` oturum modelini kullanır; başka biçim not düşer. Sonraki tur oturum seçimine döner |
+| `effort` / `efor` | **Yalnız o tur** düşünme yoğunluğu (`low`…`max`, `auto`); tanınmayan değer not düşer |
+| `disallowed-tools` / `yasak-araclar` | O turda bu araçlar sunulmaz (kişiliğin yasaklarına eklenir, kaldıramaz); `Bash(rm *)` deseninde aracın tamamı yasaklanır (güvenli taraf) |
+| `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |
 | Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `auto`/`edits`/`bypass` kipinde ve `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden (tam yetki) ya da `fusion trust` ile güvenilen projeden/ek kökten (**yalnız salt-okur komut**: `git log`, `ls`, `cat`…); her komut `run_shell` ile aynı tehlike/risk denetiminden geçer (`git push --force`, `sudo`, proje dışına yazma… hiç koşmaz, yerinde `[komut çalıştırılmadı]` notu kalır); çıktı 2.000 karakter, sırlar maskeli, 10 sn |
 
 ## Beceri dizini (`runtime.skill_index_chars`)

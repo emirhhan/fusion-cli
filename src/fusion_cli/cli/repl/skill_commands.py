@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from ...config import trust
 from ...engines.agent.approval import ApprovalMode
+from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_commands import TemplateEnv, build_invocation
 from ...ui import messages
@@ -87,6 +88,11 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_tools = (
             frozenset(invocation.allowed_tools) if invocation.allowed_tools is not None else None
         )
+        # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.
+        resolution = resolve_turn_model(invocation.model, invocation.effort)
+        state.pending_model_choice = resolution.choice
+        state.pending_denied_tools = invocation.denied_tools
+        state.pending_fork_agent = invocation.agent
         lines = [messages.REPL_SKILL_STARTED.format(name=skill.name)]
         if state.engine is not Engine.AGENT:
             # Beceri gövdesi ve araç kısıtı yalnız agent turunda tüketilir; Fusion motorunda
@@ -96,8 +102,9 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
             lines.append(messages.REPL_SKILL_ENGINE_NOTE)
         if invocation.fork:
             lines.append(messages.REPL_SKILL_FORK_NOTE)
-        if invocation.model or invocation.effort:
-            lines.append(messages.REPL_SKILL_MODEL_NOTE)
+        if invocation.agent:
+            lines.append(messages.REPL_SKILL_FORK_AGENT_NOTE.format(agent=invocation.agent))
+        lines.extend(resolution.notes)
         lines.extend(invocation.notes)
         return "\n".join(lines)
 

@@ -629,9 +629,7 @@ REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile 
 REPL_SKILL_FORK_NOTE = (
     "context: fork — bu beceri ana bağlamı devralan bir alt ajanda çalışacak (/subtask gibi)."
 )
-REPL_SKILL_MODEL_NOTE = (
-    "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
-)
+REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
 REPL_SKILL_ENGINE_NOTE = (
     "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
 )

@@ -830,7 +830,8 @@ class _TuiSession:
                 try:
                     outcome = await run_agent_task(
                         line,
-                        self._state.config,
+                        # Becerinin `model`/`effort` alanı yalnız bu tura uygulanır (P-020).
+                        extras.turn_config(self._state.config),
                         remotion_transport=self._state.remotion_transport,
                         remotion_browser=self._state.remotion_browser,
                         sinks=sinks,
@@ -855,8 +856,10 @@ class _TuiSession:
                         workflow=macros.mode_workflow(mode),
                         # Kişilik kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                         allowed_tools=extras.merged_tools(persona.allowed_tools),
-                        denied_tools=persona.denied_tools,
-                        turn_runner=run_forked_turn if macros.mode_fork(mode) else None,
+                        denied_tools=extras.merged_denied(persona.denied_tools),
+                        turn_runner=(
+                            extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else None
+                        ),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).

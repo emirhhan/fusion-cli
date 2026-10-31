@@ -78,6 +78,10 @@ class SkillInvocation:
     effort: str = ""
     fork: bool = False
     notes: tuple[str, ...] = ()
+    #: `disallowed-tools` → Fusion araç adları (desen `sunucu__*` olabilir); boş = yasak yok.
+    denied_tools: frozenset[str] = frozenset()
+    #: `agent`: fork turunu koşacak alt ajan tanımı; boş = genel yardımcı.
+    agent: str = ""
 
 
 def discover_commands(home: Path | None, root: Path) -> tuple[object, ...]:
@@ -122,6 +126,8 @@ def discover_commands(home: Path | None, root: Path) -> tuple[object, ...]:
                     model=str(fields.get("model") or ""),
                     effort=str(fields.get("effort") or ""),
                     context=str(fields.get("context") or ""),
+                    agent=str(fields.get("agent") or ""),
+                    disallowed_tools=_tuple(fields.get("disallowed_tools")),
                     model_invocable=bool(fields.get("model_invocable", True)),
                     user_invocable=bool(fields.get("user_invocable", True)),
                     argument_hint=str(fields.get("argument_hint") or ""),
@@ -288,16 +294,35 @@ def build_invocation(
         elif unmapped:
             notes = (*notes, "allowed-tools: eşlenmeyen adlar yok sayıldı: " + ", ".join(unmapped))
     fork = capability.context.strip().lower() == "fork"
+    denied = map_denied_tools(capability.disallowed_tools)
+    if capability.agent and not fork:
+        notes = (*notes, "agent alanı yalnız context: fork ile anlamlı; yok sayıldı")
     if capability.kind == "komut":
-        return SkillInvocation(
-            rendered, "", allowed_tools, capability.model, capability.effort, fork, notes
+        task, context = rendered, ""
+    else:
+        context = (
+            f'<beceri ad="{capability.name}" kaynak="{capability.source}">\n'
+            "Kullanıcının açıkça seçtiği beceri; bu turda yönergeleri uygula.\n"
+            f"{rendered}\n</beceri>"
         )
-    context = (
-        f'<beceri ad="{capability.name}" kaynak="{capability.source}">\n'
-        "Kullanıcının açıkça seçtiği beceri; bu turda yönergeleri uygula.\n"
-        f"{rendered}\n</beceri>"
-    )
-    task = argument.strip() or DEFAULT_SKILL_TASK.format(name=capability.name)
+        task = argument.strip() or DEFAULT_SKILL_TASK.format(name=capability.name)
     return SkillInvocation(
-        task, context, allowed_tools, capability.model, capability.effort, fork, notes
+        task=task,
+        context=context,
+        allowed_tools=allowed_tools,
+        model=capability.model,
+        effort=capability.effort,
+        fork=fork,
+        notes=notes,
+        denied_tools=denied,
+        agent=capability.agent if fork else "",
     )
+
+
+def map_denied_tools(names: tuple[str, ...]) -> frozenset[str]:
+    """`disallowed-tools` Claude adları → Fusion adları; `Bash(rm *)` deseninde araç adı."""
+    from .capabilities import map_tools
+
+    cleaned = tuple(name.split("(", 1)[0].strip() for name in names if name.strip())
+    mapped = map_tools(cleaned) if cleaned else set()
+    return frozenset(mapped or ())

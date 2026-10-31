@@ -126,6 +126,8 @@ class Capability:
     effort: str = ""
     #: `context: fork` → alt ajanda çalıştır (P-054).
     context: str = ""
+    #: `agent`: `context: fork` becerisinin koşacağı alt ajan tanımının adı; boş = genel.
+    agent: str = ""
     #: `disable-model-invocation: true` → beceri dizinine ve find_skill sonucuna girmez;
     #: yalnız kullanıcı `/ad` ile çağırır.
     model_invocable: bool = True
@@ -492,6 +494,7 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         model=str(fields.get("model") or ""),
         effort=str(fields.get("effort") or "").lower(),
         context=str(fields.get("context") or "").lower(),
+        agent=str(fields.get("agent") or ""),
         model_invocable=bool(fields.get("model_invocable", True)),
         user_invocable=bool(fields.get("user_invocable", True)),
         argument_hint=str(fields.get("argument_hint") or ""),

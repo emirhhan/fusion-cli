@@ -749,6 +749,8 @@ async def _agent_turn(
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
+            # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
+            deps.config = extras.turn_config(deps.config)
             turn_extra_system = "\n\n".join(
                 part
                 for part in (
@@ -760,7 +762,7 @@ async def _agent_turn(
                 if part
             )
             outcome = await _drive_agent(
-                run_forked_turn if macros.mode_fork(mode) else run_agent,
+                extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else run_agent,
                 line,
                 deps,
                 state,
@@ -771,7 +773,7 @@ async def _agent_turn(
                 workflow=macros.mode_workflow(mode),
                 # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                 allowed_tools=extras.merged_tools(persona.allowed_tools),
-                denied_tools=persona.denied_tools,
+                denied_tools=extras.merged_denied(persona.denied_tools),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:

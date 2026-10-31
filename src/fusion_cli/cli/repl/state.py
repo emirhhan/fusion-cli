@@ -6,10 +6,12 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_checked, revision
@@ -25,6 +27,7 @@ from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.skill_turn import TurnModelChoice
 from ...engines.agent.team import Persona
 from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
@@ -76,18 +79,41 @@ class Engine(Enum):
 TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
+#: `run_agent`/`run_forked_turn` imzalı tur çalıştırıcısı (bkz. `PendingExtras.fork_runner`).
+# Any: tur çalıştırıcılarının imzası geniş anahtar sözcüklüdür; yalnız sarmalanır.
+TurnRunner = Callable[..., Any]
+
+
 @dataclass(frozen=True, slots=True)
 class PendingExtras:
     """`/beceri` komutunun sıradaki tura taşıdığı ekler (bkz. `ReplState.take_pending_extras`)."""
 
     context: str = ""
     tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort` alanı: yalnız bu turun yapılandırmasını değiştirir (P-020).
+    model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    #: Becerinin `disallowed-tools` alanı (Fusion adları).
+    denied: frozenset[str] = frozenset()
+    #: `context: fork` + `agent:` → fork turunu bu alt ajan tanımı koşar.
+    fork_agent: str = ""
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
         if self.tools is None:
             return base
         return set(self.tools) if base is None else set(self.tools) & base
+
+    def merged_denied(self, base: frozenset[str]) -> frozenset[str]:
+        """Kişiliğin yasaklarıyla birleşim: beceri yasak ekler, kaldıramaz."""
+        return frozenset(base) | self.denied
+
+    def turn_config(self, config: Config) -> Config:
+        """Bu turun yapılandırması (becerinin modeli/eforu); seçim yoksa aynı nesne."""
+        return self.model_choice.apply(config)
+
+    def fork_runner(self, runner: TurnRunner) -> TurnRunner:
+        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla koşar."""
+        return functools.partial(runner, persona=self.fork_agent) if self.fork_agent else runner
 
 
 @dataclass(slots=True)
@@ -175,6 +201,10 @@ class ReplState:
     pending_context: str = ""
     #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
     pending_tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort`, `disallowed-tools` ve fork `agent` alanları (P-020).
+    pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    pending_denied_tools: frozenset[str] = frozenset()
+    pending_fork_agent: str = ""
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -213,8 +243,16 @@ class ReplState:
 
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
-        extras = PendingExtras(self.pending_context, self.pending_tools)
+        extras = PendingExtras(
+            self.pending_context,
+            self.pending_tools,
+            self.pending_model_choice,
+            self.pending_denied_tools,
+            self.pending_fork_agent,
+        )
         self.pending_context, self.pending_tools = "", None
+        self.pending_model_choice = TurnModelChoice()
+        self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
         return extras
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
