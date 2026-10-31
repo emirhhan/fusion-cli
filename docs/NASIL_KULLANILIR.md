@@ -700,9 +700,11 @@ Chromium indirilmemişse mesaj `playwright install chromium` adımını gösteri
 Seçim iframe genişliğini ve ekran görüntüsü ölçüsünü birlikte belirler.
 
 **Yerel https** — `https://localhost:8443` gibi yerel https adresleri de gömülür (mkcert, Vite
-`basicSsl`). Doğrulama ve başsız günlük yalnız loopback için sertifikayı sorgulamaz; panelin
-kendisi (WebView) kendinden imzalı sertifikayı reddedebilir — o durumda sertifikayı sisteme
-güvenilir ekleyin (mkcert) ya da **Dışarıda aç**. Uzak adresler önizlemeye gömülmez; hata
+`basicSsl`); `launch.json`'daki `https://localhost` sunucusu da "ayakta" sayılır. Doğrulama,
+başlatma beklemesi ve başsız günlük yalnız loopback için sertifikayı sorgulamaz; panelin
+kendisi (WebView) kendinden imzalı sertifikayı reddedebilir. Sertifika sistemce doğrulanamazsa
+önizlemenin üstünde uyarı ve **Tarayıcı panelinde aç** çıkar; kalıcı çözüm sertifikayı sisteme
+güvenilir eklemektir (mkcert) ya da **Dışarıda aç**. Uzak adresler önizlemeye gömülmez; hata
 satırındaki **Tarayıcı panelinde aç** onları uygulama içi tarayıcıya (§15b) yollar. Araç
 çubuğundaki `⌖` (**Öğe seç**) önizlenen sayfayı Tarayıcı panelinde öğe seçici açık olarak açar.
 
@@ -716,29 +718,44 @@ tarayıcıyı gösterir (Claude Code masaüstündeki Browser pane karşılığı
 sekme kendiliğinden öne gelir; tıkladığı, yazdığı her şey canlı görüntüde görünür. Tarayıcı
 turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 
-- **Gezinme:** adres çubuğu (şemasız adres `https://`, localhost `http://` alır), ‹ › ↻,
+- **Gezinme:** adres çubuğu (şemasız adres `https://`, localhost `http://` alır; `about:`,
+  `data:`, `chrome://` gibi http dışı şemalar açılmaz), ‹ › ↻,
   sekme şeridi (+ yeni sekme, × kapat), sayfa boyutu (1280 / 1440 / 768 / 375).
 - **Kendin kullan:** görüntüye tıkla, tekerlekle kaydır, klavyeyle yaz; Cmd+V metni yapıştırır.
+  Tab ve Esc de sayfaya gider; görüntüden klavyeyle çıkmak için **Esc'ye iki kez** bas.
   İç ağ ve bulut metadata adresleri ajandakiyle aynı kapıdan geçer, açılmaz; panelde yazdığın
   localhost adresi ajan için de izinli olur.
-- **Devral / Ajana bırak:** ajan çalışırken yaptığın girdi denetimi sana geçirir (ya da
-  **Devral**). O sırada ajanın tarayıcı eylemleri **bekler** (en çok 5 dk): girişi, iki adımlı
-  doğrulamayı ya da CAPTCHA'yı sen yap, **Ajana bırak** de, ajan aynı adımdan sürer. Ajan
+- **Devral / Ajana bırak:** ajan çalışırken tıklaman, yazman ya da gezinmen denetimi sana
+  geçirir (ya da **Devral**); izlemek için kaydırmak geçirmez. O sırada ajanın tarayıcı
+  eylemleri **bekler** (en çok 5 dk; bant "Ajan seni bekliyor" der): girişi, iki adımlı
+  doğrulamayı ya da CAPTCHA'yı sen yap, **Ajana bırak** de, ajan aynı adımdan sürer. Girdiyle
+  kendiliğinden alınan denetim tur bitince ajana döner; **Devral** ile aldığını sen bırakırsın. Ajan
   paylaşılan tarayıcıyı kapatamaz (`browser_close` "açık bırakıldı" der).
 - **Öğe seç (`⌖`):** imlecin altındaki öğe vurgulanır; tıkladığında öğenin CSS seçicisi
   (`#id`, `data-testid`, `name`… yoksa `etiket:nth-of-type` zinciri), etiketi ve metni
   sohbet taslağına, kırpılmış görüntüsü ek olarak düşer (`.fusion/secimler/`, en çok 30 dosya,
   sembolik bağ ya da kök dışına yazılmaz). Ajan seçiciyi doğrudan `browser_click` ile kullanabilir.
-  `◧` görünür sayfanın görüntüsünü sohbete ekler, `≡` konsol ve ağ isteklerini gösterir
-  (tarayıcı açıldığından beri birikenler).
+  Form alanlarının **değeri** (parola, kart, kimlik) sohbete gitmez; alan `placeholder` ya da
+  `aria-label` ile tanıtılır. `◧` görünür sayfanın görüntüsünü sohbete ekler, `≡` konsol ve ağ
+  isteklerini gösterir (son 200 konsol mesajı ve 300 istek; `⌫` biriktirileni temizler).
 - **Oturum:** **Temiz** (varsayılan; çıkınca silinir), **Panel oturumu** (Claude Code'daki
   "Keep cookies": çerezler `tarayici-paneli` profiline şifreli saklanır, sonraki açılışta
   girişli kalırsın) ya da `fusion browser` ile kurulan bir profil. Girişli bir oturumu sen
   seçtiysen ajan onu **yalnız "Ajan girişli oturumu kullanabilir" işaretliyken** görür; aksi
   hâlde tur kendi temiz tarayıcısını açar. Girişli oturumda tıklama/form gönderme yine onay ister.
+  **Tarayıcıyı kapat** seçtiğin profili de bırakır: sonraki tur yapılandırmadaki varsayılan
+  profille (onay sorarak) başlar.
 - **Kapatmak:** **Ajan bu tarayıcıyı kullanır** kutusu kaldırılınca ajan eski davranışa döner
-  (her tur ayrı, görünmez tarayıcı). Kalıcı olarak kapatmak için `config.yaml`:
-  `browser: {panel_agent: false}`. **Tarayıcıyı kapat** Chromium'u kapatır.
+  (her tur ayrı tarayıcı; Tarayıcı sekmesi de kendiliğinden öne gelmez). Seçim kalıcıdır
+  (`browser.panel_agent`); aynı ayar **Ayarlar → Web oturumları**'nda ve terminalde
+  `fusion browser set panel-agent off` ile de değişir. **Tarayıcıyı kapat** Chromium'u kapatır.
+- **Davranış değişikliği:** masaüstünde `panel_agent` varsayılan olarak açıktır; ajan
+  `browser.headless: false` olsa da ayrı pencere açmaz, tarayıcı panelde görünür (ajanın
+  `headed=true` isteği paylaşılan oturumda yok sayılır ve sonuçta not düşer). Eski görünür
+  pencereyi isteyen `panel_agent`'ı kapatır.
+- **Yerel adres izinleri:** panelde açtığın ya da bir turda yazdığın `localhost:port` paylaşılan
+  tarayıcının izin kümesine girer ve tarayıcı kapanana kadar sonraki turlarda da izinli kalır
+  (tur başına tarayıcıda her tur boş başlardı). Kümeyi sıfırlamak için **Tarayıcıyı kapat**.
 - **Sınırlar:** panel tarayıcısı her zaman başsız çalışır (görüntü panelde; `browser.headless`
   tur başına tarayıcı içindir). Plan adımları ve alt ajanlar kendi ayrı tarayıcılarını kullanır,
   panelde görünmez. Açık panel oturumunda ajan başka profil yükleyemez; profili panelden seç.
@@ -752,7 +769,9 @@ panel kapalıyken kare üretilmez. Gereksinim: `pip install 'fusion-cli[web]'` v
 **CLI'de:** `/tarayici ac` ajanla paylaşılan **görünür** bir Chromium penceresine geçer (ilk
 tarayıcı eyleminde açılır, turlar arasında açık kalır; pencerede sen de gezinebilirsin).
 `/tarayici` durumu ve sekmeleri, `/tarayici devral` / `/tarayici birak` denetimi, `/tarayici
-kapat` pencereyi kapatıp tur başına tarayıcıya dönüşü yapar.
+kapat` pencereyi kapatıp tur başına tarayıcıya dönüşü yapar. Masaüstünden farkı: CLI
+pencerede yaptığın girdiyi algılamaz, denetim **yalnız** `/tarayici devral` ile geçer ve
+`/tarayici birak` ile döner; tur bitince kendiliğinden geri verilmez.
 
 ## 16) `fusion://` bağlantıları (masaüstü)
 
