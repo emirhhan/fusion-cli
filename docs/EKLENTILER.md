@@ -22,14 +22,23 @@ benim-eklentim/
   tamamlar); `hooks` ve `mcpServers` dosya yolu ya da satır içi nesne olabilir. Yollar eklenti kökü
   dışına çıkamaz. `.fusion-plugin/plugin.json` de okunur. Tanınmayan alanlar (ör. `lspServers`)
   uyarı olur.
-- Komut ve kanca metinlerinde `${CLAUDE_PLUGIN_ROOT}` (ya da `${FUSION_PLUGIN_ROOT}`) eklentinin
-  kurulu klasörüne çözülür.
+- `${CLAUDE_PLUGIN_ROOT}` (ya da `${FUSION_PLUGIN_ROOT}`) eklentinin kurulu klasörüne çözülür:
+  kanca ve MCP tanımlarında, komut/beceri gövdesinde (`/eklenti:komut`, `read_skill`) ve alt ajan
+  isteminde.
 - Bütün adlar eklenti adıyla öneklenir: üçüncü taraf bir eklenti kendi `ozet` becerini gölgeleyemez.
-  Eklenti becerilerinde `` !`komut` `` bağlamı çalıştırılmaz.
+  **Claude Code'dan sapma:** eklenti beceri/komutlarında `` !`komut` `` bağlamı çalıştırılmaz
+  (yerinde "komut çalıştırılmadı" notu kalır).
 - MCP sunucuları `plugin_<eklenti>_<sunucu>` adıyla, `unreviewed` güvenle eklenir; araç çağrıları
-  onay ister ve hiçbir ayar dosyasına yazılmaz (`fusion mcp remove` yerine eklentiyi kapat).
-- Kanca blokları `config/plugin_store.plugin_hook_blocks()` ile kanca yükleyicisine verilir
-  (kaynak adı `eklenti:<ad>`).
+  onay ister, hiçbir ayar dosyasına yazılmaz ve güven kararı kalıcı tutulmaz (`fusion mcp remove`
+  yerine eklentiyi kapat). Eklentiyi kapatmak/kaldırmak sunucuyu çalışan oturumdan da çıkarır
+  (masaüstünde canlı bağlantı hemen kapanır). Desteklenmeyen alan taşıyan sunucu (`type: sse`, `cwd`,
+  Authorization dışı başlık…) uyarıyla atlanır, eklentinin geri kalanı kurulur;
+  `Authorization: Bearer ${VAR}` başlığı desteklenir. İki eklentinin sunucu adı çakışırsa ada göre
+  ilk eklenti kazanır.
+- **Kancalar bu sürümde çalıştırılmaz.** Kanca blokları onaylanır ve
+  `config/plugin_store.plugin_hook_blocks()` ile kanca yükleyicisine (P-009) hazır bekler (kaynak adı
+  `eklenti:<ad>`); yükleyici bağlanana dek önizleme ve liste "kancalar tetiklenmez" der
+  (`PLUGIN_HOOKS_ACTIVE`).
 
 ## Komutlar
 
@@ -43,26 +52,43 @@ fusion eklenti listele | dogrula <yol|ad>
 fusion eklenti ac|kapat <ad>  ·  fusion eklenti kapat --hepsi
 fusion eklenti kaldir <ad>                     # Fusion çöpüne (fusion cop geri-al)
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
+fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
 fusion eklenti kesfet [pazar]
-fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar kaldir <ad>
+fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle <ad>
+fusion eklenti pazar kaldir <ad>
 ```
 
 Claude Code adları gizli takma ad olarak çalışır: `fusion plugin install|list|validate|enable|disable|
-uninstall|marketplace add`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt komutları alır; kanca
-ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur. Masaüstünde Beceriler ekranındaki
-**Eklentiler** düğmesi Kurulu · Keşfet · Pazarlar sekmelerini açar (RPC: `eklenti.*`).
+uninstall|update|marketplace add|update`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
+komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
+değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
+Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula, değişmiş eklentide "İncele ve yeniden
+onayla" (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`).
 
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
-çıkmaz; git pazarları ekleme anındaki klondan okunur (güncellemek için pazarı kaldırıp yeniden ekle).
+çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
+başka kaynaklı bir pazar eskisinin yerine geçemez.
+
+**Bilinçli eksikler:** yalnız kullanıcı kapsamı vardır; Claude Code'un proje/yerel eklenti kapsamları,
+`settings.json` `enabledPlugins` ve `extraKnownMarketplaces` alanları okunmaz. Kriptografik imza yok:
+bütünlük sha256 karma + commit pinidir.
 
 ## Güven ve bütünlük
 
-- Kurulumda klasörün sha256 içerik karması kaydedilir (`<veri>/eklentiler/kayit.json`). Dosyalar
-  sonradan değişirse eklenti **değişmiş** görünür ve hiçbir bileşeni yüklenmez; `fusion eklenti guven`
-  güncel içeriği gösterip yeniden onay ister.
-- Pazar girdisi `sha` bildiriyorsa klonun commit'i ona eşit olmalıdır; değilse kurulmaz.
+- Kurulumda klasörün sha256 içerik karması kaydedilir (`<veri>/eklentiler/kayit.json`, süreçler arası
+  kilitle yazılır). Dosyalar sonradan değişirse eklenti **değişmiş** görünür ve hiçbir bileşeni
+  yüklenmez; `fusion eklenti guven` (masaüstü "İncele ve yeniden onayla") güncel içeriği gösterip
+  yeniden onay ister. Bildirim adı değişmiş eklenti yeniden onaylanmaz.
+- Onay ekranı kanca satırlarını (`Olay [eşleşen]: komut`), MCP sunucularının tam komutunu (sırlar
+  maskeli) ve içerik karmasını gösterir. Onay o karmaya bağlıdır: `fusion eklenti kur X --dry-run`
+  karmayı basar, `kur X --yes --karma <karma>` içerik değiştiyse kurmaz; masaüstü ve REPL bunu
+  kendiliğinden yapar.
+- Pazar girdisi `sha` bildiriyorsa en az 7 onaltılık karakter olmalıdır. Tam (40 karakter) sha o
+  commit'i doğrudan çeker (dal ucu ilerlese de); kısa sha dal ucuyla eşleşmelidir.
 - Kanca/MCP içeren eklenti açık onay olmadan kurulmaz (CLI `--yes` ya da TTY sorusu, masaüstü
-  "Onaylıyorum, kur"). Git adresleri yalnız genel https sunucularıdır (iç ağ, kimlik bilgili adres yok).
+  "Onaylıyorum, kur"). Git adresleri yalnız genel https sunucularıdır (iç ağ, kimlik bilgili adres
+  yok); klon yönlendirme izlemez, https dışı protokole geçmez ve denetlenen IP'ye sabitlenir.
+  Yerel klasör 5 000 dosya / 50 MB sınırını aşıyorsa kopyalanmadan reddedilir.
 - Hepsini kapatma: `fusion eklenti kapat --hepsi` ya da `FUSION_PLUGINS=off`.
 
 ## İçe aktarma (`/import`)

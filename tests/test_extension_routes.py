@@ -200,3 +200,26 @@ def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
     assert _call("eklenti.dogrula", {"ad": "yok"}, context)["ok"] is False
     missing = _call("eklenti.pazar_guncelle", {"ad": "yok"}, context)
     assert missing["ok"] is False and "Pazar yok" in str(missing["metin"])
+
+
+def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
+    context = _context(tmp_path)
+    market = tmp_path / "pazar"
+    _hooked_plugin(market / "plugins" / "bicimci")
+    (market / ".claude-plugin").mkdir(parents=True)
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {"name": "ekip", "plugins": [{"name": "bicimci", "source": "./plugins/bicimci"}]}
+        ),
+        encoding="utf-8",
+    )
+
+    added = _call("eklenti.pazar_ekle", {"kaynak": str(market)}, context)
+    assert added["ok"] is True and added["pazarlar"][0]["ad"] == "ekip"  # type: ignore[index]
+    found = _call("eklenti.kesfet", {}, context)
+    assert found["eklentiler"] == [  # type: ignore[comparison-overlap]
+        {"ad": "bicimci", "pazar": "ekip", "surum": "", "aciklama": "", "kurulu": False}
+    ]
+    assert _call("eklenti.pazar_guncelle", {"ad": "ekip"}, context)["ok"] is True
+    assert _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)["pazarlar"] == []
+    assert _call("eklenti.kesfet", {"pazar": "ekip"}, context)["ok"] is False
