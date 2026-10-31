@@ -47,8 +47,8 @@ güvenilmiyor" diye görünür.
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (en çok 3 kez) |
 | `SubagentStop` | alt ajan bitince | ajan türü | alt ajan gerekçeyle sürer |
-| `SessionStart` | oturumun ilk turunda | `startup` | — (stdout bağlam olur) |
-| `SessionEnd` | oturum kapanınca | `prompt_input_exit`, `other` | — |
+| `SessionStart` | oturumun ilk turunda | `startup`, `resume`, `clear` | — (stdout bağlam olur) |
+| `SessionEnd` | oturum kapanınca, `/reset`, sohbet değişince | `prompt_input_exit`, `clear`, `other` | — |
 | `Notification` | izin sorusundan hemen önce | `permission_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | — |
 
@@ -120,7 +120,10 @@ de hepsini kapatır (acil durum ve testler). Eski `runtime.post_edit_commands` a
   gönderilir; eşleştirici konusu `--subject` ile seçilir (`SessionStart --subject resume`,
   `Notification` varsayılan `permission_prompt`, `Stop --prompt "son cevap"`).
 - REPL `/hooks` (`/kancalar`) — salt okunur liste.
-- Masaüstü: Ayarlar › İzinler › **Kancalar** (`kanca.listele` RPC).
+- Masaüstü: Ayarlar › İzinler › **Kancalar** — liste (`kanca.listele` RPC) ve iki anahtar:
+  "Kancaları çalıştır" (`hooks_enabled`), "Claude Code kancalarını da çalıştır" (`claude_hooks`)
+  (`kanca.ayar` RPC, kullanıcı `config.yaml`'ına yazar). `/config set runtime.hooks_enabled false`
+  gibi değişiklikler açık oturumda bir sonraki turda etkilidir.
 
 Tanımlar her kök turun başında yeniden okunur; tur ortasında değişmez.
 
@@ -130,3 +133,18 @@ Tanımlar her kök turun başında yeniden okunur; tur ortasında değişmez.
 - `Stop` sürdürmesi tur başına en çok 3 kez (betik `stop_hook_active`'e bakmasa da sonsuz döngü olmaz).
 - `SessionStart` ilk kök turda tetiklenir (oturum açılışında değil); bağlamı o tura eklenir.
 - `updatedInput` özgün argümanın üstüne birleşir (Claude tamamen değiştirir).
+- `continue: false` son cevap olarak "Kanca turu durdurdu (Olay): stopReason" gösterir; durdurulan
+  turda (ve bütçe/adım sınırı, model hatası, kullanıcı reddi sonrası) `Stop` çalışmaz. Alt ajanda
+  yalnız o alt ajanı durdurur.
+- Eşleştirici: düz ad listesi (`Bash`, `Edit|Write`) birebir; aksi halde düzenli ifade adın
+  **tamamına** uyar (`fullmatch`): `mcp__github` tek başına `mcp__github__create_issue`'ya uymaz,
+  `mcp__github__.*` yazılır.
+- `Notification` yalnız izin sorusunda (`permission_prompt`) tetiklenir; `idle_prompt`,
+  `auth_success`, `elicitation_dialog` yok.
+- `SessionStart` `compact` kaynağıyla tetiklenmez (özetleme sonrası bağlam yeniden eklenmez);
+  `PreCompact` vardır. Claude'un `/clear`'ının karşılığı Fusion'da `/reset`tir (`/clear` yalnız
+  ekranı temizler); `/reset` sonrası `session_id` aynı kalır.
+- `transcript_path` dökümünde araç çağrıları yoktur (yalnız istem ve cevaplar); oturum bitince
+  silinir.
+- Kök değişimi (`/worktree`) oturumu yenilemez: `SessionStart`/`SessionEnd` tetiklenmez,
+  tanımlar yeni kökten okunur.
