@@ -153,3 +153,17 @@ def test_araclar_defterde_kayitli_ve_etkileri_dogru():
 def test_metin_dogrulamasi(metin):
     assert kits.validate_text(metin) is not None
     assert kits.validate_text("Yeterince uzun") is None
+
+
+async def test_kits_olmayan_yerel_servis_kit_listesi_sanilmaz():
+    # Ölçüldü (31 Ekim, inceleme): 4410'u dinleyen başka bir süreç "Kit yok" sanılıyordu;
+    # Kits imzası (`kits` listesi) olmayan yanıt ulaşılamadı gibi ele alınır.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>Başka bir servis</html>")
+
+    client = kits.KitsClient(
+        kits.KitsEndpoint("http://127.0.0.1:4410", "varsayilan"),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(kits.KitsError, match="Kits değil"):
+        await client.list_kits()

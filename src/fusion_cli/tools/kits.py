@@ -138,7 +138,14 @@ class KitsClient:
     async def list_kits(self) -> list[dict[str, Any]]:
         payload = await self._request("GET", "/api/kits")
         kits = payload.get("kits") if isinstance(payload, dict) else None
-        return [kit for kit in kits if isinstance(kit, dict)] if isinstance(kits, list) else []
+        if not isinstance(kits, list):
+            # Ölçüldü (31 Ekim): varsayılan 4410'u dinleyen başka bir yerel süreç "Kit yok"
+            # sanılıyordu. Kits imzası (`kits` listesi) yoksa bu adres Kits değildir.
+            raise KitsError(
+                f"{self.endpoint.url} adresindeki servis Kits değil (yanıtta Kit listesi yok). "
+                "Fusion masaüstünde Kits bölümünü aç."
+            )
+        return [kit for kit in kits if isinstance(kit, dict)]
 
     async def send(
         self, kit: str, text: str, *, title: str | None = None, kind: str = "gorev"
