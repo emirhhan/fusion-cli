@@ -16,6 +16,7 @@ from fusion_cli.cli.repl.status_line import (
     status_payload,
     statusline_command,
 )
+from fusion_cli.cli.repl.status_view import context_report
 from fusion_cli.cli.repl.tui import format_status
 from fusion_cli.config.loader import load_config
 from fusion_cli.engines.agent.approval import ApprovalMode
@@ -37,7 +38,10 @@ def test_json_yuku_belgelenen_alanlari_tasir(state: ReplState):
     assert payload["model"]["id"] == state.config.agent.model
     assert payload["workspace"]["project_dir"] == str(state.root)
     assert payload["session"]["approval_mode"] == "auto"
-    assert payload["context_window"]["percent"] == 0
+    # Ölçüldü (31 Ekim): taze oturumda yüzde 0 değil, tahmini sistem istemini içerir (ilk turdan
+    # sonra geçmişteki gerçek sistem mesajının sayılmasıyla aynı anlam); /context ile aynı kaynak.
+    assert 0 < payload["context_window"]["percent"] <= 100
+    assert payload["context_window"]["percent"] == context_report(state).percent
     json.dumps(payload)
 
 
