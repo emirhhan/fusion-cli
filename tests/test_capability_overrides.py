@@ -108,3 +108,27 @@ def test_nitelikli_kimlik_duz_addan_once_gelir(tmp_path: Path, dirs: tuple[Path,
 
     assert registry.get_skill("adli") is not None
     assert registry.with_extra_roots(()).get_skill("adli") is not None
+
+
+def test_yalniz_kullanici_becerisi_read_skill_ile_yuklenemez(
+    tmp_path: Path, dirs: tuple[Path, Path]
+):
+    """Ölçüldü (31 Ekim): `user-invocable-only` beceri yalnız dizinden gizleniyordu; adını
+    bilen model `read_skill('elle')` ile gövdeyi yükleyebiliyordu."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import SKILL_USER_ONLY, _read_skill_tool
+
+    home, root = dirs
+    (home / ".claude" / "skills" / "elle" / "notlar.md").write_text("ek", encoding="utf-8")
+    state = _state(tmp_path, *dirs, "capabilities:\n  overrides:\n    elle: user-invocable-only\n")
+    assert state.capabilities is not None
+    tool = _read_skill_tool(state.capabilities)
+    context = ToolContext(root=root)
+
+    blocked = tool.run({"name": "elle"}, context)
+    extra = tool.run({"name": "elle", "file": "notlar.md"}, context)
+    normal = tool.run({"name": "olagan"}, context)
+
+    assert not blocked.ok and blocked.output == SKILL_USER_ONLY.format(name="elle")
+    assert extra.ok and "ek" in extra.output
+    assert normal.ok and "Gövde" in normal.output

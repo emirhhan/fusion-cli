@@ -867,6 +867,13 @@ def _skill_page_result(path: Path, args: ToolArgs, offset: int) -> ToolResult:
     return ToolResult(text, structured={"revision": page.revision, "next_offset": page.next_offset})
 
 
+#: Modelin yükleyemeyeceği (yalnız kullanıcının çağırdığı) beceri.
+SKILL_USER_ONLY = (
+    "'{name}' yalnız kullanıcı /{name} ile çağırır; model yükleyemez. Gerekiyorsa kullanıcıya "
+    "/{name} yazmasını öner."
+)
+
+
 def _skill_receipt(
     publisher: EventPublisher | None,
     skill: Capability,
@@ -907,11 +914,18 @@ def _read_skill_tool(
                     + ", ".join(adaylar)
                 )
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
+        extra = args.get("file")
+        has_file = isinstance(extra, str) and bool(extra.strip())
+        if not skill.model_invocable and not has_file:
+            # `disable-model-invocation` / `user-invocable-only` (P-051): gövde yalnız kullanıcı
+            # `/ad` ile çağırınca bağlama girer. Ölçüldü (31 Ekim): beceri yalnız dizinden
+            # gizleniyordu; adını bilen model `read_skill` ile yükleyebiliyordu. Ek dosya
+            # okuması açık kalır: kullanıcının çağırdığı becerinin gövdesi onlara başvurur.
+            return ToolResult.failure(SKILL_USER_ONLY.format(name=skill.name))
         offset = coerce_int(args.get("offset", 0))
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
-        extra = args.get("file")
-        if isinstance(extra, str) and extra.strip():
+        if has_file and isinstance(extra, str):
             target = skill_file(skill.path, extra.strip())
             if target is None:
                 return ToolResult.failure(
