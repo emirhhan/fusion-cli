@@ -45,12 +45,22 @@ from .instruction_layers import (
     read_text_limited,
 )
 from .instruction_rules import (
+    MAX_RULE_FILE_CHARS,
     RuleFile,
     discover_rules,
     rule_block,
     scoped_rules_for,
     unscoped_rules_block,
 )
+
+#: Tek dosya erişiminde eklenen `paths:` kapsamlı kuralların TOPLAM bütçesi (karakter).
+SCOPED_RULES_MAX_CHARS = 8_000
+
+#: Tek dosya erişiminde eklenen en fazla kapsamlı kural sayısı.
+SCOPED_RULES_MAX_FILES = 6
+
+#: Kalan kural bütçesi bunun altındaysa kural kırpıntı olarak değil hiç eklenmez (sonraya kalır).
+SCOPED_RULES_MIN_CHARS = 200
 
 __all__ = ["MAX_CHARS", "MAX_LINKED_CHARS", "read_all_instructions", "read_project_instructions"]
 
@@ -176,19 +186,24 @@ def load_nested_instructions(
     `present` yanlış dönünce eklenir). Eklenecek bir şey yoksa `None`.
 
     `rules`: `.claude/rules` kuralları; `paths:` deseni erişilen dosyaya uyanlar aynı mesajda,
-    aynı tekilleştirme sözleşmesiyle (etiketleri `loaded`/`present`) eklenir (P-016).
+    aynı tekilleştirme sözleşmesiyle (etiketleri `loaded`/`present`) eklenir (P-016). Kurallar
+    ayrı bütçeyle (`SCOPED_RULES_MAX_CHARS`, `SCOPED_RULES_MAX_FILES`) girer ve `max_files`
+    sayacına KATILMAZ: ölçüldü (31 Ekim), 12 kural tek mesaja 50 KB ekliyor ve sayacı
+    doldurup sonraki klasörün AGENTS.md'sini engelliyordu. Bütçeye sığmayan kural `loaded`a
+    yazılmaz; sonraki erişimde yeni bütçeyle gelir.
     """
     kok = root.resolve()
     bloklar: list[str] = []
     adlar: list[str] = []
     toplam = 0
+    rule_labels = {kural.label for kural in rules}
     for rel, yol in _nested_candidates(kok, target):
         if rel in loaded:
             continue
         if present(rel):
             loaded.add(rel)
             continue
-        if len(loaded) >= max_files:
+        if len(loaded - rule_labels) >= max_files:
             break
         try:
             icerik = _read_text_limited(yol, NESTED_MAX_CHARS)
@@ -203,19 +218,33 @@ def load_nested_instructions(
         bloklar.append(f"{nested_marker(rel)}\n{_UNTRUSTED_NOTE}\n{icerik}{ek}\n</alt_talimat>")
         adlar.append(rel)
         toplam += len(icerik)
+    kural_kalan = SCOPED_RULES_MAX_CHARS
+    kural_sayisi = 0
+    atlanan: list[str] = []
     for kural in _scoped_rules(kok, target, rules):
         if kural.label in loaded:
             continue
         if present(kural.label):
             loaded.add(kural.label)
             continue
+        if kural_kalan < SCOPED_RULES_MIN_CHARS or kural_sayisi >= SCOPED_RULES_MAX_FILES:
+            atlanan.append(kural.label)
+            continue
+        blok, eklenen = rule_block(kural, min(MAX_RULE_FILE_CHARS, kural_kalan))
         loaded.add(kural.label)
-        blok, eklenen = rule_block(kural)
         if not blok:
             continue
         bloklar.append(blok)
         adlar.append(kural.label)
         toplam += eklenen
+        kural_kalan -= eklenen
+        kural_sayisi += 1
+    if atlanan:
+        bloklar.append(
+            f"[…{len(atlanan)} kural bu erişimde bütçe nedeniyle atlandı: "
+            + ", ".join(atlanan)
+            + " — sonraki erişimde gelir ya da read_file ile oku…]"
+        )
     if not bloklar:
         return None
     metin = "\n".join([NESTED_NOTE_HEADER, *bloklar])
