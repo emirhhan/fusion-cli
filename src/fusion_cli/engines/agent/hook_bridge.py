@@ -49,7 +49,7 @@ def session_of(deps: AgentDeps) -> HookSession | None:
 
 
 def _records_tools(deps: AgentDeps) -> bool:
-    """Dökümde yalnız ana ajanın araç çağrıları (Claude'da alt ajanın dökümü ayrıdır)."""
+    """Ana ajan mı? Döküm ve oturum olayları yalnız onun (Claude'da alt ajan ayrıdır)."""
     return getattr(deps, "channel", None) is not Channel.SUBAGENT
 
 
@@ -278,17 +278,18 @@ async def pre_compact(deps: AgentDeps, trigger: str) -> None:
     _publish(deps, await session.pre_compact(trigger))
 
 
-async def compacted_context(session: HookSession | None, publisher: EventPublisher) -> str:
+async def compacted_context(deps: AgentDeps) -> str:
     """Özetleme sonrası `SessionStart(compact)`; kancanın modele bağlam notu (yoksa boş).
 
-    Ölçüldü (1 Kasım): özetlemeden sonra SessionStart hiç tetiklenmiyordu; açılışta bağlam
-    ekleyen betiklerin notu özetle birlikte kayboluyordu (Claude `compact` kaynağıyla
-    yeniden ekletir).
+    Yalnız ana ajanda: alt ajanın bağlam özeti oturum olayı değildir. Ölçüldü (1 Kasım):
+    özetlemeden sonra SessionStart hiç tetiklenmiyordu; açılışta bağlam ekleyen betiklerin
+    notu özetle birlikte kayboluyordu (Claude `compact` kaynağıyla yeniden ekletir).
     """
-    if session is None:
+    session = session_of(deps)
+    if session is None or not _records_tools(deps):
         return ""
     verdict = await session.compacted()
-    publish_verdict(publisher, verdict)
+    _publish(deps, verdict)
     if not verdict.context_text:
         return ""
     return messages.HOOKS_CONTEXT_NOTE.format(

@@ -241,3 +241,27 @@ async def test_dokum_ana_ajanin_arac_cagrilarini_claude_bicimiyle_tasir(tmp_path
     assert sonuc["tool_use_id"] == kullanim["id"] and sonuc["is_error"] is False
     # Sırlar dökümde maskeli.
     assert "sk-ant-api03-" + "x" * 40 not in _metin(yol)
+
+
+async def test_alt_ajan_ozetlemesi_sessionstart_compact_tetiklemez(tmp_path):
+    from fusion_cli.core.events import Channel
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.hook_bridge import compacted_context
+    from fusion_cli.engines.agent.loop import AgentDeps
+
+    from .fakes import AlwaysApprove, RecordingSink
+    from .test_hooks_loop import _Publisher
+
+    session = _oturum(tmp_path, _kayit_kancasi(tmp_path, HookEvent.SESSION_START, "", "not"))
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+        hooks=session,
+        channel=Channel.SUBAGENT,
+    )
+
+    assert await compacted_context(deps) == ""
+    assert _yukler(tmp_path, HookEvent.SESSION_START) == []

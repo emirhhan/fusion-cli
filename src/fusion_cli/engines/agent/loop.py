@@ -4468,7 +4468,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     )
     after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
     if after_chars < before_chars:
-        note = await compacted_context(getattr(deps, "hooks", None), deps.publisher)
+        note = await compacted_context(deps)
         messages[:] = with_system_note(compacted, note)
         deps.publisher.publish(
             ContextCompressed(
