@@ -9,6 +9,10 @@ import { Button } from "../../ui/Button";
  * Akış iki adımdır ve ikincisi alan adı ONAYIDIR: önce yalnız alan adları okunur
  * (Chrome'da Keychain'e dokunmadan), kullanıcı hangi sitelerin aktarılacağını
  * işaretler, sonra çerezler şifreli profile yazılır. Çerez değeri bu ekrana hiç gelmez.
+ *
+ * Hiçbir alan adı önceden işaretli gelmez. Ölçüldü (31 Ekim): hepsi işaretli gelince
+ * "Alan adlarını göster → İçe aktar" iki tıkla bankalar ve e-posta dahil bütün Chrome
+ * oturumunu ajana taşıyordu; onay listesi fiilen "hepsi" oluyordu.
  */
 
 type Source = "dosya" | "chrome";
@@ -70,9 +74,8 @@ export function WebSessionImport({
         : await client.request("tarayici.chrome_profilleri", { chrome_profil: chromeProfile });
       const result = value as unknown as { ok: boolean; alan_adlari?: string[]; metin?: string };
       if (!result.ok) throw new Error(result.metin || "Önizleme alınamadı.");
-      const found = result.alan_adlari ?? [];
-      setDomains(found);
-      setSelected(new Set(found));
+      setDomains(result.alan_adlari ?? []);
+      setSelected(new Set());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Önizleme alınamadı.");
     } finally {
@@ -144,24 +147,32 @@ export function WebSessionImport({
       </div>
       <div className="settings__actions">
         <Button disabled={!canPreview} onClick={() => void preview()} variant="secondary">Alan adlarını göster</Button>
-        <small>Önce hangi sitelerin aktarılacağını görür ve seçersin.</small>
+        <small>Önce hangi sitelerin aktarılacağını görür ve işaretlersin; hiçbiri hazır seçili gelmez.</small>
       </div>
       {domains.length > 0 && (
-        <ul className="settings__list" aria-label="Aktarılacak alan adları">
-          {domains.map((domain) => (
-            <li key={domain}>
-              <label>
-                <input checked={selected.has(domain)} onChange={() => toggle(domain)} type="checkbox" /> {domain}
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-      {domains.length > 0 && (
-        <div className="settings__actions">
-          <Button disabled={!canSubmit} onClick={() => void submit()} variant="primary">İçe aktar</Button>
-          <small>{selected.size} alan adı seçili. Profil yalnız bu sitelerde çerez taşır.</small>
-        </div>
+        <>
+          <div className="settings__actions">
+            <Button disabled={busy} onClick={() => setSelected(new Set(domains))} variant="ghost">Hepsini seç</Button>
+            <Button disabled={busy || selected.size === 0} onClick={() => setSelected(new Set())} variant="ghost">Temizle</Button>
+          </div>
+          <ul className="settings__list" aria-label="Aktarılacak alan adları">
+            {domains.map((domain) => (
+              <li key={domain}>
+                <label>
+                  <input checked={selected.has(domain)} onChange={() => toggle(domain)} type="checkbox" /> {domain}
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="settings__actions">
+            <Button disabled={!canSubmit} onClick={() => void submit()} variant="primary">İçe aktar</Button>
+            <small>
+              {selected.size === 0
+                ? "Aktarılacak siteyi işaretle; seçimsiz içe aktarma yok."
+                : `${selected.size} alan adı seçili. Profil yalnız bu sitelerde çerez taşır.`}
+            </small>
+          </div>
+        </>
       )}
       {error && <p className="settings__inline-error" role="alert">{error}</p>}
     </article>

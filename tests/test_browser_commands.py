@@ -130,3 +130,40 @@ def test_chrome_profiles_sahte_dizinle_listeler(depo, tmp_path):
 
     assert result.exit_code == 0
     assert "Default" in result.output
+
+
+def test_delete_tty_yokken_yes_zorunlu(depo, cerez_dosyasi):
+    """Ölçüldü (31 Ekim): koşul `isatty() and not confirm` olduğundan betikte onaysız siliyordu."""
+    runner.invoke(app, ["browser", "import-cookies", str(cerez_dosyasi), "-p", "is", "-y"])
+
+    result = runner.invoke(app, ["browser", "delete", "is"])
+
+    assert result.exit_code == 1 and "--yes" in result.output
+    assert depo.exists("is")
+
+
+def test_import_chrome_alan_adi_olmadan_reddedilir(depo, monkeypatch):
+    """`-d` yokken bütün Chrome kavanozu taşınıyordu; artık `--all-domains` açıkça istenir."""
+    monkeypatch.setattr(
+        browser_commands,
+        "find_chrome_profile",
+        lambda *_: pytest.fail("alan adı olmadan Chrome profiline bakılmamalı"),
+    )
+
+    result = runner.invoke(app, ["browser", "import-chrome", "-p", "is", "--yes"])
+
+    assert result.exit_code == 1
+    assert "--all-domains" in result.output and not depo.exists("is")
+
+
+def test_set_headless_ve_profiles_enabled_yazar(depo, monkeypatch):
+    yazilan: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        browser_commands, "write_browser_setting", lambda c, k, v: yazilan.append((k, v))
+    )
+
+    assert runner.invoke(app, ["browser", "set", "headless", "off"]).exit_code == 0
+    assert runner.invoke(app, ["browser", "set", "profiles-enabled", "on"]).exit_code == 0
+    assert runner.invoke(app, ["browser", "set", "bilinmez", "on"]).exit_code == 1
+    assert runner.invoke(app, ["browser", "set", "headless", "belki"]).exit_code == 1
+    assert yazilan == [("headless", False), ("profiles_enabled", True)]

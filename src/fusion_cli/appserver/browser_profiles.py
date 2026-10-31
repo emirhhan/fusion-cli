@@ -24,6 +24,11 @@ from ..engines.browser_profiles import (
 )
 from ..providers.chrome_cookies import list_chrome_profiles
 
+_CHROME_NEED_DOMAIN = (
+    "Chrome'dan aktarırken en az bir alan adı seç; bütün Chrome oturumları taşınmaz."
+)
+#: `tarayici.ayar` ile yazılabilen boolean ayarlar (varsayılan profil ayrı RPC'dir).
+_BOOL_SETTINGS = ("headless", "profiles_enabled")
 _KEY_MISSING = (
     "Şifreleme anahtarı yok: tarayıcı profilleri kaydedilemez. Sistem anahtarlığını aç ya da "
     "FUSION_SECRET_KEY tanımla."
@@ -112,6 +117,9 @@ def import_profile(store: BrowserProfileStore, data: dict[str, Any]) -> dict[str
         if path:
             summary = import_cookie_file(store, Path(path).expanduser(), name, domains=domains)
         elif chrome:
+            if domains is None:
+                # CLI'daki `--all-domains` karşılığı yok: arayüz alan adı seçtirir (P-024).
+                return {"ok": False, "metin": _CHROME_NEED_DOMAIN}
             summary = import_chrome_profile(
                 store, find_chrome_profile(chrome), name, domains=domains
             )
@@ -132,6 +140,21 @@ def delete_profile(store: BrowserProfileStore, data: dict[str, Any]) -> dict[str
     if not removed:
         return {"ok": False, "metin": f"Profil yok: {name}"}
     return {"ok": True, "metin": f"'{name}' silindi."}
+
+
+def set_setting(config: Config, data: dict[str, Any]) -> dict[str, Any]:
+    """`tarayici.ayar`: `browser.headless` / `browser.profiles_enabled` yaz (boolean)."""
+    key = str(data.get("anahtar") or "").strip()
+    value = data.get("deger")
+    if key not in _BOOL_SETTINGS:
+        return {"ok": False, "metin": f"Bilinmeyen tarayıcı ayarı: {key or '(boş)'}"}
+    if not isinstance(value, bool):
+        return {"ok": False, "metin": f"browser.{key} için true/false bekleniyor."}
+    try:
+        write_browser_setting(config, key, value)
+    except (FusionError, ValueError) as error:
+        return {"ok": False, "metin": str(error)}
+    return {"ok": True, "anahtar": key, "deger": value}
 
 
 def start_login(data: dict[str, Any]) -> dict[str, Any]:

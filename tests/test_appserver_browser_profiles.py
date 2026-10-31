@@ -147,3 +147,51 @@ async def test_giris_gecersiz_adres_reddedilir(oturum):
     )
 
     assert _sonuc(satirlar, "13")["ok"] is False
+
+
+async def test_chrome_ice_aktarma_alan_adi_olmadan_reddedilir(oturum, monkeypatch):
+    """Ölçüldü (31 Ekim): arayüz tüm alan adlarını önceden işaretliyordu; RPC de süzgeçsiz
+    kabul ediyordu — bütün Chrome oturumu ajana taşınıyordu."""
+    from fusion_cli.appserver import browser_profiles as rpc
+
+    monkeypatch.setattr(rpc, "find_chrome_profile", lambda *_: pytest.fail("Chrome'a bakılmamalı"))
+    session, satirlar = oturum
+
+    await session.handle(
+        Request(id="20", name="tarayici.ice_aktar", data={"ad": "is", "chrome_profil": "Default"})
+    )
+
+    veri = _sonuc(satirlar, "20")
+    assert veri["ok"] is False and "alan adı" in veri["metin"]
+
+
+async def test_tarayici_ayar_headless_ve_profiller_yazilir(oturum, monkeypatch):
+    from fusion_cli.appserver import browser_profiles as rpc
+
+    session, satirlar = oturum
+    yazilan: dict[str, object] = {}
+    monkeypatch.setattr(
+        rpc, "write_browser_setting", lambda config, key, value: yazilan.update({key: value})
+    )
+
+    await session.handle(
+        Request(id="21", name="tarayici.ayar", data={"anahtar": "headless", "deger": False})
+    )
+    await session.handle(
+        Request(id="22", name="tarayici.ayar", data={"anahtar": "profiles_enabled", "deger": False})
+    )
+    await session.handle(
+        Request(id="23", name="tarayici.ayar", data={"anahtar": "default_profile", "deger": "x"})
+    )
+    await session.handle(
+        Request(id="24", name="tarayici.ayar", data={"anahtar": "headless", "deger": "evet"})
+    )
+
+    assert _sonuc(satirlar, "21") == {"ok": True, "anahtar": "headless", "deger": False}
+    assert yazilan == {"headless": False, "profiles_enabled": False}
+    assert session._state.config.browser.headless is False
+    assert session._state.config.browser.profiles_enabled is False
+    assert _sonuc(satirlar, "23")["ok"] is False
+    assert _sonuc(satirlar, "24")["ok"] is False
+    await session.handle(Request(id="25", name="tarayici.profiller", data={}))
+    assert _sonuc(satirlar, "25")["etkin"] is False

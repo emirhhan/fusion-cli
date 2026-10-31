@@ -1617,6 +1617,20 @@ class AppSession:
                     ),
                 )
             return sonuc
+        if request.name == "tarayici.ayar":
+            sonuc = await asyncio.to_thread(rpc.set_setting, self._state.config, data)
+            if sonuc.get("ok"):
+                tarayici = self._state.config.browser
+                deger = bool(sonuc["deger"])
+                self._state.config = replace(
+                    self._state.config,
+                    browser=(
+                        replace(tarayici, headless=deger)
+                        if sonuc["anahtar"] == "headless"
+                        else replace(tarayici, profiles_enabled=deger)
+                    ),
+                )
+            return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
 
     async def _change_web_window_mode(self, data: dict[str, Any]) -> dict[str, Any]:

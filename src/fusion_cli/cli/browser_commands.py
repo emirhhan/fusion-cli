@@ -2,8 +2,9 @@
 
 Komutlar ince tutulur: girdiyi çözer, `engines.browser_profiles` akışını çağırır,
 sonucu basar. Çerez DEĞERİ hiçbir komut çıktısında yer almaz; yalnız alan adı ve sayı.
-Onay: içe aktarma alan adı listesini gösterir ve `--yes` yoksa TTY'de sorar; TTY
-yokken `--yes` zorunludur (sessiz onay yok).
+Onay: içe aktarma ve silme alan adı listesini/profili gösterir ve `--yes` yoksa TTY'de
+sorar; TTY yokken `--yes` zorunludur (sessiz onay yok). Chrome içe aktarma alan adı ister
+(`-d` ya da açıkça `--all-domains`): bütün Chrome çerez kavanozu varsayılanla taşınmaz.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..config.browser_profiles import (
+    SOURCE_FILE,
     BrowserProfileStore,
     BrowserProfileSummary,
     default_browser_profile_store,
@@ -53,6 +55,11 @@ _NOT_FOUND = "Profil yok: {name}"
 _DEFAULT_SET = "[green]Varsayılan profil:[/green] {name}"
 _DEFAULT_CLEARED = "[green]Varsayılan profil kaldırıldı;[/green] tarayıcı çerezsiz açılır."
 _LOGIN_DONE = "[green]Oturum kaydedildi:[/green] {name} — {count} çerez"
+_CHROME_NEED_DOMAIN = (
+    "Chrome içe aktarmada alan adı seç (-d example.com) ya da bütün çerezleri bilerek "
+    "aktarmak için --all-domains ver. Varsayılanla tüm Chrome oturumları taşınmaz."
+)
+_SETTING_WRITTEN = "[green]browser.{key} = {value}[/green]"
 _KEYCHAIN_NOTE = (
     "[yellow]Not:[/yellow] macOS Keychain izin diyaloğu çıkabilir; Chrome'un çerez anahtarı "
     "için 'İzin ver' seçilmeli."
@@ -87,7 +94,13 @@ def _domains(values: list[str] | None) -> tuple[str, ...] | None:
 
 
 def _confirm(preview: ImportPreview, name: str, yes: bool) -> None:
-    table = Table(title=f"Aktarılacak alan adları ({preview.cookie_count} kayıt)")
+    # Chrome önizlemesi çözmeden okunur: elde yalnız alan adı sayısı vardır, çerez sayısı yok.
+    sayi = (
+        f"{preview.cookie_count} çerez, {len(preview.domains)} alan adı"
+        if preview.source == SOURCE_FILE
+        else f"{len(preview.domains)} alan adı"
+    )
+    table = Table(title=f"Aktarılacak alan adları ({sayi})")
     table.add_column("Alan adı")
     for domain in preview.domains:
         table.add_row(domain)
@@ -193,11 +206,19 @@ def import_chrome(
     domain: DomainOption = None,
     yes: YesOption = False,
     chrome_dir: ChromeDirOption = None,
+    all_domains: Annotated[
+        bool, typer.Option("--all-domains", help="Alan adı süzgeci olmadan TÜM çerezleri aktar.")
+    ] = False,
 ) -> None:
     """Chrome profilindeki çerezleri (onayla, Keychain izniyle) bir Fusion profiline aktar."""
 
     def action() -> None:
         domains = _domains(domain)
+        if domains is None and not all_domains:
+            # Ölçüldü (31 Ekim): `-d` verilmeyince bankalar, e-posta dahil tüm Chrome
+            # oturumu ajan tarayıcısına taşınıyordu; onay listesi fiilen 'hepsi' oluyordu.
+            console.print(f"[red]{_CHROME_NEED_DOMAIN}[/red]")
+            raise typer.Exit(code=1)
         source = find_chrome_profile(chrome_profile, chrome_dir)
         preview = preview_chrome_profile(source)
         if domains:
@@ -242,13 +263,15 @@ def delete(
     """Profili ve şifreli çerezlerini sil."""
 
     def action() -> None:
-        if (
-            not yes
-            and sys.stdin.isatty()
-            and not typer.confirm(f"'{profile}' silinsin mi?", default=False)
-        ):
-            console.print(_ABORTED)
-            raise typer.Exit(code=1)
+        # İçe aktarmayla aynı kural: TTY yokken `--yes` zorunlu. Ölçüldü (31 Ekim): betikte
+        # `fusion browser delete is` onaysız siliyordu; geri dönüşü yok.
+        if not yes:
+            if not sys.stdin.isatty():
+                console.print(f"[red]{_NEED_YES}[/red]")
+                raise typer.Exit(code=1)
+            if not typer.confirm(f"'{profile}' silinsin mi?", default=False):
+                console.print(_ABORTED)
+                raise typer.Exit(code=1)
         if _store().delete(profile):
             console.print(_DELETED.format(name=profile))
         else:
@@ -272,3 +295,37 @@ def default(
         console.print(_DEFAULT_SET.format(name=profile) if profile else _DEFAULT_CLEARED)
 
     _run(action)
+
+
+@app.command("set")
+def set_setting(
+    key: Annotated[
+        str, typer.Argument(help="Ayar: headless (pencere görünmez) ya da profiles_enabled.")
+    ],
+    value: Annotated[str, typer.Argument(help="on/off (true/false, 1/0 da olur).")],
+) -> None:
+    """`browser.headless` / `browser.profiles_enabled` ayarını yaz."""
+
+    def action() -> None:
+        clean = key.strip().lower().replace("-", "_")
+        if clean not in ("headless", "profiles_enabled"):
+            console.print(
+                "[red]Bilinmeyen ayar. Seçenekler: headless, profiles_enabled "
+                "(varsayılan profil için: fusion browser default).[/red]"
+            )
+            raise typer.Exit(code=1)
+        flag = _parse_flag(value)
+        write_browser_setting(load_config(), clean, flag)
+        console.print(_SETTING_WRITTEN.format(key=clean, value=str(flag).lower()))
+
+    _run(action)
+
+
+def _parse_flag(raw: str) -> bool:
+    lowered = raw.strip().lower()
+    if lowered in ("on", "true", "1", "evet", "acik", "açık"):
+        return True
+    if lowered in ("off", "false", "0", "hayir", "hayır", "kapali", "kapalı"):
+        return False
+    console.print(f"[red]Değer on ya da off olmalı: {raw}[/red]")
+    raise typer.Exit(code=1)
