@@ -328,6 +328,11 @@ HEADLESS_AGENT_NONE = "yok"
 HEADLESS_STDIN_CHANNEL_CONFLICT = (
     "Görev stdin'den okunurken onay kanalı da stdin olamaz; görevi argüman olarak ver."
 )
+HEADLESS_UNKNOWN_TOOLS = (
+    "Bilinmeyen araç adı: {names}.{hint} Bu oturumdaki araçlar için docs/HEADLESS.md'ye bak; "
+    "MCP araçları `<sunucu>__<araç>` biçimindedir."
+)
+HEADLESS_TOOL_SUGGESTION = " Şunu mu demek istediniz: {suggestions}?"
 HEADLESS_UNKNOWN_CHANNEL = "Bilinmeyen onay kanalı: {given}. Geçerli olanlar: {valid}"
 HEADLESS_SCHEMA_INSTRUCTION = (
     "NİHAİ CEVAP BİÇİMİ: Son cevabın yalnızca aşağıdaki JSON şemasına uyan TEK bir JSON "

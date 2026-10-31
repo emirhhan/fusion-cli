@@ -47,7 +47,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReque
 from ..engines.agent.engine_tools import QuestionOption
 from ..engines.agent.team import GENERIC_PERSONA, Persona, resolve_persona
 from ..observability.cost import CostTracker
-from ..tools.capabilities import CapabilityRegistry
+from ..tools.capabilities import CLAUDE_TOOL_MAP, CapabilityRegistry
 from ..ui import messages
 
 
@@ -122,6 +122,50 @@ def parse_tool_list(raw: Iterable[str] | None) -> frozenset[str] | None:
         return None
     names = {name.strip() for chunk in raw for name in chunk.split(",") if name.strip()}
     return frozenset(names)
+
+
+#: Claude Code MCP araç öneki (`mcp__github__get_issue`); Fusion'da `github__get_issue`.
+_CLAUDE_MCP_PREFIX = "mcp__"
+
+
+def map_claude_tool_names(names: frozenset[str]) -> frozenset[str]:
+    """Claude Code araç adlarını (`Read`, `Bash(git *)`, `mcp__s__t`) Fusion adlarına çevir.
+
+    Claude Code'dan kopyalanan `--allowed-tools Read,Edit` eskiden bilinmeyen ad olarak
+    kalıyor ve tur sessizce araçsız koşuyordu (31 Ekim). Büyük harfle başlayan ya da
+    parantezli ad Claude biçimidir; küçük harfli adlar Fusion adı sayılıp aynen kalır.
+    Parantez içi alt komut deseni (`Bash(git diff:*)`) Fusion'da yoktur: araç ailesinin
+    tamamına uygulanır (izin listesinde onay yine sorulur, yasak listesinde tümü kapanır).
+    """
+    mapped: set[str] = set()
+    for name in names:
+        base = name.split("(", 1)[0].strip()
+        if base.startswith(_CLAUDE_MCP_PREFIX) and base.count("__") >= 2:
+            mapped.add(base[len(_CLAUDE_MCP_PREFIX) :])
+            continue
+        targets = CLAUDE_TOOL_MAP.get(base.lower())
+        if targets and (base[:1].isupper() or base != name):
+            mapped |= targets
+            continue
+        mapped.add(name)
+    return frozenset(mapped)
+
+
+def unknown_tool_message(unknown: Iterable[str], known: Iterable[str]) -> str:
+    """Bilinmeyen araç adları için Türkçe hata; yakın adları önerir."""
+    import difflib
+
+    pool = sorted(set(known))
+    names = sorted(set(unknown))
+    suggestions = sorted(
+        {match for name in names for match in difflib.get_close_matches(name, pool, n=2)}
+    )
+    hint = (
+        messages.HEADLESS_TOOL_SUGGESTION.format(suggestions=", ".join(suggestions))
+        if suggestions
+        else ""
+    )
+    return messages.HEADLESS_UNKNOWN_TOOLS.format(names=", ".join(names), hint=hint)
 
 
 def apply_limits(

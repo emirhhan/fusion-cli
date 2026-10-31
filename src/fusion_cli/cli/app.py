@@ -457,6 +457,7 @@ def agent(
                 extra_system=options.extra_system,
                 allowed_tools=options.allowed_tools,
                 denied_tools=options.denied_tools,
+                strict_tool_names=True,
                 interactive=True if options.channel is not None else None,
             )
         ),
@@ -550,6 +551,8 @@ def _headless_options(
             raise typer.BadParameter(messages.HEADLESS_FROM_PR_FAILED.format(error=error)) from None
     parts: list[str] = []
     allowed = headless.parse_tool_list(allowed_tools)
+    if allowed is not None:
+        allowed = headless.map_claude_tool_names(allowed)
     if agent_name:
         try:
             persona = headless.resolve_agent(agent_name, home=Path.home(), root=Path.cwd())
@@ -570,7 +573,9 @@ def _headless_options(
         schema=schema,
         extra_system="\n\n".join(parts),
         allowed_tools=set(allowed) if allowed is not None else None,
-        denied_tools=headless.parse_tool_list(disallowed_tools) or frozenset(),
+        denied_tools=headless.map_claude_tool_names(
+            headless.parse_tool_list(disallowed_tools) or frozenset()
+        ),
         channel=channel,
     )
 

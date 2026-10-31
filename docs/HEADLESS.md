@@ -80,9 +80,16 @@ aile sayılır.
 
 Claude Code farkı: orada `--allowedTools` "bu araçları sormadan onayla" demektir; Fusion'da
 `--allowed-tools` "modele yalnız bunları sun" demektir (onay kipi `--mode` ile ayrı seçilir).
-Araç adları Fusion adlarıdır (`read_file`, `edit_file`, `run_shell`, `grep` yerine
-`search_code`); Claude Code adı (`Read`, `Edit`, `Bash`) verilirse komut en yakın Fusion adını
-önererek hata verir.
+Araç adları Fusion adlarıdır (`read_file`, `edit_file`, `run_shell`, `search_code`). Claude
+Code'dan kopyalanan adlar çevrilir: `Read` → `read_file`/`view_file`, `Edit` →
+`edit_file`/`multi_edit`, `Bash(git diff:*)` → `run_shell` (alt komut deseni Fusion'da yok;
+aracın tamamına uygulanır), `mcp__github__get_issue` → `github__get_issue`. Bu oturumda
+bulunmayan bir ad (yazım hatası, bağlanmamış MCP sunucusu) verilirse model hiç çağrılmadan
+çıkış kodu 1 ile durulur ve en yakın adlar önerilir:
+
+```text
+Bilinmeyen araç adı: raed_file. Şunu mu demek istediniz: read_file?
+```
 
 ## Sistem istemi ve ajan tanımı
 

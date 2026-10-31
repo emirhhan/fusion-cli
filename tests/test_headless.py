@@ -626,3 +626,103 @@ def test_oturum_yasakli_araclari_bagimliliklara_gecirir(monkeypatch, tmp_path):
     )
 
     assert yakalanan["denied"] == frozenset({"web_search"})
+
+
+# --- --allowed-tools / --disallowed-tools ad doğrulaması ------------------------------------ #
+
+
+def test_claude_code_arac_adlari_fusion_adlarina_cevrilir():
+    from fusion_cli.cli.headless import map_claude_tool_names
+
+    sonuc = map_claude_tool_names(
+        frozenset({"Read", "Bash(git diff:*)", "mcp__github__get_issue", "read_file", "WebFetch"})
+    )
+
+    assert {"read_file", "run_shell", "github__get_issue", "web_fetch"} <= sonuc
+    assert "Read" not in sonuc and "Bash(git diff:*)" not in sonuc
+
+
+def test_agent_komutu_claude_adlarini_cevirir_ve_kati_dogrulama_ister(monkeypatch):
+    yakalanan, result = _agent(
+        monkeypatch, ["gorev", "--allowed-tools", "Read,Edit", "--disallowed-tools", "Bash"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "read_file" in yakalanan["allowed_tools"] and "edit_file" in yakalanan["allowed_tools"]
+    assert "run_shell" in yakalanan["denied_tools"]
+    assert yakalanan["strict_tool_names"] is True
+
+
+def _oturum_kos(monkeypatch, tmp_path, **kwargs):
+    from fusion_cli.cli import session as session_module
+
+    cagrildi: list[object] = []
+
+    async def _sahte_run_agent(task, deps, **kw):
+        cagrildi.append(kw.get("allowed_tools"))
+        return SimpleNamespace(
+            final_text="ok",
+            ok=True,
+            budget_stopped=False,
+            made_no_changes=False,
+            stop_reason=None,
+            tool_calls_made=0,
+            mutating_tool_calls_made=0,
+        )
+
+    monkeypatch.setattr(session_module, "run_agent", _sahte_run_agent)
+    monkeypatch.setattr(session_module, "suggest_followups", lambda evidence: ())
+    monkeypatch.setattr(session_module, "evidence_from_turn", lambda *a, **k: None)
+    config = replace(load_config(), mcp_servers=(), hosted_connectors=())
+    sonuc = asyncio.run(
+        session_module.run_agent_task(
+            "gorev",
+            config,
+            sinks=(),
+            prompter_factory=lambda flush: None,
+            root=tmp_path,
+            tool_context=ToolContext(root=tmp_path),
+            **kwargs,
+        )
+    )
+    return sonuc, cagrildi
+
+
+def test_bilinmeyen_izinli_arac_adi_model_cagrilmadan_hata_verir(monkeypatch, tmp_path):
+    """Ölçüldü (31 Ekim): `--allowed-tools raed_file` model hiç araç görmeden koşuyor,
+    cevap uydurup 0 ile çıkabiliyordu."""
+    sonuc, cagrildi = _oturum_kos(
+        monkeypatch, tmp_path, allowed_tools={"raed_file"}, strict_tool_names=True
+    )
+
+    assert sonuc.ok is False
+    assert "raed_file" in sonuc.final_text and "read_file" in sonuc.final_text
+    assert cagrildi == []
+
+
+def test_bilinmeyen_yasakli_arac_adi_da_hata_verir(monkeypatch, tmp_path):
+    sonuc, cagrildi = _oturum_kos(
+        monkeypatch, tmp_path, denied_tools=frozenset({"web_serch"}), strict_tool_names=True
+    )
+
+    assert sonuc.ok is False and "web_serch" in sonuc.final_text
+    assert cagrildi == []
+
+
+def test_bilinen_adlar_ve_motor_araclari_kabul_edilir(monkeypatch, tmp_path):
+    sonuc, cagrildi = _oturum_kos(
+        monkeypatch,
+        tmp_path,
+        allowed_tools={"read_file", "spawn_agent", "ask_user"},
+        denied_tools=frozenset({"bash"}),
+        strict_tool_names=True,
+    )
+
+    assert sonuc.ok is True
+    assert cagrildi == [{"read_file", "spawn_agent", "ask_user"}]
+
+
+def test_kati_dogrulama_kapaliyken_eski_davranis(monkeypatch, tmp_path):
+    sonuc, cagrildi = _oturum_kos(monkeypatch, tmp_path, allowed_tools={"raed_file"})
+
+    assert sonuc.ok is True and cagrildi == [{"raed_file"}]

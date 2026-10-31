@@ -192,11 +192,16 @@ async def run_agent_task(
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
     denied_tools: frozenset[str] = frozenset(),
+    strict_tool_names: bool = False,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
     `denied_tools` (headless `--disallowed-tools`, P-026) adı geçen araçları sormadan
     engelleyen bir sarmalayıcıyı seçili onay politikasının üstüne koyar.
+
+    `strict_tool_names` (headless) izin/yasak listesinde bu oturumda bulunmayan bir ad
+    varsa modeli hiç çağırmadan başarısız döner: yazım hatası sessizce araçsız tur ya da
+    kapanmamış bir yasak demekti (31 Ekim).
 
     `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
@@ -333,6 +338,7 @@ async def run_agent_task(
             chat_mode=chat_mode,
             workflow=workflow,
             allowed_tools=allowed_tools,
+            strict_tool_names=strict_tool_names,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -391,6 +397,7 @@ async def _run_agent_with_mcp(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    strict_tool_names: bool = False,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -404,6 +411,12 @@ async def _run_agent_with_mcp(
     plan_mode = mode is ApprovalMode.PLAN
 
     async def _run() -> AgentOutcome:
+        if strict_tool_names:
+            # MCP araçları bağlandıktan SONRA denetlenir: `<sunucu>__<araç>` adları ancak
+            # o zaman defterdedir.
+            rejected = _reject_unknown_tools(deps, allowed_tools, bus)
+            if rejected is not None:
+                return rejected
         return await run_agent(
             task,
             deps,
@@ -449,6 +462,28 @@ async def _run_agent_with_mcp(
     # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
     deps.tool_context.available_tools.update(eklenen)
     return await _run()
+
+
+def _reject_unknown_tools(
+    deps: AgentDeps, allowed_tools: set[str] | None, bus: EventBus
+) -> AgentOutcome | None:
+    """İzin/yasak listesinde defterde olmayan ad varsa başarısız sonuç; yoksa None."""
+    from ..engines.agent.engine_tools import build_agent_registry
+    from ..engines.agent.loop import ALWAYS_ALLOWED
+    from .headless import unknown_tool_message
+
+    requested = set(allowed_tools or ()) | set(deps.denied_tools)
+    if not requested:
+        return None
+    known = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
+    # `runtime.disabled_tools` ile kapatılmış araç geçerli bir addır; "bilinmeyen" denmez.
+    known |= ALWAYS_ALLOWED | set(getattr(deps.config.runtime, "disabled_tools", ()))
+    unknown = requested - known
+    if not unknown:
+        return None
+    text = unknown_tool_message(unknown, known)
+    bus.publish(ErrorOccurred(text, fatal=True))
+    return AgentOutcome(final_text=text, messages=[], ok=False)
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
