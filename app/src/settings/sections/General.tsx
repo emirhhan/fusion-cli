@@ -59,7 +59,8 @@ export function General({
   const trayEnabled = useTrayEnabled();
   return (
     <>
-      <article className="settings__card">
+      {/* Çevrilen kartlar kendi dilini taşır; belge dili çeviri tamamlanana dek "tr" (bkz. i18n/language.ts). */}
+      <article className="settings__card" lang={language}>
         <h3>{t("gorunum.baslik")}</h3>
         <label className="settings__row" htmlFor="settings-theme">
           <span>{t("gorunum.tema")}</span>
@@ -89,7 +90,7 @@ export function General({
 
       {/* Erişilebilirlik (P-065): yazı ölçeği, vurgu, hareket, kontrast. Hepsi belge
           kökünde data-* olarak uygulanır; varsayılan değer öznitelik bırakmaz. */}
-      <article className="settings__card" id="settings-accessibility">
+      <article className="settings__card" id="settings-accessibility" lang={language}>
         <h3>{t("erisilebilirlik.baslik")}</h3>
         <label className="settings__row" htmlFor="settings-font-scale">
           <span>{t("erisilebilirlik.yazi")}</span>

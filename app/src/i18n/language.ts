@@ -3,8 +3,12 @@
  *
  * Türkçe varsayılan ve tam; İngilizce sözlük şimdilik Ayarlar › Genel'in Görünüm ve
  * Erişilebilirlik kartlarını kapsar. Metinler bu sözlüğe taşındıkça kapsam büyür;
- * `t()` eksik anahtarda Türkçe'ye düşer, hiçbir ekran boş kalmaz. Dil `<html lang>`'e
- * yazılır ki ekran okuyucu doğru telaffuz etsin.
+ * `t()` eksik anahtarda Türkçe'ye düşer, hiçbir ekran boş kalmaz.
+ *
+ * `<html lang>` çeviri TAMAMLANANA dek "tr" kalır: ölçüldü (31 Ekim), İngilizce seçilince
+ * `lang="en"` yazılıyor ama arayüzün neredeyse tamamı Türkçe kalıyordu; ekran okuyucu Türkçe
+ * metni İngilizce telaffuzla okuyordu. Seçim `data-language`'a yazılır; yalnız çevrilen
+ * düğümler (`useLanguage().lang`) kendi `lang` özniteliğini taşır.
  */
 
 export const LANGUAGE_STORAGE_KEY = "fusion.language.v1";
@@ -30,8 +34,12 @@ export function saveLanguage(language: Language, storage?: Pick<Storage, "setIte
   }
 }
 
+/** Arayüzün ana dili: çeviri kapsamı tamamlanana dek belge dili budur. */
+export const DOCUMENT_LANGUAGE: Language = "tr";
+
 export function applyLanguage(language: Language, root: HTMLElement = document.documentElement): void {
-  root.lang = language;
+  root.lang = DOCUMENT_LANGUAGE;
+  root.dataset.language = language;
 }
 
 export const SOZLUK = {

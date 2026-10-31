@@ -212,10 +212,14 @@ describe("Settings — Genel", () => {
     expect(Array.from(dil.options).map((option) => option.value)).toEqual(["tr", "en"]);
     expect(screen.getByText(/İngilizce çeviri şimdilik kısmi/i)).toBeTruthy();
     fireEvent.change(dil, { target: { value: "en" } });
-    expect(document.documentElement.lang).toBe("en");
-    expect(screen.getByRole("combobox", { name: "Theme" })).toBeTruthy();
+    // Belge dili çeviri tamamlanana dek tr kalır; yalnız çevrilen kart lang="en" taşır (31 Ekim).
+    expect(document.documentElement.lang).toBe("tr");
+    expect(document.documentElement.dataset.language).toBe("en");
+    const tema = screen.getByRole("combobox", { name: "Theme" });
+    expect(tema.closest("article")?.getAttribute("lang")).toBe("en");
     fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "tr" } });
     expect(document.documentElement.lang).toBe("tr");
+    expect(document.documentElement.dataset.language).toBe("tr");
   });
 
   it("erişilebilirlik kartı yazı boyutunu belge köküne uygular (P-065)", async () => {

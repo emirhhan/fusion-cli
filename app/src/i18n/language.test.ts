@@ -18,9 +18,11 @@ describe("arayüz dili (P-065)", () => {
     expect(Object.keys(SOZLUK.en).sort()).toEqual(Object.keys(SOZLUK.tr).sort());
   });
 
-  it("dil değişince html lang güncellenir ve t() o dilde çevirir", () => {
+  it("dil değişince t() o dilde çevirir; html lang çeviri tamamlanana dek tr kalır, seçim data-language'a yazılır", () => {
+    // Ölçüldü (31 Ekim): lang=en + Türkçe metin ekran okuyucuyu yanlış telaffuza itiyordu.
     setLanguage("en");
-    expect(document.documentElement.lang).toBe("en");
+    expect(document.documentElement.lang).toBe("tr");
+    expect(document.documentElement.dataset.language).toBe("en");
     expect(getLanguage()).toBe("en");
     expect(t("gorunum.tema")).toBe("Theme");
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
