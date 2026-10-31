@@ -9,6 +9,10 @@ Eşleme kuralları (Claude Code belgesiyle aynı):
     Bash(ön ek *)       ön ek + sözcük sınırı; `a && b` her parça için ayrı değerlendirilir
                         (Codex gibi): bir parça DENY ise bütün DENY, hepsi ALLOW ise ALLOW.
                         Alt kabuk (`$(…)`, ters tırnak) ALLOW'u düşürür, DENY'i düşürmez.
+                        Sarmalayıcı (`sh -c '…'`, `timeout 5 …`, `sudo …`, `eval …`) ve
+                        mutlak yol (`/bin/rm`) açılır: iç komut da parça sayılır. Dosyaya
+                        yönlendirme (`> x`, `>> x`, `| tee x`) ALLOW'u düşürür (kısmi komut
+                        izni dosya yazma izni değildir), DENY/ASK'i düşürmez.
     Read(glob)          read_file/list_dir/glob/arama araçlarının `path`i
     Edit/Write(glob)    write_file/edit_file/multi_edit/create_file `path`i
                         glob: `/x` proje köküne göreli, `//x` dosya sistemi kökü, `~/x` ev,
@@ -23,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import reduce
@@ -36,7 +41,7 @@ from ..config.permission_rules import (
     stricter,
 )
 from ..core.tools import ToolFamily, tool_family
-from .auto_policy import command_words
+from .auto_policy import command_words, nested_command, written_files
 
 #: Claude'un `Read` kuralının kapsadığı Fusion araçları (okuma, listeleme, arama).
 READ_TOOLS = frozenset(
@@ -70,6 +75,17 @@ _MCP_PREFIX = "mcp__"
 _PRIMARY_ARGS = ("name", "skill", "agent", "command", "path", "url", "query")
 #: Alt kabuk: içinde ne çalıştığı bilinemez; izin VERİLMEZ (yasak yine aranır).
 _SUBSTITUTION = re.compile(r"\$\(|`|\$\{")
+#: Yetki yükselten sarmalayıcılar ve değer alan seçenekleri (`sudo -u root rm x`).
+_PRIVILEGE_WRAPPERS: dict[str, frozenset[str]] = {
+    "sudo": frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U", "--user"}),
+    "doas": frozenset({"-u", "-C"}),
+}
+#: Sarmalayıcı açma derinliği (`auto_policy._MAX_NESTING` ile aynı).
+_MAX_NESTING = 4
+#: Yazma sayılmayan yönlendirme hedefi.
+_NULL_DEVICE = "/dev/null"
+#: Çöpe/hataya yönlendirme: parçalamadan önce atılır (`2>&1` `&`ten bölünüp `1` parçası üretiyordu).
+_NULL_REDIRECTS = re.compile(r"\d?>\s*/dev/null|2>&1|&>\s*/dev/null")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +114,14 @@ def evaluate(
 def _evaluate_shell(
     rules: PermissionRuleSet, tool_name: str, command: str, root: Path | None
 ) -> RuleMatch | None:
-    """Zincirin her parçası ayrı bakılır: bir DENY bütünü düşürür; ALLOW hepsini ister."""
-    segments = [" ".join(parts) for parts in command_words(command)] or [command.strip()]
+    """Zincirin her parçası ayrı bakılır: bir DENY bütünü düşürür; ALLOW hepsini ister.
+
+    Ölçüldü (31 Ekim): parçalar olduğu gibi ön ek eşleniyordu; `deny: Bash(rm *)` varken
+    `bash -c 'rm -rf x'`, `timeout 5 rm x`, `/bin/rm x` yasağı bulmuyor, bypass kipinde
+    çalışıyordu. `allow: Bash(ls *)` ise `ls >> ~/.ssh/authorized_keys` komutunu da
+    `pre_allowed` yapıp kip/risk denetimini atlatıyordu.
+    """
+    segments = shell_segments(command)
     shell_rules = [rule for rule in rules.rules if _tool_matches(rule, tool_name)]
     if not shell_rules:
         return None
@@ -109,7 +131,7 @@ def _evaluate_shell(
     asked = _first_shell_match(shell_rules, segments, PermissionDecision.ASK)
     if asked is not None:
         return asked
-    if _SUBSTITUTION.search(command):
+    if _SUBSTITUTION.search(command) or writes_files(command):
         return None
     allowed: RuleMatch | None = None
     for segment in segments:
@@ -125,6 +147,42 @@ def _evaluate_shell(
             return None
         allowed = allowed or RuleMatch(hit, PermissionDecision.ALLOW)
     return allowed
+
+
+def shell_segments(command: str, depth: int = 0) -> list[str]:
+    """Kurala karşı denenecek parçalar: zincir parçaları + sarmalayıcıların iç komutları.
+
+    Mutlak yollu komut adı taban adına indirilir (`/bin/rm x` → `rm x`). Boş komutta tek
+    parça komutun kendisidir.
+    """
+    found: list[str] = []
+    for parts in command_words(_NULL_REDIRECTS.sub("", command)):
+        name = parts[0]
+        if name.startswith("/"):
+            parts = [name.rsplit("/", 1)[-1], *parts[1:]]
+        found.append(" ".join(parts))
+        if depth >= _MAX_NESTING:
+            continue
+        inner = _unwrapped(parts[0], parts[1:])
+        if inner:
+            found.extend(shell_segments(inner, depth + 1))
+    return found or [command.strip()]
+
+
+def _unwrapped(name: str, arguments: list[str]) -> str | None:
+    """`sudo [-u x] komut`, `sh -c '…'`, `timeout 5 …`, `eval …` içindeki komut; yoksa None."""
+    value_flags = _PRIVILEGE_WRAPPERS.get(name)
+    if value_flags is None:
+        return nested_command(name, arguments)
+    rest = list(arguments)
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in value_flags else rest[1:]
+    return " ".join(shlex.quote(part) for part in rest) or None
+
+
+def writes_files(command: str) -> tuple[str, ...]:
+    """Komutun dosyaya yazdığı hedefler (`> x`, `>> x`, `| tee x`); `/dev/null` sayılmaz."""
+    return tuple(t for t in written_files(command) if t.strip("'\"") != _NULL_DEVICE)
 
 
 def _first_shell_match(

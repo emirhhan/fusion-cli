@@ -124,6 +124,63 @@ def test_deny_en_kisitlayici_sonra_ask_sonra_allow(tmp_path):
     )
 
 
+def test_yonlendirme_iceren_komut_allow_kuraliyla_serbest_kalmaz(tmp_path):
+    """Ölçüldü (31 Ekim): `Bash(ls *)` allow kuralı `ls -la >> ~/.ssh/authorized_keys` komutunu
+    da `pre_allowed` yapıyordu; kısmi komut izni keyfi dosya yazma iznine dönüşüyordu."""
+    kume = _kume(("Bash(ls *)", "allow"), ("Bash(git status *)", "allow"), ("Bash(rm *)", "deny"))
+    assert (
+        evaluate(kume, "run_shell", {"command": "ls -la >> ~/.ssh/authorized_keys"}, tmp_path)
+        is None
+    )
+    assert evaluate(kume, "run_shell", {"command": "git status > /etc/x"}, tmp_path) is None
+    assert evaluate(kume, "run_shell", {"command": "ls | tee cikti.txt"}, tmp_path) is None
+    # Çöpe yönlendirme ve hata birleştirme yazma değildir: izin kalır.
+    assert evaluate(kume, "run_shell", {"command": "ls > /dev/null 2>&1"}, tmp_path).decision is (
+        PermissionDecision.ALLOW
+    )
+    # Yasak yönlendirmeyle de yasaktır.
+    assert evaluate(kume, "run_shell", {"command": "rm x > log"}, tmp_path).decision is (
+        PermissionDecision.DENY
+    )
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "bash -c 'rm -rf x'",
+        'sh -c "rm x"',
+        "timeout 5 rm x",
+        "/bin/rm x",
+        "sudo rm x",
+        "sudo -u root rm x",
+        "nohup rm x",
+        "env FOO=1 rm x",
+        "nice -n 5 rm x",
+        "eval rm x",
+    ],
+)
+def test_deny_kurali_sarmalayici_ve_mutlak_yolla_asilamaz(tmp_path, komut):
+    """Ölçüldü (31 Ekim): `deny: Bash(rm *)` varken `bash -c 'rm -rf x'`, `timeout 5 rm x`,
+    `/bin/rm x` deny bulmuyordu; bypass kipinde hepsi çalışıyordu."""
+    kume = _kume(("Bash(rm *)", "deny"), ("Bash(*)", "allow"))
+    sonuc = evaluate(kume, "run_shell", {"command": komut}, tmp_path)
+    assert sonuc is not None and sonuc.decision is PermissionDecision.DENY, komut
+
+
+def test_sarmalayici_icindeki_komut_allow_icin_de_sayilir(tmp_path):
+    kume = _kume(("Bash(ls *)", "allow"))
+    # Dış sarmalayıcı kurala uymuyor: izin verilmez (yasak da değil).
+    assert evaluate(kume, "run_shell", {"command": "timeout 5 ls -la"}, tmp_path) is None
+    kume = _kume(("Bash(ls *)", "allow"), ("Bash(timeout *)", "allow"))
+    assert evaluate(kume, "run_shell", {"command": "timeout 5 ls -la"}, tmp_path).decision is (
+        PermissionDecision.ALLOW
+    )
+    # Mutlak yol taban adıyla eşlenir.
+    assert evaluate(kume, "run_shell", {"command": "/bin/ls -la"}, tmp_path).decision is (
+        PermissionDecision.ALLOW
+    )
+
+
 # --- Dosya kalıpları ------------------------------------------------------------ #
 
 
