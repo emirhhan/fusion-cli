@@ -640,14 +640,22 @@ async fn kits_baslat(
     manager: tauri::State<'_, Arc<KitsManager>>,
 ) -> Result<KitsStatus, String> {
     let home = app.path().home_dir().map_err(|error| error.to_string())?;
-    let data_root = if cfg!(windows) {
-        app.path()
-            .local_data_dir()
-            .map_err(|error| error.to_string())?
+    let windows_local_data = if cfg!(windows) {
+        Some(
+            app.path()
+                .local_data_dir()
+                .map_err(|error| error.to_string())?,
+        )
     } else {
-        home.join(".local/share")
+        None
     };
-    let data_dir = data_root.join("fusion-cli").join("kits");
+    // Fusion çekirdeği (`config/paths.py`) ile aynı kural: XDG_DATA_HOME dikkate alınır.
+    let xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+    let data_dir = kits_process::kits_data_dir(
+        &home,
+        xdg_data_home.as_deref(),
+        windows_local_data.as_deref(),
+    );
     let core = runtime_executable(&app.state::<RuntimeManager>())?;
     let manager = Arc::clone(manager.inner());
     let resource_dir = app.path().resource_dir().ok();
