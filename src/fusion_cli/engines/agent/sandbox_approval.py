@@ -49,10 +49,14 @@ def apply_sandbox_policy(request: ApprovalRequest, context: ToolContext | None) 
         return request
     outside = outside_reason(command, request.args, context)
     if outside == OUTSIDE_REQUESTED:
+        # Kartlar tehlike varken notu göstermez (`appserver.bridges`); yıkıcı istekte
+        # sandbox dışı bilgisi tehlike metnine eklenir. Ölçüldü (31 Ekim): `git push
+        # --force` + unsandboxed kartında yalnız "zorla push" yazıyordu.
         return replace(
             request,
             pre_ask=request.pre_ask or SANDBOX_OUTSIDE,
             note=_with_note(request, SANDBOX_OUTSIDE),
+            danger=f"{request.danger}; {SANDBOX_OUTSIDE}" if request.danger else None,
         )
     if outside == OUTSIDE_EXCLUDED:
         return replace(request, note=_with_note(request, SANDBOX_EXCLUDED))
