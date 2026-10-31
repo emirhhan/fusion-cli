@@ -330,3 +330,50 @@ async def test_masaustu_komut_listesi_ve_istem_cagrisi(tmp_path: Path, monkeypat
     )
     assert _sonuc(satirlar, "2")["gorev"] == "/mcp__github__review-pr 12"
     await oturum.close()
+
+
+async def test_repl_ilk_baglanti_hatasi_gorevi_ezmez(tmp_path: Path, monkeypatch):
+    """Ölçüldü (31 Ekim): `for line in new_failure_lines(...)` görev değişkenini eziyordu;
+    ilk bağlantı hatasında ajan kullanıcının görevi yerine uyarı metniyle koşuyordu."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    gorulen: list[str] = []
+
+    async def sahte_run_agent(task, deps, **kwargs):
+        gorulen.append(task)
+        return AgentOutcome(final_text="tamam", messages=[], ok=True)
+
+    async def sahte_ensure(configs, registry, **kwargs):
+        return ()
+
+    monkeypatch.setattr(pool_module, "ensure_mcp_tools", sahte_ensure)
+    monkeypatch.setattr(
+        repl_loop, "new_failure_lines", lambda configs: ("MCP sunucusu kullanılamıyor: x",)
+    )
+    state = ReplState(
+        config=make_config(mcp_servers=(McpServerConfig(name="x", command="npx"),)),
+        memory=null_memory(),
+        root=tmp_path,
+        home=tmp_path / "ev",
+    )
+    deps = SimpleNamespace(base_registry=None)
+    out = io.StringIO()
+
+    await repl_loop._drive_agent(
+        sahte_run_agent,
+        "README'yi özetle",
+        deps,  # type: ignore[arg-type]
+        state,
+        Console(file=out),
+        plan_mode=False,
+        extra_system="",
+        step_limit=None,
+    )
+
+    assert gorulen == ["README'yi özetle"]
+    assert "kullanılamıyor" in out.getvalue()

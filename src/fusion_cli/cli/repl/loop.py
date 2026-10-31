@@ -623,8 +623,10 @@ async def _drive_agent(
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
             )
-        for line in new_failure_lines(state.config.mcp_servers):
-            console.print(f"[{theme.WARN}]{line}[/{theme.WARN}]")
+        # Döngü değişkeni görev satırını (`line`) EZMEZ: ilk bağlantı hatasında ajan uyarı
+        # metniyle koşuyordu (ölçüldü 31 Ekim).
+        for notice in new_failure_lines(state.config.mcp_servers):
+            console.print(f"[{theme.WARN}]{notice}[/{theme.WARN}]")
     if state.config.hosted_connectors:
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.
