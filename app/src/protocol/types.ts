@@ -45,6 +45,15 @@ export interface Soru {
   kural?: string | null;
   /** Çekirdek cevaptaki `not` alanını okur: ret gerekçesi modele gider (P-013). */
   not_alinir?: boolean;
+  /** Masaüstü eyleminin hedef uygulaması (P-007): ad, kademe, kategori uyarısı, tıklanan öğe. */
+  masaustu?: {
+    uygulama: string;
+    paket?: string;
+    kademe: "observe" | "click" | "full";
+    kademe_etiket?: string;
+    uyari?: string;
+    oge?: string;
+  } | null;
 }
 
 /**

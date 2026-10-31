@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
-from ...tools import desktop_lock
+from ...tools import desktop_turn
 from ...tools.remotion_observe import browser_transport
 
 if TYPE_CHECKING:
@@ -65,6 +65,7 @@ from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..desktop_never import AppDenials, config_persist
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
@@ -701,6 +702,8 @@ async def _agent_turn(
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
             suspend=renderer.suspended,
+            # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
+            denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
         transport = state.remotion_transport
         if transport is None and state.remotion_browser is not None:
@@ -747,6 +750,8 @@ async def _agent_turn(
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
         digest = state.take_pending_digest()
+        # Esc ile durdurma bu turun görevine bağlanır (P-033; `tools/desktop_turn`).
+        desktop_turn.begin(tool_context)
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
@@ -814,13 +819,23 @@ async def _agent_turn(
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
             tracer.flush()
-            # Masaüstü kilidi tur ile sınırlıdır (bkz. `tools/desktop_lock`, `cli/session.py`).
-            desktop_lock.release(token=tool_context.job_scope)
+            # Masaüstü kilidi ve oturumu tur ile sınırlıdır (bkz. `tools/desktop_turn`).
+            if desktop_turn.finish(tool_context):
+                console.print(f"[{theme.WARN}]{messages.BILGISAYAR_ESC_STOPPED}[/{theme.WARN}]")
     state.history = outcome.messages
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+
+
+def _config_setter(state: ReplState) -> Callable[[Config], None]:
+    """Turun dışında yazılan ayarı (ret listesi, P-007) oturuma işle."""
+
+    def apply(updated: Config) -> None:
+        state.config = updated
+
+    return apply
 
 
 def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> ToolContext:

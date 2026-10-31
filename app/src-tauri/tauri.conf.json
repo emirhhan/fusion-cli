@@ -4,6 +4,13 @@
   "version": "0.7.18",
   "identifier": "com.fusion.desktop",
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "fusion"
+        ]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQjJCREE2Q0IyODQ3NTEKUldSUlJ5akxwcjJ5ME1sL2xSNEtQdnJITWFxOCs3a0R3NlUxclF5OWlFczU4c3BpdWwvNmR5VmMK",
       "endpoints": [

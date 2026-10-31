@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, operationResult, type CommandResult } from "../protocol/result";
-import { SECTION_HEADING_ID, searchSettings } from "./search";
+import { SECTION_HEADING_ID, searchSettings, type SettingsSection } from "./search";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
@@ -15,10 +15,12 @@ import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
 import { ComputerUse } from "../permissions/ComputerUse";
+import { Computer } from "./sections/Computer";
 import { Permissions, type TrustInfo } from "./sections/Permissions";
 import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
 import { Notifications } from "./sections/Notifications";
+import { Shortcuts } from "./sections/Shortcuts";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
@@ -37,18 +39,20 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+type BolumId = SettingsSection;
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
   { id: "bildirimler", etiket: "Bildirimler", ikon: "pulse", grup: "Kişisel" },
   { id: "ses", etiket: "Ses", ikon: "mic", grup: "Kişisel" },
+  { id: "kisayollar", etiket: "Kısayollar", ikon: "terminal", grup: "Kişisel" },
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "weboturumlari", etiket: "Web oturumları", ikon: "user", grup: "Entegrasyonlar" },
   { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
+  { id: "bilgisayar", etiket: "Bu bilgisayar", ikon: "terminal", grup: "Entegrasyonlar" },
   { id: "zeka", etiket: "Zeka", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "guncellemeler", etiket: "Güncellemeler", ikon: "changes", grup: "Sistem" },
@@ -338,6 +342,8 @@ export function Settings({
 
           {bolum === "bildirimler" && <Notifications />}
 
+          {bolum === "kisayollar" && <Shortcuts client={client} />}
+
           {bolum === "kisisellestirme" && <><AutoMemoryPanel client={client} /><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
@@ -357,7 +363,8 @@ export function Settings({
               onTrustChange={() => void load()}
             />
           )}
-          {bolum === "izinler" && <ComputerUse client={client} />}
+          {/* Bu bilgisayar (P-006): macOS izinleri + computer use tercihleri; bölüm ayrı dosyada. */}
+          {bolum === "bilgisayar" && <><ComputerUse client={client} /><Computer client={client} /></>}
 
           {bolum === "zeka" && <Intelligence client={client} />}
 

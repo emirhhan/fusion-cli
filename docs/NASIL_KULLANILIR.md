@@ -778,10 +778,65 @@ pencerede yaptığın girdiyi algılamaz, denetim **yalnız** `/tarayici devral`
 Tarayıcıdan ya da bir belgeden Fusion'ı hedefe açar (Claude Code masaüstündeki `claude://`
 gibi): `fusion://sohbet/<id>` kayıtlı sohbeti, `fusion://ayarlar/bildirimler` ayarların bir
 bölümünü, `fusion://yeni` yeni sohbeti açar. `fusion://yeni?kok=<yüzde-kodlu yol>` ile
-gelen klasör **onaysız uygulanmaz**: `/`, `/Users/<ad>` gibi çok geniş ya da sistem klasörleri
-reddedilir, kalanı bir onay penceresiyle sorulur. Uygulama kapalıyken tıklanan bağlantı
-açılıştan sonra yerine ulaşır. Şema kaydı bu sürümde yalnız macOS paketinde (Info.plist);
-Windows'ta bağlantı ikinci örneğin argümanı olarak işlenir ama kurulumda şema kaydı yoktur.
+gelen klasör **onaysız uygulanmaz**: `/`, `/Users/<ad>`, `C:\`, `C:\Users\<ad>`, `C:\Windows`,
+`C:\Program Files` gibi çok geniş ya da sistem klasörleri reddedilir, kalanı bir onay penceresiyle
+sorulur (Windows sürücü yolu da kabul edilir). `fusion://ayarlar/<bölüm>` her Ayarlar bölümünü
+açar (`kisayollar`, `izinler`, `uzak`…); tanınmayan ad Genel'e düşer.
+
+Uygulama kapalıyken tıklanan bağlantı açılıştan sonra yerine ulaşır: macOS'ta Launch Services
+(`RunEvent::Opened`), Windows/Linux'ta ilk sürecin argümanı okunur; uygulama açıkken gelen bağlantı
+tek örnek eklentisiyle çalışan pencereye iletilir. Şema kaydı: macOS `Info.plist`, Windows NSIS
+kurulumu ve Linux paketleri `tauri.conf.json` › `plugins.deep-link.desktop.schemes` alanından
+üretilir (kurulumda `HKCU\Software\Classes\fusion`, kaldırmada silinir).
+
+## 17) Komut paleti ve uygulama kısayolları (masaüstü)
+
+**⌘K** (Windows/Linux: Ctrl+K) her yerden komut paletini açar: eylemler, ekranlar, sohbetler,
+slash komutları, ayarlar ve proje dosyaları tek listede aranır. Önekle daralt: `>` eylem/ekran,
+`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. **⌘P**
+paleti doğrudan dosya aramasıyla açar; dosya seçilince önizleme panelinde görünür. Komut seçmek
+görev kutusuna `/ad ` yazar.
+
+| Tuş (varsayılan) | Ne yapar |
+|---|---|
+| ⌘K · ⌘P | Komut paleti · dosyaya git |
+| ⌘N | Yeni sohbet |
+| ⌘, | Ayarlar |
+| ⌘B · ⌘⌥B | Kenar çubuğu · çalışma paneli |
+| ⌘J · ⌘⇧B | Terminal · önizleme |
+| ⌘1 … ⌘9 | Açık sohbetler arasında geç |
+| ⌘[ · ⌘] | Geri · ileri |
+| ⌘/ | Ayarlar › Kısayollar |
+
+Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
+devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı
+`~/.fusion/keybindings.json` dosyasının `masaustu` bölümündedir; elle de yazılabilir ve pencereye
+dönünce uygulanır:
+
+```json
+{ "masaustu": { "mod+j": null, "mod+shift+t": "terminal", "f5": "komut:status" } }
+```
+
+Yazım: `mod` macOS'ta ⌘, diğerlerinde Ctrl; değiştiriciler `mod+ctrl+alt+shift` sırasıyla.
+En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘W/⌘H/⌘M
+gibi sistem kısayolları bağlanamaz. `komut:<ad>` bir slash komutunu çalıştırır. Eylem adları:
+`palet`, `dosya_ara`, `yeni_sohbet`, `ayarlar`, `kenar_cubugu`, `terminal`, `onizleme`, `denetci`,
+`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `sohbet_1`…`sohbet_9`.
+Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
+
+- **Varsayılana döndür**: eylemin varsayılan tuşunu başka bir eylem devraldıysa Fusion sorar;
+  **Taşı** tuşu geri alır (öbür eylem tuşsuz kalır).
+- **Windows/Linux**: dosyadaki `ctrl+…` ile `mod+…` aynı tuştur; çakışma buna göre sorulur ve
+  `ctrl+c`/`ctrl+v` gibi yazımlar da sistem kısayolu sayılıp bağlanmaz.
+- **Diyalog açıkken** (geri bildirim, paylaş, onay, proje…) kısayollar ve palet çalışmaz; Ayarlar
+  ve palet bunun dışındadır.
+- **Terminal odaktayken** macOS'ta ⌘ tuşları uygulamanındır (⌘K terminali temizler). Windows/Linux'ta
+  Ctrl+harf kabuğa gider (Ctrl+K satır sonunu siler, Ctrl+P geçmiş); yalnız terminali aç/kapat tuşu
+  (Ctrl+J) ve Ctrl+Shift bağları uygulamaya geçer.
+- Terminalde `/keybindings` yalnız terminal bağlamlarını (`giris`, `tui`) gösterir ve örnek dosyaya
+  yalnız onları yazar; masaüstü bölümü Ayarlar › Kısayollar'dan yönetilir.
+- Kısayol uçları (`kisayol.*`) yalnız masaüstü oturumuna açıktır; uzaktan kontrol (telefon/PWA)
+  bunları çağıramaz.
 
 ---
 
@@ -852,7 +907,7 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 
 ### Tuş bağları ve vim: `/keybindings`, `/vim`
 
-Yalnız terminal (masaüstünde desteklenmiyor). Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser.
+`/vim` yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
 
 `/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
 ```json

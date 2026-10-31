@@ -226,6 +226,12 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         <div className="prompt-card__eyebrow">{eyebrow ?? (soru.ajan ? `Alt ajan izin istiyor: ${soru.ajan}` : soruMu ? "Fusion soruyor" : "İzin gerekiyor")}</div>
         <h2 className="prompt-card__title" id="prompt-card-title">{baslik}</h2>
         {!soruMu && soru.hedef && !soru.diff && <pre className="prompt-card__target">{soru.hedef}</pre>}
+        {!soruMu && soru.masaustu && (
+          <p className="prompt-card__app" data-level={soru.masaustu.kademe}>
+            <strong>{soru.masaustu.uygulama}</strong> · {soru.masaustu.kademe_etiket ?? soru.masaustu.kademe}
+            {soru.masaustu.oge && <> · {soru.masaustu.oge}</>}
+          </p>
+        )}
         {soru.tehlike && <p className="prompt-card__danger">Dikkat: {soru.tehlike}</p>}
         {!soru.tehlike && soru.neden && <p className="prompt-card__reason">{soru.neden}</p>}
         {!soruMu && soru.kural && <p className="prompt-card__rule">İzin kuralı: <code>{soru.kural}</code></p>}

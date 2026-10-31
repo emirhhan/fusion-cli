@@ -1442,3 +1442,16 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+# Bilgisayar kullanımı (P-007, P-033) — `BILGISAYAR_` önekli.
+BILGISAYAR_APPROVAL_SESSION = "Bu oturumda {app} için izin ver"
+BILGISAYAR_APPROVAL_NEVER = "Her zaman reddet"
+BILGISAYAR_APPROVAL_NEVER_DESC = "{app} reddedilen uygulamalara eklenir (Ayarlar › Bu bilgisayar)."
+BILGISAYAR_APPROVAL_TARGET = "Uygulama: {app} · kademe: {level}"
+BILGISAYAR_CONFIRM_SESSION_HINT = "o = bu oturumda {app} için izin ver"
+BILGISAYAR_DENIED_NOT_SAVED = "{app} bu tur için reddedildi (ret listesine yazılamadı)."
+BILGISAYAR_CONFIRM_NEVER_HINT = "r = {app} uygulamasını her zaman reddet"
+BILGISAYAR_ESC_STOPPED = "Esc ile durduruldu: Fusion bilgisayarı kullanmayı bıraktı."
+BILGISAYAR_DENIED_IN_TURN = (
+    "Kullanıcı {app} uygulamasını reddedilen uygulamalara ekledi; bu uygulamada eylem yapma."
+)

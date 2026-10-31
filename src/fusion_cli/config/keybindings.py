@@ -8,6 +8,9 @@ bir sonraki istemde yeniden yükler (yeniden başlatma gerekmez).
 Yapısal tuşlar (Enter, Tab, oklar, seçim modalındaki tuşlar) bağlanamaz: bunlar girdinin
 ve modalların çalışma biçimidir, eylem değil. Bozuk dosya ya da bilinmeyen eylem oturumu
 düşürmez; uyarı listesine girer ve `/keybindings` gösterir.
+
+Aynı dosyanın `masaustu` bağlamı masaüstü uygulamasının kısayollarıdır (P-046, bkz.
+`desktop_keys.py`); tuş yazımı orada `mod+k` biçimindedir ve ayrı doğrulanır.
 """
 
 from __future__ import annotations
@@ -16,6 +19,13 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .desktop_keys import (
+    CONTEXT_DESKTOP,
+    desktop_actions,
+    desktop_defaults,
+    desktop_key_problem,
+    normalize_desktop_key,
+)
 from .paths import user_config_dir
 
 #: Bağlam adları: satır-içi istem ve tam-ekran uygulama.
@@ -25,6 +35,8 @@ CONTEXT_TUI = "tui"
 COMMAND_PREFIX = "komut:"
 #: Dosya adı (kullanıcı yapılandırma dizininde).
 FILE_NAME = "keybindings.json"
+#: `/keybindings` çıktısında masaüstü bağlamının yerine gösterilen satır.
+DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarlar › Kısayollar"
 
 #: Varsayılan tablo — `input.py` ve `tui.py` eskiden sabit kodladığı bağların tamamı.
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
@@ -85,10 +97,38 @@ def keybindings_path() -> Path:
     return user_config_dir() / FILE_NAME
 
 
+def default_keymap() -> dict[str, dict[str, str]]:
+    """Bütün bağlamların varsayılanları (terminal + masaüstü); her çağrıda yeni kopya."""
+    tables = {name: dict(table) for name, table in DEFAULT_KEYMAP.items()}
+    tables[CONTEXT_DESKTOP] = desktop_defaults()
+    return tables
+
+
 def is_valid_action(context: str, action: str) -> bool:
     if action.startswith(COMMAND_PREFIX):
         return bool(action[len(COMMAND_PREFIX) :].strip())
+    if context == CONTEXT_DESKTOP:
+        return action in desktop_actions()
     return action in ACTIONS.get(context, frozenset())
+
+
+def _valid_actions_hint(context: str) -> str:
+    names = desktop_actions() if context == CONTEXT_DESKTOP else ACTIONS[context]
+    return ", ".join(sorted(names)) + f", {COMMAND_PREFIX}<ad>"
+
+
+def normalize_key(context: str, key: object) -> tuple[str | None, str | None]:
+    """Bağlama göre tuşu kanonikleştir: (tuş, sorun). Sorun varsa tuş `None`."""
+    lowered = str(key).strip().lower()
+    if context != CONTEXT_DESKTOP:
+        if lowered in RESERVED_KEYS:
+            return None, "yapısal tuş, bağlanamaz"
+        return lowered, None
+    canonical = normalize_desktop_key(lowered)
+    if canonical is None:
+        return None, "tuş yazımı geçersiz (ör. mod+k, mod+shift+p, f5)"
+    problem = desktop_key_problem(canonical)
+    return (None, problem) if problem else (canonical, None)
 
 
 def _mtime(path: Path) -> float:
@@ -101,7 +141,7 @@ def _mtime(path: Path) -> float:
 def load_keymap(path: Path | None = None) -> KeyMap:
     """Varsayılanları kullanıcı dosyasıyla birleştir; hatalar uyarı olur, oturum düşmez."""
     target = path or keybindings_path()
-    contexts = {name: dict(table) for name, table in DEFAULT_KEYMAP.items()}
+    contexts = default_keymap()
     warnings: list[str] = []
     raw: object = None
     if target.is_file():
@@ -119,17 +159,17 @@ def load_keymap(path: Path | None = None) -> KeyMap:
                 warnings.append(f"{context}: tuş tablosu sözlük olmalı")
                 continue
             for key, action in table.items():
-                lowered = str(key).strip().lower()
-                if lowered in RESERVED_KEYS:
-                    warnings.append(f"{context}.{key}: yapısal tuş, bağlanamaz")
+                lowered, problem = normalize_key(context, key)
+                if lowered is None:
+                    warnings.append(f"{context}.{key}: {problem}")
                     continue
                 if action is None:
                     contexts[context].pop(lowered, None)
                     continue
                 if not isinstance(action, str) or not is_valid_action(context, action):
-                    valid = ", ".join(sorted(ACTIONS[context])) + f", {COMMAND_PREFIX}<ad>"
                     warnings.append(
-                        f"{context}.{key}: bilinmeyen eylem {action!r} (geçerli: {valid})"
+                        f"{context}.{key}: bilinmeyen eylem {action!r} "
+                        f"(geçerli: {_valid_actions_hint(context)})"
                     )
                     continue
                 contexts[context][lowered] = action
@@ -144,7 +184,12 @@ def has_changed(keymap: KeyMap) -> bool:
 
 
 def write_default_file(path: Path | None = None) -> Path:
-    """Dosya yoksa varsayılan tabloyu örnek olarak yaz (kullanıcı düzenleyip kaydeder)."""
+    """Dosya yoksa terminal varsayılanlarını örnek olarak yaz (kullanıcı düzenleyip kaydeder).
+
+    Ölçüldü (31 Ekim): örnek dosyaya masaüstü tablosu da dökülüyordu; o bağlam dosyada yalnız
+    varsayılandan farkları tutar (Ayarlar › Kısayollar yazar), dökülürse sürüm yükseltmesinde
+    değişen varsayılan tuş eski hâlinde sabitlenirdi.
+    """
     target = path or keybindings_path()
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -155,12 +200,18 @@ def write_default_file(path: Path | None = None) -> Path:
 
 
 def describe(keymap: KeyMap) -> list[str]:
-    """`/keybindings` çıktısı: bağlam başına tuş → eylem satırları ve uyarılar."""
+    """`/keybindings` çıktısı: terminal bağlamlarının tuş → eylem satırları ve uyarılar.
+
+    Masaüstü bağlamı tek satırlık yönlendirmeyle geçilir; uyarıları yine listelenir.
+    """
     lines: list[str] = []
     for context, table in keymap.contexts.items():
+        if context == CONTEXT_DESKTOP:
+            continue
         lines.append(f"[{context}]")
         for key, action in sorted(table.items()):
             lines.append(f"  {key:<10} {action}")
+    lines.append(DESKTOP_HINT)
     for warning in keymap.warnings:
         lines.append(f"  ! {warning}")
     return lines

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from ..core.desktop_settings import DesktopSettings
 from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
@@ -675,6 +676,8 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     #: Beceri/ajan kataloğu tercihleri.
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
+    #: Bilgisayar kullanımı (`desktop:`, P-006); eski yapılandırmada yoksa varsayılanlar.
+    desktop: DesktopSettings = field(default_factory=DesktopSettings)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""
