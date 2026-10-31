@@ -11,6 +11,7 @@ import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
 import { ShareDialog } from "./dialogs/ShareDialog";
+import { KitSendDialog } from "./kits/KitSendDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -513,6 +514,8 @@ export function SessionUygulama({
   const fileQuerySeq = useRef(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  //: "Kit'e gönder" penceresine konan yanıt metni; `null` kapalı (P-063).
+  const [kitSendText, setKitSendText] = useState<string | null>(null);
   //: Açık rapor penceresi; `null` kapalı. Hata akışından gelirse ayrıntıyı taşır.
   const [feedback, setFeedback] = useState<Partial<ReportInput> | null>(null);
   const [crash, clearCrash] = useCrashReporter();
@@ -1418,6 +1421,7 @@ export function SessionUygulama({
         setSurfaceSection(null);
         setPage("chat");
       }}
+      onSendToKit={setKitSendText}
       onOneriSec={(gorev) => send(gorev)}
       onRetrySubmission={(requestId) => { controller.retrySubmission(active.id, requestId); }}
       onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
@@ -1706,6 +1710,13 @@ export function SessionUygulama({
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
           {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+          {kitSendText !== null && (
+            <KitSendDialog
+              initialText={kitSendText}
+              onClose={() => setKitSendText(null)}
+              request={requestKitsHost}
+            />
+          )}
           {shareOpen && (
             <ShareDialog
               messages={active.messages}

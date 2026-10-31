@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionUygulama, Uygulama } from "./App";
 import { ProtocolClient } from "./protocol/client";
@@ -885,4 +885,28 @@ it("Ayarlar > Kurulumu yeniden aç, atlanmış sihirbazı baştan gösterir (U5-
   expect(await screen.findByRole("heading", { name: "Fusion'a hoş geldiniz" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Şimdilik atla" }));
   await screen.findByRole("heading", { name: "Yeni görev" });
+});
+
+it("yanıtın Kit'e gönder düğmesi pencereyi açar ve etkin oturumun kit.* RPC'lerini kullanır (P-063)", async () => {
+  localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ workspace: true }));
+  const fake = composerTransport({
+    "ayar.arayuz": { ok: true, degerler: {} },
+    "tur.calistir": { ok: true, metin: "Rapor hazır." },
+    "kit.listele": { ok: true, kitler: [{ id: "kod", name: "Kod", fusionAllowed: true }] },
+    "kit.durum": { ok: true, kayitlar: [] },
+    "kit.gonder": { ok: true, kitId: "kod", taskId: "t1", threadId: "th", status: "queued" },
+  });
+  render(<SessionUygulama transport={fake.transport} />);
+  fireEvent.change(await screen.findByRole("textbox", { name: "Mesaj" }), { target: { value: "Raporu hazırla" } });
+  fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Kit'e gönder" }));
+  const dialog = await screen.findByRole("dialog", { name: "Kit'e gönder" });
+  expect((await within(dialog).findByRole("option", { name: "Kod" })).textContent).toBe("Kod");
+  expect((within(dialog).getByLabelText("Gönderilecek metin") as HTMLTextAreaElement).value).toBe("Rapor hazır.");
+  await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Kit'e gönder" })));
+  await waitFor(() => expect(fake.requests.some((request) => request.ad === "kit.gonder"
+    && request.veri.kit === "kod" && request.veri.metin === "Rapor hazır.")).toBe(true));
+  expect(await within(dialog).findByText(/kuyruğa alındı/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Kapat" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Kit'e gönder" })).toBeNull());
 });

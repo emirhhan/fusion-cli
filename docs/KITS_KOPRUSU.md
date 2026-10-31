@@ -16,6 +16,7 @@ kendi sohbetinde işler. **Makbuz "kuyruğa alındı" demektir, "yapıldı" değ
 |---|---|
 | Terminal | `fusion kit liste` · `fusion kit gonder <kit> "<metin>" [--baslik …] [--mesaj]` · `fusion kit gelen <kit>` · `fusion kit durum <kit> <görev-id>` |
 | Sohbet (ajan aracı) | `kits_list` → `kit_send(kit, text, title?, kind=gorev|mesaj)` → `kit_task_status(kit, task_id?)` — "şunu Kod Kit'ine ver" denince kullanılır |
+| Masaüstü | Fusion yanıtının altındaki **Kit'e gönder** düğmesi (gönder simgesi): Kit seç, tür (Görev/Mesaj), isteğe bağlı başlık, metni düzenle → gönder. Aynı pencere seçili Kit'in gelen kutusunu durumlarıyla (Sırada, Çalışıyor, Tamamlandı, Başarısız…) listeler; kayda tıklayınca sonucun özeti açılır, "Yenile" yeniden okur. Fusion izni kapalı Kit seçilirse gönderim kapanır ve ayarın yeri yazılır. |
 | Masaüstü RPC | `kit.listele {}` · `kit.gonder {kit, metin, baslik?, tur: gorev|mesaj}` · `kit.durum {kit, gorev_id?}` |
 
 `<kit>` Kit adı (büyük/küçük harf duyarsız) ya da kimliğidir. Kits şu durumlarda teslimi
@@ -23,15 +24,16 @@ reddeder (403): çalışma alanı duraklatılmış, görev yürütme izni kapal�
 izni** kapalı. İzinler Kit ayarlarından değişir; Fusion bunları değiştiremez.
 
 **Adres bulma.** Masaüstü Kits'i başlatırken `KITS_STATE_FILE` verir; Kits dinlediği adresi
-ve pid'ini `~/.local/share/fusion-cli/kits/kits-bridge.json` dosyasına yazar (0600; sır
+ve pid'ini `$XDG_DATA_HOME/fusion-cli/kits/kits-bridge.json` (ayarlı değilse
+`~/.local/share/fusion-cli/kits/kits-bridge.json`; Tauri ve Python aynı kuralı izler) dosyasına yazar (0600; sır
 taşımaz). Fusion bu dosyayı okur, pid ölüyse yok sayar; dosya yoksa elle başlatılmış Kits
 için `http://127.0.0.1:4410` dener. Ulaşılamazsa hata, Kits'in nereden açılacağını söyler.
 
 **Kapatma.** `runtime.disabled_tools: [kit_send, kits_list, kit_task_status]` araçları
 modelden gizler; `fusion kit` komutu ve `kit.*` RPC'leri bu ayardan ETKİLENMEZ, yalnız
 kullanıcı isteğiyle çalışır (model çağıramaz). `kit_send` REMOTE_WRITE etkilidir: otomatik
-kipte de onay kartı çıkar. Masaüstünde ayrı bir "Kit'e gönder" düğmesi ya da gelen kutusu
-görünümü henüz yok; sohbette "şunu Kod Kit'ine ver" demek ya da terminal komutu kullanılır.
+kipte de onay kartı çıkar. Masaüstündeki "Kit'e gönder" penceresi de yalnız kullanıcı
+tıklayınca açılır ve `kit.*` RPC'lerini kullanır.
 
 Fusion `/api/kits` yanıtında `kits` listesi görmezse adresteki servisi Kits saymaz ve
 "Kits değil" der (varsayılan 4410'u başka bir yerel süreç dinliyorsa yanıltıcı "Kit yok"
@@ -91,5 +93,5 @@ yolu da aynı modeldedir; sunucu tarafı tek kullanımlık onay belirteci ayrı 
 ## 3. Doğrulama
 
 - Kits: `npx vitest run tests/kit-inbox.test.ts tests/kits-state-file.test.ts tests/fusion-browser-bridge.test.ts`
-- Fusion: `pytest tests/test_kits_tools.py tests/test_kits_routes.py tests/test_kits_browser_routes.py tests/test_kits_paths.py tests/test_kit_commands.py`; `cd app && npx vitest run src/kits/kitsBrowserHost.test.ts src/kits/KitsScreen.test.tsx`; `cd app/src-tauri && cargo test --lib kits_veri_klasoru`
-- Elle: Fusion masaüstünde Kits bölümünü aç, terminalde `fusion kit liste`; `fusion kit gonder Kod "Merhaba"` sonrası Kits'te "Fusion gelen kutusu" sohbetinde görevin işlendiğini gör. Kit'e "Chrome'da açık sekmeyi oku" de; izin penceresi çıkmalı.
+- Fusion: `pytest tests/test_kits_tools.py tests/test_kits_routes.py tests/test_kits_browser_routes.py tests/test_kits_paths.py tests/test_kit_commands.py`; `cd app && npx vitest run src/kits/kitsBrowserHost.test.ts src/kits/KitsScreen.test.tsx src/kits/KitSendDialog.test.tsx`; `cd app/src-tauri && cargo test --lib kits_veri_klasoru`
+- Elle: Fusion masaüstünde bir yanıtın altındaki "Kit'e gönder" ile metni bir Kit'e bırak, pencerenin gelen kutusunda "Sırada" → "Tamamlandı" geçişini "Yenile" ile izle. Terminalde `fusion kit liste`; `fusion kit gonder Kod "Merhaba"` sonrası Kits'te "Fusion gelen kutusu" sohbetinde görevin işlendiğini gör. Kit'e "Chrome'da açık sekmeyi oku" de; izin penceresi çıkmalı.
