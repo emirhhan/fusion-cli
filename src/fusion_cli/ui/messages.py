@@ -269,8 +269,8 @@ APPROVAL_TITLE = "onay gerekiyor · {tool}"
 CONFIRM_QUESTION = "  onaylıyor musun? (e/h, Enter = evet)"
 CONFIRM_QUESTION_DANGER = "  onaylıyor musun? (e/h, varsayılan = hayır)"
 PERMISSIONS_UNTRUSTED = (
-    "Bu projedeki .claude/settings.local.json izinleri yok sayıldı (proje güvenilmiyor). "
-    "Dosyayı gözden geçirdiysen: fusion trust"
+    "Bu projedeki .claude/settings.local.json izin (allow) kuralları yok sayıldı (proje "
+    "güvenilmiyor; deny/ask kuralları geçerli). Dosyayı gözden geçirdiysen: fusion trust"
 )
 DANGER_WARNING = "⚠ geri alınamaz işlem: {reason}"
 AGENT_ASKS = "agent soruyor"
@@ -730,7 +730,10 @@ PERMISSIONS_ADDED = "İzin kuralı eklendi: {rule} [{decision}] → {path}"
 PERMISSIONS_EXISTS = "Bu kural zaten var: {rule} [{decision}]"
 PERMISSIONS_REMOVED = "İzin kuralı silindi: {rule} [{decision}] ({path})"
 PERMISSIONS_NOT_FOUND = "Kural bulunamadı: {rule} [{decision}]"
-PERMISSIONS_UNTRUSTED_LAYERS = "Güvenilmediği için yok sayılan katmanlar: {layers} (fusion trust)"
+PERMISSIONS_UNTRUSTED_LAYERS = (
+    "Güvenilmediği için allow kuralları yok sayılan katmanlar: {layers} "
+    "(deny/ask geçerli; fusion trust)"
+)
 CMD_RESET = "agent sohbet geçmişini temizle"
 CMD_COMPACT = "uzun geçmişi özetleyerek kısalt"
 CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"

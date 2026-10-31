@@ -14,8 +14,10 @@ kabukta ön ek (`npm run *`), dosyada glob (`/src/**`, `~/x/**`, `//etc/*`), web
 
 Katmanlar (hepsi aynı JSON şemasıyla): Fusion'ın kullanıcı dosyası, Claude'un
 `~/.claude/settings.json`'ı, projenin `.claude/settings.json`'ı ve `.claude/settings.local.json`'ı.
-Proje içi iki dosya YALNIZ `fusion trust` sonrası ve içerik o günden beri değişmediyse
-okunur: indirilmiş bir depo `Bash(*)` taşıyabilir (bkz. `trust.py`).
+Proje içi iki dosyanın ALLOW kuralları YALNIZ `fusion trust` sonrası ve içerik o günden
+beri değişmediyse okunur: indirilmiş bir depo `Bash(*)` taşıyabilir (bkz. `trust.py`).
+Deny ve ask kuralları kısıtlayıcıdır; güven gerektirmez ve güvenilmeyen dosyadan da okunur
+(ölçüldü, 31 Ekim: katman bütünüyle atlanıyor, kullanıcının deny kuralları da düşüyordu).
 
 Birleşim sırası önemsizdir: eşleşen kurallar arasında EN KISITLAYICI kazanır
 (deny → ask → allow); Codex `.rules` ve Claude'un deny önceliği aynı ilkeyi uygular.
@@ -120,7 +122,7 @@ class PermissionRuleSet:
     block_reads_outside_root: bool = False
     #: Açıkken dosya araçları proje kökü (+ `--add-dir`) DIŞINA yazamaz; onay da sorulmaz.
     block_writes_outside_root: bool = False
-    #: Dosyası var ama güvenilmediği için atlanan katmanlar.
+    #: Dosyası var ama güvenilmediği için ALLOW kuralları atlanan katmanlar (deny/ask okunur).
     untrusted_layers: tuple[str, ...] = ()
 
     def with_rules(self, rules: Iterable[PermissionRule]) -> PermissionRuleSet:
@@ -185,17 +187,19 @@ def load_permission_rules(
     block_reads_outside_root: bool = False,
     block_writes_outside_root: bool = False,
 ) -> PermissionRuleSet:
-    """Tüm katmanları oku; okunamayan ya da güvenilmeyen katman BOŞ sayılır.
+    """Tüm katmanları oku; okunamayan katman BOŞ, güvenilmeyen katman ALLOW'suz sayılır.
 
-    Bozuk dosya izin AÇMAZ (boş liste), ötekileri de düşürmez.
+    Bozuk dosya izin AÇMAZ (boş liste), ötekileri de düşürmez. Güvenilmeyen katmanın deny ve
+    ask kuralları okunur (kısıtlayıcı kural izin açmaz), allow kuralları düşer.
     """
     rules: list[PermissionRule] = []
     untrusted: list[str] = []
     for layer in rule_layers(root):
+        found = read_rules_file(layer.path, source=layer.name)
         if layer.requires_trust and layer.path.is_file() and not _layer_trusted(layer, root):
             untrusted.append(layer.name)
-            continue
-        rules.extend(read_rules_file(layer.path, source=layer.name))
+            found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
+        rules.extend(found)
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )

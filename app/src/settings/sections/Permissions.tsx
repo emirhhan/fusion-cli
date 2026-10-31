@@ -319,7 +319,7 @@ export function Permissions({
           )}
           {guvensiz.length > 0 && (
             <p className="settings__hint" role="status">
-              Güvenilmediği için yok sayılan katmanlar: {guvensiz.join(", ")}. Dosyaları gözden geçirdiysen &quot;Bu projeye güven&quot; de.
+              Güvenilmediği için <strong>izin ver</strong> kuralları yok sayılan katmanlar: {guvensiz.join(", ")} (yasakla/her zaman sor kuralları geçerli). Dosyaları gözden geçirdiysen &quot;Bu projeye güven&quot; de.
             </p>
           )}
           <form className="permissions__add" onSubmit={(event) => { event.preventDefault(); void addRule(); }}>

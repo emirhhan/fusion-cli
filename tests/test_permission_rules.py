@@ -338,7 +338,13 @@ def test_katmanlar_birlesir_ve_proje_katmani_guven_ister(tmp_path, _izole_ev):
     _yaz(katmanlar["yerel"].path, {"permissions": {"ask": ["Bash(git push *)"]}})
 
     guvensiz = load_permission_rules(proje)
-    assert {format_rule(k) for k in guvensiz.rules} == {"Read(~/.ssh/**)", "Bash(pytest *)"}
+    # Güvenilmeyen katmandan yalnız ALLOW düşer; ask/deny kısıtlayıcıdır, güven gerektirmez.
+    # Ölçüldü (31 Ekim): katman bütünüyle atlanıyordu, kullanıcının deny kuralları da düşüyordu.
+    assert {format_rule(k) for k in guvensiz.rules} == {
+        "Read(~/.ssh/**)",
+        "Bash(pytest *)",
+        "Bash(git push *)",
+    }
     assert guvensiz.untrusted_layers == ("proje", "yerel")
 
     trust.trust_project(proje)
@@ -350,6 +356,23 @@ def test_katmanlar_birlesir_ve_proje_katmani_guven_ister(tmp_path, _izole_ev):
         ("Bash(git push *)", "yerel"),
     }
     assert guvenli.untrusted_layers == ()
+
+
+def test_guvenilmeyen_katmanin_deny_ve_ask_kurallari_okunur_allow_dusur(tmp_path, _izole_ev):
+    """Claude Code aynı dosyaya 'always allow' yazınca karma bozulur; kullanıcının deny kuralları
+    `fusion trust` yeniden çalışana dek sessizce düşmemeli."""
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    yerel = {k.name: k for k in rule_layers(proje)}["yerel"]
+    izinler = {"deny": ["Read(.env)"], "ask": ["Bash(git push *)"], "allow": ["Bash(*)"]}
+    _yaz(yerel.path, {"permissions": izinler})
+    yuklenen = load_permission_rules(proje)
+    assert {(format_rule(k), k.decision) for k in yuklenen.rules} == {
+        ("Read(.env)", PermissionDecision.DENY),
+        ("Bash(git push *)", PermissionDecision.ASK),
+    }
+    assert yuklenen.untrusted_layers == ("yerel",)
+    assert all(k.source == "yerel" for k in yuklenen.rules)
 
 
 def test_bozuk_katman_dosyasi_digerlerini_dusurmez(tmp_path):
