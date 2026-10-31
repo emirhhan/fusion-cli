@@ -115,8 +115,11 @@ TurnRunner = Callable[[BackgroundTask, str, list[Message]], Awaitable[tuple[str,
 
 async def run_task_loop(store: BackgroundTaskStore, task_id: str, run_turn: TurnRunner) -> int:
     """Görevin bütün turlarını koştur; çıkış kodu 0 = tamamlandı."""
+    if store.stop_requested(task_id) or store.get(task_id).status is TaskStatus.STOPPED:
+        # Ölçüldü (31 Ekim): sıradayken durdurulan görevin işçisi geç başlayınca kaydı
+        # yeniden "çalışıyor" yapıp durdurma isteğini siliyordu.
+        return 130
     task = store.update(task_id, status=TaskStatus.WORKING, pid=os.getpid(), note="")
-    store.clear_stop(task_id)
     history = [Message(item["role"], item["content"]) for item in store.load_history(task_id)]
     prompt = task.prompt if task.turns == 0 else _follow_up_text(store.take_inbox(task_id))
     if not prompt:

@@ -309,3 +309,39 @@ def test_baslatma_ayarlari_namespace_ile_de_calisir(tmp_path, launches):
         runtime, tmp_path, agent_tasks.LaunchRequest(prompt="iş", root=tmp_path)
     )
     assert launches
+
+
+async def test_tam_ekranda_ctrl_b_suren_turu_arka_plan_gorevine_tasir(
+    tmp_path, launches, monkeypatch
+):
+    import asyncio
+
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+
+    state = ReplState(
+        config=make_config(memory_dir=tmp_path / "bellek"),
+        memory=null_memory(),
+        root=tmp_path,
+        home=tmp_path / "ev",
+    )
+    session = _TuiSession(state)
+    started = asyncio.Event()
+
+    async def _slow_turn(line, **_kwargs):
+        started.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(session, "_turn", _slow_turn)
+    session._submit("uzun refaktörü yap")
+    await started.wait()
+    session._background_turn()
+    await session._task
+
+    tasks = agent_tasks.task_store(state.config.memory_dir).tasks()
+    assert len(tasks) == 1 and "uzun refaktörü yap" in tasks[0].prompt
+    assert "arka plana alındı" in session.tui.transcript
+    # Kullanıcı durdurmadı, taşıdı: "tur iptal edildi" uyarısı basılmaz.
+    from fusion_cli.ui import messages
+
+    assert messages.REPL_TURN_CANCELLED not in session.tui.transcript
+    assert launches

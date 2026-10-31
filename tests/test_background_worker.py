@@ -146,3 +146,19 @@ def test_karar_cevaplari_turkce_kisaltmalari_tanir():
     assert parse_decision("oturum") is ApprovalAnswer.SESSION
     assert parse_decision("hayır") is ApprovalAnswer.DENY
     assert parse_decision("belki") is ApprovalAnswer.UNAVAILABLE
+
+
+async def test_siradayken_durdurulan_gorevin_iscisi_calismaz(tmp_path):
+    store = _store(tmp_path)
+    task = store.create("iş", root=tmp_path)
+    from fusion_cli.tools.agent_tasks import stop_task
+
+    stop_task(store, task)
+    ran: list[str] = []
+
+    async def _turn(current, prompt: str, history: list[Message]) -> tuple[str, bool]:
+        ran.append(prompt)
+        return "olmamalı", True
+
+    assert await run_task_loop(store, task.id, _turn) == 130
+    assert ran == [] and store.get(task.id).status is TaskStatus.STOPPED
