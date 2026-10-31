@@ -20,7 +20,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.redaction import is_secret_env_name
-from ..core.sandbox_policy import PROTECTED_ANCHORS, SandboxPolicy, is_excluded_command
+from ..core.sandbox_policy import (
+    PROTECTED_ANCHORS,
+    SandboxPolicy,
+    is_excluded_command,
+    normalize_domain,
+)
 from ..core.sandbox_proxy import DomainProxy
 from ..core.shell_sandbox import (
     SHELL_SANDBOX_WRITE_ROOT,
@@ -53,6 +58,8 @@ OUTSIDE_REQUESTED = "istek"
 OUTSIDE_EXCLUDED = "liste"
 #: Başarısız komut notunda adıyla gösterilen gizli değişken sayısı.
 _HIDDEN_ENV_SHOWN = 6
+#: Ağ ret notunda gösterilen alan adı sayısı.
+_DENIED_HOSTS_SHOWN = 5
 #: Kabukların ağ hatası belirtileri (ağ kapalıyken ipucu vermek için).
 _NETWORK_FAILURE_MARKERS = (
     "Could not resolve host",
@@ -244,7 +251,7 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
             "Komut bunlara ihtiyaç duyuyorsa kullanıcı açar: sandbox.hide_secret_env=false."
         )
     if run.proxy is not None:
-        hosts = list(dict.fromkeys(item.host for item in run.proxy.denials_since(run.mark)))
+        hosts = _denied_hosts(run.proxy, run.mark)
         if hosts:
             notes.append(
                 f"Sandbox ağı engelledi: {', '.join(hosts)}. Gerekliyse kullanıcı izin verir: "
@@ -260,6 +267,17 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
             "Gerekliyse kullanıcı izin verir: /sandbox izin <alan-adı>"
         )
     return notes
+
+
+def _denied_hosts(proxy: DomainProxy, mark: int) -> list[str]:
+    """Engellenen adlar, yalnız geçerli alan adı/IP biçiminde (kanonik, en çok 5).
+
+    Ad, sandbox içindeki istemcinin yazdığı ham metindir; modele giden nota yalnız
+    `normalize_domain`'den geçen biçim girer. Ölçüldü (31 Ekim): `CONNECT` satırındaki
+    rastgele metin "/sandbox izin <metin>" önerisi olarak modele dönüyordu.
+    """
+    hosts = (normalize_domain(item.host) for item in proxy.denials_since(mark))
+    return list(dict.fromkeys(host for host in hosts if host is not None))[:_DENIED_HOSTS_SHOWN]
 
 
 def _denied_hint(policy: SandboxPolicy, stderr: str = "") -> str:
