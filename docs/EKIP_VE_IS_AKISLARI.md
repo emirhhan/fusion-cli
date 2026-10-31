@@ -45,7 +45,7 @@ edilmez, tek yan etki alt ajanlardır.
 |-------|--------|
 | `ajan` | Tek alt ajan; istem metni. Seçenekler: `id`, `baslik`, `uzman`, `salt_okunur`, `yazma_alani`, `izolasyon` |
 | `paralel` | Liste eşzamanlı koşar (tavan: `eszamanli`) |
-| `sira` | Boru hattı; her adım `{onceki}` ile bir öncekinin çıktısını alır |
+| `sira` | Boru hattı; her adım `{onceki}` ile bir öncekinin çıktısını alır. Adım başarısız/iptal olursa kalanlar "atlandı" olur (paralel adım, bir kolu bile başarılıysa kısmi sonuçla sürer) |
 | `evre` | Adlı aşama (`adimlar` sırayla); panoda başlık olur |
 | `her` | Listedeki her öğe için `ajan` ya da `asamalar` (öğe başına boru hattı); öğeler paralel |
 

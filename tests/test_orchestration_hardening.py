@@ -279,3 +279,88 @@ async def test_beklenmedik_istisnada_ekip_panosu_calisiyor_kalmaz(tmp_path, monk
 
     assert not sonuc.ok and "Read-only" in sonuc.output
     assert [o for o in sink.events if isinstance(o, TeamBoardChanged)][-1].status == "durdu"
+
+
+# -- iş akışı planı ve boru hattı ---------------------------------------------- #
+
+
+def test_otomatik_dugum_anahtari_kullanici_kimligiyle_cakismaz():
+    from fusion_cli.engines.agent.workflow_plan import agents_in, bind_inputs, expand
+    from fusion_cli.engines.agent.workflow_spec import parse_workflow
+
+    spec = parse_workflow(
+        {
+            "ad": "cakisma",
+            "adimlar": [{"ajan": "x", "id": "a2"}, "y", "z", {"ajan": "t", "id": "a4"}],
+        }
+    )
+    anahtarlar = [ajan.key for ajan in agents_in(expand(spec, bind_inputs(spec, None)))]
+
+    assert len(set(anahtarlar)) == 4, anahtarlar
+    assert anahtarlar[0] == "a2" and anahtarlar[3] == "a4"
+
+
+async def test_boru_hattinda_basarisiz_adimdan_sonrakiler_atlanir(tmp_path):
+    from types import SimpleNamespace
+
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _calistir, _deps, _ok
+
+    gorulen: list[str] = []
+
+    async def _ajan(task, sub_deps, **kwargs):
+        gorulen.append(task)
+        if task == "bir":
+            return SimpleNamespace(final_text="çöktü", ok=False, tool_calls_made=1)
+        return _ok(task)
+
+    sonuc, store = await _calistir(
+        _deps(tmp_path, RecordingSink()),
+        {
+            "ad": "hat",
+            "adimlar": [
+                {
+                    "paralel": [
+                        {"sira": ["bir", "iki: {onceki}"]},
+                        {"ajan": "kol", "salt_okunur": True},
+                    ]
+                },
+                "son",
+            ],
+        },
+        run_agent=_ajan,
+    )
+
+    # Kırılan yalnız `bir`in zinciri: paralel kardeş `kol` ve kolun bir kısmı başarılı
+    # olduğu için son adım (kısmi sonuçla) yine koşar.
+    assert sorted(gorulen) == ["bir", "kol", "son"], gorulen
+    kayit = store.run(sonuc.run_id)
+    assert kayit is not None
+    assert [n.status for n in kayit.nodes] == ["basarisiz", "atlandi", "tamam", "tamam"]
+    assert "önceki adım" in kayit.nodes[1].summary.casefold()
+    assert sonuc.status == "yarim"
+
+
+async def test_tum_kollari_basarisiz_paralel_adimdan_sonra_zincir_kesilir(tmp_path):
+    from types import SimpleNamespace
+
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _calistir, _deps
+
+    gorulen: list[str] = []
+
+    async def _ajan(task, sub_deps, **kwargs):
+        gorulen.append(task)
+        return SimpleNamespace(final_text="çöktü", ok=False, tool_calls_made=1)
+
+    sonuc, _ = await _calistir(
+        _deps(tmp_path, RecordingSink()),
+        {
+            "ad": "hepsi",
+            "adimlar": [{"paralel": [{"ajan": "a", "salt_okunur": True}, "b"]}, "c", "d"],
+        },
+        run_agent=_ajan,
+    )
+
+    assert sorted(gorulen) == ["a", "b"]
+    assert sonuc.agents == 2 and sonuc.status == "yarim"

@@ -44,6 +44,7 @@ DEFAULT_MAX_AGENTS = 50
 #: İptal işaret dosyasının yoklanma aralığı (saniye).
 CANCEL_POLL_S = 0.5
 _STATUS = {"cancelled": "iptal"}
+SKIPPED_SUMMARY = "Boru hattında önceki adım başarısız; atlandı."
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +124,7 @@ class WorkflowRun:
         watcher = asyncio.create_task(self._watch(work))
         output = ""
         try:
-            output = await work
+            output, _ = await work
             failed = any(node.status != "tamam" for node in self._nodes.values())
             self._status = "yarim" if failed else "tamam"
         except asyncio.CancelledError:
@@ -147,7 +148,7 @@ class WorkflowRun:
         await self._finish(report)
         return WorkflowResult(self.run_id, self._status, self._runs.started_total, report)
 
-    async def _watch(self, work: asyncio.Task[str]) -> None:
+    async def _watch(self, work: asyncio.Task[tuple[str, bool]]) -> None:
         while not work.done():
             await asyncio.sleep(CANCEL_POLL_S)
             if await asyncio.to_thread(self._store.cancel_requested, self.run_id):
@@ -155,24 +156,43 @@ class WorkflowRun:
                 work.cancel()
                 return
 
-    async def _node(self, node: PlanNode, previous: str) -> str:
+    async def _node(self, node: PlanNode, previous: str) -> tuple[str, bool]:
+        """Düğümün çıktısı ve kullanılabilir olup olmadığı.
+
+        Boru hattında (`sira`) kullanılamayan çıktıdan sonra kalan adımlar `atlandi` olur.
+        Ölçüldü (31 Ekim): başarısız ajanın hata metni `{onceki}` olarak sonrakine
+        veriliyor, zincirin geri kalanı boşa token harcıyordu. Paralel düğüm, kollarından
+        biri bile başarılıysa kullanılabilir sayılır (kısmi sonuçla devam edilir).
+        """
         if isinstance(node, PlanAgent):
             return await self._agent(node, previous)
         if not node.parallel:
-            output = previous
+            output, usable = previous, True
             for child in node.children:
-                output = await self._node(child, output)
+                if not usable:
+                    await self._skip(child)
+                    continue
+                output, usable = await self._node(child, output)
             joined = output
         else:
             async with asyncio.TaskGroup() as group:
                 tasks = [group.create_task(self._node(child, previous)) for child in node.children]
             joined = "\n\n".join(
-                f"### {self._child_label(node, index, child)}\n{task.result()}"
+                f"### {self._child_label(node, index, child)}\n{task.result()[0]}"
                 for index, (child, task) in enumerate(zip(node.children, tasks, strict=True))
             )
+            usable = any(task.result()[1] for task in tasks) or not tasks
         if node.result_id:
             self._results[node.result_id] = joined
-        return joined
+        return joined, usable
+
+    async def _skip(self, node: PlanNode) -> None:
+        for agent in agents_in(node):
+            current = self._nodes[agent.key]
+            self._nodes[agent.key] = dataclasses.replace(
+                current, status="atlandi", summary=SKIPPED_SUMMARY
+            )
+        await self._publish()
 
     @staticmethod
     def _child_label(group: PlanGroup, index: int, child: PlanNode) -> str:
@@ -180,7 +200,7 @@ class WorkflowRun:
             return group.item_labels[index]
         return child.label if isinstance(child, PlanAgent) else str(index + 1)
 
-    async def _agent(self, node: PlanAgent, previous: str) -> str:
+    async def _agent(self, node: PlanAgent, previous: str) -> tuple[str, bool]:
         prompt = render_prompt(
             node.prompt, inputs=self._inputs, results=self._results, previous=previous
         )
@@ -196,7 +216,7 @@ class WorkflowRun:
             scope = derive_sub_context(self._deps.tool_context, subtask).write_scope
         except PathAccessError as error:
             await self._mark(node.key, "basarisiz", summary=f"Yazma alanı geçersiz: {error}")
-            return ""
+            return "", False
         async with self._gate.hold(gate_scope(options.read_only, scope)), self._semaphore:
             self._phase = node.phase or self._phase
             await self._mark(node.key, "calisiyor")
@@ -213,7 +233,7 @@ class WorkflowRun:
         await self._mark(node.key, status, sub_id=run.sub_id, summary=run.text)
         if node.result_id:
             self._results[node.result_id] = run.text
-        return run.text
+        return run.text, status == "tamam"
 
     async def _mark(self, key: str, status: str, *, sub_id: str = "", summary: str = "") -> None:
         current = self._nodes[key]
