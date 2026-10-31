@@ -45,9 +45,10 @@ from ...core.tools import (
     tool_family,
 )
 from ...tools.auto_policy import auto_risk, is_read_only_command
+from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
-from ...tools.permission_match import RuleMatch, evaluate
+from ...tools.permission_match import RuleMatch, evaluate, writes_files
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
@@ -213,8 +214,13 @@ class ApprovalRequest:
 
     @property
     def can_remember(self) -> bool:
-        """Yalnız doğrulanmış dar kapsam oturum boyunca saklanır."""
-        return self.danger is None and _scope(self) is not None
+        """Yalnız doğrulanmış dar kapsam oturum boyunca saklanır.
+
+        `ask` kuralı eşleşen istek hatırlanmaz: kural "her zaman sor" der (Claude'da da
+        ask daima sorar). Ölçüldü (31 Ekim): kart 'bu oturumda tekrar sorma' sunuyor ve
+        ikinci `git push` sorulmadan geçiyordu.
+        """
+        return self.danger is None and self.pre_ask is None and _scope(self) is not None
 
     @property
     def can_persist(self) -> bool:
@@ -327,7 +333,7 @@ class _AskingApproval:
             and (request.pre_allowed or self._allows(request))
         ):
             return Decision.ALLOW
-        if self._memory.is_remembered(request):
+        if request.pre_ask is None and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
@@ -472,7 +478,9 @@ def build_request(
     effect = effect or tool.effect
     match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
-        request = _shell_request(tool, args, command, allowed_commands, effect, root, touched)
+        request = _shell_request(
+            tool, args, command, allowed_commands, effect, root, touched, rules=rules
+        )
         return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
@@ -566,8 +574,15 @@ def _shell_request(
     effect: ToolEffect,
     root: Path | None,
     touched: Collection[Path] = (),
+    *,
+    rules: PermissionRuleSet | None = None,
 ) -> ApprovalRequest:
-    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli."""
+    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli.
+
+    Kök-dışı yazma engeli (P-002) kabuk yönlendirmesini de kapatır: `echo x > ~/.zshrc`,
+    `| tee /etc/hosts`. Ölçüldü (31 Ekim): engel yalnız dosya araçlarında uygulanıyordu;
+    Ayarlar'daki "onay bile sorulmadan engellenir" sözü kabukta tutmuyordu.
+    """
     danger = danger_reason(tool.name, args)
     trashed = simple_rm_targets(command) is not None
     if trashed and danger in TRASHABLE_DELETE_REASONS:
@@ -585,6 +600,11 @@ def _shell_request(
     if danger is not None and target:
         danger = f"{danger}. {target}"
     note = ". ".join(part for part in (risk, target) if part) or None
+    pre_denied = None
+    if rules is not None and rules.block_writes_outside_root and root is not None:
+        disari = _outside_write_targets(command, root)
+        if disari:
+            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=disari[0])
     return ApprovalRequest(
         tool=tool,
         args=args,
@@ -596,6 +616,21 @@ def _shell_request(
         risk=risk,
         read_only=is_read_only_command(command),
         note=note,
+        pre_denied=pre_denied,
+    )
+
+
+def _outside_write_targets(command: str, root: Path) -> tuple[str, ...]:
+    """Komutun yönlendirme/`tee` ile proje kökü DIŞINA yazdığı hedefler.
+
+    Bilinmeyen değişken (`> $OUT`) dışarı sayılmaz (`auto_policy._outside` ile aynı kural);
+    `$HOME`/`~` ve mutlak/`..` yollar sayılır.
+    """
+    return tuple(
+        target
+        for target in writes_files(command)
+        if ("$" not in target or "$HOME" in target or "${HOME" in target)
+        and escapes_project("tee", [target], root)
     )
 
 

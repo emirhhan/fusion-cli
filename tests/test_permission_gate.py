@@ -129,6 +129,37 @@ async def test_ask_kurali_otomatik_kipte_bile_sorar_ve_allow_kurali_manuelde_sor
     assert karar is Decision.ALLOW and prompter.soruldu == []
 
 
+async def test_ask_kurali_oturum_hafizasiyla_susturulamaz(tmp_path):
+    """Ölçüldü (31 Ekim): `decide` pre_ask varken de `is_remembered`a bakıyordu ve kart
+    'bu oturumda tekrar sorma' seçeneğini sunuyordu; ikinci `git push` sorulmadan geçiyordu."""
+    kurallar = _kurallar(("Bash(git push *)", "ask"))
+    bellek = ApprovalMemory()
+    istek = build_request(
+        _arac(), {"command": "git push origin dev"}, root=tmp_path, rules=kurallar
+    )
+    assert istek.pre_ask is not None and not istek.can_remember
+    karar, prompter = await _karar(
+        ApprovalMode.AUTO,
+        _arac(),
+        {"command": "git push origin dev"},
+        tmp_path,
+        kurallar,
+        prompter=_Kaydeden(ApprovalAnswer.SESSION),
+        memory=bellek,
+    )
+    assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
+    karar, prompter = await _karar(
+        ApprovalMode.AUTO,
+        _arac(),
+        {"command": "git push origin dev"},
+        tmp_path,
+        kurallar,
+        prompter=_Kaydeden(ApprovalAnswer.ONCE),
+        memory=bellek,
+    )
+    assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
+
+
 async def test_yikici_komut_allow_kuraliyla_bile_sorulur(tmp_path):
     kurallar = _kurallar(("Bash(*)", "allow"))
     karar, prompter = await _karar(
@@ -223,6 +254,29 @@ async def test_kok_disina_yazma_engeli_acikken_sorulmadan_kapatilir(tmp_path):
     assert "--add-dir" in (istek.pre_denied or "")
 
 
+@pytest.mark.parametrize(
+    "komut", ["echo x > ~/.zshrc", "cat a | tee /etc/hosts", "ls >> ../disari.txt"]
+)
+async def test_kok_disina_yazma_engeli_kabuk_yonlendirmesini_de_kapatir(tmp_path, komut):
+    """Ölçüldü (31 Ekim): engel yalnız dosya araçlarında uygulanıyordu; `echo x > ~/.zshrc`
+    bypass kipinde sorulmadan çalışıyordu, Ayarlar ise 'onay bile sorulmadan engellenir' diyordu."""
+    kurallar = _kurallar(block_writes_outside_root=True)
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    for mod in (ApprovalMode.BYPASS, ApprovalMode.AUTO):
+        karar, prompter = await _karar(mod, _arac(), {"command": komut}, proje, kurallar)
+        assert karar is Decision.BLOCKED and prompter.soruldu == [], (mod, komut)
+    istek = build_request(_arac(), {"command": komut}, root=proje, rules=kurallar)
+    assert "--add-dir" in (istek.pre_denied or "")
+    # Proje içine yönlendirme serbesttir; engel kapalıyken dışarı yazma yine sorulur.
+    istek = build_request(_arac(), {"command": "echo x > cikti.txt"}, root=proje, rules=kurallar)
+    assert istek.pre_denied is None
+    karar, prompter = await _karar(
+        ApprovalMode.AUTO, _arac(), {"command": komut}, proje, _kurallar()
+    )
+    assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
+
+
 def test_kok_disi_engel_dosya_araci_duzeyinde_tek_yonludur(tmp_path):
     proje = tmp_path / "proje"
     proje.mkdir()
@@ -257,6 +311,28 @@ def test_kural_onerisi_dar_uretilir(tmp_path):
     assert rule_for_request(istek, tmp_path).pattern == "Edit(/src/alt/**)"
     istek = build_request(_arac("desktop_click"), {"x": 1}, root=tmp_path)
     assert rule_for_request(istek, tmp_path).pattern == "desktop_click"
+
+
+@pytest.mark.parametrize(
+    ("komut", "kural"),
+    [
+        ("python -m pytest", "Bash(python -m pytest)"),
+        ('python3 -c "import os"', 'Bash(python3 -c "import os")'),
+        ("node script.js", "Bash(node script.js)"),
+        ("bash deploy.sh", "Bash(bash deploy.sh)"),
+        ("find . -name x -delete", "Bash(find . -name x -delete)"),
+        ("ls -la", "Bash(ls -la)"),
+        ("npm test -- --watch=false", "Bash(npm test *)"),
+        ("git status --short", "Bash(git status *)"),
+    ],
+)
+def test_kural_onerisi_yorumlayicida_ve_bayrakli_komutta_genel_on_eke_dusmez(
+    tmp_path, komut, kural
+):
+    """Ölçüldü (31 Ekim): `python -m pytest` için `Bash(python *)` yazılıyordu; bu, her projede
+    `python -c '…'` dahil sınırsız izin demekti."""
+    istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+    assert rule_for_request(istek, tmp_path).pattern == kural
 
 
 async def test_bir_daha_sorma_kurali_dosyaya_yazilir_ve_oturumda_hatirlanir(tmp_path):
