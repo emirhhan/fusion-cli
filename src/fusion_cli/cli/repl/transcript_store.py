@@ -23,6 +23,7 @@ from ...core.events import Event
 from ...core.leak_filter import is_harness_note, strip_harness_leaks
 from ...core.redaction import redact
 from ...core.types import Message
+from ...core.worktree import project_root_of
 
 _MAX_SNAPSHOT_BYTES = 1_500_000
 _MAX_HISTORY_MESSAGES = 100
@@ -233,8 +234,14 @@ def validate_conversation_move(
 
 
 def _workspace_digest(root: Path) -> str:
-    """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın."""
-    return hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+    """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın.
+
+    Git çalışma ağacı (`.fusion/worktrees/<ad>`) ana projenin anahtarını kullanır: `/worktree`
+    ve `--worktree` konuşmayı bölmez, `--continue` ağacın içinden de projenin sohbetini bulur.
+    """
+    return hashlib.sha256(str(project_root_of(root.expanduser().resolve())).encode()).hexdigest()[
+        :16
+    ]
 
 
 #: Sohbet listesinde gösterilecek başlığın en fazla uzunluğu.

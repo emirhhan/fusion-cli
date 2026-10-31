@@ -119,6 +119,22 @@ def repository_root(path: Path) -> Path | None:
     return Path(output.strip()).resolve() if output.strip() else None
 
 
+def project_root_of(path: Path) -> Path:
+    """`path` bir Fusion çalışma ağacının içindeyse ana depo kökü; değilse `path` olduğu gibi.
+
+    Yalnız sözcüksel bakar (disk okumaz): `<kök>/.fusion/worktrees/<ad>[/…]` → `<kök>`.
+    Sohbet transcript'i buna göre anahtarlanır: çalışma ağacı aynı projenin bir dalıdır,
+    konuşma projeye aittir. Ölçüldü (31 Ekim): kök ağaca geçince transcript yeni kök
+    digest'i altında ayrı dosyaya gidiyor, masaüstünde geçmiş boşalıyor ve sohbet iki
+    dosyaya bölünüyordu.
+    """
+    for candidate in (path, *path.parents):
+        parent = candidate.parent
+        if parent.name == WORKTREE_DIR.name and parent.parent.name == ".fusion":
+            return parent.parent.parent
+    return path
+
+
 def worktree_for_path(path: Path) -> Worktree | None:
     """`path` bir Fusion çalışma ağacının içindeyse künyesi; değilse `None`."""
     resolved = path.expanduser().resolve()

@@ -69,6 +69,7 @@ from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
+from ..core.worktree import worktree_for_path
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
@@ -2051,7 +2052,15 @@ class AppSession:
             self._state.root = self._root
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
         self._apply_root(self._state.root)
-        self._rebind_transcript()
+        # Konuşma AYNI sohbettir: geçmiş, tur checkpoint'leri ve kimlik korunur; yalnız
+        # depo yeni köke bağlanır (çalışma ağacı projenin transcript anahtarını paylaşır).
+        # Ölçüldü (31 Ekim): `_rebind_transcript` geçmişi yeni kökten yeniden yüklüyor,
+        # /worktree sonrası model önceki konuşmayı bilmiyordu.
+        self._transcript_store = TranscriptStore(
+            self._state.config.memory_dir,
+            self._root,
+            conversation_id=self._transcript_store.session_id,
+        )
         self._all_capabilities = CapabilityRegistry(self._home, self._root)
         self._disabled_skills.clear()
         self._disabled_agents.clear()
@@ -2064,6 +2073,9 @@ class AppSession:
         root_changed = new_root.resolve() != self._root.resolve()
         self._root = new_root
         self._state.root = self._root
+        # Künye kökten türetilir: sekme bir çalışma ağacı köküyle açılırsa `/worktree cik`
+        # çalışır; başka projeye geçilirse eski ağacın künyesi kalmaz.
+        self._state.worktree = worktree_for_path(self._root)
         if root_changed:
             # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
             # yeni projeye taşınmaz.
