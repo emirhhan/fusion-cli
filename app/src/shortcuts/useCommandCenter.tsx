@@ -3,6 +3,7 @@ import type { SettingsSection } from "../settings/search";
 import { runAppAction, type AppActionDeps } from "./appActions";
 import { CommandPalette } from "./CommandPalette";
 import { isMacPlatform } from "./keys";
+import { blockingModalOpen } from "./modalGate";
 import type { PaletteItem } from "./paletteItems";
 import { buildPaletteItems, type PaletteChat, type PaletteCommand } from "./paletteSources";
 import { useGlobalShortcuts, useKeymap } from "./useAppShortcuts";
@@ -47,6 +48,8 @@ export function useCommandCenter(input: CommandCenterInput): ReactNode {
   const handler = useRef<(action: string) => boolean>(() => false);
   handler.current = (action) => {
     if (inputRef.current.blocked) return false;
+    // Diyalog açıkken eylem çalışmaz; `true` ile bağlı tuşun tarayıcı davranışı da engellenir.
+    if (blockingModalOpen()) return true;
     if (query !== null && action !== "palet" && action !== "dosya_ara") setQuery(null);
     return runAppAction(action, deps());
   };

@@ -111,6 +111,28 @@ describe("uygulama kısayolları", () => {
     expect(await screen.findByRole("dialog", { name: "Ayarlar" })).toBeTruthy();
   });
 
+  it("uygulama içi bir modal açıkken kısayollar ve palet çalışmaz", async () => {
+    // Ölçüldü (31 Ekim): paylaş diyaloğu açıkken Ctrl+K palet açıyor, Ctrl+B arkada kenar çubuğunu
+    // değiştiriyordu; paletin Esc'i diyaloğu da kapatıyordu.
+    const fake = composerTransport({ "ayar.arayuz": { ok: true, degerler: {} } });
+    render(<SessionUygulama transport={fake.transport} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+    ctrl("k", "KeyK");
+    const input = await screen.findByRole("combobox", { name: /Komut, sohbet/ });
+    fireEvent.change(input, { target: { value: ">dışa aktar" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Sohbeti paylaş" })).toBeTruthy();
+    const sidebar = () => screen.getByRole("navigation", { name: "Fusion", hidden: true }).getAttribute("data-collapsed");
+    const before = sidebar();
+    // Eylem çalışmaz ama bağlı tuşun tarayıcı davranışı (Windows'ta Ctrl+P yazdır) yine engellenir.
+    expect(ctrl("p", "KeyP")).toBe(false);
+    ctrl("k", "KeyK");
+    ctrl("b", "KeyB");
+    expect(screen.queryByRole("combobox", { name: /Komut, sohbet/ })).toBeNull();
+    expect(sidebar()).toBe(before);
+    expect(screen.getByRole("dialog", { name: "Sohbeti paylaş" })).toBeTruthy();
+  });
+
   it("/keybindings masaüstünde Ayarlar › Kısayollar'ı açar, çekirdeğe komut gitmez", async () => {
     const fake = composerTransport({ "ayar.arayuz": { ok: true, degerler: {} } });
     render(<SessionUygulama transport={fake.transport} />);
