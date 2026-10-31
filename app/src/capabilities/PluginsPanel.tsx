@@ -9,7 +9,10 @@ import "./PluginsPanel.css";
  * Bir eklenti beceri, komut, ajan, çıktı stili, kanca ve MCP sunucusunu tek paket olarak getirir.
  * Kanca/MCP Fusion dışında komut çalıştırdığı için kurulum iki adımdır: önce önizleme (bileşenler,
  * MCP komutları, uyarılar) gösterilir, kullanıcı "Onaylıyorum, kur" deyince `onay: true` gider.
- * Dosyaları kurulumdan sonra değişen eklenti "değişmiş" görünür ve yeniden onaylanana dek yüklenmez.
+ * Dosyaları kurulumdan sonra değişen eklenti "değişmiş" görünür ve yeniden onaylanana dek yüklenmez;
+ * "Yeniden onayla" önce güncel içeriğin önizlemesini ister, onay o önizlemenin karmasıyla gider.
+ * Önizleme karması (`karma`) onaylı isteğe `beklenen_karma` olarak eklenir: kullanıcı kartı okurken
+ * kaynak değiştiyse sunucu kurmaz.
  */
 
 interface Components { beceri: number; komut: number; ajan: number; stil: number; kanca: boolean; mcp: boolean }
@@ -19,9 +22,11 @@ interface InstalledPlugin {
 }
 interface Preview {
   ad: string; surum: string; aciklama: string; yazar: string; bilesenler: Components;
-  kanca_sayisi: number; mcp: { ad: string; hedef: string }[]; calistirilabilir: boolean;
-  baglam_maliyeti: number; uyarilar: string[]; hatalar: string[];
+  kanca_sayisi: number; kancalar: string[]; kancalar_calismaz: boolean; mcp: { ad: string; hedef: string }[];
+  calistirilabilir: boolean; baglam_maliyeti: number; uyarilar: string[]; hatalar: string[]; karma: string;
 }
+/** Ekrandaki önizleme: yeni kurulum mu, değişmiş eklentinin yeniden onayı mı. */
+type PendingPreview = { mode: "kur"; kaynak: string; data: Preview } | { mode: "guven"; ad: string; data: Preview };
 interface CatalogEntry { ad: string; pazar: string; surum: string; aciklama: string; kurulu: boolean }
 interface Marketplace { ad: string; kaynak: string; tur: string }
 
@@ -59,9 +64,10 @@ function previewFrom(raw: unknown): Preview | null {
   const servers = Array.isArray(item.mcp) ? item.mcp.filter((s): s is { ad: string; hedef: string } => !!s && typeof s === "object" && typeof (s as Record<string, unknown>).ad === "string") : [];
   return {
     ad: str(item.ad), surum: str(item.surum), aciklama: str(item.aciklama), yazar: str(item.yazar), bilesenler: components(item.bilesenler),
-    kanca_sayisi: typeof item.kanca_sayisi === "number" ? item.kanca_sayisi : 0, mcp: servers.map((s) => ({ ad: s.ad, hedef: str(s.hedef) })),
+    kanca_sayisi: typeof item.kanca_sayisi === "number" ? item.kanca_sayisi : 0, kancalar: texts(item.kancalar),
+    kancalar_calismaz: item.kancalar_calismaz === true, mcp: servers.map((s) => ({ ad: s.ad, hedef: str(s.hedef) })),
     calistirilabilir: item.calistirilabilir === true, baglam_maliyeti: typeof item.baglam_maliyeti === "number" ? item.baglam_maliyeti : 0,
-    uyarilar: texts(item.uyarilar), hatalar: texts(item.hatalar),
+    uyarilar: texts(item.uyarilar), hatalar: texts(item.hatalar), karma: str(item.karma),
   };
 }
 
@@ -79,13 +85,19 @@ const STATUS_TONE: Record<string, string> = { etkin: "on", kapalı: "off", deği
 
 type Tab = "kurulu" | "kesfet" | "pazarlar";
 
-function PreviewCard({ preview, onConfirm, onCancel, busy }: { preview: Preview; onConfirm: () => void; onCancel: () => void; busy: boolean }) {
+interface PreviewCardProps { preview: Preview; reapprove: boolean; onConfirm: () => void; onCancel: () => void; busy: boolean }
+
+function PreviewCard({ preview, reapprove, onConfirm, onCancel, busy }: PreviewCardProps) {
   const blocked = preview.hatalar.length > 0;
+  const confirmLabel = reapprove ? "Onaylıyorum" : preview.calistirilabilir ? "Onaylıyorum, kur" : "Kur";
   return (
     <section aria-label="Eklenti önizlemesi" className="plugins-panel__preview">
       <h3>{preview.ad} {preview.surum}</h3>
       {preview.aciklama && <p>{preview.aciklama}</p>}
       <p className="plugins-panel__meta">{componentSummary(preview.bilesenler)} · bağlam ~{preview.baglam_maliyeti} token/tur{preview.yazar ? ` · ${preview.yazar}` : ""}</p>
+      {reapprove && <p className="plugins-panel__warn" role="note">Dosyalar kurulumdan sonra değişti. Aşağıdaki güncel içerik onaylanınca yeniden yüklenir.</p>}
+      {preview.kancalar.length > 0 && <ul aria-label="Kanca komutları">{preview.kancalar.map((line) => <li key={line}><code>{line}</code></li>)}</ul>}
+      {preview.kancalar_calismaz && <p className="plugins-panel__meta">Not: Fusion bu sürümde eklenti kancalarını henüz çalıştırmıyor; kancalar onaylansa da tetiklenmez.</p>}
       {preview.mcp.length > 0 && <ul aria-label="MCP sunucuları">{preview.mcp.map((server) => <li key={server.ad}><code>{server.ad}</code> → <code>{server.hedef}</code></li>)}</ul>}
       {preview.uyarilar.map((warning) => <p className="plugins-panel__warn" key={warning}>{warning}</p>)}
       {preview.hatalar.map((problem) => <p className="plugins-panel__error" key={problem} role="alert">{problem}</p>)}
@@ -95,7 +107,7 @@ function PreviewCard({ preview, onConfirm, onCancel, busy }: { preview: Preview;
         </p>
       )}
       <div className="plugins-panel__actions">
-        <button className="plugins-panel__primary" disabled={busy || blocked} onClick={onConfirm} type="button">{preview.calistirilabilir ? "Onaylıyorum, kur" : "Kur"}</button>
+        <button className="plugins-panel__primary" disabled={busy || blocked} onClick={onConfirm} type="button">{confirmLabel}</button>
         <button disabled={busy} onClick={onCancel} type="button">Vazgeç</button>
       </div>
     </section>
@@ -110,7 +122,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [source, setSource] = useState("");
   const [marketSource, setMarketSource] = useState("");
-  const [preview, setPreview] = useState<{ kaynak: string; data: Preview } | null>(null);
+  const [preview, setPreview] = useState<PendingPreview | null>(null);
   const [confirmRemove, setConfirmRemove] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -147,16 +159,32 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
       const payload = await client.request("eklenti.onizle", { kaynak: kaynak.trim() });
       const data = previewFrom(payload.onizleme);
       if (payload.ok !== true || !data) throw new Error(str(payload.metin) || "Önizleme alınamadı.");
-      setPreview({ kaynak: kaynak.trim(), data });
+      setPreview({ mode: "kur", kaynak: kaynak.trim(), data });
     } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
   };
 
-  const install = async () => {
-    if (!preview) return;
-    // Önizleme kullanıcıya gösterildi: çalıştırılabilir eklentide onay bu tıklamadır.
-    const done = await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir }, `${preview.data.ad} kuruldu.`);
-    if (done) { setPreview(null); setSource(""); }
+  /** Değişmiş eklenti: önce güncel içeriğin önizlemesi (onaysız `eklenti.guven`), sonra onay. */
+  const askReapproval = async (ad: string) => {
+    setBusy(true); setError(null); setNotice(""); setPreview(null);
+    try {
+      const payload = await client.request("eklenti.guven", { ad });
+      const data = previewFrom(payload.onizleme);
+      if (payload.onay_gerekli !== true || !data) throw new Error(str(payload.metin) || "Önizleme alınamadı.");
+      setPreview({ mode: "guven", ad, data });
+    } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
   };
+
+  const confirmPreview = async () => {
+    if (!preview) return;
+    const beklenen_karma = preview.data.karma;
+    // Önizleme kullanıcıya gösterildi: onay bu tıklamadır ve yalnız gösterilen içerik için geçerli.
+    const done = preview.mode === "guven"
+      ? await run("eklenti.guven", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} yeniden onaylandı.`)
+      : await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma }, `${preview.data.ad} kuruldu.`);
+    if (done) { setPreview(null); if (preview.mode === "kur") setSource(""); }
+  };
+
+  const card = preview && <PreviewCard busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmPreview()} preview={preview.data} reapprove={preview.mode === "guven"} />;
 
   const discover = async () => {
     setTab("kesfet"); setBusy(true); setError(null);
@@ -182,7 +210,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
             <input aria-label="Eklenti kaynağı" onChange={(event) => setSource(event.target.value)} placeholder="Klasör, https://github.com/sahip/repo, sahip/repo ya da ad@pazar" value={source} />
             <button disabled={busy || !source.trim()} type="submit">Önizle</button>
           </form>
-          {preview && <PreviewCard busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void install()} preview={preview.data} />}
+          {card}
           <label className="plugins-panel__global">
             <input aria-label="Bütün eklentiler" checked={!allDisabled} disabled={busy} onChange={(event) => void run("eklenti.etkinlik", { hepsi: true, etkin: event.target.checked }, event.target.checked ? "Eklentiler açıldı." : "Bütün eklentiler kapatıldı.")} type="checkbox" />
             <span>Bütün eklentiler {allDisabled ? "kapalı" : "açık"}</span>
@@ -198,7 +226,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
                   {plugin.ayrinti && <small className="plugins-panel__warn">{plugin.ayrinti}</small>}
                 </div>
                 <div className="plugins-panel__actions">
-                  {plugin.durum === "değişmiş" && <button disabled={busy} onClick={() => void run("eklenti.guven", { ad: plugin.ad, onay: true }, `${plugin.ad} yeniden onaylandı.`)} type="button">Yeniden onayla</button>}
+                  {plugin.durum === "değişmiş" && <button disabled={busy} onClick={() => void askReapproval(plugin.ad)} type="button">İncele ve yeniden onayla</button>}
                   <button aria-checked={plugin.etkin} aria-label={`${plugin.ad} etkin`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.etkinlik", { ad: plugin.ad, etkin: !plugin.etkin }, `${plugin.ad} ${plugin.etkin ? "kapatıldı" : "açıldı"}.`)} role="switch" type="button"><span /></button>
                   {confirmRemove === plugin.ad ? (
                     <>
@@ -214,7 +242,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
       )}
       {tab === "kesfet" && (
         <>
-          {preview && <PreviewCard busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void install()} preview={preview.data} />}
+          {card}
           {catalog.length === 0 && <p className="skills-catalog__empty">Pazarlarda eklenti yok. Önce Pazarlar sekmesinden bir pazar ekle.</p>}
           <ul aria-label="Pazardaki eklentiler" className="plugins-panel__list">
             {catalog.map((entry) => (
