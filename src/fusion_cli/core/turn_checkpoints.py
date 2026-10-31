@@ -26,6 +26,7 @@ from enum import Enum
 from pathlib import Path
 
 from .changeset import ChangeSet
+from .leak_filter import is_harness_note
 from .types import Message
 
 #: Bellekte tutulacak en fazla checkpoint (Claude Code ile aynı tavan). Eskisi düşer.
@@ -53,6 +54,18 @@ _SCOPE_WORDS: dict[str, RewindScope] = {
 }
 
 
+def is_user_turn(message: Message) -> bool:
+    """Mesaj kullanıcının kendi gönderimi mi (harness notu değil)? Transcript ile aynı ölçüt."""
+    return (
+        message.role == "user" and not message.harness_note and not is_harness_note(message.content)
+    )
+
+
+def count_user_messages(history: Sequence[Message]) -> int:
+    """Geçmişteki gerçek kullanıcı mesajı sayısı (bkz. `is_user_turn`)."""
+    return sum(1 for message in history if is_user_turn(message))
+
+
 def parse_scope(text: str) -> RewindScope | None:
     """`kod` / `konuşma` / `ikisi` sözcüğünü kapsama çevir; tanınmazsa `None`."""
     return _SCOPE_WORDS.get(text.strip().casefold())
@@ -76,8 +89,14 @@ class TurnCheckpoint:
 
     @property
     def user_messages_before(self) -> int:
-        """Turdan önceki kullanıcı mesajı sayısı; transcript geri sarması bunu kullanır."""
-        return sum(1 for message in self.history_before if message.role == "user")
+        """Turdan önceki GERÇEK kullanıcı mesajı sayısı; transcript geri sarması bunu kullanır.
+
+        Harness notları (refleksiyon, compaction özeti, yönlendirme) motor geçmişinde
+        `role="user"` durur ama transcript'e yazılmaz. Ölçüldü (31 Ekim): onlar da
+        sayılınca `keep_users` transcript'teki kullanıcı sayısını aşıyor, `ConversationRewound`
+        hiçbir şeyi kesmiyor ve geri sarılan tur `--continue`/sekme değişiminde geri geliyordu.
+        """
+        return count_user_messages(self.history_before)
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,6 +27,7 @@ from .state import ReplState
 from .transcript_store import (
     ConversationRef,
     TranscriptStore,
+    conversation_prefix,
     copy_conversation,
     find_conversation,
     list_conversations,
@@ -193,11 +194,7 @@ def branch_command(state: ReplState, argument: str) -> str:
         target_id = fork_conversation(state.config.memory_dir, state.root, state.history, name=name)
     except (ValueError, OSError) as error:
         return messages.SESSION_COPY_FAILED.format(reason=error)
-    count = sum(
-        1
-        for message in state.history
-        if message.role in {"user", "assistant"} and message.content.strip()
-    )
+    count = len(conversation_prefix(state.history))
     state.conversation_id = target_id
     state.conversation_name = name
     # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo`/`/rewind` kaydı yeni kimliğe taşınmaz.

@@ -162,6 +162,40 @@ def test_rewind_argumanla_secici_acmadan_uygular_ve_transcripti_sarar(state):
     assert state.last_changes is None
 
 
+def test_rewind_harness_notlu_gecmiste_transcript_ile_ayni_sayar(state):
+    """Ölçüldü (31 Ekim): harness notu (`harness_note=True`, FUSION_NOT:) motor geçmişinde
+    role=user durur ama transcript'e yazılmaz; `keep_users` onu sayınca geri sarılan tur
+    yeniden yüklemede geri geliyordu."""
+    store = TranscriptStore(
+        state.config.memory_dir, state.root, conversation_id=state.conversation_id
+    )
+    for ad in ("bir", "iki", "uc"):
+        state.checkpoints.begin(ad, state.history)
+        state.history.extend([Message("user", ad), Message("assistant", f"a-{ad}")])
+        store.record_user(ad)
+        store.record_assistant(f"a-{ad}")
+        if ad == "bir":
+            # Refleksiyon notu: role=user, harness_note=True; transcript bunu zaten atlar.
+            state.history.append(Message("user", "FUSION_NOT: edit_streak", harness_note=True))
+            store.record_user("FUSION_NOT: edit_streak")
+            # Compaction özeti: öneksiz ama harness_note=True.
+            state.history.append(Message("user", "[önceki konuşmanın özeti]\n…", harness_note=True))
+
+    sonuc = _run(state, "/rewind 3 konusma")
+
+    assert "3. turun başına" in sonuc
+    assert [m.content for m in state.history if not m.harness_note] == [
+        "bir",
+        "a-bir",
+        "iki",
+        "a-iki",
+    ]
+    yuklenen = load_transcript_messages(
+        state.config.memory_dir, state.root, conversation_id=state.conversation_id
+    )
+    assert [m.content for m in yuklenen] == ["bir", "a-bir", "iki", "a-iki"], "3. tur dirilmemeli"
+
+
 def test_rewind_sira_serbest_ve_hatali_arguman(state):
     _seed_turns(state)
     assert "Kullanım" in _run(state, "/rewind 1 2")

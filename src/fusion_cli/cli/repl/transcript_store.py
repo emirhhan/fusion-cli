@@ -281,6 +281,23 @@ def find_conversation(base_dir: Path, root: Path, query: str) -> ConversationRef
     return None
 
 
+def conversation_prefix(messages: Sequence[Message]) -> list[Message]:
+    """Transcript'e yazılabilir kullanıcı/cevap mesajları: harness notları ve boş metin dışarıda.
+
+    Ölçüldü (31 Ekim): `/branch` motor geçmişini olduğu gibi veriyordu; FUSION_NOT: notunu
+    `record_user` atlıyor, doğrulama uyuşmazlık görüp `ValueError` fırlatıyordu; öneksiz
+    harness notu (compaction özeti) ise kopyaya sıradan kullanıcı mesajı olarak giriyordu.
+    """
+    return [
+        message
+        for message in messages
+        if message.role in {"user", "assistant"}
+        and message.content.strip()
+        and not message.harness_note
+        and not (message.role == "user" and is_harness_note(message.content))
+    ]
+
+
 def copy_conversation(
     base_dir: Path, root: Path, messages: Sequence[Message], *, target_id: str, name: str = ""
 ) -> int:
@@ -290,11 +307,7 @@ def copy_conversation(
     Yazılan geçmiş geri okunarak doğrulanır; eşleşmezse yarım sohbet silinir ve
     `ValueError` fırlatılır — kullanıcı "dallandı" sanıp boş bir sohbette kalmasın.
     """
-    prefix = [
-        message
-        for message in messages
-        if message.role in {"user", "assistant"} and message.content.strip()
-    ]
+    prefix = conversation_prefix(messages)
     if not any(message.role == "user" for message in prefix):
         raise ValueError("Kopyalanacak kullanıcı mesajı yok.")
     store = TranscriptStore(base_dir, root, conversation_id=target_id)

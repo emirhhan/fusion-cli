@@ -219,6 +219,28 @@ def test_branch_konusmayi_yeni_sohbete_kopyalar(state):
     assert refs[kaynak].name == ""
 
 
+def test_branch_harness_notlu_gecmisi_notsuz_kopyalar(state):
+    """Ölçüldü (31 Ekim): FUSION_NOT: notu kopyaya yazılmaya çalışılıyor, transcript onu
+    atlıyor ve doğrulama `ValueError` ile düşüyordu; öneksiz harness notu (compaction
+    özeti) ise kopyaya sıradan kullanıcı mesajı olarak giriyordu."""
+    state.history = [
+        Message("user", "soru"),
+        Message("assistant", "cevap"),
+        Message("user", "FUSION_NOT: edit_streak", harness_note=True),
+        Message("user", "[önceki konuşmanın özeti]\nözet", harness_note=True),
+        Message("user", "ikinci"),
+        Message("assistant", "cevap2"),
+    ]
+
+    sonuc = _run(state, "/branch")
+
+    assert "Dallandırıldı: 4 mesaj" in sonuc, sonuc
+    yuklenen = load_transcript_messages(
+        state.config.memory_dir, state.root, conversation_id=state.conversation_id
+    )
+    assert [m.content for m in yuklenen] == ["soru", "cevap", "ikinci", "cevap2"]
+
+
 def test_masaustu_koprusu_rename_destekler_resume_branch_reddeder(state):
     registry = build_registry()
     destek = {item["ad"]: item["destekleniyor"] for item in list_commands(registry)}
