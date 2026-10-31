@@ -44,6 +44,8 @@ export function describeSessionCron(task: SessionCronTask): string {
     return `Her ${task.every_s / size} ${label}`;
   }
   if (task.kind === "cron" && task.cron) return `Cron ${task.cron}`;
+  // Aralıksız `/loop <görev>`: sıradaki çalışmayı ajan seçer (P-038).
+  if (task.kind === "kendi_tempolu") return "Kendi tempolu";
   return "Bir kez";
 }
 

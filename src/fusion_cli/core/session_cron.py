@@ -33,6 +33,11 @@ MAX_AGE_S = 7 * 24 * 3600
 _CRON_LOOKAHEAD_DAYS = 366
 #: Görev metninin tavanı.
 MAX_PROMPT_CHARS = 8000
+#: Kendi tempolu döngüde ajanın seçebileceği gecikme aralığı (Claude Code: 1 dk – 1 sa).
+SELF_PACED_MIN_S = 60
+SELF_PACED_MAX_S = 3600
+#: Ajan sıradaki çalışmayı seçmezse döngü bu kadar sonra yine çalışır (eski sabit 10 dk).
+SELF_PACED_FALLBACK_S = 600
 
 _INTERVAL = re.compile(r"^\s*(\d+)\s*([smhd]?)\s*$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "": 60}
@@ -46,6 +51,9 @@ class Kind(Enum):
     INTERVAL = "aralik"
     CRON = "cron"
     ONCE = "bir_kez"
+    #: Kendi tempolu döngü (aralıksız `/loop <görev>`): sıradaki çalışmayı ajan seçer
+    #: (`schedule_wakeup loop_id`); seçmezse `SELF_PACED_FALLBACK_S` sonra yine çalışır.
+    SELF_PACED = "kendi_tempolu"
 
 
 class Source(Enum):
@@ -237,6 +245,8 @@ class CronTask:
             zaman = f"her {_human_interval(self.every_s)}"
         elif self.kind is Kind.CRON:
             zaman = f"cron {self.cron}"
+        elif self.kind is Kind.SELF_PACED:
+            zaman = "kendi tempolu"
         else:
             zaman = "bir kez"
         return f"{self.id} · {zaman} · {self.runs} çalışma · {self.prompt[:80]}"
@@ -303,6 +313,22 @@ class SessionCron:
         seconds = parse_interval(delay)
         return self._add(prompt, Kind.ONCE, now, now + seconds, source=source)
 
+    def create_self_paced(
+        self, prompt: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
+        """Kendi tempolu döngü: ilk çalışma hemen (boşta), sonrakini ajan seçer."""
+        return self._add(prompt, Kind.SELF_PACED, now, now, source=source)
+
+    def reschedule_self_paced(self, task_id: str, delay_s: int, *, now: float) -> CronTask:
+        """Ajanın seçtiği gecikmeyle döngünün sıradaki çalışmasını kur (1 dk – 1 sa)."""
+        task = self._tasks.get(task_id)
+        if task is None or task.kind is not Kind.SELF_PACED:
+            raise SessionCronError(f"Kendi tempolu döngü bulunamadı: {task_id}")
+        delay = min(max(delay_s, SELF_PACED_MIN_S), SELF_PACED_MAX_S)
+        updated = replace(task, next_due=now + delay)
+        self._tasks[task_id] = updated
+        return updated
+
     def restore(self, task: CronTask) -> None:
         """Verilip gönderilemeyen görevin önceki hâlini geri koy (masaüstü `cron.geri_ver`)."""
         self._tasks[task.id] = task
@@ -347,6 +373,8 @@ class SessionCron:
             return replace(task, runs=task.runs + 1, last_run_at=now)
         if task.kind is Kind.INTERVAL:
             next_due = now + task.every_s
+        elif task.kind is Kind.SELF_PACED:
+            next_due = now + SELF_PACED_FALLBACK_S
         else:
             spec = parse_cron(task.cron)
             next_due = cron_next_local(spec, now)

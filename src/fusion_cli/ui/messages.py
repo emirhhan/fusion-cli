@@ -1006,10 +1006,24 @@ GH_ACTION_NEXT_STEPS = (
     "   Yalnız depo sahibi/üyesi/ortak çalışanın yorumu tetikler (author_association).",
 )
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
-CMD_LOOP = "görevi aralıkla yinele (/loop 5m <görev>); list · stop [id]"
+CMD_LOOP = "görevi yinele: /loop 5m <görev> sabit · /loop <görev> kendi tempolu; list · stop [id]"
 LOOP_USAGE = "Kullanım: /loop [aralık] <görev|/komut> · /loop list · /loop stop [id|all]"
 LOOP_SET = (
     "döngü kuruldu ({id}): her {every} → {prompt}  (en az {min} dk; /loop stop {id} ile durur)"
+)
+LOOP_SET_SELF_PACED = (
+    "kendi tempolu döngü kuruldu ({id}): {prompt}\n"
+    "Şimdi çalışır; sıradaki çalışmayı ajan seçer (1 dk–1 sa, seçmezse 10 dk). "
+    "/loop stop {id} ile durur."
+)
+LOOP_SELF_PACED_TASK = (
+    "{prompt}\n\n"
+    '<kendi_tempolu_dongu id="{id}">\n'
+    "Bu görev kendi tempolu bir döngüdür. İşi yaptıktan sonra sıradaki çalışmayı kendin seç: "
+    'schedule_wakeup aracını loop_id="{id}" ile çağır (1m-1h; değişiklik bekliyorsan kısa, '
+    "sakin dönemde uzun). Döngüye artık gerek yoksa cron_delete ile {id} kimliğini sil. "
+    "Seçmezsen 10 dakika sonra yeniden çalışır.\n"
+    "</kendi_tempolu_dongu>"
 )
 LOOP_EMPTY = "Zamanlanmış görev yok."
 LOOP_LIST_TITLE = "{count} zamanlanmış görev:"

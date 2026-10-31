@@ -1,8 +1,9 @@
 """`/loop` komutu (P-038): oturum boyunca yineleyen görev.
 
     /loop 5m <görev|/komut>   sabit aralıkla
-    /loop <görev>             varsayılan aralıkla (10 dk)
-    /loop                     bakım görevi: .claude/loop.md (proje ya da ev), yoksa yerleşik metin
+    /loop <görev>             kendi tempolu: hemen çalışır, sıradakini ajan seçer (1 dk–1 sa;
+                              seçmezse 10 dk); `/komut` görevi sabit 10 dk
+    /loop                     bakım görevi (kendi tempolu): .claude/loop.md, yoksa yerleşik metin
     /loop list                görevleri listele
     /loop stop [id|all]       görevi (ya da hepsini) durdur
 
@@ -19,12 +20,17 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ...core.session_cron import MIN_INTERVAL_S, SessionCronError, looks_like_interval
+from ...core.session_cron import (
+    MIN_INTERVAL_S,
+    CronTask,
+    Kind,
+    SessionCronError,
+    looks_like_interval,
+)
 from ...ui import messages
 from .state import ReplState
 
-#: Aralık verilmeyen `/loop <görev>` için varsayılan (Claude Code'un kendi-tempolu döngüsü
-#: 1 dk-1 sa arasında salınır; sabit 10 dk güvenli orta nokta).
+#: Aralıksız `/loop /komut` için sabit aralık (komut modele gitmez, tempo seçemez).
 DEFAULT_INTERVAL = "10m"
 #: Argümansız `/loop`'un okuduğu bakım dosyaları (proje, sonra ev).
 LOOP_FILES = (Path(".claude") / "loop.md",)
@@ -104,13 +110,32 @@ def command(state: ReplState, argument: str) -> str:
     blocked = blocked_command(prompt)
     if blocked is not None:
         return messages.LOOP_COMMAND_BLOCKED.format(name=blocked)
+    self_paced = interval is None and not _is_slash(prompt)
     try:
-        task = state.cron.create_interval(prompt, interval or DEFAULT_INTERVAL, now=now)
+        if self_paced:
+            task = state.cron.create_self_paced(prompt, now=now)
+        else:
+            task = state.cron.create_interval(prompt, interval or DEFAULT_INTERVAL, now=now)
     except SessionCronError as error:
         return f"{error} {messages.LOOP_USAGE}"
+    if self_paced:
+        return messages.LOOP_SET_SELF_PACED.format(id=task.id, prompt=prompt[:80])
     return messages.LOOP_SET.format(
         id=task.id, every=interval or DEFAULT_INTERVAL, prompt=prompt[:80], min=MIN_INTERVAL_S // 60
     )
+
+
+def fire_prompt(task: CronTask) -> str:
+    """Vadesi gelen görevin tura giden metni; kendi tempolu döngüye tempo talimatı eklenir."""
+    if task.kind is not Kind.SELF_PACED:
+        return task.prompt
+    return messages.LOOP_SELF_PACED_TASK.format(prompt=task.prompt, id=task.id)
+
+
+def _is_slash(prompt: str) -> bool:
+    from .commands import is_command_line
+
+    return is_command_line(prompt)
 
 
 def blocked_command(prompt: str) -> str | None:

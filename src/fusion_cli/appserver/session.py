@@ -36,6 +36,7 @@ from typing import Any
 
 from ..cli.repl import cron_store, goal_flow, goal_store, macros, worktrees
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
+from ..cli.repl.loop_command import fire_prompt
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.state import Engine, ReplState
@@ -2077,7 +2078,7 @@ class AppSession:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
-            verilen.append({"id": task.id, "gorev": task.prompt, "kaynak": task.source.value})
+            verilen.append({"id": task.id, "gorev": fire_prompt(task), "kaynak": task.source.value})
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 

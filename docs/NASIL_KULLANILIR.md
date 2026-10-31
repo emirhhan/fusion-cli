@@ -939,8 +939,11 @@ Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tu
 gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
 
 - `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
-- `/loop <görev>` → varsayılan 10 dk; argümansız `/loop` → `.claude/loop.md` (proje ya da ev),
-  yoksa yerleşik bakım görevi.
+- `/loop <görev>` → **kendi tempolu**: görev hemen (boşta) çalışır; sıradaki çalışmayı ajan
+  `schedule_wakeup(in, loop_id)` ile 1 dk–1 sa arasında kendisi seçer, seçmezse 10 dk sonra
+  yine çalışır; gerek kalmayınca `cron_delete` ile döngüyü kendisi kapatabilir. Aralıksız
+  `/loop /verify` gibi komut görevleri sabit 10 dk'dır. Argümansız `/loop` → `.claude/loop.md`
+  (proje ya da ev), yoksa yerleşik bakım görevi (o da kendi tempolu).
 - `/loop list`, `/loop stop <id>`, `/loop stop all`.
 - Ajan araçları: `cron_create {prompt, every|cron|in}`, `cron_list`, `cron_delete {id}`,
   `schedule_wakeup {in, note}` (uzun dış iş için kendini uyandırma). Cron 5 alanlıdır:

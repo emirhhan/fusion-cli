@@ -79,6 +79,7 @@ from . import (
     goal_store,
     help_view,
     history_view,
+    loop_command,
     macros,
     persona_commands,
     plan_card,
@@ -293,7 +294,7 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
             continue
         task = due[0]
         state.scheduled_turn_only = task.source is Source.AGENT
-        if not reader.inject(task.prompt):
+        if not reader.inject(loop_command.fire_prompt(task)):
             state.scheduled_turn_only = False
             continue
         state.cron.complete(task.id, now=now)

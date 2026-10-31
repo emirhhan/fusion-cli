@@ -624,3 +624,47 @@ def test_yukleme_bayat_kayitlari_supurur(tmp_path: Path) -> None:
 
     assert len(cron_store.load(tmp_path, "yeni-repl")) == 0
     assert not eski.exists()
+
+
+# --- Kendi tempolu döngü (P-038 kalanı) --------------------------------------- #
+
+
+def test_loop_araliksiz_metin_gorevi_kendi_tempolu_ve_hemen_vadeli(state: ReplState) -> None:
+    """Ölçüldü (31 Ekim): aralıksız `/loop <görev>` sabit 10 dk'ydı; tempo ajanın olmalı."""
+    from fusion_cli.core.session_cron import Kind
+
+    cikti = _loop(state, "CI'ı izle")
+    (task,) = state.cron.list()
+    assert task.kind is Kind.SELF_PACED
+    assert "kendi tempolu" in cikti
+    assert state.cron.due(task.created_at) == (task,)
+    istem = loop_command.fire_prompt(task)
+    assert "CI'ı izle" in istem and f'loop_id="{task.id}"' in istem
+
+
+def test_kendi_tempolu_dongu_ajanin_sectigi_gecikmeyle_yeniden_kurulur(state: ReplState) -> None:
+    from fusion_cli.core.session_cron import SELF_PACED_FALLBACK_S, SELF_PACED_MAX_S
+
+    saat = _Clock(1_000_000.0)
+    task = state.cron.create_self_paced("CI'ı izle", now=saat.value)
+    sonraki = state.cron.complete(task.id, now=saat.value)
+    assert sonraki is not None and sonraki.next_due == saat.value + SELF_PACED_FALLBACK_S
+
+    araclar = {tool.name: tool for tool in cron_tools(saat)}
+    baglam = ToolContext(root=state.root, cron=state.cron)
+    sonuc = araclar["schedule_wakeup"].run({"in": "3m", "loop_id": task.id}, baglam)
+    assert sonuc.ok
+    assert state.cron.get(task.id).next_due == saat.value + 180  # type: ignore[union-attr]
+    araclar["schedule_wakeup"].run({"in": "5h", "loop_id": task.id}, baglam)
+    assert state.cron.get(task.id).next_due == saat.value + SELF_PACED_MAX_S  # type: ignore[union-attr]
+    assert len(state.cron) == 1, "loop_id yeni görev açmamalı"
+
+
+def test_schedule_wakeup_loop_id_yalniz_kendi_tempolu_gorevde(state: ReplState) -> None:
+    saat = _Clock(1_000_000.0)
+    sabit = state.cron.create_interval("a", "5m", now=saat.value)
+    araclar = {tool.name: tool for tool in cron_tools(saat)}
+    sonuc = araclar["schedule_wakeup"].run(
+        {"in": "3m", "loop_id": sabit.id}, ToolContext(root=state.root, cron=state.cron)
+    )
+    assert not sonuc.ok

@@ -48,5 +48,6 @@ it("durdurma reddedilirse hata metni gösterir", async () => {
 it("zamanlamayı kısa Türkçe ifadeye çevirir", () => {
   expect(describeSessionCron({ ...gorev, every_s: 7200 })).toBe("Her 2 saat");
   expect(describeSessionCron({ ...gorev, kind: "cron", cron: "0 9 * * *" })).toBe("Cron 0 9 * * *");
+  expect(describeSessionCron({ ...gorev, kind: "kendi_tempolu" })).toBe("Kendi tempolu");
   expect(describeSessionCron({ ...gorev, kind: "tek" })).toBe("Bir kez");
 });

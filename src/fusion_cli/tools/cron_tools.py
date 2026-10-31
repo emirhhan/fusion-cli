@@ -13,7 +13,7 @@ yükseltemesin).
 from __future__ import annotations
 
 from ..core.protocols import Clock
-from ..core.session_cron import SessionCron, SessionCronError, Source
+from ..core.session_cron import SessionCron, SessionCronError, Source, parse_interval
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 
 _STRING = {"type": "string"}
@@ -88,6 +88,18 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         if cron is None:
             return ToolResult.failure(_NO_CRON)
         delay, note = _text(args, "in"), _text(args, "note")
+        loop_id = _text(args, "loop_id")
+        if loop_id:
+            # Kendi tempolu `/loop` (P-038): yeni görev değil, döngünün sıradaki çalışması.
+            try:
+                seconds = parse_interval(delay or "10m")
+                task = cron.reschedule_self_paced(loop_id, seconds, now=clock.now())
+            except SessionCronError as error:
+                return ToolResult.failure(str(error))
+            return ToolResult(
+                f"Döngü {task.id} sıradaki çalışması "
+                f"{int(task.next_due - clock.now()) // 60} dk sonra. Turu kısa özetle bitir."
+            )
         prompt = note or "Zamanlanmış uyanma: bıraktığın işi kontrol et ve gerekirse sürdür."
         try:
             task = cron.create_once(prompt, delay or "1m", now=clock.now(), source=Source.AGENT)
@@ -149,6 +161,7 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
                 "properties": {
                     "in": {**_STRING, "description": "Gecikme: 1m-1h arası önerilir (ör. 10m)."},
                     "note": {**_STRING, "description": "Uyanınca ne kontrol edileceği."},
+                    "loop_id": {**_STRING, "description": "Kendi tempolu döngünün kimliği."},
                 },
                 "required": ["in"],
             },
