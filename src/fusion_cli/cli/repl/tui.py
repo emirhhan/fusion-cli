@@ -23,7 +23,7 @@ from html import escape as html_escape
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
-from prompt_toolkit.filters import Condition
+from prompt_toolkit.filters import Condition, Filter
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout import Layout
@@ -600,7 +600,7 @@ class FusionTui:
         # Yeniden bağlanabilir eylemler (varsayılanlar `config/keybindings.py`'de). Escape
         # yalnız `kes` içindir ve her kipte çalışır; kaydırma eylemleri modal dışında;
         # `c-r` tarihsel olarak en başa gider (End ile canlı akışa dönülür).
-        actions: dict[str, tuple[Callable[[], None], Condition | None]] = {
+        actions: dict[str, tuple[Callable[[], None], Filter | None]] = {
             "cik": (self._on_exit, None),
             "kes": (self._cancel_or_interrupt, None),
             "kip_dongusu": (self._on_cycle_mode, None),
@@ -611,13 +611,22 @@ class FusionTui:
             "kaydir_yukari": (lambda: self._scroll_by(_SCROLL_STEP), scrollable),
             "kaydir_asagi": (lambda: self._scroll_by(-_SCROLL_STEP), scrollable),
         }
+        # Vim kipinde (P-067) Esc INSERT'ten NORMAL'e geçmelidir. Ölçüldü (31 Ekim): uygulama
+        # düzeyinde eager bağlı `escape: kes` prompt_toolkit'in vi bağını eziyor, vi_state hep
+        # INSERT'te kalıyordu. INSERT kipinde (seçici açık değilken) `kes` bağı devre dışı kalır;
+        # NORMAL kipte ve seçicide Esc yine keser; Ctrl-C her kipte keser.
+        from prompt_toolkit.filters import vi_insert_mode
+
+        vi_typing = vi_insert_mode & Condition(lambda: self._mode != "choice")
         for key, action in self._keymap.bindings(CONTEXT_TUI).items():
             if action.startswith(COMMAND_PREFIX):
                 command = action[len(COMMAND_PREFIX) :].strip().lstrip("/")
                 handler: Callable[[], None] = self._command_sender(command)
-                condition: Condition | None = idle
+                condition: Filter | None = idle
             elif action in actions:
                 handler, condition = actions[action]
+                if action == "kes" and key == "escape":
+                    condition = ~vi_typing if condition is None else condition & ~vi_typing
             else:
                 continue
             try:
@@ -638,7 +647,7 @@ class FusionTui:
 
     @staticmethod
     def _add_action(
-        kb: KeyBindings, key: str, handler: Callable[[], None], condition: Condition | None
+        kb: KeyBindings, key: str, handler: Callable[[], None], condition: Filter | None
     ) -> None:
         def _run(_event: object) -> None:
             handler()

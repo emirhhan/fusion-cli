@@ -134,3 +134,35 @@ def test_keybindings_komutu_ornek_dosya_yazar_ve_listeler(
     monkeypatch.setattr(keybindings, "keybindings_path", lambda: path)
     out = keybindings_command(state, "")
     assert path.is_file() and str(path) in out and "[tui]" in out and "escape" in out
+
+
+def test_vim_kipinde_escape_insert_ten_normale_gecer_kesmez():
+    """Ölçüldü (31 Ekim): `escape: kes` uygulama düzeyinde eager bağlıydı; vi kipinde Esc her
+    zaman `_cancel_or_interrupt`'a gidiyor, vi_state INSERT'te kalıyordu (NORMAL'e geçilemiyordu).
+    Artık INSERT kipinde (seçici açık değilken) bağ devre dışı: prompt_toolkit'in vi bağı çalışır.
+    """
+    from prompt_toolkit.application.current import set_app
+    from prompt_toolkit.key_binding.vi_state import InputMode
+    from prompt_toolkit.keys import Keys
+
+    tui = FusionTui(
+        on_submit=lambda _t: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+    )
+    escape = [b for b in tui.application.key_bindings.bindings if tuple(b.keys) == (Keys.Escape,)]
+    assert len(escape) == 1
+    with set_app(tui.application):
+        assert escape[0].filter()  # emacs: Esc keser
+        tui.set_vim(True)
+        tui.application.vi_state.input_mode = InputMode.INSERT
+        assert not escape[0].filter()  # vi INSERT: Esc NORMAL'e geçer, kesmez
+        tui.application.vi_state.input_mode = InputMode.NAVIGATION
+        assert escape[0].filter()  # vi NORMAL: Esc keser
+        tui.application.vi_state.input_mode = InputMode.INSERT
+        tui._mode = "choice"
+        assert escape[0].filter()  # seçici açıkken Esc her kipte iptal
+        tui.set_vim(False)
+        tui._mode = "idle"
+        assert escape[0].filter()
