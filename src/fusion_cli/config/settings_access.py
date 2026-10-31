@@ -25,6 +25,15 @@ from .models import Config, EmbeddingConfig, RuntimeConfig
 #: Nokta yoluyla erişilebilen bölümler (ad → dataclass tipi).
 SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": EmbeddingConfig}
 
+#: Serbest metin görünen ama yalnız belirli değerleri anlamlı olan alanlar (31 Ekim: `mavi`
+#: 'tamam' deyip çalışma anında sessizce varsayılana düşüyordu). `ui.theme.PALETTES` ve
+#: `view_commands.TUI_MODES` ile aynı tutulur; test_settings_access bunu denetler (config katmanı
+#: ui'yi içe aktaramaz).
+SETTING_CHOICES: dict[str, tuple[str, ...]] = {
+    "runtime.terminal_theme": ("koyu", "acik", "ansi", "daltonizm"),
+    "runtime.tui": ("fullscreen", "inline"),
+}
+
 _TRUE = frozenset({"true", "1", "yes", "on", "evet", "açık", "acik", "aç", "ac"})
 _FALSE = frozenset({"false", "0", "no", "off", "hayır", "hayir", "kapalı", "kapali", "kapat"})
 
@@ -115,7 +124,12 @@ def parse_value(raw: str, target: object, where: str) -> object:
         except ValueError:
             raise ConfigError(f"{where}: sayı bekleniyordu, gelen: {raw!r}") from None
     if inner is str:
-        return text
+        choices = SETTING_CHOICES.get(where)
+        if choices and text.lower() not in choices:
+            raise ConfigError(
+                f"{where}: geçersiz değer '{text}'. İzin verilen: {', '.join(choices)}"
+            )
+        return text.lower() if choices else text
     if isinstance(inner, type) and issubclass(inner, Enum):
         try:
             return inner(text.lower())
@@ -171,11 +185,9 @@ def list_settings(config: Config, filter_text: str = "") -> list[Setting]:
             path = f"{section}.{field.name}"
             if needle and needle not in path.casefold():
                 continue
-            rows.append(
-                Setting(
-                    path, format_value(getattr(holder, field.name)), kind_name(hints[field.name])
-                )
-            )
+            choices = SETTING_CHOICES.get(path)
+            kind = "|".join(choices) if choices else kind_name(hints[field.name])
+            rows.append(Setting(path, format_value(getattr(holder, field.name)), kind))
     return rows
 
 

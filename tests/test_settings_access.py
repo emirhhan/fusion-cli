@@ -134,3 +134,23 @@ def test_cli_c_alt_komutlarda_da_uygulanir_ve_dosyaya_yazmaz(tmp_path: Path, mon
     assert yaml.safe_load(source.read_text(encoding="utf-8"))["runtime"]["max_tokens"] == 4096
     hata = runner.invoke(app, ["-c", "runtime.yok=1", "config", "get", "runtime.max_tokens"])
     assert hata.exit_code == 2 and "4096" not in hata.output
+
+
+def test_secimli_metin_alanlari_dogrulanir():
+    """Ölçüldü (31 Ekim): `runtime.terminal_theme=mavi`, `runtime.tui=ful` 'tamam' deyip çalışma
+    anında sessizce varsayılana düşüyordu."""
+    from fusion_cli.cli.repl.view_commands import TUI_MODES
+    from fusion_cli.config.settings_access import SETTING_CHOICES
+    from fusion_cli.ui.theme import PALETTES
+
+    with pytest.raises(ConfigError, match="İzin verilen"):
+        apply_setting(make_config(), "runtime.terminal_theme", "mavi")
+    with pytest.raises(ConfigError, match="İzin verilen"):
+        apply_setting(make_config(), "runtime.tui", "ful")
+    assert apply_setting(make_config(), "runtime.tui", "inline").runtime.tui == "inline"
+    assert set(SETTING_CHOICES["runtime.terminal_theme"]) == set(PALETTES)
+    assert tuple(SETTING_CHOICES["runtime.tui"]) == tuple(TUI_MODES)
+    assert (
+        "koyu|acik"
+        in {row.path: row.kind for row in list_settings(make_config())}["runtime.terminal_theme"]
+    )
