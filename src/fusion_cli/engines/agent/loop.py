@@ -323,6 +323,7 @@ def _new_budget(config: Config, deadline: TurnDeadline | None = None) -> TurnBud
         clock=deadline.clock if deadline else SystemClock(),
         total_timeout_s=deadline.remaining_s() if deadline else None,
         max_model_calls=config.runtime.agent_max_steps,
+        max_cost_usd=config.runtime.agent_max_cost_usd,
         max_verify_rounds=MAX_VERIFY_ROUNDS,
         max_empty_retries=MAX_EMPTY_RETRIES,
         max_contract_repairs=MAX_TOOL_CONTRACT_REPAIRS,
@@ -698,7 +699,12 @@ async def _run_agent(
     # `recall_lessons` / `find_skill` + `read_skill` ile ister. Ölçüldü: görev
     # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
     # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
-    proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
+    # `--bare` (P-026): betik koşusu proje talimatını ve dış bellekleri hiç okumaz.
+    proje_ve_dis_bellek = (
+        read_all_instructions(deps.tool_context.root, deps.home)
+        if deps.config.runtime.project_instructions
+        else ""
+    )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""
@@ -1421,6 +1427,10 @@ async def _drive(
         state.model_calls_made += 1
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
             return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+        # USD tavanı (`--max-budget-usd`, P-026): bilinen maliyet tavana ulaştıysa tur
+        # burada kapanır; modelin bu çağrıdaki cevabı korunur, yeni çağrı yapılmaz.
+        if budget.cost_exhausted:
+            return _halt(final_text, messages, state, budget, BudgetStop.COST_LIMIT, deps)
         # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
         # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
         execution = refresh_mutation_policy(execution, result.served_by, deps.config)

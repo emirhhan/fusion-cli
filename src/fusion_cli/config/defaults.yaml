@@ -292,6 +292,14 @@ runtime:
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
   nested_instructions: true
+  # Proje talimatı (AGENTS.md/CLAUDE.md) ve dış araç bellekleri tur başında okunsun mu?
+  # False yalnız `fusion agent --bare` gibi betik koşularında anlamlıdır (Claude Code
+  # `--bare`: hiçbir ayar/talimat/MCP yüklenmez). Varsayılan açık.
+  project_instructions: true
+  # Agent turunun BİLİNEN maliyeti (USD) için tavan; null = tavan yok. Dolunca tur
+  # `cost_limit` sebebiyle kapanır (`fusion agent --max-budget-usd`). Ücretsiz ya da
+  # maliyeti bilinmeyen model tavanı doldurmaz.
+  agent_max_cost_usd: null
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

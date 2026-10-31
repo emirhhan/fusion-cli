@@ -301,6 +301,23 @@ TURN_FAILED = "Görev başarısız · {duration}"
 RUN_EMPTY_TASK = "Görev metni boş olamaz."
 RUN_UNKNOWN_TASK_TYPE = "Bilinmeyen görev tipi: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_MODE = "Bilinmeyen onay modu: {given}. Geçerli olanlar: {valid}"
+# --- headless (`fusion agent` betik bayrakları; P-026) --- #
+HEADLESS_UNKNOWN_FORMAT = "Bilinmeyen çıktı biçimi: {given}. Geçerli olanlar: {valid}"
+HEADLESS_SCHEMA_UNREADABLE = "JSON şeması okunamadı ({path}): {error}"
+HEADLESS_AGENT_NOT_FOUND = (
+    "'{name}' adlı ajan tanımı bulunamadı (.claude/agents/<ad>.md). Mevcut ajanlar: {available}"
+)
+HEADLESS_AGENT_NONE = "yok"
+HEADLESS_STDIN_CHANNEL_CONFLICT = (
+    "Görev stdin'den okunurken onay kanalı da stdin olamaz; görevi argüman olarak ver."
+)
+HEADLESS_UNKNOWN_CHANNEL = "Bilinmeyen onay kanalı: {given}. Geçerli olanlar: {valid}"
+HEADLESS_SCHEMA_INSTRUCTION = (
+    "NİHAİ CEVAP BİÇİMİ: Son cevabın yalnızca aşağıdaki JSON şemasına uyan TEK bir JSON "
+    "nesnesi olsun; açıklama, başlık ya da kod çiti ekleme.\n{schema}"
+)
+HEADLESS_STRUCTURED_NOT_JSON = "nihai cevap geçerli bir JSON değil: {error}"
+HEADLESS_STRUCTURED_INVALID = "nihai cevap şemaya uymuyor ({count} hata)"
 RUN_UNKNOWN_FEEDBACK = "Bilinmeyen geri bildirim: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_ENGINE = "Bilinmeyen motor: {given}. Geçerli olanlar: {valid}"
 
@@ -486,6 +503,7 @@ APP_TURN_STOP_REASONS = {
     "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi",
     "empty_responses": "model art arda boş yanıt verdi",
     "context_thrash": "bağlam her sıkıştırmadan hemen sonra yeniden doldu",
+    "cost_limit": "turun maliyet tavanına (USD) ulaşıldı",
 }
 #: Model hiç metin üretmeden tur bütçeyle kesildiğinde gösterilen özet başlığı.
 #:

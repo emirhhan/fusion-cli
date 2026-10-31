@@ -311,6 +311,12 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
+    #: Proje talimatı ve dış araç bellekleri tur başında okunsun mu? `fusion agent --bare`
+    #: kapatır (Claude Code `--bare`); varsayılan açık (P-026).
+    project_instructions: bool = True
+    #: Agent turunun BİLİNEN maliyeti (USD) için tavan; `None` = tavan yok. Dolunca tur
+    #: `BudgetStop.COST_LIMIT` ile kapanır (`fusion agent --max-budget-usd`; P-026).
+    agent_max_cost_usd: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

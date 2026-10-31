@@ -10,11 +10,12 @@ anlaşılır bir mesajla gösterilir; stack trace kullanıcıya basılmaz.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import logging.handlers
 import sys
-from collections.abc import Coroutine
-from dataclasses import fields, replace
+from collections.abc import Awaitable, Callable, Coroutine
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar
 
@@ -43,6 +44,7 @@ from ..ui.tables import cost_summary
 from . import (
     capability_commands,
     eval_commands,
+    headless,
     knowledge_commands,
     memory_commands,
     paperclip_command,
@@ -287,7 +289,10 @@ def uninstall(
 
 @app.command()
 def agent(
-    task: str = typer.Argument(..., help="Agent'a verilecek görev."),
+    task: str = typer.Argument(
+        "",
+        help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
+    ),
     mode: str = typer.Option(
         "auto",
         "--mode",
@@ -300,7 +305,56 @@ def agent(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
     as_json: bool = typer.Option(
-        False, "--json", help="Olayları satır satır JSON olarak yaz (betikler için)."
+        False, "--json", help="`--output-format stream-json` kısaltması (olaylar JSONL)."
+    ),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Çıktı biçimi: text | json (tek sonuç nesnesi) | stream-json (olay başına satır).",
+    ),
+    json_schema: Annotated[
+        Path | None,
+        typer.Option(
+            "--json-schema",
+            help="Nihai cevabın uyması gereken JSON şeması dosyası; uymazsa çıkış kodu 1.",
+        ),
+    ] = None,
+    max_turns: int | None = typer.Option(
+        None, "--max-turns", min=1, help="Bu tur için model çağrısı üst sınırı."
+    ),
+    max_budget_usd: float | None = typer.Option(
+        None,
+        "--max-budget-usd",
+        min=0.0,
+        help="Bilinen maliyet bu tutara (USD) ulaşınca tur durur.",
+    ),
+    allowed_tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allowed-tools",
+            help="Modele YALNIZ bu araçlar sunulur (virgülle ya da tekrarla).",
+        ),
+    ] = None,
+    disallowed_tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--disallowed-tools",
+            help="Bu araçlar sorulmadan engellenir (virgülle ya da tekrarla).",
+        ),
+    ] = None,
+    append_system_prompt: str | None = typer.Option(
+        None, "--append-system-prompt", help="Sistem istemine eklenecek ek metin."
+    ),
+    bare: bool = typer.Option(
+        False, "--bare", help="Bellek, MCP/bağlayıcı ve proje talimatı yüklemeden çalış."
+    ),
+    agent_name: str | None = typer.Option(
+        None, "--agent", help="Baş ajan tanımı (.claude/agents/<ad>.md): sistem metni ve araç seti."
+    ),
+    permission_channel: str | None = typer.Option(
+        None,
+        "--permission-channel",
+        help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
     add_dir: Annotated[
@@ -312,49 +366,173 @@ def agent(
     ] = None,
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
-    if not task.strip():
-        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
-    approval = _parse_mode(mode)
-
-    config = load_config()
-    root = Path.cwd()
-    renderer = ConsoleRenderer(console, show_progress=not quiet)
-    observers = build_observers(
-        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+    options = _headless_options(
+        task,
+        mode=mode,
+        as_json=as_json,
+        output_format=output_format,
+        json_schema=json_schema,
+        agent_name=agent_name,
+        permission_channel=permission_channel,
+        append_system_prompt=append_system_prompt,
+        allowed_tools=allowed_tools,
+        disallowed_tools=disallowed_tools,
     )
+    config = headless.apply_limits(
+        load_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
+    )
+    root = Path.cwd()
+    streaming = options.output_format is headless.OutputFormat.STREAM_JSON
+    silent = quiet or options.output_format is not headless.OutputFormat.TEXT
+    renderer = ConsoleRenderer(console, show_progress=not silent)
+    observers = build_observers(
+        options.task,
+        renderer=None if options.output_format is headless.OutputFormat.JSON else renderer,
+        as_json=streaming,
+        trace_dir=config.memory_dir / "traces",
+    )
+    if streaming:
+        sys.stdout.write(
+            headless.system_init_line(
+                config, options.approval, root=root, channel=options.channel_name
+            )
+            + "\n"
+        )
+        sys.stdout.flush()
+    tool_context = ToolContext(
+        root=root,
+        extra_roots=tuple(add_dir or ()),
+        restrict_to_root=config.runtime.restrict_to_root,
+    )
+
+    def _prompter(
+        flush: Callable[[], Awaitable[None]],
+    ) -> ConsolePrompter | headless.JsonLinesPrompter:
+        if options.channel is headless.PermissionChannel.STDIN:
+            return headless.JsonLinesPrompter()
+        return ConsolePrompter(console, tool_context, flush=flush)
 
     outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
-                task,
+                options.task,
                 config,
                 sinks=observers.sinks,
-                prompter_factory=lambda flush: ConsolePrompter(
-                    console,
-                    ToolContext(
-                        root=root,
-                        extra_roots=tuple(add_dir or ()),
-                        restrict_to_root=config.runtime.restrict_to_root,
-                    ),
-                    flush=flush,
-                ),
-                mode=approval,
+                prompter_factory=_prompter,
+                mode=options.approval,
                 root=root,
                 home=Path.home(),
-                memory=open_memory(config, root=root, enabled=not no_memory),
+                memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
                 extra_roots=tuple(add_dir or ()),
+                extra_system=options.extra_system,
+                allowed_tools=options.allowed_tools,
+                denied_tools=options.denied_tools,
+                interactive=True if options.channel is not None else None,
             )
         ),
         renderer,
         observers,
     )
     observers.finish()
-    _print_usage(observers, quiet=quiet or as_json)
+    structured = (
+        headless.structured_result(outcome.final_text, options.schema)
+        if options.schema is not None
+        else None
+    )
+    if options.output_format is headless.OutputFormat.JSON:
+        sonuc = headless.result_object(
+            final_text=outcome.final_text,
+            ok=bool(outcome.ok),
+            budget_stopped=bool(getattr(outcome, "budget_stopped", False)),
+            stop_reason=getattr(outcome, "stop_reason", None),
+            model_calls=int(getattr(outcome, "model_calls_made", 0)),
+            cost=observers.cost,
+            structured=structured,
+        )
+        sys.stdout.write(json.dumps(sonuc, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    else:
+        _print_usage(observers, quiet=silent)
+        if structured is not None and not structured.ok:
+            for hata in structured.errors:
+                error_console.print(f"[{theme.ERROR}]{escape(hata)}[/{theme.ERROR}]")
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
-    # betikler başarısızlığı yakalayamıyordu (L1-46).
+    # betikler başarısızlığı yakalayamıyordu (L1-46). Şemaya uymayan cevap da başarısızdır.
     if not outcome.final_text.strip() or not outcome.ok:
         raise typer.Exit(1)
+    if structured is not None and not structured.ok:
+        raise typer.Exit(1)
+
+
+@dataclass(frozen=True, slots=True)
+class _HeadlessOptions:
+    """`fusion agent` bayraklarının çözülmüş hâli (komut gövdesi ince kalsın)."""
+
+    task: str
+    approval: ApprovalMode
+    output_format: headless.OutputFormat
+    schema: dict[str, object] | None
+    extra_system: str
+    allowed_tools: set[str] | None
+    denied_tools: frozenset[str]
+    channel: headless.PermissionChannel | None
+
+    @property
+    def channel_name(self) -> str | None:
+        return self.channel.value if self.channel is not None else None
+
+
+def _headless_options(
+    raw_task: str,
+    *,
+    mode: str,
+    as_json: bool,
+    output_format: str,
+    json_schema: Path | None,
+    agent_name: str | None,
+    permission_channel: str | None,
+    append_system_prompt: str | None,
+    allowed_tools: list[str] | None,
+    disallowed_tools: list[str] | None,
+) -> _HeadlessOptions:
+    """Bayrakları doğrula ve çöz; her hata Typer'ın `BadParameter` mesajına döner."""
+    try:
+        fmt = headless.parse_output_format("stream-json" if as_json else output_format)
+        channel = headless.parse_permission_channel(permission_channel)
+        schema = headless.load_schema(json_schema) if json_schema is not None else None
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+    task = headless.read_task(raw_task, sys.stdin, is_tty=sys.stdin.isatty())
+    if not task:
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    if channel is not None and raw_task.strip() in ("", "-"):
+        raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
+    parts: list[str] = []
+    allowed = headless.parse_tool_list(allowed_tools)
+    if agent_name:
+        try:
+            persona = headless.resolve_agent(agent_name, home=Path.home(), root=Path.cwd())
+        except ValueError as error:
+            raise typer.BadParameter(str(error)) from None
+        if persona.prompt:
+            parts.append(persona.prompt)
+        if persona.tools is not None:
+            allowed = persona.tools if allowed is None else allowed & persona.tools
+    if append_system_prompt:
+        parts.append(append_system_prompt)
+    if schema is not None:
+        parts.append(headless.schema_instruction(schema))
+    return _HeadlessOptions(
+        task=task,
+        approval=_parse_mode(mode),
+        output_format=fmt,
+        schema=schema,
+        extra_system="\n\n".join(parts),
+        allowed_tools=set(allowed) if allowed is not None else None,
+        denied_tools=headless.parse_tool_list(disallowed_tools) or frozenset(),
+        channel=channel,
+    )
 
 
 def _run_observed(

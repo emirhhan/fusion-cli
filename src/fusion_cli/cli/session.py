@@ -52,12 +52,14 @@ from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import (
     ApprovalMemory,
     ApprovalMode,
+    ApprovalPolicy,
     build_policy,
     may_run_unasked_commands,
 )
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.tool_filter import DeniedToolsPolicy
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
@@ -189,8 +191,12 @@ async def run_agent_task(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    denied_tools: frozenset[str] = frozenset(),
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
+
+    `denied_tools` (headless `--disallowed-tools`, P-026) adı geçen araçları sormadan
+    engelleyen bir sarmalayıcıyı seçili onay politikasının üstüne koyar.
 
     `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
@@ -260,19 +266,22 @@ async def run_agent_task(
             remotion_transport = browser_transport(tool_context.remotion_browser)
         if require_remotion_kit:
             tool_context.remotion_contract.require()
+
+        def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
+            policy: ApprovalPolicy = build_policy(active_mode, prompter, approval_memory)
+            return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
+
         deps = AgentDeps(
             config=config,
             deadline=deadline,
             publisher=bus,
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
-            policy=build_policy(mode, prompter, approval_memory),
+            policy=_policy(mode),
             steering=steering,
             child_runs=child_runs if child_runs is not None else ChildRuns(),
             selected_skill=selected_skill,
-            policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
-            if current_approval
-            else None,
+            policy_factory=(lambda: _policy(current_approval())) if current_approval else None,
             approval_revision=(
                 lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
             )
