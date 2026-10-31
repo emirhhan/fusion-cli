@@ -284,8 +284,15 @@ def _glob_name(pattern: str, name: str) -> bool:
 
 
 def _spec_prefix(rule: PermissionRule, text: str) -> bool:
-    """Ön ek eşlemesi: `x *` sözcük sınırı ister, `x*` istemez, yıldızsız birebirdir."""
-    spec = rule.specifier or ""
+    """Ön ek eşlemesi: `x *` sözcük sınırı ister, `x*` istemez, yıldızsız birebirdir.
+
+    Belirteçsiz kural (`Bash`, kanca kararıyla kurulan kural) aracın TÜM çağrılarına uyar.
+    Ölçüldü (31 Ekim): kabuk zinciri değerlendirmesi belirteci `""` sayıyordu; `deny: Bash`
+    ve PreToolUse `ask`/`allow` kararı hiçbir komutla eşleşmiyordu.
+    """
+    if rule.specifier is None:
+        return True
+    spec = rule.specifier
     if not spec.endswith("*"):
         return text == spec
     body = spec[:-1]

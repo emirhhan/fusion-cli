@@ -453,3 +453,49 @@ async def test_subagentstop_ajan_turuyle_eslesir_ve_alt_ajani_surdurur(monkeypat
     ]
     # Alt ajan kök değildir: Stop ve UserPromptSubmit tetiklenmez.
     assert _satirlar(tmp_path / "stop.jsonl") == []
+
+
+# --- İnceleme düzeltmeleri (31 Ekim) ---------------------------------------------- #
+
+
+def _kabuk(command: str, final: str = "ok") -> list:
+    """Tek `run_shell` çağrısı ve ardından son cevap."""
+    return [
+        model_result(tool_calls=[tool_call("run_shell", command=command)]),
+        model_result(final),
+    ]
+
+
+class _Reddeden(_Kaydeden):
+    async def confirm(self, request):
+        self.soruldu.append(request.tool.name)
+        return ApprovalAnswer.DENY
+
+
+async def test_pretooluse_ask_kabuk_aracinda_otomatik_kipte_de_sordurur(monkeypatch, tmp_path):
+    session = _oturum(tmp_path, _kanca(tmp_path, HookEvent.PRE_TOOL_USE, _ASK, "Bash"))
+    _, _, prompter, _ = await _tur(monkeypatch, tmp_path, _kabuk("ls"), session)
+    assert prompter.soruldu == ["run_shell"]
+
+
+async def test_pretooluse_allow_kabukta_manuelde_sormaz_deny_kuralini_gecemez(
+    monkeypatch, tmp_path
+):
+    session = _oturum(tmp_path, _kanca(tmp_path, HookEvent.PRE_TOOL_USE, _ALLOW, "Bash"))
+    _, _, prompter, _ = await _tur(
+        monkeypatch, tmp_path, _kabuk("mkdir yeni"), session, mod=ApprovalMode.SECURITY
+    )
+    assert prompter.soruldu == [] and (tmp_path / "yeni").is_dir()
+
+    deny = PermissionRuleSet((parse_rule("Bash(mkdir *)", PermissionDecision.DENY, source="t"),))
+    await _tur(monkeypatch, tmp_path, _kabuk("mkdir yasak"), session, rules=deny)
+    assert not (tmp_path / "yasak").exists()
+
+
+async def test_belirtecsiz_bash_kurali_her_kabuk_komutuna_uyar(tmp_path):
+    from fusion_cli.tools.permission_match import evaluate
+
+    for decision in (PermissionDecision.DENY, PermissionDecision.ASK, PermissionDecision.ALLOW):
+        rules = PermissionRuleSet((parse_rule("Bash", decision, source="t"),))
+        hit = evaluate(rules, "run_shell", {"command": "ls -la && git status"}, tmp_path)
+        assert hit is not None and hit.decision is decision
