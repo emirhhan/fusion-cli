@@ -406,3 +406,94 @@ async def test_tur_tavani_dolunca_ekip_baslamaz_kalan_payla_sinirlanir(tmp_path)
 
     assert not sonuc.ok and "tur" in sonuc.output
     assert TeamStore(tmp_path).load("kapi") is None
+
+
+# -- komut yüzeyi: alt komut gölgelemesi, ayrılmış adlar, sessiz ezme ----------- #
+
+
+def _state(tmp_path):
+    from tests.test_orchestration_surfaces import _state as surfaces_state
+
+    return surfaces_state(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "hedef",
+    [
+        "list the open PRs and review",
+        "sil eski loglari temizle",
+        "show me the API surface",
+        "kur giriş sayfasını tasarla",
+    ],
+)
+def test_team_alt_komut_kelimesiyle_baslayan_hedef_ekip_kurar(tmp_path, hedef):
+    from fusion_cli.cli.repl.team_commands import team_command
+
+    state = _state(tmp_path)
+
+    cikti = team_command(state, hedef)
+
+    assert "ekibi kuruyor" in cikti, cikti
+    beklenen = hedef.removeprefix("kur ").strip()
+    assert f"Hedef: {beklenen}" in state.pending_task
+
+
+def test_team_alt_komutlari_kayitli_ekip_ve_tek_adla_calisir(tmp_path):
+    from fusion_cli.cli.repl.team_commands import team_command
+
+    TeamStore(tmp_path).save(TeamBoard("site", "hedef", (TeamMember("kod"),)))
+    state = _state(tmp_path)
+
+    assert "site" in team_command(state, "goster site")
+    assert "adlı ekip yok" in team_command(state, "goster yok-boyle")
+    assert "adlı ekip yok" in team_command(state, "sil yok-boyle")
+    assert "/team kur" in team_command(state, "message the maintainers about it")
+    assert state.pending_task == ""
+    assert team_command(state, "mesaj site kod merhaba").startswith("'site' ekibi")
+    assert state.pending_task.startswith("team_run aracıyla 'site'")
+    assert team_command(state, "sil site") == "Silindi: site"
+
+
+@pytest.mark.parametrize("ad", ["goster", "liste", "sil", "iptal", "list", "show"])
+def test_ayrilmis_kelime_is_akisi_adi_olarak_kaydedilemez(tmp_path, ad):
+    from fusion_cli.engines.agent.workflow_spec import WorkflowError, parse_workflow
+    from fusion_cli.engines.agent.workflow_store import WorkflowStore
+
+    with pytest.raises(WorkflowError, match="ayrılmış"):
+        WorkflowStore(tmp_path).save(parse_workflow({"ad": ad, "adimlar": ["a"]}))
+
+
+async def test_kaydet_ayni_adli_farkli_tanimi_sessizce_ezmez_basarisiz_kosuda_kaydetmez(tmp_path):
+    from fusion_cli.engines.agent.workflow_spec import parse_workflow
+    from fusion_cli.engines.agent.workflow_store import WorkflowStore
+    from fusion_cli.engines.agent.workflow_tools import workflow_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_workflow_runtime import _deps, _ok
+
+    store = WorkflowStore(tmp_path)
+    elle = store.save(parse_workflow({"ad": "inceleme", "adimlar": ["elle yazılmış"]}))
+    once = elle.read_text(encoding="utf-8")
+    deps = _deps(tmp_path, RecordingSink())
+    baslayan: list[str] = []
+
+    async def _ajan(task, sub_deps, **kwargs):
+        baslayan.append(task)
+        return _ok(task)
+
+    arac = workflow_run_tool(deps, depth=0, run_agent=_ajan)
+    ezme = await arac.run(
+        {"tanim": {"ad": "inceleme", "adimlar": ["modelin"]}, "kaydet": True}, deps.tool_context
+    )
+
+    assert not ezme.ok and "zaten kayıtlı" in ezme.output
+    assert elle.read_text(encoding="utf-8") == once and baslayan == []
+
+    async def _iptal(task, sub_deps, **kwargs):
+        raise __import__("asyncio").CancelledError
+
+    yeni = await workflow_run_tool(deps, depth=0, run_agent=_iptal).run(
+        {"tanim": {"ad": "yeni-akis", "adimlar": ["x"]}, "kaydet": True}, deps.tool_context
+    )
+
+    assert "Kaydedildi" not in yeni.output
+    assert store.find("yeni-akis") is None

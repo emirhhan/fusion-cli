@@ -29,6 +29,10 @@ DEFINITION_SUFFIX = ".json"
 CANCEL_SUFFIX = ".iptal"
 #: Saklanan en fazla koşu kaydı; eskiler silinir.
 MAX_RUNS = 50
+#: `/workflows` alt komutları: bu adla kayıtlı akış hiç çalıştırılamazdı (komut gölgeler).
+RESERVED_NAMES = frozenset(
+    {"liste", "list", "goster", "show", "iptal", "cancel", "stop", "sil", "delete"}
+)
 #: Bitmiş sayılan koşu durumları.
 FINISHED = frozenset({"tamam", "yarim", "iptal", "hata"})
 
@@ -94,13 +98,37 @@ class WorkflowStore:
             raise WorkflowError(f"{saved.path} okunamadı: {error.strerror}.") from error
         return parse_workflow(raw, fallback_name=saved.name)
 
-    def save(self, spec: WorkflowSpec, *, scope: str = "proje") -> Path:
+    def save(self, spec: WorkflowSpec, *, scope: str = "proje", replace: bool = True) -> Path:
+        """Tanımı yaz. `replace=False`: aynı adlı FARKLI tanım varsa `WorkflowError`."""
+        path = self.ensure_savable(spec, scope=scope, replace=replace)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, spec.source + "\n")
+        return path
+
+    def ensure_savable(self, spec: WorkflowSpec, *, scope: str = "proje", replace: bool) -> Path:
+        """Kaydın gideceği yol; ayrılmış ad ya da (replace=False) çakışan tanım reddedilir.
+
+        Ölçüldü (31 Ekim): `kaydet: true` kullanıcının elle yazdığı aynı adlı proje
+        akışını onaysız eziyordu; 'goster'/'sil' adlı akış `/workflows`'ta çalıştırılamıyordu.
+        """
+        if spec.name in RESERVED_NAMES:
+            raise WorkflowError(
+                f"'{spec.name}' /workflows için ayrılmış bir kelime; tanıma başka bir 'ad' ver."
+            )
         directory = self.project_dir if scope == "proje" else self.user_dir
         if directory is None:
             raise WorkflowError("Kullanıcı iş akışı dizini bilinmiyor; 'proje' kapsamını kullan.")
-        directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{spec.name}{DEFINITION_SUFFIX}"
-        atomic_write(path, spec.source + "\n")
+        if not replace and path.is_file():
+            try:
+                same = path.read_text(encoding="utf-8").strip() == spec.source.strip()
+            except OSError:
+                same = False
+            if not same:
+                raise WorkflowError(
+                    f"'{spec.name}' adlı farklı bir iş akışı zaten kayıtlı ({path}); üzerine "
+                    f"yazılmadı. Başka bir 'ad' ver ya da önce '/workflows sil {spec.name}'."
+                )
         return path
 
     def delete(self, name: str) -> Path | None:

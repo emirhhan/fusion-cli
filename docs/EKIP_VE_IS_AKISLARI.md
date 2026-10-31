@@ -57,8 +57,10 @@ süslü parantezler (istemdeki kod örnekleri) dokunulmadan kalır. İngilizce a
 `yazma_alani` verin. Alanları çakışan yazarlar sırayla, alanı belirsiz yazar tek başına
 koşar (`spawn_agents` ile aynı kural).
 
-**Kaydetme.** `workflow_run` çağrısında `kaydet: true` tanımı `.fusion/workflows/<ad>.json`
-dosyasına yazar. Kullanıcı düzeyindeki akışlar `<yapılandırma dizini>/workflows/`
+**Kaydetme.** `workflow_run` çağrısında `kaydet: true`, koşu tam bitince tanımı
+`.fusion/workflows/<ad>.json` dosyasına yazar. Aynı adlı farklı bir tanım varsa koşu
+başlamadan reddedilir (sessizce ezilmez); `liste`, `goster`, `iptal`, `sil` gibi alt komut
+kelimeleri ad olamaz. Kullanıcı düzeyindeki akışlar `<yapılandırma dizini>/workflows/`
 altındadır (macOS/Linux: `~/.config/fusion-cli/workflows/`); aynı ad projede varsa proje kazanır.
 
 **Komutlar.**

@@ -33,6 +33,9 @@ CONFIRM_QUESTION = (
 DISABLED_MESSAGE = (
     "Dinamik iş akışları kapalı (runtime.dynamic_workflows: false); işi spawn_agents ile böl."
 )
+NOT_SAVED_NOTE = (
+    "\n\nTanım kaydedilmedi: koşu '{status}' bitti. Düzeltip kaydet: true ile yeniden çalıştır."
+)
 DECLINED_MESSAGE = "Kullanıcı iş akışını başlatmadı; ajan başlatılmadı."
 
 
@@ -56,14 +59,23 @@ def workflow_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
                 return ToolResult.failure(refusal)
             if not await _confirmed(deps, spec, count, limits.concurrency):
                 return ToolResult.failure(DECLINED_MESSAGE)
-            saved = ""
-            if coerce_bool(args.get("kaydet", False)) is True and args.get("tanim") is not None:
-                saved = f"\n\nKaydedildi: {store.save(spec)} (/workflows {spec.name} ile çalışır)"
+            save = coerce_bool(args.get("kaydet", False)) is True and args.get("tanim") is not None
+            if save:
+                # Çakışma koşudan ÖNCE söylenir; kayıt yalnız koşu tam bitince yazılır.
+                store.ensure_savable(spec, replace=False)
             result = await run_workflow(
                 deps, spec, plan, inputs, depth=depth, run_agent=run_agent, store=store
             )
+            saved = ""
+            if save and result.status == "tamam":
+                path = store.save(spec, replace=False)
+                saved = f"\n\nKaydedildi: {path} (/workflows {spec.name} ile çalışır)"
+            elif save:
+                saved = NOT_SAVED_NOTE.format(status=result.status)
         except WorkflowError as error:
             return ToolResult.failure(str(error))
+        except OSError as error:
+            return ToolResult.failure(f"İş akışı kaydedilemedi: {error}")
         text = result.report + saved
         return ToolResult.failure(text) if result.status in {"iptal", "hata"} else ToolResult(text)
 
@@ -73,7 +85,7 @@ def workflow_run_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
         "(istem), paralel, sira (boru hattı, {onceki}), evre (ad + adimlar), her (liste + "
         "ajan/asamalar, {oge}); yer tutucular {girdi.X} {sonuc.ID}. Ya da kayıtlı akışı "
         "'ad' ile çalıştır. Yazmayan adıma salt_okunur:true, yazana yazma_alani ver (yoksa "
-        "sırayla koşar). kaydet:true tanımı .fusion/workflows/ altına yazar.",
+        "sırayla koşar). kaydet:true, koşu tam bitince tanımı .fusion/workflows/ altına yazar.",
         parameters={
             "type": "object",
             "properties": {
