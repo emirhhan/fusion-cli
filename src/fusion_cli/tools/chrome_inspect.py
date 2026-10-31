@@ -18,8 +18,10 @@ from .web import browser_block_reason
 
 #: Konsol/ağ okumasında tek seferde dönen en çok kayıt.
 MONITOR_LIMIT = 50
-#: `wait` değeri bunlardan biriyse metin değil ağın boşa düşmesi beklenir.
-NETWORK_IDLE_VALUES = frozenset({"network_idle", "network", "ağ", "ag"})
+#: `wait` değeri buysa metin değil ağın boşa düşmesi beklenir. Ölçüldü (31 Ekim): "network",
+#: "ağ", "ag" takma adları bir sekme adı/sayfa başlığı olarak beklenen metni sessizce ağ
+#: beklemesine çeviriyordu; yalnız `network_idle` ayrılmıştır.
+NETWORK_IDLE_VALUES = frozenset({"network_idle"})
 #: Konsol değerinin "yalnız hatalar" öneki (`errors` ya da `errors:desen`).
 _ERRORS_PREFIX = "errors"
 #: Ağ değerinde istek kimliği (`id:17`).

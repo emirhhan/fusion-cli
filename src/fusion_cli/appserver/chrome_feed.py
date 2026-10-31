@@ -226,7 +226,7 @@ _ACTION_TEXTS = {
 #: Ekran kaydı adımları: `start` → başladı, `stop` → GIF yazıldı.
 _RECORD_TEXTS = {"start": "Ekran kaydı başladı", "stop": "Ekran kaydı GIF olarak kaydedildi"}
 #: Ağ boşta beklemesini seçen `wait` değerleri (`tools/chrome.py` ile aynı küme).
-_NETWORK_IDLE_VALUES = frozenset({"network_idle", "network", "ağ", "ag"})
+_NETWORK_IDLE_VALUES = frozenset({"network_idle"})
 
 
 def _host(url: object) -> str:

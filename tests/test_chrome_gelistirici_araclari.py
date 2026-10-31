@@ -140,12 +140,22 @@ async def test_ag_bosta_bekleme_eklentiye_network_idle_ile_gider():
     kopru = _Kopru({"wait": {"idle": True, "waited_ms": 800}})
     baglam = _baglam(kopru)
 
-    for deger in ("network_idle", "ağ", "network"):
+    for deger in ("network_idle", " Network_Idle "):
         assert (await chrome.chrome_action({"action": "wait", "value": deger}, baglam)).ok
-    assert (await chrome.chrome_action({"action": "wait", "value": "Kaydedildi"}, baglam)).ok
+    # Ölçüldü (31 Ekim, bağımsız inceleme): "network", "ağ", "ag" da ağ beklemesi sayılıyordu;
+    # "Network" bir sekme adı ya da sayfa başlığı olabilir ve eskiden metin olarak beklenirdi.
+    # Yalnız `network_idle` ayrılmış anahtardır.
+    for metin in ("Kaydedildi", "Network", "ağ", "ag"):
+        assert (await chrome.chrome_action({"action": "wait", "value": metin}, baglam)).ok
 
-    assert kopru.cagrilar[:3] == [("wait", {"network_idle": True, "timeout_ms": 20_000})] * 3
-    assert kopru.cagrilar[3] == ("wait", {"text": "Kaydedildi", "timeout_ms": 20_000})
+    assert kopru.cagrilar[:2] == [("wait", {"network_idle": True, "timeout_ms": 20_000})] * 2
+    assert kopru.cagrilar[2:] == [
+        ("wait", {"text": metin, "timeout_ms": 20_000})
+        for metin in ("Kaydedildi", "Network", "ağ", "ag")
+    ]
+    assert (
+        step_text("chrome_action", {"action": "wait", "value": "Network"}) == "“Network” bekleniyor"
+    )
 
 
 # --- P-044: GIF kaydı ---------------------------------------------------------------------

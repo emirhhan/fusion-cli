@@ -39,7 +39,7 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
   `fusionMonitor`). Köprüde `COMMAND_TIMEOUT` içinde okuma: zaman aşımı "SONUÇ BİLİNMİYOR" üretmez (salt okuma).
 - **Ağaç** (`P-043`): `chrome_page tree=interactive depth=6` ya da `tree=all ref=e12`. Satır biçimi:
   `  button "Kaydet" [e3] disabled`, `heading "Başlık" level=1`, `text "..."`. 600 satırda kırpılır ve not düşer.
-- **Ağ boşta** (`P-043`): `chrome_action wait value=network_idle` (eş: `network`, `ağ`); en çok 20 sn.
+- **Ağ boşta** (`P-043`): `chrome_action wait value=network_idle` (yalnız bu anahtar; `network`/`ağ` gibi sözcükler sayfa metni olarak beklenir); en çok 20 sn.
 - **GIF** (`P-044`): `record start` → işlemler → `record stop`; kareler eklentinin uzun yaşayan belgesinde (offscreen
   ya da elle bağlantıda panel) toplanır, köprüye ≤2,5 MB parçalarla gelir, GIF `.fusion/kayitlar/` altına yazılır.
   Ekran görüntüsüyle aynı "tüm siteler" izni gerekir.
