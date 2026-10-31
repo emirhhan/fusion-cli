@@ -1418,3 +1418,39 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+# --- Otomatik kip denetçisi (P-011) ----------------------------------------- #
+CMD_AUTO_MODE = "otomatik kip denetçisi: durum, ayar (off|ask_only|on), Manuel'e düştüyse devam"
+AUTO_REVIEW_DECIDED = "denetçi ({source}): {verdict} — {summary} · {reason}"
+AUTO_REVIEW_VERDICT_LABELS = {"guvenli": "güvenli, sorulmadı", "riskli": "riskli, soruluyor"}
+AUTO_REVIEW_SOURCE_LABELS = {"model": "model", "kural": "kural", "onbellek": "önbellek"}
+AUTO_REVIEW_FELL_BACK = (
+    "Otomatik kip Manuel'e düştü: {reason}. Bundan sonra okuma dışındaki her işlem sorulur. "
+    "Otomatik'e dönmek için: /auto-mode devam (masaüstünde: izin modu › Otomatik)."
+)
+AUTO_REVIEW_SETTING_LABELS = {
+    "off": "kapalı (yalnız kurallar)",
+    "ask_only": "sorulacakları sınıflandır",
+    "on": "sorulacaklar + tüm yazan kabuk komutları",
+}
+AUTO_REVIEW_STATUS = (
+    "Denetçi: {setting} · model: {model}\n"
+    "Engel: üst üste {consecutive}/{consecutive_limit}, toplam {total}/{total_limit} · "
+    "kip düşüşü: {trips}{fell_back}{offline}"
+)
+AUTO_REVIEW_STATUS_FELL_BACK = " · ŞU AN MANUEL'E DÜŞMÜŞ ({reason})"
+AUTO_REVIEW_STATUS_OFFLINE = " · model erişilemiyor, kurallı yedek"
+AUTO_REVIEW_STATUS_RECENT = "Son kararlar:"
+AUTO_REVIEW_STATUS_RECENT_LINE = "  {verdict} [{source}] {tool}: {summary} — {reason}"
+AUTO_REVIEW_RESUMED = "Otomatik kipe dönüldü; denetçi sayaçları sıfırlandı."
+AUTO_REVIEW_SET = "Denetçi ayarı → {setting} ({path})."
+AUTO_REVIEW_SET_UNSAVED = "Denetçi ayarı bu oturum için {setting}; dosyaya yazılamadı: {error}"
+AUTO_REVIEW_USAGE = "Kullanım: /auto-mode [durum] · /auto-mode devam · /auto-mode <off|ask_only|on>"
+AUTO_REVIEW_TRY_RESULT = "Karar: {verdict} [{source}] — {reason}"
+AUTO_REVIEW_TRY_SKIPPED = (
+    "Bu komut denetçiye gitmez: {reason}. (Otomatik kipte kural kararı geçerli.)"
+)
+AUTO_REVIEW_TRY_NOT_RISKY = "komut yalnız okuyor; denetçi salt okunur komuta bakmaz"
+AUTO_REVIEW_TRY_FIXED = (
+    "kuralın sabit riski var (sudo, sistem ayarı, | sh, silme…), her zaman sorulur"
+)

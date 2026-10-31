@@ -41,6 +41,7 @@ from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    auto_mode_commands,
     browser_commands,
     capability_commands,
     eval_commands,
@@ -83,6 +84,7 @@ app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
 app.add_typer(mcp_commands.mcp_app, name="mcp")
+app.add_typer(auto_mode_commands.app, name="auto-mode")
 # `/usage` ve `/insights` karşılıkları (P-056).
 app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)

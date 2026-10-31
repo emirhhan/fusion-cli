@@ -31,6 +31,7 @@ from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import (
+    auto_mode_command,
     config_command,
     export_commands,
     keybinding_commands,
@@ -952,6 +953,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[goster|ac]"
     ),
     SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
+    SlashCommand(
+        "auto-mode",
+        messages.CMD_AUTO_MODE,
+        auto_mode_command.auto_mode_command,
+        group="Onay modu",
+        usage="[durum|devam|off|ask_only|on]",
+    ),
     SlashCommand(
         "permissions",
         messages.CMD_PERMISSIONS,
