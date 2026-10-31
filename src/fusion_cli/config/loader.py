@@ -37,6 +37,7 @@ from .models import (
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
+    McpScope,
     McpServerConfig,
     ProfileEligibility,
     RuntimeConfig,
@@ -419,6 +420,16 @@ def _with_plugin_mcp_servers(config: Config) -> Config:
     if not extra:
         return config
     return dataclasses.replace(config, mcp_servers=(*config.mcp_servers, *extra))
+
+
+def refresh_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti kur/aç/kapat/kaldır sonrası: PLUGIN kapsamlı kayıtları diskteki kayda göre yenile.
+
+    Ölçüldü (31 Ekim): kapatılan ya da kaldırılan eklentinin MCP sunucusu çalışan oturumun
+    yapılandırmasında kalıyor, araçları oturum yeniden başlayana dek çağrılabiliyordu.
+    """
+    others = tuple(s for s in config.mcp_servers if s.scope is not McpScope.PLUGIN)
+    return _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

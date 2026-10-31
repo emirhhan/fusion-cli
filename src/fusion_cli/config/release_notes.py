@@ -3,8 +3,9 @@
 Kaynak TEK dosyadır: deponun `CHANGELOG.md`'si (Keep a Changelog; `## <başlık>` bölümleri).
 Kaynak kodundan (geliştirme kurulumu, `pip install -e`, masaüstü paketinin kaynak ağacı)
 çalışan Fusion dosyayı paketin iki üst dizininde bulur; paketli masaüstü çalışma zamanı
-(PyInstaller onedir) onu `fusion_cli/`nin yanına, çalışma zamanı köküne koyar. Wheel'den kurulan sürümde dosya
-yoktur; o zaman `RELEASES_URL` gösterilir — ikinci bir kopya tutulmaz (RULES.md "Yapılandırma").
+(PyInstaller onedir) onu `fusion_cli/`nin yanına, çalışma zamanı köküne koyar. Wheel'den
+kurulan sürümde dosya yoktur; o zaman `RELEASES_URL` gösterilir — ikinci bir kopya
+tutulmaz (RULES.md "Yapılandırma").
 """
 
 from __future__ import annotations

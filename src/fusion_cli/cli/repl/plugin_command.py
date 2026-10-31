@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from ...config.loader import refresh_plugin_mcp_servers
 from ...config.plugin_layout import validate_plugin
 from ...config.plugin_store import installed_plugins, load_state, plugins_dir
 from ...core.plugins import PluginError
@@ -65,8 +66,11 @@ def plugin_command(state: ReplState, argument: str) -> str:
         result = handler(rest, confirmed)
     except PluginError as error:
         return str(error)
-    if verb not in {"liste", "dogrula", "kesfet"} and state.capabilities is not None:
-        state.capabilities.invalidate()
+    if verb not in {"liste", "dogrula", "kesfet"}:
+        if state.capabilities is not None:
+            state.capabilities.invalidate()
+        # Kapanan eklentinin MCP kaydı oturumdan çıkar; havuz bağlantıyı sonraki turda kapatır.
+        state.config = refresh_plugin_mcp_servers(state.config)
     return result
 
 

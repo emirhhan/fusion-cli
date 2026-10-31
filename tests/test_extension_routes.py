@@ -110,3 +110,64 @@ def test_guven_onaysiz_onizleme_doner_karmayla_onaylanir_ve_kur_karmayi_denetler
     done = _call("eklenti.guven", {"ad": "bicimci", "onay": True, "beklenen_karma": yeni}, context)
     assert done["ok"] is True
     assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
+
+
+def _mcp_plugin(folder: Path) -> Path:
+    (folder / ".claude-plugin").mkdir(parents=True)
+    (folder / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "veri", "version": "0.1.0"}), encoding="utf-8"
+    )
+    (folder / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"db": {"command": "srv"}}}), encoding="utf-8"
+    )
+    return folder
+
+
+async def test_masaustunde_eklenti_kapatma_ve_kaldirma_oturumdaki_mcp_yi_dusurur(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.appserver.session import AppSession
+    from fusion_cli.mcp_bridge import pool
+
+    dropped: list[str] = []
+
+    async def fake_drop(name: str) -> None:
+        dropped.append(name)
+
+    monkeypatch.setattr(pool, "drop_mcp_connection", fake_drop)
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "ev")
+    source = str(_mcp_plugin(tmp_path / "kaynak"))
+    installed = await session._extension_rpc("eklenti.kur", {"kaynak": source, "onay": True})
+    assert installed["ok"] is True
+    names = {s.name for s in session._state.config.mcp_servers}
+    assert "plugin_veri_db" in names  # kurulumda aynı oturuma girer
+
+    await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": False})
+    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin_veri_db"]
+
+    await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
+    assert "plugin_veri_db" in {s.name for s in session._state.config.mcp_servers}
+    await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": False})
+    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
+    await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": True})
+    await session._extension_rpc("eklenti.kaldir", {"ad": "veri"})
+    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin_veri_db"] * 3
+
+
+def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.memory.factory import null_memory
+
+    context = _context(tmp_path)
+    state = ReplState(
+        config=context.config, memory=null_memory(), root=context.root, home=context.home
+    )
+    command = build_registry(context.home, skills=lambda: state.capabilities).get("plugin")
+    assert command is not None
+    command.handler(state, f"kur {_mcp_plugin(tmp_path / 'kaynak')} --yes")
+    assert "plugin_veri_db" in {s.name for s in state.config.mcp_servers}
+    command.handler(state, "kapat veri")
+    assert "plugin_veri_db" not in {s.name for s in state.config.mcp_servers}

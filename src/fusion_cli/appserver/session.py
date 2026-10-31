@@ -3059,7 +3059,12 @@ class AppSession:
         context = ExtensionContext(self._state.root, self._home, self._state.config)
         result = await dispatch_extension(name, data, context)
         if result.config is not None:
-            self._state.config = result.config
+            from ..mcp_bridge import pool
+
+            # Kapatılan/kaldırılan eklentinin MCP süreci beklemeden kapanır (P-059).
+            for server in result.dropped:
+                await pool.drop_mcp_connection(server)
+            self._update_connector_config(result.config)
         if result.payload.get("yenile") is True:
             self._reload_capabilities()
         return result.payload

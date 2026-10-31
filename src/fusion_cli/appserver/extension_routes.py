@@ -26,7 +26,8 @@ from typing import Any
 
 from .. import __version__
 from ..config.importers import ImportPlan, apply_plan, build_plan, default_secrets
-from ..config.models import Config
+from ..config.loader import refresh_plugin_mcp_servers
+from ..config.models import Config, McpScope
 from ..config.plugin_layout import PluginLayout, server_target
 from ..config.plugin_store import (
     PLUGIN_HOOKS_ACTIVE,
@@ -72,8 +73,10 @@ class ExtensionContext:
 @dataclass(frozen=True, slots=True)
 class ExtensionResult:
     payload: dict[str, Any]
-    #: İçe aktarma MCP kayıtlarını değiştirdiyse yeni yapılandırma.
+    #: İçe aktarma ya da eklenti değişikliği MCP kayıtlarını değiştirdiyse yeni yapılandırma.
     config: Config | None = None
+    #: Oturumdan çıkan eklenti MCP sunucuları: canlı bağlantıları hemen kapatılır.
+    dropped: tuple[str, ...] = ()
 
 
 def _text(data: Mapping[str, object], key: str) -> str:
@@ -285,6 +288,22 @@ def _release_notes(data: Mapping[str, object]) -> dict[str, Any]:
     }
 
 
+def _with_plugin_servers(payload: dict[str, Any], context: ExtensionContext) -> ExtensionResult:
+    """Eklenti değişikliğini oturumun MCP kayıtlarına yansıt (kapanan sunucu hemen düşer)."""
+    if payload.get("ok") is not True:
+        return ExtensionResult(payload)
+    updated = refresh_plugin_mcp_servers(context.config)
+    if updated == context.config:
+        return ExtensionResult(payload)
+    current = {s.name: s for s in updated.mcp_servers if s.scope is McpScope.PLUGIN}
+    dropped = tuple(
+        s.name
+        for s in context.config.mcp_servers
+        if s.scope is McpScope.PLUGIN and current.get(s.name) != s
+    )
+    return ExtensionResult(payload, updated, dropped)
+
+
 def _dispatch_sync(
     name: str, data: Mapping[str, object], context: ExtensionContext
 ) -> ExtensionResult:
@@ -299,9 +318,9 @@ def _dispatch_sync(
                 {"ok": True, "onizleme": _preview(plugins.preview_plugin(source))}
             )
         if name == "eklenti.kur":
-            return ExtensionResult(_install(data))
+            return _with_plugin_servers(_install(data), context)
         if name in {"eklenti.etkinlik", "eklenti.kaldir", "eklenti.guven"}:
-            return ExtensionResult(_plugin_action(name, data))
+            return _with_plugin_servers(_plugin_action(name, data), context)
         if name.startswith("eklenti."):
             return ExtensionResult(_market(name, data))
         if name.startswith("ice_aktar."):
