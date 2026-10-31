@@ -151,6 +151,28 @@ def _failure_message(result: FusionResult) -> str:
     return messages.ERROR_NO_ANSWER
 
 
+def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolContext:
+    """Yapılandırmadaki araç ayarlarını bağlama işle (tek yer; her tur yolu bunu çağırır).
+
+    Ölçüldü (31 Ekim): REPL kendi `ToolContext`'ini kurup `run_agent`'a doğrudan veriyordu;
+    `runtime.desktop_screenshot_max_width`, `desktop_exclude_fusion_window` ve daha önce
+    `shell_sandbox`/`edit_fuzzy_match`/`shell_workspace_fingerprint` orada sessizce varsayılanda
+    kalıyordu. TUI ve `fusion run` `run_agent_task` üzerinden geçtiği için etkilenmiyordu.
+    """
+    return replace(
+        tool_context,
+        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
+        hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
+        # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
+        shell_sandbox=config.runtime.shell_sandbox,
+        edit_fuzzy_match=config.runtime.edit_fuzzy_match,
+        post_edit_syntax_check=config.runtime.post_edit_syntax_check,
+        shell_fingerprint=config.runtime.shell_workspace_fingerprint,
+        desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
+        desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+    )
+
+
 async def run_agent_task(
     task: str,
     config: Config,
@@ -233,18 +255,7 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
-        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
-        tool_context = replace(
-            tool_context,
-            hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
-            # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
-            shell_sandbox=config.runtime.shell_sandbox,
-            edit_fuzzy_match=config.runtime.edit_fuzzy_match,
-            post_edit_syntax_check=config.runtime.post_edit_syntax_check,
-            shell_fingerprint=config.runtime.shell_workspace_fingerprint,
-            desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
-            desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
-        )
+        tool_context = apply_runtime_settings(tool_context, config)
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.

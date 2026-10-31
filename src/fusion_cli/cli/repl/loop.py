@@ -493,12 +493,7 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
-        tool_context = ToolContext(
-            root=state.root,
-            extra_roots=state.extra_roots,
-            restrict_to_root=state.config.runtime.restrict_to_root,
-            remotion_browser=state.remotion_browser,
-        )
+        tool_context = _turn_tool_context(state)
         partial = PartialTurn()
         prompter = ConsolePrompter(
             console,
@@ -595,6 +590,21 @@ async def _agent_turn(
             renderer.abort()
             tracer.flush()
     state.history = outcome.messages
+
+
+def _turn_tool_context(state: ReplState) -> ToolContext:
+    """Turun araç bağlamı; yapılandırma ayarları `run_agent_task` ile aynı yerden işlenir."""
+    from ..session import apply_runtime_settings
+
+    return apply_runtime_settings(
+        ToolContext(
+            root=state.root,
+            extra_roots=state.extra_roots,
+            restrict_to_root=state.config.runtime.restrict_to_root,
+            remotion_browser=state.remotion_browser,
+        ),
+        state.config,
+    )
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
