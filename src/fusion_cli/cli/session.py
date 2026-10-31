@@ -22,16 +22,20 @@ from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
 from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
+from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
+from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
+    DesktopEscapeStopped,
     ErrorOccurred,
     EventSink,
     FilesChanged,
     FollowupsSuggested,
     FusionCompleted,
     NoFileChanges,
+    StatusChanged,
     TurnFinished,
     TurnOutcome,
 )
@@ -80,8 +84,9 @@ from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
-from ..tools import desktop_lock
+from ..tools import desktop_turn
 from ..tools.capabilities import CapabilityRegistry
+from ..tools.capability_overrides import registry_from_config
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
 from .mcp_notice import new_failure_lines
@@ -175,11 +180,19 @@ def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolCon
         hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
         # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
         shell_sandbox=config.runtime.shell_sandbox,
+        # Okuma engeli, ağ allowlist'i, ek yazma kökleri (P-010); Fusion sırları her zaman engelli.
+        sandbox_policy=sandbox_policy(
+            config.sandbox,
+            home=Path.home(),
+            root=tool_context.root,
+            extra_deny=fusion_secret_paths(),
+        ),
         edit_fuzzy_match=config.runtime.edit_fuzzy_match,
         post_edit_syntax_check=config.runtime.post_edit_syntax_check,
         shell_fingerprint=config.runtime.shell_workspace_fingerprint,
         desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
         desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+        desktop_settings=getattr(config, "desktop", tool_context.desktop_settings),
     )
 
 
@@ -228,6 +241,7 @@ async def run_agent_task(
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
     hooks: HookSession | None = None,
+    browser: BrowserSession | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -246,6 +260,9 @@ async def run_agent_task(
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
     soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
+
+    `browser` (P-045) paylaşılan tarayıcıdır (masaüstü Tarayıcı paneli): verilirse tur onu
+    kullanır, yerel izin kümesi onunkidir ve tur sonunda kapatılmaz (`persistent`).
 
     `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
     ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
@@ -279,7 +296,10 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
-            browser=browser_session_from(config),
+            browser=browser or browser_session_from(config),
+            local_origins=(
+                browser.origins if browser is not None and browser.origins is not None else set()
+            ),
             block_reads_outside_root=config.runtime.block_reads_outside_root,
             block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
@@ -351,7 +371,9 @@ async def run_agent_task(
             lessons=store.lessons,
             capabilities=capabilities
             or (
-                CapabilityRegistry(home, tool_context.root, extra_roots=tool_context.extra_roots)
+                registry_from_config(
+                    config, home, tool_context.root, extra_roots=tool_context.extra_roots
+                )
                 if home is not None
                 else None
             ),
@@ -368,6 +390,8 @@ async def run_agent_task(
                 block_writes_outside_root=config.runtime.block_writes_outside_root,
             ),
             hooks=hook_session,
+            # Otomatik kip denetçisi (P-011): sayaçlar oturum hafızasıyla yaşar.
+            auto_review=approval_memory.auto_review if approval_memory is not None else None,
             verifier=build_verifier(
                 config,
                 root=tool_context.root,
@@ -391,6 +415,8 @@ async def run_agent_task(
             health=health or build_health(config),
             journal=journal,
         )
+        # Masaüstü oturumu turun görevine bağlanır: Esc iptali bu görevi keser (P-033).
+        desktop_turn.begin(tool_context)
         try:
             outcome = await _run_agent_with_mcp(
                 task,
@@ -413,7 +439,9 @@ async def run_agent_task(
         finally:
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
             # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
-            desktop_lock.release(token=tool_context.job_scope)
+            # Esc dinleyicisi kapanır, gizlenen uygulamalar geri gelir (P-033); kilidi de bırakır.
+            if desktop_turn.finish(tool_context):
+                bus.publish(DesktopEscapeStopped())
             if hooks is None:
                 await hook_session.end("other")
 
@@ -541,6 +569,21 @@ async def _run_agent_with_mcp(
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
     # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
     deps.tool_context.available_tools.update(eklenen)
+    if config.mcp_servers:
+        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantı kurulduktan sonra çözülür (P-049).
+        from ..mcp_bridge.reference_service import expand_mcp_references
+
+        expansion = await expand_mcp_references(task, config.mcp_servers)
+        for note in expansion.notes:
+            bus.publish(StatusChanged(note))
+        for warning in expansion.warnings:
+            bus.publish(ErrorOccurred(warning, fatal=False))
+        if expansion.error:
+            bus.publish(ErrorOccurred(expansion.error, fatal=True))
+            return AgentOutcome(final_text=expansion.error, messages=list(history or []), ok=False)
+        task = expansion.task
+        if expansion.context:
+            extra_system = "\n\n".join(part for part in (extra_system, expansion.context) if part)
     return await _run()
 
 

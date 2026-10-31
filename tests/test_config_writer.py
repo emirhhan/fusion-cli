@@ -350,9 +350,10 @@ def test_tarayici_ayari_yazilir_ve_diger_bolumler_korunur(tmp_path):
 
     write_browser_setting(config, "default_profile", "is", path=hedef)
     write_browser_setting(config, "headless", False, path=hedef)
+    write_browser_setting(config, "panel_agent", False, path=hedef)
 
     ham = yaml.safe_load(hedef.read_text(encoding="utf-8"))
-    assert ham["browser"] == {"default_profile": "is", "headless": False}
+    assert ham["browser"] == {"default_profile": "is", "headless": False, "panel_agent": False}
     assert ham["runtime"] == {"engine": "agent"}
     with pytest.raises(ValueError):
         write_browser_setting(config, "headless", "evet", path=hedef)

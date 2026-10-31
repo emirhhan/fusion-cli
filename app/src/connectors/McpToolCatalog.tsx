@@ -3,9 +3,10 @@ import type { ProtocolClient } from '../protocol/client';
 import { Button } from '../ui/Button';
 import './McpToolCatalog.css';
 import { ConnectorDialog } from './ConnectorDialog';
+import { McpReferenceList, referenceRows, type McpPromptRow, type McpResourceRow } from './McpReferenceList';
 type Parameter = { name: string; type: string; required: boolean; description: string };
 type Tool = { name: string; server: string; description: string; effect: string; parameters: Parameter[]; parametersTruncated: boolean };
-type Catalog = { tools: Tool[]; total: number; truncated: boolean };
+type Catalog = { tools: Tool[]; total: number; truncated: boolean; prompts: McpPromptRow[]; resources: McpResourceRow[] };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 function decode(value: unknown): Catalog {
   if (!object(value) || value.ok !== true) throw new Error('Araç kataloğu okunamadı. Bağlantıyı test edip yeniden dene.');
@@ -15,7 +16,7 @@ function decode(value: unknown): Catalog {
     if (!object(tool) || !['name', 'server', 'description', 'effect'].every((key) => typeof tool[key] === 'string') || !Array.isArray(tool.parameters) || tool.parameters.length > 40 || typeof tool.parametersTruncated !== 'boolean') throw new Error('Araç tanımı doğrulanamadı.');
     for (const p of tool.parameters) if (!object(p) || !['name', 'type', 'description'].every((key) => typeof p[key] === 'string') || typeof p.required !== 'boolean') throw new Error('Parametre tanımı doğrulanamadı.');
   }
-  return value as unknown as Catalog;
+  return { ...(value as unknown as Catalog), ...referenceRows(value) };
 }
 const EFFECTS: Record<string, string> = { remote_read: 'Salt okuma', remote_interact: 'Sayfa etkileşimi', remote_write: 'Değişiklik yapabilir', remote_destructive: 'Yıkıcı işlem' };
 export function McpToolCatalog({ client, server, onClose }: { client: ProtocolClient; server: string; onClose: () => void }) {
@@ -50,6 +51,7 @@ export function McpToolCatalog({ client, server, onClose }: { client: ProtocolCl
           <p>Örnek ve varsayılan değerler bu görünümde toplanmaz.</p>
         </details>
       </li>)}</ul>
+      <McpReferenceList prompts={current.catalog.prompts} resources={current.catalog.resources} />
     </>}
     <Button disabled={!current} onClick={() => retry((n) => n + 1)}>Kataloğu yenile</Button>
   </section></ConnectorDialog>;

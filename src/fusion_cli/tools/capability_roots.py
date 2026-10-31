@@ -24,10 +24,28 @@ EXTRA_ROOT_SKILL_DIRS: tuple[Path, ...] = (
 Roots = tuple[tuple[Path, str], ...]
 
 
+#: Monorepo alt klasörlerinde tembel keşfedilen beceri dizinleri (P-052; Claude Code iç içe
+#: `<alt>/.claude/skills`). Model o klasördeki bir dosyaya erişince eklenir.
+NESTED_SKILL_DIRS: tuple[Path, ...] = (
+    Path(".claude") / "skills",
+    Path(".agents") / "skills",
+)
+
+
 def skill_roots(
-    home: Path, root: Path, extra_roots: tuple[Path, ...], *, installed: Path, bundled: Path
+    home: Path,
+    root: Path,
+    extra_roots: tuple[Path, ...],
+    *,
+    installed: Path,
+    bundled: Path,
+    nested: tuple[Path, ...] = (),
 ) -> Roots:
-    """SKILL.md aranan kökler ve kaynak etiketleri, öncelik sırasıyla."""
+    """SKILL.md aranan kökler ve kaynak etiketleri, öncelik sırasıyla.
+
+    `nested`: alt klasörlerde bulunmuş beceri dizinleri; proje kökündekilerden SONRA gelir
+    (aynı adda kök becerisi kazanır) ve "proje" sayılır (depo içeriği, aynı güven kuralları).
+    """
     return (
         (home / ".claude" / "skills", "claude"),
         (home / ".claude" / "plugins", "claude-plugin"),
@@ -35,6 +53,7 @@ def skill_roots(
         (root / ".fusion" / "skills", "proje"),
         # Codex/ChatGPT "Agent Skills" açık standardı: ~/.agents/skills ve depo .agents/skills.
         (root / ".agents" / "skills", "proje"),
+        *((folder, "proje") for folder in nested),
         (home / ".codex" / "skills", "codex"),
         (home / ".agents" / "skills", "codex"),
         (home / ".hermes" / "skills", "hermes"),

@@ -105,12 +105,12 @@ async def test_es_zamanli_ilk_cagrilar_tek_tarayici_baslatir(monkeypatch):
 
 @pytest.mark.parametrize("ham", ["localhost:3000", "127.0.0.1:8080/x", "[::1]:5000"])
 def test_semasiz_yerel_adres_http_alir(ham):
-    assert browser._normalize_url(ham).startswith("http://")
+    assert browser.normalize_url(ham).startswith("http://")
 
 
 def test_semasiz_dis_adres_https_alir():
-    assert browser._normalize_url("ornek.com/a") == "https://ornek.com/a"
-    assert browser._normalize_url("http://ornek.com") == "http://ornek.com"
+    assert browser.normalize_url("ornek.com/a") == "https://ornek.com/a"
+    assert browser.normalize_url("http://ornek.com") == "http://ornek.com"
 
 
 def test_arac_aciklamasi_yerel_sunucu_gercegini_soyler():

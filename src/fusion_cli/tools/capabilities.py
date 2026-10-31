@@ -22,17 +22,22 @@ from __future__ import annotations
 import functools
 import hashlib
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config.models import SkillVisibility
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
+from ..config.plugin_store import state_signature
 from .capability_merge import merge_capability as _merge
+from .capability_overrides import apply_overrides
 from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
 from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
+from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills, with_plugin_root
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -82,7 +87,7 @@ _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "
 #: Üçüncü tarafın doldurduğu kökler: oradaki sembolik bağ kök DIŞINA (`~/.ssh/id_rsa`)
 #: çıkıyorsa içerik sızdırma yolu olur (T1-15). Kullanıcının kendi kökleri (`~/.claude`,
 #: proje) dotfile yöneticilerinin bağlarını kullanabilir ve denetlenmez.
-_UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin"})
+_UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin", "eklenti"})
 
 #: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
 #: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
@@ -123,6 +128,8 @@ class Capability:
     effort: str = ""
     #: `context: fork` → alt ajanda çalıştır (P-054).
     context: str = ""
+    #: `agent`: `context: fork` becerisinin koşacağı alt ajan tanımının adı; boş = genel.
+    agent: str = ""
     #: `disable-model-invocation: true` → beceri dizinine ve find_skill sonucuna girmez;
     #: yalnız kullanıcı `/ad` ile çağırır.
     model_invocable: bool = True
@@ -148,6 +155,8 @@ class Capability:
     hooks: tuple[str, ...] = ()
     #: `disallowedTools`: Claude adlarıyla; `tools`'tan sonra uygulanır.
     disallowed_tools: tuple[str, ...] = ()
+    #: `capabilities.overrides: {ad: name-only}` → dizinde yalnız ad (P-051).
+    describe_in_index: bool = True
 
     @property
     def qualified_name(self) -> str:
@@ -244,6 +253,7 @@ def load_agent_prompt(path: Path) -> str:
             return ""
         instructions = data.get("developer_instructions")
         return instructions if isinstance(instructions, str) else ""
+    text = with_plugin_root(text, path)
     stripped = text.lstrip()
     if not stripped.startswith("---"):
         return text
@@ -269,24 +279,57 @@ class CapabilityRegistry:
         disabled_skills: frozenset[str] = frozenset(),
         disabled_agents: frozenset[str] = frozenset(),
         extra_roots: tuple[Path, ...] = (),
+        overrides: Mapping[str, SkillVisibility] | None = None,
     ) -> None:
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
         self._disabled_agents = disabled_agents
         self._extra_roots = extra_roots
+        self._overrides: Mapping[str, SkillVisibility] = dict(overrides or {})
+        #: Alt klasörlerde tembel keşfedilen beceri dizinleri (P-052); bkz. `add_nested_roots`.
+        self._nested_roots: tuple[Path, ...] = ()
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
         self._signature: tuple[tuple[str, int], ...] | None = None
 
+    def add_nested_roots(self, folders: tuple[Path, ...]) -> tuple[Capability, ...]:
+        """Alt klasör beceri dizinlerini kataloğa ekle; YENİ görünen becerileri döndür.
+
+        Model monorepo alt paketindeki bir dosyaya erişince çağrılır (P-052). Zaten bilinen
+        dizin yeniden taranmaz; aynı adda kök/kullanıcı becerisi varsa o kazanır.
+        """
+        fresh = tuple(
+            folder
+            for folder in dict.fromkeys(folders)
+            if folder not in self._nested_roots and folder.is_dir()
+        )
+        if not fresh:
+            return ()
+        before = {item.qualified_name for item in self.skills()}
+        self._nested_roots = (*self._nested_roots, *fresh)
+        self._skills = None
+        return tuple(item for item in self.skills() if item.qualified_name not in before)
+
+    @property
+    def nested_roots(self) -> tuple[Path, ...]:
+        """Tembel keşfedilmiş alt klasör beceri dizinleri (yeniden kurulan deftere taşınır)."""
+        return self._nested_roots
+
     def with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         """Aynı kapatma listeleriyle, ek kökleri değişmiş yeni bir defter."""
+        clone = self._with_extra_roots(extra_roots)
+        clone._nested_roots = self._nested_roots
+        return clone
+
+    def _with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         return CapabilityRegistry(
             self._home,
             self._root,
             disabled_skills=self._disabled_skills,
             disabled_agents=self._disabled_agents,
             extra_roots=extra_roots,
+            overrides=self._overrides,
         )
 
     def invalidate(self) -> None:
@@ -304,7 +347,12 @@ class CapabilityRegistry:
         self._signature = signature
 
     def _current_signature(self) -> tuple[tuple[str, int], ...]:
-        return roots_signature(self._skill_roots(), self._agent_roots(), self._home, self._root)
+        # Eklenti kaydı (P-059) değişince (kur/kapat/kaldır) katalog da yenilenir.
+        plugins = state_signature()
+        signature = roots_signature(
+            self._skill_roots(), self._agent_roots(), self._home, self._root
+        )
+        return (*signature, plugins) if plugins else signature
 
     def skills(self) -> tuple[Capability, ...]:
         # Sonuç yerel değişkenden döner: `invalidate()` (masaüstü yenile RPC'si) başka
@@ -312,11 +360,14 @@ class CapabilityRegistry:
         self._refresh_if_changed()
         skills = self._skills
         if skills is None:
-            skills = tuple(
-                item
-                for item in self._discover_skills()
-                if item.name not in self._disabled_skills
-                and item.qualified_name not in self._disabled_skills
+            skills = apply_overrides(
+                tuple(
+                    item
+                    for item in self._discover_skills()
+                    if item.name not in self._disabled_skills
+                    and item.qualified_name not in self._disabled_skills
+                ),
+                self._overrides,
             )
             self._skills = skills
         return skills
@@ -358,6 +409,7 @@ class CapabilityRegistry:
             self._extra_roots,
             installed=capabilities_dir(),
             bundled=bundled_skills_dir(),
+            nested=self._nested_roots,
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -378,6 +430,11 @@ class CapabilityRegistry:
                 if not _trusted_path(path, root, source):
                     continue
                 capability = _to_capability(path, source, fallback=path.parent.name)
+                if root in self._nested_roots and any(
+                    item.name == capability.name for item in found.values()
+                ):
+                    # Alt paket becerisi kök/kullanıcı becerisini belirsizleştirmez (P-052).
+                    continue
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)
@@ -388,6 +445,9 @@ class CapabilityRegistry:
         for command in discover_commands(self._home, self._root):
             if isinstance(command, Capability) and command.name not in found:
                 found[command.name] = command
+        # Etkin eklentiler (P-059): adlar `eklenti:ad` önekli, kimseyi gölgelemez.
+        for capability in (*plugin_skills(_to_capability), *plugin_commands(_to_capability)):
+            _merge(found, capability)
         return tuple(found.values())
 
     def _discover_agents(self) -> tuple[Capability, ...]:
@@ -409,6 +469,8 @@ class CapabilityRegistry:
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     _merge(found, toml_capability)
+        for capability in plugin_agents(_to_capability):
+            _merge(found, capability)
         return tuple(found.values())
 
 
@@ -481,6 +543,7 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         model=str(fields.get("model") or ""),
         effort=str(fields.get("effort") or "").lower(),
         context=str(fields.get("context") or "").lower(),
+        agent=str(fields.get("agent") or ""),
         model_invocable=bool(fields.get("model_invocable", True)),
         user_invocable=bool(fields.get("user_invocable", True)),
         argument_hint=str(fields.get("argument_hint") or ""),

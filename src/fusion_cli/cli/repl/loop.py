@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
-from ...tools import desktop_lock
+from ...tools import desktop_turn
 from ...tools.remotion_observe import browser_transport
 
 if TYPE_CHECKING:
@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
-from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.changeset import ChangeSet
@@ -67,13 +66,16 @@ from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..desktop_never import AppDenials, config_persist
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
+    browser_command,
     cron_store,
     help_view,
     history_view,
+    linked_pr,
     macros,
     persona_commands,
     plan_card,
@@ -261,6 +263,7 @@ async def _run_surface(
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
         await remote_control.shutdown(state)
+        await browser_command.shutdown(state)
         await _shutdown(background, console)
     return 0
 
@@ -625,8 +628,10 @@ async def _drive_agent(
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
             )
-        for line in new_failure_lines(state.config.mcp_servers):
-            console.print(f"[{theme.WARN}]{line}[/{theme.WARN}]")
+        # Döngü değişkeni görev satırını (`line`) EZMEZ: ilk bağlantı hatasında ajan uyarı
+        # metniyle koşuyordu (ölçüldü 31 Ekim).
+        for notice in new_failure_lines(state.config.mcp_servers):
+            console.print(f"[{theme.WARN}]{notice}[/{theme.WARN}]")
     if state.config.hosted_connectors:
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.
@@ -640,6 +645,22 @@ async def _drive_agent(
         console.print(
             f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
         )
+    if state.config.mcp_servers:
+        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantıdan sonra çözülür (P-049).
+        from ...engines.agent.loop import AgentOutcome as _Outcome
+        from ...mcp_bridge.reference_service import expand_mcp_references
+
+        expansion = await expand_mcp_references(line, state.config.mcp_servers)
+        for note in (*expansion.notes, *expansion.warnings):
+            console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        if expansion.error:
+            console.print(f"[{theme.WARN}]{escape(expansion.error)}[/{theme.WARN}]")
+            return _Outcome(final_text="", messages=list(state.history), ok=False)
+        line = expansion.task
+        if expansion.context:
+            kwargs["extra_system"] = "\n\n".join(
+                part for part in (extra_system, expansion.context) if part
+            )
     return await run_agent(line, deps, **kwargs)
 
 
@@ -703,6 +724,8 @@ async def _agent_turn(
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
             suspend=renderer.suspended,
+            # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
+            denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
         transport = state.remotion_transport
         if transport is None and state.remotion_browser is not None:
@@ -727,6 +750,7 @@ async def _agent_turn(
             allowed_commands=state.allowed_commands,
             permission_rules=state.permission_rules(),
             hooks=state.hooks(),
+            auto_review=state.approval_memory.auto_review,
             background=background,
             verifier=build_verifier(
                 state.config,
@@ -754,9 +778,13 @@ async def _agent_turn(
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
         digest = state.take_pending_digest()
+        # Esc ile durdurma bu turun görevine bağlanır (P-033; `tools/desktop_turn`).
+        desktop_turn.begin(tool_context)
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
+            # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
+            deps.config = extras.turn_config(deps.config)
             turn_extra_system = "\n\n".join(
                 part
                 for part in (
@@ -768,7 +796,7 @@ async def _agent_turn(
                 if part
             )
             outcome = await _drive_agent(
-                run_forked_turn if macros.mode_fork(mode) else run_agent,
+                extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else run_agent,
                 line,
                 deps,
                 state,
@@ -779,7 +807,7 @@ async def _agent_turn(
                 workflow=macros.mode_workflow(mode),
                 # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                 allowed_tools=extras.merged_tools(persona.allowed_tools),
-                denied_tools=persona.denied_tools,
+                denied_tools=extras.merged_denied(persona.denied_tools),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
@@ -821,13 +849,25 @@ async def _agent_turn(
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
             tracer.flush()
-            # Masaüstü kilidi tur ile sınırlıdır (bkz. `tools/desktop_lock`, `cli/session.py`).
-            desktop_lock.release(token=tool_context.job_scope)
+            # Masaüstü kilidi ve oturumu tur ile sınırlıdır (bkz. `tools/desktop_turn`).
+            if desktop_turn.finish(tool_context):
+                console.print(f"[{theme.WARN}]{messages.BILGISAYAR_ESC_STOPPED}[/{theme.WARN}]")
     state.history = outcome.messages
+    # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
+    linked_pr.bind_from_turn(state, outcome.tool_uses)
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+
+
+def _config_setter(state: ReplState) -> Callable[[Config], None]:
+    """Turun dışında yazılan ayarı (ret listesi, P-007) oturuma işle."""
+
+    def apply(updated: Config) -> None:
+        state.config = updated
+
+    return apply
 
 
 def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> ToolContext:
@@ -842,7 +882,8 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             block_reads_outside_root=state.config.runtime.block_reads_outside_root,
             block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
-            browser=browser_session_from(state.config),
+            browser=browser_command.turn_browser(state),
+            local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
         ),
@@ -922,6 +963,8 @@ def _sync_status_bar(
         parts.append(baglam)
     if background is not None and background.pending:
         parts.append(f"{background.pending} arka plan işi")
+    if state.linked_pr is not None:
+        parts.append(state.linked_pr.label)
     reader.context = " · ".join(parts)
 
 

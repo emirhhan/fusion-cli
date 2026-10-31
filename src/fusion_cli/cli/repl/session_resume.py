@@ -23,6 +23,7 @@ from ...core.errors import SessionNotFoundError
 from ...core.types import Message
 from ...ui import messages
 from ...ui.picker import Choice, pick
+from . import linked_pr
 from .state import ReplState
 from .transcript_store import (
     ConversationRef,
@@ -94,6 +95,7 @@ def resolve_launch(
     history = tuple(load_transcript_messages(memory_dir, root, conversation_id=ref.conversation_id))
     if fork:
         target_id = fork_conversation(memory_dir, root, history, name=name or ref.name)
+        linked_pr.save(memory_dir, target_id, linked_pr.load(memory_dir, ref.conversation_id))
         return ResumeTarget(
             target_id, history, ref.title, name=name or ref.name, forked_from=ref.conversation_id
         )
@@ -117,8 +119,9 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
     state.conversation_name = target.name
     state.history = list(target.history)
     state.last_changes = None
-    # Başka sohbetin tur kayıtları bu konuşmaya ait değildir.
+    # Başka sohbetin tur kayıtları bu konuşmaya ait değildir; PR künyesi sohbetinkidir.
     state.checkpoints.clear()
+    linked_pr.restore(state)
 
 
 def launch_notice(target: ResumeTarget) -> str:
@@ -199,6 +202,8 @@ def branch_command(state: ReplState, argument: str) -> str:
         return messages.SESSION_COPY_FAILED.format(reason=error)
     count = len(conversation_prefix(state.history))
     state.conversation_id = target_id
+    # Kopya aynı PR üzerinde sürer (Claude Code `--fork-session` ile aynı).
+    linked_pr.save(state.config.memory_dir, target_id, state.linked_pr)
     state.conversation_name = name
     # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo`/`/rewind` kaydı yeni kimliğe taşınmaz.
     state.last_changes = None

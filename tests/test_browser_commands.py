@@ -166,4 +166,5 @@ def test_set_headless_ve_profiles_enabled_yazar(depo, monkeypatch):
     assert runner.invoke(app, ["browser", "set", "profiles-enabled", "on"]).exit_code == 0
     assert runner.invoke(app, ["browser", "set", "bilinmez", "on"]).exit_code == 1
     assert runner.invoke(app, ["browser", "set", "headless", "belki"]).exit_code == 1
-    assert yazilan == [("headless", False), ("profiles_enabled", True)]
+    assert runner.invoke(app, ["browser", "set", "panel-agent", "off"]).exit_code == 0
+    assert yazilan == [("headless", False), ("profiles_enabled", True), ("panel_agent", False)]

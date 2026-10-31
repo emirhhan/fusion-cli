@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_lock
+from . import desktop_lock, desktop_turn
 from .desktop import DESKTOP_SCROLL_MAX_LINES, _framework, _mac_only, _trusted, modifier_flags
 from .desktop_permissions import ACCESSIBILITY, permission_failure
 from .key_spec import MODIFIER_ALIASES
@@ -228,6 +228,7 @@ def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
     busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
+    desktop_turn.foreground_action(context)
     try:
         framework = _framework()
         if not _trusted(framework):
@@ -316,6 +317,7 @@ def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
+    desktop_turn.foreground_action(context)
     try:
         framework = _framework()
         if not _trusted(framework):

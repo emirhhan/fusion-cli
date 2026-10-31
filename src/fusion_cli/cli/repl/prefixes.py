@@ -153,7 +153,12 @@ def expand_mentions(line: str, state: ReplState) -> MentionResult:
     notes: list[str] = []
     for mention in found[:MENTION_MAX_FILES]:
         if mention.is_resource:
-            notes.append(messages.MENTION_RESOURCE_UNSUPPORTED.format(raw=mention.raw))
+            # Okuma turda, MCP bağlandıktan sonra yapılır (`mcp_bridge.reference_service`; P-049).
+            known = any(server.name == mention.server for server in state.config.mcp_servers)
+            template = (
+                messages.MENTION_RESOURCE_QUEUED if known else messages.MENTION_RESOURCE_UNSUPPORTED
+            )
+            notes.append(template.format(raw=mention.raw, server=mention.server))
             continue
         try:
             path = resolve_path(context, mention.raw)

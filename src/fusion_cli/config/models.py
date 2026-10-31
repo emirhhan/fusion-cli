@@ -14,11 +14,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from ..core.auto_review import AutoClassifierMode
+from ..core.desktop_settings import DesktopSettings
 from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
+from .sandbox_config import SandboxConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,8 +257,8 @@ class RuntimeConfig:
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).
     teacher_timeout_s: float = 300.0
-    #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS'ta
-    #: `sandbox-exec` ile yazmayı proje kökü + geçici dizinlerle sınırlar; Q1-16).
+    #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS
+    #: `sandbox-exec`, Linux bubblewrap; Q1-16). Neyin sınırlandığı `sandbox:` bölümünde (P-010).
     shell_sandbox: str = "off"
     #: Küçük/zayıf model için SIKI araç yüzeyi eşiği (T1-63): bilinen girdi penceresi
     #: (token) bu değere eşit ya da küçükse model masaüstü (`desktop_*`) ve Chrome
@@ -388,6 +391,45 @@ class RuntimeConfig:
     #: Model çağrısı/MCP/beceri kullanımını `memory_dir/usage.jsonl`'e yaz (`/usage` pencereleri,
     #: `fusion insights`). İstem metni yazılmaz. False = yalnız oturum sayacı (P-056).
     usage_log: bool = True
+    #: Otomatik kip denetçisi (P-011): `off` | `ask_only` | `on` (bkz. `core.auto_review`).
+    #: Sorulacak çağrıyı küçük/hızlı rol modeli sınıflandırır; güvenliyse sorulmaz. Varsayılan
+    #: kapalı: açılınca kullanıcı mesajları hakem sağlayıcısına gider (açık seçimle açılır).
+    auto_classifier: AutoClassifierMode = AutoClassifierMode.OFF
+    #: Denetçi modeli: boş = hakem (`judge`) rolü ve yedekleri; dolu = `<sağlayıcı>/<model>`.
+    auto_classifier_model: str = ""
+    #: Tek sınıflandırma çağrısının süre sınırı (saniye). Aşılırsa kurallar geçerli olur.
+    auto_classifier_timeout_s: float = 12.0
+
+
+class SkillVisibility(StrEnum):
+    """Becerinin görünürlüğü (Claude Code `skillOverrides`; P-051). Türkçe adlar da kabul edilir."""
+
+    #: Olağan: dizinde ad + açıklama, model ve kullanıcı çağırabilir.
+    ON = "on"
+    #: Dizinde yalnız ad (açıklama bağlam harcamaz); çağrı serbest.
+    NAME_ONLY = "name-only"
+    #: Yalnız kullanıcı `/ad` ile çağırır; model dizinde görmez, kendiliğinden yüklemez.
+    USER_INVOCABLE_ONLY = "user-invocable-only"
+    #: Hiç sunulmaz (kalıcı kapatma ile aynı).
+    OFF = "off"
+
+    @classmethod
+    def _missing_(cls, value: object) -> SkillVisibility | None:
+        # YAML 1.1 tırnaksız `off`/`on` yazımını boolean okur (ölçüldü 31 Ekim: `x: off`
+        # "geçersiz değer False" veriyordu); kullanıcının kastettiği açıktır.
+        if isinstance(value, bool):
+            return cls.ON if value else cls.OFF
+        aliases = {
+            "acik": cls.ON,
+            "açık": cls.ON,
+            "yalniz-ad": cls.NAME_ONLY,
+            "yalnız-ad": cls.NAME_ONLY,
+            "yalniz-kullanici": cls.USER_INVOCABLE_ONLY,
+            "yalnız-kullanıcı": cls.USER_INVOCABLE_ONLY,
+            "kapali": cls.OFF,
+            "kapalı": cls.OFF,
+        }
+        return aliases.get(str(value).strip().lower())
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,6 +439,8 @@ class CapabilitiesConfig:
     #: Kalıcı olarak kapatılan beceri/ajan adları (düz ad ya da `ad@kaynak:kimlik`). Masaüstü
     #: kataloğundaki oturumluk kapatmadan farklı: her oturumda uygulanır.
     disabled: tuple[str, ...] = ()
+    #: Beceri adı (ya da `ad@kaynak:kimlik`) → görünürlük; listede olmayan beceri `on`.
+    overrides: dict[str, SkillVisibility] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +454,9 @@ class BrowserConfig:
     default_profile: str = ""
     #: Tarayıcı penceresi görünmez (true) ya da görünür (false) açılır.
     headless: bool = True
+    #: Masaüstü Tarayıcı paneli (P-045): ajanın `browser_*` araçları paneldeki paylaşılan
+    #: tarayıcıda çalışır (canlı izlenir, devralınır). false: tur başına ayrı başsız tarayıcı.
+    panel_agent: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,6 +486,8 @@ class McpScope(StrEnum):
 
     USER = "user"
     PROJECT = "project"
+    #: Etkin bir eklentinin `.mcp.json`'ı (P-059); hiçbir ayar dosyasına yazılmaz.
+    PLUGIN = "plugin"
 
 
 class McpTrust(StrEnum):
@@ -680,6 +729,10 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     #: Beceri/ajan kataloğu tercihleri.
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
+    #: `run_shell` sandbox politikası (P-010); kip `runtime.shell_sandbox`'tadır.
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    #: Bilgisayar kullanımı (`desktop:`, P-006); eski yapılandırmada yoksa varsayılanlar.
+    desktop: DesktopSettings = field(default_factory=DesktopSettings)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

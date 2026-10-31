@@ -134,11 +134,13 @@ from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
+from ..effects.pull_request import disclose_unverified_pr
 from ..effects.runner import maybe_run_effect_workflow
 from ..hooks.session import HookSession
 from . import (
     compaction,
     denial,
+    desktop_approval,
     gate_escalation,
     learning_steps,
     liveness,
@@ -156,6 +158,7 @@ from .approval import (
     Denial,
     resolve_request,
 )
+from .auto_guard import AutoReviewState
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -227,6 +230,7 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .nested_skills import discover_nested_skills
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -240,6 +244,7 @@ from .project_instructions import (
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
+from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
@@ -349,6 +354,9 @@ def _decision_message(
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
+    if request is not None and request.pre_denied is not None and request.desktop_blocked:
+        # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
+        return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
     if request is not None and request.pre_denied is not None:
         # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
         return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
@@ -469,6 +477,9 @@ class AgentDeps:
     capabilities: CapabilityRegistry | None = None
     #: Düz metin otomatik bellek (P-036). Yoksa `remember`/`memory_read` sunulmaz, blok eklenmez.
     plain_memory: PlainMemory | None = None
+    #: Derslerin sahibi ajan (P-055): kendi belleği olan alt ajanda adı; çıkarılan dersler
+    #: `ajan:<ad>` etiketi alır ve yalnız o ajan geri çağırır. Boş = ortak ders havuzu.
+    lesson_owner: str = ""
     #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
@@ -483,6 +494,9 @@ class AgentDeps:
     hooks: HookSession | None = None
     #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
     agent_type: str = ""
+    #: Otomatik kip denetçisinin oturum durumu (P-011; `ApprovalMemory.auto_review`). `None` =
+    #: denetçi yok (eski çağıranlar, alt ajanlar); `getattr(deps, "auto_review", None)` ile okunur.
+    auto_review: AutoReviewState | None = None
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -1210,6 +1224,8 @@ async def _run_agent(
     # bekletemez.
     if not chat_mode and not internal and depth == 0:
         ensure_limitations_disclosed(outcome, deps)
+        # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
+        disclose_unverified_pr(outcome)
     _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     await learning_steps.learn(
@@ -1234,8 +1250,10 @@ async def _run_agent(
     # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
     # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
-    if depth == 0 and deps.tool_context.browser.is_open:
-        await deps.tool_context.browser.close()
+    # Paylaşılan tarayıcının (P-045, panel/`/tarayici`) sahibi panel/REPL'dir: açık kalır.
+    browser = deps.tool_context.browser
+    if depth == 0 and browser.is_open and not browser.persistent:
+        await browser.close()
     return outcome
 
 
@@ -2897,10 +2915,12 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
+    hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
+        hedefler.append(hedef)
         yuk = load_nested_instructions(
             kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
         )
@@ -2910,6 +2930,10 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         deps.publisher.publish(
             NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
         )
+    # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
+    beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
+    if beceri_notu is not None:
+        messages.append(beceri_notu)
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
@@ -3891,6 +3915,15 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
+        # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır. Eşik bu
+        # çağrıda aşılıp kip Manuel'e düştüyse yeni kip bu çağrının kapsamıdır (riskli karar
+        # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
+        guard = getattr(deps, "auto_review", None)
+        trips = guard.trips if guard is not None else 0
+        request = await review_auto_request(request, deps)
+        if guard is not None and guard.trips != trips:
+            revision = deps.approval_revision() if deps.approval_revision else None
+            policy = deps.policy_factory() if deps.policy_factory else deps.policy
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision

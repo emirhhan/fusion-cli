@@ -28,7 +28,8 @@ _CHROME_NEED_DOMAIN = (
     "Chrome'dan aktarırken en az bir alan adı seç; bütün Chrome oturumları taşınmaz."
 )
 #: `tarayici.ayar` ile yazılabilen boolean ayarlar (varsayılan profil ayrı RPC'dir).
-_BOOL_SETTINGS = ("headless", "profiles_enabled")
+#: `panel_agent` (P-045): masaüstünde ajan uygulama içi Tarayıcı panelini paylaşır.
+_BOOL_SETTINGS = ("headless", "profiles_enabled", "panel_agent")
 _KEY_MISSING = (
     "Şifreleme anahtarı yok: tarayıcı profilleri kaydedilemez. Sistem anahtarlığını aç ya da "
     "FUSION_SECRET_KEY tanımla."
@@ -71,6 +72,7 @@ def list_profiles(store: BrowserProfileStore, config: Config) -> dict[str, Any]:
         "varsayilan": config.browser.default_profile,
         "headless": config.browser.headless,
         "etkin": config.browser.profiles_enabled,
+        "panel_ajan": config.browser.panel_agent,
         "anahtar_var": store.available,
         "metin": "" if store.available else _KEY_MISSING,
     }
@@ -143,7 +145,7 @@ def delete_profile(store: BrowserProfileStore, data: dict[str, Any]) -> dict[str
 
 
 def set_setting(config: Config, data: dict[str, Any]) -> dict[str, Any]:
-    """`tarayici.ayar`: `browser.headless` / `browser.profiles_enabled` yaz (boolean)."""
+    """`tarayici.ayar`: `browser.headless` / `profiles_enabled` / `panel_agent` yaz (boolean)."""
     key = str(data.get("anahtar") or "").strip()
     value = data.get("deger")
     if key not in _BOOL_SETTINGS:

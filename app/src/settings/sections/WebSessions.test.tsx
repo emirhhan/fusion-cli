@@ -138,6 +138,18 @@ describe("WebSessions — ayarlar ve yeni profil girişi", () => {
     await waitFor(() => expect(request).toHaveBeenCalledWith("tarayici.ayar", { anahtar: "headless", deger: false }));
   });
 
+  it("Tarayıcı paneli paylaşımı (browser.panel_agent) kalıcı ayar olarak yazılır", async () => {
+    const { client, request } = fakeClient({ panel_ajan: true });
+    render(<WebSessions client={client} />);
+    await screen.findByText("is");
+
+    const kutu = screen.getByLabelText(/panel_agent/);
+    expect(kutu).toHaveProperty("checked", true);
+    fireEvent.click(kutu);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith("tarayici.ayar", { anahtar: "panel_agent", deger: false }));
+  });
+
   it("yeni profil için giriş penceresi ad ister ve tarayici.giris'e adı gönderir", async () => {
     const { client, request } = fakeClient();
     render(<WebSessions client={client} />);
