@@ -51,6 +51,8 @@ UNSANDBOXED_ARG = "unsandboxed"
 _PROBE_SOCKET = Path(tempfile.gettempdir()) / "fusion-sandbox-prob" / "proxy.sock"
 OUTSIDE_REQUESTED = "istek"
 OUTSIDE_EXCLUDED = "liste"
+#: Başarısız komut notunda adıyla gösterilen gizli değişken sayısı.
+_HIDDEN_ENV_SHOWN = 6
 #: Kabukların ağ hatası belirtileri (ağ kapalıyken ipucu vermek için).
 _NETWORK_FAILURE_MARKERS = (
     "Could not resolve host",
@@ -74,6 +76,8 @@ class SandboxRun:
     proxy: DomainProxy | None = None
     mark: int = 0
     notices: list[str] = field(default_factory=list)
+    #: Sandbox ortamından çıkarılan sır görünümlü ADLAR (değerler değil).
+    hidden_env: tuple[str, ...] = ()
 
 
 class _ProxyPool:
@@ -212,6 +216,7 @@ def sandbox_env(base: dict[str, str], run: SandboxRun) -> dict[str, str]:
         if run.plan.hide_secret_env
         else dict(base)
     )
+    run.hidden_env = tuple(sorted(name for name in base if name not in env))
     env.update(dict(run.plan.env))
     return env
 
@@ -229,6 +234,15 @@ def sandbox_notes(run: SandboxRun, returncode: int, stderr: str) -> list[str]:
         return notes
     if returncode != 0 and "Operation not permitted" in stderr:
         notes.append(_denied_hint(run.policy, stderr))
+    if returncode != 0 and run.hidden_env:
+        # Eski write_root kullanıcısı yükseltmede belirteç bekleyen komutun (gh, npm publish)
+        # neden düştüğünü görsün. Ölçüldü (31 Ekim): gizlenen ad için hiç not yoktu.
+        names = ", ".join(run.hidden_env[:_HIDDEN_ENV_SHOWN])
+        more = len(run.hidden_env) - _HIDDEN_ENV_SHOWN
+        notes.append(
+            f"Sandbox'ta gizlenen ortam değişkenleri: {names}{f' (+{more})' if more > 0 else ''}. "
+            "Komut bunlara ihtiyaç duyuyorsa kullanıcı açar: sandbox.hide_secret_env=false."
+        )
     if run.proxy is not None:
         hosts = list(dict.fromkeys(item.host for item in run.proxy.denials_since(run.mark)))
         if hosts:
