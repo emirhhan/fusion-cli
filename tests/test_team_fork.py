@@ -135,3 +135,71 @@ async def test_live_history_yoksa_fork_temiz_baglamla_kosar(tmp_path):
     await run_subagent(deps, SubTask("a", inherit_context=True), depth=0, run_agent=_sahte_ajan)
 
     assert gorulen["history"] == []
+
+
+def test_fork_gecmisi_sondaki_cevapsiz_arac_cagrisini_dusurur():
+    """Ölçüldü (31 Ekim): `spawn_agent baglam_miras=true` çalışırken canlı geçmişin son
+    mesajı cevapsız `assistant(tool_calls=spawn_agent)` idi; alt ajan bunun arkasına user
+    eklediğinde sağlayıcı 'orphan tool call' (400) veriyordu."""
+    gecmis = [
+        Message("system", "S"),
+        Message("user", "kök görev"),
+        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file", arguments="{}"),)),
+        Message("tool", "içerik", tool_call_id="1"),
+        Message(
+            "assistant", "", tool_calls=(ToolCall(id="2", name="spawn_agent", arguments="{}"),)
+        ),
+    ]
+
+    fork = team_fork.fork_history(gecmis)
+
+    assert fork[-1].role == "tool" and fork[-1].tool_call_id == "1"
+    assert not any(call.name == "spawn_agent" for m in fork for call in m.tool_calls)
+
+
+def test_fork_gecmisi_kismi_cevapli_paralel_cagriyi_da_dusurur():
+    gecmis = [
+        Message("user", "kök"),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(
+                ToolCall(id="a", name="read_file", arguments="{}"),
+                ToolCall(id="b", name="spawn_agent", arguments="{}"),
+            ),
+        ),
+        Message("tool", "ok", tool_call_id="a"),
+    ]
+
+    fork = team_fork.fork_history(gecmis)
+
+    assert [m.role for m in fork] == ["user"]
+
+
+def test_fork_kirpmasi_basi_kopuk_arac_sonucuyla_baslamaz():
+    """60 KB üstü kırpmada `recent` dilimi bir `tool` mesajıyla başlayabiliyordu (çağrısı
+    atılmış orphan sonuç); kesim tur sınırına kaydırılır."""
+    gecmis = [Message("system", "S"), Message("user", "kök")]
+    for index in range(40):
+        gecmis.append(Message("user", f"soru {index}"))
+        gecmis.append(
+            Message(
+                "assistant",
+                "",
+                tool_calls=(ToolCall(id=f"c{index}", name="read_file", arguments="{}"),),
+            )
+        )
+        gecmis.append(Message("tool", "s" * 1_500, tool_call_id=f"c{index}"))
+        gecmis.append(Message("tool", "t" * 1_500, tool_call_id=f"c{index}"))
+        gecmis.append(Message("assistant", "cevap " + "z" * 1_500))
+
+    fork = team_fork.fork_history(gecmis)
+
+    assert history_rules.total_chars(fork) <= team_fork.FORK_MAX_CHARS
+    cevaplanan = {m.tool_call_id for m in fork if m.role == "tool"}
+    cagrilan = {call.id for m in fork for call in m.tool_calls}
+    assert cevaplanan == cagrilan
+    assert fork[-1].content.startswith("cevap")
+    for index, message in enumerate(fork):
+        if message.role == "tool":
+            assert fork[index - 1].role == "tool" or fork[index - 1].tool_calls

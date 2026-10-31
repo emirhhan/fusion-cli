@@ -9,7 +9,8 @@ konuşmaya yalnız bu özet eklenir; alt ajanın kendi araç çağrıları ana g
 Devredilen görünüm model çağırmadan kurulur (`compaction.compress` özetleyici çağırır,
 burada istenmez): sistem mesajı düşer (alt ajanın kendi sistemi var), eski araç çıktıları
 `clear_old_tool_outputs` ile temizlenir, hâlâ uzunsa kök tur korunup ortadaki mesajlar
-atılır ve atıldığı not düşülür.
+atılır ve atıldığı not düşülür. Cevapsız araç çağrıları (o an çalışan `spawn_agent`
+dahil) devredilmez: sağlayıcı sınırı orphan çağrıyı reddeder.
 """
 
 from __future__ import annotations
@@ -41,18 +42,54 @@ LiveHistory = Callable[[], Sequence[Message]]
 
 def fork_history(messages: Sequence[Message] | None) -> list[Message]:
     """Ana geçmişin alt ajana devredilecek görünümü (sistemsiz, kırpılmış)."""
-    body = [message for message in (messages or ()) if message.role != "system"]
+    body = drop_orphan_tool_calls(
+        [message for message in (messages or ()) if message.role != "system"]
+    )
     if not body:
         return []
     trimmed = history_rules.clear_old_tool_outputs(body, threshold_chars=FORK_MAX_CHARS)
     if history_rules.total_chars(trimmed) <= FORK_MAX_CHARS:
         return trimmed
     anchor = trimmed[: _root_turn_length(trimmed)]
-    recent = trimmed[len(anchor) :][-FORK_KEEP_RECENT:]
-    kept = len(anchor) + len(recent)
-    gap = max(0, len(trimmed) - kept)
+    tail = trimmed[len(anchor) :]
+    # Kesim bir ARAÇ TURU sınırına kayar: `tool` ile başlayan dilim çağrısı atılmış orphan
+    # sonuç taşır (bkz. `history.round_cut`). Güvenli nokta yoksa dilim olduğu gibi alınır
+    # ve orphan temizliği başı toparlar.
+    start = history_rules.round_cut(tail, FORK_KEEP_RECENT) if len(tail) > FORK_KEEP_RECENT else 0
+    recent = drop_orphan_tool_calls(tail[start:] if start else tail[-FORK_KEEP_RECENT:])
+    gap = max(0, len(trimmed) - len(anchor) - len(recent))
     note = Message("user", FORK_GAP_NOTE.format(count=gap), harness_note=True)
     return [*anchor, note, *recent] if gap else [*anchor, *recent]
+
+
+def drop_orphan_tool_calls(messages: Sequence[Message]) -> list[Message]:
+    """Cevabı olmayan araç çağrılarını ve çağrısı olmayan araç sonuçlarını düşür.
+
+    Ölçüldü (31 Ekim): `spawn_agent baglam_miras=true` çalışırken ana döngü assistant
+    mesajını `tool_calls` ile geçmişe araç ÇALIŞMADAN ekler (`loop.py`), yani canlı
+    geçmişin son mesajı cevapsız bir çağrıdır. Alt ajan bunun arkasına kendi `user`
+    görevini eklediğinde OpenAI/Anthropic uyumlu uçlar "orphan tool call" (400) döner.
+    Çağrının bir kısmı cevaplı (paralel çağrı yarıda) ise o tur bütünüyle düşer.
+    """
+    kept: list[Message] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if message.role == "tool":
+            index += 1  # çağrısı önceki turda atılmış sonuç
+            continue
+        if message.role != "assistant" or not message.tool_calls:
+            kept.append(message)
+            index += 1
+            continue
+        end = index + 1
+        while end < len(messages) and messages[end].role == "tool":
+            end += 1
+        answered = {result.tool_call_id for result in messages[index + 1 : end]}
+        if {call.id for call in message.tool_calls} <= answered:
+            kept.extend(messages[index:end])
+        index = end
+    return kept
 
 
 def _root_turn_length(messages: Sequence[Message]) -> int:
