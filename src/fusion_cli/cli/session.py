@@ -178,6 +178,7 @@ def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolCon
         shell_fingerprint=config.runtime.shell_workspace_fingerprint,
         desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
         desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+        desktop_settings=getattr(config, "desktop", tool_context.desktop_settings),
     )
 
 

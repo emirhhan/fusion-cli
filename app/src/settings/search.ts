@@ -1,4 +1,4 @@
-export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "bilgisayar" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
 /** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
 export const SECTION_HEADING_ID = "settings-section-heading";
@@ -19,6 +19,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "modeller", id: SECTION_HEADING_ID, label: "Model seçimi", keywords: "model sağlayıcı rol varsayılan görsel sohbet profil" },
   { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik güven trust klasör dışı engel" },
   { section: "izinler", id: "settings-permission-rules", label: "İzin kuralları", keywords: "allow ask deny kural kalıp bash edit read webfetch mcp yasak her zaman sor bir daha sorma" },
+  { section: "bilgisayar", id: "settings-computer", label: "Bilgisayar kullanımı", keywords: "computer use masaüstü ekran tıkla yaz kademe yalnız bak tam kontrol reddedilen uygulama denied apps arka plan esc gizle erişilebilirlik ekran kaydı" },
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "weboturumlari", id: SECTION_HEADING_ID, label: "Web oturumları", keywords: "çerez cookie oturum profil içe aktar chrome giriş tarayıcı" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },

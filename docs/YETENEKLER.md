@@ -20,6 +20,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Profiller (`/mode`) + effort (`/effort`) | "Ne kadar güçlü model" ve "ne kadar düşünsün" ayrı ayrı |
 | Şifreli anahtar deposu | Anahtarlar şifreli saklanır, log'a/git'e girmez |
 | Tarayıcı oturumu profilleri (`fusion browser`, Ayarlar › Web oturumları) | cookies.txt/JSON ya da Chrome'dan oturum aktar; ajanın tarayıcısı onaylı sitelerde girişli açılır — bkz. `TARAYICI_OTURUMLARI.md` |
+| Bilgisayar kullanımı (`desktop_*`, Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`) | Ekranı görür, tıklar, yazar; açma/kapama anahtarı, kademe tavanı (yalnız bak / tıkla / tam kontrol), reddedilen uygulamalar — bkz. `BILGISAYAR_KULLANIMI.md` |
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |

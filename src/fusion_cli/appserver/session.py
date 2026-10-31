@@ -95,7 +95,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import auto_memory, intelligence, ui_prefs
+from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
@@ -109,6 +109,7 @@ from .commands import (
     run_command,
     select_development_model,
 )
+from .computer_routes import COMPUTER_ROUTES
 from .connectors import (
     add_connector_verified,
     connector_secret_values,
@@ -1363,6 +1364,8 @@ class AppSession:
             return web_login_state(request.data.get("pid"))
         if request.name.startswith("tarayici."):
             return await self._browser_profile_rpc(request)
+        if request.name in COMPUTER_ROUTES:
+            return await self._computer_rpc(request)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "cron.listele":
@@ -1775,6 +1778,14 @@ class AppSession:
             # Bağlama/çıkış öğretmen seçimini de etkiler. Dosya yazıldıktan sonra
             # tek yapılandırma kaynağından yeniden çöz.
             self._state.config = _refresh_teacher(yeni)
+        return sonuc
+
+    async def _computer_rpc(self, request: Request) -> dict[str, Any]:
+        """`bilgisayar.*` (P-006): yazma dosyaya gider; oturum yalnız `desktop:`'u günceller."""
+        sonuc, guncel = await asyncio.to_thread(
+            computer_routes.dispatch, self._state.config, request.name, request.data
+        )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
         return sonuc
 
     async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:

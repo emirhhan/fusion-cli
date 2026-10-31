@@ -85,6 +85,20 @@ def desktop_apps(args: ToolArgs, context: ToolContext) -> ToolResult:
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
+    names = running_app_names()
+    if isinstance(names, str):
+        return ToolResult.failure(names)
+    return ToolResult("Çalışan uygulamalar: " + (", ".join(names[:80]) or "yok"))
+
+
+def running_app_names() -> tuple[str, ...] | str:
+    """Dock'ta görünen (arka plan olmayan) uygulamaların adları; hata metni döner.
+
+    Ayarlar › Bu bilgisayar "reddedilen uygulama ekle" listesi de bunu kullanır.
+    """
+    error = _mac_only()
+    if error:
+        return error
     try:
         result = subprocess.run(
             [
@@ -99,11 +113,10 @@ def desktop_apps(args: ToolArgs, context: ToolContext) -> ToolResult:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return ToolResult.failure(f"Uygulamalar listelenemedi: {exc}")
+        return f"Uygulamalar listelenemedi: {exc}"
     if result.returncode:
-        return ToolResult.failure(f"Uygulamalar listelenemedi: {result.stderr.strip()}")
-    names = [name.strip() for name in result.stdout.split(",") if name.strip()]
-    return ToolResult("Çalışan uygulamalar: " + (", ".join(names[:80]) or "yok"))
+        return f"Uygulamalar listelenemedi: {result.stderr.strip()}"
+    return tuple(name.strip() for name in result.stdout.split(",") if name.strip())
 
 
 def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
