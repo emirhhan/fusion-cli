@@ -820,7 +820,9 @@ onun üstüne gelir.
 **Dev sunucuyu uygulamadan başlatma** — proje köküne Claude Code'daki gibi `.claude/launch.json`
 koyun (eski `.fusion/launch.json` de okunur). Yorumlu JSON, `program`/`args` (doğrudan `node`
 betiği), `port` (varsayılan 3000), `cwd` içinde `${workspaceFolder}` ve üst düzey `autoVerify`
-desteklenir; port değişirse `runtimeArgs` içindeki `--port`/`-p` değeri yeniden yazılır:
+desteklenir; port değişirse `runtimeArgs` içindeki `--port`/`-p` değeri yeniden yazılır.
+`autoVerify` varsayılan açıktır: düzenlemeden sonra tur sonunda sayfa ya da dev sunucu açılıp ölçülür
+(konsol hatası, yüklenemeyen kaynak, taşma); `"autoVerify": false` bu projede otomatik doğrulamayı kapatır:
 
 ```json
 {

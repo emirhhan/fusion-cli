@@ -53,6 +53,7 @@ from ...core.verification import (
     Verifier,
 )
 from ...core.workspace_fingerprint import content_digest
+from ...tools.preview_launch import auto_verify_enabled
 from ...tools.remotion_observe import observe_frame
 from .browser_verify import BrowserVerifier
 from .coverage_verify import EcosystemCoverageVerifier
@@ -236,7 +237,13 @@ def build_verifier(
         verifiers.append(RemotionCssVerifier(tool_context))
         # play_probe ile denenen oyun kapanışta yeniden oynatılır (ölçüldü: hata 15 kez görüldü).
         verifiers.append(GameProbeVerifier(tool_context))
-    if config.runtime.browser_verification and tool_context is not None:
+    if (
+        config.runtime.browser_verification
+        and tool_context is not None
+        # `.claude/launch.json` üst düzey `autoVerify: false` projede otomatik önizleme
+        # doğrulamasını kapatır (Claude Code: varsayılan açık, #440).
+        and auto_verify_enabled(root)
+    ):
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
         verifiers.append(BrowserVerifier(tool_context, dev_server_allowed=dev_server_allowed))
     if config.runtime.visual_verification and tool_context is not None and config.vision:

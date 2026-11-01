@@ -202,6 +202,17 @@ def load_launch_configs(root: Path) -> LaunchConfigs:
     return LaunchConfigs((), None)
 
 
+def auto_verify_enabled(root: Path) -> bool:
+    """Projenin launch.json'ı `autoVerify: false` demiyorsa True (Claude: varsayılan açık, #440).
+
+    Dosya yoksa ya da bozuksa açık kalır: doğrulamayı kapatmak açık bir karar ister.
+    """
+    try:
+        return load_launch_configs(root).auto_verify
+    except (LaunchConfigError, OSError):
+        return True
+
+
 def _load_file(root: Path, path: Path, source: str) -> LaunchConfigs:
     try:
         raw = json.loads(launch_json.strip_json_comments(path.read_text(encoding="utf-8")))
