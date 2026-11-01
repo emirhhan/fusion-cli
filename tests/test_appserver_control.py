@@ -82,7 +82,7 @@ async def test_kontrol_durumu_model_izin_gateway_ve_sir_adlarini_guvenli_donduru
     encoded = json.dumps(result)
     assert result["ok"] is True
     assert result["model"]["agent"]
-    assert result["izin"]["mod"] in {"ask", "auto", "plan"}
+    assert result["izin"]["mod"] in {"security", "ask", "auto", "plan"}  # varsayılan Manuel (#54)
     assert result["gateway"]["durum"] == "kapali"
     assert any(item["id"] == "openrouter" and item["kurulu"] for item in result["saglayicilar"])
     assert "sk-cok-gizli-deger" not in encoded

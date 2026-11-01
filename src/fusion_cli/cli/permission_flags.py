@@ -132,6 +132,6 @@ def enforce_mode_limits(mode: ApprovalMode, root: Path) -> ApprovalMode:
 
 
 def _built_in_default(root: Path, headless: bool) -> ApprovalMode:
-    if headless or auto_mode_disabled(root):
-        return ApprovalMode.SECURITY
-    return ApprovalMode.AUTO
+    """Claude'un yerleşik başlangıç kipi her yüzeyde `default` (Manuel, #54, #70)."""
+    del root, headless
+    return ApprovalMode.SECURITY

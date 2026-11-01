@@ -151,7 +151,11 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   plan, auto, dontAsk, bypassPermissions), `fusion --dangerously-skip-permissions` (bypass ile
   başlar) ve `fusion --allow-dangerously-skip-permissions` (bypass'ı Shift+Tab döngüsüne ekler,
   oturum onunla başlamaz). Bayrak `permissions.defaultMode` ayarından önce gelir; aynı bayraklar
-  `fusion agent` ve `fusion -p` için de geçerlidir.
+  `fusion agent` ve `fusion -p` için de geçerlidir. Bayrak ve ayar yoksa Claude gibi her yüzey
+  (REPL/TUI, masaüstü, `fusion agent`) **Manuel** (`default`) kipte başlar; Otomatik kip ve
+  denetçisi yalnız sen seçince (Shift+Tab, `/auto`, `--permission-mode auto`,
+  `defaultMode: auto`) devrededir. Güvenilmeyen klasördeki `.claude/settings.json` ya da
+  `settings.local.json` `defaultMode` değeri güven verilene dek uygulanmaz.
 - **acceptEdits** Claude gibi yalnız dosya düzenlemelerini ve çalışma dizinlerindeki `mkdir`,
   `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed` komutlarını (ve salt okunur komutları) sormaz;
   tarayıcıda tıklama/yazma gibi öteki eylemler Manuel kipteki gibi sorulur.
@@ -320,7 +324,8 @@ eylemi (komut, yol) görür; araç çıktısı, web sayfası ve yazılacak dosya
 Ayar `runtime.auto_classifier` (`/auto-mode ac` ya da `fusion auto-mode ayar ask_only`):
 `off` (yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (varsayılan; ek olarak
 salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur).
-Varsayılan Claude Code gibi açıktır (auto kipte eylemi sınıflandırıcı inceler): son 3 mesajın ve
+Varsayılan Claude Code gibi açıktır (auto kipte eylemi sınıflandırıcı inceler); oturum
+varsayılan olarak Manuel başladığından denetçi yalnız Otomatik kipi seçtiğinde çalışır. Son 3 mesajın ve
 eylem denetçi modelinin sağlayıcısına gider ve onun (ücretsiz) günlük kotasını kullanır; anahtar
 yoksa ağa çıkılmaz, kurallar geçerli olur; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
 Model `runtime.auto_classifier_model` (boş = hakem rolü ve yedekleri; web oturumu olamaz),

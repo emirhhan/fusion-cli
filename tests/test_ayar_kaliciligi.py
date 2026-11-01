@@ -87,7 +87,8 @@ def test_bozuk_kayitli_deger_varsayilana_duser(tmp_path):
     yeni = ReplState.from_runtime_config(
         load_config(hedef), memory=null_memory(), root=tmp_path, home=tmp_path
     )
-    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.AUTO
+    # Claude gibi yerleşik varsayılan `default` (Manuel, #54).
+    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.SECURITY
 
 
 def test_tum_ayarlar_birlikte_kalir_ve_birbirini_ezmez(tmp_path):

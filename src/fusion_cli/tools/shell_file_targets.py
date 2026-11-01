@@ -41,7 +41,9 @@ _VALUE_FLAGS: dict[str, frozenset[str]] = {
     "nl": frozenset({"-b", "-d", "-f", "-h", "-i", "-l", "-n", "-s", "-v", "-w"}),
     "strings": frozenset({"-n", "-t", "-e", "--bytes", "--radix", "--encoding"}),
     "xxd": frozenset({"-c", "-g", "-l", "-o", "-s", "-n", "-cols", "-len", "-seek"}),
-    "less": frozenset({"-b", "-h", "-j", "-k", "-o", "-O", "-p", "-P", "-t", "-T", "-x", "-y", "-z"}),
+    "less": frozenset(
+        {"-b", "-h", "-j", "-k", "-o", "-O", "-p", "-P", "-t", "-T", "-x", "-y", "-z"}
+    ),
     "bat": frozenset(
         {"-l", "--language", "-H", "--highlight-line", "-r", "--line-range", "--style",
          "--theme", "-m", "--map-syntax", "--tabs", "--wrap", "--terminal-width", "--color",

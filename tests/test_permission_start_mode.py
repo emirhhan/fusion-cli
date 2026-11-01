@@ -56,9 +56,29 @@ def test_claude_kip_adlari(ad, kip):
     assert parse_mode(ad) is kip
 
 
-def test_headless_varsayilani_default(proje):
+def test_headless_ve_etkilesimli_varsayilan_default(proje):
+    """Claude'un yerleşik başlangıç kipi her yüzeyde `default` (Manuel); auto isteğe bağlıdır.
+
+    İnceleme (1 Kasım, #54): Fusion etkileşimli oturumu auto'da başlatıyordu; denetçi
+    varsayılan açık olunca kullanıcı seçmeden her kabuk komutu modele gidiyordu.
+    """
     assert _kip(proje) is ApprovalMode.SECURITY
-    assert _kip(proje, headless=False) is ApprovalMode.AUTO
+    assert _kip(proje, headless=False) is ApprovalMode.SECURITY
+
+
+def test_kayitli_kip_yoksa_repl_manuel_baslar(proje):
+    from dataclasses import fields
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl.state import _initial_approval
+    from fusion_cli.config.models import RuntimeConfig
+
+    alan = next(f for f in fields(RuntimeConfig) if f.name == "approval_mode")
+    assert alan.default == "default"
+    varsayilan = SimpleNamespace(runtime=SimpleNamespace(approval_mode=alan.default))
+    assert _initial_approval(varsayilan, proje) is ApprovalMode.SECURITY
+    bozuk = SimpleNamespace(runtime=SimpleNamespace(approval_mode="yok"))
+    assert _initial_approval(bozuk, proje) is ApprovalMode.SECURITY
 
 
 def test_bayrak_defaultmodeu_ezer_ve_skip_bypass(proje):

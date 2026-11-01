@@ -192,9 +192,11 @@ class RuntimeConfig:
     #: Zeka motoru: "agent" | "fusion". Eskiden yalnız oturumda yaşıyor, uygulama
     #: yeniden açılınca tek ajana dönüyordu; artık kullanıcının seçimi kalıcıdır.
     engine: str = "agent"
-    #: İzin modu: "auto" | "edits" | "security" | "plan". `bypass` BİLEREK kalıcı
-    #: değildir (tek tuşla yanlışlıkla açılmamalı); yalnız oturum boyunca geçerlidir.
-    approval_mode: str = "auto"
+    #: İzin modu: "default" (Manuel) | "auto" | "edits" | "plan" (Claude adları da okunur).
+    #: `bypass` BİLEREK kalıcı değildir; yalnız oturum boyunca geçerlidir. Varsayılan Claude
+    #: gibi `default` (#54): auto ve denetçisi yalnız kullanıcı seçince (Shift+Tab, `/auto`,
+    #: `--permission-mode auto`, `defaultMode: auto`) devrededir.
+    approval_mode: str = "default"
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

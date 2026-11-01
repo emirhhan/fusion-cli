@@ -588,9 +588,9 @@ def _initial_approval(config: Config, root: object) -> ApprovalMode:
     try:
         approval = parse_mode(setting or config.runtime.approval_mode)
     except ValueError:
-        approval = ApprovalMode.AUTO
+        approval = ApprovalMode.SECURITY
     if approval is ApprovalMode.BYPASS and setting is None:
-        approval = ApprovalMode.AUTO
+        approval = ApprovalMode.SECURITY
     return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval
 
 

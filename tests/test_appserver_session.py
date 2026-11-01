@@ -932,7 +932,9 @@ async def test_c4_security_komutu_calisan_tura_gecer(tmp_path, monkeypatch):
 
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
-    assert oturum._state.approval is ApprovalMode.AUTO
+    # Yerleşik varsayılan Manuel (#54); geçişin tura yansıdığını sınamak için auto'dan başla.
+    assert oturum._state.approval is ApprovalMode.SECURITY
+    oturum._state.approval = ApprovalMode.AUTO
 
     await oturum.handle(
         Request(id="1", name="komut.calistir", data={"ad": "security", "arguman": ""})
