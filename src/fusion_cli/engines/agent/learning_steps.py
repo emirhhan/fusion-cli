@@ -18,8 +18,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...core.events import LessonsLearned, LessonsRecalled
-from ...core.mcp_tool_names import mcp_server_of
 from ...core.lesson_runtime import HINT_LIMIT, LessonDelivery
+from ...core.mcp_tool_names import mcp_server_of
 from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult

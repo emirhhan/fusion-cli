@@ -26,8 +26,8 @@ from dataclasses import MISSING, asdict, dataclass, field, fields
 from pathlib import Path
 
 from ..config.models import Config
-from ..core.mcp_tool_names import mcp_server_of as _core_mcp_server_of
 from ..core.events import Event, ModelCallFinished, SkillLoaded, ToolExecuted, ToolOutcome
+from ..core.mcp_tool_names import mcp_server_of as _core_mcp_server_of
 from ..core.types import TokenUsage
 
 _LOG = logging.getLogger(__name__)
