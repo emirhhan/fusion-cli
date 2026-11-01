@@ -125,8 +125,10 @@ class HookSession:
     home: Path | None = None
     #: `FileChanged` dinamik izleme listesi (`watchPaths`; mutlak yollar).
     watch_paths: tuple[str, ...] = ()
-    #: `ConfigChange` engelledi: tanımlar yeni dosyadan okunmaz (sonraki izinli değişikliğe dek).
-    hooks_pinned: bool = False
+    #: `ConfigChange`'in engellediği ayar dosyaları → engelden önceki içerik (`None` = yoktu).
+    #: Yükleyici bu dosyaların diskteki yeni halini okumaz; aynı dosyanın izinli değişikliği
+    #: kaydı kaldırır. Öteki dosyalar ve Fusion kapatma anahtarları etkilenmez.
+    pinned_settings: dict[Path, dict[str, object] | None] = field(default_factory=dict)
     #: Oturum boyu dosya izleyicisi (`watch.HookWatcher`); `start` kurar.
     watcher: object | None = None
     #: Masaüstü açılışında arka planda çalışan SessionStart (`opening.open_soon`).
@@ -176,10 +178,13 @@ class HookSession:
     def _recording(self) -> HookTranscript | None:
         return self.transcript()
 
+    @property
+    def hooks_pinned(self) -> bool:
+        """`ConfigChange` en az bir ayar dosyasının değişikliğini engelledi mi?"""
+        return bool(self.pinned_settings)
+
     def refresh(self) -> HookSet:
-        """Tanımları yeniden oku (kök tur başı); `ConfigChange` engellediyse eskisi kalır."""
-        if self.hooks_pinned and self._loaded:
-            return self.hooks
+        """Tanımları yeniden oku (kök tur başı); engellenen dosyalar `pinned_settings`'ten."""
         self.hooks = self.loader()
         self._loaded = True
         return self.hooks

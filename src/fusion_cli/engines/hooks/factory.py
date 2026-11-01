@@ -42,6 +42,7 @@ def open_hook_session(
             include_claude=runtime.claude_hooks,
             home=home,
             interactive=interactive,
+            pinned=session.pinned_settings,
         )
 
     session = HookSession(

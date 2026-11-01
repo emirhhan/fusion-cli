@@ -216,10 +216,12 @@ def load_hooks(
     home: Path | None = None,
     interactive: bool = True,
     include_plugins: bool = True,
+    pinned: Mapping[Path, Mapping[str, object] | None] | None = None,
 ) -> HookSet:
     """Tüm katmanları ve etkin eklentilerin kancalarını oku.
 
-    Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez.
+    Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez. `pinned`: `ConfigChange`'in engellediği
+    dosyalar → engelden önceki içerik (`None` = dosya yoktu); diskteki yeni hali okunmaz.
     """
     if not enabled:
         return HookSet(disabled_reason="runtime.hooks_enabled: false")
@@ -227,7 +229,11 @@ def load_hooks(
         return HookSet(disabled_reason=f"{HOOKS_ENV}=off")
     found = _Collected([], [], [], [], [])
     for layer in hook_layers(root, home):
-        data = _read_json(layer.path)
+        data = (
+            pinned[layer.path]
+            if pinned and layer.path in pinned
+            else read_settings_json(layer.path)
+        )
         if data is not None:
             _read_layer(found, layer, data, root, include_claude, default_timeout_s, interactive)
     if include_plugins:
@@ -335,7 +341,7 @@ def untrusted_hook_files(root: Path) -> tuple[str, ...]:
     for layer in hook_layers(root):
         if not layer.requires_trust or _is_trusted(layer, root):
             continue
-        data = _read_json(layer.path)
+        data = read_settings_json(layer.path)
         block = data.get("hooks") if data is not None else None
         if isinstance(block, Mapping) and any(block.values()):
             found.append(layer.path.relative_to(root).as_posix())
@@ -348,7 +354,8 @@ def _is_trusted(layer: HookLayer, root: Path) -> bool:
     return is_permissions_trusted(root)
 
 
-def _read_json(path: Path) -> dict[str, object] | None:
+def read_settings_json(path: Path) -> dict[str, object] | None:
+    """Ayar dosyasının nesnesi; yoksa, bozuksa ya da nesne değilse `None`."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

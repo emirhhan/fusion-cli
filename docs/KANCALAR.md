@@ -257,7 +257,10 @@ runtime:
 
 Ayar dosyaları oturum boyunca izlenir (`stat` yoklaması, 1 sn; kök tur başında da):
 değişiklik `ConfigChange` kancasından geçer ve engellenmezse kanca tanımlarına hemen
-(tur ortasında da) uygulanır. SessionStart/CwdChanged/FileChanged `watchPaths` dinamik
+(tur ortasında da) uygulanır. Engellenen dosya, engelden önceki içeriğiyle okunmaya devam
+eder (eklenen `disableAllHooks` de uygulanmaz); başka dosyaların izinli değişiklikleri onu
+içeri sokmaz, aynı dosyanın izinli değişikliği sabitlemeyi kaldırır. Fusion'ın kendi
+anahtarları (`runtime.hooks_enabled`, `FUSION_HOOKS`) engelden etkilenmez. SessionStart/CwdChanged/FileChanged `watchPaths` dinamik
 izleme listesinin yerine geçer; boş dizi listeyi temizler.
 
 ## Henüz yok
@@ -274,8 +277,8 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   model geri yüklemesi `PostModelSwitch`'i tetiklemez.
 - `UserPromptExpansion` engellese de becerinin `!`komut`` bağlam satırları komut yazıldığı anda
   çalışmış olur (engel modele gitmeyi durdurur).
-- Engellenen `ConfigChange` yalnız kanca tanımlarını sabitler (sonraki izinli değişikliğe
-  dek); izin, model gibi öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
+- Engellenen `ConfigChange` yalnız o dosyanın kanca tanımlarını sabitler; izin, model gibi
+  öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
 - `initialUserMessage` uygulanmaz (alan okunur; `-p`'ye özgü, `fusion agent` istemsiz açılmaz).
   `reloadSkills: true` REPL ve masaüstünde beceri kataloğunu yeniden taratır.
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).

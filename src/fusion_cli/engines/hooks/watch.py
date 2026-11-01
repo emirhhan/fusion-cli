@@ -7,8 +7,9 @@ bağımlılıksız, `stat` yoklamasıyla yapar (`POLL_S` aralığı; kök tur ba
 `ConfigChange`: kullanıcı/proje/yerel/yönetilen ayar dosyası ya da `.claude/skills/`
 altındaki bir beceri dosyası değişince; eşleştirici `source`'tur. Engellenmeyen değişiklik
 kanca tanımlarına HEMEN uygulanır (tur ortasında da). Çıkış 2 ya da `decision: block`
-değişikliği çalışan oturuma uygulamaz: tanımlar sonraki izinli değişikliğe dek eskisi
-kalır; `policy_settings` engellenemez. Engel ve gerekçe kimseye gösterilmez (Claude gibi).
+değişikliği çalışan oturuma uygulamaz: O DOSYA engelden önceki içeriğiyle okunur (öteki
+dosyaların izinli değişiklikleri onu içeri sokmaz; aynı dosyanın izinli değişikliği kaydı
+kaldırır); `policy_settings` engellenemez. Engel ve gerekçe kimseye gösterilmez (Claude gibi).
 
 `FileChanged`: izleme listesi `FileChanged` eşleştiricilerinin `|` ile ayrılmış parçalarıdır
 (çalışma klasöründe birebir dosya adı) ve SessionStart/CwdChanged/FileChanged kancalarının
@@ -24,7 +25,12 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...config.hooks import LAYER_MANAGED, hook_layers, managed_settings_file
+from ...config.hooks import (
+    LAYER_MANAGED,
+    hook_layers,
+    managed_settings_file,
+    read_settings_json,
+)
 from ...config.permission_rules import LAYER_LOCAL, LAYER_PROJECT
 from ...core.hooks.events import HookEvent, HookVerdict
 from .session import HookSession
@@ -75,6 +81,8 @@ class HookWatcher:
 
     session: HookSession
     _config: dict[Path, Stamp] = field(default_factory=dict)
+    #: Ayar dosyalarının son UYGULANAN içeriği (engellenen değişiklikte pin'e geçer).
+    _applied: dict[Path, dict[str, object] | None] = field(default_factory=dict)
     _files: dict[Path, Stamp] = field(default_factory=dict)
     task: asyncio.Task[None] | None = None
 
@@ -112,7 +120,13 @@ class HookWatcher:
 
     def prime(self) -> None:
         """Taban damgaları (açılıştan önceki değişiklikler kanca çalıştırmaz)."""
-        self._config = {path: _stamp(path) for path in self.config_sources()}
+        sources = self.config_sources()
+        self._config = {path: _stamp(path) for path in sources}
+        self._applied = {
+            path: read_settings_json(path)
+            for path, source in sources.items()
+            if source != SOURCE_SKILLS
+        }
         self._files = {path: _stamp(path) for path in self.watched_files()}
 
     def config_changes(self) -> list[tuple[Path, str]]:
@@ -140,7 +154,11 @@ class HookWatcher:
     async def check(self) -> HookVerdict:
         """Değişiklikleri kancalara ver; `FileChanged` kararlarının birleşimi döner."""
         for path, source in self.config_changes():
-            await config_changed(self.session, path, source)
+            applied = await config_changed(
+                self.session, path, source, previous=self._applied.get(path)
+            )
+            if applied and source != SOURCE_SKILLS:
+                self._applied[path] = read_settings_json(path)
         verdicts = [
             await self.session.emit(
                 HookEvent.FILE_CHANGED,
@@ -161,8 +179,18 @@ class HookWatcher:
             sink(text)
 
 
-async def config_changed(session: HookSession, path: Path, source: str) -> bool:
-    """`ConfigChange`: değişiklik uygulandıysa `True` (engel yalnız tanımları sabitler)."""
+async def config_changed(
+    session: HookSession,
+    path: Path,
+    source: str,
+    *,
+    previous: dict[str, object] | None = None,
+) -> bool:
+    """`ConfigChange`: değişiklik uygulandıysa `True`.
+
+    Engel yalnız O dosyayı `previous` (son uygulanan içerik) ile sabitler; beceri dosyası
+    kanca katmanı olmadığından sabitlenmez.
+    """
     verdict = await session.emit(
         HookEvent.CONFIG_CHANGE,
         subjects=(source,),
@@ -170,9 +198,10 @@ async def config_changed(session: HookSession, path: Path, source: str) -> bool:
     )
     if verdict.blocked and source != SOURCE_POLICY:
         LOG.debug("ConfigChange %s engellendi: %s", path, verdict.reason)
-        session.hooks_pinned = True
+        if source != SOURCE_SKILLS:
+            session.pinned_settings.setdefault(path, previous)
         return False
-    session.hooks_pinned = False
+    session.pinned_settings.pop(path, None)
     session.refresh()
     return True
 

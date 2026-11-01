@@ -122,7 +122,9 @@ def test_cikis_iki_degisikligi_uygulamaz_tanimlar_sabit_kalir(tmp_path, monkeypa
 
     assert _payloads(tmp_path, "config")[0]["source"] == "local_settings"
     assert session.hooks_pinned
-    assert loader.calls == calls  # yeni dosya okunmadı
+    # Dosya engelden önceki haliyle (burada: yoktu) okunur; diskteki yeni içerik değil.
+    assert session.pinned_settings == {local: None}
+    assert loader.calls == calls + 1
 
 
 def test_json_block_ve_mesaj_gosterilmez(tmp_path):
