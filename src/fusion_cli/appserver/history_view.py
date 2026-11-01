@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Sequence
 
+from ..cli.repl import code_review_findings
 from ..core.redaction import REDACTED_MARK, contains_sensitive, redact
 from ..core.types import Message, ToolCall
 
@@ -89,13 +90,33 @@ def _tool_row(message: Message, call: ToolCall | None) -> dict[str, object]:
     return row
 
 
+def _text_row(message: Message, findings_turn: bool) -> dict[str, object]:
+    """Kullanıcı/asistan satırı; `/code-review` turunda bulgu bloğu kart alanı olur (#214)."""
+    text = redact(message.content)
+    row: dict[str, object] = {"rol": "kullanici" if message.role == "user" else "asistan"}
+    if message.role == "user":
+        # Masaüstünün modele eklediği iç bulgu-listesi isteği sohbette görünmez.
+        text = text.replace(code_review_findings.HOST_REQUEST, "").strip()
+    elif findings_turn and (extracted := code_review_findings.extract(text)) is not None:
+        text = extracted.text
+        row["bulgular"] = [dict(item) for item in extracted.findings]
+    row["metin"] = text
+    if message.tool_calls:
+        row["ara"] = True
+    if message.message_id:
+        row["id"] = message.message_id
+    return row
+
+
 def visible_history(messages: Sequence[Message]) -> list[dict[str, object]]:
     """Araç sonuçlarını olay satırı olarak, anlatımları özgün sırada sunar."""
     rows: list[dict[str, object]] = []
     calls: dict[str, ToolCall] = {}
+    findings_turn = False
     for message in messages:
         if message.role == "user" and not message.harness_note:
             calls.clear()
+            findings_turn = code_review_findings.is_findings_turn(message.content)
         if message.role == "assistant":
             calls.update((call.id, call) for call in message.tool_calls)
         if message.harness_note:
@@ -103,13 +124,5 @@ def visible_history(messages: Sequence[Message]) -> list[dict[str, object]]:
         if message.role == "tool":
             rows.append(_tool_row(message, calls.get(message.tool_call_id or "")))
         elif message.role in {"user", "assistant"} and message.content.strip():
-            row: dict[str, object] = {
-                "rol": "kullanici" if message.role == "user" else "asistan",
-                "metin": redact(message.content),
-            }
-            if message.tool_calls:
-                row["ara"] = True
-            if message.message_id:
-                row["id"] = message.message_id
-            rows.append(row)
+            rows.append(_text_row(message, findings_turn))
     return rows

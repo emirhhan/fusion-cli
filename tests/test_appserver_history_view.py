@@ -123,3 +123,28 @@ def test_derin_arguman_gecmisi_dusurmeden_bos_nesneye_doner():
     assert isinstance(event, dict)
     assert event["args"] == {}
     assert rows[1] == {"rol": "asistan", "metin": "Bitti"}
+
+
+def test_code_review_bulgulari_yeniden_yuklemede_kart_alani_olur():
+    # #214: canlı turda ```findings bloğu `bulgular` olur; geçmiş yüklenince de aynı olmalı.
+    from fusion_cli.appserver.history_view import visible_history
+    from fusion_cli.cli.repl.code_review_findings import HOST_REQUEST
+
+    blok = (
+        "İki bulgu.\n```findings\n"
+        '[{"file": "a.py", "line": 3, "summary": "s", "failure_scenario": "f"}]\n```'
+    )
+    rows = visible_history(
+        [
+            Message("user", f"incele\n{HOST_REQUEST}"),
+            Message("assistant", blok),
+            Message("user", "```findings bloğu yaz"),
+            Message("assistant", blok),
+        ]
+    )
+    assert rows[0] == {"rol": "kullanici", "metin": "incele"}  # iç istek görünmez
+    assert rows[1]["metin"] == "İki bulgu."
+    assert rows[1]["bulgular"] == [
+        {"file": "a.py", "line": 3, "summary": "s", "failure_scenario": "f"}
+    ]
+    assert "bulgular" not in rows[3] and rows[3]["metin"] == blok  # inceleme turu değil
