@@ -119,3 +119,16 @@ async def test_eski_eklenti_kimliksiz_yerel_cihaz_sayilir() -> None:
     assert parse_device({}) == ("fusion-local", "Chrome")
     assert parse_device({"cihaz": {"id": "../x", "ad": "A"}}) == ("fusion-local", "Chrome")
     assert parse_device({"cihaz": {"id": "abc", "ad": " Brave "}}) == ("abc", "Brave")
+
+
+async def test_masaustu_ayarlari_tarayici_secer() -> None:
+    from fusion_cli.appserver.chrome_settings import dispatch_chrome_settings
+
+    bridge = ChromeBridge()
+    await bridge.start()
+    _iki_tarayici(bridge)
+    ok = await dispatch_chrome_settings(bridge, "chrome.tarayici_sec", {"deviceId": "edge-1"})
+    assert ok["ok"] and bridge.status()["secili"] == "edge-1"
+    yok = await dispatch_chrome_settings(bridge, "chrome.tarayici_sec", {"deviceId": "x"})
+    assert not yok["ok"]
+    await bridge.close()

@@ -14,7 +14,13 @@ from collections.abc import Awaitable
 from typing import Any, Protocol
 
 CHROME_SETTINGS_ROUTES = frozenset(
-    {"chrome.izleme", "chrome.kisayollar", "chrome.kisayol_kaydet", "chrome.kisayol_sil"}
+    {
+        "chrome.izleme",
+        "chrome.kisayollar",
+        "chrome.kisayol_kaydet",
+        "chrome.kisayol_sil",
+        "chrome.tarayici_sec",
+    }
 )
 #: Kısayol adı: boşluksuz harf/rakam/_/-, en çok 40 karakter (eklenti `shortcuts.js` ile aynı).
 SHORTCUT_NAME = re.compile(r"^[\w-]{1,40}$", re.UNICODE)
@@ -30,6 +36,8 @@ async def dispatch_chrome_settings(
     bridge: _Bridge, name: str, data: dict[str, Any]
 ) -> dict[str, Any]:
     """`CHROME_SETTINGS_ROUTES` içindeki isteği eklentiye ilet; sonucu Türkçe alanlarla döndür."""
+    if name == "chrome.tarayici_sec":
+        return _select_browser(bridge, data)
     try:
         if name == "chrome.izleme":
             return await _monitor(bridge, data)
@@ -50,6 +58,18 @@ async def dispatch_chrome_settings(
     except _ExtensionError as exc:
         return {"ok": False, "metin": str(exc)}
     return {"ok": False, "metin": f"Bilinmeyen Chrome ayarı: {name}"}
+
+
+def _select_browser(bridge: _Bridge, data: dict[str, Any]) -> dict[str, Any]:
+    """Ayarlar › Tarayıcı'da Select browser… (#432): komutların gideceği tarayıcı."""
+    device = data.get("deviceId")
+    selector = getattr(bridge, "select_browser", None)
+    if not isinstance(device, str) or not callable(selector):
+        return {"ok": False, "metin": "Seçilecek tarayıcı geçersiz."}
+    chosen = selector(device)
+    if chosen is None:
+        return {"ok": False, "metin": "Bu tarayıcı artık bağlı değil."}
+    return {"ok": True, "tarayici": chosen}
 
 
 class _ExtensionError(RuntimeError):

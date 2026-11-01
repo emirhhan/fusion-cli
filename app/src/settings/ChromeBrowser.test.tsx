@@ -110,3 +110,24 @@ it("eklentinin geliştirici yeteneklerini (konsol/ağ, GIF kaydı, kısayollar) 
   expect(list.textContent).toContain(".fusion/kayitlar");
   expect(list.textContent).toContain("Shift+F");
 });
+
+it("birden çok tarayıcı bağlıyken Bunu kullan seçimi chrome.tarayici_sec ile gönderir (#432)", async () => {
+  const client = {
+    request: vi.fn(async (name: string) => {
+      if (name === "chrome.tarayici_sec") return { ok: true };
+      return {
+        ok: true, calisiyor: true, bagli: true, port: 1, anahtar: null,
+        tarayicilar: [
+          { deviceId: "chrome-1", name: "Chrome", inUse: false },
+          { deviceId: "edge-1", name: "Edge", inUse: false },
+        ],
+      };
+    }),
+  } as unknown as ProtocolClient;
+
+  render(<ChromeBrowser client={client} />);
+  expect(await screen.findByText(/Fusion'ın kullanacağını seç/)).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "Bunu kullan" })[1]);
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("chrome.tarayici_sec", { deviceId: "edge-1" }));
+  expect(await screen.findByText("Kullanılıyor")).toBeTruthy();
+});
