@@ -359,8 +359,9 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
             continue
         task = due[0]
         state.scheduled_turn_only = task.source is Source.AGENT
+        state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
         if not reader.inject(loop_command.fire_prompt(task)):
-            state.scheduled_turn_only = False
+            state.scheduled_turn_only = state.scheduled_fire = False
             continue
         state.cron.complete(task.id, now=now)
         console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")

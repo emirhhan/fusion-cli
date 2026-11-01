@@ -110,6 +110,8 @@ class PendingExtras:
     fresh_fork: bool = False
     #: Becerinin `background` alanı (yalnız fork): etkileşimli oturumda arka planda koşar.
     fork_background: bool = False
+    #: Fork becerisinin adı: aynı becerinin önceki arka plan çağrısı sürerken beklenir (#141).
+    fork_skill: str = ""
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
@@ -134,6 +136,8 @@ class PendingExtras:
             options["inherit_context"] = False
         if self.fork_background:
             options["background"] = True
+            if self.fork_skill:
+                options["skill_key"] = self.fork_skill
         return functools.partial(runner, **options) if options else runner
 
 
@@ -234,6 +238,11 @@ class ReplState:
     #: Sıradaki satır ajanın zamanladığı görevdir: slash ile başlasa da KOMUT değil, tur
     #: olarak çalışır (bkz. `core.session_cron.Source`). Satır işlenince sıfırlanır.
     scheduled_turn_only: bool = False
+    #: Sıradaki satır oturumun zamanlanmış görevinden (`/loop`, `cron_*`) geliyor. Satır
+    #: işlenmeye başlarken `line_scheduled`'a geçer: zamanlanmış `/beceri` satırının
+    #: `context: fork`u arka plana alınmaz, sonucu beklenir (Claude Code #141).
+    scheduled_fire: bool = False
+    line_scheduled: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
     #: `/voice` dikte metni: bir sonraki istem bununla dolu açılır (P-072); alınınca temizlenir.
@@ -258,6 +267,7 @@ class ReplState:
     pending_fresh_fork: bool = False
     #: Becerinin `background` alanı (fork; varsayılan True): fork arka planda koşar (#141).
     pending_fork_background: bool = False
+    pending_fork_skill: str = ""
     #: Yalnız sıradaki tur için motor (#184): beceri Fusion motorunda agent turu olarak koşar,
     #: oturumun motoru değişmez.
     pending_engine: Engine | None = None
@@ -374,6 +384,7 @@ class ReplState:
     def take_scheduled_turn_only(self) -> bool:
         """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""
         value, self.scheduled_turn_only = self.scheduled_turn_only, False
+        self.line_scheduled, self.scheduled_fire = self.scheduled_fire, False
         return value
 
     def refresh_capability_roots(self) -> None:
@@ -409,8 +420,9 @@ class ReplState:
             self.pending_grants,
             self.pending_fresh_fork,
             self.pending_fork_background,
+            self.pending_fork_skill if self.pending_fork_background else "",
         )
-        self.pending_fork_background = False
+        self.pending_fork_background, self.pending_fork_skill = False, ""
         self.pending_context, self.pending_tools = "", None
         self.pending_grants, self.pending_fresh_fork = (), False
         self.pending_skill_name = ""

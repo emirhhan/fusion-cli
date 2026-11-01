@@ -271,9 +271,17 @@ def runs_in_background(skill: Capability, deps: object, depth: int) -> bool:
 
     Belge (skills, "Run skills in a subagent"): fork varsayılan olarak arka planda koşar, sonuç
     tamamlanınca konuşmaya gelir; `background: false` turda bekletir. Etkileşimsiz kipte
-    (`-p`, SDK) her zaman beklenir.
+    (`-p`, SDK) her zaman beklenir; aynı becerinin önceki arka plan çağrısı sürerken de
+    beklenir (`skill_fork_runs`).
     """
-    return skill.skill_background and bool(getattr(deps, "interactive", False)) and depth == 0
+    from . import skill_fork_runs
+
+    return (
+        skill.skill_background
+        and bool(getattr(deps, "interactive", False))
+        and depth == 0
+        and not skill_fork_runs.previous_running(deps, skill.name)
+    )
 
 
 async def _run_forked(
@@ -299,11 +307,14 @@ async def _run_forked(
         skill_grants=grants,
     )
     if runs_in_background(skill, deps, depth):
+        from . import skill_fork_runs
         from .agent_runtime_tools import launch_agent
 
         # Kapalı arka plan (`disable_background_tasks`, `background_agents`) ön planda bekler.
-        return await launch_agent(
+        result = await launch_agent(
             deps, subtask, {"run_in_background": True}, depth=depth, run_agent=run_agent
         )
+        skill_fork_runs.remember(deps, skill.name, result.output)
+        return result
     run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
     return ToolResult(run.text or f"('{skill.name}' alt ajanı boş yanıt verdi)")

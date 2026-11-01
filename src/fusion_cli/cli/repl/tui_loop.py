@@ -363,6 +363,7 @@ class _TuiSession:
                 continue
             task = due[0]
             self._state.scheduled_turn_only = task.source is Source.AGENT
+            self._state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
             self._state.cron.complete(task.id, now=now)
             self._echo(
                 f"[{theme.DIM}]{escape(messages.LOOP_FIRED.format(id=task.id))}[/{theme.DIM}]"

@@ -570,6 +570,8 @@ class AppSession:
         self._conversation_id: str | None = None
         #: Son `cron.vadesi_gelenler` ile verilen görevin ilerletilmeden önceki hâli.
         self._cron_given: dict[str, CronTask] = {}
+        #: Son verilen görevin istem metni; ilk `komut.calistir` bir kez tüketir (#141).
+        self._cron_fire_prompt = ""
         #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
@@ -2255,6 +2257,7 @@ class AppSession:
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
             verilen.append({"id": task.id, "gorev": fire_prompt(task), "kaynak": task.source.value})
+            self._cron_fire_prompt = fire_prompt(task).strip()
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 
@@ -2463,6 +2466,9 @@ class AppSession:
         previous_binding = (self._state.root, self._state.conversation_id)
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
+        # Zamanlanmış görevin ateşlediği `/beceri` satırının fork'u beklenir (Claude Code #141).
+        fired, self._cron_fire_prompt = self._cron_fire_prompt, ""
+        self._state.line_scheduled = bool(fired) and fired == f"/{name} {argument}".strip()
         command = self._registry.get(name)
         turn_running = (self._turn is not None and not self._turn.done()) or self._goal_judging()
         if command is not None and command.name == "cd" and turn_running:
