@@ -79,6 +79,7 @@ from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 from .unprompted import UnpromptedPrompter
+from ..tools import job_lifetime
 from .worktree_argv import fill_missing_worktree_name
 
 app = typer.Typer(
@@ -561,6 +562,8 @@ def agent(
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
     streaming = options.output_format is headless.OutputFormat.STREAM_JSON
+    # Gözetimsiz koşu: arka plan komutlarına Claude `-p` süre sınırı (metin istem: 10 dk, #335).
+    job_lifetime.set_unattended(text_prompt=True)
     text_output = options.output_format is headless.OutputFormat.TEXT
     silent = quiet or not text_output
     # json/stream-json'da stdout makine çıktısıdır: bildirimler yalnız metin kipinde basılır.

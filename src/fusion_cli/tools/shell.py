@@ -38,6 +38,7 @@ from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
 from .files import invented_path_reason
 from .job_delivery import prepare_outputs
 from .job_evidence import prepare_manifest
+from .job_lifetime import time_limit_s
 from .jobs import start_job
 from .remotion_shell_guard import (
     check_shell_result,
@@ -122,6 +123,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
                 outputs=outputs,
                 argv_prefix=run.plan.prefix,
                 on_exit=lambda: background_exit_note(run),
+                limit_s=time_limit_s(args.get("timeout")),
             )
         finally:
             if started is None or not started.ok:

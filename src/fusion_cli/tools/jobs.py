@@ -42,6 +42,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
 from .job_delivery import observe_delivery, save_completion, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
+from .job_lifetime import own as own_job
 from .job_owner import process_identity, save_owner, verified_owner
 from .remotion_shell_guard import check_shell_result
 
@@ -82,6 +83,7 @@ def start_job(
     outputs: tuple[ArtifactReceipt, ...] = (),
     argv_prefix: tuple[str, ...] = (),
     on_exit: Callable[[], str] | None = None,
+    limit_s: float | None = None,
 ) -> ToolResult:
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner.
 
@@ -142,6 +144,8 @@ def start_job(
     try:
         save_owner(klasor, kimlik, surec.pid, token, context, lambda: surec.poll() is not None)
         atomic_replace_text(klasor / f"{kimlik}.pid", str(surec.pid))
+        # Oturum kapanınca durdurulur; 5 GB ve (gözetimsizse) süre sınırı (#335).
+        own_job(kimlik, surec.pid, klasor, log=gunluk, command=command, limit_s=limit_s)
     except (OSError, ValueError, subprocess.SubprocessError):
         terminate_process_tree(surec.pid, force=True)
         try:

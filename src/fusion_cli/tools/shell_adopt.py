@@ -25,6 +25,7 @@ from ..core.process_control import MovedToBackground
 from ..core.tools import ToolContext, ToolResult
 from .bash_settings import background_disabled
 from .job_delivery import save_completion, save_delivery
+from .job_lifetime import own, time_limit_s
 from .job_owner import save_owner
 from .jobs import JOBS_DIR, _reserve_job_id
 
@@ -67,6 +68,7 @@ def adopt(
     process = moved.process
     save_owner(folder, job_id, process.pid, token, context, lambda: process.poll() is not None)
     atomic_replace_text(folder / f"{job_id}.pid", str(process.pid))
+    own(job_id, process.pid, folder, log=log, command=command, limit_s=time_limit_s(moved=True))
     threading.Thread(
         target=_watch,
         args=(moved, folder, context.root, job_id, sink, on_exit),

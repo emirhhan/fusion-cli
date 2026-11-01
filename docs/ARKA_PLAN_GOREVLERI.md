@@ -152,6 +152,11 @@ okunmadığı için orada `/bg` kullanılır.
   iken komut eskisi gibi durdurulur.
 - `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
+- Arka plan işinin ömrü: Fusion kapanırken o oturumun başlattığı işler durdurulur; çıktısı
+  5 GB'ı geçen iş durdurulur ve nedeni günlüğe yazılır. Yalnız gözetimsiz koşuda
+  (`fusion agent`) süre sınırı vardır: 10 dk (metin istem) ya da `timeout` (en çok 2 sa);
+  `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` sınırı yükseltir, kısaltmaz. Terminal ve
+  masaüstü oturumunda süre sınırı yoktur.
 - Çıktı (Claude Code Bash ile aynı): geçerli sonuç ~30.000 karaktere kadar satır içi; aşınca
   oturumun çıktı dizinindeki dosyanın yolu ve ilk 2.000 karakter. Hatalı sonuç ~10.000
   karaktere kadar; aşınca baş+son kesit (dosya yolu yok). Çıkış kodu 1 yalnız `grep`, `rg`,
