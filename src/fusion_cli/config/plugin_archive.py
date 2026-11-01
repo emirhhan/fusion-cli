@@ -18,7 +18,9 @@ import stat
 import tempfile
 import urllib.request
 import zipfile
+from http.client import HTTPMessage
 from pathlib import Path, PurePosixPath
+from typing import IO
 from urllib.parse import urlsplit
 
 from ..core.plugins import PluginError
@@ -130,20 +132,20 @@ class CheckedRedirect(urllib.request.HTTPRedirectHandler):
     düşürülür, yalnız `User-Agent` kalır.
     """
 
-    def redirect_request(  # type: ignore[override]
+    def redirect_request(
         self,
         req: urllib.request.Request,
-        fp: object,
+        fp: IO[bytes],
         code: int,
         msg: str,
-        headers: object,
+        headers: HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
         from ..core.plugin_source_kinds import archive_url_allowed
 
         if not archive_url_allowed(newurl):
             raise PluginError(ERR_REDIRECT.format(url=newurl))
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)  # type: ignore[arg-type]
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None and _origin(newurl) != _origin(req.full_url):
             for name in [key for key, _ in new.header_items() if key.lower() != "user-agent"]:
                 new.remove_header(name)
