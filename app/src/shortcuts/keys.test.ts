@@ -37,6 +37,17 @@ describe("masaüstü tuş yazımı (Python normalize_desktop_key ile aynı)", ()
     }
     expect(keyProblem("mod+w")).toBeNull();
   });
+
+  it("⌘⇧] / ⌘⇧[ oturum değiştirir; düzen ] tuşunu kaydırılmamış bildirse de eşleşir (#444)", () => {
+    expect(DEFAULT_BINDINGS["mod+}"]).toBe("sonraki_oturum");
+    expect(DEFAULT_BINDINGS["mod+{"]).toBe("onceki_oturum");
+    expect(eventToKey(press("}", "BracketRight", { metaKey: true, shiftKey: true }), true)).toBe("mod+}");
+    expect(eventToKey(press("]", "BracketRight", { metaKey: true, shiftKey: true }), true)).toBe("mod+}");
+    expect(eventToKey(press("[", "BracketLeft", { ctrlKey: true, shiftKey: true }), false)).toBe("mod+{");
+    expect(eventToKey(press("]", "BracketRight", { metaKey: true }), true)).toBe("mod+]");
+    expect(formatKey("mod+}", true)).toBe("⌘⇧]");
+    expect(formatKey("mod+{", false)).toBe("Ctrl+Shift+[");
+  });
 });
 
 describe("klavye olayı → tuş", () => {

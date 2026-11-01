@@ -6,6 +6,8 @@
     "mod+w": "oturumu_kapat",
     "ctrl+tab": "sonraki_oturum",
     "ctrl+shift+tab": "onceki_oturum",
+    "mod+}": "sonraki_oturum",
+    "mod+{": "onceki_oturum",
     "mod+shift+d": "fark_paneli",
     "mod+shift+b": "onizleme",
     "ctrl+`": "terminal",

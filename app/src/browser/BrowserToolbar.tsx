@@ -1,4 +1,10 @@
+import { useEffect, useRef } from "react";
 import { BROWSER_VIEWPORTS } from "./browserPanelProtocol";
+
+/** Cmd/Ctrl+Shift+S: öğe seçiciyi aç/kapat (Claude Code Desktop Browser bölmesi, #444). */
+export function isPickShortcut(event: KeyboardEvent): boolean {
+  return (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && (event.code === "KeyS" || event.key.toLowerCase() === "s");
+}
 
 /** Tarayıcı panelinin araç çubuğu: gezinme, adres, görünüm, öğe seçici, görüntü, konsol. */
 export interface BrowserToolbarProps {
@@ -21,6 +27,18 @@ export function BrowserToolbar({
   address, busy, isOpen, picking, consoleOpen, viewportId,
   onAddressChange, onSubmit, onHistory, onViewport, onPickToggle, onScreenshot, onConsole,
 }: BrowserToolbarProps) {
+  const pickRef = useRef(onPickToggle);
+  pickRef.current = onPickToggle;
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isPickShortcut(event)) return;
+      event.preventDefault();
+      pickRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen]);
   return (
     <div className="browser-toolbar">
       <div className="browser-toolbar__nav">
@@ -48,7 +66,7 @@ export function BrowserToolbar({
           aria-pressed={picking}
           disabled={!isOpen}
           onClick={onPickToggle}
-          title="Öğe seç: tıkladığın öğenin seçicisi ve görüntüsü sohbete eklenir"
+          title="Öğe seç (⌘⇧S): tıkladığın öğenin seçicisi ve görüntüsü sohbete eklenir"
           type="button"
         >⌖</button>
         <button aria-label="Görüntüyü sohbete ekle" disabled={!isOpen} onClick={onScreenshot} title="Görüntüyü sohbete ekle" type="button">◧</button>

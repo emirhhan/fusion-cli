@@ -991,9 +991,11 @@ görev kutusuna `/ad ` yazar.
 | ⌘/ | Kısayolları göster (Ayarlar › Kısayollar) |
 | ⌘N · ⌘W | Yeni oturum · oturumu kapat |
 | Ctrl+Tab · Ctrl+Shift+Tab | Sonraki · önceki oturum |
+| ⌘⇧] · ⌘⇧[ | Sonraki · önceki oturum (dosyada `mod+}` / `mod+{`) |
 | ⌘⇧D · ⌘⇧B | Fark paneli · önizleme |
 | Ctrl+` · ⌘\\ | Terminal · odaktaki paneli kapat |
-| ⌘⇧M | İzin modu menüsü |
+| ⌘⇧M · ⌘⇧I | İzin modu menüsü · model menüsü |
+| ⌘⇧S | Öğe seç (Tarayıcı panelinde; önizlemedeki sayfayı seçiciyle açar) |
 | ⌘, | Ayarlar |
 | ⌘[ · ⌘] | Geri · ileri |
 
@@ -1003,8 +1005,12 @@ tablodan kalktı; bu sürüm boyunca, tuş kişisel tablonda başka bir işe ba�
 devam eder ve ilk kullanımda bir kez uyarılır. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata;
 `keybindings.json`'daki kişisel bağlar aynen geçerlidir. Tur çalışırken ⌘W ilk basışta yalnız uyarır,
 3 sn içinde ikinci basış oturumu kapatır.
-**Henüz yok**: ⌘⇧]/⌘⇧[ (Türkçe Q'da ⌥ gerektiren noktalama tuşu), ⌘⇧S öğe seç, ⌘⌃W bölünmüş
-görünümden çıkar, ⌘; yan sohbet, Ctrl+O görünüm kipleri, ⌘⇧I/⌘⇧E model/efor menüsü, ⌘⌥1-9 ortam seç.
+⌘⇧]/⌘⇧[ ABD düzenindeki tuştur; Türkçe Q'da köşeli parantez ⌥ gerektirdiği için oradan tetiklenmez
+(Ctrl+Tab kullan ya da Ayarlar › Kısayollar'dan başka tuşa bağla).
+**Henüz yok**: ⌘⌃W bölünmüş görünümden çıkar (Windows'ta Ctrl+W ile aynı fiziksel tuşa düşer;
+`bolmeyi_kapat` eylemi elle bağlanabilir), ⌘; yan sohbet (Fusion'da ayrı yan sohbet paneli yok;
+`/btw` ana sohbete yazılır), Ctrl+O görünüm kipleri, ⌘⇧E efor menüsü (efor Ayarlar › Modeller'de
+seçilir), ⌘⌥1-9 ortam seç (Fusion'da ortam seçici yok).
 
 Kenar çubuğunda sohbetin `···` menüsünün ilk eylemi **Arşivle**dir (Claude Desktop'taki Archive):
 arşivlenen sohbet silinmez, ana listeden kalkar ve listenin başındaki **Arşivlenenler (N)**

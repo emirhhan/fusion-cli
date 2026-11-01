@@ -118,6 +118,20 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     setOpen(true);
     onOpen?.();
   };
+  const acRef = useRef(ac);
+  acRef.current = ac;
+
+  useEffect(() => {
+    // Cmd/Ctrl+Shift+I model menüsünü açar/kapatır (Claude Code Desktop, #444).
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey) return;
+      if (event.code !== "KeyI" && event.key.toLowerCase() !== "i") return;
+      event.preventDefault();
+      acRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const choose = (option: ModelOption, confirmed = false) => {
     if (pending) return;

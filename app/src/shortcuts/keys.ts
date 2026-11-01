@@ -87,6 +87,14 @@ export function keyProblem(key: string): string | null {
   return null;
 }
 
+/**
+ * ⌘⇧] / ⌘⇧[ (Claude Desktop oturum değiştirme, #444): ABD düzeninde karakter `}` / `{`'dir ve
+ * noktalama kuralıyla `mod+}` olur. Bazı motorlar ⌘ basılıyken kaydırılmamış `]` bildirir;
+ * Shift varsa aynı tuşa çevrilir.
+ */
+const SHIFTED_BRACKETS: Record<string, string> = { "]": "}", "[": "{" };
+const UNSHIFTED_BRACKETS: Record<string, string> = { "}": "]", "{": "[" };
+
 interface KeyLike {
   key: string;
   code: string;
@@ -117,6 +125,7 @@ export function eventToKey(event: KeyLike, mac: boolean): string | null {
   if (digit && (event.altKey || /^\d$/.test(event.key))) key = digit;
   else if (letter && (event.altKey || !/^[\p{L}]$/u.test(event.key))) key = letter;
   else if (event.key === " ") key = "space";
+  else if (event.shiftKey && event.key in SHIFTED_BRACKETS) key = SHIFTED_BRACKETS[event.key];
   else key = lower(event.key);
   if (key.length > 1 && !NAMED_KEYS.has(key)) return null;
   return compose(parts, key);
@@ -150,7 +159,10 @@ const KEY_NAMES: Record<string, string> = {
 
 /** Kullanıcıya göster: macOS'ta `⌘⇧P`, diğerlerinde `Ctrl+Shift+P`. */
 export function formatKey(key: string, mac: boolean): string {
-  const [parts, final] = split(key);
+  const [rawParts, rawFinal] = split(key);
+  // `mod+}` kullanıcıya Claude'daki gibi ⌘⇧] olarak gösterilir.
+  const final = UNSHIFTED_BRACKETS[rawFinal] ?? rawFinal;
+  const parts = final === rawFinal ? rawParts : [...rawParts, "shift"];
   const name = KEY_NAMES[final] ?? final.toLocaleUpperCase("tr");
   const symbols = mac ? MAC_SYMBOLS : OTHER_SYMBOLS;
   const labels = [...new Set(parts.map((part) => symbols[part] ?? part))];
