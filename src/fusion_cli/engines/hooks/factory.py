@@ -56,6 +56,7 @@ def open_hook_session(
         model=lambda: str(getattr(getattr(_config(), "agent", None), "model", "") or ""),
         interactive=interactive,
         terminal_writer=tty_writer() if interactive else None,
+        home=home,
     )
     if session_id:
         session.session_id = session_id

@@ -46,8 +46,10 @@ _CLAUDE_MODES = {
 
 
 #: `CLAUDE_ENV_FILE` verilen olaylar (Claude: SessionStart, Setup, CwdChanged, FileChanged;
-#: Fusion Setup/FileChanged'i tetiklemez).
-ENV_FILE_EVENTS = frozenset({HookEvent.SESSION_START, HookEvent.CWD_CHANGED})
+#: Fusion Setup'ı tetiklemez).
+ENV_FILE_EVENTS = frozenset(
+    {HookEvent.SESSION_START, HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED}
+)
 
 
 def claude_permission_mode(mode: str) -> str:
@@ -114,6 +116,14 @@ class HookSession:
     instructions_reason: str = "session_start"
     #: `/komut` açılımı: sıradaki kök turda `UserPromptExpansion` girdisi (bir kez).
     pending_expansion: dict[str, object] | None = None
+    #: Ayar katmanlarının ev klasörü (`ConfigChange` izleyicisi; `None` = gerçek HOME).
+    home: Path | None = None
+    #: `FileChanged` dinamik izleme listesi (`watchPaths`; mutlak yollar).
+    watch_paths: tuple[str, ...] = ()
+    #: `ConfigChange` engelledi: tanımlar yeni dosyadan okunmaz (sonraki izinli değişikliğe dek).
+    hooks_pinned: bool = False
+    #: Oturum boyu dosya izleyicisi (`watch.HookWatcher`); `start` kurar.
+    watcher: object | None = None
     _loaded: bool = False
     #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
     _start_context: str = ""
@@ -155,7 +165,9 @@ class HookSession:
         return transcript if transcript is not None and self.current().commands else None
 
     def refresh(self) -> HookSet:
-        """Tanımları yeniden oku (kök tur başı)."""
+        """Tanımları yeniden oku (kök tur başı); `ConfigChange` engellediyse eskisi kalır."""
+        if self.hooks_pinned and self._loaded:
+            return self.hooks
         self.hooks = self.loader()
         self._loaded = True
         return self.hooks
@@ -251,6 +263,8 @@ class HookSession:
             self.session_commands = scope.after_once(self.session_commands, runs, verdicts)
         verdict = spill_verdict(merge_verdicts(verdicts), self._output_dir())
         self._write_terminal(verdict)
+        if verdict.watch_paths_given:
+            self.watch_paths = verdict.watch_paths
         return verdict
 
     def _show_status(self, commands: list[HookCommand]) -> None:
@@ -412,6 +426,9 @@ class HookSession:
         if self.started:
             return NO_VERDICT
         self.started = True
+        from .watch import ensure_watcher
+
+        ensure_watcher(self)
         source = source or self.next_source
         return await self.emit(
             HookEvent.SESSION_START, subjects=(source,), fields=self._start_fields(source)

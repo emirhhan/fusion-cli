@@ -23,11 +23,13 @@ DISCARDS_SYSTEM_MESSAGE = frozenset(
         HookEvent.SESSION_END,
         # StopFailure: yalnız `terminalSequence` uygulanır.
         HookEvent.STOP_FAILURE,
+        # ConfigChange: yalnız engel kararı; engel mesajı kimseye gösterilmez.
+        HookEvent.CONFIG_CHANGE,
     }
 )
 #: Yalnız `continue`'yu atan olaylar: CwdChanged, TaskCreated (`continue: false` yok sayılır).
 DISCARDS_CONTINUE = DISCARDS_SYSTEM_MESSAGE | frozenset(
-    {HookEvent.CWD_CHANGED, HookEvent.TASK_CREATED}
+    {HookEvent.CWD_CHANGED, HookEvent.TASK_CREATED, HookEvent.FILE_CHANGED}
 )
 #: JSON alanlarının TAMAMI atılan olaylar (SessionEnd karar denetimi yoktur).
 DISCARDS_ALL_JSON = frozenset({HookEvent.SESSION_END, HookEvent.INSTRUCTIONS_LOADED})

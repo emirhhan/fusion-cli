@@ -45,6 +45,8 @@ class HookEvent(Enum):
     DIRECTORY_ADDED = "DirectoryAdded"
     PRE_MODEL_SWITCH = "PreModelSwitch"
     POST_MODEL_SWITCH = "PostModelSwitch"
+    CONFIG_CHANGE = "ConfigChange"
+    FILE_CHANGED = "FileChanged"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -75,6 +77,10 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
         "yükleme nedeni (session_start|nested_traversal|path_glob_match|include|compact)"
     ),
     HookEvent.STOP_FAILURE: "hata türü (rate_limit|authentication_failed|server_error|…)",
+    HookEvent.CONFIG_CHANGE: (
+        "kaynak (user_settings|project_settings|local_settings|policy_settings|skills)"
+    ),
+    HookEvent.FILE_CHANGED: "değişen dosyanın adı (izlenen dosyalar `|` ile)",
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -99,6 +105,8 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.USER_PROMPT_EXPANSION,
         # PreModelSwitch: model değişmez.
         HookEvent.PRE_MODEL_SWITCH,
+        # ConfigChange: yeni ayar çalışan oturuma uygulanmaz (policy_settings hariç).
+        HookEvent.CONFIG_CHANGE,
     }
 )
 
@@ -119,8 +127,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "Setup",
         "PermissionDenied",
         "MessageDisplay",
-        "ConfigChange",
-        "FileChanged",
         "WorktreeCreate",
         "WorktreeRemove",
         "Elicitation",
@@ -285,6 +291,8 @@ class HookVerdict:
     initial_user_message: str = ""
     #: SessionStart/CwdChanged/FileChanged `watchPaths`.
     watch_paths: tuple[str, ...] = ()
+    #: `watchPaths` yazıldı mı? (Boş dizi dinamik listeyi temizler; yazılmaması değiştirmez.)
+    watch_paths_given: bool = False
     #: SessionStart `reloadSkills`.
     reload_skills: bool = False
     #: Evrensel `terminalSequence` (izinli OSC/BEL dizisi; etkileşimli arayüz basar).

@@ -67,6 +67,8 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
+| `ConfigChange` | oturumdayken ayar dosyası (`~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, `managed-settings.json`/`managed-settings.d/`) ya da `.claude/skills/` altındaki beceri dosyası değişince (girdi `source`, `file_path`) | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` | yeni tanımlar çalışan oturuma uygulanmaz (`policy_settings` engellenemez; engel gösterilmez) |
+| `FileChanged` | izlenen dosya diskte değişince (kim değiştirirse değiştirsin; girdi `file_path`, `event`: `change`/`add`/`unlink`). İzleme listesi: eşleştiricinin `\|` ile ayrılmış parçaları (çalışma klasöründe birebir dosya adı) + `watchPaths` | değişen dosyanın adı | — (`watchPaths` dinamik listeyi değiştirir, `systemMessage` kısa satır) |
 | `PreModelSwitch` | `/model agent <id>` oturum modelini değiştirmeden önce (girdi `from_model`, `to_model`, `requested_model`, `source`, maliyet alanları; süre 30 sn) | hedef modelin kanonik adı (`claude-opus-5`; `sağlayıcı/model` de eşleşir) | model değişmez; `permissionDecision` `deny` ve `ask` (Fusion'da soru kartı yok) reddeder, `allow` geçirir; `systemMessage` her durumda gösterilir |
 | `PostModelSwitch` | oturum modeli değiştikten sonra | hedef modelin kanonik adı | — (düz stdout ve `additionalContext` sonraki istekle modele) |
 | `DirectoryAdded` | `/add-dir` yeni klasör ekleyince (kökün içindeki klasör ve `--add-dir` tetiklemez; girdi `directory`, `source`); kanca beklenmez | `slash_command` | — (`systemMessage` sonraki turda modele bağlam olur) |
@@ -163,7 +165,7 @@ resume/fork maliyet alanları (`seconds_since_last_response`, `context_tokens`�
 
 Ortam: Fusion'ınki (MCP sırları ve `OTEL_*` hariç) + `CLAUDE_PROJECT_DIR` /
 `FUSION_PROJECT_DIR` (oturumun **başladığı** proje kökü; worktree ve `/cd` ile değişmez) +
-`CLAUDE_EFFORT`. `SessionStart` ve `CwdChanged` kancalarına ek olarak `CLAUDE_ENV_FILE`
+`CLAUDE_EFFORT`. `SessionStart`, `CwdChanged` ve `FileChanged` kancalarına ek olarak `CLAUDE_ENV_FILE`
 verilir: kanca bu dosyaya `export AD=değer` satırları ekler (`>>`), oturumdaki her kabuk
 komutu (`run_shell`, arka plan dahil) dosyayı komuttan önce kabuk kodu olarak çalıştırır
 (`export PATH="$PATH:./node_modules/.bin"` gibi satırlar değerlendirilir).
@@ -239,7 +241,10 @@ runtime:
 - Masaüstü: Ayarlar › İzinler › **Kancalar** — liste (`kanca.listele`) ve iki anahtar
   (`hooks_enabled`, `claude_hooks`; `kanca.ayar`).
 
-Tanımlar her kök turun başında yeniden okunur.
+Ayar dosyaları oturum boyunca izlenir (`stat` yoklaması, 1 sn; kök tur başında da):
+değişiklik `ConfigChange` kancasından geçer ve engellenmezse kanca tanımlarına hemen
+(tur ortasında da) uygulanır. SessionStart/CwdChanged/FileChanged `watchPaths` dinamik
+izleme listesinin yerine geçer; boş dizi listeyi temizler.
 
 ## Henüz yok
 
@@ -247,8 +252,7 @@ Tanımlar her kök turun başında yeniden okunur.
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - Olaylar: `Setup`, `PermissionDenied`,
-  `MessageDisplay`, `ConfigChange`,
-  `FileChanged`, `WorktreeCreate`, `WorktreeRemove`,
+  `MessageDisplay`, `WorktreeCreate`, `WorktreeRemove`,
   `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").
 - `PreModelSwitch` maliyet alanları ölçülmez (`context_tokens: 0`, `pricing: "default"`);
@@ -256,9 +260,9 @@ Tanımlar her kök turun başında yeniden okunur.
   model geri yüklemesi `PostModelSwitch`'i tetiklemez.
 - `UserPromptExpansion` engellese de becerinin `!`komut`` bağlam satırları komut yazıldığı anda
   çalışmış olur (engel modele gitmeyi durdurur).
-- Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);
-  `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması yok
-  (alanlar okunur).
+- Engellenen `ConfigChange` yalnız kanca tanımlarını sabitler (sonraki izinli değişikliğe
+  dek); izin, model gibi öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
+- `initialUserMessage`/`reloadSkills`'in uygulanması yok (alanlar okunur).
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
 - `transcript_path` kanca için üretilen ayrı, maskeli JSONL'dir (oturum bitince silinir).
 - `/hooks` etkileşimli tarayıcı ("All events") yok; düz liste.

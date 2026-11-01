@@ -258,6 +258,9 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     session = session_of(deps)
     if session is None:
         return PromptGate()
+    from ..hooks.watch import check_changes
+
+    await check_changes(session)
     session.refresh()
     notice = session.disabled_notice()
     if notice is not None:

@@ -41,6 +41,10 @@ NON_BLOCKING_STATUS = "Failed with non-blocking status code"
 _T = TypeVar("_T")
 _PERMISSIONS = ("allow", "ask", "defer")
 _STRICTNESS = {"deny": 0, "defer": 1, "ask": 2, "allow": 3}
+#: `watchPaths` okuyan olaylar (FileChanged izleme listesini değiştirir).
+WATCH_PATH_EVENTS = frozenset(
+    {HookEvent.SESSION_START, HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED}
+)
 
 
 def verdict_from_run(event: HookEvent, run: HookRun, subject: str = "") -> HookVerdict:
@@ -251,8 +255,10 @@ def _session_fields(
             initial_user_message=_text(specific.get("initialUserMessage")),
             reload_skills=specific.get("reloadSkills") is True,
         )
-    if event in (HookEvent.SESSION_START, HookEvent.CWD_CHANGED):
-        verdict = replace(verdict, watch_paths=string_list(specific.get("watchPaths")))
+    if event in WATCH_PATH_EVENTS and "watchPaths" in specific:
+        verdict = replace(
+            verdict, watch_paths=string_list(specific.get("watchPaths")), watch_paths_given=True
+        )
     return verdict
 
 
@@ -282,6 +288,7 @@ def merge_verdicts(verdicts: Iterable[HookVerdict]) -> HookVerdict:
             or item.suppress_original_prompt,
             initial_user_message=item.initial_user_message or merged.initial_user_message,
             watch_paths=merged.watch_paths + item.watch_paths,
+            watch_paths_given=merged.watch_paths_given or item.watch_paths_given,
             reload_skills=merged.reload_skills or item.reload_skills,
             terminal_sequences=merged.terminal_sequences + item.terminal_sequences,
         )
