@@ -647,37 +647,64 @@ mcp_servers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-github"]
 ```
-Bağlı sunucuların aletlerini görmek için:
-```
-fusion mcp tools          # eski ad: fusion mcp-tools
-```
-Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayınla).
+Bağlı sunucuların durumunu görmek için `fusion mcp list` (✔ Bağlandı · ! Kimlik doğrulama
+gerekli · ✘ Bağlanılamadı · ⏸ Onay bekliyor). Bundan sonra ajan turlarında bu dış aletler
+otomatik kullanılabilir (onayınla).
 
-**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile aynı kalıp):
+**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile birebir):
 ```
-fusion mcp add github npx -- -y @modelcontextprotocol/server-github     # stdio, kullanıcı kapsamı
-fusion mcp add linear --transport http --url https://mcp.linear.app/mcp  # uzak sunucu (OAuth)
-fusion mcp add postgres --scope project npx -- -y server-postgres        # projeye (.mcp.json)
-fusion mcp add-json fetch '{"command":"uvx","args":["mcp-server-fetch"]}'
-fusion mcp list                      # kapsam ve taşımayla; sırlar maskeli
-fusion mcp remove <ad>               # kayıtlı olduğu dosyadan siler
-fusion mcp login <ad>                # OAuth girişi (tarayıcı açılır), token şifreli depoda
-fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
+fusion mcp add --transport http notion https://mcp.notion.com/mcp      # uzak (OAuth), yerel kapsam
+fusion mcp add --transport http api https://api.example.com/mcp -H "Authorization: Bearer ${API_KEY}"
+fusion mcp add --transport sse asana https://mcp.asana.com/sse          # eski SSE taşıması
+fusion mcp add airtable -e AIRTABLE_API_KEY=anahtar -- npx -y airtable-mcp-server   # stdio
+fusion mcp add --scope project postgres -- npx -y server-postgres       # projeye (.mcp.json)
+fusion mcp add --transport http --client-id ID --client-secret --callback-port 8080 srv https://…
+fusion mcp add-json ev '{"type":"ws","url":"wss://mcp.example.com/socket","headers":{…}}'
+fusion mcp add-from-claude-desktop [--scope user]   # macOS/WSL: Claude Desktop'tan seçerek al
+fusion mcp list | get <ad>            # durum; get kapsam, hedef, başlık/ortam ADLARI, OAuth
+fusion mcp remove <ad> [--scope …]    # kapsamından siler; o adresin OAuth token'ları da silinir
+fusion mcp login <ad> [--no-browser]  # OAuth; SSH'te adres basılır, dönüş adresi yapıştırılır
+fusion mcp logout <ad>                # saklı kimlik bilgilerini sil
+fusion mcp reconnect <ad>|all
+fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç (bütün araçlar)
 ```
-- `--scope user` (varsayılan) kaydı `config.yaml`'a, `--scope project` kök dizindeki
-  `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
-  varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
-  güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
-  kullanıcı kaydını geçer (kullanıcı kaydı `config.yaml`'da durur, silinmez). Güvenilmeyen bir
-  `.mcp.json` üzerine `--scope project` ile yazılmaz: önce `fusion trust`. Ekleme/silme
-  dosyada yalnız ilgili adı değiştirir; takımın diğer girdileri korunur. `--token-env` proje
-  kapsamında yoktur (dosya biçimi taşımaz); kullanıcı kapsamına yaz.
-- Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
-  başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
-- `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
-  düz değerdir.
-- Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
-  Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
+- Kapsamlar Claude Code ile aynı: **`local` varsayılan** (yalnız bu proje, paylaşılmaz;
+  kullanıcı dizinindeki `mcp-local.json` içinde proje yolu altında), `project` kökteki
+  `.mcp.json`, `user` bütün projeler (`config.yaml`). Aynı adda öncelik local > project > user
+  > eklenti; alanlar kapsamlar arasında birleştirilmez. Proje dosyası süreç başlatabildiği için
+  yalnız `fusion trust` ile güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir;
+  güvenilmeyen dosyanın sunucuları `fusion mcp list`'te "⏸ Onay bekliyor" görünür.
+- `.mcp.json` / `add-json` alanları: `type` (stdio|http|sse|ws), `command`, `args`, `env`,
+  `url`, `headers`, `headersHelper`, `timeout` (ms), `alwaysLoad`, `oauth` {`clientId`,
+  `callbackPort`, `authServerMetadataUrl`, `scopes`}. Hatalı tek girdi (ör. `type`'sız `url`,
+  `type: "sdk"`) atlanır ve bildirilir; diğer sunucular yüklenir.
+- `${VAR}` ve `${VAR:-varsayılan}`: tanımsız ve varsayılansız başvuru metin olarak kalır ve
+  `list`/`get` uyarı verir; boş metne ayarlı değişken tanımlı sayılır. Uzak sunucunun `url` ve
+  `headers` alanlarında kimlik bilgisi değişkenleri (ANTHROPIC_API_KEY, AWS_BEARER_TOKEN_BEDROCK,
+  HTTPS_PROXY, NPM_TOKEN, sağlayıcı anahtarları…) boş okunur.
+- Zaman sınırları: başlatma 30 sn (`MCP_TIMEOUT`), araç çağrısı ~28 saat (`MCP_TOOL_TIMEOUT`
+  ya da sunucu `timeout`), HTTP/SSE istek başına en az 60 sn, boşta kalma ağda 5 dk / stdio'da
+  30 dk (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`).
+- Çıktı: 25.000 token (`MAX_MCP_OUTPUT_TOKENS`) ya da 50.000 karakteri aşan başarılı sonuç
+  dosyaya kaydedilir ve modele yolu verilir; hata metninin ilk ve son 5.000 karakteri tutulur.
+- Stdio sunucusu kabuk ortamını miras alır ve `CLAUDE_PROJECT_DIR` alır;
+  `CLAUDE_CODE_MCP_ALLOWLIST_ENV=1` iken yalnız güvenli temel ortam + `env`.
+- Oturum bayrakları: `fusion --mcp-config <dosya|JSON> …` ve `--strict-mcp-config`.
+- Eski yazımlar bir sürüm boyunca uyarıyla çalışır: `--url`, `--token-env`, `-e AD`
+  (eşittirsiz), alt komutsuz `fusion mcp` (MCP istemcisinden çağrılınca salt-okunur sunucu),
+  `fusion mcp tools|prompts|resources` (yardımda gizli). `fusion mcp-add` kullanıcı kapsamına
+  yazar.
+- Sohbet içinde `/mcp`: sunucular, kapsamları ve durumları; `/mcp reconnect <ad>|all`,
+  `/mcp auth <ad>`, `/mcp clear-auth <ad>`, `/mcp enable|disable <ad>` (bu projede aç/kapa).
+  Ekleme/kaldırma CLI'dadır; eski `/mcp remove` kaydı kapsamından gerçekten siler.
+- Bağlı sunucuların `initialize` talimatları "MCP Server Instructions" başlığıyla bağlama
+  girer (4096 karakter; `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`). Kaynak bildiren sunucu
+  varken modele `ListMcpResourcesTool` ve `ReadMcpResourceTool` verilir. Sunucu
+  `tools/list_changed` bildirirse kalkan araçlar defterden çıkar.
+- Henüz yok (Claude Code'da var): araç araması/erteleme (`ENABLE_TOOL_SEARCH`, `alwaysLoad`
+  okunur ama etkisiz), uzun çağrının 2 dk sonra arka plana taşınması, elicitation,
+  `reset-project-choices` ve sunucu başına proje onayı, `@` tamamlamada kaynaklar,
+  managed MCP.
 
 **MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):
 ```
