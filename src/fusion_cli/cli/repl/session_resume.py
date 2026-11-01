@@ -127,6 +127,12 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
     # Başka sohbetin tur kayıtları bu konuşmaya ait değildir; PR künyesi sohbetinkidir.
     state.checkpoints.clear()
     linked_pr.restore(state)
+    if target.history and not target.forked_from:
+        # Claude Code (#187, #189): araç çağrıları/sonuçları, compaction özeti, model, izin
+        # kipi ve checkpoint'ler kayıtlı oturum durumundan gelir; yoksa metin geçmişi kalır.
+        from . import session_snapshot
+
+        session_snapshot.restore(state)
 
 
 def launch_notice(target: ResumeTarget) -> str:

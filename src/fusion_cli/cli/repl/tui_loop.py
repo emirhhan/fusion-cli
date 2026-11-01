@@ -59,6 +59,7 @@ from . import (
     remote_control,
     rewind,
     session_resume,
+    session_snapshot,
     status_line,
     status_view,
     verify_flow,
@@ -1046,6 +1047,7 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                session_snapshot.save(self._state)  # sürdürme için tam durum (#187, #189)
                 linked_pr.bind_from_turn(self._state, outcome.tool_uses)
                 # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
                 # açılır (bkz. `loop._run_turn`).

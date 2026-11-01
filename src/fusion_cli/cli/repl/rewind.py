@@ -114,6 +114,9 @@ def apply_rewind(state: ReplState, index: int, scope: RewindScope) -> str:
     if scope is not RewindScope.CONVERSATION:
         # `/undo`'nun bakacağı son tur kaydı geri alındı ya da düştü.
         state.last_changes = None
+    from . import session_snapshot
+
+    session_snapshot.save(state)
     return summarize(result)
 
 

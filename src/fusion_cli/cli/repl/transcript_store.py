@@ -91,6 +91,40 @@ def load_transcript_messages(
     return messages[-_MAX_HISTORY_MESSAGES:]
 
 
+#: Konuşmayı değiştiren olaylar; `last_turn_timestamp` yalnız bunlara bakar (ad vermek sayılmaz).
+_TURN_EVENTS = frozenset({"UserMessage", "TurnAnswered", _REWIND_EVENT})
+
+
+def last_turn_timestamp(base_dir: Path, root: Path, conversation_id: str) -> float:
+    """Sohbetin son mesaj/geri sarma olayının zamanı; hiç yoksa 0.
+
+    Oturum anlık görüntüsü (`session_snapshot`) bundan yeniyse transcript'ten tam
+    geçmişe geçilir; transcript daha yeniyse (ör. sohbet masaüstünde sürdü) metin geçmişi
+    kullanılır.
+    """
+    path = (
+        base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    )
+    latest = 0.0
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return latest
+    for line in lines:
+        if conversation_id not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(event, dict) or event.get("session_id") != conversation_id:
+            continue
+        stamp = event.get("timestamp")
+        if event.get("event") in _TURN_EVENTS and isinstance(stamp, int | float):
+            latest = max(latest, float(stamp))
+    return latest
+
+
 def read_workspace_events(base_dir: Path, root: Path) -> list[dict[str, object]]:
     """Workspace'in olay günlüğünü dosya sırasıyla oku; silinmiş sohbetlerin kayıtları ATLANIR.
 

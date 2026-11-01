@@ -137,8 +137,10 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` = `/rewind <son tur> kod`.
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
-  Sınır: kod kaydı bellekte tutulur; `fusion --continue` ile açılan sohbette konuşma geri gelir,
-  önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) tüm etkileri
+  Checkpoint'ler Claude Code'daki gibi konuşmayla birlikte diske yazılır
+  (`<bellek>/oturum-durum/<sohbet>.json`, 0600) ve `~/.claude/settings.json` içindeki
+  `cleanupPeriodDays` (varsayılan 30) gün saklanır: `--continue`/`--resume`/`/resume` ile
+  açılan sohbette `/rewind` önceki sürecin turlarına da çalışır. Kabuk komutlarının (`run_shell`) tüm etkileri
   kaydedilmez; bazı mevcut dosyalar için başlangıç yedeği alınır ve dosya farkı gözlenir.
   Bu gözlem, kabuk değişikliklerinin otomatik geri alınacağı anlamına gelmez. Tur sayımı
   yalnız senin mesajlarını sayar (harness notları ve bağlam özetleri değil).
@@ -303,8 +305,11 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
   `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
-- Sınır: `--continue`, `--resume`, `--fork-session` ve `/branch` sohbetin SON 100 kullanıcı/cevap
-  mesajını yükler; daha eskisi diskte durur ama model bağlamına girmez. Aynı adı iki sohbete
+- Terminal sürdürmesi (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,
+  araç çağrılarını ve sonuçlarını, compaction özetini, agent modelini ve izin kipini geri
+  yükler (`bypass` hariç: o kip yalnız açılış bayrağıyla girilir). Kayıtlı durum yoksa ya da
+  sohbet sonradan başka yüzeyde (masaüstü) sürdüyse transcript'in SON 100 kullanıcı/cevap
+  mesajı yüklenir; `--fork-session` ve `/branch` kopyası da metin geçmişiyle başlar. Aynı adı iki sohbete
   verdiysen `--resume <ad>` "bulunamadı" der; kimlik (ya da 6+ karakterlik öneki) kullan.
 - `/resumeclaude`, `/resumecodex` başka araçların geçmişini yalnız künye olarak devralır;
   `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.

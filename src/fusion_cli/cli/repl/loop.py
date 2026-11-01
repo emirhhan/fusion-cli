@@ -94,6 +94,7 @@ from . import (
     remote_control,
     session_agent,
     session_resume,
+    session_snapshot,
     status_line,
     view_commands,
     worktrees,
@@ -978,6 +979,8 @@ async def _agent_turn(
             if desktop_turn.finish(tool_context):
                 console.print(f"[{theme.WARN}]{messages.BILGISAYAR_ESC_STOPPED}[/{theme.WARN}]")
     state.history = outcome.messages
+    # Claude Code: tam geçmiş, model, izin kipi ve checkpoint'ler sürdürme için (#187, #189).
+    session_snapshot.save(state)
     # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
     linked_pr.bind_from_turn(state, outcome.tool_uses)
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
@@ -1040,6 +1043,7 @@ async def compact_history(state: ReplState, instructions: str = "") -> str:
             state,
             messages.HOOKS_CONTEXT_NOTE.format(event="SessionStart", context=verdict.context_text),
         )
+    session_snapshot.save(state)
     summary = messages.REPL_COMPACTED.format(before=before, after=after)
     return "\n".join((summary, *hook_events.verdict_lines(verdict)))
 
