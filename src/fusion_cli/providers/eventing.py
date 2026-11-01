@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from uuid import uuid4
 
+from ..core import display_filter
 from ..core.events import (
     Channel,
     EventPublisher,
@@ -72,24 +73,36 @@ class EventingProvider:
         request = self._correlate_request(request, call_id)
         self._publisher.publish(self._started(call_id))
         finished = False
+        # MessageDisplay kancası (#90): ana konuşmanın görünen metni satır partileriyle süzülür.
+        display = display_filter.open_stream(call_id) if self._channel is Channel.MAIN else None
         try:
             async for item in self._inner.stream(request):
                 if isinstance(item, TextChunk) and item.text:
                     # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
                     # arayüze olay olarak gitmez.
-                    self._publisher.publish(
-                        TokenReceived(
-                            channel=self._channel, text=item.text, provisional=item.provisional
-                        )
-                    )
+                    if display is None:
+                        self._publish_text(item.text, item.provisional)
+                    else:
+                        self._publish_pieces(await display.feed(item.text, item.provisional))
                 elif isinstance(item, StreamDone):
                     finished = True
+                    if display is not None:
+                        self._publish_pieces(await display.finish())
                     self._publish_finished(item.result, call_id)
                 yield item
         except (asyncio.CancelledError, GeneratorExit, Exception):
             if not finished:
                 self._publish_abandoned(call_id)
             raise
+
+    def _publish_text(self, text: str, provisional: bool) -> None:
+        self._publisher.publish(
+            TokenReceived(channel=self._channel, text=text, provisional=provisional)
+        )
+
+    def _publish_pieces(self, pieces: list[display_filter.Piece]) -> None:
+        for text, provisional in pieces:
+            self._publish_text(text, provisional)
 
     @staticmethod
     def _correlate_request(request: CompletionRequest, call_id: str) -> CompletionRequest:

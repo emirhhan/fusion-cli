@@ -23,6 +23,7 @@ from ..core.constants import (
 )
 from ..core.errors import ProcessCancelledError
 from ..core.process_control import run_foreground
+from ..core.shell_cwd import new_marker, settle, split_marker, wrap
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
@@ -54,6 +55,8 @@ from .sandbox_runtime import (
     sandbox_env,
     sandbox_notes,
 )
+from .shell_cwd_check import checked_command, context_cwd
+from .shell_env_file import with_env_prelude
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
@@ -96,7 +99,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     # Ezilecek/taşınacak mevcut proje dosyaları çalışmadan ÖNCE geri alma kaydına
     # girer (T1-18). Kabukta yazarı kanıtlayan dosya makbuzu yoktur; bu kayıt
     # önceki içeriği korur ama shell farkından otomatik geri alma yetkisi doğmaz.
-    for path in backup_paths(command, context.root):
+    for path in backup_paths(command, _cwd(context)):
         context.changes.record(path)
     if args.get("background") is True:
         try:
@@ -112,7 +115,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         started: ToolResult | None = None
         try:
             started = start_job(
-                command,
+                with_env_prelude(_in_cwd(command, context), context),
                 context,
                 sandbox_env(_shell_env(context), run),
                 manifest=manifest,
@@ -141,14 +144,16 @@ def _run_foreground(
     if run.plan.refused:
         return ToolResult.failure(run.plan.refused)
     before, skipped = _fingerprint_before(command, context)
+    marker = new_marker()
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
+        # Komut kalıcı kabuk dizininde başlar; bitişteki dizin işaretle okunur (#126).
         process = run_foreground(
-            command,
+            wrap(with_env_prelude(command, context), marker),
             timeout_s=SHELL_TIMEOUT_S,
             cancelled=context.cancelled,
-            cwd=context.root,
+            cwd=_cwd(context),
             env=sandbox_env(_shell_env(context), run),
             argv_prefix=run.plan.prefix,
         )
@@ -159,12 +164,14 @@ def _run_foreground(
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
-    body = _combine(process.stdout, process.stderr)
+    stdout, finished_in = split_marker(process.stdout or "", marker)
+    body = _combine(stdout, process.stderr)
     text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
     text += _sandbox_notes(run, process)
+    text += _settle_cwd(context, finished_in)
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
         text += (
-            "\nFUSION_NOT: Komut zaten seçili proje dizininde çalışır. "
+            "\nFUSION_NOT: Komut zaten kabuk çalışma dizininde (varsayılan: proje kökü) çalışır. "
             "Göreli yol kullanın; tam yol gerekiyorsa boşlukları koruyun: "
             f"{shlex.quote(str(context.root))}"
         )
@@ -238,13 +245,15 @@ def _guarded_delete(command: str, context: ToolContext, args: ToolArgs) -> ToolR
     targets = simple_rm_targets(command)
     if targets is None:
         return None
-    blocked = delete_blocked(list(targets), args, context)
+    # Sandbox sınırı göreli hedefleri köke göre çözer; kalıcı dizinde köke göre yeniden yazılır.
+    rebased = simple_rm_targets(checked_command(command, _cwd(context), context.root)) or targets
+    blocked = delete_blocked(list(rebased), args, context)
     if blocked is not None:
         return ToolResult.failure(blocked)
     try:
         moved, missing = move_to_trash(
             targets,
-            cwd=context.root,
+            cwd=_cwd(context),
             root=context.root,
             home=Path.home(),
             trash_root=trash_dir(),
@@ -258,6 +267,26 @@ def _guarded_delete(command: str, context: ToolContext, args: ToolArgs) -> ToolR
     if missing:
         lines.append("Zaten yoktu: " + ", ".join(missing))
     return ToolResult("\n".join(lines))
+
+
+def _cwd(context: ToolContext) -> Path:
+    """Komutun başlayacağı dizin: kalıcı kabuk dizini ya da proje kökü (#126)."""
+    return context_cwd(context) or context.root
+
+
+def _in_cwd(command: str, context: ToolContext) -> str:
+    """Arka plan işi de kalıcı kabuk dizininde başlar; işin `cd`'si kalıcı değildir."""
+    cwd = _cwd(context)
+    return command if cwd == context.root else f"cd {shlex.quote(str(cwd))} && {command}"
+
+
+def _settle_cwd(context: ToolContext, finished_in: Path | None) -> str:
+    """Komutun bıraktığı dizini kaydet; değiştiyse/sıfırlandıysa modele not."""
+    holder = getattr(context, "shell_cwd", None)
+    if holder is None:
+        return ""
+    note = settle(holder, finished_in, context.root, tuple(context.extra_roots))
+    return f"\nFUSION_NOT: {note}" if note else ""
 
 
 def _shell_env(context: ToolContext) -> dict[str, str]:

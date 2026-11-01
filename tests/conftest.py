@@ -269,3 +269,11 @@ def izole_oturum_izin_kurallari():
     set_session_rules(())
     yield
     set_session_rules(())
+
+
+@pytest.fixture
+def guvenilir_klasor(monkeypatch):
+    """Etkileşimli kanca testleri: klasör güveni verilmiş sayılır (#108 kapısı ayrı sınanır)."""
+    from fusion_cli.config import hook_trust
+
+    monkeypatch.setattr(hook_trust, "is_workspace_trusted", lambda root: True)

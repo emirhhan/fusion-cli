@@ -1,9 +1,9 @@
 """Yerel durum saklama: 30 günden eski iz, artifact ve tamamlanmış checkpoint (L1-30, M1-44).
 
-Yalnız `memory_dir` altındaki üç Fusion klasörüne bakar (`traces`, `artifacts`,
-`workflow-checkpoints`). Denetim günlüğü (`audit`), konuşma dökümleri ve kullanıcı dosyaları
-kapsam dışıdır. Açılışta ucuz çalışır: günde en çok bir kez (damga dosyası), önce dosya
-değişme zamanına bakar.
+Yalnız `memory_dir` altındaki Fusion klasörlerine bakar (`traces`, `hook-transcripts`,
+`artifacts`, `workflow-checkpoints`). Denetim günlüğü (`audit`), konuşma dökümleri ve
+kullanıcı dosyaları kapsam dışıdır. Açılışta ucuz çalışır: günde en çok bir kez (damga
+dosyası), önce dosya değişme zamanına bakar.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 from ..core.constants import LOCAL_STATE_PURGE_INTERVAL_S, LOCAL_STATE_RETENTION_S
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..observability.retention import purge_files, purge_session_dirs
+from .hooks.transcript import HOOK_TRANSCRIPT_DIR
 
 __all__ = [
     "LOCAL_STATE_RETENTION_S",
@@ -28,6 +29,8 @@ _LOG = logging.getLogger(__name__)
 _STAMP_NAME = ".saklama-damgasi"
 _TRACE_SUFFIXES = frozenset({".jsonl"})
 _ARTIFACT_SUFFIXES = frozenset({".txt"})
+#: Kanca klasörü: dökümler, `CLAUDE_ENV_FILE` dosyaları (`-env.sh`) ve taşan çıktılar.
+_HOOK_SUFFIXES = frozenset({".jsonl", ".sh"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +48,22 @@ def purge_local_state(
     """`max_age_s`ten eski Fusion üretimi dosyaları sil."""
     cutoff = now - max_age_s
     return RetentionReport(
-        traces=purge_files(memory_dir / "traces", suffixes=_TRACE_SUFFIXES, cutoff=cutoff),
+        traces=purge_files(memory_dir / "traces", suffixes=_TRACE_SUFFIXES, cutoff=cutoff)
+        + _purge_hook_files(memory_dir / HOOK_TRANSCRIPT_DIR, cutoff),
         artifacts=purge_session_dirs(
             memory_dir / "artifacts", suffixes=_ARTIFACT_SUFFIXES, cutoff=cutoff
         ),
         checkpoints=JsonCheckpointStore(memory_dir / "workflow-checkpoints").purge_completed(
             cutoff=cutoff
         ),
+    )
+
+
+def _purge_hook_files(directory: Path, cutoff: float) -> int:
+    """Kanca dökümleri ve ortam dosyaları + `<oturum>-hook-output/` klasörleri (Claude
+    `cleanupPeriodDays` varsayılanı: 30 gün)."""
+    return purge_files(directory, suffixes=_HOOK_SUFFIXES, cutoff=cutoff) + purge_session_dirs(
+        directory, suffixes=_ARTIFACT_SUFFIXES, cutoff=cutoff
     )
 
 

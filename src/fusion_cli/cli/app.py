@@ -35,7 +35,7 @@ from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..core.worktree import Worktree, WorktreeSwitch
+from ..core.worktree import Worktree, WorktreeHookCalls, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..engines.agent.team import Persona
 from ..engines.agent.team_settings import validate_agent_hooks
@@ -307,6 +307,19 @@ def main_callback(
             help="bypassPermissions kipini Shift+Tab döngüsüne ekle; oturum onunla başlamaz.",
         ),
     ] = False,
+    init: Annotated[
+        bool, typer.Option("--init", help="Setup kancalarını (trigger init) çalıştır, sonra aç.")
+    ] = False,
+    init_only: Annotated[
+        bool,
+        typer.Option("--init-only", help="Setup kancalarını (trigger init) çalıştır ve çık."),
+    ] = False,
+    maintenance: Annotated[
+        bool,
+        typer.Option(
+            "--maintenance", help="Setup kancalarını (trigger maintenance) çalıştır, sonra aç."
+        ),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
@@ -363,6 +376,13 @@ def main_callback(
     if bare:
         # Claude `claude --bare` (#298): özelleştirme keşfi kapalı etkileşimli oturum.
         config = _bare_config(config)
+    setup_trigger = "maintenance" if maintenance else ("init" if init or init_only else "")
+    from .hook_trust_prompt import offer_hook_trust
+
+    # Claude gibi kancalar çalışma alanı güvenine bağlı (#108): güvenilmeyen klasörde sorulur.
+    offer_hook_trust(Path.cwd(), lambda line: console.print(escape(line)))
+    if init_only:
+        raise typer.Exit(_run_setup_only(config, Path.cwd()))
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -372,7 +392,9 @@ def main_callback(
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
     try:
-        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        root, tree = worktrees.resolve_launch_root(
+            Path.cwd(), worktree, hooks=_launch_worktree_hooks(config, worktree, interactive=True)
+        )
         target = session_resume.resolve_launch(
             config.memory_dir,
             root,
@@ -413,6 +435,7 @@ def main_callback(
                 session_agents=_cli_session_agents(agents_json, root),
                 initial_prompt=initial_prompt,
                 launch_prompts=launch,
+                setup_trigger=setup_trigger,
             )
         )
     )
@@ -478,8 +501,23 @@ def _apply_launch_permissions(flag: str, skip: bool, allow_skip: bool) -> None:
         ) from None
 
 
+def _run_setup_only(config: Config, root: Path) -> int:
+    """`fusion --init-only` (Claude ile aynı): Setup kancaları çalışır, oturum açılmaz."""
+    from ..engines.hooks.session import open_hook_session
+    from ..engines.hooks.setup_hook import run_setup
+    from .repl.hook_open import show_verdict
+
+    session = open_hook_session(root, config, interactive=True)
+    verdict = asyncio.run(run_setup(session, "init"))
+    show_verdict(verdict, console)
+    return 0
+
+
 def _print_worktree_notice(tree: Worktree) -> None:
-    text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
+    if tree.hooked:
+        text = messages.WORKTREE_ENTERED_HOOK.format(path=tree.path)
+    else:
+        text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
     console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
 
 
@@ -842,7 +880,9 @@ def agent(
         base_config, max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
     )
     try:
-        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        root, tree = worktrees.resolve_launch_root(
+            Path.cwd(), worktree, hooks=_launch_worktree_hooks(config, worktree, interactive=False)
+        )
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
@@ -949,6 +989,7 @@ def agent(
             model_calls=int(getattr(outcome, "model_calls_made", 0)),
             cost=observers.cost,
             structured=structured,
+            deferred_tool_use=getattr(outcome, "deferred_tool_use", None),
         )
         sys.stdout.write(json.dumps(sonuc, ensure_ascii=False) + "\n")
         sys.stdout.flush()
@@ -964,6 +1005,34 @@ def agent(
         raise typer.Exit(1)
     if structured is not None and not structured.ok:
         raise typer.Exit(1)
+
+
+def _session_start_may_prompt(root: Path, config: Config | None) -> bool:
+    """İstemsiz `fusion agent`: SessionStart kancası `initialUserMessage` verebilir mi (#111)?"""
+    from ..config.hooks import load_hooks
+    from ..core.hooks.events import HookEvent
+
+    if config is None:
+        return False
+    runtime = config.runtime
+    hooks = load_hooks(
+        root,
+        enabled=runtime.hooks_enabled,
+        include_claude=runtime.claude_hooks,
+        interactive=False,
+    )
+    return bool(hooks.for_event(HookEvent.SESSION_START, ("startup",)))
+
+
+def _launch_worktree_hooks(
+    config: Config, worktree: str, *, interactive: bool
+) -> WorktreeHookCalls | None:
+    """`--worktree <ad>` verildiyse açılıştaki `WorktreeCreate` kancası (#90)."""
+    if not worktree.strip():
+        return None
+    from ..engines.hooks.worktree_hooks import launch_hook_calls
+
+    return launch_hook_calls(Path.cwd(), config, interactive=interactive)
 
 
 def _reject_background_flags(
@@ -1076,7 +1145,7 @@ def _headless_options(
                 else allowed & frozenset(turn.allowed_tools)
             )
         persona_denied = turn.denied_tools
-    if not task:
+    if not task and not _session_start_may_prompt(Path.cwd(), launch_config):
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     if append_system_prompt:
         parts.append(append_system_prompt)

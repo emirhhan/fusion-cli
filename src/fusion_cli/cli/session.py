@@ -361,6 +361,8 @@ async def run_agent_task(
             config,
             session_id=conversation_id,
             permission_mode=lambda: (current_approval() if current_approval else mode).value,
+            # Tek atış (`fusion -p`/`fusion agent`): Claude gibi etkileşimsiz oturum.
+            interactive=False,
         )
         confirm_prompter = notifying(prompter, hook_session)
 

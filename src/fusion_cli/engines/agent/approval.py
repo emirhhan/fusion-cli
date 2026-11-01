@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
+from ...config.permissions import is_allowed
 from ...core.desktop_settings import DesktopTarget
 from ...core.errors import ConfigError
 from ...core.tools import (
@@ -48,11 +49,13 @@ from ...core.tools import (
 )
 from ...tools import desktop_policy
 from ...tools.accept_edits_scope import accept_edits_allows
+from ...tools.auto_policy import is_read_only_command
 from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
 from ...tools.outside_reads import read_roots
 from ...tools.permission_match import RuleMatch, evaluate
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safety import danger_reason
+from ...tools.shell_cwd_check import checked_command, context_cwd
 from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
 from .approval_modes import (
     CYCLE_MODES as CYCLE_MODES,
@@ -261,6 +264,9 @@ class ApprovalRequest:
             and self.critical is None
             and self.protected is None
         )
+
+    #: Kabuk komutunun kalıcı kabuk dizinine göre denetlenen eşdeğeri (#126); `None` = aynı.
+    checked_command: str | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -571,6 +577,7 @@ async def resolve_request(
         touched=touched,
         extra_roots=extra_roots,
         rules=rules,
+        shell_cwd=context_cwd(context),
     )
     # Çalışma dizinleri dışından okuma (#56): Manuel/acceptEdits/plan sorar.
     request = mark_outside_read(
@@ -598,6 +605,7 @@ def build_request(
     touched: Collection[Path] = (),
     extra_roots: tuple[Path, ...] = (),
     rules: PermissionRuleSet | None = None,
+    shell_cwd: Path | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
@@ -612,14 +620,23 @@ def build_request(
     effect = effect or tool.effect
     match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
+        checked = checked_command(command, shell_cwd, root)
         request = _shell_request(
-            tool, args, command, allowed_commands, effect, root, touched, rules=rules
+            tool, args, checked, allowed_commands, effect, root, touched, rules=rules
         )
         request = replace(request, accept_edits_ok=accept_edits_allows(command, root, extra_roots))
         critical = critical_rm_reason(command, root, extra_roots) if root is not None else None
         if critical is not None:
             # Allow kuralı ve oturum izni kritik yol silmesini açmaz (#42, #84).
             request = replace(request, critical=critical, danger=request.danger or critical)
+        if checked != command:
+            # Kart ve kural/izin listesi asıl komutu görür; yol denetimleri `checked`ı (#126).
+            request = replace(
+                request,
+                checked_command=checked,
+                pre_allowed=rules is None and is_allowed(command, allowed_commands),
+                read_only=is_read_only_command(command),
+            )
         return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:

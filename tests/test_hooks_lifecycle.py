@@ -237,7 +237,8 @@ async def test_dokum_ana_ajanin_arac_cagrilarini_claude_bicimiyle_tasir(tmp_path
         ("assistant", "text"),
     ]
     kullanim, sonuc = bloklar[1][1], bloklar[2][1]
-    assert kullanim["name"] == "Write" and kullanim["input"]["path"] == "a.txt"
+    # Claude Write şekli: mutlak `file_path` (#91).
+    assert kullanim["name"] == "Write" and kullanim["input"]["file_path"].endswith("a.txt")
     assert sonuc["tool_use_id"] == kullanim["id"] and sonuc["is_error"] is False
     # Sırlar dökümde maskeli.
     assert "sk-ant-api03-" + "x" * 40 not in _metin(yol)

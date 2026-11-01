@@ -52,9 +52,19 @@ def resource_mention_words() -> list[str]:
     ]
 
 
+def _queue(state: ReplState, name: str, argument: str) -> None:
+    """`UserPromptExpansion` (`mcp_prompt`): istem sıradaki turda açılmadan önce."""
+    from ...engines.agent.hook_expansion import MCP_PROMPT, queue_expansion, state_hooks
+
+    queue_expansion(
+        state_hooks(state), name=name, args=argument, source="mcp", expansion_type=MCP_PROMPT
+    )
+
+
 def prompt_handler(name: str) -> Callable[[ReplState, str], str]:
     def _handler(state: ReplState, argument: str) -> str:
         state.pending_task = f"/{name} {argument}".strip()
+        _queue(state, name, argument)
         return messages.MCP_PROMPT_QUEUED.format(name=name)
 
     return _handler
@@ -141,6 +151,7 @@ def unlisted_prompt_command(name: str) -> SlashCommand | None:
         if not state.config.mcp_servers:
             return messages.REPL_UNKNOWN_COMMAND.format(name=name)
         state.pending_task = f"/{name} {argument}".strip()
+        _queue(state, name, argument)
         return messages.MCP_PROMPT_UNLISTED_QUEUED.format(name=name)
 
     return SlashCommand(name, messages.MCP_PROMPT_UNLISTED, _handler, group=GROUP)

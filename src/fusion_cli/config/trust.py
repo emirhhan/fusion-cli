@@ -297,11 +297,14 @@ def approve_file(root: Path, path: Path) -> None:
     digest = _digest(path)
     if digest is None:
         return
-    record = _load().get(_key(root), {})
+    stored = _load().get(_key(root))
+    record = stored if stored is not None else {}
     files = {**record.get("files", {}), _relative(root, path): digest}
     _update(
         root,
-        config_sha256=record.get("config_sha256"),
+        # Kayıt yoksa "hiç güvenilmedi" işareti: `None` "güvenildiğinde config.yaml yoktu"
+        # demektir ve klasöre (kancalar dahil) güven verirdi (#108).
+        config_sha256=record.get("config_sha256") if stored is not None else _NEVER_TRUSTED,
         files=files,
         settings_sha256=record.get("settings_sha256"),
         project_settings_sha256=record.get("project_settings_sha256"),

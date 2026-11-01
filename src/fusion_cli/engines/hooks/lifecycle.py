@@ -16,9 +16,13 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ...core.hooks.events import HookCommand, HookRun
+from ...core.hooks.events import HookCommand, HookEvent, HookRun
 from .runner import run_hook
+
+if TYPE_CHECKING:
+    from .handlers import HookServices
 
 HookObserver = Callable[[dict[str, object]], None]
 
@@ -92,11 +96,19 @@ async def run_observed(
     cwd: Path,
     environment: Mapping[str, str],
     allow_private: bool = False,
+    event: HookEvent | None = None,
+    services: HookServices | None = None,
 ) -> HookRun:
     """`run_hook` + gözlemcilere `hook_started`/`hook_response` bildirimi."""
     if not _observers:
         return await run_hook(
-            command, payload, cwd=cwd, environment=environment, allow_private=allow_private
+            command,
+            payload,
+            cwd=cwd,
+            environment=environment,
+            allow_private=allow_private,
+            event=event,
+            services=services,
         )
     base: dict[str, object] = {
         "hook_id": uuid.uuid4().hex,
@@ -106,7 +118,13 @@ async def run_observed(
     _notify({"subtype": "hook_started", **base})
     try:
         run = await run_hook(
-            command, payload, cwd=cwd, environment=environment, allow_private=allow_private
+            command,
+            payload,
+            cwd=cwd,
+            environment=environment,
+            allow_private=allow_private,
+            event=event,
+            services=services,
         )
     except asyncio.CancelledError:
         _notify(

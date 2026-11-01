@@ -633,6 +633,19 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "hooks" and not argument.strip():
+            # `/hooks` tarayıcısı (#130): kanca ya da "All events" seçilir, ayrıntı basılır.
+            from .hooks_browser import hook_choices
+
+            hook_set = self._state.hooks()
+            hook_set.refresh()
+            selected = await self._tui.await_choice(
+                messages.HOOKS_BROWSER_TITLE, hook_choices(hook_set.current())
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
         elif command.name == "development":
             # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.

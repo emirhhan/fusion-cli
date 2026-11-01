@@ -1,82 +1,151 @@
-"""Beceri frontmatter `hooks` alanı: çağrıda kaydedilir, oturum boyunca etkin kalır (#161).
+"""Beceri frontmatter kancaları (Claude Code "Hooks in skills and agents").
 
-Claude Code (code.claude.com/docs/en/skills, Frontmatter reference; hooks "Hooks in skills
-and agents"): becerinin `hooks:` bloğu beceri çağrıldığında oturumun kancalarına eklenir ve
-oturum bitene kadar çalışır (belge: "registered when the skill is invoked and persist until the
-session ends"; bileşen yaşam döngüsüyle sınırlı değildir).
-Fusion'da kayıt, oturumun `HookSession.loader`'ını saran
-`SkillHookLoader` ile yapılır: küresel tanımlar her tur yine dosyadan okunur, becerinin
-kancaları üstüne eklenir. Aynı beceri ikinci kez çağrılınca kancası çiftlenmez.
-
-Güvenlik: depo kaynaklı becerinin kancası ancak güvenilen projede kaydedilir (`model:` ve
-`allowed-tools` ile aynı sınır); `disableAllHooks` beceri kancalarını da kapatır; eklenti
-becerilerinin kancası katalogda zaten düşürülür. `/clear` kayıtları siler (yeni oturum).
+Beceri çağrılınca (`read_skill`/`Skill` aracı ya da kullanıcının `/ad` seçimi)
+SKILL.md frontmatter'ındaki `hooks` bloğu oturum kancalarına eklenir ve oturumun geri
+kalanında çalışır; `once: true` kanca ilk başarılı çalışmadan sonra kalkar.
+Proje içindeki becerinin kancası, proje kancaları gibi etkileşimli oturumda klasör
+güveni ister (`-p`'de klasör güvenilir sayılır).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, replace
+import logging
+from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ...core.hooks.events import HookSet
+import yaml
+
+from ...config.hook_parse import DEFAULT_HOOK_TIMEOUT_S, parse_hooks_block
+from ...config.trust import is_file_trusted
+from ...core.hooks.events import HookCommand
 
 if TYPE_CHECKING:
     from ...tools.capabilities import Capability
     from ..hooks.session import HookSession
+    from .loop import AgentDeps
+
+_LOG = logging.getLogger(__name__)
+SKILL_TOOL = "read_skill"
+SKILL_SOURCE_PREFIX = "beceri:"
 
 
-@dataclass(frozen=True, slots=True)
-class SkillHookLoader:
-    """Küresel yükleyicinin üstüne oturumda çağrılmış becerilerin kancalarını ekle."""
-
-    base: Callable[[], HookSet]
-    skills: tuple[tuple[str, HookSet], ...] = ()
-
-    @property
-    def names(self) -> tuple[str, ...]:
-        return tuple(name for name, _ in self.skills)
-
-    def __call__(self) -> HookSet:
-        inherited = self.base()
-        if inherited.disabled_reason is not None:
-            return inherited
-        commands = [*inherited.commands]
-        skipped = [*inherited.skipped]
-        for _, hooks in self.skills:
-            commands.extend(hooks.commands)
-            skipped.extend(hooks.skipped)
-        return replace(inherited, commands=tuple(commands), skipped=tuple(skipped))
+def frontmatter_hooks(text: str) -> object | None:
+    """SKILL.md'nin YAML frontmatter'ındaki `hooks` bloğu (yoksa `None`)."""
+    stripped = text.lstrip()
+    if not stripped.startswith("---"):
+        return None
+    end = stripped.find("\n---", 3)
+    if end == -1:
+        return None
+    try:
+        raw = yaml.safe_load(stripped[3:end])
+    except yaml.YAMLError:
+        _LOG.warning("beceri frontmatter'ı geçersiz YAML; kancaları uygulanmadı")
+        return None
+    return raw.get("hooks") if isinstance(raw, dict) else None
 
 
-def registered_names(session: HookSession | None) -> tuple[str, ...]:
-    """Bu oturumda kancası kaydedilmiş beceri adları."""
-    loader = getattr(session, "loader", None)
-    return loader.names if isinstance(loader, SkillHookLoader) else ()
+def skill_hook_commands(name: str, path: Path) -> tuple[HookCommand, ...]:
+    """Becerinin kanca tanımları (kaynak `beceri:<ad>`)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    block = frontmatter_hooks(text)
+    if block is None:
+        return ()
+    commands, _skipped = parse_hooks_block(
+        block,
+        source=f"{SKILL_SOURCE_PREFIX}{name}",
+        path=path,
+        default_timeout_s=DEFAULT_HOOK_TIMEOUT_S,
+    )
+    return commands
+
+
+def _allowed(session: HookSession, path: Path) -> bool:
+    root = session.project_dir or session.root
+    try:
+        inside = path.resolve().is_relative_to(root.resolve())
+    except OSError:
+        return False
+    return not inside or not session.interactive or is_file_trusted(root, path)
+
+
+def activate_skill(session: HookSession | None, name: str, path: Path | None) -> int:
+    """Becerinin kancalarını oturuma ekle; eklenen tanım sayısı."""
+    if session is None or path is None or not _allowed(session, path):
+        return 0
+    commands = skill_hook_commands(name, path)
+    if commands:
+        session.add_session_commands(commands)
+    return len(commands)
+
+
+def after_skill_tool(
+    deps: AgentDeps,
+    session: HookSession | None,
+    tool_name: str,
+    args: Mapping[str, object],
+    *,
+    ok: bool,
+) -> None:
+    """`read_skill` başarıyla becerinin gövdesini yüklediyse kancalarını etkinleştir."""
+    if tool_name != SKILL_TOOL or not ok or args.get("file") or session is None:
+        return
+    library = getattr(deps, "capabilities", None)
+    skill = library.get_skill(str(args.get("name", ""))) if library is not None else None
+    if skill is not None:
+        activate_skill(session, skill.name, skill.path)
+
+
+def activate_selected_skill(deps: AgentDeps) -> None:
+    """Kullanıcının `/ad` ile seçtiği becerinin kancaları (kök tur başında)."""
+    selection = getattr(deps, "selected_skill", None)
+    library = getattr(deps, "capabilities", None)
+    if selection is None or library is None:
+        return
+    skill = library.get_skill(str(getattr(selection, "qualified_name", "")))
+    if skill is not None:
+        activate_skill(getattr(deps, "hooks", None), skill.name, skill.path)
+
+
+# --- Çağrı yerleri (#161): `/ad`, beceri yığını, Skill aracı ve `/clear` ---------------- #
 
 
 def register(session: HookSession | None, skill: Capability, *, trusted: bool) -> bool:
-    """Becerinin kancalarını oturuma ekle; eklenmediyse (yok, güvenilmez, kayıtlı) False."""
-    hooks = getattr(skill, "hook_definitions", None)
-    if session is None or not isinstance(hooks, HookSet) or not trusted:
+    """Çağrılan becerinin kancalarını kaydet; yeni tanım eklendiyse True.
+
+    `trusted` (`skill_tool.hooks_trusted`): depo becerisi yalnız güvenilen projede, kurulu
+    üçüncü taraf beceri hiç. Aynı beceri ikinci kez çağrılınca kanca çiftlenmez.
+    """
+    if session is None or not trusted:
         return False
-    if not hooks.commands and not hooks.skipped:
-        return False
-    key = skill.qualified_name
-    loader = session.loader
-    if isinstance(loader, SkillHookLoader):
-        if key in loader.names:
-            return False
-        session.loader = replace(loader, skills=(*loader.skills, (key, hooks)))
-    else:
-        session.loader = SkillHookLoader(loader, ((key, hooks),))
-    session.refresh()
-    return True
+    before = len(session.session_commands)
+    name = str(getattr(skill, "qualified_name", "") or skill.name)
+    activate_skill(session, name, getattr(skill, "path", None))
+    return len(session.session_commands) > before
+
+
+def registered_names(session: HookSession | None) -> tuple[str, ...]:
+    """Kancası oturumda etkin becerilerin adları (kayıt sırasıyla)."""
+    if session is None:
+        return ()
+    names = (
+        command.source[len(SKILL_SOURCE_PREFIX) :]
+        for command in session.session_commands
+        if command.source.startswith(SKILL_SOURCE_PREFIX)
+    )
+    return tuple(dict.fromkeys(names))
 
 
 def forget(session: HookSession | None) -> None:
-    """`/clear`: yeni oturumda beceri kancaları yeniden çağrılana kadar yok."""
-    loader = getattr(session, "loader", None)
-    if session is not None and isinstance(loader, SkillHookLoader):
-        session.loader = loader.base
-        session.refresh()
+    """`/clear` yeni oturum başlatır: beceri kancaları taşınmaz, yeniden çağrılmalıdır."""
+    if session is None:
+        return
+    session.session_commands = tuple(
+        command
+        for command in session.session_commands
+        if not command.source.startswith(SKILL_SOURCE_PREFIX)
+    )

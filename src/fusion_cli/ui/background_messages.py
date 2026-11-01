@@ -120,6 +120,9 @@ BG_TABLE_HEADERS = ("Kimlik", "Ad", "Durum", "Güncel", "Ayrıntı")
 BG_NOTICE_NEEDS_INPUT = (
     "⏸ arka plan görevi '{name}' girdi bekliyor: {question} · /tasks answer {id} evet|hayir|oturum"
 )
+#: Boştaki oturumu uyandıran turun istemi (rapor/kanca metni bağlamda gelir).
+BG_WAKE_TURN = "Arka plan görevi bitti; sonucunu değerlendir ve gerekirse sürdür."
+HOOK_WAKE_TURN = "Arka plan kancası (asyncRewake) seni uyandırdı; bildirimini değerlendir."
 BG_NOTICE_COMPLETED = "✓ arka plan görevi '{name}' bitti: {summary} · /tasks show {id}"
 BG_NOTICE_FAILED = "✗ arka plan görevi '{name}' başarısız: {summary} · /tasks show {id}"
 BG_NOTICE_STOPPED = "■ arka plan görevi '{name}' durduruldu."

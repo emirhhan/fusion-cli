@@ -156,6 +156,8 @@ class ReplState:
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
     #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
     hook_session: HookSession | None = field(default=None, kw_only=True)
+    #: Bir sonraki SessionStart'ın zorunlu kaynağı (`/branch`, `--fork-session` → `fork`).
+    hook_start_source: str = field(default="", kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
@@ -535,7 +537,8 @@ class ReplState:
         tetikleniyor ve ilk oturumun SessionEnd'i hiç gelmiyordu.
         """
         session = self.hook_session
-        source = "resume" if self.history else "startup"
+        source = self.hook_start_source or ("resume" if self.history else "startup")
+        self.hook_start_source = ""
         if session is None:
             session = open_hook_session(
                 self.root,
@@ -544,15 +547,21 @@ class ReplState:
                 permission_mode=lambda: self.approval.value,
                 source=source,
             )
+            session.skills_reloader = self._reload_skills
+            session.title_sink = self._adopt_hook_title
+            session.context_chars = lambda: sum(len(m.content or "") for m in self.history)
             self.hook_session = session
         session.root = self.root
         if session.conversation_id != self.conversation_id:
             session.restart(
                 source,
-                reason="other",
+                # Claude: etkileşimli /resume ile oturum değişimi `resume` nedenidir.
+                reason="resume",
                 session_id=self.conversation_id,
                 conversation_id=self.conversation_id,
             )
+        if self.conversation_name:
+            session.session_title = self.conversation_name
         return session
 
     def _auto_switch_available(self) -> bool:
@@ -568,6 +577,17 @@ class ReplState:
         notify = getattr(self, "on_mode_change", None)
         if notify is not None:
             notify(self.approval)
+
+    def _adopt_hook_title(self, title: str) -> None:
+        """Kanca `sessionTitle` (#123): `/rename` gibi sohbete ad verir."""
+        from .session_resume import rename_command
+
+        rename_command(self, title)
+
+    def _reload_skills(self) -> None:
+        """SessionStart `reloadSkills` (#111): kanca kurduğu beceriler hemen görünsün."""
+        if self.capabilities is not None:
+            self.capabilities.invalidate()
 
     def _fall_back_to_manual(self) -> None:
         if self.approval is ApprovalMode.AUTO:

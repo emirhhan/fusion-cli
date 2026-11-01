@@ -43,7 +43,7 @@ from .auth_retry import AuthFailures, Reauth
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .elicitation import elicitation_callback
+from .elicitation_hooks import elicitation_callback_for, elicitation_scope, with_completion_notice
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
 from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
@@ -307,12 +307,17 @@ class McpClient:
                     ClientSession(
                         read,
                         self._tracker.wrap(config.name, write),
-                        message_handler=catalog_change_handler(
-                            functools.partial(self._stale_catalogs.add, config.name),
-                            functools.partial(self._stale_tools.add, config.name),
+                        message_handler=with_completion_notice(
+                            config.name,
+                            catalog_change_handler(
+                                functools.partial(self._stale_catalogs.add, config.name),
+                                functools.partial(self._stale_tools.add, config.name),
+                            ),
                         ),
-                        # Claude Code elicitation: form ve url kipleri (#257).
-                        elicitation_callback=elicitation_callback(config.name),
+                        # Claude Code elicitation (#257): Elicitation/ElicitationResult kancaları,
+                        # karar vermezlerse soru `elicitation.elicitation_callback` ile (#90).
+                        # Yanıtlayacak taraf yoksa None: yetenek sunucuya bildirilmez (#125).
+                        elicitation_callback=elicitation_callback_for(config.name),
                     )
                 )
                 initialized = await session.initialize()
@@ -445,7 +450,7 @@ class McpClient:
         "görev başarısız" görüyordu.
         """
         session = self._session(server)
-        with self._tracker.track(server) as scope:
+        with self._tracker.track(server) as scope, elicitation_scope(server):
             try:
                 wall, idle = self._call_budgets(server)
                 async with asyncio.timeout(wall):
@@ -495,14 +500,16 @@ class McpClient:
 
     async def get_prompt(self, server: str, name: str, arguments: dict[str, str]) -> str:
         """`prompts/get` → görev metni."""
-        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-            result = await self._session(server).get_prompt(name, arguments or None)
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).get_prompt(name, arguments or None)
         return prompt_text(result)
 
     async def read_resource(self, server: str, uri: str) -> str:
         """`resources/read` → maskeli, sınırlı bağlam bloğu."""
-        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-            result = await self._session(server).read_resource(as_uri(uri))
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).read_resource(as_uri(uri))
         return resource_block(server, uri, result)
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:

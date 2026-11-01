@@ -5,8 +5,9 @@ okur: her satır `{"type": "user"|"assistant", "message": {"role", "content": [{
 "text", "text"}]}}`. Fusion'ın kendi sohbet kaydı (`transcripts/<proje>/events.jsonl`)
 proje başına ortak ve farklı biçimdedir; bu yüzden kanca oturumu kendi dökümünü tutar.
 
-Döküm yalnız tanımlı kanca varken yazılır, metinler maskelenir (sırlar), dosya 0600'dür ve
-`SessionEnd` kancalarından SONRA silinir. Ana ajanın araç çağrıları da yazılır: assistant
+Döküm oturum boyunca (kanca tanımı olmasa da) yazılır ve kalıcıdır (#129): `SessionEnd`'den
+sonra silinmez, 30 günden eskisi yerel durum temizliğinde (`retention`) silinir. Metinler
+maskelenir (sırlar), dosya 0600'dür. Ana ajanın araç çağrıları da yazılır: assistant
 satırında `tool_use` (`id`, `name` — Claude adı, `input`), user satırında `tool_result`
 (`tool_use_id`, `content`, `is_error`); girdi ve çıktı maskeli ve kırpılmıştır.
 
@@ -68,6 +69,17 @@ class HookTranscript:
         }
         self._write("user", [block], session_id)
 
+    def append_compact_boundary(self, session_id: str, trigger: str) -> None:
+        """Özetleme sınırı (Claude: `system`/`compact_boundary` satırı)."""
+        line = {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "session_id": session_id,
+            "timestamp": time.time(),
+            "compactMetadata": {"trigger": trigger},
+        }
+        self._append(line)
+
     def _write(self, role: str, content: list[dict[str, object]], session_id: str) -> None:
         line = {
             "type": role,
@@ -75,6 +87,9 @@ class HookTranscript:
             "timestamp": time.time(),
             "message": {"role": role, "content": content},
         }
+        self._append(line)
+
+    def _append(self, line: Mapping[str, object]) -> None:
         with contextlib.suppress(OSError):
             self.ensure()
             with self.path.open("a", encoding="utf-8") as handle:

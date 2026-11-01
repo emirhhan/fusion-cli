@@ -94,6 +94,10 @@ def add_dir(state: ReplState, argument: str) -> str:
     state.extra_roots = (*state.extra_roots, hedef)
     # Ek kökün .claude/skills ve .agents/skills becerileri de kataloğa girer (P-052).
     state.refresh_capability_roots()
+    from ...engines.agent.hook_directory import directory_added
+    from ...engines.agent.hook_expansion import state_hooks
+
+    directory_added(state_hooks(state), hedef)
     return f"Erişim açıldı (bu oturum için): {hedef}"
 
 

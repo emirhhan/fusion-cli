@@ -135,7 +135,7 @@ async def test_rpc_arac_kok_gecisinden_once_eski_ajanlari_kapatir(tmp_path, monk
         {"PreToolUse": [{"hooks": {"type": "command", "command": "SECRET_SENTINEL"}}]},
         {
             "PreToolUse": [
-                {"hooks": [{"type": "command", "command": "SECRET_SENTINEL", "if": "Bash(git *)"}]}
+                {"hooks": [{"type": "command", "command": "SECRET_SENTINEL", "shell": "zsh"}]}
             ]
         },
         {"PreToolUse": [False]},
@@ -165,7 +165,7 @@ def test_gecersiz_kanca_ana_cli_cagrisini_engeller(tmp_path, monkeypatch, hooks)
         {"PreToolUse": [{"hooks": {"type": "command", "command": "SECRET_SENTINEL"}}]},
         {
             "PreToolUse": [
-                {"hooks": [{"type": "command", "command": "SECRET_SENTINEL", "if": "Bash(git *)"}]}
+                {"hooks": [{"type": "command", "command": "SECRET_SENTINEL", "shell": "zsh"}]}
             ]
         },
         {"PreToolUse": [False]},

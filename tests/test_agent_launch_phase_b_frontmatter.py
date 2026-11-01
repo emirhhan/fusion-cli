@@ -64,7 +64,7 @@ Gövde.
     assert inline[0].command == "python" and inline[0].args == ("server.py",)
 
 
-def test_desteklenmeyen_kanca_control_alani_atilmaz_komut_calistirilamaz():
+def test_kanca_kontrol_alanlari_ayristirilir():
     fields = parse_frontmatter("""---
 name: denetci
 description: inceler
@@ -80,10 +80,10 @@ Gövde.
 """)
     hooks = fields.get("hook_definitions")
     assert isinstance(hooks, HookSet)
-    assert hooks.commands == ()
-    assert len(hooks.skipped) == 1
-    assert "args" in hooks.skipped[0].definition_json
-    assert "desteklenmiyor" in hooks.skipped[0].reason
+    # Claude komut alanları artık uygulanır (#94): exec biçimi ve arka plan.
+    assert hooks.skipped == ()
+    (command,) = hooks.commands
+    assert command.args == ("check.py",) and command.run_async is True
 
 
 async def test_desteklenmeyen_guvenlik_kancasi_gercek_alt_ajan_cagrisini_engeller(tmp_path):
@@ -100,9 +100,8 @@ description: inceler
 hooks:
   PreToolUse:
     - hooks:
-        - type: command
+        - type: prompt
           command: SECRET_SENTINEL
-          args: [check.py]
 ---
 Gövde.
 """)
@@ -125,9 +124,8 @@ description: inceler
 hooks:
   PreToolUse:
     - hooks:
-        - type: command
+        - type: prompt
           command: SECRET_SENTINEL
-          args: [check.py]
 ---
 Gövde.
 """)
@@ -151,7 +149,7 @@ description: inceler
 hooks:
   PreToolUse:
     - hooks:
-        - type: command
+        - type: agent
           command: SECRET_SENTINEL
           args: [SECRET_SENTINEL]
           headers:
@@ -193,9 +191,8 @@ description: inceler
 hooks:
   PreToolUse:
     - hooks:
-        - type: command
+        - type: prompt
           command: SECRET_SENTINEL
-          args: [check.py]
 ---
 Gövde.
 """)

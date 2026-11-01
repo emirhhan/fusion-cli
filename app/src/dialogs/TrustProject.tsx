@@ -27,7 +27,9 @@ export interface TrustState {
 
 export function trustMatters(state: TrustState | null): boolean {
   if (!state || state.guvenildi) return false;
-  return state.dusurulen_bolumler.length > 0 || state.yok_sayilan_dosyalar.length > 0 || state.yuklenmeyen_araclar > 0;
+  // Claude gibi kullanıcı ayarındakiler dahil kancalar klasör güvenini bekler (#108).
+  const kancalar = (state.kanca_dosyalari?.length ?? 0) > 0;
+  return kancalar || state.dusurulen_bolumler.length > 0 || state.yok_sayilan_dosyalar.length > 0 || state.yuklenmeyen_araclar > 0;
 }
 
 export function dusurulenListesi(state: TrustState): string[] {
@@ -99,8 +101,10 @@ export function TrustProject({ client, kok, running = false, onTrusted }: TrustP
     <div className="trust-project-kolon">
       <aside aria-label="Proje güveni" className="trust-project" role="note">
         <p className="trust-project__metin">
-          <strong>Bu klasördeki dosyalara güveniyor musun?</strong> Proje kendi ayarlarını taşıyor
-          ({dusurulenListesi(state).join(", ")}); {state.neden}. Güvenmediğin sürece bunlar devre dışı kalır.
+          <strong>Bu klasördeki dosyalara güveniyor musun?</strong>{" "}
+          {dusurulenListesi(state).length > 0
+            ? <>Proje kendi ayarlarını taşıyor ({dusurulenListesi(state).join(", ")}); {state.neden}. Güvenmediğin sürece bunlar devre dışı kalır.</>
+            : <>Güvenene dek kancalar (hook) çalışmaz.</>}
         </p>
         {(state.kanca_dosyalari?.length ?? 0) > 0 && (
           <p className="trust-project__metin">

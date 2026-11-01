@@ -219,6 +219,7 @@ from .voice import status as voice_status
 from .voice import stop as voice_stop
 from .voice import wait_for_speech as voice_wait
 from .voice_context import VoiceTurnContext, parse_voice_context
+from .wake import WakeDesk
 from .workspace import (
     WorkspaceJournal,
     list_changes,
@@ -579,6 +580,8 @@ class AppSession:
         self._cron_given: dict[str, CronTask] = {}
         #: Son verilen görevin istem metni; ilk `komut.calistir` bir kez tüketir (#141).
         self._cron_fire_prompt = ""
+        #: Boştaki sohbeti uyandıran turlar; gönderilemeyen geri verilir (#123).
+        self._wake = WakeDesk()
         #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
@@ -664,6 +667,8 @@ class AppSession:
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
+        # Claude: kimlik doğrulama başarıyla bitince `Notification(auth_success)` (#125).
+        self._mcp_connections.on_login_success = lambda server: _notify_auth(self, server)
         from .accounts import AccountService
 
         #: Hesap uçları. Depo hesaptan BAĞIMSIZ bir dosyadadır; etkin hesap
@@ -1037,6 +1042,10 @@ class AppSession:
             if result.get("ok") and previous != (self._state.root, self._state.conversation_id):
                 await self._state.reset_child_runs()
                 self._child_runs = self._state.child_runs
+            if result.get("ok"):
+                from ..engines.hooks.opening import open_soon
+
+                open_soon(self._state.hooks())  # SessionStart arka planda (#111)
             return result
         if request.name == "oturum.durum":
             return self._status()
@@ -2302,7 +2311,7 @@ class AppSession:
         now = time.time()
         due = self._state.cron.due(now)
         if not due:
-            return {"ok": True, "gorevler": []}
+            return {"ok": True, "gorevler": self._wake.give(self._state)}
         verilen = []
         for task in due[:1]:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
@@ -2320,6 +2329,8 @@ class AppSession:
         arayüz gönderemeyince o vade boşa gidiyor, tek seferlik görev kayboluyordu.
         """
         task_id = data.get("id")
+        if isinstance(task_id, str) and self._wake.give_back(self._state, task_id):
+            return {"ok": True}
         task = self._cron_given.get(task_id) if isinstance(task_id, str) else None
         if task is None:
             return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
@@ -3870,3 +3881,9 @@ class AppSession:
                 errors.append(error)
         if errors:
             raise errors[0]
+
+
+def _notify_auth(session: AppSession, server: str) -> None:
+    from ..engines.hooks.notify import notify_auth_success
+
+    notify_auth_success(session._state.hooks(), server)

@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ...engines.agent import skill_hooks, skill_tool, skill_usage
+from ...engines.agent.hook_expansion import command_source, queue_expansion, state_hooks
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_commands import SkillInvocation
@@ -81,6 +82,9 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
             state.hooks(), skill, trusted=skill_tool.hooks_trusted(skill, state.root)
         )
         state.pending_task = invocation.task
+        queue_expansion(
+            state_hooks(state), name=skill.name, args=argument, source=command_source(skill.source)
+        )
         # `context: fork`: tur fork alt ajanda koşar (`/subtask` yolu), ama geçmişsiz.
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE
         state.pending_context = invocation.context

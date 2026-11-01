@@ -1,49 +1,67 @@
 """Kanca tanımlarını ayar dosyalarından yükleme (P-009) — Claude Code'un `hooks` bloğu.
 
-Biçim (`~/.claude/settings.json` ile aynı; Fusion'ın kendi dosyası da bu şemadadır):
+Biçim (`~/.claude/settings.json` ile aynı):
 
     {"hooks": {"PreToolUse": [{"matcher": "Bash",
                                "hooks": [{"type": "command", "command": "~/bin/denetle",
                                           "timeout": 30}]}]},
      "disableAllHooks": false}
 
-Katmanlar (okuma sırası): Fusion kullanıcı dosyası (`<yapılandırma>/hooks.json`), Claude
-kullanıcı ayarı (`~/.claude/settings.json`), proje `.claude/settings.json` ve
-`.claude/settings.local.json`. Kanca KOD ÇALIŞTIRIR: proje içi iki dosyanın kancaları
-yalnız `fusion trust` sonrası ve içerik o günden beri değişmediyse okunur (izin kurallarının
-allow'u gibi; bkz. `trust.py`). `disableAllHooks: true` da yalnız güvenilen dosyadan okunur:
-kullanıcının koruyucu (engelleyen) kancalarını kapatmak gevşetmedir. Ölçüldü (31 Ekim):
-güvenilmeyen depodaki `{"disableAllHooks": true}` kullanıcının bütün kancalarını sessizce
-kapatıyordu; artık yok sayılır ve listede uyarı olarak görünür.
+Katmanlar (okuma sırası, sonraki öncelikli): Fusion'ın eski kullanıcı dosyası
+(`<yapılandırma>/hooks.json`, kullanımdan kalktı: okunur ve bir kez uyarılır), Claude
+kullanıcı ayarı (`~/.claude/settings.json`, Claude gibi her zaman birleştirilir), proje
+`.claude/settings.json`, `.claude/settings.local.json` ve yönetilen (managed) ayar. Kancalar
+KOD ÇALIŞTIRIR: etkileşimli oturumda yönetilen dışı bütün katmanlar (kullanıcı ve eklenti
+dahil) klasör güveni verilene dek bekler (`hook_trust`, #108); proje dosyaları ayrıca
+`fusion trust` sonrası içerik o günden beri değişmediyse okunur; `-p`/SDK (etkileşimsiz)
+oturumda klasör güvenilir sayılır (Claude Code ile aynı — güvenlik davranışı: depo kancaları
+`-p`'de çalışır).
 
-Kapatma: `runtime.hooks_enabled: false` hepsini kapatır; `FUSION_HOOKS=off` ortam değişkeni
-de (test ve acil durum için). `runtime.claude_hooks` (varsayılan false) yalnız
-`~/.claude/settings.json`'ı yönetir: oradaki betikler (ECC vb.) Claude'un kendi durum
-dosyalarına yazabilir, her araç çağrısına süreç gecikmesi ekler ve araç girdi/çıktısını
-görür; bu yüzden açıkça seçilir. Kapalıyken kancaları listede gerekçesiyle görünür. Proje
-dosyaları `fusion trust` ile açılır (bu anahtardan bağımsız).
+`disableAllHooks` öncelik sırasından sonra kalan değerdir: projedeki `false` kullanıcıdaki
+`true`'yu geçersiz kılar; yönetilen kancaları yalnız yönetilen düzeydeki değer kapatır.
+`allowManagedHooksOnly: true` (yönetilen ayarda) yalnız yönetilen kancaları çalıştırır.
+`allowedHttpHookUrls` tanımlıysa http kancası yalnız birleşik listedeki adrese gider;
+`httpHookAllowedEnvVars` başlıklara yerleştirilebilecek ortam adlarını daraltır.
+
+Fusion'a özgü kapatma anahtarları: `runtime.hooks_enabled: false`, `FUSION_HOOKS=off`;
+`runtime.claude_hooks: false` `~/.claude/settings.json`'ı atlar (varsayılan true).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.hooks.events import (
-    CLAUDE_ONLY_EVENTS,
-    COMMAND_HANDLER,
-    HTTP_HANDLER,
-    HookCommand,
-    HookSet,
-    HookSkip,
-    parse_event,
+from ..core.hooks.events import HTTP_HANDLER, HookCommand, HookSet, HookSkip
+from . import hook_trust
+from .hook_parse import (
+    DEFAULT_HOOK_TIMEOUT_S,
+    MAX_HOOK_TIMEOUT_S,
+    REASON_EMPTY,
+    REASON_EVENT,
+    REASON_HANDLER,
+    REASON_MCP,
+    REASON_UNKNOWN_EVENT,
+    REASON_URL,
+    parse_hooks_block,
 )
+from .hook_policy import (
+    REASON_HTTP_URL,
+    REASON_MANAGED_ONLY,
+    as_skip,
+    http_rejection,
+    narrow_env,
+    policy_filter,
+)
+from .hook_trust import REASON_WORKSPACE_UNTRUSTED, display_path
 from .local_settings_location import local_settings_path
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
+from .plugin_hooks import plugin_hooks
 from .setting_sources import layer_enabled
 from .trust import (
     PROJECT_SETTINGS_PATH,
@@ -51,12 +69,27 @@ from .trust import (
     is_project_settings_trusted,
 )
 
-#: Fusion'ın kendi kanca dosyası (kullanıcıya ait; proje dışı).
+__all__ = [
+    "DEFAULT_HOOK_TIMEOUT_S",
+    "MAX_HOOK_TIMEOUT_S",
+    "REASON_EMPTY",
+    "REASON_EVENT",
+    "REASON_HANDLER",
+    "REASON_HTTP_URL",
+    "REASON_MANAGED_ONLY",
+    "REASON_MCP",
+    "REASON_UNKNOWN_EVENT",
+    "REASON_URL",
+    "parse_hooks_block",
+    "policy_filter",
+]
+
+#: Fusion'ın eski kanca dosyası (kullanımdan kalktı; `~/.claude/settings.json` kullanın).
 USER_HOOKS_NAME = "hooks.json"
 #: Claude Code'un kullanıcı düzeyi ayar dosyası (ev dizinine göreli).
 CLAUDE_USER_SETTINGS = Path(".claude") / "settings.json"
-#: Tek bir kancaya verilebilecek en uzun süre (Claude'un varsayılanı 600 sn).
-MAX_HOOK_TIMEOUT_S = 600.0
+#: Yönetilen (managed) katmanın adı.
+LAYER_MANAGED = "yonetilen"
 #: Kancaları kapatan ortam değişkeni ve kapalı sayılan değerleri.
 HOOKS_ENV = "FUSION_HOOKS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
@@ -64,14 +97,23 @@ _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
 PROJECT_DIR_VARIABLES = ("FUSION_PROJECT_DIR", "CLAUDE_PROJECT_DIR")
 #: Tüm kancaları kapatan dosya anahtarı (Claude Code ile aynı).
 DISABLE_ALL_KEY = "disableAllHooks"
+MANAGED_ONLY_KEY = "allowManagedHooksOnly"
+HTTP_URLS_KEY = "allowedHttpHookUrls"
+HTTP_ENV_KEY = "httpHookAllowedEnvVars"
+#: Stop sürdürme tavanı (Claude: art arda 8) ve değiştiren ortam değişkeni.
+STOP_BLOCK_CAP_ENV = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"
+DEFAULT_STOP_BLOCK_CAP = 8
+#: SessionEnd toplam bütçesi (Claude: 1,5 sn; en çok 60 sn) ve ortam değişkeni (ms).
+SESSIONEND_TIMEOUT_ENV = "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"
+SESSIONEND_BUDGET_S = 1.5
+SESSIONEND_MAX_S = 60.0
 
 REASON_UNTRUSTED = "proje güvenilmiyor (fusion trust)"
-REASON_CLAUDE_OFF = "Claude kullanıcı kancaları kapalı (runtime.claude_hooks: true ile aç)"
-REASON_HANDLER = "tür desteklenmiyor: {kind} (command ve http desteklenir)"
-REASON_URL = "http kancasının 'url' alanı http:// ya da https:// adresi olmalı"
-REASON_EVENT = "Fusion bu olayı tetiklemiyor"
-REASON_UNKNOWN_EVENT = "bilinmeyen olay"
-REASON_EMPTY = "komut boş"
+REASON_CLAUDE_OFF = "Claude kullanıcı kancaları kapalı (runtime.claude_hooks: false)"
+NOTICE_FUSION_FILE = (
+    "{path} kullanımdan kalktı; kancaları ~/.claude/settings.json `hooks` bloğuna taşıyın "
+    "(bu sürümde hâlâ okunuyor)."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,16 +125,30 @@ class HookLayer:
     requires_trust: bool = False
     #: Claude Code'un kullanıcı dosyası mı? (`runtime.claude_hooks: false` bunu atlar.)
     is_claude: bool = False
+    is_managed: bool = False
+
+
+#: Platforma göre Claude Code'un yönetilen ayar dosyası.
+_MANAGED_PATHS = {
+    "darwin": Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
+    "win32": Path("C:/Program Files/ClaudeCode/managed-settings.json"),
+}
+
+
+def managed_settings_file() -> Path:
+    """Claude Code'un yönetilen ayar dosyası (platforma göre)."""
+    return _MANAGED_PATHS.get(sys.platform, Path("/etc/claude-code/managed-settings.json"))
 
 
 def hook_layers(root: Path, home: Path | None = None) -> tuple[HookLayer, ...]:
-    """Okuma sırasıyla katmanlar: fusion → kullanıcı → proje → yerel."""
+    """Okuma sırasıyla katmanlar: fusion → kullanıcı → proje → yerel → yönetilen."""
     base = home if home is not None else Path.home()
     return (
         HookLayer(LAYER_FUSION, user_config_dir() / USER_HOOKS_NAME),
         HookLayer(LAYER_USER, base / CLAUDE_USER_SETTINGS, is_claude=True),
         HookLayer(LAYER_PROJECT, root / PROJECT_SETTINGS_PATH, requires_trust=True),
         HookLayer(LAYER_LOCAL, local_settings_path(root), requires_trust=True),
+        HookLayer(LAYER_MANAGED, managed_settings_file(), is_managed=True),
     )
 
 
@@ -105,238 +161,222 @@ def hooks_disabled_by_environment() -> bool:
     return os.environ.get(HOOKS_ENV, "").strip().lower() in _OFF_VALUES
 
 
-def hook_environment(root: Path, hidden: Collection[str] = ()) -> dict[str, str]:
-    """Kanca sürecinin ortamı: Fusion'ınki (gizli adlar hariç) + proje kökü değişkenleri.
+def stop_hook_block_cap() -> int:
+    """Art arda Stop sürdürme tavanı (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`, varsayılan 8)."""
+    raw = os.environ.get(STOP_BLOCK_CAP_ENV, "").strip()
+    return int(raw) if raw.isdigit() and int(raw) > 0 else DEFAULT_STOP_BLOCK_CAP
+
+
+def sessionend_budget_s(longest_explicit_s: float = 0.0) -> float:
+    """SessionEnd kancalarının ortak bütçesi (Claude kuralı)."""
+    raw = os.environ.get(SESSIONEND_TIMEOUT_ENV, "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw) / 1000
+    return min(max(SESSIONEND_BUDGET_S, longest_explicit_s), SESSIONEND_MAX_S)
+
+
+def explicit_sessionend_timeout_s() -> float | None:
+    """Ortam değişkeni yazılıysa süresiz SessionEnd kancasının süresi de odur."""
+    raw = os.environ.get(SESSIONEND_TIMEOUT_ENV, "").strip()
+    return int(raw) / 1000 if raw.isdigit() and int(raw) > 0 else None
+
+
+def hook_environment(
+    root: Path, hidden: Collection[str] = (), extra: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Kanca sürecinin ortamı: Fusion'ınki (gizli adlar ve OTEL_* hariç) + proje değişkenleri.
 
     `hidden` MCP sırlarının adlarıdır (`run_shell` de çıkarır): çıkış 2'de stderr modele
-    gider; `env` yazdıran bir betik sırrı modele sızdırmasın. Ölçüldü (31 Ekim): kanca
-    süreci tüm `os.environ`'ı alıyordu.
+    gider; `env` yazdıran bir betik sırrı modele sızdırmasın. `root` oturumun BAŞLADIĞI
+    proje köküdür (worktree'de sabit, Claude `CLAUDE_PROJECT_DIR` gibi).
     """
-    base = {name: value for name, value in os.environ.items() if name not in hidden}
-    return {**base, **dict.fromkeys(PROJECT_DIR_VARIABLES, str(root))}
+    base = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in hidden and not name.startswith("OTEL_")
+    }
+    return {**base, **dict.fromkeys(PROJECT_DIR_VARIABLES, str(root)), **(extra or {})}
+
+
+@dataclass(slots=True)
+class _Collected:
+    commands: list[HookCommand]
+    skipped: list[HookSkip]
+    untrusted: list[str]
+    ignored_disable: list[str]
+    notices: list[str]
+    disable: tuple[bool, str] | None = None
+    managed_disable: bool = False
+    managed_only: bool = False
+    http_urls: list[str] | None = None
+    http_env: list[str] | None = None
+    #: Klasöre güvenildi mi (ya da etkileşimsiz oturum)? Değilse yönetilen dışı kanca yok.
+    workspace_ok: bool = True
 
 
 def load_hooks(
     root: Path,
     *,
     enabled: bool = True,
-    include_claude: bool = False,
-    default_timeout_s: float = 60.0,
+    include_claude: bool = True,
+    default_timeout_s: float = DEFAULT_HOOK_TIMEOUT_S,
     home: Path | None = None,
+    interactive: bool = True,
+    include_plugins: bool = True,
+    pinned: Mapping[Path, Mapping[str, object] | None] | None = None,
 ) -> HookSet:
-    """Tüm katmanları oku. Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez."""
+    """Tüm katmanları ve etkin eklentilerin kancalarını oku.
+
+    Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez. `pinned`: `ConfigChange`'in engellediği
+    dosyalar → engelden önceki içerik (`None` = dosya yoktu); diskteki yeni hali okunmaz.
+    """
     if not enabled:
         return HookSet(disabled_reason="runtime.hooks_enabled: false")
     if hooks_disabled_by_environment():
         return HookSet(disabled_reason=f"{HOOKS_ENV}=off")
-    commands: list[HookCommand] = []
-    skipped: list[HookSkip] = []
-    untrusted: list[str] = []
-    ignored_disable: list[str] = []
-    disabled: str | None = None
+    found = _Collected([], [], [], [], [])
+    # Etkileşimli oturumda bütün kancalar klasör güvenine bağlı (#108; -p güvenilir sayılır).
+    found.workspace_ok = not interactive or hook_trust.is_workspace_trusted(root)
     for layer in hook_layers(root, home):
         if not layer_enabled(layer.name):  # `--setting-sources` (#296)
             continue
-        data = _read_json(layer.path)
-        if data is None:
-            continue
-        if layer.is_claude and not include_claude:
-            found, _ = parse_hooks_block(
-                data.get("hooks", {}),
-                source=layer.name,
-                path=layer.path,
-                default_timeout_s=default_timeout_s,
-            )
-            skipped.extend(_as_skip(command, REASON_CLAUDE_OFF) for command in found)
-            continue
-        trusted = not layer.requires_trust or _is_trusted(layer, root)
-        if data.get("disableAllHooks") is True:
-            if not trusted:
-                ignored_disable.append(layer.name)
-            elif disabled is None:
-                disabled = f"{DISABLE_ALL_KEY} ({layer.name}: {layer.path})"
-        found, skips = parse_hooks_block(
-            data.get("hooks", {}),
-            source=layer.name,
-            path=layer.path,
-            default_timeout_s=default_timeout_s,
+        data = (
+            pinned[layer.path]
+            if pinned and layer.path in pinned
+            else read_settings_json(layer.path)
         )
-        if not trusted:
-            if found:
-                untrusted.append(layer.name)
-            skipped.extend(_as_skip(command, REASON_UNTRUSTED) for command in found)
+        if data is not None:
+            _read_layer(found, layer, data, root, include_claude, default_timeout_s, interactive)
+    if include_plugins:
+        plugin_commands, plugin_skips = plugin_hooks(default_timeout_s)
+        if found.workspace_ok:
+            found.commands.extend(plugin_commands)
+        else:
+            reason = REASON_WORKSPACE_UNTRUSTED
+            found.skipped.extend(as_skip(command, reason) for command in plugin_commands)
+        found.skipped.extend(plugin_skips)
+    return _finish(found)
+
+
+def _read_layer(
+    found: _Collected,
+    layer: HookLayer,
+    data: Mapping[str, object],
+    root: Path,
+    include_claude: bool,
+    default_timeout_s: float,
+    interactive: bool,
+) -> None:
+    commands, skips = parse_hooks_block(
+        data.get("hooks", {}),
+        source=layer.name,
+        path=layer.path,
+        default_timeout_s=default_timeout_s,
+    )
+    if layer.is_claude and not include_claude:
+        found.skipped.extend(as_skip(command, REASON_CLAUDE_OFF) for command in commands)
+        return
+    project_ok = not layer.requires_trust or not interactive or _is_trusted(layer, root)
+    # Klasör güveni yoksa kanca çalışmaz ama `disableAllHooks` (kapatma) yine uygulanır.
+    trusted = project_ok and (layer.is_managed or found.workspace_ok)
+    disable = data.get(DISABLE_ALL_KEY)
+    if isinstance(disable, bool):
+        if not project_ok:
+            if disable:
+                found.ignored_disable.append(layer.name)
+        elif layer.is_managed:
+            found.managed_disable = disable
+        else:
+            found.disable = (disable, f"{DISABLE_ALL_KEY} ({layer.name}: {layer.path})")
+    if not trusted:
+        if commands:
+            found.untrusted.append(layer.name)
+        reason = REASON_UNTRUSTED if not project_ok else REASON_WORKSPACE_UNTRUSTED
+        found.skipped.extend(as_skip(command, reason) for command in commands)
+        return
+    _read_http_policy(found, data)
+    if layer.is_managed:
+        found.managed_only = data.get(MANAGED_ONLY_KEY) is True
+    if layer.name == LAYER_FUSION and commands:
+        found.notices.append(NOTICE_FUSION_FILE.format(path=layer.path))
+    found.commands.extend(commands)
+    found.skipped.extend(skips)
+
+
+def _read_http_policy(found: _Collected, data: Mapping[str, object]) -> None:
+    urls = data.get(HTTP_URLS_KEY)
+    if isinstance(urls, list):
+        found.http_urls = [*(found.http_urls or []), *(u for u in urls if isinstance(u, str))]
+    names = data.get(HTTP_ENV_KEY)
+    if isinstance(names, list):
+        found.http_env = [*(found.http_env or []), *(n for n in names if isinstance(n, str))]
+
+
+def _finish(found: _Collected) -> HookSet:
+    commands: list[HookCommand] = []
+    skipped = list(found.skipped)
+    user_disabled = found.disable is not None and found.disable[0]
+    has_managed = any(command.source == LAYER_MANAGED for command in found.commands)
+    for command in found.commands:
+        managed = command.source == LAYER_MANAGED
+        if found.managed_only and not managed:
+            skipped.append(as_skip(command, REASON_MANAGED_ONLY))
             continue
-        commands.extend(found)
-        skipped.extend(skips)
+        if user_disabled and has_managed and not managed:
+            # Yönetilen kancaları kullanıcı/proje düzeyindeki disableAllHooks kapatamaz.
+            skipped.append(as_skip(command, DISABLE_ALL_KEY))
+            continue
+        reason = http_rejection(command, found.http_urls)
+        if reason is not None:
+            skipped.append(as_skip(command, reason))
+            continue
+        commands.append(narrow_env(command, found.http_env))
+    disabled = None
+    if found.managed_disable:
+        disabled = f"{DISABLE_ALL_KEY} ({LAYER_MANAGED})"
+    elif user_disabled and not has_managed and found.disable is not None:
+        disabled = found.disable[1]
     return HookSet(
-        tuple(commands), tuple(skipped), disabled, tuple(untrusted), tuple(ignored_disable)
+        tuple(commands),
+        tuple(skipped),
+        disabled,
+        tuple(found.untrusted),
+        tuple(found.ignored_disable),
+        tuple(found.notices),
+        http_urls=None if found.http_urls is None else tuple(found.http_urls),
+        http_env=None if found.http_env is None else tuple(found.http_env),
+        managed_only=found.managed_only,
     )
 
 
-def untrusted_hook_files(root: Path) -> tuple[str, ...]:
-    """Güvenilmediği için kancaları çalışmayan proje dosyaları (köke göreli).
+def untrusted_hook_files(root: Path, home: Path | None = None) -> tuple[str, ...]:
+    """Güvenilmediği için kancaları çalışmayan dosyalar (proje: köke göreli; kullanıcı: `~/…`).
 
-    Güven onayı (`fusion trust`, masaüstü şeridi) bunu söylemeli: güvenden sonra bu dosyaların
-    kanca komutları her araç çağrısında kullanıcının yetkisiyle çalışır.
+    Güven onayı (`fusion trust`, açılış sorusu, masaüstü şeridi) bunu söylemeli: güvenden
+    sonra bu dosyaların kanca komutları her araç çağrısında kullanıcının yetkisiyle çalışır.
+    Klasöre güvenilmemişse etkileşimli oturumda kullanıcı dosyalarının kancaları da bekler (#108).
     """
+    workspace_ok = hook_trust.is_workspace_trusted(root)
     found: list[str] = []
-    for layer in hook_layers(root):
-        if not layer.requires_trust or _is_trusted(layer, root):
+    for layer in hook_layers(root, home):
+        if layer.is_managed:
             continue
-        data = _read_json(layer.path)
+        if layer.requires_trust:
+            if workspace_ok and _is_trusted(layer, root):
+                continue
+        elif workspace_ok:
+            continue
+        data = read_settings_json(layer.path)
         block = data.get("hooks") if data is not None else None
         if isinstance(block, Mapping) and any(block.values()):
-            found.append(layer.path.relative_to(root).as_posix())
+            found.append(_shown_file(layer, root, home))
     return tuple(found)
 
 
-def parse_hooks_block(
-    block: object, *, source: str, path: Path, default_timeout_s: float
-) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
-    """Kanca şemasını doğrula; bozuk koruyucu girdiyi sessizce kaybetme."""
-    if not isinstance(block, Mapping):
-        return (), (_invalid_shape("hooks", source, path),)
-    commands: list[HookCommand] = []
-    skipped: list[HookSkip] = []
-    for event_name, groups in block.items():
-        name = str(event_name)
-        if not isinstance(groups, list):
-            skipped.append(_invalid_shape(name, source, path))
-            continue
-        for group in groups:
-            found, rejected = _parse_hook_group(
-                name, group, source=source, path=path, default_timeout_s=default_timeout_s
-            )
-            commands.extend(found)
-            skipped.extend(rejected)
-    return tuple(commands), tuple(skipped)
-
-
-def _invalid_shape(event: str, source: str, path: Path) -> HookSkip:
-    """Şema hatasında ham girdiyi tanıya veya komuta dönüştürme."""
-    known = parse_event(event) is not None or event in CLAUDE_ONLY_EVENTS
-    return _rejected_hook(
-        event if known else "bilinmeyen",
-        "",
-        {},
-        "kanca şeması geçersiz; olay grupları ve hooks alanı liste, girdiler nesne olmalı",
-        source,
-        path,
-    )
-
-
-def _parse_hook_group(
-    name: str, group: object, *, source: str, path: Path, default_timeout_s: float
-) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
-    """Bir grubun biçimini ve handler kontrol alanlarını aynı sınırda doğrula."""
-    if not isinstance(group, Mapping):
-        return (), (_invalid_shape(name, source, path),)
-    matcher = group.get("matcher", "")
-    handlers = group.get("hooks")
-    if not isinstance(matcher, str) or not isinstance(handlers, list):
-        return (), (_invalid_shape(name, source, path),)
-    commands: list[HookCommand] = []
-    skipped: list[HookSkip] = []
-    event = parse_event(name)
-    for handler in handlers:
-        if not isinstance(handler, Mapping):
-            skipped.append(_invalid_shape(name, source, path))
-            continue
-        kind = str(handler.get("type") or COMMAND_HANDLER)
-        target = handler.get("url" if kind == HTTP_HANDLER else "command")
-        reason = _skip_reason(name, event is None, kind, target) or _unsupported_options(handler)
-        if reason is not None or event is None:
-            skipped.append(_rejected_hook(name, matcher, handler, reason or "", source, path))
-            continue
-        commands.append(
-            HookCommand(
-                event,
-                matcher,
-                str(target),
-                _timeout(handler.get("timeout"), default_timeout_s),
-                source,
-                str(path),
-                kind,
-                *_http_options(handler),
-                status_message=str(handler.get("statusMessage") or ""),
-            )
-        )
-    return tuple(commands), tuple(skipped)
-
-
-def _rejected_hook(
-    event: str, matcher: str, handler: Mapping[str, object], reason: str, source: str, path: Path
-) -> HookSkip:
-    """Ham komut/başlık/argüman yalnız görünmez metaveride tutulur."""
-    return HookSkip(
-        event,
-        matcher,
-        "kanca tanımı uygulanmadı",
-        reason[:160],
-        source,
-        str(path),
-        definition_json=json.dumps(dict(handler), ensure_ascii=False, sort_keys=True, default=str),
-    )
-
-
-def _unsupported_options(handler: Mapping[str, object]) -> str | None:
-    """Yürütücünün uygulamadığı kontrol alanını düşürüp komut çalıştırma."""
-    controls = ("args", "once", "async", "asyncRewake", "shell", "onFailure", "if")
-    requested = tuple(
-        key
-        for key in controls
-        if key in handler
-        and (key in {"args", "shell", "onFailure", "if"} or handler[key] not in (False, None, ""))
-    )
-    if requested:
-        return (
-            f"kanca seçenekleri henüz desteklenmiyor: {', '.join(requested)}; "
-            "komut çalıştırılmadı; desteklenen command/http tanımı kullanın"
-        )
-    return None
-
-
-def _skip_reason(event_name: str, unknown: bool, kind: str, target: object) -> str | None:
-    if unknown:
-        return REASON_EVENT if event_name in CLAUDE_ONLY_EVENTS else REASON_UNKNOWN_EVENT
-    if kind not in (COMMAND_HANDLER, HTTP_HANDLER):
-        return REASON_HANDLER.format(kind=kind)
-    if not isinstance(target, str) or not target.strip():
-        return REASON_URL if kind == HTTP_HANDLER else REASON_EMPTY
-    if kind == HTTP_HANDLER and not target.strip().lower().startswith(("http://", "https://")):
-        return REASON_URL
-    return None
-
-
-def _http_options(
-    handler: Mapping[str, object],
-) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
-    """`headers` (ad → metin) ve `allowedEnvVars` (ad listesi); bozuk girdiler atlanır."""
-    raw_headers = handler.get("headers")
-    headers = tuple(
-        (str(name), value)
-        for name, value in (raw_headers.items() if isinstance(raw_headers, Mapping) else ())
-        if isinstance(value, str)
-    )
-    raw_env = handler.get("allowedEnvVars")
-    names = (
-        tuple(name for name in raw_env if isinstance(name, str))
-        if isinstance(raw_env, list)
-        else ()
-    )
-    return headers, names
-
-
-def _timeout(raw: object, default: float) -> float:
-    if isinstance(raw, bool) or not isinstance(raw, int | float) or raw <= 0:
-        return min(default, MAX_HOOK_TIMEOUT_S)
-    return min(float(raw), MAX_HOOK_TIMEOUT_S)
-
-
-def _as_skip(command: HookCommand, reason: str) -> HookSkip:
-    return HookSkip(
-        command.event.value, command.matcher, command.command, reason, command.source, command.path
-    )
+def _shown_file(layer: HookLayer, root: Path, home: Path | None) -> str:
+    if layer.requires_trust:
+        return layer.path.relative_to(root).as_posix()
+    return display_path(layer.path, home)
 
 
 def _is_trusted(layer: HookLayer, root: Path) -> bool:
@@ -345,7 +385,8 @@ def _is_trusted(layer: HookLayer, root: Path) -> bool:
     return is_permissions_trusted(root)
 
 
-def _read_json(path: Path) -> dict[str, object] | None:
+def read_settings_json(path: Path) -> dict[str, object] | None:
+    """Ayar dosyasının nesnesi; yoksa, bozuksa ya da nesne değilse `None`."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

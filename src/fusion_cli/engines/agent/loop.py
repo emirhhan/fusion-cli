@@ -26,7 +26,7 @@ import json
 import re
 import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, nullcontext
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from functools import partial
@@ -37,6 +37,7 @@ from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
+from ...core import display_filter
 from ...core.active_context import ActiveContext
 from ...core.agent_runtime_state import AgentTranscriptCapture
 from ...core.budget import BudgetStop, TurnBudget
@@ -191,6 +192,7 @@ from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, o
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
+from .deferred_resume import take_deferred
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -209,17 +211,23 @@ from .expertise import (
     is_worktree_task,
 )
 from .history import needs_compression, total_chars
+from .hook_batch import batch_hook
 from .hook_bridge import (
     ToolNote,
     compacted_context,
-    continue_until_stop_allowed,
+    deferred_outcome,
     hook_halt_text,
     post_tool_use,
     pre_compact,
     pre_tool_use,
+    tool_running,
     user_prompt_submit,
     with_system_note,
 )
+from .hook_display import message_display
+from .hook_permission_denied import classifier_reason, permission_denied, review_mark
+from .hook_services import bind_hook_services
+from .hook_stop import continue_until_stop_allowed
 from .instruction_layers import InstructionLoad
 from .instruction_rules import discover_rules
 from .lesson_attribution import LessonTurnState
@@ -472,6 +480,8 @@ class AgentOutcome:
     budget_stopped: bool = False
     #: Bütçe durdurduysa sebebi (`BudgetStop` değeri); arayüz özet metnini kurar.
     stop_reason: str | None = None
+    #: PreToolUse `defer` (`-p`) turu bitirdiyse ertelenen çağrı `{id, name, input}`.
+    deferred_tool_use: dict[str, object] | None = None
     #: Tur bittiğindeki görev listesi; yarım kalan işin özetinde gösterilir.
     todos: tuple[TodoItem, ...] = ()
     #: Turda modele "ilerleme yok" uyarısı verildi mi? Ders çıkarımı bu turu atlar.
@@ -781,6 +791,8 @@ async def run_agent(
             hint = learning_steps.recall_hints(task, deps)
             if hint:
                 extra_system = "\n\n".join(part for part in (extra_system, hint) if part)
+        if root_turn:
+            bind_hook_services(deps, run_agent)
         prompt_gate = await user_prompt_submit(deps, task) if root_turn else None
         if prompt_gate is not None and prompt_gate.blocked is not None:
             # Sebep burada yayınlanır; `budget_stopped` çağıranın ikinci kez basmasını önler.
@@ -788,8 +800,11 @@ async def run_agent(
             blocked = AgentOutcome(prompt_gate.blocked, [*(history or [])], ok=False)
             blocked.budget_stopped = True
             return blocked
-        if prompt_gate is not None and prompt_gate.context:
-            extra_system = "\n\n".join(part for part in (extra_system, prompt_gate.context) if part)
+        # Kanca bağlamı (P-009) istemle birlikte geçmişte kalır (Claude: SessionStart başta,
+        # UserPromptSubmit istemin yanında); sistem mesajı her turda yeniden kurulur.
+        if prompt_gate is not None and prompt_gate.task:
+            task = prompt_gate.task  # SessionStart `initialUserMessage` (istemsiz `-p`)
+        model_task = prompt_gate.model_prompt(task) if prompt_gate is not None else task
         turn = partial(
             _run_agent,
             deps=deps,
@@ -808,16 +823,18 @@ async def run_agent(
             workflow=workflow,
             denied_tools=denied_tools,
         )
-        outcome = await turn(task, history=history)
-        subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
-        if root_turn or subagent:
-            # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
-            outcome = await continue_until_stop_allowed(
-                deps,
-                outcome,
-                lambda prompt, past: turn(prompt, history=past),
-                subagent=subagent,
-            )
+        # MessageDisplay (#90): kök turda görünen asistan metni kancadan geçer.
+        with message_display(deps) if root_turn else nullcontext():
+            outcome = await turn(model_task, history=history)
+            subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
+            if root_turn or subagent:
+                # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
+                outcome = await continue_until_stop_allowed(
+                    deps,
+                    outcome,
+                    lambda prompt, past: turn(prompt, history=past),
+                    subagent=subagent,
+                )
         if root_turn and not deps.child_runs.persistent:
             await deps.child_runs.drain()
         if owns_learning:
@@ -985,7 +1002,7 @@ async def _run_agent(
             ok=True,
             model_calls_made=0,
         )
-        _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
+        await _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
         return vague_outcome
 
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
@@ -1522,7 +1539,7 @@ async def _run_agent(
         ensure_limitations_disclosed(outcome, deps)
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
-    _announce_answer(outcome, deps, depth=depth, internal=internal)
+    await _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
     if not is_measurement_failure:
@@ -1625,7 +1642,9 @@ def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps
         deps.publisher.publish(ChangesDigested(lines=report.change_lines))
 
 
-def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:
+async def _announce_answer(
+    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
+) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
     Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
@@ -1655,9 +1674,10 @@ def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, inte
         return
     if not outcome.final_text.strip():
         return
-    deps.publisher.publish(
-        TurnAnswered(channel=deps.channel, text=strip_harness_leaks(outcome.final_text))
-    )
+    # Görünen metin MessageDisplay süzgecinden geçer (#90); kayıt `outcome`tan yazılır.
+    shown = await display_filter.transform(strip_harness_leaks(outcome.final_text))
+    if shown:
+        deps.publisher.publish(TurnAnswered(channel=deps.channel, text=shown))
 
 
 # --------------------------------------------------------------------------- #
@@ -1795,6 +1815,10 @@ async def _drive(
     if execution.max_model_calls is not None:
         local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
     local_calls = 0
+    if not internal and deps.channel is not Channel.SUBAGENT:
+        await _resume_deferred(
+            messages, deps, registry, state, execution=execution, plan_mode=plan_mode
+        )
 
     while True:
         notices = await deps.child_runs.completion_messages(
@@ -1818,11 +1842,14 @@ async def _drive(
             # bir hata yapmadı, kullanıcı bir karar verdi. Model bir DAHA
             # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
             # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
-            return _outcome(
-                state.hook_halt
-                or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
-                messages,
-                state,
+            return deferred_outcome(
+                deps,
+                _outcome(
+                    state.hook_halt
+                    or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                    messages,
+                    state,
+                ),
             )
         if budget.stop is BudgetStop.NO_PROGRESS:
             return _halt(
@@ -2137,6 +2164,7 @@ async def _drive(
                 plan_mode=plan_mode,
                 parse_warnings=result.parse_warnings,
             )
+            await batch_hook(deps, result.tool_calls, messages, state, budget)
             if any(warning.blocks_mutation for warning in result.parse_warnings):
                 if not budget.take_contract_repair():
                     return _halt(
@@ -3798,6 +3826,27 @@ def _post_edit_commands(deps: AgentDeps) -> tuple[str, ...]:
     return tuple(getattr(runtime, "post_edit_commands", ()))
 
 
+async def _resume_deferred(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    state: _State,
+    *,
+    execution: ExecutionPolicy,
+    plan_mode: bool,
+) -> None:
+    """Sürdürülen geçmişteki ertelenen çağrı olağan araç yolundan yeniden geçer (#114)."""
+    pending = take_deferred(messages)
+    if pending is None:
+        return
+    index, call = pending
+    results: list[Message] = []
+    await _run_tools(
+        (call,), results, deps, registry, state, execution=execution, plan_mode=plan_mode
+    )
+    messages[index:index] = results
+
+
 async def _run_tools(
     calls: tuple[ToolCall, ...],
     messages: list[Message],
@@ -4432,6 +4481,7 @@ async def _execute(
         # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
         guard = getattr(deps, "auto_review", None)
         trips = guard.trips if guard is not None else 0
+        mark = review_mark(guard)  # PermissionDenied: denetçi bu çağrıyı riskli buldu mu?
         request = await review_auto_request(request, deps)
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
@@ -4475,6 +4525,10 @@ async def _execute(
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
             # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
             message = _decision_message(decision, plan_mode=plan_mode, request=request)
+            if (reason := classifier_reason(guard, mark)) is not None:
+                message = await permission_denied(
+                    deps, call.name, args, call.id, reason=reason, message=message
+                )
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
@@ -4541,6 +4595,7 @@ async def _execute_registered_tool(
         if is_shell
         else None
     )
+    tool_running(deps, call.name, args, call.id)  # `duration_ms` onaydan sonra başlar
     result = await registry.execute(call.name, args, deps.tool_context)
     await localization.record_result(call, result, deps.tool_context)
     if state is not None:
@@ -5056,11 +5111,14 @@ async def _compact_before_call(
         return True
     before = len(messages)
     before_chars = total_chars(gorunur)
-    await pre_compact(deps, "auto")
+    if await pre_compact(deps, "auto"):
+        # PreCompact kancası engelledi (Claude): özetleme atlanır, konuşma sürer.
+        return True
     compacted = await compact_context(messages, deps, threshold)
     after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
     if after_chars < before_chars:
-        note = await compacted_context(deps)
+        summary = "\n\n".join(m.content for m in compacted if m not in messages)
+        note = await compacted_context(deps, "auto", summary)
         messages[:] = with_system_note(compacted, note)
         if deps.agent_transcript is not None:
             deps.agent_transcript.reset(messages)

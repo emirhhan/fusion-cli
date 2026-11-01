@@ -35,6 +35,7 @@ from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .sandbox_policy import SandboxPolicy
 from .session_cron import SessionCron
+from .shell_cwd import ShellCwd
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
 from .worktree import WorktreeSwitch
@@ -402,6 +403,11 @@ class ToolContext:
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).
     #: Sırlar süreç ortamında yaşar; `run_shell` çıktısı (`env`) modele giderdi.
     hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
+    #: `CLAUDE_ENV_FILE` dosyaları: her `run_shell` komutundan önce kabuk kodu olarak
+    #: çalışır (kanca köprüsü çalıştırmadan önce doldurur; liste paylaşılır).
+    shell_env_files: list[Path] = field(default_factory=list, kw_only=True)
+    #: Kabuk aracının kalıcı çalışma dizini (#126): `cd` sonraki komutlara taşınır.
+    shell_cwd: ShellCwd = field(default_factory=ShellCwd, kw_only=True)
     #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
     shell_sandbox: str = field(default="off", kw_only=True)
     #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.

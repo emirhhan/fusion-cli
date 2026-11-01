@@ -2,15 +2,16 @@
 
 Claude Code'un HTTP kancası sözleşmesi:
 
-    2xx         gövde stdout gibi okunur (boş = karar yok; JSON = karar alanları)
+    2xx         boş gövde = karar yok; JSON nesnesi = karar alanları; başka her gövde (düz
+                metin) engellemeyen hatadır ve bağlama EKLENMEZ
     diğer       engellemeyen hata (3xx yönlendirme izlenmez); engellemek için 2xx + JSON
     bağlantı    hatası / zaman aşımı → engellemeyen hata
 
 Başlık değerlerindeki `$AD` / `${AD}` yalnız `allowedEnvVars` listesindeki adlardan
-doldurulur; listede olmayan ad boş metne döner (sır sızmasın). İç ağ koruması: adres bir
-kez çözülür ve bütün IP'ler genel internette değilse istek gönderilmez (`pinned_http`,
-DNS rebinding dahil); yerel sunucuya (localhost, 192.168.x) istek için kullanıcı
-`runtime.hook_http_allow_private: true` yazar — güvenilmeyen proje config'i açamaz.
+doldurulur; listede olmayan ad boş metne döner (sır sızmasın). Claude Code gibi adres
+kısıtı yoktur (belgenin örneği `http://localhost:8080/...`); kısıt yalnız ayarlardaki
+`allowedHttpHookUrls` listesiyle konur (bkz. `config/hooks.py`). Adres bir kez çözülür ve
+o IP'ye bağlanılır (`pinned_http`, DNS rebinding'e karşı).
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ async def run_http_hook(
     payload: Mapping[str, object],
     *,
     environment: Mapping[str, str],
-    allow_private: bool = False,
+    allow_private: bool = True,
 ) -> HookRun:
     """İsteği gönder; sonuç hiçbir zaman istisna olarak fırlatılmaz (iptal hariç)."""
     headers = {
@@ -68,12 +69,15 @@ async def run_http_hook(
     except httpx.TimeoutException:
         return HookRun(command, None, timed_out=True)
     except BlockedAddressError as error:
-        return HookRun(command, None, error=f"{error} (runtime.hook_http_allow_private)")
+        return HookRun(command, None, error=str(error))
     except httpx.HTTPError as error:
         return HookRun(command, None, error=f"{type(error).__name__}: {error}"[:_ERROR_BODY_CHARS])
     if not response.is_success:
         tail = f": {text.strip()[:_ERROR_BODY_CHARS]}" if text.strip() else ""
         return HookRun(command, None, error=f"HTTP {response.status_code}{tail}")
+    body_text = text.strip()
+    if body_text and not (body_text.startswith("{") and body_text.endswith("}")):
+        return HookRun(command, None, error=f"2xx yanıt gövdesi JSON değil: {body_text[:80]}")
     return HookRun(command, 0, text)
 
 

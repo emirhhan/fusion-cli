@@ -1217,7 +1217,19 @@ WORKTREE_LEFT_KEPT = (
 WORKTREE_KEPT_REASON = {
     "degisiklik": "commit'lenmemiş değişiklik var",
     "commit": "dalda yeni commit var",
+    "kanca": "ağacı WorktreeCreate kancası kurdu ve kaldıracak WorktreeRemove kancası yok",
 }
+WORKTREE_TOOL_ENTERED_HOOK = (
+    "Çalışma ağacı hazır: {path} (WorktreeCreate kancası kurdu). Bu turda dosyalara bu mutlak "
+    "yolla ulaş; tur bitince oturum kökü bu ağaca geçer."
+)
+WORKTREE_ENTERED_HOOK = "Çalışma ağacına geçildi: {path} (WorktreeCreate kancası kurdu)."
+WORKTREE_HOOK_FAILED = "WorktreeCreate kancası çalışma ağacını oluşturamadı: {reason}"
+WORKTREE_HOOK_NO_PATH = (
+    "WorktreeCreate kancası ağacın yolunu yazmadı (komut stdout'a mutlak yolu, http kancası "
+    "hookSpecificOutput.worktreePath'i vermeli)."
+)
+WORKTREE_HOOK_NOT_DIR = "WorktreeCreate kancasının verdiği yol bir dizin değil: {path}"
 WORKTREE_TOOL_ENTERED = (
     "Çalışma ağacı hazır: {path} (dal {branch}). Bu turda dosyalara {relative}/… ile ulaş; "
     "tur bitince oturum kökü bu ağaca geçer ve sonraki turlar doğrudan orada çalışır."
@@ -1679,6 +1691,10 @@ EKIP_PROGRESS = "Ekip '{team}' · {status} · {done}/{total} görev · {members}
 
 CMD_HOOKS = "Kancaları (hooks) listele: olay · eşleştirici · komut · kaynak"
 HOOKS_PERMISSION_NOTICE = "Fusion izin istiyor: {tool}"
+HOOKS_AUTH_SUCCESS_NOTICE = "{server} için kimlik doğrulama başarılı"
+HOOKS_ELICITATION_NOTICE = "MCP sunucusu {server} bilgi istiyor"
+HOOKS_ELICITATION_RESPONSE_NOTICE = "MCP sunucusu {server} isteği yanıtlandı"
+HOOKS_ELICITATION_COMPLETE_NOTICE = "MCP sunucusu {server} isteği tamamlandı"
 HOOKS_TOOL_BLOCKED = (
     "KANCA ENGELLEDİ ({event}): {reason}\n"
     "Bu çağrı çalışmadı; gerekçeye göre farklı bir yol dene ya da kullanıcıya sor."
@@ -1694,6 +1710,8 @@ HOOKS_STOP_CONTINUE = (
 )
 HOOKS_ERROR = "Kanca hatası — {detail}"
 HOOKS_SYSTEM = "Kanca: {text}"
+#: PreCompact kancası `/compact`'ı engelledi (stderr ya da `reason`).
+HOOKS_COMPACT_BLOCKED = "Özetleme bir kanca tarafından engellendi (PreCompact): {reason}"
 HOOKS_LIST_EMPTY = (
     "Tanımlı kanca yok. Biçim ve örnekler: docs/KANCALAR.md — Fusion: {path}, "
     'Claude: ~/.claude/settings.json, proje: .claude/settings.json ("hooks" bloğu).'
@@ -1718,7 +1736,9 @@ HOOKS_FLAG_INVALID = (
 HOOKS_FLAG_FAILED = "Kanca ayarı yazılamadı: {error}"
 #: Bir dosyadaki `disableAllHooks` kancaları kapattığında oturumda bir kez.
 HOOKS_DISABLED_NOTICE = "Kancalar bu oturumda kapalı: {reason}"
-HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"
+HOOKS_USAGE = "Kullanım: /hooks [list|<no>|all]  (salt okunur; düzenleme: {path})"
+HOOKS_BROWSER_HINT = "Ayrıntı: /hooks <no> · bütün olaylar (All events): /hooks all"
+HOOKS_BROWSER_TITLE = "Kancalar (salt okunur)"
 HOOKS_TEST_UNKNOWN_EVENT = "Bilinmeyen olay: {given}. Olaylar: {events}"
 HOOKS_TEST_BAD_INPUT = "--input geçerli bir JSON nesnesi olmalı: {error}"
 HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."

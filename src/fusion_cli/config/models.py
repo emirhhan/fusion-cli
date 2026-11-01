@@ -334,16 +334,17 @@ class RuntimeConfig:
     post_edit_commands: tuple[str, ...] = ()
     #: Genel kanca sistemi (P-009, `config/hooks.py`): false = hiçbir kanca çalışmaz.
     hooks_enabled: bool = True
-    #: `~/.claude/settings.json` kancaları da çalışsın mı? Varsayılan kapalı: oradaki Claude
-    #: betikleri (ECC vb.) Fusion'ın her araç çağrısında çalışır. Proje `.claude/` dosyaları
-    #: bu anahtardan bağımsızdır (`fusion trust` ister).
-    claude_hooks: bool = False
-    #: Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
-    hook_timeout_s: float = 60.0
+    #: `~/.claude/settings.json` kancaları çalışsın mı? Claude Code gibi varsayılan açık;
+    #: false Fusion'a özgü kapatmadır.
+    claude_hooks: bool = True
+    #: Kullanımdan kalktı: Claude varsayılanı 600 sn; başka değer bu sürümde hâlâ süresi
+    #: yazılmamış kancaya uygulanır ve bir kez uyarılır (`engines/hooks/factory.py`).
+    hook_timeout_s: float = 600.0
     #: Girdi bekleyen oturum bu kadar sn boşta kalınca `Notification(idle_prompt)`; 0 = kapalı.
     hook_idle_prompt_s: float = 60.0
-    #: `type: http` kancası iç ağ adresine gidebilir mi? (iç ağ koruması; varsayılan kapalı)
-    hook_http_allow_private: bool = False
+    #: Kullanımdan kalktı: http kancası Claude gibi yerel adrese gider (kısıt
+    #: `allowedHttpHookUrls`); açıkça `false` bu sürümde hâlâ uygulanır ve bir kez uyarılır.
+    hook_http_allow_private: bool = True
     #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).

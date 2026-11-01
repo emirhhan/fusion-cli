@@ -289,8 +289,13 @@ def result_object(
     model_calls: int,
     cost: CostTracker,
     structured: StructuredResult | None,
+    deferred_tool_use: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """`--output-format json` tek satırlık sonuç nesnesi."""
+    """`--output-format json` tek satırlık sonuç nesnesi.
+
+    PreToolUse `defer` turu bitirdiyse `durma_nedeni: tool_deferred` ve ertelenen çağrı
+    `deferred_tool_use` (`id`, `name`, `input`; Claude adları) alanında.
+    """
     if ok and (structured is None or structured.ok):
         durum = "completed"
     elif budget_stopped:
@@ -298,7 +303,11 @@ def result_object(
     else:
         durum = "failed"
     total = cost.total
+    extra: dict[str, object] = {}
+    if deferred_tool_use is not None:
+        extra["deferred_tool_use"] = dict(deferred_tool_use)
     return {
+        **extra,
         "type": "result",
         "ok": durum == "completed",
         "durum": durum,

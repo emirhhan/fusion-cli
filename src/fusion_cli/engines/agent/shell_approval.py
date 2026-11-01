@@ -81,7 +81,8 @@ def _shell_request(
     home = Path.home()
     if danger is None and root is not None:
         danger = script_danger(command, root, home)
-    protected = protected_path_reason(tool.name, args, root, is_shell=True)
+    # `command` kalıcı kabuk dizinine göre denetlenen eşdeğer olabilir (#126).
+    protected = protected_path_reason(tool.name, {**args, "command": command}, root, is_shell=True)
     danger = danger or protected
     caution = delete_caution(command, root, home) if root is not None else None
     target = describe_delete(command, root, home) if root is not None else ""

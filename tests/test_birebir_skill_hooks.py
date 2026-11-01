@@ -36,7 +36,7 @@ def _registry(tmp_path: Path) -> tuple[CapabilityRegistry, Path]:
 
 
 def _commands(session: HookSession) -> list[str]:
-    return [c.command for c in session.refresh().for_event(HookEvent.POST_TOOL_USE, ("Edit",))]
+    return [c.command for c in session.current().for_event(HookEvent.POST_TOOL_USE, ("Edit",))]
 
 
 def test_beceri_kancasi_cagrida_kaydedilir_ve_oturum_boyunca_kalir(tmp_path: Path) -> None:

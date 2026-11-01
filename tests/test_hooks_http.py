@@ -18,6 +18,9 @@ from fusion_cli.engines.hooks.http_runner import expand_header
 from fusion_cli.engines.hooks.session import HookSession
 from fusion_cli.tools import pinned_http
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 #: Literal genel IP: ad çözümlemesi (ağ) yapılmaz.
 GENEL_URL = "https://93.184.216.34/kanca"
 
@@ -45,11 +48,11 @@ def _http(url: str = GENEL_URL, event: HookEvent = HookEvent.PRE_TOOL_USE, **ext
     return HookCommand(event, "", url, 5.0, "test", "", HTTP_HANDLER, **extra)
 
 
-def _oturum(tmp_path: Path, *commands: HookCommand, ozel: bool = False) -> HookSession:
+def _oturum(tmp_path: Path, *commands: HookCommand, ozel: bool | None = None) -> HookSession:
     return HookSession(
         root=tmp_path,
         loader=lambda: HookSet(tuple(commands)),
-        http_allow_private=lambda: ozel,
+        http_allow_private=None if ozel is None else (lambda: ozel),
     )
 
 
@@ -68,7 +71,7 @@ def test_http_tanimi_okunur_gecersiz_adres_ve_diger_turler_gerekceyle_atlanir():
                             "timeout": 7,
                         },
                         {"type": "http", "url": "file:///etc/passwd"},
-                        {"type": "prompt", "prompt": "uygun mu?"},
+                        {"type": "prompt", "prompt": "   "},
                     ],
                 }
             ]
@@ -83,7 +86,7 @@ def test_http_tanimi_okunur_gecersiz_adres_ve_diger_turler_gerekceyle_atlanir():
     assert commands[0].headers == (("Authorization", "Bearer $KANCA_ANAHTARI"),)
     assert commands[0].allowed_env_vars == ("KANCA_ANAHTARI",)
     assert ["http://" in s.reason for s in skipped] == [True, False]
-    assert "tür desteklenmiyor: prompt" in skipped[1].reason
+    assert "'prompt' alanı boş" in skipped[1].reason
     assert hook_rows(HookSet(commands))[0].command == f"POST {GENEL_URL}"
 
 
@@ -95,7 +98,13 @@ def test_baslikta_yalniz_izinli_ortam_degiskeni_doldurulur():
 async def test_http_kancasi_olayi_post_eder_json_karari_uygulanir(tmp_path, istekler):
     kayit, yanit = istekler
     yanit["govde"] = json.dumps(
-        {"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "yasak"}}
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "yasak",
+            }
+        }
     )
     hook = _http(
         headers=(("Authorization", "Bearer $KANCA_ANAHTARI"), ("X-Diger", "$BASKA_SIR")),
@@ -125,16 +134,53 @@ async def test_http_2xx_disi_yanit_engellemez_hata_olarak_gosterilir(tmp_path, i
     assert "HTTP 500: sunucu çöktü" in verdict.errors[0]
 
 
-async def test_http_ic_ag_adresi_varsayilan_engellenir_ayarla_acilir(tmp_path, istekler):
+async def test_http_yerel_adrese_claude_gibi_varsayilan_gider(tmp_path, istekler):
+    """Claude: yerel adres kısıtı yok (belge örneği localhost); kısıt allowedHttpHookUrls ile."""
     kayit, _ = istekler
     yerel = _http("http://127.0.0.1:8080/kanca", HookEvent.STOP)
 
-    engelli = await _oturum(tmp_path, yerel).emit(HookEvent.STOP)
-    assert kayit == [] and "iç ağ adresi" in engelli.errors[0]
-    assert "hook_http_allow_private" in engelli.errors[0]
+    acik = await _oturum(tmp_path, yerel).emit(HookEvent.STOP)
 
-    acik = await _oturum(tmp_path, yerel, ozel=True).emit(HookEvent.STOP)
     assert len(kayit) == 1 and acik.errors == ()
+
+
+def test_allowed_http_hook_urls_listesi_disindaki_adres_atlanir(tmp_path, monkeypatch):
+    from fusion_cli.config import hooks as hooks_config
+
+    ev = tmp_path / "ev"
+    ayar = ev / ".claude" / "settings.json"
+    ayar.parent.mkdir(parents=True)
+    ayar.write_text(
+        json.dumps(
+            {
+                "allowedHttpHookUrls": ["https://izinli.test/*"],
+                "httpHookAllowedEnvVars": ["A"],
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "http",
+                                    "url": "https://izinli.test/k",
+                                    "allowedEnvVars": ["A", "B"],
+                                },
+                                {"type": "http", "url": "https://baska.test/k"},
+                            ]
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(ev / ".config"))
+    monkeypatch.delenv("FUSION_HOOKS", raising=False)
+    monkeypatch.setattr(hooks_config, "managed_settings_file", lambda: tmp_path / "yok.json")
+    hooks = hooks_config.load_hooks(tmp_path / "proje", home=ev)
+    assert [(c.command, c.allowed_env_vars) for c in hooks.commands] == [
+        ("https://izinli.test/k", ("A",))
+    ]
+    assert [s.reason for s in hooks.skipped] == [hooks_config.REASON_HTTP_URL]
 
 
 def test_guvenilmeyen_proje_ayari_ic_ag_iznini_acamaz():
@@ -152,5 +198,5 @@ async def test_http_dev_yaniti_sinirda_kesilir(tmp_path, istekler):
 
     verdict = await _oturum(tmp_path, hook).emit(HookEvent.USER_PROMPT_SUBMIT)
 
-    # Düz metin bağlam olur; bağlam sınırı da uygulanır.
-    assert 0 < len(verdict.context_text) <= HOOK_STREAM_CHARS
+    # Claude: 2xx + JSON olmayan gövde engellemeyen hatadır, bağlama EKLENMEZ (#120).
+    assert verdict.context_text == "" and "JSON değil" in verdict.errors[0]

@@ -230,7 +230,12 @@ def start_from_cli(task: str, flags: BackgroundFlags) -> BackgroundTask:
 
     config = load_config()
     try:
-        root, _tree = worktrees.resolve_launch_root(Path.cwd(), flags.worktree)
+        hooks = None
+        if flags.worktree.strip():
+            from ..engines.hooks.worktree_hooks import launch_hook_calls
+
+            hooks = launch_hook_calls(Path.cwd(), config, interactive=False)
+        root, _tree = worktrees.resolve_launch_root(Path.cwd(), flags.worktree, hooks=hooks)
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None

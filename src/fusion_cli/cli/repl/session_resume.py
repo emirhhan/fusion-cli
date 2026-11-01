@@ -118,6 +118,9 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
     state.conversation_id = target.conversation_id
     state.conversation_name = target.name
     state.history = list(target.history)
+    if target.forked_from:
+        # Claude: kopyalanan oturumun SessionStart kaynağı `fork`.
+        state.hook_start_source = "fork"
     state.last_changes = None
     # Başka sohbetin tur kayıtları bu konuşmaya ait değildir; PR künyesi sohbetinkidir.
     state.checkpoints.clear()
@@ -209,6 +212,7 @@ def branch_command(state: ReplState, argument: str) -> str:
         return messages.SESSION_COPY_FAILED.format(reason=error)
     count = len(conversation_prefix(state.history))
     state.conversation_id = target_id
+    state.hook_start_source = "fork"
     # Kopya aynı PR üzerinde sürer (Claude Code `--fork-session` ile aynı).
     linked_pr.save(state.config.memory_dir, target_id, state.linked_pr)
     state.conversation_name = name

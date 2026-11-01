@@ -68,6 +68,8 @@ class AgentLink:
     held: list[PeerMessage] = field(default_factory=list)
     #: accept kipinde gelen ama oturum meşgulken bekleyen turlar.
     queued_turns: list[str] = field(default_factory=list)
+    #: Biten arka plan görevinin sonucu bağlama girdi; oturum boşa düşünce tur başlar.
+    wake_for_delivery: bool = False
     _seen: dict[str, TaskStatus] = field(default_factory=dict)
 
     @property
@@ -79,7 +81,27 @@ class AgentLink:
         turns: tuple[str, ...] = ()
         if not busy and self.queued_turns:
             turns, self.queued_turns = tuple(self.queued_turns), []
+        if not busy:
+            turns = (*turns, *self.take_wake_turns(state))
         return LinkPoll(tuple(notices), turns)
+
+    def take_wake_turns(self, state: ReplState) -> tuple[str, ...]:
+        """Claude gibi boştaki oturumu uyandır: arka plan raporu ve `asyncRewake` kancası.
+
+        Tur kendi başına başlar (UserPromptSubmit tetiklenir); rapor/kanca metni turun
+        bağlamına eklenir. Kullanıcı arada tur başlattıysa (bağlam tüketildiyse) uyanılmaz.
+        """
+        wake = ""
+        if self.wake_for_delivery:
+            self.wake_for_delivery = False
+            if state.pending_blocks:
+                wake = texts.BG_WAKE_TURN
+        hooks = state.hook_session
+        if hooks is not None and getattr(hooks, "wake_requested", False):
+            hooks.wake_requested = False
+            if hooks.rewake_notes and not wake:
+                wake = texts.HOOK_WAKE_TURN
+        return (wake,) if wake else ()
 
     def _task_notices(self, state: ReplState) -> list[str]:
         notices: list[str] = []
@@ -95,6 +117,7 @@ class AgentLink:
         delivered = agent_tasks.collect_deliveries(self.store, self.owner)
         if delivered:
             prefixes.push_pending_context(state, agent_tasks.delivery_block(self.store, delivered))
+            self.wake_for_delivery = True
         return notices
 
     def _peer_notices(self, *, busy: bool) -> list[str]:

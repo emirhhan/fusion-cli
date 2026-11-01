@@ -206,7 +206,7 @@ async def test_teammateidle_engeli_uyanma_tavanini_asmaz(tmp_path):
     assert "- g1 bekliyor: iş" in sonuc.output
 
 
-async def test_continue_false_uyeyi_durdurur_yeniden_uyandirilmaz(tmp_path):
+async def test_taskcreated_continue_false_yok_sayilir(tmp_path):
     hook = _kanca(
         tmp_path,
         HookEvent.TASK_CREATED,
@@ -222,9 +222,9 @@ async def test_continue_false_uyeyi_durdurur_yeniden_uyandirilmaz(tmp_path):
 
     sonuc = await _calistir(deps, _ajan)
 
-    assert not sonuclar[0].ok and "kota doldu" in sonuclar[0].output
-    # Görev panoda bekliyor ama üye durduruldu: yeniden koşmadı.
-    assert len(sonuclar) == 1 and "- a: 1 koşu" in sonuc.output
+    # Claude: TaskCreated `continue: false`'u yok sayar, görev eklenir ve üye sürer (#127).
+    assert sonuclar[0].ok and "kota doldu" not in sonuclar[0].output
+    assert "g2" in sonuc.output
 
 
 # --- SubagentStop: ekip üyeleri ve iş akışı ajanları gerçek döngüden geçer ---------- #

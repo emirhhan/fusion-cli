@@ -13,7 +13,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.worktree import Worktree, _git, enter_worktree, repository_root, worktree_for_path
+from ..core.worktree import (
+    Worktree,
+    WorktreeHookCalls,
+    _git,
+    enter_worktree,
+    repository_root,
+    worktree_for_path,
+)
 
 _GITHUB = re.compile(r"^https?://[^/]+/[^/]+/[^/]+/pull/(\d+)/?(?:[#?].*)?$")
 _GITLAB = re.compile(r"^https?://[^/]+/.+/-/merge_requests/(\d+)/?(?:[#?].*)?$")
@@ -50,10 +57,12 @@ def parse_pull_ref(value: str) -> PullRef | None:
     return None
 
 
-def enter_pull_worktree(cwd: Path, ref: PullRef) -> Worktree:
+def enter_pull_worktree(
+    cwd: Path, ref: PullRef, *, hooks: WorktreeHookCalls | None = None
+) -> Worktree:
     """PR/MR'ı origin'den çek ve `pr-<n>` ağacını o işlemeden aç (varsa olanı kullan)."""
     inside = worktree_for_path(cwd)
     origin = inside.origin if inside is not None else repository_root(cwd)
     git_dir = origin if origin is not None else cwd
     _git(git_dir, "fetch", "origin", f"+{ref.remote_ref}:{ref.local_ref}")
-    return enter_worktree(cwd, ref.worktree_name, base_ref=ref.local_ref)
+    return enter_worktree(cwd, ref.worktree_name, base_ref=ref.local_ref, hooks=hooks)

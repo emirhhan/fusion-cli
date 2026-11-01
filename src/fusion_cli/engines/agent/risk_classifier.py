@@ -177,7 +177,8 @@ def review_kind(
     if request.risk is not None:
         if is_fixed_risk(request.risk):
             return None
-        if is_shell and has_fixed_shell_risk(str(command), root, touched):
+        checked = getattr(request, "checked_command", None) or str(command)
+        if is_shell and has_fixed_shell_risk(checked, root, touched):
             return None
         return ReviewKind.RELAX
     if setting is AutoClassifierMode.ON and is_shell and not request.read_only:

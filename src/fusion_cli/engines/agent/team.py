@@ -25,7 +25,13 @@ from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.hooks.events import HookSet
 from ...core.tools import ToolContext
-from ...core.worktree import LeaveOutcome, Worktree, enter_worktree, leave_worktree
+from ...core.worktree import (
+    LeaveOutcome,
+    Worktree,
+    WorktreeHookCalls,
+    enter_worktree,
+    leave_worktree,
+)
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
 from ...tools.capabilities import (
     CapabilityRegistry,
@@ -34,6 +40,7 @@ from ...tools.capabilities import (
     map_tools,
     unmapped_tools,
 )
+from ..hooks.worktree_hooks import worktree_hook_calls
 from . import team_fork, team_settings
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import child_execution as _child_execution
@@ -362,7 +369,8 @@ async def run_subagent(
             return SubRun(sub_id, persona, text, False, 0, status=status)
         if persona.isolation == "worktree" and not subtask.isolation:
             subtask = dataclasses.replace(subtask, isolation="worktree")
-        worktree = await _isolated_worktree(deps.tool_context, subtask, sub_id)
+        tree_hooks = worktree_hook_calls(getattr(deps, "hooks", None))
+        worktree = await _isolated_worktree(deps.tool_context, subtask, sub_id, tree_hooks)
         context = derive_sub_context(
             deps.tool_context, subtask, root=worktree.path if worktree is not None else None
         )
@@ -375,7 +383,7 @@ async def run_subagent(
             deps.child_runs.detach(sub_id, owned)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
         if worktree is not None:
-            text += await asyncio.to_thread(_settle_worktree, worktree)
+            text += await asyncio.to_thread(_settle_worktree, worktree, tree_hooks)
         ok = outcome.ok and bool(outcome.final_text.strip())
         tool_calls = outcome.tool_calls_made
         status = (
@@ -746,7 +754,7 @@ async def run_team(
 
 
 async def _isolated_worktree(
-    context: ToolContext, subtask: SubTask, sub_id: str
+    context: ToolContext, subtask: SubTask, sub_id: str, hooks: WorktreeHookCalls | None = None
 ) -> Worktree | None:
     """`izolasyon: "worktree"` ise üyeye `.fusion/worktrees/ajan-<kimlik>` ağacı aç.
 
@@ -757,21 +765,23 @@ async def _isolated_worktree(
     if subtask.isolation != "worktree" or subtask.read_only:
         return None
     name = "ajan-" + re.sub(r"[^A-Za-z0-9._-]", "-", sub_id)[:48]
-    return await asyncio.to_thread(enter_worktree, context.root, name)
+    return await asyncio.to_thread(enter_worktree, context.root, name, hooks=hooks)
 
 
-def _settle_worktree(worktree: Worktree) -> str:
+def _settle_worktree(worktree: Worktree, hooks: WorktreeHookCalls | None = None) -> str:
     """Üye bittikten sonra ağacın akıbeti: iş varsa korunur ve yolu söylenir, yoksa kaldırılır.
 
     Ölçüldü (31 Ekim): her çağrıda ajan-<kimlik> ağacı ve dalı kalıyor, üye dosya
     değiştirmese de birikiyordu. Kaldırma `leave_worktree`'nin kendi temizlik kanıtına dayanır.
     """
     try:
-        result = leave_worktree(worktree)
+        result = leave_worktree(worktree, hooks=hooks)
     except WorktreeError as error:
         return f"\n\n[Çalışma ağacı] {worktree.path} korunuyor; temizlik ölçülemedi: {error}"
     if result.outcome is LeaveOutcome.REMOVED:
         return ""
+    if worktree.hooked:
+        return f"\n\n[Çalışma ağacı] {worktree.path} korunuyor (WorktreeCreate kancası kurdu)."
     return (
         f"\n\n[Çalışma ağacı] Değişiklikler ana projede DEĞİL, {worktree.path} içinde "
         f"(dal {worktree.branch}). Birleştirmek için: git merge {worktree.branch}"

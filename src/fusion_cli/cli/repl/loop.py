@@ -54,6 +54,7 @@ from ...core.events import (
     TurnFinished,
 )
 from ...core.followups import suggest_followups
+from ...core.hooks.events import HookEvent
 from ...core.session_cron import Source
 from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
@@ -62,6 +63,7 @@ from ...core.worktree import Worktree
 from ...engines.agent import skill_grants
 from ...engines.agent.compaction import compress
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
+from ...engines.agent.hook_text import context_reminder
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...engines.hooks.notify import notifying
 from ...memory.factory import Memory
@@ -111,6 +113,7 @@ from .commands import (
     renders_itself,
 )
 from .completion import agent_names
+from .hook_open import open_hooks
 from .inline_keys import (
     BackgroundKey,
     background_key_action,
@@ -170,8 +173,11 @@ async def run_repl(
     worktree: Worktree | None = None,
     initial_prompt: str = "",
     launch_prompts: object = None,
+    setup_trigger: str = "",
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `setup_trigger` (`fusion --init` / `--maintenance`): `Setup` kancası SessionStart'tan önce.
 
     `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
     geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
@@ -228,7 +234,7 @@ async def run_repl(
         # `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur.
         state.initial_prompt = initial_prompt.strip()
         state.launch_prompts = launch_prompts_mod.bind(state, launch_prompts, resumed=resume)
-        return await _run_surface(state, config, console, resume)
+        return await _run_surface(state, config, console, resume, setup_trigger)
     finally:
         await state.child_runs.close()
         if state.hook_session is not None:
@@ -245,10 +251,13 @@ async def _run_surface(
     config: Config,
     console: Console,
     resume: session_resume.ResumeTarget | None,
+    setup_trigger: str = "",
 ) -> int:
     """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
+    # Claude: SessionStart oturum açılırken çalışır (ilk istem beklenmez, #111).
+    await open_hooks(state, console, setup_trigger=setup_trigger)
     inline_requested = (
         os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
     )
@@ -1099,11 +1108,17 @@ def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
 async def compact_history(state: ReplState) -> str:
     """`/compact`: uzun geçmişi özetleyerek kısalt."""
     before = len(state.history)
-    await state.hooks().pre_compact("manual")
+    gate = await state.hooks().pre_compact("manual")
+    if gate.blocked:
+        # Claude: PreCompact çıkış 2 / `decision: block` özetlemeyi engeller.
+        return messages.HOOKS_COMPACT_BLOCKED.format(reason=gate.reason)
+    previous = list(state.history)
     state.history = await compress(state.history, config=state.config)
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT
+    summary = "\n\n".join(m.content for m in state.history if m not in previous)
+    await state.hooks().post_compact("manual", summary)
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
     # InstructionsLoaded (#169): sonraki turda talimatlar `compact` nedeniyle yeniden bildirilir.
@@ -1112,8 +1127,7 @@ async def compact_history(state: ReplState) -> str:
     instructions_hook.mark_compacted(state.hooks())
     if verdict.context_text:
         prefixes.push_pending_context(
-            state,
-            messages.HOOKS_CONTEXT_NOTE.format(event="SessionStart", context=verdict.context_text),
+            state, context_reminder(HookEvent.SESSION_START, verdict.context_text)
         )
     summary = messages.REPL_COMPACTED.format(before=before, after=after)
     return "\n".join((summary, *hook_events.verdict_lines(verdict)))
