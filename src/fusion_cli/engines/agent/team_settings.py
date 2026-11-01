@@ -143,14 +143,21 @@ def child_model(
 ) -> ModelSpec | None:
     """Mevcut resolver yolunda yapılandırılmış model önceliğini uygula."""
     validate_agent_hooks(persona)
-    selected = resolve_agent_model(
-        persona.model,
-        parent,
-        candidates=candidates,
-        launch=launch or AgentLaunchConfig(),
-        invocation_model=invocation_model,
-        keep_builtin_model=persona.source == "fusion" and persona.name == "explore",
-    )
+    try:
+        selected = resolve_agent_model(
+            persona.model,
+            parent,
+            candidates=candidates,
+            launch=launch or AgentLaunchConfig(),
+            invocation_model=invocation_model,
+            keep_builtin_model=persona.source == "fusion" and persona.name == "explore",
+        )
+    except ConfigError:
+        # Yerleşik statusline-setup (sonnet) ve claude-code-guide (haiku) Claude Code'daki
+        # modelleri ister; Claude ailesi yapılandırılmamış sağlayıcıda ana model kullanılır.
+        if persona.source != "fusion" or invocation_model.strip():
+            raise
+        return parent
     if selected is None or selected is parent:
         return selected
     return dataclasses.replace(selected, name=f"ajan:{persona.name}")

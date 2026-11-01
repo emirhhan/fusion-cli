@@ -624,7 +624,7 @@ def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):
     plan = resolve_persona(kutuphane, "plan")
 
     assert explore is not GENERIC_PERSONA and explore.title == "Kâşif"
-    assert explore.tools is not None and explore.tools.isdisjoint({"write_file", "run_shell"})
+    assert explore.tools is not None and explore.tools.isdisjoint({"write_file", "edit_file"})
     assert plan is not GENERIC_PERSONA and plan.title == "Planlayıcı"
     assert plan.tools is not None and "run_shell" not in plan.tools
     assert plan.permission_mode == "plan"

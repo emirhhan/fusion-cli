@@ -31,11 +31,19 @@ def test_uyumluluk_rolleri_gercek_kisilik_ve_miras_modelle_cozulur(
     persona = resolve_persona(registry, name)
 
     assert agent is not None and agent.source == "fusion" and agent.description
-    assert agent.model in ("", "inherit")
+    # Claude Code: statusline-setup Sonnet, claude-code-guide Haiku; ötekiler ana modeli alır.
+    expected_model = {"statusline-setup": "sonnet", "claude-code-guide": "haiku"}
+    assert agent.model == expected_model.get(name, "inherit") or agent.model == ""
     assert persona is not GENERIC_PERSONA and persona.prompt
     assert "Fusion" in persona.prompt
     if name in {"Explore", "Plan"}:
         assert persona.tools is not None and "write_file" not in persona.tools
+        assert "edit_file" not in persona.tools
+    if name == "Explore":
+        # Claude Code Explore: salt okur araçlar; Write/Edit yasak, Bash var (izin kurallarıyla).
+        assert "run_shell" in persona.tools
+        assert "quick" in agent.description and "very thorough" in agent.description
+    if name == "Plan":
         assert "run_shell" not in persona.tools
 
 
@@ -344,3 +352,16 @@ def test_cli_bos_prompt_korunur_ve_buyuk_girdi_dosya_yazmadan_reddedilir(tmp_pat
     with pytest.raises(ConfigError, match="ajan"):
         session_agents_from_json(" " * (MAX_SESSION_AGENTS_BYTES + 1), root=tmp_path)
     assert not (tmp_path / ".cli-agents").exists()
+
+
+def test_yerlesik_claude_takma_adli_model_claude_disi_saglayicida_uste_duser() -> None:
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.engines.agent.team import Persona
+    from fusion_cli.engines.agent.team_settings import child_model
+
+    parent = ModelSpec("üst", "openai/gpt-5")
+    builtin = Persona(
+        name="statusline-setup", title="", avatar="", color="", model="sonnet", source="fusion"
+    )
+
+    assert child_model(builtin, parent) is parent

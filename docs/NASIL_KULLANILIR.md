@@ -435,9 +435,11 @@ açabileceği alt ajan tiplerini sınırlar. Tanımdaki `mcpServers`, `hooks` ve
 bağlanır; `initialPrompt` ilk kullanıcı turu olarak kendiliğinden gönderilir. Ayarlar seçimde
 bir kez uygulanır: sonradan `/model` ile yaptığın seçim ezilmez.
 
-Yerleşik ajanlar Claude Code'daki adlarla: **`Explore`** (salt okur keşif), **`Plan`** (salt
-okur plan araştırması), **`general-purpose`** ve **`claude`** (alt ajanlara açık tüm araçlar),
-**`statusline-setup`**, **`claude-code-guide`**. Eski küçük harfli `explore`/`plan` ve Türkçe
+Yerleşik ajanlar Claude Code'daki adlarla: **`Explore`** (salt okur hızlı keşif; Write/Edit
+yok, Bash izin kurallarına tabi; görevde derinlik `quick`, `medium` ya da `very thorough`
+yazılır), **`Plan`** (salt okur plan araştırması), **`general-purpose`** ve **`claude`** (alt
+ajanlara açık tüm araçlar), **`statusline-setup`** (Sonnet) ve **`claude-code-guide`** (Haiku).
+Claude ailesi yapılandırılmamış sağlayıcıda son ikisi ana modelle koşar. Eski küçük harfli `explore`/`plan` ve Türkçe
 roller (`kodcu`, `mimar`...) takma ad olarak çalışmaya devam eder. Kendi
 `.claude/agents/<ad>.md` tanımların da kullanılabilir; aynı adlı (ör. `Explore`) tanım
 yerleşiği ezer. `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` yalnız yerleşik `Explore` ve
