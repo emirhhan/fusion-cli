@@ -39,10 +39,9 @@ from .plugin_install import (
     _fetch,
     _resolve,
     _workspace,
-    accepted_command_of,
     read_marketplace,
-    version_of,
 )
+from .plugin_install_extra import accepted_command_of, version_of
 from .plugin_market_source import split_ref
 from .plugin_source_fetch import CommandConsent, ShownCommand
 from .plugin_version import orphan, sweep_orphans

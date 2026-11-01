@@ -38,11 +38,11 @@ def install_in_place(
         ERR_INVALID,
         PluginAlreadyInstalledError,
         PluginPreview,
-        _check_local_size,
     )
+    from .plugin_install_extra import check_local_size
 
     folder = Path(resolved.location)
-    _check_local_size(folder)
+    check_local_size(folder)
     report = validate_plugin(folder, resolved.fallback_name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
