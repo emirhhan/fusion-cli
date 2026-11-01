@@ -1443,3 +1443,10 @@ def test_subtask_komutu_gorevi_fork_kipiyle_hazirlar(state, registry):
     assert "fork alt ajana" in komut.handler(state, "  testleri koştur ve raporla ")
     assert state.take_pending() == ("testleri koştur ve raporla", Mode.SUBTASK)
     assert mode_fork(Mode.SUBTASK) and not mode_fork(Mode.GOAL)
+
+
+def test_agents_komutu_claude_code_gibi_hatirlatma_basar(registry, state):
+    """Güncel Claude Code: `/agents` Claude'a sormayı ya da dizinleri düzenlemeyi hatırlatır."""
+    cikti = _calistir(registry, state, "/agents")
+
+    assert ".claude/agents/" in cikti and "~/.claude/agents/" in cikti

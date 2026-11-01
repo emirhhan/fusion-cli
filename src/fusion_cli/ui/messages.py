@@ -1031,7 +1031,12 @@ CMD_SKILLS = (
     "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
 )
 CMD_SKILL_DOCTOR = "beceri kataloğunu denetle: eksik açıklama, kopya ad, uzun gövde"
-CMD_AGENTS = "uzman ajanları listele/ara; new <ad> yeni ajan dosyası yazar"
+CMD_AGENTS = "alt ajanları yönetme hatırlatması"
+AGENTS_REMINDER = (
+    "Alt ajan oluşturmak, düzenlemek ya da silmek için Fusion'a sor (ör. \"kod inceleyen bir "
+    'alt ajan oluştur") ya da .claude/agents/ ve ~/.claude/agents/ dizinlerindeki dosyaları '
+    "doğrudan düzenle. Koşan alt ajanlar için /tasks."
+)
 SKILLS_RELOADED = "Katalog yeniden tarandı: {skills} beceri, {agents} ajan."
 CAPABILITY_AUTHORING_STARTED = (
     "{name} için üretim görevi hazırlandı; model önce birkaç soru soracak."

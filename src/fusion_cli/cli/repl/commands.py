@@ -682,9 +682,14 @@ def _skills(state: ReplState, argument: str) -> str:
 
 
 def _agents(state: ReplState, argument: str) -> str:
-    """`/agents [arama]` listeler; `new <ad>` yeni uzman ajan dosyası ürettirir."""
+    """`/agents`: güncel Claude Code gibi yalnız hatırlatma basar (#37).
+
+    Eski Fusion biçimleri (`/agents <arama>`, `/agents new <ad>`) bir sürüm boyunca çalışır.
+    """
     assert state.capabilities is not None
     eylem, _, kalan = argument.strip().partition(" ")
+    if not eylem:
+        return messages.AGENTS_REMINDER
     if eylem in ("new", "yeni"):
         return _prepare_authoring(state, macros.AGENT_NEW_TASK, kalan)
     items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
@@ -1130,7 +1135,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         lambda state, argument: _skills(state, "doctor"),
         group="Bilgi",
     ),
-    SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
+    SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi"),
     # `/goal <koşul>` (P-058): ilk turu hedef makrosu hazırlar; turlar arası değerlendirme
     # `goal_flow`'dadır. Argümansız `/goal` durumu söyler (Claude Code ile aynı).
     SlashCommand(
