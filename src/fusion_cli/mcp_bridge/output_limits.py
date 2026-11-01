@@ -7,13 +7,16 @@
   çıkarabilir (bu durumda token sınırı yerine o karakter sınırı uygulanır).
 - `isError` metni ~11.000 karakteri aşarsa ilk 5.000 ve son 5.000 karakter tutulur.
 
-Token sayısı yaklaşık hesaplanır (4 karakter ≈ 1 token).
+Token sayısı yaklaşık hesaplanır (4 karakter ≈ 1 token). Dosya ilk andan 0600 izinle
+açılır; `RETENTION_DAYS`'ten eski kayıtlar yeni kayıtta silinir (Claude `cleanupPeriodDays`
+varsayılanı 30 gün). Kısıtlı kipte (`restrict_to_root`) bu dizindeki kayıtlar okunabilir.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -30,6 +33,8 @@ PREVIEW_CHARS = 2_000
 CHARS_PER_TOKEN = 4
 MAX_TOKENS_ENV = "MAX_MCP_OUTPUT_TOKENS"
 RESULT_SIZE_META = "anthropic/maxResultSizeChars"
+RETENTION_DAYS = 30
+_SECONDS_PER_DAY = 86_400
 
 
 def max_tokens(environ: Mapping[str, str] | None = None) -> int:
@@ -48,9 +53,9 @@ def declared_limit(meta: object) -> int | None:
 
 
 def results_dir() -> Path:
-    from ..config.paths import base_data_dir
+    from ..config.paths import mcp_tool_results_dir
 
-    return base_data_dir() / "tool-results"
+    return mcp_tool_results_dir()
 
 
 def limit_output(
@@ -88,8 +93,21 @@ def limit_output(
 
 
 def _save(text: str, directory: Path) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _prune(directory)
     path = directory / f"mcp-{uuid.uuid4().hex}.txt"
-    path.write_text(text, encoding="utf-8")
-    path.chmod(0o600)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
     return path
+
+
+def _prune(directory: Path) -> None:
+    """Saklama süresini aşan eski kayıtları sil; silinemeyen kayıt kaydı engellemez."""
+    cutoff = time.time() - RETENTION_DAYS * _SECONDS_PER_DAY
+    for old in directory.glob("mcp-*.txt"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError as error:
+            _LOG.debug("eski MCP çıktısı silinemedi: %s", error)

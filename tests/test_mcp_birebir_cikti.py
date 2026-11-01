@@ -41,3 +41,65 @@ def test_eski_20000_kirpmasi_kalkti(monkeypatch, tmp_path):
     metin = "x" * 30_000
     sonuc = normalize_call_result(CallToolResult(content=[TextContent(type="text", text=metin)]))
     assert sonuc.output == metin
+
+
+def test_kaydedilen_dosya_ilk_andan_0600_ile_acilir(tmp_path, monkeypatch):
+    import os
+
+    acilan: list[int] = []
+    gercek_open = os.open
+
+    def _izle(path, flags, mode=0o777, *args, **kwargs):
+        acilan.append(mode)
+        return gercek_open(path, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(output_limits.os, "open", _izle)
+
+    output_limits.limit_output("b" * 60_000, ok=True, directory=tmp_path)
+
+    (dosya,) = tmp_path.iterdir()
+    assert acilan == [0o600]
+    assert dosya.stat().st_mode & 0o777 == 0o600
+
+
+def test_eski_kayitlar_saklama_suresinden_sonra_temizlenir(tmp_path):
+    import os
+    import time
+
+    eski = tmp_path / "mcp-eski.txt"
+    eski.write_text("x")
+    yeni = tmp_path / "mcp-yeni.txt"
+    yeni.write_text("y")
+    baska = tmp_path / "kullanici.txt"
+    baska.write_text("z")
+    gecmis = time.time() - (output_limits.RETENTION_DAYS + 1) * 86_400
+    os.utime(eski, (gecmis, gecmis))
+    os.utime(baska, (gecmis, gecmis))
+
+    output_limits.limit_output("c" * 60_000, ok=True, directory=tmp_path)
+
+    assert not eski.exists() and yeni.exists() and baska.exists()
+
+
+def test_kisitli_kipte_kaydedilen_cikti_okunabilir_baska_dis_yol_okunamaz(tmp_path, monkeypatch):
+    import pytest
+
+    from fusion_cli.core.errors import PathAccessError
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import resolve_path
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "veri"))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    sonuc = output_limits.limit_output("d" * 60_000, ok=True)
+    (dosya,) = output_limits.results_dir().iterdir()
+    assert str(dosya) in sonuc
+    context = ToolContext(root=proje, restrict_to_root=True)
+
+    assert resolve_path(context, str(dosya)) == dosya.resolve()
+    with pytest.raises(PathAccessError):
+        resolve_path(context, str(dosya), write=True)
+    disari = tmp_path / "veri" / "baska.txt"
+    disari.write_text("gizli")
+    with pytest.raises(PathAccessError):
+        resolve_path(context, str(disari))

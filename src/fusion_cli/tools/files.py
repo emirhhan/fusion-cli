@@ -125,6 +125,8 @@ def resolve_path(context: ToolContext, raw: str, *, write: bool = False) -> Path
     izinli = (root, *(extra.resolve() for extra in context.extra_roots))
     # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
     concrete = resolved.resolve()
+    if not write and _is_saved_mcp_output(concrete):
+        return concrete  # #240: modele "dosyaya kaydedildi" denen büyük MCP çıktısı
     if not any(concrete == izin or izin in concrete.parents for izin in izinli):
         if context.restrict_to_root:
             raise PathAccessError(
@@ -139,6 +141,17 @@ def resolve_path(context: ToolContext, raw: str, *, write: bool = False) -> Path
             )
         )
     return concrete
+
+
+def _is_saved_mcp_output(path: Path) -> bool:
+    """Fusion'ın kaydettiği büyük MCP çıktısı mı (`tool-results/mcp-*.txt`)?"""
+    from ..config.paths import mcp_tool_results_dir
+
+    return (
+        path.parent == mcp_tool_results_dir().resolve()
+        and path.name.startswith("mcp-")
+        and path.suffix == ".txt"
+    )
 
 
 def writable_path(context: ToolContext, raw: str) -> Path:

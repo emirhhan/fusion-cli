@@ -69,6 +69,11 @@ def base_data_dir() -> Path:
     return Path(base) / APP_NAME
 
 
+def mcp_tool_results_dir() -> Path:
+    """Büyük MCP çıktılarının kaydedildiği dizin (#240); kısıtlı kipte de okunabilir."""
+    return base_data_dir() / "tool-results"
+
+
 def kits_data_dir() -> Path:
     """Masaüstünün başlattığı Fusion Kits yan sürecinin veri klasörü.
 
