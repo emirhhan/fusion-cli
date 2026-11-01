@@ -478,8 +478,8 @@ değişkeni Claude Code'daki gibi okumaz.
   bayrağı ayarı ezer.
 - Seçilen ajan sohbete bağlanır (`<bellek>/oturum-ajan/<sohbet>.json`): `fusion --resume` /
   `/resume` sohbeti araç kısıtları ve modeliyle aynı ajanla açar; ajan artık yoksa uyarı verip
-  varsayılan araçlarla devam eder. Karşılama kutusunda ajan `@<ad>` olarak görünür.
-  **Henüz yok:** masaüstünde sohbet değiştirince ajan geri yüklenmez.
+  varsayılan araçlarla devam eder. Karşılama kutusunda ajan `@<ad>` olarak görünür. Masaüstünde
+  sohbet değiştirince o sohbetin ajanı geri gelir; kaydı olmayan sohbet `agent` ayarıyla açılır.
 - Oturumluk tanım: `fusion --agents '{"denetci": {"description": "Kodu inceler", "prompt": "..."}}'`
   (dosya yazılmaz, en fazla 128 KiB). Aynı ad için öncelik: yönetilen (`agent_launch.managed_agent_roots`)
   > `--agents` > proje `.claude/agents` (çalışma dizinine en yakın) > `~/.claude/agents` > eklenti;

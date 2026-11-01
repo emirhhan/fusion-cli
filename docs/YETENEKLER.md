@@ -52,7 +52,7 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
 - Alt ajan / oturum ajanı (Claude Code farkları):
-  Türkçe ekip rolleri (`kodcu`, `mimar`...) hâlâ yerleşiktir; masaüstünde sohbet geçişinde oturum ajanı geri yüklenmez ve Kişilik seçicisi oturum ortasında
+  Türkçe ekip rolleri (`kodcu`, `mimar`...) hâlâ yerleşiktir; masaüstünde Kişilik seçicisi oturum ortasında
   değiştirmeye izin verir (`/persona` kullanımdan kalkıyor).
 
 ## Bilerek yapılmayanlar

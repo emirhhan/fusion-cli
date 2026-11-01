@@ -1701,6 +1701,24 @@ class AppSession:
         linked_pr.restore(self._state)
         self._restore_interrupted_turn()
 
+    def _restore_session_agent(self) -> None:
+        """Sohbetin oturum ajanını geri yükle (#16); kaydı olmayan sohbette `agent` ayarı.
+
+        Claude Code'daki gibi sürdürülen oturum seçildiği ajanla açılır; ajan artık yoksa
+        uyarı düşülür ve varsayılan araçlarla devam edilir.
+        """
+        from ..cli.repl import session_agent
+
+        name = session_agent.load(self._state.config.memory_dir, self._state.conversation_id)
+        wanted = name or self._state.config.agent_launch.default_agent
+        current = self._state.persona.name if self._state.persona is not None else ""
+        if wanted == current:
+            return
+        error = self._apply_persona(wanted)
+        if error is not None:
+            self._state.select_persona(None)
+            self._note_persist_warning(messages.SESSION_AGENT_MISSING.format(name=wanted))
+
     def _turn_journal(self, task: str) -> FileTurnJournal:
         """Bu konuşmanın tur günlüğü (transcript klasöründe, konuşma başına tek dosya)."""
         kimlik = _SAFE_JOURNAL_ID.sub("_", self._conversation_id or FALLBACK_CONVERSATION_ID)
@@ -1771,7 +1789,8 @@ class AppSession:
         if new_root is not None:
             self._apply_root(new_root)
             capability_roots_changed = True
-        if capability_roots_changed or conversation_changed:
+        transcript_rebound = capability_roots_changed or conversation_changed
+        if transcript_rebound:
             self._rebind_transcript()
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
@@ -1794,6 +1813,9 @@ class AppSession:
             self._disabled_agents.clear()
             self._disabled_mcp.clear()
             self._refresh_capabilities()
+        if transcript_rebound and "kisilik" not in data:
+            # Katalog yeni köke göre kurulduktan SONRA: proje ajanı doğru kökten çözülür.
+            self._restore_session_agent()
         # `mod_kalici: false` = bu oturuma özgü geçici mod (zamanlanmış görev, U5-57): kullanıcının
         # kalıcı varsayılan izin modu config'e yazılıp değiştirilmez.
         mode_error = self._apply_mode(data.get("mod"), persist=data.get("mod_kalici") is not False)

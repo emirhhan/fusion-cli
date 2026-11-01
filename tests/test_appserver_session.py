@@ -2368,6 +2368,21 @@ async def test_gorsel_ekleri_olay_dongusunun_disinda_okunur(tmp_path, monkeypatc
     assert thread_adlari and thread_adlari[0] != threading.main_thread().name
 
 
+async def test_sohbet_gecisinde_oturum_ajani_geri_yuklenir(tmp_path):
+    """#16: masaüstünde sohbet değişince o sohbetin ajanı geri gelir; kaydı yoksa kalkar."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"sohbet_id": "a", "kisilik": "explore"})
+    )
+    assert _sonuc(satirlar, "1")["kisilik"]["ad"] == "explore"
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={"sohbet_id": "b"}))
+    assert _sonuc(satirlar, "2")["kisilik"] is None
+    await oturum.handle(Request(id="3", name="oturum.baslat", data={"sohbet_id": "a"}))
+    assert _sonuc(satirlar, "3")["kisilik"]["ad"] == "explore"
+
+
 async def test_oturum_baslat_kisilik_kurar_ve_tur_kisiligi_uygular(tmp_path, monkeypatch):
     """P-053: `oturum.baslat{kisilik}` → `oturum.durum.kisilik`; tur notu ve araç kısıtı."""
     from fusion_cli.cli import session as cli_session
