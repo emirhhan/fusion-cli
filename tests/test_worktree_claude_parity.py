@@ -85,3 +85,41 @@ def test_rastgele_ad_claude_bicimi_ve_gecerli():
 )
 def test_adsiz_worktree_bayragina_ad_uretilir(argv, beklenen):
     assert fill_missing_worktree_name(argv, namer=lambda: "AD") == beklenen
+
+
+@pytest.mark.parametrize(
+    ("metin", "numara", "refspec"),
+    [
+        ("#12", 12, "pull/12/head"),
+        ("https://github.com/o/r/pull/34", 34, "pull/34/head"),
+        ("https://github.com/o/r/pull/34/files", 34, "pull/34/head"),
+        ("https://gitlab.com/g/alt/r/-/merge_requests/5", 5, "merge-requests/5/head"),
+    ],
+)
+def test_pr_mr_baglantisi_ayristirilir(metin, numara, refspec):
+    from fusion_cli.core.worktree_pr import parse_pull_request
+
+    ref = parse_pull_request(metin)
+    assert ref is not None and (ref.number, ref.refspec) == (numara, refspec)
+    assert ref.worktree_name == f"pr-{numara}"
+
+
+def test_pr_numarasindan_agac_acilir(repo, tmp_path):
+    """`--worktree "#7"`: origin'den pull/7/head çekilir, `.claude/worktrees/pr-7` açılır."""
+    uzak = tmp_path / "uzak.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(repo), str(uzak))
+    _git(repo, "checkout", "-q", "-b", "pr-dali")
+    (repo / "pr.txt").write_text("pr işi\n", encoding="utf-8")
+    _git(repo, "add", "pr.txt")
+    _git(repo, "commit", "-qm", "pr")
+    _git(repo, "push", "-q", str(uzak), "HEAD:refs/pull/7/head")
+    _git(repo, "checkout", "-q", "-")
+    _git(repo, "branch", "-q", "-D", "pr-dali")
+    _git(repo, "remote", "add", "origin", str(uzak))
+
+    tree = core_worktree.enter_worktree(repo, "#7")
+
+    assert tree.name == "pr-7"
+    assert tree.path == repo / ".claude" / "worktrees" / "pr-7"
+    assert (tree.path / "pr.txt").read_text(encoding="utf-8") == "pr işi\n"
+    assert core_worktree.enter_worktree(repo, "#7").path == tree.path  # ikinci kez aynı ağaç

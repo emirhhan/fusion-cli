@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
+from .worktree_pr import parse_pull_request
 
 #: Depo kökü altındaki çalışma ağacı dizini (git'e `info/exclude` ile gizlenir).
 WORKTREE_DIR = Path(".claude") / "worktrees"
@@ -217,7 +218,8 @@ def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
     o ağacın dalından dallanır. Ölçüldü (31 Ekim): ana depoda çözülünce üye, oturumun
     dalındaki işi görmeyen ana HEAD'in kopyasında çalışıyordu.
     """
-    name = validate_name(name)
+    pull_request = parse_pull_request(name)
+    name = validate_name(pull_request.worktree_name if pull_request else name)
     inside = worktree_for_path(cwd)
     origin = inside.origin if inside is not None else repository_root(cwd)
     if origin is None:
@@ -227,6 +229,10 @@ def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
     existing = find_worktree(origin, name)
     if existing is not None:
         return existing
+    if pull_request is not None:
+        # PR/MR başı `origin`'den çekilir (Claude Code, #341); taban FETCH_HEAD'dir.
+        _git(origin, "fetch", "--quiet", "origin", pull_request.refspec)
+        cwd, base_ref = origin, "FETCH_HEAD"
     base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
     return create_worktree(origin, name, base_ref=base_commit)
 

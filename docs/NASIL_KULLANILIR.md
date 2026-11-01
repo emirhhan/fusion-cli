@@ -322,6 +322,8 @@ durumunda görünmez (`.git/info/exclude`).
 | Yaz | Ne yapar |
 |-----|----------|
 | `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse kaldırır, iş kaldıysa korur ve yolu söyler |
+| `fusion -w` (adsız) | `bright-running-fox` biçiminde ad üretir |
+| `fusion -w "#1234"` / PR ya da MR adresi | `origin`'den `pull/<n>/head` (GitLab `merge-requests/<n>/head`) çekilir, `.claude/worktrees/pr-<n>` açılır |
 | `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |
 | `/worktree <ad>` | Oturum kökünü ağaca taşır (yoksa oluşturur) |
 | `/worktree cik` | Ana depoya döner; temiz ağaç kaldırılır (dalı dahil), iş varsa `git merge worktree-<ad>` ipucu verir |
