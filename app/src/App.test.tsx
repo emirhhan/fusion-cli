@@ -281,6 +281,26 @@ describe("SessionUygulama", () => {
     expect(await screen.findByText("Testler geçti.")).toBeTruthy();
   });
 
+  it("tur sürerken kuyruğa giren komut tur bitince çalışır (#209)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "komut.calistir"() {
+        calls += 1;
+        return calls === 1 ? { ok: true, metin: "", kuyruk: true } : { ok: true, metin: "Özetlendi." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/compact" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "komut.calistir")
+      .map((request) => request.veri.kuyruktan === true)).toEqual([false, true]));
+    expect(await screen.findByText("Özetlendi.")).toBeTruthy();
+  });
+
   it("/rewind konuşmayı sarınca dönen istem giriş kutusuna konur (#200)", async () => {
     const fake = composerTransport({
       "gecmis.kaynaklar": { ok: true, kaynaklar: [] },

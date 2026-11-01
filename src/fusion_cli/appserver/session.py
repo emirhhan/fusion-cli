@@ -2456,6 +2456,13 @@ class AppSession:
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
         turn_running = (self._turn is not None and not self._turn.done()) or self._goal_judging()
+        if turn_running and command is not None and data.get("kuyruktan") is not True:
+            from ..cli.repl.busy_commands import IMMEDIATE_COMMANDS
+
+            if command.name not in IMMEDIATE_COMMANDS:
+                # Claude Code (#209): tur sürerken yalnız belgelenen anlık komutlar çalışır;
+                # diğerleri kuyruğa girer, arayüz tur bitince `kuyruktan: true` ile yollar.
+                return {"ok": True, "metin": "", "kuyruk": True}
         if command is not None and command.name == "cd" and turn_running:
             # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}

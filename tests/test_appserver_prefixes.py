@@ -109,3 +109,23 @@ async def test_masaustu_tuketilmeyen_yonlendirme_tur_sonunda_geri_doner(tmp_path
         assert app._steering_leftover == []  # bir kez teslim edilir
     finally:
         await app.close()
+
+
+@pytest.mark.asyncio
+async def test_masaustu_tur_surerken_anlik_olmayan_komut_kuyruga_girer(tmp_path):
+    """Claude Code (#209): /status gibi anlık komutlar çalışır, diğerleri kuyruğa girer."""
+    import asyncio
+
+    app = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "home")
+    app._turn = asyncio.ensure_future(asyncio.sleep(10))
+    try:
+        kuyruk = await app._run_command({"ad": "compact", "arguman": ""})
+        assert kuyruk.get("kuyruk") is True
+        durum = await app._run_command({"ad": "status", "arguman": ""})
+        assert "kuyruk" not in durum
+        kuyruktan = await app._run_command({"ad": "help", "arguman": "", "kuyruktan": True})
+        assert "kuyruk" not in kuyruktan
+    finally:
+        app._turn.cancel()
+        app._turn = None
+        await app.close()
