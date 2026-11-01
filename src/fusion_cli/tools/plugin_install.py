@@ -70,6 +70,7 @@ ERR_SOURCE = (
     "Kaynak anlaşılamadı: {spec}. Yerel klasör, https://… git adresi, sahip/repo ya da "
     "ad@pazar ver."
 )
+ERR_SUBDIR = "git-subdir: depoda '{path}' klasörü yok; kurulmadı."
 ERR_URL = "Yalnız genel https adresleri klonlanır: {url}"
 ERR_NO_ENTRY = "'{name}' hiçbir kayıtlı pazarda yok. Pazarlar: fusion eklenti pazar liste"
 ERR_AMBIGUOUS = "'{name}' birden çok pazarda var: {markets}. ad@pazar biçimini kullan."
@@ -119,6 +120,8 @@ class _Resolved:
     sha: str = ""
     #: Pazar girdisinin adı (bildirimsiz eklentinin adı buradan gelir, #390).
     entry: str = ""
+    #: `git-subdir` kaynağında depodaki eklenti klasörü (#399).
+    subdir: str = ""
 
     @property
     def fallback_name(self) -> str:
@@ -192,7 +195,9 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         if not Path(location).is_relative_to(base_dir.resolve()):
             raise PluginError(ERR_SOURCE.format(spec=f"{name}@{record.name}"))
         return _Resolved("yerel", location, record.name, entry=entry.name)
-    return _Resolved("git", source.location, record.name, source.ref, source.sha, entry.name)
+    return _Resolved(
+        "git", source.location, record.name, source.ref, source.sha, entry.name, source.subdir
+    )
 
 
 def _check_url(url: str) -> str | None:
@@ -294,7 +299,15 @@ def _fetch(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
             resolved.location, target, symlinks=True, ignore=shutil.ignore_patterns(".git")
         )
         return target, ""
-    return target, _clone(resolved.location, target, ref=resolved.ref, sha=resolved.sha)
+    if not resolved.subdir:
+        return target, _clone(resolved.location, target, ref=resolved.ref, sha=resolved.sha)
+    repo = workspace / "depo"
+    commit = _clone(resolved.location, repo, ref=resolved.ref, sha=resolved.sha)
+    folder = (repo / resolved.subdir).resolve()
+    if not folder.is_dir() or not folder.is_relative_to(repo.resolve()):
+        raise PluginError(ERR_SUBDIR.format(path=resolved.subdir))
+    shutil.move(str(folder), target)
+    return target, commit
 
 
 # --- Kur / önizle ------------------------------------------------------------- #

@@ -71,6 +71,8 @@ class MarketplaceSource:
     ref: str = ""
     #: Beklenen commit (kurulumda doğrulanır; uyuşmazsa kurulmaz).
     sha: str = ""
+    #: `git-subdir`: depodaki eklenti alt klasörü (#399).
+    subdir: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +196,12 @@ def _source(raw: object, name: str, plugin_root: str) -> tuple[MarketplaceSource
         raise PluginError(ERR_SHA.format(name=name, value=sha))
     if kind == "github" and isinstance(raw.get("repo"), str):
         return MarketplaceSource("git", f"https://github.com/{raw['repo']}", ref, sha), ()
+    if kind == "git-subdir" and isinstance(raw.get("url"), str) and raw.get("path"):
+        url = str(raw["url"])
+        if not url.startswith(("https://", "http://", "git@", "file://")) and url.count("/") == 1:
+            url = f"https://github.com/{url}"
+        subdir = safe_relative(str(raw["path"]), where="marketplace.json", key=f"{name}.path")
+        return MarketplaceSource("git", url, ref, sha, subdir), ()
     if kind in {"url", "git"} and isinstance(raw.get("url"), str):
         notes = (WARN_GIT_SOURCE.format(name=name),) if kind == "git" else ()
         return MarketplaceSource("git", str(raw["url"]), ref, sha), notes

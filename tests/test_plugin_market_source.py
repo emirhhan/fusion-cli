@@ -57,7 +57,8 @@ def test_json_dosyasi_pazari_yerinde_okunur_ve_goreli_eklenti_kurulur(tmp_path):
     (plugin / "skills" / "ozet" / "SKILL.md").write_text(
         "---\nname: ozet\ndescription: Ö\n---\nÖ\n", "utf-8"
     )
-    file = tmp_path / "pazar" / "ekip.json"
+    file = tmp_path / "pazar" / ".claude-plugin" / "ekip.json"
+    file.parent.mkdir()
     file.write_text(
         json.dumps(
             {
@@ -77,3 +78,41 @@ def test_json_dosyasi_pazari_yerinde_okunur_ve_goreli_eklenti_kurulur(tmp_path):
     from fusion_cli.config import plugin_store
 
     assert plugin_store.load_state().plugin("rapor").folder == str(plugin.resolve())
+
+
+def test_git_subdir_kaynagi_depodaki_alt_klasoru_kurar(tmp_path, monkeypatch):
+    calls: list[str] = []
+
+    def fake_clone(url, target, *, ref="", sha=""):
+        calls.append(url)
+        plugin = target / "araclar" / "rapor"
+        (plugin / ".claude-plugin").mkdir(parents=True)
+        (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "rapor"}', "utf-8")
+        (plugin / "skills" / "ozet").mkdir(parents=True)
+        (plugin / "skills" / "ozet" / "SKILL.md").write_text(
+            "---\nname: ozet\ndescription: Ö\n---\nÖ\n", "utf-8"
+        )
+        (target / "README.md").write_text("depo", "utf-8")
+        return "a" * 40
+
+    monkeypatch.setattr(plugin_install, "_clone", fake_clone)
+    market = tmp_path / "pazar"
+    (market / ".claude-plugin").mkdir(parents=True)
+    source = {"source": "git-subdir", "url": "ekip/monorepo", "path": "araclar/rapor"}
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "ekip",
+                "owner": {"name": "E"},
+                "plugins": [{"name": "rapor", "source": source}],
+            }
+        ),
+        "utf-8",
+    )
+    plugin_install.add_marketplace(str(market))
+
+    item = plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+
+    assert calls == ["https://github.com/ekip/monorepo"]
+    assert item.layout is not None and len(item.layout.skills) == 1
+    assert not (item.layout.root / "README.md").exists()  # yalnız alt klasör kuruldu

@@ -147,6 +147,10 @@ dosyası (dosya türü yerinde okunur). Claude'da olup Fusion'da açıkça redde
 (`user@host:path`), düz `http://`, `.git`'siz başka https adresinin marketplace.json olarak
 indirilmesi (url türü) ve `--sparse`; Fusion yalnız genel https adreslerini iç ağa çıkmadan klonlar.
 
+Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url` ve `git-subdir` (`url` tam git
+adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur) olabilir; `npm`,
+`archive` ve `command` kaynakları henüz yok.
+
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.

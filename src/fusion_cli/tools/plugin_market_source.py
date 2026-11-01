@@ -106,5 +106,5 @@ def market_root(kind: str, path: Path) -> Path:
     """Göreli eklenti yollarının çözüldüğü kök: file türünde dosyanın pazar klasörü."""
     if kind != KIND_FILE:
         return path
-    parent = path.parent
-    return parent.parent if parent.name == ".claude-plugin" else parent
+    # Claude: dosya yerinde okunur, kök iki üst klasördür (`<kök>/.claude-plugin/x.json`).
+    return path.parent.parent
