@@ -9,7 +9,7 @@ import time
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_lock, desktop_turn
+from . import desktop_turn
 from .args import require_str
 from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
 from .key_spec import (
@@ -176,7 +176,7 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     value = require_str(args, "text")
     if len(value) > DESKTOP_TEXT_MAX_CHARS:
         return ToolResult.failure("Yazılacak metin sınırı aştı.")
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
@@ -295,7 +295,7 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"{DESKTOP_KEY_TOTAL_HOLD_MS_MAX // 1000} sn (repeat × tuş sayısı × hold_ms). "
             "Çağrıyı parçala ya da hold_ms'i küçült."
         )
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)

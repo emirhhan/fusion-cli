@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_lock, desktop_turn
+from . import desktop_turn
 from .desktop import DESKTOP_SCROLL_MAX_LINES, _framework, _mac_only, _trusted, modifier_flags
 from .desktop_permissions import ACCESSIBILITY, permission_failure
 from .key_spec import MODIFIER_ALIASES
@@ -225,7 +225,7 @@ def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(converted, str):
             return ToolResult.failure(converted)
         end_point = converted
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
@@ -314,7 +314,7 @@ def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     pixel = _coordinate(args, "x", "y") if "x" in args or "y" in args else None
     if ("x" in args or "y" in args) and pixel is None:
         return ToolResult.failure("x ve y birlikte, sıfırdan büyük veya eşit sayı olmalı.")
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)

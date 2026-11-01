@@ -1009,6 +1009,12 @@ class AppSession:
             previous = (self._state.root, self._state.conversation_id)
             result = self._start_session(request.data)
             if result.get("ok") and previous != (self._state.root, self._state.conversation_id):
+                # Sohbetten çıkış: computer use kilidi o sohbetinse kalkar (#429).
+                from ..cli.session import conversation_job_scope
+                from ..tools.desktop_turn import end_session
+
+                if previous[1]:
+                    end_session(conversation_job_scope(self._state.config.memory_dir, previous[1]))
                 await self._state.reset_child_runs()
                 self._child_runs = self._state.child_runs
             return result

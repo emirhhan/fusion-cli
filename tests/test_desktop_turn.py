@@ -92,7 +92,7 @@ def test_esc_kapaliysa_dinleyici_kurulmaz():
     assert fake.escape_handlers == []
 
 
-async def test_esc_tur_gorevini_iptal_eder_ve_kilit_birakilir(tmp_path, monkeypatch):
+async def test_esc_tur_gorevini_iptal_eder_kilit_tur_sonunda_kalir(tmp_path, monkeypatch):
     fake = _FakeIo()
     released: list[str] = []
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
@@ -117,7 +117,8 @@ async def test_esc_tur_gorevini_iptal_eder_ve_kilit_birakilir(tmp_path, monkeypa
     threading.Thread(target=handler).start()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert fake.stopped == 1 and released == ["tur-1"]
+    # #429: kilit tur bitince değil, oturum çıkınca bırakılır.
+    assert fake.stopped == 1 and released == []
     assert context.desktop.turn is None
 
 
@@ -281,3 +282,33 @@ async def test_gizlemede_degerlendirilen_hedef_uygulama_korunur(tmp_path, monkey
 
     assert fake.hidden_calls == [(1, 2, 41)]
     desktop_turn.finish(context)
+
+
+def test_cli_de_gizleme_ve_geri_gosterme_her_zaman_acik():
+    """#428: CLI'de diğer uygulamalar gizlenir, tur sonunda geri gelir ("Always on")."""
+    eski = DesktopSettings(enabled=True, background=True, unhide_on_finish=False)
+    assert desktop_turn.turn_settings(eski).background is False
+    assert desktop_turn.turn_settings(eski).unhide_on_finish is True
+    desktop_turn.use_app_surface(True)
+    try:
+        assert desktop_turn.turn_settings(eski) == eski
+    finally:
+        desktop_turn.use_app_surface(False)
+
+
+def test_kilit_belirteci_cli_de_surec_masaustunde_sohbet(tmp_path, monkeypatch):
+    claimed: list[dict[str, object]] = []
+    monkeypatch.setattr(desktop_lock, "claim", lambda **kw: claimed.append(kw))
+    context = ToolContext(root=tmp_path, job_scope="sohbet-1")
+    desktop_turn.claim_lock(context)
+    desktop_turn.use_app_surface(True)
+    try:
+        desktop_turn.claim_lock(context)
+    finally:
+        desktop_turn.use_app_surface(False)
+    assert [item["token"] for item in claimed] == ["", "sohbet-1"]
+    assert "Fusion CLI" in str(claimed[0]["label"]) and "masaüstü" in str(claimed[1]["label"])
+    released: list[str] = []
+    monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
+    desktop_turn.end_session("sohbet-1")
+    assert released == ["sohbet-1"]

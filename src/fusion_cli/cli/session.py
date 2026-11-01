@@ -172,6 +172,11 @@ def _failure_message(result: FusionResult) -> str:
     return messages.ERROR_NO_ANSWER
 
 
+def conversation_job_scope(memory_dir: Path, conversation_id: str) -> str:
+    """Sohbetin iş ve computer use kilidi belirteci (`ToolContext.job_scope`)."""
+    return hashlib.sha256(f"{memory_dir.resolve()}\0{conversation_id}".encode()).hexdigest()
+
+
 def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolContext:
     """Yapılandırmadaki araç ayarlarını bağlama işle (tek yer; her tur yolu bunu çağırır).
 
@@ -342,10 +347,7 @@ async def run_agent_task(
             tool_context = replace(tool_context, worktree_switch=worktree_switch)
         if conversation_id:
             tool_context = replace(
-                tool_context,
-                job_scope=hashlib.sha256(
-                    f"{config.memory_dir.resolve()}\0{conversation_id}".encode()
-                ).hexdigest(),
+                tool_context, job_scope=conversation_job_scope(config.memory_dir, conversation_id)
             )
         if remotion_browser is not None:
             tool_context = replace(tool_context, remotion_browser=remotion_browser)
