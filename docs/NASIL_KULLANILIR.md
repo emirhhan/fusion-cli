@@ -1126,7 +1126,7 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 { "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
   "tui":   { "c-q": null, "c-g": "kes", "f2": "komut:status" } }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`, `gorev_listesi` (Ctrl+T), `dongu_durdur` (Esc); `tui`: `cik`, `dongu_ya_da_cik` (Ctrl+C), `kes`, `kip_dongusu`, `gorev_listesi` (Ctrl+T), `arka_plana_al` (Ctrl+B), `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
 
 ---
 
