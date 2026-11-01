@@ -53,21 +53,11 @@ def is_direct_source(spec: str) -> bool:
     return len(parts) == 2 and all(parts) and "@" not in text
 
 
-def _normalized_source(source: str) -> str:
-    text = source.strip()
-    if text.lower() == plugin_install.OFFICIAL_ALIAS:
-        return plugin_install.OFFICIAL_MARKETPLACE
-    local = Path(text).expanduser()
-    if local.is_dir():
-        return str(local.resolve())
-    if text.startswith("https://"):
-        return text
-    return f"https://github.com/{text}"
-
-
 def ensure_marketplace(source: str, base: Path) -> str:
     """Bu kaynaktan pazar eklenmişse adını döndür; değilse önce ekle (ağ yalnız yeni git pazarı)."""
-    wanted = _normalized_source(source)
+    from .plugin_market_source import parse_market_source
+
+    wanted = parse_market_source(source).record_source
     for record in load_state(base).marketplaces:
         if record.source == wanted:
             return record.name

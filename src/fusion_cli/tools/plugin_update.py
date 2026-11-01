@@ -39,6 +39,7 @@ from .plugin_install import (
     markets_dir,
     read_marketplace,
 )
+from .plugin_market_source import split_ref
 from .safe_delete import DeleteRefusedError, move_to_trash
 
 ERR_MARKET_RENAMED = "Pazarın adı değişti ({old} → {new}); güncellenmedi. Kaldırıp yeniden ekle."
@@ -147,7 +148,8 @@ def update_marketplace(name: str, *, base: Path | None = None) -> MarketplaceRec
         return record
     with _workspace(root) as workspace:
         clone = workspace / "pazar"
-        _clone(record.source, clone)
+        url, ref = split_ref(record.source)
+        _clone(url, clone, ref=ref)
         market = read_marketplace(clone)
         if market.name != record.name:
             raise PluginError(ERR_MARKET_RENAMED.format(old=record.name, new=market.name))

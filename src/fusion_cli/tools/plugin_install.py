@@ -53,8 +53,6 @@ from . import capability_install
 from .safe_delete import DeleteRefusedError, move_to_trash
 
 #: Resmi Claude Code pazarı için kısa ad (`fusion eklenti pazar ekle resmi`).
-OFFICIAL_ALIAS = "resmi"
-OFFICIAL_MARKETPLACE = "https://github.com/anthropics/claude-plugins-official"
 _TEMP_DIRNAME = ".gecici"
 _MARKETS_DIRNAME = ".pazarlar"
 
@@ -187,8 +185,11 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
     record, entry = hits[0]
     source = entry.source
     if source.kind == "path":
-        location = str((Path(record.path) / source.location).resolve())
-        if not Path(location).is_relative_to(Path(record.path).resolve()):
+        from .plugin_market_source import market_root
+
+        base_dir = market_root(record.kind, Path(record.path))
+        location = str((base_dir / source.location).resolve())
+        if not Path(location).is_relative_to(base_dir.resolve()):
             raise PluginError(ERR_SOURCE.format(spec=f"{name}@{record.name}"))
         return _Resolved("yerel", location, record.name, entry=entry.name)
     return _Resolved("git", source.location, record.name, source.ref, source.sha, entry.name)
@@ -382,7 +383,8 @@ def install_plugin(
 def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
     """Yerel klasörden eklenmiş pazarın göreli (path) eklentisi mi? (Claude: yerinde yüklenir)"""
     market = state.marketplace(resolved.marketplace) if resolved.marketplace else None
-    return market is not None and market.kind == "yerel" and resolved.kind == "yerel"
+    local = market is not None and market.kind in ("yerel", "dosya")
+    return local and resolved.kind == "yerel"
 
 
 def uninstall_plugin(
@@ -493,6 +495,13 @@ def trust_plugin(
 
 
 def read_marketplace(folder: Path) -> Marketplace:
+    """Pazar klasörünün bildirimini ya da doğrudan verilen `.json` dosyasını (#395) oku."""
+    if folder.is_file():
+        try:
+            raw = json.loads(folder.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise PluginError(f"{folder.name}: okunamadı: {error}") from error
+        return parse_marketplace(raw, where=folder.name)
     for relative in MARKETPLACE_PATHS:
         path = folder / relative
         if path.is_file():
@@ -505,30 +514,30 @@ def read_marketplace(folder: Path) -> Marketplace:
 
 
 def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord:
-    """Yerel klasör ya da git deposunu pazar olarak kaydet (git ise klonlanır)."""
+    """Yerel klasör/.json dosyası ya da git deposunu pazar olarak kaydet (git ise klonlanır)."""
+    from .plugin_market_source import KIND_GIT, parse_market_source
+
     root = base or plugins_dir()
-    text = OFFICIAL_MARKETPLACE if spec.strip().lower() == OFFICIAL_ALIAS else spec.strip()
-    local = Path(text).expanduser()
-    if local.is_dir():
-        market = read_marketplace(local)
-        _check_market_name(market.name, str(local.resolve()), root)
+    source = parse_market_source(spec)
+    if source.kind != KIND_GIT:
+        market = read_marketplace(Path(source.location))
+        _check_market_name(market.name, source.location, root)
         record = MarketplaceRecord(
-            market.name, str(local.resolve()), "yerel", str(local.resolve()), time.time()
+            market.name, source.location, source.kind, source.location, time.time()
         )
     else:
-        url = text if text.startswith("https://") else f"https://github.com/{text}"
-        if not text.startswith("https://") and text.count("/") != 1:
-            raise PluginError(ERR_SOURCE.format(spec=spec))
         with _workspace(root) as workspace:
             clone = workspace / "pazar"
-            _clone(url, clone)
+            _clone(source.location, clone, ref=source.ref)
             market = read_marketplace(clone)
-            _check_market_name(market.name, url, root)
+            _check_market_name(market.name, source.record_source, root)
             destination = markets_dir(root) / market.name
             shutil.rmtree(destination, ignore_errors=True)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(clone), destination)
-        record = MarketplaceRecord(market.name, url, "git", str(destination), time.time())
+        record = MarketplaceRecord(
+            market.name, source.record_source, "git", str(destination), time.time()
+        )
     plugin_store.update_state(lambda current: current.with_marketplace(record), root)
     return record
 

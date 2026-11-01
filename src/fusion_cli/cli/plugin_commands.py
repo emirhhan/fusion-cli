@@ -312,7 +312,7 @@ def discover(marketplace: str = typer.Argument("", help="Yalnız bu pazar")) -> 
 @market_app.command("ekle")
 def market_add(
     source: str = typer.Argument(
-        ..., help="Yerel klasör, https git adresi, sahip/repo ya da 'resmi'"
+        ..., help="./klasör, ./pazar.json, sahip/repo[#ref], https://….git ya da resmi"
     ),
     as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:

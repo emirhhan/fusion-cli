@@ -84,6 +84,7 @@ fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # Fusion çöpüne; veri k
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
 fusion eklenti kesfet [pazar]                  # kullanımdan kalktı → plugin list --json --available
+fusion plugin marketplace add <./klasör|./pazar.json|sahip/repo[#ref|@ref]|https://….git[#ref]|resmi>
 fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
 fusion plugin marketplace remove <ad>          # o pazardan kurulan eklentiler de kaldırılır
 ```
@@ -139,6 +140,12 @@ kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenlem
 oturumda ya da `/reload-plugins`'te geçerli olur, `CLAUDE_PLUGIN_ROOT` kaynak klasörü gösterir,
 `plugin list --json` `readFromFolder`/`folderVersion` verir; kaldırma kaynak klasöre dokunmaz.
 Güvenlik notu: bu eklentilere karma ("değişmiş") kilidi uygulanmaz; kanca/MCP onayı kurulumda alınır.
+
+Pazar kaynağı Claude Code tablosuyla çözülür: `owner/repo`, `owner/repo#ref`/`@ref` (GitHub),
+`.git` ile biten ya da `/_git/` içeren https adresi, github.com/gitlab.com adresi, klasör ya da `.json`
+dosyası (dosya türü yerinde okunur). Claude'da olup Fusion'da açıkça reddedilenler: SSH
+(`user@host:path`), düz `http://`, `.git`'siz başka https adresinin marketplace.json olarak
+indirilmesi (url türü) ve `--sparse`; Fusion yalnız genel https adreslerini iç ağa çıkmadan klonlar.
 
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
