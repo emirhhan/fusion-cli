@@ -120,3 +120,28 @@ def test_acilis_sorusu_hayir_guven_yazmaz_kancasizda_sorulmaz(tmp_path, ev):
     assert offer_hook_trust(proje, lambda _: None, lambda _: "", interactive=True) is False
     assert not is_workspace_trusted(proje)
     assert offer_hook_trust(proje, lambda _: None, lambda _: "e", interactive=False) is None
+
+
+def test_fusionin_yazdigi_dosya_onayi_klasore_guven_vermez(tmp_path, ev):
+    # forge / preview_launch / mcp_json `approve_file` ile kendi dosyasını onaylar; bu,
+    # kullanıcının vermediği klasör güvenini (ve kancaları) açmamalı.
+    proje = _proje(tmp_path)
+    _ayar(ev / ".claude" / "settings.json", {"Stop": _grup("kullanici-kancasi")})
+    arac = proje / ".fusion" / "tools" / "x.py"
+    arac.parent.mkdir(parents=True)
+    arac.write_text("print(1)\n", encoding="utf-8")
+    trust.approve_file(proje, arac)
+    assert trust.is_file_trusted(proje, arac)
+    assert not is_workspace_trusted(proje)
+    assert not trust.resolve_project_trust(proje).trusted
+    assert _komutlar(proje) == set()
+
+
+def test_guvenilen_klasorde_dosya_onayi_guveni_korur(tmp_path, ev):
+    proje = _proje(tmp_path)
+    trust.trust_project(proje)
+    arac = proje / "x.py"
+    arac.write_text("print(1)\n", encoding="utf-8")
+    trust.approve_file(proje, arac)
+    assert is_workspace_trusted(proje)
+    assert trust.resolve_project_trust(proje).trusted
