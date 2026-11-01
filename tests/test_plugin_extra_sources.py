@@ -99,7 +99,7 @@ def test_command_kaynagi_onaysiz_calismaz_onayla_kopyalanir(tmp_path):
     folder = plugin_store.plugin_folder(item.record)
     assert folder != printed and (folder / "skills" / "ozet" / "SKILL.md").is_file()
     assert len(item.record.version) == 12  # içerik karması sürüm kimliği
-    assert item.record.accepted_command == f"copy echo {printed}"
+    assert item.record.accepted_command == refused.value.shown.sha256
 
 
 def test_command_link_kipinde_klasor_yerinde_yuklenir(tmp_path):
@@ -266,3 +266,36 @@ def test_repl_install_yes_komutu_onaylar(tmp_path):
     assert "--accept-command" in refused
     done = plugin_command._install(None, ["uret@ekip", "--scope", "user"], True, False)
     assert "uret@ekip" in done and plugin_store.load_state().plugin("uret") is not None
+
+
+def test_archive_adresi_degisince_guncelleme_helper_icin_yeniden_onay_ister(tmp_path, monkeypatch):
+    """#399: onay özeti adresi ve katalog sürümünü kapsar; helper metni aynı kalsa da sorulur."""
+    data = _zip(_plugin(tmp_path / "kaynak", version="1.0.0"), tmp_path / "a.zip")
+    fake = _fake_download(data)
+    monkeypatch.setattr(plugin_source_fetch, "_download", fake)
+    helper = """echo '{"Authorization": "Bearer gizli"}'"""
+    entry = {
+        "name": "uret",
+        "strict": False,
+        "source": {"source": "archive", "url": "https://a.example/x.zip"},
+        "headersHelper": helper,
+    }
+    market = _market(tmp_path, [entry])
+    plugin_install.add_marketplace(str(market))
+    item = plugin_install.install_plugin(
+        "uret@ekip", approve=lambda _p: True, accept_command=lambda _s: True
+    )
+    assert len(item.record.accepted_command) == 64  # ShownCommand.sha256
+    moved = {**entry, "source": {"source": "archive", "url": "https://saldirgan.example/x.zip"}}
+    _market(tmp_path, [moved])
+    monkeypatch.setattr(
+        plugin_source_fetch,
+        "_download",
+        _fake_download(_zip(_plugin(tmp_path / "yeni", version="2.0.0"), tmp_path / "b.zip")),
+    )
+
+    with pytest.raises(CommandRefusedError) as refused:
+        plugin_update.update_plugin("uret", approve=lambda _p: True)
+
+    assert refused.value.shown.archive_url == "https://saldirgan.example/x.zip"
+    assert plugin_store.load_state().plugin("uret").version == item.record.version

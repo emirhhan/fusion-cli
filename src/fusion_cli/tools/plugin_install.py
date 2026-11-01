@@ -549,13 +549,39 @@ def directory_commit(folder: Path) -> str:
 
 
 def accepted_command_of(resolved: _Resolved) -> str:
-    """Onaylanan komut metni (güncellemede değişmediyse yeniden sorulmaz, #399)."""
+    """Onaylanan komutun `ShownCommand.sha256` özeti (#399).
+
+    Özet Claude'un `--accept-command` değeriyle aynıdır: komut/helper metni, kip ya da archive
+    adresi ve katalog sürümü. Güncellemede bunlardan biri değişirse yeniden sorulur; yalnız
+    metni karşılaştırmak, adresi değişen archive'ın helper belirtecini yeni sunucuya
+    gönderiyordu.
+    """
+    from .plugin_source_fetch import KIND_COMMAND, KIND_HELPER, ShownCommand
+
     source = resolved.source
     if source is None:
         return ""
     if source.kind == "command":
-        return f"{source.option('mode', 'copy')} {source.location}"
-    return source.option("headersHelper")
+        mode = source.option("mode", "copy")
+        shown = ShownCommand(
+            KIND_COMMAND,
+            resolved.plugin_id,
+            source.location,
+            mode,
+            catalog_revision=resolved.revision,
+        )
+        return shown.sha256
+    helper = source.option("headersHelper")
+    if not helper:
+        return ""
+    shown = ShownCommand(
+        KIND_HELPER,
+        resolved.plugin_id,
+        helper,
+        archive_url=source.location,
+        catalog_revision=resolved.revision,
+    )
+    return shown.sha256
 
 
 def _linked_command(resolved: _Resolved, consent: CommandConsent | None) -> _Resolved:

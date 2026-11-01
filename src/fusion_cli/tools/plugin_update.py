@@ -44,7 +44,7 @@ from .plugin_install import (
     version_of,
 )
 from .plugin_market_source import split_ref
-from .plugin_source_fetch import KIND_COMMAND, CommandConsent, ShownCommand
+from .plugin_source_fetch import CommandConsent, ShownCommand
 from .plugin_version import orphan, sweep_orphans
 
 _LOG = logging.getLogger(__name__)
@@ -118,11 +118,14 @@ def update_plugin(
 
 
 def _update_consent(record: PluginRecord, given: CommandConsent | None) -> CommandConsent:
-    """Kayıtta onaylı aynı komut kendiliğinden kabul; değişmişse `given` karar verir (#399)."""
+    """Kayıttaki onay özeti aynıysa kendiliğinden kabul; değişmişse `given` karar verir (#399).
+
+    Özet adres/kip ve katalog sürümünü de kapsar (`ShownCommand.sha256`). Eski sürümün metin
+    kaydı hiçbir özetle eşleşmez: bir kez yeniden sorulur, arka plan yolu reddeder.
+    """
 
     def consent(shown: ShownCommand) -> bool:
-        text = f"{shown.mode} {shown.command}" if shown.kind == KIND_COMMAND else shown.command
-        if record.accepted_command and text == record.accepted_command:
+        if record.accepted_command and shown.sha256 == record.accepted_command:
             return True
         return given is not None and given(shown)
 

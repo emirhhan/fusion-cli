@@ -316,8 +316,10 @@ ancak komut gösterilip onaylanınca çalışır: terminalde sorulur (reddedince
 gösterilen komutu, `--accept-command <sha256>` yalnız önceki `--json` çıktısındaki
 `shownCommand.sha256` özetli komutu (eklenti, komut, kip/arşiv adresi ve katalog sürümü) onaylar;
 terminal yoksa ve onay verilmediyse kurulum `failureCode: command_source_refused` ve `shownCommand`
-ile reddedilir. `-y` ile `--accept-command` birlikte kullanılamaz. Onaylanan komut kayıtta tutulur:
-`update` aynı komutu yeniden sormaz, değişen komut yeniden onay ister. `--json` hata satırları Claude
+ile reddedilir. `-y` ile `--accept-command` birlikte kullanılamaz. Onaylanan komutun `sha256` özeti
+kayıtta tutulur: `update` (ve arka plan auto-update) özet aynıysa yeniden sormaz; komut, kip,
+archive adresi ya da katalog sürümü değişince yeniden onay ister (arka plan güncellemesi reddeder).
+Eski sürümün metin olarak tuttuğu onay bir kez yeniden sorulur. `--json` hata satırları Claude
 kodlarını taşır: `not_installed`, `not_found`, `ambiguous_marketplace`, `already_in_goal_state`,
 `not_installed_at_scope`, `command_source_refused`, `command_source_declined`. Claude'un `<paket>@npm`
 doğrudan npm pazarı ve command kaynağının oturum başında arka planda yeniden çalıştırılması yok.
