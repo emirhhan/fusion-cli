@@ -269,6 +269,9 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
         )
     for text in session.take_notices():
         deps.publisher.publish(NarrationPublished(text=messages.HOOKS_SYSTEM.format(text=text)))
+    from ..hooks.opening import settle_opening
+
+    _publish(deps, await settle_opening(session))
     started = await session.start()
     _publish(deps, started)
     session.new_prompt()

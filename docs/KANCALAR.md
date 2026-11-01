@@ -61,7 +61,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
 | `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
-| `SessionStart` | REPL/TUI oturumu açılırken (masaüstü ve `-p`'de ilk turda); bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
+| `SessionStart` | oturum açılırken: REPL/TUI'de açılışta, masaüstünde `oturum.baslat` sonrası arka planda (ilk tur bekler), `-p`'de ilk turda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
 | `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
@@ -269,7 +269,8 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   çalışmış olur (engel modele gitmeyi durdurur).
 - Engellenen `ConfigChange` yalnız kanca tanımlarını sabitler (sonraki izinli değişikliğe
   dek); izin, model gibi öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
-- `initialUserMessage`/`reloadSkills`'in uygulanması yok (alanlar okunur).
+- `initialUserMessage` uygulanmaz (alan okunur; `-p`'ye özgü, `fusion agent` istemsiz açılmaz).
+  `reloadSkills: true` REPL ve masaüstünde beceri kataloğunu yeniden taratır.
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
 - `transcript_path` Fusion'ın sohbet kaydından (`transcripts/<proje>/events.jsonl`) ayrı,
   Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde

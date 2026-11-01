@@ -1011,6 +1011,10 @@ class AppSession:
             if result.get("ok") and previous != (self._state.root, self._state.conversation_id):
                 await self._state.reset_child_runs()
                 self._child_runs = self._state.child_runs
+            if result.get("ok"):
+                from ..engines.hooks.opening import open_soon
+
+                open_soon(self._state.hooks())  # SessionStart arka planda (#111)
             return result
         if request.name == "oturum.durum":
             return self._status()

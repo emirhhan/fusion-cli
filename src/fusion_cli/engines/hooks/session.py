@@ -124,6 +124,10 @@ class HookSession:
     hooks_pinned: bool = False
     #: Oturum boyu dosya izleyicisi (`watch.HookWatcher`); `start` kurar.
     watcher: object | None = None
+    #: Masaüstü açılışında arka planda çalışan SessionStart (`opening.open_soon`).
+    opening: object | None = None
+    #: SessionStart `reloadSkills`: beceri/komut kataloğunu yeniden taratan geri çağırım.
+    skills_reloader: Callable[[], None] | None = None
     _loaded: bool = False
     #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
     _start_context: str = ""
@@ -426,9 +430,12 @@ class HookSession:
 
         ensure_watcher(self)
         source = source or self.next_source
-        return await self.emit(
+        verdict = await self.emit(
             HookEvent.SESSION_START, subjects=(source,), fields=self._start_fields(source)
         )
+        if verdict.reload_skills and self.skills_reloader is not None:
+            self.skills_reloader()
+        return verdict
 
     def _start_fields(self, source: str) -> dict[str, object]:
         """Claude girdisi: `source`, `model`, `agent_type` (`--agent`), `session_title`."""

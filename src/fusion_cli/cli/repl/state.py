@@ -464,6 +464,7 @@ class ReplState:
                 permission_mode=lambda: self.approval.value,
                 source=source,
             )
+            session.skills_reloader = self._reload_skills
             self.hook_session = session
         session.root = self.root
         if session.conversation_id != self.conversation_id:
@@ -475,6 +476,11 @@ class ReplState:
                 conversation_id=self.conversation_id,
             )
         return session
+
+    def _reload_skills(self) -> None:
+        """SessionStart `reloadSkills` (#111): kanca kurduğu beceriler hemen görünsün."""
+        if self.capabilities is not None:
+            self.capabilities.invalidate()
 
     def _fall_back_to_manual(self) -> None:
         if self.approval is ApprovalMode.AUTO:
