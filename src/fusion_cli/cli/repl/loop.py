@@ -23,7 +23,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from rich.console import Console
 from rich.markup import escape
@@ -119,6 +119,7 @@ from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
+from .status_line_inline import InlineStatusWatcher
 
 #: `_cancel_on_interrupt` her sonuç tipindeki görevi kesebilir (tur, hedef değerlendirmesi).
 ResultT = TypeVar("ResultT")
@@ -594,9 +595,8 @@ async def _show_status_line(reader: ReplInput, state: ReplState, console: Consol
         await reader.print_above(lambda: status_line.show_status_block(console.file, block))
 
 
-def _status_watcher(state: ReplState, reader: ReplInput, console: Console) -> Any:
+def _status_watcher(state: ReplState, reader: ReplInput, console: Console) -> InlineStatusWatcher:
     """İstem açıkken kip değişimi/`refreshInterval` tetikleri (#192)."""
-    from .status_line_inline import InlineStatusWatcher
     from .status_line_settings import resolve_status_line
 
     def _interval() -> int | None:
