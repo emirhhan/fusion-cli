@@ -481,12 +481,22 @@ class PlanApproval:
             return Decision.BLOCKED
         asks = request.pre_ask is not None or request.danger is not None
         if self._use_auto_mode and not asks:
-            return Decision.ALLOW if request.risk is None else Decision.BLOCKED
+            return Decision.ALLOW if _plan_classifier_allows(request) else Decision.BLOCKED
         if self._prompter is None:
             return Decision.BLOCKED
         if not asks and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
+
+
+def _plan_classifier_allows(request: ApprovalRequest) -> bool:
+    """Plan kipinde sınıflandırıcı: risksiz VE kaynağı düzenlemeyen komut çalışır (#318)."""
+    from .plan_shell_guard import edits_source
+
+    command = request.args.get("command")
+    if request.risk is not None or not isinstance(command, str):
+        return False
+    return not edits_source(command)
 
 
 class BypassApproval:

@@ -266,3 +266,24 @@ async def test_plan_kipi_yikici_komutu_siniflandiriciya_birakmaz_sorar(tmp_path)
     istek = build_request(_arac(), {"command": "git push --force"}, root=tmp_path)
 
     assert await politika.decide(istek) is Decision.DENIED
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"),
+    [
+        ("npm install", Decision.ALLOW),
+        ("pytest -q", Decision.ALLOW),
+        ("npm run build", Decision.ALLOW),
+        ("echo x > a.py", Decision.BLOCKED),
+        ("rm -rf build", Decision.BLOCKED),
+        ("touch yeni.txt", Decision.BLOCKED),
+        ("sed -i '' s/a/b/ f.py", Decision.BLOCKED),
+        ("git commit -m x", Decision.BLOCKED),
+        ("ls > /dev/null && make test", Decision.ALLOW),
+    ],
+)
+async def test_plan_kipi_siniflandiricisi_kaynak_duzenleyen_komutu_reddeder(
+    tmp_path, komut, beklenen
+):
+    """Claude: plan kaynağı düzenlemez; Fusion denetçisi kipten habersiz olduğu için (#318)."""
+    assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is beklenen
