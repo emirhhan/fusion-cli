@@ -667,7 +667,8 @@ async def test_yuk_claude_transcript_path_ve_tool_use_id_tasir(monkeypatch, tmp_
     assert son["message"]["content"][0]["text"].endswith("bitti")
     assert stop["satirlar"][0]["message"]["content"][0]["text"] == "dosya yaz"
     await session.end("other")
-    assert not list((tmp_path / "dokum").glob("*.jsonl"))  # oturum bitince silinir
+    # Claude dökümü gibi kalıcı: oturum bitince silinmez (#129).
+    assert list((tmp_path / "dokum").glob("*.jsonl"))
 
 
 async def test_tur_basinda_eklenen_notification_kancasi_ayni_turda_calisir(monkeypatch, tmp_path):

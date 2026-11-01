@@ -1,9 +1,9 @@
 """Yerel durum saklama: 30 günden eski iz, artifact ve tamamlanmış checkpoint (L1-30, M1-44).
 
-Yalnız `memory_dir` altındaki üç Fusion klasörüne bakar (`traces`, `artifacts`,
-`workflow-checkpoints`). Denetim günlüğü (`audit`), konuşma dökümleri ve kullanıcı dosyaları
-kapsam dışıdır. Açılışta ucuz çalışır: günde en çok bir kez (damga dosyası), önce dosya
-değişme zamanına bakar.
+Yalnız `memory_dir` altındaki Fusion klasörlerine bakar (`traces`, `hook-transcripts`,
+`artifacts`, `workflow-checkpoints`). Denetim günlüğü (`audit`), konuşma dökümleri ve
+kullanıcı dosyaları kapsam dışıdır. Açılışta ucuz çalışır: günde en çok bir kez (damga
+dosyası), önce dosya değişme zamanına bakar.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 from ..core.constants import LOCAL_STATE_PURGE_INTERVAL_S, LOCAL_STATE_RETENTION_S
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..observability.retention import purge_files, purge_session_dirs
+from .hooks.transcript import HOOK_TRANSCRIPT_DIR
 
 __all__ = [
     "LOCAL_STATE_RETENTION_S",
@@ -45,7 +46,9 @@ def purge_local_state(
     """`max_age_s`ten eski Fusion üretimi dosyaları sil."""
     cutoff = now - max_age_s
     return RetentionReport(
-        traces=purge_files(memory_dir / "traces", suffixes=_TRACE_SUFFIXES, cutoff=cutoff),
+        traces=purge_files(memory_dir / "traces", suffixes=_TRACE_SUFFIXES, cutoff=cutoff)
+        # Kancaların `transcript_path` dökümleri (Claude `cleanupPeriodDays`: 30 gün).
+        + purge_files(memory_dir / HOOK_TRANSCRIPT_DIR, suffixes=_TRACE_SUFFIXES, cutoff=cutoff),
         artifacts=purge_session_dirs(
             memory_dir / "artifacts", suffixes=_ARTIFACT_SUFFIXES, cutoff=cutoff
         ),

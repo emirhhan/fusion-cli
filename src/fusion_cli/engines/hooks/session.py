@@ -142,9 +142,10 @@ class HookSession:
         return transcript_for(self.transcript_dir, session_id or self.session_id)
 
     def record(self, role: str, text: str) -> None:
-        """Dökümüne istem/cevap ekle; tanımlı kanca yoksa hiçbir şey yazılmaz."""
+        """Dökümüne istem/cevap ekle (kanca tanımı olmasa da: sonradan eklenen kanca
+        oturumun tamamını görür, Claude dökümü gibi)."""
         transcript = self.transcript()
-        if transcript is not None and text.strip() and self.current().commands:
+        if transcript is not None and text.strip():
             transcript.append(role, text, self.session_id)
 
     def record_tool_use(
@@ -160,9 +161,7 @@ class HookSession:
             transcript.append_tool_result(tool_use_id, output, self.session_id, is_error=is_error)
 
     def _recording(self) -> HookTranscript | None:
-        """Döküm yalnız tanımlı kanca varken yazılır."""
-        transcript = self.transcript()
-        return transcript if transcript is not None and self.current().commands else None
+        return self.transcript()
 
     def refresh(self) -> HookSet:
         """Tanımları yeniden oku (kök tur başı); `ConfigChange` engellediyse eskisi kalır."""
@@ -415,10 +414,7 @@ class HookSession:
         old = self.transcript(old_id)
         if old is not None:
             fields["transcript_path"] = str(old.ensure())
-        verdict = await self.emit(HookEvent.SESSION_END, subjects=(reason,), fields=fields)
-        if old is not None:
-            old.remove()
-        return verdict
+        return await self.emit(HookEvent.SESSION_END, subjects=(reason,), fields=fields)
 
     async def start(self, source: str | None = None) -> HookVerdict:
         """`SessionStart`: ilk çağrıda bir kez; sonrakiler boş karar."""
@@ -463,13 +459,7 @@ class HookSession:
         if not self.started or self.ended:
             return NO_VERDICT
         self.ended = True
-        verdict = await self.emit(
-            HookEvent.SESSION_END, subjects=(reason,), fields={"reason": reason}
-        )
-        transcript = self.transcript()
-        if transcript is not None:
-            transcript.remove()
-        return verdict
+        return await self.emit(HookEvent.SESSION_END, subjects=(reason,), fields={"reason": reason})
 
     async def notify(self, kind: str, message: str, *, title: str = "") -> HookVerdict:
         """`Notification`: kullanıcının dikkati gerektiğinde (izin istemi vb.)."""

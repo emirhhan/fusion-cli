@@ -5,8 +5,9 @@ okur: her satır `{"type": "user"|"assistant", "message": {"role", "content": [{
 "text", "text"}]}}`. Fusion'ın kendi sohbet kaydı (`transcripts/<proje>/events.jsonl`)
 proje başına ortak ve farklı biçimdedir; bu yüzden kanca oturumu kendi dökümünü tutar.
 
-Döküm yalnız tanımlı kanca varken yazılır, metinler maskelenir (sırlar), dosya 0600'dür ve
-`SessionEnd` kancalarından SONRA silinir. Ana ajanın araç çağrıları da yazılır: assistant
+Döküm oturum boyunca (kanca tanımı olmasa da) yazılır ve kalıcıdır (#129): `SessionEnd`'den
+sonra silinmez, 30 günden eskisi yerel durum temizliğinde (`retention`) silinir. Metinler
+maskelenir (sırlar), dosya 0600'dür. Ana ajanın araç çağrıları da yazılır: assistant
 satırında `tool_use` (`id`, `name` — Claude adı, `input`), user satırında `tool_result`
 (`tool_use_id`, `content`, `is_error`); girdi ve çıktı maskeli ve kırpılmıştır.
 

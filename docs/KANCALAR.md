@@ -142,7 +142,10 @@ Ortak alanlar: `session_id`, `prompt_id` (kök tur kimliği), `transcript_path`,
 `permission_mode` (`default`, `plan`, `acceptEdits`, `auto`, `dontAsk`,
 `bypassPermissions`; Fusion'ın güvenlik kipi `default` gelir), `effort` (`{"level": …}`),
 `hook_event_name`; alt ajandaki araç olaylarında `agent_id`, `agent_type`.
-`scratchpad_dir` yazılmaz: Claude belgesine göre oturumun karalama klasörü yoksa alan
+`transcript_path` oturumun Claude biçimli dökümüdür (`<memory_dir>/hook-transcripts/<oturum>.jsonl`;
+`user`/`assistant` satırları, `tool_use`/`tool_result` blokları, sırlar maskeli, 0600): kanca
+tanımı olmasa da oturum boyunca yazılır, oturum bitince silinmez, 30 günden eskisi yerel
+durum temizliğinde silinir. `scratchpad_dir` yazılmaz: Claude belgesine göre oturumun karalama klasörü yoksa alan
 bulunmaz, Fusion oturumlarında böyle bir klasör yoktur.
 
 Araç olaylarında `tool_name` (Claude adı), `tool_use_id`, `tool_input` Claude aracının
@@ -264,7 +267,9 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   dek); izin, model gibi öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
 - `initialUserMessage`/`reloadSkills`'in uygulanması yok (alanlar okunur).
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
-- `transcript_path` kanca için üretilen ayrı, maskeli JSONL'dir (oturum bitince silinir).
+- `transcript_path` Fusion'ın sohbet kaydından (`transcripts/<proje>/events.jsonl`) ayrı,
+  Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde
+  kırpılır.
 - `/hooks` etkileşimli tarayıcı ("All events") yok; düz liste.
 - Etkileşimli oturumda kullanıcı kancaları da klasör güvenine bağlı değildir (Claude güven
   iletişimi kabul edilene kadar bekletir).
