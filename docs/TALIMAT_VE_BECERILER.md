@@ -16,7 +16,7 @@ ayarlarla (`permissions`, kancalar) zorlanır.
 | 1 | Kurumsal | macOS `/Library/Application Support/ClaudeCode/CLAUDE.md`, Linux/WSL `/etc/claude-code/CLAUDE.md` ve `managed-settings.json` içindeki `claudeMd`. Dışlanamaz |
 | 2 | Kullanıcı | `~/.claude/CLAUDE.md` (eski `~/.fusion/TALIMAT.md` bu sürüm boyunca okunur, kullanımdan kalktığı notu düşer; `~/.codex/AGENTS.md` okunmaz) |
 | 3 | Proje | Dosya sistemi kökünden çalışma dizinine kadar **her dizinde** `CLAUDE.md`, `.claude/CLAUDE.md`, ardından `CLAUDE.local.md`. `monorepo/packages/web` içinde açınca `monorepo/CLAUDE.md` de yüklenir |
-| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` dosyaları |
+| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` ve `.claude/rules/*.md` (`paths`'siz) dosyaları |
 | — | İç içe | Alt klasördeki talimat, o klasördeki dosyaya erişince (`runtime.nested_instructions`) |
 
 - **AGENTS.md**: varsayılan (`claude-md-or-agents-md`) — çalışma dizininde ya da üstünde hiç

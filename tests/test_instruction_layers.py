@@ -219,3 +219,19 @@ def test_ayni_icerik_bir_kez(ev: Path, mono: Path) -> None:
     _yaz(mono / ".claude" / "CLAUDE.md", "AYNI")
 
     assert load_instruction_layers(mono, ev).text.count("AYNI") == 1
+
+
+def test_ek_dizinin_kurallari_ortam_degiskeniyle_yuklenir(
+    ev: Path, mono: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Belge (#170): CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 ek dizinin kurallarını da yükler."""
+    ek = tmp_path / "ek"
+    _yaz(ek / "CLAUDE.md", "EK TALIMAT")
+    _yaz(ek / ".claude" / "rules" / "stil.md", "EK KURAL")
+    _yaz(ek / ".claude" / "rules" / "tsx.md", "---\npaths: '*.tsx'\n---\nKOSULLU")
+
+    assert "EK KURAL" not in load_instruction_layers(mono, ev, extra_roots=(ek,)).text
+    monkeypatch.setenv("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "1")
+    text = load_instruction_layers(mono, ev, extra_roots=(ek,)).text
+
+    assert "EK TALIMAT" in text and "EK KURAL" in text and "KOSULLU" not in text

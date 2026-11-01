@@ -240,10 +240,20 @@ def load_instruction_layers(
             for extra in extra_roots:
                 for name in (*CLAUDE_NAMES, LOCAL_NAME):
                     _load_file(loader, Path(extra) / name, layer="ek-dizin")
+                _load_extra_rules(loader, Path(extra))
     text = "\n\n".join((HEADER, *loader.blocks)) if loader.blocks else ""
     return InstructionLoad(
         text, tuple(loader.files), tuple(loader.notes), tuple(dict.fromkeys(loader.pending))
     )
+
+
+def _load_extra_rules(loader: _Loader, extra: Path) -> None:
+    """`--add-dir` dizininin `paths`'siz `.claude/rules/*.md` kuralları (#170)."""
+    from .instruction_rules import _scan
+
+    for rule in _scan(extra / ".claude" / "rules", base=extra, prefix="", trusted=False):
+        if not rule.is_scoped:
+            _load_file(loader, rule.path, layer="ek-dizin")
 
 
 def _load_managed(loader: _Loader) -> None:
