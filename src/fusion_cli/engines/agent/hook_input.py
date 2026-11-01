@@ -86,14 +86,26 @@ def fusion_tool_args(
 
 
 def claude_tool_response(
-    tool_name: str, tool_input: Mapping[str, object], output: str
+    tool_name: str,
+    tool_input: Mapping[str, object],
+    output: str,
+    *,
+    existed: bool | None = None,
 ) -> dict[str, object]:
-    """PostToolUse `tool_response`: Claude aracının çıktı şekli (bilinmeyen araçta genel)."""
+    """PostToolUse `tool_response`: Claude aracının çıktı şekli (bilinmeyen araçta genel).
+
+    `existed`: yazılan dosya çağrıdan önce var mıydı? (Write `type`: `create` | `update`).
+    """
     file_path = tool_input.get(_CLAUDE_PATH)
     if tool_family(tool_name) is ToolFamily.SHELL:
         return {"stdout": output, "stderr": "", "interrupted": False, "isImage": False}
     if tool_name == "write_file" and isinstance(file_path, str):
-        return {"filePath": file_path, "content": tool_input.get("content", ""), "output": output}
+        return {
+            "type": "update" if existed else "create",
+            "filePath": file_path,
+            "content": tool_input.get("content", ""),
+            "output": output,
+        }
     if tool_name == "edit_file" and isinstance(file_path, str):
         return {
             "filePath": file_path,

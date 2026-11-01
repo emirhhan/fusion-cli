@@ -87,6 +87,8 @@ class HookSession:
     pending_tool_context: dict[str, str] = field(default_factory=dict)
     #: Çağrı kimliği → başlama anı (`duration_ms`).
     tool_started: dict[str, float] = field(default_factory=dict)
+    #: Çağrı kimliği → yazılan dosya çalışmadan önce var mıydı? (Write `type`)
+    tool_existed: dict[str, bool] = field(default_factory=dict)
     #: `asyncRewake` kancalarının bir sonraki tura bıraktığı metinler.
     rewake_notes: list[str] = field(default_factory=list)
     _loaded: bool = False

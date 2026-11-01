@@ -121,12 +121,12 @@ async def pre_tool_use(
         session.pending_tool_context[call_id] = hook_text.context_reminder(
             HookEvent.PRE_TOOL_USE, verdict.context_text
         )
-    session.tool_started[call_id] = time.monotonic()
     arguments = (
         fusion_tool_args(tool_name, args, verdict.updated_input, _root(session))
         if verdict.updated_input is not None
         else args
     )
+    tool_running(deps, tool_name, arguments, call_id)
     return ToolGate(arguments, permission=verdict.permission, ask_reason=verdict.ask_reason)
 
 
@@ -144,6 +144,25 @@ def _blocking_gate(
     if verdict.permission == "defer" and not getattr(deps, "interactive", False):
         return ToolGate(args, TOOL_DEFERRED, True)
     return None
+
+
+def tool_running(
+    deps: AgentDeps, tool_name: str, args: Mapping[str, object], call_id: str = ""
+) -> None:
+    """Araç ŞİMDİ çalışıyor (onaydan sonra): `duration_ms` başlangıcı ve Write `type`.
+
+    PreToolUse da çağırır (onaysız yollar için); döngü onaydan sonra yeniden çağırır ki
+    Claude'daki gibi süre onay beklemesini içermesin.
+    """
+    session = session_of(deps)
+    if session is None:
+        return
+    session.tool_started[call_id] = time.monotonic()
+    if tool_name == "write_file":
+        shape = claude_tool_input(tool_name, args, _root(session))
+        path = shape.get("file_path")
+        if isinstance(path, str):
+            session.tool_existed[call_id] = Path(path).exists()
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,8 +198,10 @@ async def post_tool_use(
     tool_input = fields["tool_input"]
     if ok:
         shape = tool_input if isinstance(tool_input, Mapping) else {}
-        fields["tool_response"] = claude_tool_response(tool_name, shape, clipped)
+        existed = session.tool_existed.pop(call_id, None)
+        fields["tool_response"] = claude_tool_response(tool_name, shape, clipped, existed=existed)
     else:
+        session.tool_existed.pop(call_id, None)
         fields["error"] = clipped
         fields["is_interrupt"] = False
     claude_name = str(fields["tool_name"])

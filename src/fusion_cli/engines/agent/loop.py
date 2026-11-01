@@ -201,6 +201,7 @@ from .hook_bridge import (
     post_tool_use,
     pre_compact,
     pre_tool_use,
+    tool_running,
     user_prompt_submit,
     with_system_note,
 )
@@ -4406,6 +4407,7 @@ async def _execute_registered_tool(
         if is_shell
         else None
     )
+    tool_running(deps, call.name, args, call.id)  # `duration_ms` onaydan sonra başlar
     result = await registry.execute(call.name, args, deps.tool_context)
     await localization.record_result(call, result, deps.tool_context)
     if state is not None:

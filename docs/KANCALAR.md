@@ -110,13 +110,17 @@ Ortak alanlar: `session_id`, `prompt_id` (kök tur kimliği), `transcript_path`,
 `permission_mode` (`default`, `plan`, `acceptEdits`, `auto`, `dontAsk`,
 `bypassPermissions`; Fusion'ın güvenlik kipi `default` gelir), `effort` (`{"level": …}`),
 `hook_event_name`; alt ajandaki araç olaylarında `agent_id`, `agent_type`.
+`scratchpad_dir` yazılmaz: Claude belgesine göre oturumun karalama klasörü yoksa alan
+bulunmaz, Fusion oturumlarında böyle bir klasör yoktur.
 
 Araç olaylarında `tool_name` (Claude adı), `tool_use_id`, `tool_input` Claude aracının
 şeklinde: Bash `{command, run_in_background}`, Write `{file_path, content}`, Edit
 `{file_path, old_string, new_string, replace_all}`, Read `{file_path, offset, limit}`;
 dosya araçlarında `file_path` **mutlaktır**. MCP araçlarında `mcp_server: {name}`.
-`PostToolUse`'ta `tool_response` (Bash `{stdout, stderr, interrupted, isImage}`, Write/Edit
-`{filePath, …}`, Read `{type, file}`) ve `duration_ms`; `PostToolUseFailure`'da `error`,
+`PostToolUse`'ta `tool_response` (Bash `{stdout, stderr, interrupted, isImage}`, Write
+`{type: "create" | "update", filePath, content}`, Edit `{filePath, …}`, Read `{type, file}`)
+ve `duration_ms` (aracın çalışma süresi; onay beklemesi dahil değil);
+`PostToolUseFailure`'da `error`,
 `is_interrupt`. `UserPromptSubmit`: `prompt`. `Stop`: `stop_hook_active`,
 `last_assistant_message`, `background_tasks`, `session_crons`; `SubagentStop` ek olarak
 `agent_id`, `agent_type`, `agent_transcript_path`. `SessionStart`: `source`,
