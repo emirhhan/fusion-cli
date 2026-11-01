@@ -259,6 +259,9 @@ async def _run_surface(
         roots=lambda: (state.root, *state.extra_roots),
         agents=lambda: agent_names(state),
     )
+    # Satır içi yedek girişte de Shift+Tab döngüsü TUI ile aynı kipleri içerir (#73, #85).
+    reader.bypass_available = bool(getattr(state, "bypass_available", False))
+    reader.auto_available = bool(getattr(state, "auto_available", True))
     background = BackgroundTasks()
 
     # Isıtma kota harcar ve kullanıcı henüz bir şey göndermeden kafa karıştırıcı

@@ -147,6 +147,11 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   /verify
   ```
 - Yıkıcı bir komutta (`rm -rf` gibi) Fusion zaten durup sana sorar.
+- **Başlangıç kipi:** Claude Code gibi `fusion --permission-mode plan` (default, acceptEdits,
+  plan, auto, dontAsk, bypassPermissions), `fusion --dangerously-skip-permissions` (bypass ile
+  başlar) ve `fusion --allow-dangerously-skip-permissions` (bypass'ı Shift+Tab döngüsüne ekler,
+  oturum onunla başlamaz). Bayrak `permissions.defaultMode` ayarından önce gelir; aynı bayraklar
+  `fusion agent` ve `fusion -p` için de geçerlidir.
 
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 

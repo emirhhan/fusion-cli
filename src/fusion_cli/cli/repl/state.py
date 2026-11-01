@@ -557,6 +557,12 @@ def _initial_approval(config: Config, root: object) -> ApprovalMode:
     from ...config.permission_settings import default_mode_setting
     from ..permission_flags import enforce_mode_limits
 
+    from ..launch_permissions import launch_permissions
+
+    launched = launch_permissions().mode
+    if launched is not None:
+        # Kök komut bayrağı (`fusion --permission-mode plan`) ayardan önce gelir (#49).
+        return launched
     setting = default_mode_setting(root) if isinstance(root, Path) else None
     try:
         approval = parse_mode(setting or config.runtime.approval_mode)
@@ -580,8 +586,12 @@ def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:
     """Döngüdeki isteğe bağlı kipler: bypass bypass'la başlayınca, auto kapatılmadıkça."""
     from ...config.permission_settings import auto_mode_disabled, bypass_mode_disabled
 
+    from ..launch_permissions import launch_permissions
+
     root = state.root if isinstance(getattr(state, "root", None), Path) else None
-    state.bypass_available = approval is ApprovalMode.BYPASS and not (
+    # `--allow-dangerously-skip-permissions` bypass'ı döngüye ekler, başlatmaz (#73).
+    offered = approval is ApprovalMode.BYPASS or launch_permissions().allow_bypass
+    state.bypass_available = offered and not (
         root is not None and bypass_mode_disabled(root)
     )
     state.auto_available = not (root is not None and auto_mode_disabled(root))

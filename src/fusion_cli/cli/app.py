@@ -198,9 +198,31 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    permission_mode: Annotated[
+        str,
+        typer.Option(
+            "--permission-mode",
+            help="Başlangıç izin kipi: default, acceptEdits, plan, auto, dontAsk, bypassPermissions.",
+        ),
+    ] = "",
+    skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--dangerously-skip-permissions",
+            help="İzin istemlerini atla; `--permission-mode bypassPermissions` ile eşdeğer.",
+        ),
+    ] = False,
+    allow_skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dangerously-skip-permissions",
+            help="bypassPermissions kipini Shift+Tab döngüsüne ekle; oturum onunla başlamaz.",
+        ),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
+    _apply_launch_permissions(permission_mode, skip_permissions, allow_skip_permissions)
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
@@ -249,6 +271,19 @@ def main_callback(
         )
     )
     raise typer.Exit(exit_code)
+
+
+def _apply_launch_permissions(flag: str, skip: bool, allow_skip: bool) -> None:
+    """Kök komutun izin bayrakları (#49, #73); geçersiz kip adı hata verir."""
+    from .launch_permissions import set_launch_permissions
+
+    try:
+        set_launch_permissions(
+            flag=flag.strip() or None, skip_permissions=skip, allow_bypass=allow_skip, root=Path.cwd()
+        )
+    except ValueError:
+        valid = "default, manual, acceptEdits, plan, auto, dontAsk, bypassPermissions"
+        raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=flag, valid=valid)) from None
 
 
 def _print_worktree_notice(tree: Worktree) -> None:
