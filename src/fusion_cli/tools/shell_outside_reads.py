@@ -4,16 +4,21 @@ Claude Code'da çalışma dizini içindeki okuma sorulmaz; dışarıyı okuyan �
 acceptEdits ve plan kipinde sorulur (dontAsk reddeder, auto/bypass sormaz). Kabukta bu
 `cat ~/.ssh/config`, `ls /etc`, `head ../komsu/x` gibi salt okunur komutlardır: Fusion onları
 okuma aracı gibi değerlendirir. Yalnız yol gibi görünen sözcüklere bakılır (`/`, `~` ile
-başlayan ya da `..` içeren); göreli yalın ad çalışma dizinindedir.
+başlayan ya da `..` içeren); göreli yalın ad çalışma dizinindedir. `$HOME`/`${HOME}` öneki ev
+dizinine çözülür; başka değişkenli ya da ikameli sözcük çözülemez ve dışarıda sayılır
+(inceleme, 1 Kasım: `cat $HOME/.ssh/id_rsa` 'içeride' sayılıp sorulmuyordu).
 """
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Iterable
 from pathlib import Path
 
 from .auto_policy import is_read_only_command
+
+_HOME_PREFIX = re.compile(r"^(?:\$HOME|\$\{HOME\})(?=/|$)")
 
 
 def shell_outside_read_target(
@@ -44,8 +49,11 @@ def _words(segment: str) -> list[str]:
 
 
 def _outside(word: str, root: Path, allowed: list[Path]) -> str | None:
-    if word.startswith("-") or "$" in word or "`" in word:
+    if word.startswith("-"):
         return None
+    word = _HOME_PREFIX.sub("~", word)
+    if "$" in word or "`" in word:
+        return word
     if not (word.startswith(("/", "~")) or ".." in Path(word).parts):
         return None
     try:

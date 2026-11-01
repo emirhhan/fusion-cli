@@ -71,3 +71,20 @@ async def test_disari_okuyan_kabuk_komutu_kipe_gore(alan, mod, beklenen):
 async def test_icerideki_okuma_sorulmaz(alan, mod):
     kok, _ = alan
     assert await _karar(mod, "cat a.txt", kok) is Decision.ALLOW
+
+
+def test_degiskenli_yol_disari_sayilir(alan, monkeypatch):
+    """İnceleme (1 Kasım): `cat $HOME/.ssh/id_rsa` salt okunur ve 'içeride' sayılıyordu (#56)."""
+    kok, disari = alan
+    monkeypatch.setenv("HOME", str(disari))
+    for komut in (
+        "cat $HOME/b.txt",
+        "cat ${HOME}/b.txt",
+        'cat "$HOME/b.txt"',
+        "cat $GIZLI/b.txt",
+        "ls $X",
+    ):
+        assert shell_outside_read_target(komut, kok) is not None, komut
+    # $HOME çözülür: ev dizini çalışma dizinindeyse içeridedir.
+    monkeypatch.setenv("HOME", str(kok))
+    assert shell_outside_read_target("cat $HOME/a.txt", kok) is None
