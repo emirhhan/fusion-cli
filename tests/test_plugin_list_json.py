@@ -269,5 +269,7 @@ def test_uninstall_scope_project_yalniz_o_kapsamdan_kaldirir(tmp_path, monkeypat
     settings = json.loads((project / ".claude" / "settings.json").read_text("utf-8"))
     assert settings["enabledPlugins"] == {}
     assert plugin_store.active_plugins(root=project) == ()
+    # Son kapsamdan kalktı: kayıt da gider (#408), ikinci deneme "kurulu değil".
+    assert plugin_store.load_state().plugin("rapor") is None
     again = runner.invoke(app, ["uninstall", "rapor@ekip", "--scope", "project"])
-    assert again.exit_code == 1 and "project kapsamında kurulu değil" in again.output
+    assert again.exit_code == 1 and "kurulu değil" in again.output.lower()

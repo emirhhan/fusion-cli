@@ -272,6 +272,29 @@ def save_values(
     return tuple(parsed)
 
 
+def forget_values(name: str, base: Path) -> bool:
+    """Eklentinin kayıtlı seçeneklerini ve sırlarını sil (son kapsamdan kaldırma, #408/#388).
+
+    Claude: son kapsamdan kaldırılınca `pluginConfigs` girdisi ve güvenli depodaki sırlar gider.
+    Şifreli depo yalnız orada bu eklentiye ait kayıt varsa açılır. Bir şey silindiyse True.
+    """
+    removed = False
+    with config_lock(_store(base, False)):
+        for secret in (False, True):
+            path = _store(base, secret)
+            current = _read_all(path)
+            if name in current:
+                _write(path, {k: v for k, v in current.items() if k != name}, secret)
+                removed = True
+        if (base / VAULT_FILE).is_file():
+            store = _vault(base)
+            try:
+                removed = bool(store and store.delete(_VAULT_PREFIX + name)) or removed
+            except ConfigError as error:
+                _LOG.warning("eklenti '%s' hassas değerleri silinemedi: %s", name, error)
+    return removed
+
+
 def effective_values(name: str, schema: tuple[UserOption, ...], base: Path) -> dict[str, object]:
     """Kaydedilen değer, yoksa `default` (ikisi de yoksa seçenek yok sayılır)."""
     saved = saved_values(name, base, secrets=any(option.sensitive for option in schema))

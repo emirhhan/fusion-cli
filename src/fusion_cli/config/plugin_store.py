@@ -76,6 +76,9 @@ class PluginRecord:
     #: Yerinde yüklenen eklentide pazar girdisinin plugin.json alanları ve strict modu (#398).
     entry_fields: str = ""
     entry_strict: bool = True
+    #: Kurulu olduğu kapsamlar (#408): `user`, `project:<kök>`, `local:<kök>`. Son kapsamdan
+    #: kaldırılınca kopya, veri ve userConfig değerleri silinir (Claude `plugin uninstall`).
+    scopes: tuple[str, ...] = ("user",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +213,14 @@ def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
         folder=str(raw.get("klasor") or ""),
         entry_fields=str(raw.get("girdi_alanlari") or ""),
         entry_strict=raw.get("girdi_strict") is not False,
+        scopes=_scopes(raw.get("kapsamlar")),
     )
+
+
+def _scopes(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ("user",)
+    return tuple(str(item) for item in raw if isinstance(item, str) and item)
 
 
 def _marketplace(name: str, raw: Mapping[str, object]) -> MarketplaceRecord:
@@ -246,6 +256,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 **({"klasor": p.folder} if p.folder else {}),
                 **({"girdi_alanlari": p.entry_fields} if p.entry_fields else {}),
                 **({"girdi_strict": False} if not p.entry_strict else {}),
+                **({"kapsamlar": list(p.scopes)} if p.scopes != ("user",) else {}),
             }
             for p in sorted(state.plugins, key=lambda item: item.name)
         },

@@ -179,11 +179,23 @@ def _plugin(root: Path, file: Path) -> FileResult:
             (manifest.author, WARN_AUTHOR),
         )
         warnings.extend(text for value, text in missing if not value)
+    if report.layout is not None and (schema_error := _user_config_error(root)):
+        errors.append(schema_error)  # Claude: geçersiz userConfig şeması hatadır (#388)
     if report.layout is not None and (reserved := reserved_error(report.layout.name)):
         errors.append(reserved)  # Claude: ayrılmış ad validate'te hatadır (#406)
     if (root / "CLAUDE.md").is_file():
         warnings.append(WARN_CLAUDE_MD)
     return FileResult(str(file), tuple(errors), tuple(warnings))
+
+
+def _user_config_error(root: Path) -> str:
+    from .plugin_user_config import read_schema
+
+    try:
+        read_schema(root)
+    except PluginError as error:
+        return str(error)
+    return ""
 
 
 def validate_target(path: Path, *, strict: bool = False) -> ValidationRun:

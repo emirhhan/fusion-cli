@@ -63,10 +63,10 @@ def sync_marketplace(
             _drop_scope_keys(f"{old}@{market.name}", old, folder)
             notices.append(f"{old}: " + REMOVED_RENAME.format(market=market.name))
             if market.force_remove_deleted:
-                uninstall_plugin(record.name, base=root)
+                uninstall_plugin(record.name, base=root, everywhere=True)
         elif market.force_remove_deleted:
             _drop_scope_keys(f"{old}@{market.name}", old, folder)
-            uninstall_plugin(record.name, base=root)
+            uninstall_plugin(record.name, base=root, everywhere=True)
             notices.append(REMOVED_FORCED.format(name=old))
     return tuple(notices)
 

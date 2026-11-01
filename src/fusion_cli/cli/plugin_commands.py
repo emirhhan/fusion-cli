@@ -15,6 +15,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
@@ -34,6 +35,9 @@ from .plugin_view import (
     format_preview,
 )
 
+if TYPE_CHECKING:
+    from ..tools.plugin_install_scope import ScopedInstall
+
 app = typer.Typer(
     no_args_is_help=True, help="Eklenti paketlerini (beceri+ajan+komut+kanca+MCP) yönet."
 )
@@ -47,6 +51,7 @@ INSTALLED = (
     "Kuruldu: {name} (kapsam: {scope} · {status}). "
     "Açık oturuma uygulamak için /reload-plugins çalıştır."
 )
+CONFIG_HINT = "Ayarlanmamış zorunlu seçenekler: {keys}. Ayarla: fusion plugin configure {ident}"
 REMOVED = "Eklenti kaldırıldı: {name} (kapsam: {scope}{data})"
 DATA_KEPT = ", veri korundu"
 TOGGLED = "Eklenti {verb}: {name} (kapsam: {scope})"
@@ -107,6 +112,9 @@ def install(
         help="Çıplak adı bu kaynaktaki pazardan kur (pazar yoksa önce eklenir).",
     ),
     as_json: bool = typer.Option(False, "--json", help="Sonucu son satırda tek JSON nesnesi bas."),
+    config: list[str] = typer.Option(  # noqa: B008
+        [], "--config", help="userConfig seçeneği anahtar=değer (tekrarlanabilir)."
+    ),
 ) -> None:
     """Eklentiyi pazardan kur (betik çalıştırılmaz; kanca/MCP içeriyorsa açık onay ister)."""
     if dry_run:
@@ -135,9 +143,29 @@ def install(
             expected_digest=digest,
         )
         text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
-        return text, {"pluginId": done.ident, "scope": done.scope}
+        return text + _configure_after_install(done, config), {
+            "pluginId": done.ident,
+            "scope": done.scope,
+        }
 
     run_result("install", as_json, act)
+
+
+def _configure_after_install(done: ScopedInstall, pairs: list[str]) -> str:
+    """`--config` değerlerini kaydet; geçersizse az önce eklenen kapsamı geri al (#388/#381)."""
+    from ..config.plugin_store import plugins_dir
+    from ..tools.plugin_install_config import apply_config, missing_required
+
+    record, base = done.item.record, plugins_dir()
+    try:
+        apply_config(record, pairs, base)
+    except PluginError:
+        plugins.uninstall_plugin(done.ident, base=base, scope=done.scope)
+        raise
+    missing = missing_required(record, base)
+    if not missing:
+        return ""
+    return "\n" + CONFIG_HINT.format(keys=", ".join(missing), ident=done.ident)
 
 
 @app.command("listele")
@@ -270,12 +298,16 @@ def uninstall(
     14 gün kalır, veri klasörü --keep-data yoksa silinir)."""
 
     def act() -> tuple[str, dict[str, object]]:
-        plugins.uninstall_plugin(name, keep_data=keep_data, scope=scope)
+        from ..tools.plugin_install_scope import default_scope
+        from ..tools.plugin_toggle import find_record
+
+        used = scope or default_scope(find_record(load_state(), name))
+        plugins.uninstall_plugin(name, keep_data=keep_data, scope=used)
         data = DATA_KEPT if keep_data else ""
-        text = REMOVED.format(name=name.split("@", 1)[0], scope=scope or "user", data=data)
+        text = REMOVED.format(name=name.split("@", 1)[0], scope=used, data=data)
         if prune:  # Fusion bağımlılıkları otomatik kurmaz: budanacak bağımlılık olmaz.
             text += "\n" + prune_text()
-        return text, {"pluginId": name, "scope": scope or "user"}
+        return text, {"pluginId": name, "scope": used}
 
     run_result("uninstall", as_json, act)
 

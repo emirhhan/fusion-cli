@@ -15,6 +15,7 @@ from ..config import plugin_store
 from ..config.plugin_scopes import SCOPE_USER, check_scope, scope_values, write_enabled
 from ..config.plugin_store import (
     InstalledPlugin,
+    PluginRecord,
     inspect_plugin,
     load_state,
     plugin_id,
@@ -90,11 +91,30 @@ def install_scoped(
         )
     except plugin_install.PluginAlreadyInstalledError:
         if target == SCOPE_USER:
-            raise
+            if is_direct_source(spec):
+                raise  # eski doğrudan kaynak: kayıt adı kaynaktan çıkarılamaz
+            return _add_user_scope(spec, store)
         return _add_scope(spec, target, store, project)
     if target == SCOPE_USER:
         return ScopedInstall(item, SCOPE_USER)
     return _add_scope(plugin_id(item.record), target, store, project, fresh=True)
+
+
+def scope_key(scope: str, project: Path) -> str:
+    """Kayıttaki kapsam girdisi: `user` ya da `<kapsam>:<proje kökü>` (#408)."""
+    return SCOPE_USER if scope == SCOPE_USER else f"{scope}:{project.resolve()}"
+
+
+def _add_user_scope(spec: str, store: Path) -> ScopedInstall:
+    """Yalnız project/local'de kurulu eklenti user kapsamına da kurulur; zaten varsa bilgi."""
+    record = find_record(load_state(store), spec)
+    if SCOPE_USER in record.scopes:
+        raise plugin_install.PluginAlreadyInstalledError(
+            ALREADY.format(ident=plugin_id(record), scope=SCOPE_USER)
+        )
+    opened = replace(record, enabled=True, scopes=(SCOPE_USER, *record.scopes))
+    plugin_store.update_state(lambda state: state.with_plugin(opened), store)
+    return ScopedInstall(inspect_plugin(opened, store), SCOPE_USER)
 
 
 def _add_scope(
@@ -105,28 +125,64 @@ def _add_scope(
     values = scope_values(scope, project)
     if not fresh and (values.get(ident) or values.get(record.name)):
         raise plugin_install.PluginAlreadyInstalledError(ALREADY.format(ident=ident, scope=scope))
+    key = scope_key(scope, project)
     if fresh:
         # Yalnız bu kapsamda açık: diğer projelerde (user) kapalı başlar.
-        closed = replace(record, enabled=False)
-        plugin_store.update_state(lambda state: state.with_plugin(closed), store)
-        record = closed
+        record = replace(record, enabled=False, scopes=(key,))
+    elif key not in record.scopes:
+        record = replace(record, scopes=(*record.scopes, key))
+    updated = record
+    plugin_store.update_state(lambda state: state.with_plugin(updated), store)
     write_enabled(scope, ident, record.name, True, project)
     return ScopedInstall(inspect_plugin(replace(record, enabled=True), store), scope)
 
 
 def uninstall_from_scope(spec: str, scope: str, project: Path | None = None) -> str:
-    """`uninstall --scope project|local` (#408): yalnız o kapsamın `enabledPlugins` girdisini sil.
+    """`uninstall --scope project|local` (#408): o kapsamın `enabledPlugins` girdisini sil.
 
-    Claude gibi kapsamda kayıt yoksa "kurulu değil" hatası. Paylaşılan kopya ve user kaydı kalır
-    (başka kapsamlar kullanıyor olabilir); kaldırılan kimliği döndürür.
+    Claude gibi kapsamda kayıt yoksa "kurulu değil" hatası. Kaldırılan kimliği döndürür; kayıt
+    başka kapsam kullanmıyorsa kopya/veri/ayar silme `uninstall_plugin`'dedir.
+    """
+    record = find_record(load_state(), spec)
+    drop_scope(record, scope, plugins_dir(), project)
+    return plugin_id(record)
+
+
+def default_scope(record: PluginRecord, project: Path | None = None) -> str:
+    """`--scope` verilmeyen kaldırma: user; eklenti yalnız bu projede kuruluysa o kapsam."""
+    if SCOPE_USER in record.scopes:
+        return SCOPE_USER
+    root = project or Path.cwd()
+    for scope in ("local", "project"):
+        if scope_key(scope, root) in record.scopes:
+            return scope
+    return SCOPE_USER
+
+
+def drop_scope(
+    record: PluginRecord, scope: str, store: Path, project: Path | None = None
+) -> PluginRecord:
+    """Kapsamı kayıttan ve (project/local ise) ayar dosyasından düşür; güncel kaydı döndür.
+
+    Dönen kaydın `scopes` alanı boşsa eklenti son kapsamından da kalkmıştır.
     """
     from .plugin_toggle import ERR_UNINSTALL_SCOPE
 
     root = project or Path.cwd()
-    record = find_record(load_state(), spec)
-    ident = plugin_id(record)
-    values = scope_values(scope, root)
-    if ident not in values and record.name not in values:
-        raise PluginError(ERR_UNINSTALL_SCOPE.format(name=spec, scope=scope))
-    write_enabled(scope, ident, record.name, None, root)
-    return ident
+    if scope == SCOPE_USER:
+        if SCOPE_USER not in record.scopes:
+            raise PluginError(ERR_UNINSTALL_SCOPE.format(name=record.name, scope=scope))
+        left = tuple(item for item in record.scopes if item != SCOPE_USER)
+        updated = replace(record, scopes=left, enabled=False)
+    else:
+        ident = plugin_id(record)
+        values = scope_values(scope, root)
+        if ident not in values and record.name not in values:
+            raise PluginError(ERR_UNINSTALL_SCOPE.format(name=record.name, scope=scope))
+        write_enabled(scope, ident, record.name, None, root)
+        key = scope_key(scope, root)
+        # Eski (kapsam izlenmeyen) kayıtta proje girdisi yok: paylaşılan kopya kalır.
+        updated = replace(record, scopes=tuple(item for item in record.scopes if item != key))
+    if updated.scopes:
+        plugin_store.update_state(lambda state: state.with_plugin(updated), store)
+    return updated

@@ -459,33 +459,48 @@ def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
 
 
 def uninstall_plugin(
-    name: str, *, base: Path | None = None, keep_data: bool = False, scope: str = ""
+    name: str,
+    *,
+    base: Path | None = None,
+    keep_data: bool = False,
+    scope: str = "",
+    everywhere: bool = False,
+    root: Path | None = None,
 ) -> Path:
-    """Kopyayı `.orphaned_at` işaretiyle eski sürümlere taşı (14 gün sonra silinir), kaydı ve
-    veri klasörünü sil (#408).
+    """Eklentiyi kapsamdan kaldır; SON kapsamdan kalkınca kopyayı `.orphaned_at` ile eski
+    sürümlere taşı (14 gün sonra silinir), kaydı, userConfig değerlerini/sırlarını ve
+    `--keep-data` yoksa veri klasörünü sil (Claude `plugin uninstall`, #408/#388).
 
-    Claude gibi `ad@pazar` kabul eder; `--keep-data` verilmezse `${CLAUDE_PLUGIN_DATA}` silinir.
+    `everywhere` (pazar kaldırma/forceRemoveDeletedPlugins) bütün kapsamlardan kaldırır.
     """
-    from .plugin_toggle import check_uninstall_scope, find_record, remove_plugin_data
+    from .plugin_install_scope import default_scope, drop_scope
+    from .plugin_toggle import check_uninstall_scope, find_record
 
     check_uninstall_scope(name, scope)
-    root = base or plugins_dir()
-    if scope and scope != "user":
-        from .plugin_install_scope import uninstall_from_scope
-
-        uninstall_from_scope(name, scope)
-        return plugin_store.plugin_folder(find_record(load_state(root), name), root)
-    found = find_record(load_state(root), name)
-    name = found.name
-    folder = plugin_store.plugin_folder(found, root)
-    # Yerinde yüklenen eklentinin klasörü kullanıcının pazar kaynağıdır: asla taşınmaz (#403).
-    if not found.folder and folder.is_dir() and found.kind != "inline":
-        orphan(folder, root)
-    plugin_store.update_state(lambda current: current.without_plugin(name), root)
-    sweep_orphans(root)
-    if not keep_data:
-        remove_plugin_data(name)
+    store = base or plugins_dir()
+    found = find_record(load_state(store), name)
+    folder = plugin_store.plugin_folder(found, store)
+    target = scope or default_scope(found, root)
+    if not everywhere and drop_scope(found, target, store, root).scopes:
+        return folder  # başka kapsamlar kullanıyor: paylaşılan kopya ve veri kalır
+    remove_installation(found, store, keep_data=keep_data)
     return folder
+
+
+def remove_installation(record: PluginRecord, root: Path, *, keep_data: bool) -> None:
+    """Kopya, kayıt, userConfig değerleri/sırları ve (istenirse) veri klasörü (#408)."""
+    from ..config.plugin_user_config import forget_values
+    from .plugin_toggle import remove_plugin_data
+
+    folder = plugin_store.plugin_folder(record, root)
+    # Yerinde yüklenen eklentinin klasörü kullanıcının pazar kaynağıdır: asla taşınmaz (#403).
+    if not record.folder and folder.is_dir() and record.kind != "inline":
+        orphan(folder, root)
+    plugin_store.update_state(lambda current: current.without_plugin(record.name), root)
+    sweep_orphans(root)
+    forget_values(record.name, root)
+    if not keep_data:
+        remove_plugin_data(record.name)
 
 
 def set_plugin_enabled(
@@ -644,7 +659,7 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> tuple[str, ...
     failed: list[str] = []
     for plugin in removed:
         try:
-            uninstall_plugin(f"{plugin}@{name}", base=root)
+            uninstall_plugin(f"{plugin}@{name}", base=root, everywhere=True)
         except PluginError as error:
             failed.append(f"{plugin}: {error}")
     if failed:
