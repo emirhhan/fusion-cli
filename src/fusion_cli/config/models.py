@@ -464,6 +464,9 @@ class RuntimeConfig:
     #: REPL görünümü (P-070): `fullscreen` (varsayılan, Ink-benzeri tam ekran) | `inline`
     #: (eski satır-içi yol; FUSION_INLINE=1 ile aynı). `/tui` ile değişir, yeni oturumda uygulanır.
     tui: str = "fullscreen"
+    #: Claude Code "Session recap" (#230): uzaklaşınca tek satırlık oturum özeti
+    #: (`CLAUDE_CODE_ENABLE_AWAY_SUMMARY=0` da kapatır).
+    session_recap: bool = True
     #: Vim düzenleme kipi (P-067): girdi satırı NORMAL/INSERT kiplerinde çalışır. `/vim`.
     vim_mode: bool = False
     #: Talimat katmanları birleştirilsin mi: `~/.claude/CLAUDE.md` + `~/.codex/AGENTS.md`

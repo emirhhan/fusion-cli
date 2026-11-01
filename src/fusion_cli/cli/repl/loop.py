@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
     from ...engines.agent.remotion_bridge import FrameTransport
     from ...tools.registry import ToolRegistry
+    from ...ui.picker import Choice
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
@@ -81,6 +82,7 @@ from . import (
     browser_command,
     btw_command,
     cron_store,
+    diff_viewer,
     goal_flow,
     goal_store,
     help_view,
@@ -678,6 +680,33 @@ async def _offer_plan_card(
         await _run_turn(task, state, console, background)
 
 
+async def _run_inline_panel(name: str, argument: str, state: ReplState, console: Console) -> bool:
+    """Terminalde seçici/katman açan komutlar (#221, #225, #230); açtıysa True."""
+    if not sys.stdin.isatty():
+        return False
+    if name == "status":
+        # Claude Code (#225): /status Settings panelini Status sekmesinde açar.
+        if notes := status_panel(state):
+            console.print(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+        return True
+    if name == "btw":
+        # Claude Code `/btw` (#221): cevap kapatılabilir katmanda (seçici), geçmişe girmez.
+        await btw_command.inline_overlay(state, argument, console)
+        return True
+    if name == "diff" and not argument.strip():
+        # Claude Code `/diff` (#230): git farkı ↔ turlar arasında ←/→, Enter dosya farkı.
+        return await diff_viewer.run_async(state, _inline_asker)
+    return False
+
+
+async def _inline_asker(
+    title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+) -> str | None:
+    from ...ui.picker import pick
+
+    return pick(rows, title=title, alt_keys=keys, initial=initial)
+
+
 async def _run_command(
     line: str, state: ReplState, registry: CommandRegistry, reader: ReplInput, console: Console
 ) -> None:
@@ -689,15 +718,9 @@ async def _run_command(
         )
         return
 
-    if command.name == "status" and sys.stdin.isatty():
-        # Claude Code (#225): /status Settings panelini Status sekmesinde açar.
-        notes = status_panel(state)
-        if notes:
-            console.print(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
-    elif command.name == "btw" and sys.stdin.isatty():
-        # Claude Code `/btw` (#221): cevap kapatılabilir katmanda (seçici), geçmişe girmez.
-        await btw_command.inline_overlay(state, argument, console)
-    elif renders_itself(command.name, argument):
+    if await _run_inline_panel(command.name, argument, state, console):
+        return
+    if renders_itself(command.name, argument):
         await help_view.render(command.name, state, registry, console, argument)
         return
     if command.name in ASYNC_COMMANDS:

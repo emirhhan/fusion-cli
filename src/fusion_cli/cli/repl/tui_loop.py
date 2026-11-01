@@ -39,12 +39,14 @@ from ..session import run_agent_task, run_task
 from . import (
     agent_link,
     async_commands,
+    away_recap,
     background_commands,
     browser_command,
     btw_command,
     busy_commands,
     copy_blocks,
     cron_store,
+    diff_viewer,
     export_commands,
     goal_flow,
     goal_store,
@@ -62,6 +64,7 @@ from . import (
     profiles_flow,
     provider_flow,
     queue_steer,
+    recap_command,
     remote_control,
     resume_picker,
     rewind,
@@ -379,6 +382,7 @@ class _TuiSession:
         line = text.strip()
         if not line:
             return
+        self._touch_away()
         if self._busy and busy_commands.runs_while_busy(self._registry, line):
             # Claude Code (#209): belgelenen anlık komutlar kuyruğa girmez, hemen çalışır.
             future = asyncio.ensure_future(self._command(line))
@@ -439,6 +443,20 @@ class _TuiSession:
         if self._busy and self._task is not None and self._current_line:
             self._to_background = True
             self._task.cancel()
+
+    def start_away_recap(self) -> asyncio.Future[None]:
+        """Uzaklık özeti gözcüsü (#230); gönderim ve tur sonu etkinlik sayılır."""
+        self._away = away_recap.AwayRecap(
+            self._state,
+            lambda: self._busy,
+            lambda: recap_command.recap(self._state),
+            lambda text: self._echo(f"{messages.RECAP_MARK} {escape(text)}"),
+        )
+        return asyncio.ensure_future(self._away.run())
+
+    def _touch_away(self) -> None:
+        if (away := getattr(self, "_away", None)) is not None:
+            away.touch()
 
     def start_agent_link(self) -> asyncio.Future[None]:
         """Arka plan bildirimleri ve gelen oturum mesajları (P-048/P-060)."""
@@ -640,6 +658,7 @@ class _TuiSession:
             )
         finally:
             self._tui.clear_work()
+            self._touch_away()
             self._sync_status()
             cron_store.save(
                 self._state.config.memory_dir, self._state.conversation_id, self._state.cron
@@ -657,6 +676,9 @@ class _TuiSession:
             self._echo(
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
+            return
+        if command.name == "diff" and not argument.strip() and await self._run_diff_viewer():
+            # Claude Code `/diff` (#230): etkileşimli görüntüleyici; gösterecek yoksa metin.
             return
         if command.name == "btw":
             # Claude Code `/btw` (#221): cevap kapatılabilir katmanda, konuşmaya basılmaz.
@@ -844,6 +866,14 @@ class _TuiSession:
             await self._turn(pending, mode=mode)
             await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _run_diff_viewer(self) -> bool:
+        async def _ask(
+            title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(title, list(rows), alt_keys=keys, initial=initial)
+
+        return await diff_viewer.run_async(self._state, _ask)
 
     async def _side_question(self, argument: str) -> None:
         question = argument.strip()
@@ -1357,6 +1387,8 @@ async def run_tui_repl(
         lambda: session._busy,
         lambda text: session._echo(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
     )
+    # Claude Code "Session recap" (#230): uzaklaşınca tek satırlık özet.
+    away = session.start_away_recap()
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
     # Oturum başında (sürdürmede de) durum satırı betiği bir kez çalışır (#192).
@@ -1380,8 +1412,11 @@ async def run_tui_repl(
         await session.close_status_line()
         session.tui.restore_wheel_modes()
         cron_watcher.cancel()
+        away.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        with contextlib.suppress(asyncio.CancelledError):
+            await away
         await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
 

@@ -96,6 +96,13 @@ AGENT_TOOL_FAILED = "{name} başarısız · {summary}"
 DIFF_SUMMARY = "{added} ekleme, {removed} silme"
 #: Diff tavana ulaştığında alta basılan kırpma satırı.
 DIFF_TRUNCATED = "… (+{count} satır daha)"
+DIFF_VIEW_GIT = "Git çalışma ağacı (git diff HEAD)"
+DIFF_VIEW_TURN = "Tur {index}: {task}"
+DIFF_VIEW_TITLE = (
+    "/diff {position}/{total} · {title}  · ←/→ görünüm · Enter dosya farkı · Esc kapatır"
+)
+DIFF_VIEW_EMPTY = "(değişiklik yok)"
+DIFF_VIEW_NO_CHANGE = "(fark yok)"
 #: Araç sonucu kırpıldı. Kırpma SÖYLENİR; kullanıcı eksik baktığını bilmeli.
 RESULT_TRUNCATED = "… (+{count} satır daha)"
 AGENT_PREVIEW_READY = "önizleme çalışıyor → {url} (tarayıcıda aç)"
