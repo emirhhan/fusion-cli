@@ -149,6 +149,13 @@ Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url` ve `g
 adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur) olabilir; `npm`,
 `archive` ve `command` kaynakları henüz yok.
 
+`plugin marketplace update` sonrasında pazarın `renames` haritası uygulanır (zincir en eski addan
+izlenir): yeniden adlandırılan kurulum yeni girdi adıyla sürer, project/local `enabledPlugins`
+anahtarı yeni ada yazılır ve `Renamed to "<yeni>" in the "<pazar>" marketplace` basılır; `null`
+eşlemede anahtar düşer (`Removed from the "<pazar>" marketplace`). `forceRemoveDeletedPlugins: true`
+iken girdilerde ve `renames`'te olmayan kurulum kaldırılır. Claude bunu her oturum başında yapar;
+Fusion yalnız pazar güncellemesinde (REPL/masaüstü güncellemesinde henüz değil).
+
 Girdi her `plugin.json` alanını taşıyabilir (Claude "Strict mode"): eklentide `plugin.json` yoksa girdi
 bildirimdir; varsa o otoritedir ve `strict: true` (varsayılan) iken girdinin `commands`, `agents`,
 `skills`, `hooks`, `outputStyles`, `themes` alanları ona eklenir (`hooks` eşleyicileri olay başına yer

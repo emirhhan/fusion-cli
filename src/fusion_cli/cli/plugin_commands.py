@@ -347,11 +347,16 @@ def market_update(
     """Git pazarını yeniden klonla; ad verilmezse bütün pazarları yenile (#410)."""
 
     def act() -> tuple[str, dict[str, object]]:
+        from ..tools.plugin_market_sync import sync_by_name
+
         if not name:
-            count = len(plugin_update.update_all_marketplaces())
-            return MARKETS_UPDATED.format(count=count), {}
+            updated = plugin_update.update_all_marketplaces()
+            notes = [n for record in updated for n in sync_by_name(record.name)]
+            text = MARKETS_UPDATED.format(count=len(updated))
+            return "\n".join([text, *notes]), {}
         plugin_update.update_marketplace(name)
-        return MARKET_UPDATED.format(name=name), {"marketplace": name}
+        notes = list(sync_by_name(name))  # renames / forceRemoveDeletedPlugins (#397)
+        return "\n".join([MARKET_UPDATED.format(name=name), *notes]), {"marketplace": name}
 
     run_result("marketplace-update", as_json, act)
 

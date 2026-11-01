@@ -108,6 +108,9 @@ class Marketplace:
     description: str = ""
     #: Atlanan girdilerin ve kullanımdan kalkan biçimlerin uyarıları.
     warnings: tuple[str, ...] = ()
+    #: `renames`: (eski ad, yeni ad; "" = kaldırıldı) ve `forceRemoveDeletedPlugins` (#397).
+    renames: tuple[tuple[str, str], ...] = ()
+    force_remove_deleted: bool = False
 
 
 def is_reserved_marketplace(name: str) -> bool:
@@ -158,6 +161,18 @@ def parse_marketplace(raw: object, *, where: str = "marketplace.json") -> Market
         entries,
         description if isinstance(description, str) else "",
         warnings,
+        _renames(raw.get("renames")),
+        raw.get("forceRemoveDeletedPlugins") is True,
+    )
+
+
+def _renames(raw: object) -> tuple[tuple[str, str], ...]:
+    if not isinstance(raw, Mapping):
+        return ()
+    return tuple(
+        (str(old), str(new) if isinstance(new, str) else "")
+        for old, new in raw.items()
+        if new is None or isinstance(new, str)
     )
 
 
