@@ -17,6 +17,7 @@ SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
 SUBAGENT_FORCE_ENV = "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"
 BACKGROUND_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 FORK_ENV = "CLAUDE_CODE_FORK_SUBAGENT"
+EXPLORE_PLAN_ENV = "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"
 DEFAULT_MODEL_ENV = "ANTHROPIC_DEFAULT_{alias}_MODEL"
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off", ""})
@@ -78,6 +79,9 @@ def read_agent_launch(
             merged_env, BACKGROUND_ENV, loaded.disable_background_tasks
         ),
         fork_enabled=_environment_bool(merged_env, FORK_ENV, loaded.fork_enabled),
+        disable_explore_plan_agents=_environment_bool(
+            merged_env, EXPLORE_PLAN_ENV, loaded.disable_explore_plan_agents
+        ),
         model_aliases=tuple(aliases.items()),
     )
 

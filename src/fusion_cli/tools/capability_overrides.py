@@ -72,6 +72,12 @@ def registry_from_config(
     from .capabilities import CapabilityRegistry
 
     disabled = frozenset(getattr(getattr(config, "capabilities", None), "disabled", ()) or ())
+    launch = getattr(config, "agent_launch", None)
+    builtin_off = (
+        frozenset({"explore", "plan"})
+        if getattr(launch, "disable_explore_plan_agents", False)
+        else frozenset()
+    )
     return CapabilityRegistry(
         home,
         root,
@@ -83,4 +89,5 @@ def registry_from_config(
         managed_roots=tuple(Path(path) for path in config.agent_launch.managed_agent_roots),
         session_agents=session_agents,
         working_directory=working_directory if working_directory is not None else root,
+        disabled_builtin_agents=builtin_off,
     )

@@ -1133,6 +1133,7 @@ agent_launch:
   unresolved_parent_family: false
   disable_auto_mode: false
   disable_background_tasks: false
+  disable_explore_plan_agents: false
   fork_enabled: true
   auto_supported_models: []
   managed_agent_roots: []

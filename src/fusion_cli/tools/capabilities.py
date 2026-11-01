@@ -169,8 +169,8 @@ class Capability:
     mcp_servers: tuple[str, ...] = ()
     #: `memory`: user | project | local (P-055); boş = ajan belleği yok.
     memory: str = ""
-    #: `background`, `isolation`, `hooks`: okunur ve katalogda gösterilir; Fusion'da alt ajan
-    #: tur içinde biter. Çalışma ağacı izolasyonu çağrıdan gelir (`subtask(izolasyon=...)`).
+    #: `background`: bekleme istense de arka planda kal; `isolation: worktree`: ayrı git
+    #: çalışma ağacı; `hooks`: olay adları (tam tanım `hook_definitions`ta).
     background: bool = False
     isolation: str = ""
     hooks: tuple[str, ...] = ()
@@ -320,6 +320,7 @@ class CapabilityRegistry:
         managed_roots: tuple[Path, ...] = (),
         session_agents: tuple[Capability, ...] = (),
         working_directory: Path | None = None,
+        disabled_builtin_agents: frozenset[str] = frozenset(),
     ) -> None:
         self._proposal_policy = proposal_policy or ProposalPolicy()
         self._home = home
@@ -336,6 +337,8 @@ class CapabilityRegistry:
         self._managed_roots = managed_roots
         self._session_agents = session_agents
         self._working_directory = working_directory
+        #: Yalnız paketle gelen (`fusion`) tanımlar; aynı adlı kullanıcı/proje tanımı kalır.
+        self._disabled_builtin_agents = disabled_builtin_agents
         #: Alt klasörlerde tembel keşfedilen beceri dizinleri (P-052); bkz. `add_nested_roots`.
         self._nested_roots: tuple[Path, ...] = ()
         self._skills: tuple[Capability, ...] | None = None
@@ -383,6 +386,7 @@ class CapabilityRegistry:
             managed_roots=self._managed_roots,
             session_agents=self._session_agents,
             working_directory=self._working_directory,
+            disabled_builtin_agents=self._disabled_builtin_agents,
         )
 
     def invalidate(self) -> None:
@@ -442,6 +446,7 @@ class CapabilityRegistry:
                 for item in self._discover_agents()
                 if item.name not in self._disabled_agents
                 and item.qualified_name not in self._disabled_agents
+                and not (item.source == "fusion" and item.name in self._disabled_builtin_agents)
             )
             self._agents = agents
         return agents
