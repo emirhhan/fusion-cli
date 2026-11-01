@@ -36,6 +36,7 @@ from . import (
     background_commands,
     btw_command,
     code_review,
+    terminal_setup,
     config_command,
     doctor_command,
     export_commands,
@@ -1259,6 +1260,12 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("pr", messages.CMD_PR, ()),
             ("autofix-pr", messages.CMD_AUTOFIX_PR, ()),
         )
+    ),
+    SlashCommand(
+        "terminal-setup",
+        messages.CMD_TERMINAL_SETUP,
+        lambda state, _argument: terminal_setup.terminal_setup(state.home),
+        group="Görünüm",
     ),
     SlashCommand(
         "code-review",

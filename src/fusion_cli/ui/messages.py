@@ -1073,6 +1073,10 @@ CMD_GOAL = "turlar arası hedef: /goal <koşul> · durum · devam · clear"
 CMD_GRILL = "mülakat kipi: kod yazmadan önce gereksinimleri sor"
 CMD_BUG = "hata avı: bul, kök nedeni tespit et, düzelt, doğrula"
 CMD_COMMIT = "değişiklikleri incele ve conventional commit ile kaydet"
+CMD_TERMINAL_SETUP = (
+    "Shift+Enter yeni satır bağını kur (VS Code, Cursor, Zed, Alacritty); Apple Terminal'de "
+    "Option+Enter, iTerm2'de pano erişimi"
+)
 CMD_REVIEW = "dalın değişikliklerini (ya da PR/dal/yol) doğruluk hataları için incele"
 CODE_REVIEW_DEFAULT_SCOPE = (
     "dalın üst dala göre önde olan commit'leri ve commit'lenmemiş (staged ve unstaged) "

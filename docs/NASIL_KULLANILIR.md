@@ -1116,6 +1116,10 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 
 Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+Enter terminalden ayrı bir tuş olarak okunmadığı için `chat:sendNow` yalnız Ctrl+X Ctrl+S'de; `chat:sendNow` süren kabuk komutunu arka plana almak yerine turu keser; motor yönlendirme gelince aynı yanıttaki henüz başlamamış araç çağrılarını başlatmaz.
 
+### Terminal kurulumu: `/terminal-setup`
+
+Claude Code'daki gibi terminali tanır ve tek seferlik ayarı yazar: VS Code, Cursor ve Devin Desktop'ta kullanıcı `keybindings.json`'una Shift+Enter → ESC CR bağı (ve `terminal.integrated.gpuAcceleration: "off"`), Zed'de `keymap.json`'a Terminal bağı (önce `keymap.json.<karma>.bak` yedeği; okunamayan dosya değiştirilmez, blok yazdırılır), Alacritty'de `alacritty.toml`'a Shift+Return bağı, Apple Terminal'de varsayılan profilde "Use Option as Meta Key" ve sesli zili kapatma, iTerm2'de uygulamaların panoya erişimi (`/copy` için). Var olan bağa dokunulmaz ("already configured"). Claude Code'dan fark: VS Code'da `mouseWheelScrollSensitivity` ayarlanmaz; ekran okuyucu kipine göre zil ayrımı yok.
+
 ### Tuş bağları ve vim: `/keybindings`, `editorMode`
 
 Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
