@@ -145,3 +145,21 @@ def test_kok_restricted_bare_ile_kesisir(monkeypatch):
     )
     bound = lp.bind(state, seen["launch_prompts"], resumed=None)
     assert bound.tools == BARE_TOOLS & RESTRICTED_TOOLS
+
+
+def test_kok_restricted_bypass_komutu_acik_ret_verir(monkeypatch):
+    from fusion_cli.cli.repl import commands
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    seen, result = _root(monkeypatch, ["--restricted"])
+    assert result.exit_code == 0, result.output
+    state = SimpleNamespace(config=seen["config"], conversation_id="", approval=ApprovalMode.AUTO)
+    state.launch_prompts = lp.bind(state, seen["launch_prompts"], resumed=None)
+    bypass = commands._set_mode(ApprovalMode.BYPASS)
+    reply = bypass(state, "")
+    assert state.approval is ApprovalMode.AUTO
+    assert "--restricted" in str(reply) and "bypassPermissions" in str(reply)
+    # Kısıtsız oturumda /bypass olağan biçimde açılır.
+    plain = SimpleNamespace(config=seen["config"], approval=ApprovalMode.AUTO)
+    bypass(plain, "")
+    assert plain.approval is ApprovalMode.BYPASS

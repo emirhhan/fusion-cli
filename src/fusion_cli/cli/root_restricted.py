@@ -4,8 +4,9 @@
 araçlar ve WebFetch her turda sunulmaz, dosya araçları çalışma dizinlerine sınırlanır,
 kullanıcı/proje/yerel ayar katmanları yüklenmez (yalnız `--settings`), yapılandırmadaki MCP
 bağlanmaz ve `bypassPermissions` kullanılamaz: `--settings permissions.defaultMode
-bypassPermissions` açılışı reddeder, oturum içinde `/bypass` ya da shift-tab ile seçilen
-kip tur başında `auto`ya indirilir.
+bypassPermissions` açılışı reddeder, oturum içinde `/bypass` açık bir ret mesajıyla
+reddedilir (kip değişmez); başka yoldan (plan onayı vb.) seçilen bypass tur başında `auto`ya
+indirilir. Shift-tab döngüsünde bypass zaten yoktur.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import replace
 
 from ..config.models import Config
 from ..engines.agent.approval import ApprovalMode
+from ..ui import print_messages as texts
 from .print_restricted import (
     RESTRICTED_TOOLS,
     apply_restricted_config,
@@ -36,6 +38,12 @@ def restricted_root_config(config: Config, *, settings_mode: str | None) -> Conf
 def restricted_turn_tools(tools: frozenset[str] | None) -> frozenset[str]:
     """Turda sunulacak araçlar: mevcut kısıt (ör. `--bare`) ile güvenli küme kesişimi."""
     return RESTRICTED_TOOLS if tools is None else tools & RESTRICTED_TOOLS
+
+
+def bypass_refusal(state: object) -> str:
+    """Kısıtlı oturumda `/bypass` açıkça reddedilir (kip değişmez); değilse boş."""
+    prompts = getattr(state, "launch_prompts", None)
+    return texts.REPL_RESTRICTED_BYPASS if getattr(prompts, "restricted", False) else ""
 
 
 def guard_turn_mode(state: object) -> None:

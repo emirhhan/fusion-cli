@@ -76,6 +76,7 @@ PRINT_RESTRICTED_BYPASS = (
     "(--permission-mode bypassPermissions, --dangerously-skip-permissions ya da "
     "--settings permissions.defaultMode)."
 )
+REPL_RESTRICTED_BYPASS = "--restricted kipinde bypassPermissions kullanılamaz; izin kipi değişmedi."
 PRINT_SUBAGENT_APPEND_CONFLICT = (
     "Error: --append-subagent-system-prompt and --append-subagent-system-prompt-file "
     "cannot be used together."
