@@ -44,6 +44,8 @@ ALREADY = 'Plugin "{ident}" is already installed (scope: {scope})'
 class ScopedInstall:
     item: InstalledPlugin
     scope: str
+    #: Kurulan/açılan bağımlılıkların notları (#389).
+    notes: tuple[str, ...] = ()
 
     @property
     def ident(self) -> str:
@@ -106,9 +108,13 @@ def install_scoped(
                 raise  # eski doğrudan kaynak: kayıt adı kaynaktan çıkarılamaz
             return _add_user_scope(spec, store)
         return _add_scope(spec, target, store, project)
+    from .plugin_dependencies import install_dependencies
+
+    notes = install_dependencies(item.record, approve, base=store)  # #389
     if target == SCOPE_USER:
-        return ScopedInstall(item, SCOPE_USER)
-    return _add_scope(plugin_id(item.record), target, store, project, fresh=True)
+        return ScopedInstall(item, SCOPE_USER, notes)
+    done = _add_scope(plugin_id(item.record), target, store, project, fresh=True)
+    return replace(done, notes=notes)
 
 
 def scope_key(scope: str, project: Path) -> str:

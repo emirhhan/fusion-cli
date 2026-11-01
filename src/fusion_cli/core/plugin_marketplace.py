@@ -116,6 +116,8 @@ class Marketplace:
     #: `renames`: (eski ad, yeni ad; "" = kaldırıldı) ve `forceRemoveDeletedPlugins` (#397).
     renames: tuple[tuple[str, str], ...] = ()
     force_remove_deleted: bool = False
+    #: `allowCrossMarketplaceDependenciesOn`: bağımlılığın başka hangi pazarlardan kurulabileceği.
+    cross_dependencies: tuple[str, ...] = ()
 
 
 def is_reserved_marketplace(name: str) -> bool:
@@ -183,7 +185,14 @@ def parse_marketplace(
         warnings,
         _renames(raw.get("renames")),
         raw.get("forceRemoveDeletedPlugins") is True,
+        _names(raw.get("allowCrossMarketplaceDependenciesOn")),
     )
+
+
+def _names(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item.strip() for item in raw if isinstance(item, str) and item.strip())
 
 
 def _renames(raw: object) -> tuple[tuple[str, str], ...]:

@@ -102,7 +102,7 @@ fusion plugin init|new <ad> [--author] [--author-email] [--description] [-f] [--
 fusion plugin tag [yol] [--dry-run] [-f] [-m "%s"] [--push] [--remote origin]   # <ad>--v<sürüm> etiketi
 fusion plugin configure <ad@pazar> [--values-stdin] [--json]
 fusion plugin details <ad|ad@pazar>            # bileşen envanteri + öngörülen token maliyeti
-fusion plugin prune [--dry-run] [-y]           # (autoremove) Fusion bağımlılık kurmaz: "Nothing to prune"
+fusion plugin prune [--dry-run] [-y]           # (autoremove) artık gerekmeyen kendiliğinden kurulmuş bağımlılıklar
 fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
 fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
 fusion plugin uninstall <ad|ad@pazar> [--keep-data] [--scope user|project|local]  # kopya .orphaned_at ile 14 gün kalır
@@ -255,11 +255,19 @@ Claude'un `workflows/` iş akışları ve `hooks.json` `modules` (mod) bileşenl
 yükleme/doğrulamada "desteklenmiyor" uyarısı verilir. Etkin eklentinin `bin/` klasörü Claude gibi
 ajanın kabuk aracının (`run_shell`) PATH'ine eklenir.
 
+**Bağımlılıklar (`dependencies`):** eklenti kurulurken `plugin.json` `dependencies` girdileri
+(`"ad"`, `"ad@pazar"`, `{name, marketplace}`) aynı pazardan kendiliğinden kurulur ve açılır
+("Bağımlılık kuruldu/açıldı"); başka pazardaki bağımlılık yalnız kök pazarın
+`allowCrossMarketplaceDependenciesOn` listesinde o pazar varsa kurulur. Kendiliğinden kurulanlar
+artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`) ya da
+`uninstall --prune` ile kaldırılır; elle kurulan eklenti budanmaz. `version` aralığı yok sayılır
+(güncel sürüm kurulur).
+
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır. Managed kapsam okunmaz;
 `extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` (user) user ayarına
-yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez. Bağımlılık (`dependencies`)
-kurulumu, `lspServers`/`monitors`/`themes`/`channels`, `plugin eval`, `npm`/`archive`/`command`
+yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez. Bağımlılık sürüm aralıkları
+(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels`, `plugin eval`, `npm`/`archive`/`command`
 eklenti kaynakları ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 

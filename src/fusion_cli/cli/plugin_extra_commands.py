@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from ..tools.plugin_listing import details_text, prune_text
+from ..tools.plugin_listing import details_text
 from .plugin_commands import _run, app
 
 
@@ -22,8 +22,15 @@ def prune(
     yes: bool = typer.Option(False, "--yes", "-y", help="Onay sorma (TTY yoksa gerekli)."),
 ) -> None:
     """Artık hiçbir eklentinin gerekmediği otomatik kurulmuş bağımlılıkları kaldır."""
-    del scope, yes  # Fusion bağımlılık kurmaz: her kapsamda budanacak şey yok.
-    typer.echo(prune_text(dry_run=dry_run))
+    from ..core.plugins import PluginError
+    from ..tools.plugin_dependencies import prune as prune_dependencies
+
+    del scope, yes  # Fusion bağımlılıkları tek (user) depoda tutar
+    try:
+        typer.echo(prune_dependencies(dry_run=dry_run))
+    except PluginError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
 
 
 app.command("prune")(prune)

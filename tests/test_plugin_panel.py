@@ -123,3 +123,18 @@ def test_install_dogrudan_kaynak_pazarda_yok_der(state, tmp_path):
     assert plugin_store.load_state().plugin("rapor") is None
     legacy = repl_plugin.plugin_command(state, f"kur {folder} --yes")
     assert "kullanımdan kalktı" in legacy and "Kuruldu: rapor" in legacy
+
+
+def test_cli_install_dogrudan_kaynagi_reddeder_kur_eski_davranisi_surdurur(tmp_path):
+    """#379: Claude `plugin install ./yol` → "not found in any configured marketplace" (1)."""
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.plugin_commands import app
+
+    folder = tmp_path / "pazar" / "plugins" / "rapor"
+    _market(tmp_path)
+    runner = CliRunner()
+    refused = runner.invoke(app, ["install", str(folder)])
+    assert refused.exit_code == 1 and "hiçbir pazarda yok" in " ".join(refused.output.split())
+    assert plugin_store.load_state().plugin("rapor") is None
+    assert runner.invoke(app, ["kur", str(folder)]).exit_code == 0

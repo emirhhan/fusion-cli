@@ -25,7 +25,6 @@ from ..config.plugin_store import inspect_plugin, installed_plugins, load_state,
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
-from ..tools.plugin_listing import prune_text
 from .plugin_result import run_result
 from .plugin_view import (
     DIGEST_HINT,
@@ -153,6 +152,7 @@ def install(
             allow_direct=ctx.info_name == "kur",  # eski ad: doğrudan kaynak bir sürüm daha
         )
         text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
+        text = "\n".join([text, *done.notes])  # bağımlılıklar (#389)
         return text + _configure_after_install(done, config), {
             "pluginId": done.ident,
             "scope": done.scope,
@@ -326,8 +326,10 @@ def uninstall(
         plugins.uninstall_plugin(name, keep_data=keep_data, scope=used)
         data = DATA_KEPT if keep_data else ""
         text = REMOVED.format(name=name.split("@", 1)[0], scope=used, data=data)
-        if prune:  # Fusion bağımlılıkları otomatik kurmaz: budanacak bağımlılık olmaz.
-            text += "\n" + prune_text()
+        if prune:  # artık gerekmeyen kendiliğinden kurulmuş bağımlılıklar (#389)
+            from ..tools.plugin_dependencies import prune as prune_dependencies
+
+            text += "\n" + prune_dependencies()
         return text, {"pluginId": name, "scope": used}
 
     run_result("uninstall", as_json, act)

@@ -174,7 +174,7 @@ def _install(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -
     except PluginError as error:
         return "\n".join([*notes, str(error)])
     text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
-    return "\n".join([*notes, text])
+    return "\n".join([*notes, text, *done.notes])
 
 
 def _trust(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -> str:

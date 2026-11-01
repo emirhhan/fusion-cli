@@ -79,6 +79,8 @@ class PluginRecord:
     #: Kurulu olduğu kapsamlar (#408): `user`, `project:<kök>`, `local:<kök>`. Son kapsamdan
     #: kaldırılınca kopya, veri ve userConfig değerleri silinir (Claude `plugin uninstall`).
     scopes: tuple[str, ...] = ("user",)
+    #: Başka bir eklentinin `dependencies`'i için kendiliğinden kuruldu (#389; `prune` budar).
+    dependency: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +220,7 @@ def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
         entry_fields=str(raw.get("girdi_alanlari") or ""),
         entry_strict=raw.get("girdi_strict") is not False,
         scopes=_scopes(raw.get("kapsamlar")),
+        dependency=raw.get("bagimlilik") is True,
     )
 
 
@@ -273,6 +276,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 **({"girdi_alanlari": p.entry_fields} if p.entry_fields else {}),
                 **({"girdi_strict": False} if not p.entry_strict else {}),
                 **({"kapsamlar": list(p.scopes)} if p.scopes != ("user",) else {}),
+                **({"bagimlilik": True} if p.dependency else {}),
             }
             for p in sorted(state.plugins, key=lambda item: item.name)
         },
