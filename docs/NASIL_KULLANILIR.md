@@ -711,6 +711,7 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   <ad>` (bu projede aç/kapa), `/mcp tools <ad>` (araçların tam adı `mcp__<sunucu>__<araç>` ve
   izin kuralına göre durumu: izinli / her çağrıda sorar / reddedildi / kural yok).
   Ekleme/kaldırma CLI'dadır; eski `/mcp remove` kaydı kapsamından gerçekten siler.
+  Masaüstünde Bağlantılar > araç kataloğu aynı bilgiyi verir: tam ad ve izin durumu.
 - Bağlı sunucuların `initialize` talimatları "MCP Server Instructions" başlığıyla bağlama
   girer (4096 karakter; `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`). Kaynak bildiren sunucu
   varken modele `ListMcpResourcesTool` ve `ReadMcpResourceTool` verilir. Sunucu
@@ -751,7 +752,7 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   `WaitForMcpServers` aracı, uzun çağrının
   2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
   masaüstünde proje sunucusu onay istemi,
-  masaüstü panelinde araç/izin görünümü (REPL'de `/mcp tools` var), `--mcp-config` + `managed-mcp.json` birlikteyken
+  `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
 **MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):

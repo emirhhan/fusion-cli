@@ -173,3 +173,29 @@ async def test_katalog_istem_ve_kaynaklari_sohbet_yazimiyla_doner(monkeypatch):
     ]
     assert result["resources"] == [{"mention": "@gh:repo://a", "name": "A deposu", "mimeType": ""}]
     assert degraded["ok"] is True and degraded["prompts"] == [] and degraded["resources"] == []
+
+
+def test_katalog_her_aracin_izin_kurali_durumunu_tasir():
+    """#250: Claude `/mcp` panelinde aracın izin ayarı görünür; masaüstü de gösterir."""
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRule,
+        PermissionRuleSet,
+    )
+
+    rules = PermissionRuleSet(
+        rules=(
+            PermissionRule("mcp__one__lookup", None, PermissionDecision.ALLOW),
+            PermissionRule("mcp__two", None, PermissionDecision.DENY),
+        )
+    )
+    tools = [
+        RemoteTool("one", "lookup", "", {}, ToolEffect.REMOTE_READ),
+        RemoteTool("one", "write", "", {}, ToolEffect.REMOTE_WRITE),
+        RemoteTool("two", "lookup", "", {}, ToolEffect.REMOTE_WRITE),
+    ]
+
+    result = project_tools(tools, rules)
+
+    assert [item["permission"] for item in result["tools"]] == ["allow", "none", "deny"]
+    assert "permission" not in project_tools(tools)["tools"][0]

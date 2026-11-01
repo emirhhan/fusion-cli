@@ -59,6 +59,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
+from ..config.permission_rules import PermissionRuleSet
 from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
@@ -1301,7 +1302,7 @@ class AppSession:
             server = self._connector(request.data.get("ad"))
             if server is None:
                 return {"ok": False, "metin": "Bağlantı bulunamadı."}
-            result = await list_tool_catalog(server)
+            result = await list_tool_catalog(server, rules=self._catalog_rules())
             if source_config is not self._state.config or source_root != self._state.root:
                 return {"ok": False, "metin": "Bağlantı değişti; katalog yeniden okunmalı."}
             return result
@@ -2048,6 +2049,20 @@ class AppSession:
         if changed:
             self._state.approval_memory.revoke()
         self._state.config = config
+
+    def _catalog_rules(self) -> PermissionRuleSet | None:
+        """Araç kataloğunda izin durumu için güncel kurallar (#250); okunamazsa None."""
+        reader = getattr(self._state, "permission_rules", None)
+        if not callable(reader):
+            return None
+        try:
+            rules = reader()
+        except Exception as error:  # katalog bir görünüm; kural hatası onu düşürmez
+            logging.getLogger(__name__).info(
+                "izin kuralları katalog için okunamadı: %s", type(error).__name__
+            )
+            return None
+        return rules if isinstance(rules, PermissionRuleSet) else None
 
     def _connector(self, name: object) -> McpServerConfig | None:
         wanted = str(name or "")
