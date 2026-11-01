@@ -45,6 +45,8 @@ def test_kok_bare_ozellestirmeleri_kapatir(monkeypatch):
     assert config.runtime.hooks_enabled is False and config.mcp_servers == ()
     assert config.runtime.project_instructions is False
     assert config.runtime.auto_memory is False
+    assert config.runtime.skill_index_chars == 0
+    assert config.agent_launch.disable_background_tasks is True
     assert type(seen["memory"].lessons).__name__.startswith("Null")
     spec = seen["launch_prompts"]
     assert isinstance(spec, lp.LaunchSpec) and spec.bare and not spec.snapshot

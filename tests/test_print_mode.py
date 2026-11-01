@@ -639,7 +639,7 @@ def test_doctor_bozuk_ayar_dosyasini_raporlar(monkeypatch, tmp_path):
 def test_arka_plan_isi_beklenir_ve_bildirilir(monkeypatch):
     import asyncio
 
-    from fusion_cli.cli import print_runtime
+    from fusion_cli.cli import print_background as print_runtime
 
     class _Runs:
         def __init__(self, seconds):

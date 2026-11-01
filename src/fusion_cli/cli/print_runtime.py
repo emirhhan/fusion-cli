@@ -9,11 +9,10 @@ kapatır ve araç kümesini Bash + dosya okuma/düzenleme ile sınırlar.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import signal
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -22,10 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 from ..config.models import Config
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
-from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
-from ..ui import print_messages as texts
 
 if TYPE_CHECKING:
     from ..tools.capabilities import CapabilityRegistry
@@ -36,6 +33,7 @@ BARE_TOOLS = frozenset(
 )
 #: SIGTERM ile kesilen koşunun çıkış kodu (128 + 15; Claude ile aynı).
 SIGTERM_EXIT_CODE = 143
+
 
 
 class PrintPrompter:
@@ -78,12 +76,23 @@ BARE_ENV = "CLAUDE_CODE_SIMPLE"
 
 
 def apply_bare(config: Config) -> Config:
-    """`--bare` (#298): kanca, otomatik bellek, MCP/bağlayıcı ve proje talimatı kapalı."""
+    """`--bare` (#298): kanca, otomatik bellek, MCP/bağlayıcı ve proje talimatı kapalı.
+
+    Claude'daki gibi modele beceri listesi verilmez (`skill_index_chars: 0`) ve arka plan
+    alt ajanı başlatılamaz (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` karşılığı).
+    """
     os.environ[BARE_ENV] = "1"
     runtime = replace(
-        config.runtime, project_instructions=False, hooks_enabled=False, auto_memory=False
+        config.runtime,
+        project_instructions=False,
+        hooks_enabled=False,
+        auto_memory=False,
+        skill_index_chars=0,
     )
-    return replace(config, runtime=runtime, mcp_servers=(), hosted_connectors=())
+    launch = replace(config.agent_launch, disable_background_tasks=True)
+    return replace(
+        config, runtime=runtime, agent_launch=launch, mcp_servers=(), hosted_connectors=()
+    )
 
 
 #: `--safe-mode` ortam değişkeni (Claude ile aynı ad).
@@ -131,42 +140,6 @@ def sigterm_as_exception() -> Iterator[None]:
         yield
     finally:
         signal.signal(signal.SIGTERM, previous)
-
-
-#: Arka plan işi beklenirken stderr bildirimi bu kadar sonra yazılır (Claude: 5 sn).
-BG_NOTICE_DELAY_S = 5.0
-#: Arka plan işi bekleme tavanı (ms); Claude ile aynı ortam değişkeni ve varsayılan (10 dk).
-BG_WAIT_CEILING_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"
-BG_WAIT_CEILING_DEFAULT_MS = 600_000
-
-
-def bg_wait_ceiling_s() -> float:
-    raw = os.environ.get(BG_WAIT_CEILING_ENV, "").strip()
-    try:
-        value = int(raw) if raw else BG_WAIT_CEILING_DEFAULT_MS
-    except ValueError:
-        value = BG_WAIT_CEILING_DEFAULT_MS
-    return max(0, value) / 1000
-
-
-async def wait_background(
-    child_runs: ChildRuns, notify: Callable[[str], None], *, delay_s: float = BG_NOTICE_DELAY_S
-) -> None:
-    """Tur bitince başlatılmış arka plan alt ajanlarını tavana kadar bekle (#316)."""
-    if not child_runs.active_count:
-        return
-    drain = asyncio.ensure_future(child_runs.drain())
-    ceiling = bg_wait_ceiling_s()
-    done, _ = await asyncio.wait({drain}, timeout=min(delay_s, ceiling))
-    if not done:
-        notify(texts.PRINT_WAITING_BACKGROUND)
-        await asyncio.wait({drain}, timeout=max(0.0, ceiling - delay_s))
-    if not drain.done():
-        drain.cancel()
-        await child_runs.close()
-        return
-    if not drain.cancelled() and drain.exception() is not None:
-        notify(str(drain.exception()))
 
 
 def enable_debug_logging(categories: str | None, path: str | None) -> logging.Handler | None:

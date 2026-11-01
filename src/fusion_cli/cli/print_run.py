@@ -15,7 +15,6 @@ import json
 import re
 import sys
 import time
-from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,11 +26,11 @@ from ..core.errors import FusionError
 from ..core.events import EventSink
 from ..core.types import Message
 from ..engines.agent import dynamic_sections, subagent_prompt
-from ..providers import beta_headers
 from ..engines.agent.approval import ApprovalMemory
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentOutcome
 from ..observability.usage_log import open_usage_log
+from ..providers import beta_headers
 from ..tools.capabilities import CapabilityRegistry
 from ..tools.capability_overrides import registry_from_config
 from ..ui import print_messages as texts
@@ -39,6 +38,7 @@ from ..ui.renderer import ConsoleRenderer
 from . import sdk_messages as sdk
 from .cleanup import with_web_cleanup
 from .headless import OutputFormat
+from .print_background import ActivityClock, run_then_wait
 from .print_builtins import apply_builtin
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan, plan_extra_system
@@ -48,7 +48,6 @@ from .print_runtime import (
     TerminatedError,
     enable_debug_logging,
     sigterm_as_exception,
-    wait_background,
 )
 from .print_session import (
     PrintSession,
@@ -295,11 +294,12 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
     run.cost = observers.cost
     prompter = _prompter(run)
     child_runs = ChildRuns()
+    activity = ActivityClock()
     allowed, denied, slash_system = _turn_tools(run)
     coro = run_agent_task(
         task,
         plan.config,
-        sinks=(*observers.sinks, run.stats),
+        sinks=(*observers.sinks, run.stats, activity),
         prompter_factory=lambda _flush: prompter,
         mode=plan.mode,
         root=run.root,
@@ -320,20 +320,13 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         child_runs=child_runs,
     )
     try:
-        main = with_web_cleanup(_and_wait(coro, child_runs))
+        main = with_web_cleanup(run_then_wait(coro, child_runs, _warn, activity))
         outcome: AgentOutcome = asyncio.run(
             run.control.guard(main) if run.control is not None else main
         )
     finally:
         observers.finish()
     run.history = list(getattr(outcome, "messages", None) or run.history)
-    return outcome
-
-
-async def _and_wait(coro: Coroutine[Any, Any, AgentOutcome], child_runs: ChildRuns) -> AgentOutcome:
-    """Turu koş; sonra başlattığı arka plan alt ajanlarını Claude tavanıyla bekle (#316)."""
-    outcome = await coro
-    await wait_background(child_runs, _warn)
     return outcome
 
 
