@@ -13,6 +13,11 @@ import data from "../../../src/fusion_cli/config/data/masaustu-kisayollari.json"
 export const COMMAND_PREFIX = "komut:";
 export const DEFAULT_BINDINGS: Readonly<Record<string, string>> = data.varsayilan;
 export const ACTION_LABELS: Readonly<Record<string, string>> = data.eylemler;
+/**
+ * Claude Desktop tablosuna geçişte (#444) varsayılandan kalkan bağlar: bir sürüm boyunca, tuş
+ * kullanıcının tablosunda başka işe bağlı değilse eski eylemi çalıştırır ve bir kez uyarılır.
+ */
+export const LEGACY_BINDINGS: Readonly<Record<string, string>> = data.eski_varsayilan;
 const RESERVED = new Set<string>(data.ayrilmis);
 const NAMED_KEYS = new Set<string>(data.adli_tuslar);
 const MODIFIERS = ["mod", "ctrl", "alt", "shift"] as const;

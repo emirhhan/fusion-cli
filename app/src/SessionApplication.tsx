@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
+import { closeDecision } from "./shortcuts/closeGuard";
+import { actionLabel, formatKey, isMacPlatform } from "./shortcuts/keys";
 import { useCommandCenter } from "./shortcuts/useCommandCenter";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
@@ -933,9 +935,15 @@ export function SessionUygulama({
       destekleniyor: true,
     })),
   ], [commands, history.sources]);
-  // Global kısayollar (⌘K/⌘N/⌘B/⌘J/⌘1-9…) ve komut paleti (P-046); gövde `shortcuts/` altında.
+  // Global kısayollar (Claude Desktop tablosu, #444; eski ⌘K/⌘B/⌘J/⌘1-9 bir sürüm takma ad) ve komut paleti (P-046); gövde `shortcuts/` altında.
   const commandRunner = useRef<(input: string) => void>(() => undefined);
+  const closeArmedAt = useRef<number | null>(null);
   const komutPaleti = useCommandCenter({
+    onLegacyShortcut: (key, action) => setScheduleNotice({
+      sessionId: null,
+      baslik: "Kısayol tablosu değişti",
+      metin: `${formatKey(key, isMacPlatform())} (${actionLabel(action)}) artık varsayılan değil; bu sürümde çalışmaya devam ediyor. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata.`,
+    }),
     client: active?.client ?? null,
     blocked: showOnboarding || Boolean(active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)),
     actions: {
@@ -972,6 +980,13 @@ export function SessionUygulama({
       },
       closeActiveSession: () => {
         if (!active) return false;
+        const now = Date.now();
+        if (closeDecision(Boolean(active.running), now, closeArmedAt.current) === "arm") {
+          closeArmedAt.current = now;
+          setScheduleNotice({ sessionId: null, baslik: "Tur çalışıyor", metin: "Oturumu kapatırsan tur yarım kalır. Kapatmak için 3 sn içinde yeniden bas." });
+          return true;
+        }
+        closeArmedAt.current = null;
         void controller.close(active.id).catch(() => undefined);
         return true;
       },

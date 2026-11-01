@@ -13,6 +13,22 @@
     "mod+[": "geri",
     "mod+]": "ileri"
   },
+  "eski_varsayilan": {
+    "mod+k": "palet",
+    "mod+p": "dosya_ara",
+    "mod+b": "kenar_cubugu",
+    "mod+j": "terminal",
+    "mod+alt+b": "denetci",
+    "mod+1": "sohbet_1",
+    "mod+2": "sohbet_2",
+    "mod+3": "sohbet_3",
+    "mod+4": "sohbet_4",
+    "mod+5": "sohbet_5",
+    "mod+6": "sohbet_6",
+    "mod+7": "sohbet_7",
+    "mod+8": "sohbet_8",
+    "mod+9": "sohbet_9"
+  },
   "eylemler": {
     "palet": "Komut paletini aç",
     "dosya_ara": "Dosyaya git",

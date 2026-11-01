@@ -105,3 +105,30 @@ describe("tuş tablosu", () => {
     expect(result.current.baglar["ctrl+`"]).toBe("terminal");
   });
 });
+
+function LegacyHarness({ handler, onLegacy }: { handler: (action: string) => boolean; onLegacy: (key: string, action: string) => void }) {
+  const ref = useRef(handler);
+  ref.current = handler;
+  useGlobalShortcuts({ "mod+w": "oturumu_kapat", "mod+b": "yeni_sohbet" }, ref, true, onLegacy);
+  return <input aria-label="yaz" />;
+}
+
+describe("kaldırılan eski varsayılanlar (#444)", () => {
+  it("bir sürüm boyunca çalışır, bir kez uyarır; kullanıcının bağı önce gelir", () => {
+    localStorage.removeItem("fusion.kisayollar.eskiUyarildi");
+    const handler = vi.fn(() => true);
+    const onLegacy = vi.fn();
+    const view = render(<LegacyHarness handler={handler} onLegacy={onLegacy} />);
+    const input = view.getByLabelText("yaz");
+    keydown(input, { key: "k", code: "KeyK", metaKey: true });
+    keydown(input, { key: "k", code: "KeyK", metaKey: true });
+    expect(handler).toHaveBeenCalledWith("palet");
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(onLegacy).toHaveBeenCalledTimes(1);
+    expect(onLegacy).toHaveBeenCalledWith("mod+k", "palet");
+    // ⌘B kullanıcı tablosunda başka eyleme bağlı: eski anlamı (kenar çubuğu) çalışmaz.
+    keydown(input, { key: "b", code: "KeyB", metaKey: true });
+    expect(handler).toHaveBeenLastCalledWith("yeni_sohbet");
+    localStorage.removeItem("fusion.kisayollar.eskiUyarildi");
+  });
+});

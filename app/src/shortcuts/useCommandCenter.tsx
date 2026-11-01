@@ -32,6 +32,8 @@ export interface CommandCenterInput {
   openFile: ((path: string) => void) | null;
   insertCommand: ((name: string) => void) | null;
   openSettings: (section: SettingsSection) => void;
+  /** Kaldırılan eski varsayılan tuş ilk kez kullanıldı (#444): kullanıcıya bir kez söyle. */
+  onLegacyShortcut?: (key: string, action: string) => void;
 }
 
 const FILE_LIMIT = 20;
@@ -53,7 +55,8 @@ export function useCommandCenter(input: CommandCenterInput): ReactNode {
     if (query !== null && action !== "palet" && action !== "dosya_ara") setQuery(null);
     return runAppAction(action, deps());
   };
-  useGlobalShortcuts(keymap.baglar, handler);
+  const onLegacy = useCallback((key: string, action: string) => inputRef.current.onLegacyShortcut?.(key, action), []);
+  useGlobalShortcuts(keymap.baglar, handler, isMacPlatform(), onLegacy);
 
   // Kararlı kimlik: palet açıkken kabuk sık çizilir (akış); arama efekti her çizimde yeniden kurulmasın.
   const searchFiles = useCallback(async (text: string): Promise<PaletteItem[]> => {
