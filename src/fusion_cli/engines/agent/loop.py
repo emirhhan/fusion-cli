@@ -518,6 +518,8 @@ class AgentDeps:
     #: Derslerin sahibi ajan (P-055): kendi belleği olan alt ajanda adı; çıkarılan dersler
     #: `ajan:<ad>` etiketi alır ve yalnız o ajan geri çağırır. Boş = ortak ders havuzu.
     lesson_owner: str = ""
+    #: Ajan tanımındaki `experimental.cacheTtl` (`5m`/`1h`); boşsa önbellek işareti yok (#23).
+    prompt_cache_ttl: str = ""
     #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
@@ -2905,6 +2907,7 @@ async def _call_model(
         answer_contract=render_answer_contract(
             tool_names(offered_tools), has_todos=bool(deps.tool_context.todos.items)
         ),
+        prompt_cache_ttl=getattr(deps, "prompt_cache_ttl", "") or "",
     )
     provider = build_provider(
         spec,

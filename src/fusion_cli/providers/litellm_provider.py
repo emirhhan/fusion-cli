@@ -187,6 +187,8 @@ class LiteLlmProvider:
                 kwargs.setdefault("top_k", 20)
                 kwargs.setdefault("top_p", 0.8)
                 kwargs.setdefault("repeat_penalty", 1.1)
+        if request.prompt_cache_ttl and "claude" in self._model.lower():
+            kwargs["messages"] = _cache_system_prompt(kwargs["messages"], request.prompt_cache_ttl)
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
@@ -519,6 +521,26 @@ def _valid_arguments(raw: str) -> str:
         if isinstance(nesne, dict):
             return json.dumps(nesne, ensure_ascii=False)
     return "{}"
+
+
+def _cache_system_prompt(messages: list[dict[str, Any]], ttl: str) -> list[dict[str, Any]]:
+    """İlk sistem mesajını Claude istem önbelleği işaretli metin bloğuna çevir (#23).
+
+    Claude Code ajan `experimental.cacheTtl` değerini istem önbelleği süresi olarak gönderir;
+    sistem istemi + araç şemaları önekin en uzun sabit parçasıdır.
+    """
+    result = list(messages)
+    for index, message in enumerate(result):
+        if message.get("role") != "system" or not isinstance(message.get("content"), str):
+            continue
+        block = {
+            "type": "text",
+            "text": message["content"],
+            "cache_control": {"type": "ephemeral", "ttl": ttl},
+        }
+        result[index] = {**message, "content": [block]}
+        break
+    return result
 
 
 def _to_wire(message: Message) -> dict[str, Any]:

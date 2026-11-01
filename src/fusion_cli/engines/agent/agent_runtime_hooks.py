@@ -98,6 +98,7 @@ def prepare_main_metadata(deps: AgentDeps) -> None:
         deps.tool_context = team_settings.with_memory_roots(deps.tool_context, deps.plain_memory)
         deps.lesson_owner = persona.name
     deps.allowed_agent_types = persona.allowed_agent_types
+    deps.prompt_cache_ttl = getattr(persona, "cache_ttl", "") or ""
     deps.main_metadata_applied = True
 
 

@@ -425,3 +425,24 @@ async def test_bellek_dizini_alt_ajanin_dosya_araclarina_acilir(tmp_path):
     assert dizin in tuple(gorulen["kokler"])
     assert str(dizin) in str(gorulen["blok"]) and "MEMORY.md" in str(gorulen["blok"])
     assert deps.tool_context.extra_roots == ()
+
+
+async def test_cache_ttl_alt_ajanin_istek_bagimliligina_gecer(tmp_path):
+    """`experimental.cacheTtl` alt ajanın istemi önbellek süresi olur (#23)."""
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "uzun.md").write_text(
+        "---\nname: uzun\ndescription: d\nexperimental:\n  cacheTtl: 1h\n---\ngövde",
+        encoding="utf-8",
+    )
+    deps, _ = _deps(tmp_path)
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen["ttl"] = sub_deps.prompt_cache_ttl
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    arac = spawn_agent_tool(deps, depth=0, run_agent=_sahte_ajan)
+    await arac.run({"task": "a", "uzman": "uzun"}, deps.tool_context)
+
+    assert gorulen["ttl"] == "1h"

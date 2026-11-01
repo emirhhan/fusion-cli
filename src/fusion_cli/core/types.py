@@ -395,6 +395,9 @@ class CompletionRequest:
     emulation_protocol: Literal["v1", "v2"] = "v1"
     web_call_context: WebCallContext | None = None
     is_capture_probe: bool = False
+    #: Claude istem önbelleği süresi (`5m`/`1h`; ajan `experimental.cacheTtl`, #23). Boşsa
+    #: önbellek işareti gönderilmez; yalnız Claude modellerine uygulanır.
+    prompt_cache_ttl: str = ""
 
 
 @dataclass(frozen=True, slots=True)

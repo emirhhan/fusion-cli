@@ -410,7 +410,7 @@ ya da eklenen dosya yeniden başlatmadan bir sonraki turda etkin olur.
 | `omitClaudeMd` | `true` ise alt ajan CLAUDE.md / proje talimatı olmadan başlar |
 | `color` | Claude Code değerleri: `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink`, `cyan` (eski Türkçe `renk` adları bir sürüm okunur); tanınmayan değer uyarıyla düşer, ajan gri görünür |
 | `autoCompactWindow` | `100000`-`1000000` belirteç: yalnız bu alt ajanın otomatik özetleme penceresini düşürür; aralık dışı değer uyarıyla yok sayılır |
-| `experimental.cacheTtl` | `5m` ya da `1h` okunur ve doğrulanır. **Henüz yok:** Fusion istem önbelleği süresini sağlayıcıya iletmez, değer şimdilik etkisizdir |
+| `experimental.cacheTtl` | `5m` ya da `1h`: o ajanın (alt ajan ya da `--agent` ana ajanı) Claude model isteklerinde sistem istemi bu süreyle istem önbelleğine işaretlenir (`cache_control`); Claude dışı modelde etkisizdir |
 
 Alt ajan bir izin isterse terminal, masaüstü kartı ve Telegram bildirimi
 "Alt ajan izin istiyor: Denetçi (denetci-3f9a1c)" diye kimin istediğini söyler. Masaüstü:

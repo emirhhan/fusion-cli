@@ -484,6 +484,7 @@ async def _run_child(
         approval_mode=team_settings.child_approval_mode(policy_parent, persona),
         policy_for_mode=getattr(deps, "policy_for_mode", None),
         plain_memory=child_memory,
+        prompt_cache_ttl=persona.cache_ttl,
         # Belleği olan ajan derslerini de kendine ayırır; olmayan ortak havuza yazar (P-055).
         lesson_owner=persona.name if persona.memory_scope else "",
         effect_recorder=deps.effect_recorder,

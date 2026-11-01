@@ -471,3 +471,28 @@ def test_qwen_ornekleme_ayari_baska_ollama_ailelerine_uygulanmaz():
     assert qwen._call_kwargs(request(), stream=False)["top_k"] == 20
     assert "top_k" not in llama._call_kwargs(request(), stream=False)
     assert llama._call_kwargs(request(), stream=False)["num_ctx"]  # bağlam yine verilir
+
+
+def test_ajan_cache_ttl_claude_sistem_istemine_onbellek_suresi_olarak_gider():
+    """`experimental.cacheTtl` Claude modelinde istem önbelleği süresi olur (#23)."""
+    from dataclasses import replace
+
+    from fusion_cli.core.types import Message
+
+    base = replace(
+        request(),
+        messages=(Message(role="system", content="kurallar"), Message(role="user", content="s")),
+    )
+    claude = LiteLlmProvider("anthropic/claude-sonnet-4-5", role="agent")
+
+    kwargs = claude._call_kwargs(replace(base, prompt_cache_ttl="1h"), stream=False)
+
+    assert kwargs["messages"][0]["content"] == [
+        {"type": "text", "text": "kurallar", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    ]
+    assert kwargs["messages"][1]["content"] == "s"
+    # Süre verilmezse ya da Claude dışı modelde gövde değişmez.
+    assert claude._call_kwargs(base, stream=False)["messages"][0]["content"] == "kurallar"
+    other = LiteLlmProvider("openai/gpt-4.1", role="agent")
+    plain = other._call_kwargs(replace(base, prompt_cache_ttl="1h"), stream=False)
+    assert plain["messages"][0]["content"] == "kurallar"
