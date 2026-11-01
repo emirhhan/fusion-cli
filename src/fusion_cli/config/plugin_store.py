@@ -410,17 +410,26 @@ def plugin_hook_blocks(
     return tuple(blocks)
 
 
-def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
-    """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil)."""
+def plugin_root_of(
+    path: Path, base: Path | None = None, project: Path | None = None
+) -> Path | None:
+    """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil).
+
+    Kurulmadan projede açılan göreli eklenti (#376) de tanınır: kaydı yok, kökü kaynağıdır.
+    """
     if base is None:
         from .plugin_session import session_root_of
 
         session = session_root_of(path)
         if session is not None:
             return session
-    for record in load_state(base).plugins:
+    state = load_state(base)
+    for record in state.plugins:
         if record.folder and _inside(path, Path(record.folder)):
             return Path(record.folder)
+    found = _project_root_of(path, state, project or Path.cwd(), base)
+    if found is not None:
+        return found
     try:
         root = (base or plugins_dir()).resolve()
         relative = path.resolve().relative_to(root)
@@ -428,6 +437,17 @@ def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
         return None
     first = relative.parts[0] if len(relative.parts) > 1 else ""
     return root / first if first and not first.startswith(".") else None
+
+
+def _project_root_of(
+    path: Path, state: PluginState, project: Path, base: Path | None
+) -> Path | None:
+    from .plugin_project_enabled import project_enabled_plugins
+
+    for item in project_enabled_plugins(state, project, set(), base):
+        if item.record.folder and _inside(path, Path(item.record.folder)):
+            return Path(item.record.folder)
+    return None
 
 
 def _inside(path: Path, folder: Path) -> bool:

@@ -48,17 +48,18 @@ _SUMMARY_CHARS = 120
 Converter = Callable[..., "Capability"]
 
 
-def with_plugin_root(text: str, path: Path) -> str:
+def with_plugin_root(text: str, path: Path, project: Path | None = None) -> str:
     """Kurulu eklenti dosyasının gövdesinde `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`
     ve `${CLAUDE_PROJECT_DIR}`'ı çöz (#387); eklenti dışındaki dosyaya dokunma."""
     variables = (*ROOT_VARIABLES, DATA_VARIABLE, PROJECT_VARIABLE, "${user_config.")
     if not any(variable in text for variable in variables):
         return text
-    root = plugin_root_of(path)
+    folder = project or Path.cwd()
+    root = plugin_root_of(path, project=folder)
     if root is None:
         return text
     data = str(plugin_data_dir(root.name, create=True)) if DATA_VARIABLE in text else ""
-    text = substitute_root(text, str(root), data, str(Path.cwd()))
+    text = substitute_root(text, str(root), data, str(folder))
     return _with_user_config(text, root)
 
 
@@ -82,10 +83,15 @@ def _prefixed(capability: Capability, plugin: str, name: str = "") -> Capability
     return replace(capability, name=f"{plugin}:{name or capability.name}")
 
 
-def _layouts(home: Path | None) -> Iterator[tuple[str, PluginLayout]]:
-    """`(önek, düzen)`: Fusion'ın etkin eklentileri, sonra Claude Code'un etkin kurulumları."""
+def _layouts(
+    home: Path | None, root: Path | None = None
+) -> Iterator[tuple[str, PluginLayout]]:
+    """`(önek, düzen)`: Fusion'ın etkin eklentileri, sonra Claude Code'un etkin kurulumları.
+
+    `root`: kataloğun proje kökü (project/local `enabledPlugins`); verilmezse süreç cwd'si.
+    """
     seen: set[str] = set()
-    for item in active_plugins():
+    for item in active_plugins(root=root):
         if item.layout is not None:
             seen.add(item.record.name)
             yield item.record.name, item.layout
@@ -97,15 +103,19 @@ def _layouts(home: Path | None) -> Iterator[tuple[str, PluginLayout]]:
             yield layout.name, layout
 
 
-def plugin_skills(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
-    for prefix, layout in _layouts(home):
+def plugin_skills(
+    convert: Converter, home: Path | None = None, root: Path | None = None
+) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home, root):
         for path in layout.skills:
             capability = convert(path, PLUGIN_SOURCE, fallback=path.parent.name)
             yield _prefixed(capability, prefix)
 
 
-def plugin_commands(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
-    for prefix, layout in _layouts(home):
+def plugin_commands(
+    convert: Converter, home: Path | None = None, root: Path | None = None
+) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home, root):
         meta = {name: (text, hint) for name, text, hint in layout.command_meta}
         found = [*layout.commands, *_inline_command_files(layout)]
         for name, path in found:
@@ -140,8 +150,10 @@ def _inline_command_files(layout: PluginLayout) -> list[tuple[str, Path]]:
     return found
 
 
-def plugin_agents(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
-    for prefix, layout in _layouts(home):
+def plugin_agents(
+    convert: Converter, home: Path | None = None, root: Path | None = None
+) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home, root):
         for path in layout.agents:
             capability = _without_ignored_fields(convert(path, PLUGIN_SOURCE, fallback=path.stem))
             name = _agent_scoped_name(layout, path, capability.name)

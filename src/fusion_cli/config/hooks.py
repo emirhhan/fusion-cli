@@ -168,7 +168,7 @@ def load_hooks(
     # Etkin eklentilerin kancaları (#375): kurulumda onaylanmış eklentiler, ayrı modülde.
     from .plugin_hooks import plugin_hooks
 
-    found, skips = plugin_hooks(default_timeout_s=default_timeout_s)
+    found, skips = plugin_hooks(default_timeout_s=default_timeout_s, root=root)
     commands.extend(found)
     skipped.extend(skips)
     return HookSet(

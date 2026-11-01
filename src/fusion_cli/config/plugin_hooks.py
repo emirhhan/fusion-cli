@@ -12,28 +12,54 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import logging
+from collections.abc import Iterator, Mapping
+
 from ..core.hooks.events import HookCommand, HookSkip
+from ..core.plugins import PluginError
 from .plugin_data import plugin_data_dir
-from .plugin_store import plugin_hook_blocks, plugin_root_of, plugins_dir
+from .plugin_layout import hook_blocks
+from .plugin_store import active_plugins, plugin_root_of
 from .plugin_user_config import option_env, plugin_values
 
 PLUGIN_SOURCE_PREFIX = "eklenti:"
+_LOG = logging.getLogger(__name__)
+
+
+def _blocks(
+    base: Path | None, project: Path | None
+) -> Iterator[tuple[str, Path, Mapping[str, object], Path]]:
+    """`(kaynak, dosya, blok, eklenti kökü)`; kök kayıt yazılmayan proje eklentisinde de doğru."""
+    for item in active_plugins(base, project):
+        if item.layout is None:
+            continue
+        try:
+            found = hook_blocks(item.layout)
+        except PluginError as error:
+            _LOG.warning("eklenti '%s' kancaları yüklenmedi: %s", item.record.name, error)
+            continue
+        source = f"{PLUGIN_SOURCE_PREFIX}{item.record.name}"
+        for path, block in found:
+            yield source, path, block, plugin_root_of(path, base) or item.layout.root
 
 
 def plugin_hooks(
-    *, default_timeout_s: float, base: Path | None = None
+    *, default_timeout_s: float, base: Path | None = None, root: Path | None = None
 ) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
-    """Etkin (ve çalıştırma onaylı) eklentilerin kanca komutları ve atlananlar."""
+    """Etkin eklentilerin kanca komutları ve atlananlar.
+
+    `root`: oturumun proje kökü; project/local `enabledPlugins` ve güven ona göre çözülür
+    (verilmezse süreç cwd'si). Masaüstü oturumunda süreç cwd'si oturum kökü olmayabilir.
+    """
     from .hooks import parse_hooks_block
 
     commands: list[HookCommand] = []
     skipped: list[HookSkip] = []
-    for source, path, block in plugin_hook_blocks(base):
+    for source, path, block, plugin_root in _blocks(base, root):
         name = source.removeprefix(PLUGIN_SOURCE_PREFIX)
-        root = plugin_root_of(path, base) or (base or plugins_dir()) / name
-        _schema, values = plugin_values(root, name)
+        _schema, values = plugin_values(plugin_root, name)
         env = (
-            ("CLAUDE_PLUGIN_ROOT", str(root)),
+            ("CLAUDE_PLUGIN_ROOT", str(plugin_root)),
             ("CLAUDE_PLUGIN_DATA", str(plugin_data_dir(name, create=True))),
             *option_env(values),  # #388: CLAUDE_PLUGIN_OPTION_<KEY>
         )

@@ -307,7 +307,7 @@ def build_invocation(
     except (ValueError, OSError) as error:
         return SkillInvocation(task="", ok=False, notes=(str(error),))
     body = body_after_frontmatter(raw).replace("{SKILL_DIR}", str(capability.path.parent))
-    body = with_plugin_root(body, capability.path)
+    body = with_plugin_root(body, capability.path, env.project_dir)
     rendered = render_template(body, argument, env)
     rendered, notes = expand_shell_context(
         rendered, cwd=env.project_dir, allowed=shell_allowed, read_only=shell_read_only

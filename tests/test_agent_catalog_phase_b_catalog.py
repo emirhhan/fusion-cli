@@ -183,7 +183,7 @@ def test_ic_ice_plugin_ajani_scoped_adla_cozulur_ve_kok_disi_bag_taranmaz(
     (plugin / "agents/inceleme/sizan.md").symlink_to(outside)
     layout = scan_plugin(plugin)
     installed = InstalledPlugin(PluginRecord("paket"), layout, STATUS_ACTIVE)
-    monkeypatch.setattr(plugin_capabilities, "active_plugins", lambda: (installed,))
+    monkeypatch.setattr(plugin_capabilities, "active_plugins", lambda **_kw: (installed,))
     registry = CapabilityRegistry(tmp_path / "ev", tmp_path / "proje")
 
     agent = registry.get_agent("paket:inceleme:guvenlik")
