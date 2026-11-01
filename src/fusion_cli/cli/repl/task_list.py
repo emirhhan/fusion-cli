@@ -60,10 +60,7 @@ class StoredTodoList(TodoList):
         super().replace(items)
         self._written_this_turn = True
         path = self._locate()
-        payload = [
-            {"content": item.content, "status": item.status.value, "activeForm": item.active_form}
-            for item in items
-        ]
+        payload = [_dump(item) for item in items]
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_suffix(".tmp")
@@ -107,6 +104,21 @@ class StoredTodoList(TodoList):
         return "\n".join(f"{item.status.icon} {item.label}" for item in self.items)
 
 
+def _dump(item: TodoItem) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "content": item.content,
+        "status": item.status.value,
+        "activeForm": item.active_form,
+    }
+    if item.task_id:  # Task* araçlarının alanları (#329)
+        payload.update(id=item.task_id, description=item.description, blockedBy=item.blocked_by)
+    return payload
+
+
+def _text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def _read(path: Path) -> tuple[TodoItem, ...]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -119,11 +131,15 @@ def _read(path: Path) -> tuple[TodoItem, ...]:
             continue
         try:
             active = entry.get("activeForm")
+            blocked = entry.get("blockedBy")
             items.append(
                 TodoItem(
                     entry["content"],
                     TodoStatus(entry.get("status")),
                     active if isinstance(active, str) else "",
+                    task_id=_text(entry.get("id")),
+                    description=_text(entry.get("description")),
+                    blocked_by=tuple(str(x) for x in blocked) if isinstance(blocked, list) else (),
                 )
             )
         except ValueError:

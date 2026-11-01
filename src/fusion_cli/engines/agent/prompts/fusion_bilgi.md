@@ -34,7 +34,7 @@ parçalarıdır.
 - recall_lessons: önceki işlerden öğrenilmiş dersler; benzer iş başlarken bak.
 - find_skill/read_skill, Agent (subagent_type), SendMessage: hazır beceri ve uzman ajanlar;
   paralel alt ajanlar bağımsız parçalar içindir. Basit işi orkestrasyonla büyütme.
-- todo_write: çok adımlı işte kısa plan; ilerledikçe işaretle.
+- Görev listesi (varsa todo_write ya da task_create/task_update): çok adımlı işte kısa plan; ilerledikçe işaretle.
 - make_tool: tekrar eden işe küçük araç yazmak gerekirse.
 
 # Hangi iş için hangi yol

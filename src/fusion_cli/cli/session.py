@@ -52,7 +52,7 @@ from ..core.remotion_browser import RemotionBrowser
 from ..core.session_cron import SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
-from ..core.tools import ChromeControl, ToolContext
+from ..core.tools import ChromeControl, TodoList, ToolContext
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
     CompletionRequest,
@@ -249,6 +249,7 @@ async def run_agent_task(
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
     cron: SessionCron | None = None,
     background_events: BackgroundEvents | None = None,
+    todos: TodoList | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
     plan_mode_switch: PlanModeSwitch | None = None,
@@ -336,6 +337,9 @@ async def run_agent_task(
         if cron is not None:
             # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
             tool_context = replace(tool_context, cron=cron)
+        if todos is not None:
+            # Oturum boyu görev listesi (masaüstü sekmesi; #331): turlar arasında kalır.
+            tool_context = replace(tool_context, todos=todos)
         if background_events is not None:
             # Biten arka plan işi ve `monitor` satırı sohbete bildirim olarak girer (#336).
             tool_context = replace(tool_context, background_events=background_events)

@@ -273,6 +273,7 @@ from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
+from .task_availability import hidden_task_tools
 from .teacher_flow import (
     prepare_teacher_plan,
     review_teacher_changes,
@@ -3112,6 +3113,13 @@ def _permitted(
             task=task,
             phase=phase,
         )
+    # Görev araçları modele göre (#329); açıkça istenen ad (`--tools`/`--allowedTools`) kalır.
+    hidden_tasks = hidden_task_tools(getattr(execution, "task_tools", "todo"))
+    names = {
+        name
+        for name in names
+        if name not in hidden_tasks or (allowed_tools is not None and name in allowed_tools)
+    }
     if not execution.allow_mutation:
         names = {
             name
@@ -4047,7 +4055,7 @@ async def _run_tools(
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
             budget.forget_call(signature)
-        if outcome is ToolOutcome.OK and call.name == "todo_write":
+        if outcome is ToolOutcome.OK and call.name in {"todo_write", "task_create", "task_update"}:
             for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
                 deps.publisher.publish(NarrationPublished(text=sentence))
         if len(state.tool_uses) == recorded_uses:

@@ -546,7 +546,18 @@ def render_tool_instructions(
 #: Claude Code'un ertelediği yerleşik araçlar (EnterWorktree, ExitWorktree, Monitor, TaskStop):
 #: her turda kullanılabilir, emülasyon isteminde yalnız imzayla sunulur (istem bütçesi; #334,
 #: #336, #342). Yerel araç çağrısı (function calling) yolunda şema tam gider.
-DEFERRED_TOOL_NAMES = frozenset({"enter_worktree", "exit_worktree", "monitor", "task_stop"})
+DEFERRED_TOOL_NAMES = frozenset(
+    {
+        "enter_worktree",
+        "exit_worktree",
+        "monitor",
+        "task_stop",
+        "task_create",
+        "task_get",
+        "task_list",
+        "task_update",
+    }
+)
 DEFERRED_LEAD = "- Ek araçlar (aynı biçimde çağır; ? isteğe bağlı): "
 
 

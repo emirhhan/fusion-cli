@@ -23,6 +23,7 @@ from ...core.text_fold import fold_tr
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
 from .edit_profiles import EditFormat
+from .task_availability import task_tool_mode
 from .tool_profiles import conversation_tool_profiles
 from .tool_surface import uses_compact_surface
 
@@ -113,6 +114,9 @@ class ExecutionPolicy:
     tool_profiles: tuple[str, ...] = ()
     #: İsteğe bağlı yüzey stratejisi; ortak ayar ve çağıran bağlantısı Task 8b'dedir.
     external_tool_selection: Literal["registration_order", "relevance"] = "registration_order"
+    #: Görev araçları (#329): `tasks` (Task*), `todo` (todo_write) ya da `none`. Doğrudan
+    #: kurulan politika eski davranışı (todo_write) korur; `policy_for` modele göre seçer.
+    task_tools: str = "todo"
 
 
 def policy_for(
@@ -163,6 +167,7 @@ def policy_for(
             max_external_tools=max_external_tools,
             tool_profiles=profiles,
             external_tool_selection=config.runtime.external_tool_selection.value,
+            task_tools=task_tool_mode(spec.model),
         )
 
     simple_chat = _is_genuine_simple_chat(task, required_effect)
@@ -195,6 +200,7 @@ def policy_for(
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,
         tool_profiles=profiles,
+        task_tools=task_tool_mode(spec.model),
         external_tool_selection=config.runtime.external_tool_selection.value,
     )
 

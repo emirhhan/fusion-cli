@@ -40,6 +40,7 @@ from .monitor_tool import MONITOR_TOOL
 from .registry import ToolRegistry
 from .symbol_query import SymbolQuery, SymbolQuerySettings
 from .task_stop import TASK_STOP_TOOL
+from .task_tools import TASK_TOOLS
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
@@ -610,6 +611,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     TASK_STOP_TOOL,
     MONITOR_TOOL,
+    *TASK_TOOLS,
     Tool(
         name="todo_write",
         description="Çok adımlı işte görev listesini TAMAMEN yaz, ilerledikçe güncelle. "

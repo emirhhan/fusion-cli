@@ -152,6 +152,10 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "council": ToolFamily.DELEGATION,
     "todo_write": ToolFamily.META,
     "task_stop": ToolFamily.META,
+    "task_create": ToolFamily.META,
+    "task_get": ToolFamily.META,
+    "task_list": ToolFamily.META,
+    "task_update": ToolFamily.META,
     "ask_user": ToolFamily.META,
     "read_session": ToolFamily.META,
     "recent_actions": ToolFamily.META,
@@ -268,6 +272,10 @@ class TodoItem:
     status: TodoStatus
     #: Claude TodoWrite `activeForm`: madde sürerken gösterilen biçim ("Test yazılıyor").
     active_form: str = ""
+    #: Claude Task* araçları (#329): kimlik, açıklama ve bağımlılıklar; TodoWrite'ta boş.
+    task_id: str = ""
+    description: str = ""
+    blocked_by: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
