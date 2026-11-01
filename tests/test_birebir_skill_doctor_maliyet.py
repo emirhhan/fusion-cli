@@ -57,3 +57,34 @@ def test_skill_doctor_komutu_maliyet_ve_teshisi_birlikte_verir(tmp_path: Path) -
 
     assert "Beceri maliyeti" in cikti and "· tek [" in cikti
     assert "Beceri teşhisi" in cikti
+
+
+def test_govde_maliyeti_frontmatter_haric_karakterle(tmp_path: Path) -> None:
+    """#177: gövde maliyeti bayt değil karakter; frontmatter sayılmaz (Türkçe çok baytlı)."""
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    root.mkdir()
+    _skill(home, "turkce", extra="metadata: " + "m" * 2_000 + "\n", body="ğ" * 4_000)
+
+    cost = next(c for c in skill_costs(CapabilityRegistry(home, root), None) if c.name == "turkce")
+
+    from fusion_cli.engines.agent.context_budget import CHARS_PER_TOKEN_ESTIMATE as per
+
+    # 4.000 karakter; bayt (8.000) ya da frontmatter (~2.000) sayılmaz.
+    assert cost.body_tokens == (4_000 + per - 1) // per
+
+
+def test_esanli_cagri_sayaci_sayi_kaybetmez(tmp_path: Path) -> None:
+    """#177: iki oturum aynı anda sayarsa biri ötekinin sayısını ezmez."""
+    import threading
+
+    bellek = tmp_path / "bellek"
+    threads = [
+        threading.Thread(target=skill_usage.record_invocation, args=(bellek, "ortak"))
+        for _ in range(24)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert skill_usage.load_counts(bellek)["ortak"] == 24

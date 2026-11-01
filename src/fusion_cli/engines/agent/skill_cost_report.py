@@ -43,10 +43,14 @@ def _tokens(chars: int) -> int:
 
 
 def _body_chars(path: Path) -> int:
+    """Çağrılınca bağlama giren gövdenin KARAKTER sayısı (frontmatter hariç; #177)."""
+    from ...tools.frontmatter import body_after_frontmatter
+
     try:
-        return path.stat().st_size
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return 0
+    return len(body_after_frontmatter(text))
 
 
 def _listing_chars(item: Capability) -> int:

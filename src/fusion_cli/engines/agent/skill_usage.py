@@ -3,13 +3,17 @@
 Belge (code.claude.com/docs/en/skills, "Skill descriptions are cut short"): bütçe dolunca
 en az çağrılan becerilerin açıklamaları önce düşer, adlar her zaman kalır. Fusion çağrıyı
 (kullanıcının `/ad`'ı ve modelin `Skill` aracı) `memory_dir/beceri_cagrilari.json`'da sayar;
-istem metni yazılmaz, yalnız ad → sayı.
+istem metni yazılmaz, yalnız ad → sayı. Sayaç ada göre ve projeler arası ortaktır (Claude
+Code da kullanım sayısını kullanıcı düzeyinde ada göre tutar); oku-yaz bir dosya kilidiyle
+yapılır, eşzamanlı oturumlar birbirinin sayısını ezmez.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 from ...core.atomic_file import atomic_replace_text
@@ -45,10 +49,27 @@ def record_invocation(memory_dir: Path | None, name: str) -> None:
     key = name.strip().lower()
     if memory_dir is None or not key:
         return
-    counts = load_counts(memory_dir)
-    updated = {**counts, key: counts.get(key, 0) + 1}
     try:
         memory_dir.mkdir(parents=True, exist_ok=True)
-        atomic_replace_text(_path(memory_dir), json.dumps(updated, ensure_ascii=False))
+        with _locked(memory_dir):
+            counts = load_counts(memory_dir)
+            updated = {**counts, key: counts.get(key, 0) + 1}
+            atomic_replace_text(_path(memory_dir), json.dumps(updated, ensure_ascii=False))
     except OSError:
         _LOG.warning("beceri çağrı sayısı yazılamadı: %s", _path(memory_dir), exc_info=True)
+
+
+@contextlib.contextmanager
+def _locked(memory_dir: Path) -> Iterator[None]:
+    """Sayaç dosyasının oku-değiştir-yaz bölümü için özel kilit (POSIX `flock`)."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: kilitsiz (eski davranış)
+        yield
+        return
+    with open(memory_dir / f"{USAGE_FILE}.lock", "a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
