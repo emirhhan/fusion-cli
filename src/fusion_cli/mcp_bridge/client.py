@@ -54,6 +54,7 @@ from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
 from .output_limits import declared_limit
+from .resource_tools import register_resource_tools
 from .headers_helper import has_authorization, run_headers_helper
 from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .transport import open_mcp_stream
@@ -153,6 +154,13 @@ class McpClient:
         """Bir sunucu art arda zaman aşımına uğradı mı? Takılı süreç yeni çağrıları da
         düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
         return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
+
+    def has_resources(self, server: str) -> bool:
+        """Sunucu `resources` yeteneği bildirdi mi?"""
+        session = self._sessions.get(server)
+        getter = getattr(session, "get_server_capabilities", None)
+        capabilities = getter() if callable(getter) else None
+        return capabilities is not None and getattr(capabilities, "resources", None) is not None
 
     def server_instructions(self, server: str) -> str:
         """Sunucunun `initialize` talimatı; yoksa boş."""
@@ -518,6 +526,7 @@ class McpClient:
                     )
                 )
                 added.append(fusion_name)
+        added.extend(register_resource_tools(self, registry))
         return tuple(added)
 
     def _ability_resolver(self, server: str, names: set[str]) -> EffectResolver | None:
