@@ -79,3 +79,109 @@ async def test_baglanirken_kapatma_arka_plan_acilisini_sahipsiz_birakmaz(monkeyp
     await havuz.aclose()
 
     assert havuz._connecting == {}
+
+
+class _Defter:
+    """`ToolRegistry`'nin bu testlere yeten kısmı."""
+
+    def __init__(self) -> None:
+        self.tools: dict[str, object] = {}
+
+    def register_or_replace(self, tool) -> None:
+        self.tools[tool.name] = tool
+
+    def unregister_remote(self, name: str) -> bool:
+        return self.tools.pop(name, None) is not None
+
+    def get(self, name: str):
+        return self.tools.get(name)
+
+
+def _kayitli_yavas(serbest: asyncio.Event, kapandi: asyncio.Event):
+    base = _yavas_istemci(serbest, kapandi)
+
+    class _Kayitli(base):
+        async def register_into(self, registry) -> tuple[str, ...]:
+            from fusion_cli.core.tools import Tool, ToolResult
+
+            async def _run(args, context):
+                return ToolResult(output="ok")
+
+            name = f"mcp__{self.name}__arac"
+            registry.register_or_replace(
+                Tool(name=name, description="", parameters={"type": "object"}, run=_run)
+            )
+            return (name,)
+
+        async def catalog(self, server):
+            from fusion_cli.mcp_bridge.references import McpCatalog
+
+            return McpCatalog()
+
+    return _Kayitli
+
+
+def _taze_havuz(monkeypatch):
+    from fusion_cli.mcp_bridge.late_connect import LateConnections
+
+    monkeypatch.setattr(pool_module, "_POOL", McpToolPool())
+    monkeypatch.setattr(pool_module, "_LATE", LateConnections())
+
+
+async def test_tur_ortasinda_baglanan_sunucunun_araclari_ayni_turda_deftere_girer(monkeypatch):
+    serbest, kapandi = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(pool_module, "McpClient", _kayitli_yavas(serbest, kapandi))
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "30")
+    monkeypatch.delenv("MCP_CONNECTION_NONBLOCKING", raising=False)
+    _taze_havuz(monkeypatch)
+    defter = _Defter()
+    config = (McpServerConfig(name="yavas", command="x"),)
+
+    assert await pool_module.ensure_mcp_tools(config, defter) == ()
+    assert "WaitForMcpServers" in defter.tools
+    assert "mcp__yavas__arac" not in defter.tools
+
+    serbest.set()
+    for _ in range(50):
+        if "mcp__yavas__arac" in defter.tools:
+            break
+        await asyncio.sleep(0.01)
+
+    assert "mcp__yavas__arac" in defter.tools
+    assert "WaitForMcpServers" not in defter.tools
+    await pool_module.close_mcp_pool()
+
+
+async def test_wait_for_mcp_servers_baglanmayi_bekler_ve_durumu_yazar(monkeypatch):
+    serbest, kapandi = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(pool_module, "McpClient", _kayitli_yavas(serbest, kapandi))
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "20")
+    monkeypatch.delenv("MCP_CONNECTION_NONBLOCKING", raising=False)
+    _taze_havuz(monkeypatch)
+    defter = _Defter()
+    await pool_module.ensure_mcp_tools((McpServerConfig(name="yavas", command="x"),), defter)
+    wait_tool = defter.tools["WaitForMcpServers"]
+    assert "yavas" in wait_tool.description
+    asyncio.get_running_loop().call_later(0.05, serbest.set)
+
+    result = await wait_tool.run({}, None)
+
+    assert "✔ yavas: bağlandı" in result.output
+    assert "mcp__yavas__arac" in defter.tools
+    await pool_module.close_mcp_pool()
+
+
+async def test_always_load_sunucusu_sonuna_kadar_beklenir(monkeypatch):
+    serbest, kapandi = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "20")
+    monkeypatch.delenv("MCP_CONNECTION_NONBLOCKING", raising=False)
+    havuz = McpToolPool()
+    asyncio.get_running_loop().call_later(0.1, serbest.set)
+
+    clients = await havuz.clients_for(
+        (McpServerConfig(name="yavas", command="x", always_load=True),)
+    )
+
+    assert [client.name for client in clients] == ["yavas"]
+    await havuz.aclose()

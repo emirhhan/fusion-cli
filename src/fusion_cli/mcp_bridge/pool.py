@@ -26,6 +26,7 @@ from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession, HostedConnectorClient
 from .identity import duplicate_of, unique_configs, unique_hosted_configs
+from .late_connect import LateConnections
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
 from .references import McpCatalog
@@ -225,12 +226,30 @@ class McpToolPool:
         pending = [self._connecting[c.name] for c in wanted if c.name in self._connecting]
         if pending:
             await asyncio.wait(pending, timeout=connect_wait_s())
+        # `alwaysLoad: true` sunucusu araçları ilk istekte olsun diye sonuna kadar beklenir;
+        # açılışın kendisi başlatma sınırıyla (`MCP_TIMEOUT`) bağlıdır.
+        must = [
+            self._connecting[c.name]
+            for c in wanted
+            if getattr(c, "always_load", None) is True and c.name in self._connecting
+        ]
+        if must:
+            await asyncio.wait(must)
 
     def _connected(self, name: str, task: asyncio.Task[None]) -> None:
         if self._connecting.get(name) is task:
             del self._connecting[name]
         if not task.cancelled() and task.exception() is not None:
             _LOG.warning("MCP arka plan bağlantısı düştü", extra={"sunucu": name})
+
+    def connecting_tasks(self) -> dict[str, asyncio.Task[None]]:
+        """Arka planda bağlanmayı süren açılışlar (bu döngüde)."""
+        loop = asyncio.get_running_loop()
+        return {
+            name: task
+            for name, task in self._connecting.items()
+            if task.get_loop() is loop and not task.done()
+        }
 
     def connected_client(self, name: str) -> McpClient | None:
         """Sunucunun bu döngüdeki canlı istemcisi; yoksa None."""
@@ -475,6 +494,7 @@ class McpToolPool:
 
 
 _POOL = McpToolPool()
+_LATE = LateConnections()
 
 
 def mcp_oauth_flows() -> OAuthFlowOwner:
@@ -507,6 +527,8 @@ async def ensure_mcp_tools(
             continue
         # İstem/kaynak kataloğu (P-049): `/mcp__s__p` tamamlaması ve `@s:kaynak` için.
         await _POOL.refresh_catalog(client)
+    # Arka planda bağlanmayı sürenler bitince araçları bu deftere aynı turda girer (#239).
+    _LATE.schedule(_POOL, registry, configs)
     return tuple(added)
 
 
@@ -599,4 +621,5 @@ async def close_mcp_pool() -> None:
     """Süreç/oturum biterken açık MCP bağlantılarını kapat."""
     # Önce arka plana taşınmış çağrılar (#233): bağlantı kapanınca zaten düşerlerdi.
     await cancel_mcp_background_calls()
+    await _LATE.cancel_all()
     await _POOL.aclose()

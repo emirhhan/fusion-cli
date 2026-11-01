@@ -700,8 +700,10 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   ajanlarda çağrı beklenir.
 - Bloklamayan bağlantı (Claude Code gibi varsayılan): tur başı sunucuları en çok 5 sn
   (`MCP_CONNECT_TIMEOUT_MS`) bekler; geç kalan sunucu arka planda bağlanmayı sürdürür ve
-  araçları sonraki turda gelir. `MCP_CONNECTION_NONBLOCKING=0` bütün sunucuları başlatma
-  sınırına kadar bekletir.
+  bağlantısı bitince araçları aynı turun sıradaki isteğinde sunulur. Bağlanmayı süren sunucu
+  varken model `WaitForMcpServers` aracıyla onları bekleyebilir (sonuçta sunucu başına
+  durum yazılır). `"alwaysLoad": true` sunucusu başlatma sınırına kadar beklenir.
+  `MCP_CONNECTION_NONBLOCKING=0` bütün sunucuları başlatma sınırına kadar bekletir.
 - Çıktı: 25.000 token (`MAX_MCP_OUTPUT_TOKENS`) ya da 50.000 karakteri aşan başarılı sonuç
   dosyaya kaydedilir ve modele yolu verilir; hata metninin ilk ve son 5.000 karakteri tutulur.
 - Stdio sunucusu kabuk ortamını miras alır ve `CLAUDE_PROJECT_DIR` alır;
@@ -752,9 +754,7 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   aramayla yüklenen 16384 karakterde kesilir (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` ikisini
   de değiştirir). Fusion çok sağlayıcılı olduğu için arama sağlayıcının `defer_loading`
   alanıyla değil istemci tarafında yapılır; bu yüzden her modelde çalışır.
-- Henüz yok (Claude Code'da var): bağlantısı tur ortasında biten sunucunun araçlarının aynı
-  turda listelenmesi (Fusion'da sonraki turda gelir), `alwaysLoad` sunucusunu ayrıca bekleme,
-  `WaitForMcpServers` aracı, Elicitation kancası,
+- Henüz yok (Claude Code'da var): Elicitation kancası,
   `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
