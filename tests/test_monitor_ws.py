@@ -205,3 +205,26 @@ def test_ws_oturum_izni_adrese_ozel():
 
     assert _scope(first) == "monitor:ws:ws://a/1"
     assert _scope(first) != _scope(second)
+
+
+def test_parcali_ileti_toplam_boyutu_tavani_asinca_hata(monkeypatch):
+    """İnceleme bulgusu 4: tavan tek çerçeveye değil birikmiş iletiye uygulanır."""
+    import pytest
+
+    from fusion_cli.tools import ws_client
+
+    monkeypatch.setattr(ws_client, "_MAX_MESSAGE", 16)
+    for opcode in (1, 2):
+        frames = [_server_frame(opcode, b"x" * 10, fin=False)]
+        frames += [_server_frame(0, b"y" * 10, fin=False) for _ in range(3)]
+        server = _Server(frames, keep_open=True)
+        server.start()
+        seen: list[str] = []
+        try:
+            with pytest.raises(ws_client.WebSocketError, match="çok büyük"):
+                ws_client.read_text_messages(
+                    f"ws://127.0.0.1:{server.port}/", (), seen.append, lambda: False
+                )
+        finally:
+            server.release.set()
+        assert seen == []

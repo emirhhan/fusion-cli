@@ -177,7 +177,7 @@ def read_text_messages(
     with sock:
         pending = _handshake(sock, target, protocols)
         sock.settimeout(_POLL_S)
-        reader, parts, kind = _Reader(sock, pending, should_stop), [], _OP_TEXT
+        reader, parts, kind, size = _Reader(sock, pending, should_stop), [], _OP_TEXT, 0
         while True:
             frame = _next_frame(reader)
             if frame is None:
@@ -191,10 +191,14 @@ def read_text_messages(
                     sock.sendall(_frame(_OP_CLOSE, payload[:2]))
                 return "sunucu kapattı"
             if opcode in (_OP_TEXT, _OP_BINARY):
-                parts, kind = [payload], opcode
-            elif opcode == _OP_CONT:
-                parts.append(payload)
+                parts, kind, size = [], opcode, 0
+            if opcode in (_OP_TEXT, _OP_BINARY, _OP_CONT):
+                size += len(payload)
+                if size > _MAX_MESSAGE:  # tavan birikmiş iletiye uygulanır, tek çerçeveye değil
+                    raise WebSocketError("WebSocket iletisi çok büyük (1 MB tavanı).")
+                if kind == _OP_TEXT:  # ikili ileti olay olmaz; parçaları biriktirilmez
+                    parts.append(payload)
             if fin and opcode in (_OP_TEXT, _OP_BINARY, _OP_CONT) and kind == _OP_TEXT:
                 on_message(b"".join(parts).decode("utf-8", errors="replace"))
             if fin:
-                parts = []
+                parts, size = [], 0
