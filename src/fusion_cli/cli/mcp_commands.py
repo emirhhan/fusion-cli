@@ -361,6 +361,16 @@ def list_servers() -> None:
     mcp_manage.list_servers()
 
 
+@mcp_app.command("add-from-claude-desktop")
+def add_from_claude_desktop(
+    scope: str = typer.Option("local", "--scope", "-s", help="local | project | user"),
+) -> None:
+    """Claude Desktop'taki MCP sunucularını seçerek içe aktar (macOS ve WSL)."""
+    from .mcp_desktop_import import add_from_claude_desktop as _import
+
+    _import(scope)
+
+
 @mcp_app.command("get")
 def get(name: Annotated[str, typer.Argument(help="Sunucu adı.")]) -> None:
     """Tek sunucunun ayrıntısını göster (kapsam, durum, taşıma, hedef, OAuth)."""

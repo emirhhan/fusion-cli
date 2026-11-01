@@ -207,3 +207,27 @@ def test_no_browser_yapistirilan_donus_adresi_kabul_edilir():
     assert asyncio.run(_calistir()) == ("abc", "s1")
     with pytest.raises(Exception, match="code/state"):
         callback._accept_pasted("http://localhost:1/callback?code=x&state=yanlis")
+
+
+def test_claude_desktop_ice_aktarma_ad_suzgeci_ve_ek(izole, monkeypatch, tmp_path):
+    from fusion_cli.cli import mcp_desktop_import
+
+    masaustu = tmp_path / "claude_desktop_config.json"
+    masaustu.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {"command": "npx", "args": ["-y", "gh"]},
+                    "META ADS": {"command": "x"},
+                    "fetch": {"command": "uvx"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    _invoke("add", "github", "zaten")
+    monkeypatch.setattr(mcp_desktop_import, "desktop_config_path", lambda home=None: masaustu)
+    result = runner.invoke(app_module.app, ["mcp", "add-from-claude-desktop"], input="\n")
+    assert result.exit_code == 0, result.output
+    assert "META ADS" in result.output and "Atlandı" in result.output
+    assert {s.name for s in read_local_mcp_servers(izole)} == {"github", "github_1", "fetch"}
