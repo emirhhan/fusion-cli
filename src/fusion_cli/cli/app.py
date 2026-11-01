@@ -195,9 +195,20 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    mcp_config: Annotated[
+        list[str] | None,
+        typer.Option("--mcp-config", help="MCP sunucularını JSON dosyası ya da metninden yükle."),
+    ] = None,
+    strict_mcp_config: Annotated[
+        bool,
+        typer.Option("--strict-mcp-config", help="Yalnız --mcp-config sunucularını kullan."),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
+    from ..config.mcp_cli import set_session_mcp
+
+    set_session_mcp(mcp_config, strict=strict_mcp_config)
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı

@@ -201,6 +201,10 @@ def load_config(path: str | Path | None = None) -> Config:
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
         # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
         yapilandirma = _with_plugin_mcp_servers(yapilandirma)
+        # `--mcp-config` / `--strict-mcp-config` (Claude Code; #253).
+        from .mcp_cli import apply_session_mcp
+
+        yapilandirma = apply_session_mcp(yapilandirma)
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
