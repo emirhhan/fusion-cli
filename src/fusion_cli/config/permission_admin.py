@@ -15,7 +15,8 @@ from pathlib import Path
 from ..core.errors import ConfigError
 from ..ui import messages
 from . import trust
-from .local_settings_location import local_settings_path
+from .local_settings_gitignore import ensure_globally_ignored
+from .local_settings_location import local_settings_path, local_settings_root
 from .models import Config
 from .permission_rules import (
     LAYER_FUSION,
@@ -95,9 +96,13 @@ def add_permission_rule(
     fell_back = not user_level and target != project_target
     if fell_back and strict_project:
         raise ConfigError(messages.PERMISSIONS_PROJECT_UNTRUSTED)
+    created = target == project_target and not target.exists()
     changed = add_rule(target, rule)
     if changed and target == project_target:
         trust.record_permissions_digest(root)
+    if created and target.is_file():
+        # Claude (#67): ilk yazımda dosya genel git dışlamasına eklenir.
+        ensure_globally_ignored(local_settings_root(root))
     return RuleChange(rule, target, changed, fell_back)
 
 
