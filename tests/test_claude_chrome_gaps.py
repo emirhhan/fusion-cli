@@ -230,3 +230,12 @@ async def test_ekran_goruntusu_kimligi_upload_image_ile_yuklenir(tmp_path):
     assert data["files"][0]["name"] == "a.jpg"
     yok = await chrome.chrome_action({"action": "upload_image", "value": "ss_99", "ref": "e3"}, ctx)
     assert not yok.ok and "ss_99" in yok.output
+
+
+def test_read_page_varsayilan_siniri_50000_ve_scroll_to_kaydirmadir():
+    """Claude: read_page çıktısı varsayılan 50000 karakter; scroll_to öğeyi görünüme kaydırır."""
+    assert translate(P + "read_page", {}) == ("chrome_page", {"tree": "all", "max_chars": 50_000})
+    assert translate(P + "computer", {"action": "scroll_to", "ref": "e3"}) == (
+        "chrome_action",
+        {"action": "scroll", "ref": "e3"},
+    )

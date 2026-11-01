@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from ..core.claude_chrome_names import claude_chrome_short
-from .chrome_claude_args import parse_modifiers
+from .chrome_claude_args import DEFAULT_MAX_CHARS, parse_modifiers
 
 Legacy = tuple[str, dict[str, object]]
 Translation = Legacy | str | None
@@ -129,7 +129,8 @@ def _computer(args: Args) -> Translation:
             return _act("hover", value=point)
         if not ref:
             return f"{action} Fusion'da öğe ref'i ister (read_page/find)."
-        return _act("hover", **ref)
+        # scroll_to öğeyi görünüme kaydırır; fare olayı (hover) göndermez.
+        return _act("hover" if action == "hover" else "scroll", **ref)
     if action == "wait":
         return None
     return f"computer action tanınmadı: {action!r}."
@@ -155,8 +156,9 @@ def _read_page(args: Args) -> Translation:
     if isinstance(args.get("ref_id"), str) and args["ref_id"]:
         data["ref"] = args["ref_id"]
     limit = args.get("max_chars")
-    if isinstance(limit, int | float) and not isinstance(limit, bool) and limit > 0:
-        data["max_chars"] = int(limit)
+    if not isinstance(limit, int | float) or isinstance(limit, bool) or limit <= 0:
+        limit = DEFAULT_MAX_CHARS  # Claude: "limited to 50000 characters by default".
+    data["max_chars"] = int(limit)
     return "chrome_page", data
 
 
