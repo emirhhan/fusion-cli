@@ -135,7 +135,7 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
                          (kod seçenekleri yalnız o turdan beri dosya değiştiyse görünür)
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
-  Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
+  Boş satırda **Esc Esc** de aynı seçiciyi açar. Girdi doluyken (tur sürmüyorsa) **Esc Esc** metni temizler; taslak geçmişe yazılır, Up ile geri gelir. `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
   Checkpoint'ler Claude Code'daki gibi konuşmayla birlikte diske yazılır

@@ -169,6 +169,8 @@ class FusionTui:
         self._flash = ""
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
         self._last_escape_at = 0.0
+        #: Dolu girdide son Esc'in zamanı; ikincisi girdiyi temizler (#222).
+        self._last_clear_escape_at = 0.0
         # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
         # karede yeniden hesaplanmalı (bkz. work_line.WorkLineSink.render).
         self._work_source: Callable[[], str] | None = None
@@ -797,8 +799,31 @@ class FusionTui:
             self._resolve(None)
         elif self._rewind_requested():
             self._on_rewind()  # type: ignore[misc]  # `_rewind_requested` None'ı eledi
+        elif self._clear_requested():
+            self._clear_into_history()
         else:
             self._on_interrupt()
+
+    def _clear_requested(self, *, now: float | None = None) -> bool:
+        """Boştayken DOLU girdide art arda iki Esc mi? (Claude Code #222: girdiyi temizler.)
+
+        Tur sürerken Esc her zaman keser; girdi boşsa bu karar `_rewind_requested`'indir.
+        """
+        if self._is_busy() or not self._input.text.strip():
+            self._last_clear_escape_at = 0.0
+            return False
+        stamp = time.monotonic() if now is None else now
+        is_double = 0.0 < stamp - self._last_clear_escape_at <= DOUBLE_ESCAPE_SECONDS
+        self._last_clear_escape_at = 0.0 if is_double else stamp
+        return is_double
+
+    def _clear_into_history(self) -> None:
+        """Girdiyi temizle; taslak dizin geçmişine yazılır, Up ile geri gelir (#222)."""
+        buffer = self._input.buffer
+        draft = self._expand_pastes(buffer.text)
+        buffer.reset()
+        if draft.strip():
+            buffer.history.append_string(draft)
 
     def _rewind_requested(self, *, now: float | None = None) -> bool:
         """Boş girdide art arda iki Esc mi? (Claude Code: Esc Esc → `/rewind`.)
