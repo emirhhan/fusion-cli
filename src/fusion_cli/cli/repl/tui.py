@@ -585,8 +585,8 @@ class FusionTui:
         """Seçim modalının satırları: başlık + seçenekler, seçili olan işaretli."""
         fragments: StyleAndTextTuples = [("class:choice-title", f" {self._choice_title}\n")]
         if self._choice_search is not None and self._choice_search.active:
-            query = self._choice_search.query or ""
-            fragments.append(("class:choice-hint", f" {messages.CHOICE_SEARCH.format(query=query)}\n"))
+            search_line = messages.CHOICE_SEARCH.format(query=self._choice_search.query or "")
+            fragments.append(("class:choice-hint", f" {search_line}\n"))
         for index, choice in enumerate(self._choices):
             selected = index == self._choice_index
             marker = theme.ICON_STATUS if selected else " "

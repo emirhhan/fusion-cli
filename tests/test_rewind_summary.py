@@ -27,6 +27,7 @@ def state(tmp_path: Path, monkeypatch) -> ReplState:
     for ad in ("bir", "iki", "üç"):
         value.checkpoints.begin(ad, value.history)
         value.history.extend([Message("user", ad), Message("assistant", f"{ad} yapıldı")])
+
     async def _sahte(_state, part, focus):
         from fusion_cli.engines.agent.history import root_anchor_length
 

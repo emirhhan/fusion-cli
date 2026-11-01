@@ -99,7 +99,7 @@ def rewind_command(state: ReplState, argument: str) -> str:
 
     summary = rewind_summary.parse(argument)
     if summary is not None and summary[0] is not None:
-        return rewind_summary.summarize_blocking(state, *summary)
+        return rewind_summary.summarize_blocking(state, summary[0], summary[1], summary[2])
 
     if (target := rewind_clear.resume_target(argument)) is not None:
         return _resume_previous(state, target)

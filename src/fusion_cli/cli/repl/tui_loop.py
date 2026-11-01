@@ -798,7 +798,7 @@ class _TuiSession:
         summary = rewind_summary.parse(argument) if command.name == "rewind" else None
         if summary is not None and summary[0] is not None:
             # Özet modele gider: olay döngüsünü tutmadan beklenir (#199).
-            result = await rewind_summary.summarize(self._state, *summary)
+            result = await rewind_summary.summarize(self._state, summary[0], summary[1], summary[2])
         else:
             result = command.handler(self._state, argument)
         if command.name == "reset" or previous != (self._state.root, self._state.conversation_id):

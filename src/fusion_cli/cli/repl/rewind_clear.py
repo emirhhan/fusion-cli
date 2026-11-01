@@ -17,7 +17,7 @@ RESUME_PREFIX = "resume:"
 
 def previous_session(state: ReplState) -> str:
     """`/clear` ile bırakılan sohbetin kimliği; başka sohbete geçildiyse boş."""
-    cleared = getattr(state, "cleared_session", None)
+    cleared: tuple[str, str] | None = getattr(state, "cleared_session", None)
     if not cleared or cleared[1] != state.conversation_id:
         return ""
     return cleared[0]

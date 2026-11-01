@@ -19,10 +19,29 @@ WRITE_KEY = "w"
 WRITE_PREFIX = f"{WRITE_KEY}:"
 #: Kod dili → dosya uzantısı (bilinmeyen dil `.txt`, tam yanıt/alıntı `.md`).
 _EXTENSIONS = {
-    "python": "py", "py": "py", "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
-    "tsx": "tsx", "jsx": "jsx", "bash": "sh", "sh": "sh", "shell": "sh", "zsh": "sh",
-    "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml", "rust": "rs", "go": "go",
-    "html": "html", "css": "css", "sql": "sql", "markdown": "md", "md": "md",
+    "python": "py",
+    "py": "py",
+    "javascript": "js",
+    "js": "js",
+    "typescript": "ts",
+    "ts": "ts",
+    "tsx": "tsx",
+    "jsx": "jsx",
+    "bash": "sh",
+    "sh": "sh",
+    "shell": "sh",
+    "zsh": "sh",
+    "json": "json",
+    "yaml": "yaml",
+    "yml": "yaml",
+    "toml": "toml",
+    "rust": "rs",
+    "go": "go",
+    "html": "html",
+    "css": "css",
+    "sql": "sql",
+    "markdown": "md",
+    "md": "md",
 }
 _FENCE = re.compile(r"^(```|~~~)(.*)$")
 

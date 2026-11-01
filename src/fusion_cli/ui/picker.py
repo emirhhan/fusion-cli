@@ -100,9 +100,7 @@ def pick(
         return None
     if not sys.stdin.isatty():
         return _pick_plain(choices, title=title, stream=stream, alt_keys=alt_keys)
-    picked = _pick_interactive(
-        choices, title=title, gradient_rows=gradient_rows, alt_keys=alt_keys
-    )
+    picked = _pick_interactive(choices, title=title, gradient_rows=gradient_rows, alt_keys=alt_keys)
     return picked
 
 

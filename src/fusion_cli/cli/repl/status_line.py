@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import subprocess
-from typing import Any
+from typing import IO, Any
 
 from ...ui import messages
 from .state import ReplState
@@ -92,7 +92,7 @@ async def status_line_block(state: ReplState) -> str:
         return ""
 
 
-def show_status_block(stream: Any, block: str) -> None:
+def show_status_block(stream: IO[str], block: str) -> None:
     """Bloğu ham ANSI olarak yaz (rich kaçış dizilerini ve OSC 8'i bozardı)."""
     if not block:
         return
