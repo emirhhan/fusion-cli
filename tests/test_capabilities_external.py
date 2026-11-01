@@ -102,9 +102,10 @@ def test_farkli_agent_kaynaklari_ayri_secilebilir(tmp_path):
 
     registry = CapabilityRegistry(tmp_path, tmp_path)
     entries = [item for item in registry.agents() if item.name == "architect"]
-    assert {item.source for item in entries} == {"claude+proje", "codex"}
-    assert registry.get_agent("architect") is None
-    assert all(registry.get_agent(item.qualified_name) == item for item in entries)
+    # #38: Codex kaynağı Claude kapsamlarının altındadır; belirsizlik üretmez.
+    assert {item.source for item in entries} == {"claude+proje"}
+    agent = registry.get_agent("architect")
+    assert agent is not None and agent.description == "claude sürümü"
 
 
 def test_codex_toml_agent_promptu_developer_talimati_doner(tmp_path):
@@ -154,7 +155,9 @@ def test_project_agent_source_selected_explicitly(tmp_path) -> None:
     _toml_agent_yaz(tmp_path, "architect")
 
     registry = CapabilityRegistry(tmp_path, root)
-    assert registry.get_agent("architect") is None
+    assert registry.get_agent("architect") == next(
+        item for item in registry.agents() if item.name == "architect"
+    )
     selected = next(
         item for item in registry.agents() if item.name == "architect" and item.source == "proje"
     )

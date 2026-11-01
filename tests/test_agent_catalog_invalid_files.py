@@ -63,3 +63,22 @@ def test_ajan_dosyasinin_icerigi_degisince_katalog_yeniden_yuklenir(tmp_path: Pa
 
     second = registry.get_agent("denetci")
     assert second is not None and second.description == "yeni"
+
+
+def test_codex_ve_kurulu_ajanlar_claude_kapsamini_belirsizlestirmez(tmp_path: Path) -> None:
+    """Ek kaynaklar Claude kapsamlarının altındadır; aynı ad belirsizlik üretmez (#38)."""
+    home = tmp_path / "ev"
+    user = home / ".claude" / "agents"
+    user.mkdir(parents=True)
+    (user / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: kullanıcı\n---\nKullanıcı.", encoding="utf-8"
+    )
+    codex = home / ".codex" / "agents"
+    codex.mkdir(parents=True)
+    (codex / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: codex\n---\nCodex.", encoding="utf-8"
+    )
+
+    agent = CapabilityRegistry(home, tmp_path).get_agent("denetci")
+
+    assert agent is not None and agent.description == "kullanıcı"

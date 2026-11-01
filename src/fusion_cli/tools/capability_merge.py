@@ -28,7 +28,11 @@ def shadow_agent(found: dict[str, Capability], capability: Capability) -> None:
         if _merge_file_alias(found, key, existing, capability):
             return
         if priority is None:
-            continue
+            # Codex, kurulu repo ve yerleşik tanımlar Claude kapsamlarının ALTINDADIR; aynı
+            # ad belirsizlik üretmez, önce taranan (daha öncelikli) tanım kazanır (#38).
+            if _identical(existing, capability):
+                break
+            return
         existing_priority = _scope_priority(existing.source)
         if existing_priority is None:
             continue
@@ -56,6 +60,13 @@ def _merge_file_alias(
         sources = ["claude", *(source for source in sources if source != "claude")]
     found[key] = replace(existing, source="+".join(sources))
     return True
+
+
+def _identical(left: Capability, right: Capability) -> bool:
+    try:
+        return left.path.read_bytes() == right.path.read_bytes()
+    except OSError:
+        return False
 
 
 def merge_capability(found: dict[str, Capability], capability: Capability) -> None:

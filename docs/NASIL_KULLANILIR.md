@@ -380,6 +380,9 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
 
 Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`, proje
 `.claude/agents`, `~/.codex/agents`) ve frontmatter'daki ayarları alt ajana uygular.
+Öncelik Claude Code'daki gibi yönetilen > `--agents` > proje (çalışma dizinine en yakın) >
+kullanıcı; Codex (`~/.codex/agents`), `fusion yetenek kur` repoları ve yerleşik roller bunların
+ALTINDADIR: aynı ad hiçbir zaman belirsizlik üretmez, önce gelen tanım kazanır.
 Claude Code'daki gibi şu dosyalar sessizce atlanır (yalnız hata ayıklama günlüğüne düşer):
 `name` yok (dosya belge sayılır), açılış `---` ilk satırda değil, `name` `-` ile başlıyor,
 `:` içeriyor ya da 256 karakteri aşıyor, `description` yok. Kimlik dosya adından değil `name`

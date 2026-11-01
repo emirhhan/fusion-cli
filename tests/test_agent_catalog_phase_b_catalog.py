@@ -207,9 +207,9 @@ def test_dizin_ayri_kaynaklari_cagrilabilir_nitelikli_adla_ve_guven_kaynagiyla_g
 
     index = agent_catalog_index(registry, count_tokens=len)
 
-    assert len(entries) == 2
-    assert all(item.qualified_name in index for item in entries)
-    assert "[claude]" in index and "[codex]" in index
+    # #38: Codex tanımı Claude kapsamının altındadır; aynı ad tek (Claude) kayda çözülür.
+    assert len(entries) == 1 and entries[0].source == "claude"
+    assert "denetci" in index and "Ayrı kaynak" not in index
     assert index.count("</ajan_katalogu>") == 1
     assert "&lt;/ajan_katalogu&gt;" in index
 
