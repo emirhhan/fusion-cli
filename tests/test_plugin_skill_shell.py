@@ -50,7 +50,11 @@ def _repo_plugin(tmp_path: Path) -> tuple[Path, Path]:
     (market / ".claude-plugin").mkdir(parents=True)
     (market / ".claude-plugin" / "marketplace.json").write_text(
         json.dumps(
-            {"name": "mk", "owner": {"name": "R"}, "plugins": [{"name": "p", "source": "./plugins/p"}]}
+            {
+                "name": "mk",
+                "owner": {"name": "R"},
+                "plugins": [{"name": "p", "source": "./plugins/p"}],
+            }
         ),
         "utf-8",
     )

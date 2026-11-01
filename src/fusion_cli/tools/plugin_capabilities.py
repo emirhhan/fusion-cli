@@ -109,9 +109,7 @@ def _prefixed(capability: Capability, plugin: str, name: str = "") -> Capability
     return replace(capability, name=f"{plugin}:{name or capability.name}")
 
 
-def _layouts(
-    home: Path | None, root: Path | None = None
-) -> Iterator[tuple[str, PluginLayout]]:
+def _layouts(home: Path | None, root: Path | None = None) -> Iterator[tuple[str, PluginLayout]]:
     """`(önek, düzen)`: Fusion'ın etkin eklentileri, sonra Claude Code'un etkin kurulumları.
 
     `root`: kataloğun proje kökü (project/local `enabledPlugins`); verilmezse süreç cwd'si.

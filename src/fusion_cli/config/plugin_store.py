@@ -266,9 +266,8 @@ def update_state(
     Ölçüldü (31 Ekim): masaüstü ve CLI aynı anda kur/aç/kapat yaptığında `kayit.json` son
     yazanın değerine düşüyordu (kimlik deposu `config_lock` kullanıyor, burada kilit yoktu).
     """
-    from .writer import config_lock
-
     from .plugin_state_migrate import migrated
+    from .writer import config_lock
 
     path = state_file(base)
     with config_lock(path):

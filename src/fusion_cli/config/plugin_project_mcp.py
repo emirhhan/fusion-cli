@@ -50,7 +50,9 @@ def _load(base: Path | None) -> dict[str, dict[str, str]]:
     if not isinstance(raw, dict):
         return {}
     return {
-        str(k): {str(a): str(b) for a, b in v.items()} for k, v in raw.items() if isinstance(v, dict)
+        str(k): {str(a): str(b) for a, b in v.items()}
+        for k, v in raw.items()
+        if isinstance(v, dict)
     }
 
 

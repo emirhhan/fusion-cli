@@ -23,6 +23,7 @@ def _vault_key(monkeypatch):
     """Şifreli depo için yalnız teste ait ana anahtar (gerçek Keychain/kasa yok)."""
     monkeypatch.setenv("FUSION_SECRET_KEY", "test-yalniz-eklenti-anahtari")
 
+
 _SCHEMA = {
     "api_url": {"type": "string", "title": "API", "description": "Adres", "required": True},
     "api_token": {"type": "string", "title": "Token", "description": "T", "sensitive": True},
