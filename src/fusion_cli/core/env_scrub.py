@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-__all__ = ["SCRUB_ENV", "SCRUBBED_NAMES", "scrub_enabled", "scrubbed_env"]
+__all__ = ["SCRUBBED_NAMES", "SCRUB_ENV", "scrub_enabled", "scrubbed_env"]
 
 SCRUB_ENV = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 #: Çıkarılan adlar: Claude'un Anthropic/bulut kimlik bilgileri + Fusion sağlayıcı anahtarları
