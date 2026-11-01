@@ -177,7 +177,8 @@ def read_text_messages(
     with sock:
         pending = _handshake(sock, target, protocols)
         sock.settimeout(_POLL_S)
-        reader, parts, kind, size = _Reader(sock, pending, should_stop), [], _OP_TEXT, 0
+        reader, kind, size = _Reader(sock, pending, should_stop), _OP_TEXT, 0
+        parts: list[bytes] = []
         while True:
             frame = _next_frame(reader)
             if frame is None:

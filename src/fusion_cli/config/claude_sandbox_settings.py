@@ -211,8 +211,8 @@ def read_claude_sandbox(root: Path, *, home: Path | None = None) -> ClaudeSandbo
         layer = _layer_from(data, path, base)
         if layer is None:
             continue
-        section = scope_filter(kind, layer[0], path, admin=admin, domains=domains)
-        layers.append((section, kind == MANAGED))
+        allowed = scope_filter(kind, layer[0], path, admin=admin, domains=domains)
+        layers.append((allowed, kind == MANAGED))
         raw.append(data)
         if layer[1] is not None:
             enabled = layer[1]
