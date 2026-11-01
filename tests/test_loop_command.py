@@ -769,3 +769,21 @@ def test_schedule_wakeup_loop_id_yalniz_kendi_tempolu_gorevde(state: ReplState) 
         {"in": "3m", "loop_id": sabit.id}, ToolContext(root=state.root, cron=state.cron)
     )
     assert not sonuc.ok
+
+
+def test_tui_esc_beklemedeki_kendi_tempolu_donguyu_durdurur(state: ReplState) -> None:
+    """Claude (scheduled-tasks, #365): kendi tempolu döngü beklerken Esc onu durdurur;
+    sabit aralıklı görev kalır. Tur sürerken Esc yalnız turu keser."""
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+    from fusion_cli.core.session_cron import Kind
+
+    kendi = state.cron.create_self_paced("testleri izle", now=0.0)
+    aralik = state.cron.create_interval("rapor", "5m", now=0.0)
+    session = _TuiSession(state)
+    session._echo = lambda _metin: None  # type: ignore[method-assign]
+    assert not session._busy  # yeni oturumda tur yok
+    session._interrupt()
+    kalan = state.cron.list()
+    assert [task.id for task in kalan] == [aralik.id]
+    assert kendi.id not in {task.id for task in kalan}
+    assert all(task.kind is not Kind.SELF_PACED for task in kalan)

@@ -380,6 +380,12 @@ class _TuiSession:
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
             self._task.cancel()
+            return
+        # Claude: kendi tempolu /loop sıradaki uyanmayı beklerken Esc döngüyü durdurur (#365).
+        for task_id in loop_command.stop_waiting_self_paced(self._state):
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_STOPPED.format(id=task_id))}[/{theme.DIM}]"
+            )
 
     def _background_turn(self) -> None:
         """Ctrl+B: beklenen ön plan alt ajanı ya da süren kabuk komutu varsa onu kesmeden

@@ -95,6 +95,21 @@ _LIST_WORDS = frozenset({"list", "liste"})
 _STOP_WORDS = frozenset({"stop", "dur", "durdur"})
 
 
+def stop_waiting_self_paced(state: ReplState) -> tuple[str, ...]:
+    """Beklemedeki kendi tempolu döngüleri sil (Claude: döngü beklerken Esc durdurur; #365).
+
+    Sabit aralıklı ve tek seferlik görevler kalır; silinen kimlikleri döndürür.
+    """
+    stopped = tuple(task.id for task in state.cron.list() if task.kind is Kind.SELF_PACED)
+    for task_id in stopped:
+        state.cron.delete(task_id)
+    if stopped:
+        from . import cron_store
+
+        cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
+    return stopped
+
+
 def _list_or_stop(state: ReplState, sub: str, head: str, now: float) -> str:
     if head in _LIST_WORDS:
         tasks = state.cron.list(now)
