@@ -391,6 +391,14 @@ class PlainMemory:
         except OSError as error:
             raise PlainMemoryError(f"Bellek dosyası yazılamadı ({path.name}): {error}") from error
 
+    def directory_contained(self) -> bool:
+        """Bellek dizini sınırın içinde ve yolunda sembolik bağ yok mu (dosya araçları için)."""
+        try:
+            self._guard(self.directory)
+        except PlainMemoryError:
+            return False
+        return True
+
     def _guard(self, path: Path) -> None:
         """Yol sınır dizinin içinde kalsın: aradaki hiçbir bileşen sembolik bağ olmasın ve
         çözülmüş hali sınırın altında dursun. Depodan gelen bağ (git sembolik bağ saklar)

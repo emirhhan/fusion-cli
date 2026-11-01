@@ -316,6 +316,10 @@ def with_memory_roots(context: ToolContext, memory: PlainMemory | None) -> ToolC
     """
     if memory is None:
         return context
+    if not memory.directory_contained():
+        # Depodan gelen bağ bellek dizinini kök dışına çeviremez (PlainMemory._guard gibi).
+        _LOG.warning("ajan bellek dizini sınır dışına çıkıyor; dosya araçlarına açılmadı")
+        return context
     directory = memory.directory
     scope = context.write_scope
     return dataclasses.replace(
