@@ -12,7 +12,7 @@ Bu modül saf tiptir: süreç açmaz, dosya okumaz (çalıştırma `engines/hook
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from .matcher import matcher_matches
@@ -196,6 +196,21 @@ class HookCommand:
     plugin_data: str = ""
 
 
+#: Kopyası ayar dosyalarındakiyle birleşmeyen kaynakların öneki (eklenti, beceri).
+SEPARATE_SOURCE_PREFIXES = ("eklenti:", "beceri:")
+
+
+def handler_key(command: HookCommand) -> HookCommand:
+    """Tekilleştirme anahtarı: işleyicinin tüm tanımı (tür, komut, `args`, `if`, `shell`…).
+
+    Claude: "If you define the same handler in more than one settings file, it runs once.
+    A plugin's or skill's copy of the same handler stays separate." Eşleştirici ve dosya
+    yolu anahtara girmez; eklenti/beceri kaynağı girer.
+    """
+    owner = command.source if command.source.startswith(SEPARATE_SOURCE_PREFIXES) else ""
+    return replace(command, matcher="", source=owner, path="")
+
+
 @dataclass(frozen=True, slots=True)
 class HookSkip:
     """Okunan ama çalıştırılmayacak tanım (güvenilmeyen katman, desteklenmeyen tür…)."""
@@ -224,19 +239,20 @@ class HookSet:
     notices: tuple[str, ...] = ()
 
     def for_event(self, event: HookEvent, subjects: Iterable[str] = ()) -> tuple[HookCommand, ...]:
-        """Olaya ve eşleştiriciye uyan komutlar; aynı komut metni bir kez (Claude gibi)."""
+        """Olaya ve eşleştiriciye uyan komutlar; aynı işleyici bir kez (`handler_key`)."""
         if self.disabled_reason is not None:
             return ()
         names = tuple(subjects)
         uses_matcher = MATCHER_SUBJECT[event] is not None
         found: list[HookCommand] = []
-        seen: set[str] = set()
+        seen: set[HookCommand] = set()
         for command in self.commands:
-            if command.event is not event or command.command in seen:
+            key = handler_key(command)
+            if command.event is not event or key in seen:
                 continue
             if uses_matcher and not matcher_matches(command.matcher, names):
                 continue
-            seen.add(command.command)
+            seen.add(key)
             found.append(command)
         return tuple(found)
 
