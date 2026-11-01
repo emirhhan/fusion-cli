@@ -42,8 +42,11 @@ DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarla
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
     CONTEXT_INPUT: {"s-tab": "kip_dongusu", "c-v": "yapistirma_katla"},
     CONTEXT_TUI: {
-        "c-c": "cik",
-        "c-q": "cik",
+        # Claude Code (#195): Ctrl+C keser / girdiyi temizler / ikinci basışta çıkar; Ctrl+D
+        # boş girdide 800 ms içinde iki basışla çıkar. Ctrl+U/Ctrl+R/Ctrl+D satır düzenleme
+        # ve geçmiş içindir, kaydırma PageUp/PageDown/Ctrl+Home/Ctrl+End/Shift+oklarda.
+        "c-c": "kes_temizle_cik",
+        "c-d": "cift_basista_cik",
         "escape": "kes",
         "s-tab": "kip_dongusu",
         "pageup": "sayfa_yukari",
@@ -53,10 +56,7 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "end": "en_son",
         "c-end": "en_son",
         "s-up": "kaydir_yukari",
-        "c-u": "kaydir_yukari",
         "s-down": "kaydir_asagi",
-        "c-d": "kaydir_asagi",
-        "c-r": "en_bas",
         # Süren turu arka plan görevine taşı (P-048; Claude Code Ctrl+B).
         "c-b": "arka_plana_al",
     },
@@ -68,6 +68,8 @@ ACTIONS: dict[str, frozenset[str]] = {
         {
             "cik",
             "kes",
+            "kes_temizle_cik",
+            "cift_basista_cik",
             "kip_dongusu",
             "sayfa_yukari",
             "sayfa_asagi",

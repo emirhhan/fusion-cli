@@ -26,6 +26,7 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, Filter
+from prompt_toolkit.history import History
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout import Layout
@@ -33,10 +34,17 @@ from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Windo
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import Frame, TextArea
+from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
 from rich.console import Console
 
 from .status_line_runner import ansi_for_tui
+from .tui_input_keys import (
+    DOUBLE_PRESS_SECONDS,
+    MAX_INPUT_ROWS,
+    DoublePress,
+    register_shift_enter,
+    submit_or_newline,
+)
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
 from ...ui import messages, theme
 from ...ui.picker import Choice
@@ -141,6 +149,8 @@ class FusionTui:
         keymap: KeyMap | None = None,
         on_rewind: Callable[[], None] | None = None,
         on_background: Callable[[], None] | None = None,
+        history: History | None = None,
+        is_busy: Callable[[], bool] | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
@@ -149,6 +159,12 @@ class FusionTui:
         self._on_transcript_change = on_transcript_change
         self._on_rewind = on_rewind
         self._on_background = on_background
+        #: Tur sürüyor mu? Ctrl+C keser; boştayken temizler/çıkar (#195).
+        self._is_busy = is_busy or (lambda: self._work_source is not None)
+        self._ctrl_c = DoublePress()
+        self._ctrl_d = DoublePress()
+        #: Durum satırında geçici ipucu ("çıkmak için tekrar Ctrl+C").
+        self._flash = ""
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
         self._last_escape_at = 0.0
         # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
@@ -188,15 +204,21 @@ class FusionTui:
         self._scroll = 0
         self._unread_lines = 0
 
+        # Çok satırlı girdi (#197), dizin başına geçmiş ve Ctrl+R araması (#196).
+        register_shift_enter()
+        self._search = SearchToolbar()
         self._input = TextArea(
-            height=1,
-            multiline=False,
-            wrap_lines=False,
+            height=Dimension(min=1, max=MAX_INPUT_ROWS),
+            dont_extend_height=True,
+            multiline=True,
+            wrap_lines=True,
             prompt=[("class:prompt", PROMPT)],
             accept_handler=self._accept,
             # Tab ile `/komut` ve `@yol` tamamlama (P-022); yazarken menü açılmaz.
             completer=completer,
             complete_while_typing=False,
+            history=history,
+            search_field=self._search,
         )
         conversation = Window(
             FormattedTextControl(self._conversation_fragments),
@@ -231,6 +253,7 @@ class FusionTui:
                 choice_window,
                 rule,
                 Frame(self._input),
+                self._search,
                 custom_window,
                 status_window,
             ],
@@ -404,6 +427,8 @@ class FusionTui:
             self._status_custom,
             vim=self._status_vim,
         )
+        if self._flash:
+            self._status_html += f"<style fg='{theme.WARN}'> · {html_escape(self._flash)}</style>"
         if self._scroll > 0 and self._unread_lines:
             self._status_html += (
                 f"<style fg='{theme.ACCENT_ALT}'> · ↓ {self._unread_lines} yeni satır</style>"
@@ -620,13 +645,29 @@ class FusionTui:
         # Oklar: seçim modunda seçeneği gezer, boştayken konuşmayı kaydırır.
         nav = Condition(lambda: self._mode in ("idle", "choice"))
 
+        # Claude Code (#196): boştayken Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son
+        # satırda dizin geçmişini gezer; konuşma PageUp/PageDown ve Shift+oklarla kayar.
         @kb.add("up", filter=nav, eager=True)
+        @kb.add("c-p", filter=nav, eager=True)
         def _up(_event: object) -> None:
-            self._move_choice(-1) if self._mode == "choice" else self._scroll_by(_SCROLL_STEP)
+            self._move_choice(-1) if self._mode == "choice" else self._input.buffer.auto_up()
 
         @kb.add("down", filter=nav, eager=True)
+        @kb.add("c-n", filter=nav, eager=True)
         def _down(_event: object) -> None:
-            self._move_choice(1) if self._mode == "choice" else self._scroll_by(-_SCROLL_STEP)
+            self._move_choice(1) if self._mode == "choice" else self._input.buffer.auto_down()
+
+        # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
+        # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.
+        typing = Condition(lambda: self._mode != "choice")
+
+        @kb.add("enter", filter=typing, eager=True)
+        def _enter(_event: object) -> None:
+            submit_or_newline(self._input.buffer)
+
+        @kb.add("c-j", filter=typing, eager=True)
+        def _newline(_event: object) -> None:
+            self._input.buffer.insert_text("\n", fire_event=False)
 
         # Tekerlek dizileri (`\x1b[62~`/`\x1b[63~`) fare kipinden BAĞIMSIZ ayrıştırılır.
         @kb.add(Keys.ScrollUp, filter=scrollable, eager=True)
@@ -643,6 +684,8 @@ class FusionTui:
         actions: dict[str, tuple[Callable[[], None], Filter | None]] = {
             "cik": (self._on_exit, None),
             "kes": (self._cancel_or_interrupt, None),
+            "kes_temizle_cik": (self._ctrl_c_pressed, None),
+            "cift_basista_cik": (self._ctrl_d_pressed, None),
             # Yalnız tur sürerken: boştayken Ctrl+B satır düzenlemesinde (geri karakter) kalır.
             "arka_plana_al": (self._request_background, Condition(self._can_background)),
             "kip_dongusu": (self._on_cycle_mode, None),
@@ -698,6 +741,45 @@ class FusionTui:
             kb.add(key, eager=True)(_run)
         else:
             kb.add(key, filter=condition, eager=True)(_run)
+
+    def _ctrl_c_pressed(self) -> None:
+        """Ctrl+C: modalı kapatır, turu keser; boştayken girdiyi temizler, ikincisi çıkar."""
+        if self._mode in ("ask", "choice") or self._is_busy():
+            self._ctrl_c.reset()
+            self._cancel_or_interrupt()
+            return
+        buffer = self._input.buffer
+        if buffer.text:
+            buffer.reset()
+            self._ctrl_c.reset()
+            return
+        if self._ctrl_c.press():
+            self._on_exit()
+            return
+        self._show_flash(messages.TUI_PRESS_AGAIN_TO_EXIT.format(key="Ctrl+C"))
+
+    def _ctrl_d_pressed(self) -> None:
+        """Ctrl+D: girdi doluysa sonraki karakteri siler; boşken 800 ms'de iki basış çıkar."""
+        buffer = self._input.buffer
+        if buffer.text:
+            self._ctrl_d.reset()
+            buffer.delete(1)
+            return
+        if self._ctrl_d.press():
+            self._on_exit()
+            return
+        self._show_flash(messages.TUI_PRESS_AGAIN_TO_EXIT.format(key="Ctrl+D"))
+
+    def _show_flash(self, text: str) -> None:
+        self._flash = text
+        self._refresh_status()
+        loop = self.application.loop if self.application.is_running else None
+        if loop is not None:
+            loop.call_later(DOUBLE_PRESS_SECONDS, self._clear_flash)
+
+    def _clear_flash(self) -> None:
+        self._flash = ""
+        self._refresh_status()
 
     def _can_background(self) -> bool:
         return self._on_background is not None and self._work_source is not None

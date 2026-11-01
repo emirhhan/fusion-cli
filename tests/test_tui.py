@@ -140,17 +140,121 @@ def test_esc_interrupt_callback_ini_tetikler():
     assert olaylar["interrupt"] == 1
 
 
-def test_ctrl_c_ve_ctrl_q_cikar_esc_keser_shift_tab_dondurur():
-    """Kullanıcı isteği: Ctrl-C fusion'dan ÇIKAR; turu esc keser."""
+def test_ctrl_c_bosta_iki_basista_cikar_girdi_doluysa_temizler():
+    """Claude Code (#195): Ctrl+C girdiyi temizler, boş girdide ikinci basış çıkar."""
     tui, olaylar = _tui()
+    tui.set_input("yarım")
 
     _press(tui, "c-c")
-    _press(tui, "c-q")
+    assert tui._input.buffer.text == "" and olaylar["exit"] == 0
+    _press(tui, "c-c")
+    assert olaylar["exit"] == 0 and "Ctrl+C" in tui._status_html
+    _press(tui, "c-c")
+    assert olaylar["exit"] == 1
     _press(tui, "s-tab")
-
-    assert olaylar["exit"] == 2  # hem c-c hem c-q çıkışa gider
     assert olaylar["cycle"] == 1
-    assert olaylar["interrupt"] == 0  # Ctrl-C artık kesme değil
+
+
+def test_ctrl_c_tur_surerken_keser_cikmaz():
+    tui, olaylar = _tui()
+    tui._is_busy = lambda: True
+
+    _press(tui, "c-c")
+    _press(tui, "c-c")
+
+    assert olaylar["interrupt"] == 2 and olaylar["exit"] == 0
+
+
+def test_ctrl_d_doluyken_karakter_siler_bosken_cift_basista_cikar():
+    from prompt_toolkit.document import Document
+
+    tui, olaylar = _tui()
+    tui._input.buffer.set_document(Document("ab", 0))
+    _press(tui, "c-d")
+    assert tui._input.buffer.text == "b"
+    tui._input.buffer.reset()
+    _press(tui, "c-d")
+    assert olaylar["exit"] == 0
+    _press(tui, "c-d")
+    assert olaylar["exit"] == 1
+
+
+def test_ctrl_u_ve_ctrl_r_kaydirmaya_bagli_degil():
+    from fusion_cli.config import keybindings
+
+    tablo = keybindings.default_keymap()["tui"]
+    assert not {"c-u", "c-r", "c-q"} & set(tablo)
+    assert tablo["c-d"] == "cift_basista_cik"
+
+
+def _press_active(tui, *keys: str) -> None:
+    """Filtresi o an geçerli olan bağı çağır (Enter'ın seçim kipi bağı da `c-m`'dir)."""
+    for binding in tui.application.key_bindings.bindings:
+        adlar = tuple(str(getattr(k, "value", k)) for k in binding.keys)
+        if adlar == keys and binding.filter():
+            binding.handler(None)
+            return
+    raise AssertionError(f"etkin bağ bulunamadı: {keys}")
+
+
+def test_ters_eğik_cizgi_enter_yeni_satir_ctrl_j_yeni_satir_enter_gonderir():
+    """Claude Code (#197): `\\`+Enter ve Ctrl+J yeni satır, Enter gönderir."""
+    from prompt_toolkit.document import Document
+
+    tui, olaylar = _tui()
+    buffer = tui._input.buffer
+    tui.set_input("bir\\")
+
+    _press_active(tui, "c-m")
+    assert buffer.text == "bir\n" and olaylar["submit"] is None
+    tui.set_input(buffer.text + "iki")
+    _press(tui, "c-j")
+    assert buffer.text == "bir\niki\n"
+    buffer.set_document(Document("bir\niki\nüç", len("bir\niki\nüç")), bypass_readonly=True)
+    _press_active(tui, "c-m")
+
+    assert olaylar["submit"] == "bir\niki\nüç"
+
+
+def test_shift_ve_option_enter_dizileri_yeni_satira_eslenir():
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+    from prompt_toolkit.keys import Keys
+
+    _tui()
+    assert ANSI_SEQUENCES["\x1b[13;2u"] == Keys.ControlJ
+    assert ANSI_SEQUENCES["\x1b\r"] == Keys.ControlJ
+
+
+async def test_yukari_asagi_dizin_gecmisinde_gezer(tmp_path):
+    from fusion_cli.cli.repl.tui_input_keys import DirectoryHistory, history_path
+
+    yol = history_path(tmp_path / "m", tmp_path / "proje")
+    assert yol != history_path(tmp_path / "m", tmp_path / "baska")
+    gecmis = DirectoryHistory(yol)
+    gecmis.store_string("ilk görev")
+    gecmis.store_string("ikinci görev")
+    olaylar: dict[str, object] = {}
+    tui = FusionTui(
+        on_submit=lambda text: olaylar.setdefault("submit", text),
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+        history=DirectoryHistory(yol),
+    )
+    buffer = tui._input.buffer
+    buffer.load_history_if_not_yet_loaded()
+    for _ in range(50):
+        if len(buffer._working_lines) >= 3:
+            break
+        await asyncio.sleep(0.02)
+
+    _press(tui, "up")
+    assert buffer.text == "ikinci görev"
+    _press(tui, "c-p")
+    assert buffer.text == "ilk görev"
+    _press(tui, "down")
+    assert buffer.text == "ikinci görev"
+    assert (yol.stat().st_mode & 0o777) == 0o600
 
 
 # --- Modal (onay/soru) -------------------------------------------------------- #
@@ -438,7 +542,6 @@ def test_cakismayan_kaydirma_kisayollari_bagli():
     # Ok tuşu geçmiş için ayrıldı; kaydırmanın çakışmayan karşılığı olmalı.
     assert any("s-up" in a for a in anahtarlar)
     assert any("s-down" in a for a in anahtarlar)
-    assert any("c-u" in a for a in anahtarlar)
 
 
 def test_pageup_hala_bagli():
@@ -594,3 +697,33 @@ def test_terminal_yeniden_boyutlaninca_console_genisligi_guncellenir(monkeypatch
     tui.sync_conversation()
 
     assert tui.console.width == 60
+
+
+async def test_gercek_oturumda_option_enter_yeni_satir_enter_gonderir():
+    """Pty benzeri boru girdisi: ESC CR (Option+Enter) yeni satır, CR gönderir (#197)."""
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    gonderilen: list[str] = []
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        tui = FusionTui(
+            on_submit=gonderilen.append,
+            on_interrupt=lambda: None,
+            on_exit=lambda: None,
+            on_cycle_mode=lambda: None,
+        )
+        task = asyncio.create_task(tui.application.run_async())
+        await asyncio.sleep(0.2)
+        try:
+            pipe.send_text("bir\x1b\riki\r")
+            await asyncio.sleep(0.3)
+        finally:
+            with contextlib.suppress(Exception):
+                tui.application.exit()
+            await asyncio.sleep(0.1)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    assert gonderilen == ["bir\niki"]

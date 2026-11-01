@@ -1086,6 +1086,15 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 - `/tui inline` / `/tui fullscreen` → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı).
 - `/search <metin>` → tam ekran konuşmasında son eşleşmeye kaydırır; `End` canlı akışa döner.
 
+### Tam ekran girdi: çok satır, geçmiş, Ctrl+C/Ctrl+D (Claude Code ile aynı)
+
+- **Çok satır:** `\` + Enter, Option+Enter, Shift+Enter (CSI-u ya da modifyOtherKeys gönderen terminallerde), Ctrl+J; yapıştırma. Enter gönderir. Kutu en çok 10 satıra uzar.
+- **Geçmiş:** Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son satırda geçmişi gezer. Geçmiş çalışma dizini başınadır (`<bellek>/girdi-gecmisi/`, 0600), art arda aynı satır bir kez yazılır. **Ctrl+R** satır içi tersine arama (Ctrl+R sonraki, Enter kabul, Ctrl+C/Esc iptal).
+- **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler, boş girdide ikinci basış (800 ms) çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
+- Konuşma kaydırma: PageUp/PageDown, Home/End, Ctrl+Home/Ctrl+End, Shift+Up/Down.
+
+Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+L ekran temizleme yok.
+
 ### Tuş bağları ve vim: `/keybindings`, `/vim`
 
 `/vim` yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
@@ -1093,9 +1102,9 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 `/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
 ```json
 { "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
-  "tui":   { "c-q": null, "c-g": "kes", "f2": "komut:status" } }
+  "tui":   { "c-d": null, "c-g": "kes", "f2": "komut:status" } }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kes_temizle_cik`, `cift_basista_cik`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
 
 ---
 

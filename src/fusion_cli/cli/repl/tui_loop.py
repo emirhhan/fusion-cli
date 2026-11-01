@@ -79,6 +79,7 @@ from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
 from .status_line_runner import StatusLineRunner
+from .tui_input_keys import DirectoryHistory, history_path
 from .status_line_settings import resolve_status_line
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore, list_conversations
@@ -315,6 +316,9 @@ class _TuiSession:
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),
+            # Claude Code: Up/Down ve Ctrl+R çalışma dizini başına geçmişte (#196).
+            history=DirectoryHistory(history_path(state.config.memory_dir, state.root)),
+            is_busy=lambda: self._busy,
             # Ctrl+B: süren turu arka plan görevine taşı (P-048).
             on_background=self._background_turn,
         )
