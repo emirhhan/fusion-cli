@@ -158,7 +158,16 @@ def list_plugins(
             raise typer.Exit(1) from error
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
-    _run(lambda: format_installed(installed_plugins(), load_state()))
+    from ..tools.plugin_listing import session_text
+
+    def text() -> str:
+        found = installed_plugins()
+        session = session_text()
+        if session and not found:
+            return session
+        return "\n\n".join(p for p in (format_installed(found, load_state()), session) if p)
+
+    _run(text)
 
 
 @app.command("dogrula")

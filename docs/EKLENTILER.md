@@ -88,6 +88,13 @@ fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  
 fusion plugin marketplace remove <ad>          # o pazardan kurulan eklentiler de kaldırılır
 ```
 
+`fusion --plugin-dir <yol> …` (tekrarlanabilir; ortam değişkeni `CLAUDE_CODE_PLUGIN_DIRS`) eklentiyi
+kurmadan yalnız o oturum için `<ad>@inline` olarak yükler; eklenti klasörlerini tutan bir klasör
+verilirse her `.claude-plugin/plugin.json` içeren çocuk yüklenir. Aynı adlı kurulu eklenti o oturumda
+atlanır. `plugin list` bunları `Session-only plugins (--plugin-dir / --plugin-url):` başlığında,
+`--json`'da `scope: "session"` ile gösterir. Güvenlik notu: yolu kullanıcı açıkça verdiği için
+Claude Code'daki gibi kanca/MCP ayrıca onay istemez.
+
 REPL'de `/reload-plugins [--force]` bekleyen eklenti değişikliklerini oturumu yeniden başlatmadan
 uygular ve `Yeniden yüklendi: N eklenti · N beceri · N ajan · N kanca · N eklenti MCP sunucusu · 0
 eklenti LSP sunucusu` özetini basar; bir eklenti MCP sunucusu eklenip çıkacaksa (istem önbelleği
@@ -133,7 +140,7 @@ yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
-"kurulu değil" der. `--plugin-dir`/`--plugin-url` yok. `extraKnownMarketplaces` ve managed
+"kurulu değil" der. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. `extraKnownMarketplaces` ve managed
 kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 

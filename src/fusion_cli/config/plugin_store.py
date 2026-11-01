@@ -287,15 +287,22 @@ def _by_name(record: PluginRecord) -> str:
 def active_plugins(
     base: Path | None = None, root: Path | None = None
 ) -> tuple[InstalledPlugin, ...]:
-    """Bileşenleri yüklenecek eklentiler (genel kapatma, kapsamlar ve bütünlük denetimi sonrası)."""
+    """Bileşenleri yüklenecek eklentiler (genel kapatma, kapsamlar ve bütünlük denetimi sonrası).
+
+    `--plugin-dir` oturumluk eklentileri (#401) önce gelir; aynı adlı kurulu eklenti atlanır.
+    """
     if plugins_disabled_by_environment():
         return ()
+    from .plugin_session import session_plugins
+
+    session = session_plugins() if base is None else ()
     state = load_state(base)
     if state.all_disabled:
-        return ()
+        return session
+    taken = {item.record.name for item in session}
     records = (effective_record(r, root) for r in sorted(state.plugins, key=_by_name))
-    found = (inspect_plugin(r, base) for r in records if r.enabled)
-    active: list[InstalledPlugin] = []
+    found = (inspect_plugin(r, base) for r in records if r.enabled and r.name not in taken)
+    active: list[InstalledPlugin] = list(session)
     for item in found:
         if item.is_active:
             active.append(item)
@@ -359,6 +366,12 @@ def plugin_hook_blocks(
 
 def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
     """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil)."""
+    if base is None:
+        from .plugin_session import session_root_of
+
+        session = session_root_of(path)
+        if session is not None:
+            return session
     try:
         root = (base or plugins_dir()).resolve()
         relative = path.resolve().relative_to(root)

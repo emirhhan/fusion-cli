@@ -20,6 +20,7 @@ from ..config.plugin_store import (
     plugin_id,
     plugins_dir,
 )
+from ..config.plugin_session import SESSION_HEADING, SESSION_SCOPE, session_plugins
 from ..core.plugin_marketplace import MarketplaceSource
 from ..core.plugins import PluginError
 from .plugin_install import browse
@@ -75,6 +76,29 @@ def _installed_entry(item: InstalledPlugin, base: Path, root: Path) -> dict[str,
     return entry
 
 
+def _session_entry(item: InstalledPlugin) -> dict[str, object]:
+    record = item.record
+    return {
+        "id": plugin_id(record),
+        "version": record.version or UNKNOWN_VERSION,
+        "scope": SESSION_SCOPE,
+        "enabled": True,
+        "installPath": record.source,
+    }
+
+
+def session_text() -> str:
+    """İnsan okunur listenin `Session-only plugins` bölümü (boşsa boş metin)."""
+    items = session_plugins()
+    if not items:
+        return ""
+    rows = [SESSION_HEADING]
+    for item in items:
+        version = f" {item.record.version}" if item.record.version else ""
+        rows.append(f"  {plugin_id(item.record)}{version} — {item.record.source}")
+    return "\n".join(rows)
+
+
 def _server(server: object) -> dict[str, object]:
     fields = ("command", "args", "url", "transport")
     return {name: value for name in fields if (value := getattr(server, name, None))}
@@ -119,6 +143,8 @@ def list_payload(
     store = base or plugins_dir()
     project = root or Path.cwd()
     installed = [_installed_entry(item, store, project) for item in installed_plugins(store, root)]
+    if base is None:
+        installed.extend(_session_entry(item) for item in session_plugins())
     if not available:
         return installed
     return {"installed": installed, "available": _available(store)}
@@ -127,11 +153,18 @@ def list_payload(
 def details_text(name: str, *, base: Path | None = None) -> str:
     """Claude `plugin details`: kimlik, bileşen envanteri, öngörülen token maliyeti."""
     store = base or plugins_dir()
-    try:
-        record = find_record(load_state(store), name)
-    except PluginError as error:
-        raise PluginError(ERR_DETAILS_MISSING.format(name=name)) from error
-    report = validate_plugin(store / record.name, record.name)
+    bare, _, market = name.partition("@")
+    session = [i.record for i in session_plugins() if i.record.name == bare]
+    if session and market in ("", session[0].marketplace):
+        record = session[0]
+        folder = Path(record.source)
+    else:
+        try:
+            record = find_record(load_state(store), name)
+        except PluginError as error:
+            raise PluginError(ERR_DETAILS_MISSING.format(name=name)) from error
+        folder = store / record.name
+    report = validate_plugin(folder, record.name)
     layout = report.layout
     if layout is None:
         raise PluginError(ERR_DETAILS_MISSING.format(name=name))

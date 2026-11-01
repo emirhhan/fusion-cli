@@ -195,8 +195,18 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    plugin_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--plugin-dir",
+            help="Eklentiyi kurmadan yalnız bu oturum için yükle (<ad>@inline). Tekrarlanabilir.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
+    from ..config.plugin_session import add_session_dirs
+
+    add_session_dirs(plugin_dir or ())
     _SESSION.agents_json = agents_json
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
