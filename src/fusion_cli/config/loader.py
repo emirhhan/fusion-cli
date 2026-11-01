@@ -455,13 +455,16 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
     from .mcp_local import read_local_mcp_servers
 
+    from .mcp_local import disabled_mcp_servers
+
     project_servers = trusted_project_mcp_servers(root)
     local_servers = read_local_mcp_servers(root)
-    if not project_servers and not local_servers:
+    disabled = disabled_mcp_servers(root)
+    if not project_servers and not local_servers and not disabled:
         return config
+    merged = merge_mcp_servers(config.mcp_servers, project_servers, local_servers)
     return dataclasses.replace(
-        config,
-        mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers, local_servers),
+        config, mcp_servers=tuple(server for server in merged if server.name not in disabled)
     )
 
 
@@ -469,7 +472,11 @@ def _with_plugin_mcp_servers(config: Config) -> Config:
     """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
     from .plugin_store import plugin_mcp_servers
 
+    from .mcp_local import disabled_mcp_servers
+
     taken = {server.name for server in config.mcp_servers}
+    # `/mcp` aç/kapa ile bu projede kapatılan sunucular yüklenmez (Claude disabledMcpServers).
+    taken |= disabled_mcp_servers(Path.cwd())
     extra = tuple(server for server in plugin_mcp_servers() if server.name not in taken)
     if not extra:
         return config

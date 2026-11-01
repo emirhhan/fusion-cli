@@ -12,10 +12,11 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import os
-from collections.abc import Iterable
+from collections.abc import Coroutine, Iterable
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn, TypeVar
 
 import typer
 from rich.console import Console
@@ -33,6 +34,7 @@ from ..core.redaction import redact
 from ..ui import mcp_messages, messages, theme
 
 console = Console()
+_T = TypeVar("_T")
 
 #: `list` yoklaması sunucu başına bu kadar bekler (Claude MCP_TIMEOUT varsayılanı 30 sn).
 HEALTH_TIMEOUT_S = 30.0
@@ -204,29 +206,45 @@ def _candidates(config: Config, root: Path) -> list[McpServerConfig]:
 
 def remove_server(name: str, scope: str | None) -> None:
     """Kaydı kapsamından sil; saklı OAuth bilgilerini temizle (Claude Code `claude mcp remove`)."""
-    config = load_config()
-    root = Path.cwd()
+    try:
+        message, cleared = remove_named(load_config(), Path.cwd(), name, scope)
+    except ConfigError as error:
+        _fail(str(error))
+    console.print(message)
+    if cleared:
+        console.print(f"[{theme.DIM}]{mcp_messages.TOKENS_CLEARED}[/{theme.DIM}]")
+
+
+def remove_named(
+    config: Config, root: Path, name: str, scope: str | None
+) -> tuple[str, bool]:
+    """CLI ve REPL ortak kaldırma gövdesi → (mesaj, kimlik bilgisi silindi mi) (#251, #272)."""
     matches = [item for item in _candidates(config, root) if item.name == name]
     if scope is not None:
         matches = [item for item in matches if item.scope.value == scope.strip().lower()]
         if not matches:
-            _fail(mcp_messages.NOT_IN_SCOPE.format(name=name, scope=scope))
+            raise ConfigError(mcp_messages.NOT_IN_SCOPE.format(name=name, scope=scope))
     if not matches:
-        _fail(messages.MCP_NOT_FOUND.format(name=name))
+        raise ConfigError(messages.MCP_NOT_FOUND.format(name=name))
     if len({item.scope for item in matches}) > 1:
         scopes = ", ".join(item.scope.value for item in matches)
-        _fail(mcp_messages.AMBIGUOUS_SCOPE.format(name=name, scopes=scopes))
+        raise ConfigError(mcp_messages.AMBIGUOUS_SCOPE.format(name=name, scopes=scopes))
     target = matches[0]
+    message = _remove_from_scope(config, root, target)
+    if target.is_remote and not any(item.url == target.url for item in load_config().mcp_servers):
+        run_coroutine(_clear_credentials(target))
+        return message, True
+    return message, False
+
+
+def run_coroutine(coroutine: Coroutine[Any, Any, _T]) -> _T:
+    """Çalışan olay döngüsü olsa da (REPL) eşzamansız işi ayrı iş parçacığında bitir."""
     try:
-        message = _remove_from_scope(config, root, target)
-    except ConfigError as error:
-        _fail(str(error))
-    console.print(message)
-    if target.is_remote and not any(
-        item.url == target.url for item in load_config().mcp_servers
-    ):
-        asyncio.run(_clear_credentials(target))
-        console.print(f"[{theme.DIM}]{mcp_messages.TOKENS_CLEARED}[/{theme.DIM}]")
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coroutine).result()
 
 
 def _remove_from_scope(config: Config, root: Path, target: McpServerConfig) -> str:

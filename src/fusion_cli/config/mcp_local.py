@@ -115,3 +115,35 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     except OSError as error:
         temp_path.unlink(missing_ok=True)
         raise ConfigError(f"{LOCAL_MCP_FILE} yazılamadı: {error}") from error
+
+
+_DISABLED = "disabledMcpServers"
+
+
+def disabled_mcp_servers(root: Path) -> frozenset[str]:
+    """`/mcp` aç/kapa ile bu projede kapatılan sunucu adları (Claude `disabledMcpServers`)."""
+    try:
+        projects = _read(local_mcp_path()).get(_PROJECTS, {})
+    except ConfigError as error:
+        _LOG.warning("%s", error)
+        return frozenset()
+    entry = projects.get(_project_key(root)) if isinstance(projects, dict) else None
+    names = entry.get(_DISABLED) if isinstance(entry, dict) else None
+    return frozenset(str(name) for name in names) if isinstance(names, list) else frozenset()
+
+
+def set_mcp_server_enabled(root: Path, name: str, *, enabled: bool) -> Path:
+    """Sunucuyu bu proje için aç ya da kapat; kayıt kapsamından silinmez."""
+    path = local_mcp_path()
+    with config_lock(path):
+        data = _read(path)
+        projects = data.get(_PROJECTS)
+        projects = dict(projects) if isinstance(projects, dict) else {}
+        project = projects.get(_project_key(root))
+        project = dict(project) if isinstance(project, dict) else {}
+        current = set(disabled_mcp_servers(root))
+        current = current - {name} if enabled else current | {name}
+        project[_DISABLED] = sorted(current)
+        projects[_project_key(root)] = project
+        _atomic_write(path, {**data, _PROJECTS: projects})
+    return path
