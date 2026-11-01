@@ -50,7 +50,8 @@ def install_in_place(
     # #398: girdi alanları kaynağa yazılmadan bellekte birleştirilir (çakışma burada hata verir).
     layout = scan_plugin(folder, resolved.fallback_name, overlay) if overlay else report.layout
     name = layout.name
-    if state.plugin(name) is not None or (root / name).exists():
+    key = plugin_store.same_name_key(state, name, resolved.marketplace)  # #391
+    if key is None:
         raise PluginAlreadyInstalledError(ERR_EXISTS.format(name=name))
     if expected_digest:
         from .plugin_install import _check_expected
@@ -60,6 +61,7 @@ def install_in_place(
     if not approve(preview):
         raise PluginError(ERR_DECLINED)
     record = PluginRecord(
+        key=key if key != name else "",
         name=name,
         version=resolve_version(layout.manifest.version, resolved.entry_version, ""),
         source=f"{resolved.entry or name}@{resolved.marketplace}",

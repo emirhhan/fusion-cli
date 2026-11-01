@@ -164,6 +164,13 @@ Projenin güvenilen `.claude/settings.json`/`.claude/settings.local.json` dosyas
 yollu ise kurulum kaydı yazılmadan pazarın kendisinden yüklenir; dış kaynaklı girdi yüklenmez ve
 `Plugin "<ad>" is enabled in project settings but isn't installed here` günlüğe yazılır.
 
+**Kimlik `ad@pazar`:** Claude Code gibi farklı pazarlardan aynı adlı eklentiler birlikte kurulur.
+İlk kurulum kayıtta `ad` anahtarını ve `<eklentiler>/ad/` klasörünü, sonraki pazardan gelen aynı adlı
+eklenti `ad@pazar` anahtarını ve `<eklentiler>/ad@pazar/` klasörünü alır (eski kayıtlar değişmez).
+`enable`/`disable`/`uninstall`/`update`/`details` iki biçimi de alır; yalnız `ad` birden çok kuruluma
+uyuyorsa kimlikleri listeleyen "belirsiz" hatası verir. Kurma anahtarı pazar girdisinin adıdır,
+bileşenler bildirimdeki adla öneklenir.
+
 Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
 eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;
 `ac --hepsi` (Claude'da `enable --all` yok) yalnız eski genel kapatmayı kaldırır ve kullanımdan

@@ -108,7 +108,7 @@ def update_plugin(
             exec_approved=report.layout.is_executable,
             installed_at=time.time(),
         )
-        _swap(root / name, folder, updated, root)
+        _swap(root / record.store_key, folder, updated, root)
     return UpdateResult(updated, changed=True)
 
 

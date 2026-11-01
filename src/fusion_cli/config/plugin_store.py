@@ -81,6 +81,13 @@ class PluginRecord:
     scopes: tuple[str, ...] = ("user",)
     #: Başka bir eklentinin `dependencies`'i için kendiliğinden kuruldu (#389; `prune` budar).
     dependency: bool = False
+    #: Kayıt/klasör anahtarı (#391): boşsa `name`. Başka pazardan aynı adlı eklenti zaten
+    #: kuruluysa yenisi `ad@pazar` anahtarı ve `<eklentiler>/ad@pazar/` klasörüyle kurulur.
+    key: str = ""
+
+    @property
+    def store_key(self) -> str:
+        return self.key or self.name
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,17 +114,30 @@ class PluginState:
     schema: int = STATE_VERSION
 
     def plugin(self, name: str) -> PluginRecord | None:
-        return next((item for item in self.plugins if item.name == name), None)
+        """Anahtarla (`ad` ya da `ad@pazar`), yoksa adla ilk kayıt (#391)."""
+        exact = next((item for item in self.plugins if item.store_key == name), None)
+        if exact is not None:
+            return exact
+        bare, _, market = name.partition("@")
+        return next(
+            (
+                item
+                for item in self.plugins
+                if item.name == bare and (not market or item.marketplace == market)
+            ),
+            None,
+        )
 
     def marketplace(self, name: str) -> MarketplaceRecord | None:
         return next((item for item in self.marketplaces if item.name == name), None)
 
     def with_plugin(self, record: PluginRecord) -> PluginState:
-        others = tuple(item for item in self.plugins if item.name != record.name)
+        others = tuple(item for item in self.plugins if item.store_key != record.store_key)
         return replace(self, plugins=(*others, record))
 
-    def without_plugin(self, name: str) -> PluginState:
-        return replace(self, plugins=tuple(i for i in self.plugins if i.name != name))
+    def without_plugin(self, key: str) -> PluginState:
+        """`key` kaydın `store_key`'i (#391: aynı adlı başka pazar kaydı yerinde kalır)."""
+        return replace(self, plugins=tuple(i for i in self.plugins if i.store_key != key))
 
     def with_marketplace(self, record: MarketplaceRecord) -> PluginState:
         others = tuple(item for item in self.marketplaces if item.name != record.name)
@@ -180,9 +200,9 @@ def load_state(base: Path | None = None) -> PluginState:
     return PluginState(
         # Elle bozulmuş kayıttaki `../x` gibi ad klasör yoluna dönüşmesin: geçersiz ad atlanır.
         tuple(
-            _plugin(name, item)
-            for name, item in _items(raw.get("eklentiler"))
-            if NAME_PATTERN.match(name)
+            _plugin(key, item)
+            for key, item in _items(raw.get("eklentiler"))
+            if valid_store_key(key)
         ),
         tuple(
             _marketplace(name, item)
@@ -192,6 +212,25 @@ def load_state(base: Path | None = None) -> PluginState:
         raw.get("hepsi_kapali") is True,
         _schema(raw.get("surum")),
     )
+
+
+def valid_store_key(key: str) -> bool:
+    """`ad` ya da `ad@pazar`; her parça geçerli ad (klasör yoluna dönüşür, `../x` olmaz)."""
+    name, sep, market = key.partition("@")
+    return bool(NAME_PATTERN.match(name)) and (not sep or bool(NAME_PATTERN.match(market)))
+
+
+def same_name_key(state: PluginState, name: str, marketplace: str) -> str | None:
+    """Kurulacak eklentinin kayıt anahtarı; aynı kimlik zaten kuruluysa None (#391).
+
+    Claude: kimlik `ad@pazar`; farklı pazarlardan aynı adlı eklentiler birlikte kurulur.
+    """
+    same = [r for r in state.plugins if r.name == name]
+    if any(r.marketplace == marketplace for r in same):
+        return None
+    if not same:
+        return name
+    return f"{name}@{marketplace}" if marketplace else None
 
 
 def _schema(raw: object) -> int:
@@ -204,8 +243,12 @@ def _items(raw: object) -> tuple[tuple[str, Mapping[str, object]], ...]:
     return tuple((str(k), v) for k, v in raw.items() if isinstance(v, Mapping))
 
 
-def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
+def _plugin(key: str, raw: Mapping[str, object]) -> PluginRecord:
+    stored = raw.get("ad")
+    valid = isinstance(stored, str) and NAME_PATTERN.match(stored)
+    name = str(stored) if valid else key.partition("@")[0]
     return PluginRecord(
+        key=key if key != name else "",
         name=name,
         version=str(raw.get("surum") or ""),
         source=str(raw.get("kaynak") or ""),
@@ -262,7 +305,8 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
         "surum": STATE_VERSION,
         "hepsi_kapali": state.all_disabled,
         "eklentiler": {
-            p.name: {
+            p.store_key: {
+                **({"ad": p.name} if p.store_key != p.name else {}),
                 "surum": p.version,
                 "kaynak": p.source,
                 "tur": p.kind,
@@ -278,7 +322,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 **({"kapsamlar": list(p.scopes)} if p.scopes != ("user",) else {}),
                 **({"bagimlilik": True} if p.dependency else {}),
             }
-            for p in sorted(state.plugins, key=lambda item: item.name)
+            for p in sorted(state.plugins, key=lambda item: item.store_key)
         },
         "pazarlar": {
             m.name: {
@@ -335,7 +379,7 @@ def plugin_folder(record: PluginRecord, base: Path | None = None) -> Path:
         return Path(record.folder)
     if record.kind == "inline":
         return Path(record.source)
-    return (base or plugins_dir()) / record.name
+    return (base or plugins_dir()) / record.store_key
 
 
 def plugin_id(record: PluginRecord) -> str:
@@ -450,8 +494,8 @@ def plugin_mcp_servers(
             _LOG.warning("eklenti '%s' MCP tanımı yüklenmedi: %s", item.record.name, error)
             continue
         for server in found:
-            owner = owners.setdefault(server.name, item.record.name)
-            if owner != item.record.name:
+            owner = owners.setdefault(server.name, item.record.store_key)
+            if owner != item.record.store_key:
                 _LOG.warning(
                     "eklenti '%s' MCP sunucusu '%s' atlandı: '%s' eklentisiyle ad çakışması",
                     item.record.name,

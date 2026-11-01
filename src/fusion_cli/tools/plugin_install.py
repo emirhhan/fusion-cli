@@ -413,7 +413,8 @@ def install_plugin(
         if not report.ok or report.layout is None:
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
         name = report.layout.name
-        if state.plugin(name) is not None or (root / name).exists():
+        key = plugin_store.same_name_key(state, name, resolved.marketplace)
+        if key is None or (root / key).exists():
             raise PluginAlreadyInstalledError(ERR_EXISTS.format(name=name))
         digest = tree_digest(folder)
         _check_expected(expected_digest, digest)
@@ -421,9 +422,10 @@ def install_plugin(
         executable = report.layout.is_executable
         if not approve(preview):
             raise PluginError(ERR_DECLINED)
-        destination = root / name
+        destination = root / key
         shutil.move(str(folder), destination)
     record = PluginRecord(
+        key=key if key != name else "",
         name=name,
         version=version_of(resolved, report.layout.manifest.version, commit),
         source=f"{resolved.entry or name}@{resolved.marketplace}"
@@ -506,7 +508,7 @@ def remove_installation(record: PluginRecord, root: Path, *, keep_data: bool) ->
     # Yerinde yüklenen eklentinin klasörü kullanıcının pazar kaynağıdır: asla taşınmaz (#403).
     if not record.folder and folder.is_dir() and record.kind != "inline":
         orphan(folder, root)
-    plugin_store.update_state(lambda current: current.without_plugin(record.name), root)
+    plugin_store.update_state(lambda current: current.without_plugin(record.store_key), root)
     sweep_orphans(root)
     forget_values(record.name, root)
     if not keep_data:
