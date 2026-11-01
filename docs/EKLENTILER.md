@@ -309,6 +309,11 @@ eklenir; sonra kaldırılırsa yeniden eklenmez. Eski `resmi` kısa adı kullan�
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.
 
+Eklenti kökündeki `settings.json` Claude gibi varsayılan ayardır: `agent` kullanıcı/proje ayarı ve
+Fusion yapılandırması ana ajan vermediyse ana sohbeti eklentinin ajanıyla başlatır (öneksiz ad
+`<eklenti>:<ajan>`'a çözülür; birden çok eklentide ada göre ilki). `subagentStatusLine` okunmaz
+(Fusion'da alt ajan durum satırı yok).
+
 Claude'un `workflows/` iş akışları ve `hooks.json` `modules` (mod) bileşenleri desteklenmez; bulunursa
 yükleme/doğrulamada "desteklenmiyor" uyarısı verilir. Etkin eklentinin `bin/` klasörü Claude gibi
 ajanın kabuk aracının (`run_shell`) PATH'ine eklenir.

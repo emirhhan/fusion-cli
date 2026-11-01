@@ -196,6 +196,7 @@ def load_config(path: str | Path | None = None) -> Config:
                 yapilandirma.agent_launch, home=Path.home(), root=Path.cwd(), environ=os.environ
             ),
         )
+        yapilandirma = _with_plugin_default_agent(yapilandirma)  # #389: eklenti settings.json
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
@@ -460,6 +461,19 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     return dataclasses.replace(
         config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
     )
+
+
+def _with_plugin_default_agent(config: Config) -> Config:
+    """Kullanıcı/proje `agent` vermediyse etkin eklentinin `settings.json` `agent`'ı (Claude)."""
+    if config.agent_launch.default_agent:
+        return config
+    from .plugin_settings import plugin_default_agent
+
+    agent = plugin_default_agent()
+    if not agent:
+        return config
+    launch = dataclasses.replace(config.agent_launch, default_agent=agent)
+    return dataclasses.replace(config, agent_launch=launch)
 
 
 def _with_plugin_mcp_servers(config: Config) -> Config:
