@@ -100,6 +100,9 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_fork_agent = invocation.agent
         # `context: fork` (#141): alt ajan konuşma geçmişini görmez; gövde görev istemidir.
         state.pending_fresh_fork = invocation.fork
+        # Beceri gövdesi sonraki turlarda da bağlamda kalır (#140); komut dosyası görevdir.
+        carry = bool(invocation.context) and skill.proposal is None
+        state.pending_skill_name = skill.name if carry else ""
         lines = [messages.REPL_SKILL_STARTED.format(name=skill.name)]
         if state.engine is not Engine.AGENT:
             # Beceri gövdesi ve araç kısıtı yalnız agent turunda tüketilir; Fusion motorunda

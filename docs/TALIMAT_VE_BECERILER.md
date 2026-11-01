@@ -127,7 +127,7 @@ Alan adları Claude Code'daki İngilizce adlardır. Eski Türkçe takma adlar (`
 
 Kök turda sistem bağlamına **BECERİ DİZİNİ** bloğu girer: beceri başına `ad — açıklama`,
 keşif sırasıyla, **tek düz liste** (proje becerileri ayrı blokta ya da güvenilmezlik notuyla
-işaretlenmez). Model uygun beceriyi aramadan tanır ve Claude Code'daki gibi `Skill(skill, args)` aracıyla çağırır: gövde kullanıcının `/ad` çağrısıyla aynı yoldan işlenir (argümanlar, `!`cmd``, `allowed-tools` ön onayı, `disallowed-tools`), sonuç araç çıktısı olarak konuşmada kalır; `context: fork` becerisi geçmişsiz alt ajanda koşar ve sonucunu döner. `read_skill` ek dosyalar ve sayfalı okuma için kalır.
+işaretlenmez). Model uygun beceriyi aramadan tanır ve Claude Code'daki gibi `Skill(skill, args)` aracıyla çağırır: gövde kullanıcının `/ad` çağrısıyla aynı yoldan işlenir (argümanlar, `!`cmd``, `allowed-tools` ön onayı, `disallowed-tools`), sonuç araç çıktısı olarak konuşmada kalır; `context: fork` becerisi geçmişsiz alt ajanda koşar ve sonucunu döner. `read_skill` ek dosyalar ve sayfalı okuma için kalır. Kullanıcının `/ad` ile çağırdığı becerinin gövdesi Claude Code'daki gibi sonraki turlarda da bağlamda kalır: sohbet başına her becerinin son çağrısı her turun bağlamına yeniden konur (beceri başına ilk 5.000 token, toplam 25.000 token, en yeni önce), geçmiş sıkıştırılsa da kaybolmaz; `/clear` ve başka sohbete geçiş sıfırlar.
 
 - Listede **her beceri adı her zaman** bulunur. Bütçe model penceresinin **%1**'idir
   (`skillListingBudgetFraction`, settings.json); `SLASH_COMMAND_TOOL_CHAR_BUDGET` ortam

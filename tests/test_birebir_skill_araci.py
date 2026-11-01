@@ -175,3 +175,39 @@ def test_kullanici_fork_becerisi_gecmissiz_kosar(monkeypatch) -> None:
     assert seen["inherit"] is False and seen["history"] == []
     assert outcome.final_text == "özet"
     assert outcome.messages[: len(gecmis)] == gecmis  # ana geçmiş korunur, yalnız özet eklenir
+
+
+def test_cagrilan_beceri_sonraki_turlarda_baglamda_kalir() -> None:
+    """#140: gövde sonraki turlarda da gider; aynı beceri yeniden çağrılınca yalnız sonuncusu."""
+    from fusion_cli.engines.agent.skill_context import (
+        CHARS_PER_TOKEN,
+        PER_SKILL_TOKENS,
+        InvokedSkills,
+    )
+
+    kayit = InvokedSkills("s1").remember("a", "A1").remember("b", "B" * 30_000)
+    kayit = kayit.remember("a", "A2")
+
+    blok = kayit.carried_block()
+    assert "A2" in blok and "A1" not in blok
+    assert blok.index("A2") < blok.index("BBB")  # en yeni önce
+    assert blok.count("B") <= PER_SKILL_TOKENS * CHARS_PER_TOKEN + 5
+    assert kayit.carried_block(exclude="a").count("A2") == 0
+    assert kayit.for_conversation("s2").carried_block() == ""
+
+
+def test_repl_durumu_beceriyi_sonraki_tura_tasir(tmp_path: Path) -> None:
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.memory.factory import null_memory
+
+    state = ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
+    state.pending_context, state.pending_skill_name = '<beceri ad="r">GÖVDE</beceri>', "r"
+
+    ilk = state.take_pending_extras()
+    ikinci = state.take_pending_extras()
+    state.reset_history()
+    ucuncu = state.take_pending_extras()
+
+    assert "GÖVDE" in ilk.context and ilk.context.count("GÖVDE") == 1
+    assert "GÖVDE" in ikinci.context
+    assert "GÖVDE" not in ucuncu.context  # /clear

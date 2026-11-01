@@ -18,6 +18,7 @@ from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
 from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
+from ...engines.agent.skill_context import InvokedSkills
 from ...core.changeset import ChangeSet
 from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
@@ -251,6 +252,10 @@ class ReplState:
     pending_grants: tuple[tuple[str, str], ...] = ()
     #: Becerinin `context: fork`u: sıradaki fork turu geçmişsiz alt ajanda koşar (#141).
     pending_fresh_fork: bool = False
+    #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
+    pending_skill_name: str = ""
+    #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
+    invoked_skills: InvokedSkills = field(default_factory=InvokedSkills)
     #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
     linked_pr: PullRequestLink | None = None
 
@@ -367,8 +372,13 @@ class ReplState:
 
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
+        record = self.invoked_skills.for_conversation(self.conversation_id)
+        carried = "" if self.pending_fresh_fork else record.carried_block(self.pending_skill_name)
+        if self.pending_skill_name and not self.pending_fresh_fork:
+            record = record.remember(self.pending_skill_name, self.pending_context)
+        self.invoked_skills = record
         extras = PendingExtras(
-            self.pending_context,
+            "\n\n".join(part for part in (carried, self.pending_context) if part),
             self.pending_tools,
             self.pending_model_choice,
             self.pending_denied_tools,
@@ -378,6 +388,7 @@ class ReplState:
         )
         self.pending_context, self.pending_tools = "", None
         self.pending_grants, self.pending_fresh_fork = (), False
+        self.pending_skill_name = ""
         self.pending_model_choice = TurnModelChoice()
         self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
         return extras
@@ -549,6 +560,7 @@ class ReplState:
 
         removed = len(self.history)
         self.history = []
+        self.invoked_skills = InvokedSkills(self.conversation_id)
         if self.hook_session is not None:
             # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
             self.hook_session.restart("clear", reason="clear")
