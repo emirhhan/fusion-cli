@@ -41,6 +41,7 @@ from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keym
 from ...ui import messages, theme
 from ...ui.picker import Choice
 from . import input_actions, vim_remaps
+from .choice_search import ChoiceSearch
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 from .status_line_runner import ansi_for_tui
 from .tui_input_keys import (
@@ -201,6 +202,8 @@ class FusionTui:
         self._choice_title = ""
         # Enter yerine `<tuş>:<değer>` döndüren seçim tuşları (#231 `/copy` seçicisinde `w`).
         self._choice_alt_keys: tuple[str, ...] = ()
+        # Yazarak arama (#202): yalnız `searchable=True` seçicilerde (oturum seçicisi).
+        self._choice_search: ChoiceSearch | None = None
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
@@ -502,7 +505,12 @@ class FusionTui:
         return str(await self._await_answer("ask"))
 
     async def await_choice(
-        self, title: str, choices: list[Choice], *, alt_keys: tuple[str, ...] = ()
+        self,
+        title: str,
+        choices: list[Choice],
+        *,
+        alt_keys: tuple[str, ...] = (),
+        searchable: bool = False,
     ) -> str | None:
         """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
 
@@ -514,11 +522,29 @@ class FusionTui:
         self._choice_index = 0
         self._choice_title = title
         self._choice_alt_keys = alt_keys
+        self._choice_search = ChoiceSearch(choices) if searchable else None
         try:
             result = await self._await_answer("choice")
         finally:
             self._choice_alt_keys = ()
+            self._choice_search = None
         return None if result is None else str(result)
+
+    def _choice_type(self, char: str) -> bool:
+        """Aranabilir seçicide karakteri sorguya işle; liste süzülür (#202)."""
+        search = self._choice_search
+        if search is None or not search.type(char):
+            return False
+        self._apply_search(search)
+        return True
+
+    def _apply_search(self, search: ChoiceSearch) -> None:
+        self._choices = search.visible()
+        self._choice_index = 0
+        self._invalidate()
+
+    def _searching(self) -> bool:
+        return self._choice_search is not None and self._choice_search.active
 
     def _pick_alt(self, key: str) -> None:
         """Seçim kipinde ek tuş: imlecin üzerindeki seçeneği `<tuş>:<değer>` olarak döndür."""
@@ -558,6 +584,9 @@ class FusionTui:
     def _choice_fragments(self) -> StyleAndTextTuples:
         """Seçim modalının satırları: başlık + seçenekler, seçili olan işaretli."""
         fragments: StyleAndTextTuples = [("class:choice-title", f" {self._choice_title}\n")]
+        if self._choice_search is not None and self._choice_search.active:
+            query = self._choice_search.query or ""
+            fragments.append(("class:choice-hint", f" {messages.CHOICE_SEARCH.format(query=query)}\n"))
         for index, choice in enumerate(self._choices):
             selected = index == self._choice_index
             marker = theme.ICON_STATUS if selected else " "
@@ -682,8 +711,14 @@ class FusionTui:
         modal = Condition(lambda: self._mode == "choice")
 
         @kb.add(Keys.Any, filter=modal, eager=True)
-        def _yut(_event: object) -> None:
-            """Cevap olmayan tuşu sessizce yut; kutuya yazma."""
+        def _yut(event: object) -> None:
+            """Cevap olmayan tuşu kutuya yazma; aranabilir seçicide sorguya işle (#202)."""
+            self._choice_type(str(getattr(event, "data", "") or ""))
+
+        @kb.add("backspace", filter=modal & Condition(self._searching), eager=True)
+        def _search_back(_event: object) -> None:
+            if self._choice_search is not None and self._choice_search.backspace():
+                self._apply_search(self._choice_search)
 
         # Oklar: seçim modunda seçeneği gezer, boştayken konuşmayı kaydırır.
         nav = Condition(lambda: self._mode in ("idle", "choice"))
@@ -706,11 +741,13 @@ class FusionTui:
         # Claude Code Select bağlamı (#202): seçicide J/K da gezer, Home/End uçlara gider.
         @kb.add("k", filter=modal, eager=True)
         def _select_previous(_event: object) -> None:
-            self._move_choice(-1)
+            if not (self._searching() and self._choice_type("k")):
+                self._move_choice(-1)
 
         @kb.add("j", filter=modal, eager=True)
         def _select_next(_event: object) -> None:
-            self._move_choice(1)
+            if not (self._searching() and self._choice_type("j")):
+                self._move_choice(1)
 
         @kb.add("home", filter=modal, eager=True)
         def _select_first(_event: object) -> None:
@@ -723,7 +760,8 @@ class FusionTui:
         # Claude Code `/copy` (#231): seçicide `w` seçimi dosyaya yazdırır.
         @kb.add("w", filter=modal & Condition(lambda: "w" in self._choice_alt_keys), eager=True)
         def _select_write(_event: object) -> None:
-            self._pick_alt("w")
+            if not (self._searching() and self._choice_type("w")):
+                self._pick_alt("w")
 
         # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
         # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.
@@ -905,7 +943,11 @@ class FusionTui:
         if self._mode == "ask":
             self._resolve("")
         elif self._mode == "choice":
-            self._resolve(None)
+            # Aranabilir seçicide ilk Esc arama kipinden çıkar (#202), ikincisi kapatır.
+            if self._choice_search is not None and self._choice_search.exit():
+                self._apply_search(self._choice_search)
+            else:
+                self._resolve(None)
         elif self._rewind_requested():
             self._on_rewind()  # type: ignore[misc]  # `_rewind_requested` None'ı eledi
         elif self._clear_requested():

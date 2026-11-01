@@ -942,7 +942,7 @@ class _TuiSession:
             self._echo(f"[{theme.DIM}]{messages.SESSION_LIST_EMPTY}[/{theme.DIM}]")
             return None
         selected = await self._tui.await_choice(
-            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs)
+            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs), searchable=True
         )
         if selected is None:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
@@ -962,7 +962,9 @@ class _TuiSession:
         if not refs:
             self._echo(f"[{theme.DIM}]{messages.HISTORY_EMPTY}[/{theme.DIM}]")
             return None
-        selected = await self._tui.await_choice(messages.HISTORY_PICK_TITLE, resume_choices(refs))
+        selected = await self._tui.await_choice(
+            messages.HISTORY_PICK_TITLE, resume_choices(refs), searchable=True
+        )
         if selected is None:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
             return None

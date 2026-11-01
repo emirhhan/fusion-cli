@@ -707,6 +707,7 @@ REPL_MODEL_USAGE = (
 )
 # --- Seçim ekranı ---------------------------------------------------------- #
 PICKER_HINT = "↑↓ gez · Enter seç · Esc vazgeç"
+CHOICE_SEARCH = "Ara: {query}▏ (Esc aramadan çık)"
 PICKER_PLAIN_PROMPT = "Seçim (numara, boş bırakırsan vazgeçilir): "
 PICKER_CANCELLED = "seçim yapılmadı"
 PICKER_MORE_ABOVE = "   ↑ {count} satır daha"
