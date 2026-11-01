@@ -152,6 +152,9 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   başlar) ve `fusion --allow-dangerously-skip-permissions` (bypass'ı Shift+Tab döngüsüne ekler,
   oturum onunla başlamaz). Bayrak `permissions.defaultMode` ayarından önce gelir; aynı bayraklar
   `fusion agent` ve `fusion -p` için de geçerlidir.
+- **acceptEdits** Claude gibi yalnız dosya düzenlemelerini ve çalışma dizinlerindeki `mkdir`,
+  `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed` komutlarını (ve salt okunur komutları) sormaz;
+  tarayıcıda tıklama/yazma gibi öteki eylemler Manuel kipteki gibi sorulur.
 
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 

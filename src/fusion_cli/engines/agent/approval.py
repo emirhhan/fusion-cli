@@ -481,6 +481,9 @@ class AcceptEditsApproval(_AskingApproval):
         # Kabukta Claude kapsamı (#53): 7 dosya sistemi komutu çalışma dizinlerinde + salt okuma.
         if request.accept_edits_ok is not None:
             return request.accept_edits_ok
+        # Sayfada tıklama/yazma düzenleme değildir: Claude gibi Manuel kipteki gibi sorulur.
+        if request.effect is ToolEffect.REMOTE_INTERACT:
+            return False
         return request.unattended_safe
 
 
