@@ -588,6 +588,10 @@ class ReplState:
         if self.hook_session is not None:
             # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
             self.hook_session.restart("clear", reason="clear")
+            # Beceri kancaları (#161) oturuma bağlıdır; yeni oturumda yeniden çağrılmalı.
+            from ...engines.agent import skill_hooks
+
+            skill_hooks.forget(self.hook_session)
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed

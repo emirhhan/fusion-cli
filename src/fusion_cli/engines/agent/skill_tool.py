@@ -22,7 +22,7 @@ from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_commands import SkillInvocation, TemplateEnv, build_invocation
 from ...tools.skill_shell import ShellPolicy
-from . import skill_grants, skill_usage
+from . import skill_grants, skill_hooks, skill_usage
 from .approval import ApprovalMode
 from .routine_invocation import RoutineInvocationValidator
 
@@ -217,6 +217,10 @@ def build_skill_tool(
             return ToolResult.failure("\n".join(invocation.notes) or "beceri çağrısı iptal")
         skill_grants.grant(context, grant_entries(found, context.root))
         skill_usage.record_invocation(getattr(deps.config, "memory_dir", None), found.name)
+        # `hooks` (#161): çağrıda oturuma kaydedilir, oturum boyunca etkin.
+        skill_hooks.register(
+            getattr(deps, "hooks", None), found, trusted=skill_trusted(found, context.root)
+        )
         if invocation.fork:
             return await _run_forked(found, invocation, deps, (depth, context.root), run_agent)
         turn_notes = apply_turn_choice(found, invocation, deps, context.root)
