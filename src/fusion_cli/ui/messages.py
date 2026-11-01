@@ -1559,6 +1559,11 @@ SHELL_PREFIX_BLOCK = (
     "$ {command}\n[{status}]\n{output}"
 )
 SHELL_PREFIX_CONTEXT_NOTE = "Çıktı bir sonraki mesajın bağlamına eklendi."
+SHELL_PREFIX_BACKGROUNDED = (
+    "↗ komut arka planda sürüyor; bitince çıktısı burada görünür ve bağlama eklenir."
+)
+SHELL_PREFIX_BG_DONE = "Arka plandaki `! {command}` bitti."
+SHELL_PREFIX_WORK = "! {command} · ctrl+b arka plana al · esc kes"
 SHELL_PREFIX_RESPOND = (
     "Kullanıcı `! {command}` kabuk komutunu kendisi çalıştırdı; komut ve çıktısı bağlamda. "
     "Çıktıya kısa ve doğrudan yanıt ver (hata varsa nedenini açıkla); istenmedikçe dosya "

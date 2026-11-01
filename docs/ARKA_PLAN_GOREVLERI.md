@@ -36,6 +36,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
 | REPL | `/fork [istem]` (Claude Code): konuşmayı arka plan kopyasına verir, bu sohbette çalışmaya devam edilir. İstemle kopya hemen başlar; git deposunda kendi çalışma ağacında (`fork-<kısa kimlik>`) çalışır. İstemsiz `/fork` yeni kimlikli kayıtlı kopya açar; ilk istemi `/resume <kimlik>` ya da `fusion -r <kimlik>` ile verilir |
 | Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| Tam ekran REPL | `!` kabuk komutu sürerken **Ctrl+B** (Claude Code gibi): komut **kesilmeden** arka planda sürer, istem hemen serbest kalır; bitince çıktısı konuşmaya basılır, bağlama girer ve (`respondToBashCommands` açıksa) model yanıt verir |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -45,7 +46,7 @@ REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan 
 açık seçimidir ve korunur. Alt ajanlar ve arka plan görevinin kendisi yeni arka plan görevi
 açamaz.
 
-**Ctrl+B Claude Code'dan farklıdır:** süren araç çağrısı devredilemez; tur iptal edilir ve
+**Ctrl+B ajan turunda Claude Code'dan farklıdır** (`!` komutunda aynıdır): modelin süren araç çağrısı devredilemez; tur iptal edilir ve
 görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
 ("yeniden yapma, önce oku" notuyla) devredilir; yarım kalan komut (ör. `npm test`) işçide
 gerekirse yeniden koşar.

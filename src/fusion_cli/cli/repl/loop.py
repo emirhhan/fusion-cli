@@ -95,6 +95,7 @@ from . import (
     session_agent,
     session_resume,
     session_snapshot,
+    shell_background,
     shell_mode,
     status_line,
     view_commands,
@@ -536,14 +537,40 @@ def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
     return result.notes
 
 
-async def run_shell_prefix_line(command: str, state: ReplState, console: Console) -> None:
-    """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır."""
+async def run_shell_prefix_line(
+    command: str,
+    state: ReplState,
+    console: Console,
+    *,
+    detach: shell_background.ShellDetach | None = None,
+    on_detached: Callable[[prefixes.ShellPrefixResult], None] | None = None,
+) -> None:
+    """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır.
+
+    `detach` verilirse Ctrl+B komutu kesmeden arka plana alır (#218): istem serbest kalır,
+    komut bitince `on_detached` (yoksa `show_shell_result`) sonucu gösterir.
+    """
     console.print(
         f"[{theme.ACCENT}]{escape(messages.SHELL_PREFIX_RUNNING.format(command=command))}"
         f"[/{theme.ACCENT}]",
         highlight=False,
     )
-    result = await prefixes.run_shell_prefix(state, command)
+    job = prefixes.run_shell_prefix(state, command)
+    if detach is None:
+        show_shell_result(command, await job, state, console)
+        return
+    done = on_detached or (lambda finished: show_shell_result(command, finished, state, console))
+    result = await shell_background.run_detachable(job, detach, done)
+    if result is None:
+        console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_BACKGROUNDED}[/{theme.DIM}]")
+        return
+    show_shell_result(command, result, state, console)
+
+
+def show_shell_result(
+    command: str, result: prefixes.ShellPrefixResult, state: ReplState, console: Console
+) -> None:
+    """`!` sonucunu bas; çıktı bağlama girdiyse modelin yanıt turunu hazırla (#219)."""
     for note in result.notes:
         console.print(f"[{theme.WARN}]{escape(note)}[/{theme.WARN}]")
     if result.output:

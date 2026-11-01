@@ -64,6 +64,7 @@ from . import (
     rewind,
     session_resume,
     session_snapshot,
+    shell_background,
     status_line,
     status_view,
     verify_flow,
@@ -80,7 +81,13 @@ from .commands import (
     resume_choices,
 )
 from .completion import ReplCompleter, agent_names
-from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
+from .loop import (
+    CRON_POLL_S,
+    apply_auto_profile,
+    apply_mentions,
+    run_shell_prefix_line,
+    show_shell_result,
+)
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
@@ -337,6 +344,8 @@ class _TuiSession:
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
         self._to_background = False
+        # Süren `!` komutunun arka plana alma isteği (#218); komut yokken None.
+        self._shell_detach: shell_background.ShellDetach | None = None
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(
             self._tui, drain, self._state.root, AppDenials(self._deny_persist())
@@ -414,6 +423,10 @@ class _TuiSession:
         """Ctrl+B: beklenen ön plan alt ajanı varsa onu arka plana al (Claude Code, #12);
         yoksa turu kes, iptal yakalayıcısı aynı görevi arka planda sürdürür."""
         if self._state.config.agent_launch.disable_background_tasks:
+            return
+        if self._shell_detach is not None:
+            # Süren `!` komutu kesilmeden arka plana alınır (#218).
+            self._shell_detach.request()
             return
         if self._busy and self._state.child_runs.request_background():
             return
@@ -575,7 +588,8 @@ class _TuiSession:
                 line = skill_prefix_to_slash(line, self._registry.is_dynamic)
             # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
-                await run_shell_prefix_line(shell, self._state, self._out)
+                if not await self._shell_line(shell):
+                    return
                 self._tui.sync_conversation()
                 pending, mode = self._state.take_pending()
                 if pending:
@@ -997,6 +1011,39 @@ class _TuiSession:
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
+
+    async def _shell_line(self, command: str) -> bool:
+        """`! komut`: Ctrl+B ile kesilmeden arka plana alınabilir (#218).
+
+        Komut ön planda bittiyse True (yanıt turu başlayabilir); arka plana alındıysa False.
+        """
+        detach = shell_background.ShellDetach()
+        self._shell_detach = detach
+        self._tui.set_work_source(lambda: messages.SHELL_PREFIX_WORK.format(command=command))
+        try:
+            await run_shell_prefix_line(
+                command,
+                self._state,
+                self._out,
+                detach=detach,
+                on_detached=lambda result: self._shell_finished(command, result),
+            )
+        finally:
+            self._shell_detach = None
+            self._tui.clear_work()
+        return not detach.event.is_set()
+
+    def _shell_finished(self, command: str, result: prefixes.ShellPrefixResult) -> None:
+        """Arka plana alınan `!` komutu bitti: çıktıyı bas, yanıt turunu sıraya koy."""
+        self._echo(
+            f"[{theme.DIM}]{escape(messages.SHELL_PREFIX_BG_DONE.format(command=command))}"
+            f"[/{theme.DIM}]"
+        )
+        show_shell_result(command, result, self._state, self._out)
+        self._tui.sync_conversation()
+        pending, _mode = self._state.take_pending()
+        if pending:
+            self._submit(pending)
 
     async def _turn(self, line: str, *, mode: macros.Mode = macros.Mode.NONE) -> None:
         """Turu çalıştır. Makro kipi turun ÜÇ ayarını birden belirler.
