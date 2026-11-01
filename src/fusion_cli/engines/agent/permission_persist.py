@@ -21,7 +21,7 @@ from ...config.permission_rules import (
     PermissionDecision,
     PermissionRule,
     format_rule,
-    user_permissions_file,
+    user_rule_file,
 )
 from ...core.tools import ToolFamily, tool_family
 from ...tools.auto_policy import command_words, is_read_only_command
@@ -124,9 +124,9 @@ def always_description(request: ApprovalRequest, root: Path | None) -> str:
     'bu proje' sanıp tüm projelere izin yazıyordu. Hedef kullanıcı dosyasıysa açıkça söylenir.
     """
     rule = ", ".join(r.pattern for r in rules_for_request(request, root))
-    if root is not None and persist_target(root) == user_permissions_file():
+    if root is not None and persist_target(root) == user_rule_file():
         return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(
-            rule=rule, path=user_permissions_file()
+            rule=rule, path=user_rule_file()
         )
     return messages.TUI_APPROVAL_ALWAYS_DESC.format(rule=rule)
 

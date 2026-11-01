@@ -20,6 +20,7 @@ from .permission_rules import (
     LAYER_FUSION,
     LAYER_LOCAL,
     LAYER_PROJECT,
+    LAYER_USER,
     PermissionDecision,
     PermissionRule,
     RuleRow,
@@ -31,7 +32,7 @@ from .permission_rules import (
     read_rules_file,
     remove_rule,
     rule_layers,
-    user_permissions_file,
+    user_rule_file,
 )
 from .writer import write_runtime_flag
 
@@ -43,7 +44,7 @@ def project_rule_file(root: Path) -> Path:
     """Varsayılan hedef: güvenilen (ya da izin dosyasız) projede yerel ayar, yoksa kullanıcı."""
     if trust.is_permissions_trusted(root):
         return root / trust.PROJECT_PERMISSIONS_PATH
-    return user_permissions_file()
+    return user_rule_file()
 
 
 def parse_decision(raw: object) -> PermissionDecision:
@@ -89,7 +90,7 @@ def add_permission_rule(
     yazılıyordu). `strict_project` ile bu düşüş `ConfigError` olur (masaüstü "Bu proje" kapsamı).
     """
     project_target = root / trust.PROJECT_PERMISSIONS_PATH
-    target = user_permissions_file() if user_level else project_rule_file(root)
+    target = user_rule_file() if user_level else project_rule_file(root)
     fell_back = not user_level and target != project_target
     if fell_back and strict_project:
         raise ConfigError(messages.PERMISSIONS_PROJECT_UNTRUSTED)
@@ -101,7 +102,7 @@ def add_permission_rule(
 
 #: Fusion'ın YAZDIĞI katmanlar; ötekiler (`~/.claude/settings.json`, proje `settings.json`)
 #: Claude Code'un dosyalarıdır ve yalnız okunur (tasarım kararı 3).
-WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_LOCAL})
+WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_USER, LAYER_LOCAL})
 
 
 def is_rule_removable(root: Path, layer_name: str) -> bool:
@@ -194,7 +195,7 @@ def rules_payload(root: Path, config: Config) -> dict[str, object]:
         ],
         "guvensiz_katmanlar": list(loaded.untrusted_layers),
         "hedef": str(project_rule_file(root)),
-        "kullanici_dosyasi": str(user_permissions_file()),
+        "kullanici_dosyasi": str(user_rule_file()),
         "katmanlar": [
             {"ad": layer.name, "dosya": str(layer.path), "aciklama": layer.description}
             for layer in rule_layers(root)

@@ -18,7 +18,7 @@ from fusion_cli.config.permission_rules import (
     PermissionDecision,
     PermissionRuleSet,
     parse_rule,
-    user_permissions_file,
+    user_rule_file,
 )
 from fusion_cli.core.tools import Tool, ToolContext, ToolEffect
 from fusion_cli.engines.agent import loop as agent_loop
@@ -374,7 +374,7 @@ def test_guvenilmeyen_izin_dosyasi_varsa_kullanici_dosyasina_yazilir(tmp_path):
     proje = tmp_path / "proje"
     (proje / ".claude").mkdir(parents=True)
     (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
-    assert persist_target(proje) == user_permissions_file()
+    assert persist_target(proje) == user_rule_file()
 
 
 def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(tmp_path):
@@ -391,7 +391,7 @@ def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(
     (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
     aciklama = always_description(istek, proje)
     assert "tüm projeler" in aciklama.lower() and "Bash(npm test *)" in aciklama
-    assert str(user_permissions_file()) in aciklama
+    assert str(user_rule_file()) in aciklama
     secenekler = {s["deger"]: s for s in _approval_options(istek, proje)}
     assert "tüm projeler" in secenekler["always"]["aciklama"].lower()
 

@@ -155,6 +155,17 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     # Chrome'a yerel mesajlaşma sunucusu tanıtılır; testler gerçek dizinlere dokunmaz.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path.parent / f".{tmp_path.name}-fusion-config"))
     monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
+    # Kullanıcı izin kuralları artık Claude gibi `~/.claude/settings.json`'a yazılır (#66):
+    # HOME'u yalıtmayan bir test gerçek ayar dosyasına kural eklemesin (ölçüldü, 1 Kasım).
+    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        # Playwright tarayıcı ikilileri gerçek ev dizinindeki önbellekte durur (salt okunur).
+        cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+        if not cache.is_dir():
+            cache = Path.home() / ".cache" / "ms-playwright"
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache))
+    ev = tmp_path.parent / f".{tmp_path.name}-home"
+    ev.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(ev))
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")

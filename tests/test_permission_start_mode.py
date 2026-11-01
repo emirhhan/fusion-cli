@@ -132,3 +132,21 @@ def test_atlanan_mcp_kurali_uyari_uretir(proje):
     _yaz(proje / ".claude" / "settings.json", {"permissions": {"deny": ["mcp__s__x(y)"]}})
     uyarilar = skipped_rule_warnings(proje)
     assert len(uyarilar) == 1 and "mcp__s__x(y)" in uyarilar[0]
+
+
+def test_eski_fusion_izin_dosyasi_okunur_ve_bir_uyari_verir(proje):
+    """#66: permissions.json kullanımdan kalktı; kuralları okunur, yeni kural ~/.claude'a."""
+    from fusion_cli.config import permission_admin
+    from fusion_cli.config.permission_rules import (
+        load_permission_rules,
+        user_permissions_file,
+        user_rule_file,
+    )
+    from fusion_cli.config.permission_warnings import skipped_rule_warnings
+
+    _yaz(user_permissions_file(), {"permissions": {"deny": ["Bash(rm *)"]}})
+    assert any("kullanımdan kalktı" in u for u in skipped_rule_warnings(proje))
+    assert "Bash(rm *)" in {r.pattern for r in load_permission_rules(proje).rules}
+    kural = permission_admin.parse_pattern("Bash(ls *)", PermissionDecision.ALLOW)
+    degisim = permission_admin.add_permission_rule(proje, kural, user_level=True)
+    assert degisim.path == user_rule_file() == Path.home() / ".claude" / "settings.json"

@@ -174,8 +174,13 @@ def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
 
 
 def user_permissions_file() -> Path:
-    """Fusion'ın kendi izin dosyası."""
+    """Fusion'ın eski kendi izin dosyası (kullanımdan kalktı, #66; yalnız okunur)."""
     return user_config_dir() / USER_PERMISSIONS_NAME
+
+
+def user_rule_file() -> Path:
+    """Kullanıcı kurallarının yazıldığı dosya: Claude Code gibi `~/.claude/settings.json` (#66)."""
+    return Path.home() / CLAUDE_USER_SETTINGS
 
 
 def _layer_trusted(layer: RuleLayer, root: Path) -> bool:

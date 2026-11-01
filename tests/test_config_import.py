@@ -17,7 +17,7 @@ from fusion_cli.config.importers.claude_codex import codex_rule_items
 from fusion_cli.config.importers.gemini_cursor import gemini_command_markdown
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.models import McpScope, McpTransport
-from fusion_cli.config.permission_rules import read_rules_file, user_permissions_file
+from fusion_cli.config.permission_rules import read_rules_file, user_rule_file
 from fusion_cli.core.errors import ConfigError
 from fusion_cli.memory.factory import null_memory
 
@@ -35,6 +35,15 @@ class _Kasa:
 
     def set(self, env_name: str, value: str) -> None:
         self.values[env_name] = value
+
+
+@pytest.fixture(autouse=True)
+def _izole_ev(tmp_path, monkeypatch):
+    """Kullanıcı kuralları `~/.claude/settings.json`'a yazılır (#66): gerçek ev dizinine
+    dokunulmasın."""
+    ev = tmp_path / "ev"
+    monkeypatch.setenv("HOME", str(ev))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: ev))
 
 
 @pytest.fixture
@@ -158,7 +167,7 @@ def test_codex_config_toml_kurallar_ve_promptlar(ortam):
     assert not report.failed
     servers = {s.name: s for s in load_config(config_file).mcp_servers}
     assert servers["figma"].token_env == "FIGMA_TOKEN" and "kapali" not in servers
-    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_permissions_file())}
+    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_rule_file())}
     assert rules == {
         ("Bash(git push *)", "deny"),
         ("Bash(git reset *)", "deny"),
@@ -208,7 +217,7 @@ def test_gemini_talimat_baglantisi_komut_ve_arac_izinleri(ortam):
     command = (home / ".fusion" / "commands" / "git" / "ozet.md").read_text(encoding="utf-8")
     assert "description: Değişiklik özeti" in command
     assert "$ARGUMENTS" in command and "!`git diff --stat`" in command
-    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_permissions_file())}
+    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_rule_file())}
     assert ("Bash(git status *)", "allow") in rules and ("WebFetch", "deny") in rules
     # Bağlantı ikinci kez eklenmez.
     again = build_plan("gemini", home=home, root=root, config=load_config(config_file))
@@ -247,7 +256,7 @@ def test_cursor_proje_mcp_proje_dosyasina_kurallar_secici_izinler(ortam):
     assert "yerel" not in {
         s.name for s in load_config(config_file).mcp_servers if s.scope is McpScope.USER
     }
-    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_permissions_file())}
+    rules = {(r.pattern, r.decision.value) for r in read_rules_file(user_rule_file())}
     assert rules == {("Bash(ls *)", "allow"), ("mcp__github", "allow"), ("Edit(**/.env)", "deny")}
 
 
