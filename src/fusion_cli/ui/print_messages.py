@@ -57,5 +57,6 @@ PRINT_SCHEMA_RETRY = (
 PRINT_SLASH_UNAVAILABLE = "/{name} isn't available in this environment."
 PRINT_FROM_PR_INVALID = "Hata: --from-pr bir PR numarası ya da PR/MR adresi olmalı: {value}"
 PRINT_FROM_PR_NONE = "Bu PR'a bağlı oturum bulunamadı: {value}"
+SYSTEM_PROMPT_SNAPSHOT_INVALID = "Hata: --system-prompt-snapshot yalnız on ya da off alır: {given}"
 PRINT_CONTROL_UNSUPPORTED = "Unsupported control request subtype: {subtype}"
 PRINT_INTERRUPTED = "[Request interrupted by user]"

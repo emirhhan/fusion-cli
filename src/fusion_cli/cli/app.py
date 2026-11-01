@@ -214,6 +214,22 @@ def main_callback(
     fallback_model: Annotated[
         str | None, typer.Option("--fallback-model", help="Sıralı yedek modeller (virgülle).")
     ] = None,
+    system_prompt: Annotated[
+        str | None, typer.Option("--system-prompt", help="Varsayılan sistem isteminin yerine.")
+    ] = None,
+    system_prompt_file: Annotated[
+        str | None, typer.Option("--system-prompt-file", help="Sistem istemi dosyadan (yerine).")
+    ] = None,
+    append_system_prompt: Annotated[
+        str | None, typer.Option("--append-system-prompt", help="Sistem istemine ek metin.")
+    ] = None,
+    append_system_prompt_file: Annotated[
+        str | None, typer.Option("--append-system-prompt-file", help="Sistem istemine dosyadan ek.")
+    ] = None,
+    system_prompt_snapshot: Annotated[
+        str | None,
+        typer.Option("--system-prompt-snapshot", help="on (varsayılan) ya da off: her istekte kur."),
+    ] = None,
     _version: Annotated[
         bool,
         typer.Option(
@@ -265,6 +281,13 @@ def main_callback(
         raise typer.Exit(1) from None
     if tree is not None and worktree.strip():
         _print_worktree_notice(tree)
+    launch = _launch_prompts_or_exit(
+        system_prompt,
+        system_prompt_file,
+        append_system_prompt,
+        append_system_prompt_file,
+        system_prompt_snapshot,
+    )
     exit_code = asyncio.run(
         with_web_cleanup(
             run_repl(
@@ -278,10 +301,35 @@ def main_callback(
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
                 initial_prompt=initial_prompt,
+                launch_prompts=launch,
             )
         )
     )
     raise typer.Exit(exit_code)
+
+
+def _launch_prompts_or_exit(
+    replace_text: str | None,
+    replace_file: str | None,
+    append_text: str | None,
+    append_file: str | None,
+    snapshot: str | None,
+) -> object:
+    """Kök komutun `--system-prompt*` bayrakları (#295); hatalı değer 1 ile çıkar."""
+    from . import launch_prompts
+
+    try:
+        prompts = launch_prompts.from_flags(
+            system_prompt=replace_text,
+            system_prompt_file=replace_file,
+            append=append_text,
+            append_file=append_file,
+        )
+        enabled = launch_prompts.snapshot_enabled(snapshot, bare=False)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    return launch_prompts.LaunchSpec(prompts, enabled)
 
 
 def _print_version_and_exit(value: bool) -> None:

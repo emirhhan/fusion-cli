@@ -108,6 +108,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--effort low\|medium\|high\|…` | Akıl yürütme yoğunluğu. |
 | `--system-prompt`, `--system-prompt-file` | Fusion'ın çekirdek sistem metninin yerine geçer. |
 | `--append-system-prompt`, `--append-system-prompt-file` | Sisteme eklenir (dosya içeriği önce). |
+| `--system-prompt-snapshot on\|off` | Bayraklardan gelen istem metni sohbetin ilk koşusunda kaydedilir; `-r/-c` ile sürdürülen sohbet kayıtlı metni kullanır (`off` her koşuda yeniden kurar; `--bare`'de kayıt `on` verilmedikçe kapalı). Dört istem bayrağı ve bu bayrak kök komutta (etkileşimli oturum) da geçerlidir. |
 | `--json-schema '<şema>'\|dosya` | Satır içi JSON ya da dosya; geçersiz şemada `Error: --json-schema is not a valid JSON Schema`. Tam JSON Schema denetimi; uymayan cevap iki kez yeniden denenir. |
 | `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `model`. |
 | `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
@@ -145,7 +146,7 @@ environment.` cevabını verir. `--disable-slash-commands` genişletmeyi kapatı
 Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`,
 `--no-memory` (belleği kapatır; Claude'da bellek `--bare` ya da ayarla kapanır).
 
-Kök komut (etkileşimli oturum) da `--model`, `--fallback-model`, `-c/-r/--fork-session`,
+Kök komut (etkileşimli oturum) da `--system-prompt*` bayraklarını, `--model`, `--fallback-model`, `-c/-r/--fork-session`,
 `-n`, `-w`, `--add-dir`, `--agent`, `--agents` ve konumsal istemi (`fusion "istem"`) alır.
 
 ## Arka plan işi

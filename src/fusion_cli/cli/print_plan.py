@@ -20,6 +20,7 @@ from ..tools.capabilities import Capability
 from ..ui import print_messages as texts
 from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
+from .launch_prompts import check_snapshot
 from .print_runtime import BARE_TOOLS, apply_print_limits, apply_session_flags
 
 
@@ -44,6 +45,7 @@ class PrintRequest:
     system_prompt_file: str | None = None
     append_system_prompt: str | None = None
     append_system_prompt_file: str | None = None
+    system_prompt_snapshot: str | None = None
     model: str | None = None
     fallback_model: str | None = None
     effort: str | None = None
@@ -159,6 +161,7 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     """İsteği doğrula; her hata `ValueError` (komut stderr'e yazıp 1 ile çıkar)."""
     fmt, stream_input = _check_formats(request)
     schema = opts.parse_json_schema(request.json_schema)
+    check_snapshot(request.system_prompt_snapshot)
     session_id = opts.checked_session_id(request.session_id)
     mode = opts.parse_permission_mode(
         request.permission_mode, skip_permissions=request.skip_permissions

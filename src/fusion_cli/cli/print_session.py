@@ -14,12 +14,16 @@ import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.errors import SessionNotFoundError
 from ..core.types import Message
 from ..ui import print_messages as texts
 from .repl import linked_pr, session_resume
 from .repl.transcript_store import TranscriptStore, list_conversations
+
+if TYPE_CHECKING:
+    from .print_plan import PrintPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,3 +106,21 @@ def find_pr_session(memory_dir: Path, root: Path, raw: str) -> str:
         if link.number == number and (not url.startswith("http") or link.url.rstrip("/") == url):
             return ref.conversation_id
     raise SessionNotFoundError(texts.PRINT_FROM_PR_NONE.format(value=raw.strip()))
+
+
+def snapshot_plan(plan: PrintPlan, session: PrintSession, *, resuming: bool) -> PrintPlan:
+    """Sürdürülen sohbette kayıtlı sistem istemi metni (`--system-prompt-snapshot`, #295)."""
+    from dataclasses import replace
+
+    from .launch_prompts import LaunchPrompts, recorded, snapshot_enabled
+
+    request = plan.request
+    prompts = recorded(
+        plan.config.memory_dir,
+        session.session_id,
+        LaunchPrompts(plan.system_prompt, plan.extra_system),
+        resuming=resuming and not request.fork_session,
+        enabled=snapshot_enabled(request.system_prompt_snapshot, bare=request.bare),
+        persist=session.persist,
+    )
+    return replace(plan, system_prompt=prompts.system_prompt, extra_system=prompts.extra_system)

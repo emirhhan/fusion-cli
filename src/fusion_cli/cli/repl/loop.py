@@ -30,6 +30,7 @@ from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
 from ...tools import desktop_turn
+from .. import launch_prompts as launch_prompts_mod
 from ...tools.remotion_observe import browser_transport
 
 if TYPE_CHECKING:
@@ -159,6 +160,7 @@ async def run_repl(
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
     initial_prompt: str = "",
+    launch_prompts: object = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -216,6 +218,7 @@ async def run_repl(
                 state.pending_task = state.take_persona_initial("")
         # `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur.
         state.initial_prompt = initial_prompt.strip()
+        state.launch_prompts = launch_prompts_mod.bind(state, launch_prompts, resumed=resume)
         return await _run_surface(state, config, console, resume)
     finally:
         await state.child_runs.close()
@@ -918,7 +921,7 @@ async def _agent_turn(
         # Esc ile durdurma bu turun görevine bağlanır (P-033; `tools/desktop_turn`).
         desktop_turn.begin(tool_context)
         try:
-            persona = persona_turn(state.persona)
+            persona = launch_prompts_mod.apply_to_turn(persona_turn(state.persona), state)
             extras = state.take_pending_extras()
             # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
             deps.config = extras.turn_config(deps.config)

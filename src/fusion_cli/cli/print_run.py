@@ -47,7 +47,13 @@ from .print_runtime import (
     sigterm_as_exception,
     wait_background,
 )
-from .print_session import PrintSession, find_pr_session, record_turn, resolve_print_session
+from .print_session import (
+    PrintSession,
+    find_pr_session,
+    record_turn,
+    resolve_print_session,
+    snapshot_plan,
+)
 from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
@@ -150,6 +156,7 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
         session_id=plan.session_id,
         persist=request.persist,
     )
+    plan = snapshot_plan(plan, session, resuming=bool(request.continue_last or resume))
     run = _Run(plan, root, session, time.monotonic(), history=list(session.history))
     run.memory = open_memory(plan.config, root=root, enabled=not request.no_memory)
     if plan.fmt is OutputFormat.STREAM_JSON:

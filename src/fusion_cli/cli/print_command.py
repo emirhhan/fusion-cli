@@ -40,6 +40,7 @@ def print_command(
     system_prompt: Annotated[str | None, typer.Option("--system-prompt")] = None,
     system_prompt_file: Annotated[str | None, typer.Option("--system-prompt-file")] = None,
     append_system_prompt: Annotated[str | None, typer.Option("--append-system-prompt")] = None,
+    system_prompt_snapshot: Annotated[str | None, typer.Option("--system-prompt-snapshot")] = None,
     append_system_prompt_file: Annotated[
         str | None, typer.Option("--append-system-prompt-file")
     ] = None,
@@ -112,6 +113,7 @@ def print_command(
         system_prompt_file=system_prompt_file,
         append_system_prompt=append_system_prompt,
         append_system_prompt_file=append_system_prompt_file,
+        system_prompt_snapshot=system_prompt_snapshot,
         model=model,
         fallback_model=fallback_model,
         effort=effort,

@@ -215,6 +215,8 @@ class ReplState:
     pending_task: str = ""
     #: `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur olarak gönderilir.
     initial_prompt: str = ""
+    #: Açılış sistem istemi bayrakları (`--system-prompt*`, #295); `launch_prompts.LaunchPrompts`.
+    launch_prompts: object = None
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
     #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.

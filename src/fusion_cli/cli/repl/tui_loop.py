@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...config import keybindings
+from .. import launch_prompts as launch_prompts_mod
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -960,7 +961,9 @@ class _TuiSession:
                 digest = self._state.take_pending_digest()
                 self._state.prepare_persona_config()
                 line = self._state.take_persona_initial(line)
-                persona = persona_turn(self._state.persona)
+                persona = launch_prompts_mod.apply_to_turn(
+                    persona_turn(self._state.persona), self._state
+                )
                 extras = self._state.take_pending_extras()
                 turn_extra_system = "\n\n".join(
                     part
