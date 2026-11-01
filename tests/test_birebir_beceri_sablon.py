@@ -65,7 +65,8 @@ def test_adli_arguments_alani(tmp_path: Path) -> None:
 
 def test_arguments_ve_paths_frontmatter_okunur(tmp_path: Path) -> None:
     fields = frontmatter.parse_frontmatter(
-        "---\nname: a\narguments: issue branch\npaths: src/*.{ts,tsx}, lib/**\nshell: powershell\n---\nx"
+        "---\nname: a\narguments: issue branch\npaths: src/*.{ts,tsx}, lib/**\n"
+        "shell: powershell\n---\nx"
     )
 
     assert fields["arguments"] == ("issue", "branch")

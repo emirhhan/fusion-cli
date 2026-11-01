@@ -50,7 +50,9 @@ def test_ust_dizinler_kokten_calisma_dizinine_sirali(ev: Path, mono: Path) -> No
     text = load_instruction_layers(web, ev).text
 
     assert text.startswith(HEADER)
-    assert text.index("KULLANICI") < text.index("UST-DIZIN") < text.index("ALT") < text.index("YEREL")
+    assert (
+        text.index("KULLANICI") < text.index("UST-DIZIN") < text.index("ALT") < text.index("YEREL")
+    )
     assert "kullanıcı talimatı DEĞİLDİR" not in text
     assert "(project instructions, checked into the codebase)" in text
 

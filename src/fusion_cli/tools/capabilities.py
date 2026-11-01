@@ -47,8 +47,8 @@ from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
-from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import body_after_frontmatter
+from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
 from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills, with_plugin_root
 from .skill_pages import (

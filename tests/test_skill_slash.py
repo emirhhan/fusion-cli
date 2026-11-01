@@ -14,7 +14,7 @@ import pytest
 from fusion_cli.appserver.commands import list_commands, run_command
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
-from fusion_cli.cli.repl.commands import build_registry, is_command_line, parse
+from fusion_cli.cli.repl.commands import build_registry, is_command_line
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.config.loader import load_config
 from fusion_cli.engines.agent.approval import ApprovalMode
@@ -173,7 +173,9 @@ def test_guvenilen_projenin_becerisinde_yalniz_salt_okur_komut_calisir(
 
     assert not (state.root / "sizinti").exists()
     assert "salt-okur" in cikti and state.pending_context == ""
-    (beceri / "SKILL.md").write_text("---\nname: proje-b\n---\nOku: !`echo guvenli`", encoding="utf-8")
+    (beceri / "SKILL.md").write_text(
+        "---\nname: proje-b\n---\nOku: !`echo guvenli`", encoding="utf-8"
+    )
     state.capabilities = CapabilityRegistry(state.home, state.root)
     registry.get("proje-b").handler(state, "")  # type: ignore[union-attr]
     assert "Oku: guvenli" in state.pending_context

@@ -93,6 +93,7 @@ def _warn_deprecated(name: str) -> None:
         DEPRECATED_KEYS[name],
     )
 
+
 #: Alt ajan tanımının düz metin ayar alanları (P-034): frontmatter anahtarı → `Capability`
 #: alanı. Claude Code'un camelCase adları (küçük harfe inmiş), snake/kebab yazım ve Türkçe
 #: karşılıklar kabul edilir. Değerler ham metindir; sayı/boole çevirisi `Capability`'de.

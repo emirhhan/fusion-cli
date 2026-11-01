@@ -81,9 +81,8 @@ def test_butce_ayardan_ve_pencereden_gelir():
 
 
 def test_butce_pencerenin_yuzde_biri_ayar_ve_ortam_degiskeni(tmp_path, monkeypatch):
-    """Claude Code (#164): %1 varsayılan, skillListingBudgetFraction, SLASH_COMMAND_TOOL_CHAR_BUDGET."""
+    """Claude Code (#164): %1 varsayılan, ayar ve SLASH_COMMAND_TOOL_CHAR_BUDGET."""
     import json
-
     from types import SimpleNamespace
 
     from fusion_cli.engines.agent import skill_index

@@ -2,8 +2,9 @@
 
 `/<beceri> argüman` yazımı Claude Code'da `.claude/skills/x/SKILL.md` ya da
 `.claude/commands/x.md` dosyasını çalıştırır. Beceri yalnız mesaj başındaki `/` ile çağrılır
-(Codex `$beceri` yazımı Claude'da yok; #174): `build_registry(..., skills=…)` bu modülün ürettiği komutları "Beceri" grubunda
-dinamik olarak defterin arkasına ekler; aynı adlı yerleşik komutu gölgeler (takma adı değil).
+(Codex `$beceri` yazımı Claude'da yok; #174): `build_registry(..., skills=…)` bu modülün
+ürettiği komutları "Beceri" grubunda dinamik olarak defterin arkasına ekler; aynı adlı
+yerleşik komutu gölgeler (takma adı değil).
 
 İşleyici turu ÇALIŞTIRMAZ (makrolarla aynı sözleşme): görevi `pending_task`, beceri gövdesini
 `pending_context`, `allowed-tools` kısıtını `pending_tools` olarak durumda bekletir; terminal,
@@ -78,9 +79,10 @@ def skill_shell_policy(state: ReplState, skill: Capability) -> ShellPolicy:
         match = evaluate(rules, "run_shell", {"command": command}, root)
         return match.decision.value if match is not None else None
 
-    disabled = claude_settings.effective_bool(
-        root, Path.home(), "disableSkillShellExecution"
-    ) and not set(skill.source.split("+")) & _POLICY_EXEMPT_SOURCES
+    disabled = (
+        claude_settings.effective_bool(root, Path.home(), "disableSkillShellExecution")
+        and not set(skill.source.split("+")) & _POLICY_EXEMPT_SOURCES
+    )
     return ShellPolicy(
         mode_allows=allowed, read_only=read_only, disabled=disabled, rule_decision=decision
     )

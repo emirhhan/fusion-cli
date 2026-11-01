@@ -89,9 +89,7 @@ def discover_rules(root: Path, home: Path | None) -> tuple[RuleFile, ...]:
     for rel in PROJECT_RULE_DIRS:
         if rel in DEPRECATED_RULE_DIRS and (kok / rel).is_dir():
             _LOG.warning("%s kullanımdan kalktı; kuralları .claude/rules altına taşı", kok / rel)
-        found.extend(
-            _scan(kok / rel, base=kok, prefix="", trusted=False, external_ok=external_ok)
-        )
+        found.extend(_scan(kok / rel, base=kok, prefix="", trusted=False, external_ok=external_ok))
     excludes = claude_settings.merged_list(kok, home, "claudeMdExcludes")
     return tuple(rule for rule in found if not _excluded(rule.path, excludes))
 
