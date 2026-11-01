@@ -161,8 +161,11 @@ async def run_repl(
     session_agents: tuple[Capability, ...] = (),
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
+    setup_trigger: str = "",
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `setup_trigger` (`fusion --init` / `--maintenance`): `Setup` kancası SessionStart'tan önce.
 
     `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
     geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
@@ -216,7 +219,7 @@ async def run_repl(
                 and not state.history
             ):
                 state.pending_task = state.take_persona_initial("")
-        return await _run_surface(state, config, console, resume)
+        return await _run_surface(state, config, console, resume, setup_trigger)
     finally:
         await state.child_runs.close()
         if state.hook_session is not None:
@@ -233,12 +236,13 @@ async def _run_surface(
     config: Config,
     console: Console,
     resume: session_resume.ResumeTarget | None,
+    setup_trigger: str = "",
 ) -> int:
     """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
     # Claude: SessionStart oturum açılırken çalışır (ilk istem beklenmez, #111).
-    await open_hooks(state, console)
+    await open_hooks(state, console, setup_trigger=setup_trigger)
     inline_requested = (
         os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
     )

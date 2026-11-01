@@ -40,10 +40,13 @@ async def enter_worktree_tool(args: ToolArgs, context: ToolContext) -> ToolResul
             "Zaten bir çalışma ağacındasın; iç içe ağaç açılmaz. Önce exit_worktree çağır."
         )
     try:
-        worktree = await asyncio.to_thread(enter_worktree, context.root, name)
+        hooks = getattr(context.worktree_switch, "hooks", None)
+        worktree = await asyncio.to_thread(enter_worktree, context.root, name, hooks=hooks)
     except WorktreeError as error:
         return ToolResult.failure(str(error))
     context.worktree_switch.request(worktree)
+    if worktree.hooked:
+        return ToolResult(messages.WORKTREE_TOOL_ENTERED_HOOK.format(path=worktree.path))
     relative = WORKTREE_DIR / worktree.name
     return ToolResult(
         messages.WORKTREE_TOOL_ENTERED.format(

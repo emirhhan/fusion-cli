@@ -73,6 +73,9 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PostModelSwitch` | oturum modeli değiştikten sonra | hedef modelin kanonik adı | — (düz stdout ve `additionalContext` sonraki istekle modele) |
 | `DirectoryAdded` | `/add-dir` yeni klasör ekleyince (kökün içindeki klasör ve `--add-dir` tetiklemez; girdi `directory`, `source`); kanca beklenmez | `slash_command` | — (`systemMessage` sonraki turda modele bağlam olur) |
 | `InstructionsLoaded` | `CLAUDE.md`/`AGENTS.md`, `CLAUDE.local.md`, `@import` ya da `.claude/rules/*.md` bağlama ilk girince (dosya başına oturumda bir kez; girdi `file_path`, `memory_type`, `load_reason`, `globs`, `trigger_file_path`, `parent_file_path`) | `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact` | — (beklenmez; JSON çıktısı yok sayılır) |
+| `Setup` | yalnız `fusion --init` (sonra oturum açılır), `fusion --init-only` (oturum açılmaz) ve `fusion --maintenance` ile; SessionStart'tan önce (girdi `trigger`; yalnız `command`/`mcp_tool`; `CLAUDE_ENV_FILE` verilir) | `init`, `maintenance` | — (`additionalContext` ve düz stdout ilk istemden önce bağlama) |
+| `WorktreeCreate` | çalışma ağacı kurulacakken: `--worktree`, `/worktree <ad>`, `enter_worktree` aracı, alt ajan `isolation: "worktree"`. Tanımlıysa git **hiç çalışmaz**, ağacı kanca kurar (git dışı sürüm denetimi de olur; girdi `name`) | — | sıfır dışı çıkış, zaman aşımı ya da yol yoksa kurulum başarısız olur; komut kancası ağacın mutlak yolunu stdout'a yazar, http kancası `hookSpecificOutput.worktreePath` verir |
+| `WorktreeRemove` | çalışma ağacından çıkılırken (oturum sonu, `/worktree cik`, alt ajan bitince; girdi `worktree_path`). Kancanın kurduğu ağacı yalnız bu kanca kaldırır (yoksa ağaç korunur); git ağacında kaldırmadan sonra temizlik için | — | — (karar denetimi yok; çıkış kodu ve hata oturumu etkilemez) |
 | `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
 | `TaskCompleted` | ekip üyesi görevi "tamam" yapmadan önce | — | görev üyede kalır, gerekçe üyeye |
 | `TeammateIdle` | ekip üyesi boşa düşmeden önce | — | üye gerekçeyle yeniden koşar |
@@ -274,10 +277,12 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
-- Olaylar: `Setup`, `PermissionDenied`,
-  `MessageDisplay`, `WorktreeCreate`, `WorktreeRemove`,
-  `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
-  olayı tetiklemiyor").
+- Olaylar: `PermissionDenied`, `MessageDisplay`, `Elicitation`, `ElicitationResult`
+  tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
+- `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli
+  `fusion --init`/`--init-only`/`--maintenance` tetikler.
+- `WorktreeCreate` kancasının kurduğu ağaçta `exit_worktree` aracı ağacı tanımaz
+  (`/worktree cik` ve oturum sonu tanır).
 - `PreModelSwitch` maliyet alanları ölçülmez (`context_tokens: 0`, `pricing: "default"`);
   zaman aşımı değişikliği engellemez (engellemeyen hata); otomatik geri dönüş ve `resume`
   model geri yüklemesi `PostModelSwitch`'i tetiklemez.

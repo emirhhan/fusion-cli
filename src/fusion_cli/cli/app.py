@@ -33,7 +33,7 @@ from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..core.worktree import Worktree, WorktreeSwitch
+from ..core.worktree import Worktree, WorktreeHookCalls, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..engines.agent.team import Persona
 from ..engines.agent.team_settings import validate_agent_hooks
@@ -195,6 +195,19 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    init: Annotated[
+        bool, typer.Option("--init", help="Setup kancalarını (trigger init) çalıştır, sonra aç.")
+    ] = False,
+    init_only: Annotated[
+        bool,
+        typer.Option("--init-only", help="Setup kancalarını (trigger init) çalıştır ve çık."),
+    ] = False,
+    maintenance: Annotated[
+        bool,
+        typer.Option(
+            "--maintenance", help="Setup kancalarını (trigger maintenance) çalıştır, sonra aç."
+        ),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
@@ -207,6 +220,9 @@ def main_callback(
         return
     persona = str(agent_persona or "")
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
+    setup_trigger = "maintenance" if maintenance else ("init" if init or init_only else "")
+    if init_only:
+        raise typer.Exit(_run_setup_only(config, Path.cwd()))
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -216,7 +232,9 @@ def main_callback(
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
     try:
-        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        root, tree = worktrees.resolve_launch_root(
+            Path.cwd(), worktree, hooks=_launch_worktree_hooks(config, worktree, interactive=True)
+        )
         target = session_resume.resolve_launch(
             config.memory_dir,
             root,
@@ -242,14 +260,30 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                setup_trigger=setup_trigger,
             )
         )
     )
     raise typer.Exit(exit_code)
 
 
+def _run_setup_only(config: Config, root: Path) -> int:
+    """`fusion --init-only` (Claude ile aynı): Setup kancaları çalışır, oturum açılmaz."""
+    from ..engines.hooks.session import open_hook_session
+    from ..engines.hooks.setup_hook import run_setup
+    from .repl.hook_open import show_verdict
+
+    session = open_hook_session(root, config, interactive=True)
+    verdict = asyncio.run(run_setup(session, "init"))
+    show_verdict(verdict, console)
+    return 0
+
+
 def _print_worktree_notice(tree: Worktree) -> None:
-    text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
+    if tree.hooked:
+        text = messages.WORKTREE_ENTERED_HOOK.format(path=tree.path)
+    else:
+        text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
     console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
 
 
@@ -548,7 +582,9 @@ def agent(
         base_config, max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
     )
     try:
-        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        root, tree = worktrees.resolve_launch_root(
+            Path.cwd(), worktree, hooks=_launch_worktree_hooks(config, worktree, interactive=False)
+        )
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
@@ -670,6 +706,17 @@ def agent(
         raise typer.Exit(1)
     if structured is not None and not structured.ok:
         raise typer.Exit(1)
+
+
+def _launch_worktree_hooks(
+    config: Config, worktree: str, *, interactive: bool
+) -> WorktreeHookCalls | None:
+    """`--worktree <ad>` verildiyse açılıştaki `WorktreeCreate` kancası (#90)."""
+    if not worktree.strip():
+        return None
+    from ..engines.hooks.worktree_hooks import launch_hook_calls
+
+    return launch_hook_calls(Path.cwd(), config, interactive=interactive)
 
 
 def _reject_background_flags(

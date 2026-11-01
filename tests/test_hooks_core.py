@@ -255,7 +255,7 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
                     ],
                 }
             ],
-            "WorktreeCreate": _grup("wt"),
+            "MessageDisplay": _grup("wt"),
             "Uydurma": _grup("u"),
         },
     )
@@ -267,7 +267,7 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
     assert len(pretool) == 2
     assert any(skip.reason == hooks_config.REASON_MCP for skip in pretool)
     assert any(skip.reason == hooks_config.REASON_EMPTY for skip in pretool)
-    assert [skip.reason for skip in hooks.skipped if skip.event == "WorktreeCreate"] == [
+    assert [skip.reason for skip in hooks.skipped if skip.event == "MessageDisplay"] == [
         hooks_config.REASON_EVENT
     ]
     assert [skip.reason for skip in hooks.skipped if skip.event == "Uydurma"] == [

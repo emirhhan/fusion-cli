@@ -32,9 +32,14 @@ DISCARDS_CONTINUE = DISCARDS_SYSTEM_MESSAGE | frozenset(
     {HookEvent.CWD_CHANGED, HookEvent.TASK_CREATED, HookEvent.FILE_CHANGED}
 )
 #: JSON alanlarının TAMAMI atılan olaylar (SessionEnd karar denetimi yoktur).
-DISCARDS_ALL_JSON = frozenset({HookEvent.SESSION_END, HookEvent.INSTRUCTIONS_LOADED})
+DISCARDS_ALL_JSON = frozenset(
+    {HookEvent.SESSION_END, HookEvent.INSTRUCTIONS_LOADED, HookEvent.WORKTREE_REMOVE}
+)
 #: Çıkış kodu ve stderr'i yok sayılan olaylar (Notification hataları kullanıcıya basılmaz).
-IGNORES_EXIT_CODE = frozenset({HookEvent.NOTIFICATION, HookEvent.STOP_FAILURE})
+#: WorktreeRemove: karar denetimi yok, hatası yalnız hata ayıklama günlüğünde (Claude).
+IGNORES_EXIT_CODE = frozenset(
+    {HookEvent.NOTIFICATION, HookEvent.STOP_FAILURE, HookEvent.WORKTREE_REMOVE}
+)
 
 #: İzinli terminal dizileri: OSC 0/1/2/9/99/777 (BEL ya da ST ile biten) ve yalın BEL.
 _OSC = r"\x1b\][0-9]+;[^\x07\x1b]*(?:\x07|\x1b\\)"

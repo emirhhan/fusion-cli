@@ -1173,7 +1173,19 @@ WORKTREE_LEFT_KEPT = (
 WORKTREE_KEPT_REASON = {
     "degisiklik": "commit'lenmemiş değişiklik var",
     "commit": "dalda yeni commit var",
+    "kanca": "ağacı WorktreeCreate kancası kurdu ve kaldıracak WorktreeRemove kancası yok",
 }
+WORKTREE_TOOL_ENTERED_HOOK = (
+    "Çalışma ağacı hazır: {path} (WorktreeCreate kancası kurdu). Bu turda dosyalara bu mutlak "
+    "yolla ulaş; tur bitince oturum kökü bu ağaca geçer."
+)
+WORKTREE_ENTERED_HOOK = "Çalışma ağacına geçildi: {path} (WorktreeCreate kancası kurdu)."
+WORKTREE_HOOK_FAILED = "WorktreeCreate kancası çalışma ağacını oluşturamadı: {reason}"
+WORKTREE_HOOK_NO_PATH = (
+    "WorktreeCreate kancası ağacın yolunu yazmadı (komut stdout'a mutlak yolu, http kancası "
+    "hookSpecificOutput.worktreePath'i vermeli)."
+)
+WORKTREE_HOOK_NOT_DIR = "WorktreeCreate kancasının verdiği yol bir dizin değil: {path}"
 WORKTREE_TOOL_ENTERED = (
     "Çalışma ağacı hazır: {path} (dal {branch}). Bu turda dosyalara {relative}/… ile ulaş; "
     "tur bitince oturum kökü bu ağaca geçer ve sonraki turlar doğrudan orada çalışır."

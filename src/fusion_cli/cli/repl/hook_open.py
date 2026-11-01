@@ -12,22 +12,32 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.markup import escape
 
-from ...core.hooks.events import HookEvent
+from ...core.hooks.events import HookEvent, HookVerdict
+from ...engines.hooks.setup_hook import run_setup
 from ...ui import messages, theme
 
 if TYPE_CHECKING:
     from .state import ReplState
 
 
-async def open_hooks(state: ReplState, console: Console) -> None:
-    """Tanımlı SessionStart kancalarını oturum açılırken çalıştır."""
+async def open_hooks(state: ReplState, console: Console, *, setup_trigger: str = "") -> None:
+    """Tanımlı SessionStart kancalarını oturum açılırken çalıştır.
+
+    `setup_trigger` (`--init`/`--maintenance`) verildiyse önce `Setup` kancaları (#90).
+    """
     session = state.hooks()
     if state.persona is not None:
         session.agent_type = state.persona.name
     session.refresh()
+    if setup_trigger:
+        show_verdict(await run_setup(session, setup_trigger), console)
     if not session.has(HookEvent.SESSION_START):
         return
-    verdict = await session.open()
+    show_verdict(await session.open(), console)
+
+
+def show_verdict(verdict: HookVerdict, console: Console) -> None:
+    """Açılış kancasının `systemMessage` satırları ve engellemeyen hataları."""
     for text in verdict.system_messages:
         line = messages.HOOKS_SYSTEM.format(text=text)
         console.print(f"[{theme.DIM}]{escape(line)}[/{theme.DIM}]")

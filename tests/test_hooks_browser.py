@@ -71,7 +71,7 @@ def test_all_events_tanimsiz_olaylari_da_listeler(tmp_path):
     assert "All events" in text
     assert "· Notification: 0 kanca" in text
     assert "· Stop: 1 kanca" in text
-    assert "Setup: 0 kanca  (Fusion bu olayı tetiklemiyor)" in text
+    assert "MessageDisplay: 0 kanca  (Fusion bu olayı tetiklemiyor)" in text
 
 
 def test_argumansiz_numarali_liste_ve_gecersiz_numara(tmp_path):

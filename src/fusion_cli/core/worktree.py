@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -56,6 +57,21 @@ class Worktree:
     #: `.worktreeinclude` ile kopyalanan izlenmeyen dosyalar (ağaca göreli). Bunlar git'te
     #: "yeni dosya" görünür ama kullanıcının İŞİ değildir; temizlik ölçümünde sayılmaz.
     included: tuple[str, ...] = ()
+    #: `WorktreeCreate` kancasının oluşturduğu ağaç: git dalı/künyesi yok, kaldırmayı
+    #: `WorktreeRemove` kancası yapar (Claude: kanca git davranışının yerine geçer).
+    hooked: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class WorktreeHookCalls:
+    """Kanca katmanının bağladığı `WorktreeCreate`/`WorktreeRemove` çağrıları.
+
+    Çekirdek kanca bilmez: `create(cwd, ad)` kanca yoksa `None`, varsa kancanın verdiği
+    yolu döndürür (başarısızlık `WorktreeError`); `remove(yol)` kanca çalıştıysa `True`.
+    """
+
+    create: Callable[[Path, str], Path | None]
+    remove: Callable[[Path], bool]
 
 
 class LeaveOutcome(Enum):
@@ -83,6 +99,8 @@ class WorktreeSwitch:
     def __init__(self) -> None:
         self.requested: Worktree | None = None
         self.exit_requested = False
+        #: Turun kanca oturumundan bağlanan `WorktreeCreate`/`WorktreeRemove` çağrıları.
+        self.hooks: WorktreeHookCalls | None = None
 
     def request(self, worktree: Worktree) -> None:
         self.requested = worktree
@@ -177,15 +195,23 @@ def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
     return tuple(worktree for worktree in found if worktree is not None)
 
 
-def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
+def enter_worktree(
+    cwd: Path, name: str, *, base_ref: str = "HEAD", hooks: WorktreeHookCalls | None = None
+) -> Worktree:
     """Adı verilen çalışma ağacını aç: varsa onu, yoksa `base_ref`'ten yenisini.
 
     `cwd` bir çalışma ağacının içindeyse ana depoya gidilir; iç içe ağaç açılmaz. `base_ref`
     `cwd`'nin KENDİ checkout'unda çözülür: bir ağaçtan açılan yeni ağaç (alt ajan izolasyonu)
     o ağacın dalından dallanır. Ölçüldü (31 Ekim): ana depoda çözülünce üye, oturumun
     dalındaki işi görmeyen ana HEAD'in kopyasında çalışıyordu.
+
+    `WorktreeCreate` kancası tanımlıysa git hiç çağrılmaz: ağacı kanca kurar (git dışı
+    sürüm denetimi de olabilir), Fusion yalnız verdiği yolu kullanır.
     """
     name = validate_name(name)
+    hooked = hooks.create(cwd, name) if hooks is not None else None
+    if hooked is not None:
+        return Worktree(name, hooked, "", project_root_of(cwd.resolve()), "", hooked=True)
     inside = worktree_for_path(cwd)
     origin = inside.origin if inside is not None else repository_root(cwd)
     if origin is None:
@@ -328,8 +354,17 @@ def has_new_commits(worktree: Worktree) -> bool:
     return int(output.strip() or "0") > 0
 
 
-def leave_worktree(worktree: Worktree) -> LeaveResult:
-    """Çıkış kuralı: temiz ve commit'siz ağaç kaldırılır, iş kalmışsa korunur."""
+def leave_worktree(worktree: Worktree, *, hooks: WorktreeHookCalls | None = None) -> LeaveResult:
+    """Çıkış kuralı: temiz ve commit'siz ağaç kaldırılır, iş kalmışsa korunur.
+
+    Kancanın kurduğu ağacı yalnız `WorktreeRemove` kancası kaldırır (yoksa korunur); git
+    ağacı kaldırıldıktan sonra da `WorktreeRemove` temizlik için tetiklenir.
+    """
+    if worktree.hooked:
+        removed = hooks is not None and hooks.remove(worktree.path)
+        if removed:
+            return LeaveResult(worktree, LeaveOutcome.REMOVED)
+        return LeaveResult(worktree, LeaveOutcome.KEPT, "kanca")
     if is_dirty(worktree):
         return LeaveResult(worktree, LeaveOutcome.KEPT, "degisiklik")
     if has_new_commits(worktree):
@@ -337,6 +372,8 @@ def leave_worktree(worktree: Worktree) -> LeaveResult:
     # Temizlik yukarıda KENDİ ölçümümüzle kanıtlandı; `--force` yalnız `.worktreeinclude`
     # kopyalarının (git'e göre izlenmeyen dosya) kaldırmayı engellememesi için.
     remove_worktree(worktree, force=bool(worktree.included))
+    if hooks is not None:
+        hooks.remove(worktree.path)
     return LeaveResult(worktree, LeaveOutcome.REMOVED)
 
 

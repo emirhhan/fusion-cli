@@ -31,6 +31,7 @@ from ...core.types import Message
 from ...tools.permission_match import claude_tool_names
 from ...ui import messages
 from ..hooks.session import HookSession
+from ..hooks.worktree_hooks import worktree_hook_calls
 from . import hook_text
 from .hook_input import claude_tool_input, claude_tool_response, fusion_tool_args
 from .skill_hooks import after_skill_tool
@@ -160,6 +161,7 @@ def tool_running(
         return
     session.tool_started[call_id] = time.monotonic()
     _share_env_file(deps, session)
+    _share_worktree_hooks(deps, session)
     if tool_name == "write_file":
         shape = claude_tool_input(tool_name, args, _root(session))
         path = shape.get("file_path")
@@ -173,6 +175,13 @@ def _share_env_file(deps: AgentDeps, session: HookSession) -> None:
     if shared is None or not records_tools(deps):
         return
     shared[:] = session.env_files()
+
+
+def _share_worktree_hooks(deps: AgentDeps, session: HookSession) -> None:
+    """`enter_worktree` aracı `WorktreeCreate` kancasını turun oturumundan çalıştırır (#90)."""
+    switch = getattr(getattr(deps, "tool_context", None), "worktree_switch", None)
+    if switch is not None and getattr(switch, "hooks", None) is None:
+        switch.hooks = worktree_hook_calls(session)
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,9 +299,8 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
         text = hook_text.prompt_blocked(reason, prompt, suppress=verdict.suppress_original_prompt)
         return PromptGate(blocked=text)
     session.record("user", prompt)
-    before = session.take_start_context() or hook_text.context_reminder(
-        HookEvent.SESSION_START, started.context_text
-    )
+    opening = hook_text.context_reminder(HookEvent.SESSION_START, started.context_text)
+    before = "\n\n".join(part for part in (session.take_start_context(), opening) if part)
     rewake = [hook_text.system_reminder(note) for note in session.take_rewake_notes()]
     after = "\n\n".join(
         part

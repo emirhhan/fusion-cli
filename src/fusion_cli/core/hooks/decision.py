@@ -68,6 +68,9 @@ def verdict_from_run(event: HookEvent, run: HookRun, subject: str = "") -> HookV
             f"{label} hook error\n{NON_BLOCKING_STATUS}: {_first_line(run.stderr)}".rstrip(": ")
         )
     stdout = run.stdout.strip()
+    if event is HookEvent.WORKTREE_CREATE:
+        # Claude: komut kancası oluşturduğu ağacın yolunu stdout'a yazar.
+        return HookVerdict(worktree_path=_last_line(stdout), ran=1)
     if stdout and event in STDOUT_CONTEXT_EVENTS:
         return HookVerdict(additional_context=(stdout,), ran=1)
     return HookVerdict(ran=1)
@@ -159,6 +162,8 @@ def _from_json(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:
         verdict = _permission_request_fields(verdict, specific)
     if event is HookEvent.PRE_MODEL_SWITCH:
         return _model_switch_fields(verdict, specific)
+    if event is HookEvent.WORKTREE_CREATE:
+        return replace(verdict, worktree_path=_text(specific.get("worktreePath")))
     context = _text(specific.get("additionalContext"))
     if context and verdict.permission != "defer":
         verdict = replace(verdict, additional_context=(context,))
@@ -291,6 +296,7 @@ def merge_verdicts(verdicts: Iterable[HookVerdict]) -> HookVerdict:
             watch_paths_given=merged.watch_paths_given or item.watch_paths_given,
             reload_skills=merged.reload_skills or item.reload_skills,
             terminal_sequences=merged.terminal_sequences + item.terminal_sequences,
+            worktree_path=merged.worktree_path or item.worktree_path,
         )
     return merged
 
@@ -313,6 +319,11 @@ def _join(first: str, second: str) -> str:
 
 def _text(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _last_line(text: str) -> str:
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    return lines[-1] if lines else ""
 
 
 def _first_line(text: str) -> str:

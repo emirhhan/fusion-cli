@@ -47,6 +47,9 @@ class HookEvent(Enum):
     POST_MODEL_SWITCH = "PostModelSwitch"
     CONFIG_CHANGE = "ConfigChange"
     FILE_CHANGED = "FileChanged"
+    WORKTREE_CREATE = "WorktreeCreate"
+    WORKTREE_REMOVE = "WorktreeRemove"
+    SETUP = "Setup"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -81,6 +84,9 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
         "kaynak (user_settings|project_settings|local_settings|policy_settings|skills)"
     ),
     HookEvent.FILE_CHANGED: "değişen dosyanın adı (izlenen dosyalar `|` ile)",
+    HookEvent.WORKTREE_CREATE: None,
+    HookEvent.WORKTREE_REMOVE: None,
+    HookEvent.SETUP: "tetik (init|maintenance)",
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -117,6 +123,8 @@ STDOUT_CONTEXT_EVENTS = frozenset(
         HookEvent.SESSION_START,
         HookEvent.USER_PROMPT_EXPANSION,
         HookEvent.POST_MODEL_SWITCH,
+        # Setup: SessionStart gibi (yalnız command/mcp_tool, `CLAUDE_ENV_FILE`, bağlam).
+        HookEvent.SETUP,
     }
 )
 
@@ -124,11 +132,8 @@ STDOUT_CONTEXT_EVENTS = frozenset(
 #: "tetiklenmiyor" diye görünür, hata sayılmaz.
 CLAUDE_ONLY_EVENTS = frozenset(
     {
-        "Setup",
         "PermissionDenied",
         "MessageDisplay",
-        "WorktreeCreate",
-        "WorktreeRemove",
         "Elicitation",
         "ElicitationResult",
     }
@@ -323,6 +328,9 @@ class HookVerdict:
     reload_skills: bool = False
     #: Evrensel `terminalSequence` (izinli OSC/BEL dizisi; etkileşimli arayüz basar).
     terminal_sequences: tuple[str, ...] = ()
+    #: WorktreeCreate: oluşturulan ağacın yolu (komut stdout'u ya da
+    #: `hookSpecificOutput.worktreePath`).
+    worktree_path: str = ""
 
     @property
     def context_text(self) -> str:

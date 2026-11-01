@@ -52,7 +52,7 @@ _CLAUDE_MODES = {
 #: `CLAUDE_ENV_FILE` verilen olaylar (Claude: SessionStart, Setup, CwdChanged, FileChanged;
 #: Fusion Setup'ı tetiklemez).
 ENV_FILE_EVENTS = frozenset(
-    {HookEvent.SESSION_START, HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED}
+    {HookEvent.SESSION_START, HookEvent.SETUP, HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED}
 )
 #: Değişkenleri bir sonraki CwdChanged'e dek geçerli olan olaylar (ayrı dosya).
 CWD_ENV_EVENTS = frozenset({HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED})
@@ -212,6 +212,10 @@ class HookSession:
         """Yeni kök istem: `prompt_id` yenilenir."""
         self.prompt_id = uuid.uuid4().hex
         return self.prompt_id
+
+    def add_start_context(self, text: str) -> None:
+        """Açılış bağlamına ekle (Setup); ilk istemden önce SessionStart'ınkiyle birlikte gider."""
+        self._start_context = "\n\n".join(part for part in (self._start_context, text) if part)
 
     def take_start_context(self) -> str:
         context, self._start_context = self._start_context, ""
@@ -510,7 +514,7 @@ class HookSession:
 
         verdict = await self.start()
         if verdict.context_text:
-            self._start_context = context_reminder(HookEvent.SESSION_START, verdict.context_text)
+            self.add_start_context(context_reminder(HookEvent.SESSION_START, verdict.context_text))
         return verdict
 
     async def end(self, reason: str = "other") -> HookVerdict:

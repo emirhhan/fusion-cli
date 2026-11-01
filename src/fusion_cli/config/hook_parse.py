@@ -62,6 +62,7 @@ EVENT_HANDLERS: dict[HookEvent, frozenset[str]] = {
     # Claude: PermissionRequest agent kancasını desteklemez.
     HookEvent.PERMISSION_REQUEST: frozenset({"command", "http", "mcp_tool", "prompt"}),
     HookEvent.SESSION_START: _START,
+    HookEvent.SETUP: _START,
 }
 
 REASON_HANDLER = "tür henüz desteklenmiyor: {kind} (Fusion command ve http çalıştırır)"
