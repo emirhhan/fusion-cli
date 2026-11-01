@@ -23,13 +23,13 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 | `tabs_context`, `tabs_create`, `tabs_close` | `chrome_action tabs / open / tab / close` | Var; e2e |
 | `resize_window` | `chrome_action resize` | Var; e2e |
 | `file_upload`, `upload_image` | `chrome_action upload` (proje dosyaları) | Var; e2e (içerik gönderilmez, yalnız alana konur) |
-| `javascript_tool` | — | **Bilerek yok:** keyfi sayfa betiği, girişli oturumda veri sızdırma/işlem riski; model aynı işi okuma ve etkileşim araçlarıyla yapar |
+| `javascript_tool` | — | **Henüz yok** (birebir hedefi, #432): izin kapısıyla eklenecek |
 | `read_console_messages`, `read_network_requests` | `chrome_action console` (`errors`, `errors:desen`, desen) ve `network` (url deseni, `id:N` ile gövde) — `pageMonitor.js` izinli sitelere kayıtlı içerik betiği (ANA dünya, `document_start`), `console.*`/hata/`fetch`/XHR sarmalar | Var (P-042) **`debugger` izni olmadan**; başlıklar kaydedilmez, çıktı sır maskesinden geçer; panelden kapatılabilir |
 | `shortcuts_list/execute` | `chrome_action shortcuts` / `shortcut=ad`; panelde Bağlantı ayarları → Kısayollar, yazarken `/ad`; Chrome `commands`: Ctrl/⌘+Shift+F panel, Ctrl/⌘+Shift+. durdur | Var (P-073) |
 | `gif_creator` | `chrome_action record start|stop` → `.fusion/kayitlar/chrome-<zaman>.gif` (ardışık `captureVisibleTab`, en çok 120 kare / 60 sn, Pillow ile GIF) | Var (P-044); `tabCapture` izni yok; Kit bilgisayarı canlı akışı ayrı iş |
 | `tabs_create` pencere, sekme grubu | `chrome_action window=URL`, `group=id,id:başlık` (`tabGroups` izni) | Var (P-073) |
 | Kit'ten (Kits) tarayıcıya erişim | `fusion_browser` (Kit aracı) → `chrome.kit_komut` RPC; okuma bir kez, etkileşim her seferinde onaylı; yalnız metin | Var (P-063); bkz. `docs/KITS_KOPRUSU.md` |
-| `list/select/switch_browser` | — | **Bilerek yok:** Fusion tek tarayıcıya (kullanıcının Chrome'u) bağlanır |
+| `list/select/switch_browser`, `browser_batch` | — | **Henüz yok** (birebir hedefi, #432); yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
 
 ## Konsol, ağ, ağaç, kayıt ve kısayollar (31 Ekim, parite turu)
 
@@ -53,8 +53,9 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
   `chrome.kisayol_sil` (`{ad}`) → `{kisayollar}`; eklenti tarafında `monitor_get/set`, `shortcut_set/delete`
   (`appserver/chrome_settings.py`, `core.js`). Depo eklentinin `storage.local`'ı: panel ve masaüstü aynı listeyi görür.
   CLI'de karşılığı yok: Chrome köprüsü yalnız masaüstü uygulamasında çalışır.
-- **Onay sınıfı** (31 Ekim): `record start|stop` REMOTE_INTERACT'tır (plan kipinde yapılmaz, Manuel kipte sorulur,
-  otomatik kipte sorulmaz); `window`, `open` gibi yalnız gezindiği için okuma kalır. Kayıt sırasında etkin sekme
+- **Onay sınıfı**: `record start|stop` REMOTE_INTERACT'tır (Manuel kipte sorulur, otomatik kipte sorulmaz);
+  `window`, `open` okuma kalır. Plan kipinde `record`, `open`, `window` ve `shortcut` izin sorar, onaylanırsa
+  çalışır (Claude: "Browser tools in plan mode", #450). Kayıt sırasında etkin sekme
   değişirse kare alınmaz (`record_check`), atlanan kare sayısı çıktıya düşer; kareler GIF yazılınca `release` ile bırakılır.
 - **Windows/Linux**: Fusion Chrome kapalıyken `chrome_launch_command` ile açar (`start chrome`, PATH'teki
   `google-chrome`/`chromium`). Kılavuzlu kurulum hâlâ macOS/Windows.
@@ -62,8 +63,16 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 ## Güvenlik ve izin karşılaştırması
 
 - Site izni: ilk girişte panelde kart (tek tık; "tüm siteler" ya da yalnız o site), komut kullanıcıyı bekler.
-- Sorulan adımlar: gönder, paylaş, sil, satın al, öde, kayıt ol, hesap oluştur, hesabı bağla, oturumu kapat,
-  mesaj kutusunda Enter, `form submit`, sekme kapatma. Parola/OTP/kart alanlarına yazma ve okuma kapalıdır.
+- **Her kipte yasak** (#422; Claude in Chrome: "prohibited ... regardless of permissions"): satın alma ve finansal
+  işlem, hesap oluşturma, bot doğrulaması (CAPTCHA). Tıklama, koordinat tıklaması ve form Enter'ı öğe adına bakılarak
+  çalıştırılmaz; model kullanıcıya bu adımı kendisinin yapmasını söyler (`tools/chrome_guard.py`).
+- **Her kipte sorulan** (İzinleri atla dahil): izin/yetki verme düğmeleri ("Authorize", "İzin ver", "Hesabı bağla")
+  ve hassas alana yazma (parola, kart, CVV, IBAN, kimlik numarası).
+- Sorulan adımlar (kipe göre): gönder, paylaş, sil, oturumu kapat, mesaj kutusunda Enter, `form submit`, sekme kapatma.
+- Dosya yükleme (#437): toplam 10 MB; sabit bağlantılı (hard link) dosya, kimlik bilgisi adı taşıyan dosya
+  (`.env`, `.pem`, `.key`, `.ssh/…`, `.aws/…`) ve `sandbox.deny_read` altındaki dosya reddedilir.
+- Yerel adresler (#438): projenin çalışan önizleme/dev sunucularının kökenleri onaysız açılır; diğer yerel portlar,
+  özel ağ ve metadata ucu kapalıdır.
 - Panel turlarında sunucu tarafı `web_fetch`/`web_search` yoktur (girişli oturumu görmez).
 - Konsol/ağ izleyicisi istek ve yanıt BAŞLIKLARINI (çerez, Authorization) hiç kaydetmez; gövde yalnız metin/JSON
   türünde, akış okuyucuyla 16 KB'ta kesilip iptal edilir (`truncated: true`), `text/event-stream` hiç okunmaz;

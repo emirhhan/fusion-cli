@@ -817,8 +817,10 @@ Masaüstünde sağ paneldeki **Önizleme › Web** sekmesi yerel (localhost) sit
 Ajan `start_preview` ile projeyi çalıştırınca panel kendiliğinden açılır; aşağıdakiler
 onun üstüne gelir.
 
-**Dev sunucuyu uygulamadan başlatma** — proje köküne `.fusion/launch.json` koyun
-(Claude Code'un `.claude/launch.json` dosyası da aynı alanlarla okunur, yazılmaz):
+**Dev sunucuyu uygulamadan başlatma** — proje köküne Claude Code'daki gibi `.claude/launch.json`
+koyun (eski `.fusion/launch.json` de okunur). Yorumlu JSON, `program`/`args` (doğrudan `node`
+betiği), `port` (varsayılan 3000), `cwd` içinde `${workspaceFolder}` ve üst düzey `autoVerify`
+desteklenir; port değişirse `runtimeArgs` içindeki `--port`/`-p` değeri yeniden yazılır:
 
 ```json
 {
