@@ -1,8 +1,8 @@
 """Beceri ve komut dosyalarını slash komutu olarak sunan dinamik defter (P-019).
 
 `/<beceri> argüman` yazımı Claude Code'da `.claude/skills/x/SKILL.md` ya da
-`.claude/commands/x.md` dosyasını çalıştırır; Codex `$skill` yazar. Fusion ikisini de kabul
-eder: `build_registry(..., skills=…)` bu modülün ürettiği komutları "Beceri" grubunda
+`.claude/commands/x.md` dosyasını çalıştırır. Beceri yalnız mesaj başındaki `/` ile çağrılır
+(Codex `$beceri` yazımı Claude'da yok; #174): `build_registry(..., skills=…)` bu modülün ürettiği komutları "Beceri" grubunda
 dinamik olarak defterin arkasına ekler; yerleşik bir komutla ad çakışırsa yerleşik kazanır.
 
 İşleyici turu ÇALIŞTIRMAZ (makrolarla aynı sözleşme): görevi `pending_task`, beceri gövdesini
@@ -21,6 +21,7 @@ from ...engines.agent.routine_invocation import RoutineInvocationValidator
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_commands import TemplateEnv, build_invocation
+from ...tools.skill_shell import ShellPolicy
 from ...ui import messages
 from .macros import Mode
 from .state import Engine, ReplState
@@ -57,6 +58,34 @@ def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, boo
     return project, True
 
 
+#: `disableSkillShellExecution` bu kaynakları etkilemez (Claude: paketli ve kurumsal beceriler).
+_POLICY_EXEMPT_SOURCES = frozenset({"fusion", "managed"})
+
+
+def skill_shell_policy(state: ReplState, skill: Capability) -> ShellPolicy:
+    """Becerinin `!`cmd`` politikası: kip, izin kuralları ve `disableSkillShellExecution`."""
+    from pathlib import Path
+
+    from ...config import claude_settings
+    from ...config.permission_rules import load_permission_rules
+    from ...tools.permission_match import evaluate
+
+    allowed, read_only = shell_context_policy(state, skill)
+    root = state.root
+    rules = load_permission_rules(root)
+
+    def decision(command: str) -> str | None:
+        match = evaluate(rules, "run_shell", {"command": command}, root)
+        return match.decision.value if match is not None else None
+
+    disabled = claude_settings.effective_bool(
+        root, Path.home(), "disableSkillShellExecution"
+    ) and not set(skill.source.split("+")) & _POLICY_EXEMPT_SOURCES
+    return ShellPolicy(
+        mode_allows=allowed, read_only=read_only, disabled=disabled, rule_decision=decision
+    )
+
+
 def model_override_allowed(state: ReplState, skill: Capability) -> bool:
     """Becerinin `model:` alanı uygulanabilir mi: depo kaynaklıysa proje güvenilmeli."""
     sources = set(skill.source.split("+"))
@@ -78,7 +107,7 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         skill = registry.get_skill(qualified_name) if registry is not None else None
         if skill is None:
             return messages.REPL_SKILL_MISSING.format(name=qualified_name.split("@", 1)[0])
-        shell_allowed, shell_read_only = shell_context_policy(state, skill)
+        policy = skill_shell_policy(state, skill)
         invocation = build_invocation(
             skill,
             argument,
@@ -86,9 +115,11 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
                 skill_dir=skill.path.parent,
                 project_dir=state.root,
                 session_id=state.conversation_id,
+                effort=str(getattr(state.config.runtime, "reasoning_effort", "") or ""),
             ),
-            shell_allowed=shell_allowed,
-            shell_read_only=shell_read_only,
+            shell_allowed=policy.mode_allows,
+            shell_read_only=policy.read_only,
+            shell_policy=policy,
             proposal_policy=ProposalPolicy(state.config.runtime.verified_skill_proposals),
             proposal_validator=RoutineInvocationValidator(
                 state.config.memory_dir,
@@ -159,14 +190,3 @@ def skill_slash_commands(registry: CapabilityRegistry | None) -> tuple[object, .
             )
         )
     return tuple(commands)
-
-
-def skill_prefix_to_slash(line: str, known: Callable[[str], bool]) -> str:
-    """Codex yazımı `$beceri argüman` → `/beceri argüman` (yalnız bilinen beceri için).
-
-    `$5 fiyat` gibi sıradan metin dokunulmadan kalır: `known` bilinmeyen adda False döner.
-    """
-    if not line.startswith("$") or len(line) < 2 or line[1].isspace():
-        return line
-    name = line[1:].split(maxsplit=1)[0]
-    return "/" + line[1:] if known(name) else line

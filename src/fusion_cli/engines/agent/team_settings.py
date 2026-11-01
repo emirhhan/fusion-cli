@@ -309,6 +309,13 @@ def preloaded_skills(deps: AgentDeps, persona: Persona) -> str:
                 "ön yüklenecek beceri bulunamadı", extra={"ajan": persona.name, "beceri": name}
             )
             continue
+        if not item.model_invocable:
+            # Claude Code: `disable-model-invocation: true` alt ajana ön yüklemeyi de engeller.
+            _LOG.warning(
+                "ön yükleme atlandı: disable-model-invocation",
+                extra={"ajan": persona.name, "beceri": name},
+            )
+            continue
         # Claude Code becerinin TAM içeriğini yükler (#35); kırpma ve adet sınırı yok.
         text = load_skill_text(item.path, budget=sys.maxsize)
         parts.append(f"# Ön yüklenen beceri: {name}\n{text}")

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from fusion_cli.tools.capabilities import Capability, CapabilityRegistry, parse_frontmatter
 from fusion_cli.tools.skill_commands import (
     MAX_SHELL_OUTPUT_CHARS,
@@ -18,6 +20,7 @@ from fusion_cli.tools.skill_commands import (
     expand_shell_context,
     render_template,
 )
+from fusion_cli.tools.skill_shell import SkillShellError
 
 ZENGIN = """---
 name: deploy
@@ -83,7 +86,8 @@ def _env(tmp_path: Path) -> TemplateEnv:
 
 
 def test_arguments_ve_konumsal_degiskenler(tmp_path: Path):
-    metin = "Hepsi: $ARGUMENTS | ilk: $1 | ikinci: $2 | sıfır: $ARGUMENTS[0] | yok: $9"
+    # Claude Code (#138): `$N` 0 tabanlı, `$ARGUMENTS[N]` ile aynı.
+    metin = "Hepsi: $ARGUMENTS | ilk: $0 | ikinci: $1 | sıfır: $ARGUMENTS[0] | yok: $9"
 
     assert render_template(metin, "a b", _env(tmp_path)) == (
         "Hepsi: a b | ilk: a | ikinci: b | sıfır: a | yok: "
@@ -121,15 +125,15 @@ def test_shell_baglami_izinliyse_calisir_ve_sinirlanir(tmp_path: Path):
     assert any("kırpıldı" in n for n in notlar)
 
 
-def test_shell_baglami_izinsizse_calismaz_ve_notta_gorunur(tmp_path: Path):
+def test_shell_baglami_izinsizse_calismaz_ve_cagri_iptal(tmp_path: Path):
+    """Claude Code (#168): izinsiz komut yerinde not bırakmaz, çağrının tamamını iptal eder."""
     kanit = tmp_path / "kanit"
     metin = f"!`touch {kanit}`"
 
-    sonuc, notlar = expand_shell_context(metin, cwd=tmp_path, allowed=False)
+    with pytest.raises(SkillShellError):
+        expand_shell_context(metin, cwd=tmp_path, allowed=False)
 
     assert not kanit.exists()
-    assert "[komut çalıştırılmadı" in sonuc
-    assert notlar
 
 
 # --- .claude/commands keşfi ---------------------------------------------------- #
@@ -165,7 +169,7 @@ def test_invocation_komut_icin_gorev_beceri_icin_baglam_uretir(tmp_path: Path):
     beceri_yol = tmp_path / "rapor" / "SKILL.md"
     beceri_yol.parent.mkdir()
     beceri_yol.write_text(
-        "---\nname: rapor\nallowed-tools: Read, Grep\ncontext: fork\n---\nRapor yaz: $1",
+        "---\nname: rapor\nallowed-tools: Read, Grep\ncontext: fork\n---\nRapor yaz: $0",
         encoding="utf-8",
     )
     beceri = Capability(
@@ -196,26 +200,20 @@ def test_invocation_komut_icin_gorev_beceri_icin_baglam_uretir(tmp_path: Path):
 
 def test_shell_baglami_riskli_komutu_izinli_olsa_da_calistirmaz(tmp_path: Path):
     """Ölçüldü: `!`git push --force`` izinli kökte run_shell tehlike denetimi olmadan koşuyordu."""
-    metin, notlar = expand_shell_context(
-        "A: !`git push --force origin HEAD`\nB: !`sudo ls`\nC: !`echo canli`",
-        cwd=tmp_path,
-        allowed=True,
-    )
-
-    assert "[komut çalıştırılmadı" in metin and "canli" in metin
-    assert "force push" not in metin
-    assert any("riskli" in not_ and "git push" in not_ for not_ in notlar)
-    assert any("sudo" in not_ for not_ in notlar)
+    for komut in ("git push --force origin HEAD", "sudo ls"):
+        with pytest.raises(SkillShellError, match="riskli"):
+            expand_shell_context(f"A: !`{komut}`", cwd=tmp_path, allowed=True)
+    metin, _ = expand_shell_context("C: !`echo canli`", cwd=tmp_path, allowed=True)
+    assert metin == "C: canli"
 
 
 def test_shell_baglami_salt_okur_kipinde_yazan_komut_calismaz(tmp_path: Path):
-    metin, notlar = expand_shell_context(
-        "X: !`touch sizinti` Y: !`ls`", cwd=tmp_path, allowed=True, read_only=True
-    )
+    with pytest.raises(SkillShellError, match="salt-okur"):
+        expand_shell_context(
+            "X: !`touch sizinti` Y: !`ls`", cwd=tmp_path, allowed=True, read_only=True
+        )
 
     assert not (tmp_path / "sizinti").exists()
-    assert "[komut çalıştırılmadı: touch sizinti]" in metin
-    assert any("salt-okur" in not_ for not_ in notlar)
 
 
 def test_allowed_tools_bosluk_ayrimli_ve_parantezli_yazim():

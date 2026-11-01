@@ -76,19 +76,29 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
   sıradaki turun sistem bağlamına girer; kullanıcı mesajı `ekim` (argüman yoksa
   "`rapor` becerisini bu görev için uygula.").
 - `.claude/commands/git/commit.md` → `/git:commit <bağlam>`: şablonlanan gövde doğrudan görev
-  metnidir. Komut kökleri: `~/.claude/commands`, `~/.fusion/commands`, projede
-  `.claude/commands`, `.fusion/commands`.
-- Codex yazımı `$rapor ekim` de aynı yola gider (`@beceri` dosya anmasıyla çakıştığı için
-  desteklenmez).
-- Şablon değişkenleri: `$ARGUMENTS`, `$ARGUMENTS[0]`, `$1 $2 …`, `${FUSION_SKILL_DIR}`
-  (`${CLAUDE_SKILL_DIR}`), `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}`; `\$` kaçışı. Yer
-  tutucu yoksa argüman `ARGÜMANLAR:` satırı olarak sona eklenir.
+  metnidir. Ad yalnız dosya yolundan gelir (Claude Code gibi komut dosyasındaki `name` yok
+  sayılır). Komut kökleri: `~/.claude/commands` ve projede `.claude/commands`.
+  `~/.fusion/commands` ve `.fusion/commands` kullanımdan kalktı: bu sürüm boyunca okunur, ilk
+  görüldüğünde uyarı düşer — dosyaları `.claude/commands` altına taşı.
+- Beceri yalnız mesaj başındaki `/` ile çağrılır; eski Codex yazımı `$rapor` artık düz mesajdır.
+- Şablon değişkenleri (Claude Code ile aynı): `$ARGUMENTS`, `$ARGUMENTS[N]` ve kısaltması `$N`
+  (**0 tabanlı**: `$0` ilk, `$1` ikinci argüman), `arguments:` alanındaki adlar (`$issue`),
+  `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_SESSION_ID}`, `${CLAUDE_EFFORT}`;
+  `\$` kaçışı. Hiçbir yer tutucu argüman almıyorsa argüman `ARGUMENTS: <değer>` satırı olarak
+  sona eklenir. Eski `${FUSION_SKILL_DIR}`, `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}` ve
+  `{SKILL_DIR}` bu sürüm boyunca çalışır, kullanımdan kalktığı notu düşer.
 
 ### SKILL.md frontmatter alanları
 
-| Alan (İngilizce / Türkçe) | Fusion'da etkisi |
+Alan adları Claude Code'daki İngilizce adlardır. Eski Türkçe takma adlar (`izinli-araclar`,
+`yasak-araclar`, `model-cagirmasin`, `kullanici-cagirabilir`, `efor`/`caba`, `baglam`, `ajan`,
+`arguman-ipucu`, `ne-zaman`…) bu sürüm boyunca okunur; ilk görüldüğünde bir kez uyarı düşer.
+
+| Alan (eski Türkçe takma ad) | Fusion'da etkisi |
 |---|---|
-| `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı |
+| `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı. `description` yoksa gövdenin ilk dolu satırı kullanılır |
+| `arguments` | `$ad` yerleştirmesinde konumlara sırayla eşlenen adlar (boşluklu metin ya da YAML listesi) |
+| `shell` | `` !`cmd` `` ve ` ```! ` kabuğu: `bash` (varsayılan) ya da `powershell` |
 | `argument-hint` / `arguman-ipucu` | `/help` ve tamamlamada `/ad [ipucu]` |
 | `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur; virgül **veya** boşlukla ayrılır (`Read, Grep` ve `Read Grep`), `Bash(git add:*, git commit:*)` tek öğedir — araç adı eşlenir, komut deseni uygulanmaz (not düşer). Fusion aracına eşlenmeyen adlar (`TodoWrite`, `Skill`…) yok sayılır; hiçbiri eşlenmezse kısıt uygulanmaz ve not düşer. **Claude Code'dan fark:** Claude Code bu alanı "onaysız kullanılabilir" (ön-onay) sayar ve diğer araçları kaldırmaz; Fusion ise araç listesini **daraltır**. Gerekçe: depo dosyasından gelen bir alanın onay kapısını açması yetki yükseltme yoluydu; daraltma güvenli taraftır. Becerinin düzenleme/kabuk gerektiren adımı varsa alana `Edit`, `Bash` ekle ya da alanı hiç yazma |
 | `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
@@ -99,7 +109,7 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `effort` / `efor` | **Yalnız o tur** düşünme yoğunluğu (`low`…`max`, `auto`); tanınmayan değer not düşer |
 | `disallowed-tools` / `yasak-araclar` | O turda bu araçlar sunulmaz (kişiliğin yasaklarına eklenir, kaldıramaz); `Bash(rm *)` deseninde aracın tamamı yasaklanır (güvenli taraf) |
 | `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |
-| Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `auto`/`edits`/`bypass` kipinde ve `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden (tam yetki) ya da `fusion trust` ile güvenilen projeden/ek kökten (**yalnız salt-okur komut**: `git log`, `ls`, `cat`…); her komut `run_shell` ile aynı tehlike/risk denetiminden geçer (`git push --force`, `sudo`, proje dışına yazma… hiç koşmaz, yerinde `[komut çalıştırılmadı]` notu kalır); çıktı 2.000 karakter, sırlar maskeli, 10 sn |
+| Gövdede `` !`cmd` `` ve ` ```! ` bloğu | Claude Code kuralları: satır içi biçim yalnız `!` satır başında ya da boşluktan sonra gelirse tanınır (`KEY=!`cmd`` düz metin kalır); çok satırlı komut ` ```! ` çitiyle yazılır; çıktı yeniden taranmaz. Komut hiç onay sormaz, izin kurallarıyla denetlenir: `deny` eşleşmesi ya da (izinli kip dışında) `allow` olmayan karar **çağrının tamamını iptal eder** (`Shell command permission check failed for pattern "…"`); `allowed-tools` içindeki `Bash(…)` deseni ön onaydır. Sıfır olmayan çıkış kodu da çağrıyı iptal eder (arama/karşılaştırma komutlarının 1 kodu hariç). Zaman aşımı 2 dakika. `disableSkillShellExecution: true` (settings.json) her komutu `[shell command execution disabled by policy]` ile değiştirir (yerleşik/kurumsal beceriler hariç). Fusion'ın ek güvencesi: açık kural olmadan `auto`/`edits`/`bypass` kipinde koşan komut `run_shell` tehlike/risk denetiminden geçer, proje becerisinde yalnız salt-okur komut koşar; çıktı 2.000 karakter, sırlar maskeli |
 
 ## Beceri dizini (`runtime.skill_index_chars`)
 

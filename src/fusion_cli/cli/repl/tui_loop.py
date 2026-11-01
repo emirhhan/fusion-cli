@@ -77,7 +77,6 @@ from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
-from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
@@ -488,8 +487,6 @@ class _TuiSession:
             self._tui.sync_conversation()
             # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `loop._cron_watcher`).
             scheduled_turn = self._state.take_scheduled_turn_only()
-            if not scheduled_turn:
-                line = skill_prefix_to_slash(line, self._registry.is_dynamic)
             # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
                 await run_shell_prefix_line(shell, self._state, self._out)

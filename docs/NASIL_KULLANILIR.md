@@ -367,9 +367,8 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
   (ayara kalıcı yazılır: `runtime.auto_memory`) · `/memory edit` → `$EDITOR`'da aç ·
   `/memory list` · `/memory <konu>` → konu dosyasını göster ·
   `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.
-- `# kullanıcı kısa yanıt ister` gibi `# ` (kare + boşluk) ile başlayan TEK satır modele
-  gitmez, belleğe not olarak yazılır. `#1234 düzelt`, `## Başlık` ve çok satırlı yapıştırma
-  olağan istemdir; bellek kapalıyken `#` satırı da modele gider.
+- Claude Code'da olduğu gibi `#` hızlı girdisi yoktur: `# …` satırı olağan mesaj olarak
+  modele gider. Bir şeyi hatırlatmak için modelden iste ("bunu hatırla") ya da `/memory` kullan.
 - Dizin: `runtime.auto_memory_dir` (boş = varsayılan). Masaüstü: Ayarlar › Kişiselleştirme ›
   **Otomatik bellek** paneli (Markdown düzenleyici, "bu oturumda ilk N satır yüklendi",
   Claude'dan içe aktar).
@@ -1019,7 +1018,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ### Önekler: `!`, `@`, `#`
 
-Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `# not` kaydedilir, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
+Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
 
 | Yaz | Ne olur |
 |-----|---------|
@@ -1175,7 +1174,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
 | `/help` | Tüm komutlar |
-| `! cmd` · `@dosya` · `# not` | Kabuk · dosya anma · bellek notu |
+| `! cmd` · `@dosya` | Kabuk · dosya anma |
 | `/status` · `/context` | Oturum durumu · bağlam kırılımı |
 | `/export` · `/copy` | Konuşmayı dosyaya/panoya · son cevabı panoya |
 | `/config yol=değer` | Ayar değiştir (`fusion config get/set/list`) |

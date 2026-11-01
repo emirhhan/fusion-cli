@@ -1292,7 +1292,8 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     assert komut is not None and registry.get("bellek") is komut
 
     # `#` kısayolu üç yüzeyde tek uygulamadır: `prefixes.pending_memory_note` + `add_memory_note`.
-    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister")
+    # Claude Code (#157): `#` hızlı girdisi yok; satır olağan mesaj olarak modele gider.
+    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister") is None
     assert prefixes.memory_note("## başlık") is None and prefixes.memory_note("#") is None
     # Ölçüldü (31 Ekim): `#1234 numaralı hatayı düzelt` ve yapıştırılan çok satırlı Markdown
     # da not sayılıp modele gitmiyordu; kısayol `# ` + tek satır ister.

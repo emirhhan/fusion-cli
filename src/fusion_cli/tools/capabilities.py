@@ -48,6 +48,7 @@ from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
 from .frontmatter import parse_frontmatter as parse_frontmatter
+from .frontmatter import body_after_frontmatter
 from .frontmatter import parse_tools as _parse_tools
 from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills, with_plugin_root
 from .skill_pages import (
@@ -166,6 +167,14 @@ class Capability:
     user_invocable: bool = True
     #: `argument-hint` → yardım ve tamamlamada gösterilen argüman biçimi.
     argument_hint: str = ""
+    #: Beceri `arguments`: `$ad` yerleştirmesinde konumlara sırayla eşlenen adlar (#169).
+    arguments: tuple[str, ...] = ()
+    #: Beceri `paths`: yalnız eşleşen dosyalarla çalışırken otomatik yükleme globları (#169).
+    paths: tuple[str, ...] = ()
+    #: Beceri `shell`: `!`cmd`` kabuğu (`bash` | `powershell`); boş = bash.
+    shell: str = ""
+    #: Beceri `background` (yalnız `context: fork`): False → fork sonucu tur içinde beklenir.
+    skill_background: bool = True
     #: Alt ajan ayarları (P-034; Claude Code `.claude/agents` frontmatter'ı). Boş = miras.
     #: `permissionMode`: yalnız SIKILAŞTIRIR (bypass miras alınmaz).
     permission_mode: str = ""
@@ -652,11 +661,22 @@ def _to_capability(
 ) -> Capability:
     raw = _read_head(path, limit)
     fields = parse_frontmatter(raw)
+    if path.name == "SKILL.md" and not str(fields.get("description") or "").strip():
+        # Claude Code: description yoksa gövdenin ilk dolu satırı açıklamadır (#180).
+        fields = {**fields, "description": _first_body_line(raw)}
     try:
         proposal = proposal_metadata(raw)
     except (ValueError, TypeError):
         proposal = ProposalInvocation("invalid", "", RoutineSpec("", "", "", (), ()), "")
     return _capability_from_fields(path, source, fields, fallback=fallback, proposal=proposal)
+
+
+def _first_body_line(raw: str) -> str:
+    for line in body_after_frontmatter(raw).splitlines():
+        cleaned = line.strip().lstrip("#").strip()
+        if cleaned:
+            return cleaned
+    return ""
 
 
 def _capability_from_fields(
@@ -691,6 +711,10 @@ def _capability_from_fields(
         model_invocable=bool(fields.get("model_invocable", True)),
         user_invocable=bool(fields.get("user_invocable", True)),
         argument_hint=str(fields.get("argument_hint") or ""),
+        arguments=_tuple_field(fields, "arguments"),
+        paths=_tuple_field(fields, "paths"),
+        shell=str(fields.get("shell") or "").lower(),
+        skill_background=parse_setting_bool(fields.get("background", "true")),
         permission_mode=str(fields.get("permission_mode") or ""),
         max_turns=parse_setting_int(fields.get("max_turns", 0)),
         skills=_tuple_field(fields, "skills"),

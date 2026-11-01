@@ -24,7 +24,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
-| Düz metin bellek (`/memory`, `# not`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
+| Düz metin bellek (`/memory`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
 | Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory`, `mcpServers` (ad ve satır içi tanım), `background`, `isolation`, `hooks`, `initialPrompt` Claude Code kurallarıyla uygulanır |
 | Oturum ajanı (`fusion --agent`, `agent` ayarı; `/persona` kullanımdan kalkıyor) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `Explore`, `Plan`...); sürdürmede geri yüklenir; masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |

@@ -15,7 +15,6 @@ from fusion_cli.appserver.commands import list_commands, run_command
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from fusion_cli.cli.repl.commands import build_registry, is_command_line, parse
-from fusion_cli.cli.repl.skill_commands import skill_prefix_to_slash
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.config.loader import load_config
 from fusion_cli.engines.agent.approval import ApprovalMode
@@ -110,10 +109,11 @@ def test_plan_kipinde_shell_baglami_calismaz(state: ReplState):
     state.approval = ApprovalMode.PLAN
     registry = build_registry(state.home, skills=lambda: state.capabilities)
 
-    registry.get("rapor").handler(state, "")  # type: ignore[union-attr]
+    cikti = registry.get("rapor").handler(state, "")  # type: ignore[union-attr]
 
-    assert "[komut çalıştırılmadı" in state.pending_context
-    assert "rapor" in state.pending_task  # varsayılan görev metni
+    # Claude Code (#168): izin kuralı allow demeyen komut çağrının tamamını iptal eder.
+    assert "Shell command permission check failed" in cikti
+    assert state.pending_task == "" and state.pending_context == ""
 
 
 def test_komut_dosyasi_govdeyi_gorev_yapar(state: ReplState):
@@ -121,36 +121,16 @@ def test_komut_dosyasi_govdeyi_gorev_yapar(state: ReplState):
 
     registry.get("git:commit").handler(state, "kapsam: arayüz")  # type: ignore[union-attr]
 
-    assert state.pending_task == "Şu bağlamla commit'le: kapsam:"
+    assert state.pending_task == "Şu bağlamla commit'le: arayüz"  # `$1` ikinci argüman (#138)
     assert state.pending_context == ""
 
 
-def test_dolar_yazimi_bilinen_beceri_icin_slash_olur(state: ReplState):
-    registry = build_registry(state.home, skills=lambda: state.capabilities)
+def test_dolar_yazimi_beceri_cagirmaz(state: ReplState):
+    """Claude Code (#174): beceri yalnız `/` ile çağrılır; `$rapor` düz mesajdır."""
+    import fusion_cli.cli.repl.skill_commands as modul
 
-    assert skill_prefix_to_slash("$rapor 42", registry.is_dynamic) == "/rapor 42"
-    assert skill_prefix_to_slash("$5 fiyat", registry.is_dynamic) == "$5 fiyat"
-    assert skill_prefix_to_slash("$model x", registry.is_dynamic) == "$model x"
-    assert is_command_line("/rapor 42") and parse("/git:commit a") == ("git:commit", "a")
-
-
-async def test_masaustu_komut_listesinde_beceri_grubu_ve_calistirma(kutuphane):
-    home, root = kutuphane
-    lines: list[str] = []
-    session = AppSession(lines.append, root=root, home=home)
-
-    await session.handle(Request(id="l", name="komut.listele", data={}))
-    listed = json.loads(lines[-1])["veri"]["komutlar"]
-    await session.handle(
-        Request(id="r", name="komut.calistir", data={"ad": "rapor", "arguman": "7"})
-    )
-    sonuc = json.loads(lines[-1])["veri"]
-    await session.close()
-
-    beceri = next(c for c in listed if c["ad"] == "rapor")
-    assert beceri["grup"] == "Beceri" and beceri["destekleniyor"] is True
-    assert sonuc["ok"] is True and sonuc["gorev"] == "7"
-    assert "Rapor: 7" in session._state.pending_context
+    assert not hasattr(modul, "skill_prefix_to_slash")
+    assert not is_command_line("$rapor 42")
 
 
 def test_run_command_koprusu_dinamik_komutu_calistirir(state: ReplState):
@@ -182,11 +162,14 @@ def test_guvenilen_projenin_becerisinde_yalniz_salt_okur_komut_calisir(
     state.capabilities = CapabilityRegistry(state.home, state.root)
     registry = build_registry(state.home, skills=lambda: state.capabilities)
 
-    registry.get("proje-b").handler(state, "")  # type: ignore[union-attr]
+    cikti = registry.get("proje-b").handler(state, "")  # type: ignore[union-attr]
 
     assert not (state.root / "sizinti").exists()
+    assert "salt-okur" in cikti and state.pending_context == ""
+    (beceri / "SKILL.md").write_text("---\nname: proje-b\n---\nOku: !`echo guvenli`", encoding="utf-8")
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+    registry.get("proje-b").handler(state, "")  # type: ignore[union-attr]
     assert "Oku: guvenli" in state.pending_context
-    assert "[komut çalıştırılmadı: touch sizinti]" in state.pending_context
 
 
 def test_beceri_komutu_fusion_motorunu_agent_motoruna_cevirir(state: ReplState):

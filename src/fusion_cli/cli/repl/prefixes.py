@@ -87,13 +87,14 @@ def memory_note(line: str) -> str | None:
 
 
 def pending_memory_note(state: ReplState, line: str) -> str | None:
-    """Satır belleğe gidecek `# not` mu? Bellek KAPALIYKEN None: satır olağan istemdir.
+    """Eski `# not` kısayolu: her zaman None (satır olağan istemdir, #157).
 
     Üç yüzey (satır-içi, tam-ekran, masaüstü) bu kapıyı ve `add_memory_note`'u paylaşır.
     """
-    if state.plain_memory is None:
-        return None
-    return memory_note(line)
+    # Claude Code'un hızlı girdi tablosunda `#` yok (/, !, @, : ve ?): satır olağan mesaj
+    # olarak modele gider; not almak için modelden istenir ya da /memory kullanılır (#157).
+    del state, line
+    return None
 
 
 @dataclass(frozen=True, slots=True)

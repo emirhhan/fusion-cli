@@ -112,7 +112,6 @@ from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
-from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 
 #: `_cancel_on_interrupt` her sonuç tipindeki görevi kesebilir (tur, hedef değerlendirmesi).
@@ -480,8 +479,6 @@ async def _handle(
                 f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]"
             )
             return
-        # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
-        line = skill_prefix_to_slash(line, registry.is_dynamic)
     if is_command_line(line) and not scheduled_turn:
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
