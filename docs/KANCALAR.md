@@ -95,12 +95,29 @@ beceri frontmatter'ında anlamlı).
   ortam değişkeninden dolar. Adres kısıtı yoktur (yerel sunucu dahil); ayar dosyasındaki
   `allowedHttpHookUrls` (joker `*`) tanımlıysa yalnız listedeki adreslere gidilir,
   `httpHookAllowedEnvVars` başlıklara yerleşebilecek adları daraltır.
+- **`mcp_tool`**: `server`, `tool` (zorunlu), `input` (metin değerlerinde
+  `${tool_input.file_path}` gibi yollar kanca girdisinden dolar). Yapılandırılmış MCP
+  sunucusunun aracı onay akışına girmeden çağrılır; aracın metin içeriği komut kancasının
+  stdout'u gibi okunur. `isError` ya da bağlı olmayan sunucu engellemeyen hatadır.
+- **`prompt`**: `prompt` (`$ARGUMENTS` = girdi JSON'u; yoksa girdi sona eklenir, `\$` düz
+  `$` yazar), `model` (boş = arka plan modeli, Fusion'da `judge` rolü; tam kimlik ya da
+  `haiku`/`sonnet`/`opus`), `continueOnBlock`. Model `{"ok": …, "reason": …, "impossible":
+  …}` döndürür. `ok: false`: Stop/SubagentStop'ta gerekçe sonraki yönerge olur
+  (`impossible: true` durdurur); PreToolUse'da çağrı reddedilir ve tur biter
+  (`continueOnBlock: true` → red gerekçesi araç hatası olarak döner); PostToolUse'da tur
+  biter (`continueOnBlock` → gerekçe modele gider); UserPromptSubmit turu bitirir;
+  PostToolUseFailure, TaskCreated, TaskCompleted gerekçeyi araç hatası olarak döndürür;
+  TeammateIdle üyeyi durdurur (`continueOnBlock` → çalışmayı sürdürür).
+- **`agent`** (deneysel): aynı `prompt`/`model`; istem Read/Grep/Glob/LS araçlı alt ajana
+  gider (en çok 50 tur). `ok: false` her olayda `continueOnBlock: true` gibi işlenir;
+  `impossible` yok sayılır.
 
 Olay × tür (Claude tablosu): SessionStart yalnız `command`/`mcp_tool`; gözlem olayları
 (Notification, PreCompact, PostCompact, SessionEnd, CwdChanged, SubagentStart) `prompt`/
 `agent` desteklemez; desteklenmeyen birleşim gerekçesiyle atlanır.
 
-**Varsayılan süreler:** `command`/`http` 600 sn; `UserPromptSubmit`'te 30 sn; `SessionEnd`
+**Varsayılan süreler:** `command`/`http`/`mcp_tool` 600 sn, `prompt` 30 sn, `agent` 60 sn;
+`UserPromptSubmit`'te `command`/`http`/`mcp_tool` 30 sn; `SessionEnd`
 kancaları ortak 1,5 sn bütçeyi paylaşır (yazılı `timeout` bütçeyi en çok 60 sn'ye kadar
 yükseltir; `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` ile değişir). Üst sınır yoktur.
 
@@ -212,8 +229,8 @@ Tanımlar her kök turun başında yeniden okunur.
 
 ## Henüz yok
 
-- `prompt`, `agent`, `mcp_tool` türleri tanınır ama çalıştırılmaz (listede "tür henüz
-  desteklenmiyor").
+- `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
+  kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - Olaylar: `Setup`, `UserPromptExpansion`, `PermissionRequest`, `PermissionDenied`,
   `PostToolBatch`, `MessageDisplay`, `StopFailure`, `InstructionsLoaded`, `ConfigChange`,
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,

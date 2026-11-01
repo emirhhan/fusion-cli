@@ -25,6 +25,7 @@ from ...config.hooks import DISABLE_ALL_KEY, hook_environment
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookCommand, HookEvent, HookSet, HookVerdict
 from . import dispatch
+from .handlers import HookServices
 from .overflow import spill_verdict
 from .runner import run_hook
 from .transcript import HookTranscript, transcript_for
@@ -86,6 +87,8 @@ class HookSession:
     interactive: bool = True
     #: `terminalSequence` yazıcısı (yalnız gerçek terminalde kurulur; `terminal.tty_writer`).
     terminal_writer: Callable[[str], None] | None = None
+    #: `mcp_tool`/`prompt`/`agent` kancalarının model ve MCP erişimi (ajan turu bağlar).
+    services: HookServices | None = None
     #: Tur kimliği (`prompt_id`): her kök istemde yenilenir.
     prompt_id: str = ""
     #: Kancanın verdiği oturum başlığı (`sessionTitle`).
@@ -210,7 +213,13 @@ class HookSession:
         runs = await asyncio.gather(
             *(
                 run_hook(
-                    command, payload, cwd=self.root, environment=environment, allow_private=private
+                    command,
+                    payload,
+                    cwd=self.root,
+                    environment=environment,
+                    allow_private=private,
+                    event=event,
+                    services=self.services,
                 )
                 for command in foreground
             )
@@ -242,7 +251,13 @@ class HookSession:
 
         async def _run() -> None:
             run = await run_hook(
-                command, payload, cwd=self.root, environment=environment, allow_private=private
+                command,
+                payload,
+                cwd=self.root,
+                environment=environment,
+                allow_private=private,
+                event=event,
+                services=self.services,
             )
             text = dispatch.rewake_text(run)
             if text:

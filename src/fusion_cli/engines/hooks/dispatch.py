@@ -2,7 +2,8 @@
 
 if          izin kuralı sözdizimi; yalnız araç olaylarında değerlendirilir, öteki
             olaylarda `if` taşıyan kanca HİÇ çalışmaz
-timeout     yazılmadıysa: UserPromptSubmit 30 sn; SessionEnd ortak 1,5 sn bütçe
+timeout     yazılmadıysa: UserPromptSubmit 30 sn (command/http/mcp_tool; prompt 30,
+            agent 60 sn kalır); SessionEnd ortak 1,5 sn bütçe
 onFailure   `block`: başarısızlık (başlatılamadı, ≠0/2, zaman aşımı, şema hatası) çıkış
             2 gibi engeller; Stop/SubagentStop/TaskCompleted/TeammateIdle ve arka plan
             kancalarında etkisizdir
@@ -19,7 +20,7 @@ from pathlib import Path
 from ...config.hooks import explicit_sessionend_timeout_s, sessionend_budget_s
 from ...config.permission_rules import PermissionDecision, parse_rule
 from ...core.hooks.decision import BLOCK_EXIT_CODE, is_failure
-from ...core.hooks.events import HookCommand, HookEvent, HookRun, HookVerdict
+from ...core.hooks.events import MODEL_HANDLERS, HookCommand, HookEvent, HookRun, HookVerdict
 from ...tools.permission_match import matches
 
 #: `if` alanının değerlendirildiği araç olayları.
@@ -72,7 +73,10 @@ def with_event_timeout(
     default = _EVENT_DEFAULT_TIMEOUT.get(event)
     if default is None:
         return commands
-    return tuple(c if c.timeout_explicit else replace(c, timeout_s=default) for c in commands)
+    return tuple(
+        c if c.timeout_explicit or c.handler in MODEL_HANDLERS else replace(c, timeout_s=default)
+        for c in commands
+    )
 
 
 def apply_on_failure(event: HookEvent, run: HookRun, verdict: HookVerdict) -> HookVerdict:

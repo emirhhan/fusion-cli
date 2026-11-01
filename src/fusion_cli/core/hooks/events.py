@@ -105,10 +105,18 @@ CLAUDE_ONLY_EVENTS = frozenset(
     }
 )
 
-#: Desteklenen işleyici türleri; `prompt`, `agent`, `mcp_tool` listede "desteklenmiyor".
+#: İşleyici türleri (Claude: command, http, mcp_tool, prompt, agent).
 COMMAND_HANDLER = "command"
 #: Olay JSON'unu POST eden kanca (yanıt gövdesi stdout gibi okunur; iç ağ korumalı).
 HTTP_HANDLER = "http"
+#: Yapılandırılmış MCP sunucusunun aracını çağıran kanca (metin içeriği stdout gibi okunur).
+MCP_TOOL_HANDLER = "mcp_tool"
+#: Tek atış model değerlendirmesi (`{"ok": …, "reason": …}`).
+PROMPT_HANDLER = "prompt"
+#: Read/Grep/Glob'lu doğrulayıcı alt ajan (en çok 50 tur; deneysel).
+AGENT_HANDLER = "agent"
+#: Model kullanan işleyiciler.
+MODEL_HANDLERS = frozenset({PROMPT_HANDLER, AGENT_HANDLER})
 
 
 def parse_event(name: str) -> HookEvent | None:
@@ -147,6 +155,13 @@ class HookCommand:
     condition: str = ""
     #: `timeout` tanımda yazılı mı? (Yazılmadıysa olayın Claude varsayılanı uygulanır.)
     timeout_explicit: bool = False
+    #: `mcp_tool`: sunucu ve araç adı; `input` JSON metni (`${yol}` yerleştirmeli).
+    server: str = ""
+    tool: str = ""
+    tool_input_json: str = ""
+    #: `prompt`/`agent`: `model` (boş = arka plan modeli) ve `continueOnBlock` (yalnız prompt).
+    model: str = ""
+    continue_on_block: bool = False
 
 
 @dataclass(frozen=True, slots=True)

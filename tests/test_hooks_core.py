@@ -248,7 +248,7 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        # `http` artık desteklenir (bkz. test_hooks_http.py); `mcp_tool` değil.
+                        # `mcp_tool` artık çalışır (#93); `server`/`tool` eksikse atlanır.
                         {"type": "mcp_tool", "url": "https://ornek.test/kanca"},
                         {"type": "command", "command": "uzun", "timeout": 99999},
                         {"type": "command", "command": "   "},
@@ -265,7 +265,7 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
     assert len(hooks.skipped) == 4
     pretool = [skip for skip in hooks.skipped if skip.event == "PreToolUse"]
     assert len(pretool) == 2
-    assert any("desteklenmiyor: mcp_tool" in skip.reason for skip in pretool)
+    assert any(skip.reason == hooks_config.REASON_MCP for skip in pretool)
     assert any(skip.reason == hooks_config.REASON_EMPTY for skip in pretool)
     assert [skip.reason for skip in hooks.skipped if skip.event == "WorktreeCreate"] == [
         hooks_config.REASON_EVENT

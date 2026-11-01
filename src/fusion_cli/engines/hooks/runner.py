@@ -22,7 +22,15 @@ import signal
 from collections.abc import Mapping
 from pathlib import Path
 
-from ...core.hooks.events import HTTP_HANDLER, HookCommand, HookRun
+from ...core.hooks.events import (
+    HTTP_HANDLER,
+    MCP_TOOL_HANDLER,
+    MODEL_HANDLERS,
+    HookCommand,
+    HookEvent,
+    HookRun,
+)
+from .handlers import HookServices, run_mcp_hook, run_model_hook
 
 #: stdout/stderr'den okunan en fazla karakter (karar ve bağlam bundan çıkar).
 HOOK_STREAM_CHARS = 64_000
@@ -37,11 +45,18 @@ async def run_hook(
     cwd: Path,
     environment: Mapping[str, str],
     allow_private: bool = True,
+    event: HookEvent | None = None,
+    services: HookServices | None = None,
 ) -> HookRun:
     """Komutu kabukta çalıştır; sonucu hiçbir zaman istisna olarak fırlatmaz (iptal hariç).
 
-    `http` türü `http_runner`'a gider (`allow_private`: iç ağ adresine izin).
+    `http` türü `http_runner`'a gider (`allow_private`: iç ağ adresine izin);
+    `mcp_tool`/`prompt`/`agent` `handlers`'a (oturumun `services` erişimiyle).
     """
+    if command.handler == MCP_TOOL_HANDLER:
+        return await run_mcp_hook(command, payload, services)
+    if command.handler in MODEL_HANDLERS:
+        return await run_model_hook(command, event, payload, services)
     if command.handler == HTTP_HANDLER:
         from .http_runner import run_http_hook
 

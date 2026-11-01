@@ -68,7 +68,7 @@ def test_http_tanimi_okunur_gecersiz_adres_ve_diger_turler_gerekceyle_atlanir():
                             "timeout": 7,
                         },
                         {"type": "http", "url": "file:///etc/passwd"},
-                        {"type": "prompt", "prompt": "uygun mu?"},
+                        {"type": "prompt", "prompt": "   "},
                     ],
                 }
             ]
@@ -83,7 +83,7 @@ def test_http_tanimi_okunur_gecersiz_adres_ve_diger_turler_gerekceyle_atlanir():
     assert commands[0].headers == (("Authorization", "Bearer $KANCA_ANAHTARI"),)
     assert commands[0].allowed_env_vars == ("KANCA_ANAHTARI",)
     assert ["http://" in s.reason for s in skipped] == [True, False]
-    assert "desteklenmiyor: prompt" in skipped[1].reason
+    assert "'prompt' alanı boş" in skipped[1].reason
     assert hook_rows(HookSet(commands))[0].command == f"POST {GENEL_URL}"
 
 

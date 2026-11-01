@@ -205,6 +205,7 @@ from .hook_bridge import (
     user_prompt_submit,
     with_system_note,
 )
+from .hook_services import bind_hook_services
 from .hook_stop import continue_until_stop_allowed
 from .instruction_layers import InstructionLoad
 from .instruction_rules import discover_rules
@@ -763,6 +764,8 @@ async def run_agent(
             hint = learning_steps.recall_hints(task, deps)
             if hint:
                 extra_system = "\n\n".join(part for part in (extra_system, hint) if part)
+        if root_turn:
+            bind_hook_services(deps, run_agent)
         prompt_gate = await user_prompt_submit(deps, task) if root_turn else None
         if prompt_gate is not None and prompt_gate.blocked is not None:
             # Sebep burada yayınlanır; `budget_stopped` çağıranın ikinci kez basmasını önler.

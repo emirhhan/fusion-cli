@@ -5,6 +5,9 @@
     command     `command`, `args` (kabuksuz exec biçimi), `async`, `asyncRewake`,
                 `shell` (bash|powershell), `onFailure` (continue|block)
     http        `url`, `headers`, `allowedEnvVars`, `onFailure`
+    mcp_tool    `server`, `tool` (zorunlu), `input` (`${tool_input.file_path}` yerleştirmeli)
+    prompt      `prompt` (`$ARGUMENTS`), `model`, `continueOnBlock`; varsayılan süre 30 sn
+    agent       `prompt`, `model`; varsayılan süre 60 sn
 
 Olay × tür tablosu Claude belgesindeki gibidir: SessionStart/Setup yalnız command ve
 mcp_tool, gözlem olayları (Notification, PreCompact, SessionEnd, CwdChanged…) prompt/agent
@@ -16,11 +19,14 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from ..core.hooks.events import (
+    AGENT_HANDLER,
     CLAUDE_ONLY_EVENTS,
-    COMMAND_HANDLER,
     HTTP_HANDLER,
+    MCP_TOOL_HANDLER,
+    MODEL_HANDLERS,
     HookCommand,
     HookEvent,
     HookSkip,
@@ -33,8 +39,10 @@ DEFAULT_HOOK_TIMEOUT_S = 600.0
 MAX_HOOK_TIMEOUT_S = DEFAULT_HOOK_TIMEOUT_S
 
 KNOWN_HANDLERS = frozenset({"command", "http", "mcp_tool", "prompt", "agent"})
-#: Fusion'ın çalıştırdığı türler; ötekiler (prompt, agent, mcp_tool) henüz atlanır.
-RUNNABLE_HANDLERS = frozenset({COMMAND_HANDLER, HTTP_HANDLER})
+#: Fusion'ın çalıştırdığı türler: beşi de (Claude ile aynı).
+RUNNABLE_HANDLERS = KNOWN_HANDLERS
+#: Süresi yazılmamış model kancalarının Claude varsayılanı (sn).
+MODEL_DEFAULT_TIMEOUT_S = {"prompt": 30.0, AGENT_HANDLER: 60.0}
 #: Olay başına izinli türler (Claude "Prompt-based hooks" tablosu).
 _ALL = KNOWN_HANDLERS
 _NO_MODEL = frozenset({"command", "http", "mcp_tool"})
@@ -60,6 +68,8 @@ REASON_URL = "http kancasının 'url' alanı http:// ya da https:// adresi olmal
 REASON_EVENT = "Fusion bu olayı tetiklemiyor"
 REASON_UNKNOWN_EVENT = "bilinmeyen olay"
 REASON_EMPTY = "komut boş"
+REASON_PROMPT = "prompt kancasının 'prompt' alanı boş olamaz"
+REASON_MCP = "mcp_tool kancası 'server' ve 'tool' alanlarını ister"
 REASON_OPTION = "geçersiz alan: {detail}"
 _SHELLS = frozenset({"bash", "powershell"})
 _FAILURE_MODES = frozenset({"continue", "block"})
@@ -130,10 +140,12 @@ def _command(
     default_timeout_s: float,
 ) -> HookCommand:
     kind = str(handler.get("type"))
-    target = handler.get("url" if kind == HTTP_HANDLER else "command")
+    target = _target(kind, handler)
     raw_args = handler.get("args")
     headers, env_names = http_options(handler)
-    timeout, explicit = _timeout(handler.get("timeout"), default_timeout_s)
+    timeout, explicit = _timeout(
+        handler.get("timeout"), MODEL_DEFAULT_TIMEOUT_S.get(kind, default_timeout_s)
+    )
     return HookCommand(
         event,
         matcher,
@@ -153,7 +165,36 @@ def _command(
         status_message=str(handler.get("statusMessage") or ""),
         condition=str(handler.get("if") or "").strip(),
         timeout_explicit=explicit,
+        **_typed_fields(kind, handler),
     )
+
+
+def _target(kind: str, handler: Mapping[str, object]) -> str:
+    """Tekilleştirme ve listede gösterim için tanımın kimliği."""
+    if kind == HTTP_HANDLER:
+        return str(handler.get("url"))
+    if kind in MODEL_HANDLERS:
+        return str(handler.get("prompt"))
+    if kind == MCP_TOOL_HANDLER:
+        raw = json.dumps(handler.get("input") or {}, ensure_ascii=False, sort_keys=True)
+        return f"mcp_tool {handler.get('server')} {handler.get('tool')} {raw}"
+    return str(handler.get("command"))
+
+
+def _typed_fields(kind: str, handler: Mapping[str, object]) -> dict[str, Any]:
+    if kind == MCP_TOOL_HANDLER:
+        raw_input = handler.get("input")
+        return {
+            "server": str(handler.get("server")),
+            "tool": str(handler.get("tool")),
+            "tool_input_json": json.dumps(raw_input, ensure_ascii=False) if raw_input else "",
+        }
+    if kind in MODEL_HANDLERS:
+        return {
+            "model": str(handler.get("model") or ""),
+            "continue_on_block": kind == "prompt" and handler.get("continueOnBlock") is True,
+        }
+    return {}
 
 
 def rejected_hook(
@@ -185,6 +226,18 @@ def _skip_reason(
         return REASON_EVENT_HANDLER.format(event=event.value, kind=raw_kind)
     if raw_kind not in RUNNABLE_HANDLERS:
         return REASON_HANDLER.format(kind=raw_kind)
+    if raw_kind in MODEL_HANDLERS:
+        prompt = handler.get("prompt")
+        return None if isinstance(prompt, str) and prompt.strip() else REASON_PROMPT
+    if raw_kind == MCP_TOOL_HANDLER:
+        names = (handler.get("server"), handler.get("tool"))
+        valid = all(isinstance(name, str) and name.strip() for name in names)
+        raw_input = handler.get("input")
+        return (
+            None
+            if valid and (raw_input is None or isinstance(raw_input, Mapping))
+            else (REASON_MCP)
+        )
     target = handler.get("url" if raw_kind == HTTP_HANDLER else "command")
     if not isinstance(target, str) or not target.strip():
         return REASON_URL if raw_kind == HTTP_HANDLER else REASON_EMPTY
