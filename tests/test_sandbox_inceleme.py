@@ -78,11 +78,13 @@ def proje(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("kip", "karar", "soru"),
     [
-        # Plan kipinde de kullanıcıya sorulur (Claude: açık ask istekleri plan kipinde sorar; #318).
-        (ApprovalMode.PLAN, Decision.ALLOW, 1),
+        # Claude sandboxing › Escape hatch (#351): Manuel ve acceptEdits sorar, auto'da
+        # denetçi (burada yok → sorulur), dontAsk reddeder, bypass sormaz. Salt okunur komut
+        # da sandbox dışında okuma sınırı olmadan çalıştığı için salt okunur sayılmaz.
         (ApprovalMode.SECURITY, Decision.ALLOW, 1),
         (ApprovalMode.AUTO, Decision.ALLOW, 1),
         (ApprovalMode.ACCEPT_EDITS, Decision.ALLOW, 1),
+        (ApprovalMode.DONT_ASK, Decision.BLOCKED, 0),
         (ApprovalMode.BYPASS, Decision.ALLOW, 0),
     ],
 )
@@ -94,7 +96,7 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
         root=proje,
         context=_context(proje),
     )
-    assert istek.read_only and istek.pre_ask is not None
+    assert not istek.read_only and istek.pre_ask is None and istek.risk is not None
 
     assert await build_policy(kip, onayci).decide(istek) is karar
     assert len(onayci.sorulan) == soru
@@ -411,8 +413,9 @@ async def test_sandbox_disi_istek_kartta_yalniz_bir_kez_secenegiyle_ve_nedeniyle
         context=_context(proje),
     )
     secenekler = [item["deger"] for item in _approval_options(istek, proje)]
-    assert secenekler == ["once", "deny"]
+    assert secenekler[0] == "once" and secenekler[-1] == "deny"
     assert istek.danger is None and "sandbox DIŞINDA" in (istek.note or "")
+    assert "Bash command (unsandboxed)" in (istek.note or "")
 
 
 async def test_yikici_sandbox_disi_istekte_tehlike_metni_sandbox_disini_da_soyler(proje):

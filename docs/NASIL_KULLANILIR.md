@@ -202,7 +202,7 @@ kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
 Seatbelt, Linux bubblewrap): yazma proje köküyle sınırlı, `~/.ssh`/`~/.aws` gibi yollar
 okunamaz, ağ istenirse yalnız izinli alan adlarına açık. `/sandbox on`, `/sandbox izin
 github.com`, `fusion sandbox durum`; masaüstünde **Ayarlar › İzinler › Kabuk sandbox'ı**.
-Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrıntı: [SANDBOX.md](SANDBOX.md).
+Sandbox dışında çalıştırma isteği (`dangerouslyDisableSandbox`) Claude gibi kipe göre sorulur ya da reddedilir. Ayrıntı: [SANDBOX.md](SANDBOX.md).
 
 ### Başlangıç izin kipi — `--permission-mode`, `permissions.defaultMode`
 

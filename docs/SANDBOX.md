@@ -184,9 +184,14 @@ geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 
 ## Sandbox dışında çalıştırma
 
-- Model gerektiğinde `run_shell(command=…, dangerouslyDisableSandbox=true)` (eski ad `unsandboxed` de okunur) ister. Bu istek **her seferinde**
-  ayrıca sorulur (Otomatik kipte de; "bu oturumda sorma" sunulmaz). Yalnız "İzinleri atla"
-  kipi sormaz; plan kipi soru soramadığı için isteği **engeller** (salt okunur komutta da).
+- Model gerektiğinde `run_shell(command=…, dangerouslyDisableSandbox=true)` (eski ad `unsandboxed`
+  de okunur) ister. Onay Claude Code'daki gibi kipe bağlıdır: "İzinleri atla" sormaz; Manuel ve
+  "Düzenlemeleri kabul et" **Bash command (unsandboxed)** diye sorar (salt okunur komut da, çünkü
+  okuma sınırı da kalkar); Otomatik kipte denetçi (sınıflandırıcı) karar verir, denetçi yoksa
+  sorulur; `dontAsk` reddeder. Komuta uyan `allow` kuralı (`Bash(npm test)`) yeniden denemeyi
+  sormadan onaylar; `ask: ["Bash(dangerouslyDisableSandbox:true)"]` her kipte (bypass dahil) soruyu
+  zorunlu kılar, aynı yazımlı `deny` kuralı isteği reddeder. "Bu oturumda sorma" yalnız aynı
+  sandbox dışı komutu kapsar; sandbox içi komuta verilen oturum izni sandbox dışını kapsamaz.
   `sandbox.allowUnsandboxedCommands: false` ise istek yok sayılır, komut sandbox içinde kalır.
 - `sandbox.excludedCommands: ["docker *", "Bash(git push *)"]` desenleri Claude'un `Bash(...)`
   kural söz dizimindedir; sondaki ` *` argümanlı ve argümansız biçimi birlikte eşler. Eşleşen

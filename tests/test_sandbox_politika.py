@@ -336,19 +336,69 @@ def _run_shell():
     return build_registry().get("run_shell")
 
 
-async def test_sandbox_disi_istek_otomatik_kipte_de_her_seferinde_sorulur(proje):
+async def test_sandbox_disi_istek_otomatik_kipte_denetcisizken_sorulur_oturum_izni_ayri(proje):
+    """Claude (#351): auto'da sınıflandırıcı karar verir; yoksa sorulur. Oturum izni yalnız
+    aynı sandbox dışı komutu kapsar; sandbox'lı komutun izni sandbox dışını kapsamaz."""
     onayci = _Onayci(ApprovalAnswer.SESSION)
-    politika = build_policy(ApprovalMode.AUTO, onayci)
-    context = _context(proje)
-    args = {"command": "ls", "unsandboxed": True}
+    politika = build_policy(ApprovalMode.SECURITY, onayci)
+    context = _context(proje, SandboxPolicy(auto_allow=False))
+    args = {"command": "touch a.txt", "unsandboxed": True}
 
+    sandboxli = await resolve_request(
+        _run_shell(), {"command": "touch a.txt"}, root=proje, context=context
+    )
+    assert await politika.decide(sandboxli) is Decision.ALLOW  # oturum izni (sandbox içi)
     for _ in range(2):
         istek = await resolve_request(_run_shell(), args, root=proje, context=context)
         assert await politika.decide(istek) is Decision.ALLOW
 
-    assert len(onayci.sorulan) == 2
+    assert len(onayci.sorulan) == 2  # sandbox'lı + ilk sandbox dışı; ikincisi oturum izniyle
     assert "sandbox DIŞINDA" in (istek.note or "")
-    assert not istek.can_remember
+    assert istek.can_remember
+
+
+async def test_sandbox_disi_allow_kurali_onaylar_ask_ve_deny_kurali_kipten_bagimsiz(proje):
+    from fusion_cli.config.permission_rules import PermissionDecision, PermissionRuleSet, parse_rule
+
+    def kurallar(*pairs):
+        return PermissionRuleSet(
+            tuple(parse_rule(text, decision, source="test") for text, decision in pairs)
+        )
+
+    context = _context(proje)
+    args = {"command": "npm test", "unsandboxed": True}
+    izin = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(("Bash(npm test)", PermissionDecision.ALLOW)),
+    )
+    assert izin.pre_allowed
+    onayci = _Onayci()
+    assert await build_policy(ApprovalMode.DONT_ASK, onayci).decide(izin) is Decision.ALLOW
+
+    sor = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(
+            ("Bash(npm test)", PermissionDecision.ALLOW),
+            ("Bash(dangerouslyDisableSandbox:true)", PermissionDecision.ASK),
+        ),
+    )
+    assert sor.pre_ask is not None and not sor.pre_allowed
+    assert await build_policy(ApprovalMode.BYPASS, onayci).decide(sor) is not Decision.BLOCKED
+
+    yasak = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(("Bash(dangerouslyDisableSandbox:true)", PermissionDecision.DENY)),
+    )
+    assert yasak.pre_denied is not None
 
 
 async def test_sandbox_kapaliyken_unsandboxed_arguman_onayi_degistirmez(proje):

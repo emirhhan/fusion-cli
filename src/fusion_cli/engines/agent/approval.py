@@ -54,6 +54,7 @@ from ...tools.permission_match import RuleMatch, evaluate, writes_files
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
+from ...tools.sandbox_runtime import asks_unsandboxed
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
@@ -613,7 +614,7 @@ async def resolve_request(
         rules=rules,
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
-    request = apply_sandbox_policy(request, context)
+    request = apply_sandbox_policy(request, context, rules)
     request = apply_worktree_path_policy(request, context)  # #342
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
@@ -861,7 +862,10 @@ def _scope(request: ApprovalRequest) -> str | None:
     komutlarını kapsayacak kadar genişler.
     """
     if tool_family(request.tool.name) is ToolFamily.SHELL:
-        return f"run_shell:{str(request.args.get('command', '')).strip()}"
+        key = f"run_shell:{str(request.args.get('command', '')).strip()}"
+        # Sandbox dışı yeniden deneme ayrı izindir: sandbox'lı komuta verilen oturum izni
+        # onun sandbox'sız denemesini kapsamaz (#351).
+        return f"{key} [unsandboxed]" if asks_unsandboxed(request.args) else key
     if request.consent_key is not None:
         # Uygulama başına masaüstü onayı: aynı uygulamada tıklama ve yazma tek izindir.
         return request.consent_key
