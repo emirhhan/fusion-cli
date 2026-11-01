@@ -1,22 +1,23 @@
-"""Talimat hiyerarşisi (P-015) ve `@yol` içe aktarma (P-017) — saf fonksiyonlar.
+"""Başlangıç talimatları Claude Code CLAUDE.md kurallarıyla birebir (#143–#152, #163).
 
-Ölçüldü (31 Ekim): `read_project_instructions` kökteki İLK dosyayı okuyordu; `~/.claude/CLAUDE.md`,
-`.claude/CLAUDE.md` ve `CLAUDE.local.md` hiç prompta girmiyordu; `@yol` sözdizimi yoktu.
+Önceki sürüm: dosya başına 8.000 / toplam 32.000 karakter, yalnız çalışma kökü, `@yol` derinliği
+3 ve uzantı kısıtı, `~/.codex`/GEMINI/.cursorrules aileleri, Markdown bağlantı izleme ve
+"kullanıcı talimatı değildir" uyarısı vardı.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from fusion_cli.engines.agent import claude_md_imports
 from fusion_cli.engines.agent.instruction_layers import (
-    MAX_FILE_CHARS,
-    MAX_IMPORT_CHARS,
-    USER_LAYER_SHARE,
+    HEADER,
     load_instruction_layers,
+    strip_html_comments,
 )
-from fusion_cli.engines.agent.project_instructions import read_project_instructions
 
 
 @pytest.fixture
@@ -27,245 +28,192 @@ def ev(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def proje(tmp_path: Path) -> Path:
-    root = tmp_path / "proje"
-    root.mkdir()
+def mono(tmp_path: Path) -> Path:
+    root = tmp_path / "mono"
+    (root / "packages" / "web").mkdir(parents=True)
     return root
 
 
-# --- Katmanlar ---------------------------------------------------------------- #
+def _yaz(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
-def test_kullanici_katmani_guvenilir_etiketle_once_gelir(ev, proje):
-    (ev / ".claude").mkdir()
-    (ev / ".claude" / "CLAUDE.md").write_text("her zaman Türkçe yaz", encoding="utf-8")
-    (proje / "CLAUDE.md").write_text("proje kuralı", encoding="utf-8")
+def test_ust_dizinler_kokten_calisma_dizinine_sirali(ev: Path, mono: Path) -> None:
+    web = mono / "packages" / "web"
+    _yaz(mono / "CLAUDE.md", "UST-DIZIN")
+    _yaz(web / "CLAUDE.md", "ALT")
+    _yaz(web / "CLAUDE.local.md", "YEREL")
+    _yaz(ev / ".claude" / "CLAUDE.md", "KULLANICI")
 
-    yuk = load_instruction_layers(proje, ev)
+    text = load_instruction_layers(web, ev).text
 
-    assert "her zaman Türkçe yaz" in yuk.text
-    assert "proje kuralı" in yuk.text
-    assert yuk.text.index("her zaman Türkçe yaz") < yuk.text.index("proje kuralı")
-    assert '<kullanici_talimati kaynak="~/.claude/CLAUDE.md">' in yuk.text
-    katmanlar = {dosya.label: dosya for dosya in yuk.files}
-    assert katmanlar["~/.claude/CLAUDE.md"].trusted is True
-    assert katmanlar["CLAUDE.md"].trusted is False
-
-
-def test_codex_override_varsa_agents_md_yerine_okunur(ev, proje):
-    (ev / ".codex").mkdir()
-    (ev / ".codex" / "AGENTS.md").write_text("eski genel", encoding="utf-8")
-    (ev / ".codex" / "AGENTS.override.md").write_text("yeni genel", encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev)
-
-    assert "yeni genel" in yuk.text
-    assert "eski genel" not in yuk.text
+    assert text.startswith(HEADER)
+    assert text.index("KULLANICI") < text.index("UST-DIZIN") < text.index("ALT") < text.index("YEREL")
+    assert "kullanıcı talimatı DEĞİLDİR" not in text
+    assert "(project instructions, checked into the codebase)" in text
 
 
-def test_proje_katmani_claude_md_ailesini_birlestirir(ev, proje):
-    (proje / "CLAUDE.md").write_text("kök kural", encoding="utf-8")
-    (proje / ".claude").mkdir()
-    (proje / ".claude" / "CLAUDE.md").write_text("gizli klasör kuralı", encoding="utf-8")
-    (proje / "CLAUDE.local.md").write_text("yerel kural", encoding="utf-8")
-    (proje / "AGENTS.md").write_text("agents kuralı", encoding="utf-8")
+def test_kullanici_katmani_yalniz_claude_md(ev: Path, mono: Path) -> None:
+    _yaz(ev / ".codex" / "AGENTS.md", "CODEX")
+    _yaz(ev / ".fusion" / "TALIMAT.md", "ESKI")
 
-    yuk = load_instruction_layers(proje, ev)
+    load = load_instruction_layers(mono, ev)
 
-    assert "kök kural" in yuk.text
-    assert "gizli klasör kuralı" in yuk.text
-    assert "yerel kural" in yuk.text
-    # Claude ailesi varken AGENTS.md ikinci bir kaynak olarak eklenmez (ilk aile kazanır).
-    assert "agents kuralı" not in yuk.text
+    assert "CODEX" not in load.text
+    assert "ESKI" in load.text  # kullanımdan kalkan ad bir sürüm okunur
+    assert any("kullanımdan kalktı" in note for note in load.notes)
 
 
-def test_ayni_icerikli_claude_ve_agents_dosyasi_iki_kez_okunmaz(ev, proje):
-    (proje / "AGENTS.md").write_text("tek kural", encoding="utf-8")
-    (proje / "CLAUDE.md").symlink_to(proje / "AGENTS.md")
+def test_agents_md_yalniz_claude_dosyasi_yoksa(ev: Path, mono: Path) -> None:
+    _yaz(mono / "AGENTS.md", "AJANLAR")
+    _yaz(mono / ".claude" / "AGENTS.md", "AJANLAR2")
+    _yaz(mono / "AGENTS.override.md", "OVR-ICERIK")
+    _yaz(mono / "GEMINI.md", "GEMINI")
 
-    yuk = load_instruction_layers(proje, ev, merge=False)
-    assert yuk.text.count("tek kural") == 1
+    text = load_instruction_layers(mono, ev).text
+    assert "AJANLAR" in text and "AJANLAR2" in text
+    assert "OVR-ICERIK" not in text and "GEMINI" not in text
 
-
-def test_birlestirme_kapaliyken_eski_davranis_ilk_dosya(ev, proje):
-    (ev / ".claude").mkdir()
-    (ev / ".claude" / "CLAUDE.md").write_text("genel", encoding="utf-8")
-    (proje / "CLAUDE.md").write_text("kök", encoding="utf-8")
-    (proje / "CLAUDE.local.md").write_text("yerel", encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev, merge=False)
-
-    assert "kök" in yuk.text
-    assert "genel" not in yuk.text
-    assert "yerel" not in yuk.text
+    _yaz(mono / "CLAUDE.local.md", "YEREL")  # CLAUDE.local.md de sayılır
+    text = load_instruction_layers(mono, ev).text
+    assert "AJANLAR" not in text and "YEREL" in text
 
 
-def test_toplam_butce_asilinca_kirpma_acikca_bildirilir(ev, proje):
-    (proje / "CLAUDE.md").write_text("a" * MAX_FILE_CHARS, encoding="utf-8")
-    (proje / "CLAUDE.local.md").write_text("b" * MAX_FILE_CHARS, encoding="utf-8")
+def test_project_instructions_ayari_ikisini_birden_okur(ev: Path, mono: Path) -> None:
+    _yaz(mono / "AGENTS.md", "AJANLAR")
+    _yaz(mono / "CLAUDE.md", "CLAUDE")
+    ayar = {
+        "pluginConfigs": {
+            "cc-plugin-agents-md@builtin": {
+                "options": {"instructionFiles": "claude-md-and-agents-md"}
+            }
+        }
+    }
+    _yaz(ev / ".claude" / "settings.json", json.dumps(ayar))
 
-    yuk = load_instruction_layers(proje, ev, max_chars=MAX_FILE_CHARS + 100)
+    text = load_instruction_layers(mono, ev).text
 
-    assert yuk.text.count("a") >= MAX_FILE_CHARS
-    assert "b" * 200 not in yuk.text
-    assert yuk.trimmed_chars > 0
-    assert "bütçe" in yuk.text
-    assert any("CLAUDE.local.md" in not_ for not_ in yuk.notes)
-
-
-def test_read_project_instructions_geri_uyumlu_tek_kok(proje):
-    (proje / "AGENTS.md").write_text("kural: testsiz kod yok", encoding="utf-8")
-
-    sonuc = read_project_instructions(proje)
-
-    assert "kural: testsiz kod yok" in sonuc
-    assert '<proje_talimati kaynak="AGENTS.md">' in sonuc
+    assert "AJANLAR" in text and "CLAUDE" in text
 
 
-# --- @import ----------------------------------------------------------------- #
+def test_dosya_tam_yuklenir_200_satir_yalniz_not(ev: Path, mono: Path) -> None:
+    _yaz(mono / "CLAUDE.md", "satir\n" * 300 + "SON")
+
+    load = load_instruction_layers(mono, ev)
+
+    assert load.text.endswith("SON") and load.trimmed_chars == 0
+    assert any("200 satırdan uzun" in note for note in load.notes)
 
 
-def test_at_import_kok_icindeki_dosyayi_getirir(ev, proje):
-    (proje / "CLAUDE.md").write_text("Kurallar: @docs/kurallar.md", encoding="utf-8")
-    (proje / "docs").mkdir()
-    (proje / "docs" / "kurallar.md").write_text("ilk import", encoding="utf-8")
+def test_html_yorumlari_silinir_kod_blogunda_korunur() -> None:
+    metin = "a\n<!-- bakım notu -->\nb\n```\n<!-- korunur -->\n```\n"
 
-    yuk = load_instruction_layers(proje, ev)
+    sonuc = strip_html_comments(metin)
 
-    assert "ilk import" in yuk.text
-    assert '<proje_kurali kaynak="docs/kurallar.md">' in yuk.text
+    assert "bakım notu" not in sonuc and "<!-- korunur -->" in sonuc
 
 
-def test_at_import_kod_blogunda_yok_sayilir(ev, proje):
-    (proje / "CLAUDE.md").write_text("```\n@gizli.md\n```\nve `@satir.md` içi\n", encoding="utf-8")
-    (proje / "gizli.md").write_text("blok içeriği", encoding="utf-8")
-    (proje / "satir.md").write_text("satır içeriği", encoding="utf-8")
+def test_import_dort_adim_uzantisiz_ve_kacisli_bosluk(ev: Path, mono: Path) -> None:
+    _yaz(mono / "CLAUDE.md", "bkz @README ve @Design\\ Docs/api.md ve @a.md")
+    _yaz(mono / "README", "BENIOKU")
+    _yaz(mono / "Design Docs" / "api.md", "API")
+    _yaz(mono / "a.md", "A @b.md")
+    _yaz(mono / "b.md", "B @c.md")
+    _yaz(mono / "c.md", "C @d.md")
+    _yaz(mono / "d.md", "D @e.md")
+    _yaz(mono / "e.md", "E")
 
-    yuk = load_instruction_layers(proje, ev)
+    text = load_instruction_layers(mono, ev).text
 
-    assert "blok içeriği" not in yuk.text
-    assert "satır içeriği" not in yuk.text
-
-
-def test_at_import_ozyinelemeli_ama_derinlik_sinirli(ev, proje):
-    (proje / "CLAUDE.md").write_text("@a.md", encoding="utf-8")
-    (proje / "a.md").write_text("seviye1 @b.md", encoding="utf-8")
-    (proje / "b.md").write_text("seviye2 @c.md", encoding="utf-8")
-    (proje / "c.md").write_text("seviye3 @d.md", encoding="utf-8")
-    (proje / "d.md").write_text("seviye4", encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev)
-
-    assert "seviye1" in yuk.text and "seviye2" in yuk.text and "seviye3" in yuk.text
-    assert "seviye4" not in yuk.text
+    assert "BENIOKU" in text and "API" in text
+    assert "D @e.md" in text and "\nE" not in text.replace("D @e.md", "")
 
 
-def test_at_import_dongu_korumasi(ev, proje):
-    (proje / "CLAUDE.md").write_text("@a.md", encoding="utf-8")
-    (proje / "a.md").write_text("a içeriği @b.md", encoding="utf-8")
-    (proje / "b.md").write_text("b içeriği @a.md @CLAUDE.md", encoding="utf-8")
+def test_kod_blogundaki_import_ve_ikili_dosya_yok_sayilir(ev: Path, mono: Path) -> None:
+    _yaz(mono / "CLAUDE.md", "`@gizli.md` ve @veri.bin")
+    _yaz(mono / "gizli.md", "GIZLI")
+    (mono / "veri.bin").write_bytes(b"\x00\x01ikili")
 
-    yuk = load_instruction_layers(proje, ev)
+    text = load_instruction_layers(mono, ev).text
 
-    assert yuk.text.count("a içeriği") == 1
-    assert yuk.text.count("b içeriği") == 1
-
-
-def test_proje_katmaninda_kok_disi_import_atlanir_ve_notta_gorunur(ev, proje):
-    disari = proje.parent / "sizinti.md"
-    disari.write_text("sızdırılan içerik", encoding="utf-8")
-    (proje / "CLAUDE.md").write_text("@../sizinti.md ve @~/.ssh/config", encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev)
-
-    assert "sızdırılan içerik" not in yuk.text
-    assert any("sizinti.md" in not_ for not_ in yuk.notes)
+    assert "GIZLI" not in text and "ikili" not in text
 
 
-def test_kullanici_katmaninda_tilde_import_izinli(ev, proje, monkeypatch):
-    (ev / ".claude").mkdir()
-    (ev / ".claude" / "CLAUDE.md").write_text("@~/.claude/ortak.md", encoding="utf-8")
-    (ev / ".claude" / "ortak.md").write_text("ortak kullanıcı kuralı", encoding="utf-8")
+def test_dis_import_onay_bekler_onaylaninca_yuklenir(ev: Path, mono: Path, tmp_path: Path) -> None:
+    _yaz(tmp_path / "ortak.md", "ORTAK")
+    _yaz(mono / "CLAUDE.md", f"@{tmp_path / 'ortak.md'}")
 
-    yuk = load_instruction_layers(proje, ev)
+    load = load_instruction_layers(mono, ev)
+    assert "ORTAK" not in load.text
+    assert any("onay bekliyor" in note for note in load.notes)
 
-    assert "ortak kullanıcı kuralı" in yuk.text
-    assert '<kullanici_kurali kaynak="~/.claude/ortak.md">' in yuk.text
-
-
-def test_at_import_butcesi_asilmaz(ev, proje):
-    (proje / "CLAUDE.md").write_text("@buyuk.md", encoding="utf-8")
-    (proje / "buyuk.md").write_text("x" * (MAX_IMPORT_CHARS * 2), encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev)
-
-    assert yuk.text.count("x") <= MAX_IMPORT_CHARS
+    claude_md_imports.set_external_import_decision(mono, True)
+    assert "ORTAK" in load_instruction_layers(mono, ev).text
+    claude_md_imports.set_external_import_decision(mono, False)
+    assert "ORTAK" not in load_instruction_layers(mono, ev).text
 
 
-def test_eposta_ve_paket_adi_import_sayilmaz(ev, proje):
-    (proje / "CLAUDE.md").write_text(
-        "yazar ali@ornek.com, paket @anthropic-ai/sdk kullanılır", encoding="utf-8"
+def test_kullanici_katmaninda_tilde_import(ev: Path, mono: Path) -> None:
+    _yaz(ev / ".claude" / "CLAUDE.md", "@~/notlar/ortak.md")
+    _yaz(ev / "notlar" / "ortak.md", "EV-ORTAK")
+
+    assert "EV-ORTAK" in load_instruction_layers(mono, ev).text
+
+
+def test_claude_md_excludes(ev: Path, mono: Path) -> None:
+    web = mono / "packages" / "web"
+    _yaz(mono / "CLAUDE.md", "BASKA-EKIP")
+    _yaz(web / "CLAUDE.md", "BIZIM")
+    _yaz(
+        web / ".claude" / "settings.json",
+        json.dumps({"claudeMdExcludes": [str(mono.resolve() / "CLAUDE.md")]}),
     )
 
-    yuk = load_instruction_layers(proje, ev)
+    text = load_instruction_layers(web, ev).text
 
-    assert yuk.notes == ()
-    assert "ali@ornek.com" in yuk.text
-
-
-# --- İnceleme bulguları (31 Ekim) --------------------------------------------- #
+    assert "BASKA-EKIP" not in text and "BIZIM" in text
 
 
-def test_proje_kokundeki_kok_disi_sembolik_bag_okunmaz(ev, proje, tmp_path):
-    """Ölçüldü: `.claude/CLAUDE.md -> ~/.ssh/id_rsa` bağı proje talimatı olarak prompta girdi."""
-    sir = tmp_path / "sir.txt"
-    sir.write_text("TOPSECRET", encoding="utf-8")
-    (proje / ".claude").mkdir()
-    (proje / ".claude" / "CLAUDE.md").symlink_to(sir)
-    (proje / "CLAUDE.local.md").symlink_to(sir)
-    (proje / "AGENTS.md").write_text("gerçek talimat", encoding="utf-8")
+def test_kurumsal_claude_md_ve_claudemd_anahtari_once(
+    ev: Path, mono: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kurum = tmp_path / "kurum"
+    _yaz(kurum / "CLAUDE.md", "KURUM")
+    _yaz(kurum / "managed-settings.json", json.dumps({"claudeMd": "SATIR-ICI"}))
+    monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(kurum))
+    _yaz(mono / "CLAUDE.md", "PROJE")
+    _yaz(
+        mono / ".claude" / "settings.json",
+        json.dumps({"claudeMdExcludes": ["**/CLAUDE.md", str(kurum / "*")]}),
+    )
 
-    yuk = load_instruction_layers(proje, ev)
+    text = load_instruction_layers(mono, ev).text
 
-    assert "TOPSECRET" not in yuk.text
-    assert "gerçek talimat" in yuk.text
-    assert sum("sembolik bağ" in not_ for not_ in yuk.notes) == 2
-
-
-def test_kirpilan_karakter_gercek_boyutla_olculur(ev, proje):
-    """Ölçüldü: 20.000 karakterlik dosya için `trimmed=1` bildiriliyordu (limit+1 okuma)."""
-    (proje / "CLAUDE.md").write_text("k" * 20_000, encoding="utf-8")
-
-    yuk = load_instruction_layers(proje, ev)
-
-    assert yuk.files[0].chars == MAX_FILE_CHARS
-    assert yuk.files[0].trimmed == 12_000
-    assert yuk.trimmed_chars == 12_000
+    assert text.index("KURUM") < text.index("SATIR-ICI")
+    assert "PROJE" not in text  # dışlandı; kurumsal dışlanamaz
 
 
-def test_kullanici_katmani_proje_katmanini_ac_birakamaz(ev, proje):
-    """Ölçüldü: üç kullanıcı dosyası 20.000'lik bütçeyi yiyor, proje CLAUDE.md'si düşüyordu."""
-    (ev / ".claude").mkdir()
-    (ev / ".codex").mkdir()
-    (ev / ".fusion").mkdir()
-    (ev / ".claude" / "CLAUDE.md").write_text("a" * MAX_FILE_CHARS, encoding="utf-8")
-    (ev / ".codex" / "AGENTS.md").write_text("b" * MAX_FILE_CHARS, encoding="utf-8")
-    (ev / ".fusion" / "TALIMAT.md").write_text("c" * MAX_FILE_CHARS, encoding="utf-8")
-    (proje / "CLAUDE.md").write_text("PROJE KURALI " * 50, encoding="utf-8")
+def test_ek_dizin_talimati_ortam_degiskeniyle(
+    ev: Path, mono: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ek = tmp_path / "paylasilan"
+    _yaz(ek / "CLAUDE.md", "EK-DIZIN")
 
-    yuk = load_instruction_layers(proje, ev, max_chars=20_000)
-
-    assert "PROJE KURALI" in yuk.text
-    proje_dosya = next(item for item in yuk.files if item.label == "CLAUDE.md")
-    assert proje_dosya.trimmed == 0
-    kullanici = sum(item.chars for item in yuk.files if item.layer == "kullanici")
-    assert kullanici <= 20_000 * USER_LAYER_SHARE
+    assert "EK-DIZIN" not in load_instruction_layers(mono, ev, extra_roots=(ek,)).text
+    monkeypatch.setenv("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "1")
+    assert "EK-DIZIN" in load_instruction_layers(mono, ev, extra_roots=(ek,)).text
 
 
-def test_butce_yuzunden_atlanan_dosya_prompta_not_duser(ev, proje):
-    (proje / "CLAUDE.md").write_text("a" * MAX_FILE_CHARS, encoding="utf-8")
-    (proje / "CLAUDE.local.md").write_text("b" * 100, encoding="utf-8")
+def test_birlestirme_kapaliyken_hicbir_sey_yuklenmez(ev: Path, mono: Path) -> None:
+    _yaz(mono / "CLAUDE.md", "PROJE")
 
-    yuk = load_instruction_layers(proje, ev, max_chars=MAX_FILE_CHARS)
+    assert load_instruction_layers(mono, ev, merge=False).text == ""
 
-    assert "[talimat atlandı: CLAUDE.local.md" in yuk.text
+
+def test_ayni_icerik_bir_kez(ev: Path, mono: Path) -> None:
+    _yaz(mono / "CLAUDE.md", "AYNI")
+    _yaz(mono / ".claude" / "CLAUDE.md", "AYNI")
+
+    assert load_instruction_layers(mono, ev).text.count("AYNI") == 1

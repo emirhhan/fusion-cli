@@ -4,49 +4,53 @@ Fusion, Claude Code / Codex kullanıcısının alıştığı talimat ve beceri y
 dosyalardan okur; yeni bir ekosistem kurmaz. Bu belge hangi dosyanın ne zaman bağlama
 girdiğini, bütçeleri ve kapatma ayarlarını anlatır.
 
-## Talimat hiyerarşisi (`runtime.instruction_merge`)
+## Talimat hiyerarşisi (Claude Code CLAUDE.md kuralları)
 
-Tur başında şu katmanlar sırayla okunur ve sistem bağlamına eklenir; çakışmada projeye
-**daha yakın olan** kazanır (Claude Code ile aynı sıra):
+Tur başında şu dosyalar sırayla (genelden özele) okunur ve **birleştirilir** (biri ötekini
+ezmez; çalışma dizinine yakın olan en son okunur). İçerik Claude Code'daki gibi uyulacak
+talimat olarak sunulur ("Contents of <yol> (…):" başlığıyla); izin ve onay kuralları yine
+ayarlarla (`permissions`, kancalar) zorlanır.
 
-| Katman | Dosyalar | Etiket | Güven |
-|---|---|---|---|
-| Kullanıcı | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.override.md` (yoksa `AGENTS.md`), `~/.fusion/TALIMAT.md` | `<kullanici_talimati>` | Güvenilir (senin dosyan) |
-| Proje | `CLAUDE.md` + `.claude/CLAUDE.md` (Claude ailesi) **veya** `AGENTS.override.md`/`AGENTS.md` **veya** `GEMINI.md` **veya** `.cursorrules` — ilk dolu aile; artı her zaman `CLAUDE.local.md` | `<proje_talimati>` | Depo içeriği: izin/onay kurallarını değiştiremez |
-| İç içe | Alt klasördeki `CLAUDE.md`/`AGENTS.md`, o klasördeki dosyaya erişince (`runtime.nested_instructions`) | `<alt_talimat>` | Depo içeriği |
+| Sıra | Katman | Dosyalar |
+|---|---|---|
+| 1 | Kurumsal | macOS `/Library/Application Support/ClaudeCode/CLAUDE.md`, Linux/WSL `/etc/claude-code/CLAUDE.md` ve `managed-settings.json` içindeki `claudeMd`. Dışlanamaz |
+| 2 | Kullanıcı | `~/.claude/CLAUDE.md` (eski `~/.fusion/TALIMAT.md` bu sürüm boyunca okunur, kullanımdan kalktığı notu düşer; `~/.codex/AGENTS.md` okunmaz) |
+| 3 | Proje | Dosya sistemi kökünden çalışma dizinine kadar **her dizinde** `CLAUDE.md`, `.claude/CLAUDE.md`, ardından `CLAUDE.local.md`. `monorepo/packages/web` içinde açınca `monorepo/CLAUDE.md` de yüklenir |
+| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` dosyaları |
+| — | İç içe | Alt klasördeki talimat, o klasördeki dosyaya erişince (`runtime.nested_instructions`) |
 
-- `CLAUDE.md → AGENTS.md` sembolik bağı ya da aynı içerikli iki dosya **bir kez** okunur.
-  Proje kökündeki talimat dosyası kök **dışına** çıkan bir sembolik bağsa (`.claude/CLAUDE.md
-  -> ~/.ssh/id_rsa`) hiç açılmaz, notta görünür.
-- Bütçe: dosya başına 8.000, toplam `runtime.instruction_max_chars` (32.000) karakter.
-  Kullanıcı katmanı (ev dizini dosyaları + import'ları) toplamın en çok **%40**'ını alır;
-  kalan proje katmanına kalır — proje talimatı hiçbir zaman aç kalmaz. Kırpma sessiz
-  değildir: metne `[…kırpıldı…]` notu düşer, kırpılan miktar gerçek kayıptır (dosyanın
-  kalanı sayılır); bütçe yüzünden hiç okunmayan dosya için bağlama `[talimat atlandı: …]`
-  satırı konur. Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** altında yüklenen
-  dosyalar, kurallar (kapsamıyla), karakter ve kırpılan miktar listelenir (`ayar.talimat` →
-  `katmanlar`, `notlar`).
-- `runtime.instruction_merge: false` eski davranışa döner: yalnız kökteki ilk bilinen dosya.
-- **Claude Code'dan fark:** Claude Code ve Codex çalışma dizininin ÜST klasörlerindeki
-  talimatı da yükler (monorepo kökü → alt paket). Fusion yalnız çalışma kökünü ve altındaki iç
-  içe dosyaları okur; `monorepo/packages/web` içinde açıldığında `monorepo/CLAUDE.md`
-  yüklenmez. Üst klasör kuralı gerekiyorsa alt paketin talimatına `@../../CLAUDE.md` yazmak
-  da işe yaramaz (kök dışı import atlanır); Fusion'ı monorepo kökünde aç ya da ilgili kuralı
-  alt pakete kopyala.
+- **AGENTS.md**: varsayılan (`claude-md-or-agents-md`) — çalışma dizininde ya da üstünde hiç
+  `CLAUDE.md`, `.claude/CLAUDE.md` veya `CLAUDE.local.md` yoksa (`~/.claude/CLAUDE.md` sayılmaz)
+  her dizinin `AGENTS.md` ve `.claude/AGENTS.md` dosyası okunur. **Project instructions**
+  ayarı `~/.claude/settings.json` (ya da kurumsal ayar) içinde
+  `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` ile değişir:
+  `claude-md-and-agents-md`, `claude-md`, `managed-only`. `AGENTS.override.md`,
+  `AGENTS.local.md`, `.agents/`, `GEMINI.md` ve `.cursorrules` okunmaz.
+- Boyut: her dosya **4 MiB'a kadar bütünüyle** yüklenir; daha büyüğü hiç yüklenmez (notta
+  görünür). 200 satırı aşan dosya için yalnız kısaltma önerisi düşer; birleşik sınır yoktur.
+  `runtime.instruction_max_chars` artık etkisizdir.
+- Çitli kod dışındaki blok HTML yorumları (`<!-- bakım notu -->`) bağlama girmeden silinir.
+- `claudeMdExcludes` (settings.json; kullanıcı, proje, yerel ve kurumsal katmanlarda dizi
+  olarak birleşir) mutlak yola glob olarak uygulanır; kurumsal CLAUDE.md dışlanamaz.
+- Aynı içerikli iki dosya (`CLAUDE.md → AGENTS.md` sembolik bağı) **bir kez** okunur.
+- Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** yüklenen dosyaları, kuralları
+  (kapsamıyla) ve notları listeler (`ayar.talimat` → `katmanlar`, `notlar`).
+- `runtime.instruction_merge: false` talimat yüklemesini tamamen kapatır.
 
 ## `@yol` içe aktarma
 
 Talimat dosyasının içinde satır başında ya da boşluktan sonra `@docs/kurallar.md` yazımı o
 dosyayı bağlama alır (Claude Code sözdizimi).
 
-- Özyinelemeli, en fazla 3 seviye; döngü korumalı; toplam 6.000 karakter.
-- Kod bloklarında (` ``` ` ve `` `…` ``) yok sayılır.
-- Proje katmanında yalnız **kök içindeki** yollar; `..` ile dışarı çıkan ya da `~/` yol
-  atlanır ve `ayar.talimat` notlarında görünür. Kullanıcı katmanında `~/.claude/ortak.md`
-  gibi ev dizini yolları izinlidir.
-- Yalnız düz metin uzantıları (`.md .mdc .markdown .txt .rst`) okunur; `.env` gibi dosyalar hiç
-  açılmaz. E-posta (`ali@ornek.com`) ve paket adı (`@anthropic-ai/sdk`) import sayılmaz.
-- Eski `[metin](RULES.md)` Markdown bağlantıları da bir seviye izlenmeye devam eder.
+- Göreli yol içeren dosyaya göredir; mutlak ve `~/` yollar da olur. Uzantı kısıtı yoktur
+  (`@README`, `@package.json`); ikili dosya atlanır. Boşluklu yol `\ ` ile yazılır
+  (`@Design\ Docs/api.md`).
+- Özyinelemeli, en çok **dört adım**; döngü korumalı; kod bloklarında (` ``` ` ve `` `…` ``)
+  yok sayılır. E-posta (`ali@ornek.com`) import sayılmaz.
+- Proje dosyasında çalışma dizini **dışına** çıkan import "dış"tır: proje başına bir kez onay
+  gerekir (karar `dis_import_onaylari.json` dosyasında saklanır). Karar verilmemişse yüklenmez
+  ve notta "onay bekliyor" görünür; reddedilirse kapalı kalır.
+- Markdown bağlantıları (`[metin](RULES.md)`) izlenmez; kuralı içe almak için `@RULES.md` yaz.
 
 ## `.claude/rules/` kural dosyaları
 

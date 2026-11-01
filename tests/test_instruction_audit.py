@@ -60,12 +60,14 @@ def test_supheli_satirlar_ve_dogrulama_eksigi_raporlanir(proje):
 
 
 def test_kirpma_ve_butce_onerisi(proje):
-    (proje / "CLAUDE.md").write_text("k" * (MAX_FILE_CHARS + 100) + "\npytest", "utf-8")
+    (proje / "CLAUDE.md").write_text("satir\n" * 250 + "pytest", "utf-8")
 
     denetim = audit_instructions(proje, None)
 
-    assert denetim.trimmed_chars > 0
-    assert any("@docs" in s for s in denetim.suggestions)
+    # Claude Code (#143): kırpma yok; 200 satırı aşan dosya için yalnız öneri.
+    assert denetim.trimmed_chars == 0
+    assert any("Uzun talimat dosyası" in s for s in denetim.suggestions)
+    assert MAX_FILE_CHARS == 4 * 1024 * 1024
 
 
 def test_saglikli_talimat_oneri_uretmez(proje, tmp_path):

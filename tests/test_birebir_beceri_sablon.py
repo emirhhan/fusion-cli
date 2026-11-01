@@ -56,7 +56,9 @@ def test_claude_effort_degiskeni(tmp_path: Path) -> None:
 
 
 def test_adli_arguments_alani(tmp_path: Path) -> None:
-    sonuc = render_template("#$issue -> $branch", "42 main", _env(tmp_path), names=("issue", "branch"))
+    sonuc = render_template(
+        "#$issue -> $branch", "42 main", _env(tmp_path), names=("issue", "branch")
+    )
 
     assert sonuc == "#42 -> main"
 
@@ -125,9 +127,7 @@ def test_izinsiz_kipte_komut_cagriyi_iptal_eder(tmp_path: Path) -> None:
 
 
 def test_allowed_tools_bash_deseni_on_onaylar(tmp_path: Path) -> None:
-    beceri = _skill(
-        tmp_path, "---\nname: b\n---\nx !`echo tamam`", allowed_tools=("Bash(echo *)",)
-    )
+    beceri = _skill(tmp_path, "---\nname: b\n---\nx !`echo tamam`", allowed_tools=("Bash(echo *)",))
 
     sonuc = build_invocation(beceri, "", _env(tmp_path), shell_allowed=False)
 

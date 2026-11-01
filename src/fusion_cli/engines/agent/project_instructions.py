@@ -348,6 +348,7 @@ def load_all_instructions(
     instruction_merge: bool = True,
     instruction_max_chars: int = TOTAL_MAX_CHARS,
     include_external_memory: bool = True,
+    extra_roots: tuple[Path, ...] = (),
 ) -> InstructionLoad:
     """Proje talimatı ve ilk yükleme ölçümünü birlikte döndür.
 
@@ -387,7 +388,11 @@ def load_all_instructions(
         ortam = f"{ortam}\n{depo}"
     ozet = workspace_summary(root)
     instruction_load = load_instruction_layers(
-        root, home, merge=instruction_merge, max_chars=instruction_max_chars
+        root,
+        home,
+        merge=instruction_merge,
+        max_chars=instruction_max_chars,
+        extra_roots=extra_roots,
     )
     proje_talimati = instruction_load.text
     # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.

@@ -1002,6 +1002,7 @@ async def _run_agent(
             instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
             instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
             include_external_memory=deps.include_external_memory,
+            extra_roots=tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),
         )
         if deps.config.runtime.project_instructions and not deps.omit_initial_instructions
         else InstructionLoad("")

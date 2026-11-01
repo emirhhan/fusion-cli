@@ -115,7 +115,9 @@ def instruction_entries(root: Path, home: Path | None) -> dict[str, tuple[Path, 
             "kullanici": "Genel talimat; her projede tur başında yüklenir",
             "proje": "Proje talimatı; tur başında yüklenir",
             "import": "@import ile alınan dosya",
-            "baglanti": "Talimatın işaret ettiği kural dosyası",
+            "yerel": "Kişisel proje talimatı (CLAUDE.local.md); tur başında yüklenir",
+            "kurumsal": "Kurumsal talimat; dışlanamaz",
+            "ek-dizin": "--add-dir dizininin talimatı",
         }.get(item.layer, "")
         entries.setdefault(item.label, (item.path, kaynak, aciklama))
     for rule in discover_rules(root, home):
