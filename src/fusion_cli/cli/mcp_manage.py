@@ -169,13 +169,18 @@ def get_server(name: str) -> None:
     missing = missing_variables(server)
     if missing:
         console.print(escape(mcp_messages.MISSING_VAR.format(name=name, names=", ".join(missing))))
-    console.print(f"\n[{theme.DIM}]Kaldırmak için: fusion mcp remove \"{name}\" -s {server.scope.value}[/{theme.DIM}]")
+    console.print(
+        f"\n[{theme.DIM}]Kaldırmak için: "
+        f'fusion mcp remove "{name}" -s {server.scope.value}[/{theme.DIM}]'
+    )
 
 
 def _find_any(config: Config, name: str) -> McpServerConfig:
     server = next((item for item in config.mcp_servers if item.name == name), None)
     if server is None:
-        server = next((item for item in _pending_project_servers(config) if item.name == name), None)
+        server = next(
+            (item for item in _pending_project_servers(config) if item.name == name), None
+        )
     if server is None:
         console.print(f"[{theme.ERROR}]{messages.MCP_NOT_FOUND.format(name=name)}[/{theme.ERROR}]")
         raise typer.Exit(code=1)
@@ -190,9 +195,7 @@ def _candidates(config: Config, root: Path) -> list[McpServerConfig]:
             found.extend(report(root)[0])
         except ConfigError:
             continue
-    user_names = {
-        entry.get("name") for entry in read_user_mcp_entries(config) if entry.get("name")
-    }
+    user_names = {entry.get("name") for entry in read_user_mcp_entries(config) if entry.get("name")}
     found.extend(
         McpServerConfig(name=str(name), scope=McpScope.USER)
         for name in user_names
@@ -215,9 +218,7 @@ def remove_server(name: str, scope: str | None) -> None:
         console.print(f"[{theme.DIM}]{mcp_messages.TOKENS_CLEARED}[/{theme.DIM}]")
 
 
-def remove_named(
-    config: Config, root: Path, name: str, scope: str | None
-) -> tuple[str, bool]:
+def remove_named(config: Config, root: Path, name: str, scope: str | None) -> tuple[str, bool]:
     """CLI ve REPL ortak kaldırma gövdesi → (mesaj, kimlik bilgisi silindi mi) (#251, #272)."""
     matches = [item for item in _candidates(config, root) if item.name == name]
     if scope is not None:

@@ -91,5 +91,5 @@ def _save(text: str, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"mcp-{uuid.uuid4().hex}.txt"
     path.write_text(text, encoding="utf-8")
-    os.chmod(path, 0o600)
+    path.chmod(0o600)
     return path

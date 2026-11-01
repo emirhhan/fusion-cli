@@ -1,4 +1,4 @@
-"""`fusion mcp …` Claude Code paritesi metinleri (kullanıcıya görünen Türkçe; komut adları aynen)."""
+"""`fusion mcp …` Claude Code paritesi metinleri (Türkçe; komut adları aynen)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ INVALID_NAME = (
     "Geçersiz sunucu adı: {name!r}. `fusion mcp` komutlarıyla eklenen adlar yalnız harf, "
     "rakam, - ve _ içerebilir."
 )
-BAD_HEADER = "Geçersiz başlık: {raw!r}. Biçim: --header \"Ad: değer\""
+BAD_HEADER = 'Geçersiz başlık: {raw!r}. Biçim: --header "Ad: değer"'
 WS_NOT_FOR_ADD = (
     "`--transport` ws kabul etmez; WebSocket sunucusunu `fusion mcp add-json` ya da .mcp.json "
     "ile ekle."
@@ -44,7 +44,9 @@ STATUS_FAILED = "✘ Bağlanılamadı"
 STATUS_PENDING = "⏸ Onay bekliyor"
 STATUS_DISABLED = "○ Kapalı"
 CHECKING_HEALTH = "MCP sunucularının durumu yoklanıyor…"
-NO_BROWSER_PROMPT = "Bu adresi tarayıcında aç, sonra adres çubuğundaki dönüş adresini buraya yapıştır"
+NO_BROWSER_PROMPT = (
+    "Bu adresi tarayıcında aç, sonra adres çubuğundaki dönüş adresini buraya yapıştır"
+)
 NO_BROWSER_URL = "Yetkilendirme adresi:\n{url}"
 DEPRECATED_BARE_MCP = (
     "Uyarı: alt komutsuz `fusion mcp` ile sunucu açmak kullanımdan kalkıyor; "

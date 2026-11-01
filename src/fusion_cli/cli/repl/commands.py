@@ -21,7 +21,6 @@ from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, resolve_reasoning
-from ...core.redaction import redact
 from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed

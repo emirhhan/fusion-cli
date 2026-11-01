@@ -29,17 +29,13 @@ from rich.markup import escape
 
 from ..config.loader import load_config
 from ..config.mcp_json import (
-    PROJECT_MCP_FILE,
     parse_project_mcp,
-    project_mcp_path,
-    remove_project_mcp_server,
     upsert_project_mcp_server,
 )
 from ..config.mcp_local import upsert_local_mcp_server
 from ..config.models import Config, McpScope, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
 from ..core.errors import ConfigError, FusionError
-from ..core.redaction import redact
 from ..ui import mcp_messages, messages, theme
 from . import mcp_add, mcp_manage, mcp_reference_commands
 
@@ -60,7 +56,7 @@ _TRANSPORT_ALIASES = {
 }
 
 mcp_app = typer.Typer(
-    help="Dış MCP sunucularını yönet (Claude Code `claude mcp`); `serve` Fusion'ı MCP sunucusu açar.",
+    help="Dış MCP sunucularını yönet (Claude Code `claude mcp`); `serve` Fusion'ı sunucu açar.",
     invoke_without_command=True,
 )
 
@@ -212,7 +208,8 @@ def add(
 
     Örnekler:
       fusion mcp add --transport http notion https://mcp.notion.com/mcp
-      fusion mcp add --transport http api https://api.example.com/mcp -H "Authorization: Bearer ${API_KEY}"
+      fusion mcp add --transport http api https://api.example.com/mcp \\
+        -H "Authorization: Bearer ${API_KEY}"
       fusion mcp add airtable -e AIRTABLE_API_KEY=anahtar -- npx -y airtable-mcp-server
 
     Argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart.

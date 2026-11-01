@@ -57,7 +57,7 @@ class McpEntryError(ConfigError):
     """Tek sunucu girdisi geçersiz; yalnız o girdi atlanır."""
 
 
-class McpEntrySkipped(McpEntryError):
+class McpEntrySkippedError(McpEntryError):
     """Girdi geçerli ama bu istemcide yüklenmez (ör. `type: "sdk"`)."""
 
 
@@ -74,7 +74,7 @@ def parse_entry(
         raise McpEntryError(f"{here}: nesne bekleniyordu")
     kind = str(entry.get("type") or entry.get("transport") or "stdio").strip().lower()
     if kind == "sdk":
-        raise McpEntrySkipped(
+        raise McpEntrySkippedError(
             f'Atlandı — MCP sunucusu "{name}" type "sdk" bildiriyor; bunu yalnız SDK '
             "uygulaması süreç içinde kaydedebilir."
         )

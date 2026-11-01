@@ -38,11 +38,17 @@ def parse_mcp_config_args(values: Iterable[str]) -> tuple[McpServerConfig, ...]:
         if not text:
             continue
         path = Path(text).expanduser()
-        raw_text = path.read_text(encoding="utf-8") if not text.startswith("{") and path.is_file() else text
+        raw_text = (
+            path.read_text(encoding="utf-8")
+            if not text.startswith("{") and path.is_file()
+            else text
+        )
         try:
             raw = json.loads(raw_text)
         except json.JSONDecodeError as error:
-            raise ConfigError(f"--mcp-config geçerli JSON ya da dosya değil: {text[:80]} ({error})") from error
+            raise ConfigError(
+                f"--mcp-config geçerli JSON ya da dosya değil: {text[:80]} ({error})"
+            ) from error
         # Claude Code: --mcp-config sunucuları kullanıcı kapsamı gibi davranır (headersHelper
         # kimlik değişkenlerini görür); kayıt yeri yoktur.
         parsed, problems = parse_mcp_servers_report(raw, scope=McpScope.USER, where="--mcp-config")

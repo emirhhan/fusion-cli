@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import PurePath
 from urllib.parse import urlsplit
 
-from ..config.models import McpServerConfig, McpTransport, McpTrust
+from ..config.models import McpServerConfig, McpTrust
 from ..core.redaction import contains_sensitive
 from ..core.tools import ToolEffect
 

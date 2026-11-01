@@ -29,6 +29,7 @@ from typing import Any, Literal, TextIO, cast
 
 from mcp import ClientSession
 from mcp.client.session import ClientSession as _SdkSession
+from mcp.types import CallToolResult
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
@@ -39,8 +40,10 @@ from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
 from .failures import STATE_CONNECTED
+from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
+from .output_limits import declared_limit
 from .references import (
     McpCatalog,
     as_uri,
@@ -49,14 +52,12 @@ from .references import (
     prompt_text,
     resource_block,
 )
+from .resource_tools import register_resource_tools
 from .schema import clean_description, simplify_schema
+from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
-from .output_limits import declared_limit
-from .resource_tools import register_resource_tools
-from .headers_helper import has_authorization, run_headers_helper
-from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .transport import open_mcp_stream
 from .trust import tools_digest, trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
@@ -97,8 +98,8 @@ def _read_tail(capture: TextIO) -> str:
 
 
 async def _call_with_idle(
-    session: Any, name: str, args: dict[str, object], idle: float | None
-) -> Any:
+    session: ClientSession, name: str, args: dict[str, object], idle: float | None
+) -> CallToolResult:
     """`tools/call`; yanıt ya da ilerleme bildirimi `idle` sn gelmezse TimeoutError."""
     async with asyncio.timeout(idle) as idle_scope:
         if idle is None or not isinstance(session, _SdkSession):

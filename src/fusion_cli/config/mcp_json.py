@@ -73,7 +73,9 @@ def parse_mcp_servers_report(
     problems: list[str] = []
     for name, entry in entries.items():
         try:
-            servers.append(parse_entry(str(name), entry, scope=scope, where=f"{where}: {_ROOT_KEY}"))
+            servers.append(
+                parse_entry(str(name), entry, scope=scope, where=f"{where}: {_ROOT_KEY}")
+            )
         except McpEntryError as error:
             problems.append(f"{where}: {error}")
     return tuple(servers), tuple(problems)
@@ -87,7 +89,9 @@ def parse_project_mcp(raw: object) -> tuple[McpServerConfig, ...]:
     """
     entries = _entries(raw, PROJECT_MCP_FILE)
     return tuple(
-        parse_entry(str(name), entry, scope=McpScope.PROJECT, where=f"{PROJECT_MCP_FILE}: {_ROOT_KEY}")
+        parse_entry(
+            str(name), entry, scope=McpScope.PROJECT, where=f"{PROJECT_MCP_FILE}: {_ROOT_KEY}"
+        )
         for name, entry in entries.items()
     )
 

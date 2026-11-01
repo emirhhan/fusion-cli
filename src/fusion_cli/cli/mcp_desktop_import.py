@@ -24,9 +24,14 @@ DESKTOP_CONFIG = "claude_desktop_config.json"
 
 def desktop_config_path(home: Path | None = None) -> Path | None:
     base = home or Path.home()
-    if sys.platform == "darwin":
+    platform: str = sys.platform  # mypy platform daraltması WSL dalını erişilmez sanmasın
+    if platform == "darwin":
         return base / "Library" / "Application Support" / "Claude" / DESKTOP_CONFIG
-    if sys.platform.startswith("linux") and os.environ.get("WSL_DISTRO_NAME"):
+    return _wsl_config_path(platform)
+
+
+def _wsl_config_path(platform: str) -> Path | None:
+    if platform.startswith("linux") and os.environ.get("WSL_DISTRO_NAME"):
         user = os.environ.get("USER", "")
         return Path("/mnt/c/Users") / user / "AppData" / "Roaming" / "Claude" / DESKTOP_CONFIG
     return None
@@ -49,7 +54,7 @@ def importable(
     servers: list[McpServerConfig] = []
     skipped: list[str] = []
     names = set(taken)
-    for name, entry in (entries.items() if isinstance(entries, dict) else ()):
+    for name, entry in entries.items() if isinstance(entries, dict) else ():
         if not valid_server_name(str(name)):
             skipped.append(f"{name}: ad yalnız harf, rakam, - ve _ içerebilir; atlandı")
             continue

@@ -53,7 +53,9 @@ def register_resource_tools(client: _ResourceClient, registry: ToolRegistry) -> 
         server = str(args.get("server") or "").strip()
         uri = str(args.get("uri") or "").strip()
         if server not in servers or not uri:
-            return ToolResult.failure(f"Geçerli sunucu ve uri gerekli. Sunucular: {', '.join(servers)}")
+            return ToolResult.failure(
+                f"Geçerli sunucu ve uri gerekli. Sunucular: {', '.join(servers)}"
+            )
         return ToolResult(output=await client.read_resource(server, uri))
 
     registry.register_or_replace(
@@ -62,7 +64,9 @@ def register_resource_tools(client: _ResourceClient, registry: ToolRegistry) -> 
             description="Bağlı MCP sunucularının kaynaklarını listeler (sunucu, uri, ad).",
             parameters={
                 "type": "object",
-                "properties": {"server": {"type": "string", "description": "İsteğe bağlı sunucu adı"}},
+                "properties": {
+                    "server": {"type": "string", "description": "İsteğe bağlı sunucu adı"}
+                },
             },
             run=_list,
             effect=ToolEffect.REMOTE_READ,

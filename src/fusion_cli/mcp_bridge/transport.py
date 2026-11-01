@@ -53,9 +53,7 @@ def _expand(text: str, source: Mapping[str, str], *, remote: bool = False) -> st
     if remote:
         blocked = [name for name in referenced_names(text) if name in REMOTE_BLANKED_VARIABLES]
         if blocked and any(name in source for name in blocked):
-            _LOG.debug(
-                "never expanded toward a remote server: %s", ", ".join(sorted(set(blocked)))
-            )
+            _LOG.debug("never expanded toward a remote server: %s", ", ".join(sorted(set(blocked))))
     return expanded
 
 

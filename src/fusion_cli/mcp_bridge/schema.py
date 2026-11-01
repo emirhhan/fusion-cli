@@ -14,7 +14,6 @@ sağlayıcıya giden kopya için değişir; uzak sunucu kendi doğrulamasını y
 from __future__ import annotations
 
 import os
-
 import re
 from collections.abc import Mapping, Sequence
 

@@ -69,7 +69,9 @@ def test_belgedeki_butun_alanlar_kabul_edilir_ve_uygulanir():
 
 
 def test_timeout_1000_altinda_yok_sayilir_ve_metadata_https_olmali():
-    assert parse_entry("x", {"command": "c", "timeout": 500}, scope=McpScope.USER).timeout_ms is None
+    assert (
+        parse_entry("x", {"command": "c", "timeout": 500}, scope=McpScope.USER).timeout_ms is None
+    )
     with pytest.raises(McpEntryError, match="https"):
         parse_entry(
             "x",

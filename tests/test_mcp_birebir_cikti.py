@@ -24,7 +24,9 @@ def test_token_siniri_ortam_degiskeniyle_ve_arac_meta_siniri():
         metin, ok=True, environ={"MAX_MCP_OUTPUT_TOKENS": "5000"}, directory=None
     )
     assert output_limits.declared_limit({"anthropic/maxResultSizeChars": 900_000}) == 500_000
-    assert output_limits.limit_output("c" * 200_000, ok=True, declared_chars=500_000) == "c" * 200_000
+    assert (
+        output_limits.limit_output("c" * 200_000, ok=True, declared_chars=500_000) == "c" * 200_000
+    )
 
 
 def test_hata_metninin_basi_ve_sonu_tutulur():

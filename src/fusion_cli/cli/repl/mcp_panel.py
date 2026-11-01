@@ -14,13 +14,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ...config.mcp_local import disabled_mcp_servers, set_mcp_server_enabled
 from ...config.models import McpServerConfig
 from ...core.errors import ConfigError, FusionError
 from ...core.redaction import redact
 from ...ui import mcp_messages, messages
+
+if TYPE_CHECKING:
+    from .state import ReplState
 
 PANEL_USAGE = (
     "Kullanım: /mcp · /mcp reconnect <ad>|all · /mcp auth <ad> · /mcp clear-auth <ad> · "
@@ -45,6 +48,10 @@ def _status_label(name: str) -> str:
     return _STATE_LABELS.get(status.state, status.state)
 
 
+def _scope_label(server: McpServerConfig) -> str:
+    return mcp_messages.SCOPE_LABELS.get(server.scope.value, server.scope.value)
+
+
 def _target(server: McpServerConfig) -> str:
     return server.url if server.is_remote else " ".join((server.command, *server.args)).strip()
 
@@ -55,7 +62,7 @@ def panel(servers: tuple[McpServerConfig, ...], root: Path | None = None) -> str
         return messages.MCP_NO_SERVERS
     lines = [
         redact(
-            f"· {server.name} [{mcp_messages.SCOPE_LABELS.get(server.scope.value, server.scope.value)}"
+            f"· {server.name} [{_scope_label(server)}"
             f" · {server.transport.value}] {_target(server)} — {_status_label(server.name)}"
         )
         for server in servers
@@ -69,14 +76,16 @@ def _find(servers: tuple[McpServerConfig, ...], name: str) -> McpServerConfig | 
     return next((server for server in servers if server.name == name), None)
 
 
-def handle(state: Any, command: str, name: str) -> str | None:
+def handle(state: ReplState, command: str, name: str) -> str | None:
     """Panel alt komutunu işle; bu modüle ait değilse None."""
     servers: tuple[McpServerConfig, ...] = state.config.mcp_servers
     if command in ("enable", "disable"):
         if not name:
             return PANEL_USAGE
         set_mcp_server_enabled(Path.cwd(), name, enabled=command == "enable")
-        return _reload(state, f"'{name}' bu projede {'açıldı' if command == 'enable' else 'kapatıldı'}.")
+        return _reload(
+            state, f"'{name}' bu projede {'açıldı' if command == 'enable' else 'kapatıldı'}."
+        )
     if command in ("auth", "clear-auth"):
         server = _find(servers, name)
         if server is None:
@@ -98,7 +107,9 @@ def _auth(server: McpServerConfig) -> str:
     except FusionError as error:
         return str(error)
     return messages.MCP_LOGIN_RESULT.format(
-        name=server.name, state=status.state, detail=f" — {status.message}" if status.message else ""
+        name=server.name,
+        state=status.state,
+        detail=f" — {status.message}" if status.message else "",
     )
 
 
@@ -110,7 +121,7 @@ def _clear_auth(server: McpServerConfig) -> str:
     return mcp_messages.LOGOUT_DONE.format(name=server.name)
 
 
-def _remove(state: Any, name: str) -> str:
+def _remove(state: ReplState, name: str) -> str:
     from ..mcp_manage import remove_named
 
     if not name:
@@ -122,7 +133,7 @@ def _remove(state: Any, name: str) -> str:
     return _reload(state, message + (f"\n{mcp_messages.TOKENS_CLEARED}" if cleared else ""))
 
 
-def _reload(state: Any, message: str) -> str:
+def _reload(state: ReplState, message: str) -> str:
     from ...config.loader import load_config
 
     try:

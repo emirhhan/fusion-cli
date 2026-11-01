@@ -110,7 +110,7 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-        os.chmod(temp_path, 0o600)
+        temp_path.chmod(0o600)
         temp_path.replace(path)
     except OSError as error:
         temp_path.unlink(missing_ok=True)

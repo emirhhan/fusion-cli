@@ -457,9 +457,7 @@ def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
 def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     """Güvenilen projenin `.mcp.json` sunucularını kullanıcı kayıtlarına ekle."""
     from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
-    from .mcp_local import read_local_mcp_servers
-
-    from .mcp_local import disabled_mcp_servers
+    from .mcp_local import disabled_mcp_servers, read_local_mcp_servers
 
     project_servers = trusted_project_mcp_servers(root)
     local_servers = read_local_mcp_servers(root)
@@ -474,9 +472,8 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
 
 def _with_plugin_mcp_servers(config: Config) -> Config:
     """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
-    from .plugin_store import plugin_mcp_servers
-
     from .mcp_local import disabled_mcp_servers
+    from .plugin_store import plugin_mcp_servers
 
     taken = {server.name for server in config.mcp_servers}
     # `/mcp` aç/kapa ile bu projede kapatılan sunucular yüklenmez (Claude disabledMcpServers).

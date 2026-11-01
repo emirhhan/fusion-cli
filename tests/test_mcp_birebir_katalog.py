@@ -33,8 +33,12 @@ def test_sunucu_talimatlari_claude_bicimiyle_baglama_girer(monkeypatch):
 
 def test_tools_list_changed_bildirimi_isaretler():
     olaylar: list[str] = []
-    handler = catalog_change_handler(lambda: olaylar.append("katalog"), lambda: olaylar.append("arac"))
-    bildirim = ServerNotification(ToolListChangedNotification(method="notifications/tools/list_changed"))
+    handler = catalog_change_handler(
+        lambda: olaylar.append("katalog"), lambda: olaylar.append("arac")
+    )
+    bildirim = ServerNotification(
+        ToolListChangedNotification(method="notifications/tools/list_changed")
+    )
     asyncio.run(handler(bildirim))
     assert olaylar == ["arac"]
 

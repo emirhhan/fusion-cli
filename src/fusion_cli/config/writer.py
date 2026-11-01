@@ -610,7 +610,9 @@ def remove_user_mcp_server(config: Config, name: str) -> Path:
         raw = existing.get("mcp_servers")
         entries = raw if isinstance(raw, list) else []
         existing["mcp_servers"] = [
-            entry for entry in entries if not (isinstance(entry, dict) and entry.get("name") == name)
+            entry
+            for entry in entries
+            if not (isinstance(entry, dict) and entry.get("name") == name)
         ]
         _atomic_write(target, existing)
     return target
