@@ -4,8 +4,8 @@
 CA'sını kullanır. Her ana makine için CA imzalı yaprak sertifika bellekte önbelleklenir.
 Sandbox içindeki istemciler CA'ya ortam değişkenleriyle güvenir (`trust_env`): sistem kökleri
 + CA demeti `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`…;
-`NODE_EXTRA_CA_CERTS` yalnız CA. Anahtarların durduğu dizin sandbox'a OKUNAMAZ
-(`private_dir` → `locked_read`).
+`NODE_EXTRA_CA_CERTS` yalnız CA. Anahtarların durduğu dizin ve kullanıcı CA anahtarı
+sandbox'a OKUNAMAZ (`private_dir`, `caKeyPath` → `locked_read`; `sandbox_mask.prepare_tls`).
 """
 
 from __future__ import annotations

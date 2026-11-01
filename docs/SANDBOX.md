@@ -108,7 +108,8 @@ izin verir, Linux'ta port ad alanına Unix soketi + socat köprüsüyle (SOCKS i
 imzalı sertifika üretilir, gerçek sunucuya doğrulanarak yeniden bağlanılır (HTTP/1.1), sandbox
 içindeki istemciler CA'ya `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
 `GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE` (sistem kökleri + CA) ve `NODE_EXTRA_CA_CERTS`
-ile güvenir; CA ve yaprak anahtarlarının dizini sandbox'a okunamaz. TLS olmayan tüneller (ilk
+ile güvenir; CA ve yaprak anahtarlarının dizini ve kullanıcı CA'sının `caKeyPath` dosyası
+(CA kurulamasa da) sandbox'a okunamaz. TLS olmayan tüneller (ilk
 bayt el sıkışması değilse; git+ssh) dokunulmadan geçer. CA okunamazsa komuta bir not düşülür
 ve HTTPS sonlandırılmaz; `fusion doctor` (Claude `claude doctor` gibi) "TLS sonlandırma
 kullanılamıyor" uyarısı verir. `filesystem.disabled: true` dosya sistemi yalıtımını atlar, ağ

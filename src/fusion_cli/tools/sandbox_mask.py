@@ -16,6 +16,7 @@ import string
 import threading
 from collections.abc import Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..core.errors import FusionError
@@ -88,14 +89,27 @@ def apply_masks(
     return result, tuple(injections)
 
 
+def _lock(policy: SandboxPolicy, *paths: Path) -> SandboxPolicy:
+    """Yolları `locked_read`'e (hiçbir `allowRead` açamaz) ve `deny_read`'e ekle."""
+    return replace(
+        policy,
+        locked_read=(*policy.locked_read, *paths),
+        deny_read=(*policy.deny_read, *paths),
+    )
+
+
 def prepare_tls(
     policy: SandboxPolicy, notices: list[str]
 ) -> tuple[SandboxPolicy, SessionCa | None]:
-    """`tlsTerminate` açıksa oturum CA'sı; anahtar dizini sandbox'a okunamaz yapılır.
+    """`tlsTerminate` açıksa oturum CA'sı; anahtarlar sandbox'a okunamaz yapılır.
 
-    CA kurulamazsa (kullanıcı CA'sı okunamadı) bir not düşülür ve HTTPS sonlandırılmaz; maskeli
-    değerler yine yer tutucudur (yerine konmaz, sızmaz).
+    Kullanıcı CA'sının anahtar dosyası (`caKeyPath`) CA kurulamasa ya da TLS sonlandırılmasa
+    da her durumda kilitlenir: sandbox içindeki komut onu okuyup sızdıramaz. Geçici CA'nın
+    anahtar dizini (`private_dir`) de kilitlenir. CA kurulamazsa bir not düşülür ve HTTPS
+    sonlandırılmaz; maskeli değerler yine yer tutucudur (yerine konmaz, sızmaz).
     """
+    if policy.tls_ca_key:
+        policy = _lock(policy, Path(policy.tls_ca_key).expanduser())
     if not policy.tls_terminate or not policy.restricts_network or policy.external_proxy:
         return policy, None
     try:
@@ -105,5 +119,4 @@ def prepare_tls(
     except (FusionError, OSError, ImportError) as error:
         notices.append(f"TLS sonlandırma kullanılamıyor ({error}); mask değerleri yerine konmaz.")
         return policy, None
-    locked = (*policy.locked_read, ca.private_dir)
-    return replace(policy, locked_read=locked, deny_read=(*policy.deny_read, ca.private_dir)), ca
+    return _lock(policy, ca.private_dir), ca
