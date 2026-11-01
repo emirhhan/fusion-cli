@@ -21,12 +21,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.background_events import BackgroundEvents
 from ..core.constants import PROCESS_TERMINATE_GRACE_S
 from ..core.process_control import MovedToBackgroundError
 from ..core.tools import ToolContext, ToolResult
 from .bash_settings import background_disabled
 from .job_delivery import save_completion, save_delivery
 from .job_lifetime import own, time_limit_s
+from .job_notify import events_of, notify_job_done, started_hint
 from .job_owner import save_owner
 from .jobs import JOBS_DIR, _reserve_job_id
 
@@ -73,6 +75,7 @@ def adopt(
     threading.Thread(
         target=_watch,
         args=(moved, folder, context.root, job_id, sink, on_exit),
+        kwargs={"events": events_of(context), "command": command},
         name=f"fusion-job-{job_id}",
         daemon=True,
     ).start()
@@ -82,11 +85,7 @@ def adopt(
         if moved.by_user
         else f"Komut {moved.timeout_s:.0f} sn zaman aşımında bitmedi ve arka plana taşındı"
     )
-    text = (
-        f"{lead} (iş kimliği: {job_id}).\nÇıktı dosyası: {log}\n"
-        f"Durum ve son çıktı için job_status(id='{job_id}', wait_s=...) çağır; "
-        "gerekirse job_status(id, stop=true) ile durdur."
-    )
+    text = f"{lead} (iş kimliği: {job_id}).\nÇıktı dosyası: {log}\n" + started_hint(job_id)
     if _changes_directory(command):
         text += (
             f"\nOturum dizini {context.root} olarak kalır; arka plana taşınan komuttaki dizin "
@@ -130,6 +129,9 @@ def _watch(
     job_id: str,
     sink: _LogSink,
     on_exit: Callable[[], str],
+    *,
+    events: BackgroundEvents | None = None,
+    command: str = "",
 ) -> None:
     code = moved.process.wait()
     for capture in moved.captures:
@@ -142,10 +144,12 @@ def _watch(
         _LOG.exception("Taşınan işin kaynakları kapatılamadı", extra={"is": job_id})
     sink.close()
     exit_path = folder / f"{job_id}.exit"
-    if exit_path.exists():  # job_status(stop=true) önce yazdıysa korunur
+    if exit_path.exists():  # task_stop önce yazdıysa korunur
+        notify_job_done(events, job_id, command, folder / f"{job_id}.log", code)
         return
     atomic_replace_text(exit_path, str(code))
     try:
         save_completion(folder, root, job_id, code)
     except (OSError, ValueError):
         _LOG.exception("Taşınan işin tamamlanma makbuzu yazılamadı", extra={"is": job_id})
+    notify_job_done(events, job_id, command, folder / f"{job_id}.log", code)

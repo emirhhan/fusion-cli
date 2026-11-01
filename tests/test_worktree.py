@@ -324,20 +324,17 @@ def test_alt_ajan_degisiklik_yapmazsa_agaci_kaldirir_yaparsa_korur(repo, tmp_pat
     assert not (repo / "uye.txt").exists(), "ana proje değişmez"
 
 
-def test_worktree_araclari_yalniz_ilgili_istekte_sunulur():
-    """Ölçüldü (31 Ekim): iki aracın şeması emülasyon istem bütçesini (11.400) aşıyordu."""
+def test_worktree_araclari_claude_gibi_her_turda_sunulur():
+    """Claude EnterWorktree her zaman vardır (#342); istem bütçesi için imza satırında gider."""
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
     from fusion_cli.engines.agent.expertise import is_worktree_task
     from fusion_cli.engines.agent.loop import SCOPED_TOOLS, _permitted
 
     registry = build_tools()
     sirada = _permitted(None, registry, ExecutionPolicy(is_web=False))
-    assert sirada is not None and "enter_worktree" not in sirada
-    acik = _permitted(None, registry, ExecutionPolicy(is_web=False), frozenset({"worktree"}))
-    assert acik is not None and {"enter_worktree", "exit_worktree"} <= acik
-    assert SCOPED_TOOLS["enter_worktree"] == "worktree"
+    assert sirada is not None and {"enter_worktree", "exit_worktree"} <= sirada
+    assert "enter_worktree" not in SCOPED_TOOLS and "exit_worktree" not in SCOPED_TOOLS
     assert is_worktree_task("bunu ayrı bir dalda, worktree içinde dene")
-    assert is_worktree_task("izole bir dalda çalış, ana projeye dokunma")
     assert not is_worktree_task("CSS arka plan rengini değiştir")
 
 

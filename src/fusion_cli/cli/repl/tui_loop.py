@@ -362,6 +362,10 @@ class _TuiSession:
             now = time.time()
             due = self._state.cron.due(now)
             if not due:
+                # Biten arka plan işi / `monitor` satırı boştaki oturumu uyandırır (#336).
+                if self._state.background_events.claim_wake():
+                    self._state.scheduled_turn_only = True
+                    self._submit(messages.BACKGROUND_WAKE)
                 continue
             task = due[0]
             self._state.scheduled_turn_only = task.source is Source.AGENT or not (
@@ -975,6 +979,7 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                     cron=self._state.cron,
+                    background_events=self._state.background_events,
                     browser=browser_command.turn_browser(self._state),
                     local_origins=browser_command.turn_origins(self._state),
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,

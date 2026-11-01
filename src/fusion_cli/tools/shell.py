@@ -103,35 +103,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     for path in backup_paths(command, context.root):
         context.changes.record(path)
     if wants_background(args):
-        try:
-            manifest = prepare_manifest(args, context.root)
-            outputs = prepare_outputs(args, context.root)
-        except (OSError, ValueError) as error:
-            return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        run = prepare_sandbox(command, args, context)
-        if run.plan.refused:
-            release_sandbox(run)
-            return ToolResult.failure(run.plan.refused)
-        # Proxy işe aittir: iş süreci bitince kapanır (iş başlamazsa hemen).
-        started: ToolResult | None = None
-        try:
-            started = start_job(
-                command,
-                context,
-                sandbox_env(_shell_env(context), run),
-                manifest=manifest,
-                outputs=outputs,
-                argv_prefix=run.plan.prefix,
-                on_exit=lambda: background_exit_note(run),
-                limit_s=time_limit_s(args.get("timeout")),
-            )
-        finally:
-            if started is None or not started.ok:
-                release_sandbox(run)
-        notes = _once_notice(run) + "".join(
-            f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
-        )
-        return replace(started, output=f"{started.output}{notes}") if notes else started
+        return start_background(command, args, context)
     run = prepare_sandbox(command, args, context)
     token = new_token() if can_adopt(command) else None
     handed_over = False
@@ -146,6 +118,45 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     finally:
         if not handed_over:
             release_sandbox(run)
+
+
+def start_background(
+    command: str, args: ToolArgs, context: ToolContext, *, notify: bool = True
+) -> ToolResult:
+    """Komutu sandbox planıyla arka plan işi olarak başlat (`run_in_background`, `monitor`).
+
+    `notify=False` iş bitişinin genel bildirimini kapatır (`monitor` kendi bildirimini verir).
+    """
+    try:
+        manifest = prepare_manifest(args, context.root)
+        outputs = prepare_outputs(args, context.root)
+    except (OSError, ValueError) as error:
+        return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
+    run = prepare_sandbox(command, args, context)
+    if run.plan.refused:
+        release_sandbox(run)
+        return ToolResult.failure(run.plan.refused)
+    # Proxy işe aittir: iş süreci bitince kapanır (iş başlamazsa hemen).
+    started: ToolResult | None = None
+    try:
+        started = start_job(
+            command,
+            context,
+            sandbox_env(_shell_env(context), run),
+            manifest=manifest,
+            outputs=outputs,
+            argv_prefix=run.plan.prefix,
+            on_exit=lambda: background_exit_note(run),
+            limit_s=time_limit_s(args.get("timeout")),
+            notify=notify,
+        )
+    finally:
+        if started is None or not started.ok:
+            release_sandbox(run)
+    notes = _once_notice(run) + "".join(
+        f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
+    )
+    return replace(started, output=f"{started.output}{notes}") if notes else started
 
 
 def _run_foreground(
@@ -335,7 +346,7 @@ def _timeout_message(timeout: subprocess.TimeoutExpired, timeout_s: float = SHEL
         "Yapılacak: aynı komutu tekrar çalıştırma (ön planda). Uzun ama BİTEN bir iş "
         "(npm install, render, build, export) ise run_shell(command=..., "
         "run_in_background=true) "
-        "ile arka planda başlat ve job_status(id, wait_s) ile bekle. Hiç bitmeyen bir "
+        "ile arka planda başlat; bitince bildirim gelir. Hiç bitmeyen bir "
         "sunucuysa (dev sunucusu) start_preview kullan ya da arka planda başlatıp "
         "doğrulama için biten bir komut (build, test, lint) çalıştır."
     )

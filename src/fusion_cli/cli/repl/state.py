@@ -18,6 +18,7 @@ from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
 from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
+from ...core.background_events import BackgroundEvents
 from ...core.changeset import ChangeSet
 from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
@@ -394,6 +395,8 @@ class ReplState:
     reminders: list[Reminder] = field(default_factory=list)
     #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
     cron: SessionCron = field(default_factory=SessionCron)
+    #: Arka plan olayları: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents = field(default_factory=BackgroundEvents)
     #: `/goal <koşul>` ile kurulan turlar arası hedef (P-058); yoksa None.
     goal: SessionGoal | None = None
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.

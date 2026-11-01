@@ -105,6 +105,7 @@ from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
+from .background_wake import BACKGROUND_WAKE_ID, background_wake_tasks
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
 from .browser_panel import BrowserPanel
@@ -2234,7 +2235,7 @@ class AppSession:
         now = time.time()
         due = self._state.cron.due(now)
         if not due:
-            return {"ok": True, "gorevler": []}
+            return {"ok": True, "gorevler": background_wake_tasks(self._state.background_events)}
         verilen = []
         for task in due[:1]:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
@@ -2256,6 +2257,10 @@ class AppSession:
         arayüz gönderemeyince o vade boşa gidiyor, tek seferlik görev kayboluyordu.
         """
         task_id = data.get("id")
+        if task_id == BACKGROUND_WAKE_ID:
+            # Olaylar kuyrukta kalır; sonraki yoklama yeniden uyandırır.
+            self._state.background_events.release_wake()
+            return {"ok": True}
         task = self._cron_given.get(task_id) if isinstance(task_id, str) else None
         if task is None:
             return {"ok": False, "metin": messages.LOOP_NOT_FOUND.format(id=task_id)}
@@ -3118,6 +3123,7 @@ class AppSession:
                 home=self._state.home,
                 history=history,
                 cron=None if browser_only else self._state.cron,
+                background_events=None if browser_only else self._state.background_events,
                 chrome_bridge=self._chrome,
                 allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)

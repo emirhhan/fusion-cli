@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from .artifacts import ArtifactStore
+from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
@@ -94,6 +95,8 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "symbol_query": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
     "run_shell": ToolFamily.SHELL,
+    # Claude Monitor komutu Bash izin kurallarına tabidir (#336).
+    "monitor": ToolFamily.SHELL,
     "render_remotion": ToolFamily.SHELL,
     "shell": ToolFamily.SHELL,
     "bash": ToolFamily.SHELL,
@@ -148,6 +151,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "invoke_agent": ToolFamily.DELEGATION,
     "council": ToolFamily.DELEGATION,
     "todo_write": ToolFamily.META,
+    "task_stop": ToolFamily.META,
     "ask_user": ToolFamily.META,
     "read_session": ToolFamily.META,
     "recent_actions": ToolFamily.META,
@@ -409,6 +413,8 @@ class ToolContext:
     remotion_contract: KitContractState = field(default_factory=KitContractState)
     #: Oturumun zamanlayıcısı (`cron_*`, `schedule_wakeup`); tek atışlık turda yok (P-038).
     cron: SessionCron | None = None
+    #: Oturumun arka plan olay kuyruğu: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents | None = field(default=None, kw_only=True)
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).

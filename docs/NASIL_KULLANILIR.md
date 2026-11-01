@@ -372,8 +372,10 @@ durumunda görünmez (`.git/info/exclude`).
   `name` verilmezse rastgele ad üretilir; `path` ile deponun VAR OLAN bir ağacına geçilir
   (`.claude/worktrees` dışındaysa her kipte sorulur, yalnız bypass sormaz; oturumun yaratmadığı
   ağaç çıkışta kaldırılmaz). Bir ağacın içindeyken başka ağaca doğrudan geçilir (Claude Code
-  EnterWorktree). Claude'dan fark (henüz): araçlar yalnız isteğinde "worktree / ayrı dal /
-  izole dal" geçen görevlerde sunulur (araç istemi bütçesi dolu).
+  EnterWorktree). Araçlar Claude gibi her turda kullanılabilir; Claude'un ertelediği araçlar
+  gibi (EnterWorktree, ExitWorktree, Monitor, TaskStop) metin araç isteminde tek imza satırında
+  (`enter_worktree(name?,path?)`) sunulur, yerel araç çağrısında şema tam gider. Claude adları
+  (`EnterWorktree`, `TaskStop`…) da aynı araca çözülür.
 - Alt ajan: `Agent` çağrısına `isolation: "worktree"` verilirse (ya da tanımda `isolation: worktree` varsa) üye kendi ağacında
   (`ajan-<kimlik>`) yazar; ana proje değişmez. Üye dosya değiştirmediyse ağaç ve dal kaldırılır,
   iş kaldıysa korunur ve yolu özetine yazılır.

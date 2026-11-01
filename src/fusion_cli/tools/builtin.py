@@ -36,8 +36,10 @@ from . import (
     web,
     worktree_tools,
 )
+from .monitor_tool import MONITOR_TOOL
 from .registry import ToolRegistry
 from .symbol_query import SymbolQuery, SymbolQuerySettings
+from .task_stop import TASK_STOP_TOOL
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
@@ -602,7 +604,12 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=jobs.job_status,
         mutating=True,
+        # Claude'da karşılığı yok (TaskOutput kaldırıldı): kullanımdan kalkan takma ad;
+        # şemada sunulmaz, çağrılırsa çalışır. Durdurma `task_stop`, okuma `read_file` (#334).
+        advertised=False,
     ),
+    TASK_STOP_TOOL,
+    MONITOR_TOOL,
     Tool(
         name="todo_write",
         description="Çok adımlı işte görev listesini TAMAMEN yaz, ilerledikçe güncelle. "

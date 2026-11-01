@@ -171,6 +171,7 @@ from .approval import (
 )
 from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
+from .background_notes import append_background_events
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -1764,6 +1765,8 @@ async def _drive(
                     harness_note=True,
                 )
             )
+        # Biten arka plan işi ve `monitor` satırları sıradaki istekten önce girer (#334, #336).
+        append_background_events(messages, deps.tool_context)
         if budget.stop is BudgetStop.USER_DENIED:
             # Kullanıcı ÖNCEKİ araç turunda GERÇEKTEN "hayır" dedi (`_run_tools`).
             # Bu bir bütçe olayı DEĞİLDİR: `_halt`/`_halt_local`'ın aksine
@@ -1958,6 +1961,8 @@ async def _drive(
                         harness_note=True,
                     )
                 )
+                continue
+            if append_background_events(messages, deps.tool_context):
                 continue
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
@@ -3040,9 +3045,8 @@ SCOPED_TOOLS: dict[str, str] = {
     "desktop_background_inspect": "masaustu",
     "desktop_background_screenshot": "masaustu",
     "desktop_background_action": "masaustu",
-    # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
-    "enter_worktree": "worktree",
-    "exit_worktree": "worktree",
+    # Çalışma ağacı araçları Claude gibi her turda (#342); emülasyon isteminde imzayla
+    # sunulur (`core.tool_emulation.DEFERRED_TOOL_NAMES`).
     # Planı onaya sunma aracı yalnız plan kipindeki turda (#317).
     "exit_plan_mode": "plan",
     # Arka plan görevleri / oturumlar arası mesaj (P-048, P-060): yalnız ilgili turda.

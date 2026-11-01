@@ -147,11 +147,20 @@ okunmadığı için orada `/bg` kullanılır.
 - `run_shell(timeout=<ms>)`: çağrı başına zaman aşımı. Varsayılan `BASH_DEFAULT_TIMEOUT_MS`
   (120000), tavan `BASH_MAX_TIMEOUT_MS` (600000).
 - Zaman aşımına uğrayan ön plan komutu durdurulmaz, **arka plana taşınır**: sonuç iş
-  kimliğini ve `.fusion/is/<kimlik>.log` çıktı dosyasını verir; `job_status` ile izlenir ya da
-  durdurulur. `sleep` ile başlayan komutlar ve `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  kimliğini ve `.fusion/is/<kimlik>.log` çıktı dosyasını verir. `sleep` ile başlayan komutlar ve `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
   iken komut eskisi gibi durdurulur.
 - `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
+- Claude Code gibi arka plan işi bitince (ya da durdurulunca) yoklama gerekmez: bildirim
+  ("Arka plan işi <kimlik> bitti (çıkış kodu N) … Çıktı dosyası: …") sıradaki model isteğine
+  girer; oturum boştaysa (terminal, TUI, masaüstü) yeni bir tur başlar. Çıktı `read_file` ile
+  okunur, iş `task_stop(task_id)` ile durdurulur (Claude TaskStop; eski `shell_id` ve
+  `job_status(id, stop=true)` kullanımdan kalkan takma ad, `job_status` şemada sunulmaz).
+- `monitor(command, description, timeout_ms?)` (Claude Monitor): komutu arka planda çalıştırır,
+  her stdout satırı bildirim olarak gelir; süre varsayılan 5 dk, en çok 1 sa kabul edilir, etkin
+  tavan 30 dk; süre dolunca iş durdurulur ve bir kez haber verilir. Komut Bash izin kurallarından
+  ve sandbox'tan geçer; `task_stop` ile erken biter. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  iken çalışmaz. Claude'dan fark (henüz): WebSocket kaynağı (`ws`) yok.
 - `/tasks` (`/bashes`) kabuk arka plan işlerini de listeler (`kabuk <kimlik> · sürüyor · komut`);
   `/tasks stop <kimlik>` işi durdurur (süreç başlangıç kimliği doğrulanır).
 - Arka plan işinin ömrü: Fusion kapanırken o oturumun başlattığı işler durdurulur; çıktısı

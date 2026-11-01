@@ -1115,6 +1115,8 @@ LOOP_LIST_TITLE = "{count} zamanlanmış görev:"
 LOOP_STOPPED = "döngü durdu: {id}"
 LOOP_STOPPED_ALL = "{count} döngü durdu"
 LOOP_NOT_FOUND = "Görev bulunamadı: {id} (/loop list)"
+#: Boştaki oturumu arka plan olayı (biten iş, `monitor` satırı) uyandırınca giren tur (#336).
+BACKGROUND_WAKE = "Arka plan bildirimi geldi; değerlendir ve gerekiyorsa devam et."
 LOOP_FIRED = "⏰ zamanlanmış görev çalışıyor ({id}) · durdurmak için /loop stop {id}"
 LOOP_COMMAND_BLOCKED = (
     "/{name} zamanlanmış görev olamaz: onay kipini, modeli ya da oturumu değiştiren komutlar "

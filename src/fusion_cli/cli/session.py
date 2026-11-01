@@ -25,6 +25,7 @@ from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
+from ..core.background_events import BackgroundEvents
 from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
@@ -247,6 +248,7 @@ async def run_agent_task(
     deadline: TurnDeadline | None = None,
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
     cron: SessionCron | None = None,
+    background_events: BackgroundEvents | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
     plan_mode_switch: PlanModeSwitch | None = None,
@@ -334,6 +336,9 @@ async def run_agent_task(
         if cron is not None:
             # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
             tool_context = replace(tool_context, cron=cron)
+        if background_events is not None:
+            # Biten arka plan işi ve `monitor` satırı sohbete bildirim olarak girer (#336).
+            tool_context = replace(tool_context, background_events=background_events)
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.

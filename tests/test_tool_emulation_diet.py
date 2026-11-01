@@ -3,6 +3,7 @@ from __future__ import annotations
 from fusion_cli.core.tool_emulation import (
     CALL_CLOSE,
     CALL_OPEN,
+    DEFERRED_TOOL_NAMES,
     PAYLOAD_SENTINEL,
     render_tool_instructions,
 )
@@ -31,6 +32,8 @@ def rendered() -> str:
 # Kit araçları (P-063) ve yukarıdaki chrome eylemleri TAM yüzeyi 14_458'e çıkardı. Bu
 # yüzey güçlü modele gider; zayıf/web modelin gördüğü kompakt yüzey `desktop_*`/`chrome_*`
 # ailesini gizler ve ayrı, daha sıkı bütçeyle korunur (`COMPACT_PROMPT_BUDGET`, ölçüldü 9_623).
+# 1 Kas 2026 (#334/#336/#342): job_status şemadan çıktı (takma ad), task_stop/monitor ve
+# enter/exit_worktree Claude'un ertelenmiş araçları gibi tek imza satırında: 14_541.
 PROMPT_BUDGET = 14_600
 COMPACT_PROMPT_BUDGET = 10_000
 
@@ -95,7 +98,10 @@ def test_tum_registry_toollari_promptta_hala_var():
         function = schema.get("function", {})
         name = function.get("name")
 
-        if name:
+        if name in DEFERRED_TOOL_NAMES:
+            # Claude'un ertelediği yerleşikler imzayla sunulur (#334, #336, #342).
+            assert f"{name}(" in text.splitlines()[-1]
+        elif name:
             assert f"- {name}:" in text
 
 

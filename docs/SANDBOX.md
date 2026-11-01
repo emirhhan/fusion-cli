@@ -177,7 +177,7 @@ sonra yalnız listedeki adlar erişilebilir (npm, pip dahil diğer trafik kapan�
 Engellenen bağlantıdan sonra modele `Sandbox ağı engelledi: <alan>` notu gider; izin vermek
 kullanıcının kararıdır. Her komutun kendi proxy'si vardır: eşzamanlı komutların (arka plan
 işi, alt ajan) retleri birbirine karışmaz. Ön plan komutunun proxy'si komut bitince, arka plan
-işininki iş süreci bitince kapanır; işin ret notu günlüğün sonuna (`job_status` çıktısı)
+işininki iş süreci bitince kapanır; işin ret notu günlüğün sonuna (çıktı dosyası)
 eklenir. İşin kendi içinde arka plana attığı ve işten uzun yaşayan süreçler (`npm run dev &`)
 iş bitince ağ erişimini kaybeder. `/sandbox izin` sonrası yeni politika bir sonraki komutta
 geçerlidir; çalışan arka plan işi başladığı politikayla sürer.

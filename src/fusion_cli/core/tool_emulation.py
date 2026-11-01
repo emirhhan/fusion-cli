@@ -514,6 +514,7 @@ def render_tool_instructions(
         "Kullanılabilir araçlar:",
     ]
 
+    deferred: list[str] = []
     for schema in schemas:
         function = schema.get("function")
         if not isinstance(function, Mapping):
@@ -522,6 +523,9 @@ def render_tool_instructions(
         name = function.get("name", "")
         description = function.get("description", "")
         ham = function.get("parameters", {})
+        if name in DEFERRED_TOOL_NAMES:
+            deferred.append(_signature(str(name), ham))
+            continue
         parameters = _compact_schema(ham) if compact else _instruction_schema(ham)
 
         lines.append(f"- {name}: {description}")
@@ -533,8 +537,29 @@ def render_tool_instructions(
                 separators=(",", ":"),
             )
         )
+    if deferred:
+        lines.append(DEFERRED_LEAD + ", ".join(deferred))
 
     return "\n".join(lines)
+
+
+#: Claude Code'un ertelediği yerleşik araçlar (EnterWorktree, ExitWorktree, Monitor, TaskStop):
+#: her turda kullanılabilir, emülasyon isteminde yalnız imzayla sunulur (istem bütçesi; #334,
+#: #336, #342). Yerel araç çağrısı (function calling) yolunda şema tam gider.
+DEFERRED_TOOL_NAMES = frozenset({"enter_worktree", "exit_worktree", "monitor", "task_stop"})
+DEFERRED_LEAD = "- Ek araçlar (aynı biçimde çağır; ? isteğe bağlı): "
+
+
+def _signature(name: str, parameters: object) -> str:
+    """`ad(zorunlu,isteğe_bağlı?)` biçimi; şema yoksa yalnız ad."""
+    if not isinstance(parameters, Mapping):
+        return f"{name}()"
+    properties = parameters.get("properties")
+    required = parameters.get("required")
+    names = list(properties) if isinstance(properties, Mapping) else []
+    needed = set(required) if isinstance(required, list) else set()
+    args = [key if key in needed else f"{key}?" for key in names]
+    return f"{name}({','.join(args)})"
 
 
 @dataclass(frozen=True, slots=True)

@@ -353,6 +353,13 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
         now = time.time()
         due = state.cron.due(now)
         if not due:
+            # Biten arka plan işi / `monitor` satırı boştaki oturumu uyandırır (#334, #336).
+            if state.background_events.claim_wake():
+                state.scheduled_turn_only = True
+                if not reader.inject(messages.BACKGROUND_WAKE):
+                    # İstem açık değil: sıradaki yoklama yeniden dener.
+                    state.scheduled_turn_only = False
+                    state.background_events.release_wake()
             continue
         task = due[0]
         state.scheduled_turn_only = task.source is Source.AGENT or not (
@@ -1062,6 +1069,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
+            background_events=state.background_events,
             todos=task_list.session_todos(state),  # oturum boyu liste (#331)
         ),
         state.config,
