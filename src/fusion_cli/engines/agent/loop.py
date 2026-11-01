@@ -1017,7 +1017,19 @@ async def _run_agent(
     proje_ve_dis_bellek = instruction_load.text
     # `InstructionsLoaded` kancası (#169): oturumda ilk kez yüklenen her talimat dosyası.
     instructions_hook.notify(
-        getattr(deps, "hooks", None), instructions_hook.startup_events(instruction_load.files)
+        getattr(deps, "hooks", None),
+        [
+            *instructions_hook.startup_events(instruction_load.files),
+            *(
+                instructions_hook.rule_startup_events(
+                    discover_rules(deps.tool_context.root, deps.home)
+                )
+                if deps.config.runtime.project_instructions
+                and not deps.omit_initial_instructions
+                and getattr(deps.config.runtime, "instruction_merge", True)
+                else ()
+            ),
+        ],
     )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
@@ -3323,12 +3335,7 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         )
         instructions_hook.notify(
             getattr(deps, "hooks", None),
-            [
-                instructions_hook.payload(
-                    str(kok / rel), "proje", "nested_traversal", trigger_file_path=str(hedef)
-                )
-                for rel in yuk.files
-            ],
+            [instructions_hook.nested_event(kok, rel, str(hedef), kurallar) for rel in yuk.files],
         )
     # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
     beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))

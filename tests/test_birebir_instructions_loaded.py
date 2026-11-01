@@ -67,3 +67,23 @@ def test_ic_ice_yukleme_tetik_dosyasini_tasir(tmp_path: Path) -> None:
 
     assert hooks.calls[0][1] == ("nested_traversal",)
     assert hooks.calls[0][2]["trigger_file_path"] == str(tmp_path / "pkg" / "a.py")
+
+
+def test_kural_dosyalari_oturum_basi_ve_glob_eslesmesiyle_bildirilir(tmp_path: Path) -> None:
+    """#169: `.claude/rules` — paths'siz kural session_start, paths'li path_glob_match + globs."""
+    from fusion_cli.engines.agent.instruction_rules import RuleFile
+
+    genel = RuleFile(".claude/rules/genel.md", tmp_path / "genel.md", (), False)
+    tsx = RuleFile(".claude/rules/tsx.md", tmp_path / "tsx.md", ("src/**/*.tsx",), False)
+    kisisel = RuleFile("~/.claude/rules/k.md", tmp_path / "k.md", (), True)
+
+    startup = instructions_hook.rule_startup_events([genel, tsx, kisisel])
+    assert [item["file_path"] for item in startup] == [str(genel.path), str(kisisel.path)]
+    assert {item["memory_type"] for item in startup} == {"Project", "User"}
+
+    event = instructions_hook.nested_event(tmp_path, tsx.label, "src/App.tsx", [genel, tsx])
+    assert event["load_reason"] == "path_glob_match" and event["globs"] == ["src/**/*.tsx"]
+    assert event["trigger_file_path"] == "src/App.tsx"
+    alt = instructions_hook.nested_event(tmp_path, "paket/CLAUDE.md", "paket/a.py", [tsx])
+    assert alt["load_reason"] == "nested_traversal"
+    assert alt["file_path"] == str(tmp_path / "paket" / "CLAUDE.md")

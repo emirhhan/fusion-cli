@@ -99,3 +99,36 @@ def startup_events(files: Iterable[object]) -> list[dict[str, object]]:
         reason = "include" if layer == "import" else "session_start"
         result.append(payload(str(getattr(item, "path", "")), layer, reason))
     return result
+
+
+def rule_startup_events(rules: Iterable[object]) -> list[dict[str, object]]:
+    """Oturum başında yüklenen `paths`'siz `.claude/rules` dosyaları (#169)."""
+    return [
+        payload(str(getattr(rule, "path", "")), _rule_layer(rule), "session_start")
+        for rule in rules
+        if not getattr(rule, "paths", ())
+    ]
+
+
+def nested_event(
+    root: object, rel: str, trigger: str, rules: Iterable[object]
+) -> dict[str, object]:
+    """Dosya erişiminde yüklenen talimat: `paths` eşleşen kural `path_glob_match` + `globs`."""
+    from pathlib import Path
+
+    for rule in rules:
+        if getattr(rule, "label", None) == rel and getattr(rule, "paths", ()):
+            fields = payload(
+                str(getattr(rule, "path", "")),
+                _rule_layer(rule),
+                "path_glob_match",
+                trigger_file_path=trigger,
+            )
+            return {**fields, "globs": list(getattr(rule, "paths", ()))}
+    return payload(
+        str(Path(str(root)) / rel), "proje", "nested_traversal", trigger_file_path=trigger
+    )
+
+
+def _rule_layer(rule: object) -> str:
+    return "kullanici" if getattr(rule, "trusted", False) else "proje"
