@@ -515,8 +515,8 @@ adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulma
 ### Fork alt ajan: `/subtask`, `baglam_miras`, `context: fork`
 
 Olağan alt ajan temiz bağlamla başlar. **Fork** alt ajan bu konuşmanın o ana kadarki
-mesajlarını devralır (sistem mesajı düşer, eski araç çıktıları temizlenir, 60 KB üstü
-kırpılıp notlanır), kendi bütçesiyle izole koşar ve sohbete yalnız özeti eklenir — uzun bir
+mesajlarının TAMAMINI devralır (Claude Code'daki gibi kırpma yok; ana oturumun sistem istemi
+aynen kullanılır, yalnız o an cevapsız araç çağrısı düşer), kendi bütçesiyle izole koşar ve sohbete yalnız özeti eklenir — uzun bir
 ara işi ana bağlamı şişirmeden yürütmek için.
 
 - `/subtask testleri koştur ve raporla` → tur fork alt ajanda koşar (`/altgorev` eş anlamlı);

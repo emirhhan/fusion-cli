@@ -6,11 +6,9 @@ ajan ana konuşmanın o ana kadarki mesajlarını başlangıç geçmişi olarak 
 üst sistem istemiyle ve kendi adım bütçesiyle koşar, sonucu tek özet olarak döner. Ana
 konuşmaya yalnız bu özet eklenir; alt ajanın kendi araç çağrıları ana geçmişe karışmaz.
 
-Devredilen görünüm model çağırmadan kurulur (`compaction.compress` özetleyici çağırır,
-burada istenmez): sistem mesajı gövdeden ayrılır ve ayrıca devredilir; eski araç çıktıları
-`clear_old_tool_outputs` ile temizlenir, hâlâ uzunsa kök tur korunup ortadaki mesajlar
-atılır ve atıldığı not düşülür. Cevapsız araç çağrıları (o an çalışan `spawn_agent`
-dahil) devredilmez: sağlayıcı sınırı orphan çağrıyı reddeder.
+Devredilen görünüm Claude Code'daki gibi TAM geçmiştir (#31): sistem mesajı gövdeden
+ayrılır ve aynen sistem istemi olarak devredilir, mesajlar kırpılmaz. Cevapsız araç
+çağrıları (o an çalışan `Agent` dahil) devredilmez: sağlayıcı sınırı orphan çağrıyı reddeder.
 """
 
 from __future__ import annotations
@@ -19,18 +17,10 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from ...core.types import Message
-from . import history as history_rules
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
-#: Fork alt ajana devredilen geçmişin karakter tavanı; üstü araç çıktısı temizliği ve
-#: orta kesim ile indirilir. Alt ajan bağlamı katlamasın diye ana eşiğin altındadır.
-FORK_MAX_CHARS = 60_000
-#: Kesimde her koşulda korunan son mesaj sayısı.
-FORK_KEEP_RECENT = 8
-#: Orta kesim notu: model geçmişin tamamını gördüğünü sanmasın.
-FORK_GAP_NOTE = "[fork: aradaki {count} mesaj bağlam sınırı nedeniyle çıkarıldı]"
 #: Alt ajanın başlangıç mesajına eklenen açıklama.
 FORK_BRIEF = (
     "Bu görev ana konuşmanın bağlamını DEVRALAN bir alt görevdir: yukarıdaki mesajlar ana "
@@ -41,25 +31,15 @@ LiveHistory = Callable[[], Sequence[Message]]
 
 
 def fork_history(messages: Sequence[Message] | None) -> list[Message]:
-    """Ana geçmişin alt ajana devredilecek görünümü (sistemsiz, kırpılmış)."""
-    body = drop_orphan_tool_calls(
+    """Ana geçmişin alt ajana devredilen görünümü: sistemsiz TAM geçmiş (#31).
+
+    Claude Code fork'u ana oturumun bütün mesaj geçmişini alır; Fusion kırpmaz, yalnız
+    cevapsız araç çağrılarını düşürür (sağlayıcı sınırı orphan çağrıyı reddeder). Bağlam
+    büyürse alt ajanın kendi otomatik özetlemesi devreye girer.
+    """
+    return drop_orphan_tool_calls(
         [message for message in (messages or ()) if message.role != "system"]
     )
-    if not body:
-        return []
-    trimmed = history_rules.clear_old_tool_outputs(body, threshold_chars=FORK_MAX_CHARS)
-    if history_rules.total_chars(trimmed) <= FORK_MAX_CHARS:
-        return trimmed
-    anchor = trimmed[: _root_turn_length(trimmed)]
-    tail = trimmed[len(anchor) :]
-    # Kesim bir ARAÇ TURU sınırına kayar: `tool` ile başlayan dilim çağrısı atılmış orphan
-    # sonuç taşır (bkz. `history.round_cut`). Güvenli nokta yoksa dilim olduğu gibi alınır
-    # ve orphan temizliği başı toparlar.
-    start = history_rules.round_cut(tail, FORK_KEEP_RECENT) if len(tail) > FORK_KEEP_RECENT else 0
-    recent = drop_orphan_tool_calls(tail[start:] if start else tail[-FORK_KEEP_RECENT:])
-    gap = max(0, len(trimmed) - len(anchor) - len(recent))
-    note = Message("user", FORK_GAP_NOTE.format(count=gap), harness_note=True)
-    return [*anchor, note, *recent] if gap else [*anchor, *recent]
 
 
 def drop_orphan_tool_calls(messages: Sequence[Message]) -> list[Message]:
@@ -90,22 +70,6 @@ def drop_orphan_tool_calls(messages: Sequence[Message]) -> list[Message]:
             kept.extend(messages[index:end])
         index = end
     return kept
-
-
-def _root_turn_length(messages: Sequence[Message]) -> int:
-    """Kök turun uzunluğu: ikinci gerçek kullanıcı mesajına kadar (sistemsiz listede de çalışır).
-
-    `history.root_anchor_length` yalnız `system` ile başlayan listede anchor açar; fork
-    görünümünde sistem düşmüştür ama kullanıcının kök talimatı yine korunmalıdır.
-    """
-    seen_users = 0
-    for index, message in enumerate(messages):
-        if message.role == "user" and not message.harness_note:
-            seen_users += 1
-            if seen_users == 2:
-                return index
-    # Tek kullanıcı turunda da öndeki bağlam notu gerçek görevi dışarıda bırakamaz.
-    return history_rules.task_anchor_length(messages) or min(len(messages), 1)
 
 
 def parent_history(deps: AgentDeps) -> list[Message]:

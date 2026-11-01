@@ -151,8 +151,6 @@ async def test_followup_context_is_single_and_persona_can_be_disabled(monkeypatc
 async def test_large_real_fork_preserves_original_task_constraints(
     monkeypatch, tmp_path, with_context
 ):
-    from fusion_cli.engines.agent import team_fork
-
     (tmp_path / "CLAUDE.md").write_text("PROJE_KURALI_123")
     deps = _deps(tmp_path, "nvidia_nim/ornek-model")
     provider = ScriptedProvider([model_result("Tamam."), model_result("Devralındı.")])
@@ -167,15 +165,20 @@ async def test_large_real_fork_preserves_original_task_constraints(
                 Message("assistant", f"Yanıt {index}: " + "y" * 2000),
             ]
         )
-    assert sum(len(message.content) for message in parent) > team_fork.FORK_MAX_CHARS
+    assert sum(len(message.content) for message in parent) > 60_000
     assert any(message.content == original for message in parent)
     deps.live_history = lambda: parent
     await run_subagent(deps, SubTask("Merhaba", inherit_context=True), depth=0, run_agent=run_agent)
     messages = provider.seen_messages[-1]
     assert any(message.content == original for message in messages)
     assert any("PROJE_KURALI_123" in message.content for message in messages)
-    assert any(message.harness_note and "fork:" in message.content for message in messages)
-    assert len(messages) < len(parent)
+    # #31: fork tam geçmişi alır; kırpma notu yoktur, bütün takip mesajları devredilir.
+    assert not any(message.harness_note and "fork:" in message.content for message in messages)
+    assert all(
+        any(item.content == message.content for item in messages)
+        for message in parent
+        if message.role != "system"
+    )
 
 
 @pytest.mark.parametrize("notes", [False, True])
@@ -204,9 +207,9 @@ def test_single_real_task_survives_large_fork_with_leading_context():
     root = Message("user", "TEK_GOREV_VE_KISIT")
     messages = [Message("user", "Proje bağlamı", harness_note=True), root]
     messages.extend(Message("assistant", str(index) + "x" * 9000) for index in range(12))
-    trimmed = team_fork.fork_history(messages)
-    assert root in trimmed
-    assert len(trimmed) < len(messages)
+    inherited = team_fork.fork_history(messages)
+    assert root in inherited
+    assert inherited == messages  # #31: kırpma yok
 
 
 async def test_main_compaction_keeps_task_outside_lossy_summary(monkeypatch, tmp_path):

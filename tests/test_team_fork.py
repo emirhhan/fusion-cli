@@ -9,7 +9,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fusion_cli.core.types import Message, ToolCall
-from fusion_cli.engines.agent import history as history_rules
 from fusion_cli.engines.agent import team_fork
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps
@@ -53,13 +52,14 @@ def test_fork_gecmisi_sistemi_dusurur_ve_eski_arac_ciktisini_temizler():
 
     assert fork[0].role == "user" and fork[0].content == "kök görev"
     assert all(message.role != "system" for message in fork)
-    assert history_rules.total_chars(fork) <= team_fork.FORK_MAX_CHARS
-    # En eski araç çıktısı nota indi; en SON araç çıktısı korunur.
-    assert len(fork[2].content) < 200 and fork[6].content == uzun
+    # #31: Claude Code fork'u TÜM mesaj geçmişini alır; eski araç çıktısı kırpılmaz.
+    assert fork == gecmis[1:]
+    assert fork[2].content == uzun and fork[6].content == uzun
     assert team_fork.fork_history(None) == [] and team_fork.fork_history([]) == []
 
 
-def test_fork_gecmisi_hala_uzunsa_kok_ve_sonu_korur_arayi_notlar():
+def test_fork_uzun_gecmisi_kirpmadan_tamamen_devralir():
+    """#31: Claude Code'da fork ana konuşmanın tam geçmişini alır; 60 KB kırpması yok."""
     gecmis = [Message("system", "S"), Message("user", "kök")]
     for index in range(60):
         gecmis.append(Message("user", f"soru {index} " + "y" * 2_000))
@@ -67,10 +67,8 @@ def test_fork_gecmisi_hala_uzunsa_kok_ve_sonu_korur_arayi_notlar():
 
     fork = team_fork.fork_history(gecmis)
 
-    assert fork[0].content == "kök"
-    assert any("çıkarıldı" in message.content for message in fork)
-    assert fork[-1].content.startswith("cevap 59")
-    assert len(fork) <= team_fork.FORK_KEEP_RECENT + 3
+    assert fork == gecmis[1:]
+    assert not any("çıkarıldı" in message.content for message in fork)
 
 
 def test_baglam_miras_alani_kapali_guvenli_okunur():
@@ -211,7 +209,7 @@ def test_fork_kirpmasi_basi_kopuk_arac_sonucuyla_baslamaz():
 
     fork = team_fork.fork_history(gecmis)
 
-    assert history_rules.total_chars(fork) <= team_fork.FORK_MAX_CHARS
+    assert len(fork) == len(gecmis) - 1
     cevaplanan = {m.tool_call_id for m in fork if m.role == "tool"}
     cagrilan = {call.id for m in fork for call in m.tool_calls}
     assert cevaplanan == cagrilan
