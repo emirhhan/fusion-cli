@@ -102,6 +102,7 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     checks.append(_path_check())
     checks.extend(_optional())
     checks.append(sandbox_check(config))
+    checks.extend(tls_terminate_check(config))
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
@@ -286,6 +287,33 @@ def sandbox_check(config: Config) -> Check:
         ok=False,
         remedy=messages.SANDBOX_DOCTOR_REMEDY.format(effect=effect),
     )
+
+
+def tls_terminate_check(config: Config) -> list[Check]:
+    """Claude `claude doctor` gibi: `tlsTerminate` açık ama CA kurulamıyorsa uyar (#350)."""
+    sandbox = getattr(config, "sandbox", None)
+    if sandbox is None or not getattr(sandbox, "tls_terminate", False):
+        return []
+    from ..config.sandbox_config import sandbox_policy
+    from ..core.errors import FusionError
+    from ..tools.sandbox_ca import session_ca
+
+    policy = sandbox_policy(sandbox, home=Path.home(), root=Path.cwd())
+    name = "Sandbox TLS sonlandırma"
+    try:
+        session_ca(policy.tls_ca_cert, policy.tls_ca_key)
+    except (FusionError, OSError, ValueError) as error:
+        return [
+            Check(
+                name,
+                f"TLS sonlandırma kullanılamıyor: {error}",
+                ok=False,
+                remedy="sandbox.network.tlsTerminate caCertPath/caKeyPath yollarını düzelt "
+                "ya da {} ile geçici CA kullan; mask değerleri yerine konmaz.",
+            )
+        ]
+    source = "kullanıcı CA'sı" if policy.tls_ca_cert else "oturum başına geçici CA"
+    return [Check(name, f"hazır ({source})", ok=True)]
 
 
 def _optional() -> list[Check]:

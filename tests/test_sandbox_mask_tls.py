@@ -272,3 +272,24 @@ def test_gercek_sandboxta_komut_yer_tutucuyla_kimlik_dogrular(tmp_path, monkeypa
         monkeypatch.setattr(sandbox_ca.SessionCa, "upstream_context", original)
     assert _Echo.seen == [f"Bearer {TOKEN}"], result.stderr
     assert TOKEN not in result.stdout and env["GH_TOKEN"] in result.stdout
+
+
+def test_doctor_tls_sonlandirma_kurulamiyorsa_uyarir(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.cli.doctor import tls_terminate_check
+    from fusion_cli.config.loader import load_config
+
+    path = tmp_path / "config.yaml"
+    path.write_text("{}\n", encoding="utf-8")
+    config = load_config(path)
+    assert tls_terminate_check(config) == []
+
+    broken = SandboxConfig(
+        tls_terminate=True, tls_ca_cert=str(tmp_path / "yok.pem"), tls_ca_key=str(tmp_path / "k")
+    )
+    (check,) = tls_terminate_check(replace(config, sandbox=broken))
+    assert check.ok is False and "kullanılamıyor" in check.value and check.remedy
+
+    (ready,) = tls_terminate_check(replace(config, sandbox=SandboxConfig(tls_terminate=True)))
+    assert ready.ok is True

@@ -110,7 +110,8 @@ içindeki istemciler CA'ya `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDL
 `GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE` (sistem kökleri + CA) ve `NODE_EXTRA_CA_CERTS`
 ile güvenir; CA ve yaprak anahtarlarının dizini sandbox'a okunamaz. TLS olmayan tüneller (ilk
 bayt el sıkışması değilse; git+ssh) dokunulmadan geçer. CA okunamazsa komuta bir not düşülür
-ve HTTPS sonlandırılmaz. `filesystem.disabled: true` dosya sistemi yalıtımını atlar, ağ
+ve HTTPS sonlandırılmaz; `fusion doctor` (Claude `claude doctor` gibi) "TLS sonlandırma
+kullanılamıyor" uyarısı verir. `filesystem.disabled: true` dosya sistemi yalıtımını atlar, ağ
 yalıtımı kalır (Fusion sırları ve `.git/config` gibi korumalı yollar yine kapalı).
 `enableWeakerNestedSandbox` (Linux) yetkisiz Docker içinde yeni `/proc` bağlamaz;
 `allowNestedUserNamespaces` (Linux) kapalıyken sandbox içinde yeni kullanıcı ad alanı açılamaz
