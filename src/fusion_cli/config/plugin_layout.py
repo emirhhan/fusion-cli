@@ -255,14 +255,19 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     """
     root = str(layout.root)
     schema, values = plugin_values(layout.root, layout.name)
+    from .plugin_mcpb import is_mcpb
+
     documents: list[tuple[str, object]] = [
-        (path.name, _load_json(path, ERR_MCP)) for path in layout.mcp_files
+        (path.name, _load_json(path, ERR_MCP))
+        for path in layout.mcp_files
+        if not is_mcpb(path.name)
     ]
+    skipped: list[str] = []
+    documents.extend(_mcpb_documents(layout, skipped))  # #400: .mcpb/.dxt paketleri
     inline = _inline(layout.manifest.inline_mcp)
     documents.extend(("plugin.json", {"mcpServers": item}) for item in inline)
     #: Sonra tanımlanan aynı adlı sunucu öncekinin yerine geçer (Claude, #418).
     servers: dict[str, McpServerConfig] = {}
-    skipped: list[str] = []
     for label, raw in documents:
         data = _substituted(raw, root, layout.name)
         if schema:  # #388: `${user_config.KEY}` MCP yapılandırmasında çözülür
@@ -284,6 +289,24 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
             servers.pop(named.name, None)
             servers[named.name] = named
     return tuple(servers.values()), tuple(skipped)
+
+
+def _mcpb_documents(layout: PluginLayout, skipped: list[str]) -> list[tuple[str, object]]:
+    """Yerel `./x.mcpb` ve `.mcpb` adresleri; açılamayan ya da yapılandırılmamış paket atlanır."""
+    from .plugin_mcpb import bundle_server, is_mcpb, is_url
+    from .plugin_store import plugins_dir
+
+    refs = [str(p.relative_to(layout.root)) for p in layout.mcp_files if is_mcpb(p.name)]
+    refs += [r for r in layout.manifest.mcp_servers if is_url(r) and is_mcpb(r)]
+    found: list[tuple[str, object]] = []
+    for ref in refs:
+        try:
+            name, entry = bundle_server(ref, layout.name, layout.root, plugins_dir())
+        except PluginError as error:
+            skipped.append(WARN_MCP_SKIPPED.format(path=ref, server=ref, error=error))
+            continue
+        found.append((ref, {"mcpServers": {name: entry}}))
+    return found
 
 
 _BEARER_REF = re.compile(r"^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$", re.IGNORECASE)

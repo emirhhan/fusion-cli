@@ -95,6 +95,14 @@ def path_list(
     return tuple(dict.fromkeys(found))
 
 
+MCPB_SUFFIXES = (".mcpb", ".dxt")
+
+
+def _is_mcpb_url(text: str) -> bool:
+    value = text.strip()
+    return value.startswith(("https://", "http://")) and value.lower().endswith(MCPB_SUFFIXES)
+
+
 def mixed_component(raw: object, *, key: str, where: str) -> tuple[tuple[str, ...], str]:
     """`hooks`/`mcpServers`: (dosya yolları, satır içi nesnelerin JSON listesi)."""
     if raw is None:
@@ -103,7 +111,9 @@ def mixed_component(raw: object, *, key: str, where: str) -> tuple[tuple[str, ..
     paths: list[str] = []
     inline: list[object] = []
     for item in items:
-        if isinstance(item, str):
+        if isinstance(item, str) and key == "mcpServers" and _is_mcpb_url(item):
+            paths.append(item.strip())  # Claude: .mcpb/.dxt adresi oturum başında indirilir (#400)
+        elif isinstance(item, str):
             paths.append(component_path(item, where=where, key=key))
         elif isinstance(item, Mapping):
             inline.append(dict(item))

@@ -27,6 +27,13 @@ benim-eklentim/
   dosya, satır içi nesne ya da ikisini karıştıran dizi alır. `skills/` ve `skills` anahtarı yoksa
   kökteki `SKILL.md` tek beceri olarak yüklenir. Var olmayan yol "yol bulunamadı" hatasıdır.
 - Aynı eklentide aynı adlı MCP sunucusu birden çok kez tanımlanırsa sonraki öncekinin yerine geçer.
+- `mcpServers` `./sunucu.mcpb` (ya da `.dxt`) paketini veya `.mcpb`/`.dxt` ile biten https adresini
+  gösterebilir: paket `${CLAUDE_PLUGIN_DATA}/.mcpb-cache/` altına güvenle açılır (adres bir kez
+  indirilir), `manifest.json` `server.mcp_config` sunucu tanımıdır, ad paketin `name`'idir;
+  `${__dirname}`, `${HOME}`, `${DESKTOP}`, `${DOCUMENTS}`, `${DOWNLOADS}`, `${/}`, `${pathSeparator}`
+  ve `${user_config.KEY}` çözülür. Paket seçenekleri `plugin install --config <sunucu>.<anahtar>=<değer>`
+  ile (tek paket bildiriyorsa çıplak anahtarla) verilir; zorunlu değeri eksik sunucu Claude'un
+  `MCP server "<ad>" needs configuration before it can start` uyarısıyla başlatılmaz.
 - Ad kuralı: boş olmayan, boşluk, `@`, `:`, yol ayırıcı ve denetim karakteri içermeyen ad (büyük
   harf serbest); kebab-case dışı ad ve Anthropic'e benzeyen ad doğrulamada uyarı, `claude-…`,
   `anthropic-…` gibi ayrılmış adlar hatadır. Tanınan alanlar Claude'un `plugin.json` alan tablosudur
@@ -45,7 +52,7 @@ benim-eklentim/
   beceri/ajan içeriğinde çözülür (içerikte hassas değer yer tutucu olur); kanca süreçleri her seçeneği
   `CLAUDE_PLUGIN_OPTION_<KEY>` olarak alır. `plugin install --config key=value` (tekrarlanabilir)
   değerleri kurulumda aynı yoldan doğrulayıp kaydeder; biri geçersizse kurulum geri alınır;
-  `<sunucu>.<anahtar>` (.mcpb) Fusion'da yoktur. Ayarlanmamış zorunlu seçenek kalırsa kurulum
+  `<sunucu>.<anahtar>` paketlenmiş `.mcpb` sunucusunun seçeneğidir. Ayarlanmamış zorunlu seçenek kalırsa kurulum
   `fusion plugin configure <id>` ipucu verir. `plugin validate` geçersiz `userConfig` şemasını hata
   sayar. Eklenti son kapsamından kaldırılınca seçenekleri ve sırları da silinir. Henüz yok:
   etkinleştirmede soru penceresi, `channels`, `/config` satırları.
@@ -317,7 +324,7 @@ artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`)
 **Claude Code'dan farklar (Hâlâ eksik):** kurulum kayıtları ve kopyalar Fusion'ın kendi deposundadır
 (`<veri>/eklentiler/kayit.json`); Claude'un `~/.claude/plugins/installed_plugins.json`'ı yalnız
 okunur (#377). `--settings` bayrağı kapsamı ve `managed-settings.d` parçaları okunmaz. Bağımlılık sürüm aralıkları
-(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels`, `plugin eval` ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
+(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels` ve `plugin eval` yok. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 
 ## Sürüm ve güncelleme
