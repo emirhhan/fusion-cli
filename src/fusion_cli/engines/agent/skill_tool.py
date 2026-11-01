@@ -148,6 +148,33 @@ def invoke(
     )
 
 
+def apply_turn_choice(
+    skill: Capability, invocation: SkillInvocation, deps: AgentDeps, root: Path
+) -> tuple[str, ...]:
+    """Modelin çağırdığı becerinin `model`/`effort` alanı turun KALANINA uygulanır (#139).
+
+    Belge (skills, Frontmatter reference): "The override applies for the rest of the current
+    turn and isn't saved to settings. The session model resumes when you send your next
+    prompt." Fusion karşılığı `deps.active_model_override` ve `deps.turn_effort_override`;
+    ikisi de döngüde yeni kullanıcı turunun başında sıfırlanır.
+    """
+    from .skill_turn import resolve_turn_model
+
+    config = deps.config
+    resolution = resolve_turn_model(
+        invocation.model,
+        invocation.effort,
+        allow_model=skill_trusted(skill, root),
+        aliases=dict(getattr(getattr(config, "agent_launch", None), "model_aliases", {}) or {}),
+    )
+    choice = resolution.choice
+    if choice.model:
+        deps.active_model_override = choice.apply(config).agent
+    if choice.effort is not None:
+        deps.turn_effort_override = choice.effort
+    return resolution.notes
+
+
 def _lookup(library: CapabilityRegistry, name: str) -> Capability | str:
     skill = library.get_skill(name)
     if skill is not None:
@@ -189,9 +216,10 @@ def build_skill_tool(
         if not invocation.ok:
             return ToolResult.failure("\n".join(invocation.notes) or "beceri çağrısı iptal")
         skill_grants.grant(context, grant_entries(found, context.root))
-        notes = "\n".join(f"[not: {note}]" for note in invocation.notes)
         if invocation.fork:
-            return await _run_forked(found, invocation, deps, depth, run_agent)
+            return await _run_forked(found, invocation, deps, (depth, context.root), run_agent)
+        turn_notes = apply_turn_choice(found, invocation, deps, context.root)
+        notes = "\n".join(f"[not: {note}]" for note in (*invocation.notes, *turn_notes))
         body = invocation.context or invocation.task
         return ToolResult("\n\n".join(part for part in (body, notes) if part))
 
@@ -213,20 +241,43 @@ def build_skill_tool(
     )
 
 
+def runs_in_background(skill: Capability, deps: object, depth: int) -> bool:
+    """`context: fork` becerisi arka planda mı koşar (Claude Code #141)?
+
+    Belge (skills, "Run skills in a subagent"): fork varsayılan olarak arka planda koşar, sonuç
+    tamamlanınca konuşmaya gelir; `background: false` turda bekletir. Etkileşimsiz kipte
+    (`-p`, SDK) her zaman beklenir.
+    """
+    return skill.skill_background and bool(getattr(deps, "interactive", False)) and depth == 0
+
+
 async def _run_forked(
     skill: Capability,
     invocation: SkillInvocation,
     deps: AgentDeps,
-    depth: int,
+    where: tuple[int, Path],
     run_agent: Callable[..., Awaitable[AgentOutcome]],
 ) -> ToolResult:
     """`context: fork`: gövde geçmişsiz alt ajanın görev istemi olur (Claude Code #141)."""
     from .team import DEPTH_LIMIT_MESSAGE, SubTask, depth_limit_reached, run_subagent
 
+    depth, root = where
     if depth_limit_reached(deps, depth):
         return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
     task = "\n\n".join(part for part in (invocation.context, invocation.task) if part)
-    run = await run_subagent(
-        deps, SubTask(task=task, persona=invocation.agent), depth=depth, run_agent=run_agent
+    # Claude Code: `context: fork` ile `model`/`effort` alt ajanın modelini/eforunu belirler.
+    subtask = SubTask(
+        task=task,
+        persona=invocation.agent,
+        model=invocation.model if skill_trusted(skill, root) else "",
+        effort=invocation.effort.strip().lower(),
     )
+    if runs_in_background(skill, deps, depth):
+        from .agent_runtime_tools import launch_agent
+
+        # Kapalı arka plan (`disable_background_tasks`, `background_agents`) ön planda bekler.
+        return await launch_agent(
+            deps, subtask, {"run_in_background": True}, depth=depth, run_agent=run_agent
+        )
+    run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
     return ToolResult(run.text or f"('{skill.name}' alt ajanı boş yanıt verdi)")

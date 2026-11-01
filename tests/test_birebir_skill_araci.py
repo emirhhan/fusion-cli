@@ -211,3 +211,123 @@ def test_repl_durumu_beceriyi_sonraki_tura_tasir(tmp_path: Path) -> None:
     assert "GÖVDE" in ilk.context and ilk.context.count("GÖVDE") == 1
     assert "GÖVDE" in ikinci.context
     assert "GÖVDE" not in ucuncu.context  # /clear
+
+
+def _model_skill_ortam(tmp_path: Path, front: str):  # type: ignore[no-untyped-def]
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    root.mkdir()
+    _skill(home, "derin", front, "Derin düşün: $ARGUMENTS")
+    library = CapabilityRegistry(home, root)
+    deps = SimpleNamespace(
+        config=make_config(),
+        approval_mode=lambda: ApprovalMode.AUTO,
+        home=home,
+        active_model_override=None,
+        turn_effort_override=None,
+    )
+    tool = skill_tool.build_skill_tool(library, deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    return deps, tool, root
+
+
+def test_model_cagrisi_model_ve_eforu_turun_kalanina_uygular(tmp_path: Path) -> None:
+    """Belge: "The override applies for the rest of the current turn" (#139)."""
+    from fusion_cli.core.reasoning import ReasoningEffort
+
+    deps, tool, root = _model_skill_ortam(
+        tmp_path, "description: x\nmodel: openai/gpt-derin\neffort: high\n"
+    )
+
+    result = _run(tool, {"skill": "derin", "args": "konu"}, ToolContext(root=root))
+
+    assert result.ok, result.output
+    assert deps.active_model_override is not None
+    assert deps.active_model_override.model == "openai/gpt-derin"
+    assert deps.turn_effort_override is ReasoningEffort.HIGH
+    assert "bu tur model: openai/gpt-derin" in result.output
+
+
+def test_inherit_modeli_degistirmez(tmp_path: Path) -> None:
+    deps, tool, root = _model_skill_ortam(tmp_path, "description: x\nmodel: inherit\n")
+
+    _run(tool, {"skill": "derin"}, ToolContext(root=root))
+
+    assert deps.active_model_override is None and deps.turn_effort_override is None
+
+
+def test_fork_becerisi_etkilesimli_oturumda_arka_planda_kosar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Belge: fork varsayılan arka planda; `background: false` bekletir (#141)."""
+    from fusion_cli.engines.agent import agent_runtime_tools, team
+
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    root.mkdir()
+    _skill(home, "arka", "context: fork\nmodel: openai/m\neffort: low\n", "iş: $ARGUMENTS")
+    _skill(home, "bekle", "context: fork\nbackground: false\n", "iş")
+    library = CapabilityRegistry(home, root)
+    deps = SimpleNamespace(
+        config=make_config(), approval_mode=lambda: ApprovalMode.AUTO, home=home, interactive=True
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_launch(deps, subtask, args, *, depth, run_agent):  # type: ignore[no-untyped-def]
+        seen["launch"] = (subtask.model, subtask.effort, args)
+        return SimpleNamespace(ok=True, output="arka plan makbuzu")
+
+    async def fake_subagent(deps, subtask, *, depth, run_agent):  # type: ignore[no-untyped-def]
+        seen["wait"] = subtask.task
+        return SimpleNamespace(text="beklendi")
+
+    monkeypatch.setattr(agent_runtime_tools, "launch_agent", fake_launch)
+    monkeypatch.setattr(team, "run_subagent", fake_subagent)
+    monkeypatch.setattr(team, "depth_limit_reached", lambda _deps, _depth: False)
+    tool = skill_tool.build_skill_tool(library, deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    arka = _run(tool, {"skill": "arka", "args": "x"}, ToolContext(root=root))
+    bekle = _run(tool, {"skill": "bekle"}, ToolContext(root=root))
+
+    assert arka.output == "arka plan makbuzu"
+    assert seen["launch"] == ("openai/m", "low", {"run_in_background": True})
+    assert bekle.output == "beklendi" and seen["wait"]
+
+
+def test_kullanici_fork_becerisi_arka_planda_baslar(monkeypatch) -> None:
+    """`/ad` fork becerisi etkileşimli oturumda arka planda başlar (#141)."""
+    import json
+
+    from fusion_cli.cli.repl.state import PendingExtras
+    from fusion_cli.core.tools import ToolResult
+    from fusion_cli.engines.agent import agent_runtime_tools, team_fork
+
+    seen: dict[str, object] = {}
+
+    async def fake_launch(deps, subtask, args, *, depth, run_agent):  # type: ignore[no-untyped-def]
+        seen["args"], seen["inherit"] = args, subtask.inherit_context
+        return ToolResult(json.dumps({"status": "async_launched", "agentId": "a-1"}))
+
+    monkeypatch.setattr(agent_runtime_tools, "launch_agent", fake_launch)
+    runner = PendingExtras(fresh_fork=True, fork_background=True).fork_runner(
+        team_fork.run_forked_turn
+    )
+    deps = SimpleNamespace(live_history=None, interactive=True)
+
+    outcome = asyncio.run(runner("araştır", deps, history=[]))
+
+    assert seen == {"args": {"run_in_background": True}, "inherit": False}
+    assert "arka planda" in outcome.final_text and "a-1" in outcome.final_text
+
+
+def test_background_false_repl_durumuna_tasinir(tmp_path: Path) -> None:
+    from fusion_cli.cli.repl.skill_commands import skill_handler
+    from fusion_cli.cli.repl.state import ReplState
+
+    home = tmp_path / "ev"
+    _skill(home, "kuyruk", "context: fork\n", "iş")
+    _skill(home, "bekle", "context: fork\nbackground: false\n", "iş")
+    state = ReplState(config=make_config(), memory=None, root=tmp_path, home=home)  # type: ignore[arg-type]
+    state.capabilities = CapabilityRegistry(home, tmp_path)
+
+    skill_handler("kuyruk")(state, "")
+    assert state.take_pending_extras().fork_background is True
+    skill_handler("bekle")(state, "")
+    assert state.take_pending_extras().fork_background is False

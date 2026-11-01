@@ -108,6 +108,8 @@ class PendingExtras:
     grants: tuple[tuple[str, str], ...] = ()
     #: Becerinin `context: fork`u: alt ajan geçmişsiz başlar (Claude Code #141).
     fresh_fork: bool = False
+    #: Becerinin `background` alanı (yalnız fork): etkileşimli oturumda arka planda koşar.
+    fork_background: bool = False
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
@@ -130,6 +132,8 @@ class PendingExtras:
             options["persona"] = self.fork_agent
         if self.fresh_fork:
             options["inherit_context"] = False
+        if self.fork_background:
+            options["background"] = True
         return functools.partial(runner, **options) if options else runner
 
 
@@ -252,6 +256,8 @@ class ReplState:
     pending_grants: tuple[tuple[str, str], ...] = ()
     #: Becerinin `context: fork`u: sıradaki fork turu geçmişsiz alt ajanda koşar (#141).
     pending_fresh_fork: bool = False
+    #: Becerinin `background` alanı (fork; varsayılan True): fork arka planda koşar (#141).
+    pending_fork_background: bool = False
     #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
     pending_skill_name: str = ""
     #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
@@ -385,7 +391,9 @@ class ReplState:
             self.pending_fork_agent,
             self.pending_grants,
             self.pending_fresh_fork,
+            self.pending_fork_background,
         )
+        self.pending_fork_background = False
         self.pending_context, self.pending_tools = "", None
         self.pending_grants, self.pending_fresh_fork = (), False
         self.pending_skill_name = ""

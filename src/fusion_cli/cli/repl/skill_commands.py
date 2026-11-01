@@ -100,6 +100,7 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_fork_agent = invocation.agent
         # `context: fork` (#141): alt ajan konuşma geçmişini görmez; gövde görev istemidir.
         state.pending_fresh_fork = invocation.fork
+        state.pending_fork_background = invocation.fork and skill.skill_background
         # Beceri gövdesi sonraki turlarda da bağlamda kalır (#140); komut dosyası görevdir.
         carry = bool(invocation.context) and skill.proposal is None
         state.pending_skill_name = skill.name if carry else ""

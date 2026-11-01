@@ -625,6 +625,8 @@ class AgentDeps:
     #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
     #: yapılandırma dosyasında değiştirmez.
     active_model_override: ModelSpec | None = None
+    #: Modelin çağırdığı becerinin `effort` alanı: turun kalanı için (#139).
+    turn_effort_override: ReasoningEffort | None = None
     #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
     #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
     #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
@@ -892,6 +894,7 @@ async def _run_agent(
             )
     if depth == 0 and not internal:
         deps.active_model_override = None
+        deps.turn_effort_override = None
         # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
         # açılır (kendi geliştirme sunucusu, Fusion'ın önizlemesi). Düzeltici iç
         # turlar ve alt ajanlar bu kümeye ekleme yapamaz.
@@ -2904,7 +2907,10 @@ async def _call_model(
         max_retries=runtime.max_retries,
         tools=offered_tools,
         reasoning_effort=effort_for_spec(
-            spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
+            spec,
+            ReasoningEffort.LOW
+            if state.reasoning_relief
+            else (getattr(deps, "turn_effort_override", None) or runtime.reasoning_effort),
         ),
         disable_thinking=state.reasoning_relief,
         conversation_id=deps.conversation_id,

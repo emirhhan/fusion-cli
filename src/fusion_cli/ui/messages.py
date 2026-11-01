@@ -669,7 +669,8 @@ REPL_MACRO_STARTED = "{name} çalıştırılıyor…"
 REPL_SKILL_STARTED = "{name} becerisi sıradaki tur için hazırlandı."
 REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile kataloğu yenile."
 REPL_SKILL_FORK_NOTE = (
-    "context: fork — bu beceri ana bağlamı devralan bir alt ajanda çalışacak (/subtask gibi)."
+    "context: fork — bu beceri konuşma geçmişini görmeyen bir alt ajanda çalışacak; "
+    "etkileşimli oturumda arka planda koşar (background: false bekletir)."
 )
 REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
 REPL_SKILL_ENGINE_NOTE = (
