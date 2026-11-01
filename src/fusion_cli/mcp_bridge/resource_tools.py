@@ -11,6 +11,7 @@ from typing import Protocol
 
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
+from .references import visible_resources
 
 LIST_TOOL = "ListMcpResourcesTool"
 READ_TOOL = "ReadMcpResourceTool"
@@ -40,10 +41,8 @@ def register_resource_tools(client: _ResourceClient, registry: ToolRegistry) -> 
             if wanted and server != wanted:
                 continue
             catalog = await client.catalog(server)
-            for item in getattr(catalog, "resources", ()):
-                uri = getattr(item, "uri", "")
-                if uri.startswith("ui://") or getattr(item, "mime_type", "").endswith("mcp-app"):
-                    continue  # Claude Code ui:// ve mcp-app kaynaklarını listelemez
+            for item in visible_resources(getattr(catalog, "resources", ())):
+                uri = item.uri
                 name = getattr(item, "name", "") or uri
                 lines.append(f"{server}\t{uri}\t{name}")
         return ToolResult(output="\n".join(lines) or "Kaynak yok.")

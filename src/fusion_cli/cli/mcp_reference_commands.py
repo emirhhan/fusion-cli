@@ -32,20 +32,21 @@ def _print_catalogs(*, kind: str) -> None:
         console.print(messages.MCP_NO_SERVERS)
         return
     from ..mcp_bridge.client import McpClient
-    from ..mcp_bridge.references import visible_prompts
+    from ..mcp_bridge.references import visible_prompts, visible_resources
 
     async def _run() -> None:
         async with McpClient(config.mcp_servers) as client:
             for server in client.servers:
                 catalog = await client.catalog(server)
-                items = catalog.prompts if kind == "prompts" else catalog.resources
+                resources = visible_resources(catalog.resources)
+                items = catalog.prompts if kind == "prompts" else resources
                 console.print(f"[bold]{escape(server)}[/bold] — {len(items)}")
                 for prompt in visible_prompts(catalog.prompts) if kind == "prompts" else ():
                     console.print(
                         f"  [{theme.ACCENT}]/{escape(prompt.slash_name)}[/{theme.ACCENT}] "
                         f"{escape(prompt.usage)} — {escape(prompt.description)}"
                     )
-                for resource in catalog.resources if kind == "resources" else ():
+                for resource in resources if kind == "resources" else ():
                     console.print(
                         f"  [{theme.ACCENT}]@{escape(server)}:{escape(resource.uri)}"
                         f"[/{theme.ACCENT}] — {escape(resource.name or resource.description)}"

@@ -78,6 +78,17 @@ def agent_suggestions(partial: str, agents: Iterable[str]) -> list[str]:
     ][:MAX_SUGGESTIONS]
 
 
+def resource_suggestions(partial: str, mentions: Iterable[str]) -> list[str]:
+    """`@` sonrası parçaya bulanık uyan MCP kaynakları (`sunucu:uri`, #254)."""
+    return [item for item in mentions if fuzzy_match(item, partial)][:MAX_SUGGESTIONS]
+
+
+def _mcp_resource_words() -> list[str]:
+    from .mcp_prompt_commands import resource_mention_words
+
+    return resource_mention_words()
+
+
 def agent_names(state: object) -> list[str]:
     """Oturumun etkin ajan adları (katalog yoksa boş); tamamlama hatası istemi bozmaz."""
     library = getattr(state, "capabilities", None)
@@ -95,6 +106,7 @@ class ReplCompleter(Completer):
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]],
         *,
         agents: Callable[[], list[str]] | None = None,
+        resources: Callable[[], list[str]] | None = None,
     ) -> None:
         #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
@@ -103,6 +115,8 @@ class ReplCompleter(Completer):
         self._roots = roots
         #: Etkin alt ajan adları: `@agent-<ad>` önerisi (Claude Code typeahead, #26).
         self._agents = agents
+        #: Bağlı MCP sunucularının kaynakları: dosyalarla birlikte `@sunucu:uri` (#254).
+        self._resources = resources or _mcp_resource_words
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
@@ -115,6 +129,8 @@ class ReplCompleter(Completer):
             roots = self._roots() if callable(self._roots) else self._roots
             for suggestion in path_suggestions(partial, roots):
                 yield Completion(f"@{suggestion}", start_position=-len(word), display=suggestion)
+            for mention in resource_suggestions(partial, self._resources()):
+                yield Completion(f"@{mention}", start_position=-len(word), display=mention)
             return
         if word.startswith("/") and document.text_before_cursor.lstrip() == word:
             words = self._words() if callable(self._words) else self._words

@@ -37,6 +37,20 @@ def _catalogs() -> dict[str, object]:
     return dict(mcp_catalogs())
 
 
+def resource_mention_words() -> list[str]:
+    """`@` tamamlaması için bağlı sunucuların kaynakları `sunucu:uri` (#254); arayüz hariç."""
+    try:
+        from ...mcp_bridge.references import McpCatalog, visible_resources
+    except ImportError:
+        return []
+    return [
+        f"{resource.server}:{resource.uri}"
+        for catalog in _catalogs().values()
+        if isinstance(catalog, McpCatalog)
+        for resource in visible_resources(catalog.resources)
+    ]
+
+
 def prompt_handler(name: str) -> Callable[[ReplState, str], str]:
     def _handler(state: ReplState, argument: str) -> str:
         state.pending_task = f"/{name} {argument}".strip()
@@ -80,7 +94,7 @@ def mcp_prompt_slash_commands() -> tuple[object, ...]:
 
 def listing(kind: str) -> str:
     """`/mcp prompts` ya da `/mcp resources` metni."""
-    from ...mcp_bridge.references import McpCatalog
+    from ...mcp_bridge.references import McpCatalog, visible_resources
 
     catalogs = {
         server: catalog
@@ -100,7 +114,7 @@ def listing(kind: str) -> str:
             server=resource.server, uri=resource.uri, name=resource.name or resource.description
         ).rstrip(" —")
         for catalog in catalogs.values()
-        for resource in catalog.resources
+        for resource in visible_resources(catalog.resources)
     ]
     return "\n".join(rows) if rows else messages.MCP_RESOURCES_EMPTY
 

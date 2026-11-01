@@ -14,7 +14,6 @@ from ..config.models import McpServerConfig
 from .call_errors import describe_call_error
 from .pool import connected_mcp_client, mcp_catalogs
 from .references import (
-    RESOURCE_MAX_MENTIONS,
     McpExpansion,
     bind_arguments,
     find_prompt,
@@ -34,7 +33,6 @@ PROMPT_LOADED = "MCP istemi yüklendi: {server}/{prompt}"
 RESOURCE_LOADED = "MCP kaynağı bağlama eklendi: @{server}:{uri}"
 RESOURCE_NOT_CONNECTED = "@{server}:{uri}: sunucu bağlı değil, kaynak eklenmedi"
 RESOURCE_FAILED = "@{server}:{uri}: okunamadı ({error})"
-RESOURCE_TOO_MANY = "En fazla {limit} MCP kaynağı eklenir; fazlası atlandı."
 
 
 async def expand_mcp_references(task: str, configs: Sequence[McpServerConfig]) -> McpExpansion:
@@ -89,7 +87,7 @@ async def _expand_references(task: str, configs: Sequence[McpServerConfig]) -> M
     blocks: list[str] = []
     loaded: list[str] = []
     warnings: list[str] = []
-    for server, uri in mentions[:RESOURCE_MAX_MENTIONS]:
+    for server, uri in mentions:  # #254: Claude Code anma sayısını sınırlamaz
         client = connected_mcp_client(server)
         if client is None:
             warnings.append(RESOURCE_NOT_CONNECTED.format(server=server, uri=uri))
@@ -103,8 +101,6 @@ async def _expand_references(task: str, configs: Sequence[McpServerConfig]) -> M
             continue
         loaded.append(f"{server}:{uri}")
         notes.append(RESOURCE_LOADED.format(server=server, uri=uri))
-    if len(mentions) > RESOURCE_MAX_MENTIONS:
-        warnings.append(RESOURCE_TOO_MANY.format(limit=RESOURCE_MAX_MENTIONS))
     return McpExpansion(
         new_task,
         "\n\n".join(blocks),

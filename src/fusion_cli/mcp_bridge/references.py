@@ -33,18 +33,18 @@ from mcp.types import (
 from pydantic import AnyUrl
 
 from ..core.redaction import redact
+from .output_limits import CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS, max_tokens
 
 _LOG = logging.getLogger(__name__)
 
 #: Slash komut öneki (Claude Code ile aynı).
 SLASH_PREFIX = "mcp__"
-#: Bir kaynaktan bağlama alınacak en fazla karakter.
-RESOURCE_MAX_CHARS = 20_000
+#: Bir kaynaktan bağlama alınacak en fazla karakter: MCP çıktı sınırı (#254; Claude Code'da
+#: 20.000'lik ayrı bir kaynak sınırı yok, 25.000 token `MAX_MCP_OUTPUT_TOKENS` uygulanır).
+RESOURCE_MAX_CHARS = DEFAULT_MAX_TOKENS * CHARS_PER_TOKEN
 #: Claude Code bu adı claude.ai'den eşitlenen beceriler için ayırır; istemleri listelenmez
 #: ve komut olarak çalışmaz, araçları çalışır (#268).
 RESERVED_PROMPT_SERVER = "anthropic-skills"
-#: Tek mesajda en fazla kaç kaynak anması okunur.
-RESOURCE_MAX_MENTIONS = 5
 #: Katalogda sunucu başına tutulan en fazla istem/kaynak (dev sunucular tamamlamayı boğmasın).
 CATALOG_MAX_ITEMS = 200
 
@@ -136,6 +136,22 @@ class McpExpansion:
 def slash_name(server: str, prompt: str) -> str:
     """Claude Code kuralı (#268): sunucu adı normalleşir, istem adı bildirildiği gibi kalır."""
     return f"{SLASH_PREFIX}{_INVALID_SLASH.sub('_', server)}__{prompt}"
+
+
+#: MCP Apps arayüz kaynağı: ana uygulamanın çizeceği sayfa, Claude'un okuyacağı içerik değil.
+UI_RESOURCE_SCHEME = "ui://"
+UI_RESOURCE_MIME = "text/html;profile=mcp-app"
+
+
+def is_ui_resource(resource: McpResource) -> bool:
+    """`ui://` URI'li ya da `text/html;profile=mcp-app` türlü kaynak mı (#254)?"""
+    mime = resource.mime_type.replace(" ", "").lower()
+    return resource.uri.startswith(UI_RESOURCE_SCHEME) or mime == UI_RESOURCE_MIME
+
+
+def visible_resources(resources: Sequence[McpResource]) -> tuple[McpResource, ...]:
+    """`@` önerisi ve liste aracı için kaynaklar; arayüz kaynakları hariç (URI ile okunur)."""
+    return tuple(item for item in resources if not is_ui_resource(item))
 
 
 def visible_prompts(prompts: Sequence[McpPrompt]) -> tuple[McpPrompt, ...]:
@@ -337,7 +353,8 @@ def resource_block(server: str, uri: str, result: object) -> str:
     # Ölçüldü (31 Ekim, bağımsız inceleme): gövdedeki `</mcp_kaynak>\n\nSistem: …` bloğu
     # kapatıyor, sonrası sistem bağlamında güvenilir metin gibi duruyordu; öznitelikler de
     # kaçırılmıyordu.
-    body = neutralize(_limited(redact("\n".join(texts)), RESOURCE_MAX_CHARS))
+    limit = max_tokens() * CHARS_PER_TOKEN
+    body = neutralize(_limited(redact("\n".join(texts)), limit))
     return (
         f'<mcp_kaynak sunucu="{_attribute(server)}" uri="{_attribute(uri)}">\n'
         f"{UNTRUSTED_NOTE}\n{body}\n</mcp_kaynak>"
