@@ -479,6 +479,8 @@ ajanlarını listeler/durdurur. Eski `Task`, `spawn_agent`, `spawn_agents` ve `i
 adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulmaz.
 
 - `permissions.deny` içine `Agent(Explore)` yazmak o tipi kapatır (eski adlara da uygulanır).
+- `SendMessage`'i olan fork olmayan alt ajanın başlangıç bağlamına `main` ve oturumdaki adlı
+  (`name` verilmiş) ajanların listesi girer; başlangıç anının görüntüsüdür.
 - İç içe alt ajan: varsayılan ana konuşmanın altında 3 kat (`runtime.max_agent_depth`,
   `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`; `1` iç içeyi kapatır). Aynı anda en çok 20 alt ajan
   çalışır (`runtime.max_parallel_agents`, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`); sınırda yeni

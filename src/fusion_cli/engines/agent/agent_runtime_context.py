@@ -193,3 +193,28 @@ def background_tools(
     if registry is not None:
         names.update(name for name in available if registry.is_remote(name))
     return names & (set(available) if allowed is None else allowed)
+
+
+def sibling_roster(
+    deps: AgentDeps, sub_id: str, allowed: set[str] | None, available: tuple[str, ...]
+) -> str:
+    """Claude Code kardeş listesi: SendMessage'i olan alt ajana `main` ve adlı ajanlar (#40).
+
+    Başlangıç anının görüntüsüdür; sonradan adlandırılan ajan görünmez.
+    """
+    tools = set(available) if allowed is None else allowed
+    if "SendMessage" not in tools:
+        return ""
+    names = sorted(
+        {
+            state.name
+            for state in deps.child_runs.records()
+            if state.name and state.agent_id != sub_id
+        }
+    )
+    if not names:
+        return ""
+    listed = ", ".join(("main", *names))
+    return (
+        f"<system-reminder>SendMessage ile ulaşabileceğin ajanlar (to): {listed}</system-reminder>"
+    )

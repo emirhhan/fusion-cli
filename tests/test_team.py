@@ -678,3 +678,32 @@ async def test_maxturns_sinirina_ulasan_alt_ajan_kismi_isaretlenir(tmp_path):
 
     assert run.status == "partial" and run.ok
     assert "ilk yarı" in run.text and "maxTurns" in run.text
+
+
+async def test_sendmessage_alan_alt_ajan_adli_kardes_listesini_gorur(tmp_path):
+    """Claude Code: SendMessage'i olan fork olmayan alt ajana `main` ve adlı ajanlar listelenir."""
+    from fusion_cli.core.agent_runtime_state import AgentRunState
+    from fusion_cli.engines.agent.team import run_subagent
+
+    deps = _deps(tmp_path, RecordingSink())
+    deps.child_runs.remember(
+        AgentRunState(
+            "arastirmaci-1",
+            deps.child_runs.session_id,
+            str(tmp_path),
+            "x",
+            True,
+            name="arastirmaci",
+        ),
+        (),
+    )
+    gorulen: dict[str, str] = {}
+
+    async def _ajan(task, sub_deps, **kwargs):
+        gorulen["extra"] = kwargs.get("extra_system") or ""
+        return SimpleNamespace(final_text="tamam", ok=True, tool_calls_made=0, messages=[])
+
+    await run_subagent(deps, SubTask("iş", name="yazar"), depth=0, run_agent=_ajan)
+
+    assert "main" in gorulen["extra"] and "arastirmaci" in gorulen["extra"]
+    assert "SendMessage" in gorulen["extra"]

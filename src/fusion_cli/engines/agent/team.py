@@ -552,6 +552,11 @@ async def _run_child(
             from .agent_runtime_context import background_tools
 
             effective_tools = background_tools(sub_deps, effective_tools, available)
+        if not is_fork:
+            from .agent_runtime_context import sibling_roster
+
+            roster = sibling_roster(deps, sub_id, effective_tools, available)
+            handoff = "\n\n".join(part for part in (handoff, roster) if part)
         subtask = dataclasses.replace(
             subtask, tool_cap=frozenset(effective_tools) if effective_tools is not None else None
         )
