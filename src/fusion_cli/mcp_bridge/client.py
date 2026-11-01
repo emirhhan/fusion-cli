@@ -53,6 +53,7 @@ from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
+from .output_limits import declared_limit
 from .headers_helper import has_authorization, run_headers_helper
 from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .transport import open_mcp_stream
@@ -144,6 +145,8 @@ class McpClient:
         self._stale_tools: set[str] = set()
         #: Sunucu başına deftere yazılan araç adları (kaldırılanları silmek için).
         self._registered: dict[str, set[str]] = {}
+        #: Araç başına `_meta["anthropic/maxResultSizeChars"]` sınırı (#240).
+        self._result_limits: dict[tuple[str, str], int] = {}
 
     @property
     def is_stalled(self) -> bool:
@@ -367,6 +370,10 @@ class McpClient:
                 break
             seen.add(next_cursor)
             cursor = next_cursor
+        for tool in discovered:
+            limit = declared_limit(getattr(tool, "meta", None))
+            if limit is not None:
+                self._result_limits[(server, tool.name)] = limit
         # Özet, etkiler hesaplanmadan ÖNCE kaydedilir: değişen tanım okuma muafiyeti alamaz.
         digest = self._tool_digests[server] = tools_digest(discovered)
         config = next((item for item in self._configs if item.name == server), None)
@@ -407,7 +414,9 @@ class McpClient:
                 wall, idle = self._call_budgets(server)
                 async with asyncio.timeout(wall):
                     result = await _call_with_idle(session, name, args, idle)
-                    normalized = normalize_call_result(result)
+                    normalized = normalize_call_result(
+                        result, declared_chars=self._result_limits.get((server, name))
+                    )
                     self._timeouts.pop(server, None)
                     current = self._statuses.get(server)
                     if current is not None:

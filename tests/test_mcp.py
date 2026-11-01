@@ -387,7 +387,8 @@ async def test_uzun_metin_structured_ve_kaynak_ozetini_gizlemez():
 
     assert '"needle": "KORUNMALI"' in sonuc.output
     assert "file:///tmp/kritik.json" in sonuc.output
-    assert "KIRPILDI" in sonuc.output
+    # Claude Code sınırları (#240): 25k karakter 25k token / 50k karakter altında, kırpılmaz.
+    assert "x" * 25_000 in sonuc.output
 
 
 async def test_buyuk_structured_sonraki_kaynak_ozetini_gizlemez():
@@ -408,7 +409,7 @@ async def test_buyuk_structured_sonraki_kaynak_ozetini_gizlemez():
 
     assert "file:///tmp/critical" in sonuc.output
     assert '"huge"' in sonuc.output
-    assert "KIRPILDI" in sonuc.output
+    assert "x" * 25_000 in sonuc.output
 
 
 class _SayfaliOturum:
