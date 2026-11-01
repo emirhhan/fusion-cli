@@ -133,6 +133,8 @@ class InstructionFile:
     chars: int
     trimmed: int
     trusted: bool
+    #: `@import` ile gelen dosyada onu içe aktaran dosya (InstructionsLoaded `parent_file_path`).
+    parent: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +330,13 @@ def _read_whole(loader: _Loader, path: Path, label: str) -> str | None:
 
 
 def _load_file(
-    loader: _Loader, path: Path, *, layer: str, depth: int = 0, project: bool | None = None
+    loader: _Loader,
+    path: Path,
+    *,
+    layer: str,
+    depth: int = 0,
+    project: bool | None = None,
+    parent: Path | None = None,
 ) -> bool:
     """Bir talimat dosyasını oku, bloğunu ekle, `@yol` importlarını izle."""
     if not _exists(path):
@@ -358,7 +366,7 @@ def _load_file(
         loader.notes.append(f"{label}: {ADVISED_MAX_LINES} satırdan uzun; kısaltman önerilir")
     loader.blocks.append(_block(str(real), layer, content))
     trusted = layer in ("kurumsal", "kullanici", "yerel")
-    loader.files.append(InstructionFile(label, path, layer, len(content), 0, trusted))
+    loader.files.append(InstructionFile(label, path, layer, len(content), 0, trusted, parent))
     if project is None:
         project = layer in ("proje", "yerel")
     _follow_imports(loader, content, origin=real, project=project, depth=depth)
@@ -381,7 +389,9 @@ def _follow_imports(
                 loader.pending.append(resolved)
             loader.notes.append(f"@{target}: çalışma dizini dışına import ({state})")
             continue
-        _load_file(loader, resolved, layer="import", depth=depth + 1, project=project)
+        _load_file(
+            loader, resolved, layer="import", depth=depth + 1, project=project, parent=origin
+        )
 
 
 def _block(source: str, layer: str, content: str) -> str:

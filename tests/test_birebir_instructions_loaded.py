@@ -87,3 +87,34 @@ def test_kural_dosyalari_oturum_basi_ve_glob_eslesmesiyle_bildirilir(tmp_path: P
     alt = instructions_hook.nested_event(tmp_path, "paket/CLAUDE.md", "paket/a.py", [tsx])
     assert alt["load_reason"] == "nested_traversal"
     assert alt["file_path"] == str(tmp_path / "paket" / "CLAUDE.md")
+
+
+def test_import_parent_file_path_ve_compact_sonrasi_yeniden_bildirim(tmp_path: Path) -> None:
+    from fusion_cli.engines.agent.instruction_layers import load_instruction_layers
+
+    root = tmp_path / "proje"
+    root.mkdir()
+    (root / "CLAUDE.md").write_text("ana\n@ek.md\n", "utf-8")
+    (root / "ek.md").write_text("ek kural", "utf-8")
+    files = load_instruction_layers(root, None).files
+    hooks = _Hooks()
+
+    async def run() -> None:
+        instructions_hook.notify(hooks, instructions_hook.startup_events(files))
+        instructions_hook.notify(hooks, instructions_hook.startup_events(files))
+        instructions_hook.mark_compacted(hooks)
+        events = instructions_hook.startup_events(files)
+        instructions_hook.notify(hooks, instructions_hook.after_compact(hooks, events))
+        # Özetlemeden sonraki ikinci tur yeniden bildirmez.
+        events = instructions_hook.startup_events(files)
+        instructions_hook.notify(hooks, instructions_hook.after_compact(hooks, events))
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    reasons = [fields["load_reason"] for _, _, fields in hooks.calls]
+    assert reasons == ["session_start", "include", "compact", "compact"]
+    include = hooks.calls[1][2]
+    assert include["parent_file_path"] == str((root / "CLAUDE.md").resolve())
+    assert "parent_file_path" not in hooks.calls[0][2]
+    assert hooks.calls[3][2]["parent_file_path"] == include["parent_file_path"]

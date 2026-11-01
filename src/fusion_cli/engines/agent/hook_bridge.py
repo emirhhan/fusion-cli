@@ -297,6 +297,10 @@ async def compacted_context(deps: AgentDeps) -> str:
     if session is None or not _records_tools(deps):
         return ""
     verdict = await session.compacted()
+    # InstructionsLoaded (#169): talimatların yeniden yüklenişi `compact` nedeniyle bildirilir.
+    from . import instructions_hook
+
+    instructions_hook.mark_compacted(session)
     _publish(deps, verdict)
     if not verdict.context_text:
         return ""

@@ -1050,6 +1050,10 @@ async def compact_history(state: ReplState) -> str:
         return messages.REPL_NOTHING_TO_COMPACT
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
+    # InstructionsLoaded (#169): sonraki turda talimatlar `compact` nedeniyle yeniden bildirilir.
+    from ...engines.agent import instructions_hook
+
+    instructions_hook.mark_compacted(state.hooks())
     if verdict.context_text:
         prefixes.push_pending_context(
             state,

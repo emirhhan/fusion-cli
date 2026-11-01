@@ -46,6 +46,38 @@ def _first_time(hooks: object, key: str) -> bool:
     return True
 
 
+#: Bağlamı özetlenmiş oturumlar: sonraki yüklemenin nedeni `compact` (#169).
+_COMPACTED: set[int] = set()
+#: Özetlemeden sonra yeniden bildirilen nedenler.
+_RELOADED_REASONS = ("session_start", "include", "compact")
+
+
+def mark_compacted(hooks: object | None) -> None:
+    """Bağlam özetlendi: talimatlar yeniden yüklenince olay `compact` nedeniyle tekrar gider."""
+    if hooks is None:
+        return
+    seen = _FIRED.get(id(hooks))
+    if seen is not None:
+        _FIRED[id(hooks)] = {key for key in seen if not key.startswith("startup:")}
+    _COMPACTED.add(id(hooks))
+
+
+def after_compact(
+    hooks: object | None, events: Iterable[Mapping[str, object]]
+) -> list[Mapping[str, object]]:
+    """Özetlemeden sonraki ilk yüklemede `session_start`/`include` → `compact` (bir kez)."""
+    items = list(events)
+    if hooks is None or id(hooks) not in _COMPACTED:
+        return items
+    _COMPACTED.discard(id(hooks))
+    return [
+        {**fields, "load_reason": "compact"}
+        if fields.get("load_reason") in _RELOADED_REASONS
+        else fields
+        for fields in items
+    ]
+
+
 def payload(path: str, layer: str, reason: str, **extra: str) -> dict[str, object]:
     """Claude Code ile aynı alan adları; boş isteğe bağlı alanlar gönderilmez."""
     fields: dict[str, object] = {
@@ -57,6 +89,13 @@ def payload(path: str, layer: str, reason: str, **extra: str) -> dict[str, objec
     return fields
 
 
+def _key(fields: Mapping[str, object]) -> str:
+    """Tekilleştirme anahtarı: oturum başı / include / compact aynı yüklemedir."""
+    reason = fields.get("load_reason")
+    kind = "startup" if reason in _RELOADED_REASONS else str(reason)
+    return f"{kind}:{fields.get('file_path')}"
+
+
 def notify(hooks: object | None, events: Iterable[Mapping[str, object]]) -> None:
     """Yeni yüklenen her dosya için olayı arka planda gönder (çalışan döngü yoksa atla)."""
     emit = getattr(hooks, "emit", None) if hooks is not None else None
@@ -65,7 +104,7 @@ def notify(hooks: object | None, events: Iterable[Mapping[str, object]]) -> None
     fresh = [
         fields
         for fields in events
-        if _first_time(hooks, f"{fields.get('load_reason')}:{fields.get('file_path')}")
+        if _first_time(hooks, _key(fields))
     ]
     if not fresh:
         return
@@ -97,7 +136,15 @@ def startup_events(files: Iterable[object]) -> list[dict[str, object]]:
     for item in files:
         layer = str(getattr(item, "layer", ""))
         reason = "include" if layer == "import" else "session_start"
-        result.append(payload(str(getattr(item, "path", "")), layer, reason))
+        parent = getattr(item, "parent", None) if reason == "include" else None
+        result.append(
+            payload(
+                str(getattr(item, "path", "")),
+                layer,
+                reason,
+                parent_file_path=str(parent) if parent is not None else "",
+            )
+        )
     return result
 
 
