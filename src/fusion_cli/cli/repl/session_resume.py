@@ -23,7 +23,7 @@ from ...core.errors import SessionNotFoundError
 from ...core.types import Message
 from ...ui import messages
 from ...ui.picker import Choice, pick
-from . import linked_pr
+from . import linked_pr, resume_lookup
 from .state import ReplState
 from .transcript_store import (
     ConversationRef,
@@ -97,17 +97,31 @@ def resolve_launch(
         if name:
             TranscriptStore(memory_dir, root, conversation_id=conversation_id).record_name(name)
         return ResumeTarget(conversation_id, (), name, name=name)
+    events_path: Path | None = None
     if continue_last:
         refs = list_conversations(memory_dir, root)
         if not refs:
             raise SessionNotFoundError(messages.SESSION_NONE_TO_CONTINUE)
         ref = refs[0]
     else:
-        found = find_conversation(memory_dir, root, resume)
-        if found is None:
+        # Claude Code (#203): kimlik projeler arası, ad tam eşleşme; belirsiz ad seçici açar.
+        resolution = resume_lookup.resolve(memory_dir, root, resume)
+        if resolution.ambiguous:
+            from .resume_launch import pick_among
+
+            chosen = pick_among(list(resolution.ambiguous), resume.strip())
+            resolution = resume_lookup.Resolution(
+                next(r for r in resolution.ambiguous if r.conversation_id == chosen)
+            )
+        if resolution.ref is None:
             raise SessionNotFoundError(messages.SESSION_NOT_FOUND.format(query=resume.strip()))
-        ref = found
-    history = tuple(load_transcript_messages(memory_dir, root, conversation_id=ref.conversation_id))
+        ref = resolution.ref
+        events_path = resolution.events_path
+    history = tuple(
+        load_transcript_messages(
+            memory_dir, root, conversation_id=ref.conversation_id, events_path=events_path
+        )
+    )
     if fork:
         target_id = fork_conversation(
             memory_dir, root, history, name=name or ref.name, target_id=wanted_id
@@ -195,13 +209,20 @@ def resume_command(state: ReplState, argument: str) -> str:
         if chosen is None:
             return ""
         query = chosen
-    ref = find_conversation(state.config.memory_dir, state.root, query)
+    resolution = resume_lookup.resolve(state.config.memory_dir, state.root, query)
+    if resolution.ambiguous:
+        # Claude Code: `/resume <ad>` belirsizse hata; argümansız `/resume` seçiciyi açar.
+        return messages.SESSION_NAME_AMBIGUOUS.format(name=query, count=len(resolution.ambiguous))
+    ref = resolution.ref
     if ref is None:
         return messages.SESSION_NOT_FOUND.format(query=query)
     if ref.conversation_id == state.conversation_id:
         return messages.SESSION_ALREADY_ACTIVE
     history = load_transcript_messages(
-        state.config.memory_dir, state.root, conversation_id=ref.conversation_id
+        state.config.memory_dir,
+        state.root,
+        conversation_id=ref.conversation_id,
+        events_path=resolution.events_path,
     )
     apply_target(state, ResumeTarget(ref.conversation_id, tuple(history), ref.title, name=ref.name))
     from . import session_agent

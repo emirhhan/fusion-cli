@@ -1189,6 +1189,10 @@ SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
 SESSION_PICK_CANCELLED = "Sohbet seçilmedi; oturum açılmadı."
 SESSION_NONE_TO_CONTINUE = "Bu projede sürdürülecek sohbet yok; `fusion` ile yeni sohbet aç."
 SESSION_NOT_FOUND = "Sohbet bulunamadı: {query} (kimlik, ad ya da kimlik öneki; liste için /resume)"
+SESSION_NAME_AMBIGUOUS = (
+    "'{name}' adı {count} sohbete verilmiş; seçmek için argümansız /resume çalıştırın."
+)
+SESSION_PICK_NAMED = "'{name}' adlı sohbetler"
 SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
 SESSION_RESUMED = "Sürdürülüyor: {title} ({count} mesaj)"
 SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet değişmez."

@@ -314,7 +314,11 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
   yükler (`bypass` hariç: o kip yalnız açılış bayrağıyla girilir). Kayıtlı durum yoksa ya da
   sohbet sonradan başka yüzeyde (masaüstü) sürdüyse transcript'in SON 100 kullanıcı/cevap
   mesajı yüklenir; `--fork-session` ve `/branch` kopyası da metin geçmişiyle başlar. Aynı adı iki sohbete
-  verdiysen `--resume <ad>` "bulunamadı" der; kimlik (ya da 6+ karakterlik öneki) kullan.
+  verdiysen `fusion --resume <ad>` Claude Code'daki gibi seçiciyi o adı taşıyan sohbetlerle açar,
+  `/resume <ad>` ise hata verir (argümansız `/resume` seçiciyi açar). Ad tam eşleşir (büyük/küçük
+  harf duyarlı). `--resume <kimlik>` önce bu projede (ve çalışma ağaçlarında), sonra makinedeki
+  öteki projelerde arar; kimlik yalnız tek bir projede bulunursa açılır. Fusion'ın eski büyük/küçük
+  duyarsız ad ve 6+ karakterlik kimlik öneki eşleşmesi tam eşleşme yoksa yedek olarak kalır.
 - `/import history <kaynak> [oturum]` (ör. `/import history claude`) başka araçların geçmişini yalnız
   künye olarak devralır; `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
   Claude Code'da `/resume<kaynak>` komutları yok; Fusion'ın eski `/resumeclaude`, `/resumecodex` adları

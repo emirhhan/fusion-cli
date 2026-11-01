@@ -41,7 +41,11 @@ _ID_PREFIX_MIN = 6
 
 
 def load_transcript_messages(
-    base_dir: Path, root: Path, *, conversation_id: str | None = None
+    base_dir: Path,
+    root: Path,
+    *,
+    conversation_id: str | None = None,
+    events_path: Path | None = None,
 ) -> list[Message]:
     """Bir workspace'in sürdürülebilir kullanıcı/cevap mesajlarını yaz-madan oku.
 
@@ -50,8 +54,8 @@ def load_transcript_messages(
     geçmişte birikir ve bir sekmeye tıklayan kullanıcı başka bir sekmenin
     konuşmasını görür. TUI kimlik vermez ve proje genelini okumaya devam eder.
     """
-    digest = _workspace_digest(root)
-    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    # `events_path`: başka projenin dosyası (`--resume <kimlik>` projeler arası arama, #203).
+    path = events_path or transcript_events_path(base_dir, root)
     deleted = _deleted_conversations(path.parent)
     messages: list[Message] = []
     try:
@@ -384,7 +388,9 @@ def transcript_events_path(base_dir: Path, root: Path) -> Path:
     )
 
 
-def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...]:
+def list_conversations(
+    base_dir: Path, root: Path, *, events_path: Path | None = None
+) -> tuple[ConversationRef, ...]:
     """Bir workspace'te kayıtlı sohbetleri en yeniden eskiye sırala.
 
     Ölçüldü (kullanıcının diski, 8 Eylül): 110 sohbet transcript dosyalarında
@@ -394,8 +400,7 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
     Kullanıcı mesajı olmayan kayıt sohbet sayılmaz: yalnız araç olayı taşıyan
     bir kimlik kullanıcı için hiçbir şey ifade etmez.
     """
-    digest = _workspace_digest(root)
-    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    path = events_path or transcript_events_path(base_dir, root)
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:

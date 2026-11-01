@@ -51,3 +51,14 @@ def pick_conversation(memory_dir: Path, root: Path, chooser: Chooser | None = No
     if not chosen:
         raise SessionNotFoundError(messages.SESSION_PICK_CANCELLED)
     return chosen
+
+
+def pick_among(refs: list, name: str, chooser: Chooser | None = None) -> str:
+    """Belirsiz ad (#203): seçici yalnız o adı taşıyan sohbetlerle açılır."""
+    from .session_resume import resume_choices
+
+    title = messages.SESSION_PICK_NAMED.format(name=name)
+    chosen = (chooser or _default_chooser)(resume_choices(refs), title)
+    if not chosen:
+        raise SessionNotFoundError(messages.SESSION_PICK_CANCELLED)
+    return chosen
