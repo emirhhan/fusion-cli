@@ -198,6 +198,10 @@ class FusionTui:
         self._kb = self._bindings()
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
+        #: Tek cevap yuvası: modallar SIRAYLA açılır (#209). Ölçüldü (1 Kasım): tur
+        #: sürerken açılan `/model` seçicisi ile araç onayı aynı yuvayı eziyor, Enter
+        #: yanlış soruyu yanıtlıyor ve ilk seçici hiç çözülmüyordu.
+        self._modal_lock = asyncio.Lock()
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
         self._choices: list[Choice] = []
         self._choice_index = 0
@@ -506,7 +510,8 @@ class FusionTui:
     # -- Modal (onay/soru) -------------------------------------------------- #
 
     async def await_text(self) -> str:
-        return str(await self._await_answer("ask"))
+        async with self._modal_lock:
+            return str(await self._await_answer("ask"))
 
     async def await_choice(
         self,
@@ -522,6 +527,12 @@ class FusionTui:
         """
         if not choices:
             return None
+        async with self._modal_lock:
+            return await self._run_choice(title, choices, alt_keys, searchable)
+
+    async def _run_choice(
+        self, title: str, choices: list[Choice], alt_keys: tuple[str, ...], searchable: bool
+    ) -> str | None:
         self._choices = list(choices)
         self._choice_index = 0
         self._choice_title = title

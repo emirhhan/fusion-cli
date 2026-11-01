@@ -860,3 +860,28 @@ def test_oturumluk_taslaklar_en_cok_on_tane():
     kalan = [s for s in gecmis.get_strings() if s.startswith("taslak")]
     assert len(kalan) == MAX_CLEARED_DRAFTS
     assert "taslak 0" not in kalan
+
+
+async def test_eszamanli_iki_modal_sirayla_acilir_birbirini_ezmez():
+    """#209: tur sürerken açılan seçici ile araç onayı aynı yuvayı ezmemeli."""
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    secici = asyncio.ensure_future(
+        tui.await_choice("model", [Choice("m1", "M1"), Choice("m2", "M2")])
+    )
+    await asyncio.sleep(0)
+    onay = asyncio.ensure_future(
+        tui.await_choice("izin verilsin mi?", [Choice("once", "Bir kez"), Choice("deny", "Reddet")])
+    )
+    await asyncio.sleep(0)
+    # İlk modal açık kalır; Enter onu yanıtlar, onayı DEĞİL.
+    assert tui._choice_title == "model"
+    _press(tui, "down")
+    tui._accept(type("B", (), {"text": ""})())
+    assert await asyncio.wait_for(secici, 1) == "m2"
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert tui._choice_title == "izin verilsin mi?" and not onay.done()
+    _press(tui, "escape")
+    assert await asyncio.wait_for(onay, 1) is None
