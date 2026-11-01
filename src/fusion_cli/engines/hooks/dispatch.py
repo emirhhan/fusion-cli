@@ -28,7 +28,7 @@ TOOL_EVENTS = frozenset(
     {HookEvent.PRE_TOOL_USE, HookEvent.POST_TOOL_USE, HookEvent.POST_TOOL_USE_FAILURE}
 )
 #: Yazılmamış zaman aşımının olay başına Claude varsayılanı (sn).
-_EVENT_DEFAULT_TIMEOUT = {HookEvent.USER_PROMPT_SUBMIT: 30.0}
+_EVENT_DEFAULT_TIMEOUT = {HookEvent.USER_PROMPT_SUBMIT: 30.0, HookEvent.PRE_MODEL_SWITCH: 30.0}
 #: `onFailure: block`'un etkisiz olduğu olaylar (çıkış 2 ajanı sürdürür).
 _NO_FAILURE_BLOCK = frozenset(
     {

@@ -153,10 +153,25 @@ def _from_json(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:
         verdict = _post_tool_fields(verdict, specific)
     if event is HookEvent.PERMISSION_REQUEST:
         verdict = _permission_request_fields(verdict, specific)
+    if event is HookEvent.PRE_MODEL_SWITCH:
+        return _model_switch_fields(verdict, specific)
     context = _text(specific.get("additionalContext"))
     if context and verdict.permission != "defer":
         verdict = replace(verdict, additional_context=(context,))
     return _session_fields(event, verdict, specific)
+
+
+def _model_switch_fields(verdict: HookVerdict, specific: Mapping[str, object]) -> HookVerdict:
+    """PreModelSwitch: allow|deny|ask (`defer`, `updatedInput`, `additionalContext` yok)."""
+    decision = specific.get("permissionDecision")
+    reason = _text(specific.get("permissionDecisionReason"))
+    if decision == "deny":
+        return replace(verdict, blocked=True, permission="deny", reason=reason or "kanca reddetti")
+    if decision in ("allow", "ask"):
+        return replace(
+            verdict, permission=str(decision), ask_reason=reason if decision == "ask" else ""
+        )
+    return verdict
 
 
 def _universal_fields(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:

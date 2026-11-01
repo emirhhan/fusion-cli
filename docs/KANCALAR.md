@@ -67,6 +67,8 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
+| `PreModelSwitch` | `/model agent <id>` oturum modelini değiştirmeden önce (girdi `from_model`, `to_model`, `requested_model`, `source`, maliyet alanları; süre 30 sn) | hedef modelin kanonik adı (`claude-opus-5`; `sağlayıcı/model` de eşleşir) | model değişmez; `permissionDecision` `deny` ve `ask` (Fusion'da soru kartı yok) reddeder, `allow` geçirir; `systemMessage` her durumda gösterilir |
+| `PostModelSwitch` | oturum modeli değiştikten sonra | hedef modelin kanonik adı | — (düz stdout ve `additionalContext` sonraki istekle modele) |
 | `DirectoryAdded` | `/add-dir` yeni klasör ekleyince (kökün içindeki klasör ve `--add-dir` tetiklemez; girdi `directory`, `source`); kanca beklenmez | `slash_command` | — (`systemMessage` sonraki turda modele bağlam olur) |
 | `InstructionsLoaded` | `CLAUDE.md`/`AGENTS.md`, `CLAUDE.local.md`, `@import` ya da `.claude/rules/*.md` bağlama ilk girince (dosya başına oturumda bir kez; girdi `file_path`, `memory_type`, `load_reason`, `globs`, `trigger_file_path`, `parent_file_path`) | `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact` | — (beklenmez; JSON çıktısı yok sayılır) |
 | `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
@@ -246,9 +248,12 @@ Tanımlar her kök turun başında yeniden okunur.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - Olaylar: `Setup`, `PermissionDenied`,
   `MessageDisplay`, `ConfigChange`,
-  `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
-  `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
+  `FileChanged`, `WorktreeCreate`, `WorktreeRemove`,
+  `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").
+- `PreModelSwitch` maliyet alanları ölçülmez (`context_tokens: 0`, `pricing: "default"`);
+  zaman aşımı değişikliği engellemez (engellemeyen hata); otomatik geri dönüş ve `resume`
+  model geri yüklemesi `PostModelSwitch`'i tetiklemez.
 - `UserPromptExpansion` engellese de becerinin `!`komut`` bağlam satırları komut yazıldığı anda
   çalışmış olur (engel modele gitmeyi durdurur).
 - Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);

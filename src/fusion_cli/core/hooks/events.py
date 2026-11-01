@@ -43,6 +43,8 @@ class HookEvent(Enum):
     INSTRUCTIONS_LOADED = "InstructionsLoaded"
     USER_PROMPT_EXPANSION = "UserPromptExpansion"
     DIRECTORY_ADDED = "DirectoryAdded"
+    PRE_MODEL_SWITCH = "PreModelSwitch"
+    POST_MODEL_SWITCH = "PostModelSwitch"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -67,6 +69,8 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.POST_TOOL_BATCH: None,
     HookEvent.USER_PROMPT_EXPANSION: "komut adı (command_name)",
     HookEvent.DIRECTORY_ADDED: "kaynak (slash_command)",
+    HookEvent.PRE_MODEL_SWITCH: "hedef modelin kanonik adı",
+    HookEvent.POST_MODEL_SWITCH: "hedef modelin kanonik adı",
     HookEvent.INSTRUCTIONS_LOADED: (
         "yükleme nedeni (session_start|nested_traversal|path_glob_match|include|compact)"
     ),
@@ -93,12 +97,19 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.POST_TOOL_BATCH,
         # UserPromptExpansion: komut açılmaz, gerekçe kullanıcıya.
         HookEvent.USER_PROMPT_EXPANSION,
+        # PreModelSwitch: model değişmez.
+        HookEvent.PRE_MODEL_SWITCH,
     }
 )
 
 #: Düz (JSON olmayan) stdout'u modele bağlam olarak ekleyen olaylar (Claude ile aynı).
 STDOUT_CONTEXT_EVENTS = frozenset(
-    {HookEvent.USER_PROMPT_SUBMIT, HookEvent.SESSION_START, HookEvent.USER_PROMPT_EXPANSION}
+    {
+        HookEvent.USER_PROMPT_SUBMIT,
+        HookEvent.SESSION_START,
+        HookEvent.USER_PROMPT_EXPANSION,
+        HookEvent.POST_MODEL_SWITCH,
+    }
 )
 
 #: Claude Code'un tanıdığı ama Fusion'ın (henüz) tetiklemediği olaylar: listede
@@ -112,8 +123,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "FileChanged",
         "WorktreeCreate",
         "WorktreeRemove",
-        "PreModelSwitch",
-        "PostModelSwitch",
         "Elicitation",
         "ElicitationResult",
     }

@@ -361,8 +361,9 @@ def _model(state: ReplState, argument: str) -> str:
     if not parts:
         return model_select.format_models(state.config)
     result = model_command_result(state, parts)
-    state.config = result.config
-    return result.message
+    from .model_switch_hooks import apply_model_result
+
+    return apply_model_result(state, parts, result)
 
 
 @dataclass(frozen=True, slots=True)
