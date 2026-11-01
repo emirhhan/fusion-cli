@@ -61,17 +61,24 @@ def _target(server: McpServerConfig) -> str:
     return server.url if server.is_remote else " ".join((server.command, *server.args)).strip()
 
 
+def _row(server: McpServerConfig) -> str:
+    return redact(
+        f"· {server.name} [{_scope_label(server)}"
+        f" · {server.transport.value}] {_target(server)} — {_status_label(server.name)}"
+    )
+
+
 def panel(servers: tuple[McpServerConfig, ...], root: Path | None = None) -> str:
+    """Claude Code `/mcp` gibi kapsam gruplarıyla (Local/Project/User/Plugin/Managed MCPs)."""
     disabled = sorted(disabled_mcp_servers(root or Path.cwd()))
     if not servers and not disabled:
         return messages.MCP_NO_SERVERS
-    lines = [
-        redact(
-            f"· {server.name} [{_scope_label(server)}"
-            f" · {server.transport.value}] {_target(server)} — {_status_label(server.name)}"
-        )
-        for server in servers
-    ]
+    lines: list[str] = []
+    for scope, heading in mcp_messages.SCOPE_GROUPS:
+        group = [server for server in servers if server.scope.value == scope]
+        if group:
+            lines.append(heading)
+            lines.extend(_row(server) for server in group)
     lines.extend(f"· {name} {mcp_messages.STATUS_DISABLED}" for name in disabled)
     lines.append(PANEL_USAGE)
     return "\n".join(lines)

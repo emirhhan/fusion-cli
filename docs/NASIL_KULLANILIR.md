@@ -742,7 +742,18 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir;
   `managed-mcp.json` varken `--mcp-config` açılışta Claude'un iletisiyle çıkar (kod 1);
   kuruluşun sağladığı sunucuyu `fusion mcp remove` "provided by your organization" diyerek
-  reddeder. Henüz yok: `/mcp` ekranında ayrı "Managed MCPs" grubu ve `allowAllClaudeAiMcps`.
+  reddeder. Kuruluş sunucuları `managed` (yönetilen) kapsamındadır: REPL `/mcp` sunucuları
+  Claude Code gibi kapsam gruplarında (Local / Project / User / Plugin / Managed MCPs) gösterir,
+  `fusion mcp list|get` "yönetilen" yazar, masaüstü Bağlantılar ekranı "kuruluş" rozeti koyar ve
+  kaldırma/güven düğmesi sunmaz. Kuruluş sunucusu kullanıcının `config.yaml`'ına yazılmaz;
+  politikanın gizlediği (ret listesindeki ya da kuruluş adıyla gölgelenen) kullanıcı kaydı
+  başka bir yazmada silinmez, politika kalkınca geri gelir.
+- `allowAllClaudeAiMcps`: Claude Code'da `managed-mcp.json` claude.ai connector'larını
+  bastırır. Fusion'daki karşılığı web sağlayıcısının connector ekranından bağlanan
+  barındırmalı connector'lardır (`hosted_connectors`): tekel varken yüklenmez, yalnız yönetilen
+  ayardaki (`managed-settings.json`) `allowAllClaudeAiMcps: true` onları geri getirir;
+  kullanıcı/proje ayarındaki değer etkisizdir. Ret/izin listesi (`serverName`, `serverUrl`)
+  connector'lara da uygulanır. Eklenti sunucuları tekelde yine düşer.
 - Araç adları Claude Code ile aynı: `mcp__<sunucu>__<araç>` (eklentide
   `mcp__plugin_<eklenti>_<sunucu>__<araç>`); `A-Z a-z 0-9 _ -` dışındaki karakterler `_` olur,
   tam adı 128 karakteri aşan araç modele gönderilmez ve günlüğe yazılır. OpenAI/Gemini 64

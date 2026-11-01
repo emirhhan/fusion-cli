@@ -7,7 +7,20 @@ SCOPE_LABELS = {
     "user": "kullanıcı",
     "project": "proje",
     "plugin": "eklenti",
+    "managed": "yönetilen",
 }
+MANAGED_TRUST = (
+    "'{name}' kuruluşunuzun yönettiği bir MCP sunucusu; güven kararı kullanıcı dosyasına "
+    "yazılmaz, her araç çağrısı izin kurallarına göre sorulur."
+)
+#: REPL `/mcp` grup başlıkları; Claude Code `/mcp` grup adları aynen (#274).
+SCOPE_GROUPS = (
+    ("local", "Local MCPs (yalnız bu projede, size özel)"),
+    ("project", "Project MCPs (.mcp.json, paylaşılan)"),
+    ("user", "User MCPs (bütün projelerinizde)"),
+    ("plugin", "Plugin MCPs (etkin eklentilerden)"),
+    ("managed", "Managed MCPs (kuruluşunuzun yönettiği; düzenlenemez, kaldırılamaz)"),
+)
 LOCAL_ADDED = "'{name}' MCP sunucusu yalnız bu projeye (yerel kapsam) eklendi."
 LOCAL_REMOVED = "'{name}' MCP sunucusu yerel kapsamdan kaldırıldı."
 INVALID_NAME = (

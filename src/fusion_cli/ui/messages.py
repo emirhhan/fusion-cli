@@ -783,6 +783,7 @@ MCP_SCOPE_LABELS = {
     "user": "kullanıcı",
     "project": "proje",
     "plugin": "eklenti",
+    "managed": "yönetilen",
 }
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."

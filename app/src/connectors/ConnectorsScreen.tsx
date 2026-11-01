@@ -30,7 +30,7 @@ interface ConnectorRow {
   durum?: string;
   komut: string;
   /** Kaydın kaynağı: `project` kökteki `.mcp.json`'dan (Claude Code ile ortak), `user` config.yaml. */
-  kapsam?: "user" | "project" | "plugin";
+  kapsam?: "user" | "project" | "local" | "plugin" | "managed";
   mesaj?: string | null;
   /** Satırın taşıması. `hosted` KATALOGDA yoktur ama çekirdek onu döndürür:
    *  barındırmalı bağlantılar ayrı depoda yaşar ve ayrı uçtan silinir. Tipin
@@ -539,6 +539,9 @@ export function ConnectorsScreen({
                 const remote = row.tasima === "streamable_http";
                 const hosted = row.tasima === "hosted";
                 const pending = row.durum === "giris_bekleniyor";
+                // Kuruluşun sunucusu (managed-mcp.json / managedMcpServers, #274):
+                // Claude Code gibi kaldırılamaz ve güven kararı yazılamaz.
+                const managed = row.kapsam === "managed";
                 return (
                   <li className="connectors__row" data-state={row.durum} key={row.ad}>
                     <div className="connectors__row-main">
@@ -551,6 +554,11 @@ export function ConnectorsScreen({
                       {row.kapsam === "plugin" && (
                         <span className="connectors__scope" title="Bir eklentinin MCP sunucusu; eklentiyle birlikte açılıp kapanır (Beceriler › Eklentiler)">
                           eklenti
+                        </span>
+                      )}
+                      {managed && (
+                        <span className="connectors__scope" title="Kuruluşunuzun yönettiği MCP sunucusu (Managed MCPs); düzenlenemez, kaldırılamaz">
+                          kuruluş
                         </span>
                       )}
                       <span className="connectors__status">
@@ -576,12 +584,12 @@ export function ConnectorsScreen({
                     </p>}
                     <div className="connectors__row-actions">
                       {!hosted && <button type="button" onClick={() => setCatalog({ client, server: row.ad })}>Araçları gör</button>}
-                      {row.tasima !== "hosted" && row.guven !== "trusted" && row.inceleme_kimligi && <button
+                      {!managed && row.tasima !== "hosted" && row.guven !== "trusted" && row.inceleme_kimligi && <button
                         type="button" disabled={mesgul(`trust:${row.ad}`)}
                         onClick={() => void run("baglanti.guven", { ad: row.ad, guven: "trusted", inceleme_kimligi: row.inceleme_kimligi }, `trust:${row.ad}`)}>
                         Bu kaynağın salt okuma bildirimlerine güven
                       </button>}
-                      {row.tasima !== "hosted" && row.guven === "trusted" && <button
+                      {!managed && row.tasima !== "hosted" && row.guven === "trusted" && <button
                         type="button" disabled={mesgul(`trust:${row.ad}`)}
                         onClick={() => void run("baglanti.guven", { ad: row.ad, guven: "revoked" }, `trust:${row.ad}`)}>
                         Güveni geri al
@@ -638,7 +646,7 @@ export function ConnectorsScreen({
                           Çıkış yap
                         </button>
                       )}
-                      <button
+                      {!managed && <button
                         disabled={mesgul(`remove:${row.ad}`)}
                         onClick={() =>
                           // Barındırmalı bağlantı AYRI bir depoda yaşar
@@ -656,7 +664,7 @@ export function ConnectorsScreen({
                         type="button"
                       >
                         Kaldır
-                      </button>
+                      </button>}
                     </div>
                   </li>
                 );

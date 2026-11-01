@@ -448,9 +448,10 @@ def _shadowed_user_entries(raw: object, config: Config) -> list[dict[str, object
     """
     if not isinstance(raw, list):
         return []
-    project_names = {
-        s.name for s in config.mcp_servers if s.scope in (McpScope.PROJECT, McpScope.LOCAL)
-    }
+    shadowing = (McpScope.PROJECT, McpScope.LOCAL, McpScope.MANAGED)
+    project_names = {s.name for s in config.mcp_servers if s.scope in shadowing}
+    # Kuruluş politikasının (#274) gizlediği kullanıcı kayıtları da korunur.
+    project_names |= set(getattr(config, "mcp_policy_hidden", None) or ())
     user_names = {s.name for s in config.mcp_servers if s.scope is McpScope.USER}
     return [
         entry

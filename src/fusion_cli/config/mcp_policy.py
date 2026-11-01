@@ -12,6 +12,13 @@ Belge: code.claude.com/docs/en/managed-mcp.
 - İzin listesi tanımsızsa herkes geçer; `[]` hiçbirini geçirmez. Uzak sunucu `serverUrl`,
   stdio `serverCommand` ile eşleşmeli; `serverName` yalnız o türün girdisi yoksa sayılır.
   Kuruluşun kendi sunucuları (`managedMcpServers`, `${VAR}`'sız managed-mcp.json) atlanır.
+- Kuruluş sunucuları `managed` kapsamındadır: kullanıcı dosyasına yazılmaz, kaldırılamaz;
+  REPL `/mcp` onları "Managed MCPs" grubunda gösterir.
+- Barındırmalı connector'lar (Claude'daki claude.ai connector'larının Fusion karşılığı:
+  web sağlayıcısının connector ekranından bağlananlar) tekel varken düşer; yalnız yönetilen
+  ayardaki `allowAllClaudeAiMcps: true` onları geri getirir. Ret/izin listesi onlara da uygulanır.
+- Politikanın gizlediği kullanıcı kayıtları `Config.mcp_policy_hidden` ile işaretlenir;
+  yazıcı onları config.yaml'da korur (politika kullanıcı verisini silmez).
 
 Güvenlik: bu katman yalnız SIKILAŞTIRIR (sunucu düşürür); hiçbir onayı gevşetmez.
 """
@@ -28,7 +35,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .models import Config, McpScope, McpServerConfig, McpTransport
+from .models import Config, HostedConnectorConfig, McpScope, McpServerConfig, McpTransport
 
 _LOG = logging.getLogger(__name__)
 
@@ -55,6 +62,8 @@ class McpPolicy:
     provided: tuple[McpServerConfig, ...] = ()
     allowed: tuple[Mapping[str, object], ...] | None = None
     denied: tuple[Mapping[str, object], ...] = ()
+    #: `allowAllClaudeAiMcps` (yalnız yönetilen ayar): tekel varken connector'lar kalır.
+    allow_claude_ai: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -104,7 +113,7 @@ def _provided(raw: object) -> tuple[McpServerConfig, ...]:
         else:
             kept[str(name)] = entry
     servers, problems = parse_mcp_servers_report(
-        {"mcpServers": kept}, scope=McpScope.USER, where="managedMcpServers"
+        {"mcpServers": kept}, scope=McpScope.MANAGED, where="managedMcpServers"
     )
     for problem in problems:
         _LOG.warning("%s", problem)
@@ -139,7 +148,7 @@ def load_policy(
     exclusive = None
     if exclusive_raw is not None:
         servers, problems = parse_mcp_servers_report(
-            exclusive_raw, scope=McpScope.USER, where=MANAGED_MCP_FILE
+            exclusive_raw, scope=McpScope.MANAGED, where=MANAGED_MCP_FILE
         )
         for problem in problems:
             _LOG.warning("%s", problem)
@@ -153,7 +162,9 @@ def load_policy(
     denied = tuple(
         item for layer in (managed, *layers) for item in _entries(layer.get("deniedMcpServers"))
     )
-    return McpPolicy(exclusive, _provided(managed.get("managedMcpServers")), allowed, denied)
+    provided = _provided(managed.get("managedMcpServers"))
+    allow_claude_ai = managed.get("allowAllClaudeAiMcps") is True
+    return McpPolicy(exclusive, provided, allowed, denied, allow_claude_ai)
 
 
 def _expand(text: str, environ: Mapping[str, str]) -> str:
@@ -229,6 +240,8 @@ def is_allowed(server: McpServerConfig, policy: McpPolicy, env: Mapping[str, str
 
 
 def _org_owned(server: McpServerConfig, policy: McpPolicy) -> bool:
+    if server.scope is McpScope.MANAGED and policy.exclusive is None:
+        return True  # managedMcpServers (yalnız https, ${VAR}'sız) — tekelde aşağıdaki kural
     if any(item.name == server.name for item in policy.provided):
         return True
     owned = policy.exclusive or ()
@@ -272,7 +285,40 @@ def apply_mcp_policy(config: Config, root: Path, *, policy: McpPolicy | None = N
     if active.is_empty:
         return config
     servers = filter_servers(config.mcp_servers, active, os.environ)
-    return replace(config, mcp_servers=servers)
+    kept = {id(item) for item in servers}
+    hidden = {
+        item.name
+        for item in config.mcp_servers
+        if item.scope is McpScope.USER and id(item) not in kept
+    }
+    previous = tuple(getattr(config, "mcp_policy_hidden", None) or ())
+    merged = (*previous, *sorted(hidden - set(previous)))
+    return replace(config, mcp_servers=servers, mcp_policy_hidden=merged)
+
+
+def filter_hosted_connectors(
+    connectors: Sequence[HostedConnectorConfig], policy: McpPolicy, env: Mapping[str, str]
+) -> tuple[HostedConnectorConfig, ...]:
+    """Barındırmalı connector'lara politika (Claude'da claude.ai connector'ları).
+
+    Tekel (`managed-mcp.json`) varken hepsi düşer; yönetilen `allowAllClaudeAiMcps: true`
+    tekel yokmuş gibi yükler. Ret ve izin listesi her durumda `serverName`/`serverUrl` ile
+    uygulanır.
+    """
+    if policy.is_empty:
+        return tuple(connectors)
+    if policy.exclusive is not None and not policy.allow_claude_ai:
+        return ()
+    kept: list[HostedConnectorConfig] = []
+    for connector in connectors:
+        probe = McpServerConfig(
+            name=connector.name, transport=McpTransport.STREAMABLE_HTTP, url=connector.url
+        )
+        if is_denied(probe, policy, env) or not is_allowed(probe, policy, env):
+            _LOG.info("Barındırmalı connector politika gereği yüklenmedi: %s", connector.name)
+        else:
+            kept.append(connector)
+    return tuple(kept)
 
 
 #: Claude Code: managed-mcp.json varken `--mcp-config` açılışta bu iletiyle çıkar.
@@ -294,7 +340,7 @@ def remove_refusal(
 ) -> str | None:
     """`mcp remove`: kuruluşun sağladığı sunucu kaldırılamaz (Claude Code iletisi)."""
     active = policy if policy is not None else load_policy(root)
-    if not _org_owned(server, active):
+    if server.scope is not McpScope.MANAGED and not _org_owned(server, active):
         return None
     return (
         f'Cannot remove MCP server "{server.name}": it is provided by your organization '

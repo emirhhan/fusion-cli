@@ -642,6 +642,9 @@ class McpScope(StrEnum):
     #: Claude Code varsayılanı: yalnız bu projede, paylaşılmayan kullanıcı kaydı
     #: (`config/mcp_local.py`; Claude'daki `~/.claude.json` → `projects.<yol>`).
     LOCAL = "local"
+    #: Kuruluşun sunucusu (#274): `managed-mcp.json` ya da yönetilen ayardaki
+    #: `managedMcpServers`. Hiçbir kullanıcı dosyasına yazılmaz, kaldırılamaz.
+    MANAGED = "managed"
     #: Etkin bir eklentinin `.mcp.json`'ı (P-059); hiçbir ayar dosyasına yazılmaz.
     PLUGIN = "plugin"
 
@@ -914,6 +917,9 @@ class Config:
 
     #: Ana/alt ajan başlatma politikası; eski yapılandırmalarda boş ve anahtarsız.
     agent_launch: AgentLaunchConfig = field(default_factory=AgentLaunchConfig)
+    #: Kuruluş MCP politikasının gizlediği kullanıcı kapsamlı sunucu adları (#274).
+    #: Yazıcı bu kayıtları config.yaml'da korur; politika kullanıcı verisini silmez.
+    mcp_policy_hidden: tuple[str, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

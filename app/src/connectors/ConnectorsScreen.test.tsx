@@ -15,6 +15,7 @@ interface RpcRow {
   komut?: string;
   tasima?: string;
   url?: string;
+  kapsam?: string;
 }
 
 /** Sahte protokol istemcisi: baglanti.listele için verilen satırları döndürür,
@@ -451,6 +452,20 @@ describe("ConnectorsScreen", () => {
     const connected = screen.getByLabelText("Bağlı sunucular");
     expect(within(connected).getByText("GitHub")).toBeTruthy();
     expect(within(connected).getByText("8 araç")).toBeTruthy();
+  });
+});
+
+describe("ConnectorsScreen — kuruluş sunucusu (#274)", () => {
+  it("managed kapsamlı satırı kuruluş rozetiyle gösterir, kaldırma ve güven düğmesi sunmaz", async () => {
+    const client = fakeClient([
+      { ad: "kurum", durum: "bagli", arac_sayisi: 2, tasima: "streamable_http", url: "https://k.example/mcp", kapsam: "managed" } as RpcRow,
+    ]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /^Bağlı/ }));
+    const connected = screen.getByLabelText("Bağlı sunucular");
+    expect(await within(connected).findByText("kuruluş")).toBeTruthy();
+    expect(within(connected).queryByRole("button", { name: "Kaldır" })).toBeNull();
+    expect(within(connected).queryByRole("button", { name: /güven/i })).toBeNull();
   });
 });
 

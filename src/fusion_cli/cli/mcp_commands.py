@@ -109,7 +109,7 @@ def _serve(*, expose_mutating: bool) -> None:
 def _parse_scope(raw: str) -> McpScope:
     try:
         value = McpScope(raw.strip().lower())
-        if value is McpScope.PLUGIN:
+        if value in (McpScope.PLUGIN, McpScope.MANAGED):
             raise ValueError(raw)
         return value
     except ValueError:

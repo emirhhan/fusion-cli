@@ -18,7 +18,7 @@ from pathlib import Path
 from weakref import WeakKeyDictionary
 
 from ..config.mcp_project_approval import is_noninteractive
-from ..config.models import Config, McpServerConfig, McpTransport
+from ..config.models import Config, HostedConnectorConfig, McpServerConfig, McpTransport
 from ..config.paths import base_data_dir
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..tools import ToolRegistry
@@ -604,6 +604,17 @@ def _hosted_channel(config: Config) -> AskSession:
     return channel
 
 
+def _policy_connectors(config: Config) -> tuple[HostedConnectorConfig, ...]:
+    """Kuruluş politikası (#274): tekelde connector'lar düşer (allowAllClaudeAiMcps hariç),
+    ret/izin listesi uygulanır. Yapılandırma süzülmez: kullanıcının kaydı silinmesin."""
+    import os
+
+    from ..config.mcp_policy import filter_hosted_connectors, load_policy
+
+    policy = load_policy(Path.cwd())
+    return filter_hosted_connectors(config.hosted_connectors, policy, os.environ)
+
+
 async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[str, ...]:
     """Sağlayıcı-barındırmalı connector araçlarını kayıt defterine ekle.
 
@@ -616,7 +627,9 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
     # Kopya connector ayıklanır. `mcp_servers` bu korumayı `unique_configs` ile
     # zaten alıyordu; barındırmalı connector'lar dışarıda kalmıştı ve aynı Meta
     # Ads adresi iki kez kayıt defterine giriyordu (ölçüldü, 22 Eylül).
-    benzersiz = unique_hosted_configs(config.hosted_connectors)
+    benzersiz = unique_hosted_configs(_policy_connectors(config))
+    if not benzersiz:
+        return ()
     # İstemci de kanal gibi turlar arası yaşar: keşif sonucu onda önbelleklenir ve
     # her tur kullanıcının sağlayıcı ekranına yeni bir keşif metni yazılmaz.
     global _HOSTED_CLIENT
