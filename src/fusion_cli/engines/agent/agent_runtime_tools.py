@@ -67,6 +67,13 @@ async def launch_agent(
             return ToolResult.failure("Modelin fork başlatması bu turda kapalı.")
         if task.resume:
             task = await _resume_task(deps, task)
+        else:
+            from .agent_type_check import resolve_agent_type
+
+            agent_type, type_error = resolve_agent_type(deps, task.persona)
+            if type_error:
+                return ToolResult.failure(type_error)
+            task = replace(task, persona=agent_type)
         persona = resolve_persona(deps.capabilities, task.persona)
         from .agent_runtime_context import launch_denial
 

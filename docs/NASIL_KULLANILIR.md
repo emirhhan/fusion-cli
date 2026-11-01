@@ -510,6 +510,10 @@ kimliği (`agentId`) döner ve `SendMessage(to=<kimlik|ad>)` ile bilinen geçmi�
 ajanlarını listeler/durdurur. Eski `Task`, `spawn_agent`, `spawn_agents` ve `invoke_subagent`
 adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulmaz.
 
+- `subagent_type` verilmezse `general-purpose` çalışır; o ajan oturumda yoksa (ör. ana ajanın
+  `tools: Agent(...)` listesi dışarıda bırakmışsa) `subagent_type is required` hatası döner.
+  Bilinmeyen tip genel yardımcıya düşmez: `Agent type '<ad>' not found. Available agents: …`
+  hatası geçerli ajanları sayar (Claude Code'daki gibi).
 - `permissions.deny` içine `Agent(Explore)` yazmak o tipi kapatır (eski adlara da uygulanır).
 - `@agent-<ad>` ya da `@"<ad> (agent)"` yazmak o alt ajanın o turda kesin çalışmasını ister
   (görev metnini model yazar); eklenti ajanında `@agent-<eklenti>:<ad>`. Terminal REPL ve
