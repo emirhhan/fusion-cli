@@ -3411,9 +3411,12 @@ class AppSession:
 
     def _diagnose_capabilities(self) -> dict[str, Any]:
         """`yetenek.teshis`: eksik açıklama, kopya ad, uzun gövde gibi bulgular."""
+        from ..engines.agent.skill_cost_report import render_cost_report, skill_costs
         from ..tools.capability_doctor import diagnose, render_report
 
         bulgular = diagnose(self._all_capabilities)
+        # `/skill-doctor` (#177): beceri başına bağlam maliyeti ve kullanım sıklığı.
+        maliyet = skill_costs(self._all_capabilities, self._state.config.memory_dir)
         return {
             "ok": True,
             "bulgular": [
@@ -3426,7 +3429,19 @@ class AppSession:
                 }
                 for b in bulgular
             ],
-            "metin": render_report(
+            "maliyet": [
+                {
+                    "ad": c.name,
+                    "kaynak": c.source,
+                    "liste_belirtec": c.listing_tokens,
+                    "govde_belirtec": c.body_tokens,
+                    "cagri": c.uses,
+                }
+                for c in maliyet
+            ],
+            "metin": render_cost_report(maliyet)
+            + "\n\n"
+            + render_report(
                 bulgular,
                 skills=len(self._all_capabilities.skills()),
                 agents=len(self._all_capabilities.agents()),

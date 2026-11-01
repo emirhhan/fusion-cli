@@ -679,9 +679,12 @@ def _skills(state: ReplState, argument: str) -> str:
             skills=len(state.capabilities.skills()), agents=len(state.capabilities.agents())
         )
     if eylem in ("doctor", "teshis", "teşhis"):
+        from ...engines.agent.skill_cost_report import render_cost_report, skill_costs
         from ...tools.capability_doctor import diagnose, render_report
 
-        return render_report(
+        # `/skill-doctor` (#177): bağlam maliyeti + kullanım sıklığı, ardından yapısal teşhis.
+        maliyet = render_cost_report(skill_costs(state.capabilities, state.config.memory_dir))
+        return maliyet + "\n\n" + render_report(
             diagnose(state.capabilities),
             skills=len(state.capabilities.skills()),
             agents=len(state.capabilities.agents()),
