@@ -335,7 +335,7 @@ durumunda görünmez (`.git/info/exclude`).
 | `fusion -w` (adsız) | `bright-running-fox` biçiminde ad üretir |
 | `fusion -w "#1234"` / PR ya da MR adresi | Adresten yalnız numara okunur; `origin` github.com ise `pull/<n>/head`, gitlab.com ise `merge-requests/<n>/head`, başka sunucuda önce biri sonra öteki çekilir; `.claude/worktrees/pr-<n>` açılır. Çekme parola/SSH onayı beklemez, gerekirse `PR/MR #<n> çekilemedi` der |
 | `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |
-| `/worktree <ad>` | Oturum kökünü ağaca taşır (yoksa oluşturur) |
+| `/worktree <ad>` | (Kullanımdan kalkıyor: Claude Code'da yok; `--worktree` ya da ajandan iste. Oturumda bir kez uyarır.) Oturum kökünü ağaca taşır (yoksa oluşturur) |
 | `/worktree cik` | Ana depoya döner; temiz ağaç kaldırılır (dalı dahil), iş varsa `git merge worktree-<ad>` ipucu verir |
 | `/worktree liste` | Depodaki Fusion çalışma ağaçları |
 
@@ -1190,7 +1190,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
 | `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
-| `/loop 5m <görev>` · `/loop list` · `/loop stop [id]` | Görevi aralıkla yinele (oturum boyunca) |
+| `/loop 5m <görev>` | Görevi aralıkla yinele (oturum boyunca); listeleme/iptal ajandan doğal dille istenir |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |
 | `/good` · `/bad` | Fusion'a geri bildirim |
@@ -1290,7 +1290,9 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
 - Yineleyen görev 7 gün dolunca son bir kez çalışır ve silinir. `--resume` ile sürdürülen
   sohbette kendi tempolu döngü ve vakti geçmiş tek seferlik görev geri gelmez; kaçırılan
   çalışmalar telafi edilmez.
-- `/loop list`, `/loop stop <id>`, `/loop stop all`.
+- Listeleme ve iptal Claude Code gibi ajandan doğal dille istenir (`cron_list`, `cron_delete`).
+  `/loop list`, `/loop stop <id>`, `/loop stop all` Claude'da yoktur; kullanımdan kalkan takma
+  ad olarak bir sürüm daha çalışır ve oturumda bir kez uyarır.
 - Zamanlanamayan komutlar (takma adlarıyla birlikte): onay kipi (`/auto`, `/bypass`, `/mode`…),
   model/sağlayıcı, `/clear`, `/exit`, `/loop`, `/cd`, `/voice` (`/dikte`) ve `/rc`
   (`/remote-control`): kök, mikrofon ve uzaktan erişim yalnız kullanıcının elinden açılır.

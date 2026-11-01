@@ -26,6 +26,16 @@ from .state import ReplState
 
 
 def worktree_command(state: ReplState, argument: str) -> str:
+    """`/worktree` kullanımdan kalkan Fusion komutu (#360); oturumda bir kez uyarır."""
+    result = _worktree_command(state, argument)
+    warned = getattr(state, "deprecation_warned", None)
+    if warned is None or "worktree" in warned:
+        return result
+    warned.add("worktree")
+    return f"{messages.WORKTREE_COMMAND_DEPRECATED}\n{result}"
+
+
+def _worktree_command(state: ReplState, argument: str) -> str:
     """`/worktree <ad>` girer, `/worktree cik` çıkar, `/worktree liste` listeler."""
     word, _, rest = argument.strip().partition(" ")
     action = word.casefold()

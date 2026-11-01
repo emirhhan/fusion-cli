@@ -89,13 +89,12 @@ def maintenance_prompt(root: Path, home: Path) -> str:
     return DEFAULT_MAINTENANCE_PROMPT
 
 
-def command(state: ReplState, argument: str) -> str:
-    if os.environ.get("CLAUDE_CODE_DISABLE_CRON", "").strip().lower() in {"1", "true", "yes"}:
-        return messages.LOOP_DISABLED
-    sub = argument.strip()
-    now = time.time()
-    head = sub.split(None, 1)[0].casefold() if sub else ""
-    if head in {"list", "liste"}:
+_LIST_WORDS = frozenset({"list", "liste"})
+_STOP_WORDS = frozenset({"stop", "dur", "durdur"})
+
+
+def _list_or_stop(state: ReplState, sub: str, head: str, now: float) -> str:
+    if head in _LIST_WORDS:
         tasks = state.cron.list(now)
         if not tasks:
             return messages.LOOP_EMPTY
@@ -103,13 +102,33 @@ def command(state: ReplState, argument: str) -> str:
             [messages.LOOP_LIST_TITLE.format(count=len(tasks))]
             + [f"  {task.describe()}" for task in tasks]
         )
-    if head in {"stop", "dur", "durdur"}:
-        target = sub.split(None, 1)[1].strip() if len(sub.split(None, 1)) > 1 else ""
-        if not target or target.casefold() in {"all", "hepsi"}:
-            return messages.LOOP_STOPPED_ALL.format(count=state.cron.clear())
-        if state.cron.delete(target):
-            return messages.LOOP_STOPPED.format(id=target)
-        return messages.LOOP_NOT_FOUND.format(id=target)
+    target = sub.split(None, 1)[1].strip() if len(sub.split(None, 1)) > 1 else ""
+    if not target or target.casefold() in {"all", "hepsi"}:
+        return messages.LOOP_STOPPED_ALL.format(count=state.cron.clear())
+    if state.cron.delete(target):
+        return messages.LOOP_STOPPED.format(id=target)
+    return messages.LOOP_NOT_FOUND.format(id=target)
+
+
+def _deprecated_subcommand(state: ReplState, head: str, result: str) -> str:
+    """`/loop list|stop` Claude'da yok (#365): kullanımdan kalkan takma ad, bir kez uyarır."""
+    key = "loop-list" if head in _LIST_WORDS else "loop-stop"
+    warned = getattr(state, "deprecation_warned", None)
+    if warned is None or key in warned:
+        return result
+    warned.add(key)
+    sub = "list" if head in _LIST_WORDS else "stop"
+    return f"{messages.LOOP_SUBCOMMAND_DEPRECATED.format(sub=sub)}\n{result}"
+
+
+def command(state: ReplState, argument: str) -> str:
+    if os.environ.get("CLAUDE_CODE_DISABLE_CRON", "").strip().lower() in {"1", "true", "yes"}:
+        return messages.LOOP_DISABLED
+    sub = argument.strip()
+    now = time.time()
+    head = sub.split(None, 1)[0].casefold() if sub else ""
+    if head in _LIST_WORDS or head in _STOP_WORDS:
+        return _deprecated_subcommand(state, head, _list_or_stop(state, sub, head, now))
     try:
         parsed = split_loop_interval(sub)
     except SessionCronError as error:

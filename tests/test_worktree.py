@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from fusion_cli.appserver.commands import run_command
 from fusion_cli.cli.repl import worktrees
+from fusion_cli.ui import messages
 from fusion_cli.cli.repl.commands import build_registry, parse
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.core import worktree as core_worktree
@@ -168,8 +169,10 @@ def _run(state: ReplState, line: str) -> str:
 
 
 def test_worktree_komutu_girer_listeler_cikar(state, repo):
-    assert (
-        _run(state, "/worktree") == "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
+    # Claude'da /worktree yok (#360): kullanımdan kalkan komut, oturumda bir kez uyarır.
+    assert _run(state, "/worktree") == (
+        f"{messages.WORKTREE_COMMAND_DEPRECATED}\n"
+        "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
     )
     assert "yok" in _run(state, "/worktree liste")
 

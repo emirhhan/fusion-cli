@@ -87,7 +87,13 @@ def test_yerlesik_bakim_istemi_claude_sirasinda() -> None:
 
 
 def test_loop_list_ve_stop(state: ReplState) -> None:
+    """#365: Claude'da yok; kullanımdan kalkan takma ad, her alt komutta bir kez uyarır."""
+    ilk = _loop(state, "list")
+    assert ilk == f"{messages.LOOP_SUBCOMMAND_DEPRECATED.format(sub='list')}\n{messages.LOOP_EMPTY}"
     assert _loop(state, "list") == messages.LOOP_EMPTY
+    assert _loop(state, "stop yok").startswith(
+        messages.LOOP_SUBCOMMAND_DEPRECATED.format(sub="stop")
+    )
     _loop(state, "5m a")
     _loop(state, "10m b")
     liste = _loop(state, "list")
