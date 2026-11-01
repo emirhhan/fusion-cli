@@ -38,6 +38,13 @@ ayarlarla (`permissions`, kancalar) zorlanır.
 - Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** yüklenen dosyaları, kuralları
   (kapsamıyla) ve notları listeler (`ayar.talimat` → `katmanlar`, `notlar`).
 - `runtime.instruction_merge: false` talimat yüklemesini tamamen kapatır.
+- **Güvenlik davranışı değişti (#149, #143):** CLAUDE.md, kurallar ve otomatik bellek Claude
+  Code'daki gibi sistem isteminden sonra ayrı bir kullanıcı mesajında, Claude başlığıyla
+  ("These instructions OVERRIDE any default behavior…") ve güvenilmezlik notu olmadan verilir;
+  dosya başı/toplam karakter sınırları da kalktı. Claude Code bu dosyaları klasör güveni
+  onaylandıktan sonra okur; Fusion'da CLAUDE.md için ayrı bir güven denetimi (`fusion trust`)
+  **yoktur**, klonlanmış güvenilmeyen bir deponun CLAUDE.md'si de aynı başlıkla modele gider.
+  Proje güvenini CLAUDE.md yüklemesine bağlamak kullanıcı kararı bekliyor.
 
 ## `@yol` içe aktarma
 
