@@ -70,8 +70,29 @@ def test_blok_yoksa_dogrudan_tam_yanit(tmp_path: Path):
 def test_masaustu_blok_secicisi(tmp_path: Path):
     payload = command_choices(_state(tmp_path), "copy", "")
     assert payload is not None and payload["devam"]["komut"] == "copy"
-    assert {row["deger"] for row in payload["secenekler"]} == {"tam", "1", "2"}
+    assert {row["deger"] for row in payload["secenekler"]} == {
+        "tam",
+        "1",
+        "2",
+        "w:tam",
+        "w:1",
+        "w:2",
+    }
     assert command_choices(_state(tmp_path), "copy", "1 2") is None
+
+
+def test_masaustu_dosyaya_yaz_satiri_dosya_yazar(tmp_path: Path):
+    """#231: masaüstü seçicisinde de seçim dosyaya yazılabilir (terminaldeki `w`)."""
+    state = _state(tmp_path)
+    payload = command_choices(state, "copy", "")
+    assert payload is not None
+    satir = next(row for row in payload["secenekler"] if row["deger"] == "w:1")
+    assert "dosya" in satir["etiket"].lower()
+    argument = f"{payload['devam']['arguman_on_eki']}{satir['deger']}"
+    sonuc = copy_answer(state, argument, copier=lambda _t: ClipboardResult(ok=True))
+    yazilan = list(tmp_path.glob("fusion-copy-*.py"))
+    assert len(yazilan) == 1 and "print(1)" in yazilan[0].read_text(encoding="utf-8")
+    assert str(yazilan[0]) in sonuc
 
 
 def test_w_secimi_panoya_degil_dosyaya_yazar(tmp_path: Path):

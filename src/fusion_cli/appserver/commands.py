@@ -35,6 +35,7 @@ from rich.console import Console
 
 from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
 from ..cli.repl.commands import CommandRegistry, model_command_result
+from ..cli.repl.copy_blocks import WRITE_PREFIX
 from ..cli.repl.export_commands import copy_picker_choices, export_dialog_choices
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
@@ -235,8 +236,15 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         rows = copy_picker_choices(state, stripped)
         if rows:
             prefix = f"{stripped or '1'} "
-            return _payload("blok", "secim", messages.COPY_PICK_TITLE, rows, "copy", prefix)
+            # Terminaldeki `w` tuşunun karşılığı: her satırın "dosyaya yaz" eşi (#231).
+            rows = (*rows, *(_write_row(row) for row in rows))
+            return _payload("blok", "secim", messages.COPY_PICK_TITLE_DESKTOP, rows, "copy", prefix)
     return None
+
+
+def _write_row(row: Choice) -> Choice:
+    label = messages.COPY_WRITE_ROW.format(label=row.label)
+    return Choice(f"{WRITE_PREFIX}{row.value}", label, messages.COPY_WRITE_ROW_HINT)
 
 
 def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
