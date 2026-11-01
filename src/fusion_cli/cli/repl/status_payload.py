@@ -53,21 +53,22 @@ def _cost(state: ReplState) -> dict[str, Any]:
 
 
 def _context_window(state: ReplState) -> dict[str, Any]:
+    """Claude Code: sayılar EN SON API yanıtındandır, oturum birikimi değil (#191)."""
     report = context_report(state)
-    total = state.cost.total
+    last = getattr(state.cost, "last_usage", None)
     size = report.window_tokens or 0
-    used = report.percent if state.cost.calls else None
+    used = report.percent if last is not None else None
     current: dict[str, int] | None = None
-    if state.cost.calls:
+    if last is not None:
         current = {
-            "input_tokens": total.prompt_tokens,
-            "output_tokens": total.completion_tokens,
+            "input_tokens": last.prompt_tokens,
+            "output_tokens": last.completion_tokens,
             "cache_creation_input_tokens": 0,
             "cache_read_input_tokens": 0,
         }
     return {
-        "total_input_tokens": total.prompt_tokens,
-        "total_output_tokens": total.completion_tokens,
+        "total_input_tokens": last.prompt_tokens if last is not None else 0,
+        "total_output_tokens": last.completion_tokens if last is not None else 0,
         "context_window_size": size,
         "used_percentage": used,
         "remaining_percentage": None if used is None else max(0, 100 - used),
@@ -129,7 +130,9 @@ def claude_status_payload(state: ReplState, *, version: str) -> dict[str, Any]:
         "output_style": {"name": style},
         "cost": _cost(state),
         "context_window": context,
-        "exceeds_200k_tokens": context["total_input_tokens"] > LARGE_CONTEXT_TOKENS,
+        "exceeds_200k_tokens": (
+            context["total_input_tokens"] + context["total_output_tokens"] > LARGE_CONTEXT_TOKENS
+        ),
         "fast_mode": False,
         "thinking": {"enabled": bool(getattr(state, "show_thinking", False))},
     }

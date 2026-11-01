@@ -1094,6 +1094,8 @@ async def compact_history(state: ReplState, instructions: str = "") -> str:
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT
+    # Claude Code: `current_usage` /compact sonrası sonraki çağrıya dek boştur (#191).
+    state.cost.forget_last_call()
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
     if verdict.context_text:

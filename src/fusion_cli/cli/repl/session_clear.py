@@ -10,6 +10,8 @@ Ekran temizliği Claude'daki gibi Ctrl+L'dedir.
 
 from __future__ import annotations
 
+import time
+
 from ...ui import messages
 from . import session_agent
 from .session_resume import new_conversation_id
@@ -34,6 +36,9 @@ def clear_command(state: ReplState, argument: str) -> str:
     state.conversation_name = ""
     state.last_changes = None
     state.checkpoints.clear()
+    # Claude Code (#191): yeni oturumda `cost.total_cost_usd` $0'dan, süre baştan başlar.
+    state.cost.reset()
+    state.started_at = time.monotonic()
     if had_messages:
         # Claude Code (#200): aynı süreçte `/rewind` menüsü `/resume <kimlik>` satırı sunar.
         state.cleared_session = (previous_id, new_id)

@@ -151,3 +151,43 @@ async def test_satir_ici_repl_butun_satirlari_ansi_ile_basar(state: ReplState):
     akis = io.StringIO()
     show_status_block(akis, "")
     assert akis.getvalue() == ""
+
+
+def _cagri(state: ReplState, prompt: int, completion: int, cost: float = 0.01) -> None:
+    from fusion_cli.core.events import ModelCallFinished
+    from fusion_cli.core.types import ModelResult, TokenUsage
+
+    usage = TokenUsage(prompt, completion, cost, prompt_measured=True, completion_measured=True)
+    state.cost.handle(ModelCallFinished("agent", ModelResult("agent", "m", "", 1, True, usage)))
+
+
+def test_baglam_alanlari_son_cagridan_gelir_birikimden_degil(state: ReplState):
+    """Claude Code (#191): context_window ve exceeds_200k_tokens son API yanıtındandır."""
+    for _ in range(9):
+        _cagri(state, 25_000, 500)
+    payload = status_payload(state)
+    window = payload["context_window"]
+    assert window["total_input_tokens"] == 25_000
+    assert window["total_output_tokens"] == 500
+    assert window["current_usage"]["input_tokens"] == 25_000
+    assert window["current_usage"]["output_tokens"] == 500
+    assert payload["exceeds_200k_tokens"] is False
+    assert payload["cost"]["total_cost_usd"] == pytest.approx(0.09)
+
+
+def test_exceeds_200k_girdi_ve_cikti_toplamina_bakar(state: ReplState):
+    _cagri(state, 199_000, 2_000)
+    assert status_payload(state)["exceeds_200k_tokens"] is True
+
+
+def test_clear_maliyeti_ve_sureyi_sifirlar(state: ReplState):
+    from fusion_cli.cli.repl import session_clear
+
+    _cagri(state, 1_000, 10, cost=0.5)
+    state.started_at -= 120
+    session_clear.clear_command(state, "")
+    payload = status_payload(state)
+    assert payload["cost"]["total_cost_usd"] == 0
+    assert payload["cost"]["total_duration_ms"] < 60_000
+    assert payload["context_window"]["current_usage"] is None
+    assert payload["context_window"]["total_input_tokens"] == 0
