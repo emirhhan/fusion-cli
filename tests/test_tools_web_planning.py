@@ -238,8 +238,12 @@ async def test_iki_baglam_ayri_liste_tutar(registry, tmp_path):
     assert alt.todos.items[0].content == "alt is"
 
 
-def test_bilinmeyen_durum_beklemede_sayilir():
-    assert parse_todos([{"content": "a", "status": "uydurma"}])[0].status is TodoStatus.PENDING
+def test_bilinmeyen_durum_reddedilir():
+    """Claude şeması (#355): geçersiz durum hatadır, model düzeltir."""
+    from fusion_cli.tools.args import ArgumentError
+
+    with pytest.raises(ArgumentError, match="uydurma"):
+        parse_todos([{"content": "a", "status": "uydurma"}])
 
 
 async def test_bos_icerikli_madde_reddedilir(registry, context):
