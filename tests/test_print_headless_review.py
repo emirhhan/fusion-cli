@@ -322,3 +322,84 @@ def test_onay_araci_hatasi_stderr_e_yazilir(capsys, tmp_path):
     request = SimpleNamespace(tool=SimpleNamespace(name="run_shell"), args={}, call_id="c1")
     asyncio.run(prompter.confirm(request))  # type: ignore[arg-type]
     assert "sunucu bağlanamadı" in capsys.readouterr().err
+
+
+# --- bulgu 6: system/init keşif alanları, önbellek token'ları (#280, #279) ------------ #
+
+
+def test_init_ve_initialize_komut_ve_beceri_listesini_verir(monkeypatch, tmp_path):
+    _skill(tmp_path)
+    skill = tmp_path / ".claude" / "skills" / "ozetle"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: ozetle\ndescription: kısa özet\n---\ngövde\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    _calls, result, out = _stream(monkeypatch, [_control("initialize", "i1"), _user("bir")])
+    assert result.exit_code == 0, result.output
+    init = next(m for m in out if m.get("subtype") == "init")
+    assert {"foo", "ozetle", "model", "config"} <= set(init["slash_commands"])
+    assert "ozetle" in init["skills"] and "foo" not in init["skills"]
+    assert isinstance(init["plugins"], list)
+    commands = _responses(out)["i1"]["response"]["commands"]
+    names = {item["name"] for item in commands}
+    assert {"foo", "ozetle"} <= names
+    assert all({"name", "description", "argumentHint"} <= set(item) for item in commands)
+
+
+def test_onbellek_tokenlari_sonuca_ve_model_kullanimina_yazilir():
+    from fusion_cli.cli import sdk_messages as sdk
+    from fusion_cli.core.events import ModelCallFinished
+    from fusion_cli.core.types import ModelResult, TokenUsage
+
+    usage = TokenUsage(prompt_tokens=100, completion_tokens=5, cache_read_tokens=60)
+    stats = sdk.RunStats()
+    stats.handle(
+        ModelCallFinished(
+            role="ajan",
+            result=ModelResult(
+                name="ajan", text="x", latency_ms=1, ok=True, model="m1", usage=usage
+            ),
+        )
+    )
+    assert stats.model_usage["m1"]["cacheReadInputTokens"] == 60
+    data = sdk.ResultInput(
+        session_id="s",
+        final_text="x",
+        subtype=sdk.SUBTYPE_SUCCESS,
+        num_turns=1,
+        duration_ms=1,
+        stop_reason=None,
+        prompt_tokens=100,
+        completion_tokens=5,
+        cost_usd=0.0,
+        cost_complete=True,
+        cache_read_tokens=60,
+    )
+    assert sdk.result_message(data, stats)["usage"]["cache_read_input_tokens"] == 60
+
+
+def test_token_usage_toplami_onbellegi_tasir():
+    from fusion_cli.core.types import TokenUsage
+
+    total = TokenUsage(cache_read_tokens=2, cache_creation_tokens=3) + TokenUsage(
+        cache_read_tokens=1
+    )
+    assert (total.cache_read_tokens, total.cache_creation_tokens) == (3, 3)
+
+
+def test_litellm_kullanimindan_onbellek_okunur():
+    from fusion_cli.providers.litellm_provider import _response_usage
+
+    usage = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=2,
+        cache_read_input_tokens=4,
+        cache_creation_input_tokens=3,
+    )
+    parsed = _response_usage(SimpleNamespace(usage=usage), "yok/model")
+    assert (parsed.cache_read_tokens, parsed.cache_creation_tokens) == (4, 3)
+    details = SimpleNamespace(
+        prompt_tokens=10, completion_tokens=2, prompt_tokens_details={"cached_tokens": 7}
+    )
+    assert _response_usage(SimpleNamespace(usage=details), "yok/model").cache_read_tokens == 7

@@ -58,6 +58,7 @@ from .print_session import (
 from .print_slash import SlashExpansion
 from .print_turn import catalog, prepare_turn, turn_tools
 from .repl.persona_commands import initial_persona_task
+from .sdk_init import CatalogSummary, active_plugin_paths, catalog_summary, init_message
 from .session import build_observers, open_memory, run_agent_task
 
 #: Şemaya uymayan yapısal çıktı için en fazla yeniden deneme.
@@ -91,6 +92,8 @@ class _Run:
     slash: SlashExpansion | None = None
     #: `--input-format stream-json` denetim kanalı (`print_control.ControlChannel`).
     control: Any = None
+    #: `system/init` ve `initialize` için komut/beceri/eklenti keşif bilgisi.
+    summary: CatalogSummary = field(default_factory=CatalogSummary)
 
 
 def run_print(request: PrintRequest) -> int:
@@ -172,6 +175,9 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
     run = _Run(plan, root, session, time.monotonic(), history=list(session.history))
     run.memory = open_memory(plan.config, root=root, enabled=not request.no_memory)
     if plan.fmt is OutputFormat.STREAM_JSON:
+        run.capabilities = catalog(run)
+        plugins = () if request.bare or request.safe_mode else active_plugin_paths()
+        run.summary = catalog_summary(run.capabilities, plugins)
         run.stream = sdk.SdkStream(
             session.session_id,
             lambda: plan.config.agent.model,
@@ -205,7 +211,7 @@ def replied(text: str) -> AgentOutcome:
 
 def _init(run: _Run) -> dict[str, object]:
     plan = run.plan
-    return sdk.init_message(
+    return init_message(
         session_id=run.session.session_id,
         cwd=str(run.root),
         model=plan.config.agent.model,
@@ -214,6 +220,7 @@ def _init(run: _Run) -> dict[str, object]:
         mcp_errors=plan.mcp_errors,
         tools=sorted(plan.selection.allowed or ()),
         agents=[item.name for item in plan.session_agents],
+        catalog=run.summary,
     )
 
 
@@ -372,4 +379,8 @@ def _result_input(
         structured=structured if has_structured else None,
         has_structured=has_structured,
         errors=errors if subtype != sdk.SUBTYPE_SUCCESS else (),
+        cache_read_tokens=getattr(total, "cache_read_tokens", 0) if total is not None else 0,
+        cache_creation_tokens=getattr(total, "cache_creation_tokens", 0)
+        if total is not None
+        else 0,
     )

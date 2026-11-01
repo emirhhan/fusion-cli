@@ -25,7 +25,7 @@ import json
 import queue
 import threading
 import uuid
-from collections.abc import Callable, Coroutine, Iterator, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
 from typing import Any, TextIO, TypeVar
 
 from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReply, ApprovalRequest
@@ -64,7 +64,10 @@ class ControlChannel:
         bypass_allowed: bool = False,
         restricted: bool = False,
         check_model: Callable[[str], object] | None = None,
+        commands: Sequence[Mapping[str, str]] = (),
     ) -> None:
+        #: `initialize` cevabının `commands` dizisi (ad, açıklama, argüman ipucu).
+        self._commands = [dict(item) for item in commands]
         self._stdin = stdin
         #: `set_model` değerini istek anında doğrulayan işlev (`ValueError` atar).
         self._check_model = check_model
@@ -143,7 +146,7 @@ class ControlChannel:
         body = request if isinstance(request, dict) else {}
         subtype = str(body.get("subtype", ""))
         if subtype == "initialize":
-            self._reply(request_id, {"commands": [], "output_style": "default"})
+            self._reply(request_id, {"commands": self._commands, "output_style": "default"})
         elif subtype == "interrupt":
             self._interrupt()
             self._reply(request_id, {})

@@ -33,6 +33,10 @@ class TokenUsage:
     prompt_measured: bool = False
     completion_measured: bool = False
     cost_known: bool = False
+    #: Sağlayıcının bildirdiği önbellek token'ları (Claude `cache_read_input_tokens`,
+    #: `cache_creation_input_tokens`); `prompt_tokens`'a ek bilgi, toplamı değiştirmez.
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
     @property
     def completeness(self) -> str:
@@ -53,6 +57,8 @@ class TokenUsage:
             prompt_measured=self.prompt_measured and other.prompt_measured,
             completion_measured=self.completion_measured and other.completion_measured,
             cost_known=self.cost_known and other.cost_known,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_creation_tokens=self.cache_creation_tokens + other.cache_creation_tokens,
         )
 
 

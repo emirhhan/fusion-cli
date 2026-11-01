@@ -111,6 +111,17 @@ def input_window_tokens(model: str) -> int | None:
     return _mirrored_window(model)
 
 
+def output_limit_tokens(model: str) -> int | None:
+    """LiteLLM kataloğundaki en çok çıktı token'ı; bilinmiyorsa `None`."""
+    try:
+        import litellm
+
+        value = litellm.get_model_info(model).get("max_output_tokens")
+    except Exception:
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
 def _catalog_window(model: str) -> int | None:
     try:
         import litellm

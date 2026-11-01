@@ -356,7 +356,23 @@ def _response_usage(response: Any, model: str) -> TokenUsage:
         prompt_measured=prompt_value is not None,
         completion_measured=completion_value is not None,
         cost_known=cost is not None and prompt_value is not None and completion_value is not None,
+        cache_read_tokens=_cache_read_tokens(usage),
+        cache_creation_tokens=_int_field(usage, "cache_creation_input_tokens"),
     )
+
+
+def _int_field(source: object, name: str) -> int:
+    value = source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _cache_read_tokens(usage: object) -> int:
+    """Anthropic `cache_read_input_tokens`; OpenAI `prompt_tokens_details.cached_tokens`."""
+    direct = _int_field(usage, "cache_read_input_tokens")
+    if direct:
+        return direct
+    details = getattr(usage, "prompt_tokens_details", None)
+    return _int_field(details, "cached_tokens") if details is not None else 0
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:

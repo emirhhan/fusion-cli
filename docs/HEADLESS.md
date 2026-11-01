@@ -64,10 +64,15 @@ gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name
 `subtype`: `success` | `error_max_turns` | `error_max_budget_usd` | `error_during_execution` |
 `error_max_structured_output_retries`. Hata alt türlerinde `result` yerine `errors[]` gelir.
 `--json-schema` verildiyse ve cevap uyduysa `structured_output` alanı eklenir. `fusion` alt
-nesnesi Fusion'a özgü ektir (`maliyet_tam` false ise maliyet alt sınırdır).
+nesnesi Fusion'a özgü ektir (`maliyet_tam` false ise maliyet alt sınırdır). Önbellek
+token'ları (`cache_read_input_tokens`, `cache_creation_input_tokens`) sağlayıcı bildirdiğinde
+dolar; `modelUsage` satırlarında `contextWindow` ve `maxOutputTokens` model kataloğundan gelir
+(bilinmiyorsa 0).
 
 `stream-json` sırası: `{"type":"system","subtype":"init",session_id,cwd,model,permissionMode,
-mcp_servers[{name,status}],tools,...}`, ardından `assistant` (metin + `tool_use` blokları;
+mcp_servers[{name,status}],tools,slash_commands,skills,plugins[{name,path}],...}` (komut
+listesi kullanıcının çağırabildiği beceri/özel komutlar ve `-p` yerleşikleridir; `initialize`
+cevabının `commands[{name,description,argumentHint}]` dizisi de aynıdır), ardından `assistant` (metin + `tool_use` blokları;
 araç adları Claude adlarıyla: `Bash`, `Read`, `Edit`…) ve `user` (`tool_result`) mesajları,
 yeniden denemede `system/api_retry`, reddedilen çağrıda `system/permission_denied`, en sonda
 aynı `result` nesnesi. `--include-partial-messages` metin parçalarını `stream_event`

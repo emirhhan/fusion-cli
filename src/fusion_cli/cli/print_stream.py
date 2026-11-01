@@ -40,6 +40,7 @@ def stream_turns(run: _Run) -> int:
         ),
         restricted=request.restricted,
         check_model=lambda model: print_options.apply_model(run.plan.config, model, None),
+        commands=run.summary.commands,
     ).start()
     run.control = channel
     code = 0

@@ -15,11 +15,10 @@ from __future__ import annotations
 import json
 import sys
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from .. import __version__
 from ..core.events import (
     Event,
     ExecutionRetryScheduled,
@@ -113,20 +112,33 @@ class RunStats:
     def _record_call(self, event: ModelCallFinished) -> None:
         result = event.result
         self.api_ms += max(0, int(result.latency_ms))
-        row = self.model_usage.setdefault(
-            result.model or event.requested_model or "unknown",
-            {
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "cacheReadInputTokens": 0,
-                "cacheCreationInputTokens": 0,
-                "webSearchRequests": 0,
-                "costUSD": 0.0,
-            },
+        model = result.model or event.requested_model or "unknown"
+        row = self.model_usage.get(model) or _usage_row(model)
+        self.model_usage[model] = row
+        usage = result.usage
+        row["inputTokens"] = int(row["inputTokens"]) + usage.prompt_tokens
+        row["outputTokens"] = int(row["outputTokens"]) + usage.completion_tokens
+        row["cacheReadInputTokens"] = int(row["cacheReadInputTokens"]) + usage.cache_read_tokens
+        row["cacheCreationInputTokens"] = (
+            int(row["cacheCreationInputTokens"]) + usage.cache_creation_tokens
         )
-        row["inputTokens"] = int(row["inputTokens"]) + result.usage.prompt_tokens
-        row["outputTokens"] = int(row["outputTokens"]) + result.usage.completion_tokens
         row["costUSD"] = round(float(row["costUSD"]) + result.usage.cost_usd, 6)
+
+
+def _usage_row(model: str) -> dict[str, float | int]:
+    """Claude `modelUsage` satırı; pencere/çıktı sınırı bilinmiyorsa 0."""
+    from ..providers.context_window import input_window_tokens, output_limit_tokens
+
+    return {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0,
+        "contextWindow": input_window_tokens(model) or 0,
+        "maxOutputTokens": output_limit_tokens(model) or 0,
+    }
 
 
 def _denial(event: ToolExecuted) -> dict[str, object]:
@@ -154,6 +166,8 @@ class ResultInput:
     structured: object | None = None
     has_structured: bool = False
     errors: tuple[str, ...] = ()
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 def result_subtype(*, ok: bool, hit_turn_limit: bool, stop_reason: str | None) -> str:
@@ -182,8 +196,8 @@ def result_message(data: ResultInput, stats: RunStats) -> dict[str, object]:
         "usage": {
             "input_tokens": data.prompt_tokens,
             "output_tokens": data.completion_tokens,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": data.cache_creation_tokens,
+            "cache_read_input_tokens": data.cache_read_tokens,
         },
         "modelUsage": stats.model_usage,
         "permission_denials": list(stats.denials),
@@ -197,41 +211,6 @@ def result_message(data: ResultInput, stats: RunStats) -> dict[str, object]:
     if data.has_structured:
         message["structured_output"] = data.structured
     message["fusion"] = {"maliyet_tam": data.cost_complete, "durma_nedeni": data.stop_reason}
-    return message
-
-
-def init_message(
-    *,
-    session_id: str,
-    cwd: str,
-    model: str,
-    mode: ApprovalMode,
-    mcp_servers: Sequence[str],
-    mcp_errors: Sequence[Mapping[str, str]] = (),
-    tools: Sequence[str] = (),
-    agents: Sequence[str] = (),
-) -> dict[str, object]:
-    """`system/init` (stream-json'un ilk satırı)."""
-    message: dict[str, object] = {
-        "type": "system",
-        "subtype": "init",
-        "cwd": cwd,
-        "session_id": session_id,
-        "tools": [claude_tool_name(name) for name in tools],
-        "mcp_servers": [{"name": name, "status": "pending"} for name in mcp_servers],
-        "model": model,
-        "permissionMode": CLAUDE_MODE_NAMES.get(mode, mode.value),
-        "slash_commands": [],
-        "apiKeySource": "none",
-        "claude_code_version": __version__,
-        "output_style": "default",
-        "agents": list(agents),
-        "skills": [],
-        "plugins": [],
-        "uuid": _uuid(),
-    }
-    if mcp_errors:
-        message["mcp_server_errors"] = [dict(item) for item in mcp_errors]
     return message
 
 
