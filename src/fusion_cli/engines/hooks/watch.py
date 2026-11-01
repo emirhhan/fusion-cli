@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,6 +42,9 @@ LOG = logging.getLogger(__name__)
 POLL_S = 1.0
 #: Beceri klasöründe izlenen en çok dosya (büyük klasörde yoklama pahalılaşmasın).
 MAX_SKILL_FILES = 500
+SKILL_FILE = "SKILL.md"
+#: Beceri taramasında gezilmeyen ağır klasörler.
+_SKIPPED_DIRS = frozenset({"node_modules", "__pycache__", "venv", ".venv"})
 SOURCE_USER = "user_settings"
 SOURCE_PROJECT = "project_settings"
 SOURCE_LOCAL = "local_settings"
@@ -207,15 +211,33 @@ async def config_changed(
 
 
 def _files_under(root: Path, limit: int) -> list[Path]:
+    """Sınırlı tarama: önce her becerinin `SKILL.md`'si, sonra öteki dosyalar (en çok `limit`).
+
+    Ölçüldü (inceleme, 1 Kasım): `sorted(rglob)` her saniyelik yoklamada bütün ağacı (ör.
+    `node_modules`) listeliyordu ve büyük varlık klasörü SKILL.md'yi sınırın dışına itiyordu.
+    Gizli klasörler ve `_SKIPPED_DIRS` gezilmez; gezinme sınıra ulaşınca durur.
+    """
     if not root.is_dir():
         return []
-    found: list[Path] = []
-    for path in sorted(root.rglob("*")):
-        if path.is_file():
-            found.append(path)
-            if len(found) >= limit:
-                break
-    return found
+    skills = sorted(path for path in root.glob(f"*/{SKILL_FILE}") if path.is_file())
+    found: dict[Path, None] = dict.fromkeys(skills[:limit])
+    pending = [root]
+    while pending and len(found) < limit:
+        folder = pending.pop()
+        try:
+            with os.scandir(folder) as entries:
+                children = sorted(entries, key=lambda entry: entry.name, reverse=True)
+        except OSError:
+            continue
+        for entry in children:
+            if entry.is_dir(follow_symlinks=False):
+                if not entry.name.startswith(".") and entry.name not in _SKIPPED_DIRS:
+                    pending.append(Path(entry.path))
+            elif entry.is_file(follow_symlinks=False):
+                found.setdefault(Path(entry.path), None)
+                if len(found) >= limit:
+                    break
+    return list(found)
 
 
 def watcher_of(session: HookSession) -> HookWatcher | None:

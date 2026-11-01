@@ -271,3 +271,24 @@ def test_ensure_watcher_tek_izleyici_kurar(tmp_path):
         await asyncio.wait_for(first.task, 1)
 
     asyncio.run(run())
+
+
+def test_beceri_taramasi_sinirli_skill_md_once_node_modules_atlanir(tmp_path):
+    # #121: büyük varlık ağacı SKILL.md'yi 500 sınırının dışına itmemeli; node_modules taranmaz.
+    root = tmp_path / "skills"
+    assets = root / "a-varliklar" / "resimler"
+    assets.mkdir(parents=True)
+    for index in range(watch.MAX_SKILL_FILES + 50):
+        (assets / f"{index:04d}.png").write_bytes(b"")
+    modules = root / "b-beceri" / "node_modules" / "paket"
+    modules.mkdir(parents=True)
+    (modules / "index.js").write_text("x", encoding="utf-8")
+    skill = root / "z-beceri" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: z\n---\n", encoding="utf-8")
+
+    found = watch._files_under(root, watch.MAX_SKILL_FILES)
+
+    assert skill in found
+    assert len(found) == watch.MAX_SKILL_FILES
+    assert not any("node_modules" in path.parts for path in found)
