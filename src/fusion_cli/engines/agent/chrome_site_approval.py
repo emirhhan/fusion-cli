@@ -152,7 +152,20 @@ async def apply_site(
 BUILTIN_NAVIGATION = frozenset({"browser_open", "browser_tab_open"})
 BUILTIN_KEY_PREFIX = "browser-site:"
 BUILTIN_NOTE = "Fusion yerleşik tarayıcıda dış siteyi açmak istiyor: {host}."
-BUILTIN_SCOPE = "Bu oturum boyunca {host} sitesi yerleşik tarayıcıda sorulmadan açılır."
+BUILTIN_SCOPE = "{host} sitesi bundan sonra yerleşik tarayıcıda sorulmadan açılır (kalıcı)."
+
+
+def remember_builtin_site(scope: str) -> None:
+    """ "Always allow" (oturum izni anahtarı `browser-site:<host>`) kalıcı listeye yazılır."""
+    if not scope.startswith(BUILTIN_KEY_PREFIX):
+        return
+    from ...config.browser_sites import add_allowed
+
+    try:
+        add_allowed(scope.removeprefix(BUILTIN_KEY_PREFIX))
+    except OSError:
+        # Yazılamazsa izin bu oturumda yine geçerlidir (bellekte hatırlandı).
+        return
 
 
 def apply_builtin_site(request: ApprovalRequest, args: ToolArgs) -> ApprovalRequest:
@@ -161,6 +174,7 @@ def apply_builtin_site(request: ApprovalRequest, args: ToolArgs) -> ApprovalRequ
     Her kipte (İzinleri atla dahil) oturumda site başına bir kez sorulur; plan kipinde de
     sorulur (okuma araştırması plan için gereklidir). localhost ve yerel dosya sorulmaz.
     """
+    from ...config.browser_sites import load_allowed
     from ...tools.browser import normalize_url
     from ...tools.browser_policy import external_host
     from ...tools.chrome_site_policy import classify
@@ -169,7 +183,8 @@ def apply_builtin_site(request: ApprovalRequest, args: ToolArgs) -> ApprovalRequ
     if request.pre_denied is not None or not isinstance(raw, str) or not raw.strip():
         return request
     host = external_host(normalize_url(raw))
-    if host is None:
+    if host is None or host in load_allowed():
+        # "Always allow" denmiş site (#439) kalıcı izinlidir: soru yok, kip kuralları geçerli.
         return request
     site = ChromeSite(host, classify(host), "açmak", builtin=True)
     note = BUILTIN_NOTE.format(host=host)

@@ -60,7 +60,12 @@ from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .chrome_batch_approval import BATCH_TOOL, apply_batch
-from .chrome_site_approval import apply_site, is_site_consent, site_description
+from .chrome_site_approval import (
+    apply_site,
+    is_site_consent,
+    remember_builtin_site,
+    site_description,
+)
 from .desktop_access import ACCESS_TOOL, apply_access
 from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .sandbox_approval import apply_sandbox_policy
@@ -394,6 +399,8 @@ class ApprovalMemory:
         if request.danger is None and scope is not None:
             self._scopes.add(scope)
             self._scopes.update(request.extra_consent_keys)
+            # Yerleşik Browser "Always allow" (#439) kalıcıdır.
+            remember_builtin_site(scope)
 
 
 class _AskingApproval:

@@ -942,8 +942,9 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 - **Dev servers menüsü (▶︎):** `.claude/launch.json` sunucularını listeler; **Başlat** (güven
   gerekiyorsa "Güven ve başlat"), **Durdur**, **Hepsini durdur**. Başlayan sunucu bölmede açılır.
 - **Dış siteler:** ajan bu bölmede bir dış siteyi (localhost dışı) ilk kez açmak isteyince
-  **Allow once / Always allow / Deny** sorulur; "Always allow" o siteyi bu oturum boyunca
-  izinli yapar. Soru her kipte (İzinleri atla dahil) çıkar; CLI'nin tur tarayıcısı sormaz.
+  **Allow once / Always allow / Deny** sorulur; "Always allow" o siteyi kalıcı izinli yapar
+  (kullanıcı yapılandırma dizinindeki `browser-sites.json`; satırı silmek izni geri alır).
+  Soru her kipte (İzinleri atla dahil) çıkar; CLI'nin tur tarayıcısı sormaz.
 - **Ayarlar › Web oturumları › Browser tools** (`browser.tools`): kapalıyken ajan `browser_*`
   araçlarını görmez; bölme senin için çalışır. Chrome eklentisi araçları etkilenmez.
 - **Yönetici ayarları** (yalnız `managed-settings.json`, Claude Code ile aynı konum):
@@ -965,7 +966,7 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 - **Tek bölme (#439):** Önizleme ve canlı tarayıcı Claude'daki tek "Browser" bölmesi gibi aynı
   **Tarayıcı** sekmesindedir; sekmenin üstündeki **Önizleme / Canlı** seçimi kipi değiştirir
   (⌘⇧B Önizleme kipini açar). Önizleme yerel sayfayı gömer, Canlı ajanla paylaşılan Chromium'u
-  gösterir. Fark: "Always allow" kalıcı değil, oturumluktur.
+  gösterir.
 - **Sınırlar:** panel tarayıcısı her zaman başsız çalışır (görüntü panelde; `browser.headless`
   tur başına tarayıcı içindir). Plan adımları ve alt ajanlar kendi ayrı tarayıcılarını kullanır,
   panelde görünmez. Açık panel oturumunda ajan başka profil yükleyemez; profili panelden seç.

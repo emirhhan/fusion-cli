@@ -170,3 +170,24 @@ async def test_yerlesik_tarayici_dis_site_her_kipte_bir_kez_sorulur(tmp_path) ->
         assert len(prompter.asked) == 1, policy_type
     local = await resolve_request(tool, {"url": "http://localhost:5173"}, root=tmp_path, context=context)
     assert local.consent_key is None
+
+
+async def test_yerlesik_tarayici_always_allow_kalicidir(tmp_path) -> None:
+    from fusion_cli.config.browser_sites import load_allowed, remove_allowed
+    from fusion_cli.core.browser_session import BrowserSession
+
+    tool = _REGISTRY.get("browser_open")
+    assert tool is not None
+    shared = BrowserSession()
+    shared.persistent = True
+    context = ToolContext(root=tmp_path, browser=shared)
+    request = await resolve_request(tool, {"url": "docs.example.org"}, root=tmp_path, context=context)
+    await SecurityApproval(_Prompter(), ApprovalMemory()).decide(request)
+    assert "docs.example.org" in load_allowed()
+    # Yeni oturum (yeni hafıza): soru çıkmaz.
+    again = await resolve_request(tool, {"url": "docs.example.org"}, root=tmp_path, context=context)
+    assert again.consent_key is None
+    assert remove_allowed("docs.example.org")
+    once = await resolve_request(tool, {"url": "docs.example.org"}, root=tmp_path, context=context)
+    await SecurityApproval(_Prompter(ApprovalAnswer.ONCE), ApprovalMemory()).decide(once)
+    assert "docs.example.org" not in load_allowed()  # Allow once kalıcı olmaz
