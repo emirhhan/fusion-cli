@@ -58,6 +58,10 @@ class HookSession:
     hidden_env: Callable[[], frozenset[str]] | None = None
     #: `http` kancası iç ağ adresine gidebilir mi? (`runtime.hook_http_allow_private`)
     http_allow_private: Callable[[], bool] | None = None
+    #: `InstructionsLoaded` bildirilmiş dosya anahtarları (oturum başına bir kez, #169).
+    instructions_seen: set[str] = field(default_factory=set)
+    #: Bağlam özetlendi: sonraki talimat yüklemesinin nedeni `compact` (#169).
+    instructions_compacted: bool = False
     _loaded: bool = False
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None

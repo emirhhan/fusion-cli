@@ -110,7 +110,7 @@ class CommandRegistry:
 
     `dynamic` sağlayıcı (bkz. `skill_commands.skill_slash_commands`) her sorguda yeniden
     üretilir: beceri kataloğu yenilenince (`/skills reload`) defter de yenilenmiş olur.
-    Yerleşik komut dinamik olanı her zaman gölgeler.
+    Claude Code gibi beceri aynı adlı yerleşik komutu gölgeler, takma adlarını gölgelemez.
     """
 
     _commands: dict[str, SlashCommand] = field(default_factory=dict)
@@ -129,27 +129,38 @@ class CommandRegistry:
     def set_fallback(self, resolver: FallbackCommand | None) -> None:
         self._fallback = resolver
 
+    def _alias_keys(self) -> set[str]:
+        primary = {name.lower() for name in self._by_name}
+        return {key.lower() for key in self._commands if key.lower() not in primary}
+
     def _dynamic_commands(self) -> tuple[SlashCommand, ...]:
+        """Beceri komutları. Claude Code (#167): beceri yerleşik komutu geçersiz kılar, takma
+        adını değil — yalnız takma adla çakışan beceri gizlenir."""
         if self._dynamic is None:
             return ()
-        return tuple(c for c in self._dynamic() if c.name.lower() not in self._commands)
+        aliases = self._alias_keys()
+        return tuple(c for c in self._dynamic() if c.name.lower() not in aliases)
 
     def get(self, name: str) -> SlashCommand | None:
         wanted = name.lower()
+        found = next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+        if found is not None:
+            return found
         builtin = self._commands.get(wanted)
         if builtin is not None:
             return builtin
-        found = next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
-        if found is None and self._fallback is not None:
-            return self._fallback(wanted)
-        return found
+        return self._fallback(wanted) if self._fallback is not None else None
 
     def is_dynamic(self, name: str) -> bool:
-        """Ad bir beceri/komut dosyasına mı çözülüyor (yerleşik değil)?"""
-        return name.lower() not in self._commands and self.get(name) is not None
+        """Ad bir beceri/komut dosyasına mı çözülüyor?"""
+        wanted = name.lower()
+        return any(c.name.lower() == wanted for c in self._dynamic_commands())
 
     def all(self) -> tuple[SlashCommand, ...]:
-        return (*self._by_name.values(), *self._dynamic_commands())
+        dynamic = self._dynamic_commands()
+        shadowed = {c.name.lower() for c in dynamic}
+        builtins = tuple(c for c in self._by_name.values() if c.name.lower() not in shadowed)
+        return (*builtins, *dynamic)
 
     def completion_words(self) -> list[str]:
         """Tamamlama için tüm komut ve takma adlar."""
@@ -651,17 +662,45 @@ def _skills(state: ReplState, argument: str) -> str:
             skills=len(state.capabilities.skills()), agents=len(state.capabilities.agents())
         )
     if eylem in ("doctor", "teshis", "teşhis"):
+        from ...engines.agent.skill_cost_report import render_cost_report, skill_costs
         from ...tools.capability_doctor import diagnose, render_report
 
-        return render_report(
-            diagnose(state.capabilities),
-            skills=len(state.capabilities.skills()),
-            agents=len(state.capabilities.agents()),
+        # `/skill-doctor` (#177): bağlam maliyeti + kullanım sıklığı, ardından yapısal teşhis.
+        maliyet = render_cost_report(skill_costs(state.capabilities, state.config.memory_dir))
+        return (
+            maliyet
+            + "\n\n"
+            + render_report(
+                diagnose(state.capabilities),
+                skills=len(state.capabilities.skills()),
+                agents=len(state.capabilities.agents()),
+            )
         )
     if eylem in ("new", "yeni"):
         return _prepare_authoring(state, macros.SKILL_NEW_TASK, kalan)
-    items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
-    return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
+    # Görünürlük paneli (#176): numaralı liste; `/skills <n>` döndürür ve skillOverrides'a yazar.
+    from . import skills_panel
+
+    if not argument.strip():
+        return skills_panel.render_list(state) or messages.SKILLS_EMPTY
+    if eylem.isdigit() and not kalan:
+        return skills_panel.cycle_index(state, eylem)
+    if eylem in skills_panel.SORT_WORDS and not kalan:
+        return skills_panel.render_list(state, by_tokens=True) or messages.SKILLS_EMPTY
+    # `/skills <metin>`: panel süzülür (numaralar tam listedeki gibi; `/skills <n>` aynı beceri).
+    return skills_panel.render_list(state, argument.strip()) or messages.SKILLS_EMPTY
+
+
+def _reload_skills(state: ReplState, argument: str) -> str:
+    """`/reload-skills` (Claude Code): dizinleri yeniden tara, eklenen/çıkarılan sayısını söyle."""
+    del argument
+    assert state.capabilities is not None
+    before = {item.qualified_name for item in state.capabilities.skills()}
+    state.capabilities.invalidate()
+    after = {item.qualified_name for item in state.capabilities.skills()}
+    return messages.SKILLS_RELOAD_DIFF.format(
+        added=len(after - before), removed=len(before - after), total=len(after)
+    )
 
 
 def _agents(state: ReplState, argument: str) -> str:
@@ -750,7 +789,7 @@ def _when(epoch: float) -> str:
 
 
 def _init(state: ReplState, argument: str) -> str:
-    """`/init [agents|claude]` — proje talimat dosyasını (AGENTS.md/CLAUDE.md) modele yazdır.
+    """`/init [claude|agents]` — proje talimat dosyasını (varsayılan CLAUDE.md) modele yazdır.
 
     Görev depodan ölçülen olgularla kurulur (bkz. `instruction_audit.init_task`); çalıştırma
     makrolarla aynı: REPL döngüsü bekleyen görevi sıradaki turda başlatır.
@@ -772,6 +811,9 @@ def _doctor(state: ReplState, argument: str) -> str:
     """
     from ...engines.agent.instruction_audit import audit_instructions, render_audit
 
+    alt, _, yol = argument.strip().partition(" ")
+    if alt.lower() == "prompt-audit":
+        return _prompt_audit(state, yol)
     runtime = state.config.runtime
     rapor = render_audit(
         audit_instructions(
@@ -784,6 +826,21 @@ def _doctor(state: ReplState, argument: str) -> str:
     if argument.strip().lower() in ("prompt", "talimat"):
         return rapor
     return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
+
+
+def _prompt_audit(state: ReplState, target: str) -> str:
+    """`/doctor prompt-audit [yol]` (#168): model denetimi sıradaki agent turunda koşar."""
+    from ...engines.agent.instruction_audit import audit_instructions, render_audit
+    from ...engines.agent.prompt_audit import prompt_audit_task
+
+    findings = render_audit(audit_instructions(state.root, state.home)) if not target else ""
+    task = prompt_audit_task(state.root, state.home, target, findings=findings)
+    if not task:
+        return messages.REPL_PROMPT_AUDIT_EMPTY.format(target=target or state.root)
+    state.pending_engine = Engine.AGENT
+    state.pending_task = task
+    state.pending_mode = Mode.NONE
+    return messages.REPL_PROMPT_AUDIT_STARTED
 
 
 def _health(state: ReplState, argument: str) -> str:
@@ -1108,8 +1165,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
-    SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
-    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[agents|claude]"),
+    SlashCommand(
+        "doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt|prompt-audit [yol]]"
+    ),
+    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[claude|agents]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
     SlashCommand(
@@ -1118,6 +1177,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         lambda state, argument: _skills(state, "doctor"),
         group="Bilgi",
     ),
+    SlashCommand("reload-skills", messages.CMD_RELOAD_SKILLS, _reload_skills, group="Bilgi"),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi"),
     # `/goal <koşul>` (P-058): ilk turu hedef makrosu hazırlar; turlar arası değerlendirme
     # `goal_flow`'dadır. Argümansız `/goal` durumu söyler (Claude Code ile aynı).

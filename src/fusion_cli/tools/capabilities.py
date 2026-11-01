@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import logging
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..config.models import McpServerConfig, SkillVisibility
@@ -45,10 +46,11 @@ from .bundled_plugins import legacy_team_agent
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
-from .capability_roots import agent_roots, roots_signature, skill_roots
+from .capability_roots import agent_roots, ancestor_skill_dirs, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
+from .frontmatter import body_after_frontmatter
 from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
 from .plugin_capabilities import (
@@ -96,7 +98,7 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "sendmessage": frozenset({"SendMessage", "send_message"}),
     "listagents": frozenset({"ListAgents", "list_agents"}),
     "taskstop": frozenset({"TaskStop", "stop_agent"}),
-    "skill": frozenset({"find_skill", "read_skill"}),
+    "skill": frozenset({"Skill", "find_skill", "read_skill"}),
     "askuserquestion": frozenset({"ask_user"}),
     "workflow": frozenset({"workflow_run"}),
     "schedulewakeup": frozenset({"schedule_wakeup"}),
@@ -176,6 +178,14 @@ class Capability:
     user_invocable: bool = True
     #: `argument-hint` → yardım ve tamamlamada gösterilen argüman biçimi.
     argument_hint: str = ""
+    #: Beceri `arguments`: `$ad` yerleştirmesinde konumlara sırayla eşlenen adlar (#169).
+    arguments: tuple[str, ...] = ()
+    #: Beceri `paths`: yalnız eşleşen dosyalarla çalışırken otomatik yükleme globları (#169).
+    paths: tuple[str, ...] = ()
+    #: Beceri `shell`: `!`cmd`` kabuğu (`bash` | `powershell`); boş = bash.
+    shell: str = ""
+    #: Beceri `background` (yalnız `context: fork`): False → fork sonucu tur içinde beklenir.
+    skill_background: bool = True
     #: Alt ajan ayarları (P-034; Claude Code `.claude/agents` frontmatter'ı). Boş = miras.
     #: `permissionMode`: yalnız SIKILAŞTIRIR (bypass miras alınmaz).
     permission_mode: str = ""
@@ -409,6 +419,13 @@ class CapabilityRegistry:
         clone._nested_roots = self._nested_roots
         return clone
 
+    def with_overrides(self, overrides: Mapping[str, SkillVisibility]) -> CapabilityRegistry:
+        """Aynı kökler, farklı görünürlük (`/skills` paneli: `off` olanlar da listelenir; #176)."""
+        clone = self._with_extra_roots(self._extra_roots)
+        clone._overrides = dict(overrides)
+        clone._nested_roots = self._nested_roots
+        return clone
+
     def _with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         return CapabilityRegistry(
             self._home,
@@ -535,6 +552,8 @@ class CapabilityRegistry:
             installed=capabilities_dir(),
             bundled=bundled_skills_dir(),
             nested=self._nested_roots,
+            ancestors=ancestor_skill_dirs(self._root),
+            managed=managed_skill_dirs(),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -562,6 +581,7 @@ class CapabilityRegistry:
         for root, source in self._skill_roots():
             if not root.exists():
                 continue
+            warn_deprecated_root(root, self._home, self._root)
             for path in sorted(root.rglob("SKILL.md")):
                 if not _trusted_path(path, root, source):
                     continue
@@ -569,8 +589,9 @@ class CapabilityRegistry:
                 if root in self._nested_roots and any(
                     item.name == capability.name for item in found.values()
                 ):
-                    # Alt paket becerisi kök/kullanıcı becerisini belirsizleştirmez (P-052).
-                    continue
+                    # Claude Code (#158): ikisi de kalır; `/ad` kök beceriyi, `/<dizin>:ad`
+                    # iç içe olanı çalıştırır, açıklaması uygulandığı dizini söyler.
+                    capability = qualify_nested(capability, root, self._root)
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)
@@ -684,11 +705,22 @@ def _to_capability(
 ) -> Capability:
     raw = _read_head(path, limit)
     fields = parse_frontmatter(raw)
+    if path.name == "SKILL.md" and not str(fields.get("description") or "").strip():
+        # Claude Code: description yoksa gövdenin ilk dolu satırı açıklamadır (#180).
+        fields = {**fields, "description": _first_body_line(raw)}
     try:
         proposal = proposal_metadata(raw)
     except (ValueError, TypeError):
         proposal = ProposalInvocation("invalid", "", RoutineSpec("", "", "", (), ()), "")
     return _capability_from_fields(path, source, fields, fallback=fallback, proposal=proposal)
+
+
+def _first_body_line(raw: str) -> str:
+    for line in body_after_frontmatter(raw).splitlines():
+        cleaned = line.strip().lstrip("#").strip()
+        if cleaned:
+            return cleaned
+    return ""
 
 
 def _capability_from_fields(
@@ -723,6 +755,10 @@ def _capability_from_fields(
         model_invocable=bool(fields.get("model_invocable", True)),
         user_invocable=bool(fields.get("user_invocable", True)),
         argument_hint=str(fields.get("argument_hint") or ""),
+        arguments=_tuple_field(fields, "arguments"),
+        paths=_tuple_field(fields, "paths"),
+        shell=str(fields.get("shell") or "").lower(),
+        skill_background=parse_setting_bool(fields.get("background", "true")),
         permission_mode=str(fields.get("permission_mode") or ""),
         max_turns=parse_setting_int(fields.get("max_turns", 0)),
         skills=_tuple_field(fields, "skills"),
@@ -759,6 +795,44 @@ def _read_head(path: Path, limit: int | None = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
+
+
+def managed_skill_dirs() -> tuple[Path, ...]:
+    """Kurumsal beceri kökü: Claude Code yönetilen dizinin `.claude/skills`'i (#157)."""
+    from ..config.claude_settings import managed_dir
+
+    folder = managed_dir()
+    return (folder / ".claude" / "skills",) if folder is not None else ()
+
+
+_LOG = logging.getLogger(__name__)
+_WARNED_ROOTS: set[Path] = set()
+
+
+def warn_deprecated_root(folder: Path, home: Path, root: Path) -> None:
+    """Claude Code'da olmayan kök bir sürüm okunur; kök başına bir kez uyarı loglanır (#157)."""
+    from .capability_roots import deprecated_root
+
+    label = deprecated_root(folder, home, root)
+    if not label or folder in _WARNED_ROOTS or not any(folder.rglob("SKILL.md")):
+        return
+    _WARNED_ROOTS.add(folder)
+    _LOG.warning(
+        "%s beceri kökü kullanımdan kalktı (Claude Code okumaz); becerileri "
+        "~/.claude/skills ya da .claude/skills altına taşı",
+        label,
+    )
+
+
+def qualify_nested(capability: Capability, folder: Path, root: Path) -> Capability:
+    """Aynı adlı iç içe beceriyi `<dizin>:<ad>` adıyla ve dizinini anan açıklamayla sun (#158)."""
+    owner = folder.parent.parent  # <dizin>/.claude/skills → <dizin>
+    try:
+        prefix = owner.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        prefix = owner.name
+    description = f"{prefix}/ altındaki dosyalar için. {capability.description}".strip()
+    return replace(capability, name=f"{prefix}:{capability.name}", description=description)
 
 
 def _select(

@@ -96,6 +96,9 @@ async def run_forked_turn(
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
     persona: str = "",
+    inherit_context: bool = True,
+    background: bool = False,
+    skill_key: str = "",
     **_ignored: object,
 ) -> AgentOutcome:
     """`/subtask <görev>`: turu fork alt ajan olarak koştur, ana geçmişe yalnız özeti ekle.
@@ -107,12 +110,19 @@ async def run_forked_turn(
     becerisinin talimatı hiç uygulanmıyor, salt-okur kişilik fork içinde yazabiliyordu.
     `chat_mode`/`workflow` gibi kalan tur ayarları alt ajanda anlamsızdır, yok sayılır.
     `persona`: becerinin `agent:` alanı (P-020); o alt ajan tanımı fork'u koşar.
+    `inherit_context=False`: becerinin `context: fork`u (Claude Code #141) — alt ajan konuşma
+    geçmişini GÖRMEZ, gövde kendi başına yeter; ana geçmişe yine yalnız özet eklenir.
+    `background=True`: becerinin `background` alanı (varsayılan) — etkileşimli oturumda fork
+    arka planda başlar, sonuç tamamlanınca konuşmaya gelir (Claude Code #141).
+    `skill_key`: fork becerisinin adı; aynı becerinin önceki arka plan çağrısı sürerken
+    bu çağrı beklenir (belge, "Run skills in a subagent").
     """
+    from . import skill_fork_runs
     from .loop import AgentOutcome, run_agent
     from .team import SubTask, run_subagent
 
     snapshot = list(history or [])
-    seed = list(snapshot)
+    seed = list(snapshot) if inherit_context else []
     if system_prompt is not None:
         if seed and seed[0].role == "system":
             seed[0] = Message("system", system_prompt)
@@ -123,13 +133,27 @@ async def run_forked_turn(
         task=task.strip(),
         persona=persona,
         read_only=plan_mode,
-        inherit_context=True,
+        inherit_context=inherit_context,
         brief=extra_system,
         tool_cap=frozenset(allowed_tools) if allowed_tools is not None else None,
         tool_deny=frozenset(denied_tools),
         images=tuple(images),
         step_limit=step_limit,
+        # `/ad` fork turunun beceri kuralları (`begin_turn`) alt ajanın bağlamına geçer (#141).
+        skill_grants=tuple(getattr(getattr(deps, "tool_context", None), "skill_grants", ()) or ()),
     )
+    waits = skill_fork_runs.previous_running(deps, skill_key)
+    if background and getattr(deps, "interactive", False) and not waits:
+        text, ok = await _launch_background(deps, subtask, run_agent, skill_key)
+        return AgentOutcome(
+            final_text=text,
+            messages=[
+                *snapshot,
+                Message("user", task, images=tuple(images)),
+                Message("assistant", text),
+            ],
+            ok=ok,
+        )
     run = await run_subagent(deps, subtask, depth=0, run_agent=run_agent)
     messages = [
         *snapshot,
@@ -142,3 +166,35 @@ async def run_forked_turn(
         ok=run.ok,
         tool_calls_made=run.tool_calls,
     )
+
+
+#: Arka planda başlayan beceri fork'unun konuşmaya düşen notu.
+BACKGROUND_STARTED = "Beceri alt ajanı arka planda başladı ({agent}); sonuç tamamlanınca gelir."
+
+
+async def _launch_background(
+    deps: AgentDeps, subtask: object, run_agent: object, skill_key: str = ""
+) -> tuple[str, bool]:
+    """Fork'u Agent aracının arka plan yolundan başlat; kapalıysa ön planda bekler."""
+    import json
+
+    from . import skill_fork_runs
+    from .agent_runtime_tools import launch_agent
+
+    result = await launch_agent(
+        deps,
+        subtask,  # type: ignore[arg-type]
+        {"run_in_background": True},
+        depth=0,
+        run_agent=run_agent,  # type: ignore[arg-type]
+    )
+    if not result.ok:
+        return result.output, False
+    skill_fork_runs.remember(deps, skill_key, result.output)
+    try:
+        receipt = json.loads(result.output)
+    except ValueError:
+        return result.output, True
+    if receipt.get("status") == "async_launched":
+        return BACKGROUND_STARTED.format(agent=receipt.get("agentId", "")), True
+    return str(receipt.get("content", "")), True

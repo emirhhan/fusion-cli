@@ -38,6 +38,7 @@ class HookEvent(Enum):
     TASK_CREATED = "TaskCreated"
     TASK_COMPLETED = "TaskCompleted"
     TEAMMATE_IDLE = "TeammateIdle"
+    INSTRUCTIONS_LOADED = "InstructionsLoaded"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -58,6 +59,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.TASK_CREATED: None,
     HookEvent.TASK_COMPLETED: None,
     HookEvent.TEAMMATE_IDLE: None,
+    HookEvent.INSTRUCTIONS_LOADED: "yükleme nedeni (session_start|nested_traversal|include|…)",
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -90,7 +92,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "PostToolBatch",
         "MessageDisplay",
         "StopFailure",
-        "InstructionsLoaded",
         "ConfigChange",
         "DirectoryAdded",
         "FileChanged",

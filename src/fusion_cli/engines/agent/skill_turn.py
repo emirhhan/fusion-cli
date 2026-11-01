@@ -16,6 +16,7 @@ seçimini sessizce ezerdi.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ...config.models import Config
@@ -68,7 +69,13 @@ UNTRUSTED_MODEL_NOTE = (
 )
 
 
-def resolve_turn_model(model: str, effort: str, *, allow_model: bool = True) -> TurnModelResolution:
+def resolve_turn_model(
+    model: str,
+    effort: str,
+    *,
+    allow_model: bool = True,
+    aliases: Mapping[str, str] | None = None,
+) -> TurnModelResolution:
     """`model`/`effort` alanlarını seçime çevir; tanınmayan değer not düşer, uygulanmaz.
 
     `allow_model=False`: becerinin kaynağı depo içeriği ve proje güvenilmiyor. Ölçüldü
@@ -79,6 +86,11 @@ def resolve_turn_model(model: str, effort: str, *, allow_model: bool = True) -> 
     notes: list[str] = []
     chosen_model = ""
     cleaned = model.strip()
+    mapped = (aliases or {}).get(cleaned.lower(), "").strip()
+    if mapped and cleaned.lower() != "inherit":
+        # Claude Code (#170): `sonnet`/`opus`/`haiku` o modele geçirir (yapılandırılmış eşleme:
+        # `agent_launch.model_aliases`, `ANTHROPIC_DEFAULT_<AD>_MODEL`).
+        cleaned = mapped
     if cleaned and cleaned.lower() not in INHERIT_MODELS:
         if not allow_model:
             notes.append(UNTRUSTED_MODEL_NOTE.format(model=cleaned))

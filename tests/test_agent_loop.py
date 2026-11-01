@@ -29,6 +29,7 @@ from fusion_cli.engines.agent.loop import (
     _parse_arguments_checked,
     run_agent,
 )
+from fusion_cli.memory.plain_memory import PlainMemory
 
 from .fakes import (
     AlwaysApprove,
@@ -667,6 +668,15 @@ async def test_plan_modu_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     assert "PLAN MODUNDASIN" in sistem.content
 
 
+def _proje_baglami(provider):  # type: ignore[no-untyped-def]
+    """Claude Code (#149): CLAUDE.md sistem isteminden SONRA ayrı kullanıcı mesajıdır."""
+    from fusion_cli.engines.agent.loop import PROJECT_CONTEXT_HEADER
+
+    mesaj = provider.seen_messages[0][1]
+    assert mesaj.role == "user" and mesaj.content.startswith(PROJECT_CONTEXT_HEADER)
+    return mesaj
+
+
 async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     """OpenCode'un 'Custom Instructions' katmanı: proje kökündeki CLAUDE.md garantili okunur."""
     (tmp_path / "CLAUDE.md").write_text("Bu projede daima Türkçe yorum yaz.", encoding="utf-8")
@@ -674,7 +684,7 @@ async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypat
 
     await run_agent("gorev", _deps(tmp_path, sink))
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "Bu projede daima Türkçe yorum yaz." in sistem.content
     assert "CLAUDE.md" in sistem.content
 
@@ -711,9 +721,11 @@ async def test_home_verildiginde_dis_bellek_sistem_promptuna_girer(monkeypatch, 
         tool_context=ToolContext(root=root),
         home=home,
     )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini)
     await run_agent("gorev", deps)
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "Kullanıcı: motosiklet ekipmanı satıyor." in sistem.content
 
 
@@ -725,7 +737,7 @@ async def test_home_yoksa_dis_bellek_okunmaz_ama_proje_talimati_calisir(
 
     await run_agent("gorev", _deps(tmp_path, sink, home=None))
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "proje kurali" in sistem.content
     assert "<dis_bellek " not in sistem.content
 
@@ -749,9 +761,11 @@ async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, si
         tool_context=ToolContext(root=root),
         home=home,
     )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini)
     await run_agent("gorev", deps)
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert sistem.content.index("proje kurali once gelmeli") < sistem.content.index(
         "dis bellek sonra gelmeli"
     )

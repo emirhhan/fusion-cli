@@ -122,3 +122,24 @@ it("talimat dosyaları varsayılan kapalı açılır-kapanır listede, başlıkt
   fireEvent.click(ozet);
   expect(acilir.open).toBe(true);
 });
+
+// Claude Code (#145): dış `@import` ilk görüldüğünde dosyaları listeleyen onay istenir.
+it("kararı verilmemiş dış importları listeler ve onayı gönderir", async () => {
+  let karar: unknown = null;
+  const client = {
+    request: vi.fn(async (ad: string, veri: unknown) => {
+      if (ad === "ayar.dis_import_karari") {
+        karar = veri;
+        return { ok: true, metin: "Dış importlara izin verildi." };
+      }
+      return { ok: true, metin: "", sinir: 4000, dis_importlar: karar ? [] : ["/ortak/kurallar.md"] };
+    }),
+  } as unknown as ProtocolClient;
+  render(<Instructions client={client} />);
+
+  expect(await screen.findByText("/ortak/kurallar.md")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "İzin ver" }));
+
+  await waitFor(() => expect(karar).toEqual({ onay: true }));
+  await waitFor(() => expect(screen.queryByText("/ortak/kurallar.md")).toBeNull());
+});

@@ -14,7 +14,7 @@ from fusion_cli.cli import session as cli_session
 
 @pytest.mark.asyncio
 async def test_masaustu_kabuk_ve_not_onekleri_model_cagirmaz(tmp_path, monkeypatch):
-    """Ölçüldü (31 Ekim): masaüstünde `! ls` ve `# not` düz mesaj olarak modele gidiyordu."""
+    """`! ls` model çağırmaz; `# not` Claude Code'daki gibi olağan mesajdır (#157)."""
     model = AsyncMock(side_effect=AssertionError("model çağrılmamalı"))
     monkeypatch.setattr(cli_session, "run_agent_task", model)
     app = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "home")
@@ -25,9 +25,14 @@ async def test_masaustu_kabuk_ve_not_onekleri_model_cagirmaz(tmp_path, monkeypat
         assert kabuk["ok"] is True and kabuk["yerel_yanit"] is True
         assert "masaustu-merhaba" in kabuk["metin"]
         assert app._state.pending_blocks and "masaustu-merhaba" in app._state.pending_blocks[0]
-        not_ = await app._dispatch(Request("p2", "tur.calistir", {"gorev": "# yalnız pytest"}))
-        assert not_["ok"] is True and not_["yerel_yanit"] is True and not_["metin"]
         model.assert_not_called()
+        # Claude Code (#157): `#` kısayolu yok; satır olağan tur olarak modele gider.
+        model.side_effect = None
+        model.return_value = SimpleNamespace(
+            ok=True, final_text="tamam", messages=[], made_no_changes=True
+        )
+        await app._dispatch(Request("p2", "tur.calistir", {"gorev": "# yalnız pytest"}))
+        model.assert_called_once()
     finally:
         await app.close()
 

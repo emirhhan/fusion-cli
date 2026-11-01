@@ -668,13 +668,16 @@ REPL_MACRO_STARTED = "{name} çalıştırılıyor…"
 #: `/beceri` komutları (P-019).
 REPL_SKILL_STARTED = "{name} becerisi sıradaki tur için hazırlandı."
 REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile kataloğu yenile."
+#: Dış `@import` onay seçimi (Claude Code #145).
+IMPORT_APPROVAL_ALLOW = "İzin ver"
+IMPORT_APPROVAL_DENY = "Reddet (bir daha sorma)"
+
 REPL_SKILL_FORK_NOTE = (
-    "context: fork — bu beceri ana bağlamı devralan bir alt ajanda çalışacak (/subtask gibi)."
+    "context: fork — bu beceri konuşma geçmişini görmeyen bir alt ajanda çalışacak; "
+    "etkileşimli oturumda arka planda koşar (background: false bekletir)."
 )
 REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
-REPL_SKILL_ENGINE_NOTE = (
-    "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
-)
+REPL_SKILL_ENGINE_NOTE = "Beceri bu tur agent motorunda çalışır; oturumun motoru değişmez."
 CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"
@@ -1020,12 +1023,24 @@ CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · m
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_DOCTOR = (
     "kurulum denetimi: ne eksik, neden önemli, ne yapmalı · "
-    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar)"
+    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar) · "
+    "/doctor prompt-audit [yol]: talimat, beceri, komut ve alt ajan dosyalarının model denetimi"
 )
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
 REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
-CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
+MEMORY_PICKER_HEADER = "Bellek dosyaları (açmak için /memory <n>):"
+MEMORY_PICKER_NEW = " (yok; seçilince oluşturulur)"
+MEMORY_PICKER_AUTO = (
+    "Otomatik bellek: {state} (/memory on|off) · klasör: {folder} · durum: /memory durum"
+)
+MEMORY_PICKER_RANGE = "Geçersiz seçim; 1 ile {count} arasında bir numara yaz."
+CMD_INIT = "proje talimat dosyası üret: CLAUDE.md (varsayılan) ya da AGENTS.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
+REPL_PROMPT_AUDIT_STARTED = (
+    "Talimat denetimi (prompt-audit) hazırlandı; model dosyaları inceleyip düzenleme önerecek, "
+    "onayın olmadan değiştirmeyecek."
+)
+REPL_PROMPT_AUDIT_EMPTY = "Denetlenecek talimat dosyası bulunamadı: {target}"
 REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
 )
@@ -1037,7 +1052,9 @@ CMD_MCP = (
 CMD_SKILLS = (
     "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
 )
-CMD_SKILL_DOCTOR = "beceri kataloğunu denetle: eksik açıklama, kopya ad, uzun gövde"
+CMD_SKILL_DOCTOR = (
+    "beceri başına bağlam maliyeti ve kullanım sıklığı; eksik açıklama, kopya ad, uzun gövde"
+)
 CMD_AGENTS = "alt ajanları yönetme hatırlatması"
 AGENTS_REMINDER = (
     "Alt ajan oluşturmak, düzenlemek ya da silmek için Fusion'a sor (ör. \"kod inceleyen bir "
@@ -1045,6 +1062,11 @@ AGENTS_REMINDER = (
     "doğrudan düzenle. Koşan alt ajanlar için /tasks."
 )
 SKILLS_RELOADED = "Katalog yeniden tarandı: {skills} beceri, {agents} ajan."
+#: `/reload-skills` (Claude Code): eklenen/çıkarılan beceri ve komut sayısı.
+SKILLS_RELOAD_DIFF = (
+    "Beceriler yeniden tarandı: {added} eklendi, {removed} çıkarıldı ({total} toplam)."
+)
+CMD_RELOAD_SKILLS = "beceri ve komut dizinlerini yeniden tara"
 CAPABILITY_AUTHORING_STARTED = (
     "{name} için üretim görevi hazırlandı; model önce birkaç soru soracak."
 )

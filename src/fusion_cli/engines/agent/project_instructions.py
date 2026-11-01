@@ -46,7 +46,7 @@ from .instruction_layers import (
     read_text_limited,
 )
 from .instruction_rules import (
-    MAX_RULE_FILE_CHARS,
+    MAX_SCOPED_RULE_CHARS,
     RuleFile,
     discover_rules,
     rule_block,
@@ -54,25 +54,20 @@ from .instruction_rules import (
     unscoped_rules_block,
 )
 
-#: Tek dosya erişiminde eklenen `paths:` kapsamlı kuralların TOPLAM bütçesi (karakter).
-SCOPED_RULES_MAX_CHARS = 8_000
-
-#: Tek dosya erişiminde eklenen en fazla kapsamlı kural sayısı.
-SCOPED_RULES_MAX_FILES = 6
-
-#: Kalan kural bütçesi bunun altındaysa kural kırpıntı olarak değil hiç eklenmez (sonraya kalır).
-SCOPED_RULES_MIN_CHARS = 200
+#: Claude Code (#154): isteğe bağlı kurallarda erişim başına toplam/adet sınırı yoktur; her
+#: dosya kendi sınırıyla (`MAX_SCOPED_RULE_CHARS`) girer. Sabitler geri uyum için büyüktür.
+SCOPED_RULES_MAX_CHARS = 4 * 1024 * 1024
+SCOPED_RULES_MAX_FILES = 1_000
+SCOPED_RULES_MIN_CHARS = 1
 
 __all__ = ["MAX_CHARS", "MAX_LINKED_CHARS", "read_all_instructions", "read_project_instructions"]
 
-#: Bilinen proje-talimat dosyası adları, öncelik sırasıyla. İç içe klasörlerde dizin
-#: başına TEK dosya alınır; kök için katmanlı okuma `instruction_layers` içindedir.
-CANDIDATE_FILENAMES: tuple[str, ...] = (
-    "CLAUDE.md",
-    "AGENTS.md",
-    "GEMINI.md",
-    ".cursorrules",
-)
+#: İç içe klasörde birlikte okunan Claude dosyaları (#153): `CLAUDE.md` ve `CLAUDE.local.md`.
+NESTED_CLAUDE_FILES: tuple[str, ...] = ("CLAUDE.md", "CLAUDE.local.md")
+#: Klasörde hiç Claude dosyası yoksa okunan dosya.
+NESTED_AGENTS_FILES: tuple[str, ...] = ("AGENTS.md",)
+#: Geri uyum: bilinen adlar (GEMINI.md ve .cursorrules artık okunmaz).
+CANDIDATE_FILENAMES: tuple[str, ...] = (*NESTED_CLAUDE_FILES, *NESTED_AGENTS_FILES)
 
 #: Dosya başına okunacak en fazla karakter (geri uyumlu ad; bkz. `instruction_layers`).
 MAX_CHARS = MAX_FILE_CHARS
@@ -99,14 +94,11 @@ def read_project_instructions(
     return load_instruction_layers(root, home, merge=merge, max_chars=max_chars).text
 
 
-#: İç içe talimat dosyası başına okunacak en fazla karakter (kök için `MAX_CHARS` 8.000).
-#: Alt klasör talimatı bağlama TUR ORTASINDA eklenir ve her erişimde yeni klasör
-#: getirebilir; kısa tutulur, tamamı için `read_file` önerilir.
-NESTED_MAX_CHARS = 3_000
+#: İç içe talimat dosyası başına sınır (Claude Code: 200K pencerede 40.000 karakter).
+NESTED_MAX_CHARS = 40_000
 
-#: Bir turda eklenecek en fazla iç içe talimat dosyası: derin bir ağaçta gezen model
-#: bağlamı talimatlarla doldurmasın.
-NESTED_MAX_FILES = 8
+#: Claude Code'da erişim başına dosya adedi sınırı yok; geri uyum için büyük bir tavan.
+NESTED_MAX_FILES = 1_000
 
 #: İç içe talimat aranmayan dizin adları: bağımlılık/üretim ağaçları üçüncü tarafın
 #: AGENTS.md dosyasını taşıyabilir (enjeksiyon yolu) ve proje kuralı değildir.
@@ -139,8 +131,8 @@ def nested_marker(rel: str) -> str:
 def _nested_candidates(kok: Path, hedef: Path) -> list[tuple[str, Path]]:
     """Hedef dosyanın klasöründen köke (kök HARİÇ) kadar bulunan talimat dosyaları.
 
-    Dış → iç sıralıdır (üst klasör önce). Her klasörden `CANDIDATE_FILENAMES` önceliğiyle
-    TEK dosya alınır. Kök dışına çıkan hedef/sembolik bağ ve gürültü dizinleri atlanır.
+    Dış → iç sıralıdır (üst klasör önce). Klasörde `CLAUDE.md` + `CLAUDE.local.md`, yoksa
+    `AGENTS.md` alınır. Kök dışına çıkan hedef/sembolik bağ ve gürültü dizinleri atlanır.
     """
     try:
         gercek = hedef.resolve()
@@ -150,25 +142,35 @@ def _nested_candidates(kok: Path, hedef: Path) -> list[tuple[str, Path]]:
         return []
     klasor = gercek if gercek.is_dir() else gercek.parent
     parcalar = klasor.relative_to(kok).parts
-    if any(p in _NESTED_SKIP_DIRS or p.startswith(".") for p in parcalar):
+    # Claude Code nokta ile başlayan dizinleri atlamaz (#150); yalnız `.git` ve gürültü ağaçları.
+    if any(p in _NESTED_SKIP_DIRS or p == ".git" for p in parcalar):
         return []
     bulunan: list[tuple[str, Path]] = []
     for derinlik in range(1, len(parcalar) + 1):
         dizin = kok.joinpath(*parcalar[:derinlik])
-        for ad in CANDIDATE_FILENAMES:
-            aday = dizin / ad
-            try:
-                if not aday.is_file():
-                    continue
-                cozulen = aday.resolve()
-            except OSError:
-                continue
-            # Sembolik bağ kök dışındaki bir dosyaya çıkıyorsa HİÇ açılmaz.
-            if cozulen == gercek or not cozulen.is_relative_to(kok):
-                continue
-            bulunan.append((aday.relative_to(kok).as_posix(), cozulen))
-            break
+        claude = _dir_files(kok, dizin, NESTED_CLAUDE_FILES, gercek)
+        bulunan.extend(claude or _dir_files(kok, dizin, NESTED_AGENTS_FILES, gercek))
     return bulunan
+
+
+def _dir_files(
+    kok: Path, dizin: Path, names: tuple[str, ...], hedef: Path
+) -> list[tuple[str, Path]]:
+    """Klasördeki talimat dosyaları (CLAUDE.md, CLAUDE.local.md birlikte; #153)."""
+    found: list[tuple[str, Path]] = []
+    for ad in names:
+        aday = dizin / ad
+        try:
+            if not aday.is_file():
+                continue
+            cozulen = aday.resolve()
+        except OSError:
+            continue
+        # Sembolik bağ kök dışındaki bir dosyaya çıkıyorsa HİÇ açılmaz.
+        if cozulen == hedef or not cozulen.is_relative_to(kok):
+            continue
+        found.append((aday.relative_to(kok).as_posix(), cozulen))
+    return found
 
 
 def load_nested_instructions(
@@ -179,6 +181,7 @@ def load_nested_instructions(
     present: Callable[[str], bool],
     max_files: int = NESTED_MAX_FILES,
     rules: tuple[RuleFile, ...] = (),
+    max_chars: int = NESTED_MAX_CHARS,
 ) -> NestedLoad | None:
     """Model `target` dosyasına eriştiğinde bağlama eklenecek iç içe talimatları döndür.
 
@@ -209,18 +212,22 @@ def load_nested_instructions(
         if len(loaded - rule_labels) >= max_files:
             break
         try:
-            icerik = _read_text_limited(yol, NESTED_MAX_CHARS)
+            icerik = _read_text_limited(yol, max_chars)
         except OSError:
             continue
         loaded.add(rel)
         if not icerik:
             continue
-        kirpildi = len(icerik) > NESTED_MAX_CHARS
-        icerik = _neutralize(icerik[:NESTED_MAX_CHARS])
+        kirpildi = len(icerik) > max_chars
+        icerik = _neutralize(icerik[:max_chars])
         ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
         bloklar.append(f"{nested_marker(rel)}\n{_UNTRUSTED_NOTE}\n{icerik}{ek}\n</alt_talimat>")
         adlar.append(rel)
         toplam += len(icerik)
+    for etiket, blok, eklenen in _nested_rule_blocks(kok, target, loaded, present, max_chars):
+        bloklar.append(blok)
+        adlar.append(etiket)
+        toplam += eklenen
     kural_kalan = SCOPED_RULES_MAX_CHARS
     kural_sayisi = 0
     atlanan: list[str] = []
@@ -233,7 +240,7 @@ def load_nested_instructions(
         if kural_kalan < SCOPED_RULES_MIN_CHARS or kural_sayisi >= SCOPED_RULES_MAX_FILES:
             atlanan.append(kural.label)
             continue
-        blok, eklenen = rule_block(kural, min(MAX_RULE_FILE_CHARS, kural_kalan))
+        blok, eklenen = rule_block(kural, min(MAX_SCOPED_RULE_CHARS, kural_kalan))
         loaded.add(kural.label)
         if not blok:
             continue
@@ -252,6 +259,27 @@ def load_nested_instructions(
         return None
     metin = "\n".join([NESTED_NOTE_HEADER, *bloklar])
     return NestedLoad(Message("user", metin, harness_note=True), tuple(adlar), toplam)
+
+
+def _nested_rule_blocks(
+    kok: Path, target: Path, loaded: set[str], present: Callable[[str], bool], max_chars: int
+) -> list[tuple[str, str, int]]:
+    """Alt dizinin `.claude/rules` dosyaları (#150): `paths` yoksa her erişimde, varsa eşleşince."""
+    from .nested_rules import applies, nested_rule_files
+
+    found: list[tuple[str, str, int]] = []
+    for kural in nested_rule_files(kok, target):
+        if kural.label in loaded or not applies(kural, kok, target):
+            continue
+        loaded.add(kural.label)
+        if present(kural.label):
+            continue
+        blok, eklenen = rule_block(kural, max_chars)
+        if blok:
+            found.append(
+                (kural.label, f"{nested_marker(kural.label)}\n{blok}\n</alt_talimat>", eklenen)
+            )
+    return found
 
 
 def _scoped_rules(kok: Path, target: Path, rules: tuple[RuleFile, ...]) -> tuple[RuleFile, ...]:
@@ -348,6 +376,7 @@ def load_all_instructions(
     instruction_merge: bool = True,
     instruction_max_chars: int = TOTAL_MAX_CHARS,
     include_external_memory: bool = True,
+    extra_roots: tuple[Path, ...] = (),
 ) -> InstructionLoad:
     """Proje talimatı ve ilk yükleme ölçümünü birlikte döndür.
 
@@ -387,7 +416,11 @@ def load_all_instructions(
         ortam = f"{ortam}\n{depo}"
     ozet = workspace_summary(root)
     instruction_load = load_instruction_layers(
-        root, home, merge=instruction_merge, max_chars=instruction_max_chars
+        root,
+        home,
+        merge=instruction_merge,
+        max_chars=instruction_max_chars,
+        extra_roots=extra_roots,
     )
     proje_talimati = instruction_load.text
     # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.

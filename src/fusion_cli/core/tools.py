@@ -433,6 +433,10 @@ class ToolContext:
     #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
     #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
     worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)
+    #: Bu turda çağrılan becerilerin izin kuralları: `("allow"|"deny", "Bash(git *)")`.
+    #: `allowed-tools` ön onay, `disallowed-tools` desen yasağıdır; kullanıcının sonraki
+    #: mesajında kalkar (Claude Code skills; bkz. `engines/agent/skill_grants`).
+    skill_grants: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya
@@ -492,6 +496,10 @@ class Tool:
     # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
     # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
     advertised: bool = True
+    #: True ise sonuç modele OLDUĞU GİBİ gider: diske alma (offload) ve enjeksiyon notu
+    #: uygulanmaz. Yalnız içeriği kullanıcının kendi talimatı olan araçlar içindir
+    #: (`Skill`: işlenmiş SKILL.md, Claude Code'da konuşmaya tam girer; #139).
+    verbatim_output: bool = False
     #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
     effect: ToolEffect = ToolEffect.LOCAL
     #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran

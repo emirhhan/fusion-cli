@@ -40,6 +40,8 @@ def skill_roots(
     installed: Path,
     bundled: Path,
     nested: tuple[Path, ...] = (),
+    ancestors: tuple[Path, ...] = (),
+    managed: tuple[Path, ...] = (),
 ) -> Roots:
     """SKILL.md aranan kökler ve kaynak etiketleri, öncelik sırasıyla.
 
@@ -47,12 +49,16 @@ def skill_roots(
     (aynı adda kök becerisi kazanır) ve "proje" sayılır (depo içeriği, aynı güven kuralları).
     """
     return (
+        # Claude Code (#157): kurumsal (managed) beceriler ilk sırada; `~/.claude/plugins` ham
+        # taraması yok, eklenti becerileri yalnız etkin eklentilerden `eklenti:ad` olarak gelir.
+        *((folder, "managed") for folder in managed),
         (home / ".claude" / "skills", "claude"),
-        (home / ".claude" / "plugins", "claude-plugin"),
         (root / ".claude" / "skills", "proje"),
         (root / ".fusion" / "skills", "proje"),
         # Codex/ChatGPT "Agent Skills" açık standardı: ~/.agents/skills ve depo .agents/skills.
         (root / ".agents" / "skills", "proje"),
+        # Claude Code (#158): başlangıç dizininden depo köküne kadar her üst dizin.
+        *((folder, "proje") for folder in ancestors),
         *((folder, "proje") for folder in nested),
         (home / ".codex" / "skills", "codex"),
         (home / ".agents" / "skills", "codex"),
@@ -128,9 +134,8 @@ def roots_signature(
 ) -> tuple[tuple[str, int], ...]:
     """Var olan köklerin (yol, mtime_ns) imzası: klasör eklenip silinince değişir.
 
-    Dizin mtime'ı yalnız doğrudan çocuk değişince güncellenir; bir SKILL.md'nin İÇERİĞİ
-    değişince değişmez — onun için `CapabilityRegistry.invalidate()` (`/skills reload`).
-    Ajan dosyaları ise tek tek imzaya girer.
+    Dizin mtime'ı yalnız doğrudan çocuk değişince güncellenir; bu yüzden ajan dosyaları,
+    kullanıcı/proje/ek kök SKILL.md dosyaları ve komut dosyaları tek tek imzaya girer.
     """
     from .skill_commands import COMMAND_ROOTS
 
@@ -144,6 +149,20 @@ def roots_signature(
         if source in _WATCHED_AGENT_SOURCES and folder.is_dir()
         for path in sorted(folder.rglob("*.md"))
     )
+    # Claude Code canlı değişiklik algılama (#176): var olan becerinin/komutun düzenlenmesi
+    # yeniden başlatmadan ya da `/reload-skills` olmadan etkin olur.
+    candidates.extend(
+        path
+        for folder, source in skill_roots_found
+        if source in _WATCHED_AGENT_SOURCES and folder.is_dir()
+        for path in sorted(folder.rglob("SKILL.md"))
+    )
+    candidates.extend(
+        path
+        for rel, _s, in_home in COMMAND_ROOTS
+        if ((home if in_home else root) / rel).is_dir()
+        for path in sorted(((home if in_home else root) / rel).rglob("*.md"))
+    )
     found: list[tuple[str, int]] = []
     for path in candidates:
         try:
@@ -155,3 +174,43 @@ def roots_signature(
 
 #: İçeriği izlenen ajan kapsamları: kullanıcı, proje, yönetilen ve `--add-dir` kökleri.
 _WATCHED_AGENT_SOURCES = frozenset({"claude", "proje", "managed", "ek-kok"})
+
+
+def ancestor_skill_dirs(root: Path) -> tuple[Path, ...]:
+    """Başlangıç dizininin üstlerinden depo köküne (dahil) `.claude/skills` dizinleri (#158).
+
+    Belge (skills, "Load skills in monorepos and subdirectories"): proje becerileri başlangıç
+    dizininde ve depo köküne kadar her üst dizinde yüklenir. Depo dışında üst dizin taranmaz.
+    """
+    try:
+        start = root.resolve()
+    except OSError:
+        return ()
+    # Başlangıç dizini depo köküyse üst dizinler depo DIŞIDIR (üstte başka .git olsa da).
+    if (start / ".git").exists():
+        return ()
+    chain: list[Path] = []
+    for parent in start.parents:
+        chain.append(parent / ".claude" / "skills")
+        if (parent / ".git").exists():
+            return tuple(chain)
+    return ()
+
+
+#: Claude Code'da olmayan, bir sürüm boyunca okunan beceri kökleri (#157): kullanımdan kalktı.
+DEPRECATED_SKILL_ROOTS: tuple[tuple[str, str], ...] = (
+    (".fusion/skills", "proje"),
+    (".agents/skills", "proje"),
+    ("~/.codex/skills", "codex"),
+    ("~/.agents/skills", "codex"),
+    ("~/.hermes/skills", "hermes"),
+)
+
+
+def deprecated_root(folder: Path, home: Path, root: Path) -> str:
+    """Kök kullanımdan kalkmış bir Fusion kökü mü: gösterilecek ad ya da boş."""
+    for label, _source in DEPRECATED_SKILL_ROOTS:
+        base = home if label.startswith("~/") else root
+        if folder == base / label.removeprefix("~/"):
+            return label
+    return ""

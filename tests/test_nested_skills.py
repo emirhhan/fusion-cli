@@ -66,15 +66,36 @@ def test_erisim_sonrasi_katalog_buyur_ve_duyuru_bir_kez_duser(tmp_path: Path):
     assert registry.with_extra_roots(()).get_skill("alt-becerisi") is not None
 
 
-def test_ayni_adda_kok_becerisi_kazanir(tmp_path: Path):
+def test_ayni_adda_ikisi_de_kalir_ic_ice_dizin_nitelikli(tmp_path: Path):
+    """Claude Code (#158): `/ortak` kök beceri, `/paket:ortak` iç içe beceri."""
     kok = tmp_path
     _skill(kok / ".claude" / "skills", "ortak", description="kökteki")
     _skill(kok / "paket" / ".claude" / "skills", "ortak", description="paketteki")
     (kok / "paket" / "a.py").write_text("", "utf-8")
     registry = CapabilityRegistry(tmp_path / "ev", kok)
 
-    assert discover_nested_skills(registry, kok, (kok / "paket" / "a.py",)) is None
+    note = discover_nested_skills(registry, kok, (kok / "paket" / "a.py",))
+    assert note is not None and "paket:ortak" in note.content
     assert registry.get_skill("ortak").description == "kökteki"  # type: ignore[union-attr]
+    nested = registry.get_skill("paket:ortak")
+    assert (
+        nested is not None and "paket/" in nested.description and "paketteki" in nested.description
+    )
+
+
+def test_ust_dizin_becerileri_depo_kokune_kadar_yuklenir(tmp_path: Path):
+    """Claude Code (#158): `packages/frontend`'de başlasa da kökün becerileri gelir."""
+    depo = tmp_path / "depo"
+    (depo / ".git").mkdir(parents=True)
+    _skill(depo / ".claude" / "skills", "kok-becerisi", description="kök")
+    _skill(tmp_path / ".claude" / "skills", "depo-disi", description="dış")
+    baslangic = depo / "packages" / "frontend"
+    baslangic.mkdir(parents=True)
+
+    registry = CapabilityRegistry(tmp_path / "ev", baslangic)
+
+    assert registry.get_skill("kok-becerisi") is not None
+    assert registry.get_skill("depo-disi") is None
 
 
 async def test_dongu_alt_paket_okumasindan_sonra_beceriyi_duyurur(monkeypatch, tmp_path: Path):
@@ -139,3 +160,46 @@ def test_config_ile_yeniden_kurulan_defter_kesfi_korur(tmp_path: Path):
 
     assert state.capabilities is not None
     assert state.capabilities.get_skill("paket-becerisi") is not None
+
+
+def test_kurumsal_beceri_koku_ilk_sirada_eklenti_onbellegi_taranmaz(tmp_path: Path, monkeypatch):
+    """Claude Code (#157): kurumsal kök; `~/.claude/plugins` ham taraması yok."""
+    managed = tmp_path / "yonetilen"
+    monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(managed))
+    home = tmp_path / "ev"
+    _skill(managed / ".claude" / "skills", "kurumsal", description="şirket")
+    _skill(home / ".claude" / "plugins" / "cache" / "pazar" / "skills", "onbellek", description="x")
+    root = tmp_path / "proje"
+    root.mkdir()
+
+    registry = CapabilityRegistry(home, root)
+
+    kurumsal = registry.get_skill("kurumsal")
+    assert kurumsal is not None and kurumsal.source == "managed"
+    assert registry.get_skill("onbellek") is None
+
+
+def test_claude_disi_kok_kullanimdan_kalkti_uyarisi(tmp_path: Path, caplog):
+    home = tmp_path / "ev"
+    _skill(home / ".codex" / "skills", "eski", description="x")
+    root = tmp_path / "proje"
+    root.mkdir()
+
+    with caplog.at_level("WARNING"):
+        assert CapabilityRegistry(home, root).get_skill("eski") is not None
+
+    assert any("kullanımdan kalktı" in record.message for record in caplog.records)
+
+
+def test_baslangic_dizini_depo_kokuyse_ust_dizinlere_cikilmaz(tmp_path) -> None:
+    """#158: iç içe depoda (üstte dotfiles deposu) depo kökünün üstü taranmaz."""
+    from fusion_cli.tools.capability_roots import ancestor_skill_dirs
+
+    (tmp_path / "x" / ".git").mkdir(parents=True)
+    proj = tmp_path / "x" / "work" / "proj"
+    (proj / ".git").mkdir(parents=True)
+
+    assert ancestor_skill_dirs(proj) == ()
+    sub = proj / "pkg"
+    sub.mkdir()
+    assert ancestor_skill_dirs(sub) == ((proj / ".claude" / "skills").resolve(),)

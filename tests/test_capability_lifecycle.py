@@ -122,7 +122,8 @@ def test_teshis_eksik_aciklama_kopya_ad_ve_butce_asimini_bulur(tmp_path: Path):
     bulgular = diagnose(registry)
 
     turler = {(b.kind, b.name) for b in bulgular}
-    assert ("eksik_aciklama", "adsiz") in turler
+    # Claude Code (#180): description yoksa gövdenin ilk satırı açıklamadır; eksik sayılmaz.
+    assert ("eksik_aciklama", "adsiz") not in turler
     assert ("frontmatter_yok", "adsiz") in turler
     assert ("kopya_ad", "kopya") in turler
     assert ("uzun_govde", "dev") in turler

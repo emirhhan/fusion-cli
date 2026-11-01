@@ -4,63 +4,88 @@ Fusion, Claude Code / Codex kullanıcısının alıştığı talimat ve beceri y
 dosyalardan okur; yeni bir ekosistem kurmaz. Bu belge hangi dosyanın ne zaman bağlama
 girdiğini, bütçeleri ve kapatma ayarlarını anlatır.
 
-## Talimat hiyerarşisi (`runtime.instruction_merge`)
+## Talimat hiyerarşisi (Claude Code CLAUDE.md kuralları)
 
-Tur başında şu katmanlar sırayla okunur ve sistem bağlamına eklenir; çakışmada projeye
-**daha yakın olan** kazanır (Claude Code ile aynı sıra):
+Tur başında şu dosyalar sırayla (genelden özele) okunur ve **birleştirilir** (biri ötekini
+ezmez; çalışma dizinine yakın olan en son okunur). İçerik Claude Code'daki gibi uyulacak
+talimat olarak sunulur ("Contents of <yol> (…):" başlığıyla) ve Claude Code'daki gibi sistem
+isteminin içine değil, sistem isteminden **sonra ayrı bir kullanıcı mesajı** olarak verilir
+(her turda aynı yerde, tek kopya); izin ve onay kuralları yine
+ayarlarla (`permissions`, kancalar) zorlanır.
 
-| Katman | Dosyalar | Etiket | Güven |
-|---|---|---|---|
-| Kullanıcı | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.override.md` (yoksa `AGENTS.md`), `~/.fusion/TALIMAT.md` | `<kullanici_talimati>` | Güvenilir (senin dosyan) |
-| Proje | `CLAUDE.md` + `.claude/CLAUDE.md` (Claude ailesi) **veya** `AGENTS.override.md`/`AGENTS.md` **veya** `GEMINI.md` **veya** `.cursorrules` — ilk dolu aile; artı her zaman `CLAUDE.local.md` | `<proje_talimati>` | Depo içeriği: izin/onay kurallarını değiştiremez |
-| İç içe | Alt klasördeki `CLAUDE.md`/`AGENTS.md`, o klasördeki dosyaya erişince (`runtime.nested_instructions`) | `<alt_talimat>` | Depo içeriği |
+| Sıra | Katman | Dosyalar |
+|---|---|---|
+| 1 | Kurumsal | macOS `/Library/Application Support/ClaudeCode/CLAUDE.md`, Linux/WSL `/etc/claude-code/CLAUDE.md` ve `managed-settings.json` içindeki `claudeMd`. Dışlanamaz |
+| 2 | Kullanıcı | `~/.claude/CLAUDE.md` (eski `~/.fusion/TALIMAT.md` bu sürüm boyunca okunur, kullanımdan kalktığı notu düşer; `~/.codex/AGENTS.md` okunmaz) |
+| 3 | Proje | Dosya sistemi kökünden çalışma dizinine kadar **her dizinde** `CLAUDE.md`, `.claude/CLAUDE.md`, ardından `CLAUDE.local.md`. `monorepo/packages/web` içinde açınca `monorepo/CLAUDE.md` de yüklenir |
+| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` ve `.claude/rules/*.md` (`paths`'siz) dosyaları; `paths` alanlı kurallar o ek dizine göre eşleşen bir dosyaya erişilince bağlama girer (`InstructionsLoaded` `path_glob_match`) |
+| — | İç içe | Alt klasördeki talimat, o klasördeki dosyaya erişince (`runtime.nested_instructions`) |
 
-- `CLAUDE.md → AGENTS.md` sembolik bağı ya da aynı içerikli iki dosya **bir kez** okunur.
-  Proje kökündeki talimat dosyası kök **dışına** çıkan bir sembolik bağsa (`.claude/CLAUDE.md
-  -> ~/.ssh/id_rsa`) hiç açılmaz, notta görünür.
-- Bütçe: dosya başına 8.000, toplam `runtime.instruction_max_chars` (32.000) karakter.
-  Kullanıcı katmanı (ev dizini dosyaları + import'ları) toplamın en çok **%40**'ını alır;
-  kalan proje katmanına kalır — proje talimatı hiçbir zaman aç kalmaz. Kırpma sessiz
-  değildir: metne `[…kırpıldı…]` notu düşer, kırpılan miktar gerçek kayıptır (dosyanın
-  kalanı sayılır); bütçe yüzünden hiç okunmayan dosya için bağlama `[talimat atlandı: …]`
-  satırı konur. Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** altında yüklenen
-  dosyalar, kurallar (kapsamıyla), karakter ve kırpılan miktar listelenir (`ayar.talimat` →
-  `katmanlar`, `notlar`).
-- `runtime.instruction_merge: false` eski davranışa döner: yalnız kökteki ilk bilinen dosya.
-- **Claude Code'dan fark:** Claude Code ve Codex çalışma dizininin ÜST klasörlerindeki
-  talimatı da yükler (monorepo kökü → alt paket). Fusion yalnız çalışma kökünü ve altındaki iç
-  içe dosyaları okur; `monorepo/packages/web` içinde açıldığında `monorepo/CLAUDE.md`
-  yüklenmez. Üst klasör kuralı gerekiyorsa alt paketin talimatına `@../../CLAUDE.md` yazmak
-  da işe yaramaz (kök dışı import atlanır); Fusion'ı monorepo kökünde aç ya da ilgili kuralı
-  alt pakete kopyala.
+- **AGENTS.md**: varsayılan (`claude-md-or-agents-md`) — çalışma dizininde ya da üstünde hiç
+  `CLAUDE.md`, `.claude/CLAUDE.md` veya `CLAUDE.local.md` yoksa (`~/.claude/CLAUDE.md` sayılmaz)
+  her dizinin `AGENTS.md` ve `.claude/AGENTS.md` dosyası okunur. **Project instructions**
+  ayarı `~/.claude/settings.json` (ya da kurumsal ayar) içinde
+  `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` ile değişir:
+  `claude-md-and-agents-md`, `claude-md`, `managed-only`. `AGENTS.override.md`,
+  `AGENTS.local.md`, `.agents/`, `GEMINI.md` ve `.cursorrules` okunmaz.
+- Boyut: her dosya **4 MiB'a kadar bütünüyle** yüklenir; daha büyüğü hiç yüklenmez (notta
+  görünür). 200 satırı aşan dosya için yalnız kısaltma önerisi düşer; birleşik sınır yoktur.
+  `runtime.instruction_max_chars` artık etkisizdir.
+- Çitli kod dışındaki blok HTML yorumları (`<!-- bakım notu -->`) bağlama girmeden silinir.
+- `claudeMdExcludes` (settings.json; kullanıcı, proje, yerel ve kurumsal katmanlarda dizi
+  olarak birleşir) mutlak yola glob olarak uygulanır; kurumsal CLAUDE.md dışlanamaz.
+- Aynı içerikli iki dosya (`CLAUDE.md → AGENTS.md` sembolik bağı) **bir kez** okunur.
+- Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** yüklenen dosyaları, kuralları
+  (kapsamıyla) ve notları listeler (`ayar.talimat` → `katmanlar`, `notlar`).
+- `runtime.instruction_merge: false` talimat yüklemesini tamamen kapatır.
+- **Güvenlik davranışı değişti (#149, #143):** CLAUDE.md, kurallar ve otomatik bellek Claude
+  Code'daki gibi sistem isteminden sonra ayrı bir kullanıcı mesajında, Claude başlığıyla
+  ("These instructions OVERRIDE any default behavior…") ve güvenilmezlik notu olmadan verilir;
+  dosya başı/toplam karakter sınırları da kalktı. Claude Code bu dosyaları klasör güveni
+  onaylandıktan sonra okur; Fusion'da CLAUDE.md için ayrı bir güven denetimi (`fusion trust`)
+  **yoktur**, klonlanmış güvenilmeyen bir deponun CLAUDE.md'si de aynı başlıkla modele gider.
+  Proje güvenini CLAUDE.md yüklemesine bağlamak kullanıcı kararı bekliyor.
 
 ## `@yol` içe aktarma
 
 Talimat dosyasının içinde satır başında ya da boşluktan sonra `@docs/kurallar.md` yazımı o
 dosyayı bağlama alır (Claude Code sözdizimi).
 
-- Özyinelemeli, en fazla 3 seviye; döngü korumalı; toplam 6.000 karakter.
-- Kod bloklarında (` ``` ` ve `` `…` ``) yok sayılır.
-- Proje katmanında yalnız **kök içindeki** yollar; `..` ile dışarı çıkan ya da `~/` yol
-  atlanır ve `ayar.talimat` notlarında görünür. Kullanıcı katmanında `~/.claude/ortak.md`
-  gibi ev dizini yolları izinlidir.
-- Yalnız düz metin uzantıları (`.md .mdc .markdown .txt .rst`) okunur; `.env` gibi dosyalar hiç
-  açılmaz. E-posta (`ali@ornek.com`) ve paket adı (`@anthropic-ai/sdk`) import sayılmaz.
-- Eski `[metin](RULES.md)` Markdown bağlantıları da bir seviye izlenmeye devam eder.
+- Göreli yol içeren dosyaya göredir; mutlak ve `~/` yollar da olur. Uzantı kısıtı yoktur
+  (`@README`, `@package.json`); ikili dosya atlanır. Boşluklu yol `\ ` ile yazılır
+  (`@Design\ Docs/api.md`).
+- Özyinelemeli, en çok **dört adım**; döngü korumalı; kod bloklarında (` ``` ` ve `` `…` ``)
+  yok sayılır. E-posta (`ali@ornek.com`) import sayılmaz.
+- Proje dosyasında çalışma dizini **dışına** çıkan import "dış"tır: proje başına bir kez onay
+  gerekir (karar `dis_import_onaylari.json` dosyasında saklanır). Claude Code'daki gibi dış import
+  ilk görüldüğünde dosyaları listeleyen bir onay sorusu açılır: terminalde oturum başında `[e/H]`,
+  TUI'de uygulama içi seçim, masaüstünde Kişiselleştirme → Kalıcı talimat kartında "İzin ver" /
+  "Reddet". Reddedilirse importlar kapalı kalır ve soru bir daha görünmez; Esc ile kapatılırsa
+  (TUI) karar verilmemiş sayılır ve notta "onay bekliyor" görünür.
+- Markdown bağlantıları (`[metin](RULES.md)`) izlenmez; kuralı içe almak için `@RULES.md` yaz.
 
 ## `.claude/rules/` kural dosyaları
 
-`~/.claude/rules/**/*.md` (kullanıcı, güvenilir) ve projede `.claude/rules/**/*.md`,
-`.fusion/rules/**/*.md` (`.mdc` de olur) özyinelemeli keşfedilir.
+`~/.claude/rules/**/*.md` (kullanıcı) ve projede `.claude/rules/**/*.md` özyinelemeli
+keşfedilir (yalnız `.md`). Eski `.fusion/rules` kökü bu sürüm boyunca okunur, kullanımdan
+kalktığı uyarısı düşer.
 
-- `paths:` frontmatter'ı **olmayan** kurallar tur başında yüklenir (toplam 8.000 karakter;
-  aşım notla bildirilir).
-- `paths:` olanlar (`src/**/*.tsx`, `*.css`, `docs/`, `*.{ts,tsx}`, `.github/**`, `.*rc`)
-  yalnız model eşleşen dosyayı okuyup/düzenleyince, o turda bir kez, iç içe talimat notuyla
-  aynı mesajda gelir. Dizin içermeyen desen dosya adına da uygulanır. Bir erişimde en çok
-  **6 kural / 8.000 karakter** eklenir; sığmayanlar `[…N kural atlandı…]` notuyla bildirilir
-  ve sonraki erişimde gelir.
-- Kök dışına çıkan sembolik bağ hiç açılmaz; `node_modules`/`vendor` gibi dizinler taranmaz.
+- `paths:` frontmatter'ı **olmayan** kurallar tur başında, CLAUDE.md gibi bütünüyle (4 MiB'a
+  kadar) yüklenir; karakter bütçesi yoktur.
+- `paths:` olanlar yalnız model eşleşen dosyayı okuyup/düzenleyince, o turda bir kez, iç içe
+  talimat notuyla aynı mesajda gelir; dosya başı sınır 40.000 karakter, adet sınırı yoktur.
+  Desenler kuralın taban dizinine (proje kökü) görelidir: `*.md` yalnız kökteki `.md`
+  dosyalarına uyar, `**/*.md` her yerdekine. `[abc]` / `[!a]` köşeli ayraç ifadeleri ve
+  `*.{ts,tsx}` brace açılımı geçerlidir (kural başına en çok 1.000 açılmış desen). Okunan
+  frontmatter alanı yalnız `paths` (eski `yollar` uyarıyla okunur; `globs` okunmaz).
+- Kök dışını gösteren proje kuralı sembolik bağı dış import gibidir: projede dış import onayı
+  verilmişse yüklenir, yoksa atlanır; onay sorusunda bu bağların hedefleri de listelenir. `claudeMdExcludes` kural dosyalarına da uygulanır.
+- İç içe talimat: model alt klasörde bir dosyayı okuyunca/yazınca/düzenleyince (kabukla tek
+  dosyalı `cat`/`head`/`tail` okuması dahil) o klasörün `CLAUDE.md` ve `CLAUDE.local.md`'si
+  birlikte, hiç Claude dosyası yoksa `AGENTS.md`'si ve o klasörün `.claude/rules/*.md` dosyaları
+  (`paths` deseni o klasöre göreli) yüklenir. Dosya başı sınır 200K pencerede 40.000, 1M
+  pencerede 150.000 karakter; `GEMINI.md` ve `.cursorrules` okunmaz. Nokta ile başlayan
+  klasörler (`.github`) taranır; `.git`, `node_modules`, `vendor` gibi dizinler taranmaz.
 - Masaüstü **Beceriler › Talimatlar** sekmesi kullanıcı katmanını, proje talimatlarını ve
   kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
   dosyayı okur.
@@ -70,69 +95,102 @@ dosyayı bağlama alır (Claude Code sözdizimi).
 
 Keşfedilen her `SKILL.md` becerisi ve `.claude/commands/**/*.md` komut dosyası terminalde,
 TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
-(`/help` ve `komut.listele` listeler; yerleşik bir komutla ad çakışırsa yerleşik kazanır).
+(`/help` ve `komut.listele` listeler). Claude Code gibi aynı adlı beceri yerleşik komutun
+yerine geçer, takma adlarının yerine geçmez (`dev` adlı beceri `/development`'ın takma adı
+`/dev`'i gölgelemez).
 
 - `/rapor ekim` → `SKILL.md` gövdesi `$ARGUMENTS` ile şablonlanıp `<beceri>` bloğu olarak
   sıradaki turun sistem bağlamına girer; kullanıcı mesajı `ekim` (argüman yoksa
   "`rapor` becerisini bu görev için uygula.").
 - `.claude/commands/git/commit.md` → `/git:commit <bağlam>`: şablonlanan gövde doğrudan görev
-  metnidir. Komut kökleri: `~/.claude/commands`, `~/.fusion/commands`, projede
-  `.claude/commands`, `.fusion/commands`.
-- Codex yazımı `$rapor ekim` de aynı yola gider (`@beceri` dosya anmasıyla çakıştığı için
-  desteklenmez).
-- Şablon değişkenleri: `$ARGUMENTS`, `$ARGUMENTS[0]`, `$1 $2 …`, `${FUSION_SKILL_DIR}`
-  (`${CLAUDE_SKILL_DIR}`), `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}`; `\$` kaçışı. Yer
-  tutucu yoksa argüman `ARGÜMANLAR:` satırı olarak sona eklenir.
+  metnidir. Ad yalnız dosya yolundan gelir (Claude Code gibi komut dosyasındaki `name` yok
+  sayılır). Komut kökleri: `~/.claude/commands` ve projede `.claude/commands`.
+  `~/.fusion/commands` ve `.fusion/commands` kullanımdan kalktı: bu sürüm boyunca okunur, ilk
+  görüldüğünde uyarı düşer — dosyaları `.claude/commands` altına taşı.
+- Beceri yalnız mesaj başındaki `/` ile çağrılır; eski Codex yazımı `$rapor` artık düz mesajdır.
+- Şablon değişkenleri (Claude Code ile aynı): `$ARGUMENTS`, `$ARGUMENTS[N]` ve kısaltması `$N`
+  (**0 tabanlı**: `$0` ilk, `$1` ikinci argüman), `arguments:` alanındaki adlar (`$issue`),
+  `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_SESSION_ID}`, `${CLAUDE_EFFORT}`;
+  `\$` kaçışı. Hiçbir yer tutucu argüman almıyorsa argüman `ARGUMENTS: <değer>` satırı olarak
+  sona eklenir. Eski `${FUSION_SKILL_DIR}`, `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}` ve
+  `{SKILL_DIR}` bu sürüm boyunca çalışır, kullanımdan kalktığı notu düşer.
 
 ### SKILL.md frontmatter alanları
 
-| Alan (İngilizce / Türkçe) | Fusion'da etkisi |
+Alan adları Claude Code'daki İngilizce adlardır. Eski Türkçe takma adlar (`izinli-araclar`,
+`yasak-araclar`, `model-cagirmasin`, `kullanici-cagirabilir`, `efor`/`caba`, `baglam`, `ajan`,
+`arguman-ipucu`, `ne-zaman`…) bu sürüm boyunca okunur; ilk görüldüğünde bir kez uyarı düşer.
+
+| Alan (eski Türkçe takma ad) | Fusion'da etkisi |
 |---|---|
-| `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı |
+| `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı. `description` yoksa gövdenin ilk dolu satırı kullanılır |
+| `arguments` | `$ad` yerleştirmesinde konumlara sırayla eşlenen adlar (boşluklu metin ya da YAML listesi) |
+| `shell` | `` !`cmd` `` ve ` ```! ` kabuğu: `bash` (varsayılan) ya da `powershell` |
 | `argument-hint` / `arguman-ipucu` | `/help` ve tamamlamada `/ad [ipucu]` |
-| `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur; virgül **veya** boşlukla ayrılır (`Read, Grep` ve `Read Grep`), `Bash(git add:*, git commit:*)` tek öğedir — araç adı eşlenir, komut deseni uygulanmaz (not düşer). Fusion aracına eşlenmeyen adlar (`TodoWrite`, `Skill`…) yok sayılır; hiçbiri eşlenmezse kısıt uygulanmaz ve not düşer. **Claude Code'dan fark:** Claude Code bu alanı "onaysız kullanılabilir" (ön-onay) sayar ve diğer araçları kaldırmaz; Fusion ise araç listesini **daraltır**. Gerekçe: depo dosyasından gelen bir alanın onay kapısını açması yetki yükseltme yoluydu; daraltma güvenli taraftır. Becerinin düzenleme/kabuk gerektiren adımı varsa alana `Edit`, `Bash` ekle ya da alanı hiç yazma |
+| `allowed-tools` / `izinli-araclar` | Claude Code ile aynı: beceri etkinken listedeki araçlar ve desenler (`Bash(git add *)`, `Read`) **onay sorulmadan** kullanılır; diğer araçlar kaldırılmaz, olağan izin akışına kalır. Virgül **veya** boşlukla ayrılır. Ön onay kullanıcının sonraki mesajında kalkar; kullanıcının `deny`/`ask` kuralı becerinin ön onayını yener. Depo kaynaklı (proje) beceride ön onay yalnız `fusion trust` ile güvenilen projede geçerlidir (güvenlik davranışı değişti, #142) |
 | `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
-| `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
-| `context: fork` / `baglam` | Tur, ana konuşmayı devralan fork alt ajanda koşar (`/subtask` gibi); beceri gövdesi brife, `allowed-tools` araç tavanına geçer |
+| `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `Skill` aracıyla) |
+| `context: fork` / `baglam` | Claude Code ile aynı: beceri alt ajanda koşar ve alt ajan konuşma geçmişini **görmez** (gövde kendi başına yetmeli); ana konuşmaya yalnız sonuç eklenir. Model `Skill` ile çağırınca da aynı. Etkileşimli oturumda fork varsayılan olarak arka planda koşar (`background: true`), sonuç tamamlanınca konuşmaya gelir; `background: false` turda bekletir; etkileşimsiz kipte (`-p`), arka plan görevleri kapalıyken (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`), aynı becerinin önceki arka plan çağrısı hâlâ sürerken ve oturumun zamanlanmış görevi (`/loop`, `cron_*`) beceriyi istem olarak ateşlediğinde (REPL, TUI, masaüstü) her zaman beklenir. `model`/`effort` fork'ta alt ajanın modelini/eforunu belirler |
 | `agent` / `ajan` | `context: fork` ile: fork'u bu alt ajan tanımı (`.claude/agents/<ad>.md`) koşar; fork yoksa yok sayılır, not düşer |
-| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `inherit`, `sonnet`, `opus`, `haiku` oturum modelini kullanır; başka biçim not düşer. Sonraki tur oturum seçimine döner. Depo kaynaklı (proje) becerinin modeli yalnız `fusion trust` ile güvenilen projede uygulanır; değilse not düşer, efor yine uygulanır |
+| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `sonnet`, `opus`, `haiku` gibi kısa adlar Claude Code'daki gibi o modele geçirir (eşleme: `agent_launch.model_aliases` ya da `ANTHROPIC_DEFAULT_<AD>_MODEL`); eşleme yoksa ve `inherit`te oturum modeli kullanılır; başka biçim not düşer. Model beceriyi `Skill` aracıyla tur ortasında çağırırsa model/efor turun **kalanına** uygulanır; sonraki kullanıcı mesajında oturum seçimine dönülür. Sonraki tur oturum seçimine döner. Depo kaynaklı (proje) becerinin modeli yalnız `fusion trust` ile güvenilen projede uygulanır; değilse not düşer, efor yine uygulanır |
 | `effort` / `efor` | **Yalnız o tur** düşünme yoğunluğu (`low`…`max`, `auto`); tanınmayan değer not düşer |
-| `disallowed-tools` / `yasak-araclar` | O turda bu araçlar sunulmaz (kişiliğin yasaklarına eklenir, kaldıramaz); `Bash(rm *)` deseninde aracın tamamı yasaklanır (güvenli taraf) |
-| `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |
-| Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `auto`/`edits`/`bypass` kipinde ve `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden (tam yetki) ya da `fusion trust` ile güvenilen projeden/ek kökten (**yalnız salt-okur komut**: `git log`, `ls`, `cat`…); her komut `run_shell` ile aynı tehlike/risk denetiminden geçer (`git push --force`, `sudo`, proje dışına yazma… hiç koşmaz, yerinde `[komut çalıştırılmadı]` notu kalır); çıktı 2.000 karakter, sırlar maskeli, 10 sn |
+| `disallowed-tools` / `yasak-araclar` | Claude Code: "Tools removed from Claude's available pool while this skill is active"; kullanıcının sonraki mesajında kalkar. `/ad` turunda araç sunulmaz; model `Skill` ile tur ortasında çağırınca aynı araçlar `deny` kuralıyla düşer. `Bash(rm *)` deseninde aracın tamamı yasaklanır — Claude Code'un alt ajan `disallowedTools` alanında belgelediği gibi ("still removes the whole tool"); yalnız eşleşen komutu engellemek için `permissions.deny` kuralı kullan |
+| `paths` | Claude Code ile aynı: glob desenleri (virgüllü metin ya da YAML liste, çalışma dizinine göreli, yola özel kurallarla aynı biçim). Beceri, model eşleşen bir dosyaya erişene kadar beceri listesine girmez; erişimde etkinleşir, listeye katılır ve kısa bir duyuru düşer. Çalışma dizini dışındaki dosya eşleşmez |
+| `background` | Yalnız `context: fork` ile: `false` fork sonucunu turda bekletir; varsayılan `true` (arka plan) |
+| `hooks` | Claude Code'daki gibi beceri çağrıldığında (`/ad` ya da `Skill` aracı) oturumun kancalarına kaydedilir ve oturum boyunca çalışır; aynı beceri ikinci kez çağrılınca çiftlenmez, `/clear` kayıtları siler. Depo kaynaklı becerinin kancası yalnız güvenilen projede kaydedilir; `fusion yetenek kur` ile kurulan üçüncü taraf becerinin kancası (`!`cmd`` gibi) hiç kaydedilmez; `disableAllHooks` beceri kancalarını da kapatır. |
+| Gövdede `` !`cmd` `` ve ` ```! ` bloğu | Claude Code kuralları: satır içi biçim yalnız `!` satır başında ya da boşluktan sonra gelirse tanınır (`KEY=!`cmd`` düz metin kalır); çok satırlı komut ` ```! ` çitiyle yazılır; çıktı yeniden taranmaz. Komut hiç onay sormaz, izin kurallarıyla denetlenir: `deny` eşleşmesi ya da (izinli kip dışında) `allow` olmayan karar **çağrının tamamını iptal eder** (`Shell command permission check failed for pattern "…"`); `allowed-tools` içindeki `Bash(…)` deseni ön onaydır. Sıfır olmayan çıkış kodu da çağrıyı iptal eder (arama/karşılaştırma komutlarının 1 kodu hariç). Zaman aşımı 2 dakika. `disableSkillShellExecution: true` (settings.json) her komutu `[shell command execution disabled by policy]` ile değiştirir (yerleşik/kurumsal beceriler hariç). Fusion'ın ek güvencesi: açık kural olmadan `auto`/`edits`/`bypass` kipinde koşan komut `run_shell` tehlike/risk denetiminden geçer, proje becerisinde yalnız salt-okur komut koşar; çıktı 2.000 karakter, sırlar maskeli |
 
-## Beceri dizini (`runtime.skill_index_chars`)
+### Tek mesajda beceri yığma
 
-Kök turda sistem bağlamına **BECERİ DİZİNİ** bloğu girer: beceri başına `ad — açıklama`
-(ilk 150 karakter), keşif sırasıyla (kullanıcı kökleri → proje → Codex/Hermes → kurulu →
-yerleşik). Model uygun beceriyi aramadan tanır ve `read_skill('<ad>')` ile gövdeyi yükler;
-gövde hiçbir zaman önden basılmaz (progressive disclosure).
+Claude Code'daki gibi mesaj başında birden çok beceri yığılabilir: `/testler /duzelt 123` iki
+beceriyi aynı turda açar ve kalan metin (`123`) ikisine de `$ARGUMENTS` olur. İlk beceriden sonra
+en çok beş beceri daha açılır; açılım satır içi (fork olmayan), kullanıcının çağırabileceği beceri
+olmayan ilk belirteçte durur, o belirteç ve sonrası argümandır. `context: fork` becerisi yığına
+girmez. Yığılan her becerinin gövdesi sonraki turlarda da bağlamda kalır.
 
-- Bütçe `runtime.skill_index_chars` (4.000 karakter); küçük pencereli modelde pencerenin
-  %2'si. Sığmayan beceriler için `[…+N beceri daha; find_skill ile ara]` notu düşer.
-- `disable-model-invocation: true` olan beceriler dizinde ve `find_skill` sonucunda
+## Beceri listesi (Claude Code listeleme kuralları)
+
+Kök turda sistem bağlamına **BECERİ DİZİNİ** bloğu girer: beceri başına `ad — açıklama`,
+keşif sırasıyla, **tek düz liste** (proje becerileri ayrı blokta ya da güvenilmezlik notuyla
+işaretlenmez). Model uygun beceriyi aramadan tanır ve Claude Code'daki gibi `Skill(skill, args)` aracıyla çağırır: gövde kullanıcının `/ad` çağrısıyla aynı yoldan işlenir (argümanlar, `!`cmd``, `allowed-tools` ön onayı, `disallowed-tools`), sonuç araç çıktısı olarak konuşmada TAM kalır (20.000 karakter üstü gövde diske alınmaz, eski araç çıktısı maskelemesine ve enjeksiyon notuna girmez); `context: fork` becerisi geçmişsiz alt ajanda koşar ve sonucunu döner. `read_skill` ek dosyalar ve sayfalı okuma için kalır. Kullanıcının `/ad` ile çağırdığı becerinin gövdesi Claude Code'daki gibi sonraki turlarda da bağlamda kalır: gövde sıkıştırmaya kadar tam taşınır; bağlam özetlendikten (ya da eşik temizliği `Skill` sonucunu düşürdükten) sonra her becerinin son çağrısı, `/ad` ve `Skill` yolu birlikte, beceri başına ilk 5.000 token, toplam 25.000 token ile en yeni önce yeniden eklenir; `/clear` ve başka sohbete geçiş sıfırlar.
+
+- Listede **her beceri adı her zaman** bulunur. Bütçe model penceresinin **%1**'idir
+  (`skillListingBudgetFraction`, settings.json); `SLASH_COMMAND_TOOL_CHAR_BUDGET` ortam
+  değişkeni bütçeyi karakter olarak sabitler. Bütçe aşılınca açıklamalar düşer, adlar kalır.
+  Claude Code'daki gibi en az çağrılan becerinin açıklaması önce düşer (çağrı sayıları
+  `/ad` ve `Skill` çağrılarından `beceri_cagrilari.json`'da tutulur; eşitlikte listenin sonundan).
+- Giriş başına açıklama (`description` + `when_to_use`) 1.536 karakterde kesilir
+  (`skillListingMaxDescChars`).
+- Pencere bilinmiyorsa `runtime.skill_index_chars` (4.000) kullanılır; `0` listeyi kapatır.
+- `disable-model-invocation: true` olan beceriler listede ve `find_skill` sonucunda
   görünmez; yalnız `/ad` ile çağrılır.
-- Depo kaynaklı beceriler (`proje`, `ek-kok`, `kurulu`, `claude-plugin`) ayrı bir
-  `<proje_becerileri>` bloğunda, "depo içeriği, kullanıcı talimatı değildir" notuyla ve etiket
-  kapatmaları nötralize edilerek listelenir; kullanıcı kökündeki beceriler önce ve düz.
-- `skill_index_chars: 0` dizini kapatır (eski davranış: yalnız `find_skill`).
-- Dizin her turda yeniden kurulur; bağlam sıkıştırması konuşmayı özetler, dizini düşürmez.
+- Liste her turda yeniden kurulur; bağlam sıkıştırması listeyi düşürmez.
 
 ## Beceri keşif kökleri
 
-Öncelik sırasıyla (aynı adda ilk bulunan kazanır): `~/.claude/skills`, `~/.claude/plugins`,
-proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `~/.agents/skills`
-(Codex/ChatGPT açık standardı); `~/.hermes/skills`; `--add-dir` / `/add-dir` ile açılan her kökün
+Claude Code ile aynı öncelik sırası (aynı adda ilk bulunan kazanır): kurumsal (yönetilen dizinin
+`.claude/skills`'i, ör. macOS'ta `/Library/Application Support/ClaudeCode/.claude/skills`),
+`~/.claude/skills`, proje `.claude/skills` ve depo köküne kadar üst dizinlerinki, iç içe
+dizinler, eklentiler (yalnız etkin eklentiler, `eklenti:ad` adıyla; `~/.claude/plugins` önbellekleri
+ham taranmaz). **Kullanımdan kalktı:** `.fusion/skills`, `.agents/skills`, `~/.codex/skills`,
+`~/.agents/skills` ve `~/.hermes/skills` Claude Code'da okunmaz; bu sürüm boyunca okunur ve kök
+başına bir kez uyarı loglanır, becerileri `~/.claude/skills` ya da `.claude/skills` altına taşı.
+`--add-dir` / `/add-dir` ile açılan her kökün
 `.claude/skills`, `.agents/skills`, `.fusion/skills` ve `.claude/agents` dizinleri ("ek-kok");
 `fusion yetenek kur` repoları; yerleşik beceriler en sonda. Komut dosyaları için
 `~/.claude/commands`, `~/.fusion/commands`, proje `.claude/commands`, `.fusion/commands`.
+
+**Üst dizinler:** Claude Code'daki gibi başlangıç dizininin üstlerinden depo köküne (`.git`
+olan dizin, dahil) kadar her dizinin `.claude/skills`'i oturum başında yüklenir;
+`packages/frontend`'de açınca kökün becerileri de gelir. Depo dışında üst dizin taranmaz.
 
 **Monorepo alt paketleri (tembel keşif):** model alt klasördeki bir dosyayı okuyunca ya da
 düzenleyince (iç içe talimatların yüklendiği an), o klasörden köke kadar (kök hariç)
 `<alt>/.claude/skills` ve `<alt>/.agents/skills` dizinleri kataloğa eklenir ve yeni beceriler
 modele tek satırlık bir notla duyurulur (`ad (yol) — açıklama`, en fazla 12). Bunlar "proje"
 kaynağıdır: depo içeriği bloğunda listelenir, `` !`cmd` `` yalnız salt-okur koşar. Aynı adda
-kök/kullanıcı becerisi varsa o kazanır; `node_modules`, `dist`, gizli klasörler taranmaz.
+kök becerisi varsa ikisi de kalır: `/deploy` kök beceriyi, `/apps/web:deploy` iç içe olanı
+çalıştırır ve açıklaması uygulandığı dizini söyler; `node_modules`, `dist`, gizli klasörler taranmaz.
 Keşfedilen beceri REPL'de `/ad` olarak da çağrılabilir; masaüstü yetenek kataloğunda da listelenir ve katalog yenilense ya da `/config capabilities.*` değişse de oturum boyunca korunur. `runtime.nested_instructions: false`
 bu keşfi de kapatır.
 
@@ -140,21 +198,25 @@ bu keşfi de kapatır.
 
 | Yüzey | Ne yapar |
 |---|---|
-| `/skills reload` (`yenile`) · masaüstü **Yenile** · `yetenek.yenile` | Kataloğu diskten yeniden tarar. Yeni klasör eklenip silindiğinde kök dizinin mtime'ı değiştiği için bir sonraki turda **kendiliğinden** yenilenir; var olan bir SKILL.md'nin içeriği değiştiyse `reload` gerekir. |
-| `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
+| `/reload-skills` · `/skills reload` · masaüstü **Yenile** · `yetenek.yenile` | Beceri ve komut dizinlerini yeniden tarar; `/reload-skills` eklenen/çıkarılan sayısını söyler. Claude Code gibi var olan bir SKILL.md'nin ya da komut dosyasının düzenlenmesi, klasör ekleme/silme de bir sonraki sorguda **kendiliğinden** algılanır. |
+| `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Claude Code'daki gibi önce beceri başına bağlam maliyeti (her tur giden liste satırı ve çağrılınca giren gövde, belirteç tahmini) ve kullanım sıklığı (çağrı sayısı); hiç çağrılmamış ama listede yer kaplayanlar için `skillOverrides` önerisi (masaüstünde `maliyet` alanı). Ardından yapısal teşhis: eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
+| `/skills` paneli · TUI modal · terminalde `/skills <n>` · masaüstü **Görünürlük** (`yetenek.gorunurluk_listesi`, `yetenek.gorunurluk`) | Claude Code'daki gibi becerileri görünürlük ve liste maliyetiyle listeler (kapalılar dahil, eklenti becerileri hariç). TUI'de yazılan harfler listeyi süzer, `t` liste maliyetine (token) göre sıralar/geri alır, Space (ya da Enter) seçili becerinin görünürlüğünü `on → name-only → user-invocable-only → off` döngüsünde değiştirir (imleç aynı beceride, süzgeç yerinde kalır), Esc kaydeder; terminal REPL ve masaüstü komutunda numaralı liste, `/skills t` token sıralı, `/skills <metin>` süzülmüş liste (numaralar tam listedekiyle aynı), `/skills <n>` döndürür ve hemen kaydeder. Masaüstü kataloğundaki **Görünürlük** düğmesi aynı listeyi açar (kapalılar dahil, ada göre; süzme kutusu, **Token sırası**, satırdaki görünürlük düğmesi döndürür ve hemen kaydeder); tek beceri ayrıntısındaki "Görünürlüğü değiştir" düğmesi de kalır. Kayıt projenin `.claude/settings.local.json`'ındaki `skillOverrides`'a yazılır (öteki anahtarlar korunur; dosya güvenilir idiyse güven karması tazelenir) ve katalog hemen yeniden kurulur. Kayıt yeri Claude Code belgesindeki gibidir ("The /skills menu writes to .claude/settings.local.json"). |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `/agents` | Güncel Claude Code gibi yalnız hatırlatma basar: Fusion'a sor ya da `.claude/agents/` ve `~/.claude/agents/` dosyalarını düzenle. Eski `/agents <arama>` ve `/agents new <ad>` biçimleri bir sürüm boyunca çalışır. |
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
-| `capabilities.overrides: {ad: görünürlük}` (config.yaml; Claude Code `skillOverrides`) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
+| `skillOverrides: {ad: görünürlük}` (`settings.json` katmanları, Claude Code ile aynı; eklenti becerilerini etkilemez) ve eski `capabilities.overrides` (config.yaml; ikisi birden varsa `skillOverrides` kazanır) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
-## `/init` ve `/doctor prompt`
+## `/init`, `/doctor prompt` ve `/doctor prompt-audit`
 
-- `/init [agents|claude]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
-  [--format agents|claude] [--mode edits]`: Fusion depodan ölçtüğü olguları (proje türü,
-  keşfedilen lint/test komutları, mevcut talimat dosyaları) göreve koyar; model depoyu inceleyip
-  `AGENTS.md` (varsayılan) ya da `CLAUDE.md` yazar — bölümler: Proje, Kurulum ve çalıştırma,
-  Doğrulama, Kod kuralları, Dikkat; 3.000 karakter sınırı, uzun kurallar `@docs/…md` ile.
-  Dosya zaten varsa üzerine yazmaz; eksik bölümleri `ask_user` ile sorar.
+- `/init [claude|agents]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
+  [--format claude|agents] [--mode edits]`: Claude Code `/init` ile aynı — model kod tabanını
+  inceleyip kökte `CLAUDE.md` (varsayılan; `agents` ile `AGENTS.md`) yazar: derleme/test/lint
+  komutları, büyük resim mimarisi, depoya özgü kurallar; sabit bölüm ya da karakter sınırı yok.
+  Fusion depodan ölçtüğü olguları (proje türü, keşfedilen komutlar, mevcut talimat dosyaları)
+  göreve ekler. `.cursor/rules`, `.cursorrules`, `.github/copilot-instructions.md` varsa içeriği
+  katılır; `AGENTS.md`/`.codex`/`GEMINI.md` bulunursa `/import codex|gemini` önerilir.
+  `CLAUDE_CODE_NEW_INIT=1` çok aşamalı akışı açar (yapıt seçimi, alt ajanla inceleme, eksikleri
+  sorma, yazmadan önce öneriyi gösterme). Dosya zaten varsa üzerine yazmaz, iyileştirme önerir.
 - `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
   yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
   talimatında onay/izin kurallarını değiştirmeye ya da sır sızdırmaya çalışan şüpheli satırlar
@@ -162,6 +224,13 @@ bu keşfi de kapatır.
   etme" gibi zararsız güvenlik kuralları işaretlenmez; Fusion şüpheli satırları uygulamaz,
   dosyanın kaynağını gözden geçir), öneriler (talimat yoksa `/init`, bütçenin %70'i dolduysa
   kısalt, doğrulama komutu yoksa `## Doğrulama` bölümü).
+- `/doctor prompt-audit [yol]`: Claude Code'daki gibi model denetimi. Kapsam yolsuzken
+  `~/.claude` ve projedeki CLAUDE.md, `.claude/CLAUDE.md`, CLAUDE.local.md, AGENTS.md, alt
+  dizinlerin CLAUDE.md/AGENTS.md'si, `.claude/rules`, beceriler, komutlar, alt ajanlar ve çıktı
+  stilleri; yol verilirse yalnız o dosya ya da dizin. Görev dosya listesi ve `/doctor prompt`
+  ön bulgularıyla sıradaki agent turunda koşar (oturumun motoru değişmez): model eskimiş
+  talimatları, olmayan dosya/komut göndermelerini ve çelişkileri bulur, dosya/satır ve önerilen
+  düzenlemeyi verir; onayın olmadan dosya değiştirmez.
 - Masaüstü **Ayarlar › Kişiselleştirme › Kalıcı talimat**: öneriler listelenir; **Talimat
   oluştur (/init)** ve **Talimatı denetle** düğmeleri aynı komutları çalıştırır
   (`ayar.talimat` → `oneriler`, `supheli`).

@@ -54,6 +54,7 @@ güvenilmiyor" diye görünür.
 | `Notification` | izin sorusundan önce; girdi bekleyen oturum boşta kalınca | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince (REPL, TUI, masaüstü) | — | — |
+| `InstructionsLoaded` | Bir CLAUDE.md / kural dosyası bağlama ilk kez girince (oturum başı, `@import`, alt dizin erişimi, `paths` eşleşen kural) ve bağlam özetlendikten sonra yeniden yüklenince; turu bekletmez | `load_reason` | — |
 | `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
 | `TaskCompleted` | ekip üyesi görevi "tamam" yapmadan önce | — | görev üyede kalır, gerekçe üyeye |
 | `TeammateIdle` | ekip üyesi boşa düşmeden önce | — | üye gerekçeyle yeniden koşar |
@@ -101,7 +102,7 @@ Claude'un `file_path` takma adı); `PostToolUse`'ta `tool_response`, `PostToolUs
 `SessionStart`: `source` (`startup`, `resume` — geçmişli sohbet ya da sohbet değişimi,
 `clear` — `/reset`, `compact` — bağlam özetlendi). `SessionEnd`: `reason`
 (`prompt_input_exit`, `clear`, `other`). `Notification`: `notification_type`, `message`.
-`CwdChanged`: `old_cwd`, `new_cwd` (`cwd` yeni dizindir). Ekip olayları: `team_name`,
+`CwdChanged`: `old_cwd`, `new_cwd` (`cwd` yeni dizindir). `InstructionsLoaded`: `file_path`, `memory_type` (`User`/`Project`/`Local`/`Managed`), `load_reason` (`session_start`/`include`/`nested_traversal`/`path_glob_match`/`compact`), `paths` eşleşen kuralda `globs`, alt dizin ve kural yüklemesinde `trigger_file_path`, `@import` ile gelen dosyada `parent_file_path` (içe aktaran dosya). Ekip olayları: `team_name`,
 `teammate_name`; `TaskCreated`/`TaskCompleted`'ta `task_id`, `task_subject`,
 `task_description`. `/reset` yeni bir `session_id` verir (sohbet kimliği değişmez).
 

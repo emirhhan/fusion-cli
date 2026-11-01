@@ -58,6 +58,7 @@ from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
+from ...engines.agent import skill_grants
 from ...engines.agent.compaction import compress
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
 from ...engines.agent.turn_evidence import evidence_from_turn
@@ -121,7 +122,6 @@ from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
-from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 
 #: `_cancel_on_interrupt` her sonuç tipindeki görevi kesebilir (tur, hedef değerlendirmesi).
@@ -291,6 +291,16 @@ async def _run_surface(
         console.print()
     if has_untrusted_permissions(state.root):
         console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    # Dış `@import` ilk görüldüğünde onay (Claude Code #145).
+    from ...engines.agent import import_approval
+
+    await import_approval.offer(
+        state.root,
+        state.home,
+        show=lambda text: console.print(escape(text), highlight=False),
+        read_answer=reader.prompt,
+        extra_roots=tuple(state.extra_roots),
+    )
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)
@@ -366,8 +376,9 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
             continue
         task = due[0]
         state.scheduled_turn_only = task.source is Source.AGENT
+        state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
         if not reader.inject(loop_command.fire_prompt(task)):
-            state.scheduled_turn_only = False
+            state.scheduled_turn_only = state.scheduled_fire = False
             continue
         state.cron.complete(task.id, now=now)
         console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")
@@ -502,8 +513,6 @@ async def _handle(
                 f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]"
             )
             return
-        # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
-        line = skill_prefix_to_slash(line, registry.is_dynamic)
     if is_command_line(line) and not scheduled_turn:
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -724,7 +733,7 @@ async def _dispatch(
     background: BackgroundTasks,
     mode: Mode = Mode.NONE,
 ) -> None:
-    if state.engine is Engine.FUSION:
+    if state.take_turn_engine() is Engine.FUSION:
         await _fusion_turn(line, state, console)
     else:
         await _agent_turn(line, state, console, background, mode)
@@ -953,6 +962,8 @@ async def _agent_turn(
         try:
             persona = launch_prompts_mod.apply_to_turn(persona_turn(state.persona), state)
             extras = state.take_pending_extras()
+            # Önceki becerinin ön onayı kalkar; bu çağrınınki girer (#142, #180).
+            skill_grants.begin_turn(tool_context, extras.grants)
             # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
             deps.config = extras.turn_config(deps.config)
             turn_extra_system = "\n\n".join(
@@ -1079,6 +1090,10 @@ async def compact_history(state: ReplState) -> str:
         return messages.REPL_NOTHING_TO_COMPACT
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
+    # InstructionsLoaded (#169): sonraki turda talimatlar `compact` nedeniyle yeniden bildirilir.
+    from ...engines.agent import instructions_hook
+
+    instructions_hook.mark_compacted(state.hooks())
     if verdict.context_text:
         prefixes.push_pending_context(
             state,

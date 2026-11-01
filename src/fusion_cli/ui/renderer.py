@@ -1002,6 +1002,7 @@ _PRIMARY_ARG: dict[str, str] = {
     "scaffold_web": "path",
     "find_skill": "query",
     "read_skill": "name",
+    "Skill": "skill",
     "find_agent": "query",
     "spawn_agent": "task",
 }

@@ -156,7 +156,9 @@ from ..hooks.session import HookSession
 from . import (
     denial,
     desktop_approval,
+    extra_dir_rules,
     gate_escalation,
+    instructions_hook,
     learning_steps,
     lesson_attribution,
     liveness,
@@ -164,6 +166,9 @@ from . import (
     output_style,
     reflexion,
     review,
+    skill_grants,
+    skill_paths,
+    skill_usage,
 )
 from .action_evidence import claimed_effects
 from .agent_task_tools import is_agent_task_request
@@ -278,7 +283,7 @@ from .repair_flow import record_failure_evidence
 from .repo_context import RepoMapFocus, map_budget_for, repo_map_with_stats, task_focus
 from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
-from .skill_index import index_budget_for, skill_index_block
+from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -631,6 +636,8 @@ class AgentDeps:
     #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
     #: yapılandırma dosyasında değiştirmez.
     active_model_override: ModelSpec | None = None
+    #: Modelin çağırdığı becerinin `effort` alanı: turun kalanı için (#139).
+    turn_effort_override: ReasoningEffort | None = None
     #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
     #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
     #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
@@ -900,6 +907,7 @@ async def _run_agent(
             )
     if depth == 0 and not internal:
         deps.active_model_override = None
+        deps.turn_effort_override = None
         # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
         # açılır (kendi geliştirme sunucusu, Fusion'ın önizlemesi). Düzeltici iç
         # turlar ve alt ajanlar bu kümeye ekleme yapamaz.
@@ -1012,17 +1020,42 @@ async def _run_agent(
             instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
             instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
             include_external_memory=deps.include_external_memory,
+            extra_roots=tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),
         )
         if deps.config.runtime.project_instructions and not deps.omit_initial_instructions
         else InstructionLoad("")
     )
     proje_ve_dis_bellek = instruction_load.text
+    # `InstructionsLoaded` kancası (#169): oturumda ilk kez yüklenen her talimat dosyası.
+    instructions_hook.notify(
+        getattr(deps, "hooks", None),
+        instructions_hook.after_compact(
+            getattr(deps, "hooks", None),
+            [
+                *instructions_hook.startup_events(instruction_load.files),
+                *(
+                    instructions_hook.rule_startup_events(
+                        discover_rules(deps.tool_context.root, deps.home)
+                    )
+                    if deps.config.runtime.project_instructions
+                    and not deps.omit_initial_instructions
+                    and getattr(deps.config.runtime, "instruction_merge", True)
+                    else ()
+                ),
+            ],
+        ),
+    )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps, task) if depth == 0 and not chat_mode else ""
     # Beceri dizini (P-018): ad + kısa açıklama, bütçeli; gövde yalnız read_skill ile gelir.
     beceri_dizini = (
-        skill_index_block(deps.capabilities, index_budget_for(deps.config))
+        skill_index_block(
+            deps.capabilities,
+            index_budget_for(deps.config, root=deps.tool_context.root, home=deps.home),
+            max_description=description_limit(deps.tool_context.root, deps.home),
+            usage=skill_usage.load_counts(getattr(deps.config, "memory_dir", None)),
+        )
         if depth == 0 and not internal
         else ""
     )
@@ -1088,8 +1121,6 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                proje_ve_dis_bellek if system_prompt is None and not dinamik_disari else "",
-                "" if dinamik_disari else bellek_blogu,
                 "" if dinamik_disari else harita,
                 beceri_dizini,
                 ajan_baslangici,
@@ -1110,12 +1141,13 @@ async def _run_agent(
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
         system_prompt=system_prompt,
+        # Claude Code (#149): CLAUDE.md içeriği sistem isteminden SONRA kullanıcı mesajıdır.
+        # Otomatik bellek (MEMORY.md başı, #153) da aynı mesajda, talimatlardan sonra.
+        # `--exclude-dynamic-system-prompt-sections` (#301) kod haritasını da buraya taşır.
         project_context=(
             dynamic_sections.user_context(proje_ve_dis_bellek, bellek_blogu, harita)
             if dinamik_disari
-            else proje_ve_dis_bellek
-            if system_prompt is not None
-            else ""
+            else dynamic_sections.user_context(proje_ve_dis_bellek, bellek_blogu)
         ),
         images=images,
     )
@@ -2928,7 +2960,10 @@ async def _call_model(
         max_retries=runtime.max_retries,
         tools=offered_tools,
         reasoning_effort=effort_for_spec(
-            spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
+            spec,
+            ReasoningEffort.LOW
+            if state.reasoning_relief
+            else (getattr(deps, "turn_effort_override", None) or runtime.reasoning_effort),
         ),
         disable_thinking=state.reasoning_relief,
         conversation_id=deps.conversation_id,
@@ -3307,14 +3342,38 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
+    from .context_budget import context_budget
+    from .nested_rules import max_chars_for_window
+
+    try:
+        sinir = max_chars_for_window(context_budget(deps.config, _context_spec(deps)).window_tokens)
+    except (AttributeError, TypeError, ValueError):
+        sinir = max_chars_for_window(None)
     hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
         hedefler.append(hedef)
+        # `--add-dir` dizininin `paths` alanlı kuralları (#170; ortam değişkeni açıkken).
+        ek_kurallar = extra_dir_rules.hits_for(
+            tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),
+            hedef,
+            loaded=state.nested_loaded,
+            present=baglamda_var,
+        )
+        if (ek_notu := extra_dir_rules.note_for(ek_kurallar)) is not None:
+            messages.append(ek_notu)
+            instructions_hook.notify(
+                getattr(deps, "hooks", None), [hit.event for hit in ek_kurallar]
+            )
         yuk = load_nested_instructions(
-            kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
+            kok,
+            hedef,
+            loaded=state.nested_loaded,
+            present=baglamda_var,
+            rules=kurallar,
+            max_chars=sinir,
         )
         if yuk is None:
             continue
@@ -3322,10 +3381,18 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         deps.publisher.publish(
             NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
         )
+        instructions_hook.notify(
+            getattr(deps, "hooks", None),
+            [instructions_hook.nested_event(kok, rel, str(hedef), kurallar) for rel in yuk.files],
+        )
     # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
     beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
     if beceri_notu is not None:
         messages.append(beceri_notu)
+    # `paths` alanlı beceriler eşleşen dosyaya erişilince etkinleşir (#161).
+    yol_notu = skill_paths.activate_for(deps.capabilities, kok, tuple(hedefler))
+    if yol_notu is not None:
+        messages.append(yol_notu)
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
@@ -4124,6 +4191,13 @@ async def _run_tools(
                 erisilen = args.get("path")
                 if isinstance(erisilen, str) and erisilen:
                     state.nested_candidates.append(erisilen)
+            elif call.name == "run_shell":
+                # Claude Code (#150): kabukla tek dosya okuma (`cat`, `head`) da tetikler.
+                from .nested_rules import shell_read_target
+
+                okunan = shell_read_target(str(args.get("command", "") or ""))
+                if okunan:
+                    state.nested_candidates.append(okunan)
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating and _acts_on_remote_state(call.name):
@@ -4332,6 +4406,8 @@ async def _execute(
     # varsayılan profil hiç sorulmadan yükleniyordu. İzin kuralı (ask/deny) okuma
     # araçlarını da kapıdan geçirir (P-001).
     rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
+    # Etkin becerinin `allowed-tools` ön onayı ve `disallowed-tools` deseni (#142, #180).
+    rules = skill_grants.with_grants(rules, deps.tool_context)
     if tool is not None and (
         tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
     ):

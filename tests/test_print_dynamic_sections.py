@@ -40,15 +40,19 @@ async def test_bayrak_bellek_konumunu_ilk_kullanici_mesajina_tasir(monkeypatch, 
     assert messages[-1].content == "Merhaba"
 
 
-async def test_bayraksiz_bellek_sistem_isteminde_kalir(monkeypatch, tmp_path):
+async def test_bayraksiz_bellek_claude_gibi_kullanici_baglaminda(monkeypatch, tmp_path):
+    # #149/#153: CLAUDE.md ve MEMORY.md içeriği bayraktan bağımsız olarak sistem isteminden
+    # sonraki kullanıcı bağlam mesajındadır; bayrak bunu değiştirmez.
     messages = await _run(monkeypatch, tmp_path, exclude=False)
-    assert _BELLEK in _texts(messages, "system")
-    assert _BELLEK not in _texts(messages, "user")
+    assert _BELLEK not in _texts(messages, "system")
+    assert _texts(messages, "user").count(_BELLEK) == 1
 
 
 async def test_system_prompt_verilince_bayrak_yok_sayilir(monkeypatch, tmp_path):
     messages = await _run(monkeypatch, tmp_path, exclude=True, system_prompt="ÖZEL İSTEM")
-    assert _BELLEK in _texts(messages, "system")
+    assert _texts(messages, "system").startswith("ÖZEL İSTEM")
+    assert _BELLEK not in _texts(messages, "system")
+    assert _texts(messages, "user").count(_BELLEK) == 1
 
 
 def test_p_bayragi_artik_etkisiz_uyarisi_vermez_ve_kosuya_iletir(monkeypatch):

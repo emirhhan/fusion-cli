@@ -1,0 +1,22 @@
+.skill-visibility { display: grid; gap: 12px; min-height: 0; overflow: auto; padding-bottom: 24px; }
+.skill-visibility__toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.skill-visibility__toolbar input { background: var(--surface-hover); border: 1px solid transparent; border-radius: var(--radius-pill); color: var(--text-primary); font-size: var(--text-sm); min-height: 32px; min-width: 200px; padding: 0 14px; }
+.skill-visibility__toolbar input:focus { border-color: var(--border-strong); outline: none; }
+.skill-visibility__toolbar button { background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); color: var(--text-primary); cursor: pointer; font-size: 13px; min-height: 32px; padding: 0 14px; }
+.skill-visibility__toolbar button[aria-pressed="true"] { background: var(--surface-selected); border-color: var(--border-strong); font-weight: 550; }
+.skill-visibility__hint, .skill-visibility__notice { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
+.skill-visibility__error { color: var(--text-danger); margin: 0; }
+.skill-visibility__empty { color: var(--text-secondary); padding: 24px; text-align: center; }
+.skill-visibility__list { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.skill-visibility__row { align-items: center; border-radius: 12px; display: grid; gap: 4px 16px; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) auto; padding: 10px 12px; transition: background var(--duration-fast) var(--ease-standard); }
+.skill-visibility__row:hover { background: var(--surface-hover); }
+.skill-visibility__row[data-visibility="off"] .skill-visibility__name, .skill-visibility__row[data-visibility="off"] .skill-visibility__desc { opacity: .55; }
+.skill-visibility__name { display: grid; gap: 2px; min-width: 0; }
+.skill-visibility__name strong { font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-visibility__name small, .skill-visibility__desc { color: var(--text-secondary); font-size: var(--text-xs); }
+.skill-visibility__desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-visibility__pill { background: var(--surface-selected); border: 1px solid transparent; border-radius: var(--radius-pill); color: var(--text-primary); cursor: pointer; font-size: var(--text-xs); min-height: 28px; padding: 0 12px; white-space: nowrap; }
+.skill-visibility__pill:hover { border-color: var(--border-strong); }
+.skill-visibility__pill:focus-visible { outline: 2px solid var(--border-strong); outline-offset: 2px; }
+.skill-visibility__row[data-visibility="off"] .skill-visibility__pill { background: transparent; border-color: var(--border-subtle); color: var(--text-secondary); }
+@media (max-width: 720px) { .skill-visibility__row { grid-template-columns: minmax(0, 1fr) auto; } .skill-visibility__desc { display: none; } }

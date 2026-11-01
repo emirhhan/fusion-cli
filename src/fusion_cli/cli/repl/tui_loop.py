@@ -25,6 +25,7 @@ from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
+from ...engines.agent import skill_grants
 from ...engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
@@ -78,7 +79,6 @@ from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
-from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
@@ -364,6 +364,7 @@ class _TuiSession:
                 continue
             task = due[0]
             self._state.scheduled_turn_only = task.source is Source.AGENT
+            self._state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
             self._state.cron.complete(task.id, now=now)
             self._echo(
                 f"[{theme.DIM}]{escape(messages.LOOP_FIRED.format(id=task.id))}[/{theme.DIM}]"
@@ -489,8 +490,6 @@ class _TuiSession:
             self._tui.sync_conversation()
             # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `loop._cron_watcher`).
             scheduled_turn = self._state.take_scheduled_turn_only()
-            if not scheduled_turn:
-                line = skill_prefix_to_slash(line, self._registry.is_dynamic)
             # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
                 await run_shell_prefix_line(shell, self._state, self._out)
@@ -595,6 +594,13 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "skills" and not argument.strip():
+            # Görünürlük paneli (#176): Enter döndürür, Esc skillOverrides'a kaydeder.
+            from . import skills_panel
+
+            sonuc = await skills_panel.run_tui_panel(self._state, self._tui.await_choice)
+            self._echo(f"[{theme.DIM}]{escape(sonuc or messages.SKILLS_EMPTY)}[/{theme.DIM}]")
+            return
         elif command.name == "search":
             # Arama yalnız tam ekranda anlamlı (P-070): konuşma tamponu buradadır.
             needle = argument.strip()
@@ -923,7 +929,7 @@ class _TuiSession:
             *((usage_log,) if usage_log is not None else ()),
         )
         try:
-            if self._state.engine is Engine.FUSION:
+            if self._state.take_turn_engine() is Engine.FUSION:
                 # Beceri ekleri bu motorda kullanılmaz; sonraki agent turuna sızmasın.
                 self._state.take_pending_extras()
                 self._state.last_fusion = await run_task(
@@ -965,6 +971,8 @@ class _TuiSession:
                     persona_turn(self._state.persona), self._state
                 )
                 extras = self._state.take_pending_extras()
+                # Önceki becerinin ön onayı kalkar; bu çağrınınki girer (#142, #180).
+                skill_grants.begin_turn(tool_context, extras.grants)
                 turn_extra_system = "\n\n".join(
                     part
                     for part in (
@@ -1069,6 +1077,27 @@ def _print_startup(
     session.tui.sync_conversation()
 
 
+async def _offer_external_imports(session: _TuiSession, state: ReplState) -> None:
+    """Dış `@import` ilk görüldüğünde uygulama içi onay seçimi (Claude Code #145)."""
+    from ...engines.agent import import_approval
+
+    paths = import_approval.pending_external_imports(
+        state.root, state.home, tuple(state.extra_roots)
+    )
+    if not paths:
+        return
+    choices = [
+        Choice("e", messages.IMPORT_APPROVAL_ALLOW, ""),
+        Choice("h", messages.IMPORT_APPROVAL_DENY, ""),
+    ]
+    selected = await session.tui.await_choice(import_approval.question(paths), choices)
+    if selected is None:  # Esc: karar verilmedi, sonraki açılışta yine sorulur
+        return
+    note = import_approval.record(state.root, selected)
+    session.tui.console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+    session.tui.sync_conversation()
+
+
 async def run_tui_repl(
     state: ReplState, console: Console, *, resume: session_resume.ResumeTarget | None = None
 ) -> int:
@@ -1097,9 +1126,11 @@ async def run_tui_repl(
     # koruma tekerleği uygulamaya yönlendiren kiplerdir (bkz. tui._apply_wheel_modes).
     sys.stdout.write("\x1b[3J\x1b[2J\x1b[H")
     sys.stdout.flush()
+    import_offer = asyncio.ensure_future(_offer_external_imports(session, state))
     try:
         await session.tui.application.run_async()
     finally:
+        import_offer.cancel()
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
         await state.child_runs.close()
         session.tui.restore_wheel_modes()

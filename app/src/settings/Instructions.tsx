@@ -59,6 +59,8 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
   const [layerNotes, setLayerNotes] = useState<string[]>([]);
   // `/doctor prompt` önerileri (P-021): kırpma, şüpheli satır, eksik doğrulama bölümü.
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  // Claude Code (#145): kararı verilmemiş dış `@import` hedefleri; onay ya da ret istenir.
+  const [externalImports, setExternalImports] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +71,7 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
         katmanlar?: unknown;
         notlar?: unknown;
         oneriler?: unknown;
+        dis_importlar?: unknown;
       };
       if (!veri?.ok) {
         setNotice(veri?.metin ?? "Talimat okunamadı.");
@@ -78,6 +81,9 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
       setLayers(decodeLayers(veri.katmanlar));
       setLayerNotes(Array.isArray(veri.notlar) ? veri.notlar.filter((n): n is string => typeof n === "string") : []);
       setSuggestions(Array.isArray(veri.oneriler) ? veri.oneriler.filter((n): n is string => typeof n === "string") : []);
+      setExternalImports(
+        Array.isArray(veri.dis_importlar) ? veri.dis_importlar.filter((n): n is string => typeof n === "string") : [],
+      );
       if (typeof veri.sinir === "number") setLimit(veri.sinir);
       setDirty(false);
       setLoaded(true);
@@ -90,6 +96,16 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
   useEffect(() => {
     void load();
   }, [load]);
+
+  const decideImports = async (onay: boolean) => {
+    try {
+      const sonuc = (await client.request("ayar.dis_import_karari", { onay })) as { ok?: boolean; metin?: string };
+      setNotice(sonuc?.metin ?? null);
+      if (sonuc?.ok) await load();
+    } catch {
+      setNotice("Dış import kararı kaydedilemedi.");
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -174,6 +190,21 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
             ))}
           </ul>
         </details>
+      )}
+      {externalImports.length > 0 && (
+        <section aria-label="Dış import onayı" className="settings__card" role="alertdialog">
+          <p className="settings__hint">
+            Bu projenin talimat dosyaları çalışma dizini dışındaki dosyaları içe aktarıyor. İzin verilsin mi?
+            Reddedersen kapalı kalır ve bir daha sorulmaz.
+          </p>
+          <ul className="instructions__layer-list">
+            {externalImports.map((item) => <li key={item}><code>{item}</code></li>)}
+          </ul>
+          <div className="settings__actions">
+            <button onClick={() => void decideImports(true)} type="button">İzin ver</button>
+            <button onClick={() => void decideImports(false)} type="button">Reddet (bir daha sorma)</button>
+          </div>
+        </section>
       )}
       {layerNotes.map((note) => <p className="settings__hint" key={note} role="note">{note}</p>)}
       {suggestions.length > 0 && (

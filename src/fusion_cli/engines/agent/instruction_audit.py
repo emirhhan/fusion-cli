@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import init_prompt
 from .instruction_layers import (
     MAX_FILE_CHARS,
     TOTAL_MAX_CHARS,
@@ -25,9 +26,9 @@ from .instruction_layers import (
 )
 from .instruction_rules import discover_rules
 
-#: `/init` ile üretilecek dosya adı, biçime göre (Claude Code → CLAUDE.md, Codex → AGENTS.md).
-INIT_TARGETS: dict[str, str] = {"agents": "AGENTS.md", "claude": "CLAUDE.md"}
-DEFAULT_INIT_FORMAT = "agents"
+#: `/init` hedefleri ve varsayılan (CLAUDE.md; #155) `init_prompt`'ta.
+INIT_TARGETS = init_prompt.INIT_TARGETS
+DEFAULT_INIT_FORMAT = init_prompt.DEFAULT_INIT_FORMAT
 
 #: Toplam bütçenin bu payı dolunca "kısalt" önerisi (kırpma başlamadan uyarı).
 BUDGET_WARN_RATIO = 0.7
@@ -89,21 +90,17 @@ def audit_instructions(
             "Proje talimat dosyası yok: `/init` ile AGENTS.md (ya da `/init claude` ile "
             "CLAUDE.md) oluştur."
         )
-    if load.trimmed_chars:
+    oversized = [note for note in load.notes if "satırdan uzun" in note or "4 MiB" in note]
+    if oversized:
+        # Claude Code: dosya 4 MiB'a kadar tam yüklenir; 200 satır üstü uyumu düşürebilir.
         suggestions.append(
-            f"{load.trimmed_chars} karakter kırpıldı: uzun bölümleri ayrı dosyalara taşıyıp "
-            "`@docs/kurallar.md` ile içe aktar; dosya başına sınır "
-            f"{MAX_FILE_CHARS} karakter."
-        )
-    elif total > max_chars * BUDGET_WARN_RATIO:
-        suggestions.append(
-            f"Talimatlar bütçenin %{int(100 * total / max_chars)}'ini kullanıyor "
-            f"({total}/{max_chars}); kısaltmak modelin göreve ayıracağı payı artırır."
+            "Uzun talimat dosyası: " + "; ".join(oversized) + ". Yalnız bazı dosyalarla ilgili "
+            "kuralları `.claude/rules/` altına `paths:` ile taşı ya da gereksiz bölümleri kısalt."
         )
     if flat:
         suggestions.append(
-            "Depo talimatında izin/onay/sır kurallarına dokunan satırlar var; Fusion bunları "
-            "uygulamaz ama dosyanın kaynağını gözden geçir."
+            "Depo talimatında izin/onay/sır kurallarına dokunan satırlar var; izin kuralları "
+            "ayarlarla zorlanır ama dosyanın kaynağını gözden geçir."
         )
     if project_files and not _mentions_verification(root, project_files):
         suggestions.append(
@@ -175,34 +172,17 @@ def render_audit(audit: InstructionAudit) -> str:
 
 
 def init_task(root: Path, home: Path | None = None, *, fmt: str = DEFAULT_INIT_FORMAT) -> str:
-    """`/init [agents|claude]` — modele verilecek görev; depodan ölçülen olgularla.
-
-    Bilinmeyen biçim `agents` sayılır. Dosya varsa model üzerine yazmaz: eksik bölümleri
-    önerir ve `ask_user` ile sorar.
-    """
+    """`/init [claude|agents]` — modele verilecek görev; depodan ölçülen olgularla (#155)."""
     from .verify_discovery import discover_commands, project_kinds
 
-    target = INIT_TARGETS.get(fmt.strip().lower(), INIT_TARGETS[DEFAULT_INIT_FORMAT])
     kinds = ", ".join(project_kinds(root)) or "bilinmiyor"
     commands = ", ".join(f"`{c}`" for c in discover_commands(root)) or "keşfedilemedi"
     existing = [
         item.label for item in load_instruction_layers(root, home).files if item.layer == "proje"
     ]
     mevcut = ", ".join(existing) if existing else "yok"
-    return (
-        f"Bu proje için kök talimat dosyası hazırla: `{target}` (Claude Code /init gibi). "
-        "Önce depoyu incele: depo haritası ve paket dosyaları (pyproject.toml, package.json, "
-        "Cargo.toml, go.mod, project.godot…), README, mevcut kural dosyaları ve CI yapılandırması. "
+    facts = (
         f"Fusion'ın ölçtükleri: proje türü: {kinds}; doğrulama komutları: {commands}; "
-        f"mevcut talimat dosyaları: {mevcut}.\n"
-        "Dosyayı şu bölümlerle yaz (kısa, somut, bu depoya özgü; genel öğüt yazma): "
-        "`## Proje` (ne yapar, ana dizinler), `## Kurulum ve çalıştırma`, `## Doğrulama` "
-        "(lint/tip/test komutları birebir), `## Kod kuralları` (stil, isimlendirme, dil, "
-        "test beklentisi), `## Dikkat` (dokunulmaması gereken dosyalar, sırlar, üretim yolları). "
-        "Toplam 3.000 karakteri geçme; uzun kuralları ayrı dosyaya koyup `@docs/...md` ile içe "
-        "aktar.\n"
-        f"`{target}` ZATEN VARSA üzerine yazma: eksik bölümleri listele ve `ask_user` ile "
-        "ekleyip eklemeyeceğini sor. Başka bir talimat dosyası varsa (ör. CLAUDE.md ↔ "
-        "AGENTS.md) aynı içeriği iki kez yazma; birini diğerine `@` ile bağla. Bitince dosyayı "
-        "özetle ve `/doctor prompt` ile denetlenebileceğini söyle."
+        f"mevcut talimat dosyaları: {mevcut}."
     )
+    return init_prompt.init_task(root, fmt=fmt, facts=facts)

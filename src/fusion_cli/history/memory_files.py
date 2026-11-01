@@ -43,8 +43,15 @@ def read_external_memory(home: Path, root: Path) -> str:
     "güvenilmeyen veri" olarak işaretlenir ve içerik kapanış etiketiyle bloğu
     kıramaz (E1-06). Ölçüldü (29 Ekim): eski çıktıda anahtar ve e-posta ham geçiyordu.
     """
+    from ..memory.auto_memory_location import INDEX_FILE, default_directory
+
+    # Claude Code (#153): bu dosya artık Fusion'ın kendi otomatik belleğidir; ikinci kez
+    # "dış bellek" olarak eklenmez (aç/kapa ve 200 satır/25 KB kuralı orada uygulanır).
+    own = default_directory(root, home) / INDEX_FILE
     blocks: list[str] = []
     for path, source in _candidates(home, root):
+        if source == "claude" and path == own:
+            continue
         content = _read_regular_file(path)
         if content is None:
             continue

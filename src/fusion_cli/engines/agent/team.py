@@ -203,6 +203,9 @@ class SubTask:
     background: bool = False
     #: Çağrıdaki `effort`; tanımdaki `effort` alanını yalnız bu koşu için ezer.
     effort: str = ""
+    #: `context: fork` becerisinin `allowed-tools`/`disallowed-tools` kuralları (#141, #142):
+    #: ana tura değil, yalnız bu alt ajanın bağlamına girer.
+    skill_grants: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

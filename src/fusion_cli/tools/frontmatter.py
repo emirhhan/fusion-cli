@@ -54,7 +54,45 @@ _TEXT_KEYS: dict[str, str] = {
     # `context: fork` becerisinin koşacağı alt ajan tanımı (Claude Code `agent:`).
     "agent": "agent",
     "ajan": "agent",
+    # `!`cmd`` kabuğu: bash (varsayılan) | powershell.
+    "shell": "shell",
 }
+
+#: Kullanımdan kalkan Türkçe frontmatter takma adları → Claude Code adı (#182). Bir sürüm
+#: boyunca okunur; ilk görüldüğünde bir kez uyarılır.
+DEPRECATED_KEYS: dict[str, str] = {
+    "caba": "effort",
+    "efor": "effort",
+    "baglam": "context",
+    "arguman-ipucu": "argument-hint",
+    "ne-zaman": "when_to_use",
+    "ajan": "agent",
+    "model-cagirmasin": "disable-model-invocation",
+    "kullanici-cagirabilir": "user-invocable",
+    "araclar": "tools",
+    "izinli-araclar": "allowed-tools",
+    "yasak-araclar": "disallowed-tools",
+    "beceriler": "skills",
+    "izin-kipi": "permissionMode",
+    "en-fazla-tur": "maxTurns",
+    "bellek": "memory",
+    "arka-plan": "background",
+    "yalitim": "isolation",
+}
+
+_WARNED_KEYS: set[str] = set()
+
+
+def _warn_deprecated(name: str) -> None:
+    if name not in DEPRECATED_KEYS or name in _WARNED_KEYS:
+        return
+    _WARNED_KEYS.add(name)
+    _LOG.warning(
+        "frontmatter '%s' kullanımdan kalktı; Claude Code adı '%s' kullan",
+        name,
+        DEPRECATED_KEYS[name],
+    )
+
 
 #: Alt ajan tanımının düz metin ayar alanları (P-034): frontmatter anahtarı → `Capability`
 #: alanı. Claude Code'un camelCase adları (küçük harfe inmiş), snake/kebab yazım ve Türkçe
@@ -101,6 +139,9 @@ _PLAIN_LIST_KEYS: dict[str, str] = {
     "beceriler": "skills",
     "mcpservers": "mcp_servers",
     "mcp-servers": "mcp_servers",
+    # Beceri alanları: `arguments` (`$ad` yerleştirme) ve `paths` (dosya globu).
+    "arguments": "arguments",
+    "paths": "paths",
 }
 
 _BLOCK_SCALARS = frozenset({">", "|", ">-", "|-", ">+", "|+"})
@@ -125,6 +166,7 @@ def parse_frontmatter(text: str) -> dict[str, object]:
         if not separator or lines[index - 1][:1] in " \t":
             continue
         name = key.strip().lower().replace("_", "-")
+        _warn_deprecated(name)
         if name in _TOOL_LIST_KEYS or name in _PLAIN_LIST_KEYS:
             # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır;
             # `skills`, `mcpServers`, `disallowedTools` aynı yazımları paylaşır.
@@ -207,14 +249,14 @@ def parse_tools(value: str) -> tuple[str, ...]:
 
 
 def split_tool_names(text: str) -> list[str]:
-    """Parantez dışındaki virgül ve boşluklarda böl."""
+    """Parantez/süslü ayraç dışındaki virgül ve boşluklarda böl (`src/*.{ts,tsx}` tek desen)."""
     items: list[str] = []
     current: list[str] = []
     depth = 0
     for char in text:
-        if char == "(":
+        if char in "({":
             depth += 1
-        elif char == ")":
+        elif char in ")}":
             depth = max(0, depth - 1)
         if depth == 0 and (char == "," or char.isspace()):
             if current:

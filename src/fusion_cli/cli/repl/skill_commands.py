@@ -1,9 +1,10 @@
 """Beceri ve komut dosyalarını slash komutu olarak sunan dinamik defter (P-019).
 
 `/<beceri> argüman` yazımı Claude Code'da `.claude/skills/x/SKILL.md` ya da
-`.claude/commands/x.md` dosyasını çalıştırır; Codex `$skill` yazar. Fusion ikisini de kabul
-eder: `build_registry(..., skills=…)` bu modülün ürettiği komutları "Beceri" grubunda
-dinamik olarak defterin arkasına ekler; yerleşik bir komutla ad çakışırsa yerleşik kazanır.
+`.claude/commands/x.md` dosyasını çalıştırır. Beceri yalnız mesaj başındaki `/` ile çağrılır
+(Codex `$beceri` yazımı Claude'da yok; #174): `build_registry(..., skills=…)` bu modülün
+ürettiği komutları "Beceri" grubunda dinamik olarak defterin arkasına ekler; aynı adlı
+yerleşik komutu gölgeler (takma adı değil).
 
 İşleyici turu ÇALIŞTIRMAZ (makrolarla aynı sözleşme): görevi `pending_task`, beceri gövdesini
 `pending_context`, `allowed-tools` kısıtını `pending_tools` olarak durumda bekletir; terminal,
@@ -14,25 +15,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...config import trust
-from ...core.proposal_invocation import ProposalPolicy
-from ...engines.agent.approval import ApprovalMode
-from ...engines.agent.routine_invocation import RoutineInvocationValidator
+from ...engines.agent import skill_hooks, skill_tool, skill_usage
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
-from ...tools.skill_commands import TemplateEnv, build_invocation
+from ...tools.skill_commands import SkillInvocation
+from ...tools.skill_shell import ShellPolicy
 from ...ui import messages
 from .macros import Mode
 from .state import Engine, ReplState
 
-#: Bu kaynaklardan gelen beceri dosyaları kullanıcının kendi dizinindedir: `!`cmd`` koşabilir.
-TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
-
-#: Depo içeriği sayılan kaynaklar: güvenilen projede bile yalnız salt-okur `!`cmd``.
-PROJECT_SOURCES = frozenset({"proje", "ek-kok"})
-
-#: `!`cmd`` yalnız komut çalıştırmaya zaten izinli kiplerde koşar; plan/security sormadan koşmaz.
-SHELL_CONTEXT_MODES = frozenset({ApprovalMode.AUTO, ApprovalMode.ACCEPT_EDITS, ApprovalMode.BYPASS})
+#: Ortak kurallar `engines/agent/skill_tool`'da (modelin `Skill` aracı ile aynı, #139).
+TRUSTED_SOURCES = skill_tool.TRUSTED_SOURCES
+PROJECT_SOURCES = skill_tool.PROJECT_SOURCES
+SHELL_CONTEXT_MODES = skill_tool.SHELL_CONTEXT_MODES
 
 #: Yardım satırında açıklamanın en fazla uzunluğu.
 _SUMMARY_CHARS = 72
@@ -42,27 +37,20 @@ GROUP = "Beceri"
 
 
 def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, bool]:
-    """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`.
+    """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`."""
+    return skill_tool.shell_mode_policy(skill, state.approval, state.root)
 
-    Kullanıcının kendi kökleri (`~/.claude`, `~/.codex`, …) tam yetkili; proje (ya da ek kök)
-    kaynaklı beceri `fusion trust` ile güvenilen projede YALNIZ salt-okur komut koşar: güven
-    özeti `config.yaml`a bağlıdır, beceri dosyasının içeriğine değil (ölçüldü 31 Ekim).
-    """
-    if state.approval not in SHELL_CONTEXT_MODES:
-        return False, False
-    sources = set(skill.source.split("+"))
-    if sources & TRUSTED_SOURCES:
-        return True, False
-    project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(state.root).trusted
-    return project, True
+
+def skill_shell_policy(state: ReplState, skill: Capability) -> ShellPolicy:
+    """Becerinin `!`cmd`` politikası: kip, izin kuralları ve `disableSkillShellExecution`."""
+    from pathlib import Path
+
+    return skill_tool.shell_policy(skill, state.approval, state.root, Path.home())
 
 
 def model_override_allowed(state: ReplState, skill: Capability) -> bool:
     """Becerinin `model:` alanı uygulanabilir mi: depo kaynaklıysa proje güvenilmeli."""
-    sources = set(skill.source.split("+"))
-    if sources & TRUSTED_SOURCES or not sources & PROJECT_SOURCES:
-        return True
-    return trust.resolve_project_trust(state.root).trusted
+    return skill_tool.skill_trusted(skill, state.root)
 
 
 def shell_context_allowed(state: ReplState, skill: Capability) -> bool:
@@ -78,46 +66,55 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         skill = registry.get_skill(qualified_name) if registry is not None else None
         if skill is None:
             return messages.REPL_SKILL_MISSING.format(name=qualified_name.split("@", 1)[0])
-        shell_allowed, shell_read_only = shell_context_policy(state, skill)
-        invocation = build_invocation(
-            skill,
-            argument,
-            TemplateEnv(
-                skill_dir=skill.path.parent,
-                project_dir=state.root,
-                session_id=state.conversation_id,
-            ),
-            shell_allowed=shell_allowed,
-            shell_read_only=shell_read_only,
-            proposal_policy=ProposalPolicy(state.config.runtime.verified_skill_proposals),
-            proposal_validator=RoutineInvocationValidator(
-                state.config.memory_dir,
-                ProposalPolicy(state.config.runtime.verified_skill_proposals),
-            ),
-        )
+        from .skill_stack import split_stack
+
+        assert registry is not None
+        stack, stacked_argument = split_stack(registry, skill, argument)
+        if len(stack) > 1:
+            return _run_stack(state, stack, stacked_argument)
+        invocation = _invoke_for(state, skill, argument)
         if not invocation.ok:
             return "\n".join(invocation.notes)
+        skill_usage.record_invocation(state.config.memory_dir, skill.name)
+        # `hooks` (#161): çağrıda oturuma kaydedilir, oturum boyunca etkin.
+        skill_hooks.register(
+            state.hooks(), skill, trusted=skill_tool.hooks_trusted(skill, state.root)
+        )
         state.pending_task = invocation.task
-        # `context: fork` (P-054): tur ana bağlamı devralan fork alt ajanda koşar (`/subtask`
-        # ile aynı yol); beceri gövdesi ve araç kısıtı brif/tavan olarak alt ajana geçer.
+        # `context: fork`: tur fork alt ajanda koşar (`/subtask` yolu), ama geçmişsiz.
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE
         state.pending_context = invocation.context
-        state.pending_tools = (
-            frozenset(invocation.allowed_tools) if invocation.allowed_tools is not None else None
-        )
+        # `allowed-tools` araçları daraltmaz, bu turda ön onaylar (#142). `disallowed-tools`
+        # desenli girdide (`Bash(rm *)`) aracın tamamı bu tur sunulmaz (#180; Claude Code'un
+        # alt ajan `disallowedTools`'u gibi: desen aracın tamamını kaldırır).
+        state.pending_tools = None
+        state.pending_grants = skill_tool.grant_entries(skill, state.root)
         # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.
         resolution = resolve_turn_model(
-            invocation.model, invocation.effort, allow_model=model_override_allowed(state, skill)
+            invocation.model,
+            invocation.effort,
+            allow_model=model_override_allowed(state, skill),
+            aliases=dict(getattr(state.config.agent_launch, "model_aliases", {}) or {}),
         )
         state.pending_model_choice = resolution.choice
         state.pending_denied_tools = invocation.denied_tools
         state.pending_fork_agent = invocation.agent
+        # `context: fork` (#141): alt ajan konuşma geçmişini görmez; gövde görev istemidir.
+        state.pending_fresh_fork = invocation.fork
+        # Zamanlanmış görevin ateşlediği beceri satırı arka plana alınmaz, beklenir (belge).
+        state.pending_fork_background = (
+            invocation.fork and skill.skill_background and not state.line_scheduled
+        )
+        state.pending_fork_skill = skill.name if invocation.fork else ""
+        # Beceri gövdesi sonraki turlarda da bağlamda kalır (#140); komut dosyası görevdir.
+        carry = bool(invocation.context) and skill.proposal is None
+        state.pending_skill_name = skill.name if carry else ""
         lines = [messages.REPL_SKILL_STARTED.format(name=skill.name)]
         if state.engine is not Engine.AGENT:
-            # Beceri gövdesi ve araç kısıtı yalnız agent turunda tüketilir; Fusion motorunda
-            # sessizce düşüp sonraki agent turuna sızıyordu (ölçüldü 31 Ekim). `/init` gibi
-            # motor çevrilir ve kullanıcıya söylenir.
-            state.engine = Engine.AGENT
+            # Claude Code (#184): beceri aynı oturumda olağan tur olarak koşar, motor/kip
+            # değişmez. Beceri gövdesi yalnız agent turunda tüketildiği için YALNIZ bu tur
+            # agent motorunda koşar; oturumun motoru kalır.
+            state.pending_engine = Engine.AGENT
             lines.append(messages.REPL_SKILL_ENGINE_NOTE)
         if invocation.fork:
             lines.append(messages.REPL_SKILL_FORK_NOTE)
@@ -128,6 +125,68 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         return "\n".join(lines)
 
     return _handler
+
+
+def _invoke_for(state: ReplState, skill: Capability, argument: str) -> SkillInvocation:
+    from pathlib import Path
+
+    return skill_tool.invoke(
+        skill,
+        argument,
+        mode=state.approval,
+        root=state.root,
+        home=Path.home(),
+        session_id=state.conversation_id,
+        effort=getattr(state.config.runtime, "reasoning_effort", "") or "",
+        verified_proposals=state.config.runtime.verified_skill_proposals,
+        memory_dir=state.config.memory_dir,
+    )
+
+
+def _run_stack(state: ReplState, stack: tuple[Capability, ...], argument: str) -> str:
+    """`/a /b 123`: her beceri aynı argümanla açılır, gövdeleri aynı turda birlikte gider (#174)."""
+    from ...tools.skill_commands import DEFAULT_SKILL_TASK
+
+    invocations = [(skill, _invoke_for(state, skill, argument)) for skill in stack]
+    failed = [note for _, inv in invocations if not inv.ok for note in inv.notes]
+    if failed:
+        return "\n".join(failed)
+    for skill, _ in invocations:
+        skill_usage.record_invocation(state.config.memory_dir, skill.name)
+        skill_hooks.register(
+            state.hooks(), skill, trusted=skill_tool.hooks_trusted(skill, state.root)
+        )
+    commands = [inv.task for skill, inv in invocations if skill.kind == "komut"]
+    names = ", ".join(skill.name for skill in stack)
+    state.pending_task = "\n\n".join(commands) or argument or DEFAULT_SKILL_TASK.format(name=names)
+    state.pending_mode = Mode.NONE
+    state.pending_context = "\n\n".join(inv.context for _, inv in invocations if inv.context)
+    state.pending_tools = None
+    state.pending_grants = tuple(
+        entry for skill, _ in invocations for entry in skill_tool.grant_entries(skill, state.root)
+    )
+    state.pending_denied_tools = frozenset().union(*(inv.denied_tools for _, inv in invocations))
+    first_skill, first = invocations[0]
+    resolution = resolve_turn_model(
+        first.model,
+        first.effort,
+        allow_model=model_override_allowed(state, first_skill),
+        aliases=dict(getattr(state.config.agent_launch, "model_aliases", {}) or {}),
+    )
+    state.pending_model_choice = resolution.choice
+    state.pending_skill_name = ""
+    state.pending_stacked_skills = tuple(
+        (skill.name, inv.context)
+        for skill, inv in invocations
+        if inv.context and skill.proposal is None
+    )
+    lines = [messages.REPL_SKILL_STARTED.format(name=names)]
+    if state.engine is not Engine.AGENT:
+        state.pending_engine = Engine.AGENT
+        lines.append(messages.REPL_SKILL_ENGINE_NOTE)
+    lines.extend(resolution.notes)
+    lines.extend(note for _, inv in invocations for note in inv.notes)
+    return "\n".join(lines)
 
 
 def skill_slash_commands(registry: CapabilityRegistry | None) -> tuple[object, ...]:
@@ -159,14 +218,3 @@ def skill_slash_commands(registry: CapabilityRegistry | None) -> tuple[object, .
             )
         )
     return tuple(commands)
-
-
-def skill_prefix_to_slash(line: str, known: Callable[[str], bool]) -> str:
-    """Codex yazımı `$beceri argüman` → `/beceri argüman` (yalnız bilinen beceri için).
-
-    `$5 fiyat` gibi sıradan metin dokunulmadan kalır: `known` bilinmeyen adda False döner.
-    """
-    if not line.startswith("$") or len(line) < 2 or line[1].isspace():
-        return line
-    name = line[1:].split(maxsplit=1)[0]
-    return "/" + line[1:] if known(name) else line

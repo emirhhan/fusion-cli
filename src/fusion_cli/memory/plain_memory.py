@@ -98,11 +98,25 @@ def topic_slug(topic: str) -> str:
 
 
 def project_memory_dir(config: Config, root: Path) -> Path:
-    """Projenin otomatik bellek dizini: `runtime.auto_memory_dir` doluysa o, yoksa
-    `<bellek>/projeler/<slug>/bellek` (Claude'un `autoMemoryDirectory` karşılığı)."""
+    """Projenin otomatik bellek dizini (Claude Code #153).
+
+    settings.json `autoMemoryDirectory` (proje katmanı hariç) > eski `runtime.auto_memory_dir`
+    > `~/.claude/projects/<git-kökü>/memory`. Eski Fusion dizini bir sürüm okunur (taşınır).
+    """
+    from . import auto_memory_location as location
+
+    configured = location.configured_directory(root)
+    if configured is not None:
+        return configured
     override = str(getattr(config.runtime, "auto_memory_dir", "") or "").strip()
     if override:
+        location.warn_legacy("runtime.auto_memory_dir", "autoMemoryDirectory")
         return Path(override).expanduser()
+    return location.default_directory(root)
+
+
+def legacy_project_memory_dir(config: Config, root: Path) -> Path:
+    """Fusion'ın eski proje belleği dizini (yalnız taşıma için okunur)."""
     return config.memory_dir / "projeler" / project_slug(root) / "bellek"
 
 
@@ -143,12 +157,19 @@ def open_agent_memory(
 
 
 def build_plain_memory(config: Config, root: Path) -> PlainMemory | None:
-    """`runtime.auto_memory` açıksa projenin belleği, kapalıysa None (araç hiç sunulmaz)."""
-    if not getattr(config.runtime, "auto_memory", True):
+    """Otomatik bellek açıksa projenin belleği, kapalıysa None (araç hiç sunulmaz).
+
+    Aç/kapa: `CLAUDE_CODE_DISABLE_AUTO_MEMORY` > `autoMemoryEnabled` > `runtime.auto_memory`.
+    İndeks Claude Code'daki gibi `MEMORY.md`; eski `BELLEK.md` dizini bir kez kopyalanır.
+    """
+    from . import auto_memory_location as location
+    from .agent_memory import migrate_legacy
+
+    if not location.enabled(root, bool(getattr(config.runtime, "auto_memory", True))):
         return None
     directory = project_memory_dir(config, root)
-    override = str(getattr(config.runtime, "auto_memory_dir", "") or "").strip()
-    return PlainMemory(directory, boundary=directory if override else config.memory_dir)
+    migrate_legacy(legacy_project_memory_dir(config, root), directory)
+    return PlainMemory(directory, boundary=directory, index_name=location.INDEX_FILE)
 
 
 def _neutralize_tags(content: str) -> str:

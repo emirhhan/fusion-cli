@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { PluginsPanel } from "./PluginsPanel";
+import { SkillVisibilityPanel } from "./SkillVisibilityPanel";
 import "./SkillsCatalog.css";
 
 type CapabilityKind = "beceri" | "ajan" | "talimat" | "mcp";
@@ -170,6 +171,8 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const [diagnosis, setDiagnosis] = useState("");
   // Eklentiler görünümü (P-059): katalogla aynı ekranda, Claude Code `/plugin` karşılığı.
   const [showPlugins, setShowPlugins] = useState(false);
+  // `/skills` görünürlük paneli (#176): bütün beceriler, kapalılar dahil, skillOverrides döngüsü.
+  const [showVisibility, setShowVisibility] = useState(false);
   // Son açılan öğe kazanır: yavaş gelen eski ayrıntı/bildirim yeni seçimi ezmesin.
   const openRequest = useRef(0);
 
@@ -220,6 +223,18 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     }).catch((reason) => setError(String(reason)));
   };
 
+  // `/skills` paneli (#176): görünürlük on → name-only → user-invocable-only → off döner, skillOverrides'a yazılır.
+  const cycleVisibility = (item: CatalogItem) => {
+    const requestId = openRequest.current;
+    void client.request("yetenek.gorunurluk", { ad: item.ad }).then((payload) => {
+      if (payload.ok !== true) throw new Error(String(payload.hata ?? payload.metin ?? "Görünürlük değiştirilemedi."));
+      if (requestId !== openRequest.current) return;
+      const value = String(payload.gorunurluk ?? "");
+      setSelected((current) => current?.kimlik === item.kimlik ? { ...current, ayarlar: { ...current.ayarlar, gorunurluk: value } } : current);
+      setNotice(String(payload.metin ?? `${item.ad}: ${value}`));
+    }).catch((reason) => setError(String(reason)));
+  };
+
   const clearMemory = (item: CatalogItem) => {
     const requestId = openRequest.current;
     void client.request("yetenek.bellek_sil", { ad: item.kimlik }).then((payload) => {
@@ -240,6 +255,15 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
       setNotice(payload.fork === true
         ? `${item.ad}, sonraki görev için hazır; tur bağlamı devralan alt ajanda koşacak (özet ana sohbete eklenir).`
         : `${item.ad}, sonraki görev için hazır.`);
+    }).catch((reason) => setError(String(reason)));
+  };
+
+  // Görünürlük değişince katalog (off → kapalı) diske dokunmadan yeniden alınır.
+  const refreshItems = () => {
+    void client.request("yetenek.katalog", {}).then((payload) => {
+      const decoded = decode(payload);
+      setItems(decoded.items);
+      setSkipped(decoded.skipped);
     }).catch((reason) => setError(String(reason)));
   };
 
@@ -297,12 +321,13 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         <div className="skills-catalog__actions" role="group" aria-label="Katalog işlemleri">
           <button onClick={reloadCatalog} type="button" title="Diskten yeniden tara (/skills reload)">Yenile</button>
           <button onClick={diagnoseCatalog} type="button" title="Eksik açıklama, kopya ad, uzun gövde (/skill-doctor)">Teşhis</button>
-          <button aria-pressed={showPlugins} onClick={() => setShowPlugins((value) => !value)} type="button" title="Eklenti paketleri ve pazar yerleri (/plugin)">Eklentiler</button>
+          <button aria-pressed={showVisibility} onClick={() => { setShowPlugins(false); setShowVisibility((value) => !value); }} type="button" title="Beceri görünürlüğü ve liste maliyeti (/skills)">Görünürlük</button>
+          <button aria-pressed={showPlugins} onClick={() => { setShowVisibility(false); setShowPlugins((value) => !value); }} type="button" title="Eklenti paketleri ve pazar yerleri (/plugin)">Eklentiler</button>
         </div>
       </div>
       {error && <p className="skills-catalog__error" role="alert">{error}</p>}
       {skipped > 0 && <p className="skills-catalog__error" role="status">{skipped} katalog öğesi bozuk olduğu için atlandı.</p>}
-      {showPlugins ? <PluginsPanel client={client} onChanged={reloadCatalog} /> : <div className="skills-catalog__layout">
+      {showVisibility ? <SkillVisibilityPanel client={client} onChanged={refreshItems} /> : showPlugins ? <PluginsPanel client={client} onChanged={reloadCatalog} /> : <div className="skills-catalog__layout">
         <section aria-label="Yetenek kataloğu" className="skills-catalog__list">
           {filtered.length === 0 && <p className="skills-catalog__empty">Eşleşen öğe yok.</p>}
           {etkinler.length > 0 && <h3 className="skills-catalog__group">Etkin · {etkinler.length}</h3>}
@@ -312,7 +337,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
           {!selected && diagnosis && <pre aria-label="Beceri teşhisi">{diagnosis}</pre>}
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : !diagnosis && <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur === "beceri" && !selected.kaynak.includes("eklenti") && <button onClick={() => cycleVisibility(selected)} type="button">Görünürlüğü değiştir</button>}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : !diagnosis && <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>}
     </main>

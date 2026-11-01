@@ -31,6 +31,7 @@ from ...core.worktree import Worktree, WorktreeSwitch
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.skill_context import InvokedSkills
 from ...engines.agent.skill_turn import TurnModelChoice
 from ...engines.agent.team import Persona
 from ...engines.hooks.session import HookSession, open_hook_session
@@ -104,6 +105,14 @@ class PendingExtras:
     denied: frozenset[str] = frozenset()
     #: `context: fork` + `agent:` → fork turunu bu alt ajan tanımı koşar.
     fork_agent: str = ""
+    #: Becerinin tur izin kuralları `("allow"|"deny", desen)` (#142, #180).
+    grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: alt ajan geçmişsiz başlar (Claude Code #141).
+    fresh_fork: bool = False
+    #: Becerinin `background` alanı (yalnız fork): etkileşimli oturumda arka planda koşar.
+    fork_background: bool = False
+    #: Fork becerisinin adı: aynı becerinin önceki arka plan çağrısı sürerken beklenir (#141).
+    fork_skill: str = ""
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
@@ -120,8 +129,17 @@ class PendingExtras:
         return self.model_choice.apply(config)
 
     def fork_runner(self, runner: TurnRunner) -> TurnRunner:
-        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla koşar."""
-        return functools.partial(runner, persona=self.fork_agent) if self.fork_agent else runner
+        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla, beceri fork'u geçmişsiz koşar."""
+        options: dict[str, object] = {}
+        if self.fork_agent:
+            options["persona"] = self.fork_agent
+        if self.fresh_fork:
+            options["inherit_context"] = False
+        if self.fork_background:
+            options["background"] = True
+            if self.fork_skill:
+                options["skill_key"] = self.fork_skill
+        return functools.partial(runner, **options) if options else runner
 
 
 @dataclass(slots=True)
@@ -225,6 +243,11 @@ class ReplState:
     #: Sıradaki satır ajanın zamanladığı görevdir: slash ile başlasa da KOMUT değil, tur
     #: olarak çalışır (bkz. `core.session_cron.Source`). Satır işlenince sıfırlanır.
     scheduled_turn_only: bool = False
+    #: Sıradaki satır oturumun zamanlanmış görevinden (`/loop`, `cron_*`) geliyor. Satır
+    #: işlenmeye başlarken `line_scheduled`'a geçer: zamanlanmış `/beceri` satırının
+    #: `context: fork`u arka plana alınmaz, sonucu beklenir (Claude Code #141).
+    scheduled_fire: bool = False
+    line_scheduled: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
     #: `/voice` dikte metni: bir sonraki istem bununla dolu açılır (P-072); alınınca temizlenir.
@@ -245,6 +268,22 @@ class ReplState:
     pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
     pending_denied_tools: frozenset[str] = frozenset()
     pending_fork_agent: str = ""
+    #: `allowed-tools` ön onayı ve `disallowed-tools` deseni: sıradaki turun izin kuralları.
+    pending_grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: sıradaki fork turu geçmişsiz alt ajanda koşar (#141).
+    pending_fresh_fork: bool = False
+    #: Becerinin `background` alanı (fork; varsayılan True): fork arka planda koşar (#141).
+    pending_fork_background: bool = False
+    pending_fork_skill: str = ""
+    #: Yalnız sıradaki tur için motor (#184): beceri Fusion motorunda agent turu olarak koşar,
+    #: oturumun motoru değişmez.
+    pending_engine: Engine | None = None
+    #: Yığılmış becerilerin `(ad, gövde)` çiftleri (#174): her biri sonraki turlarda kalır.
+    pending_stacked_skills: tuple[tuple[str, str], ...] = ()
+    #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
+    pending_skill_name: str = ""
+    #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
+    invoked_skills: InvokedSkills = field(default_factory=InvokedSkills)
     #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
     linked_pr: PullRequestLink | None = None
 
@@ -354,6 +393,7 @@ class ReplState:
     def take_scheduled_turn_only(self) -> bool:
         """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""
         value, self.scheduled_turn_only = self.scheduled_turn_only, False
+        self.line_scheduled, self.scheduled_fire = self.scheduled_fire, False
         return value
 
     def refresh_capability_roots(self) -> None:
@@ -361,16 +401,40 @@ class ReplState:
         if self.capabilities is not None:
             self.capabilities = self.capabilities.with_extra_roots(self.extra_roots)
 
+    def take_turn_engine(self) -> Engine:
+        """Bu turun motoru: bekleyen tek turluk seçim ya da oturumun motoru (bir kez)."""
+        engine = self.pending_engine or self.engine
+        self.pending_engine = None
+        return engine
+
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
+        # Modelin `Skill` sonuçları ve sıkıştırma geçmişten okunur (#140).
+        record = self.invoked_skills.for_conversation(self.conversation_id).observe(self.history)
+        stacked = self.pending_stacked_skills
+        names = (self.pending_skill_name, *(name for name, _ in stacked))
+        carried = "" if self.pending_fresh_fork else record.carried_block(names)
+        if self.pending_skill_name and not self.pending_fresh_fork:
+            record = record.remember(self.pending_skill_name, self.pending_context)
+        for name, body in stacked:
+            record = record.remember(name, body)
+        self.invoked_skills = record
+        self.pending_stacked_skills = ()
         extras = PendingExtras(
-            self.pending_context,
+            "\n\n".join(part for part in (carried, self.pending_context) if part),
             self.pending_tools,
             self.pending_model_choice,
             self.pending_denied_tools,
             self.pending_fork_agent,
+            self.pending_grants,
+            self.pending_fresh_fork,
+            self.pending_fork_background,
+            self.pending_fork_skill if self.pending_fork_background else "",
         )
+        self.pending_fork_background, self.pending_fork_skill = False, ""
         self.pending_context, self.pending_tools = "", None
+        self.pending_grants, self.pending_fresh_fork = (), False
+        self.pending_skill_name = ""
         self.pending_model_choice = TurnModelChoice()
         self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
         return extras
@@ -542,9 +606,14 @@ class ReplState:
 
         removed = len(self.history)
         self.history = []
+        self.invoked_skills = InvokedSkills(self.conversation_id)
         if self.hook_session is not None:
             # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
             self.hook_session.restart("clear", reason="clear")
+            # Beceri kancaları (#161) oturuma bağlıdır; yeni oturumda yeniden çağrılmalı.
+            from ...engines.agent import skill_hooks
+
+            skill_hooks.forget(self.hook_session)
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed

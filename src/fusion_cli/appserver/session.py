@@ -179,7 +179,12 @@ from .image_create import create_image, image_output_dir, image_providers
 from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
-from .instructions import get_instructions, instruction_block, save_instructions
+from .instructions import (
+    get_instructions,
+    instruction_block,
+    save_instructions,
+    set_external_imports,
+)
 from .keybindings_rpc import KEYBINDING_ROUTES
 from .kits_browser_routes import (
     KITS_BROWSER_DESCRIBE_ROUTE,
@@ -570,6 +575,8 @@ class AppSession:
         self._conversation_id: str | None = None
         #: Son `cron.vadesi_gelenler` ile verilen görevin ilerletilmeden önceki hâli.
         self._cron_given: dict[str, CronTask] = {}
+        #: Son verilen görevin istem metni; ilk `komut.calistir` bir kez tüketir (#141).
+        self._cron_fire_prompt = ""
         #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
@@ -1171,6 +1178,18 @@ class AppSession:
             return self._reload_capabilities()
         if request.name == "yetenek.teshis":
             return self._diagnose_capabilities()
+        if request.name == "yetenek.gorunurluk_listesi":
+            from .skill_visibility_rpc import list_skill_visibility
+
+            return list_skill_visibility(self._state)
+        if request.name == "yetenek.gorunurluk":
+            # `/skills` paneli (#176): görünürlük `skillOverrides`'a yazılır, katalog yenilenir.
+            from .skill_visibility_rpc import set_skill_visibility
+
+            sonuc = set_skill_visibility(self._state, request.data)
+            if sonuc.get("ok"):
+                self._refresh_capabilities()
+            return sonuc
         if request.name == "kontrol.durum":
             return self._control_status()
         if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
@@ -1289,6 +1308,8 @@ class AppSession:
             return self._save_theme(request.data)
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
+        if request.name == "ayar.dis_import_karari":
+            return set_external_imports(self._state.root, dict(request.data))
         if request.name == "baglanti.guven":
             # Güvenilir kararında araç tanımı özeti ağdan okunur; tur denetiminden ÖNCE, böylece
             # beklerken başlayan bir tur güven sınırını değiştirmeden yakalanır.
@@ -2272,6 +2293,7 @@ class AppSession:
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
             verilen.append({"id": task.id, "gorev": fire_prompt(task), "kaynak": task.source.value})
+            self._cron_fire_prompt = fire_prompt(task).strip()
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 
@@ -2480,6 +2502,9 @@ class AppSession:
         previous_binding = (self._state.root, self._state.conversation_id)
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
+        # Zamanlanmış görevin ateşlediği `/beceri` satırının fork'u beklenir (Claude Code #141).
+        fired, self._cron_fire_prompt = self._cron_fire_prompt, ""
+        self._state.line_scheduled = bool(fired) and fired == f"/{name} {argument}".strip()
         command = self._registry.get(name)
         turn_running = (self._turn is not None and not self._turn.done()) or self._goal_judging()
         if command is not None and command.name == "cd" and turn_running:
@@ -3145,6 +3170,7 @@ class AppSession:
                 history=history,
                 cron=None if browser_only else self._state.cron,
                 chrome_bridge=self._chrome,
+                skill_grants=pending_extras.grants,
                 allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
                     if browser_only
@@ -3435,9 +3461,12 @@ class AppSession:
 
     def _diagnose_capabilities(self) -> dict[str, Any]:
         """`yetenek.teshis`: eksik açıklama, kopya ad, uzun gövde gibi bulgular."""
+        from ..engines.agent.skill_cost_report import render_cost_report, skill_costs
         from ..tools.capability_doctor import diagnose, render_report
 
         bulgular = diagnose(self._all_capabilities)
+        # `/skill-doctor` (#177): beceri başına bağlam maliyeti ve kullanım sıklığı.
+        maliyet = skill_costs(self._all_capabilities, self._state.config.memory_dir)
         return {
             "ok": True,
             "bulgular": [
@@ -3450,7 +3479,19 @@ class AppSession:
                 }
                 for b in bulgular
             ],
-            "metin": render_report(
+            "maliyet": [
+                {
+                    "ad": c.name,
+                    "kaynak": c.source,
+                    "liste_belirtec": c.listing_tokens,
+                    "govde_belirtec": c.body_tokens,
+                    "cagri": c.uses,
+                }
+                for c in maliyet
+            ],
+            "metin": render_cost_report(maliyet)
+            + "\n\n"
+            + render_report(
                 bulgular,
                 skills=len(self._all_capabilities.skills()),
                 agents=len(self._all_capabilities.agents()),
@@ -3542,6 +3583,13 @@ class AppSession:
             self._state.pending_model_choice = resolution.choice
         self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
             item.disallowed_tools
+        )
+        # `allowed-tools` ön onayı ve `disallowed-tools` deseni bu turun izin kuralı (#142).
+        from ..engines.agent.skill_tool import grant_entries
+
+        self._state.pending_grants = (
+            *self._state.pending_grants,
+            *grant_entries(item, self._state.root),
         )
 
     def _cancel_turn(self) -> dict[str, Any]:

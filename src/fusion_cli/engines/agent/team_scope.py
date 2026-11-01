@@ -109,6 +109,7 @@ def derive_sub_context(
         # Tarayıcı ayarları (profil kapısı, varsayılan profil, pencere kipi) devralınır;
         # açık oturum devralınmaz (P-023).
         browser=context.browser.derive(),
+        skill_grants=list(getattr(subtask, "skill_grants", ()) or ()),
     )
 
 

@@ -21,7 +21,8 @@ async def test_ilk_talimat_yuku_gercek_cagrinin_manifestine_tasinir(tmp_path, mo
     events = [event for event in sink.events if type(event).__name__ == "PromptManifestRecorded"]
     assert events, "Gerçek model çağrısı prompt manifesti yayınlamalı"
     manifest = events[-1].manifest
-    assert manifest.instruction_trimmed_chars > 0
+    # Claude Code (#143): talimat 4 MiB'a kadar kırpılmadan yüklenir.
+    assert manifest.instruction_trimmed_chars == 0
     assert any(item.label == "AGENTS.md" for item in manifest.instruction_files)
     assert (
         manifest.total_chars == manifest.system_chars + manifest.history_chars + manifest.tool_chars

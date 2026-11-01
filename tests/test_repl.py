@@ -1292,7 +1292,8 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     assert komut is not None and registry.get("bellek") is komut
 
     # `#` kısayolu üç yüzeyde tek uygulamadır: `prefixes.pending_memory_note` + `add_memory_note`.
-    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister")
+    # Claude Code (#157): `#` hızlı girdisi yok; satır olağan mesaj olarak modele gider.
+    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister") is None
     assert prefixes.memory_note("## başlık") is None and prefixes.memory_note("#") is None
     # Ölçüldü (31 Ekim): `#1234 numaralı hatayı düzelt` ve yapıştırılan çok satırlı Markdown
     # da not sayılıp modele gitmiyordu; kısayol `# ` + tek satır ister.
@@ -1307,8 +1308,15 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     assert "Konular: odeme" in komut.handler(state, "list")
     assert "PayTR sandbox" in komut.handler(state, "odeme")
     assert "Bu konuda bellek yok" in komut.handler(state, "yok-boyle")
-    durum = komut.handler(state, "")
-    assert "açık" in durum and "BELLEK.md" in durum
+    durum = komut.handler(state, "durum")
+    assert "açık" in durum and "MEMORY.md" in durum  # Claude Code adı (#153)
+    # Claude Code `/memory` (#154): argümansız çağrı CLAUDE.md dosyalarını listeler.
+    secici = komut.handler(state, "")
+    assert "Kullanıcı belleği" in secici and "CLAUDE.local.md" in secici
+    assert "MEMORY.md" in secici and "seçilince oluşturulur" in secici
+    assert "Geçersiz seçim" in komut.handler(state, "99")
+    assert "CLAUDE.local.md" in komut.handler(state, "3")  # TTY yok: yol söylenir, dosya oluşur
+    assert (state.root / "CLAUDE.local.md").exists()
 
 
 def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, monkeypatch):
@@ -1326,7 +1334,8 @@ def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, 
     assert "kapalı" in komut.handler(state, "off")
     assert yazilan == {"auto_memory": False}
     assert state.plain_memory is None and state.config.runtime.auto_memory is False
-    assert komut.handler(state, "") == "Otomatik bellek kapalı. Açmak için: /memory on"
+    assert komut.handler(state, "durum") == "Otomatik bellek kapalı. Açmak için: /memory on"
+    assert "Otomatik bellek: kapalı" in komut.handler(state, "")
     assert "kapalı" in prefixes.add_memory_note(state, "not")
     # Bellek kapalıyken `#` satırı yutulmaz, olağan istem olarak modele gider.
     assert prefixes.pending_memory_note(state, "# not") is None

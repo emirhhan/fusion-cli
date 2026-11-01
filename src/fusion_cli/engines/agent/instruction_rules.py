@@ -15,35 +15,42 @@ sembolik bağ hiç açılmaz.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from .instruction_layers import (
     TRIM_NOTE,
-    TRUSTED_NOTE,
-    UNTRUSTED_NOTE,
-    neutralize,
     read_text_limited,
 )
 
-#: Tur başında bağlama giren genel kuralların toplam bütçesi (karakter).
-MAX_RULES_CHARS = 8_000
+#: Claude Code (#154): kökte yüklenen kurallarda karakter bütçesi yok; dosya 4 MiB'a kadar.
+MAX_RULES_CHARS = 4 * 1024 * 1024
 
-#: Kural dosyası başına okunacak en fazla karakter.
-MAX_RULE_FILE_CHARS = 4_000
+#: Kural dosyası başına okunacak en fazla karakter (başlangıç kuralı: 4 MiB).
+MAX_RULE_FILE_CHARS = 4 * 1024 * 1024
 
-#: Kural dosyası uzantıları (Cursor `.mdc` de kabul edilir).
-RULE_SUFFIXES: frozenset[str] = frozenset({".md", ".mdc"})
+#: İsteğe bağlı (`paths:`) kural dosyası başına sınır (Claude Code: 200K pencerede 40.000).
+MAX_SCOPED_RULE_CHARS = 40_000
 
-#: Proje kökleri (köke göreli) — Claude Code ve Fusion adlandırması.
+#: Kural dosyası uzantısı (Claude Code yalnız `.md`; #156).
+RULE_SUFFIXES: frozenset[str] = frozenset({".md"})
+
+#: Proje kökleri (köke göreli). `.fusion/rules` kullanımdan kalktı: bir sürüm okunur, uyarılır.
 PROJECT_RULE_DIRS: tuple[str, ...] = (".claude/rules", ".fusion/rules")
+DEPRECATED_RULE_DIRS = frozenset({".fusion/rules"})
+
+#: `paths` brace açılımı bütçesi (kural başına): 1.000 desen.
+MAX_BRACE_PATTERNS = 1_000
 
 #: Kullanıcı kökü (ev dizinine göreli).
 USER_RULE_DIRS: tuple[str, ...] = (".claude/rules",)
 
 #: Aranmayan dizin adları (bağımlılık ağaçları üçüncü tarafın kuralını taşıyabilir).
 _SKIP_DIRS = frozenset({"node_modules", "vendor", "dist", "build", "__pycache__"})
+
+_LOG = logging.getLogger(__name__)
 
 _FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---\n?", re.DOTALL)
 
@@ -65,18 +72,41 @@ class RuleFile:
 
 
 def discover_rules(root: Path, home: Path | None) -> tuple[RuleFile, ...]:
-    """Kullanıcı (önce) ve proje kural dosyalarını keşfet; `paths:` alanını ayrıştır."""
+    """Kullanıcı (önce) ve proje kural dosyalarını keşfet; `paths:` alanını ayrıştır.
+
+    `claudeMdExcludes` kural dosyalarına da uygulanır (#152). Kök dışını gösteren proje
+    kuralı sembolik bağı, dış import onayı verilmişse yüklenir (#155).
+    """
+    from ...config import claude_settings
+    from .claude_md_imports import external_import_decision
+
     found: list[RuleFile] = []
     if home is not None:
         for rel in USER_RULE_DIRS:
             found.extend(_scan(home / rel, base=home, prefix="~/", trusted=True))
     kok = root.resolve()
+    external_ok = external_import_decision(kok) is True
     for rel in PROJECT_RULE_DIRS:
-        found.extend(_scan(kok / rel, base=kok, prefix="", trusted=False))
-    return tuple(found)
+        if rel in DEPRECATED_RULE_DIRS and (kok / rel).is_dir():
+            _LOG.warning("%s kullanımdan kalktı; kuralları .claude/rules altına taşı", kok / rel)
+        found.extend(_scan(kok / rel, base=kok, prefix="", trusted=False, external_ok=external_ok))
+    excludes = claude_settings.merged_list(kok, home, "claudeMdExcludes")
+    return tuple(rule for rule in found if not _excluded(rule.path, excludes))
 
 
-def _scan(folder: Path, *, base: Path, prefix: str, trusted: bool) -> list[RuleFile]:
+def _excluded(path: Path, patterns: tuple[str, ...]) -> bool:
+    import fnmatch
+
+    try:
+        text = str(path.resolve())
+    except OSError:
+        text = str(path)
+    return any(fnmatch.fnmatch(text, pattern) for pattern in patterns)
+
+
+def _scan(
+    folder: Path, *, base: Path, prefix: str, trusted: bool, external_ok: bool = False
+) -> list[RuleFile]:
     if not folder.is_dir():
         return []
     bound = base.resolve()
@@ -92,8 +122,8 @@ def _scan(folder: Path, *, base: Path, prefix: str, trusted: bool) -> list[RuleF
                 continue
         except OSError:
             continue
-        # Sembolik bağ kök dışına çıkıyorsa HİÇ açılmaz (üçüncü taraf depo sızdırma yolu).
-        if not trusted and not resolved.is_relative_to(bound):
+        # Kök dışına çıkan sembolik bağ dış import gibidir: proje başına onay gerekir (#155).
+        if not trusted and not external_ok and not resolved.is_relative_to(bound):
             continue
         label = prefix + path.relative_to(base).as_posix()
         rules.append(RuleFile(label, path, _rule_paths(path), trusted))
@@ -112,12 +142,15 @@ def _rule_paths(path: Path) -> tuple[str, ...]:
     lines = match.group(1).splitlines()
     for index, line in enumerate(lines):
         key, sep, value = line.partition(":")
-        if not sep or key.strip().lower() not in ("paths", "yollar", "globs"):
+        name = key.strip().lower()
+        if not sep or name not in ("paths", "yollar"):
             continue
+        if name == "yollar":
+            _LOG.warning("kural frontmatter 'yollar' kullanımdan kalktı; 'paths' yaz (%s)", path)
         value = value.strip()
         if value:
             inner = value[1:-1] if value.startswith("[") and value.endswith("]") else value
-            return tuple(p for p in (_clean(part) for part in inner.split(",")) if p)
+            return tuple(p for p in (_clean(part) for part in _split_commas(inner)) if p)
         items: list[str] = []
         for rest in lines[index + 1 :]:
             if not rest.lstrip().startswith("-"):
@@ -127,6 +160,23 @@ def _rule_paths(path: Path) -> tuple[str, ...]:
                 items.append(cleaned)
         return tuple(items)
     return ()
+
+
+def _split_commas(text: str) -> list[str]:
+    """Süslü ayraç dışındaki virgüllerde böl (`src/*.{ts,tsx}` tek desen)."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in text:
+        depth += char == "{"
+        depth -= char == "}" and depth > 0
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    parts.append("".join(current))
+    return parts
 
 
 def _clean(value: str) -> str:
@@ -159,6 +209,13 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
             out.append("[^/]*")
         elif char == "?":
             out.append("[^/]")
+        elif char == "[" and (end := text.find("]", index + 2)) != -1:
+            # Köşeli ayraç ifadesi (`[abc]`, `[!x]`) geçerlidir (#154).
+            body = text[index + 1 : end]
+            negate = body[:1] in ("!", "^")
+            body = body[1:] if negate else body
+            out.append("[" + ("^" if negate else "") + body.replace("\\", "\\\\") + "]")
+            index = end
         elif char == "{":
             end = text.find("}", index)
             if end == -1:
@@ -174,19 +231,34 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
 
 
 def matches_paths(patterns: tuple[str, ...], relative: str) -> bool:
-    """Köke göreli yol desenlerden birine uyuyor mu? Dizinsiz desen dosya adına da bakar."""
+    """Köke göreli yol desenlerden birine uyuyor mu?
+
+    Claude Code (#154): desen kuralın taban dizinine görelidir; `*.md` yalnız kökteki `.md`
+    dosyalarıdır (dizinsiz desen her yerdeki dosya adına uygulanmaz).
+    """
     # Yalnız `./` öneki atılır: `lstrip("./")` baştaki noktayı da siliyor, `.github/**` ve
     # `.*rc` desenleri hiç eşleşmiyordu (ölçüldü 31 Ekim).
     rel = relative.replace("\\", "/")
     while rel.startswith("./"):
         rel = rel[2:]
     rel = rel.lstrip("/")
-    name = rel.rsplit("/", 1)[-1]
+    return any(_glob_to_regex(pattern).match(rel) for pattern in _bounded(patterns))
+
+
+def _bounded(patterns: tuple[str, ...]) -> tuple[str, ...]:
+    """Brace açılımı bütçesi: tüm liste 1.000 açılmış desen; aşan desen hiç eşleşmez."""
+    total = 0
+    kept: list[str] = []
     for pattern in patterns:
-        regex = _glob_to_regex(pattern)
-        if regex.match(rel) or ("/" not in pattern.rstrip("/") and regex.match(name)):
-            return True
-    return False
+        count = 1
+        for group in re.findall(r"\{([^{}]*)\}", pattern):
+            count *= max(1, len(group.split(",")))
+        if "{" in pattern:
+            total += count
+            if total > MAX_BRACE_PATTERNS:
+                continue  # Claude Code: açılmadan kullanılır, düz ayraç hiçbir dosyaya uymaz
+        kept.append(pattern)
+    return tuple(kept)
 
 
 def scoped_rules_for(rules: tuple[RuleFile, ...], relative: str) -> tuple[RuleFile, ...]:
@@ -207,11 +279,15 @@ def rule_block(rule: RuleFile, limit: int = MAX_RULE_FILE_CHARS) -> tuple[str, i
     if not text:
         return "", 0
     trimmed = len(text) > limit
-    text = neutralize(text[:limit])
-    tag = "kullanici_kurali" if rule.trusted else "proje_kurali"
-    note = TRUSTED_NOTE if rule.trusted else UNTRUSTED_NOTE
+    text = text[:limit]
     ek = TRIM_NOTE if trimmed else ""
-    return f'<{tag} kaynak="{rule.label}">\n{note}\n{text}{ek}\n</{tag}>', len(text)
+    # Claude Code biçimi: kural da uyulacak talimattır (güvenilmezlik uyarısı yok, #149).
+    desc = (
+        "user's private global instructions for all projects"
+        if rule.trusted
+        else "project instructions, checked into the codebase"
+    )
+    return f"Contents of {rule.path} ({desc}):\n\n{text}{ek}", len(text)
 
 
 def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CHARS) -> str:

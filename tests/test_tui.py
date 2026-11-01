@@ -594,3 +594,25 @@ def test_terminal_yeniden_boyutlaninca_console_genisligi_guncellenir(monkeypatch
     tui.sync_conversation()
 
     assert tui.console.width == 60
+
+
+async def test_await_choice_kisayol_ve_yazarak_filtre():
+    """#176 (`/skills`): kısayol tuşu değer döndürür; yazılan harfler listeyi süzer."""
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    secenekler = [Choice("alfa", "alfa"), Choice("beta", "beta"), Choice("gamma", "gamma")]
+    task = asyncio.ensure_future(
+        tui.await_choice("b", secenekler, hotkeys={"t": "__t__"}, filterable=True)
+    )
+    await asyncio.sleep(0)
+
+    for harf in "be":
+        tui._choice_key(harf)
+    assert [c.value for c in tui._choices] == ["beta"]
+    tui._choice_key("\x7f")
+    tui._choice_key("\x7f")
+    assert len(tui._choices) == 3
+    tui._choice_key("t")
+
+    assert await task == "__t__"

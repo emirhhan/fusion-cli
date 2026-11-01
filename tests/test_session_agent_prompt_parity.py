@@ -144,7 +144,10 @@ async def test_followup_context_is_single_and_persona_can_be_disabled(monkeypatc
     assert sum("PROJE_KURALI_123" in item.content for item in provider.seen_messages[1]) == 1
     final = provider.seen_messages[2]
     assert SYSTEM_PROMPT in final[0].content and "ÖZEL_ISTEM" not in final[0].content
-    assert not any(item.harness_note for item in final)
+    # Claude Code (#149): talimat varsayılan istemde de sistemden sonra TEK kullanıcı mesajı.
+    notes = [item for item in final if item.harness_note]
+    assert len(notes) == 1 and "PROJE_KURALI_123" in notes[0].content
+    assert "PROJE_KURALI_123" not in final[0].content
 
 
 @pytest.mark.parametrize("with_context", [False, True])

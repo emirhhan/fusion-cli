@@ -358,19 +358,27 @@ hatırlar ve zamanla senin için daha iyi model seçer.
 ### Otomatik bellek (düz metin, `/memory`)
 
 Fusion, projeye ve sana dair kalıcı bilgileri kendi yazdığı düz metin dosyada tutar
-(Claude Code'un `MEMORY.md` düzeni): `<bellek dizini>/projeler/<proje>/bellek/BELLEK.md`
-indeksi + `konular/<konu>.md` dosyaları. İndeksin ilk 200 satırı / 25 KB her turun
-bağlamına girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
+Claude Code ile aynı yerde: `~/.claude/projects/<proje>/memory/MEMORY.md` indeksi +
+`konular/<konu>.md` dosyaları. `<proje>` git deposunun kökünden türer: aynı deponun alt
+dizinleri ve worktree'leri tek belleği paylaşır. İndeksin ilk 200 satırı / 25 KB her turun
+bağlamına (talimat dosyalarından sonra, aynı kullanıcı mesajında) girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
 Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gibi düzenle.
 
-- `/memory` → durum (dosya yolu, satır sayısı, konular) · `/memory on|off` → aç/kapa
+- `/memory` → Claude Code'daki gibi bellek dosyası seçicisi: `~/.claude/CLAUDE.md`, proje
+  `CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` ve otomatik bellek (henüz olmayanlar da);
+  `/memory <n>` seçileni düzenleyicide açar, yoksa oluşturur · `/memory durum` → otomatik
+  bellek durumu (dosya yolu, satır sayısı, konular) · `/memory on|off` → aç/kapa
   (ayara kalıcı yazılır: `runtime.auto_memory`) · `/memory edit` → `$EDITOR`'da aç ·
   `/memory list` · `/memory <konu>` → konu dosyasını göster ·
   `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.
-- `# kullanıcı kısa yanıt ister` gibi `# ` (kare + boşluk) ile başlayan TEK satır modele
-  gitmez, belleğe not olarak yazılır. `#1234 düzelt`, `## Başlık` ve çok satırlı yapıştırma
-  olağan istemdir; bellek kapalıyken `#` satırı da modele gider.
-- Dizin: `runtime.auto_memory_dir` (boş = varsayılan). Masaüstü: Ayarlar › Kişiselleştirme ›
+- Claude Code'da olduğu gibi `#` hızlı girdisi yoktur: `# …` satırı olağan mesaj olarak
+  modele gider. Bir şeyi hatırlatmak için modelden iste ("bunu hatırla") ya da `/memory` kullan.
+- Aç/kapa ve dizin Claude Code ayarlarıyla: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` >
+  settings.json `autoMemoryEnabled` > eski `runtime.auto_memory`; `autoMemoryDirectory`
+  (kurumsal, `~/.claude/settings.json` ya da `.claude/settings.local.json`; proje
+  `settings.json`'ı veremez) > eski `runtime.auto_memory_dir` (kullanımdan kalktı, bir kez
+  uyarılır). Eski `<bellek dizini>/projeler/<proje>/bellek/BELLEK.md` yeni dizin yoksa ilk
+  açılışta bir kez kopyalanır, silinmez. Masaüstü: Ayarlar › Kişiselleştirme ›
   **Otomatik bellek** paneli (Markdown düzenleyici, "bu oturumda ilk N satır yüklendi",
   Claude'dan içe aktar).
 - Kapalıyken `remember`/`memory_read` araçları hiç sunulmaz, blok eklenmez. `--no-memory`
@@ -1138,7 +1146,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ### Önekler: `!`, `@`, `#`
 
-Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `# not` kaydedilir, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
+Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
 
 | Yaz | Ne olur |
 |-----|---------|
@@ -1294,7 +1302,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
 | `/help` | Tüm komutlar |
-| `! cmd` · `@dosya` · `# not` | Kabuk · dosya anma · bellek notu |
+| `! cmd` · `@dosya` | Kabuk · dosya anma |
 | `/status` · `/context` | Oturum durumu · bağlam kırılımı |
 | `/export` · `/copy` | Konuşmayı dosyaya/panoya · son cevabı panoya |
 | `/config yol=değer` | Ayar değiştir (`fusion config get/set/list`) |
