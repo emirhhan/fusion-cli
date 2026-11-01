@@ -177,6 +177,10 @@ class McpClient:
         """Sunucu son keşiften sonra `tools/list_changed` bildirdi mi?"""
         return server in self._stale_tools
 
+    def registered_tool_names(self, server: str) -> tuple[str, ...]:
+        """Sunucunun deftere yazılan araç adları (`/mcp tools`, #250)."""
+        return tuple(sorted(self._registered.get(server, ())))
+
     def tool_digest(self, server: str) -> str:
         """Sunucudan en son keşfedilen araç tanımı özeti; keşif yoksa boş."""
         return self._tool_digests.get(server, "")

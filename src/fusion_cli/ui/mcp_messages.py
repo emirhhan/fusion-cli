@@ -68,3 +68,11 @@ APPROVAL_OPTIONS = (
     "  3. Bu MCP sunucusunu kullanmadan devam et"
 )
 APPROVAL_ASK = "Seçim [1/2/3]"
+TOOLS_USAGE = "Kullanım: /mcp tools <ad>"
+TOOLS_NOT_CONNECTED = (
+    "'{name}' henüz bağlanmadı; araçlar ilk bağlantıdan sonra görünür (/mcp reconnect {name})."
+)
+TOOLS_NONE = "'{name}' bağlı ama hiç araç sunmuyor."
+TOOLS_HEADER = "{name} araçları ({count}):"
+TOOL_NO_RULE = "kural yok (izin kipine göre sorulur)"
+TOOL_COUNT = "{count} araç"

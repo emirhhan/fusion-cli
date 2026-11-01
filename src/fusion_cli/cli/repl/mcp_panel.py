@@ -5,6 +5,7 @@
     /mcp auth <ad>             OAuth girişi (tarayıcı açılır)
     /mcp clear-auth <ad>       saklı kimlik bilgilerini sil
     /mcp enable|disable <ad>   sunucuyu bu proje için aç/kapat (disabledMcpServers)
+    /mcp tools <ad>            araçlar: tam ad (mcp__<sunucu>__<araç>) ve izin durumu
 
 Ekleme ve kaldırma Claude Code'da CLI'dadır (`fusion mcp add|remove`); eski `/mcp add` ve
 `/mcp remove` yardımda gösterilmez, `remove` artık kaydı gerçekten kapsamından siler.
@@ -27,7 +28,8 @@ if TYPE_CHECKING:
 
 PANEL_USAGE = (
     "Kullanım: /mcp · /mcp reconnect <ad>|all · /mcp auth <ad> · /mcp clear-auth <ad> · "
-    "/mcp enable <ad> · /mcp disable <ad>  (ekleme/kaldırma: fusion mcp add|remove)"
+    "/mcp enable <ad> · /mcp disable <ad> · /mcp tools <ad>  "
+    "(ekleme/kaldırma: fusion mcp add|remove)"
 )
 _STATE_LABELS = {
     "bagli": mcp_messages.STATUS_CONNECTED,
@@ -45,7 +47,10 @@ def _status_label(name: str) -> str:
     status = mcp_pool_statuses().get(name)
     if status is None:
         return "henüz bağlanılmadı"
-    return _STATE_LABELS.get(status.state, status.state)
+    label = _STATE_LABELS.get(status.state, status.state)
+    if status.state == "bagli":
+        label += " · " + mcp_messages.TOOL_COUNT.format(count=status.tool_count)
+    return label
 
 
 def _scope_label(server: McpServerConfig) -> str:
@@ -93,6 +98,10 @@ def handle(state: ReplState, command: str, name: str) -> str | None:
         if not server.is_remote:
             return mcp_messages.LOGOUT_NOT_REMOTE.format(name=name)
         return _auth(server) if command == "auth" else _clear_auth(server)
+    if command == "tools":
+        from .mcp_tools_view import tools_view
+
+        return tools_view(state, name)
     if command in ("remove", "del", "delete"):
         return _remove(state, name)
     return None

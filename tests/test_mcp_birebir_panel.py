@@ -54,3 +54,57 @@ def test_clear_auth_yalniz_uzak_sunucuda(izole):
     state = SimpleNamespace(config=SimpleNamespace(mcp_servers=(McpServerConfig("s", "c"),)))
     assert "uzak" in mcp_panel.handle(state, "clear-auth", "s")
     assert mcp_panel.handle(state, "bilinmeyen", "") is None
+
+
+class _SahteIstemci:
+    def registered_tool_names(self, server):
+        return ("github__create_issue", "github__get_issue")
+
+
+def test_panel_bagli_sunucuda_arac_sayisini_gosterir(izole, monkeypatch):
+    from fusion_cli.mcp_bridge import pool
+    from fusion_cli.mcp_bridge.types import McpConnectionStatus
+
+    monkeypatch.setattr(
+        pool,
+        "mcp_pool_statuses",
+        lambda: {"team": McpConnectionStatus("team", "bagli", tool_count=5)},
+    )
+    server = McpServerConfig(name="team", command="npx", scope=McpScope.PROJECT)
+    assert "✔ Bağlandı · 5 araç" in mcp_panel.panel((server,), izole)
+
+
+def test_mcp_tools_tam_ad_ve_izin_durumu(izole, monkeypatch):
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRuleSet,
+        parse_rule,
+    )
+    from fusion_cli.mcp_bridge import pool
+
+    monkeypatch.setattr(pool, "connected_mcp_client", lambda name: _SahteIstemci())
+    rules = PermissionRuleSet(
+        (
+            parse_rule("mcp__github__get_*", PermissionDecision.ALLOW),
+            parse_rule("mcp__github__create_issue", PermissionDecision.DENY),
+        )
+    )
+    state = SimpleNamespace(
+        config=SimpleNamespace(mcp_servers=(McpServerConfig("github", "npx"),)),
+        root=izole,
+        permission_rules=lambda: rules,
+    )
+    cevap = mcp_panel.handle(state, "tools", "github")
+    assert "mcp__github__create_issue — reddedildi" in cevap
+    assert "mcp__github__get_issue — izinli" in cevap
+
+
+def test_mcp_tools_bagli_olmayan_sunucu(izole, monkeypatch):
+    from fusion_cli.mcp_bridge import pool
+
+    monkeypatch.setattr(pool, "connected_mcp_client", lambda name: None)
+    state = SimpleNamespace(
+        config=SimpleNamespace(mcp_servers=(McpServerConfig("github", "npx"),)), root=izole
+    )
+    assert "henüz bağlanmadı" in mcp_panel.handle(state, "tools", "github")
+    assert "Kullanım" in mcp_panel.handle(state, "tools", "")
