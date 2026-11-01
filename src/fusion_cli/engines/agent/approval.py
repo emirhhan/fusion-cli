@@ -49,6 +49,7 @@ from ...tools import desktop_policy
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.chrome_plan import plan_prompt_call
 from ...tools.chrome_site_policy import ChromeSite
+from ...tools.claude_chrome import legacy_view
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
@@ -606,19 +607,21 @@ async def resolve_request(
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
-    if plan_prompt_call(tool.name, args):
+    # Model Claude adlı Chrome araçlarını görür (#431); Chrome katmanları iç adla çalışır (#435).
+    chrome_name, chrome_args = legacy_view(tool.name, args)
+    if plan_prompt_call(chrome_name, chrome_args):
         request = replace(request, plan_prompt=True)
-    if tool.name == BATCH_TOOL:
+    if chrome_name == BATCH_TOOL:
         # Toplu Chrome çağrısı (#432): her öğenin kendi izin denetimi birleştirilir.
         async def _item(item_tool: Tool, item_args: ToolArgs) -> ApprovalRequest:
             return await resolve_request(
                 item_tool, item_args, allowed_commands, root=root, context=context, rules=rules
             )
 
-        return await apply_batch(request, args, _item)
-    if context is not None and tool_family(tool.name) is ToolFamily.BROWSER:
+        return await apply_batch(request, chrome_args, _item)
+    if context is not None and tool_family(chrome_name) is ToolFamily.BROWSER:
         # Chrome site izni (#435): ilk eylemde site sorusu, engelli/finansal site.
-        return await apply_site(request, tool.name, args, context)
+        return await apply_site(request, chrome_name, chrome_args, context)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
     if tool.name == ACCESS_TOOL:

@@ -204,3 +204,42 @@ async def test_yerlesik_tarayici_always_allow_kalicidir(tmp_path) -> None:
     once = await resolve_request(tool, {"url": "docs.example.org"}, root=tmp_path, context=context)
     await SecurityApproval(_Prompter(ApprovalAnswer.ONCE), ApprovalMemory()).decide(once)
     assert "docs.example.org" not in load_allowed()  # Allow once kalıcı olmaz
+
+
+_CLAUDE_CLICK = ("claude-in-chrome__computer", {"action": "left_click", "ref": "e1"})
+_CLAUDE_POINT = ("claude-in-chrome__computer", {"action": "left_click", "coordinate": [3, 4]})
+_CLAUDE_FORM = ("claude-in-chrome__form_input", {"ref": "e1", "value": "a"})
+_CLAUDE_BATCH = (
+    "claude-in-chrome__browser_batch",
+    {"actions": [{"name": "computer", "input": {"action": "left_click", "ref": "e1"}}]},
+)
+_CLAUDE_CALLS = (_CLAUDE_CLICK, _CLAUDE_POINT, _CLAUDE_FORM, _CLAUDE_BATCH)
+
+
+@pytest.mark.parametrize(("tool", "args"), _CLAUDE_CALLS)
+async def test_claude_adli_arac_yetiskin_sitede_engellenir(tmp_path, tool, args) -> None:
+    """Model Claude adlı araçları görür (#431); site katmanı onlarda da çalışmalı (#435)."""
+    request = await _request(tmp_path, "https://pornhub.com/x", tool, args)
+    assert request.pre_denied is not None and "yetişkin" in request.pre_denied
+
+
+@pytest.mark.parametrize(("tool", "args"), _CLAUDE_CALLS)
+async def test_claude_adli_arac_site_izni_ister(tmp_path, tool, args) -> None:
+    request = await _request(tmp_path, "https://www.example.com/sepet", tool, args)
+    assert request.consent_key == "chrome-site:example.com"
+    assert request.can_remember and "example.com" in str(request.remembered_scope_description)
+
+
+async def test_claude_adli_arac_finansal_sitede_bypass_kipinde_de_sorar(tmp_path) -> None:
+    memory, prompter = ApprovalMemory(), _Prompter()
+    policy = BypassApproval(prompter, memory)
+    request = await _request(tmp_path, "https://paypal.com/odeme", *_CLAUDE_FORM)
+    assert request.consent_key == "chrome-site:paypal.com"
+    assert await policy.decide(request) is Decision.ALLOW
+    assert len(prompter.asked) == 1
+
+
+async def test_claude_adli_okuma_eylemi_site_sormaz(tmp_path) -> None:
+    shot = {"action": "screenshot"}
+    request = await _request(tmp_path, "https://example.com", "claude-in-chrome__computer", shot)
+    assert request.consent_key is None and request.pre_denied is None

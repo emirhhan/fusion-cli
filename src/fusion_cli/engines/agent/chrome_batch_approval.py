@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...core.tools import Tool, ToolArgs, ToolEffect
 from ...tools.chrome_script import BATCH_TOOL, batch_items, batch_tool
@@ -99,4 +99,17 @@ def _merge(
         unattended_safe=all(sub.unattended_safe for _, _, sub in subs),
         rule=request.rule or next((sub.rule for _, _, sub in subs if sub.rule), None),
         plan_prompt=request.plan_prompt or any(sub.plan_prompt for _, _, sub in subs),
+        **_site_consent(subs),
     )
+
+
+def _site_consent(subs: list[tuple[int, str, ApprovalRequest]]) -> dict[str, Any]:
+    """Değiştiren öğelerin hepsi aynı site iznini taşıyorsa toplu çağrı da onu taşır (#435).
+
+    Farklı anahtar ya da anahtarsız değiştiren öğe varsa izin hatırlanmaz (her seferinde sorulur).
+    """
+    acting = [sub for _, _, sub in subs if not _is_read(sub)]
+    keys = {sub.consent_key for sub in acting}
+    if len(keys) != 1 or None in keys:
+        return {}
+    return {"consent_key": acting[0].consent_key, "chrome_site": acting[0].chrome_site}
