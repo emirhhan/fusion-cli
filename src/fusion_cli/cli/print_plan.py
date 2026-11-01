@@ -23,7 +23,7 @@ from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
 from .print_settings import apply_settings, check_setting_sources, read_settings
-from .print_runtime import BARE_TOOLS, apply_print_limits, apply_session_flags
+from .print_runtime import BARE_TOOLS, apply_print_limits, apply_safe_mode, apply_session_flags
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,9 @@ class PrintRequest:
     append_system_prompt_file: str | None = None
     system_prompt_snapshot: str | None = None
     setting_sources: str | None = None
+    safe_mode: bool = False
+    subagent_append: str | None = None
+    subagent_append_file: str | None = None
     model: str | None = None
     fallback_model: str | None = None
     effort: str | None = None
@@ -100,6 +103,8 @@ class PrintPlan:
     persona: Persona | None = None
     session_agents: tuple[Capability, ...] = ()
     warnings: tuple[str, ...] = ()
+    #: `--append-subagent-system-prompt(-file)`: her alt ajanın istemine eklenir.
+    subagent_append: str = ""
 
 
 def _check_formats(request: PrintRequest) -> tuple[OutputFormat, bool]:
@@ -142,6 +147,8 @@ def _build_config(
     config, mcp_errors = opts.load_mcp_configs(
         config, request.mcp_config, strict=request.strict_mcp_config
     )
+    if request.safe_mode:
+        config = apply_safe_mode(config)
     return config, mcp_errors, settings
 
 
@@ -159,6 +166,17 @@ def _with_effort(config: Config, raw: str) -> Config:
         valid = ", ".join(item.value for item in ReasoningEffort)
         raise ValueError(f"Bilinmeyen --effort değeri: {raw}. Geçerli: {valid}") from None
     return replace(config, runtime=replace(config.runtime, reasoning_effort=effort))
+
+
+def _subagent_append(request: PrintRequest) -> str:
+    """`--append-subagent-system-prompt` ya da `-file` (Claude: ikisi birleştirilemez)."""
+    if request.subagent_append and request.subagent_append_file:
+        raise ValueError(texts.PRINT_SUBAGENT_APPEND_CONFLICT)
+    if request.subagent_append_file:
+        return opts.read_text_flag(
+            "--append-subagent-system-prompt-file", request.subagent_append_file
+        )
+    return (request.subagent_append or "").strip()
 
 
 def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
@@ -212,6 +230,7 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
         session_id=session_id,
         mcp_errors=mcp_errors,
         warnings=tuple(warnings),
+        subagent_append=_subagent_append(request),
     )
     return _with_agent(plan, root=root)
 

@@ -41,6 +41,13 @@ def print_command(
     system_prompt_file: Annotated[str | None, typer.Option("--system-prompt-file")] = None,
     append_system_prompt: Annotated[str | None, typer.Option("--append-system-prompt")] = None,
     system_prompt_snapshot: Annotated[str | None, typer.Option("--system-prompt-snapshot")] = None,
+    subagent_append: Annotated[
+        str | None, typer.Option("--append-subagent-system-prompt")
+    ] = None,
+    subagent_append_file: Annotated[
+        str | None, typer.Option("--append-subagent-system-prompt-file")
+    ] = None,
+    safe_mode: Annotated[bool, typer.Option("--safe-mode")] = False,
     append_system_prompt_file: Annotated[
         str | None, typer.Option("--append-system-prompt-file")
     ] = None,
@@ -123,7 +130,10 @@ def print_command(
         strict_mcp_config=strict_mcp_config,
         verbose=verbose and not quiet,
         bare=bare,
-        no_memory=no_memory or bare,
+        no_memory=no_memory or bare or safe_mode,
+        safe_mode=safe_mode,
+        subagent_append=subagent_append,
+        subagent_append_file=subagent_append_file,
         add_dir=tuple(add_dir or ()),
         continue_last=continue_last,
         resume=resume,

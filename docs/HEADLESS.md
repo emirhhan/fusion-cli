@@ -120,6 +120,8 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--verbose` | `text` kipinde ilerleme satırları (stderr); `stream-json` için zorunlu. |
 | `--debug [kategoriler]` / `--debug-file <yol>` | Ayrıntılı günlük stderr'e ya da dosyaya; `"api,hooks"`, `"!statsig"` süzgeci `fusion_cli.*` günlükçü adlarına uygulanır. |
 | `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |
+| `--append-subagent-system-prompt <metin>` / `--append-subagent-system-prompt-file <yol>` | İç içe olanlar dahil her alt ajanın sistem istemine eklenir (çatallı alt ajan hariç); ikisi birleştirilemez. |
+| `--safe-mode` | Proje talimatı, beceriler, özel komut/ajanlar, eklentiler, kancalar, MCP ve bellek yüklenmez; yerleşik araçlar ve izinler normal. `CLAUDE_CODE_SAFE_MODE=1` ayarlanır. |
 | `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
 | `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
 

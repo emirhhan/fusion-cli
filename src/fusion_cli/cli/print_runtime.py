@@ -75,6 +75,17 @@ def apply_print_limits(
     return replace(config, runtime=runtime)
 
 
+#: `--safe-mode` ortam değişkeni (Claude ile aynı ad).
+SAFE_MODE_ENV = "CLAUDE_CODE_SAFE_MODE"
+
+
+def apply_safe_mode(config: Config) -> Config:
+    """`--safe-mode`: proje talimatı, kancalar, MCP kapalı; yerleşik araçlar ve izinler aynen."""
+    os.environ[SAFE_MODE_ENV] = "1"
+    runtime = replace(config.runtime, project_instructions=False, hooks_enabled=False)
+    return replace(config, runtime=runtime, mcp_servers=(), hosted_connectors=())
+
+
 def apply_session_flags(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
     """`--set`/`--profile` (Fusion ekleri) — bildirim basmadan; stdout makine çıktısıdır."""
     from ..config import model_select
