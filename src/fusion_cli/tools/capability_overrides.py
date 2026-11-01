@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 
 
 def visibility_of(item: Capability, overrides: Mapping[str, SkillVisibility]) -> SkillVisibility:
-    """Becerinin etkin görünürlüğü; listede yoksa `on`."""
+    """Becerinin etkin görünürlüğü; listede yoksa `on`. `skillOverrides` eklentiye uymaz."""
+    if not set(item.source.split("+")) & _PLUGIN_SOURCES:
+        from_settings = overrides.get(SETTINGS_PREFIX + item.name)
+        if from_settings is not None:
+            return from_settings
     return overrides.get(item.qualified_name) or overrides.get(item.name) or SkillVisibility.ON
 
 
@@ -52,6 +56,41 @@ def overrides_from(config: Config) -> dict[str, SkillVisibility]:
     """Yapılandırmadaki geçersiz kılmalar; eski (alanı olmayan) yapılandırmada boş."""
     capabilities = getattr(config, "capabilities", None)
     return dict(getattr(capabilities, "overrides", None) or {})
+
+
+#: Claude Code: "Plugin skills are not affected by `skillOverrides`."
+_PLUGIN_SOURCES = frozenset({"claude-plugin", "eklenti"})
+
+
+def settings_overrides(root: Path, home: Path | None) -> dict[str, SkillVisibility]:
+    """`settings.json` `skillOverrides` (#176): katmanlar birleşir, özel olan kazanır.
+
+    Geçersiz değer yok sayılır. Anahtar beceri adıdır; eklenti becerileri etkilenmez
+    (`apply_overrides` kaynağa bakar).
+    """
+    from ..config import claude_settings
+
+    result: dict[str, SkillVisibility] = {}
+    for name, value in claude_settings.merged_mapping(root, home, "skillOverrides").items():
+        try:
+            result[name] = SkillVisibility(str(value).strip().lower())
+        except ValueError:
+            continue
+    return result
+
+
+def effective_overrides(
+    config: Config, root: Path, home: Path | None
+) -> dict[str, SkillVisibility]:
+    """`config.yaml` `capabilities.overrides` + `settings.json` `skillOverrides` (ayar kazanır)."""
+    return {
+        **overrides_from(config),
+        **{f"{SETTINGS_PREFIX}{k}": v for k, v in settings_overrides(root, home).items()},
+    }
+
+
+#: `skillOverrides` kaynaklı anahtarların işareti: eklenti becerisine uygulanmaz.
+SETTINGS_PREFIX = "\x00settings:"
 
 
 #: `disabled_builtin_agents` içinde bütün yerleşik (`fusion`) ajanları kaldıran işaret.
@@ -93,7 +132,7 @@ def registry_from_config(
         disabled_agents=disabled | session_disabled_agents,
         extra_roots=extra_roots,
         proposal_policy=ProposalPolicy(enabled=config.runtime.verified_skill_proposals),
-        overrides=overrides_from(config),
+        overrides=effective_overrides(config, root, home),
         managed_roots=tuple(Path(path) for path in config.agent_launch.managed_agent_roots),
         session_agents=session_agents,
         working_directory=working_directory if working_directory is not None else root,
