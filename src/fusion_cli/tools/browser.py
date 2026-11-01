@@ -43,6 +43,7 @@ from .mirror import (
     rewrite_links,
 )
 from .web import access_wall_notice, browser_block_reason
+from .preview_origins import allowed_local
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
 #: yavaştır; `WEB_TIMEOUT_S` bir HTTP isteği bütçesidir ve buraya uymaz.
@@ -94,7 +95,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context))
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
 
@@ -248,7 +249,7 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
 async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Aynı oturumda yeni sekme aç ve izin verilen adrese git."""
     url = normalize_url(require_str(args, "url"))
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context))
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     page, error = await _sayfa(context)
@@ -327,7 +328,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         if url:
             url = normalize_url(url)
-            reason = browser_block_reason(url, context.local_origins)
+            reason = browser_block_reason(url, allowed_local(context))
             if reason is not None:
                 return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
             await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
@@ -441,7 +442,7 @@ async def _sayfa(
     async with start_lock(oturum):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
-        return await start_session(oturum, context.local_origins, profile=profile, headed=headed)
+        return await start_session(oturum, allowed_local(context), profile=profile, headed=headed)
 
 
 def _is_open(oturum: BrowserSession) -> bool:

@@ -386,6 +386,11 @@ def loopback_origins_in(text: str) -> set[str]:
     return {f"{host.lower()}:{port}" for host, port in _LOOPBACK_URL.findall(text)}
 
 
+def loopback_origin(url: str) -> str | None:
+    """Adres yerel döngüdeyse `host:port` (genel ad; bkz. `_loopback_origin`)."""
+    return _loopback_origin(url)
+
+
 def _loopback_origin(url: str) -> str | None:
     """Adres yerel döngüdeyse `host:port`; değilse None.
 

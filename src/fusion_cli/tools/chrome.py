@@ -21,6 +21,7 @@ from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
 from .key_spec import key_base
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
 from .web import browser_block_reason
+from .preview_origins import allowed_local
 
 __all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
 
@@ -431,7 +432,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         if not isinstance(value, str) or not value.strip():
             return ToolResult.failure("open için 'value' alanına adresi yaz.")
         url = value if value.startswith(("https://", "http://")) else f"https://{value}"
-        reason = browser_block_reason(url, context.local_origins)
+        reason = browser_block_reason(url, allowed_local(context))
         if reason is not None:
             return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
         return await _call(context, "tab_open", {"url": url})
@@ -599,7 +600,7 @@ async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = require_str(args, "url")
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context))
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     return await _call(context, "navigate", {"url": url})
