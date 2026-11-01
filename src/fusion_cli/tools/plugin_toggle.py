@@ -29,9 +29,7 @@ from ..core.plugins import PluginError
 ERR_NOT_INSTALLED = "Kurulu değil: {name}"
 ERR_ALREADY = 'Eklenti "{name}" zaten {state}'
 ERR_AMBIGUOUS = "'{name}' birden çok pazardan kurulu: {ids}. ad@pazar biçimini kullan."
-ERR_UNINSTALL_SCOPE = (
-    'Eklenti kaldırılamadı "{name}": {scope} kapsamında kurulu değil'
-)
+ERR_UNINSTALL_SCOPE = 'Eklenti kaldırılamadı "{name}": {scope} kapsamında kurulu değil'
 
 
 def find_record(state: PluginState, spec: str) -> PluginRecord:

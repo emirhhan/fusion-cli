@@ -138,9 +138,7 @@ def target_scope(plugin_id: str, name: str, root: Path, requested: str) -> str:
     return requested
 
 
-def write_enabled(
-    scope: str, plugin_id: str, name: str, value: bool | None, root: Path
-) -> Path:
+def write_enabled(scope: str, plugin_id: str, name: str, value: bool | None, root: Path) -> Path:
     """project/local dosyasına `enabledPlugins[ad@pazar] = value` yaz (diğer anahtarlar korunur);
     `value=None` anahtarı siler.
 
