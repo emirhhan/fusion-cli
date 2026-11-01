@@ -41,7 +41,8 @@ async def test_eylemde_zaman_asimi_sonuc_bilinmiyor_der(tmp_path):
     assert not sonuc.ok
     assert sonuc.output.startswith(UNKNOWN_OUTCOME_PREFIX)
     assert "chrome_page" in sonuc.output and "tekrar" in sonuc.output
-    assert chrome.calls == ["click"]
+    # Önce öğe tarifi okunur (#422 yasak eylem kapısı); okunamazsa tıklama yine denenir.
+    assert chrome.calls == ["describe", "click"]
 
 
 async def test_okumada_zaman_asimi_duz_hatadir(tmp_path):

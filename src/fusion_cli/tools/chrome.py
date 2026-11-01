@@ -15,7 +15,7 @@ from typing import Any
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
-from . import chrome_inspect, chrome_record
+from . import chrome_guard, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
 from .key_spec import key_base
@@ -105,8 +105,22 @@ def with_action_check(result: ToolResult) -> ToolResult:
     return result
 
 
+async def _prohibited(
+    context: ToolContext, operation: str, data: dict[str, Any]
+) -> ToolResult | None:
+    """Her kipte yasak eylem (#422): öğe satın alma/hesap oluşturma/CAPTCHA ise çalıştırma."""
+    reason = chrome_guard.prohibited_reason(
+        chrome_guard.described(await _describe(context, operation, data))
+    )
+    return None if reason is None else ToolResult.failure(reason)
+
+
 async def chrome_click(args: ToolArgs, context: ToolContext) -> ToolResult:
-    return with_action_check(await _call(context, "click", {"ref": require_str(args, "ref")}))
+    ref = require_str(args, "ref")
+    refused = await _prohibited(context, "describe", {"ref": ref})
+    if refused is not None:
+        return refused
+    return with_action_check(await _call(context, "click", {"ref": ref}))
 
 
 async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -188,6 +202,8 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
         return None if result is None else _click_effect(result)
     if action == "key":
         return await _key_effect(args, context)
+    if action == "type_focused":
+        return await chrome_type_effect({}, context)
     if action in _INTERACT_ACTIONS:
         return ToolEffect.REMOTE_INTERACT
     return ToolEffect.REMOTE_READ if action in _READ_ACTIONS else None
@@ -198,8 +214,21 @@ async def chrome_read_effect(_args: ToolArgs, _context: ToolContext | None) -> T
     return ToolEffect.REMOTE_READ
 
 
-async def chrome_type_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
-    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir."""
+async def chrome_type_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect:
+    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir.
+
+    Hassas alan (parola, kart, kimlik numarası) her kipte sorulur (#422: "Inputting
+    potentially sensitive information into websites" izin kipinden bağımsız onay ister).
+    """
+    ref = args.get("ref")
+    if context is None or context.chrome is None:
+        return ToolEffect.REMOTE_INTERACT
+    data = {"ref": ref} if isinstance(ref, str) and ref else {}
+    veri = chrome_guard.described(
+        await _describe(context, "describe" if data else "describe_key", data)
+    )
+    if chrome_guard.sensitive_field_reason(veri) is not None:
+        return ToolEffect.REMOTE_DESTRUCTIVE
     return ToolEffect.REMOTE_INTERACT
 
 
@@ -311,6 +340,12 @@ def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
     veri = result.get("veri") if result.get("ok") else None
     if not isinstance(veri, dict):
         return None
+    if chrome_guard.prohibited_reason(veri) is not None:
+        # Araç çalışmayı reddeder (her kipte); sormanın anlamı yok (#422).
+        return ToolEffect.REMOTE_INTERACT
+    if chrome_guard.always_ask_reason(veri) is not None:
+        # Yetki verme: İzinleri atla dahil her kipte sorulur (#422).
+        return ToolEffect.REMOTE_DESTRUCTIVE
     ad = f"{veri.get('name', '')} {veri.get('type', '')}"
     if veri.get("link") and not veri.get("submit"):
         # Gerçek adrese giden bağlantı yalnız gezinir; iş yapan şey sonraki sayfadaki
@@ -382,6 +417,11 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await chrome_inspect.group_tabs(value, context, _call)
     if action == "key":
         data["key"] = value if isinstance(value, str) and value else "Enter"
+        if _key_base(data["key"]) in _ENTER_KEYS:
+            ref_data = {"ref": data["ref"]} if "ref" in data else {}
+            refused = await _prohibited(context, "describe_key", ref_data)
+            if refused is not None:
+                return refused
         return with_action_check(await _call(context, "key", data))
     if action == "screenshot":
         return await chrome_screenshot(args, context)
@@ -422,12 +462,18 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         kind = _CLICK_KINDS.get(action)
         extra = {"kind": kind} if kind else {}
         if action in _CLICK_KINDS and "ref" in data:
+            refused = await _prohibited(context, "describe", {"ref": data["ref"]})
+            if refused is not None:
+                return refused
             return with_action_check(await _call(context, "click", {**data, **extra}))
         point = _point(value, context)
         if point is None:
             return ToolResult.failure(
                 f"{action} için 'ref' ya da 'value' alanına ekran görüntüsündeki 'x,y' yaz."
             )
+        refused = await _prohibited(context, "describe_at", {"x": point[0], "y": point[1]})
+        if refused is not None:
+            return refused
         return with_action_check(
             await _call(context, "click_at", {"x": point[0], "y": point[1], **extra})
         )

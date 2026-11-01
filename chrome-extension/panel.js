@@ -92,11 +92,11 @@ function renderThread() {
 
 /** Mod seçimine göre "güvenli mi" satırı: kullanıcı hangi işlemin sorulduğunu görür. */
 const GUARD_TEXT = {
-  auto: "Gönderme, silme ve satın alma sana sorulur.",
+  auto: "Gönderme ve silme sana sorulur; satın alma ve hesap oluşturma hiç yapılmaz.",
   security: "Her tıklama ve yazma önce sana sorulur.",
   edits: "Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.",
   plan: "Yalnız okur; tıklamaz, yazmaz.",
-  bypass: "Dikkat: hiçbir şey sorulmaz.",
+  bypass: "Dikkat: neredeyse hiçbir şey sorulmaz (yetki verme ve hassas bilgi hariç).",
 };
 
 function renderControl() {
@@ -432,7 +432,8 @@ document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
 const BYPASS_CONFIRM_TEXT =
-  "\"İzinleri atla\" kipinde Fusion gönderme, silme ve satın alma dahil hiçbir şey sormaz. " +
+  "\"İzinleri atla\" kipinde Fusion gönderme ve silmeyi sormaz. Satın alma, hesap " +
+  "oluşturma ve CAPTCHA her kipte yasaktır; yetki verme ve hassas bilgi girme yine sorulur. " +
   "Açılsın mı?";
 $("mode").addEventListener("change", guard(async () => {
   const mod = $("mode").value;
