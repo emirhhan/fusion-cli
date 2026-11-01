@@ -665,3 +665,27 @@ async def test_tui_turu_gunluk_kapaliyken_sinks_degismez(tmp_path, monkeypatch) 
     await session._turn("görev")
 
     assert None not in calls[0]["sinks"]
+
+
+async def test_mesgulken_anlik_komutlar_hemen_calisir(tmp_path):
+    """Claude Code (#209): yanıt sürerken /status, /tasks, /usage, /model, /effort, /fast,
+    /add-dir ve /permissions kuyruğa girmez, hemen çalışır; diğer komutlar kuyruğa girer."""
+    from fusion_cli.cli.repl.busy_commands import runs_while_busy
+
+    session = _TuiSession(_state(tmp_path))
+    for line in ("/status", "/tasks", "/usage", "/cost", "/model", "/effort", "/permissions"):
+        assert runs_while_busy(session._registry, line), line
+    assert not runs_while_busy(session._registry, "/agent")
+    assert not runs_while_busy(session._registry, "düz mesaj")
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._submit("/model")
+    session._submit("/agent")
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert session._queue == ["/agent"]
+    assert session._task is not None and not session._task.done()
+    session._task.cancel()

@@ -41,6 +41,7 @@ from . import (
     async_commands,
     background_commands,
     browser_command,
+    busy_commands,
     cron_store,
     goal_flow,
     goal_store,
@@ -295,6 +296,8 @@ class _TuiSession:
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
         self._queue: list[str] = []
+        #: Tur sürerken çalışan anlık komut görevleri (#209); bitince kümeden düşer.
+        self._immediate: set[asyncio.Future[None]] = set()
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
         # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
         self._background = BackgroundTasks()
@@ -352,6 +355,12 @@ class _TuiSession:
     def _submit(self, text: str) -> None:
         line = text.strip()
         if not line:
+            return
+        if self._busy and busy_commands.runs_while_busy(self._registry, line):
+            # Claude Code (#209): belgelenen anlık komutlar kuyruğa girmez, hemen çalışır.
+            future = asyncio.ensure_future(self._command(line))
+            self._immediate.add(future)
+            future.add_done_callback(self._immediate.discard)
             return
         if self._busy:
             # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir.
