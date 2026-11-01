@@ -73,6 +73,42 @@ async def status_line_text(state: ReplState) -> str:
     )
 
 
+async def status_line_block(state: ReplState) -> str:
+    """Düz REPL için betik çıktısının BÜTÜN satırları (ANSI/OSC 8 korunur, `padding` uygulanır).
+
+    Claude Code (#192) çok satırlı, renkli çıktıyı olduğu gibi gösterir; tam ekran TUI
+    bunu `StatusLineRunner` ile yapar, düz REPL tur sonunda bu bloğu basar.
+    """
+    from .status_line_runner import run_script
+    from .status_line_settings import resolve_status_line
+
+    spec = resolve_status_line(state.config, state.root, state.home)
+    if spec is None:
+        return ""
+    try:
+        return await run_script(spec, status_payload(state), cwd=str(state.root))
+    except (OSError, TimeoutError) as error:
+        _LOG.warning("durum satırı betiği çalışmadı: %s", error)
+        return ""
+
+
+def show_status_block(stream: Any, block: str) -> None:
+    """Bloğu ham ANSI olarak yaz (rich kaçış dizilerini ve OSC 8'i bozardı)."""
+    if not block:
+        return
+    stream.write(f"{block}\n")
+    stream.flush()
+
+
+def first_plain_line(block: str) -> str:
+    """Alt çubuk (FUSION_TOOLBAR=1) için ilk satır, ANSI/OSC dizileri ayıklanmış."""
+    import re
+
+    plain = re.sub(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z]", "", block)
+    lines = plain.strip().splitlines()
+    return lines[0].strip()[:STATUS_LINE_MAX_CHARS] if lines else ""
+
+
 def statusline_command(state: ReplState, argument: str) -> str:
     """`/statusline [istek]` — Claude Code gibi betiği modele (statusline-setup) yazdırır.
 

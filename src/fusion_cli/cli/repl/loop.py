@@ -288,6 +288,8 @@ async def _run_surface(
         console.print(recent, highlight=False)
         console.print()
     _sync_status_bar(reader, state, background)
+    # Claude Code (#192): durum satırı betiği oturum başında da çalışır.
+    await _show_status_line(reader, state, console)
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
     # `--resume` ile açılan sohbetin hedefi geri gelir (P-058).
     state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
@@ -511,8 +513,19 @@ async def _handle(
         await _continue_goal(state, console, background)
     await _offer_plan_card(state, console, background, reader)
     _sync_status_bar(reader, state, background)
-    # Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; yerleşik satırın yerine geçer.
-    reader.custom_status = await status_line.status_line_text(state)
+    # Kullanıcı betiği (P-069, #192) tur sonunda çalışır: alt çubuk açıksa ilk satır orada,
+    # değilse Claude Code gibi bütün satırlar (ANSI/OSC 8) istemin üstüne basılır.
+    await _show_status_line(reader, state, console)
+
+
+async def _show_status_line(reader: ReplInput, state: ReplState, console: Console) -> None:
+    from .input import toolbar_enabled
+
+    block = await status_line.status_line_block(state)
+    if toolbar_enabled():
+        reader.custom_status = status_line.first_plain_line(block)
+    else:
+        status_line.show_status_block(console.file, block)
 
 
 def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:

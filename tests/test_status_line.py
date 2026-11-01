@@ -129,3 +129,25 @@ def test_durum_cubuklari_ozel_satiri_kacirarak_gosterir(tmp_path: Path, monkeypa
     )
     tui_html = format_status("auto", "agent", "bağlam %3", custom="<x> özel")
     assert "&lt;x&gt; özel" in tui_html and "bağlam %3" not in tui_html
+
+
+@pytest.mark.asyncio
+async def test_satir_ici_repl_butun_satirlari_ansi_ile_basar(state: ReplState):
+    """#192: düz REPL de Claude Code gibi çok satırlı, ANSI renkli çıktıyı gösterir."""
+    import io
+    from dataclasses import replace
+
+    from fusion_cli.cli.repl.status_line import show_status_block, status_line_block
+
+    komut = "printf '\\033[32mbir\\033[0m\\niki\\n'"
+    state.config = replace(
+        state.config, runtime=replace(state.config.runtime, status_line_command=komut)
+    )
+    blok = await status_line_block(state)
+    assert blok == "\x1b[32mbir\x1b[0m\niki"
+    akis = io.StringIO()
+    show_status_block(akis, blok)
+    assert akis.getvalue() == "\x1b[32mbir\x1b[0m\niki\n"
+    akis = io.StringIO()
+    show_status_block(akis, "")
+    assert akis.getvalue() == ""

@@ -1095,7 +1095,7 @@ def test_yardim_ekrani_kosem_parantezli_kullanimi_yutmaz(capsys):
     _help(build_registry(), Console(force_terminal=False, width=200))
     cikti = capsys.readouterr().out
 
-    for parca in ("[alt-komut]", "[arama]", "[seviye]", "[add]", "[incompatible]"):
+    for parca in ("[N]", "[arama]", "[seviye]", "[add]", "[incompatible]"):
         assert parca in cikti, f"kullanım ipucu yutulmuş: {parca}"
 
 
