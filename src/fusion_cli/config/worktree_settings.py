@@ -2,63 +2,49 @@
 
 Claude Code (settings-reference › worktree; worktrees › "Choose the base branch"):
 `"fresh"` (varsayılan) uzak varsayılan daldan, `"head"` bulunulan `HEAD`'den dallanır. Ayar
-`~/.claude/settings.json`, proje `.claude/settings.json` ve `.claude/settings.local.json`'dan
-okunur (sonraki öncekini ezer); proje dosyaları yalnız güvenilen projede okunur. `--worktree`,
+Claude katmanlarından okunur (`claude_settings_layers`: kullanıcı, proje, yerel, --settings,
+managed; sonraki öncekini ezer); proje dosyaları yalnız güvenilen projede okunur. `--worktree`,
 `/worktree`, `EnterWorktree` ve alt ajan çalışma ağaçları aynı tabanı kullanır.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 from ..core.worktree import Worktree, enter_worktree, project_root_of, repository_root
 from ..core.worktree_fetch import BASE_FRESH, BASE_REFS
 from ..core.worktree_layout import WorktreeLayout
-from .claude_home import claude_user_dir
-from .trust import is_permissions_trusted, is_project_settings_trusted
+from .claude_settings import claude_settings_layers
 
 _LOG = logging.getLogger(__name__)
 
 
+def _worktree_sections(root: Path, home: Path | None) -> list[tuple[Mapping[str, object], Path]]:
+    """Katmanlardaki `worktree` bölümleri Claude önceliğiyle (managed en üstte)."""
+    sections = []
+    for data, path in claude_settings_layers(root, home=home):
+        section = data.get("worktree")
+        if isinstance(section, Mapping):
+            sections.append((section, path))
+    return sections
+
+
 def worktree_base_mode(root: Path, *, home: Path | None = None) -> str:
     """Geçerli `worktree.baseRef`: `"fresh"` ya da `"head"`."""
-    paths = [claude_user_dir(home) / "settings.json"]
-    if is_project_settings_trusted(root):
-        paths.append(root / ".claude" / "settings.json")
-    if is_permissions_trusted(root):
-        paths.append(root / ".claude" / "settings.local.json")
     mode = BASE_FRESH
-    for path in paths:
-        value = _base_ref(path)
+    for section, path in _worktree_sections(root, home):
+        value = section.get("baseRef")
         if value in BASE_REFS:
-            mode = value
+            mode = str(value)
         elif value is not None:
             _LOG.warning("worktree.baseRef geçersiz (fresh|head bekleniyor): %s", path)
     return mode
 
 
-def _base_ref(path: Path) -> str | None:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        _LOG.warning("Claude ayar dosyası okunamadı; worktree.baseRef atlandı: %s", path)
-        return None
-    section = raw.get("worktree") if isinstance(raw, dict) else None
-    value = section.get("baseRef") if isinstance(section, dict) else None
-    return value if isinstance(value, str) or value is None else str(value)
-
-
-def _string_list(path: Path, key: str) -> list[str]:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return []
-    section = raw.get("worktree") if isinstance(raw, dict) else None
-    value = section.get(key) if isinstance(section, dict) else None
+def _string_list(section: Mapping[str, object], path: Path, key: str) -> list[str]:
+    value = section.get(key)
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
@@ -69,13 +55,11 @@ def _string_list(path: Path, key: str) -> list[str]:
 
 def worktree_layout(root: Path, *, home: Path | None = None) -> WorktreeLayout:
     """`worktree.symlinkDirectories` ve `worktree.sparsePaths` (#361; listeler birleşir)."""
-    paths = [claude_user_dir(home) / "settings.json"]
-    if is_project_settings_trusted(root):
-        paths.append(root / ".claude" / "settings.json")
-    if is_permissions_trusted(root):
-        paths.append(root / ".claude" / "settings.local.json")
-    links = [item for path in paths for item in _string_list(path, "symlinkDirectories")]
-    sparse = [item for path in paths for item in _string_list(path, "sparsePaths")]
+    sections = _worktree_sections(root, home)
+    links = [
+        item for sec, path in sections for item in _string_list(sec, path, "symlinkDirectories")
+    ]
+    sparse = [item for sec, path in sections for item in _string_list(sec, path, "sparsePaths")]
     return WorktreeLayout(tuple(dict.fromkeys(links)), tuple(dict.fromkeys(sparse)))
 
 
