@@ -114,6 +114,7 @@ def print_command(
         append_system_prompt=append_system_prompt,
         append_system_prompt_file=append_system_prompt_file,
         system_prompt_snapshot=system_prompt_snapshot,
+        setting_sources=setting_sources,
         model=model,
         fallback_model=fallback_model,
         effort=effort,

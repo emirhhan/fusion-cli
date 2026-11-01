@@ -110,7 +110,8 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--append-system-prompt`, `--append-system-prompt-file` | Sisteme eklenir (dosya içeriği önce). |
 | `--system-prompt-snapshot on\|off` | Bayraklardan gelen istem metni sohbetin ilk koşusunda kaydedilir; `-r/-c` ile sürdürülen sohbet kayıtlı metni kullanır (`off` her koşuda yeniden kurar; `--bare`'de kayıt `on` verilmedikçe kapalı). Dört istem bayrağı ve bu bayrak kök komutta (etkileşimli oturum) da geçerlidir. |
 | `--json-schema '<şema>'\|dosya` | Satır içi JSON ya da dosya; geçersiz şemada `Error: --json-schema is not a valid JSON Schema`. Tam JSON Schema denetimi; uymayan cevap iki kez yeniden denenir. |
-| `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `model`. |
+| `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `permissions.defaultMode` (`--permission-mode` öncelikli), `permissions.additionalDirectories`, `model`, `env`, `disableAllHooks`. |
+| `--setting-sources user,project,local` | Değerler doğrulanır (geçersiz kaynak hata); kaynak süzme henüz etkisiz (uyarı). |
 | `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
 | `--bare` | Kancalar, bellek, MCP, proje talimatı kapalı; araçlar Bash + dosya okuma/düzenleme. |
 | `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |

@@ -60,3 +60,6 @@ PRINT_FROM_PR_NONE = "Bu PR'a bağlı oturum bulunamadı: {value}"
 SYSTEM_PROMPT_SNAPSHOT_INVALID = "Hata: --system-prompt-snapshot yalnız on ya da off alır: {given}"
 PRINT_CONTROL_UNSUPPORTED = "Unsupported control request subtype: {subtype}"
 PRINT_INTERRUPTED = "[Request interrupted by user]"
+PRINT_SETTING_SOURCES_INVALID = (
+    "Hata: --setting-sources geçersiz kaynak: {given}. Geçerli: user, project, local"
+)

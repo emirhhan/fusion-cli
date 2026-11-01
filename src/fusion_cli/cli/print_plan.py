@@ -21,6 +21,7 @@ from ..ui import print_messages as texts
 from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
+from .print_settings import apply_settings, check_setting_sources, read_settings
 from .print_runtime import BARE_TOOLS, apply_print_limits, apply_session_flags
 
 
@@ -46,6 +47,7 @@ class PrintRequest:
     append_system_prompt: str | None = None
     append_system_prompt_file: str | None = None
     system_prompt_snapshot: str | None = None
+    setting_sources: str | None = None
     model: str | None = None
     fallback_model: str | None = None
     effort: str | None = None
@@ -162,11 +164,17 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     fmt, stream_input = _check_formats(request)
     schema = opts.parse_json_schema(request.json_schema)
     check_snapshot(request.system_prompt_snapshot)
+    check_setting_sources(request.setting_sources)
     session_id = opts.checked_session_id(request.session_id)
-    mode = opts.parse_permission_mode(
-        request.permission_mode, skip_permissions=request.skip_permissions
-    )
     config, mcp_errors, settings = _build_config(request)
+    session = read_settings(settings)
+    config = apply_settings(config, session)
+    mode = opts.parse_permission_mode(
+        request.permission_mode or session.default_mode,
+        skip_permissions=request.skip_permissions,
+    )
+    if session.add_dirs:
+        request = replace(request, add_dir=(*request.add_dir, *session.add_dirs))
     selection = opts.tool_selection(
         request.allowed_tools,
         request.disallowed_tools,
