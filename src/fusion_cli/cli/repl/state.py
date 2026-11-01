@@ -240,6 +240,10 @@ class ReplState:
     pending_fork_agent: str = ""
     #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
     linked_pr: PullRequestLink | None = None
+    #: Bypass Shift+Tab döngüsünde mi (#73): oturum bypass etkin başladıysa.
+    bypass_available: bool = False
+    #: Auto kipi kullanılabilir mi (#85): hiçbir ayar `disableAutoMode: "disable"` demiyorsa.
+    auto_available: bool = True
 
     def bind_pull_request(self, link: PullRequestLink | None) -> None:
         """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
@@ -258,7 +262,9 @@ class ReplState:
         except ValueError:
             engine = Engine.AGENT
         approval = _initial_approval(config, kwargs.get("root"))
-        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        state = cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        _apply_mode_availability(state, approval)
+        return state
 
     async def reset_child_runs(self) -> None:
         """Sohbet/kök değişiminde önce eski görevleri kapat, sonra yeni sahibi kur."""
@@ -519,7 +525,11 @@ class ReplState:
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
-        self.approval = next_mode(self.approval)
+        self.approval = next_mode(
+            self.approval,
+            bypass_available=getattr(self, "bypass_available", False),
+            auto_available=getattr(self, "auto_available", True),
+        )
         return self.approval
 
     def reset_history(self) -> int:
@@ -554,3 +564,14 @@ def _initial_approval(config: Config, root: object) -> ApprovalMode:
     if approval is ApprovalMode.BYPASS and setting is None:
         approval = ApprovalMode.AUTO
     return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval
+
+
+def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:
+    """Döngüdeki isteğe bağlı kipler: bypass bypass'la başlayınca, auto kapatılmadıkça."""
+    from ...config.permission_settings import auto_mode_disabled, bypass_mode_disabled
+
+    root = state.root if isinstance(getattr(state, "root", None), Path) else None
+    state.bypass_available = approval is ApprovalMode.BYPASS and not (
+        root is not None and bypass_mode_disabled(root)
+    )
+    state.auto_available = not (root is not None and auto_mode_disabled(root))

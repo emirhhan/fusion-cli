@@ -43,6 +43,7 @@ from . import (
     loop_command,
     macros,
     memory_commands,
+    mode_commands,
     model_flows,
     output_style_command,
     permissions_command,
@@ -230,14 +231,6 @@ def _use_agent(state: ReplState, argument: str) -> str:
 def _use_fusion(state: ReplState, argument: str) -> str:
     state.engine = Engine.FUSION
     return messages.REPL_ENGINE_FUSION
-
-
-def _set_mode(mode: ApprovalMode) -> Handler:
-    def _handler(state: ReplState, argument: str) -> str:
-        state.approval = mode
-        return messages.REPL_MODE_CHANGED.format(mode=mode.value)
-
-    return _handler
 
 
 def _reset(state: ReplState, argument: str) -> str:
@@ -980,21 +973,34 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("clear", messages.CMD_CLEAR, lambda state, argument: ""),
     SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
     SlashCommand("fusion", messages.CMD_FUSION, _use_fusion, group="Motor"),
-    SlashCommand("auto", messages.CMD_AUTO, _set_mode(ApprovalMode.AUTO), group="Onay modu"),
     SlashCommand(
-        "edits", messages.CMD_EDITS, _set_mode(ApprovalMode.ACCEPT_EDITS), group="Onay modu"
+        "auto",
+        messages.CMD_AUTO,
+        mode_commands.legacy_mode("auto", ApprovalMode.AUTO),
+        group="Onay modu",
+    ),
+    SlashCommand(
+        "edits",
+        messages.CMD_EDITS,
+        mode_commands.legacy_mode("edits", ApprovalMode.ACCEPT_EDITS),
+        group="Onay modu",
     ),
     SlashCommand(
         "security",
         messages.CMD_SECURITY,
-        _set_mode(ApprovalMode.SECURITY),
+        mode_commands.legacy_mode("security", ApprovalMode.SECURITY),
         ("manual", "manuel"),
         group="Onay modu",
     ),
     SlashCommand(
         "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[goster|ac]"
     ),
-    SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
+    SlashCommand(
+        "bypass",
+        messages.CMD_BYPASS,
+        mode_commands.legacy_mode("bypass", ApprovalMode.BYPASS),
+        group="Onay modu",
+    ),
     SlashCommand(
         "auto-mode",
         messages.CMD_AUTO_MODE,

@@ -49,8 +49,8 @@ from ...tools import desktop_policy
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
-from ...tools.delete_preview import delete_caution, describe_delete, script_danger
 from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
+from ...tools.delete_preview import delete_caution, describe_delete, script_danger
 from ...tools.permission_match import RuleMatch, evaluate, writes_files
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
@@ -103,11 +103,24 @@ CYCLE_MODES = (
 )
 
 
-def next_mode(mode: ApprovalMode) -> ApprovalMode:
-    """Döngüdeki sıradaki kip; döngü dışındaki kipten (bypass) Otomatik'e dönülür."""
-    if mode not in CYCLE_MODES:
-        return ApprovalMode.AUTO
-    return CYCLE_MODES[(CYCLE_MODES.index(mode) + 1) % len(CYCLE_MODES)]
+def next_mode(
+    mode: ApprovalMode, *, bypass_available: bool = False, auto_available: bool = True
+) -> ApprovalMode:
+    """Shift+Tab döngüsünde sıradaki kip (Claude, #73/#85).
+
+    Sıra: default → acceptEdits → plan → [bypassPermissions] → [auto] → default. Bypass
+    yalnız oturum onunla (ya da `--allow-dangerously-skip-permissions`/kullanıcı ayarı
+    `defaultMode: bypassPermissions` ile) başladıysa, auto yalnız `disableAutoMode` yoksa
+    döngüdedir. dontAsk hiçbir zaman döngüde değildir.
+    """
+    cycle = [ApprovalMode.SECURITY, ApprovalMode.ACCEPT_EDITS, ApprovalMode.PLAN]
+    if bypass_available:
+        cycle.append(ApprovalMode.BYPASS)
+    if auto_available:
+        cycle.append(ApprovalMode.AUTO)
+    if mode not in cycle:
+        return cycle[0] if mode is ApprovalMode.AUTO or not auto_available else ApprovalMode.AUTO
+    return cycle[(cycle.index(mode) + 1) % len(cycle)]
 
 
 def may_run_unasked_commands(mode: ApprovalMode) -> bool:
