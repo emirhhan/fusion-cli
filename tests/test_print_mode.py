@@ -444,3 +444,83 @@ def test_print_istemcisi_sorulamadi_doner():
 
     prompter = PrintPrompter()
     assert asyncio.run(prompter.confirm(SimpleNamespace())) is ApprovalAnswer.UNAVAILABLE
+
+
+# --- onay aracı ve beceri genişletmesi (#293, #313) ------------------------------------- #
+
+
+def test_onay_araci_allow_cevabi_onaydir():
+    import asyncio
+
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+    from fusion_cli.core.tools import ToolResult
+    from fusion_cli.engines.agent.approval import ApprovalAnswer
+
+    seen: list[dict] = []
+
+    def _run(args, _ctx):
+        seen.append(args)
+        behavior = "allow" if args["tool_name"] == "Bash" else "deny"
+        return ToolResult(json.dumps({"behavior": behavior}))
+
+    async def _loader(name):
+        assert name == "onay__sor"
+        return SimpleNamespace(run=_run)
+
+    prompter = PromptToolPrompter("mcp__onay__sor", _loader, root=__import__("pathlib").Path("."))
+    bash = SimpleNamespace(tool=SimpleNamespace(name="run_shell"), args={"command": "ls"})
+    write = SimpleNamespace(tool=SimpleNamespace(name="write_file"), args={"path": "x"})
+    assert asyncio.run(prompter.confirm(bash)) is ApprovalAnswer.ONCE
+    assert asyncio.run(prompter.confirm(write)) is ApprovalAnswer.UNAVAILABLE
+    assert seen[0]["input"] == {"command": "ls"}
+
+
+def test_onay_araci_bulunamazsa_reddeder():
+    import asyncio
+
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+    from fusion_cli.engines.agent.approval import ApprovalAnswer
+
+    async def _loader(_name):
+        return None
+
+    prompter = PromptToolPrompter("mcp__yok__arac", _loader, root=__import__("pathlib").Path("."))
+    request = SimpleNamespace(tool=SimpleNamespace(name="run_shell"), args={})
+    assert asyncio.run(prompter.confirm(request)) is ApprovalAnswer.UNAVAILABLE
+    assert prompter.errors
+
+
+def test_p_isteminde_beceri_genisletilir(monkeypatch, tmp_path):
+    skill_dir = tmp_path / ".claude" / "skills" / "ozetle"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: ozetle\ndescription: kısa özet\n---\nHER ZAMAN TEK PARAGRAF YAZ.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    calls, result = _print(monkeypatch, ["-p", "/ozetle README"])
+    assert result.exit_code == 0, result.output
+    assert "README" in calls[0]["task"]
+    assert "TEK PARAGRAF" in calls[0]["extra_system"] + calls[0]["task"]
+
+
+def test_p_isteminde_etkilesimli_komut_kullanilamaz(monkeypatch):
+    calls, result = _print(monkeypatch, ["-p", "/clear"])
+    assert result.stdout.strip() == "/clear isn't available in this environment."
+    assert not calls
+
+
+def test_disable_slash_commands_metni_aynen_gonderir(monkeypatch):
+    calls, _ = _print(monkeypatch, ["-p", "/clear", "--disable-slash-commands"])
+    assert calls[0]["task"] == "/clear"
+
+
+def test_sigterm_istisnaya_cevrilir():
+    import os
+    import signal
+
+    from fusion_cli.cli.print_runtime import TerminatedError, sigterm_as_exception
+
+    with pytest.raises(TerminatedError), sigterm_as_exception():
+        os.kill(os.getpid(), signal.SIGTERM)
+        __import__("time").sleep(1)

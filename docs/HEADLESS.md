@@ -79,7 +79,8 @@ hiç yazmaz. `-n/--name` oturuma ad verir.
 | `--allowedTools` / `--allowed-tools` | Ön-onay kuralları: eşleşen çağrı sorulmadan çalışır. Kural sözdizimi `permissions.allow` ile aynı: `Bash(git diff *)`, `Read(./src/**)`, `mcp__github`. Değerler boşlukla ya da virgülle. |
 | `--disallowedTools` / `--disallowed-tools` | Çıplak ad aracı bağlamdan çıkarır (`*` hepsi, `mcp__*` tüm MCP araçları, `mcp__<sunucu>` o sunucu); kapsamlı kural (`Bash(rm *)`) aracı bırakır, yalnız eşleşen çağrıyı reddeder. |
 | `--tools` | Yerleşik araç kümesini daraltır: `"Bash,Read"`, `""` (hepsi kapalı), `"default"`. MCP araçlarını etkilemez. |
-| `--permission-prompts none` | Kabul edilir; `-p` zaten kimseye sormaz. |
+| `--permission-prompts host\|none` | Kabul edilir; `-p` zaten kimseye sormaz. |
+| `--permission-prompt-tool` | Onayları bir MCP aracına sorar (aşağıda). |
 
 `-p` hiçbir zaman terminalde onay sormaz: onay gerektiren ve hiçbir allow kuralı ya da kipin
 onaylamadığı çağrı reddedilir, tur sürer (model başka yol dener) ve çağrı
@@ -109,8 +110,16 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
 `--forward-subagent-text`, `--prompt-suggestions`, `--debug`, `--debug-file`, `--plugin-dir`,
 `--betas`, `--exclude-dynamic-system-prompt-sections`, `--setting-sources`, `--from-pr`)
-stderr'e "etkisiz" uyarısı yazar; sessizce düşmez. `--permission-prompt-tool` henüz yok ve
-açık hatayla reddedilir.
+stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
+
+`--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına
+`{tool_name, input, tool_use_id}` ile sorar; araç `{"behavior":"allow"}` dönerse çağrı
+çalışır, `deny`, hata ya da bulunamayan araçta reddedilir (`updatedInput` uygulanmaz).
+
+İstem `/ad` ile başlıyorsa beceri/özel komut koşudan önce genişletilir (gövde sistem
+bağlamına, argüman göreve; `allowed-tools`/`disallowed-tools` turu daraltır). Etkileşimli
+arayüze özgü komutlar (`/clear`, `/resume`…) Claude'daki gibi `/<ad> isn't available in this
+environment.` cevabını verir. `--disable-slash-commands` genişletmeyi kapatır.
 
 Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`,
 `--no-memory`.

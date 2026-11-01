@@ -28,6 +28,7 @@ from ..core.types import Message
 from ..engines.agent.approval import ApprovalMemory
 from ..engines.agent.loop import AgentOutcome
 from ..observability.usage_log import open_usage_log
+from ..tools.capabilities import CapabilityRegistry
 from ..tools.capability_overrides import registry_from_config
 from ..ui import print_messages as texts
 from ..ui.renderer import ConsoleRenderer
@@ -38,6 +39,7 @@ from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan
 from .print_runtime import SIGTERM_EXIT_CODE, PrintPrompter, TerminatedError, sigterm_as_exception
 from .print_session import PrintSession, record_turn, resolve_print_session
+from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
 
@@ -66,6 +68,10 @@ class _Run:
     approval: ApprovalMemory = field(default_factory=ApprovalMemory)
     #: Son turun maliyet toplayıcısı (`CostTracker`).
     cost: Any = None
+    #: Beceri/ajan kataloğu (koşu boyunca bir kez kurulur).
+    capabilities: CapabilityRegistry | None = None
+    #: `/beceri` genişletmesinin bu tura eki (#313).
+    slash: SlashExpansion | None = None
 
 
 def run_print(request: PrintRequest) -> int:
@@ -145,7 +151,46 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
     if not task:
         _warn(texts.PRINT_NO_PROMPT)
         return 1
-    return _finish(run, task, *_turn(run, initial_persona_task(plan.persona, task)))
+    run.capabilities = _catalog(run)
+    if not request.disable_slash:
+        run.slash = expand_slash(
+            task,
+            run.capabilities,
+            config=plan.config,
+            mode=plan.mode,
+            root=run.root,
+            session_id=run.session.session_id,
+        )
+        if run.slash.error:
+            reply = AgentOutcome(final_text=run.slash.error, messages=[], ok=True)
+            return _finish(run, task, reply, None, ())
+        task_to_run = run.slash.task
+    else:
+        task_to_run = task
+    return _finish(run, task, *_turn(run, initial_persona_task(plan.persona, task_to_run)))
+
+
+def _catalog(run: _Run) -> CapabilityRegistry:
+    plan = run.plan
+    return registry_from_config(
+        plan.config,
+        Path.home(),
+        run.root,
+        session_agents=plan.session_agents,
+        extra_roots=plan.request.add_dir,
+        headless=True,
+    )
+
+
+def _turn_tools(run: _Run) -> tuple[set[str] | None, frozenset[str], str]:
+    """Planın araç kümesi + `/beceri` daraltması: (izinli, yasak, ek sistem)."""
+    selection, slash = run.plan.selection, run.slash
+    allowed = set(selection.allowed) if selection.allowed is not None else None
+    if slash is None:
+        return allowed, selection.denied, ""
+    if slash.allowed_tools is not None:
+        allowed = set(slash.allowed_tools) if allowed is None else allowed & slash.allowed_tools
+    return allowed, selection.denied | slash.denied_tools, slash.extra_system
 
 
 def _init(run: _Run) -> dict[str, object]:
@@ -206,7 +251,8 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         usage_log=open_usage_log(plan.config),
     )
     run.cost = observers.cost
-    prompter = PrintPrompter()
+    prompter = _prompter(run)
+    allowed, denied, slash_system = _turn_tools(run)
     coro = run_agent_task(
         task,
         plan.config,
@@ -218,19 +264,12 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         memory=run.memory,
         extra_roots=request.add_dir,
         history=list(run.history),
-        extra_system=_extra_system(plan),
+        extra_system="\n\n".join(p for p in (_extra_system(plan), slash_system) if p),
         system_prompt=plan.system_prompt,
         session_persona=plan.persona,
-        capabilities=registry_from_config(
-            plan.config,
-            Path.home(),
-            run.root,
-            session_agents=plan.session_agents,
-            extra_roots=request.add_dir,
-            headless=True,
-        ),
-        allowed_tools=set(plan.selection.allowed) if plan.selection.allowed is not None else None,
-        denied_tools=plan.selection.denied,
+        capabilities=run.capabilities or _catalog(run),
+        allowed_tools=allowed,
+        denied_tools=denied,
         interactive=False,
         approval_memory=run.approval,
         conversation_id=run.session.session_id,
@@ -242,6 +281,16 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         observers.finish()
     run.history = list(getattr(outcome, "messages", None) or run.history)
     return outcome
+
+
+def _prompter(run: _Run) -> PrintPrompter:
+    """Onay arayüzü: `--permission-prompt-tool` varsa MCP aracı, yoksa kimseye sormaz."""
+    name = run.plan.request.permission_prompt_tool
+    if not name:
+        return PrintPrompter()
+    from .print_prompt_tool import PromptToolPrompter, mcp_tool_loader
+
+    return PromptToolPrompter(name, mcp_tool_loader(run.plan.config), root=run.root)
 
 
 def _extra_system(plan: PrintPlan) -> str:

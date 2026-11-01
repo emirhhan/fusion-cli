@@ -42,10 +42,6 @@ PRINT_SESSION_ID_CONFLICT = (
 PRINT_FILE_UNREADABLE = "Hata: {flag} dosyası okunamadı ({path}): {error}"
 PRINT_SETTINGS_INVALID = "Hata: --settings okunamadı: {error}"
 PRINT_MCP_CONFIG_INVALID = "Uyarı: --mcp-config girdisi atlandı ({source}): {error}"
-PRINT_PROMPT_TOOL_UNSUPPORTED = (
-    "Hata: --permission-prompt-tool henüz desteklenmiyor; onaylar için --allowedTools ya da "
-    "--permission-mode kullanın."
-)
 PRINT_UNSUPPORTED_FLAG = "Uyarı: {flag} Fusion'da etkisiz; bayrak yok sayıldı."
 PRINT_STREAM_LINE_INVALID = "Hata: stream-json girdisinde geçersiz satır: {error}"
 PRINT_DEPRECATED_AGENT = (

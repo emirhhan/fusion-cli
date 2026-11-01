@@ -105,8 +105,6 @@ def _check_formats(request: PrintRequest) -> tuple[OutputFormat, bool]:
         raise ValueError(texts.PRINT_INPUT_STREAM_NEEDS_OUTPUT_STREAM)
     if request.background:
         raise ValueError(texts.PRINT_BG_WITH_PRINT)
-    if request.permission_prompt_tool:
-        raise ValueError(texts.PRINT_PROMPT_TOOL_UNSUPPORTED)
     prompts = (request.permission_prompts or "host").strip().lower()
     if prompts not in ("host", "none"):
         raise ValueError(texts.PRINT_UNKNOWN_PERMISSION_PROMPTS.format(given=prompts))
