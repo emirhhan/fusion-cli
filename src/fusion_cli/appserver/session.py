@@ -551,6 +551,9 @@ class AppSession:
         self._steering: SteeringQueue | None = None
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
+        #: Tur bitince modele gitmemiş yönlendirmeler (#190): arayüz bunları hemen sıradaki
+        #: tur olarak yollar (Claude Code "queued messages go out without another key press").
+        self._steering_leftover: list[str] = []
         self._registry = build_registry(home)
         # Beceri/komut dosyaları `/ad` olarak (P-019); defter sahteleri eski imzayı korur.
         attach_skill_commands(self._registry, lambda: self._state.capabilities)
@@ -1529,7 +1532,7 @@ class AppSession:
                 deadline=deadline,
             )
             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
-            return direct
+            return self._with_steering_leftover(direct)
         if request.name == "tur.kes":
             if self._goal_task is not None and not self._goal_task.done():
                 # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
@@ -2596,6 +2599,11 @@ class AppSession:
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
 
+    def _with_steering_leftover(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Tüketilmemiş yönlendirmeleri sonuca ekle; arayüz sıradaki tur olarak yollar."""
+        leftover, self._steering_leftover = self._steering_leftover, []
+        return {**result, "kalan_yonlendirme": leftover} if leftover else result
+
     async def _live_shell(self, command: str) -> ShellPrefixResult:
         """`! komut` çıktısı komut sürerken `KabukCiktisi` olayıyla akar (#219)."""
         from ..cli.repl import prefixes
@@ -2938,6 +2946,7 @@ class AppSession:
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
             )
+            result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
             # değişirse/yerelleştirilirse yanlış durum yazılırdı; ölçüldü 30 Ekim).
             was_cancelled = result.pop("_cancelled", False) is True
@@ -3261,6 +3270,7 @@ class AppSession:
                 self._iptal_bekliyor = False
                 self._turn = None
                 self._turn_settled.set()
+                self._steering_leftover = _leftover_steering(self._steering)
                 self._steering = None
                 self._steering_turn = None
                 self._steering_requests.clear()
@@ -3810,3 +3820,12 @@ class AppSession:
                 errors.append(error)
         if errors:
             raise errors[0]
+
+
+def _leftover_steering(queue: SteeringQueue | None) -> list[str]:
+    """Tur sonunda tüketilmemiş yönlendirme metinleri (#190)."""
+    from ..core.steering import steering_text
+
+    if queue is None:
+        return []
+    return [text for message in queue.drain() if (text := steering_text(message))]

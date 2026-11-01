@@ -259,6 +259,28 @@ describe("SessionUygulama", () => {
     expect(await screen.findByText("Klasörde iki dosya var.")).toBeTruthy();
   });
 
+  it("tur biterken modele gitmemiş yönlendirme sıradaki tur olarak gider (#190)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "tur.calistir"() {
+        calls += 1;
+        return calls === 1
+          ? { ok: true, metin: "İlk iş bitti.", kalan_yonlendirme: ["testleri de koştur"] }
+          : { ok: true, metin: "Testler geçti." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "işi yap" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "tur.calistir")
+      .map((request) => request.veri.gorev)).toEqual(["işi yap", "testleri de koştur"]));
+    expect(await screen.findByText("Testler geçti.")).toBeTruthy();
+  });
+
   it("/rewind konuşmayı sarınca dönen istem giriş kutusuna konur (#200)", async () => {
     const fake = composerTransport({
       "gecmis.kaynaklar": { ok: true, kaynaklar: [] },

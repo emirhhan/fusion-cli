@@ -88,6 +88,7 @@ from . import (
     help_view,
     history_view,
     hook_events,
+    inline_turn_keys,
     linked_pr,
     loop_command,
     macros,
@@ -492,6 +493,10 @@ async def _warm_up(state: ReplState) -> None:
 
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
+    if state.queued_lines:
+        # Tur sürerken kuyruğa giren satır (#190): tuşa basmadan sıradaki tur olur.
+        line, state.queued_lines = state.queued_lines[0], state.queued_lines[1:]
+        return line
     try:
         line = await reader.prompt(default=state.take_pending_input())
     except (EOFError, KeyboardInterrupt):
@@ -1030,13 +1035,23 @@ async def _agent_turn(
         checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = _turn_tool_context(state, checkpoint.changes)
         partial = PartialTurn()
+        # Tur sürerken yazılan mesaj aynı tura verilir, Ctrl+B devreder (#190, #218).
+        keys = inline_turn_keys.InlineTurnKeys(
+            on_draft=renderer.set_draft,
+            on_queued=lambda text: console.print(
+                f"[{theme.DIM}]{escape(messages.INLINE_QUEUED.format(text=text))}[/{theme.DIM}]"
+            ),
+            on_background=lambda: _inline_background(state, console),
+        )
+        steering = keys.begin()
         prompter = ConsolePrompter(
             console,
             tool_context,
             flush=bus.drain,
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
-            # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
-            suspend=renderer.suspended,
+            # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir. Tur içi tuş
+            # okuyucusu da terminali istem için bırakır.
+            suspend=lambda: _both(renderer.suspended(), keys.paused()),
             # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
             denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
@@ -1091,6 +1106,7 @@ async def _agent_turn(
             conversation_id=state.conversation_id,
             # İptal/hata halinde o turun araç sonuçları geçmişten düşmesin (L2-12).
             journal=partial,
+            steering=steering,
         )
         # Değişiklik kümesi tur boyunca yerinde dolar; kesilen turdaki yarım
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
@@ -1098,6 +1114,8 @@ async def _agent_turn(
         digest = state.take_pending_digest()
         # Esc ile durdurma bu turun görevine bağlanır (P-033; `tools/desktop_turn`).
         desktop_turn.begin(tool_context)
+        reading = keys.reading()
+        reading.__enter__()
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
@@ -1164,6 +1182,8 @@ async def _agent_turn(
             state.restore_pending_digest(digest)
             raise
         finally:
+            reading.__exit__(None, None, None)
+            _queue_leftovers(state, keys)
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
@@ -1180,6 +1200,32 @@ async def _agent_turn(
     switched = await state.apply_worktree_switch(tool_context.worktree_switch)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+
+
+@contextlib.contextmanager
+def _both(
+    first: contextlib.AbstractContextManager[None], second: contextlib.AbstractContextManager[None]
+) -> Iterator[None]:
+    with first, second:
+        yield
+
+
+def _queue_leftovers(state: ReplState, keys: inline_turn_keys.InlineTurnKeys) -> None:
+    """Tur bitti: modele gitmemiş mesajlar ve komutlar sıradaki satırlar olur (#190)."""
+    lines, draft = keys.end()
+    state.queued_lines = [*lines, *state.queued_lines]
+    if draft and not state.pending_input:
+        state.pending_input = draft
+
+
+def _inline_background(state: ReplState, console: Console) -> None:
+    """Satır içi Ctrl+B: süren kabuk komutunu ya da beklenen alt ajanı kesmeden devret."""
+    if state.config.agent_launch.disable_background_tasks:
+        return
+    if state.child_runs.request_background() or state.shell_handoff.request():
+        console.print(f"[{theme.DIM}]{messages.SHELL_HANDOFF_DONE}[/{theme.DIM}]")
+        return
+    console.print(f"[{theme.DIM}]{messages.INLINE_BACKGROUND_HINT}[/{theme.DIM}]")
 
 
 def _config_setter(state: ReplState) -> Callable[[Config], None]:
@@ -1207,6 +1253,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
+            shell_handoff=state.shell_handoff,
         ),
         state.config,
     )

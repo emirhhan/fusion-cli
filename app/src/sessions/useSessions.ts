@@ -646,6 +646,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         if (result.yerel_yanit === true && typeof result.gorev === "string" && result.gorev.trim()) {
           send(id, result.gorev, [], false);
         }
+        // Tur sürerken verilen ama modele gitmemiş yönlendirmeler (#190): mesaj zaten sohbette;
+        // tur biter bitmez tuşa basmadan sıradaki tur olarak gider (Claude Code kuyruğu).
+        const kalan = Array.isArray(result.kalan_yonlendirme)
+          ? result.kalan_yonlendirme.filter((text): text is string => typeof text === "string" && text.trim() !== "")
+          : [];
+        if (kalan.length) {
+          kuyruk.current.set(id, [{ task: kalan.join("\n\n"), attachments: [], requestId: nextSessionId() }, ...(kuyruk.current.get(id) ?? [])]);
+        }
       })
       .catch((reason) => {
         if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;

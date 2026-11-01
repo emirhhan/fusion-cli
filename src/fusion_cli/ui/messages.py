@@ -1645,6 +1645,10 @@ SHELL_PREFIX_TIMEOUT = (
 )
 SHELL_PREFIX_TRUNCATED = "\n[çıktı kısaltıldı; tamamı: {path}]"
 SHELL_JOBS_TITLE = "Kabuk komutları (! · Ctrl+B):"
+INLINE_QUEUED = "↳ sıraya alındı: {text}"
+INLINE_BACKGROUND_HINT = (
+    "Ctrl+B: süren kabuk komutu ya da alt ajan yok; turu arka plana taşımak için /bg kullan."
+)
 SHELL_HANDOFF_DONE = "↗ süren kabuk komutu kesilmeden arka plana alındı; ajan çalışmayı sürdürüyor."
 SHELL_JOB_LINE = "  {id}  {status}  {command}  · {path}"
 SHELL_JOB_STOPPED = "Kabuk görevi durduruldu: {id} ({command})"

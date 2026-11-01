@@ -203,6 +203,8 @@ class ReplState:
     shell_jobs: ShellJobs = field(default_factory=ShellJobs, kw_only=True, repr=False)
     #: Ajanın süren `run_shell` komutu için Ctrl+B devir kanalı (#218, tam ekran TUI).
     shell_handoff: ShellHandoff = field(default_factory=ShellHandoff, kw_only=True, repr=False)
+    #: Satır içi REPL: tur sürerken yazılıp modele gitmeyen satırlar, sıradaki turlar (#190).
+    queued_lines: list[str] = field(default_factory=list, kw_only=True, repr=False)
 
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None

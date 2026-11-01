@@ -476,6 +476,10 @@ class ConsoleRenderer:
         self._turn_opened = False
         self._fallbacks_shown.clear()
 
+    def set_draft(self, text: str) -> None:
+        """Satır içi REPL: tur sürerken yazılan taslak canlı göstergede görünür (#190)."""
+        self._work.set_draft(text)
+
     @contextlib.contextmanager
     def suspended(self) -> Iterator[None]:
         """Canlı çalışma göstergesini bir etkileşim boyunca duraklat.
