@@ -35,7 +35,11 @@ from enum import Enum
 from pathlib import Path
 
 from ..core.errors import ConfigError
-from .managed_settings import managed_permission_rules_only, managed_settings_files
+from .managed_settings import (
+    managed_permission_rules_only,
+    managed_settings_files,
+    mdm_settings_data,
+)
 from .paths import user_config_dir
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
@@ -217,6 +221,8 @@ def load_permission_rules(
             untrusted.append(layer.name)
             found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
         rules.extend(found)
+    mdm = _parse_mapping(mdm_settings_data(), source=LAYER_MANAGED)
+    rules.extend(r for r in mdm if not is_settings_mcp_param_rule(r))
     rules.extend(_SESSION_RULES)
     if managed_permission_rules_only():
         rules = [rule for rule in rules if _kept_when_managed_only(rule)]
@@ -267,7 +273,11 @@ def read_rules_file(path: Path, *, source: str = "") -> tuple[PermissionRule, ..
 
 def _parse_file(path: Path, *, source: str) -> tuple[PermissionRule, ...]:
     data = _read_json(path)
-    permissions = data.get("permissions") if data is not None else None
+    return _parse_mapping(data or {}, source=source)
+
+
+def _parse_mapping(data: Mapping[str, object], *, source: str) -> tuple[PermissionRule, ...]:
+    permissions = data.get("permissions")
     if not isinstance(permissions, Mapping):
         return ()
     found: list[PermissionRule] = []

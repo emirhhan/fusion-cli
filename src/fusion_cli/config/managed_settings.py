@@ -9,7 +9,9 @@ Yönetilen dosya sistem dizinindedir ve kullanıcı ya da proje tarafından aş�
     Windows  C:/Program Files/ClaudeCode/managed-settings.json
 
 Aynı dizindeki `managed-settings.d/*.json` parçaları alfabetik sırayla ana dosyanın üstüne
-birleşir (dizi değerleri eklenir, öteki anahtarlarda sonraki kazanır).
+birleşir (dizi değerleri eklenir, öteki anahtarlarda sonraki kazanır). macOS MDM profili
+(`/Library/Managed Preferences/com.anthropic.claudecode.plist`) dosya tabanlı ayarın üstündedir.
+Sunucu tarafı yönetilen ayarlar (Claude.ai yönetici paneli) Fusion'da yoktur.
 
 `allowManagedPermissionRulesOnly: true` (yalnız managed dosyada geçerli) kullanıcı, proje ve
 yerel ayarların allow/ask/deny kurallarını devre dışı bırakır; yalnız managed kurallar uygulanır.
@@ -23,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import plistlib
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -35,6 +38,8 @@ MANAGED_DIRS: dict[str, Path] = {
 MANAGED_DIR_ENV = "FUSION_CLAUDE_MANAGED_DIR"
 MANAGED_SETTINGS_NAME = "managed-settings.json"
 MANAGED_DROPIN_DIR = "managed-settings.d"
+MDM_PLIST_NAME = "com.anthropic.claudecode.plist"
+_MDM_DIR = Path("/Library/Managed Preferences")
 #: Yalnız managed dosyada anlamlı anahtar.
 MANAGED_RULES_ONLY_KEY = "allowManagedPermissionRulesOnly"
 
@@ -72,7 +77,21 @@ def managed_settings_data() -> Mapping[str, object]:
         data = _read(path)
         if data is not None:
             merged = _merge(merged, data)
-    return merged
+    mdm = mdm_settings_data()
+    return {**merged, **mdm} if mdm else merged
+
+
+def mdm_settings_data() -> dict[str, object]:
+    """macOS MDM profilindeki ayarlar; yoksa boş."""
+    return _read_plist(mdm_plist_file())
+
+
+def mdm_plist_file() -> Path | None:
+    """macOS MDM profili; testte ezilen dizindeki aynı adlı dosya."""
+    if os.environ.get(MANAGED_DIR_ENV, "").strip():
+        base = managed_dir()
+        return base / MDM_PLIST_NAME if base is not None else None
+    return _MDM_DIR / MDM_PLIST_NAME if platform.system() == "Darwin" else None
 
 
 def managed_permission_rules_only() -> bool:
@@ -98,6 +117,17 @@ def _merge(base: Mapping[str, object], extra: Mapping[str, object]) -> dict[str,
         else:
             result[key] = value
     return result
+
+
+def _read_plist(path: Path | None) -> dict[str, object]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        with path.open("rb") as handle:
+            data = plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return {}
+    return dict(data) if isinstance(data, dict) else {}
 
 
 def _read(path: Path) -> dict[str, object] | None:

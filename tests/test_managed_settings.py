@@ -135,3 +135,14 @@ def test_yonetilen_disable_bypass_ve_auto(managed: Path, tmp_path: Path) -> None
 
     assert ps.bypass_mode_disabled(tmp_path) is True
     assert ps.auto_mode_disabled(tmp_path) is True
+
+
+def test_mdm_profili_dosya_tabanli_ayarin_ustunde(managed: Path, tmp_path: Path) -> None:
+    import plistlib
+
+    _yaz(managed / "managed-settings.json", {"permissions": {"defaultMode": "plan"}})
+    with (managed / "com.anthropic.claudecode.plist").open("wb") as handle:
+        plistlib.dump({"permissions": {"defaultMode": "acceptEdits", "deny": ["WebFetch"]}}, handle)
+
+    assert ps.default_mode_setting(tmp_path) == "acceptEdits"
+    assert _kalip(load_permission_rules(tmp_path).rules, PermissionDecision.DENY) == {"WebFetch"}
