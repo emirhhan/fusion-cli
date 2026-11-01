@@ -64,3 +64,30 @@ def test_agent_effort_cagrisi_tanimdaki_eforu_ezer():
     assert task.effort == "high"
     # Eski Türkçe alanlar şemada yok ama gelen çağrıda okunmaya devam eder.
     assert task.read_only is True
+
+
+def test_alt_ajandan_claude_listesindeki_araclar_alinir(tmp_path):
+    """Claude Code: AskUserQuestion, ScheduleWakeup, Workflow her alt ajandan; Agent derinlik
+    sınırında alınır (#28)."""
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent.team import max_agent_depth
+
+    class _Asker:
+        async def ask(self, question: str) -> str:
+            return ""
+
+    deps = replace(_deps(tmp_path, "nvidia_nim/ornek-model"), asker=_Asker())
+    main = {tool.name for tool in build_agent_registry(deps, depth=0, run_agent=loop.run_agent)}
+    child = {tool.name for tool in build_agent_registry(deps, depth=1, run_agent=loop.run_agent)}
+    deepest = {
+        tool.name
+        for tool in build_agent_registry(
+            deps, depth=max_agent_depth(deps), run_agent=loop.run_agent
+        )
+    }
+
+    assert {"ask_user", "workflow_run"} <= main
+    assert not child & {"ask_user", "schedule_wakeup", "workflow_run"}
+    assert "Agent" in child
+    assert not deepest & {"Agent", "Task", "spawn_agent", "spawn_agents", "invoke_subagent"}

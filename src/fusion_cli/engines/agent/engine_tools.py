@@ -185,10 +185,29 @@ def build_agent_registry(
     # Ekip (P-061) ve dinamik iş akışı (P-062) araçları kendi modülünde kaydolur.
     register_orchestration_tools(extended, deps, depth=depth, run_agent=run_agent)
     runtime = getattr(deps.config, "runtime", None)
-    kapali = frozenset(getattr(runtime, "disabled_tools", ())) | _disabled_desktop_tools(
-        deps, extended
+    kapali = (
+        frozenset(getattr(runtime, "disabled_tools", ()))
+        | _disabled_desktop_tools(deps, extended)
+        | _subagent_removed_tools(deps, depth)
     )
     return _without(extended, kapali) if kapali else extended
+
+
+#: Claude Code'un her alt ajandan aldığı araçların Fusion karşılıkları (#28):
+#: AskUserQuestion, ScheduleWakeup, Workflow. Plan kipi araçları Fusion'da araç değildir.
+SUBAGENT_REMOVED_TOOLS = frozenset({"ask_user", "schedule_wakeup", "workflow_run"})
+#: Derinlik sınırındaki ajandan alınan Agent aracı ve eski adları.
+_AGENT_TOOL_NAMES = frozenset({"Agent", "Task", "spawn_agent", "spawn_agents", "invoke_subagent"})
+
+
+def _subagent_removed_tools(deps: AgentDeps, depth: int) -> frozenset[str]:
+    if depth <= 0:
+        return frozenset()
+    from .team import depth_limit_reached
+
+    if depth_limit_reached(deps, depth):
+        return SUBAGENT_REMOVED_TOOLS | _AGENT_TOOL_NAMES
+    return SUBAGENT_REMOVED_TOOLS
 
 
 def _disabled_desktop_tools(deps: AgentDeps, registry: ToolRegistry) -> frozenset[str]:

@@ -97,3 +97,31 @@ async def test_main_agent_type_scope_denies_legacy_and_builtin_alias(monkeypatch
         )
         assert not result.ok or "engelliyor" in result.output
     assert provider.seen_messages == []
+
+
+async def test_hic_arac_eslesmeyen_tools_listesi_ajani_baslatmaz(monkeypatch, tmp_path):
+    """Claude Code: `tools` girdilerinin hiçbiri eşleşmezse Agent girdileri sayan hata döner."""
+    folder = tmp_path / ".claude" / "agents"
+    folder.mkdir(parents=True)
+    (folder / "bos.md").write_text(
+        "---\nname: bos\ndescription: d\ntools: Yokarac, BaskaYok\n---\nGövde.", encoding="utf-8"
+    )
+    from dataclasses import replace
+
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    deps = _deps(tmp_path, "nvidia_nim/ornek-model")
+    deps = replace(deps, capabilities=CapabilityRegistry(tmp_path / "ev", tmp_path))
+    provider = ScriptedProvider([model_result("çalışmamalı")])
+    monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: provider)
+    tool = build_agent_registry(deps, depth=0, run_agent=loop.run_agent).get("Agent")
+    assert tool is not None
+
+    result = await tool.run(
+        {"prompt": "Ara", "subagent_type": "bos", "run_in_background": False}, deps.tool_context
+    )
+
+    assert not result.ok
+    assert "zero tools" in result.output
+    assert "Yokarac" in result.output and "BaskaYok" in result.output
+    assert not provider.seen_messages
