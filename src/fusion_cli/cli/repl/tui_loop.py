@@ -538,6 +538,10 @@ class _TuiSession:
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
                 await run_shell_prefix_line(shell, self._state, self._out)
                 self._tui.sync_conversation()
+                pending, mode = self._state.take_pending()
+                if pending:
+                    # `!` çıktısına model kendiliğinden yanıt verir (#219).
+                    await self._turn(pending, mode=mode)
             elif is_command_line(line) and not scheduled_turn:
                 await self._command(line)
             elif (

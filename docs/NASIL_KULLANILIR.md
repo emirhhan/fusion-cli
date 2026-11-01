@@ -1029,7 +1029,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ### Önekler: `!`, `@`
 
-Önekler TEK satırlıdır: çok satırlı `! …` yapıştırması düz mesaj sayılır. `#` öneki Claude Code'da olmadığı için yoktur; `# …` satırı olağan istemdir. `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
+Önekler TEK satırlıdır: çok satırlı `! …` yapıştırması düz mesaj sayılır. `#` öneki Claude Code'da olmadığı için yoktur; `# …` satırı olağan istemdir. `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer). Terminal ve TUI'de `! komut` çıktısı bağlama girince model Claude Code'daki gibi ikinci istem beklemeden yanıt verir; `settings.json` (`~/.claude/`, `.claude/`, `.claude/settings.local.json`) içinde `"respondToBashCommands": false` yalnız bağlama ekler. Masaüstünde çıktı şimdilik yalnız bağlama girer. Plan kipinde `!` hâlâ reddedilir.
 
 | Yaz | Ne olur |
 |-----|---------|

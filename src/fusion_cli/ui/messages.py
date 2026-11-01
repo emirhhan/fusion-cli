@@ -1479,6 +1479,11 @@ SHELL_PREFIX_BLOCK = (
     "$ {command}\n[{status}]\n{output}"
 )
 SHELL_PREFIX_CONTEXT_NOTE = "Çıktı bir sonraki mesajın bağlamına eklendi."
+SHELL_PREFIX_RESPOND = (
+    "Kullanıcı `! {command}` kabuk komutunu kendisi çalıştırdı; komut ve çıktısı bağlamda. "
+    "Çıktıya kısa ve doğrudan yanıt ver (hata varsa nedenini açıkla); istenmedikçe dosya "
+    "değiştirme."
+)
 MENTION_FILE_BLOCK = (
     PREFIX_UNTRUSTED_NOTE + "\n[Kullanıcının andığı dosya: {path}]{note}\n```\n{text}\n```"
 )

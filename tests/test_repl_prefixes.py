@@ -120,7 +120,7 @@ async def test_kabuk_satiri_konsola_basilir(state):
     console = Console(file=io.StringIO(), force_terminal=False, no_color=True, width=120)
     await run_shell_prefix_line("echo selam", state, console)
     out = console.file.getvalue()
-    assert "$ echo selam" in out and "selam" in out and "bağlamına eklendi" in out
+    assert "$ echo selam" in out and "selam" in out
 
 
 def test_not_duz_metin_bellege_yazilir(state):

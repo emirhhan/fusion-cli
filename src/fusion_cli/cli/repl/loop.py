@@ -94,6 +94,7 @@ from . import (
     remote_control,
     session_agent,
     session_resume,
+    shell_mode,
     session_snapshot,
     status_line,
     view_commands,
@@ -479,6 +480,9 @@ async def _handle(
         # Önekler (P-022): `!` kabuk model çağırmaz, `@dosya` bağlama eklenir (#220: `#` yok).
         if (shell := prefixes.shell_command(line)) is not None:
             await run_shell_prefix_line(shell, state, console)
+            task, mode = state.take_pending()
+            if task and await _run_turn(task, state, console, background, mode=mode):
+                await _continue_goal(state, console, background)
             _sync_status_bar(reader, state, background)
             return
         # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
@@ -532,8 +536,15 @@ async def run_shell_prefix_line(command: str, state: ReplState, console: Console
     if result.output:
         color = theme.DIM if result.ok else theme.ERROR
         console.print(f"[{color}]{escape(result.output)}[/{color}]", highlight=False)
-    if result.context_block:
-        console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
+    if not result.context_block:
+        return
+    if shell_mode.responds_to_bash_commands(state.root, state.home):
+        # Claude Code (#219): çıktı bağlama girince model ikinci istem beklemeden yanıtlar;
+        # yüzey bekleyen görevi hemen başlatır. `respondToBashCommands: false` kapatır.
+        state.pending_task = shell_mode.follow_up_task(command)
+        state.pending_mode = Mode.NONE
+        return
+    console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
 
 
 async def _offer_plan_card(
