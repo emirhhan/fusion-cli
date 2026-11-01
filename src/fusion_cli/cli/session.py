@@ -589,7 +589,10 @@ async def _run_agent_with_mcp(
             # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
             # kapanışında yapılır, tur içinde değil.
             eklenen += await ensure_mcp_tools(
-                config.mcp_servers, registry, retry_delays_s=config.runtime.retry_delays_s
+                config.mcp_servers,
+                registry,
+                retry_delays_s=config.runtime.retry_delays_s,
+                root=getattr(deps.tool_context, "root", None),
             )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))

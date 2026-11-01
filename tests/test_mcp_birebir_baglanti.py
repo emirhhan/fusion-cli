@@ -80,6 +80,28 @@ def test_stdio_kabuk_ortamini_miras_alir_allowlist_ile_daralir(tmp_path):
     assert "KABUK_DEGISKENI" not in dar and dar["A"] == "b"
 
 
+def test_stdio_claude_project_dir_oturum_kokunden_gelir_cwd_den_degil(tmp_path, monkeypatch):
+    """Süreç cwd'si proje kökü değilken (masaüstü, --add-dir) kök oturumdan gelmeli (#273)."""
+    import dataclasses
+
+    from fusion_cli.mcp_bridge.pool import with_project_dir
+
+    baska = tmp_path / "baska"
+    baska.mkdir()
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    monkeypatch.chdir(baska)
+    stdio = McpServerConfig(name="s", command="c")
+    uzak = McpServerConfig(name="u", transport=McpTransport.STREAMABLE_HTTP, url="https://x")
+
+    damgali = with_project_dir((stdio, uzak), proje)
+
+    assert damgali[1] == uzak
+    assert stdio_process_env(damgali[0], environ={})["CLAUDE_PROJECT_DIR"] == str(proje)
+    assert damgali[0] == dataclasses.replace(stdio, project_dir=str(proje))
+    assert with_project_dir((stdio,), None) == (stdio,)
+
+
 def _helper(scope: McpScope, command: str) -> McpServerConfig:
     return McpServerConfig(
         name="iç",

@@ -746,6 +746,7 @@ async def _drive_agent(
                 state.config.mcp_servers,
                 registry,
                 retry_delays_s=state.config.runtime.retry_delays_s,
+                root=getattr(deps.tool_context, "root", None),
             )
         except Exception as error:
             console.print(

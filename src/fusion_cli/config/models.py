@@ -715,6 +715,9 @@ class McpServerConfig:
     #: Claude Code `alwaysLoad` (#258): True araçları baştan yükler, False aracın
     #: `anthropic/alwaysLoad` işaretine rağmen hepsini erteler, None (yazılmamış) işarete uyar.
     always_load: bool | None = None
+    #: Çalışma anı: stdio sürecine `CLAUDE_PROJECT_DIR` olarak giden oturum kökü (#273).
+    #: Ayar dosyasına yazılmaz; boşsa süreç cwd'si kullanılır.
+    project_dir: str = ""
     #: Sunucu başına araç çağrısı sınırı, ms (Claude Code `.mcp.json` `timeout`).
     timeout_ms: int | None = None
     #: OAuth dönüş portu (Claude Code `oauth.callbackPort` / `--callback-port`).

@@ -12,12 +12,13 @@ import asyncio
 import functools
 import logging
 import time
+from pathlib import Path
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from weakref import WeakKeyDictionary
 
 from ..config.mcp_project_approval import is_noninteractive
-from ..config.models import Config, McpServerConfig
+from ..config.models import Config, McpServerConfig, McpTransport
 from ..config.paths import base_data_dir
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..tools import ToolRegistry
@@ -490,11 +491,30 @@ def mcp_oauth_flows() -> OAuthFlowOwner:
     return _POOL.oauth_flows
 
 
+def with_project_dir(
+    configs: tuple[McpServerConfig, ...], root: Path | None
+) -> tuple[McpServerConfig, ...]:
+    """Stdio sunucularına oturum kökünü damgala (`CLAUDE_PROJECT_DIR`, #273).
+
+    Havuz süreç başına tektir; kök yapılandırmanın parçası olduğu için başka projenin
+    oturumu aynı sunucuyu kendi köküyle yeniden açar.
+    """
+    if root is None:
+        return configs
+    return tuple(
+        replace(config, project_dir=str(root))
+        if config.transport is McpTransport.STDIO and not config.project_dir
+        else config
+        for config in configs
+    )
+
+
 async def ensure_mcp_tools(
     configs: tuple[McpServerConfig, ...],
     registry: ToolRegistry,
     *,
     retry_delays_s: tuple[float, ...] = (),
+    root: Path | None = None,
 ) -> tuple[str, ...]:
     """Bağlan (ya da açık bağlantıları kullan) ve araçları kayıt defterine ekle.
 
@@ -505,6 +525,7 @@ async def ensure_mcp_tools(
 
     Bir sunucunun keşfi düşerse diğerlerinin araçları yine eklenir.
     """
+    configs = with_project_dir(configs, root)
     added: list[str] = []
     for client in await _POOL.clients_for(configs, retry_delays_s=retry_delays_s):
         try:

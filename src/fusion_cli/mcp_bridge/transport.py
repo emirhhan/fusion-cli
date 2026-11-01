@@ -141,7 +141,7 @@ def stdio_process_env(
     source = os.environ if environ is None else environ
     configured = {
         "PATH": stdio_search_path(source),
-        "CLAUDE_PROJECT_DIR": str(project_dir or Path.cwd()),
+        "CLAUDE_PROJECT_DIR": str(project_dir or getattr(config, "project_dir", "") or Path.cwd()),
         **resolve_stdio_env(config, environ=source),
     }
     if source.get(ALLOWLIST_ENV, "").strip() == "1":

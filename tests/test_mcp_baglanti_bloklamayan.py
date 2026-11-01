@@ -62,7 +62,13 @@ async def test_bloklayan_kip_butun_sunuculari_sinira_kadar_bekler(monkeypatch):
     havuz = McpToolPool()
     asyncio.get_running_loop().call_later(0.1, serbest.set)
 
-    clients = await havuz.clients_for((McpServerConfig(name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP),))
+    clients = await havuz.clients_for(
+        (
+            McpServerConfig(
+                name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP
+            ),
+        )
+    )
 
     assert [client.name for client in clients] == ["uzak"]
     await havuz.aclose()
@@ -96,7 +102,9 @@ async def test_etkilesimsiz_kipte_bekleyen_sunucular_ilk_turdan_once_beklenir(mo
     clients = await havuz.clients_for(
         (
             McpServerConfig(name="yavas", command="x"),
-            McpServerConfig(name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP),
+            McpServerConfig(
+                name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP
+            ),
         )
     )
 
@@ -218,7 +226,14 @@ async def test_always_load_uzak_sunucusu_sinira_kadar_beklenir(monkeypatch):
     asyncio.get_running_loop().call_later(0.1, serbest.set)
 
     clients = await havuz.clients_for(
-        (McpServerConfig(name="yavas", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP, always_load=True),)
+        (
+            McpServerConfig(
+                name="yavas",
+                url="https://x.test/mcp",
+                transport=McpTransport.STREAMABLE_HTTP,
+                always_load=True,
+            ),
+        )
     )
 
     assert [client.name for client in clients] == ["yavas"]
