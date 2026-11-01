@@ -1,4 +1,4 @@
-"""`start_preview name=…`: `.fusion/launch.json` yapılandırmasını başlat ve sayfayı ölç.
+"""`start_preview name=…`: `.claude/launch.json` yapılandırmasını başlat ve sayfayı ölç.
 
 `preview_tools.run_preview` dosyalardan anlaşılan türleri çalıştırır; burası kullanıcının
 ADLANDIRDIĞI sunucuyu (monorepo, özel port, çalışana bağlanma) aynı sonuç biçimiyle

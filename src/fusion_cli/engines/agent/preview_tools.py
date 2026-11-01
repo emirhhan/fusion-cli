@@ -87,7 +87,7 @@ def preview_tool(deps: AgentDeps) -> Tool:
                 "name": {
                     "type": "string",
                     "description": (
-                        ".fusion/launch.json içindeki sunucu yapılandırmasının adı (özel komut/"
+                        ".claude/launch.json içindeki sunucu yapılandırmasının adı (özel komut/"
                         "port ya da çalışan sunucuya bağlanma); verilirse tür tespiti yapılmaz"
                     ),
                 },
