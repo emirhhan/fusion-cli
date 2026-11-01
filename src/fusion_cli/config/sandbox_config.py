@@ -62,15 +62,16 @@ class SandboxConfig:
     allow_write: tuple[str, ...] = ()
     deny_read: tuple[str, ...] = ()
     allow_read: tuple[str, ...] = ()
-    network: str = "open"
+    network: str = "allowlist"
     allowed_domains: tuple[str, ...] = ()
     denied_domains: tuple[str, ...] = ()
     allow_localhost: bool = True
     fail_if_unavailable: bool = False
     allow_unsandboxed: bool = True
     excluded_commands: tuple[str, ...] = ()
-    auto_allow: bool = False
+    auto_allow: bool = True
     hide_secret_env: bool = True
+    strict_allowlist: bool = False
 
 
 def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
@@ -187,4 +188,5 @@ def sandbox_policy(
         excluded_commands=tuple(item.strip() for item in config.excluded_commands),
         auto_allow=config.auto_allow,
         hide_secret_env=config.hide_secret_env,
+        strict_allowlist=config.strict_allowlist,
     )

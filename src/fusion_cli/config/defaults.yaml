@@ -1093,10 +1093,12 @@ sandbox:
   # Varsayılan listeden (ya da deny_read'den) BİLEREK açılan yollar, örn. ["~/.kube"].
   # Listede olmayan yol yazılırsa yapılandırma hata verir; Fusion sır dosyaları açılamaz.
   allow_read: []
-  # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
-  # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
-  # ortamı verilir; iç ağ adresine çözülen ad reddedilir).
-  network: "open"
+  # Claude gibi: komutun doğrudan çıkışı yok, trafik Fusion'ın yerel proxy'sinden geçer
+  # (HTTP_PROXY/HTTPS_PROXY verilir; iç ağ adresine çözülen ad reddedilir). Listede olmayan
+  # ad izin kipine göre: Manual/acceptEdits/plan'da sorulur, bypass'ta izin, auto/dontAsk'ta
+  # red ("Evet, bir daha sorma" yerel ayara WebFetch(domain:…) yazar). "open" (kısıtsız)
+  # kullanımdan kalkan Fusion uzantısıdır (sandbox.network.mode: open).
+  network: "allowlist"
   # allowlist kipinde izinli alan adları: tam ad ya da "*.ornek.com" (alt alan adları).
   # Örn: ["github.com", "*.githubusercontent.com", "pypi.org", "files.pythonhosted.org",
   # "registry.npmjs.org"]. Boş liste = dış ağ tamamen kapalı.
@@ -1117,9 +1119,12 @@ sandbox:
   # Her zaman sandbox dışında (normal onayla) çalışan komut önekleri, örn. ["docker", "git push"].
   # Yalnız tek ve sade komut eşleşir; `docker ps && curl …` sandbox içinde kalır.
   excluded_commands: []
-  # true: sandbox içinde VE network=allowlist iken komutlar sorulmadan çalışır (Claude
-  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları ve plan kipi yine geçerli.
-  auto_allow: false
+  # true (Claude varsayılanı): sandbox içinde çalışan komutlar sorulmadan çalışır (Claude
+  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları, plan kipi ve
+  # FOO=bar cmd / make VAR=x / eval biçimleri yine olağan izin akışından geçer.
+  auto_allow: true
+  # true: listede olmayan ana makine sorulmadan reddedilir (Claude network.strictAllowlist).
+  strict_allowlist: false
   # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
   # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
   hide_secret_env: true

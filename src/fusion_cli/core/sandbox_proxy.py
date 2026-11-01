@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .network_address import is_public_ip
-from .sandbox_policy import SandboxPolicy, domain_allowed, normalize_domain
+from .sandbox_policy import SandboxPolicy, domain_allowed, domain_denied, normalize_domain
 
 __all__ = ["DomainProxy", "ProxyDenial"]
 
@@ -49,6 +49,8 @@ _SHUTDOWN_POLL_S = 0.05
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 Resolver = Callable[[str, int], list[str]]
+#: Listede olmayan ana makine için karar (kullanıcıya sorar ya da kipe göre verir; #323).
+HostDecider = Callable[[str], bool]
 #: O anda kapalı loopback portları (Fusion Chrome'larının CDP portu); bağlantı başına sorulur.
 BlockedPorts = Callable[[], Collection[int]]
 
@@ -108,8 +110,10 @@ class DomainProxy:
         unix_path: Path | None = None,
         resolver: Resolver = _resolve,
         blocked_ports: BlockedPorts | None = None,
+        host_decider: HostDecider | None = None,
     ) -> None:
         self._policy = policy
+        self._host_decider = host_decider
         self._blocked_ports = blocked_ports
         self._unix_path = unix_path
         self._resolver = resolver
@@ -220,8 +224,10 @@ class DomainProxy:
     def _check(self, host: str, port: int) -> _Verdict:
         """İzinliyse bağlanılacak (denetlenmiş) adres, değilse gerekçe."""
         normalized = normalize_domain(host)
-        if normalized is None or not domain_allowed(normalized, self._policy):
-            return _Verdict(None, "alan adı sandbox.allowed_domains listesinde değil")
+        if normalized is None or domain_denied(normalized, self._policy):
+            return _Verdict(None, "alan adı sandbox.network.deniedDomains listesinde")
+        if not domain_allowed(normalized, self._policy) and not self._decide(normalized):
+            return _Verdict(None, "alan adı sandbox.network.allowedDomains listesinde değil")
         try:
             addresses = self._resolver(normalized, port)
         except OSError as error:
@@ -237,6 +243,16 @@ class DomainProxy:
                 None, "iç ağ adresine çözülüyor; yalnız listede açıkça yazılmış IP/localhost izinli"
             )
         return _Verdict(addresses[0], "")
+
+    def _decide(self, host: str) -> bool:
+        """Liste dışı ad: `strictAllowlist` reddeder, yoksa karar verene sorulur (Claude)."""
+        if self._policy.strict_allowlist or self._host_decider is None:
+            return False
+        try:
+            return bool(self._host_decider(host))
+        except Exception as error:  # karar veren çökerse bağlantı geçmez
+            _LOG.warning("sandbox ağ kararı alınamadı", extra={"hata": str(error)})
+            return False
 
     def _is_blocked_local(self, addresses: list[str], port: int) -> bool:
         """Hedef loopback'te kapalı bir port mu? Liste her bağlantıda yeniden okunur.

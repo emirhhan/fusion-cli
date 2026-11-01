@@ -32,7 +32,7 @@ from ..core.sandbox_policy import (
     is_excluded_command,
     normalize_domain,
 )
-from ..core.sandbox_proxy import DomainProxy
+from ..core.sandbox_proxy import DomainProxy, HostDecider
 from ..core.shell_sandbox import (
     SHELL_SANDBOX_WRITE_ROOT,
     ProxyEndpoint,
@@ -125,14 +125,23 @@ def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | 
     return None
 
 
-def _proxy(policy: SandboxPolicy, notices: list[str]) -> DomainProxy | None:
-    """Bu komuta özel proxy (sahibi `release_sandbox` ile kapatır)."""
-    if not (policy.restricts_network and policy.allowed_domains):
+def _proxy(
+    policy: SandboxPolicy, notices: list[str], decider: HostDecider | None = None
+) -> DomainProxy | None:
+    """Bu komuta özel proxy (sahibi `release_sandbox` ile kapatır).
+
+    Claude gibi ağ kısıtlıyken trafik HER ZAMAN proxy'den geçer: liste boş olsa da liste dışı
+    ad kipe göre sorulur (`decider`, #323). Karar veren yoksa ve liste boşsa proxy kurulmaz
+    (dış ağ tamamen kapalı; eski davranış).
+    """
+    if not policy.restricts_network or not (policy.allowed_domains or decider is not None):
         return None
     path = (
         Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / "proxy.sock" if _uses_unix_proxy() else None
     )
-    proxy = DomainProxy(policy, unix_path=path, blocked_ports=fusion_debug_ports)
+    proxy = DomainProxy(
+        policy, unix_path=path, blocked_ports=fusion_debug_ports, host_decider=decider
+    )
     try:
         proxy.start()
         return proxy
@@ -159,7 +168,8 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
     # Fusion Chrome'larının CDP portları her kipte kapalı (Seatbelt; proxy her bağlantıda bakar).
     policy = replace(policy, denied_local_ports=fusion_debug_ports())
     run.policy = policy
-    run.proxy = _proxy(policy, run.notices)
+    gate = getattr(context, "sandbox_hosts", None)
+    run.proxy = _proxy(policy, run.notices, getattr(gate, "decider", None))
     endpoint = (
         ProxyEndpoint(port=run.proxy.port, unix_path=run.proxy.unix_path)
         if run.proxy is not None

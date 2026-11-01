@@ -34,7 +34,7 @@ from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
-from .sandbox_policy import SandboxPolicy
+from .sandbox_policy import SandboxHostGate, SandboxPolicy
 from .session_cron import SessionCron
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
@@ -409,6 +409,8 @@ class ToolContext:
     shell_sandbox: str = field(default="off", kw_only=True)
     #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.
     sandbox_policy: SandboxPolicy | None = field(default=None, kw_only=True)
+    #: Liste dışı ana makine kararı (#323): motor her kabuk çağrısından önce kipe göre kurar.
+    sandbox_hosts: SandboxHostGate = field(default_factory=SandboxHostGate, kw_only=True)
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
     #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
     edit_fuzzy_match: bool = field(default=True, kw_only=True)

@@ -13,8 +13,8 @@ from __future__ import annotations
 import ipaddress
 import re
 import shlex
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = [
@@ -23,8 +23,10 @@ __all__ = [
     "NETWORK_OPEN",
     "PROTECTED_ANCHORS",
     "PROTECTED_WRITE_PATHS",
+    "SandboxHostGate",
     "SandboxPolicy",
     "domain_allowed",
+    "domain_denied",
     "is_excluded_command",
     "normalize_domain",
     "protected_anchors",
@@ -87,13 +89,16 @@ class SandboxPolicy:
     allow_unsandboxed: bool = True
     #: Her zaman sandbox dışında çalışan komut önekleri (`docker`, `git push`).
     excluded_commands: tuple[str, ...] = ()
-    #: Sandbox içinde ve ağ kısıtlıyken komutlar onaysız çalışır (yıkıcı/ask kuralı hariç).
-    auto_allow: bool = False
+    #: Sandbox içindeki komutlar onaysız çalışır (Claude `autoAllowBashIfSandboxed`; yıkıcı,
+    #: deny/ask kuralı ve plan kipi hariç). Claude'da varsayılan açık (#347).
+    auto_allow: bool = True
     #: Sandbox içindeki komutun ortamından sır gibi görünen değişkenler (`*_TOKEN`…) çıkarılır.
     hide_secret_env: bool = True
     #: Her kipte kapalı loopback portları: Fusion Chrome'larının CDP portu (çalışma anında
     #: `tools.sandbox_cdp` doldurur; yapılandırmadan gelmez). Yalnız macOS Seatbelt uygular.
     denied_local_ports: tuple[int, ...] = ()
+    #: Listede olmayan ana makineye sormadan reddet (Claude `network.strictAllowlist`, #323).
+    strict_allowlist: bool = False
 
     @property
     def restricts_network(self) -> bool:
@@ -116,6 +121,27 @@ def _matches(host: str, entry: str) -> bool:
     if entry.startswith("*."):
         return host.endswith(entry[1:])
     return host == entry
+
+
+def domain_denied(host: str, policy: SandboxPolicy) -> bool:
+    """Ad `deniedDomains`'te mi (ya da geçersiz mi)? Her kipte reddedilir."""
+    normalized = normalize_domain(host)
+    if normalized is None:
+        return True
+    return any(_matches(normalized, entry) for entry in policy.denied_domains)
+
+
+@dataclass(slots=True)
+class SandboxHostGate:
+    """Listede olmayan ana makine için karar veren taraf (motor kurar; #323).
+
+    `decider(host)` proxy thread'inden çağrılır ve True dönerse bağlantı geçer. `session_hosts`
+    kullanıcının "Evet" dediği adları oturum boyunca tutar; `None` karar veren yok demektir
+    (liste dışı ad reddedilir).
+    """
+
+    decider: Callable[[str], bool] | None = None
+    session_hosts: set[str] = field(default_factory=set)
 
 
 def domain_allowed(host: str, policy: SandboxPolicy) -> bool:

@@ -40,7 +40,11 @@ _TOP_LEVEL = {
 #: `sandbox.filesystem.*` → Fusion iç alanı.
 _FILESYSTEM = {"allowWrite": "allow_write", "denyRead": "deny_read", "allowRead": "allow_read"}
 #: `sandbox.network.*` → Fusion iç alanı.
-_NETWORK = {"allowedDomains": "allowed_domains", "deniedDomains": "denied_domains"}
+_NETWORK = {
+    "allowedDomains": "allowed_domains",
+    "deniedDomains": "denied_domains",
+    "strictAllowlist": "strict_allowlist",
+}
 #: Fusion'ın eski adları → Claude'daki karşılığı (uyarı metni için).
 _LEGACY_NAMES = {
     "allow_write": "sandbox.filesystem.allowWrite",
@@ -101,6 +105,8 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
     # Claude: sandbox içindeki komutun doğrudan çıkışı yok, trafik proxy'den geçer. Fusion'ın
     # eski kısıtsız ağı (`open`) geçiş süresince `network.mode` uzantısıyla korunur.
     result["network"] = network.pop(NETWORK_MODE_KEY, "allowlist")
+    if result["network"] == "open":
+        _warn_once("sandbox.network.mode: open", "sandbox.network.allowedDomains (proxy)")
     return [f"network.{key}" for key in network]
 
 

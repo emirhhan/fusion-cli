@@ -341,7 +341,8 @@ def test_izin_ag_kipini_degistirdigini_ve_gercek_ayar_adini_soyler(tmp_path):
     metin = format_change(apply_sandbox_action(config, "izin", "github.com", yol))
 
     assert "sandbox.allowed_domains" in metin and "sandbox.izin" not in metin
-    assert "allowlist'e geçti" in metin and "github.com" in metin
+    # Ağ varsayılan olarak zaten proxy'li (Claude, #323): kip değişikliği notu yok.
+    assert "allowlist'e geçti" not in metin and "github.com" in metin
 
 
 def test_kurulamayan_makinede_ac_uyari_verir(tmp_path, monkeypatch):
@@ -353,12 +354,13 @@ def test_kurulamayan_makinede_ac_uyari_verir(tmp_path, monkeypatch):
     assert any("kurulamıyor" in note for note in degisim.notes)
 
 
-def test_oto_ag_acikken_etkisiz_oldugunu_soyler(tmp_path):
+def test_oto_ag_kipinden_bagimsiz_uyari_yok(tmp_path):
+    """Claude: auto-allow ağ kipinden bağımsızdır (#347)."""
     from fusion_cli.config.sandbox_admin import apply_sandbox_action
 
     config, yol = _config(tmp_path)
     degisim = apply_sandbox_action(config, "oto", "on", yol)
-    assert degisim.config.sandbox.auto_allow and any("allowlist" in n for n in degisim.notes)
+    assert degisim.config.sandbox.auto_allow and degisim.notes == ()
 
 
 @pytest.mark.parametrize(
@@ -393,7 +395,7 @@ def test_rpc_ayarla_notlari_dondurur(tmp_path):
     _, yanit = dispatch_sandbox(
         "sandbox.ayarla", {"islem": "izin", "deger": "github.com"}, config, tmp_path
     )
-    assert yanit["ok"] and any("allowlist" in note for note in yanit["notlar"])
+    assert yanit["ok"] and not any("allowlist" in note for note in yanit["notlar"])
 
 
 # --- 10. onay kartı: sandbox dışı istek her yüzeyde görünür ------------------ #

@@ -15,6 +15,7 @@ seçenek öncesi sözcükleri (`Bash(git status *)`), dosyada hedefin dizini
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from ...config.permission_admin import add_permission_rule, project_rule_file
 from ...config.permission_rules import (
@@ -36,6 +37,10 @@ def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionR
     if tool_family(tool) is ToolFamily.SHELL:
         command = str(request.args.get("command", "")).strip()
         return PermissionRule("Bash", _shell_prefix(command), PermissionDecision.ALLOW)
+    host = _fetch_host(request) if tool == "web_fetch" else None
+    if host:
+        # Claude "Yes, and don't ask again" ağ için alan adına daralır: WebFetch(domain:x).
+        return PermissionRule("WebFetch", f"domain:{host}", PermissionDecision.ALLOW)
     if tool in FILE_WRITE_TOOLS:
         raw = request.args.get("path")
         if isinstance(raw, str) and raw.strip():
@@ -49,6 +54,13 @@ _LAUNCHERS = frozenset(
      "osascript", "find", "xargs", "eval", "exec", "env", "sudo", "doas", "timeout", "nohup",
      "npx", "uvx", "bunx", "pnpx", "ssh", "curl", "wget", "docker", "make"}
 )  # fmt: skip
+
+
+def _fetch_host(request: ApprovalRequest) -> str | None:
+    url = request.args.get("url")
+    if not isinstance(url, str):
+        return None
+    return (urlsplit(url).hostname or "").lower() or None
 
 
 def _shell_prefix(command: str) -> str:

@@ -350,15 +350,23 @@ async def test_auto_allow_ag_allowlist_teyken_manuel_kipte_sormaz(proje):
         _run_shell(), {"command": "touch yeni.txt"}, root=proje, context=_context(proje, policy)
     )
     assert await politika.decide(istek) is Decision.ALLOW
-    assert onayci.sorulan == [] and "auto_allow" in (istek.note or "")
+    assert onayci.sorulan == [] and "autoAllowBashIfSandboxed" in (istek.note or "")
 
 
-async def test_auto_allow_ag_acikken_ya_da_yikici_komutta_yine_sorar(proje):
+async def test_auto_allow_ag_kipinden_bagimsiz_yikicida_ve_atamada_yine_sorar(proje):
+    """Claude (#347): ağ şartı yok; yıkıcı ve `FOO=bar cmd` biçimi olağan akıştan geçer."""
     onayci = _Onayci()
     politika = build_policy(ApprovalMode.SECURITY, onayci)
     acik_ag = await resolve_request(
         _run_shell(),
         {"command": "touch yeni.txt"},
+        root=proje,
+        context=_context(proje, SandboxPolicy(auto_allow=True, network="open")),
+    )
+    assert acik_ag.pre_allowed
+    atama = await resolve_request(
+        _run_shell(),
+        {"command": "FOO=bar touch yeni.txt"},
         root=proje,
         context=_context(proje, SandboxPolicy(auto_allow=True)),
     )
@@ -368,7 +376,7 @@ async def test_auto_allow_ag_acikken_ya_da_yikici_komutta_yine_sorar(proje):
         root=proje,
         context=_context(proje, SandboxPolicy(auto_allow=True, network="allowlist")),
     )
-    await politika.decide(acik_ag)
+    await politika.decide(atama)
     await politika.decide(yikici)
     assert len(onayci.sorulan) == 2
 
@@ -461,7 +469,7 @@ def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
         "github.com",
         "*.npmjs.org",
     ]
-    assert read_setting(guncel, "sandbox.network") == "open"
+    assert read_setting(guncel, "sandbox.network") == "allowlist"  # Claude varsayılanı (#323)
     with pytest.raises(ConfigError, match="geçerli bir alan adı"):
         apply_setting(config, "sandbox.allowed_domains", "a b")
     with pytest.raises(ConfigError, match="İzin verilen"):

@@ -4352,6 +4352,13 @@ async def _execute(
             # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
             message = _decision_message(decision, plan_mode=plan_mode, request=request)
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
+        if tool_family(call.name) is ToolFamily.SHELL:
+            from .sandbox_network import install_network_gate
+
+            # Liste dışı ana makine kipe göre (#323): sorulur, verilir ya da reddedilir.
+            install_network_gate(
+                deps.tool_context, policy, getattr(deps, "permission_rules", None)
+            )
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
     # araç henüz çalışmadı ama artık kesinlikle çalışacak. Arayüz bu olayı

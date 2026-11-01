@@ -33,7 +33,7 @@ dosyaya bu adlarla yazar:
 ```yaml
 sandbox:
   enabled: true
-  autoAllowBashIfSandboxed: false
+  autoAllowBashIfSandboxed: true
   excludedCommands: []
   allowUnsandboxedCommands: true
   failIfUnavailable: false
@@ -44,10 +44,12 @@ sandbox:
   network:
     allowedDomains: ["github.com"]
     deniedDomains: []
+    strictAllowlist: false
 ```
 
-`network` nesnesi yazıldığında ağ Claude'daki gibi proxy'den geçer (allowlist). Geçiş süresince
-Fusion'a özgü `network.mode: open` kısıtsız ağı korur. Eski adlar (`runtime.shell_sandbox`,
+Ağ Claude'daki gibi her zaman proxy'den geçer (allowlist; `allowedDomains` boş başlar). Geçiş
+süresince Fusion'a özgü `network.mode: open` kısıtsız ağı korur; kullanımdan kalkıyor ve bir kez
+uyarılır. Eski adlar (`runtime.shell_sandbox`,
 düz `allow_write`, `deny_read`, `allow_read`, `allowed_domains`, `denied_domains`, `auto_allow`,
 `excluded_commands`, `allow_unsandboxed`, `fail_if_unavailable`, `network: open|allowlist`)
 bir sürüm boyunca okunur ve bir kez uyarılır; ikisi birden yazılmışsa Claude adı kazanır.
@@ -88,9 +90,15 @@ yok sayılır ve uyarılır.
   da kopyalayan eski yapılandırmalar aynı sonucu verir (yinelenenler birleşir). Bir varsayılanı
   listeden silerek açan eski yapılandırma artık o yolu yeniden engeller; açık kalması için
   `allow_read`'e yazın.
-- **Ağ:** `sandbox.network: open` (varsayılan, kısıtsız) ya da `allowlist`. Allowlist'te komut
-  yalnız Fusion'ın yerel proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir);
-  proxy yalnız `allowed_domains`'e bağlanır, `denied_domains` her zaman önce gelir. İzinli bir
+- **Ağ:** Claude Code gibi komutun doğrudan çıkışı yoktur; komut yalnız Fusion'ın yerel
+  proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir). `deniedDomains` her
+  kipte reddedilir; `allowedDomains` ve `WebFetch(domain:…)` allow kuralındaki adlar sorulmadan
+  geçer. Listede olmayan ad istenince komut sandbox'ta bekler ve karar izin kipine göredir:
+  Manual, acceptEdits ve plan kipinde **sorulur** ("Evet" adı oturum boyunca açar, "Evet, bir
+  daha sorma" yerel ayara `WebFetch(domain:<ad>)` yazar); bypassPermissions ve bypass
+  kullanılabilen plan kipinde sorulmadan izin verilir; auto ve dontAsk kipinde reddedilir
+  (Fusion'ın auto sınıflandırıcısı ana makine listesini onaylamaz). `strictAllowlist: true`
+  her kipte sormadan reddeder. Soracak kimse yoksa (`fusion agent`, `-p`) reddedilir. İzinli bir
   ad iç ağ adresine (127.0.0.1, 10.x, 169.254.x…) çözülürse bağlanılmaz; iç adrese gitmek için
   IP'yi ya da `localhost`'u listeye açıkça yazın. `allow_localhost: true` dev sunucularına ve yerel
   veritabanına doğrudan erişimi açık tutar (Linux'ta yalnız sandbox içinde başlatılanlara).
@@ -150,7 +158,8 @@ geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 | Ayar | Varsayılan | Anlamı |
 |------|-----------|--------|
 | `sandbox.fail_if_unavailable` | `false` | `true`: sandbox kurulamazsa komut çalıştırılmaz (sorulmadan engellenir) |
-| `sandbox.auto_allow` | `false` | `true`: sandbox içinde VE `network: allowlist` iken komut sorulmaz. Sandbox gerçekten kurulamıyorsa (ör. Linux'ta socat yok) sorulur. Yıkıcı komutlar, `ask`/`deny` kuralları ve plan kipi yine geçerli |
+| `sandbox.autoAllowBashIfSandboxed` | `true` | Claude gibi: sandbox içinde çalışan komut ağ kipinden bağımsız sorulmaz. Sandbox gerçekten kurulamıyorsa (ör. Linux'ta socat yok) sorulur. Yıkıcı komutlar, `ask`/`deny` kuralları, plan kipi ve `FOO=bar npm test`, `make CC=clang`, `eval "ls"` biçimleri olağan izin akışından geçer |
+| `sandbox.network.strictAllowlist` | `false` | `true`: listede olmayan ad sorulmadan reddedilir |
 | `sandbox.allow_localhost` | `true` | Allowlist kipinde `localhost`'a doğrudan erişim |
 | `sandbox.hide_secret_env` | `true` | Sır görünümlü ortam değişkenlerini gizle (yukarıya bakın) |
 | `sandbox.allow_write` | `[]` | Ek yazılabilir dizinler, ör. `["~/.npm", "~/.cache/pip"]` |

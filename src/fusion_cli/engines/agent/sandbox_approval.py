@@ -5,13 +5,15 @@ Claude Code davranışının Fusion karşılığı:
   (`pre_ask`; oturum/kalıcı izne dönüşmez). Yalnız "İzinleri atla" kipi sormaz.
 - `excludedCommands` → `sandbox.excluded_commands`: normal onay akışı, kartta not.
 - `failIfUnavailable` → sandbox kurulamıyorsa kimseye sorulmadan kapatılır (`pre_denied`).
-- `autoAllowBashIfSandboxed` → `sandbox.auto_allow`: sandbox içinde VE ağ allowlist'teyken
-  komut sorulmaz. Yıkıcı komut, `ask`/`deny` kuralı ve plan kipi bunu geçer: ağ açıkken
-  (`network: open`) otomatik izin verilmez, çünkü sandbox veri sızdırmayı sınırlamaz.
+- `autoAllowBashIfSandboxed` → `sandbox.auto_allow` (Claude'da varsayılan açık, #347):
+  sandbox içinde çalışan komut ağ kipinden bağımsız sorulmaz. Yıkıcı komut, `ask`/`deny`
+  kuralı ve plan kipi bunu geçer; `FOO=bar npm test`, `make CC=clang`, `eval "ls"` gibi
+  çalışacak programı değiştirebilen biçimler olağan izin akışından geçer (Claude).
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -23,14 +25,36 @@ from ...tools.sandbox_runtime import OUTSIDE_EXCLUDED, OUTSIDE_REQUESTED, outsid
 if TYPE_CHECKING:
     from .approval import ApprovalRequest
 
-__all__ = ["SANDBOX_AUTO_ALLOWED", "SANDBOX_EXCLUDED", "SANDBOX_OUTSIDE", "apply_sandbox_policy"]
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+__all__ = [
+    "changes_program",
+    "SANDBOX_AUTO_ALLOWED", "SANDBOX_EXCLUDED", "SANDBOX_OUTSIDE", "apply_sandbox_policy"]
 
 SANDBOX_OUTSIDE = (
     "sandbox DIŞINDA çalıştırma isteniyor (dangerouslyDisableSandbox=true): yazma, okuma ve "
     "ağ sınırı olmadan çalışır; her seferinde sorulur"
 )
 SANDBOX_EXCLUDED = "sandbox dışı listesinde (sandbox.excluded_commands); sandbox'sız çalışır"
-SANDBOX_AUTO_ALLOWED = "sandbox içinde, ağ allowlist'te: sorulmadan çalışır (sandbox.auto_allow)"
+SANDBOX_AUTO_ALLOWED = (
+    "sandbox içinde: sorulmadan çalışır (sandbox.autoAllowBashIfSandboxed)"
+)
+
+
+def changes_program(command: str) -> bool:
+    """Komut çalışacak programı değiştirebilecek biçimde mi? (Claude: auto-allow uygulanmaz)
+
+    Başta değişken ataması (`FOO=bar npm test`), `make VAR=değer` ve `eval`.
+    """
+    for segment in re.split(r"&&|\|\||[;|\n]", command):
+        words = segment.split()
+        if not words:
+            continue
+        if _ASSIGNMENT.match(words[0]) or words[0] == "eval":
+            return True
+        if words[0] == "make" and any(_ASSIGNMENT.match(word) for word in words[1:]):
+            return True
+    return False
 
 
 def _with_note(request: ApprovalRequest, note: str) -> str:
@@ -66,8 +90,8 @@ def apply_sandbox_policy(request: ApprovalRequest, context: ToolContext | None) 
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
     if (
         policy.auto_allow
-        and policy.restricts_network
         and plan.is_active
+        and not changes_program(command)
         and request.danger is None
         and request.pre_ask is None
         and request.pre_denied is None

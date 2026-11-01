@@ -74,10 +74,6 @@ GUARD_LINUX_OPEN = (
     "korunmaz: Linux'ta ağ open iken komut ana makinenin localhost'una ulaşır; "
     "oturumlu web profilleriyle /sandbox ag allowlist kullanın"
 )
-NOTE_AUTO_OPEN = (
-    "Not: sorusuz çalıştırma yalnız ağ allowlist'teyken etkilidir; ağ şu an açık "
-    "(/sandbox ag allowlist)."
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,9 +302,6 @@ def apply_sandbox_action(
             raise ConfigError(f"Ağ kipi {' ya da '.join(NETWORK_MODES)} olmalı: {value!r}")
         return _write(config, "sandbox.network", value, file)
     if action in _FLAG_PATHS:
-        change = _write(config, _FLAG_PATHS[action], value, file)
-        sandbox = change.config.sandbox
-        if action == "oto" and sandbox.auto_allow and sandbox.network != NETWORK_ALLOWLIST:
-            return _with_notes(change, NOTE_AUTO_OPEN)
-        return change
+        # Claude: auto-allow ağ kipinden bağımsızdır (#347); ağ uyarısı yok.
+        return _write(config, _FLAG_PATHS[action], value, file)
     return _domain_lists(config, action, _domain(value), file)

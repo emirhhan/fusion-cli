@@ -372,6 +372,11 @@ class _AskingApproval:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
+    @property
+    def prompter(self) -> Prompter | None:
+        """Soru soran taraf (sandbox ağ kararı da buradan sorar, #323)."""
+        return self._prompter
+
     def _allows(self, request: ApprovalRequest) -> bool:
         raise NotImplementedError
 
@@ -480,6 +485,15 @@ class PlanApproval:
         self._memory = memory if memory is not None else ApprovalMemory()
         self._use_auto_mode = use_auto_mode
         self._bypass = BypassApproval(prompter, self._memory) if bypass_available else None
+
+    @property
+    def prompter(self) -> Prompter | None:
+        return self._prompter
+
+    @property
+    def bypass_available(self) -> bool:
+        """Bypass kullanılabilen oturumda plan kipi (Claude: ağ sorusu da sorulmaz, #323)."""
+        return self._bypass is not None
 
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
         if request.pre_denied is not None:
