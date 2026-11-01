@@ -36,7 +36,6 @@ from . import (
     background_commands,
     btw_command,
     code_review,
-    terminal_setup,
     config_command,
     doctor_command,
     export_commands,
@@ -62,6 +61,7 @@ from . import (
     session_resume,
     status_line,
     team_commands,
+    terminal_setup,
     verify_flow,
     view_commands,
     voice_command,
@@ -196,14 +196,14 @@ def build_registry(
 def _with_legacy_resume(home: Path, previous: FallbackCommand | None) -> FallbackCommand:
     def _resolve(name: str) -> SlashCommand | None:
         source_name = name.removeprefix("resume")
-        if name.startswith("resume") and source_name:
-            if any(source.name == source_name for source in available_sources(home)):
-                return SlashCommand(
-                    name,
-                    messages.CMD_RESUME.format(source=source_name),
-                    _legacy_resume(source_name),
-                    group="Geçmiş",
-                )
+        known = any(source.name == source_name for source in available_sources(home))
+        if name.startswith("resume") and source_name and known:
+            return SlashCommand(
+                name,
+                messages.CMD_RESUME.format(source=source_name),
+                _legacy_resume(source_name),
+                group="Geçmiş",
+            )
         return previous(name) if previous is not None else None
 
     return _resolve

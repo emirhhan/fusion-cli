@@ -14,7 +14,7 @@ from pathlib import Path
 from ...core.errors import SessionNotFoundError
 from ...ui import messages
 from ...ui.picker import Choice, pick
-from .transcript_store import list_conversations
+from .transcript_store import ConversationRef, list_conversations
 
 #: Argümansız `--resume` yerine konan işaret; bir sohbet adı olamaz (kontrol karakteri).
 RESUME_PICKER = "\x1fsecici"
@@ -53,7 +53,7 @@ def pick_conversation(memory_dir: Path, root: Path, chooser: Chooser | None = No
     return chosen
 
 
-def pick_among(refs: list, name: str, chooser: Chooser | None = None) -> str:
+def pick_among(refs: list[ConversationRef], name: str, chooser: Chooser | None = None) -> str:
     """Belirsiz ad (#203): seçici yalnız o adı taşıyan sohbetlerle açılır."""
     from .session_resume import resume_choices
 

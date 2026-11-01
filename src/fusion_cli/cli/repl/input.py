@@ -37,9 +37,9 @@ from pathlib import Path
 from typing import Any
 
 from ...config import keybindings
-from . import input_actions
 from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
+from . import input_actions
 
 #: Yapıştırma bu satır ya da bu karakter sayısını aşarsa tek satırlık yer tutucuya
 #: katlanır (ikisinden biri yeterli). Karakter eşiği, az satırlı ama çok uzun tek

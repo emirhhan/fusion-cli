@@ -30,7 +30,6 @@ from .transcript_store import (
     TranscriptStore,
     conversation_prefix,
     copy_conversation,
-    find_conversation,
     list_conversations,
     load_transcript_messages,
 )

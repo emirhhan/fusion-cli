@@ -55,11 +55,10 @@ from . import (
     model_flows,
     output_style_command,
     plan_card,
-    queue_steer,
-    vim_remaps,
     prefixes,
     profiles_flow,
     provider_flow,
+    queue_steer,
     remote_control,
     rewind,
     session_resume,
@@ -68,6 +67,7 @@ from . import (
     status_view,
     verify_flow,
     view_commands,
+    vim_remaps,
 )
 from .commands import (
     ASYNC_COMMANDS,

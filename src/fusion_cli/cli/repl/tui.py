@@ -38,9 +38,9 @@ from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
 from rich.console import Console
 
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
-from . import input_actions, vim_remaps
 from ...ui import messages, theme
 from ...ui.picker import Choice
+from . import input_actions, vim_remaps
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 from .status_line_runner import ansi_for_tui
 from .tui_input_keys import (

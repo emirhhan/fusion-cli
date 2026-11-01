@@ -10,7 +10,11 @@ istem ve tam ekran TUI aynı fonksiyonları kullanır; ikisinde de girdi bir pro
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.buffer import Buffer
 
 
 @dataclass
@@ -20,7 +24,7 @@ class PromptStash:
     text: str = ""
     cursor: int = 0
 
-    def toggle(self, buffer: Any) -> bool:
+    def toggle(self, buffer: Buffer) -> bool:
         """Dolu girdiyi sakla ve temizle; boş girdide saklananı geri getir.
 
         Değişiklik olduysa True döner (ekran yenilensin).
@@ -37,17 +41,17 @@ class PromptStash:
         return True
 
 
-def open_external_editor(buffer: Any) -> None:
+def open_external_editor(buffer: Buffer) -> None:
     """Girdiyi `$VISUAL`/`$EDITOR` ile aç; editör kapanınca metin kutuya döner (gönderilmez)."""
     buffer.open_in_editor(validate_and_handle=False)
 
 
-def undo(buffer: Any) -> None:
+def undo(buffer: Buffer) -> None:
     """Son girdi düzenlemesini geri al (metin ve imleç)."""
     buffer.undo()
 
 
-def redraw(app: Any) -> None:
+def redraw(app: Application[None]) -> None:
     """Ekranı tamamen yeniden çiz; girdi ve konuşma korunur."""
     renderer = getattr(app, "renderer", None)
     if renderer is not None:

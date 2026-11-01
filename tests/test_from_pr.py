@@ -16,12 +16,14 @@ def test_referans_ayristirma():
     assert pr_sessions.parse_reference("123") == (123, None)
     assert pr_sessions.parse_reference("#7") == (7, None)
     assert pr_sessions.parse_reference("https://github.com/Acme/App/pull/42") == (42, "acme/app")
-    assert pr_sessions.parse_reference(
-        "https://gitlab.com/grup/alt/proje/-/merge_requests/9"
-    ) == (9, "grup/alt/proje")
-    assert pr_sessions.parse_reference(
-        "https://bitbucket.org/ws/repo/pull-requests/3"
-    ) == (3, "ws/repo")
+    assert pr_sessions.parse_reference("https://gitlab.com/grup/alt/proje/-/merge_requests/9") == (
+        9,
+        "grup/alt/proje",
+    )
+    assert pr_sessions.parse_reference("https://bitbucket.org/ws/repo/pull-requests/3") == (
+        3,
+        "ws/repo",
+    )
     with pytest.raises(SessionNotFoundError):
         pr_sessions.parse_reference("dal-adi")
 
@@ -35,7 +37,9 @@ def _sohbet(memory: Path, root: Path, conv: str, link: PullRequestLink | None) -
 def test_secici_pr_ye_bagli_sohbetlerle_suzulur(tmp_path: Path):
     memory, root = tmp_path / "bellek", tmp_path / "proje"
     root.mkdir()
-    _sohbet(memory, root, "a1", PullRequestLink("acme/app", 42, "https://github.com/acme/app/pull/42"))
+    _sohbet(
+        memory, root, "a1", PullRequestLink("acme/app", 42, "https://github.com/acme/app/pull/42")
+    )
     _sohbet(memory, root, "b2", PullRequestLink("acme/app", 43, "u"))
     _sohbet(memory, root, "c3", None)
     gorulen: list[list[str]] = []

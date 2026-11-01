@@ -3,8 +3,9 @@
 Claude Code: bağlam kullanımı renkli bir ızgara olarak gösterilir; yüzde MODEL PENCERESİNE
 göredir; araç çıktısı, bellek dosyası şişkinliği ve kapasite için öneriler verilir; pencere
 aşılınca ne kadar aşıldığı ve hangi komutun yer açtığı yazılır. Kalem kırılımı her zaman
-basılır (Claude Code'un tam ekran dışı görünümü); `all` en büyük kalemleri de listeler. Token sayısı son API çağrısının ölçülen girdi token'ı
-varsa ondan, yoksa karakter/3 tahmininden gelir.
+basılır (Claude Code'un tam ekran dışı görünümü); `all` en büyük kalemleri de listeler.
+Token sayısı son API çağrısının ölçülen girdi token'ı varsa ondan, yoksa karakter/3
+tahmininden gelir.
 """
 
 from __future__ import annotations
@@ -12,9 +13,10 @@ from __future__ import annotations
 from rich.console import Console
 from rich.markup import escape
 
+from ...engines.agent.context_budget import CHARS_PER_TOKEN_ESTIMATE
 from ...ui import messages, theme
-from .status_view import CHARS_PER_TOKEN_ESTIMATE, ContextReport, context_report, context_rows
 from .state import ReplState
+from .status_view import ContextReport, context_report, context_rows
 
 GRID_CELLS = 100
 GRID_COLUMNS = 20
@@ -86,7 +88,9 @@ def legend_lines(report: ContextReport, measured_tokens: int | None) -> list[str
     lines.insert(
         0,
         messages.CONTEXT_HEADLINE.format(
-            used=f"{used:,}", window=f"{window:,}", percent=round(used * 100 / max(window, 1)),
+            used=f"{used:,}",
+            window=f"{window:,}",
+            percent=round(used * 100 / max(window, 1)),
             source=source,
         ),
     )

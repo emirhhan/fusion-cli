@@ -42,9 +42,7 @@ def _matches(memory_dir: Path, conversation_id: str, number: int, repo: str | No
     return repo is None or link.repo.lower().endswith(repo) or repo.endswith(link.repo.lower())
 
 
-def pick_for_pr(
-    memory_dir: Path, root: Path, value: str, chooser: Chooser | None = None
-) -> str:
+def pick_for_pr(memory_dir: Path, root: Path, value: str, chooser: Chooser | None = None) -> str:
     """PR'a bağlı sohbetlerden birini seçtir; kimliğini döndür."""
     from .session_resume import resume_choices
 

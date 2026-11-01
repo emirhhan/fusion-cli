@@ -88,5 +88,8 @@ def test_tui_vim_kip_adi():
     tui.set_vim(True)
     tui.set_vim_remaps(("jj",))
     assert tui.vim_mode_name() in ("INSERT", "NORMAL")
-    keys = {tuple(str(getattr(k, "value", k)) for k in b.keys) for b in tui.application.key_bindings.bindings}
+    keys = {
+        tuple(str(getattr(k, "value", k)) for k in b.keys)
+        for b in tui.application.key_bindings.bindings
+    }
     assert ("j",) in keys

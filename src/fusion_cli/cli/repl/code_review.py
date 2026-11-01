@@ -120,9 +120,7 @@ def build_task(request: ReviewRequest, level: str, max_findings: str | None) -> 
         else messages.CODE_REVIEW_DEFAULT_SCOPE
     )
     parts = [messages.CODE_REVIEW_TASK.format(scope=scope)]
-    parts.append(
-        messages.CODE_REVIEW_LOW if level == "low" else messages.CODE_REVIEW_BROAD
-    )
+    parts.append(messages.CODE_REVIEW_LOW if level == "low" else messages.CODE_REVIEW_BROAD)
     if level in ("xhigh", "max"):
         parts.append(messages.CODE_REVIEW_CLEANUPS)
     if max_findings == "all":

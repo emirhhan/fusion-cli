@@ -14,7 +14,10 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 _LOG = logging.getLogger(__name__)
 SETTING_KEY = "vimInsertModeRemaps"
@@ -43,7 +46,7 @@ def load_remaps(home: Path) -> tuple[str, ...]:
 
 
 def add_remap_bindings(
-    kb: Any, remaps: tuple[str, ...], *, clock: Callable[[], float] = time.monotonic
+    kb: KeyBindings, remaps: tuple[str, ...], *, clock: Callable[[], float] = time.monotonic
 ) -> None:
     """prompt_toolkit bağlarını ekle (yalnız vi INSERT kipinde etkin)."""
     from prompt_toolkit.filters import vi_insert_mode
@@ -53,12 +56,12 @@ def add_remap_bindings(
     for first, second in {(key[0], key[1]) for key in remaps}:
 
         @kb.add(first, filter=vi_insert_mode)
-        def _first(event: Any, first: str = first) -> None:
+        def _first(event: KeyPressEvent, first: str = first) -> None:
             event.current_buffer.insert_text(first)
             pending[first] = clock()
 
         @kb.add(second, filter=vi_insert_mode)
-        def _second(event: Any, first: str = first, second: str = second) -> None:
+        def _second(event: KeyPressEvent, first: str = first, second: str = second) -> None:
             buffer = event.current_buffer
             started = pending.pop(first, None)
             fresh = started is not None and clock() - started <= WINDOW_SECONDS

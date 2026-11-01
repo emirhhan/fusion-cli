@@ -172,8 +172,14 @@ def test_ozel_stil_kodlama_talimatini_varsayilan_olarak_cikarir(tmp_path: Path):
     kirpik = base_system_prompt(SYSTEM_PROMPT, _with_style(config, "yazar"), home=home, root=None)
     assert kirpik is not None and "# Kod değişiklikleri" not in kirpik
     assert "# Doğrulama" not in kirpik and "# Güvenlik" in kirpik and "# İletişim" in kirpik
-    assert base_system_prompt(SYSTEM_PROMPT, _with_style(config, "kodcu"), home=home, root=None) is None
-    assert base_system_prompt(SYSTEM_PROMPT, _with_style(config, "concise"), home=home, root=None) is None
+    assert (
+        base_system_prompt(SYSTEM_PROMPT, _with_style(config, "kodcu"), home=home, root=None)
+        is None
+    )
+    assert (
+        base_system_prompt(SYSTEM_PROMPT, _with_style(config, "concise"), home=home, root=None)
+        is None
+    )
 
 
 def test_outputstyle_claude_katmanindan_buyuk_kucuk_duyarli(tmp_path: Path):

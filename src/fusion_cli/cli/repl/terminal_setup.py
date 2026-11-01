@@ -33,10 +33,11 @@ _VSCODE_BINDING = {
     "args": {"text": NEWLINE_SEQUENCE},
     "when": "terminalFocus",
 }
-_ZED_BLOCK = {"context": "Terminal", "bindings": {"shift-enter": ["terminal::SendText", "\u001b\r"]}}
-_ALACRITTY_BLOCK = (
-    '\n[[keyboard.bindings]]\nkey = "Return"\nmods = "Shift"\nchars = "\\u001b\\r"\n'
-)
+_ZED_BLOCK = {
+    "context": "Terminal",
+    "bindings": {"shift-enter": ["terminal::SendText", "\u001b\r"]},
+}
+_ALACRITTY_BLOCK = '\n[[keyboard.bindings]]\nkey = "Return"\nmods = "Shift"\nchars = "\\u001b\\r"\n'
 _EDITOR_DIRS = {"vscode": "Code", "cursor": "Cursor", "devin": "Devin"}
 
 
@@ -44,7 +45,9 @@ def detect(env: Mapping[str, str]) -> str | None:
     """Ortamdan terminali tanı; bilinmiyorsa None."""
     program = env.get("TERM_PROGRAM", "")
     if program == "vscode":
-        hints = " ".join(env.get(k, "") for k in ("VSCODE_GIT_ASKPASS_NODE", "__CFBundleIdentifier"))
+        hints = " ".join(
+            env.get(k, "") for k in ("VSCODE_GIT_ASKPASS_NODE", "__CFBundleIdentifier")
+        )
         if env.get("CURSOR_TRACE_ID") or "cursor" in hints.lower():
             return "cursor"
         return "devin" if "devin" in hints.lower() else "vscode"
@@ -60,7 +63,8 @@ def detect(env: Mapping[str, str]) -> str | None:
 
 
 def _editor_user_dir(home: Path, app: str) -> Path:
-    if sys.platform == "darwin":
+    current: str = sys.platform  # testte değiştirilir; mypy platform daraltması yapmasın
+    if current == "darwin":
         return home / "Library" / "Application Support" / app / "User"
     return home / ".config" / app / "User"
 
@@ -107,7 +111,7 @@ def _vscode_settings(path: Path) -> list[str]:
         return []
     updated = {**data, "terminal.integrated.gpuAcceleration": "off"}
     path.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
-    return [f"terminal.integrated.gpuAcceleration \"off\" yapıldı ({path})"]
+    return [f'terminal.integrated.gpuAcceleration "off" yapıldı ({path})']
 
 
 def setup_zed(home: Path) -> list[str]:
@@ -116,8 +120,12 @@ def setup_zed(home: Path) -> list[str]:
     bindings = _read_json_list(target)
     if bindings is None:
         return [f"{target} değiştirilmedi (okunamadı); şu bloğu kendiniz ekleyin:\n{block}"]
-    if any(isinstance(item, dict) and "shift-enter" in str(item.get("bindings", {})) and
-           item.get("context") == "Terminal" for item in bindings):
+    if any(
+        isinstance(item, dict)
+        and "shift-enter" in str(item.get("bindings", {}))
+        and item.get("context") == "Terminal"
+        for item in bindings
+    ):
         return ["Zed terminal Shift+Enter key binding already configured"]
     if target.exists() and bindings:
         digest = hashlib.sha256(target.read_bytes()).hexdigest()[:8]
@@ -148,27 +156,38 @@ def _run(command: list[str]) -> tuple[int, str]:  # pragma: no cover - gerçek m
 def setup_apple(home: Path, run: Runner) -> list[str]:
     code, profile = run(["defaults", "read", "com.apple.Terminal", "Default Window Settings"])
     if code != 0 or not profile:
-        return ["Apple Terminal varsayılan profili okunamadı; Ayarlar › Profiller › Klavye'den "
-                "\"Use Option as Meta Key\" seçin"]
+        return [
+            "Apple Terminal varsayılan profili okunamadı; Ayarlar › Profiller › Klavye'den "
+            '"Use Option as Meta Key" seçin'
+        ]
     plist = str(home / "Library" / "Preferences" / "com.apple.Terminal.plist")
     for key, value in (("useOptionAsMetaKey", "true"), ("Bell", "false")):
         entry = f":Window Settings:{profile}:{key}"
         if run(["/usr/libexec/PlistBuddy", "-c", f"Set '{entry}' {value}", plist])[0] != 0:
             run(["/usr/libexec/PlistBuddy", "-c", f"Add '{entry}' bool {value}", plist])
-    return [f"Apple Terminal '{profile}' profilinde Option as Meta açıldı, sesli zil kapatıldı "
-            "(Terminal'i yeniden açın)"]
+    return [
+        f"Apple Terminal '{profile}' profilinde Option as Meta açıldı, sesli zil kapatıldı "
+        "(Terminal'i yeniden açın)"
+    ]
 
 
 def setup_iterm(run: Runner) -> list[str]:
-    command = ["defaults", "write", "com.googlecode.iterm2", "AllowClipboardAccess", "-bool", "true"]
+    command = [
+        "defaults",
+        "write",
+        "com.googlecode.iterm2",
+        "AllowClipboardAccess",
+        "-bool",
+        "true",
+    ]
     if run(command)[0] != 0:
         return ["iTerm2 pano erişimi açılamadı; Settings › General › Selection'dan açın"]
-    return ["iTerm2'de uygulamaların panoya erişimi açıldı (/copy için); iTerm2'yi yeniden başlatın"]
+    return [
+        "iTerm2'de uygulamaların panoya erişimi açıldı (/copy için); iTerm2'yi yeniden başlatın"
+    ]
 
 
-def terminal_setup(
-    home: Path, env: Mapping[str, str] | None = None, run: Runner = _run
-) -> str:
+def terminal_setup(home: Path, env: Mapping[str, str] | None = None, run: Runner = _run) -> str:
     kind = detect(os.environ if env is None else env)
     if kind in _EDITOR_DIRS:
         lines = setup_vscode(home, kind)
@@ -181,6 +200,8 @@ def terminal_setup(
     elif kind == "iterm":
         lines = setup_iterm(run)
     else:
-        lines = ["Bu terminal için kurulum gerekmiyor ya da desteklenmiyor; yeni satır için "
-                 "Ctrl+J ya da \\ ardından Enter kullanın."]
+        lines = [
+            "Bu terminal için kurulum gerekmiyor ya da desteklenmiyor; yeni satır için "
+            "Ctrl+J ya da \\ ardından Enter kullanın."
+        ]
     return "\n".join(lines)

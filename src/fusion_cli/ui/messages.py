@@ -1092,7 +1092,8 @@ CODE_REVIEW_TASK = (
 CODE_REVIEW_LOW = "Seviye low: yalnız en emin olduğun bulguları bildir; yanlış alarmdan kaçın."
 CODE_REVIEW_BROAD = "Kapsamı geniş tut; olası hataları da gerekçesiyle bildir."
 CODE_REVIEW_CLEANUPS = (
-    "Hatalara ek olarak yeniden kullanım, sadeleştirme ve verimlilik temizliklerini ayrı başlıkta ver."
+    "Hatalara ek olarak yeniden kullanım, sadeleştirme ve verimlilik temizliklerini ayrı "
+    "başlıkta ver."
 )
 CODE_REVIEW_MAX_FINDINGS = "En çok {count} bulgu bildir."
 CODE_REVIEW_ALL_FINDINGS = "Bulduğun her bulguyu bildir; sınır yok."
@@ -1182,7 +1183,9 @@ CMD_RESUME_OWN = "Fusion sohbetini sürdür (argümansız: bu projedeki sohbet l
 CMD_RENAME = "açık sohbete ad ver (argümansız: geçmişten); --resume <ad> ile bulunur"
 CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
 SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
-FROM_PR_INVALID = "--from-pr değeri PR numarası ya da GitHub/GitLab/Bitbucket PR adresi olmalı: {value}"
+FROM_PR_INVALID = (
+    "--from-pr değeri PR numarası ya da GitHub/GitLab/Bitbucket PR adresi olmalı: {value}"
+)
 FROM_PR_NONE = "PR #{number} ile bağlantılı Fusion sohbeti yok."
 FROM_PR_PICK_TITLE = "PR #{number} ile bağlantılı sohbetler"
 SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
@@ -1656,8 +1659,8 @@ CMD_KEYBINDINGS = "tuş bağlarını göster; dosya keybindings.json (yeniden ba
 CMD_VIM = "vim düzenleme kipi aç/kapa (NORMAL/INSERT); kalıcı"
 KEYBINDINGS_HEADER = "Tuş bağları — dosya: {path}"
 KEYBINDINGS_HINT = (
-    "Düzenle ve kaydet (Claude Code biçimi): {\"bindings\": [{\"context\": \"Chat\", "
-    "\"bindings\": {\"ctrl+e\": \"chat:externalEditor\"}}]}; 'command:<ad>' bir slash "
+    'Düzenle ve kaydet (Claude Code biçimi): {"bindings": [{"context": "Chat", '
+    '"bindings": {"ctrl+e": "chat:externalEditor"}}]}; \'command:<ad>\' bir slash '
     "komutu çalıştırır, null varsayılan bağı kaldırır, chord 'ctrl+x ctrl+e'. Ayrılmış: "
     "Ctrl+C, Ctrl+D, Ctrl+M, Ctrl+[, Ctrl+I, Ctrl+H."
 )
