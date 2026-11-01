@@ -185,6 +185,10 @@ def load_config(path: str | Path | None = None) -> Config:
         merged = _deep_merge(defaults, _claude_sandbox(_apply_renames(user)))
     else:
         merged = defaults
+    # Claude Code `settings.json` sandbox bölümleri Fusion YAML'ının üstündedir (#322, #369).
+    from .claude_sandbox_settings import with_claude_sandbox
+
+    merged = with_claude_sandbox(merged, Path.cwd())
 
     try:
         # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı

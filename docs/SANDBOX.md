@@ -25,6 +25,24 @@ Masaüstünde: **Ayarlar › İzinler › Kabuk sandbox'ı**. Değişiklik bir s
 Varsayılan kapalıdır (Claude Code'daki gibi `sandbox.enabled: false`). `sandbox:` bölümü yoksa
 aşağıdaki varsayılanlar uygulanır.
 
+### Ayarların okunduğu yer (Claude Code ile aynı)
+
+Sandbox ayarları Claude Code'un kendi dosyalarından okunur (sonraki öncekini ezer):
+`~/.claude/settings.json` (ya da `CLAUDE_CONFIG_DIR`), proje `.claude/settings.json` ve
+`.claude/settings.local.json`; proje dosyaları yalnız güvenilen projede (`fusion trust`)
+uygulanır. Yol ve alan adı listeleri (`allowWrite`, `denyRead`, `allowedDomains`…) dosyalar
+boyunca **birleşir**; tekil değerlerde son dosya kazanır. Fusion YAML'ındaki `sandbox:` bölümü
+bunların altında en düşük katmandır.
+
+Göreli yollar ayar dosyasının kapsamına göre çözülür: proje ayarında proje kökü, kullanıcı
+ayarında `~/.claude`; `/` mutlak, `~/` ev dizinidir (Fusion YAML'ındaki göreli yollar proje
+köküne göredir).
+
+`/sandbox on|off|oto` (REPL) ve masaüstü sandbox paneli kip seçimini Claude'daki gibi projenin
+`.claude/settings.local.json` dosyasına (`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`)
+yazar; proje yerel ayarı güvenilmiyorsa kullanıcı dosyasına düşer. `fusion sandbox` ve alan adı
+/ bayrak eylemleri Fusion kullanıcı dosyasına yazar.
+
 ### Ayar adları (Claude Code ile aynı)
 
 Ayarlar Claude Code'daki iç içe camelCase adlarla yazılır; `/sandbox` ve `fusion sandbox` de

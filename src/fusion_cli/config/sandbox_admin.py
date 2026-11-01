@@ -28,7 +28,7 @@ from .sandbox_config import (
     sandbox_policy,
     validate_sandbox,
 )
-from .settings_access import write_setting
+from .settings_access import apply_setting, write_setting
 
 __all__ = [
     "SANDBOX_ACTIONS",
@@ -264,6 +264,40 @@ def _domain_lists(config: Config, action: str, domain: str, file: Path | None) -
     return SandboxChange(change.config, setting, domain, change.path, notes)
 
 
+#: Claude `/sandbox` Mode sekmesinin yazdığı ayarlar: eylem → (iç yol, Claude adı) (#352).
+_LOCAL_MODE = {
+    "ac": ("runtime.shell_sandbox", "enabled"),
+    "kapat": ("runtime.shell_sandbox", "enabled"),
+    "oto": ("sandbox.auto_allow", "autoAllowBashIfSandboxed"),
+}
+
+
+def _local_mode_change(
+    config: Config, action: str, value: str, file: Path | None, root: Path | None
+) -> SandboxChange | None:
+    """Kip seçimi Claude gibi projenin `.claude/settings.local.json`'ına yazılır (#352).
+
+    Açık dosya verildiyse ya da proje yerel ayarı güvenilmiyorsa (Fusion onu okumaz) `None`:
+    çağıran eski yolla kullanıcı dosyasına yazar.
+    """
+    from . import trust
+    from .claude_sandbox_settings import write_local_sandbox
+
+    project = root or Path.cwd()
+    if action not in _LOCAL_MODE or file is not None or not trust.is_permissions_trusted(project):
+        return None
+    internal, claude_name = _LOCAL_MODE[action]
+    if action == "oto":
+        updated = apply_setting(config, internal, value)
+        flag = updated.sandbox.auto_allow
+    else:
+        flag = action == "ac"
+        mode = SHELL_SANDBOX_WRITE_ROOT if flag else SHELL_SANDBOX_OFF
+        updated = apply_setting(config, internal, mode)
+    path = write_local_sandbox(project, {claude_name: flag})
+    return SandboxChange(updated, f"sandbox.{claude_name}", str(flag).lower(), path)
+
+
 def _with_notes(change: SandboxChange, *notes: str) -> SandboxChange:
     return replace(change, notes=(*change.notes, *notes)) if notes else change
 
@@ -275,18 +309,24 @@ def apply_sandbox_action(
     file: Path | None = None,
     *,
     root: Path | None = None,
+    local: bool = False,
 ) -> SandboxChange:
     """Eylemi uygula ve kullanıcı dosyasına yaz; geçersiz eylem/değer `ConfigError`.
 
     `root` kurulabilirlik denetimi içindir (sandbox açılırken uyarı); verilmezse çalışma dizini.
+    `local=True` (Claude `/sandbox` paneli: REPL ve masaüstü) kip seçimini (aç/kapat/oto)
+    projenin `.claude/settings.local.json`'ına yazar (#352); `fusion sandbox` kullanıcı dosyasına.
     """
     if action not in SANDBOX_ACTIONS:
         raise ConfigError(
             f"Bilinmeyen sandbox eylemi: {action!r}. Eylemler: {', '.join(SANDBOX_ACTIONS)}"
         )
+    change_local = _local_mode_change(config, action, value, file, root) if local else None
+    if change_local is not None and action == "oto":
+        return change_local
     if action in ("ac", "kapat"):
         mode = SHELL_SANDBOX_WRITE_ROOT if action == "ac" else SHELL_SANDBOX_OFF
-        change = _write(config, "runtime.shell_sandbox", mode, file)
+        change = change_local or _write(config, "runtime.shell_sandbox", mode, file)
         # Dosyaya Claude adıyla yazılır (`_migrate_file`); kullanıcıya da o ad gösterilir.
         change = replace(change, setting="sandbox.enabled", value=str(action == "ac").lower())
         if action == "kapat":

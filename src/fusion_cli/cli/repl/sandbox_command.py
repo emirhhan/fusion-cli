@@ -25,7 +25,7 @@ def sandbox_command(state: ReplState, argument: str) -> str:
         parsed = parse_action(argument)
         if parsed is None:
             return format_status(sandbox_status(state.config, state.root))
-        change = apply_sandbox_action(state.config, *parsed, root=state.root)
+        change = apply_sandbox_action(state.config, *parsed, root=state.root, local=True)
     except ConfigError as error:
         return str(error)
     state.config = change.config

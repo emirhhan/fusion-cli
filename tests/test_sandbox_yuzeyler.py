@@ -6,6 +6,7 @@ masaüstü sandbox kartı yoktu; kip yalnız config.yaml elle düzenlenerek aç�
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -101,8 +102,11 @@ def test_repl_sandbox_on_oturuma_ve_dosyaya_yazar(tmp_path):
     assert state.config.sandbox.allowed_domains == ("pypi.org",)
     assert "pypi.org" in izin
     assert "Kullanım: /sandbox" in hatali
-    # Claude açma anahtarı (#321): dosyada sandbox.enabled, eski anahtar taşınır.
-    assert _yaml(yol)["sandbox"]["enabled"] is True
+    # Claude /sandbox (#321, #352): kip seçimi projenin .claude/settings.local.json'ına
+    # sandbox.enabled olarak yazılır; alan adı listeleri kullanıcı dosyasında kalır.
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"] == {"enabled": True}
+    assert "enabled" not in _yaml(yol)["sandbox"]
     assert "shell_sandbox" not in (_yaml(yol).get("runtime") or {})
 
 
@@ -190,6 +194,7 @@ def test_rpc_durum_ve_ayarla(tmp_path):
 
     assert yok is None and durum["ok"] is True and "okuma_engeli" in durum
     assert yeni is not None and yeni.sandbox.auto_allow and sonuc["oto_izin"] is True
-    assert sonuc["dosya"].endswith("config.yaml")
+    # Masaüstü /sandbox paneli Claude gibi kip seçimini proje yerel ayarına yazar (#352).
+    assert sonuc["dosya"].endswith(".claude/settings.local.json")
     assert hata["ok"] is False and "alan adı" in hata["metin"]
     assert tip["ok"] is False
