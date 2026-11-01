@@ -45,6 +45,8 @@ class LaunchPrompts:
     extra_system: str = ""
     #: `--bare` (#298): turda sunulan araç kümesi (Bash + dosya okuma/düzenleme); None = kısıt yok.
     tools: frozenset[str] | None = None
+    #: `--restricted` (#301): tur başında bypass kipi `auto`ya iner.
+    restricted: bool = False
 
     @property
     def empty(self) -> bool:
@@ -144,12 +146,16 @@ def bind(state: object, prompts: object, *, resumed: object) -> LaunchPrompts | 
         resuming=resumed is not None,
         enabled=prompts.snapshot,
     )
-    if not prompts.bare:
-        return bound
-    _bind_bare_catalog(cast("_BareState", state))
-    from .print_runtime import BARE_TOOLS
+    if prompts.bare:
+        _bind_bare_catalog(cast("_BareState", state))
+        from .print_runtime import BARE_TOOLS
 
-    return replace(bound, tools=BARE_TOOLS)
+        bound = replace(bound, tools=BARE_TOOLS)
+    if prompts.restricted:
+        from .root_restricted import restricted_turn_tools
+
+        bound = replace(bound, tools=restricted_turn_tools(bound.tools), restricted=True)
+    return bound
 
 
 def _bind_bare_catalog(state: _BareState) -> None:
@@ -170,6 +176,8 @@ class LaunchSpec:
     prompts: LaunchPrompts
     snapshot: bool = True
     bare: bool = False
+    #: `--restricted` (#301): güvenli araç kümesi, bypass yok (`root_restricted.py`).
+    restricted: bool = False
 
 
 def apply_to_turn(turn: PersonaTurn, state: object) -> PersonaTurn:
@@ -177,6 +185,10 @@ def apply_to_turn(turn: PersonaTurn, state: object) -> PersonaTurn:
     prompts = getattr(state, "launch_prompts", None)
     if not isinstance(prompts, LaunchPrompts) or prompts.empty:
         return turn
+    if prompts.restricted:
+        from .root_restricted import guard_turn_mode
+
+        guard_turn_mode(state)
     extra = "\n\n".join(part for part in (turn.extra_system, prompts.extra_system) if part)
     tools = turn.allowed_tools
     if prompts.tools is not None:

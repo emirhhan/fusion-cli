@@ -82,3 +82,68 @@ def test_bare_olmayan_acilis_arac_kumesini_degistirmez(tmp_path):
     state = SimpleNamespace(config=SimpleNamespace(memory_dir=tmp_path), conversation_id="c1")
     state.launch_prompts = lp.bind(state, lp.LaunchSpec(lp.LaunchPrompts()), resumed=None)
     assert lp.apply_to_turn(PersonaTurn(), state).allowed_tools is None
+
+
+def _root(monkeypatch, args):
+    from fusion_cli.config.readiness import Readiness
+
+    seen: dict[str, object] = {}
+
+    async def _repl(config, **kwargs):
+        seen.update(kwargs, config=config, sources=os.environ.get("FUSION_SETTING_SOURCES"))
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _repl)
+    monkeypatch.setattr(
+        app_module, "evaluate", lambda *_a, **_k: SimpleNamespace(state=Readiness.READY)
+    )
+    monkeypatch.setenv("FUSION_SETTING_SOURCES", "x")
+    monkeypatch.delenv("FUSION_SETTING_SOURCES")
+    return seen, runner.invoke(app_module.app, args)
+
+
+def test_kok_restricted_araclari_ayarlari_ve_mcpyi_daraltir(monkeypatch):
+    from fusion_cli.cli.print_restricted import RESTRICTED_TOOLS
+
+    seen, result = _root(monkeypatch, ["--restricted"])
+    assert result.exit_code == 0, result.output
+    config = seen["config"]
+    assert config.runtime.block_reads_outside_root and config.runtime.block_writes_outside_root
+    assert config.mcp_servers == ()
+    assert seen["sources"] == ""
+    spec = seen["launch_prompts"]
+    assert spec.restricted is True
+    state = SimpleNamespace(config=config, conversation_id="", approval=None)
+    bound = lp.bind(state, spec, resumed=None)
+    assert bound.tools == RESTRICTED_TOOLS and "run_shell" not in bound.tools
+    state.launch_prompts = bound
+    turn = lp.apply_to_turn(PersonaTurn(), state)
+    assert turn.allowed_tools == set(RESTRICTED_TOOLS)
+
+
+def test_kok_restricted_bypass_reddeder_ve_tur_basinda_indirir(monkeypatch):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    settings = '{"permissions": {"defaultMode": "bypassPermissions"}}'
+    _seen, bad = _root(monkeypatch, ["--restricted", "--settings", settings])
+    assert bad.exit_code == 1 and "bypassPermissions" in bad.output
+    seen, result = _root(monkeypatch, ["--restricted"])
+    assert result.exit_code == 0, result.output
+    state = SimpleNamespace(
+        config=seen["config"], conversation_id="", approval=ApprovalMode.BYPASS
+    )
+    state.launch_prompts = lp.bind(state, seen["launch_prompts"], resumed=None)
+    lp.apply_to_turn(PersonaTurn(), state)
+    assert state.approval is ApprovalMode.AUTO
+
+
+def test_kok_restricted_bare_ile_kesisir(monkeypatch):
+    from fusion_cli.cli.print_restricted import RESTRICTED_TOOLS
+
+    seen, result = _root(monkeypatch, ["--restricted", "--bare"])
+    assert result.exit_code == 0, result.output
+    state = SimpleNamespace(
+        config=seen["config"], conversation_id="", extra_roots=(), session_agents=()
+    )
+    bound = lp.bind(state, seen["launch_prompts"], resumed=None)
+    assert bound.tools == BARE_TOOLS & RESTRICTED_TOOLS

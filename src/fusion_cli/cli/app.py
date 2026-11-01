@@ -62,8 +62,10 @@ from . import (
     memory_commands,
     paperclip_command,
     print_options,
+    print_restricted,
     print_settings,
     prompt_opt_commands,
+    root_restricted,
     sandbox_commands,
     team_cli,
     trash_commands,
@@ -241,6 +243,14 @@ def main_callback(
             "keşfetmeden aç; araçlar Bash + dosya okuma/düzenleme.",
         ),
     ] = False,
+    restricted: Annotated[
+        bool,
+        typer.Option(
+            "--restricted",
+            help="Kısıtlı kip: komut/kod araçları ve WebFetch yok, ayar katmanları ve "
+            "yapılandırma MCP'si yüklenmez, bypassPermissions kullanılamaz.",
+        ),
+    ] = False,
     settings_flag: Annotated[
         str | None,
         typer.Option(
@@ -271,6 +281,8 @@ def main_callback(
     try:
         # Claude `claude --setting-sources` (#296): yükleyiciler okumadan önce ayarlanır.
         print_settings.apply_setting_sources(setting_sources)
+        if restricted:  # #301: yalnız yönetilen ayarlar ve --settings
+            print_restricted.prepare_restricted_sources()
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
@@ -291,7 +303,13 @@ def main_callback(
         raise typer.Exit(1) from None
     try:
         # Claude `claude --settings` (#296): model, env, disableAllHooks, ek dizinler.
+        saved_mode = config.runtime.approval_mode
         config, settings_dirs = print_settings.root_settings(config, settings_flag, model)
+        if restricted:  # Claude `claude --restricted` (#301)
+            changed = config.runtime.approval_mode != saved_mode
+            config = root_restricted.restricted_root_config(
+                config, settings_mode=config.runtime.approval_mode if changed else None
+            )
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
@@ -329,6 +347,7 @@ def main_callback(
         append_system_prompt_file,
         system_prompt_snapshot,
         bare=bare,
+        restricted=restricted,
     )
     exit_code = asyncio.run(
         with_web_cleanup(
@@ -365,6 +384,7 @@ def _launch_prompts_or_exit(
     snapshot: str | None,
     *,
     bare: bool = False,
+    restricted: bool = False,
 ) -> object:
     """Kök komutun `--system-prompt*` bayrakları (#295); hatalı değer 1 ile çıkar."""
     from . import launch_prompts
@@ -380,7 +400,7 @@ def _launch_prompts_or_exit(
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
-    return launch_prompts.LaunchSpec(prompts, enabled, bare=bare)
+    return launch_prompts.LaunchSpec(prompts, enabled, bare=bare, restricted=restricted)
 
 
 def _print_version_and_exit(value: bool) -> None:
