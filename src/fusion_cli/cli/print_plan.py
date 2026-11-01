@@ -22,6 +22,7 @@ from ..ui import print_messages as texts
 from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
+from .print_plugin_dirs import add_plugin_dirs
 from .print_restricted import (
     apply_restricted_config,
     check_restricted_mode,
@@ -58,6 +59,8 @@ class PrintRequest:
     safe_mode: bool = False
     #: `--restricted` (#301): komut/kod araçları yok, ayar katmanları yok, bypass yok.
     restricted: bool = False
+    #: `--plugin-dir` (#301): oturumluk eklenti klasörleri.
+    plugin_dir: tuple[str, ...] = ()
     subagent_append: str | None = None
     subagent_append_file: str | None = None
     model: str | None = None
@@ -202,6 +205,7 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     apply_setting_sources(request.setting_sources)
     if request.restricted:
         prepare_restricted_sources()
+    add_plugin_dirs(request.plugin_dir)
     session_id = opts.checked_session_id(request.session_id)
     config, mcp_errors, settings = _build_config(request)
     session = read_settings(settings)

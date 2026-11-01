@@ -122,6 +122,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |
 | `--append-subagent-system-prompt <metin>` / `--append-subagent-system-prompt-file <yol>` | İç içe olanlar dahil her alt ajanın sistem istemine eklenir (çatallı alt ajan hariç); ikisi birleştirilemez. |
 | `--safe-mode` | Proje talimatı, beceriler, özel komut/ajanlar, eklentiler, kancalar, MCP ve bellek yüklenmez; yerleşik araçlar ve izinler normal. `CLAUDE_CODE_SAFE_MODE=1` ayarlanır. |
+| `--plugin-dir <yol>` | Eklentiyi kurmadan yalnız bu oturum için yükler; her bayrak tek yol alır, tekrarlanır (`--plugin-dir A --plugin-dir B`). Yollar `CLAUDE_CODE_PLUGIN_DIRS`'e eklenir (alt ajanlar ve alt süreçler aynı listeyi görür); eklentinin yüklenmesi için bkz. EKLENTILER.md. |
 | `--restricted` | Kısıtlı kip: komut ya da kod çalıştıran araçlar (Bash ve Fusion'ın masaüstü/tarayıcı/iş/Python gibi ek araçları) ve WebFetch kaldırılır; `--tools` ile TEK TEK adı verilen kalır (`default` geri getirmez). Dosya araçları çalışma dizinlerine (kök + `--add-dir`) sınırlanır; kullanıcı/proje/yerel ayar katmanları yüklenmez (yalnız `--settings`); yapılandırmadaki MCP bağlanmaz (`--mcp-config` bağlanır); `bypassPermissions` reddedilir. Alt ajanlar aynı tavanı devralır. |
 | `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
 | `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
@@ -143,7 +144,7 @@ başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız
 giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
 
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--prompt-suggestions`, `--plugin-dir`)
+`--prompt-suggestions`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına

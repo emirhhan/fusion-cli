@@ -96,7 +96,6 @@ def print_command(
     ignored = {
         "--include-hook-events": include_hooks,
         "--prompt-suggestions": prompt_suggestions,
-        "--plugin-dir": bool(plugin_dir),
     }
     request = PrintRequest(
         prompt=prompt,
@@ -129,6 +128,7 @@ def print_command(
         no_memory=no_memory or bare or safe_mode,
         safe_mode=safe_mode,
         restricted=restricted,
+        plugin_dir=tuple(plugin_dir or ()),
         subagent_append=subagent_append,
         subagent_append_file=subagent_append_file,
         add_dir=tuple(add_dir or ()),

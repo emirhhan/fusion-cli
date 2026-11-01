@@ -34,6 +34,7 @@ INITIAL_PROMPT_OPTION = "--initial-prompt"
 _PRINT_FLAGS = frozenset({"-p", "--print"})
 _WORKTREE_FLAGS = frozenset({"-w", "--worktree"})
 #: Claude'da boşlukla birden çok değer alan bayraklar (commander `<values...>`).
+#: `--plugin-dir` burada DEĞİL: Claude'da her bayrak tek yol alır (`-p --plugin-dir A "sorgu"`).
 VARIADIC_OPTIONS = frozenset(
     {
         "--allowedTools",
@@ -43,7 +44,6 @@ VARIADIC_OPTIONS = frozenset(
         "--add-dir",
         "--mcp-config",
         "--betas",
-        "--plugin-dir",
     }
 )
 
