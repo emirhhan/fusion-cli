@@ -204,8 +204,9 @@ Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula; pazar kaldırma ö
 bütün eklentilerin, ayarlarının ve verilerinin de silineceğini söyleyip onay ister ve kaldırılanları
 bildirir (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`, `eklenti.pazar_kaldir` →
 `kaldirilan`; `eklenti.pazar_guncelle` `renames` bildirimlerini `notlar` alanında döndürür). Masaüstünde
-henüz yok: `--scope` seçici, `/reload-plugins` karşılığı, auto-update anahtarı, otomatik güncelleme ve
-bildirilen pazar eşitlemesi (yalnız REPL açılışında çalışır).
+sunucusu açılışında REPL gibi bildirilen pazar eşitlemesi, `renames` eşlemesi ve gecikmeli otomatik
+güncelleme arka planda başlar. Masaüstü arayüzünde henüz yok: `--scope` seçici, `/reload-plugins`
+karşılığı, auto-update anahtarı, güncelleme bildiriminin gösterilmesi, skills-dir/oturumluk eklentiler.
 
 Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentileri Claude Code gibi
 kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki
