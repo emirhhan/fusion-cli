@@ -526,13 +526,8 @@ runtime:
   # değiştirmediyse mutasyon sayılmaz ve önceki testin kanıtı bayatlamaz. Proje kökü dışına
   # yazma görünmez. false = tanınmayan komut her zaman "dosya değiştirmiş olabilir" sayılır.
   shell_workspace_fingerprint: true
-  # Masaüstü ekran görüntüsü modele gitmeden bu genişliğe (piksel) küçültülür; sonuçta
-  # "1 görüntü pikseli = N nokta" çerçevesi bildirilir, desktop_mouse x,y görüntü pikselidir.
-  # 1568: vision modellerinin kayıpsız kenarı. Daha küçük = daha az token, daha az ayrıntı.
-  desktop_screenshot_max_width: 1568
-  # Ekran görüntüsünde Fusion'ın kendi penceresi (CLI'de terminal) hariç tutulur; model kendi
-  # sohbetini görüp kendini tekrar etmez. macOS 14+ ScreenCaptureKit; yoksa tam ekran alınır.
-  desktop_exclude_fusion_window: true
+  # Masaüstü ekran görüntüsü Claude Code gibi sabit hedefe küçültülür (3456x2234 → ~1372x887);
+  # Fusion penceresi ve CLI'de terminal her zaman görüntüden çıkarılır. Ayarı yoktur.
   # Kapı iki düzeltme turundan sonra hâlâ kırmızıysa TEK ek düzeltme turu, yapılandırmada
   # tanımlı bir ÜST modelle koşar (sinyal yalnız gerçek kapı sonucu; kullanıcıya durum
   # satırı + GateEscalated/GateEscalationFinished olayı gider). Üst model yoksa etkisizdir.

@@ -15,9 +15,20 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-#: Modele gönderilen ekran görüntüsünün en fazla genişliği (piksel). Claude computer-use
-#: 3456x2234'ü ~1372 genişliğe indirir; 1568 vision modellerinin kayıpsız kenarıdır.
+#: Eski `runtime.desktop_screenshot_max_width` varsayılanı (kullanımdan kalktı, #448).
 DESKTOP_SCREENSHOT_MAX_WIDTH = 1568
+#: Claude Code: "A 16-inch MacBook Pro at native Retina resolution captures at 3456×2234 and
+#: downscales to roughly 1372×887, preserving aspect ratio. There is no setting to change the
+#: target size." (#453). Hedef: en-boy oranı korunur, alan bu piksel bütçesini aşmaz.
+SCREENSHOT_TARGET_PIXELS = 1_218_000
+
+
+def screenshot_target_width(width: float, height: float) -> int:
+    """Görüntünün en-boy oranından sabit hedef genişlik (3456x2234 → 1372; ayarlanamaz)."""
+    if width <= 0 or height <= 0:
+        return DESKTOP_SCREENSHOT_MAX_WIDTH
+    target = int((SCREENSHOT_TARGET_PIXELS * width / height) ** 0.5)
+    return max(1, min(DESKTOP_SCREENSHOT_MAX_WIDTH, target))
 
 
 @dataclass(frozen=True, slots=True)

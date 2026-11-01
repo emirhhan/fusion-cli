@@ -332,6 +332,9 @@ def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec |
 
 
 def _build_runtime(raw: object) -> RuntimeConfig:
+    from .desktop_deprecation import warn_deprecated_runtime_keys
+
+    warn_deprecated_runtime_keys(raw)
     # YAML 1.1: tırnaksız `off` mantıksal false okunur; kullanıcı niyeti "off"tur.
     if isinstance(raw, dict) and raw.get("shell_sandbox") is False:
         raw = {**raw, "shell_sandbox": "off"}

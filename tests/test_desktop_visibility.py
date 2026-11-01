@@ -82,7 +82,9 @@ def test_bolge_yakalama_da_dislamali_yerel_yoldan_gider(tmp_path, monkeypatch, s
     assert "1password" in request["excludeNames"]  # type: ignore[index]
 
 
-def test_fusion_dislamasi_kapali_olsa_da_ret_listesi_dislanir(tmp_path, monkeypatch, screen):
+def test_eski_dislama_ayari_kapali_olsa_da_fusion_ve_ret_listesi_dislanir(
+    tmp_path, monkeypatch, screen
+):
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         desktop_screen, "invoke_sync", lambda operation, target: calls.append(target) or {}
@@ -96,7 +98,8 @@ def test_fusion_dislamasi_kapali_olsa_da_ret_listesi_dislanir(tmp_path, monkeypa
 
     assert desktop_screen.desktop_screenshot({"path": "s.png"}, context).ok
     request = calls[0]["request"]
-    assert request["excludePids"] == [] and "notes" in request["excludeNames"]  # type: ignore[index]
+    assert request["excludePids"] == desktop_screen._exclude_pids()  # type: ignore[index]
+    assert "notes" in request["excludeNames"]  # type: ignore[index]
 
 
 def test_geri_dususte_engelli_uygulama_gorunurse_yakalanmaz(tmp_path, monkeypatch, screen):

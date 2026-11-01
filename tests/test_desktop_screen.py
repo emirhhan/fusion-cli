@@ -63,11 +63,12 @@ def test_retina_goruntusu_kucultulur_ve_cerceve_bildirilir(tmp_path, monkeypatch
 
     assert sonuc.ok, sonuc.output
     assert [k[0] for k in komutlar] == ["screencapture", "sips"]
-    assert komutlar[1][:3] == ["sips", "--resampleWidth", "1568"]
+    # #453: sabit hedef (en-boy korunur): 1440x900 → 1395 genişlik.
+    assert komutlar[1][:3] == ["sips", "--resampleWidth", "1395"]
     cerceve = context.desktop.frame
-    assert cerceve is not None and cerceve.image_width == 1568
-    assert cerceve.to_point(1568, 980) == (1440.0, 900.0)
-    assert "1568x980 px" in sonuc.output and "1440x900 nokta" in sonuc.output
+    assert cerceve is not None and cerceve.image_width == 1395
+    assert cerceve.to_point(1395, 0) == (1440.0, 0.0)
+    assert "1395x871 px" in sonuc.output and "1440x900 nokta" in sonuc.output
     assert sonuc.images[0].startswith("data:image/png;base64,")
 
 
@@ -79,14 +80,19 @@ def test_kucuk_goruntu_kucultulmez(tmp_path, monkeypatch) -> None:
     assert sonuc.ok and [k[0] for k in komutlar] == ["screencapture"]
 
 
-def test_ayar_genisligi_toolcontext_ten_gelir(tmp_path, monkeypatch) -> None:
+def test_hedef_genislik_sabit_eski_ayar_yok_sayilir(tmp_path, monkeypatch) -> None:
+    """#448, #453: Claude 3456x2234'ü ~1372x887'ye indirir; hedefi değiştiren ayar yok."""
+    from fusion_cli.core.desktop_frame import screenshot_target_width
+
+    assert screenshot_target_width(3456, 2234) == 1372
+    assert screenshot_target_width(1728, 1117) == 1372
     komutlar = _retina(monkeypatch)
 
     desktop_screen.desktop_screenshot(
         {"path": "s.png"}, ToolContext(root=tmp_path, desktop_screenshot_max_width=800)
     )
 
-    assert komutlar[1][2] == "800"
+    assert komutlar[1][2] == str(screenshot_target_width(1440, 900)) == "1395"
 
 
 def test_bolge_zoom_tam_goruntu_koordinatiyla_cekilir(tmp_path, monkeypatch) -> None:
@@ -100,8 +106,8 @@ def test_bolge_zoom_tam_goruntu_koordinatiyla_cekilir(tmp_path, monkeypatch) -> 
     )
 
     assert sonuc.ok, sonuc.output
-    # 784 px * (1440/1568) = 720 nokta; 100 px → 92 nokta.
-    assert komutlar[-2][4] == "-R" and komutlar[-2][5] == "720,450,92,46"
+    # 784 px * (1440/1395) ≈ 809 nokta; 100 px → 103 nokta.
+    assert komutlar[-2][4] == "-R" and komutlar[-2][5] == "809,506,103,52"
     assert "KIRPIK" in sonuc.output and "784,490" in sonuc.output
     assert context.desktop.frame is onceki
 
@@ -181,15 +187,15 @@ def test_fusion_penceresi_haric_yakalama_once_denenir(tmp_path, monkeypatch) -> 
         desktop_screen,
         "_native_capture",
         lambda display, max_width, *_, **__: (
-            istekler.append((display, max_width)) or _png(1568, 980)
+            istekler.append((display, max_width)) or _png(1395, 872)
         ),
     )
     context = ToolContext(root=tmp_path)
 
     sonuc = desktop_screen.desktop_screenshot({"path": "s.png"}, context)
 
-    assert sonuc.ok and komutlar == [] and istekler[0][1] == 1568
-    assert context.desktop.frame is not None and context.desktop.frame.image_width == 1568
+    assert sonuc.ok and komutlar == [] and istekler[0][1] == 1395
+    assert context.desktop.frame is not None and context.desktop.frame.image_width == 1395
 
 
 def test_haric_tutma_kapaliysa_veya_basarisizsa_screencapture(tmp_path, monkeypatch) -> None:
@@ -204,8 +210,8 @@ def test_haric_tutma_kapaliysa_veya_basarisizsa_screencapture(tmp_path, monkeypa
     kapali = ToolContext(root=tmp_path, desktop_exclude_fusion_window=False)
     assert desktop_screen.desktop_screenshot({"path": "b.png"}, kapali).ok
 
-    # Fusion dışlaması kapalı olsa da yerel yakalama (ret listesi dışlamasıyla) denenir.
-    assert [k[0] for k in komutlar][:1] == ["screencapture"] and cagrildi == [False]
+    # #448: Fusion penceresi her zaman dışlanır; eski ayar yok sayılır.
+    assert [k[0] for k in komutlar][:1] == ["screencapture"] and cagrildi == [True]
 
 
 def test_yerel_yakalama_sonucu_cozulur(monkeypatch) -> None:

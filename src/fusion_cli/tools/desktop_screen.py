@@ -20,7 +20,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.desktop_frame import DesktopFrame
+from ..core.desktop_frame import DesktopFrame, screenshot_target_width
 from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -353,17 +353,20 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     if _screen_recording_denied():
         return permission_failure(SCREEN_RECORDING)
     target.parent.mkdir(parents=True, exist_ok=True)
-    max_width = max(1, context.desktop_screenshot_max_width)
+    # Hedef boyut sabit (#448, #453): eski `runtime.desktop_screenshot_max_width` ve
+    # `desktop_exclude_fusion_window` yok sayılır; Fusion penceresi/terminal her zaman dışlanır.
+    max_width = screenshot_target_width(display.width, display.height)
     try:
         rect = None
         if region is not None:
             left, top, width_pt, height_pt = _region_points(display, region, previous)
             rect = (left - display.x, top - display.y, width_pt, height_pt)
+            max_width = screenshot_target_width(width_pt, height_pt)
         native = _native_capture(
             display,
             max_width,
             context.desktop_settings,
-            exclude_fusion=context.desktop_exclude_fusion_window,
+            exclude_fusion=True,
             rect=rect,
         )
         refusal = None if native is not None else _fallback_refusal(context.desktop_settings)
@@ -388,7 +391,7 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     size = png_size(data)
     if size is None or len(data) > SCREENSHOT_MAX_BYTES:
         return ToolResult.failure(
-            "Ekran görüntüsü sınırı aştı ya da PNG değil; desktop_screenshot_max_width'i küçült."
+            "Ekran görüntüsü sınırı aştı ya da PNG değil."
         )
     context.touched.add(target)
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
