@@ -15,6 +15,7 @@ from . import (
     browser,
     chrome,
     desktop,
+    desktop_access,
     desktop_background,
     desktop_inspect,
     desktop_mouse,
@@ -224,6 +225,19 @@ _TOOLS: tuple[Tool, ...] = (
         description="Çalışan macOS uygulamalarını listele.",
         parameters=_schema({}, []),
         run=desktop.desktop_apps,
+    ),
+    Tool(
+        name="desktop_request_access",
+        description=(
+            "Kullanacağın macOS uygulamalarını tek istemde iste (apps listesi); onaylananlar "
+            "oturum boyu izinli olur."
+        ),
+        parameters=_schema(
+            {"apps": {"type": "array", "items": _STRING}, "reason": _STRING}, ["apps"]
+        ),
+        run=desktop_access.desktop_request_access,
+        mutating=True,
+        effect=ToolEffect.REMOTE_INTERACT,
     ),
     Tool(
         name="desktop_open",

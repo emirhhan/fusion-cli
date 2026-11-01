@@ -59,6 +59,7 @@ from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
+from .desktop_access import ACCESS_TOOL, apply_access
 from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
@@ -253,6 +254,8 @@ class ApprovalRequest:
     desktop_target: DesktopTarget | None = None
     #: Araçtan bağımsız oturum izni anahtarı (uygulama başına masaüstü onayı, P-007).
     consent_key: str | None = None
+    #: Toplu uygulama onayının diğer anahtarları (#426): onay hepsini birlikte hatırlar.
+    extra_consent_keys: tuple[str, ...] = ()
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
     #: Plan kipinde bile sorulup onaylanırsa çalışan çağrı (#450: Chrome'da GIF kaydı, yeni
@@ -352,13 +355,19 @@ class ApprovalMemory:
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
         scope = _scope(request)
-        return request.danger is None and scope is not None and scope in self._scopes
+        return (
+            request.danger is None
+            and scope is not None
+            and scope in self._scopes
+            and all(key in self._scopes for key in request.extra_consent_keys)
+        )
 
     def remember(self, request: ApprovalRequest) -> None:
         """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
         scope = _scope(request)
         if request.danger is None and scope is not None:
             self._scopes.add(scope)
+            self._scopes.update(request.extra_consent_keys)
 
 
 class _AskingApproval:
@@ -568,6 +577,9 @@ async def resolve_request(
         request = replace(request, plan_prompt=True)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
+    if tool.name == ACCESS_TOOL:
+        # Toplu uygulama onayı (#426): tek kart, onaylanan her uygulama oturum boyu izinli.
+        return apply_access(request, args, context)
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
     assessment = await desktop_policy.assess(tool.name, args, context)
     return apply_desktop(request, assessment)

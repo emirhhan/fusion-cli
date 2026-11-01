@@ -46,6 +46,12 @@ Uygulama oturumda ilk kez kullanılacaksa **her kipte** (İzinleri atla dahil) i
   bir daha sorulmaz (izin uygulamaya bağlıdır, araca değil).
 - **Reddet** — çağrı yapılmaz.
 
+Model işe başlamadan kullanacağı uygulamaları `desktop_request_access` ile **tek istemde**
+isteyebilir (Claude: `request_access`). İstem denetlenecek uygulamaları kademeleriyle ve
+çalışırken kaç diğer uygulamanın gizleneceğini gösterir; "Bu oturumda Mail, Notes için izin
+ver" onaylanan her uygulamayı oturum boyu izinli yapar, ilk tıklamada ayrıca sorulmaz. Ret
+listesindeki uygulama ve Fusion karta girmez; hepsi engelliyse istek sorulmadan kapanır.
+
 Terminalde Enter, `e` ya da `o` oturum izni verir, `h` reddeder. Tek çağrılık "Evet" ve
 "Her zaman reddet" yoktur; ret listesi Ayarlar'dan yönetilir. Plan kipinde masaüstü eylemi
 yapılmaz. Riskli eylemler (gönder/sil/öde düğmesi, sohbette Enter, Sistem Ayarları) her
@@ -135,5 +141,5 @@ girmez; yalnız o turun isteğine eklenir (`engines/agent/computer_use_hint.py`)
 ## Claude Code'dan hâlâ farklı (Henüz yok)
 
 - Windows'ta computer use (Claude Desktop'ta var; Fusion yalnız macOS) — #430.
-- Onay isteminde istenen ek izinler (pano) ve gizlenecek uygulama sayısı; aynı anda istenen
-  uygulamaların tek kartta toplu onayı — #426.
+- Pano okuma/yazma izni: Claude'un pano araçları olduğu için istemde ek izin satırı var;
+  Fusion'da pano aracı yok, istemde ek izin satırı çıkmaz — #426.

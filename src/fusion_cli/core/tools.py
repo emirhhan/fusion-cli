@@ -115,6 +115,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "desktop_window_focus": ToolFamily.DESKTOP,
     "desktop_accessibility": ToolFamily.DESKTOP,
     "desktop_open": ToolFamily.DESKTOP,
+    "desktop_request_access": ToolFamily.DESKTOP,
     "desktop_displays": ToolFamily.DESKTOP,
     "desktop_screenshot": ToolFamily.DESKTOP,
     "desktop_mouse": ToolFamily.DESKTOP,
