@@ -234,7 +234,7 @@ def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
     TEK yerde yapılır: her aracın kendi kırpma kuralını yazması, aynı hatayı her
     araçta yeniden üretmek demekti. Depo yoksa davranış aynen korunur.
     """
-    if context.artifacts is None or not result.output:
+    if context.artifacts is None or not result.output or result.output_shaped:
         return result
     output, path = offload_output(
         result.output, store=context.artifacts, tool=name, limit=MAX_OUTPUT_CHARS

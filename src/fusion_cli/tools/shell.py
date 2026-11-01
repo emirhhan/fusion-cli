@@ -55,7 +55,8 @@ from .sandbox_runtime import (
     sandbox_env,
     sandbox_notes,
 )
-from .shell_adopt import adopt, can_adopt, marked_command, new_token
+from .shell_adopt import adopt, can_adopt, new_token
+from .shell_output import is_benign_exit, output_limits, shape_output
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
@@ -166,7 +167,7 @@ def _run_foreground(
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
         with handoff_slot() as slot:
             process = run_foreground(
-                marked_command(command, token) if token else command,
+                command,
                 timeout_s=timeout_s,
                 cancelled=context.cancelled,
                 cwd=context.root,
@@ -174,6 +175,7 @@ def _run_foreground(
                 argv_prefix=run.plan.prefix,
                 adopt_on_timeout=(lambda: True) if token else None,
                 handoff=slot if token else None,
+                ownership_marker=token,
             )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
@@ -182,7 +184,14 @@ def _run_foreground(
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
-    body = _combine(process.stdout, process.stderr)
+    inline, window = output_limits(context.root)
+    body, saved = shape_output(
+        _join(process.stdout, process.stderr),
+        valid=is_benign_exit(command, process.returncode),
+        inline=inline,
+        window=window,
+        store=context.artifacts,
+    )
     text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
     text += _sandbox_notes(run, process)
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
@@ -205,7 +214,13 @@ def _run_foreground(
             text += _UNPROVEN_WRITE_NOTE
     return check_shell_result(
         context,
-        ToolResult(text, ok=process.returncode == 0, workspace_effect=effect),
+        ToolResult(
+            text,
+            ok=process.returncode == 0,
+            workspace_effect=effect,
+            artifact_path=str(saved) if saved else "",
+            output_shaped=True,
+        ),
         baseline=integrity_error,
     )
 
@@ -361,8 +376,12 @@ def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(body or "(çıktı yok)", ok=process.returncode == 0)
 
 
-def _combine(stdout: str, stderr: str) -> str:
+def _join(stdout: str, stderr: str) -> str:
     text = stdout or ""
     if stderr:
         text += f"\n[stderr]\n{stderr}"
-    return truncate_notice(text, output_limit(), ne="komut çıktısı")
+    return text
+
+
+def _combine(stdout: str, stderr: str) -> str:
+    return truncate_notice(_join(stdout, stderr), output_limit(), ne="komut çıktısı")

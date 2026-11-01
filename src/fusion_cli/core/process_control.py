@@ -245,6 +245,7 @@ def run_foreground(
     argv_prefix: Sequence[str] = (),
     adopt_on_timeout: Callable[[], bool] | None = None,
     handoff: Event | None = None,
+    ownership_marker: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
 
@@ -257,14 +258,18 @@ def run_foreground(
     çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür;
     yalnız `adopt_on_timeout()` doğruysa zaman aşımında süreç öldürülmez,
     `MovedToBackground` ile sahipliği çağırana geçer (Claude Code, #319). `handoff` olayı
-    kurulursa (Ctrl+B, #320) süreç aynı yolla hemen devredilir.
+    kurulursa (Ctrl+B, #320) süreç aynı yolla hemen devredilir. `ownership_marker` verilirse
+    betiğin başına `: <işaret>` eklenir; `trap : EXIT` kabuğun son komutu `exec` ile
+    değiştirmesini engeller, işaret süreç satırında kalır (devredilen işin sahiplik kanıtı).
+    Davranış ve çıkış kodu değişmez.
     """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
     timing = clock or SystemClock()
     deadline = timing.monotonic() + timeout_s
+    script = f"trap : EXIT; : {ownership_marker}\n{command}\n" if ownership_marker else command
     process = subprocess.Popen(
-        [*argv_prefix, "/bin/sh", "-c", command] if argv_prefix else command,
+        [*argv_prefix, "/bin/sh", "-c", script] if argv_prefix else script,
         shell=not argv_prefix,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

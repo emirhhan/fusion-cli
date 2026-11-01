@@ -152,7 +152,12 @@ okunmadığı için orada `/bg` kullanılır.
   iken komut eskisi gibi durdurulur.
 - `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
-- Satır içi çıktı sınırı 30.000 karakter; `BASH_MAX_OUTPUT_LENGTH` ile değişir.
+- Çıktı (Claude Code Bash ile aynı): geçerli sonuç ~30.000 karaktere kadar satır içi; aşınca
+  oturumun çıktı dizinindeki dosyanın yolu ve ilk 2.000 karakter. Hatalı sonuç ~10.000
+  karaktere kadar; aşınca baş+son kesit (dosya yolu yok). Çıkış kodu 1 yalnız `grep`, `rg`,
+  `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff`, `git grep` için geçerli sayılır.
+  `BASH_MAX_OUTPUT_LENGTH` geri okuma penceresi (tavan 150.000); Claude `settings.json`'daki
+  `bashOutputMaxChars` (≤128.000) satır içi sınırı ve pencereyi birlikte ayarlar.
 
 ## Bilinen sınırlar
 

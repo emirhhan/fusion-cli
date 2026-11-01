@@ -6,8 +6,8 @@ komutlar hariç. Sonuç görev kimliğini ve çıktı dosyasının yolunu verir.
 
 Süreç yeniden başlatılmaz: aynı süreç ve boruları `.fusion/is/<kimlik>` kaydına geçer,
 böylece `job_status` (durum, son çıktı, durdurma) eski arka plan işleriyle aynı yoldan çalışır.
-Sahiplik doğrulaması için komut başına `: fusion-job-<nonce>` işareti eklenir; `trap : EXIT`
-kabuğun son komutu `exec` ile değiştirmesini engeller, işaret süreç satırında kalır.
+Sahiplik doğrulaması için `run_foreground(ownership_marker=…)` komut başına
+`: fusion-job-<nonce>` işareti ekler (bkz. `core.process_control`).
 """
 
 from __future__ import annotations
@@ -44,11 +44,6 @@ def can_adopt(command: str) -> bool:
     except ValueError:
         words = command.split()
     return bool(words) and words[0] != "sleep"
-
-
-def marked_command(command: str, token: str) -> str:
-    """Sahiplik işaretli komut metni (davranış ve çıkış kodu değişmez)."""
-    return f"trap : EXIT; : {token}\n{command}\n"
 
 
 def adopt(

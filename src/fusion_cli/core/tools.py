@@ -220,6 +220,8 @@ class ToolResult:
     job_completion: JobCompletion | None = None
     #: `run_shell`: komutun proje kökündeki ölçülen etkisi; `None` = ölçülmedi.
     workspace_effect: WorkspaceEffect | None = None
+    #: Araç çıktıyı kendi (Claude Code) sınırına göre biçimledi; genel diske alma atlanır.
+    output_shaped: bool = False
 
     @property
     def images(self) -> tuple[str, ...]:
