@@ -234,7 +234,7 @@ async def test_arac_katalogu_rpc_kaynak_degismisse_eski_sonucu_gostermez(tmp_pat
     server = McpServerConfig(name="one", command="fake")
     session._state.config = replace(session._state.config, mcp_servers=(server,))
 
-    async def catalog(config):
+    async def catalog(config, **_kwargs):
         assert config is server
         session._state.config = replace(session._state.config, mcp_servers=())
         return {"ok": True, "tools": [{"name": "old-account-tool"}]}
