@@ -142,3 +142,13 @@ def test_cli_marketplace_list_bildirilen_pazari_once_ekler(tmp_path, monkeypatch
     result = runner.invoke(app, ["marketplace", "list"])
     assert result.exit_code == 0, result.output
     assert "ekip" in result.output
+
+
+def test_bildirim_adi_kaynaktaki_addan_farkliysa_her_cagride_yeniden_eklenmez(tmp_path):
+    project = tmp_path / "proje"
+    _declare(project, "settings.json", {"farkli": _dir_entry(_market(tmp_path / "m", "ekip"))})
+    trust.trust_project(project)
+
+    assert plugin_declared.sync_declared(project) == ("ekip",)
+    assert plugin_declared.sync_declared(project) == ()
+    assert _known() == ["ekip"]

@@ -116,3 +116,24 @@ def test_git_subdir_kaynagi_depodaki_alt_klasoru_kurar(tmp_path, monkeypatch):
     assert calls == ["https://github.com/ekip/monorepo"]
     assert item.layout is not None and len(item.layout.skills) == 1
     assert not (item.layout.root / "README.md").exists()  # yalnız alt klasör kuruldu
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["fusion_cli.core.plugin_marketplace", "fusion_cli.config.plugin_project_enabled"],
+)
+def test_pazar_modulu_ilk_ice_aktarmada_dongu_vermez(module):
+    """Temiz süreçte ilk içe aktarılan modül olunca da yüklenir (döngüsel içe aktarma yok)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import fusion_cli
+
+    src = str(Path(fusion_cli.__file__).resolve().parents[1])
+    env = {**os.environ, "PYTHONPATH": src}
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {module}"], capture_output=True, text=True, env=env
+    )
+    assert result.returncode == 0, result.stderr[-400:]

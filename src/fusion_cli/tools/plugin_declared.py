@@ -112,10 +112,14 @@ def sync_declared(root: Path | None = None, *, base: Path | None = None) -> tupl
 
     project = root or Path.cwd()
     store = base or plugins_dir()
-    known = {record.name for record in load_state(store).marketplaces}
+    records = load_state(store).marketplaces
+    known = {record.name for record in records}
+    # Bildirim adı kaynaktaki pazarın adından farklıysa ad hiç eşleşmez: kaynağa da bakılır,
+    # yoksa her açılışta (git'te yeniden klonla) aynı pazar yeniden eklenmeye çalışılırdı.
+    sources = {record.source for record in records}
     added: list[str] = []
     for name, item in declared_marketplaces(project).items():
-        if name in known:
+        if name in known or _spec_source(item.spec) in sources:
             continue
         try:
             record = add_marketplace(item.spec, base=store)
@@ -127,6 +131,17 @@ def sync_declared(root: Path | None = None, *, base: Path | None = None) -> tupl
         known.add(record.name)
         added.append(record.name)
     return tuple(added)
+
+
+def _spec_source(spec: str) -> str:
+    """Bildirilen kaynağın kayıtta saklanacak biçimi (`add_marketplace` ile aynı); bozuksa boş."""
+    from .plugin_market_source import KIND_GIT, parse_market_source
+
+    try:
+        source = parse_market_source(spec)
+    except PluginError:
+        return ""
+    return source.record_source if source.kind == KIND_GIT else source.location
 
 
 def sync_quietly(root: Path | None = None) -> tuple[str, ...]:

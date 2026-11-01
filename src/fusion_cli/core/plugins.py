@@ -27,6 +27,7 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .errors import FusionError
 from .plugin_paths import (
@@ -240,12 +241,27 @@ def substitute_root(text: str, root: str, data: str = "", project: str = "") -> 
     return text
 
 
-from .plugin_marketplace import (  # noqa: E402  (döngüsel içe aktarma: PluginError'a bağlı)
-    Marketplace,
-    MarketplaceEntry,
-    MarketplaceSource,
-    parse_marketplace,
-)
+#: `plugin_marketplace` bu modüle (PluginError, safe_relative) bağlıdır; adları tembel yeniden
+#: dışa aktarılır. Modül başında içe aktarmak, pazar modülü ilk içe aktarılan olunca döngü verirdi.
+_MARKETPLACE_NAMES = frozenset({"Marketplace", "MarketplaceEntry", "MarketplaceSource"})
+_MARKETPLACE_NAMES |= {"parse_marketplace"}
+
+if TYPE_CHECKING:
+    from .plugin_marketplace import (
+        Marketplace,
+        MarketplaceEntry,
+        MarketplaceSource,
+        parse_marketplace,
+    )
+
+
+def __getattr__(name: str) -> object:
+    if name in _MARKETPLACE_NAMES:
+        from . import plugin_marketplace
+
+        return getattr(plugin_marketplace, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Marketplace",
