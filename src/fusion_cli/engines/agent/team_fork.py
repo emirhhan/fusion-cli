@@ -135,6 +135,8 @@ async def run_forked_turn(
         tool_deny=frozenset(denied_tools),
         images=tuple(images),
         step_limit=step_limit,
+        # `/ad` fork turunun beceri kuralları (`begin_turn`) alt ajanın bağlamına geçer (#141).
+        skill_grants=tuple(getattr(getattr(deps, "tool_context", None), "skill_grants", ()) or ()),
     )
     if background and getattr(deps, "interactive", False):
         text, ok = await _launch_background(deps, subtask, run_agent)

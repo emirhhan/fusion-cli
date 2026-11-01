@@ -215,14 +215,18 @@ def build_skill_tool(
         )
         if not invocation.ok:
             return ToolResult.failure("\n".join(invocation.notes) or "beceri çağrısı iptal")
-        skill_grants.grant(context, grant_entries(found, context.root))
+        grants = grant_entries(found, context.root)
         skill_usage.record_invocation(getattr(deps.config, "memory_dir", None), found.name)
         # `hooks` (#161): çağrıda oturuma kaydedilir, oturum boyunca etkin.
         skill_hooks.register(
             getattr(deps, "hooks", None), found, trusted=skill_trusted(found, context.root)
         )
         if invocation.fork:
-            return await _run_forked(found, invocation, deps, (depth, context.root), run_agent)
+            # Fork becerisinin ön onayı/yasağı yalnız alt ajanda geçerli; ana model almaz (#141).
+            return await _run_forked(
+                found, invocation, deps, (depth, context.root, grants), run_agent
+            )
+        skill_grants.grant(context, grants)
         turn_notes = apply_turn_choice(found, invocation, deps, context.root)
         notes = "\n".join(f"[not: {note}]" for note in (*invocation.notes, *turn_notes))
         body = invocation.context or invocation.task
@@ -264,13 +268,13 @@ async def _run_forked(
     skill: Capability,
     invocation: SkillInvocation,
     deps: AgentDeps,
-    where: tuple[int, Path],
+    where: tuple[int, Path, tuple[tuple[str, str], ...]],
     run_agent: Callable[..., Awaitable[AgentOutcome]],
 ) -> ToolResult:
     """`context: fork`: gövde geçmişsiz alt ajanın görev istemi olur (Claude Code #141)."""
     from .team import DEPTH_LIMIT_MESSAGE, SubTask, depth_limit_reached, run_subagent
 
-    depth, root = where
+    depth, root, grants = where
     if depth_limit_reached(deps, depth):
         return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
     task = "\n\n".join(part for part in (invocation.context, invocation.task) if part)
@@ -280,6 +284,7 @@ async def _run_forked(
         persona=invocation.agent,
         model=invocation.model if skill_trusted(skill, root) else "",
         effort=invocation.effort.strip().lower(),
+        skill_grants=grants,
     )
     if runs_in_background(skill, deps, depth):
         from .agent_runtime_tools import launch_agent
