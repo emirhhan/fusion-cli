@@ -63,3 +63,24 @@ def test_beceri_ve_eklenti_kopyasi_ayri_kalir():
     merged = HookSet((*user.commands, *skill.commands, *plugin.commands))
     found = merged.for_event(HookEvent.PRE_TOOL_USE, ("Bash",))
     assert [c.source for c in found] == ["kullanici", "beceri:bicim", "eklenti:denetim"]
+
+
+def test_filechanged_ve_stopfailure_dar_eslesme_kurali():
+    # Claude (#89): bu iki olayda düz liste yalnız harf/rakam/`_`/`|`; tire, boşluk ya da
+    # virgül eşleştiriciyi düzenli ifade yoluna (çapasız) sokar.
+    from fusion_cli.core.hooks.matcher import matcher_matches
+
+    assert matcher_matches("rate_limit|server_error", ("server_error",), narrow=True)
+    # Virgül ayırıcı değildir: "a,b" düzenli ifadesi "a" adıyla eşleşmez.
+    assert not matcher_matches("rate_limit,server_error", ("server_error",), narrow=True)
+    assert matcher_matches("rate_limit,server_error", ("server_error",))
+    # Tire düzenli ifade yolu: çapasız arama alt dizeyi de yakalar.
+    assert matcher_matches("my-file", ("xmy-filey",), narrow=True)
+    assert not matcher_matches("my-file", ("xmy-filey",))
+    block = {
+        "StopFailure": [
+            {"matcher": "a,server_error", "hooks": [{"type": "command", "command": "k"}]}
+        ]
+    }
+    commands, _ = parse_hooks_block(block, source="kullanici", path=Path("s.json"))
+    assert HookSet(commands).for_event(HookEvent.STOP_FAILURE, ("server_error",)) == ()

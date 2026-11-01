@@ -15,16 +15,23 @@ import re
 from collections.abc import Iterable
 
 _PLAIN_LIST = re.compile(r"[A-Za-z0-9_\- ,|]+")
+#: `FileChanged`/`StopFailure`: daha dar düz liste (yalnız harf/rakam/`_`/`|`; ayırıcı `|`).
+_NARROW_LIST = re.compile(r"[A-Za-z0-9_|]+")
 
 
-def matcher_matches(matcher: str, subjects: Iterable[str]) -> bool:
-    """Eşleştirici verilen adlardan (araç adı ve Claude karşılıkları) birine uyuyor mu?"""
+def matcher_matches(matcher: str, subjects: Iterable[str], *, narrow: bool = False) -> bool:
+    """Eşleştirici verilen adlardan (araç adı ve Claude karşılıkları) birine uyuyor mu?
+
+    `narrow`: Claude'un `FileChanged` ve `StopFailure` kuralı — tire, boşluk ya da virgül
+    eşleştiriciyi düzenli ifade yoluna sokar, yalnız `|` seçenek ayırır.
+    """
     text = matcher.strip()
     if text in ("", "*"):
         return True
     names = tuple(subjects)
-    if _PLAIN_LIST.fullmatch(text):
-        options = {part.strip() for part in re.split(r"[|,]", text) if part.strip()}
+    plain, separators = (_NARROW_LIST, r"[|]") if narrow else (_PLAIN_LIST, r"[|,]")
+    if plain.fullmatch(text):
+        options = {part.strip() for part in re.split(separators, text) if part.strip()}
         return any(name in options for name in names)
     try:
         pattern = re.compile(text)

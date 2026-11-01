@@ -196,6 +196,9 @@ class HookCommand:
     plugin_data: str = ""
 
 
+#: Dar düz liste kuralını kullanan olaylar (`matcher.matcher_matches(narrow=True)`).
+NARROW_MATCHER_EVENTS = frozenset({HookEvent.FILE_CHANGED, HookEvent.STOP_FAILURE})
+
 #: Kopyası ayar dosyalarındakiyle birleşmeyen kaynakların öneki (eklenti, beceri).
 SEPARATE_SOURCE_PREFIXES = ("eklenti:", "beceri:")
 
@@ -255,7 +258,9 @@ class HookSet:
             key = handler_key(command)
             if command.event is not event or key in seen:
                 continue
-            if uses_matcher and not matcher_matches(command.matcher, names):
+            if uses_matcher and not matcher_matches(
+                command.matcher, names, narrow=event in NARROW_MATCHER_EVENTS
+            ):
                 continue
             seen.add(key)
             found.append(command)

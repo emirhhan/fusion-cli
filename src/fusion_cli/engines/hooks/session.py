@@ -2,8 +2,9 @@
 
 Her yüzey (REPL, masaüstü oturumu, tek atışlık `fusion agent`) bir `HookSession` tutar ve
 `AgentDeps.hooks` ile motora verir. Tanımlar her kök turun başında yeniden okunur
-(`refresh`): masaüstünde "Bu projeye güven" ya da dosya düzenlemesi bir sonraki turda
-etkili olur; tur ORTASINDA değişmez.
+(`refresh`): masaüstünde "Bu projeye güven" bir sonraki turda etkili olur. Ayar dosyası
+değişikliği `ConfigChange` izleyicisinden geçince (`watch.py`) tur ORTASINDA da uygulanır;
+engellenen dosya `pinned_settings` ile eski içeriğinde kalır.
 
 `SessionStart` yüzey oturumu açınca (`open`) ya da en geç ilk kök turda bir kez tetiklenir;
 bağlamı konuşmanın başına, ilk istemden önce eklenir. `SessionEnd` yalnız başlamış

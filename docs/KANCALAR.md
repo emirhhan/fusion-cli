@@ -82,7 +82,10 @@ Ekip olaylarının ayrıntısı: [EKIP_VE_IS_AKISLARI.md](EKIP_VE_IS_AKISLARI.md
 **Eşleştirici** (Claude kuralı): boş ya da `*` hepsi; yalnız harf/rakam/`_`/`-`/boşluk/`,`/`|`
 içeren metin tam ad ya da ad listesidir (`Bash`, `Edit|Write`, `Edit, Write`); başka bir
 karakter içeren metin **çapasız** JavaScript düzenli ifadesidir: `Edit.*` `NotebookEdit`'e de
-uyar, tam eşleşme için `^Edit$`. Araç olaylarında yalnız `tool_name` sınanır: `run_shell` →
+uyar, tam eşleşme için `^Edit$`. `FileChanged` ve `StopFailure`'da düz liste daha dardır
+(yalnız harf/rakam/`_`/`|`; tire, boşluk ya da virgül düzenli ifade yoluna geçirir). Aynı
+işleyici (tür, komut, `args`, `if`, `shell`… hepsi aynı) birden çok ayar dosyasında
+tanımlıysa bir kez çalışır; eklentinin ya da becerinin kopyası ayrı kalır. Araç olaylarında yalnız `tool_name` sınanır: `run_shell` →
 `Bash`, `write_file` → `Write`, `edit_file` → `Edit`, `read_file` → `Read`, MCP
 `sunucu__araç` → `mcp__sunucu__araç`. (`Edit` → bütün yazma araçları genişlemesi yalnız
 izin kurallarında geçerlidir.)
