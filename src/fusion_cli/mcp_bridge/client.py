@@ -40,6 +40,7 @@ from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
 from .failures import STATE_CONNECTED
+from .elicitation import elicitation_callback
 from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
@@ -291,6 +292,8 @@ class McpClient:
                             functools.partial(self._stale_catalogs.add, config.name),
                             functools.partial(self._stale_tools.add, config.name),
                         ),
+                        # Claude Code elicitation: form ve url kipleri (#257).
+                        elicitation_callback=elicitation_callback(config.name),
                     )
                 )
                 initialized = await session.initialize()

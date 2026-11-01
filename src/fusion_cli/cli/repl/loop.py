@@ -858,6 +858,7 @@ async def _agent_turn(
             transport = browser_transport(state.remotion_browser)
         # `Notification` kancası onay sorusundan hemen önce (P-009).
         confirm_prompter = notifying(prompter, state.hooks())
+        _register_elicitation(prompter)  # MCP sunucusu girdi isterse bu taraf sorar (#257)
         deps = AgentDeps(
             config=state.config,
             session_persona=state.persona,
@@ -1146,3 +1147,11 @@ def _print_status(console: Console, state: ReplState) -> None:
         task_type=state.task_type,
         model=state.config.agent.name,
     )
+
+
+def _register_elicitation(asker: object) -> None:
+    try:
+        from ...mcp_bridge.elicitation import register_elicitation_asker
+    except ImportError:  # `mcp` paketi kurulu değil
+        return
+    register_elicitation_asker(asker)  # type: ignore[arg-type]

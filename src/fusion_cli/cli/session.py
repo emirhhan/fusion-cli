@@ -367,6 +367,8 @@ async def run_agent_task(
             policy: ApprovalPolicy = build_policy(active_mode, confirm_prompter, approval_memory)
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
+        # MCP sunucusu görev ortasında girdi isterse bu taraf sorar (#257).
+        _register_elicitation(prompter if can_ask else None)
         deps = AgentDeps(
             config=config,
             deadline=deadline,
@@ -748,3 +750,11 @@ async def agent_mcp_scope(config: Config, registry: ToolRegistry) -> AsyncIterat
         yield
     finally:
         await pool.aclose()
+
+
+def _register_elicitation(asker: object) -> None:
+    try:
+        from ..mcp_bridge.elicitation import register_elicitation_asker
+    except ImportError:  # `mcp` paketi kurulu değil
+        return
+    register_elicitation_asker(asker)  # type: ignore[arg-type]
