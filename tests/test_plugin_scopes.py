@@ -1,4 +1,7 @@
-"""Eklenti kapsamları, kaldırma verisi, pazar kaldırma ve /reload-plugins (#376, #383, #396, #408)."""
+"""Eklenti kapsamları, kaldırma verisi, pazar kaldırma, /reload-plugins, validate.
+
+#376, #383, #396, #408, #412.
+"""
 
 from __future__ import annotations
 
@@ -196,3 +199,44 @@ def test_reload_plugins_ozet_satiri(tmp_path):
     assert text.startswith("Yeniden yüklendi: 1 eklenti · 1 beceri ·")
     assert "0 eklenti MCP sunucusu" in text
     assert reload_plugins_command(state, "--bilinmeyen").startswith("Kullanım")  # type: ignore[arg-type]
+
+
+# --- #412: plugin validate ------------------------------------------------------ #
+
+
+def test_validate_eklenti_uyari_strict_ve_json(tmp_path):
+    root = _plugin(tmp_path / "p", "Rapor_Araci")
+    (root / "CLAUDE.md").write_text("x", encoding="utf-8")
+
+    loose = runner.invoke(app, ["validate", str(root)])
+    assert loose.exit_code == 0, loose.output
+    assert "Doğrulama uyarılarla başarılı" in loose.output
+    assert "description alanı yok" in loose.output and "CLAUDE.md" in loose.output
+
+    strict = runner.invoke(app, ["validate", str(root), "--strict", "--json"])
+    assert strict.exit_code == 1
+    report = json.loads(strict.output.strip().splitlines()[-1])
+    assert report["success"] is False and report["strict"] is True
+    assert report["target"].endswith("plugin.json") and report["advice"] == []
+    assert any("author" in w for w in report["manifest"]["warnings"])
+
+
+def test_validate_pazar_bildirimini_dogrular_ve_hata_1_doner(tmp_path):
+    market = tmp_path / "pazar"
+    (market / ".claude-plugin").mkdir(parents=True)
+    file = market / ".claude-plugin" / "marketplace.json"
+    file.write_text(json.dumps({"name": "ekip", "plugins": []}), encoding="utf-8")
+
+    bad = runner.invoke(app, ["validate", str(market)])
+    assert bad.exit_code == 1
+    assert "Pazar bildirimi doğrulanıyor" in bad.output and "Doğrulama başarısız" in bad.output
+
+    file.write_text(json.dumps({"name": "ekip", "owner": {"name": "E"}, "plugins": []}), "utf-8")
+    good = runner.invoke(app, ["validate", str(file)])
+    assert good.exit_code == 0 and "✔ Doğrulama başarılı" in good.output
+
+
+def test_validate_olmayan_yol_cikis_2_stdout_bos(tmp_path):
+    result = runner.invoke(app, ["validate", str(tmp_path / "yok")])
+    assert result.exit_code == 2
+    assert "beklenmeyen hata" in result.output

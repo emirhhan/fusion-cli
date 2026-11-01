@@ -77,7 +77,8 @@ fusion eklenti kur sahip/repo                  # GitHub (sığ klon, betik çal�
 fusion eklenti kur https://git.ornek.com/x.git # genel https git adresi
 fusion eklenti kur rapor@ekip [--yes]          # kayıtlı pazardan
 fusion eklenti kur <kaynak> --dry-run          # yalnız doğrula ve özetle
-fusion eklenti listele | dogrula <yol|ad>
+fusion eklenti listele
+fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
 fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
 fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # Fusion çöpüne; veri klasörü silinir
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla

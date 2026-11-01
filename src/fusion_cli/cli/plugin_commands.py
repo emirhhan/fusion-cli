@@ -1,7 +1,8 @@
 """`fusion eklenti …` (takma ad `fusion plugin …`) — eklenti paketleri ve pazar yerleri (P-059).
 
 fusion eklenti kur <yol|https://…|sahip/repo|ad@pazar> [--yes] [--dry-run] [--karma <sha256>]
-fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--scope] [--all] | kaldir <ad> [--keep-data]
+fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--scope] [--all]
+fusion eklenti kaldir <ad> [--keep-data]
 fusion eklenti guven <ad>            değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] kaydedildiği kaynaktan yeniden çek (Claude `plugin update`)
 fusion eklenti kesfet [pazar]        kayıtlı pazarlardaki eklentiler
@@ -10,6 +11,7 @@ fusion eklenti pazar ekle|liste|guncelle|kaldir
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +20,6 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from ..config.plugin_layout import validate_plugin
 from ..config.plugin_store import inspect_plugin, installed_plugins, load_state, plugins_dir
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
@@ -29,7 +30,6 @@ from .plugin_view import (
     format_installed,
     format_marketplaces,
     format_preview,
-    format_validation,
 )
 
 app = typer.Typer(
@@ -123,23 +123,30 @@ def list_plugins() -> None:
 
 @app.command("dogrula")
 def validate(
-    target: str = typer.Argument(..., help="Eklenti klasörü ya da kurulu eklenti adı"),
+    target: str = typer.Argument(..., help="Bildirim dosyası, klasör ya da kurulu eklenti adı"),
+    strict: bool = typer.Option(False, "--strict", help="Uyarıları hata say."),
+    as_json: bool = typer.Option(False, "--json", help="Raporu tek JSON nesnesi olarak bas."),
 ) -> None:
-    """plugin.json, bileşenler, kancalar ve MCP tanımlarını denetle (Claude `plugin validate`)."""
+    """plugin.json ya da marketplace.json'u doğrula (Claude `plugin validate`; çıkış 0/1/2)."""
+    from ..config.plugin_validate import ValidationCrashError, validate_target
 
-    def act() -> str:
-        state = load_state()
-        record = state.plugin(target)
-        if record is not None and not Path(target).is_dir():
+    path = Path(target).expanduser()
+    record = load_state().plugin(target)
+    if record is not None and not path.exists():
+        path = plugins_dir() / record.name
+    try:
+        run = validate_target(path, strict=strict)
+    except ValidationCrashError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(2) from error
+    if as_json:
+        typer.echo(json.dumps(run.payload(), ensure_ascii=False))
+    else:
+        console.print(escape(run.text()))
+        if record is not None and path == plugins_dir() / record.name:
             item = inspect_plugin(record)
-            report = validate_plugin(plugins_dir() / record.name)
-            return f"{format_validation(report)}\n  bütünlük: {item.status} {item.detail}".rstrip()
-        report = validate_plugin(Path(target).expanduser())
-        if not report.ok:
-            raise PluginError(format_validation(report))
-        return format_validation(report)
-
-    _run(act)
+            console.print(escape(f"  bütünlük: {item.status} {item.detail}".rstrip()))
+    raise typer.Exit(run.exit_code)
 
 
 def _toggle(name: str, everything: bool, enabled: bool, scope: str = "") -> str:

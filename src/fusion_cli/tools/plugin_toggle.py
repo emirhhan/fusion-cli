@@ -1,4 +1,4 @@
-"""Eklenti aç/kapat kapsamlı, kaldırma veri silmeli, pazar kaldırma eklentileriyle (#376, #396, #408).
+"""Kapsamlı aç/kapat, veri silen kaldırma, eklentileriyle pazar kaldırma (#376, #396, #408).
 
 Claude Code (https://code.claude.com/docs/en/plugins/cli-reference.md):
 - `plugin enable|disable <ad|ad@pazar> [--scope]` → "Successfully enabled plugin: x (scope: y)";

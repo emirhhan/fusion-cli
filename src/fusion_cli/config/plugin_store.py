@@ -263,8 +263,11 @@ def effective_record(record: PluginRecord, root: Path | None = None) -> PluginRe
     """`enabledPlugins` project/local katmanları uygulanmış kayıt (#376)."""
     from .plugin_scopes import resolve_enabled
 
-    decision = resolve_enabled(plugin_id(record), record.name, record.enabled, root or Path.cwd())
-    return record if decision.enabled == record.enabled else replace(record, enabled=decision.enabled)
+    project = root or Path.cwd()
+    decision = resolve_enabled(plugin_id(record), record.name, record.enabled, project)
+    if decision.enabled == record.enabled:
+        return record
+    return replace(record, enabled=decision.enabled)
 
 
 def installed_plugins(
