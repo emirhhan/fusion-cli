@@ -23,6 +23,8 @@ __all__ = ["MAX_BACKGROUND_FOLLOWUPS", "run_with_background"]
 MAX_BACKGROUND_FOLLOWUPS = 20
 #: İş bittikten sonra bildirim iş parçacığına tanınan süre (saniye).
 _SETTLE_S = 0.3
+#: Süren işlere bakma aralığı (saniye).
+_POLL_S = 0.2
 
 Turn = Callable[[str, Sequence[Message]], Awaitable[object]]
 
@@ -37,7 +39,7 @@ async def run_with_background(
     for _ in range(MAX_BACKGROUND_FOLLOWUPS):
         if not job_lifetime.running_owned() and not events.pending:
             return outcome
-        await asyncio.to_thread(job_lifetime.wait_owned, None)
+        await _wait_jobs()
         await asyncio.sleep(_SETTLE_S)
         # Yalnız YENİ olay tur açar: turu boşaltmadan biten olay sonsuz döngü kurmasın.
         if not events.claim_wake():
@@ -45,3 +47,13 @@ async def run_with_background(
         history = tuple(getattr(outcome, "messages", ()) or ())
         outcome = await turn(messages.BACKGROUND_WAKE, history)
     return outcome
+
+
+async def _wait_jobs() -> None:
+    """Süren işler bitene kadar bekle (süre sınırı `job_lifetime._guard`'da).
+
+    İş parçacığı yerine olay döngüsünde yoklanır: Ctrl+C görevi iptal edince bekleme hemen
+    biter; `asyncio.run` kapanışta süren işin bitmesini bekleyen bir iş parçacığına takılmaz.
+    """
+    while job_lifetime.running_owned():  # noqa: ASYNC110 — süreç durumu, olay yok
+        await asyncio.sleep(_POLL_S)

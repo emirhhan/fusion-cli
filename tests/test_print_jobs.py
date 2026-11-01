@@ -66,3 +66,32 @@ async def test_kapaliysa_ya_da_is_yoksa_beklenmez(monkeypatch):
         return _Outcome("tamam")
 
     assert (await run_with_background(silent, "x", quiet, enabled=True)).final_text == "tamam"
+
+
+def test_ctrl_c_bekleyen_isi_birakir_surec_hemen_cikar(monkeypatch):
+    """İnceleme bulgusu 3: bekleme iptal edilebilir olmalı; `asyncio.run` kapanışta süren
+    işin bitmesini (süre sınırına kadar) bekleyen bir iş parçacığına takılmamalı."""
+    import asyncio
+    import contextlib
+    import time
+
+    release = time.monotonic() + 3.0
+    monkeypatch.setattr(
+        job_lifetime, "running_owned", lambda: ("uzun",) if time.monotonic() < release else ()
+    )
+
+    async def turn(task, history):
+        return _Outcome("başlattım")
+
+    async def main() -> None:
+        waiting = asyncio.create_task(
+            run_with_background(turn, "x", BackgroundEvents(), enabled=True)
+        )
+        await asyncio.sleep(0.3)
+        waiting.cancel()  # Ctrl+C: asyncio.run ana görevi iptal eder
+        with contextlib.suppress(asyncio.CancelledError):
+            await waiting
+
+    started = time.monotonic()
+    asyncio.run(main())
+    assert time.monotonic() - started < 1.5
