@@ -145,7 +145,9 @@ Ortak alanlar: `session_id`, `prompt_id` (kök tur kimliği), `transcript_path`,
 `transcript_path` oturumun Claude biçimli dökümüdür (`<memory_dir>/hook-transcripts/<oturum>.jsonl`;
 `user`/`assistant` satırları, `tool_use`/`tool_result` blokları, sırlar maskeli, 0600): kanca
 tanımı olmasa da oturum boyunca yazılır, oturum bitince silinmez, 30 günden eskisi yerel
-durum temizliğinde silinir. `scratchpad_dir` yazılmaz: Claude belgesine göre oturumun karalama klasörü yoksa alan
+durum temizliğinde silinir (aynı klasördeki `<oturum>-env.sh`/`-cwd-env.sh` ortam dosyaları ve
+`<oturum>-hook-output/` taşan çıktıları da). Claude'daki gibi saklama kapatılamaz
+(`cleanupPeriodDays` en az 1); Fusion bu anahtarı henüz okumaz, süre 30 gündür. `scratchpad_dir` yazılmaz: Claude belgesine göre oturumun karalama klasörü yoksa alan
 bulunmaz, Fusion oturumlarında böyle bir klasör yoktur.
 
 Araç olaylarında `tool_name` (Claude adı), `tool_use_id`, `tool_input` Claude aracının

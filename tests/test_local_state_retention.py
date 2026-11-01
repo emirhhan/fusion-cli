@@ -146,3 +146,20 @@ def test_dizin_yoksa_sessizce_gecer(tmp_path: Path) -> None:
     report = purge_local_state(tmp_path / "yok", now=NOW)
     assert (report.traces, report.artifacts, report.checkpoints) == (0, 0, 0)
     assert replace(report) == report
+
+
+def test_kanca_ortam_dosyalari_ve_tasan_cikti_klasoru_de_silinir(tmp_path: Path) -> None:
+    # #129: `hook-transcripts` altındaki `<oturum>-env.sh` (export satırları, sır içerebilir)
+    # ve `<oturum>-hook-output/` (10.000 karakteri aşan kanca çıktısı) da 30 günde gider.
+    hooks = tmp_path / "memory" / "hook-transcripts"
+    env = _aged(hooks / "s1-env.sh", 31)
+    cwd_env = _aged(hooks / "s1-cwd-env.sh", 31)
+    spilled = _aged(hooks / "s1-hook-output" / "hook-output-ab.txt", 31)
+    fresh_env = _aged(hooks / "s2-env.sh", 1)
+    foreign = _aged(hooks / "notlar.md", 90)
+
+    purge_local_state(tmp_path / "memory", now=NOW)
+
+    assert not env.exists() and not cwd_env.exists() and not spilled.exists()
+    assert not spilled.parent.exists()
+    assert fresh_env.exists() and foreign.exists()

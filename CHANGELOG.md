@@ -5,6 +5,12 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
 ## Yayımlanmamış
 
+### Kancalar
+
+- Değişti: kanca `transcript_path` dökümü artık kanca tanımı olmasa da oturum boyu
+  `<memory_dir>/hook-transcripts/` altında yazılır ve 30 gün saklanır (önceden SessionEnd'de
+  siliniyordu); aynı klasördeki ortam dosyaları ve taşan kanca çıktıları da 30 günde silinir.
+
 ## 0.7.19 — 2026-11-01
 
 ### Claude Code / Codex paritesi (31 Ekim 2026)
