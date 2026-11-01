@@ -38,6 +38,7 @@ from ..config.plugin_store import (
     installed_plugins,
     load_state,
     plugin_folder,
+    plugin_id,
 )
 from ..config.release_notes import changelog_path, load_sections, release_notes_text
 from ..core.errors import ConfigError
@@ -60,6 +61,7 @@ EXTENSION_ROUTES = frozenset(
         "eklenti.pazar_ekle",
         "eklenti.pazar_kaldir",
         "eklenti.pazar_guncelle",
+        "eklenti.pazar_otomatik",
         "ice_aktar.onizle",
         "ice_aktar.uygula",
         "surum.notlari",
@@ -108,6 +110,8 @@ def _installed(item: InstalledPlugin) -> dict[str, Any]:
     record, layout = item.record, item.layout
     return {
         "ad": record.name,
+        "kimlik": plugin_id(record),
+        "kapsamlar": list(record.scopes),
         "surum": record.version,
         "aciklama": layout.manifest.description if layout else "",
         "durum": item.status,
@@ -146,12 +150,17 @@ def _preview(preview: plugins.PluginPreview) -> dict[str, Any]:
 
 
 def _list() -> dict[str, Any]:
+    from . import plugin_extras as extras
+
     state = load_state()
     return {
         "ok": True,
         "hepsi_kapali": state.all_disabled,
         "eklentiler": [_installed(item) for item in installed_plugins()],
-        "pazarlar": [{"ad": m.name, "kaynak": m.source, "tur": m.kind} for m in state.marketplaces],
+        "pazarlar": extras.market_rows(),
+        "oturumluk": extras.session_rows(),  # #401: --plugin-dir/--plugin-url ve skills-dir
+        "isaretli": extras.flagged_rows(),  # #397: Flagged
+        "bildirimler": extras.notices(),  # #394: otomatik güncelleme bildirimleri
     }
 
 
@@ -166,13 +175,17 @@ def _install(data: Mapping[str, object]) -> dict[str, Any]:
         seen.append(_preview(preview))
         return approved or not preview.is_executable
 
+    from ..tools.plugin_install_scope import install_scoped
+
     try:
-        item = plugins.install_plugin(
+        item = install_scoped(
             source,
             approve=approve,
+            scope=_text(data, "kapsam"),  # #382: user | project | local
             expected_digest=_text(data, "beklenen_karma"),
             accept_command=_command_consent(data),
-        )
+            allow_direct=True,  # masaüstü önizleme akışı doğrudan kaynağı bir sürüm daha alır
+        ).item
     except CommandRefusedError as error:
         return _command_needed(error)
     except PluginError as error:
@@ -306,6 +319,11 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
                 for e in entries
             ],
         }
+    if name == "eklenti.pazar_otomatik":
+        from .plugin_extras import set_auto_update
+
+        set_auto_update(data)
+        return _list()
     if name == "eklenti.pazar_ekle":
         source = _text(data, "kaynak")
         if not source:

@@ -225,8 +225,14 @@ bütün eklentilerin, ayarlarının ve verilerinin de silineceğini söyleyip on
 bildirir (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`, `eklenti.pazar_kaldir` →
 `kaldirilan`; `eklenti.pazar_guncelle` `renames` bildirimlerini `notlar` alanında döndürür). Masaüstünde
 sunucusu açılışında REPL gibi bildirilen pazar eşitlemesi, `renames` eşlemesi ve gecikmeli otomatik
-güncelleme arka planda başlar. Masaüstü arayüzünde henüz yok: `--scope` seçici, `/reload-plugins`
-karşılığı, auto-update anahtarı, güncelleme bildiriminin gösterilmesi, skills-dir/oturumluk eklentiler.
+güncelleme arka planda başlar. Masaüstü panelinde Claude `/plugin` karşılıkları: kurulum kapsamı
+seçici (Senin için / bu depodaki herkes için / yalnız senin için, bu depoda → `eklenti.kur` `kapsam`),
+pazar başına Enable/Disable auto-update anahtarı (`eklenti.pazar_otomatik`), arka plan güncelleme
+bildirimleri (`eklenti.listele` `bildirimler`), kurulmadan yüklenen `@inline`/`@skills-dir`
+eklentiler (`oturumluk`), pazardan kaldırılan Flagged eklentiler (`isaretli`) ve pazar komutu onay
+kartı (`komut_onayi_gerekli` → `komut_onayi`). Eklenti işlemleri `kimlik` (`ad@pazar`) ile yapılır.
+`/reload-plugins` karşılığı gerekmez: masaüstü kurulum/aç/kapat sonrası oturumu yeniler. Claude'un
+`/plugin` Stats sekmesi (özellik bayrağıyla açılan kullanım raporu) yok.
 
 Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentileri Claude Code gibi
 kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki

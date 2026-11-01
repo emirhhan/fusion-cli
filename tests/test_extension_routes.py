@@ -235,3 +235,32 @@ def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
     removed = _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)
     assert removed["pazarlar"] == [] and removed["kaldirilan"] == []
     assert _call("eklenti.kesfet", {"pazar": "ekip"}, context)["ok"] is False
+
+
+def test_eklenti_listesi_oturumluk_isaretli_bildirim_ve_otomatik_guncelleme(tmp_path, monkeypatch):
+    """#382/#394/#401/#397: masaüstü paneli Claude /plugin alanlarını alır."""
+    import json as _json
+
+    from fusion_cli.appserver import extension_routes, plugin_extras
+    from fusion_cli.tools import plugin_auto_update, plugin_flagged
+    from fusion_cli.tools import plugin_install as kur
+
+    market = tmp_path / "pazar"
+    (market / ".claude-plugin").mkdir(parents=True)
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        _json.dumps({"name": "ekip", "owner": {"name": "E"}, "plugins": []}), "utf-8"
+    )
+    kur.add_marketplace(str(market))
+    plugin_flagged.flag_plugin("eski@ekip")
+    plugin_auto_update.push_notice("Plugin updated: x · Run /reload-plugins to apply")
+    monkeypatch.setattr(plugin_extras, "session_rows", lambda root=None: [{"kimlik": "a@inline"}])
+
+    listed = extension_routes._list()
+
+    assert listed["oturumluk"] == [{"kimlik": "a@inline"}]
+    assert listed["isaretli"][0]["kimlik"] == "eski@ekip"
+    assert listed["bildirimler"] == ["Plugin updated: x · Run /reload-plugins to apply"]
+    assert listed["pazarlar"][0]["otomatik_guncelle"] is False
+    toggled = extension_routes._market("eklenti.pazar_otomatik", {"ad": "ekip", "acik": True})
+    assert toggled["pazarlar"][0]["otomatik_guncelle"] is True
+    assert extension_routes._list()["bildirimler"] == []

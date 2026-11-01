@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { errorMessage } from "../protocol/result";
 import "./PluginsPanel.css";
+import { CommandCard, FlaggedPlugins, ScopeSelect, SessionPlugins, flaggedFrom, sessionFrom, shownCommandFrom } from "./PluginsPanelExtras";
+import type { FlaggedPlugin, InstallScope, SessionPlugin, ShownCommand } from "./PluginsPanelExtras";
 
 /**
  * Eklentiler (P-059) — Claude Code `/plugin` ekranının karşılığı: Kurulu · Keşfet · Pazarlar.
@@ -16,7 +18,7 @@ import "./PluginsPanel.css";
 
 interface Components { beceri: number; komut: number; ajan: number; stil: number; kanca: boolean; mcp: boolean }
 interface InstalledPlugin {
-  ad: string; surum: string; aciklama: string; durum: string; ayrinti: string;
+  ad: string; kimlik: string; surum: string; aciklama: string; durum: string; ayrinti: string;
   kaynak: string; pazar: string; etkin: boolean; calistirilabilir: boolean; bilesenler: Components;
 }
 interface Preview {
@@ -29,7 +31,9 @@ type PendingPreview =
   | { mode: "kur"; kaynak: string; data: Preview }
   | { mode: "guncelle"; ad: string; data: Preview };
 interface CatalogEntry { ad: string; pazar: string; surum: string; aciklama: string; kurulu: boolean }
-interface Marketplace { ad: string; kaynak: string; tur: string }
+interface Marketplace { ad: string; kaynak: string; tur: string; otomatik: boolean }
+/** Pazarın bildirdiği komut onay bekliyor: aynı isteği `komut_onayi` ile yinele (#399). */
+interface PendingCommand { name: string; data: Record<string, unknown>; shown: ShownCommand; done: string }
 
 const EMPTY_COMPONENTS: Components = { beceri: 0, komut: 0, ajan: 0, stil: 0, kanca: false, mcp: false };
 
@@ -53,7 +57,7 @@ function installedFrom(raw: unknown): InstalledPlugin | null {
   const item = raw as Record<string, unknown>;
   if (typeof item.ad !== "string") return null;
   return {
-    ad: item.ad, surum: str(item.surum), aciklama: str(item.aciklama), durum: str(item.durum), ayrinti: str(item.ayrinti),
+    ad: item.ad, kimlik: str(item.kimlik) || item.ad, surum: str(item.surum), aciklama: str(item.aciklama), durum: str(item.durum), ayrinti: str(item.ayrinti),
     kaynak: str(item.kaynak), pazar: str(item.pazar), etkin: item.etkin === true, calistirilabilir: item.calistirilabilir === true,
     bilesenler: components(item.bilesenler),
   };
@@ -128,14 +132,23 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
   const [confirmRemove, setConfirmRemove] = useState("");
   const [confirmMarket, setConfirmMarket] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scope, setScope] = useState<InstallScope>("user");
+  const [sessionPlugins, setSessionPlugins] = useState<SessionPlugin[]>([]);
+  const [flagged, setFlagged] = useState<FlaggedPlugin[]>([]);
+  const [updates, setUpdates] = useState<string[]>([]);
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const applyList = useCallback((payload: Record<string, unknown>) => {
     if (payload.ok !== true) throw new Error(str(payload.metin) || "Eklentiler alınamadı.");
     setPlugins((Array.isArray(payload.eklentiler) ? payload.eklentiler : []).map(installedFrom).filter((item): item is InstalledPlugin => item !== null));
-    setMarkets((Array.isArray(payload.pazarlar) ? payload.pazarlar : []).filter((m): m is Marketplace => !!m && typeof m === "object" && typeof (m as Record<string, unknown>).ad === "string").map((m) => ({ ad: m.ad, kaynak: str(m.kaynak), tur: str(m.tur) })));
+    setMarkets((Array.isArray(payload.pazarlar) ? payload.pazarlar : []).filter((m): m is Marketplace => !!m && typeof m === "object" && typeof (m as Record<string, unknown>).ad === "string").map((m) => ({ ad: m.ad, kaynak: str(m.kaynak), tur: str(m.tur), otomatik: (m as unknown as Record<string, unknown>).otomatik_guncelle === true })));
     setAllDisabled(payload.hepsi_kapali === true);
+    setSessionPlugins(sessionFrom(payload.oturumluk));
+    setFlagged(flaggedFrom(payload.isaretli));
+    const fresh = texts(payload.bildirimler);
+    if (fresh.length > 0) setUpdates((current) => [...current, ...fresh]);
   }, []);
 
   const load = useCallback(async () => {
@@ -147,6 +160,8 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
     setBusy(true); setNotice(""); setError(null);
     try {
       const payload = await client.request(name, data);
+      const shown = payload.komut_onayi_gerekli === true ? shownCommandFrom(payload.komut) : null;
+      if (shown) { setPendingCommand({ name, data, shown, done }); return null; }
       if (payload.ok !== true) throw new Error(str(payload.metin) || "İşlem yapılamadı.");
       if (Array.isArray(payload.eklentiler) && name !== "eklenti.kesfet") applyList(payload); else await load();
       setNotice(done);
@@ -203,10 +218,20 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
     const beklenen_karma = preview.data.karma;
     // Önizleme kullanıcıya gösterildi: onay bu tıklamadır ve yalnız gösterilen içerik için geçerli.
     let done: Record<string, unknown> | null;
-    if (preview.mode === "kur") done = await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma }, `${preview.data.ad} kuruldu.`);
+    const kapsam = scope === "user" ? {} : { kapsam: scope };
+    if (preview.mode === "kur") done = await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma, ...kapsam }, `${preview.data.ad} kuruldu.`);
     else done = await run("eklenti.guncelle", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} güncellendi.`);
     if (done) { setPreview(null); if (preview.mode === "kur") setSource(""); }
   };
+
+  const confirmCommand = async () => {
+    if (!pendingCommand) return;
+    const { name, data, shown, done } = pendingCommand;
+    setPendingCommand(null);
+    const ok = await run(name, { ...data, komut_onayi: shown.sha256 }, done);
+    if (ok) { setPreview(null); setSource(""); }
+  };
+  const commandCard = pendingCommand && <CommandCard busy={busy} onCancel={() => setPendingCommand(null)} onConfirm={() => void confirmCommand()} shown={pendingCommand.shown} />;
 
   const card = preview && <PreviewCard busy={busy} mode={preview.mode} onCancel={() => setPreview(null)} onConfirm={() => void confirmPreview()} preview={preview.data} />;
 
@@ -228,10 +253,17 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
       </div>
       {error && <p className="plugins-panel__error" role="alert">{error}</p>}
       {notice && <p aria-live="polite" className="plugins-panel__meta">{notice}</p>}
+      {updates.length > 0 && (
+        <ul aria-label="Eklenti güncelleme bildirimleri" className="plugins-panel__meta">
+          {updates.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
+      {commandCard}
       {tab === "kurulu" && (
         <>
           <form className="plugins-panel__form" onSubmit={(event) => { event.preventDefault(); void askPreview(source); }}>
             <input aria-label="Eklenti kaynağı" onChange={(event) => setSource(event.target.value)} placeholder="Klasör, https://github.com/sahip/repo, sahip/repo ya da ad@pazar" value={source} />
+            <ScopeSelect disabled={busy} onChange={setScope} value={scope} />
             <button disabled={busy || !source.trim()} type="submit">Önizle</button>
           </form>
           {card}
@@ -242,7 +274,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
           {plugins.length === 0 && <p className="skills-catalog__empty">Kurulu eklenti yok. Bir kaynak gir ya da Pazarlar'dan ekle (terminalde <code>/plugin</code>).</p>}
           <ul aria-label="Kurulu eklentiler" className="plugins-panel__list">
             {plugins.map((plugin) => (
-              <li className="plugins-panel__item" data-status={STATUS_TONE[plugin.durum] ?? "off"} key={plugin.ad}>
+              <li className="plugins-panel__item" data-status={STATUS_TONE[plugin.durum] ?? "off"} key={plugin.kimlik}>
                 <div className="plugins-panel__text">
                   <strong>{plugin.ad}{plugin.surum ? ` ${plugin.surum}` : ""}</strong>
                   {plugin.aciklama && <span>{plugin.aciklama}</span>}
@@ -250,24 +282,27 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
                   {plugin.ayrinti && <small className="plugins-panel__warn">{plugin.ayrinti}</small>}
                 </div>
                 <div className="plugins-panel__actions">
-                  <button aria-label={`${plugin.ad} güncelle`} disabled={busy} onClick={() => void askUpdate(plugin.ad)} type="button">Güncelle</button>
-                  <button aria-label={`${plugin.ad} doğrula`} disabled={busy} onClick={() => void validate(plugin.ad)} type="button">Doğrula</button>
-                  <button aria-checked={plugin.etkin} aria-label={`${plugin.ad} etkin`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.etkinlik", { ad: plugin.ad, etkin: !plugin.etkin }, `${plugin.ad} ${plugin.etkin ? "kapatıldı" : "açıldı"}.`)} role="switch" type="button"><span /></button>
-                  {confirmRemove === plugin.ad ? (
+                  <button aria-label={`${plugin.ad} güncelle`} disabled={busy} onClick={() => void askUpdate(plugin.kimlik)} type="button">Güncelle</button>
+                  <button aria-label={`${plugin.ad} doğrula`} disabled={busy} onClick={() => void validate(plugin.kimlik)} type="button">Doğrula</button>
+                  <button aria-checked={plugin.etkin} aria-label={`${plugin.ad} etkin`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.etkinlik", { ad: plugin.kimlik, etkin: !plugin.etkin }, `${plugin.ad} ${plugin.etkin ? "kapatıldı" : "açıldı"}.`)} role="switch" type="button"><span /></button>
+                  {confirmRemove === plugin.kimlik ? (
                     <>
-                      <button disabled={busy} onClick={() => { setConfirmRemove(""); void run("eklenti.kaldir", { ad: plugin.ad }, `${plugin.ad} kaldırıldı (çöpte).`); }} type="button">Evet, kaldır</button>
+                      <button disabled={busy} onClick={() => { setConfirmRemove(""); void run("eklenti.kaldir", { ad: plugin.kimlik }, `${plugin.ad} kaldırıldı (çöpte).`); }} type="button">Evet, kaldır</button>
                       <button onClick={() => setConfirmRemove("")} type="button">Vazgeç</button>
                     </>
-                  ) : <button disabled={busy} onClick={() => setConfirmRemove(plugin.ad)} type="button">Kaldır</button>}
+                  ) : <button disabled={busy} onClick={() => setConfirmRemove(plugin.kimlik)} type="button">Kaldır</button>}
                 </div>
               </li>
             ))}
           </ul>
+          <SessionPlugins items={sessionPlugins} />
+          <FlaggedPlugins items={flagged} />
         </>
       )}
       {tab === "kesfet" && (
         <>
           {card}
+          <ScopeSelect disabled={busy} onChange={setScope} value={scope} />
           {catalog.length === 0 && <p className="skills-catalog__empty">Pazarlarda eklenti yok. Önce Pazarlar sekmesinden bir pazar ekle.</p>}
           <ul aria-label="Pazardaki eklentiler" className="plugins-panel__list">
             {catalog.map((entry) => (
@@ -286,15 +321,16 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
       {tab === "pazarlar" && (
         <>
           <form className="plugins-panel__form" onSubmit={(event) => { event.preventDefault(); void run("eklenti.pazar_ekle", { kaynak: marketSource.trim() }, "Pazar eklendi.").then((ok) => ok && setMarketSource("")); }}>
-            <input aria-label="Pazar kaynağı" onChange={(event) => setMarketSource(event.target.value)} placeholder="Klasör, sahip/repo, https adresi ya da 'resmi'" value={marketSource} />
+            <input aria-label="Pazar kaynağı" onChange={(event) => setMarketSource(event.target.value)} placeholder="Klasör, sahip/repo, https adresi ya da anthropics/claude-plugins-official" value={marketSource} />
             <button disabled={busy || !marketSource.trim()} type="submit">Pazar ekle</button>
           </form>
-          {markets.length === 0 && <p className="skills-catalog__empty">Kayıtlı pazar yok. <code>resmi</code> yazarak Claude Code'un resmi pazarını ekleyebilirsin.</p>}
+          {markets.length === 0 && <p className="skills-catalog__empty">Kayıtlı pazar yok. <code>anthropics/claude-plugins-official</code> yazarak Claude Code'un resmî pazarını ekleyebilirsin.</p>}
           <ul aria-label="Pazar yerleri" className="plugins-panel__list">
             {markets.map((market) => (
               <li className="plugins-panel__item" key={market.ad}>
                 <div className="plugins-panel__text"><strong>{market.ad}</strong><small>{market.tur} · {market.kaynak}</small></div>
                 <div className="plugins-panel__actions">
+                  <button aria-checked={market.otomatik} aria-label={`${market.ad} otomatik güncelleme`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.pazar_otomatik", { ad: market.ad, acik: !market.otomatik }, `${market.ad}: auto-update ${market.otomatik ? "kapatıldı" : "açıldı"}.`)} role="switch" title={market.otomatik ? "Disable auto-update" : "Enable auto-update"} type="button"><span /></button>
                   <button aria-label={`${market.ad} pazarını güncelle`} disabled={busy} onClick={() => void run("eklenti.pazar_guncelle", { ad: market.ad }, `${market.ad} pazarı güncellendi.`)} type="button">Güncelle</button>
                   {confirmMarket === market.ad ? (
                     <>

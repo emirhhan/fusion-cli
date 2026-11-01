@@ -107,3 +107,39 @@ it("pazar kaldırma onay ister, eklentilerin ve verilerinin de silineceğini sö
   await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.pazar_kaldir", { ad: "ekip" }));
   expect(await screen.findByText("ekip pazarı kaldırıldı. Ayrıca bu pazardan 2 eklenti kaldırıldı: rapor, ozet")).toBeTruthy();
 });
+
+it("kapsam seçer, oturumluk ve işaretli eklentileri, bildirimleri gösterir, auto-update anahtarı ve komut onayı çalışır", async () => {
+  let otomatik = false;
+  const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
+    const list = {
+      ok: true, hepsi_kapali: false, eklentiler: [],
+      pazarlar: [{ ad: "ekip", kaynak: "./pazar", tur: "yerel", otomatik_guncelle: otomatik }],
+      oturumluk: [{ kimlik: "deneme@inline", ad: "deneme", kapsam: "session", surum: "", aciklama: "", etkin: true }],
+      isaretli: [{ kimlik: "eski@ekip", ad: "eski", pazar: "ekip", tarih: "2026-11-01" }],
+      bildirimler: name === "eklenti.listele" ? ["Plugin updated: x · Run /reload-plugins to apply"] : [],
+    };
+    if (name === "eklenti.listele") return list;
+    if (name === "eklenti.onizle") return { ok: true, onizleme: { ...onizleme, calistirilabilir: false } };
+    if (name === "eklenti.kur" && !data.komut_onayi) return { ok: false, komut_onayi_gerekli: true, metin: "onay", komut: { kind: "command_source", pluginId: "uret@ekip", command: "echo /x", mode: "copy", sha256: "f".repeat(64) } };
+    if (name === "eklenti.kur") return { ok: true, yenile: true };
+    if (name === "eklenti.pazar_otomatik") { otomatik = data.acik === true; return { ...list, pazarlar: [{ ...list.pazarlar[0], otomatik_guncelle: otomatik }] }; }
+    return { ok: false, metin: "bilinmeyen" };
+  });
+  render(<PluginsPanel client={{ request } as unknown as ProtocolClient} />);
+  expect(await screen.findByText("deneme@inline")).toBeTruthy();
+  expect(screen.getByText("eski@ekip")).toBeTruthy();
+  expect(screen.getByText(/Plugin updated: x/)).toBeTruthy();
+
+  fireEvent.change(screen.getByRole("combobox", { name: "Kurulum kapsamı" }), { target: { value: "project" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Eklenti kaynağı" }), { target: { value: "uret@ekip" } });
+  fireEvent.click(screen.getByRole("button", { name: "Önizle" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Kur" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.kur", { kaynak: "uret@ekip", onay: false, beklenen_karma: "a".repeat(64), kapsam: "project" }));
+  expect(await screen.findByText("echo /x")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Komutu onayla ve sürdür" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.kur", { kaynak: "uret@ekip", onay: false, beklenen_karma: "a".repeat(64), kapsam: "project", komut_onayi: "f".repeat(64) }));
+
+  fireEvent.click(screen.getByRole("tab", { name: /Pazarlar/ }));
+  fireEvent.click(screen.getByRole("switch", { name: "ekip otomatik güncelleme" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.pazar_otomatik", { ad: "ekip", acik: true }));
+});
