@@ -95,18 +95,37 @@ def test_claude_belleginden_ice_aktarma(tmp_path):
     assert bellek.import_markdown(kaynak, source="claude") == 1
 
 
-def test_ajan_bellek_dizinleri_kapsama_gore_ayrilir(tmp_path):
+def test_ajan_bellek_dizinleri_claude_code_yollarini_kullanir(tmp_path):
+    """#24: Claude Code ajan belleği yolları (~/.claude/agent-memory/<ad>/ ...)."""
     config = make_config()
     kok = tmp_path / "proje"
+    ev = tmp_path / "ev"
 
-    kullanici = agent_memory_dir(config, kok, "kodcu", "user")
-    proje = agent_memory_dir(config, kok, "kodcu", "project")
-    yerel = agent_memory_dir(config, kok, "kodcu", "local")
+    kullanici = agent_memory_dir(config, kok, "code-reviewer", "user", home=ev)
+    proje = agent_memory_dir(config, kok, "code-reviewer", "project", home=ev)
+    yerel = agent_memory_dir(config, kok, "code-reviewer", "local", home=ev)
 
-    assert kullanici == config.memory_dir / "ajan-bellek" / "kodcu"
-    assert proje == kok / ".fusion" / "ajan-bellek" / "kodcu"
-    assert yerel == kok / ".fusion" / "ajan-bellek-yerel" / "kodcu"
-    assert agent_memory_dir(config, kok, "kodcu", "yok") is None
+    assert kullanici == ev / ".claude" / "agent-memory" / "code-reviewer"
+    assert proje == kok / ".claude" / "agent-memory" / "code-reviewer"
+    assert yerel == kok / ".claude" / "agent-memory-local" / "code-reviewer"
+    assert agent_memory_dir(config, kok, "kodcu", "yok", home=ev) is None
+
+
+def test_ajan_bellegi_memory_md_kullanir_ve_eski_fusion_dizininden_tasinir(tmp_path):
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    config = make_config()
+    kok = tmp_path / "proje"
+    eski = kok / ".fusion" / "ajan-bellek" / "kodcu"
+    eski.mkdir(parents=True)
+    (eski / "BELLEK.md").write_text("# eski\n- testler pytest ile\n", encoding="utf-8")
+
+    bellek = open_agent_memory(config, kok, "kodcu", "project", home=tmp_path / "ev")
+
+    assert bellek is not None
+    assert bellek.index_path == kok / ".claude" / "agent-memory" / "kodcu" / "MEMORY.md"
+    assert "testler pytest ile" in bellek.read()
+    assert (eski / "BELLEK.md").is_file()  # eski kayıt silinmez
 
 
 def test_clear_dizini_siler(tmp_path):
@@ -118,21 +137,21 @@ def test_clear_dizini_siler(tmp_path):
 
 
 def test_yerel_ajan_bellegi_git_disinda_kalir(tmp_path):
-    """P-055: `memory: local` ilk yazmada `.fusion/ajan-bellek-yerel/.gitignore` koyar."""
+    """P-055: `memory: local` ilk yazmada `.claude/agent-memory-local/.gitignore` koyar."""
     from fusion_cli.memory.plain_memory import open_agent_memory
 
     config = make_config()
     kok = tmp_path / "proje"
-    yerel = open_agent_memory(config, kok, "kodcu", "local")
-    proje = open_agent_memory(config, kok, "kodcu", "project")
+    yerel = open_agent_memory(config, kok, "kodcu", "local", home=tmp_path / "ev")
+    proje = open_agent_memory(config, kok, "kodcu", "project", home=tmp_path / "ev")
     assert yerel is not None and proje is not None
-    assert open_agent_memory(config, kok, "kodcu", "yok") is None
+    assert open_agent_memory(config, kok, "kodcu", "yok", home=tmp_path / "ev") is None
 
     yerel.note("yerel not")
     proje.note("proje notu")
 
-    assert (kok / ".fusion" / "ajan-bellek-yerel" / ".gitignore").read_text() == "*\n"
-    assert not (kok / ".fusion" / "ajan-bellek" / ".gitignore").exists()
+    assert (kok / ".claude" / "agent-memory-local" / ".gitignore").read_text() == "*\n"
+    assert not (kok / ".claude" / "agent-memory" / ".gitignore").exists()
     assert 'kaynak="ajan:kodcu"' in yerel.prompt_block()
 
 
@@ -145,10 +164,10 @@ def test_remember_sembolik_bagi_izlemez_hedefi_ezmez(tmp_path):
     kok = tmp_path / "proje"
     hedef = tmp_path / "disarida.rc"
     hedef.write_text("ORIGINAL", encoding="utf-8")
-    konular = kok / ".fusion" / "ajan-bellek" / "x" / "konular"
+    konular = kok / ".claude" / "agent-memory" / "x" / "konular"
     konular.mkdir(parents=True)
     (konular / "odeme.md").symlink_to(hedef)
-    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    bellek = open_agent_memory(make_config(), kok, "x", "project", home=tmp_path / "ev")
     assert bellek is not None
 
     with pytest.raises(PlainMemoryError):
@@ -163,10 +182,10 @@ def test_indeks_sembolik_bagsa_not_yazilmaz(tmp_path):
     kok = tmp_path / "proje"
     hedef = tmp_path / "disarida.md"
     hedef.write_text("ORIGINAL", encoding="utf-8")
-    dizin = kok / ".fusion" / "ajan-bellek" / "x"
+    dizin = kok / ".claude" / "agent-memory" / "x"
     dizin.mkdir(parents=True)
-    (dizin / INDEX_FILE).symlink_to(hedef)
-    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    (dizin / "MEMORY.md").symlink_to(hedef)
+    bellek = open_agent_memory(make_config(), kok, "x", "project", home=tmp_path / "ev")
     assert bellek is not None
 
     with pytest.raises(PlainMemoryError):
@@ -182,9 +201,9 @@ def test_ajan_bellek_dizini_kok_disina_cozuluyorsa_yazmaz_ve_silmez(tmp_path):
     disarida = tmp_path / "disarida"
     disarida.mkdir()
     (disarida / "onemli.txt").write_text("dur", encoding="utf-8")
-    (kok / ".fusion" / "ajan-bellek").mkdir(parents=True)
-    (kok / ".fusion" / "ajan-bellek" / "x").symlink_to(disarida)
-    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    (kok / ".claude" / "agent-memory").mkdir(parents=True)
+    (kok / ".claude" / "agent-memory" / "x").symlink_to(disarida)
+    bellek = open_agent_memory(make_config(), kok, "x", "project", home=tmp_path / "ev")
     assert bellek is not None
 
     with pytest.raises(PlainMemoryError):
@@ -192,7 +211,7 @@ def test_ajan_bellek_dizini_kok_disina_cozuluyorsa_yazmaz_ve_silmez(tmp_path):
     with pytest.raises(PlainMemoryError):
         bellek.clear()
     assert (disarida / "onemli.txt").read_text(encoding="utf-8") == "dur"
-    assert not (disarida / INDEX_FILE).exists()
+    assert not (disarida / "MEMORY.md").exists()
 
 
 def test_not_cok_satirli_girdiyi_tek_satira_indirir(tmp_path):
@@ -201,3 +220,22 @@ def test_not_cok_satirli_girdiyi_tek_satira_indirir(tmp_path):
     bellek.note("ilk satır\nikinci satır\n\nüçüncü")
     satirlar = [line for line in bellek.read().splitlines() if line.startswith("- ")]
     assert satirlar == ["- ilk satır ikinci satır üçüncü"]
+
+
+def test_eski_ajan_bellegindeki_sembolik_bag_tasinmaz(tmp_path):
+    """Taşıma yalnız düzenli dosyaları kopyalar; depodan gelen bağın hedefi içeri sızmaz."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    kok = tmp_path / "proje"
+    gizli = tmp_path / "gizli.rc"
+    gizli.write_text("SIR=1", encoding="utf-8")
+    eski = kok / ".fusion" / "ajan-bellek" / "x"
+    (eski / "konular").mkdir(parents=True)
+    (eski / "BELLEK.md").write_text("- not\n", encoding="utf-8")
+    (eski / "konular" / "sizinti.md").symlink_to(gizli)
+
+    bellek = open_agent_memory(make_config(), kok, "x", "project", home=tmp_path / "ev")
+
+    assert bellek is not None
+    assert not (bellek.directory / "konular" / "sizinti.md").exists()
+    assert "SIR=1" not in bellek.read()

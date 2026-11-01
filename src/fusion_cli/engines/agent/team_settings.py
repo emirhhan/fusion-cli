@@ -266,7 +266,11 @@ def child_memory(deps: AgentDeps, persona: Persona) -> PlainMemory | None:
     if not persona.memory_scope or not getattr(deps.config.runtime, "auto_memory", True):
         return None
     return open_agent_memory(
-        deps.config, deps.tool_context.root, persona.name, persona.memory_scope
+        deps.config,
+        deps.tool_context.root,
+        persona.name,
+        persona.memory_scope,
+        home=getattr(deps, "home", None),
     )
 
 

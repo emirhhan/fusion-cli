@@ -94,7 +94,9 @@ def _agent(state: ReplState, argument: str) -> str:
     persona = resolve_persona(state.capabilities, name)
     if persona.name != name and persona.name.lower() != name.lower():
         return messages.MEMORY_AGENT_UNKNOWN.format(agent=name)
-    memory = open_agent_memory(state.config, state.root, persona.name, persona.memory_scope)
+    memory = open_agent_memory(
+        state.config, state.root, persona.name, persona.memory_scope, home=state.home
+    )
     if memory is None:
         return messages.MEMORY_AGENT_NO_SCOPE.format(agent=persona.name)
     if action.strip().lower() in ("sil", "clear", "temizle"):

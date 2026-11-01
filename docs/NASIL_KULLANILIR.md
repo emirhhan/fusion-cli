@@ -413,7 +413,7 @@ Beceriler › Ajanlar › ayrıntı panelinde tanımdaki ayarlar listelenir.
 
 ### Alt ajan belleği (`memory: user | project | local`)
 
-Tanımında `memory` alanı olan ajan, oturumlar arasında kendi `BELLEK.md` + `konular/`
+Tanımında `memory` alanı olan ajan, oturumlar arasında kendi `MEMORY.md` + `konular/`
 dizinini tutar ve her çalışmasında ilk 200 satırı istemine alır; `remember`/`memory_read`
 araçları kısıtlı araç kümesinde de ona açıktır (`disallowedTools`'ta yasaklanan açılmaz;
 salt-okur görevde yalnız `memory_read` kalır). Projenin otomatik belleğini devralmaz.
@@ -422,9 +422,15 @@ sembolik bağ izlenmez, yazma reddedilir.
 
 | Kapsam | Dizin |
 |---|---|
-| `user` | `<bellek dizini>/ajan-bellek/<ad>/` (her projede aynı) |
-| `project` | `<proje>/.fusion/ajan-bellek/<ad>/` (depoya girer, ekiple paylaşılır) |
-| `local` | `<proje>/.fusion/ajan-bellek-yerel/<ad>/` (otomatik `.gitignore`, git dışı) |
+| `user` | `~/.claude/agent-memory/<ad>/` (her projede aynı; Claude Code ile ortak) |
+| `project` | `<proje>/.claude/agent-memory/<ad>/` (depoya girer, ekiple paylaşılır) |
+| `local` | `<proje>/.claude/agent-memory-local/<ad>/` (otomatik `.gitignore`, git dışı) |
+
+Eski Fusion yerleri (`<bellek>/ajan-bellek`, `.fusion/ajan-bellek`, `.fusion/ajan-bellek-yerel`,
+indeks `BELLEK.md`) bu sürüm boyunca okunur: yeni dizin yoksa düzenli dosyalar ilk açılışta bir
+kez kopyalanır (sembolik bağ izlenmez), eski kayıt silinmez. **Henüz yok:** Claude Code bellek
+dizinine Read/Write/Edit izni verir; Fusion'da ajan bu dizine `remember`/`memory_read`
+araçlarıyla yazar ve okur.
 
 - `/memory ajan <ad>` → kapsam, yol, satır sayısı, konular ve indeks metni ·
   `/memory ajan <ad> sil` → belleği sıfırla. Claude Code'daki gibi ajan belleği otomatik

@@ -51,9 +51,7 @@ _INDEX_PREAMBLE = (
     "Fusion'ın bu proje için kendi yazdığı kalıcı notlar. İlk 200 satır her turun bağlamına "
     "girer; dosyayı düzenleyebilir, satır silebilirsin. Konu ayrıntıları `konular/` altında.\n"
 )
-#: Alt ajan belleği dizinleri (P-055): kullanıcı geneli, proje ve git dışı yerel.
-AGENT_MEMORY_DIR = "ajan-bellek"
-AGENT_MEMORY_LOCAL_DIR = "ajan-bellek-yerel"
+#: Alt ajan belleği kapsamları (P-055); dizinler `agent_memory` modülünde (Claude Code yolları).
 AGENT_MEMORY_SCOPES = ("user", "project", "local")
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -108,36 +106,39 @@ def project_memory_dir(config: Config, root: Path) -> Path:
     return config.memory_dir / "projeler" / project_slug(root) / "bellek"
 
 
-def agent_memory_dir(config: Config, root: Path, agent: str, scope: str) -> Path | None:
-    """Alt ajan belleğinin dizini (P-055): `user` kullanıcı verisi, `project` proje içi
-    `.fusion/`, `local` git'e girmeyen `.fusion/ajan-bellek-yerel/`. Tanınmayan kapsam None."""
-    slug = topic_slug(agent)
-    if scope == "user":
-        return config.memory_dir / AGENT_MEMORY_DIR / slug
-    if scope == "project":
-        return root / ".fusion" / AGENT_MEMORY_DIR / slug
-    if scope == "local":
-        return root / ".fusion" / AGENT_MEMORY_LOCAL_DIR / slug
-    return None
+def agent_memory_dir(
+    config: Config, root: Path, agent: str, scope: str, *, home: Path | None = None
+) -> Path | None:
+    """Alt ajan belleğinin Claude Code dizini (#24); bkz. `agent_memory`."""
+    from .agent_memory import agent_memory_dir as _claude_dir
+
+    return _claude_dir(config, root, agent, scope, home=home)
 
 
-def open_agent_memory(config: Config, root: Path, agent: str, scope: str) -> PlainMemory | None:
-    """Alt ajanın kalıcı belleği (P-055): kapsam geçersizse None.
+def open_agent_memory(
+    config: Config, root: Path, agent: str, scope: str, *, home: Path | None = None
+) -> PlainMemory | None:
+    """Alt ajanın kalıcı belleği (P-055, #24): kapsam geçersizse None.
 
-    `local` kapsam git'e girmez: ilk yazmada `.fusion/ajan-bellek-yerel/.gitignore` (`*`)
-    oluşur. Blok etiketi `ajan:<ad>` olur ki model kimin notu olduğunu görsün.
+    `local` kapsam git'e girmez: ilk yazmada `.claude/agent-memory-local/.gitignore` (`*`)
+    oluşur. Blok etiketi `ajan:<ad>` olur ki model kimin notu olduğunu görsün. Eski Fusion
+    dizinindeki bellek ilk açılışta bir kez kopyalanır.
     """
-    directory = agent_memory_dir(config, root, agent, scope)
+    from .agent_memory import AGENT_INDEX_FILE, legacy_agent_memory_dir, migrate_legacy
+
+    directory = agent_memory_dir(config, root, agent, scope, home=home)
     if directory is None:
         return None
+    migrate_legacy(legacy_agent_memory_dir(config, root, agent, scope), directory)
     # Proje kapsamında sınır proje kökü (depodan gelen bağ dışarı çıkaramaz), kullanıcı
-    # kapsamında Fusion'ın bellek dizini.
-    boundary = config.memory_dir if scope == "user" else root
+    # kapsamında `~/.claude`.
+    boundary = directory.parent.parent if scope == "user" else root
     return PlainMemory(
         directory,
         label=f"ajan:{agent}",
         ignore_parent_in_git=scope == "local",
         boundary=boundary,
+        index_name=AGENT_INDEX_FILE,
     )
 
 
@@ -172,8 +173,11 @@ class PlainMemory:
         label: str = "proje",
         ignore_parent_in_git: bool = False,
         boundary: Path | None = None,
+        index_name: str = INDEX_FILE,
     ) -> None:
         self.directory = directory
+        #: İndeks dosyasının adı: proje belleği `BELLEK.md`, ajan belleği `MEMORY.md` (#24).
+        self.index_name = index_name
         #: Blokta görünen kaynak etiketi (`proje` ya da alt ajan adı).
         self.label = label
         #: İlk yazmada üst dizine `*` içeren `.gitignore` koy (yerel ajan belleği).
@@ -185,7 +189,7 @@ class PlainMemory:
 
     @property
     def index_path(self) -> Path:
-        return self.directory / INDEX_FILE
+        return self.directory / self.index_name
 
     @property
     def topic_dir(self) -> Path:
@@ -229,14 +233,14 @@ class PlainMemory:
         head, truncated = _head(text, PROMPT_MAX_LINES, PROMPT_MAX_BYTES)
         body = _neutralize_tags(redact(head))
         suffix = (
-            f"\n[…indeks kırpıldı; tamamı için memory_read çağır ya da {INDEX_FILE} kısalt…]"
+            f"\n[…indeks kırpıldı; tamamı için memory_read çağır ya da {self.index_name} kısalt…]"
             if truncated
             else ""
         )
         topics = ", ".join(self.topics())
         topic_line = f"\nKonu dosyaları (memory_read ile): {topics}" if topics else ""
         return (
-            f'<{BLOCK_TAG} kaynak="{self.label}" dosya="{INDEX_FILE}">\n'
+            f'<{BLOCK_TAG} kaynak="{self.label}" dosya="{self.index_name}">\n'
             f"{body}{suffix}{topic_line}\n</{BLOCK_TAG}>"
         )
 

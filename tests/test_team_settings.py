@@ -307,7 +307,7 @@ def test_tanimdaki_bilinmeyen_arac_adi_uyarilir_ama_ajan_cozulur(tmp_path, caplo
 
 
 async def test_bellek_alanli_alt_ajan_kendi_bellegini_ve_araclarini_alir(tmp_path):
-    """P-055: `memory: project` olan ajan kendi BELLEK.md'sini ve remember aracını alır."""
+    """P-055: `memory: project` olan ajan kendi MEMORY.md dosyasını ve remember aracını alır."""
     ajanlar = tmp_path / ".claude" / "agents"
     ajanlar.mkdir(parents=True)
     (ajanlar / "kodcu.md").write_text(
@@ -331,11 +331,13 @@ async def test_bellek_alanli_alt_ajan_kendi_bellegini_ve_araclarini_alir(tmp_pat
     await arac.run({"task": "b", "uzman": "duz"}, deps.tool_context)
 
     bellek, araclar = gorulen["a"]
-    assert bellek is not None and bellek.directory == tmp_path / ".fusion" / "ajan-bellek" / "kodcu"
+    assert (
+        bellek is not None and bellek.directory == tmp_path / ".claude" / "agent-memory" / "kodcu"
+    )
     # Salt-okur görevde yalnız okuma aracı açılır; `remember` yazma sözleşmesini aşmaz.
     assert "memory_read" in set(araclar or ()) and "remember" not in set(araclar or ())
     assert (
-        "önce testleri" in (tmp_path / ".fusion/ajan-bellek/kodcu/konular/testler.md").read_text()
+        "önce testleri" in (tmp_path / ".claude/agent-memory/kodcu/konular/testler.md").read_text()
     )
     # Bellek alanı olmayan üye ne bellek ne aracı alır.
     assert gorulen["b"][0] is None and "remember" not in (gorulen["b"][1] or ())
