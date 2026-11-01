@@ -158,7 +158,12 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   `settings.local.json` `defaultMode` değeri güven verilene dek uygulanmaz.
 - **acceptEdits** Claude gibi yalnız dosya düzenlemelerini ve çalışma dizinlerindeki `mkdir`,
   `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed` komutlarını (ve salt okunur komutları) sormaz;
-  tarayıcıda tıklama/yazma gibi öteki eylemler Manuel kipteki gibi sorulur.
+  tarayıcıda tıklama/yazma gibi öteki eylemler Manuel kipteki gibi sorulur. Masaüstü kip
+  menüsünün ipucu da bunu söyler.
+- **`disableAutoMode: "disable"`** (ya da `permissions.disableAutoMode`) herhangi bir ayar
+  dosyasında auto kipini kapatır: oturum Manuel'de başlar, auto Shift+Tab döngüsünden, `/auto`
+  komutundan, masaüstü kip menüsünden ve Ayarlar › İzinler › Çalışma modu listesinden çıkar;
+  masaüstü çekirdeği auto isteğini reddeder.
 
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 
@@ -231,7 +236,8 @@ Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
 **allow** kuralları düşer; deny ve ask kuralları yine okunur.
 
 ```
-/permissions                              # listele
+/permissions                              # sekmeli iletişim kutusu (Allow/Ask/Deny/Workspace/Auto mode)
+/permissions list                         # metin olarak listele
 /permissions add allow Bash(npm test *)   # projenin yerel dosyasına (settings.local.json)
 /permissions add deny Read(~/.ssh/**) --user
 /permissions add deny Bash(git push *) --project   # paylaşılan .claude/settings.json
@@ -239,7 +245,17 @@ Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
 fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
 ```
 
+Argümansız `/permissions` (takma adı `/allowed-tools`) Claude gibi etkileşimli bir kutu açar:
+**Allow**, **Ask** ve **Deny** sekmeleri kuralları kaynağıyla listeler; kural seçilip silinir ya da
+"+ Yeni kural ekle…" ile kalıp yazılıp kaydedileceği dosya (yerel, proje, kullanıcı) seçilir.
+**Workspace** sekmesi birincil çalışma dizinini ve `/add-dir` ile eklenenleri gösterir, dizin
+ekler/kaldırır. **Auto mode** sekmesi denetçinin özetini ve bu oturumdaki son auto mode retlerini
+listeler; bir ret seçilince ona izin veren kural önerilir. TUI'de uygulama-içi modal, düz REPL'de ok
+tuşlu seçicidir; terminal yoksa (boru, CI) metin listesi basılır.
+
 Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
+Kapsam seçicisi "Bu proje" (yerel), "Proje (paylaşılan)" (`.claude/settings.json`) ve "Tüm
+projeler" (`~/.claude/settings.json`) sunar.
 Claude gibi kural kullanıcı (`--user`), paylaşılan proje (`--project`, masaüstü RPC kapsamı
 `paylasilan`) ya da yerel dosyaya kaydedilir; proje dosyasına yazmak klasöre güven vermez.
 Silme `~/.claude/settings.json`, proje `settings.json`, eski `permissions.json` ve güvenilir

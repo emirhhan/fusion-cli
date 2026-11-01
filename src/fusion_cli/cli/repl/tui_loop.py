@@ -642,6 +642,10 @@ class _TuiSession:
             if resolved is None:
                 return
             argument = resolved
+        elif command.name == "permissions" and not argument.strip():
+            # Claude (#83): argümansız /permissions sekmeli iletişim kutusunu açar.
+            await self._permissions_dialog()
+            return
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -776,6 +780,21 @@ class _TuiSession:
             result = flow(lambda *_a, **_k: selected)
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
+        self._sync_status()
+
+    async def _permissions_dialog(self) -> None:
+        """`/permissions` iletişim kutusunu uygulama-içi modallarla sür (#83)."""
+        from .permissions_dialog import CallbackIO, run_permissions_dialog
+
+        def say(text: str) -> None:
+            self._echo(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+
+        async def ask(prompt: str) -> str | None:
+            self._echo(f"[{theme.ACCENT}]{escape(prompt)}[/{theme.ACCENT}]")
+            return await self._tui.await_text()
+
+        io = CallbackIO(self._tui.await_choice, ask, say)
+        say(await run_permissions_dialog(self._state, io))
         self._sync_status()
 
     def _sync_conversation_binding(self) -> None:

@@ -579,6 +579,16 @@ async def _run_command(
                 console.print(f"[{theme.WARN}]{cancelled}[/{theme.WARN}]")
         return
 
+    if command.name == "permissions" and not argument.strip() and reader.interactive:
+        # Claude (#83): argümansız /permissions sekmeli iletişim kutusunu açar.
+        from .permissions_dialog import PlainIO, run_permissions_dialog
+
+        def say(text: str) -> None:
+            console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+
+        say(await run_permissions_dialog(state, PlainIO(say)))
+        return
+
     previous = (state.root, state.conversation_id)
     result = command.handler(state, argument)
     if command.name == "reset" or previous != (state.root, state.conversation_id):
