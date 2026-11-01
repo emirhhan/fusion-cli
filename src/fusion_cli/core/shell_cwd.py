@@ -7,7 +7,8 @@ Dizin değişince ana konuşmada `CwdChanged` kancası tetiklenir (kanca köprü
 
 Komutun bitişteki dizini, komuttan sonra eklenen tek satırlık bir işaretle okunur
 (`wrap` / `split_marker`); işaret her çağrıda rastgeledir, komut çıktısı onu taklit
-edemez ve komutun göremediği ayrı bir tanımlayıcıdan (asıl stdout'un kopyası) yazılır. Yalnız stdlib (core katmanı).
+edemez ve komutun göremediği ayrı bir tanımlayıcıdan (asıl stdout'un kopyası) yazılır.
+Yalnız stdlib (core katmanı).
 """
 
 from __future__ import annotations
