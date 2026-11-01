@@ -25,6 +25,7 @@ from ...core.transcript_export import (
 from ...ui import messages
 from ...ui.clipboard import ClipboardResult, copy_to_clipboard
 from ...ui.picker import Choice, pick
+from . import copy_blocks
 from .state import ReplState
 
 #: Panoya yazan yardımcı; testte sahte verilir.
@@ -128,17 +129,56 @@ def _write(
     return messages.EXPORT_WRITTEN.format(path=target, chars=len(text))
 
 
-def copy_answer(state: ReplState, argument: str, *, copier: Copier = copy_to_clipboard) -> str:
-    """`/copy [N]` — sondan N. asistan cevabını panoya kopyala (varsayılan: son)."""
-    wanted = argument.strip()
-    try:
-        index = int(wanted) if wanted else 1
-    except ValueError:
+def split_copy_argument(argument: str) -> tuple[int, str] | None:
+    """`/copy [N] [tam|K]` → (N, seçim); seçim yoksa boş. Geçersizse None."""
+    words = argument.split()
+    if len(words) > 2 or any(not (w.isdigit() or w == copy_blocks.FULL) for w in words):
+        return None
+    index = int(words[0]) if words and words[0].isdigit() else 1
+    selector = words[-1] if len(words) == 2 or (words and words[0] == copy_blocks.FULL) else ""
+    return (index, selector) if index >= 1 else None
+
+
+def copy_picker_choices(state: ReplState, argument: str) -> tuple[Choice, ...]:
+    """Seçim verilmemişse ve cevapta blok varsa seçici satırları (TUI/masaüstü)."""
+    parsed = split_copy_argument(argument)
+    if parsed is None or parsed[1]:
+        return ()
+    answer = last_answer(state.history, parsed[0])
+    return copy_blocks.copy_choices(answer) if answer is not None else ()
+
+
+def copy_answer(
+    state: ReplState,
+    argument: str,
+    *,
+    copier: Copier = copy_to_clipboard,
+    picker: Picker = pick,
+) -> str:
+    """`/copy [N]` — sondan N. asistan cevabını panoya kopyala (varsayılan: son).
+
+    Claude Code (#231): cevapta kod bloğu ya da alıntı varsa önce blok seçicisi açılır.
+    """
+    parsed = split_copy_argument(argument)
+    if parsed is None:
         return messages.COPY_USAGE
+    index, selector = parsed
     answer = last_answer(state.history, index)
     if answer is None:
         return messages.COPY_NOTHING
-    result = copier(answer)
+    if not selector:
+        choices = copy_blocks.copy_choices(answer)
+        if choices:
+            chosen = picker(choices, title=messages.COPY_PICK_TITLE)
+            if chosen is None:
+                return messages.PICKER_CANCELLED
+            selector = chosen
+        else:
+            selector = copy_blocks.FULL
+    text = copy_blocks.select(answer, selector)
+    if text is None:
+        return messages.COPY_USAGE
+    result = copier(text)
     if not result.ok:
         return messages.CLIPBOARD_FAILED.format(error=result.error)
-    return messages.COPY_DONE.format(chars=len(answer))
+    return messages.COPY_DONE.format(chars=len(text))

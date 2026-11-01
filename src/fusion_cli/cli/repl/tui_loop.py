@@ -691,6 +691,15 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "copy" and (
+            copy_rows := export_commands.copy_picker_choices(self._state, argument)
+        ):
+            # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi modalda.
+            selected = await self._tui.await_choice(messages.COPY_PICK_TITLE, list(copy_rows))
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = f"{argument.strip() or '1'} {selected}"
         elif command.name == "export" and not argument.strip():
             # Claude Code `/export` (#206): Pano / Dosya diyaloğu uygulama-içi modalda.
             selected = await self._tui.await_choice(

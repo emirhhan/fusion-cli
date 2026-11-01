@@ -1499,7 +1499,10 @@ EXPORT_WRITE_FAILED = "Dosya yazılamadı ({path}): {error}"
 EXPORT_EXISTS = "Dosya zaten var, üzerine yazılmadı: {path} — ezmek için sona `zorla` ekle."
 COPY_USAGE = "Kullanım: /copy [N] — N sondan kaçıncı cevap (varsayılan 1)."
 COPY_NOTHING = "Kopyalanacak asistan cevabı yok."
-COPY_DONE = "Son cevap panoya kopyalandı ({chars} karakter)."
+COPY_DONE = "Panoya kopyalandı ({chars} karakter)."
+COPY_PICK_TITLE = "Neyi kopyalayayım?"
+COPY_CHOICE_FULL = "Tam yanıt"
+COPY_CHOICE_BLOCK = "Blok {number} ({kind})"
 CLIPBOARD_FAILED = "Panoya yazılamadı: {error}"
 
 # --- REPL önekleri: ! kabuk, @dosya, # not (P-022) ------------------------- #

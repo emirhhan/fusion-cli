@@ -35,7 +35,7 @@ from rich.console import Console
 
 from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
 from ..cli.repl.commands import CommandRegistry, model_command_result
-from ..cli.repl.export_commands import export_dialog_choices
+from ..cli.repl.export_commands import copy_picker_choices, export_dialog_choices
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -230,6 +230,12 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return _providers_choices(stripped)
     if canonical in ("rewind", "checkpoint"):
         return _rewind_choices(state, stripped)
+    if canonical == "copy":
+        # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi.
+        rows = copy_picker_choices(state, stripped)
+        if rows:
+            prefix = f"{stripped or '1'} "
+            return _payload("blok", "secim", messages.COPY_PICK_TITLE, rows, "copy", prefix)
     return None
 
 
