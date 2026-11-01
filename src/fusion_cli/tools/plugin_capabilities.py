@@ -12,19 +12,26 @@ Gövdedeki `${CLAUDE_PLUGIN_ROOT}` / `${FUSION_PLUGIN_ROOT}` eklentinin kurulu k
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..config.plugin_store import active_plugins, plugin_root_of
-from ..core.plugins import ROOT_VARIABLES, substitute_root
+from ..config.claude_plugins import claude_plugin_layouts
+from ..config.plugin_data import plugin_data_dir
+from ..config.plugin_store import active_plugins, plugin_root_of, plugins_dir
+from ..core.plugins import DATA_VARIABLE, PROJECT_VARIABLE, ROOT_VARIABLES, substitute_root
 from .frontmatter import body_after_frontmatter
 
 if TYPE_CHECKING:
-    from ..config.plugin_layout import PluginLayout
+    from ..config.plugin_scan import PluginLayout
     from .capabilities import Capability
 
+_LOG = logging.getLogger(__name__)
+#: Satır içi (`content`) komut gövdelerinin tutulduğu klasör (nokta: eklenti adı olamaz).
+INLINE_DIRNAME = ".satir-ici"
 #: Katalogdaki kaynak etiketi.
 PLUGIN_SOURCE = "eklenti"
 #: Açıklamasız komutta ilk satırdan alınacak en fazla karakter.
@@ -35,45 +42,86 @@ Converter = Callable[..., "Capability"]
 
 
 def with_plugin_root(text: str, path: Path) -> str:
-    """Kurulu eklenti dosyasının metninde kök değişkenlerini çöz; eklenti dışında dokunma."""
-    if not any(variable in text for variable in ROOT_VARIABLES):
+    """Kurulu eklenti dosyasının gövdesinde `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`
+    ve `${CLAUDE_PROJECT_DIR}`'ı çöz (#387); eklenti dışındaki dosyaya dokunma."""
+    variables = (*ROOT_VARIABLES, DATA_VARIABLE, PROJECT_VARIABLE)
+    if not any(variable in text for variable in variables):
         return text
     root = plugin_root_of(path)
-    return substitute_root(text, str(root)) if root is not None else text
+    if root is None:
+        return text
+    data = str(plugin_data_dir(root.name, create=True)) if DATA_VARIABLE in text else ""
+    return substitute_root(text, str(root), data, str(Path.cwd()))
 
 
 def _prefixed(capability: Capability, plugin: str, name: str = "") -> Capability:
     return replace(capability, name=f"{plugin}:{name or capability.name}")
 
 
-def plugin_skills(convert: Converter) -> Iterator[Capability]:
+def _layouts(home: Path | None) -> Iterator[tuple[str, PluginLayout]]:
+    """`(önek, düzen)`: Fusion'ın etkin eklentileri, sonra Claude Code'un etkin kurulumları."""
+    seen: set[str] = set()
     for item in active_plugins():
-        if item.layout is None:
-            continue
-        for path in item.layout.skills:
+        if item.layout is not None:
+            seen.add(item.record.name)
+            yield item.record.name, item.layout
+    if home is None:
+        return
+    for _plugin_id, layout in claude_plugin_layouts(home):
+        if layout.name not in seen:
+            seen.add(layout.name)
+            yield layout.name, layout
+
+
+def plugin_skills(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home):
+        for path in layout.skills:
             capability = convert(path, PLUGIN_SOURCE, fallback=path.parent.name)
-            yield _prefixed(capability, item.record.name)
+            yield _prefixed(capability, prefix)
 
 
-def plugin_commands(convert: Converter) -> Iterator[Capability]:
-    for item in active_plugins():
-        if item.layout is None:
-            continue
-        for name, path in item.layout.commands:
+def plugin_commands(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home):
+        meta = {name: (text, hint) for name, text, hint in layout.command_meta}
+        found = [*layout.commands, *_inline_command_files(layout)]
+        for name, path in found:
             capability = convert(path, PLUGIN_SOURCE, fallback=name)
-            if not capability.description:
-                capability = replace(capability, description=_first_line(path))
-            yield replace(_prefixed(capability, item.record.name, name), kind="komut")
+            text, hint = meta.get(name, ("", ""))
+            capability = replace(
+                capability,
+                description=text or capability.description or _first_line(path),
+                argument_hint=hint or capability.argument_hint,
+            )
+            yield replace(_prefixed(capability, prefix, name), kind="komut")
 
 
-def plugin_agents(convert: Converter) -> Iterator[Capability]:
-    for item in active_plugins():
-        if item.layout is None:
+def _inline_command_files(layout: PluginLayout) -> list[tuple[str, Path]]:
+    """`commands` haritasındaki `content` gövdeleri (#385): eklenti klasörüne yazılmaz
+    (içerik karması bozulmasın); `<veri>/eklentiler/.satir-ici/<eklenti>/` altında tutulur."""
+    folder = plugins_dir() / INLINE_DIRNAME / layout.name
+    found: list[tuple[str, Path]] = []
+    for name, body, description, hint in layout.inline_commands:
+        head = {"description": description, "argument-hint": hint}
+        lines = [f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in head.items()]
+        text = "---\n" + "\n".join(lines) + "\n---\n" + body + "\n"
+        path = folder / f"{name}.md"
+        try:
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                folder.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+        except OSError as error:
+            _LOG.warning("eklenti '%s' komutu '%s' yazılamadı: %s", layout.name, name, error)
             continue
-        for path in item.layout.agents:
+        found.append((name, path))
+    return found
+
+
+def plugin_agents(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
+    for prefix, layout in _layouts(home):
+        for path in layout.agents:
             capability = convert(path, PLUGIN_SOURCE, fallback=path.stem)
-            name = _agent_scoped_name(item.layout, path, capability.name)
-            yield _prefixed(capability, item.record.name, name)
+            name = _agent_scoped_name(layout, path, capability.name)
+            yield _prefixed(capability, prefix, name)
 
 
 def _agent_scoped_name(layout: PluginLayout, path: Path, name: str) -> str:

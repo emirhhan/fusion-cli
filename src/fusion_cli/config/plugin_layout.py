@@ -18,17 +18,21 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from ..core.plugin_paths import name_warnings
 from ..core.plugins import (
+    DATA_VARIABLE,
     MANIFEST_PATHS,
     ROOT_VARIABLES,
     PluginError,
-    PluginManifest,
-    parse_manifest,
     substitute_root,
 )
 from ..core.redaction import redact
 from .mcp_json import parse_project_mcp
 from .models import McpScope, McpServerConfig
+from .plugin_data import plugin_data_dir
+from .plugin_scan import PluginLayout, read_manifest, scan_plugin
+
+__all__ = ["PluginLayout", "read_manifest", "scan_plugin"]
 
 #: Karma ve doğrulamada dosya sınırları: dev bir depo "eklenti" diye kurulmasın.
 MAX_PLUGIN_FILES = 5_000
@@ -54,39 +58,6 @@ WARN_NO_MANIFEST = "plugin.json yok; ad klasörden alındı ({name})"
 
 
 @dataclass(frozen=True, slots=True)
-class PluginLayout:
-    """Diskteki bir eklentinin bileşenleri."""
-
-    root: Path
-    manifest: PluginManifest
-    has_manifest: bool
-    skills: tuple[Path, ...] = ()
-    #: `(komut adı, dosya)`; ad alt klasörlerle `a:b` biçimindedir (önek hariç).
-    commands: tuple[tuple[str, Path], ...] = ()
-    agents: tuple[Path, ...] = ()
-    output_styles: tuple[Path, ...] = ()
-    hook_files: tuple[Path, ...] = ()
-    mcp_files: tuple[Path, ...] = ()
-
-    @property
-    def name(self) -> str:
-        return self.manifest.name
-
-    @property
-    def has_hooks(self) -> bool:
-        return bool(self.hook_files or self.manifest.inline_hooks)
-
-    @property
-    def has_mcp(self) -> bool:
-        return bool(self.mcp_files or self.manifest.inline_mcp)
-
-    @property
-    def is_executable(self) -> bool:
-        """Kanca ya da MCP: Fusion'ın dışında süreç başlatır → kurulumda açık onay ister."""
-        return self.has_hooks or self.has_mcp
-
-
-@dataclass(frozen=True, slots=True)
 class ValidationReport:
     layout: PluginLayout | None
     errors: tuple[str, ...] = ()
@@ -104,84 +75,14 @@ class ValidationReport:
         return self.layout is not None and not self.errors
 
 
-def read_manifest(root: Path) -> tuple[PluginManifest, bool]:
-    """Bildirim ve var olup olmadığı. Bozuk bildirim `PluginError`."""
-    for relative in MANIFEST_PATHS:
-        path = root / relative
-        if path.is_file():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as error:
-                raise PluginError(f"{relative}: okunamadı: {error}") from error
-            return parse_manifest(raw, fallback_name=root.name.lower(), where=relative), True
-    return parse_manifest(None, fallback_name=root.name.lower()), False
-
-
-def scan_plugin(root: Path) -> PluginLayout:
-    manifest, has_manifest = read_manifest(root)
-    skills = tuple(
-        path
-        for base in _dirs(root, manifest.skills)
-        for path in sorted(base.rglob("SKILL.md"))
-        if _inside(path, root)
-    )
-    commands = tuple(
-        (":".join(path.relative_to(base).with_suffix("").parts), path)
-        for base in _dirs(root, manifest.commands)
-        for path in sorted(base.rglob("*.md"))
-        if _inside(path, root)
-    )
-    agents = tuple(
-        path
-        for base in _dirs(root, manifest.agents)
-        for path in sorted(base.rglob("*.md"))
-        if _inside(path, root)
-    )
-    styles = tuple(
-        path
-        for base in _dirs(root, manifest.output_styles)
-        for path in sorted(base.glob("*.md"))
-        if _inside(path, root)
-    )
-    return PluginLayout(
-        root,
-        manifest,
-        has_manifest,
-        skills,
-        commands,
-        agents,
-        styles,
-        tuple(
-            p for p in (root / rel for rel in manifest.hooks) if p.is_file() and _inside(p, root)
-        ),
-        tuple(
-            p
-            for p in (root / rel for rel in manifest.mcp_servers)
-            if p.is_file() and _inside(p, root)
-        ),
-    )
-
-
-def _dirs(root: Path, relatives: tuple[str, ...]) -> tuple[Path, ...]:
-    return tuple(p for p in (root / rel for rel in relatives) if p.is_dir() and _inside(p, root))
-
-
-def _inside(path: Path, root: Path) -> bool:
-    """Sembolik bağ eklenti kökü dışına (`~/.ssh`) çıkmıyor mu?"""
-    try:
-        return path.resolve().is_relative_to(root.resolve())
-    except OSError:
-        return False
-
-
-def validate_plugin(root: Path) -> ValidationReport:
+def validate_plugin(root: Path, fallback_name: str = "") -> ValidationReport:
     """Kurulmadan önce/sonra denetim: hata varsa kurulum yapılmaz."""
     try:
-        layout = scan_plugin(root)
+        layout = scan_plugin(root, fallback_name)
     except PluginError as error:
         return ValidationReport(None, (str(error),))
-    errors: list[str] = []
-    warnings = list(layout.manifest.warnings)
+    errors: list[str] = list(layout.problems)
+    warnings = [*layout.manifest.warnings, *layout.notes, *name_warnings(layout.name)]
     if not layout.has_manifest:
         warnings.append(WARN_NO_MANIFEST.format(name=layout.name))
     try:
@@ -273,14 +174,21 @@ def _load_json(path: Path, template: str) -> Mapping[str, object]:
     return raw
 
 
-def _substituted(raw: object, root: str) -> object:
-    """JSON ağacındaki her metinde eklenti kökü değişkenini çöz."""
+def _substituted(raw: object, root: str, plugin: str = "") -> object:
+    """JSON ağacındaki her metinde `${CLAUDE_PLUGIN_ROOT}` ve `${CLAUDE_PLUGIN_DATA}`'yı çöz.
+
+    Veri klasörü ilk başvuruda oluşturulur (#387). `${CLAUDE_PROJECT_DIR}` kanca sürecinin
+    ortamından gelir (kabuk çözer); burada dokunulmaz.
+    """
     if isinstance(raw, str):
-        return substitute_root(raw, root)
+        data = ""
+        if plugin and DATA_VARIABLE in raw:
+            data = str(plugin_data_dir(plugin, create=True))
+        return substitute_root(raw, root, data)
     if isinstance(raw, list):
-        return [_substituted(item, root) for item in raw]
+        return [_substituted(item, root, plugin) for item in raw]
     if isinstance(raw, Mapping):
-        return {key: _substituted(value, root) for key, value in raw.items()}
+        return {key: _substituted(value, root, plugin) for key, value in raw.items()}
     return raw
 
 
@@ -290,14 +198,24 @@ def hook_blocks(layout: PluginLayout) -> tuple[tuple[Path, Mapping[str, object]]
     blocks: list[tuple[Path, Mapping[str, object]]] = []
     for path in layout.hook_files:
         raw = _load_json(path, ERR_HOOKS)
-        blocks.append((path, _as_block(_substituted(raw, root), path)))
-    if layout.manifest.inline_hooks:
-        inline = json.loads(layout.manifest.inline_hooks)
-        manifest_path = layout.root / MANIFEST_PATHS[0]
+        blocks.append((path, _as_block(_substituted(raw, root, layout.name), path)))
+    manifest_path = layout.root / MANIFEST_PATHS[0]
+    for inline in _inline(layout.manifest.inline_hooks):
         blocks.append(
-            (manifest_path, _as_block(_substituted({"hooks": inline}, root), manifest_path))
+            (
+                manifest_path,
+                _as_block(_substituted({"hooks": inline}, root, layout.name), manifest_path),
+            )
         )
     return tuple(blocks)
+
+
+def _inline(encoded: str) -> list[object]:
+    """Satır içi bileşenlerin JSON listesi (eski kayıtlarda tek nesne olabilir)."""
+    if not encoded:
+        return []
+    raw = json.loads(encoded)
+    return raw if isinstance(raw, list) else [raw]
 
 
 def _as_block(raw: object, path: Path) -> Mapping[str, object]:
@@ -328,12 +246,13 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     documents: list[tuple[str, object]] = [
         (path.name, _load_json(path, ERR_MCP)) for path in layout.mcp_files
     ]
-    if layout.manifest.inline_mcp:
-        documents.append(("plugin.json", {"mcpServers": json.loads(layout.manifest.inline_mcp)}))
-    servers: list[McpServerConfig] = []
+    inline = _inline(layout.manifest.inline_mcp)
+    documents.extend(("plugin.json", {"mcpServers": item}) for item in inline)
+    #: Sonra tanımlanan aynı adlı sunucu öncekinin yerine geçer (Claude, #418).
+    servers: dict[str, McpServerConfig] = {}
     skipped: list[str] = []
     for label, raw in documents:
-        data = _substituted(raw, root)
+        data = _substituted(raw, root, layout.name)
         if isinstance(data, Mapping) and "mcpServers" in data:
             data = data["mcpServers"]
         # Claude eklentilerinde kök doğrudan sunucu sözlüğü olabilir.
@@ -345,10 +264,12 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
             except ConfigError as error:
                 skipped.append(WARN_MCP_SKIPPED.format(path=label, server=raw_name, error=error))
                 continue
-            servers.append(
-                replace(server, name=server_name(layout.name, server.name), scope=McpScope.PLUGIN)
+            named = replace(
+                server, name=server_name(layout.name, server.name), scope=McpScope.PLUGIN
             )
-    return tuple(servers), tuple(skipped)
+            servers.pop(named.name, None)
+            servers[named.name] = named
+    return tuple(servers.values()), tuple(skipped)
 
 
 _BEARER_REF = re.compile(r"^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$", re.IGNORECASE)

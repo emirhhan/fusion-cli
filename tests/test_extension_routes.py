@@ -209,7 +209,11 @@ def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
     (market / ".claude-plugin").mkdir(parents=True)
     (market / ".claude-plugin" / "marketplace.json").write_text(
         json.dumps(
-            {"name": "ekip", "plugins": [{"name": "bicimci", "source": "./plugins/bicimci"}]}
+            {
+                "name": "ekip",
+                "owner": {"name": "Ekip"},
+                "plugins": [{"name": "bicimci", "source": "./plugins/bicimci"}],
+            }
         ),
         encoding="utf-8",
     )
