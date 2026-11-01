@@ -154,15 +154,23 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 
 | Katman | Dosya | Ne zaman okunur |
 |---|---|---|
-| Fusion (kullanıcı) | `~/.config/fusion-cli/permissions.json` | her zaman |
-| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman |
-| Proje | `<proje>/.claude/settings.json` | yalnız `fusion trust` sonrası |
-| Proje (yerel) | `<proje>/.claude/settings.local.json` | yalnız `fusion trust` sonrası (Fusion'ın kendi yazdığı dosya otomatik güvenilir) |
+| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` ve "bir daha sorma" düşüşü buraya yazar |
+| Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`) |
+| Proje (yerel) | `<proje>/.claude/settings.local.json` | allow kuralları klasör güveninden sonra; ev dizininde ve Fusion'ın kendi yazdığı dosyada güven gerekmez |
+| Eski Fusion dosyası | `~/.config/fusion-cli/permissions.json` | kullanımdan kalktı: bu sürüm boyunca okunur, başlangıçta uyarı verir |
+
+Güven Claude Code'daki gibi **klasöre** bağlıdır: depoda git köküne (alt dizinler dahil, iç
+içe depo hariç), depo dışında başlatılan dizine ve alt dizinlerine. Dosya sonradan değişse de
+güven düşmez. Ayar dosyalarındaki `permissions.additionalDirectories` ek çalışma dizini olur
+(proje/yerel dosyada güven ister); `permissions.blockReadsOutsideWorkingDirectories: true`
+herhangi bir dosyada kök dışı okumayı kapatır. Parantezli `mcp__…(…)` kuralı yüklenmez;
+başlangıçta ve `fusion doctor`da bildirilir.
 
 Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,
 `~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
 `mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
-**deny → yıkıcı komut → ask → allow → çalışma modu**. `deny` "İzinleri atla" modunda da
+**deny → yıkıcı komut → ask → allow → çalışma modu**. Yalın deny (`Bash`, `Bash(*)`,
+`Read`) aracı modele hiç sunmaz; belirteçli kural (`Bash(rm *)`) yalnız eşleşen çağrıyı engeller. `deny` "İzinleri atla" modunda da
 geçerlidir; `ask` Otomatik modda bile sordurur ve oturum hafızasıyla susturulamaz. Kurallar
 yalnız yazan araçlarda değil **okuma, arama ve web araçlarında da** uygulanır
 (`Read(~/.ssh/**)` deny → `read_file`, `search_code`, `glob`; `WebFetch(domain:x)` → `web_fetch`).
@@ -171,13 +179,24 @@ içindeyse arama da yasaklanır/sorulur. `Agent(...)`/`Task(...)` `Agent` aracı
 `spawn_agents` adlarını kapsar (`Agent(Explore)` yalnız o tipi); `Edit/Write(...)` indirme, arşiv açma ve görsel üretme
 araçlarının hedefini de kapsar.
 
-Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak, hepsi
-izinliyse sorulmaz. Sarmalayıcılar açılır: `sh -c '…'`, `eval`, `timeout 5 …`, `sudo …`,
-`/bin/rm` içindeki komut da kurala karşı denenir. Dosyaya yönlendirme (`> x`, `>> x`, `| tee x`)
-içeren komut `allow` ile serbest kalmaz (deny/ask yine uygulanır). Bilinen sınır: `python -c "…"`
+Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak; her
+alt komut bir allow kuralına uyuyor ya da salt okunursa sorulmaz. Allow tarafında Claude'un sabit
+sarmalayıcıları soyulur (`timeout`, `time`, `nice`, `nohup`, `stdbuf`, `command`, `builtin`,
+`noglob`, bayraksız `xargs`) ve yalnız güvenli env ataması (`NODE_ENV=test`) geçer;
+`sh -c '…'`, `sudo …`, `/bin/rm` allow'da açılmaz. `watch`/`setsid`/`ionice`/`flock` ve
+`find -exec/-delete/-fprint` yalnız `*`'sız birebir kuralla onaylanır. **Fusion eki (Claude'dan
+sıkı):** deny/ask tarafında `sh -c`, `eval`, `sudo`, mutlak yol da açılır, yasak bu biçimlerle
+aşılamaz. Dosyaya yönlendirme (`> x`, `>> x`, `| tee x`) içeren komut `allow` ile serbest
+kalmaz (deny/ask yine uygulanır). "Bir daha sorma" zincirde onay gereken her alt komut için ayrı
+kural yazar (en çok 5); dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir.
+
+Manuel, acceptEdits ve plan kipinde `web_fetch` (önceden onaylı belge alanları hariç),
+`web_search` ve çalışma dizinleri dışından okuma sorulur; dontAsk reddeder, auto ve bypass
+sormaz. Plan kipinde okuma dışı kabuk komutu ve MCP değişikliği engellenmez, sorulur; dosya
+düzenlemesi engelli kalır. Henüz yok: plan kipinde `useAutoModeDuringPlan` sınıflandırıcı dalı. Bilinen sınır: `python -c "…"`
 gibi satır içi kodun içi kurallara karşı çözülmez; o yol ayrı risk denetiminden geçer.
 
-Güvenilmeyen proje dosyasından (`fusion trust` yapılmamış ya da içerik değişmiş) yalnız
+Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
 **allow** kuralları düşer; deny ve ask kuralları yine okunur.
 
 ```
@@ -189,9 +208,9 @@ fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
 ```
 
 Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
-Silme yalnız Fusion'ın yazdığı dosyalarda çalışır (`permissions.json` ve güvenilir
-`settings.local.json`); `~/.claude/settings.json` ve proje `settings.json` salt okunurdur
-(sil düğmesi kapalı, kuralı dosyadan elle kaldır). Güvenilmeyen yerel dosyadan silme reddedilir:
+Silme `~/.claude/settings.json`, eski `permissions.json` ve güvenilir `settings.local.json`
+dosyalarında çalışır; proje `settings.json` salt okunurdur (sil düğmesi kapalı, kuralı
+dosyadan elle kaldır). `/allowed-tools` `/permissions`'ın takma adıdır. Güvenilmeyen yerel dosyadan silme reddedilir:
 silmek izin açmaz. Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına yazılır ve bu
 **tüm projeleri** etkiler; kart ve komut çıktısı bunu açıkça söyler, masaüstünde "Bu proje"
 kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
