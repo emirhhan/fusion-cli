@@ -1,5 +1,5 @@
 ---
-name: proactive
+name: Proactive
 description: Görevi hemen uygular; sıradan kararlarda soru sormadan makul varsayım yapar.
 ---
 # Çıktı stili: Proactive

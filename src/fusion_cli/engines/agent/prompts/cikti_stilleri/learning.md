@@ -1,5 +1,5 @@
 ---
-name: learning
+name: Learning
 description: Explanatory'deki Insight bloklarına ek olarak tasarım kararı içeren küçük kod parçalarını kullanıcıya yazdırır.
 ---
 # Çıktı stili: Learning

@@ -1,5 +1,5 @@
 ---
-name: explanatory
+name: Explanatory
 description: İşi varsayılan gibi yapar, yazdığı kodun ardındaki seçimleri kısa Insight bloklarıyla açıklar.
 ---
 # Çıktı stili: Explanatory

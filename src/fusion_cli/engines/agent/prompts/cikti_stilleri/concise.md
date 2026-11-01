@@ -1,5 +1,5 @@
 ---
-name: concise
+name: Concise
 description: Sonuçla başlar; giriş, adım adım anlatım ve kapanış özeti yok.
 ---
 # Çıktı stili: Concise

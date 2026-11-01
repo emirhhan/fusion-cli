@@ -1094,7 +1094,12 @@ async def _run_agent(
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
-        system_prompt=system_prompt,
+        # Özel çıktı stili kodlama talimatını istemiyorsa temel istem kırpılır (#215).
+        system_prompt=system_prompt
+        if system_prompt is not None or depth > 0
+        else output_style.base_system_prompt(
+            SYSTEM_PROMPT, deps.config, home=deps.home, root=deps.tool_context.root
+        ),
         project_context=proje_ve_dis_bellek if system_prompt is not None else "",
         images=images,
     )
