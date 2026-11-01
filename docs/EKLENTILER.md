@@ -54,8 +54,11 @@ benim-eklentim/
   değerleri kurulumda aynı yoldan doğrulayıp kaydeder; biri geçersizse kurulum geri alınır;
   `<sunucu>.<anahtar>` paketlenmiş `.mcpb` sunucusunun seçeneğidir. Ayarlanmamış zorunlu seçenek kalırsa kurulum
   `fusion plugin configure <id>` ipucu verir. `plugin validate` geçersiz `userConfig` şemasını hata
-  sayar. Eklenti son kapsamından kaldırılınca seçenekleri ve sırları da silinir. Henüz yok:
-  etkinleştirmede soru penceresi, `channels`, `/config` satırları.
+  sayar. Eklenti son kapsamından kaldırılınca seçenekleri ve sırları da silinir. REPL'de
+  `/plugin enable` ya da `/plugin install` sonrası ayarlanmamış (varsayılanı olmayan) seçenekler Claude
+  gibi sırayla sorulur (hassaslar ekrana yansımaz; Enter atlar): "Enabled and configured <ad>." ya da
+  "Plugin enabled. Configuration skipped."; TUI'de ve terminal olmayan yüzeyde `/plugin configure <id>`
+  ipucu verilir. Henüz yok: `channels`, `/config` satırları.
 - Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).

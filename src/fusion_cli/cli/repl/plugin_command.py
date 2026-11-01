@@ -181,7 +181,20 @@ def _install(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -
     except PluginError as error:
         return "\n".join([*notes, str(error)])
     text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
-    return "\n".join([*notes, text, *done.notes])
+    return _with_options_prompt("\n".join([*notes, text, *done.notes]), done.ident)
+
+
+def _with_options_prompt(text: str, ident: str) -> str:
+    """#388: açılan/kurulan eklentinin ayarlanmamış userConfig seçeneklerini sor."""
+    from ...tools.plugin_toggle import find_record
+    from .plugin_options_prompt import prompt_after_enable
+
+    try:
+        record = find_record(load_state(), ident)
+    except PluginError:
+        return text
+    extra = prompt_after_enable(record, ident)
+    return f"{text}\n{extra}" if extra else text
 
 
 def _trust(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -> str:
@@ -248,7 +261,8 @@ def _toggle(enabled: bool) -> Handler:
         if len(names) != 1:
             return USAGE
         written = plugins.set_plugin_enabled(names[0], enabled, scope=scope)
-        return DONE.format(name=names[0], state=f"{label} (kapsam: {written})")
+        text = DONE.format(name=names[0], state=f"{label} (kapsam: {written})")
+        return _with_options_prompt(text, names[0]) if enabled else text
 
     return handler
 
