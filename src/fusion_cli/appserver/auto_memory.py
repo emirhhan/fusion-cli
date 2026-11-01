@@ -15,7 +15,6 @@ from ..cli.repl.state import ReplState
 from ..config.writer import write_runtime_flag
 from ..history.claude_source import slug_for
 from ..memory.plain_memory import (
-    INDEX_FILE,
     PROMPT_MAX_BYTES,
     PROMPT_MAX_LINES,
     PlainMemoryError,
@@ -29,13 +28,17 @@ INDEX_MAX_CHARS = 100_000
 
 def status(state: ReplState) -> dict[str, Any]:
     """Durum + indeks metni; bellek kapalıysa yalnız `etkin: false` ve dizin."""
-    enabled = bool(getattr(state.config.runtime, "auto_memory", True))
+    from ..memory import auto_memory_location as location
+
+    enabled = location.enabled(
+        state.root, bool(getattr(state.config.runtime, "auto_memory", True))
+    )
     directory = project_memory_dir(state.config, state.root)
     payload: dict[str, Any] = {
         "ok": True,
         "etkin": enabled,
         "dizin": str(directory),
-        "dosya": str(directory / INDEX_FILE),
+        "dosya": str(directory / location.INDEX_FILE),
         "sinir_satir": PROMPT_MAX_LINES,
         "sinir_bayt": PROMPT_MAX_BYTES,
     }

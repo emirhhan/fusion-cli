@@ -157,6 +157,8 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
     # Kurumsal Claude Code dizini (`/Library/Application Support/ClaudeCode`) okunmasın.
     monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-mg"))
+    # Otomatik bellek `~/.claude/projects/<proje>/memory` (#153): testler gerçek eve yazmasın.
+    monkeypatch.setenv("FUSION_CLAUDE_HOME", str(tmp_path.parent / f".{tmp_path.name}-claude-ev"))
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")

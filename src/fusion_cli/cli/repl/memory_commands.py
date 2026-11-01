@@ -65,7 +65,7 @@ def _status(state: ReplState) -> str:
     status = state.plain_memory.status()
     return messages.MEMORY_STATUS.format(
         state=messages.REPL_ON,
-        path=status.directory / "BELLEK.md",
+        path=state.plain_memory.index_path,
         lines=status.index_lines,
         kb=status.index_bytes / 1024,
         truncated=messages.MEMORY_STATUS_TRUNCATED if status.truncated else "",

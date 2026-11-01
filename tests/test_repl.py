@@ -1309,11 +1309,11 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     assert "PayTR sandbox" in komut.handler(state, "odeme")
     assert "Bu konuda bellek yok" in komut.handler(state, "yok-boyle")
     durum = komut.handler(state, "durum")
-    assert "açık" in durum and "BELLEK.md" in durum
+    assert "açık" in durum and "MEMORY.md" in durum  # Claude Code adı (#153)
     # Claude Code `/memory` (#154): argümansız çağrı CLAUDE.md dosyalarını listeler.
     secici = komut.handler(state, "")
     assert "Kullanıcı belleği" in secici and "CLAUDE.local.md" in secici
-    assert "BELLEK.md" in secici and "seçilince oluşturulur" in secici
+    assert "MEMORY.md" in secici and "seçilince oluşturulur" in secici
     assert "Geçersiz seçim" in komut.handler(state, "99")
     assert "CLAUDE.local.md" in komut.handler(state, "3")  # TTY yok: yol söylenir, dosya oluşur
     assert (state.root / "CLAUDE.local.md").exists()

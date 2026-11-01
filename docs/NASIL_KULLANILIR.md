@@ -358,9 +358,10 @@ hatırlar ve zamanla senin için daha iyi model seçer.
 ### Otomatik bellek (düz metin, `/memory`)
 
 Fusion, projeye ve sana dair kalıcı bilgileri kendi yazdığı düz metin dosyada tutar
-(Claude Code'un `MEMORY.md` düzeni): `<bellek dizini>/projeler/<proje>/bellek/BELLEK.md`
-indeksi + `konular/<konu>.md` dosyaları. İndeksin ilk 200 satırı / 25 KB her turun
-bağlamına girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
+Claude Code ile aynı yerde: `~/.claude/projects/<proje>/memory/MEMORY.md` indeksi +
+`konular/<konu>.md` dosyaları. `<proje>` git deposunun kökünden türer: aynı deponun alt
+dizinleri ve worktree'leri tek belleği paylaşır. İndeksin ilk 200 satırı / 25 KB her turun
+bağlamına (talimat dosyalarından sonra, aynı kullanıcı mesajında) girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
 Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gibi düzenle.
 
 - `/memory` → Claude Code'daki gibi bellek dosyası seçicisi: `~/.claude/CLAUDE.md`, proje
@@ -372,7 +373,12 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
   `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.
 - Claude Code'da olduğu gibi `#` hızlı girdisi yoktur: `# …` satırı olağan mesaj olarak
   modele gider. Bir şeyi hatırlatmak için modelden iste ("bunu hatırla") ya da `/memory` kullan.
-- Dizin: `runtime.auto_memory_dir` (boş = varsayılan). Masaüstü: Ayarlar › Kişiselleştirme ›
+- Aç/kapa ve dizin Claude Code ayarlarıyla: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` >
+  settings.json `autoMemoryEnabled` > eski `runtime.auto_memory`; `autoMemoryDirectory`
+  (kurumsal, `~/.claude/settings.json` ya da `.claude/settings.local.json`; proje
+  `settings.json`'ı veremez) > eski `runtime.auto_memory_dir` (kullanımdan kalktı, bir kez
+  uyarılır). Eski `<bellek dizini>/projeler/<proje>/bellek/BELLEK.md` yeni dizin yoksa ilk
+  açılışta bir kez kopyalanır, silinmez. Masaüstü: Ayarlar › Kişiselleştirme ›
   **Otomatik bellek** paneli (Markdown düzenleyici, "bu oturumda ilk N satır yüklendi",
   Claude'dan içe aktar).
 - Kapalıyken `remember`/`memory_read` araçları hiç sunulmaz, blok eklenmez. `--no-memory`

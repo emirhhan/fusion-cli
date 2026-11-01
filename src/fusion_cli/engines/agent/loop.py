@@ -1090,7 +1090,6 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                memory_prompt_block(deps),
                 harita,
                 beceri_dizini,
                 ajan_baslangici,
@@ -1112,7 +1111,10 @@ async def _run_agent(
         inherit_system=internal,
         system_prompt=system_prompt,
         # Claude Code (#149): CLAUDE.md içeriği sistem isteminden SONRA kullanıcı mesajıdır.
-        project_context=proje_ve_dis_bellek,
+        # Otomatik bellek (MEMORY.md başı, #153) da aynı mesajda, talimatlardan sonra.
+        project_context="\n\n".join(
+            part for part in (proje_ve_dis_bellek, memory_prompt_block(deps)) if part
+        ),
         images=images,
     )
     if deps.agent_transcript is not None:

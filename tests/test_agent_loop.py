@@ -29,6 +29,7 @@ from fusion_cli.engines.agent.loop import (
     _parse_arguments_checked,
     run_agent,
 )
+from fusion_cli.memory.plain_memory import PlainMemory
 
 from .fakes import (
     AlwaysApprove,
@@ -720,6 +721,10 @@ async def test_home_verildiginde_dis_bellek_sistem_promptuna_girer(monkeypatch, 
         tool_context=ToolContext(root=root),
         home=home,
     )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(
+        bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini
+    )
     await run_agent("gorev", deps)
 
     sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
@@ -757,6 +762,10 @@ async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, si
         policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
         tool_context=ToolContext(root=root),
         home=home,
+    )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(
+        bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini
     )
     await run_agent("gorev", deps)
 

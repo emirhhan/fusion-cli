@@ -10,7 +10,8 @@ def test_missing_files_return_empty_text(tmp_path):
     assert read_external_memory(tmp_path, tmp_path / "proje") == ""
 
 
-def test_claude_memory_is_read(tmp_path):
+def test_claude_memory_is_own_auto_memory_not_external(tmp_path):
+    """Claude Code (#153): bu dosya Fusion'ın otomatik belleği; dış bellek olarak çiftlenmez."""
     root = tmp_path / "proje"
     slug = slug_for(root)
     target = tmp_path / ".claude" / "projects" / slug / "memory"
@@ -19,8 +20,7 @@ def test_claude_memory_is_read(tmp_path):
 
     output = read_external_memory(tmp_path, root)
 
-    assert "kullanıcı Türkçe konuşur" in output
-    assert "claude" in output
+    assert "kullanıcı Türkçe konuşur" not in output
 
 
 def test_hermes_memory_is_read(tmp_path):
