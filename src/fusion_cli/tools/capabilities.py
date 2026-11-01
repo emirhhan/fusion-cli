@@ -30,6 +30,7 @@ from ..config.models import McpServerConfig, SkillVisibility
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from ..config.plugin_store import state_signature
 from ..core.hooks.events import HookSet
+from ..core.mcp_tool_names import canonical_mcp_name, split_mcp_tool_name
 from ..core.memory import RoutineSpec
 from ..core.proposal_invocation import (
     ProposalInvocation,
@@ -104,7 +105,7 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "todowrite": frozenset({"todo_write"}),
 }
 
-#: Claude'un MCP araç adı öneki: `mcp__<sunucu>__<araç>` → Fusion `<sunucu>__<araç>`;
+#: Claude'un MCP araç adı öneki: `mcp__<sunucu>__<araç>` Fusion kayıt adıyla aynıdır (#242);
 #: `mcp__<sunucu>` (araçsız) o sunucunun TÜM araçları demektir ve `*`la eşlenir.
 _MCP_PREFIX = "mcp__"
 _TRUE_WORDS = frozenset({"true", "yes", "evet", "1", "on"})
@@ -225,8 +226,8 @@ class Capability:
 def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
     """Claude araç adlarını Fusion adlarına çevir. `*` ya da boş → None (tam set).
 
-    `mcp__<sunucu>__<araç>` Fusion'ın `<sunucu>__<araç>` adına, `mcp__<sunucu>` ise
-    `<sunucu>__*` desenine çevrilir (bkz. `expand_tool_patterns`).
+    `mcp__<sunucu>__<araç>` kayıt adıyla aynen kalır, `mcp__<sunucu>` ise
+    `mcp__<sunucu>__*` desenine çevrilir (bkz. `expand_tool_patterns`).
     """
     if claude_tools == NO_TOOLS:
         return set()
@@ -254,14 +255,23 @@ def unmapped_tools(claude_tools: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def expand_tool_patterns(names: set[str], available: tuple[str, ...]) -> set[str]:
-    """`sunucu__*` desenlerini mevcut araç adlarına aç; düz adlar aynen kalır."""
+    """`mcp__sunucu__*` desenlerini mevcut araç adlarına aç; düz adlar aynen kalır.
+
+    MCP adları (#242) `mcp__` önekli ya da eski öneksiz yazımla karşılaştırılır: eski
+    `sunucu__*` deseni ve `sunucu__araç` adı yeni kayıt adını da bulur.
+    """
     expanded: set[str] = set()
     for name in names:
         if name.endswith("__*"):
             prefix = name[:-1]
-            expanded.update(tool for tool in available if tool.startswith(prefix))
-        else:
-            expanded.add(name)
+            if not prefix.startswith(_MCP_PREFIX):
+                prefix = f"{_MCP_PREFIX}{prefix}"
+            expanded.update(t for t in available if canonical_mcp_name(t).startswith(prefix))
+            continue
+        expanded.add(name)
+        if split_mcp_tool_name(name) is not None:
+            wanted = canonical_mcp_name(name)
+            expanded.update(t for t in available if canonical_mcp_name(t) == wanted)
     return expanded
 
 
@@ -272,7 +282,8 @@ def _mcp_tool_name(name: str) -> str | None:
     rest = cleaned[len(_MCP_PREFIX) :]
     if not rest:
         return None
-    return rest if "__" in rest else f"{rest}__*"
+    full = f"{_MCP_PREFIX}{rest}"  # kayıt adı da `mcp__` önekli (#242)
+    return full if "__" in rest else f"{full}__*"
 
 
 def parse_setting_int(value: object) -> int:

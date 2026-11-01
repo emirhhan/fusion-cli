@@ -101,6 +101,15 @@ def resolve_project_trust(root: Path) -> TrustState:
     return TrustState(True, REASON_TRUSTED)
 
 
+def was_project_trusted(root: Path) -> bool:
+    """Klasöre `fusion trust` ile en az bir kez güvenildi mi? (Claude çalışma alanı güveni, #246)
+
+    İçerik karmasına bakılmaz: Claude'un klasör güveni gibi sonraki dosya değişikliğiyle düşmez.
+    """
+    record = _load().get(_key(root))
+    return record is not None and record.get("config_sha256") != _NEVER_TRUSTED
+
+
 def is_permissions_trusted(root: Path) -> bool:
     """`.claude/settings.local.json` güvenildiği andaki içerikle mi duruyor?
 

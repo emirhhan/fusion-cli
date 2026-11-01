@@ -130,6 +130,7 @@ from ...providers.capabilities import (
     capabilities_for,
     infer_task_requirements,
 )
+from ...providers.context_window import input_window_tokens
 from ...providers.factory import build_provider
 from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
@@ -138,8 +139,14 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
+from ...tools.mcp_background import (
+    mark_main_conversation,
+    settle_mcp_background_calls,
+    take_mcp_background_notices,
+)
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
+from ...tools.tool_search import visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
@@ -706,6 +713,8 @@ async def run_agent(
         from .agent_runtime_hooks import prepare_main_metadata
 
         prepare_main_metadata(deps)
+        # Arka plana taşınan MCP çağrıları yalnız ana sohbette (#233).
+        mark_main_conversation(deps.tool_context)
         if deps.session_persona is not None:
             persona = deps.session_persona
             skills = team_settings.preloaded_skills(deps, persona)
@@ -1757,6 +1766,8 @@ async def _drive(
         notices = await deps.child_runs.completion_messages(
             deps.conversation_id or deps.child_runs.session_id, wait=False
         )
+        # Arka plana taşınmış MCP çağrılarının sonuçları (#233); ana sohbet dışında boştur.
+        messages.extend(take_mcp_background_notices(deps.tool_context))
         if notices:
             messages.append(
                 Message(
@@ -1960,6 +1971,12 @@ async def _drive(
                         harness_note=True,
                     )
                 )
+                continue
+            # Arka plana taşınmış MCP çağrısı (#233): hazır sonuç modeli uyandırır;
+            # etkileşimsiz kipte süren çağrı beklenir (yoksa süreç kapanışında kaybolurdu).
+            if await settle_mcp_background_calls(
+                deps.tool_context, wait=not deps.child_runs.persistent
+            ):
                 continue
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
@@ -2869,14 +2886,20 @@ async def _call_model(
     offered_tools = (
         tuple(
             registry.schemas(
-                _permitted(
-                    allowed_tools,
+                # Araç araması (#258): ertelenmiş ve yüklenmemiş MCP şemaları gönderilmez.
+                visible_tool_names(
+                    _permitted(
+                        allowed_tools,
+                        registry,
+                        execution,
+                        deps.tool_context.task_kinds,
+                        denied=getattr(deps, "denied_tools", ()),
+                        task=_surface_task(messages),
+                        phase=deps.tool_context.tool_phase,
+                    ),
                     registry,
-                    execution,
-                    deps.tool_context.task_kinds,
-                    denied=getattr(deps, "denied_tools", ()),
-                    task=_surface_task(messages),
-                    phase=deps.tool_context.tool_phase,
+                    lambda: input_window_tokens(spec.model),
+                    model=spec.model,
                 ),
                 edit_format=execution.edit_format,
             )

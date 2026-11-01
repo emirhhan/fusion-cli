@@ -657,37 +657,141 @@ mcp_servers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-github"]
 ```
-Bağlı sunucuların aletlerini görmek için:
-```
-fusion mcp tools          # eski ad: fusion mcp-tools
-```
-Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayınla).
+Bağlı sunucuların durumunu görmek için `fusion mcp list` (✔ Bağlandı · ! Kimlik doğrulama
+gerekli · ✘ Bağlanılamadı · ⏸ Onay bekliyor). Bundan sonra ajan turlarında bu dış aletler
+otomatik kullanılabilir (onayınla).
 
-**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile aynı kalıp):
+**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile birebir):
 ```
-fusion mcp add github npx -- -y @modelcontextprotocol/server-github     # stdio, kullanıcı kapsamı
-fusion mcp add linear --transport http --url https://mcp.linear.app/mcp  # uzak sunucu (OAuth)
-fusion mcp add postgres --scope project npx -- -y server-postgres        # projeye (.mcp.json)
-fusion mcp add-json fetch '{"command":"uvx","args":["mcp-server-fetch"]}'
-fusion mcp list                      # kapsam ve taşımayla; sırlar maskeli
-fusion mcp remove <ad>               # kayıtlı olduğu dosyadan siler
-fusion mcp login <ad>                # OAuth girişi (tarayıcı açılır), token şifreli depoda
-fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
+fusion mcp add --transport http notion https://mcp.notion.com/mcp      # uzak (OAuth), yerel kapsam
+fusion mcp add --transport http api https://api.example.com/mcp -H "Authorization: Bearer ${API_KEY}"
+fusion mcp add --transport sse asana https://mcp.asana.com/sse          # eski SSE taşıması
+fusion mcp add airtable -e AIRTABLE_API_KEY=anahtar -- npx -y airtable-mcp-server   # stdio
+fusion mcp add --scope project postgres -- npx -y server-postgres       # projeye (.mcp.json)
+fusion mcp add --transport http --client-id ID --client-secret --callback-port 8080 srv https://…
+fusion mcp add-json ev '{"type":"ws","url":"wss://mcp.example.com/socket","headers":{…}}'
+fusion mcp add-from-claude-desktop [--scope user]   # macOS/WSL: Claude Desktop'tan seçerek al
+fusion mcp list | get <ad>            # durum; get kapsam, hedef, başlık/ortam ADLARI, OAuth
+fusion mcp remove <ad> [--scope …]    # kapsamından siler; o adresin OAuth token'ları da silinir
+fusion mcp login <ad> [--no-browser]  # OAuth; SSH'te adres basılır, dönüş adresi yapıştırılır
+fusion mcp logout <ad>                # saklı kimlik bilgilerini sil
+fusion mcp reconnect <ad>|all
+fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç (bütün araçlar)
 ```
-- `--scope user` (varsayılan) kaydı `config.yaml`'a, `--scope project` kök dizindeki
-  `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
-  varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
-  güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
-  kullanıcı kaydını geçer (kullanıcı kaydı `config.yaml`'da durur, silinmez). Güvenilmeyen bir
-  `.mcp.json` üzerine `--scope project` ile yazılmaz: önce `fusion trust`. Ekleme/silme
-  dosyada yalnız ilgili adı değiştirir; takımın diğer girdileri korunur. `--token-env` proje
-  kapsamında yoktur (dosya biçimi taşımaz); kullanıcı kapsamına yaz.
-- Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
-  başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
-- `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
-  düz değerdir.
-- Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
-  Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
+- Kapsamlar Claude Code ile aynı: **`local` varsayılan** (yalnız bu proje, paylaşılmaz;
+  kullanıcı dizinindeki `mcp-local.json` içinde proje yolu altında), `project` kökteki
+  `.mcp.json`, `user` bütün projeler (`config.yaml`). Aynı adda öncelik local > project > user
+  > eklenti; alanlar kapsamlar arasında birleştirilmez. Proje dosyası süreç başlatabildiği için
+  `.mcp.json` sunucuları Claude Code gibi onaya bağlıdır: etkileşimli açılışta onaylanmamış her
+  sunucu için sorulur (1 bunu ve gelecekteki bütün proje sunucularını kullan, 2 bu sunucuyu
+  kullan, 3 kullanmadan devam et); seçimler `mcp-local.json`'da proje altında
+  `enabledMcpjsonServers` / `disabledMcpjsonServers` / `enableAllProjectMcpServers` olarak
+  tutulur, `fusion mcp reset-project-choices` sıfırlar. Aynı anahtarlar `~/.claude/settings.json`
+  ve yönetilen ayardan her zaman, projenin `.claude/settings*.json` dosyalarından yalnız klasöre
+  `fusion trust` ile güvenilmişse okunur; `disabledMcpjsonServers` her yerden ve her kipte
+  reddeder. `fusion exec` (Claude `-p` gibi) sormadan yükler, ama klasöre hiç güvenilmemişse
+  yüklemez. `fusion trust` ile güvenilen (ya da Fusion'ın kendi yazdığı) dosya onaylı sayılır.
+  Onay bekleyenler `fusion mcp list`'te "⏸ Onay bekliyor" görünür. Masaüstünde Bağlantılar
+  ekranı aynı üç seçeneği sunucu sunucu sorar ve seçimi aynı kayda yazar; onaylanan sunucu
+  oturuma hemen eklenir.
+- `.mcp.json` / `add-json` alanları: `type` (stdio|http|sse|ws), `command`, `args`, `env`,
+  `url`, `headers`, `headersHelper`, `timeout` (ms), `alwaysLoad`, `oauth` {`clientId`,
+  `callbackPort`, `authServerMetadataUrl`, `scopes`}. Hatalı tek girdi (ör. `type`'sız `url`,
+  `type: "sdk"`) atlanır ve bildirilir; diğer sunucular yüklenir.
+- `${VAR}` ve `${VAR:-varsayılan}`: tanımsız ve varsayılansız başvuru metin olarak kalır ve
+  `list`/`get` uyarı verir; boş metne ayarlı değişken tanımlı sayılır. Uzak sunucunun `url` ve
+  `headers` alanlarında kimlik bilgisi değişkenleri (ANTHROPIC_API_KEY, AWS_BEARER_TOKEN_BEDROCK,
+  HTTPS_PROXY, NPM_TOKEN, sağlayıcı anahtarları…) boş okunur.
+- Zaman sınırları: başlatma 30 sn (`MCP_TIMEOUT`), araç çağrısı ~28 saat (`MCP_TOOL_TIMEOUT`
+  ya da sunucu `timeout`), HTTP/SSE istek başına en az 60 sn, boşta kalma ağda 5 dk / stdio'da
+  30 dk (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). Ana sohbetteki çağrı 2 dk sonra arka plan
+  görevine taşınır (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`, `0` kapatır): model görev kimliğini
+  alıp çalışmaya devam eder, sonuç hazır olunca sıradaki isteğe bildirim olarak eklenir;
+  model son yanıtını verdiğinde hazır sonuç yeni bir istek açar. `fusion exec` / `-p`
+  kipinde süren çağrı süreç kapanmadan beklenir. `TaskStop` görevi `mcp-…` kimliğiyle
+  durdurur. Alt ajanlarda çağrı beklenir.
+- Bloklamayan bağlantı (Claude Code gibi varsayılan): tur başı sunucuları en çok 5 sn
+  (`MCP_CONNECT_TIMEOUT_MS`) bekler; geç kalan sunucu arka planda bağlanmayı sürdürür ve
+  bağlantısı bitince araçları aynı turun sıradaki isteğinde sunulur. Bağlanmayı süren sunucu
+  varken model `WaitForMcpServers` aracıyla onları bekleyebilir (sonuçta sunucu başına
+  durum yazılır). `"alwaysLoad": true` sunucusu ve `MCP_CONNECTION_NONBLOCKING=0` de aynı
+  sınıra (5 sn) kadar bekler. `fusion exec` / `-p` kipinde ilk turdan önce bütün sunucular
+  başlatma sınırına (`MCP_TIMEOUT`, 30 sn) kadar beklenir. Claude varsayılanda `alwaysLoad`
+  olmayan HTTP/SSE sunucusunu hiç beklemez; Fusion onu da 5 sn bekler.
+- Çıktı: 25.000 token (`MAX_MCP_OUTPUT_TOKENS`) ya da 50.000 karakteri aşan başarılı sonuç
+  dosyaya kaydedilir ve modele yolu verilir; hata metninin ilk ve son 5.000 karakteri tutulur.
+- Stdio sunucusu kabuk ortamını miras alır ve `CLAUDE_PROJECT_DIR` alır;
+  `CLAUDE_CODE_MCP_ALLOWLIST_ENV=1` iken yalnız güvenli temel ortam + `env`.
+- Oturum bayrakları: `fusion --mcp-config <dosya|JSON> …` ve `--strict-mcp-config`.
+- Eski yazımlar bir sürüm boyunca uyarıyla çalışır: `--url`, `--token-env`, `-e AD`
+  (eşittirsiz), alt komutsuz `fusion mcp` (MCP istemcisinden çağrılınca salt-okunur sunucu),
+  `fusion mcp tools|prompts|resources` (yardımda gizli). `fusion mcp-add` kullanıcı kapsamına
+  yazar.
+- Sohbet içinde `/mcp`: sunucular, kapsamları ve durumları (bağlı sunucuda araç sayısı);
+  `/mcp reconnect <ad>|all`, `/mcp auth <ad>`, `/mcp clear-auth <ad>`, `/mcp enable|disable
+  <ad>` (bu projede aç/kapa), `/mcp tools <ad>` (araçların tam adı `mcp__<sunucu>__<araç>` ve
+  izin kuralına göre durumu: izinli / her çağrıda sorar / reddedildi / kural yok).
+  Ekleme/kaldırma CLI'dadır; eski `/mcp remove` kaydı kapsamından gerçekten siler.
+  Masaüstünde Bağlantılar > araç kataloğu aynı bilgiyi verir: tam ad ve izin durumu.
+- Bağlı sunucuların `initialize` talimatları "MCP Server Instructions" başlığıyla bağlama
+  girer (4096 karakter; `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`). Kaynak bildiren sunucu
+  varken modele `ListMcpResourcesTool` ve `ReadMcpResourceTool` verilir. Sunucu
+  `tools/list_changed` bildirirse kalkan araçlar defterden çıkar.
+- `headersHelper` olan sunucuda araç çağrısı 401/403 dönerse yardımcı yeniden çalışır, sunucu
+  taze başlıkla yeniden bağlanır ve çağrı bir kez yinelenir; yine başarısızsa sunucu "giriş
+  gerekli" görünür.
+- Elicitation: sunucu görev ortasında bilgi isterse (form) alanlar tek tek sorulur; bağlantı
+  isterse (url) "Tarayıcıda aç / Reddet" sorulur (çok uzun URL yalnız reddedilebilir). Soru
+  sorulamayan yerde (`-p`) istek iptal (`cancel`) döner.
+- Kuruluş denetimi (Claude Code ile aynı dosyalar): `managed-mcp.json`
+  (`/Library/Application Support/ClaudeCode/`, `/etc/claude-code/`,
+  `C:\Program Files\ClaudeCode\`) varsa yalnız onun sunucuları ve `managedMcpServers` yüklenir;
+  `managed-settings.json` içinde `managedMcpServers` (yalnız https http/sse), `allowedMcpServers`
+  / `deniedMcpServers` (`serverName`, `serverCommand`, `serverUrl` jokerli) ve
+  `allowManagedMcpServersOnly`. Ret listesi kullanıcı/proje ayarlarından da birleşir ve her şeyi
+  geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir;
+  `managed-mcp.json` varken `--mcp-config` açılışta Claude'un iletisiyle çıkar (kod 1);
+  kuruluşun sağladığı sunucuyu `fusion mcp remove` "provided by your organization" diyerek
+  reddeder. Kuruluş sunucuları `managed` (yönetilen) kapsamındadır: REPL `/mcp` sunucuları
+  Claude Code gibi kapsam gruplarında (Local / Project / User / Plugin / Managed MCPs) gösterir,
+  `fusion mcp list|get` "yönetilen" yazar, masaüstü Bağlantılar ekranı "kuruluş" rozeti koyar ve
+  kaldırma/güven düğmesi sunmaz. Kuruluş sunucusu kullanıcının `config.yaml`'ına yazılmaz;
+  politikanın gizlediği (ret listesindeki ya da kuruluş adıyla gölgelenen) kullanıcı kaydı
+  başka bir yazmada silinmez, politika kalkınca geri gelir.
+- `allowAllClaudeAiMcps`: Claude Code'da `managed-mcp.json` claude.ai connector'larını
+  bastırır. Fusion'daki karşılığı web sağlayıcısının connector ekranından bağlanan
+  barındırmalı connector'lardır (`hosted_connectors`): tekel varken yüklenmez, yalnız yönetilen
+  ayardaki (`managed-settings.json`) `allowAllClaudeAiMcps: true` onları geri getirir;
+  kullanıcı/proje ayarındaki değer etkisizdir. Ret/izin listesi (`serverName`, `serverUrl`)
+  connector'lara da uygulanır. Eklenti sunucuları tekelde yine düşer.
+- Araç adları Claude Code ile aynı: `mcp__<sunucu>__<araç>` (eklentide
+  `mcp__plugin_<eklenti>_<sunucu>__<araç>`); `A-Z a-z 0-9 _ -` dışındaki karakterler `_` olur,
+  tam adı 128 karakteri aşan araç modele gönderilmez ve günlüğe yazılır. OpenAI/Gemini 64
+  karakter sınırı yüzünden 65-128 karakterlik ad 64'e kısaltılıp sonuna 8 haneli özet eklenir.
+  Eski öneksiz yazım (`github__get_issue`) izin kuralında, kancada ve `--allowed-tools`'ta bir
+  sürüm boyunca takma addır (izin kuralında bir kez uyarılır).
+- Araç araması (Claude Code gibi varsayılan açık): MCP araçlarının şeması baştan gönderilmez,
+  model `ToolSearch` (`select:<ad>` ya da anahtar sözcük; `+sözcük` adda geçmeli) ile yükler ve
+  araç aynı turun sonraki isteğinden itibaren şemasıyla sunulur. `ENABLE_TOOL_SEARCH`:
+  boş/`true` ertele, `auto`/`auto:N` tanımlar bağlam penceresinin %10'undan (%N) azsa baştan
+  yükle (eşik bir kez aşılınca açık kalır), `false` hepsi baştan;
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` aramayı kapatır. `permissions.deny: ["ToolSearch"]`
+  ya da araç listesinde `ToolSearch` olmaması araçları baştan yükler. Sunucu `"alwaysLoad": true`
+  araçlarını baştan yükler, `false` hepsini (aracın `_meta["anthropic/alwaysLoad"]` işareti
+  dahil) erteler; yazılmamışsa işaretli araç baştan yüklenir. Baştan yüklenen açıklama 4096,
+  aramayla yüklenen 16384 karakterde kesilir (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` ikisini
+  de değiştirir). Claude gibi yalnız aramayı destekleyen modellerde erteler: değişken boşken
+  4. nesil ve sonrası Claude modelleri (Opus 4, Sonnet 4, Haiku 4.5…) erteler; eski Claude
+  modelleri `true` ile bile araçları baştan alır. Claude dışı modeller (Gemini, yerel…)
+  değişken boşken araçları baştan alır; `ENABLE_TOOL_SEARCH=true`/`auto` açıkça verilirse
+  onlarda da ertelenir (Fusion aramayı sağlayıcının `defer_loading` alanıyla değil istemci
+  tarafında yaptığı için).
+- Henüz yok (Claude Code'da var): Elicitation kancası.
+- Araç şeması: Anthropic yolundaki (önek yok, `anthropic/`, `bedrock/`, `vertex_ai/`,
+  `openrouter/anthropic/`) Claude modellerine sunucunun `inputSchema`'sı olduğu gibi gider
+  (yalnız açıklamalardaki gizli talimat blokları temizlenir). JSON Schema'yı eksik destekleyen
+  sağlayıcılara (Gemini, Mistral, bazı OpenRouter modelleri) `$ref`/`anyOf`/derinlik
+  sadeleştirilmiş kopya gönderilir; Fusion çok sağlayıcılı olduğu için bu bir uyum katmanıdır.
 
 **MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):
 ```
@@ -695,16 +799,21 @@ fusion mcp prompts                    # sunucuların istemleri: /mcp__<sunucu>__
 fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
 ```
 - Sohbette `/mcp__github__review-pr 12 güvenlik` istemi sunucudan alır (`prompts/get`) ve
-  görev olarak çalıştırır. Argümanlar sırayla istemin parametrelerine bağlanır ya da
-  `ad=değer` yazılır; fazla sözcükler son parametreye eklenir; zorunlu argüman eksikse tur
-  koşmaz, kullanım satırı gösterilir. Komutlar tamamlamada ve masaüstü komut paletinde "MCP"
-  grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar — liste
+  görev olarak çalıştırır. Komut menüsünde istem `/github:review-pr (MCP)` olarak görünür; iki
+  yazım da çalışır. Argümanlar Claude Code gibi yalnız boşlukla bölünür ve sırayla istemin
+  parametrelerine bağlanır (tırnak gruplamaz, fazla sözcük yok sayılır); zorunlu argüman
+  eksikse tur koşmaz, kullanım satırı gösterilir. Yalnız sunucu adındaki geçersiz karakterler
+  `_` olur, istem adı sunucunun bildirdiği gibi kalır. `anthropic-skills` adlı sunucunun
+  istemleri gösterilmez (araçları çalışır). Komutlar tamamlamada ve masaüstü komut paletinde
+  "MCP" grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar — liste
   dolmadan yazılan `/mcp__…` da kabul edilir, tur sunucuya bağlanınca çözülür. Liste çekimi
   geçici hatayla düşerse sonraki tur yeniden dener; sunucu `list_changed` bildirirse yenilenir.
-  Argümanda ters eğik çizgi korunur (`C:\yol\dosya.txt`); istem metni 40.000 karakterle sınırlı.
-- `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup turun bağlamına
-  ekler: yalnız tanımlı sunucu adlarıyla, mesaj başına en fazla 5 kaynak, kaynak başına
-  20.000 karakter, sırlar maskeli, "kullanıcı talimatı değildir" notuyla; içerikteki
+  Argümanda ters eğik çizgi korunur (`C:\yol\dosya.txt`); istem metni kırpılmaz.
+- `@` yazınca bağlı sunucuların kaynakları dosyaların yanında bulanık aramalı önerilir
+  (`ui://` ve `text/html;profile=mcp-app` arayüz kaynakları önerilmez ve listelenmez, URI ile
+  okunabilir). `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup
+  turun bağlamına ekler: yalnız tanımlı sunucu adlarıyla, anma sayısı sınırsız, kaynak gövdesi
+  MCP çıktı sınırıyla (`MAX_MCP_OUTPUT_TOKENS`, varsayılan ~100.000 karakter), sırlar maskeli, "kullanıcı talimatı değildir" notuyla; içerikteki
   `</mcp_kaynak>` gibi etiket kapatmaları etkisizleştirilir. İkili içerik atlanır.
 - Masaüstünde **Bağlantılar → araç kataloğu** sunucunun araçlarının yanında istemlerini ve
   kaynaklarını da sohbet yazımıyla listeler; **Kopyala** ile `/mcp__…` ya da `@sunucu:uri`

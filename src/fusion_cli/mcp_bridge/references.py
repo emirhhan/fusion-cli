@@ -19,28 +19,32 @@ from __future__ import annotations
 
 import logging
 import re
-import shlex
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from mcp import ClientSession
 from mcp.client.session import MessageHandlerFnT
-from mcp.types import PromptListChangedNotification, ResourceListChangedNotification
+from mcp.types import (
+    PromptListChangedNotification,
+    ResourceListChangedNotification,
+    ToolListChangedNotification,
+)
 from pydantic import AnyUrl
 
 from ..core.redaction import redact
+from .output_limits import CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS, max_tokens
 
 _LOG = logging.getLogger(__name__)
 
 #: Slash komut öneki (Claude Code ile aynı).
 SLASH_PREFIX = "mcp__"
-#: Bir kaynaktan bağlama alınacak en fazla karakter.
-RESOURCE_MAX_CHARS = 20_000
-#: `prompts/get` sonucundan göreve alınacak en fazla karakter.
-PROMPT_MAX_CHARS = 40_000
-#: Tek mesajda en fazla kaç kaynak anması okunur.
-RESOURCE_MAX_MENTIONS = 5
+#: Bir kaynaktan bağlama alınacak en fazla karakter: MCP çıktı sınırı (#254; Claude Code'da
+#: 20.000'lik ayrı bir kaynak sınırı yok, 25.000 token `MAX_MCP_OUTPUT_TOKENS` uygulanır).
+RESOURCE_MAX_CHARS = DEFAULT_MAX_TOKENS * CHARS_PER_TOKEN
+#: Claude Code bu adı claude.ai'den eşitlenen beceriler için ayırır; istemleri listelenmez
+#: ve komut olarak çalışmaz, araçları çalışır (#268).
+RESERVED_PROMPT_SERVER = "anthropic-skills"
 #: Katalogda sunucu başına tutulan en fazla istem/kaynak (dev sunucular tamamlamayı boğmasın).
 CATALOG_MAX_ITEMS = 200
 
@@ -81,8 +85,13 @@ class McpPrompt:
 
     @property
     def slash_name(self) -> str:
-        """`mcp__<sunucu>__<istem>`; slash ayrıştırıcısına uymayan karakterler `_` olur."""
+        """`mcp__<sunucu>__<istem>`; yalnız sunucu adındaki geçersiz karakterler `_` olur."""
         return slash_name(self.server, self.name)
+
+    @property
+    def display_name(self) -> str:
+        """Komut menüsündeki ad: `sunucu:istem` (Claude Code `/servername:promptname (MCP)`)."""
+        return f"{self.server}:{self.name}"
 
     @property
     def usage(self) -> str:
@@ -125,7 +134,29 @@ class McpExpansion:
 
 
 def slash_name(server: str, prompt: str) -> str:
-    return _INVALID_SLASH.sub("_", f"{SLASH_PREFIX}{server}__{prompt}")
+    """Claude Code kuralı (#268): sunucu adı normalleşir, istem adı bildirildiği gibi kalır."""
+    return f"{SLASH_PREFIX}{_INVALID_SLASH.sub('_', server)}__{prompt}"
+
+
+#: MCP Apps arayüz kaynağı: ana uygulamanın çizeceği sayfa, Claude'un okuyacağı içerik değil.
+UI_RESOURCE_SCHEME = "ui://"
+UI_RESOURCE_MIME = "text/html;profile=mcp-app"
+
+
+def is_ui_resource(resource: McpResource) -> bool:
+    """`ui://` URI'li ya da `text/html;profile=mcp-app` türlü kaynak mı (#254)?"""
+    mime = resource.mime_type.replace(" ", "").lower()
+    return resource.uri.startswith(UI_RESOURCE_SCHEME) or mime == UI_RESOURCE_MIME
+
+
+def visible_resources(resources: Sequence[McpResource]) -> tuple[McpResource, ...]:
+    """`@` önerisi ve liste aracı için kaynaklar; arayüz kaynakları hariç (URI ile okunur)."""
+    return tuple(item for item in resources if not is_ui_resource(item))
+
+
+def visible_prompts(prompts: Sequence[McpPrompt]) -> tuple[McpPrompt, ...]:
+    """Komut olarak sunulan istemler: `anthropic-skills` sunucusununkiler hariç (#268)."""
+    return tuple(item for item in prompts if item.server != RESERVED_PROMPT_SERVER)
 
 
 # --- Katalog ---------------------------------------------------------------------- #
@@ -167,8 +198,11 @@ async def fetch_catalog(session: ClientSession, server: str) -> McpCatalog:
     return McpCatalog(tuple(prompts), tuple(resources))
 
 
-def catalog_change_handler(on_change: Callable[[], None]) -> MessageHandlerFnT:
-    """`ClientSession(message_handler=…)`: istem/kaynak listesi değişince `on_change`.
+def catalog_change_handler(
+    on_change: Callable[[], None], on_tools_change: Callable[[], None] | None = None
+) -> MessageHandlerFnT:
+    """`ClientSession(message_handler=…)`: istem/kaynak listesi değişince `on_change`,
+    araç listesi değişince (`tools/list_changed`, #256) `on_tools_change`.
 
     Diğer bildirim ve istekler SDK'nın varsayılanı gibi yok sayılır.
     """
@@ -177,6 +211,8 @@ def catalog_change_handler(on_change: Callable[[], None]) -> MessageHandlerFnT:
         root = getattr(message, "root", None)
         if isinstance(root, PromptListChangedNotification | ResourceListChangedNotification):
             on_change()
+        elif isinstance(root, ToolListChangedNotification) and on_tools_change is not None:
+            on_tools_change()
 
     return _handle
 
@@ -200,8 +236,15 @@ async def _paged(method: Callable[..., Awaitable[object]], attribute: str) -> li
 
 
 def find_prompt(prompts: Sequence[McpPrompt], name: str) -> McpPrompt | None:
+    """`mcp__s__p` ya da menüdeki `s:p` adıyla istem; önce birebir, sonra harf duyarsız."""
+    candidates = visible_prompts(prompts)
+    exact = next((p for p in candidates if name in (p.slash_name, p.display_name)), None)
+    if exact is not None:
+        return exact
     wanted = name.lower()
-    return next((item for item in prompts if item.slash_name.lower() == wanted), None)
+    return next(
+        (p for p in candidates if wanted in (p.slash_name.lower(), p.display_name.lower())), None
+    )
 
 
 def parse_prompt_call(task: str) -> tuple[str, str] | None:
@@ -214,29 +257,13 @@ def parse_prompt_call(task: str) -> tuple[str, str] | None:
 
 
 def bind_arguments(prompt: McpPrompt, raw: str) -> tuple[dict[str, str], str]:
-    """Argümanları istemin parametrelerine bağla: `ad=değer` ya da sırayla konumsal.
+    """Argümanları Claude Code gibi bağla (#268): boşlukla bölünür, her token sırayla bir
+    parametre olur; tırnak gruplamaz, `ad=değer` ayrıştırılmaz, fazla token yok sayılır.
 
     Döner: (argümanlar, hata). Zorunlu argüman eksikse hata metni dolu.
     """
-    parts = split_arguments(raw)
     names = [item.name for item in prompt.arguments]
-    bound: dict[str, str] = {}
-    positional: list[str] = []
-    for part in parts:
-        key, sep, value = part.partition("=")
-        if sep and key in names:
-            bound[key] = value
-        else:
-            positional.append(part)
-    free = [name for name in names if name not in bound]
-    for name, value in zip(free, positional, strict=False):
-        bound[name] = value
-    if len(positional) > len(free) and free:
-        # Fazla kelime son serbest argümana eklenir (`/mcp__x__ara uzun bir sorgu`).
-        last = free[min(len(free), len(positional)) - 1]
-        bound[last] = " ".join([bound[last], *positional[len(free) :]])
-    elif positional and not free and names:
-        return bound, "fazla argüman: " + " ".join(positional)
+    bound = dict(zip(names, split_arguments(raw), strict=False))
     missing = [item.name for item in prompt.arguments if item.required and item.name not in bound]
     if missing:
         return bound, "eksik zorunlu argüman: " + ", ".join(missing)
@@ -244,26 +271,15 @@ def bind_arguments(prompt: McpPrompt, raw: str) -> tuple[dict[str, str], str]:
 
 
 def split_arguments(raw: str) -> list[str]:
-    """Tırnakları tanıyan ama ters eğik çizgiyi KORUYAN ayrıştırma.
-
-    Ölçüldü (31 Ekim): POSIX `shlex.split` `C:\\Users\\x\\a.txt` yolunu `C:Usersxa.txt`
-    yapıyordu; Windows yolu ve regex içeren argümanlar sessizce bozuluyordu.
-    """
-    if not raw.strip():
-        return []
-    lexer = shlex.shlex(raw, posix=True)
-    lexer.whitespace_split = True
-    lexer.escape = ""
-    try:
-        return list(lexer)
-    except ValueError:  # kapanmamış tırnak: düz bölme
-        return raw.split()
+    """Yalnız boşlukla bölme; ters eğik çizgi ve tırnak olduğu gibi kalır."""
+    return raw.split()
 
 
 def prompt_text(result: object) -> str:
     """`prompts/get` sonucunun mesajları → tek görev metni (rol etiketleri korunur).
 
-    Sunucu metni göreve girer: sırlar maskelenir, boyut `PROMPT_MAX_CHARS` ile sınırlıdır.
+    Sunucu metni göreve girer: sırlar maskelenir. Claude Code istem sonucunu doğrudan
+    konuşmaya koyar; Fusion'ın eski 40.000 karakter kırpması kaldırıldı (#268).
     """
     messages = list(getattr(result, "messages", None) or ())
     parts: list[str] = []
@@ -273,7 +289,7 @@ def prompt_text(result: object) -> str:
             continue
         role = str(getattr(message, "role", "user"))
         parts.append(text if len(messages) == 1 or role == "user" else f"[{role}]\n{text}")
-    return _limited(redact("\n\n".join(parts)), PROMPT_MAX_CHARS)
+    return redact("\n\n".join(parts))
 
 
 def _limited(text: str, limit: int) -> str:
@@ -337,7 +353,8 @@ def resource_block(server: str, uri: str, result: object) -> str:
     # Ölçüldü (31 Ekim, bağımsız inceleme): gövdedeki `</mcp_kaynak>\n\nSistem: …` bloğu
     # kapatıyor, sonrası sistem bağlamında güvenilir metin gibi duruyordu; öznitelikler de
     # kaçırılmıyordu.
-    body = neutralize(_limited(redact("\n".join(texts)), RESOURCE_MAX_CHARS))
+    limit = max_tokens() * CHARS_PER_TOKEN
+    body = neutralize(_limited(redact("\n".join(texts)), limit))
     return (
         f'<mcp_kaynak sunucu="{_attribute(server)}" uri="{_attribute(uri)}">\n'
         f"{UNTRUSTED_NOTE}\n{body}\n</mcp_kaynak>"

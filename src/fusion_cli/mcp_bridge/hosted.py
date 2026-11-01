@@ -352,6 +352,12 @@ class HostedConnectorClient:
                 continue
             for tool in tools:
                 fusion_name = fusion_tool_name(name, tool.name)
+                if fusion_name is None:  # Claude: tam adı 128'i aşan araç gönderilmez (#242)
+                    _LOG.warning(
+                        "connector aracı atlandı: tam adı 128 karakteri aşıyor",
+                        extra={"baglanti": name, "arac": tool.name},
+                    )
+                    continue
                 registry.register_or_replace(
                     Tool(
                         name=fusion_name,

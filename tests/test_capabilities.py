@@ -524,11 +524,15 @@ def test_yeni_claude_arac_adlari_ve_mcp_eslenir():
 
     assert mapped is not None
     assert {"spawn_agent", "invoke_agent", "read_skill", "ask_user"} <= mapped
-    assert "github__search" in mapped and "jira__*" in mapped
-    assert expand_tool_patterns({"jira__*", "read_file"}, ("jira__list", "jira__get", "x")) == {
-        "jira__list",
-        "jira__get",
+    # #242: kayıt adı Claude gibi `mcp__` önekli; eski öneksiz desen de yeni adı bulur.
+    assert "mcp__github__search" in mapped and "mcp__jira__*" in mapped
+    available = ("mcp__jira__list", "mcp__jira__get", "x")
+    assert expand_tool_patterns({"mcp__jira__*", "read_file"}, available) == {
+        "mcp__jira__list",
+        "mcp__jira__get",
         "read_file",
     }
+    assert expand_tool_patterns({"jira__*"}, available) == {"mcp__jira__list", "mcp__jira__get"}
+    assert "mcp__jira__get" in expand_tool_patterns({"jira__get"}, available)
     assert unmapped_tools(("Read", "Uydurma", "mcp__x__y")) == ("Uydurma",)
     assert unmapped_tools(("*",)) == ()

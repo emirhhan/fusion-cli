@@ -53,13 +53,10 @@ def test_istem_cagrisi_ve_arguman_baglama():
         "12 güvenlik",
     )
     assert parse_prompt_call("merhaba /mcp__x") is None
-    assert bind_arguments(PR, "12 güvenlik ve hız") == (
-        {"numara": "12", "odak": "güvenlik ve hız"},
-        "",
-    )
-    assert bind_arguments(PR, "odak=testler numara=7") == ({"odak": "testler", "numara": "7"}, "")
+    # #268: Claude Code gibi boşlukla konumsal; fazla token yok sayılır.
+    assert bind_arguments(PR, "12 güvenlik ve hız") == ({"numara": "12", "odak": "güvenlik"}, "")
     assert "eksik zorunlu argüman: numara" in bind_arguments(PR, "")[1]
-    assert McpPrompt("s p", "a/b").slash_name == "mcp__s_p__a_b"
+    assert McpPrompt("s p", "a/b").slash_name == "mcp__s_p__a/b"
     assert PR.usage == "<numara> [odak]"
 
 
@@ -252,7 +249,7 @@ def test_slash_komutu_ve_listeler(tmp_path: Path, monkeypatch):
 
     command = registry.get("mcp__github__review-pr")
     assert command is not None and command.group == "MCP" and command.usage == "<numara> [odak]"
-    assert "/mcp__github__review-pr" in registry.completion_words()
+    assert "/github:review-pr" in registry.completion_words()  # #268 menü adı
     command.handler(state, "12")
     assert state.take_pending()[0] == "/mcp__github__review-pr 12"
     mcp = registry.get("mcp")
@@ -325,9 +322,7 @@ async def test_masaustu_komut_listesi_ve_istem_cagrisi(tmp_path: Path, monkeypat
     )
 
     komutlar = liste["komutlar"] if isinstance(liste, dict) else liste
-    assert any(
-        item["ad"] == "mcp__github__review-pr" and item["grup"] == "MCP" for item in komutlar
-    )
+    assert any(item["ad"] == "github:review-pr" and item["grup"] == "MCP" for item in komutlar)
     assert _sonuc(satirlar, "2")["gorev"] == "/mcp__github__review-pr 12"
     await oturum.close()
 
@@ -395,23 +390,15 @@ def test_kaynak_govdesi_blogu_kapatamaz_oznitelikler_kacirilir():
     assert 'uri="repo://x&quot; onay=&quot;verildi"' in block
 
 
-def test_istem_metni_sinirli_ve_maskeli():
-    from fusion_cli.mcp_bridge.references import PROMPT_MAX_CHARS
-
+def test_istem_metni_maskeli():
     secret = "ghp_" + "b" * 36
     result = SimpleNamespace(
-        messages=[
-            SimpleNamespace(
-                role="user",
-                content=SimpleNamespace(text=f"{secret} " + "y" * (PROMPT_MAX_CHARS + 10)),
-            )
-        ]
+        messages=[SimpleNamespace(role="user", content=SimpleNamespace(text=f"{secret} metin"))]
     )
 
     text = prompt_text(result)
 
-    assert secret not in text
-    assert len(text) <= PROMPT_MAX_CHARS + 20 and text.endswith("[…kırpıldı…]")
+    assert secret not in text and text.endswith("metin")
 
 
 def test_arguman_ters_egik_cizgiyi_ve_tirnagi_korur():
@@ -419,10 +406,6 @@ def test_arguman_ters_egik_cizgiyi_ve_tirnagi_korur():
     prompt = McpPrompt("fs", "oku", arguments=(McpPromptArgument("yol", required=True),))
 
     assert bind_arguments(prompt, r"C:\Users\x\a.txt") == ({"yol": r"C:\Users\x\a.txt"}, "")
-    assert bind_arguments(PR, '12 "güvenlik ve hız"') == (
-        {"numara": "12", "odak": "güvenlik ve hız"},
-        "",
-    )
     assert bind_arguments(PR, r"12 \d+\.py") == ({"numara": "12", "odak": r"\d+\.py"}, "")
 
 

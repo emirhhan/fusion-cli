@@ -91,10 +91,10 @@ def test_tasima_komut_arguman_adres_ve_ortam_degerlerini_baglanti_aninda_cozer()
     assert config.args[-1] == "${DB_URL}"
 
 
-def test_eksik_basvuru_tasimada_yapilandirma_hatasi():
+def test_eksik_basvuru_tasimada_metin_olarak_kalir():
+    # Claude Code: yapılandırma yine yüklenir, `${VAR}` metni aynen kullanılır (#243).
     config = McpServerConfig(name="x", command="c", args=("${YOK}",))
-    with pytest.raises(ValueError, match="YOK"):
-        resolve_stdio_args(config, environ={})
+    assert resolve_stdio_args(config, environ={}) == ["${YOK}"]
 
 
 # --- .mcp.json --------------------------------------------------------------------------- #
@@ -121,11 +121,14 @@ def test_mcp_json_claude_code_bicimini_proje_kapsamli_kayitlara_cevirir():
     assert linear.url == "https://mcp.linear.app/mcp"
 
 
-def test_mcp_json_sse_ve_bilinmeyen_alan_acik_hata():
-    with pytest.raises(ConfigError, match="sse"):
-        parse_project_mcp({"mcpServers": {"x": {"type": "sse", "url": "https://a/b"}}})
-    with pytest.raises(ConfigError, match="bilinmeyen"):
-        parse_project_mcp({"mcpServers": {"x": {"command": "c", "foo": 1}}})
+def test_mcp_json_sse_gecerli_bilinmeyen_alan_girdiyi_dusurmez():
+    # Claude Code: sse geçerli taşıma, belgede olmayan alan yok sayılır (#234, #241).
+    (sse,) = parse_project_mcp({"mcpServers": {"x": {"type": "sse", "url": "https://a/b"}}})
+    assert sse.transport is McpTransport.SSE
+    (stdio,) = parse_project_mcp({"mcpServers": {"x": {"command": "c", "foo": 1}}})
+    assert stdio.command == "c"
+    with pytest.raises(ConfigError, match="type"):
+        parse_project_mcp({"mcpServers": {"x": {"url": "https://a/b"}}})
 
 
 def test_mcp_json_yazilir_okunur_ve_guven_kaydina_islenir(izole):
@@ -179,7 +182,8 @@ def test_config_yaml_yazici_proje_kaydini_kopyalamaz(tmp_path):
 
 def test_mcp_add_kullanici_kapsamina_yazar(izole, tmp_path):
     result = runner.invoke(
-        app_module.app, ["mcp", "add", "github", "npx", "--", "-y", "server-github"]
+        app_module.app,
+        ["mcp", "add", "--scope", "user", "github", "npx", "--", "-y", "server-github"],
     )
 
     assert result.exit_code == 0, result.output
@@ -231,12 +235,16 @@ def test_mcp_add_http_adres_ister_ve_add_json_calisir(izole):
     assert [s.command for s in loader.load_config().mcp_servers] == ["uvx"]
 
 
-def test_mcp_list_kapsam_ve_tasima_gosterir(izole):
-    runner.invoke(app_module.app, ["mcp", "add", "a", "npx"])
+def test_mcp_list_kapsam_ve_durum_gosterir(izole, monkeypatch):
+    async def _durum(server):
+        return "✔ Bağlandı"
+
+    monkeypatch.setattr("fusion_cli.cli.mcp_manage._health", _durum)
+    runner.invoke(app_module.app, ["mcp", "add", "--scope", "user", "a", "npx"])
     result = runner.invoke(app_module.app, ["mcp", "list"])
 
     assert result.exit_code == 0
-    assert "kullanıcı" in result.output and "stdio" in result.output
+    assert "a: npx (kullanıcı) - ✔ Bağlandı" in result.output
 
 
 def test_eski_mcp_add_takma_adi_calisir(izole, tmp_path):
@@ -354,7 +362,7 @@ def test_proje_kaydi_golgelerken_kullanici_kapsamina_yazma_golgelenen_kaydi_silm
     )
     assert [s.command for s in loader.load_config().mcp_servers] == ["projebin"]
 
-    result = runner.invoke(app_module.app, ["mcp", "add", "other", "x"])
+    result = runner.invoke(app_module.app, ["mcp", "add", "--scope", "user", "other", "x"])
 
     assert result.exit_code == 0, result.output
     yazilan = (tmp_path / "xdg" / "fusion-cli" / "config.yaml").read_text(encoding="utf-8")

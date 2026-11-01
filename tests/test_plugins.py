@@ -555,8 +555,9 @@ def test_desteklenmeyen_mcp_alani_yalniz_o_sunucuyu_atlar_eklenti_kurulur(tmp_pa
                         "url": "https://api.example.com/mcp",
                         "headers": {"Authorization": "Bearer ${API_TOKEN}"},
                     },
-                    "eski": {"type": "sse", "url": "https://x.example.com/sse"},
-                    "cwdli": {"command": "x", "cwd": "/tmp", "timeout": 5},
+                    # sse/cwd/timeout artık Claude gibi geçerli (#234); desteklenmeyenler:
+                    "eski": {"type": "sdk", "name": "x"},
+                    "cwdli": {"url": "https://x.example.com/mcp"},
                 }
             }
         ),

@@ -24,6 +24,7 @@ from ..core.protocols import Clock
 from ..core.reasoning import resolve_reasoning
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
+from ..core.tool_schema_variants import accepts_raw_schemas, with_raw_schemas
 from ..core.types import (
     CompletionRequest,
     Message,
@@ -144,6 +145,9 @@ class LiteLlmProvider:
         }
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
+            if accepts_raw_schemas(self._model):
+                # MCP aracının ham şeması (#262): Claude Code gibi olduğu gibi gider.
+                kwargs["tools"] = with_raw_schemas(kwargs["tools"])
             kwargs["tool_choice"] = "auto"
             # Nemotron 3'e `force_nonempty_content` GÖNDERİLMEZ. Ölçüldü (27 Eylül,
             # 6/6 deneme): bu şablon seçeneği düşünme metnini `reasoning_content`

@@ -46,3 +46,10 @@ it('istemleri ve kaynakları sohbet yazımıyla listeler, kopyalar; eski çekird
   render(<McpToolCatalog client={{ request: async () => payload('x') } as unknown as ProtocolClient} server='server' onClose={vi.fn()} />);
   expect(await screen.findByText('Bu sunucu istem bildirmedi.')).toBeTruthy();
 });
+it('aracın tam adını ve izin kuralına göre durumunu gösterir (#250)', async () => {
+  const base = payload('mcp__server__lookup');
+  const request = vi.fn(async () => ({ ...base, tools: [{ ...base.tools[0], permission: 'deny' }] }));
+  render(<McpToolCatalog client={{ request } as unknown as ProtocolClient} server='server' onClose={vi.fn()} />);
+  await screen.findByText('mcp__server__lookup');
+  expect(screen.getByText('İzin: Reddedildi')).toBeTruthy();
+});

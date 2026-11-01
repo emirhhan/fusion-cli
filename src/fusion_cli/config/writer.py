@@ -415,6 +415,12 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     else None,
                     "allowed_tools": list(server.allowed_tools),
                     "max_tools": server.max_tools,
+                    "headers": [list(pair) for pair in server.headers],
+                    "headers_helper": server.headers_helper,
+                    "always_load": server.always_load,
+                    "timeout_ms": server.timeout_ms,
+                    "oauth_callback_port": server.oauth_callback_port,
+                    "oauth_metadata_url": server.oauth_metadata_url,
                 }.items()
                 if value is not None
                 and (value != [] or key == "retry_delays_s")
@@ -442,7 +448,10 @@ def _shadowed_user_entries(raw: object, config: Config) -> list[dict[str, object
     """
     if not isinstance(raw, list):
         return []
-    project_names = {s.name for s in config.mcp_servers if s.scope is McpScope.PROJECT}
+    shadowing = (McpScope.PROJECT, McpScope.LOCAL, McpScope.MANAGED)
+    project_names = {s.name for s in config.mcp_servers if s.scope in shadowing}
+    # Kuruluş politikasının (#274) gizlediği kullanıcı kayıtları da korunur.
+    project_names |= set(getattr(config, "mcp_policy_hidden", None) or ())
     user_names = {s.name for s in config.mcp_servers if s.scope is McpScope.USER}
     return [
         entry
@@ -586,3 +595,25 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise ConfigError(f"Yapılandırma yazılamadı ({path}): {exc}") from exc
+
+
+def read_user_mcp_entries(config: Config) -> list[dict[str, object]]:
+    """Kullanıcı `config.yaml`'ındaki ham `mcp_servers` girdileri (gölgelenenler dahil)."""
+    raw = _read_existing(_target_path(config)).get("mcp_servers")
+    return [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
+
+
+def remove_user_mcp_server(config: Config, name: str) -> Path:
+    """Kullanıcı kapsamındaki adı `config.yaml`'dan sil (gölgelenmiş olsa bile)."""
+    target = _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        raw = existing.get("mcp_servers")
+        entries = raw if isinstance(raw, list) else []
+        existing["mcp_servers"] = [
+            entry
+            for entry in entries
+            if not (isinstance(entry, dict) and entry.get("name") == name)
+        ]
+        _atomic_write(target, existing)
+    return target

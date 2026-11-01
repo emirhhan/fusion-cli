@@ -30,6 +30,7 @@ Eşleme kuralları (Claude Code belgesiyle aynı):
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import shlex
@@ -45,9 +46,18 @@ from ..config.permission_rules import (
     PermissionRuleSet,
     stricter,
 )
+from ..core.mcp_tool_names import (
+    MCP_TOOL_PREFIX,
+    canonical_mcp_name,
+    is_legacy_mcp_name,
+    legacy_mcp_name,
+    split_mcp_tool_name,
+)
 from ..core.tools import ToolFamily, tool_family
 from .auto_policy import command_words, nested_command, written_files
 from .write_targets import WRITE_TOOLS, write_targets
+
+_LOG = logging.getLogger(__name__)
 
 #: Claude'un `Read` kuralının kapsadığı Fusion araçları (okuma, listeleme, arama).
 READ_TOOLS = frozenset(
@@ -90,7 +100,9 @@ _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
         {"Agent", "Task", "invoke_subagent", "spawn_agent", "spawn_agents", "invoke_agent"}
     ),
 }
-_MCP_PREFIX = "mcp__"
+_MCP_PREFIX = MCP_TOOL_PREFIX
+#: Kullanımdan kalkan öneksiz MCP kural adları; her biri bir kez uyarılır.
+_WARNED_LEGACY: set[str] = set()
 #: `/cd` hedefinin kural adı (Claude Code `Cd`); araç değil, REPL komutudur (P-072).
 CD_RULE_TOOL = "Cd"
 #: Belirteçsiz ad kalıbı için bakılan birincil argümanlar (sırayla).
@@ -298,12 +310,25 @@ def _tool_matches(rule: PermissionRule, tool_name: str) -> bool:
         return True
     if rule.tool == "Bash":
         return tool_family(tool_name) is ToolFamily.SHELL
-    if rule.tool.startswith(_MCP_PREFIX):
-        target = rule.tool[len(_MCP_PREFIX) :]
-        if "__" in target:
-            return _glob_name(target, tool_name)
-        return tool_name.startswith(f"{target}__")
+    if rule.tool.startswith(_MCP_PREFIX) or is_legacy_mcp_name(rule.tool):
+        return _mcp_rule_matches(rule.tool, tool_name)
     return tool_name in _CLAUDE_TOOLS.get(rule.tool, frozenset())
+
+
+def _mcp_rule_matches(rule_tool: str, tool_name: str) -> bool:
+    """`mcp__s`, `mcp__s__*`, `mcp__s__t`; eski öneksiz `s__t` yazımı takma addır (#242)."""
+    if is_legacy_mcp_name(rule_tool) and rule_tool not in _WARNED_LEGACY:
+        _WARNED_LEGACY.add(rule_tool)
+        _LOG.warning(
+            "izin kuralında eski MCP adı '%s' kullanımdan kalkıyor; '%s' yazın",
+            rule_tool,
+            canonical_mcp_name(rule_tool),
+        )
+    rule_name = canonical_mcp_name(rule_tool)
+    name = canonical_mcp_name(tool_name)
+    if "__" in rule_name[len(_MCP_PREFIX) :]:
+        return _glob_name(rule_name, name)
+    return name.startswith(f"{rule_name}__")
 
 
 def _glob_name(pattern: str, name: str) -> bool:
@@ -446,8 +471,8 @@ def claude_tool_names(tool_name: str) -> tuple[str, ...]:
     """Fusion aracının kanca eşleştiricisinde tanınan adları: birincil Claude adı önce.
 
     `Bash` kabuk ailesinin hepsini (takma adlar dahil), `Edit|Write` bütün yerel yazma
-    araçlarını kapsar (izin kurallarıyla aynı tablo). MCP aracı `sunucu__araç` Fusion'da,
-    Claude'da `mcp__sunucu__araç` adını taşır; ikisi de eşleşir.
+    araçlarını kapsar (izin kurallarıyla aynı tablo). MCP aracı Claude gibi
+    `mcp__sunucu__araç` adını taşır; eski Fusion yazımı `sunucu__araç` da eşleşir.
     """
     names: list[str] = []
     primary = _CLAUDE_PRIMARY.get(tool_name)
@@ -456,7 +481,7 @@ def claude_tool_names(tool_name: str) -> tuple[str, ...]:
     if primary is not None:
         names.append(primary)
     names.extend(claude for claude, tools in _CLAUDE_TOOLS.items() if tool_name in tools)
-    if "__" in tool_name and not tool_name.startswith(_MCP_PREFIX):
-        names.append(f"{_MCP_PREFIX}{tool_name}")
+    if split_mcp_tool_name(tool_name) is not None:  # #242: eski öneksiz ad da eşleşir
+        names.extend((canonical_mcp_name(tool_name), legacy_mcp_name(tool_name)))
     names.append(tool_name)
     return tuple(dict.fromkeys(names))

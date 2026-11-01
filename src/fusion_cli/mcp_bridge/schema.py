@@ -13,6 +13,7 @@ sağlayıcıya giden kopya için değişir; uzak sunucu kendi doğrulamasını y
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
 
@@ -21,13 +22,18 @@ __all__ = [
     "MAX_SCHEMA_DEPTH",
     "MAX_TOOL_DESCRIPTION_CHARS",
     "clean_description",
+    "clean_raw_schema",
     "simplify_schema",
 ]
 
-#: Araç açıklamasının en çok karakteri (prompt bütçesi).
-MAX_TOOL_DESCRIPTION_CHARS = 1000
-#: Tek alan açıklamasının en çok karakteri.
-MAX_FIELD_DESCRIPTION_CHARS = 300
+#: Araç açıklaması ve sunucu talimatı sınırı (Claude Code 4096; #262).
+MAX_TOOL_DESCRIPTION_CHARS = 4096
+#: Araç aramasıyla yüklenen açıklamanın sınırı (Claude Code 16384).
+MAX_DEFERRED_DESCRIPTION_CHARS = 16384
+DESCRIPTION_LENGTH_ENV = "CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH"
+#: Eski alan açıklaması sınırı; artık kullanılmaz (#262: Claude Code alan başına sınır koymaz,
+#: alan açıklaması da araç açıklaması sınırına, `description_limit()`'e tabidir).
+MAX_FIELD_DESCRIPTION_CHARS = MAX_TOOL_DESCRIPTION_CHARS
 #: Bundan derin iç içe şema kesilir (`{"type": "object"}`).
 MAX_SCHEMA_DEPTH = 6
 
@@ -72,10 +78,18 @@ _HIDDEN_BLOCK = re.compile(
 _INVISIBLE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f​-‏‪-‮⁠-⁤﻿]")
 
 
-def clean_description(text: str, *, limit: int = MAX_TOOL_DESCRIPTION_CHARS) -> str:
+def description_limit(*, deferred: bool = False, environ: Mapping[str, str] | None = None) -> int:
+    """`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` (yalın pozitif sayı) iki sınırı da değiştirir."""
+    raw = (os.environ if environ is None else environ).get(DESCRIPTION_LENGTH_ENV, "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    return MAX_DEFERRED_DESCRIPTION_CHARS if deferred else MAX_TOOL_DESCRIPTION_CHARS
+
+
+def clean_description(text: str, *, limit: int | None = None) -> str:
     """Açıklamadan gizli talimat bloklarını ve görünmez karakterleri at, sınırla."""
     cleaned = _INVISIBLE.sub("", _HIDDEN_BLOCK.sub("", text)).strip()
-    return cleaned[:limit]
+    return cleaned[: limit if limit is not None else description_limit()]
 
 
 def simplify_schema(schema: Mapping[str, object]) -> dict[str, object]:
@@ -86,6 +100,24 @@ def simplify_schema(schema: Mapping[str, object]) -> dict[str, object]:
         # Üst düzey nesne olmayan şema araç parametresi olamaz; boş nesneye düş.
         return {"type": "object", "properties": {}}
     return simplified
+
+
+def clean_raw_schema(schema: object) -> object:
+    """Ham şemanın yapısına dokunmadan her `description` metnini temizle (gizli blok, sınır).
+
+    Ham şema yalnız eksiksiz JSON Schema kabul eden sağlayıcıya gider (#262); araç
+    zehirlenmesine karşı açıklama temizliği orada da uygulanır.
+    """
+    if isinstance(schema, Mapping):
+        return {
+            key: clean_description(value)
+            if key == "description" and isinstance(value, str)
+            else clean_raw_schema(value)
+            for key, value in schema.items()
+        }
+    if isinstance(schema, list):
+        return [clean_raw_schema(item) for item in schema]
+    return schema
 
 
 def _collect_definitions(schema: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
@@ -134,7 +166,7 @@ def _walk(
         elif key == "items":
             result["items"] = _walk(value, definitions, depth=depth + 1, seen=seen)
         elif key == "description" and isinstance(value, str):
-            result["description"] = clean_description(value, limit=MAX_FIELD_DESCRIPTION_CHARS)
+            result["description"] = clean_description(value)
         elif key == "const":
             result["enum"] = [value]
         elif key in ("required", "enum", "minimum", "maximum", "minItems", "maxItems"):

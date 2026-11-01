@@ -202,6 +202,14 @@ def load_config(path: str | Path | None = None) -> Config:
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
         # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
         yapilandirma = _with_plugin_mcp_servers(yapilandirma)
+        # `--mcp-config` / `--strict-mcp-config` (Claude Code; #253).
+        from .mcp_cli import apply_session_mcp
+
+        yapilandirma = apply_session_mcp(yapilandirma)
+        # Kuruluş MCP denetimi: managed-mcp.json tekeli, managedMcpServers, izin/ret (#274).
+        from .mcp_policy import apply_mcp_policy
+
+        yapilandirma = apply_mcp_policy(yapilandirma, Path.cwd())
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -454,20 +462,27 @@ def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
 def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     """Güvenilen projenin `.mcp.json` sunucularını kullanıcı kayıtlarına ekle."""
     from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
+    from .mcp_local import disabled_mcp_servers, read_local_mcp_servers
 
     project_servers = trusted_project_mcp_servers(root)
-    if not project_servers:
+    local_servers = read_local_mcp_servers(root)
+    disabled = disabled_mcp_servers(root)
+    if not project_servers and not local_servers and not disabled:
         return config
+    merged = merge_mcp_servers(config.mcp_servers, project_servers, local_servers)
     return dataclasses.replace(
-        config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
+        config, mcp_servers=tuple(server for server in merged if server.name not in disabled)
     )
 
 
 def _with_plugin_mcp_servers(config: Config) -> Config:
     """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
+    from .mcp_local import disabled_mcp_servers
     from .plugin_store import plugin_mcp_servers
 
     taken = {server.name for server in config.mcp_servers}
+    # `/mcp` aç/kapa ile bu projede kapatılan sunucular yüklenmez (Claude disabledMcpServers).
+    taken |= disabled_mcp_servers(Path.cwd())
     extra = tuple(server for server in plugin_mcp_servers() if server.name not in taken)
     if not extra:
         return config
@@ -480,8 +495,11 @@ def refresh_plugin_mcp_servers(config: Config) -> Config:
     Ölçüldü (31 Ekim): kapatılan ya da kaldırılan eklentinin MCP sunucusu çalışan oturumun
     yapılandırmasında kalıyor, araçları oturum yeniden başlayana dek çağrılabiliyordu.
     """
+    from .mcp_policy import apply_mcp_policy
+
     others = tuple(s for s in config.mcp_servers if s.scope is not McpScope.PLUGIN)
-    return _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
+    refreshed = _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
+    return apply_mcp_policy(refreshed, Path.cwd())  # #274: eklenti sunucusu politikayı aşmaz
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

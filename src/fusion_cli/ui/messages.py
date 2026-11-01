@@ -330,7 +330,7 @@ HEADLESS_STDIN_CHANNEL_CONFLICT = (
 )
 HEADLESS_UNKNOWN_TOOLS = (
     "Bilinmeyen araç adı: {names}.{hint} Bu oturumdaki araçlar için docs/HEADLESS.md'ye bak; "
-    "MCP araçları `<sunucu>__<araç>` biçimindedir."
+    "MCP araçları `mcp__<sunucu>__<araç>` biçimindedir."
 )
 HEADLESS_TOOL_SUGGESTION = " Şunu mu demek istediniz: {suggestions}?"
 HEADLESS_UNKNOWN_CHANNEL = "Bilinmeyen onay kanalı: {given}. Geçerli olanlar: {valid}"
@@ -778,7 +778,13 @@ MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda 
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 )
-MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje", "plugin": "eklenti"}
+MCP_SCOPE_LABELS = {
+    "local": "yerel",
+    "user": "kullanıcı",
+    "project": "proje",
+    "plugin": "eklenti",
+    "managed": "yönetilen",
+}
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
 MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"

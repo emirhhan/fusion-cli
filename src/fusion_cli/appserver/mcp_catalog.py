@@ -7,10 +7,13 @@ import logging
 from typing import Any
 
 from ..config.models import McpServerConfig
+from ..config.permission_rules import PermissionRuleSet
+from ..core.mcp_tool_names import claude_mcp_tool_name
 from ..core.redaction import contains_sensitive
 from ..mcp_bridge.client import McpClient
-from ..mcp_bridge.references import McpCatalog
+from ..mcp_bridge.references import McpCatalog, visible_prompts, visible_resources
 from ..mcp_bridge.types import RemoteTool
+from ..tools.permission_match import evaluate
 
 _LOG = logging.getLogger(__name__)
 
@@ -50,20 +53,26 @@ def _parameters(schema: object) -> tuple[list[dict[str, Any]], bool]:
     return result, len(properties) > 40
 
 
-def project_tools(tools: list[RemoteTool]) -> dict[str, Any]:
+def project_tools(
+    tools: list[RemoteTool], rules: PermissionRuleSet | None = None
+) -> dict[str, Any]:
+    """Araç satırları; kurallar verilmişse her aracın izin durumu (#250: allow/ask/deny/none)."""
     rows = []
     for tool in tools[:200]:
         parameters, truncated = _parameters(tool.schema)
-        rows.append(
-            {
-                "name": _text(f"{tool.server}__{tool.name}", 240),
-                "server": _text(tool.server, 120),
-                "description": _text(tool.description, 600),
-                "effect": tool.effect.value,
-                "parameters": parameters,
-                "parametersTruncated": truncated,
-            }
-        )
+        full_name = claude_mcp_tool_name(tool.server, tool.name)
+        row: dict[str, Any] = {
+            "name": _text(full_name, 240),
+            "server": _text(tool.server, 120),
+            "description": _text(tool.description, 600),
+            "effect": tool.effect.value,
+            "parameters": parameters,
+            "parametersTruncated": truncated,
+        }
+        if rules is not None:
+            match = evaluate(rules, full_name, {}, None)
+            row["permission"] = match.decision.value if match is not None else "none"
+        rows.append(row)
     return {"tools": rows, "total": len(tools), "truncated": len(tools) > 200}
 
 
@@ -80,7 +89,7 @@ def project_references(catalog: McpCatalog) -> dict[str, Any]:
                 "usage": _text(prompt.usage, 240),
                 "description": _text(prompt.description, 600),
             }
-            for prompt in catalog.prompts[:200]
+            for prompt in visible_prompts(catalog.prompts)[:200]
         ],
         "resources": [
             {
@@ -88,7 +97,7 @@ def project_references(catalog: McpCatalog) -> dict[str, Any]:
                 "name": _text(resource.name or resource.description, 300),
                 "mimeType": _text(resource.mime_type, 120),
             }
-            for resource in catalog.resources[:200]
+            for resource in visible_resources(catalog.resources)[:200]
         ],
     }
 
@@ -101,7 +110,9 @@ async def _references(client: McpClient, server: str) -> dict[str, Any]:
         return {"prompts": [], "resources": []}
 
 
-async def _discover(server: McpServerConfig) -> dict[str, Any]:
+async def _discover(
+    server: McpServerConfig, rules: PermissionRuleSet | None = None
+) -> dict[str, Any]:
     async with McpClient((server,), interactive=False) as client:
         status = client.statuses.get(server.name)
         if status is None or status.state != "bagli":
@@ -111,13 +122,14 @@ async def _discover(server: McpServerConfig) -> dict[str, Any]:
             }
         tools = await client.list_tools(server.name)
         references = await _references(client, server.name)
-    return {"ok": True, "schemaVersion": 1, **project_tools(tools), **references}
+    return {"ok": True, "schemaVersion": 1, **project_tools(tools, rules), **references}
 
 
 async def list_tool_catalog(
     server: McpServerConfig,
     *,
     timeout: float = CATALOG_TIMEOUT_SECONDS,  # noqa: ASYNC109
+    rules: PermissionRuleSet | None = None,
 ) -> dict[str, Any]:
     """Açık katalog isteği: mevcut MCP yaşam döngüsüyle yalnız keşfet, giriş açma.
 
@@ -125,7 +137,7 @@ async def list_tool_catalog(
     sunucusu RPC'yi (ve arayüzün tek `busy` bayrağını) sonsuza dek bekletiyordu.
     """
     try:
-        return await asyncio.wait_for(_discover(server), timeout)
+        return await asyncio.wait_for(_discover(server, rules), timeout)
     except TimeoutError:
         return {"ok": False, "metin": "Araç kataloğu zamanında yanıt vermedi. Yeniden dene."}
     except Exception as error:

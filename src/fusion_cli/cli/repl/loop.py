@@ -780,6 +780,7 @@ async def _drive_agent(
                 state.config.mcp_servers,
                 registry,
                 retry_delays_s=state.config.runtime.retry_delays_s,
+                root=getattr(deps.tool_context, "root", None),
             )
         except Exception as error:
             console.print(
@@ -793,7 +794,9 @@ async def _drive_agent(
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.
         try:
-            added += await ensure_hosted_tools(state.config, registry)
+            added += await ensure_hosted_tools(
+                state.config, registry, root=getattr(deps.tool_context, "root", None)
+            )
         except Exception as error:
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
@@ -893,6 +896,7 @@ async def _agent_turn(
             transport = browser_transport(state.remotion_browser)
         # `Notification` kancası onay sorusundan hemen önce (P-009).
         confirm_prompter = notifying(prompter, state.hooks())
+        _register_elicitation(prompter)  # MCP sunucusu girdi isterse bu taraf sorar (#257)
         deps = AgentDeps(
             config=state.config,
             session_persona=state.persona,
@@ -1181,3 +1185,11 @@ def _print_status(console: Console, state: ReplState) -> None:
         task_type=state.task_type,
         model=state.config.agent.name,
     )
+
+
+def _register_elicitation(asker: object) -> None:
+    try:
+        from ...mcp_bridge.elicitation import register_elicitation_asker
+    except ImportError:  # `mcp` paketi kurulu değil
+        return
+    register_elicitation_asker(asker)  # type: ignore[arg-type]

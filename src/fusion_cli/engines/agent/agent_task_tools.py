@@ -373,9 +373,12 @@ def _runtime_bridge(legacy: Tool, canonical: Tool, deps: AgentDeps) -> Tool:
     """Eski dış görevler bulunabilir; yeni kimlikler aynı süreç sahibine gider."""
     from dataclasses import replace
 
+    from ...tools.mcp_background import mcp_background_calls
+
     async def run(args: ToolArgs, context: ToolContext) -> ToolResult:
         target = str(args.get("to") or args.get("id") or args.get("task_id") or "")
         known = any(target in {state.agent_id, state.name} for state in deps.child_runs.records())
+        known = known or target in mcp_background_calls().running  # #233
         if target and not known:
             from .agent_runtime_records import _resolve
 

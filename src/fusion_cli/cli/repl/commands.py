@@ -21,7 +21,6 @@ from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, resolve_reasoning
-from ...core.redaction import redact
 from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
@@ -578,22 +577,15 @@ def _mcp(state: ReplState, argument: str) -> str:
     alt_komut = parcalar[0].lower() if parcalar else ""
     kalan = parcalar[1] if len(parcalar) > 1 else ""
 
+    from . import mcp_panel
+
     if alt_komut in ("", "list"):
-        if not state.config.mcp_servers:
-            return messages.MCP_NO_SERVERS
-        # Argümanlarda gömülü token olabilir (`--token=…`): listeye ve transcript'e MASKELİ
-        # girer (L2-28).
-        return "\n".join(
-            redact(
-                messages.MCP_LIST_ROW.format(
-                    name=sunucu.name,
-                    scope=messages.MCP_SCOPE_LABELS.get(sunucu.scope.value, sunucu.scope.value),
-                    transport=sunucu.transport.value,
-                    target=sunucu.url or f"{sunucu.command} {' '.join(sunucu.args)}".rstrip(),
-                )
-            )
-            for sunucu in state.config.mcp_servers
-        )
+        # Claude Code `/mcp`: sunucular, kapsam ve durum; argümanlardaki token maskeli (L2-28).
+        return mcp_panel.panel(state.config.mcp_servers)
+
+    panel_cevabi = mcp_panel.handle(state, alt_komut, kalan.strip())
+    if panel_cevabi is not None:
+        return panel_cevabi
 
     if alt_komut in ("prompts", "istemler", "resources", "kaynaklar"):
         from .mcp_prompt_commands import listing
@@ -616,21 +608,6 @@ def _mcp(state: ReplState, argument: str) -> str:
             return messages.MCP_NOT_FOUND.format(name=hedef)
         request_mcp_reconnect(hedef)
         return messages.MCP_RECONNECT_SCHEDULED.format(name=hedef)
-
-    if alt_komut in ("remove", "del", "delete"):
-        ad = kalan.strip()
-        if not ad:
-            return messages.MCP_REMOVE_USAGE
-        if not any(sunucu.name == ad for sunucu in state.config.mcp_servers):
-            return messages.MCP_NOT_FOUND.format(name=ad)
-        kalanlar = tuple(sunucu for sunucu in state.config.mcp_servers if sunucu.name != ad)
-        guncellenmis = replace(state.config, mcp_servers=kalanlar)
-        try:
-            writer.write_mcp_servers(guncellenmis)
-        except ConfigError as error:
-            return messages.MCP_SAVE_FAILED.format(error=error)
-        state.config = guncellenmis
-        return messages.MCP_REMOVED.format(name=ad)
 
     if alt_komut == "add":
         try:

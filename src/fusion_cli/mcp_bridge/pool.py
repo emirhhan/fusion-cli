@@ -9,24 +9,30 @@ Olay döngüsü de sahipliğin parçasıdır: farklı loop görevi beklenmez.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from weakref import WeakKeyDictionary
 
-from ..config.models import Config, McpServerConfig
+from ..config.mcp_project_approval import is_noninteractive
+from ..config.models import Config, HostedConnectorConfig, McpServerConfig, McpTransport
 from ..config.paths import base_data_dir
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..tools import ToolRegistry
+from ..tools.mcp_background import cancel_mcp_background_calls
 from .backoff import McpBackoff
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession, HostedConnectorClient
 from .identity import duplicate_of, unique_configs, unique_hosted_configs
+from .late_connect import LateConnections
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
 from .references import McpCatalog
+from .timeouts import startup_wait
 
 __all__ = [
     "McpToolPool",
@@ -103,6 +109,8 @@ class McpToolPool:
         #: değişince (yeni istemci) yeniden çekilir, aynı bağlantıda bir kez. Çekim
         #: başarısızsa istemci `None` kalır: sonraki tur yeniden dener.
         self._catalogs: dict[str, tuple[McpClient | None, McpCatalog]] = {}
+        #: Arka planda bağlanmayı sürdüren açılışlar (#239, `MCP_CONNECTION_NONBLOCKING`).
+        self._connecting: dict[str, asyncio.Task[None]] = {}
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -178,21 +186,59 @@ class McpToolPool:
         loop = asyncio.get_running_loop()
         async with self._lock:
             await self._discard_stale(wanted, loop)
+            # Başka (kapanmış) döngünün açılışı burada beklenemez; yeniden açılır.
+            for name, task in tuple(self._connecting.items()):
+                if task.get_loop() is not loop:
+                    del self._connecting[name]
             to_open = [
                 config
                 for config in wanted
-                if config.name not in self._entries and not self._is_parked(config)
+                if config.name not in self._entries
+                and config.name not in self._connecting
+                and not self._is_parked(config)
             ]
-            if to_open:
-                # İptal gather'dan çocuklara geçer; her `_open` kendi gözetmenini
-                # boşaltma kümesine alır (bkz. `_open`).
-                await asyncio.gather(*(self._open(config, loop) for config in to_open))
+            await self._open_nonblocking(wanted, to_open, loop)
             return tuple(
                 entry.client
                 for config in wanted
                 if (entry := self._entries.get(config.name)) is not None
                 and entry.client is not None
             )
+
+    async def _open_nonblocking(
+        self,
+        wanted: tuple[McpServerConfig, ...],
+        to_open: list[McpServerConfig],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        """Claude Code açılışı (#239): kimin ne kadar bekleneceği `timeouts.startup_wait`'te.
+
+        Süresinde bağlanamayan sunucu arka planda bağlanmayı sürdürür ve araçları sonraki
+        turda deftere girer. Tur iptal edilse de açılış sürer; `aclose()` onu kapatır.
+        """
+        for config in to_open:
+            task = loop.create_task(self._open(config, loop))
+            self._connecting[config.name] = task
+            task.add_done_callback(functools.partial(self._connected, config.name))
+        names, cap = startup_wait(wanted, noninteractive=is_noninteractive())
+        pending = [self._connecting[name] for name in names if name in self._connecting]
+        if pending:
+            await asyncio.wait(pending, timeout=cap)
+
+    def _connected(self, name: str, task: asyncio.Task[None]) -> None:
+        if self._connecting.get(name) is task:
+            del self._connecting[name]
+        if not task.cancelled() and task.exception() is not None:
+            _LOG.warning("MCP arka plan bağlantısı düştü", extra={"sunucu": name})
+
+    def connecting_tasks(self) -> dict[str, asyncio.Task[None]]:
+        """Arka planda bağlanmayı süren açılışlar (bu döngüde)."""
+        loop = asyncio.get_running_loop()
+        return {
+            name: task
+            for name, task in self._connecting.items()
+            if task.get_loop() is loop and not task.done()
+        }
 
     def connected_client(self, name: str) -> McpClient | None:
         """Sunucunun bu döngüdeki canlı istemcisi; yoksa None."""
@@ -347,6 +393,7 @@ class McpToolPool:
             # TUR YOLU ETKİLEŞİMSİZDİR: giriş penceresi yalnız kullanıcının
             # "Bağlan" eyleminde açılır (bkz. `oauth.LoopbackOAuthCallback`).
             async with McpClient((entry.config,), interactive=False) as client:
+                client.reauth = self._reauth  # 401/403'te headersHelper yeniden (#249)
                 entry.client = client
                 entry.ready.set()
                 await entry.stop.wait()
@@ -378,6 +425,16 @@ class McpToolPool:
                 await self._discard(entry, loop)
         self.forget(name)
 
+    async def _reauth(self, name: str) -> McpClient | None:
+        """Sunucuyu kapatıp yeniden bağla: bağlantıda headersHelper taze başlık üretir (#249)."""
+        entry = self._entries.get(name)
+        if entry is None:
+            return None
+        config = entry.config
+        await self.drop(name)
+        clients = await self.clients_for((config,))
+        return clients[0] if clients else None
+
     async def discard_client(self, client: McpClient) -> None:
         """Kullanım sırasında bozulan istemciyi bırak; sonraki tur yeniden bağlanır."""
         loop = asyncio.get_running_loop()
@@ -395,6 +452,16 @@ class McpToolPool:
 
     async def aclose(self) -> None:
         """Oturum biterken bağlantıları kapat; stdio alt süreçleri sahipsiz kalmasın."""
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        connecting = tuple(t for t in self._connecting.values() if t.get_loop() is current)
+        self._connecting.clear()
+        for task in connecting:
+            task.cancel()
+        if connecting:
+            await asyncio.gather(*connecting, return_exceptions=True)
         async with self._lock:
             entries = tuple(self._entries.values())
             self._entries.clear()
@@ -416,6 +483,7 @@ class McpToolPool:
 
 
 _POOL = McpToolPool()
+_LATE = LateConnections()
 
 
 def mcp_oauth_flows() -> OAuthFlowOwner:
@@ -423,11 +491,30 @@ def mcp_oauth_flows() -> OAuthFlowOwner:
     return _POOL.oauth_flows
 
 
+def with_project_dir(
+    configs: tuple[McpServerConfig, ...], root: Path | None
+) -> tuple[McpServerConfig, ...]:
+    """Stdio sunucularına oturum kökünü damgala (`CLAUDE_PROJECT_DIR`, #273).
+
+    Havuz süreç başına tektir; kök yapılandırmanın parçası olduğu için başka projenin
+    oturumu aynı sunucuyu kendi köküyle yeniden açar.
+    """
+    if root is None:
+        return configs
+    return tuple(
+        replace(config, project_dir=str(root))
+        if config.transport is McpTransport.STDIO and not config.project_dir
+        else config
+        for config in configs
+    )
+
+
 async def ensure_mcp_tools(
     configs: tuple[McpServerConfig, ...],
     registry: ToolRegistry,
     *,
     retry_delays_s: tuple[float, ...] = (),
+    root: Path | None = None,
 ) -> tuple[str, ...]:
     """Bağlan (ya da açık bağlantıları kullan) ve araçları kayıt defterine ekle.
 
@@ -438,6 +525,7 @@ async def ensure_mcp_tools(
 
     Bir sunucunun keşfi düşerse diğerlerinin araçları yine eklenir.
     """
+    configs = with_project_dir(configs, root)
     added: list[str] = []
     for client in await _POOL.clients_for(configs, retry_delays_s=retry_delays_s):
         try:
@@ -448,6 +536,8 @@ async def ensure_mcp_tools(
             continue
         # İstem/kaynak kataloğu (P-049): `/mcp__s__p` tamamlaması ve `@s:kaynak` için.
         await _POOL.refresh_catalog(client)
+    # Arka planda bağlanmayı sürenler bitince araçları bu deftere aynı turda girer (#239).
+    _LATE.schedule(_POOL, registry, configs)
     return tuple(added)
 
 
@@ -514,7 +604,25 @@ def _hosted_channel(config: Config) -> AskSession:
     return channel
 
 
-async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[str, ...]:
+def _policy_connectors(
+    config: Config, root: Path | None = None
+) -> tuple[HostedConnectorConfig, ...]:
+    """Kuruluş politikası (#274): tekelde connector'lar düşer (allowAllClaudeAiMcps hariç),
+    ret/izin listesi uygulanır. Yapılandırma süzülmez: kullanıcının kaydı silinmesin.
+
+    Proje katmanı oturum kökünden okunur: masaüstünde proje değişince süreç cwd'si eski
+    projede kalır ve proje `deniedMcpServers` listesi connector'lara uygulanmıyordu."""
+    import os
+
+    from ..config.mcp_policy import filter_hosted_connectors, load_policy
+
+    policy = load_policy(root if root is not None else Path.cwd())
+    return filter_hosted_connectors(config.hosted_connectors, policy, os.environ)
+
+
+async def ensure_hosted_tools(
+    config: Config, registry: ToolRegistry, *, root: Path | None = None
+) -> tuple[str, ...]:
     """Sağlayıcı-barındırmalı connector araçlarını kayıt defterine ekle.
 
     MCP havuzundan AYRIDIR: burada tutulacak bir bağlantı yoktur, araçlar
@@ -526,7 +634,9 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
     # Kopya connector ayıklanır. `mcp_servers` bu korumayı `unique_configs` ile
     # zaten alıyordu; barındırmalı connector'lar dışarıda kalmıştı ve aynı Meta
     # Ads adresi iki kez kayıt defterine giriyordu (ölçüldü, 22 Eylül).
-    benzersiz = unique_hosted_configs(config.hosted_connectors)
+    benzersiz = unique_hosted_configs(_policy_connectors(config, root))
+    if not benzersiz:
+        return ()
     # İstemci de kanal gibi turlar arası yaşar: keşif sonucu onda önbelleklenir ve
     # her tur kullanıcının sağlayıcı ekranına yeni bir keşif metni yazılmaz.
     global _HOSTED_CLIENT
@@ -538,4 +648,7 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
 
 async def close_mcp_pool() -> None:
     """Süreç/oturum biterken açık MCP bağlantılarını kapat."""
+    # Önce arka plana taşınmış çağrılar (#233): bağlantı kapanınca zaten düşerlerdi.
+    await cancel_mcp_background_calls()
+    await _LATE.cancel_all()
     await _POOL.aclose()

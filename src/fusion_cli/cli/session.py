@@ -364,6 +364,8 @@ async def run_agent_task(
             policy: ApprovalPolicy = build_policy(active_mode, confirm_prompter, approval_memory)
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
+        # MCP sunucusu görev ortasında girdi isterse bu taraf sorar (#257).
+        _register_elicitation(prompter if can_ask else None)
         deps = AgentDeps(
             config=config,
             deadline=deadline,
@@ -594,7 +596,10 @@ async def _run_agent_with_mcp(
             # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
             # kapanışında yapılır, tur içinde değil.
             eklenen += await ensure_mcp_tools(
-                config.mcp_servers, registry, retry_delays_s=config.runtime.retry_delays_s
+                config.mcp_servers,
+                registry,
+                retry_delays_s=config.runtime.retry_delays_s,
+                root=getattr(deps.tool_context, "root", None),
             )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
@@ -604,7 +609,9 @@ async def _run_agent_with_mcp(
         # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
         # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
         try:
-            eklenen += await ensure_hosted_tools(config, registry)
+            eklenen += await ensure_hosted_tools(
+                config, registry, root=getattr(deps.tool_context, "root", None)
+            )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
@@ -762,3 +769,11 @@ async def agent_mcp_scope(config: Config, registry: ToolRegistry) -> AsyncIterat
         yield
     finally:
         await pool.aclose()
+
+
+def _register_elicitation(asker: object) -> None:
+    try:
+        from ..mcp_bridge.elicitation import register_elicitation_asker
+    except ImportError:  # `mcp` paketi kurulu değil
+        return
+    register_elicitation_asker(asker)  # type: ignore[arg-type]

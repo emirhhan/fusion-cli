@@ -275,6 +275,14 @@ def main_callback(
             help="Sürümü yazdır ve çık (Claude `claude -v`).",
         ),
     ] = False,
+    mcp_config: Annotated[
+        list[str] | None,
+        typer.Option("--mcp-config", help="MCP sunucularını JSON dosyası ya da metninden yükle."),
+    ] = None,
+    strict_mcp_config: Annotated[
+        bool,
+        typer.Option("--strict-mcp-config", help="Yalnız --mcp-config sunucularını kullan."),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
@@ -286,6 +294,16 @@ def main_callback(
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
+    from ..config.mcp_cli import set_session_mcp
+
+    set_session_mcp(mcp_config, strict=strict_mcp_config)
+    if mcp_config:
+        from ..config.mcp_policy import mcp_config_refusal
+
+        refusal = mcp_config_refusal(Path.cwd())  # #274: managed-mcp.json tekeli
+        if refusal is not None:
+            typer.echo(refusal, err=True)
+            raise typer.Exit(1)
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
@@ -294,6 +312,9 @@ def main_callback(
         _SESSION.overrides = (tuple(config_set or ()), profile_name)
         return
     persona = str(agent_persona or "")
+    from .mcp_approval_prompt import prompt_project_mcp_approvals
+
+    prompt_project_mcp_approvals(console)  # .mcp.json sunucu onayı (Claude gibi, #246)
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
     try:
         # Claude `claude --model`/`--fallback-model` (#296): oturum modeli ve yedek zinciri.
@@ -695,6 +716,9 @@ def agent(
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if background:
         _reject_background_flags(output_format, as_json, json_schema, permission_channel)
+    from ..config.mcp_project_approval import set_noninteractive
+
+    set_noninteractive()  # Claude `-p` gibi: .mcp.json sunucuları sorulmadan yüklenir (#246)
     base_config = _session_config()
     options = _headless_options(
         task,
@@ -1428,7 +1452,8 @@ def mcp_add(
     ] = None,
 ) -> None:
     """`fusion mcp add` takma adı (eski betikler için): stdio sunucusunu config.yaml'a ekle."""
-    mcp_commands.add_server(name, command, tuple(args or ()))
+    # Eski takma ad eski kapsamını (user) korur; yeni `fusion mcp add` varsayılanı local.
+    mcp_commands.add_server(name, command, tuple(args or ()), scope="user")
 
 
 @app.command(name="remote-control")

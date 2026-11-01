@@ -304,10 +304,7 @@ def _local(
 
 def describe_server(server: McpServerConfig, secrets: tuple[tuple[str, str], ...]) -> str:
     """Önizleme satırı ayrıntısı; sır DEĞERİ içermez."""
-    if server.transport is McpTransport.STREAMABLE_HTTP:
-        target = f"http {server.url}"
-    else:
-        target = " ".join((server.command, *server.args))
+    target = f"http {server.url}" if server.is_remote else " ".join((server.command, *server.args))
     notes = [target]
     if secrets:
         notes.append("sır (şifreli depoya): " + ", ".join(name for name, _ in secrets))

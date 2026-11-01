@@ -20,26 +20,18 @@ import json
 import logging
 import os
 import tempfile
-from collections.abc import Mapping
 from pathlib import Path
 
 from ..core.errors import ConfigError
 from . import trust
-from .models import McpScope, McpServerConfig, McpTransport
+from .mcp_entry import McpEntryError, parse_entry, to_entry
+from .models import McpScope, McpServerConfig
 
 _LOG = logging.getLogger(__name__)
 
 #: Proje kökündeki dosya adı (Claude Code ile aynı).
 PROJECT_MCP_FILE = ".mcp.json"
 _ROOT_KEY = "mcpServers"
-#: Claude Code `type` değerleri → Fusion taşıması. `sse` eski taşımadır; desteklenmez.
-_TRANSPORTS: Mapping[str, McpTransport] = {
-    "stdio": McpTransport.STDIO,
-    "http": McpTransport.STREAMABLE_HTTP,
-    "streamable_http": McpTransport.STREAMABLE_HTTP,
-    "streamable-http": McpTransport.STREAMABLE_HTTP,
-}
-_KNOWN_KEYS = frozenset({"type", "transport", "command", "args", "env", "url", "headers"})
 
 
 def project_mcp_path(root: Path) -> Path:
@@ -47,122 +39,95 @@ def project_mcp_path(root: Path) -> Path:
 
 
 def read_project_mcp_servers(root: Path) -> tuple[McpServerConfig, ...]:
-    """Kökteki `.mcp.json`'ı oku; dosya yoksa boş. Bozuk dosya `ConfigError` (dosya adıyla)."""
+    """Kökteki `.mcp.json`'ı oku; dosya yoksa boş. Bozuk JSON `ConfigError` (dosya adıyla).
+
+    Hatalı tek girdi dosyayı düşürmez: Claude Code gibi o sunucu atlanır, uyarı yazılır
+    ve geçerli girdiler yüklenir (#238).
+    """
+    servers, problems = read_project_mcp_report(root)
+    for problem in problems:
+        _LOG.warning("%s", problem)
+    return servers
+
+
+def read_project_mcp_report(root: Path) -> tuple[tuple[McpServerConfig, ...], tuple[str, ...]]:
+    """`.mcp.json` sunucuları ve atlanan girdilerin uyarıları (`fusion mcp list` gösterir)."""
     path = project_mcp_path(root)
     if not path.is_file():
-        return ()
+        return (), ()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError as error:
         raise ConfigError(f"{PROJECT_MCP_FILE} okunamadı: {error}") from error
     except json.JSONDecodeError as error:
         raise ConfigError(f"{PROJECT_MCP_FILE} geçerli JSON değil: {error}") from error
-    return parse_project_mcp(raw)
+    return parse_mcp_servers_report(raw, scope=McpScope.PROJECT, where=PROJECT_MCP_FILE)
+
+
+def parse_mcp_servers_report(
+    raw: object, *, scope: McpScope, where: str
+) -> tuple[tuple[McpServerConfig, ...], tuple[str, ...]]:
+    """`{"mcpServers": {...}}` → (geçerli kayıtlar, atlanan girdi uyarıları)."""
+    entries = _entries(raw, where)
+    servers: list[McpServerConfig] = []
+    problems: list[str] = []
+    for name, entry in entries.items():
+        try:
+            servers.append(
+                parse_entry(str(name), entry, scope=scope, where=f"{where}: {_ROOT_KEY}")
+            )
+        except McpEntryError as error:
+            problems.append(f"{where}: {error}")
+    return tuple(servers), tuple(problems)
 
 
 def parse_project_mcp(raw: object) -> tuple[McpServerConfig, ...]:
-    """Claude Code `.mcp.json` içeriğini sunucu kayıtlarına çevir."""
-    if not isinstance(raw, dict):
-        raise ConfigError(f"{PROJECT_MCP_FILE}: kök bir nesne olmalı")
-    servers = raw.get(_ROOT_KEY, {})
-    if not isinstance(servers, dict):
-        raise ConfigError(f"{PROJECT_MCP_FILE}: '{_ROOT_KEY}' bir nesne olmalı")
-    return tuple(_parse_server(str(name), entry) for name, entry in servers.items())
+    """Claude Code `mcpServers` içeriğini kayıtlara çevir; geçersiz girdi `ConfigError`.
 
-
-def _parse_server(name: str, entry: object) -> McpServerConfig:
-    where = f"{PROJECT_MCP_FILE}: {_ROOT_KEY}.{name}"
-    if not isinstance(entry, dict):
-        raise ConfigError(f"{where}: nesne bekleniyordu")
-    unknown = sorted(set(entry) - _KNOWN_KEYS)
-    if unknown:
-        raise ConfigError(f"{where}: bilinmeyen alan(lar): {', '.join(unknown)}")
-    kind = str(entry.get("type") or entry.get("transport") or "").strip().lower()
-    url = _text(entry.get("url"), f"{where}.url")
-    command = _text(entry.get("command"), f"{where}.command")
-    if not kind:
-        kind = "http" if url and not command else "stdio"
-    transport = _TRANSPORTS.get(kind)
-    if transport is None:
-        raise ConfigError(
-            f"{where}.type: '{kind}' desteklenmiyor. Geçerli: stdio, http"
-            + (" (sse eski taşımadır; sunucunun http adresini kullan)" if kind == "sse" else "")
+    Tek girdi doğrulayan çağıranlar (add-json, eklenti, ajan frontmatter'ı) için katı yol;
+    dosya yükleme `parse_mcp_servers_report` ile hatalı girdiyi atlar.
+    """
+    entries = _entries(raw, PROJECT_MCP_FILE)
+    return tuple(
+        parse_entry(
+            str(name), entry, scope=McpScope.PROJECT, where=f"{PROJECT_MCP_FILE}: {_ROOT_KEY}"
         )
-    if transport is McpTransport.STDIO and not command:
-        raise ConfigError(f"{where}: stdio sunucusu için 'command' gerekli")
-    if transport is McpTransport.STREAMABLE_HTTP and not url:
-        raise ConfigError(f"{where}: http sunucusu için 'url' gerekli")
-    if entry.get("headers"):
-        # Fusion başlık sözlüğü tutmaz; bearer için `token_env` vardır. Sessizce düşürmek
-        # kimliksiz istek üretirdi.
-        raise ConfigError(
-            f"{where}.headers: desteklenmiyor. Bearer token için Fusion'da "
-            f"`fusion mcp add --token-env <DEĞİŞKEN>` kullan."
-        )
-    return McpServerConfig(
-        name=name,
-        command=command,
-        args=_texts(entry.get("args"), f"{where}.args"),
-        transport=transport,
-        url=url,
-        env_literals=_env_pairs(entry.get("env"), f"{where}.env"),
-        scope=McpScope.PROJECT,
+        for name, entry in entries.items()
     )
 
 
-def _text(value: object, where: str) -> str:
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ConfigError(f"{where}: metin bekleniyordu")
-    return value.strip()
-
-
-def _texts(value: object, where: str) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ConfigError(f"{where}: metin listesi bekleniyordu")
-    return tuple(value)
-
-
-def _env_pairs(value: object, where: str) -> tuple[tuple[str, str], ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, dict):
-        raise ConfigError(f"{where}: nesne bekleniyordu")
-    pairs: list[tuple[str, str]] = []
-    for key, item in value.items():
-        if not isinstance(item, str):
-            raise ConfigError(f"{where}.{key}: metin bekleniyordu")
-        pairs.append((str(key), item))
-    return tuple(pairs)
+def _entries(raw: object, where: str) -> dict[object, object]:
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where}: kök bir nesne olmalı")
+    servers = raw.get(_ROOT_KEY, {})
+    if not isinstance(servers, dict):
+        raise ConfigError(f"{where}: '{_ROOT_KEY}' bir nesne olmalı")
+    return servers
 
 
 def trusted_project_mcp_servers(root: Path) -> tuple[McpServerConfig, ...]:
-    """Güvenilen projenin `.mcp.json` sunucuları; güven yoksa boş ve tek satır uyarı."""
-    path = project_mcp_path(root)
-    if not path.is_file():
-        return ()
-    # Güvenilmeyen dosya HİÇ ayrıştırılmaz: indirilen deponun bozuk `.mcp.json`'ı
-    # Fusion'ın açılışını engellemesin.
-    if not trust.is_file_trusted(root, path):
-        _LOG.warning(
-            "%s güvenilir değil; içindeki MCP sunucuları yüklenmedi. Güveniyorsan: fusion trust",
-            path,
-        )
-        return ()
-    return read_project_mcp_servers(root)
+    """Onaylanan `.mcp.json` sunucuları (#246: sunucu başına onay, `mcp_project_approval`)."""
+    from .mcp_project_approval import approved_project_servers
+
+    return approved_project_servers(root)
 
 
 def merge_mcp_servers(
-    user_servers: tuple[McpServerConfig, ...], project_servers: tuple[McpServerConfig, ...]
+    user_servers: tuple[McpServerConfig, ...],
+    project_servers: tuple[McpServerConfig, ...],
+    local_servers: tuple[McpServerConfig, ...] = (),
 ) -> tuple[McpServerConfig, ...]:
-    """Kullanıcı + proje kayıtlarını birleştir; aynı adda proje kazanır (Claude Code sırası)."""
-    project_names = {server.name for server in project_servers}
+    """Kayıtları birleştir; aynı adda öncelik local > project > user (Claude Code, #236).
+
+    Alanlar kapsamlar arasında birleştirilmez: kazanan kaydın tamamı kullanılır.
+    """
+    local_names = {server.name for server in local_servers}
+    project = tuple(server for server in project_servers if server.name not in local_names)
+    taken = local_names | {server.name for server in project}
     return (
-        *(server for server in user_servers if server.name not in project_names),
-        *project_servers,
+        *(server for server in user_servers if server.name not in taken),
+        *project,
+        *local_servers,
     )
 
 
@@ -182,7 +147,7 @@ def write_project_mcp_servers(root: Path, servers: tuple[McpServerConfig, ...]) 
     """
     path = project_mcp_path(root)
     existing = _writable_raw(root, path)
-    existing[_ROOT_KEY] = {server.name: _to_entry(server) for server in servers}
+    existing[_ROOT_KEY] = {server.name: to_entry(server) for server in servers}
     return _commit(root, path, existing)
 
 
@@ -198,7 +163,7 @@ def upsert_project_mcp_server(root: Path, server: McpServerConfig) -> Path:
     existing = _writable_raw(root, path)
     servers = existing.get(_ROOT_KEY)
     entries: dict[str, object] = dict(servers) if isinstance(servers, dict) else {}
-    entries[server.name] = _to_entry(server)
+    entries[server.name] = to_entry(server)
     existing[_ROOT_KEY] = entries
     return _commit(root, path, existing)
 
@@ -235,24 +200,6 @@ def _commit(root: Path, path: Path, data: dict[str, object]) -> Path:
     _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     trust.approve_file(root, path)
     return path
-
-
-def _to_entry(server: McpServerConfig) -> dict[str, object]:
-    entry: dict[str, object] = {}
-    if server.transport is McpTransport.STREAMABLE_HTTP:
-        entry["type"] = "http"
-        entry["url"] = server.url
-    else:
-        entry["command"] = server.command
-        if server.args:
-            entry["args"] = list(server.args)
-    env: dict[str, str] = dict(server.env_literals)
-    # Şifreli depodan gelen sırlar `.mcp.json`'da Claude Code biçimiyle başvuru olur.
-    for name in server.env_names:
-        env.setdefault(name, f"${{{name}}}")
-    if env:
-        entry["env"] = env
-    return entry
 
 
 def _atomic_write(path: Path, text: str) -> None:

@@ -42,6 +42,7 @@ from typing import TextIO
 from .. import __version__
 from ..config.models import Config
 from ..core.json_schema import validate_instance
+from ..core.mcp_tool_names import canonical_mcp_name, split_mcp_tool_name
 from ..core.redaction import redact
 from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
@@ -125,10 +126,6 @@ def parse_tool_list(raw: Iterable[str] | None) -> frozenset[str] | None:
     return frozenset(names)
 
 
-#: Claude Code MCP araç öneki (`mcp__github__get_issue`); Fusion'da `github__get_issue`.
-_CLAUDE_MCP_PREFIX = "mcp__"
-
-
 def map_claude_tool_names(names: frozenset[str]) -> frozenset[str]:
     """Claude Code araç adlarını (`Read`, `Bash(git *)`, `mcp__s__t`) Fusion adlarına çevir.
 
@@ -141,8 +138,9 @@ def map_claude_tool_names(names: frozenset[str]) -> frozenset[str]:
     mapped: set[str] = set()
     for name in names:
         base = name.split("(", 1)[0].strip()
-        if base.startswith(_CLAUDE_MCP_PREFIX) and base.count("__") >= 2:
-            mapped.add(base[len(_CLAUDE_MCP_PREFIX) :])
+        if split_mcp_tool_name(base) is not None:
+            # #242: kayıt adı Claude gibi `mcp__s__t`; eski öneksiz `s__t` takma addır.
+            mapped.add(canonical_mcp_name(base))
             continue
         targets = CLAUDE_TOOL_MAP.get(base.lower())
         if targets and (base[:1].isupper() or base != name):

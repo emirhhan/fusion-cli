@@ -1,32 +1,18 @@
-"""Uzak MCP aracının Fusion/sağlayıcı araç adı.
+"""Uzak MCP aracının kayıt/sağlayıcı adı: `mcp__<sunucu>__<araç>` (#242).
 
-Sağlayıcılar (OpenAI, Anthropic, Gemini) araç adını `^[a-zA-Z0-9_-]{1,64}$` ister.
-Sunucu adı kullanıcıdan gelir ("META ADS") ve uzak araç adı sunucudan; ham
-birleştirme geçersiz ad üretip bütün turu 400 ile düşürebilir.
+Kural `core/mcp_tool_names.py`'de: geçersiz karakter `_`, 128'i aşan ad dışarıda
+(None), 65-128 arası ad sağlayıcı sınırı (64) için özetle kısalır.
 """
 
 from __future__ import annotations
 
-import hashlib
-import re
+from ..core.mcp_tool_names import MAX_PROVIDER_TOOL_NAME_CHARS, provider_mcp_tool_name
 
 __all__ = ["MAX_TOOL_NAME_CHARS", "fusion_tool_name"]
 
-MAX_TOOL_NAME_CHARS = 64
-_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
-_HASH_CHARS = 8
+MAX_TOOL_NAME_CHARS = MAX_PROVIDER_TOOL_NAME_CHARS
 
 
-def fusion_tool_name(server: str, tool: str) -> str:
-    """`<sunucu>__<araç>`; kurala uyan ad AYNEN kalır, uymayan temizlenir.
-
-    Temizlenen ya da kısaltılan adın sonuna ham adın özeti eklenir: "A B" ile "A_B"
-    gibi farklı kaynaklar aynı ada çökmez ve ad çağrılar arasında kararlı kalır.
-    """
-    raw = f"{server}__{tool}"
-    clean = _INVALID.sub("_", raw)
-    if clean == raw and len(raw) <= MAX_TOOL_NAME_CHARS:
-        return raw
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:_HASH_CHARS]
-    keep = MAX_TOOL_NAME_CHARS - _HASH_CHARS - 1
-    return f"{clean[:keep]}_{digest}"
+def fusion_tool_name(server: str, tool: str) -> str | None:
+    """`mcp__<sunucu>__<araç>`; tam adı 128 karakteri aşan araçta None."""
+    return provider_mcp_tool_name(server, tool)

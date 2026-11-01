@@ -84,7 +84,7 @@ def test_disallowed_tools_kisilik_yasaklariyla_birlesir(tmp_path: Path):
     assert extras.merged_denied(frozenset({"web_fetch"})) == {
         "web_fetch",
         "run_shell",
-        "github__*",
+        "mcp__github__*",
     }
 
 

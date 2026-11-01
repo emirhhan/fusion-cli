@@ -32,7 +32,7 @@ from ..mcp_bridge.identity import connection_identity, duplicate_of
 from ..mcp_bridge.oauth import DEFAULT_CALLBACK_PORT, validate_remote_mcp_url
 from ..mcp_bridge.transport import stdio_search_path
 from ..mcp_bridge.trust import effective_trust, review_identity
-from ..ui import messages
+from ..ui import mcp_messages, messages
 from .hosted_connectors import hosted_connector_rows
 
 #: Komutun PATH'te olup olmadığını söyleyen arama (test yerine geçebilsin diye).
@@ -402,6 +402,8 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
         # Eklenti sunucusu hiçbir ayar dosyasına yazılmaz: karar bellekte kalıp açılışta
         # kayboluyor, arayüz yine "güncellendi" diyordu (ölçüldü 31 Ekim).
         return None, {"ok": False, "metin": messages.EKLENTI_MCP_TRUST.format(name=server.name)}
+    if server.scope is McpScope.MANAGED:
+        return None, {"ok": False, "metin": mcp_messages.MANAGED_TRUST.format(name=server.name)}
     fingerprint = review_identity(server)
     if decision == "trusted" and (not fingerprint or fingerprint != data.get("inceleme_kimligi")):
         return None, {
@@ -445,6 +447,10 @@ def remove_connector(
         return None, {"ok": False, "metin": f"'{ad}' adlı bağlantı yok."}
     if silinen.scope is McpScope.PLUGIN:
         return None, {"ok": False, "metin": messages.EKLENTI_MCP_REMOVE.format(name=ad)}
+    if silinen.scope is McpScope.MANAGED:
+        from ..config.mcp_policy import remove_refusal
+
+        return None, {"ok": False, "metin": remove_refusal(silinen, root or Path.cwd()) or ""}
     kalan = tuple(server for server in config.mcp_servers if server.name != ad)
     yeni = replace(config, mcp_servers=kalan)
     if silinen.scope is McpScope.PROJECT:
@@ -454,6 +460,14 @@ def remove_connector(
         except Exception as error:  # ConfigError ve OSError türevleri
             return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
         return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı projeden kaldırıldı."}
+    if silinen.scope is McpScope.LOCAL:
+        from ..config.mcp_local import remove_local_mcp_server
+
+        try:
+            remove_local_mcp_server(root or Path.cwd(), ad)
+        except Exception as error:  # ConfigError ve OSError türevleri
+            return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+        return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı yerel kapsamdan kaldırıldı."}
     return _persist(yeni, f"'{ad}' bağlantısı kaldırıldı.")
 
 

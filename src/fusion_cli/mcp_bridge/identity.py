@@ -61,8 +61,9 @@ def connection_identity(config: McpServerConfig) -> str:
     """Bağlantının gittiği sunucuyu temsil eden normalize anahtar."""
     # Aynı adres/komut farklı hesap/token ile iki ayrı bağlantı olabilir (iki
     # Cloudflare/GitHub hesabı, iki Postgres env'i): bunlar kopya DEĞİLDİR.
-    if config.transport is McpTransport.STREAMABLE_HTTP:
-        parts = [f"http {_url_identity(config.url)}"]
+    if config.is_remote:
+        kind = "http" if config.transport is McpTransport.STREAMABLE_HTTP else config.transport
+        parts = [f"{kind} {_url_identity(config.url)}"]
         if config.token_env.strip():
             parts.append(f"token={config.token_env.strip()}")
         if config.client_id.strip():

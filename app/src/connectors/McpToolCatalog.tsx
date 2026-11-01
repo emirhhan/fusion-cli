@@ -5,7 +5,7 @@ import './McpToolCatalog.css';
 import { ConnectorDialog } from './ConnectorDialog';
 import { McpReferenceList, referenceRows, type McpPromptRow, type McpResourceRow } from './McpReferenceList';
 type Parameter = { name: string; type: string; required: boolean; description: string };
-type Tool = { name: string; server: string; description: string; effect: string; parameters: Parameter[]; parametersTruncated: boolean };
+type Tool = { name: string; server: string; description: string; effect: string; parameters: Parameter[]; parametersTruncated: boolean; permission?: string };
 type Catalog = { tools: Tool[]; total: number; truncated: boolean; prompts: McpPromptRow[]; resources: McpResourceRow[] };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 function decode(value: unknown): Catalog {
@@ -14,10 +14,13 @@ function decode(value: unknown): Catalog {
   if (!Array.isArray(value.tools) || value.tools.length > 200 || !Number.isSafeInteger(value.total) || (value.total as number) < value.tools.length || typeof value.truncated !== 'boolean') throw new Error('Katalog verisi doğrulanamadı.');
   for (const tool of value.tools) {
     if (!object(tool) || !['name', 'server', 'description', 'effect'].every((key) => typeof tool[key] === 'string') || !Array.isArray(tool.parameters) || tool.parameters.length > 40 || typeof tool.parametersTruncated !== 'boolean') throw new Error('Araç tanımı doğrulanamadı.');
+    if (tool.permission !== undefined && typeof tool.permission !== 'string') throw new Error('Araç tanımı doğrulanamadı.');
     for (const p of tool.parameters) if (!object(p) || !['name', 'type', 'description'].every((key) => typeof p[key] === 'string') || typeof p.required !== 'boolean') throw new Error('Parametre tanımı doğrulanamadı.');
   }
   return { ...(value as unknown as Catalog), ...referenceRows(value) };
 }
+// #250: Claude `/mcp` panelindeki gibi aracın izin kuralına göre durumu.
+const PERMISSIONS: Record<string, string> = { allow: 'İzinli', ask: 'Her çağrıda sorar', deny: 'Reddedildi', none: 'Kural yok; izin kipine göre sorulur' };
 const EFFECTS: Record<string, string> = { remote_read: 'Salt okuma', remote_interact: 'Sayfa etkileşimi', remote_write: 'Değişiklik yapabilir', remote_destructive: 'Yıkıcı işlem' };
 export function McpToolCatalog({ client, server, onClose }: { client: ProtocolClient; server: string; onClose: () => void }) {
   const [attempt, retry] = useState(0);
@@ -43,7 +46,7 @@ export function McpToolCatalog({ client, server, onClose }: { client: ProtocolCl
       <p>{current.catalog.total} araç{current.catalog.truncated ? ' · İlk 200 araç gösteriliyor.' : ''}</p>
       {!current.catalog.tools.length && <p>Bu sunucu araç bildirmedi.</p>}
       <ul>{current.catalog.tools.map((tool, index) => <li key={`${tool.name}-${index}`}>
-        <strong>{tool.name}</strong><p>Kaynak: {tool.server} · <span>{EFFECTS[tool.effect] ?? 'Etki bilinmiyor; onay yeniden değerlendirilir'}</span></p>
+        <strong>{tool.name}</strong><p>Kaynak: {tool.server} · <span>{EFFECTS[tool.effect] ?? 'Etki bilinmiyor; onay yeniden değerlendirilir'}</span>{tool.permission !== undefined && <> · <span>İzin: {PERMISSIONS[tool.permission] ?? tool.permission}</span></>}</p>
         <p>{tool.description || 'Açıklama sağlanmadı.'}</p>
         <details><summary>Parametre ayrıntıları</summary>
           {tool.parameters.length ? <ul>{tool.parameters.map((p, i) => <li key={`${p.name}-${i}`}><code>{p.name}</code> · {p.type} · {p.required ? 'Zorunlu' : 'İsteğe bağlı'} {p.description}</li>)}</ul> : <p>Parametre tanımı sağlanmadı.</p>}

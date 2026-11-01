@@ -623,6 +623,10 @@ class McpTransport(StrEnum):
 
     STDIO = "stdio"
     STREAMABLE_HTTP = "streamable_http"
+    #: Eski HTTP+SSE taşıması (Claude Code `--transport sse`).
+    SSE = "sse"
+    #: WebSocket; Claude Code'da yalnız JSON (`.mcp.json`/`add-json`) ile verilir.
+    WS = "ws"
 
 
 class McpScope(StrEnum):
@@ -635,6 +639,12 @@ class McpScope(StrEnum):
 
     USER = "user"
     PROJECT = "project"
+    #: Claude Code varsayılanı: yalnız bu projede, paylaşılmayan kullanıcı kaydı
+    #: (`config/mcp_local.py`; Claude'daki `~/.claude.json` → `projects.<yol>`).
+    LOCAL = "local"
+    #: Kuruluşun sunucusu (#274): `managed-mcp.json` ya da yönetilen ayardaki
+    #: `managedMcpServers`. Hiçbir kullanıcı dosyasına yazılmaz, kaldırılamaz.
+    MANAGED = "managed"
     #: Etkin bir eklentinin `.mcp.json`'ı (P-059); hiçbir ayar dosyasına yazılmaz.
     PLUGIN = "plugin"
 
@@ -700,6 +710,28 @@ class McpServerConfig:
     #: `${VAR:-varsayılan}` başvurusu taşıyabilir ve bağlantı anında çözülür. Sırlar buraya
     #: yazılmaz, `env_names` ile şifreli depodan gelir. `.mcp.json` `env` alanı buraya iner.
     env_literals: tuple[tuple[str, str], ...] = ()
+    #: Uzak sunucuya gidecek sabit başlıklar `(ad, değer)`; değer `${VAR}` taşıyabilir
+    #: (Claude Code `headers` / `--header`).
+    headers: tuple[tuple[str, str], ...] = ()
+    #: Bağlantı anında JSON başlık sözlüğü basan kabuk komutu (Claude Code `headersHelper`).
+    headers_helper: str = ""
+    #: Claude Code `alwaysLoad` (#258): True araçları baştan yükler, False aracın
+    #: `anthropic/alwaysLoad` işaretine rağmen hepsini erteler, None (yazılmamış) işarete uyar.
+    always_load: bool | None = None
+    #: Çalışma anı: stdio sürecine `CLAUDE_PROJECT_DIR` olarak giden oturum kökü (#273).
+    #: Ayar dosyasına yazılmaz; boşsa süreç cwd'si kullanılır.
+    project_dir: str = ""
+    #: Sunucu başına araç çağrısı sınırı, ms (Claude Code `.mcp.json` `timeout`).
+    timeout_ms: int | None = None
+    #: OAuth dönüş portu (Claude Code `oauth.callbackPort` / `--callback-port`).
+    oauth_callback_port: int | None = None
+    #: OAuth yetkilendirme sunucusu metadata adresi (Claude Code `oauth.authServerMetadataUrl`).
+    oauth_metadata_url: str = ""
+
+    @property
+    def is_remote(self) -> bool:
+        """Ağ üzerinden (http/sse/ws) bağlanılan sunucu mu?"""
+        return self.transport is not McpTransport.STDIO
 
     @property
     def secret_env_names(self) -> tuple[str, ...]:
@@ -888,6 +920,9 @@ class Config:
     #: YAML'daki `agent_launch` (settings.json/ortam birleşmeden önce); kök değişince
     #: `.claude/settings.json` yeniden okunurken taban olur. Eski nesnede None.
     agent_launch_configured: AgentLaunchConfig | None = None
+    #: Kuruluş MCP politikasının gizlediği kullanıcı kapsamlı sunucu adları (#274).
+    #: Yazıcı bu kayıtları config.yaml'da korur; politika kullanıcı verisini silmez.
+    mcp_policy_hidden: tuple[str, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

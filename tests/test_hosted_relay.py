@@ -162,8 +162,8 @@ async def test_kayitli_araclar_connector_onekiyle_ve_mutating_gelir():
 
     eklenen = await client.register_into(registry)
 
-    assert eklenen == ("MetaAds__get_campaigns",)
-    arac = registry.get("MetaAds__get_campaigns")
+    assert eklenen == ("mcp__MetaAds__get_campaigns",)
+    arac = registry.get("mcp__MetaAds__get_campaigns")
     assert arac is not None
     # Dış aracın ne yaptığı bilinemez: onay akışından geçsin.
     assert arac.mutating is True
@@ -182,7 +182,7 @@ async def test_barindirmali_arac_uzak_yazma_etkisiyle_kaydedilir_ve_auto_kipte_s
     client = HostedConnectorClient((_connector(),), ask=oturum)
     registry = ToolRegistry()
     await client.register_into(registry)
-    arac = registry.get("MetaAds__update_budget")
+    arac = registry.get("mcp__MetaAds__update_budget")
     assert arac is not None
 
     sorulanlar: list[str] = []
@@ -196,7 +196,7 @@ async def test_barindirmali_arac_uzak_yazma_etkisiyle_kaydedilir_ve_auto_kipte_s
 
     # Keşif cevabı modelden gelir; MCP açıklaması taşınmaz, güvenilir de değildir.
     assert arac.effect is ToolEffect.REMOTE_WRITE
-    assert sorulanlar == ["MetaAds__update_budget"]
+    assert sorulanlar == ["mcp__MetaAds__update_budget"]
     assert karar is Decision.DENIED
 
 

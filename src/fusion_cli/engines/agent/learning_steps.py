@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from ...core.events import LessonsLearned, LessonsRecalled
 from ...core.lesson_runtime import HINT_LIMIT, LessonDelivery
+from ...core.mcp_tool_names import mcp_server_of
 from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult
@@ -62,7 +63,7 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
     from .verify_discovery import project_kinds
 
     context = deps.tool_context
-    sunucular = {ad.split("__", 1)[0] for ad in context.available_tools if "__" in ad}
+    sunucular = {mcp_server_of(ad) for ad in context.available_tools} - {""}
     # Kendi belleği olan alt ajanın dersi kişilik etiketi taşır (P-055): çıkarımda yazılır,
     # geri çağırmada süzgeç olur (`core.memory.visible_to`).
     owner = getattr(deps, "lesson_owner", "")

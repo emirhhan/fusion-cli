@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import replace
 from pathlib import Path
@@ -28,18 +29,15 @@ from rich.markup import escape
 
 from ..config.loader import load_config
 from ..config.mcp_json import (
-    PROJECT_MCP_FILE,
     parse_project_mcp,
-    project_mcp_path,
-    remove_project_mcp_server,
     upsert_project_mcp_server,
 )
+from ..config.mcp_local import upsert_local_mcp_server
 from ..config.models import Config, McpScope, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
 from ..core.errors import ConfigError, FusionError
-from ..core.redaction import redact
-from ..ui import messages, theme
-from . import mcp_reference_commands
+from ..ui import mcp_messages, messages, theme
+from . import mcp_add, mcp_manage, mcp_reference_commands
 
 console = Console()
 
@@ -54,10 +52,11 @@ _TRANSPORT_ALIASES = {
     "http": McpTransport.STREAMABLE_HTTP,
     "streamable_http": McpTransport.STREAMABLE_HTTP,
     "streamable-http": McpTransport.STREAMABLE_HTTP,
+    "sse": McpTransport.SSE,
 }
 
 mcp_app = typer.Typer(
-    help="Dış MCP sunucularını yönet; alt komutsuz çağrıda Fusion'ı MCP sunucusu olarak aç.",
+    help="Dış MCP sunucularını yönet (Claude Code `claude mcp`); `serve` Fusion'ı sunucu açar.",
     invoke_without_command=True,
 )
 
@@ -65,25 +64,41 @@ mcp_app = typer.Typer(
 @mcp_app.callback()
 def mcp(
     ctx: typer.Context,
-    write: bool = typer.Option(
-        False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."
-    ),
+    write: bool = typer.Option(False, "--write", hidden=True),
 ) -> None:
-    """Fusion araçlarını bir MCP sunucusu olarak aç (stdio).
+    """MCP sunucularını yapılandır ve yönet.
 
-    MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
-    araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
-    Alt komutlarla (`add`, `list`, `login`…) dış MCP sunucuları yönetilir.
+    Alt komutsuz çağrı Claude Code gibi yardımı gösterir. Eski davranış (stdin bir MCP
+    istemcisine bağlıyken `fusion mcp` → salt-okunur sunucu) bir sürüm boyunca korunur;
+    yeni yapılandırmalarda `fusion mcp serve` kullan.
     """
     if ctx.invoked_subcommand is not None:
         return
-    # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
+    if sys.stdin.isatty():
+        typer.echo(ctx.get_help())
+        return
+    # DİKKAT: stdout MCP protokolüne aittir; uyarı yalnız stderr'e.
+    typer.echo(mcp_messages.DEPRECATED_BARE_MCP, err=True)
+    _serve(expose_mutating=write)
+
+
+@mcp_app.command("serve")
+def serve() -> None:
+    """Fusion'ı stdio MCP sunucusu olarak aç (Claude Code `claude mcp serve`).
+
+    Fusion'ın araçlarının tümü sunulur; araç çağrılarının onayı bağlanan MCP istemcisinin
+    işidir (Claude Code belgesi). Açılışta hiçbir şey basılmaz.
+    """
+    _serve(expose_mutating=True)
+
+
+def _serve(*, expose_mutating: bool) -> None:
     try:
         from ..mcp_bridge.server import run_stdio
     except ImportError:
         typer.echo(messages.MCP_MISSING_DEP, err=True)
         raise typer.Exit(code=1) from None
-    asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
+    asyncio.run(run_stdio(Path.cwd(), expose_mutating=expose_mutating))
 
 
 # --------------------------------------------------------------------------- #
@@ -93,13 +108,18 @@ def mcp(
 
 def _parse_scope(raw: str) -> McpScope:
     try:
-        return McpScope(raw.strip().lower())
+        value = McpScope(raw.strip().lower())
+        if value in (McpScope.PLUGIN, McpScope.MANAGED):
+            raise ValueError(raw)
+        return value
     except ValueError:
-        valid = ", ".join(item.value for item in McpScope)
+        valid = "local, project, user"
         raise typer.BadParameter(f"Bilinmeyen kapsam: {raw}. Geçerli olanlar: {valid}") from None
 
 
 def _parse_transport(raw: str) -> McpTransport:
+    if raw.strip().lower() == "ws":
+        raise typer.BadParameter(mcp_messages.WS_NOT_FOR_ADD)
     transport = _TRANSPORT_ALIASES.get(raw.strip().lower())
     if transport is None:
         raise typer.BadParameter(
@@ -120,6 +140,8 @@ def save_server(config: Config, server: McpServerConfig, *, root: Path) -> tuple
     replaced = any(item.name == server.name for item in same_scope)
     if server.scope is McpScope.PROJECT:
         return upsert_project_mcp_server(root, server), replaced
+    if server.scope is McpScope.LOCAL:
+        return upsert_local_mcp_server(root, server), replaced
     others = tuple(item for item in config.mcp_servers if item.scope is not server.scope)
     kept = tuple(item for item in same_scope if item.name != server.name)
     return write_mcp_servers(replace(config, mcp_servers=(*others, *kept, server))), replaced
@@ -127,6 +149,12 @@ def save_server(config: Config, server: McpServerConfig, *, root: Path) -> tuple
 
 def _save_or_exit(config: Config, server: McpServerConfig) -> tuple[Path, bool]:
     """`save_server`; yazma reddi (güvenilmeyen/bozuk `.mcp.json`) Türkçe hata ve çıkış 1."""
+    from ..config.mcp_policy import add_refusal
+
+    refusal = add_refusal(server, Path.cwd())  # kuruluş politikası (#274)
+    if refusal:
+        console.print(f"[{theme.ERROR}]{escape(refusal)}[/{theme.ERROR}]")
+        raise typer.Exit(code=1)
     try:
         return save_server(config, server, root=Path.cwd())
     except ConfigError as error:
@@ -135,6 +163,10 @@ def _save_or_exit(config: Config, server: McpServerConfig) -> tuple[Path, bool]:
 
 
 def _announce_saved(server: McpServerConfig, path: Path, replaced: bool) -> None:
+    if server.scope is McpScope.LOCAL:
+        console.print(mcp_messages.LOCAL_ADDED.format(name=server.name))
+        console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
+        return
     if server.scope is McpScope.PROJECT:
         console.print(messages.MCP_PROJECT_ADDED.format(name=server.name, path=path))
         return
@@ -145,41 +177,48 @@ def _announce_saved(server: McpServerConfig, path: Path, replaced: bool) -> None
 
 @mcp_app.command("add")
 def add(
-    name: Annotated[str, typer.Argument(help="Sunucuya vereceğin kısa ad (ör. github).")],
+    name: Annotated[str, typer.Argument(help="Sunucu adı (harf, rakam, - ve _).")],
     command: Annotated[
-        str, typer.Argument(help="stdio için çalıştırılacak komut (ör. npx); http'de boş.")
+        str, typer.Argument(help="stdio'da çalıştırılacak komut; http/sse'de sunucu adresi.")
     ] = "",
     args: Annotated[
         list[str] | None,
         typer.Argument(help="Komuta verilecek argümanlar. `-` ile başlıyorsa önce -- koy."),
     ] = None,
-    transport: str = typer.Option("stdio", "--transport", "-t", help="stdio | http"),
-    url: str = typer.Option("", "--url", help="http taşımasında sunucu adresi."),
+    transport: str = typer.Option("stdio", "--transport", "-t", help="stdio | http | sse"),
     scope: str = typer.Option(
-        "user", "--scope", "-s", help="user (config.yaml) | project (.mcp.json)"
+        "local",
+        "--scope",
+        "-s",
+        help="local (varsayılan; yalnız bu proje, paylaşılmaz) | project (.mcp.json) | user",
     ),
     env: Annotated[
         list[str] | None,
-        typer.Option(
-            "--env",
-            "-e",
-            help="Sunucuya aktarılacak ortam değişkeni ADI (sır değeri config'e yazılmaz) "
-            "ya da AD=değer (sır olmayan değer; ${VAR:-vars} başvurusu olabilir).",
-        ),
+        typer.Option("--env", "-e", help="Ortam değişkeni KEY=value (tekrarlanabilir)."),
     ] = None,
-    token_env: str = typer.Option(
-        "", "--token-env", help="http için Bearer token'ın ortam değişkeni adı (OAuth yerine)."
+    header: Annotated[
+        list[str] | None,
+        typer.Option("--header", "-H", help='Uzak sunucu başlığı "Ad: değer" (tekrarlanabilir).'),
+    ] = None,
+    client_id: str = typer.Option("", "--client-id", help="Önceden kayıtlı OAuth istemci kimliği."),
+    client_secret: bool = typer.Option(
+        False, "--client-secret", help="OAuth istemci sırrını sor (ya da MCP_CLIENT_SECRET)."
     ),
+    callback_port: int | None = typer.Option(
+        None, "--callback-port", help="Sabit OAuth dönüş portu (http://localhost:PORT/callback)."
+    ),
+    url: str = typer.Option("", "--url", hidden=True),
+    token_env: str = typer.Option("", "--token-env", hidden=True),
 ) -> None:
-    """Dış bir MCP sunucusunu ekle; kullanıcı config'i elle düzenlemez.
+    """Dış bir MCP sunucusu ekle (Claude Code `claude mcp add` sözdizimi).
 
     Örnekler:
-      fusion mcp add github npx -- -y @modelcontextprotocol/server-github
-      fusion mcp add linear --transport http --url https://mcp.linear.app/mcp
-      fusion mcp add postgres --scope project npx -- -y server-postgres -e DATABASE_URL
+      fusion mcp add --transport http notion https://mcp.notion.com/mcp
+      fusion mcp add --transport http api https://api.example.com/mcp \\
+        -H "Authorization: Bearer ${API_KEY}"
+      fusion mcp add airtable -e AIRTABLE_API_KEY=anahtar -- npx -y airtable-mcp-server
 
-    Argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart. Agent bu
-    komutu KENDİ dosya araçlarıyla DEĞİL, yalnızca shell'de çalıştırarak tetikler.
+    Argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart.
     """
     add_server(
         name,
@@ -190,6 +229,10 @@ def add(
         scope=scope,
         env=tuple(env or ()),
         token_env=token_env,
+        headers=tuple(header or ()),
+        client_id=client_id,
+        client_secret=client_secret,
+        callback_port=callback_port,
     )
 
 
@@ -200,38 +243,53 @@ def add_server(
     *,
     transport: str = "stdio",
     url: str = "",
-    scope: str = "user",
+    scope: str = "local",
     env: tuple[str, ...] = (),
     token_env: str = "",
+    headers: tuple[str, ...] = (),
+    client_id: str = "",
+    client_secret: bool = False,
+    callback_port: int | None = None,
 ) -> McpServerConfig:
     """`add` gövdesi; eski `fusion mcp-add` takma adı da bunu çağırır."""
+    server_name = mcp_add.check_name(name)
     kind = _parse_transport(transport)
     target_scope = _parse_scope(scope)
-    env_names, env_literals = split_env_options(env)
-    if kind is McpTransport.STDIO and not command.strip():
-        raise typer.BadParameter(messages.MCP_ADD_NEEDS_COMMAND)
-    if kind is McpTransport.STREAMABLE_HTTP and not url.strip():
-        raise typer.BadParameter(messages.MCP_ADD_NEEDS_URL)
-    if target_scope is McpScope.PROJECT and token_env.strip():
-        # `.mcp.json` Claude Code biçimi `token_env` taşımaz; sessizce atmak kimliksiz istek
-        # üretirdi (31 Ekim). Kullanıcı kapsamına yazılsın ya da `env` ile başvuru verilsin.
-        raise typer.BadParameter(messages.MCP_PROJECT_NO_TOKEN_ENV)
-    if kind is McpTransport.STREAMABLE_HTTP:
+    mcp_add.check_oauth_flags(kind, client_id, client_secret, callback_port)
+    env_names, env_literals = mcp_add.split_env(env)
+    remote_url = ""
+    if kind is not McpTransport.STDIO:
+        remote_url, args = mcp_add.remote_target(kind, command, args, url, server_name)
+        if not remote_url:
+            raise typer.BadParameter(messages.MCP_ADD_NEEDS_URL)
         from ..mcp_bridge.oauth import validate_remote_mcp_url
 
-        validate_remote_mcp_url(url.strip())
+        validate_remote_mcp_url(remote_url)
+    elif not command.strip():
+        raise typer.BadParameter(messages.MCP_ADD_NEEDS_COMMAND)
+    if token_env.strip():
+        typer.echo(mcp_messages.DEPRECATED_TOKEN_ENV.format(name=token_env.strip()), err=True)
+        if target_scope is McpScope.PROJECT:
+            raise typer.BadParameter(messages.MCP_PROJECT_NO_TOKEN_ENV)
     server = McpServerConfig(
-        name=name.strip(),
+        name=server_name,
         command=command.strip() if kind is McpTransport.STDIO else "",
         args=args if kind is McpTransport.STDIO else (),
         transport=kind,
-        url=url.strip() if kind is McpTransport.STREAMABLE_HTTP else "",
+        url=remote_url,
         env_names=env_names,
         token_env=token_env.strip(),
         scope=target_scope,
         env_literals=env_literals,
+        headers=mcp_add.parse_headers(headers) if kind is not McpTransport.STDIO else (),
+        client_id=client_id.strip(),
+        oauth_callback_port=callback_port,
     )
+    secret = mcp_add.read_client_secret(client_secret)
     path, replaced = _save_or_exit(load_config(), server)
+    if secret:
+        asyncio.run(mcp_add.store_client_secret(server, secret))
+        console.print(mcp_messages.CLIENT_SECRET_STORED)
     _announce_saved(server, path, replaced)
     return server
 
@@ -263,9 +321,13 @@ def add_json(
             help='Claude Code JSON tanımı: \'{"command":"npx","args":["-y","x"],"env":{...}}\''
         ),
     ],
-    scope: str = typer.Option("user", "--scope", "-s", help="user | project"),
+    scope: str = typer.Option("local", "--scope", "-s", help="local | project | user"),
+    client_secret: bool = typer.Option(
+        False, "--client-secret", help="OAuth istemci sırrını sor (ya da MCP_CLIENT_SECRET)."
+    ),
 ) -> None:
     """Claude Code `claude mcp add-json` biçimindeki tanımla sunucu ekle."""
+    mcp_add.check_name(name)
     target_scope = _parse_scope(scope)
     try:
         raw = json.loads(definition)
@@ -276,64 +338,61 @@ def add_json(
     except ConfigError as error:
         raise typer.BadParameter(str(error)) from None
     server = replace(parsed, scope=target_scope)
+    mcp_add.check_oauth_flags(server.transport, "", client_secret, None)
+    secret = mcp_add.read_client_secret(client_secret)
     path, replaced = _save_or_exit(load_config(), server)
+    if secret:
+        asyncio.run(mcp_add.store_client_secret(server, secret))
+        console.print(mcp_messages.CLIENT_SECRET_STORED)
     _announce_saved(server, path, replaced)
 
 
 @mcp_app.command("remove")
-def remove(name: Annotated[str, typer.Argument(help="Kaldırılacak sunucunun adı.")]) -> None:
-    """Sunucuyu kayıtlı olduğu kapsamdan (config.yaml ya da .mcp.json) kaldır."""
-    config = load_config()
-    target = next((item for item in config.mcp_servers if item.name == name), None)
-    if target is None:
-        console.print(f"[{theme.ERROR}]{messages.MCP_NOT_FOUND.format(name=name)}[/{theme.ERROR}]")
-        raise typer.Exit(code=1)
-    if target.scope is McpScope.PLUGIN:
-        # Eklenti sunucusu hiçbir ayar dosyasında durmaz; eklentiyle birlikte kapanır (P-059).
-        console.print(
-            f"[{theme.ERROR}]{messages.EKLENTI_MCP_REMOVE.format(name=name)}[/{theme.ERROR}]"
-        )
-        raise typer.Exit(code=1)
-    if target.scope is McpScope.PROJECT:
-        try:
-            remove_project_mcp_server(Path.cwd(), name)
-        except ConfigError as error:
-            console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
-            raise typer.Exit(code=1) from None
-        console.print(messages.MCP_PROJECT_REMOVED.format(name=name))
-        return
-    kept = tuple(item for item in config.mcp_servers if item.name != name)
-    write_mcp_servers(replace(config, mcp_servers=kept))
-    console.print(messages.MCP_REMOVED.format(name=name))
+def remove(
+    name: Annotated[str, typer.Argument(help="Kaldırılacak sunucunun adı.")],
+    scope: str | None = typer.Option(
+        None, "--scope", "-s", help="local | project | user (ad birden çok kapsamdaysa şart)"
+    ),
+) -> None:
+    """Sunucuyu kapsamından kaldır; o adresin saklı OAuth bilgileri de silinir."""
+    mcp_manage.remove_server(name, scope)
 
 
 @mcp_app.command("list")
 def list_servers() -> None:
-    """Kayıtlı dış MCP sunucularını kapsam ve taşımayla listele (sırlar maskeli)."""
-    config = load_config()
-    if not config.mcp_servers:
-        console.print(messages.MCP_NO_SERVERS)
-        return
-    for server in config.mcp_servers:
-        target = server.url if server.url else " ".join((server.command, *server.args)).strip()
-        console.print(
-            escape(
-                redact(
-                    messages.MCP_LIST_ROW.format(
-                        name=server.name,
-                        scope=messages.MCP_SCOPE_LABELS.get(server.scope.value, server.scope.value),
-                        transport=server.transport.value,
-                        target=target,
-                    )
-                )
-            )
-        )
-    project_path = project_mcp_path(Path.cwd())
-    if project_path.is_file():
-        console.print(
-            f"[{theme.DIM}]{messages.MCP_LIST_HEADER_PROJECT_HINT.format(path=PROJECT_MCP_FILE)}"
-            f"[/{theme.DIM}]"
-        )
+    """Kayıtlı MCP sunucularını bağlantı durumlarıyla listele."""
+    mcp_manage.list_servers()
+
+
+@mcp_app.command("reset-project-choices")
+def reset_project_choices() -> None:
+    """Bu projedeki .mcp.json sunucuları için verilen onay/ret seçimlerini sıfırla."""
+    from ..config.mcp_project_approval import reset_project_choices as reset
+
+    done = reset(Path.cwd())
+    console.print(mcp_messages.PROJECT_CHOICES_RESET if done else mcp_messages.NO_PROJECT_CHOICES)
+
+
+@mcp_app.command("add-from-claude-desktop")
+def add_from_claude_desktop(
+    scope: str = typer.Option("local", "--scope", "-s", help="local | project | user"),
+) -> None:
+    """Claude Desktop'taki MCP sunucularını seçerek içe aktar (macOS ve WSL)."""
+    from .mcp_desktop_import import add_from_claude_desktop as _import
+
+    _import(scope)
+
+
+@mcp_app.command("get")
+def get(name: Annotated[str, typer.Argument(help="Sunucu adı.")]) -> None:
+    """Tek sunucunun ayrıntısını göster (kapsam, durum, taşıma, hedef, OAuth)."""
+    mcp_manage.get_server(name)
+
+
+@mcp_app.command("logout")
+def logout(name: Annotated[str, typer.Argument(help="Sunucu adı.")]) -> None:
+    """Uzak sunucunun saklı OAuth kimlik bilgilerini sil."""
+    mcp_manage.logout(name)
 
 
 # --------------------------------------------------------------------------- #
@@ -359,11 +418,11 @@ def _run_connected(
 
 
 # İstem/kaynak listeleri ayrı modülde (P-049); komut adları bu alt grupta.
-mcp_app.command("prompts")(mcp_reference_commands.prompts)
-mcp_app.command("resources")(mcp_reference_commands.resources)
+mcp_app.command("prompts", hidden=True)(mcp_reference_commands.prompts)
+mcp_app.command("resources", hidden=True)(mcp_reference_commands.resources)
 
 
-@mcp_app.command("tools")
+@mcp_app.command("tools", hidden=True)
 def tools() -> None:
     """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
     list_remote_tools(load_config(), timeout_s=MCP_TOOLS_TIMEOUT_S)
@@ -420,9 +479,18 @@ def _print_status(status: object) -> None:
 
 
 @mcp_app.command("login")
-def login(name: Annotated[str, typer.Argument(help="OAuth ile giriş yapılacak sunucu.")]) -> None:
+def login(
+    name: Annotated[str, typer.Argument(help="OAuth ile giriş yapılacak sunucu.")],
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Tarayıcı açma; adresi bas, dönüş adresini yapıştır."
+    ),
+) -> None:
     """Uzak MCP sunucusuna OAuth ile giriş yap (tarayıcı açılır); token şifreli depoda kalır."""
     server = _find_server(load_config(), name)
+    if no_browser:
+        from ..mcp_bridge.oauth import FORCE_NO_BROWSER
+
+        FORCE_NO_BROWSER.set(True)
     try:
         from ..mcp_bridge.service import McpConnectionService
     except ImportError:
