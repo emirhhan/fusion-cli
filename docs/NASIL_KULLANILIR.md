@@ -994,7 +994,7 @@ görev kutusuna `/ad ` yazar.
 | ⌘⇧] · ⌘⇧[ | Sonraki · önceki oturum (dosyada `mod+}` / `mod+{`) |
 | ⌘⇧D · ⌘⇧B | Fark paneli · önizleme |
 | Ctrl+` · ⌘\\ | Terminal · odaktaki paneli kapat |
-| ⌘⇧M · ⌘⇧I | İzin modu menüsü · model menüsü |
+| ⌘⇧M · ⌘⇧I · ⌘⇧E | İzin modu · model · efor (düşünme yoğunluğu, `/effort`) menüsü |
 | ⌘⇧S | Öğe seç (Tarayıcı panelinde; önizlemedeki sayfayı seçiciyle açar) |
 | ⌘, | Ayarlar |
 | ⌘[ · ⌘] | Geri · ileri |
@@ -1009,8 +1009,8 @@ devam eder ve ilk kullanımda bir kez uyarılır. Kalıcı yapmak için Ayarlar 
 (Ctrl+Tab kullan ya da Ayarlar › Kısayollar'dan başka tuşa bağla).
 **Henüz yok**: ⌘⌃W bölünmüş görünümden çıkar (Windows'ta Ctrl+W ile aynı fiziksel tuşa düşer;
 `bolmeyi_kapat` eylemi elle bağlanabilir), ⌘; yan sohbet (Fusion'da ayrı yan sohbet paneli yok;
-`/btw` ana sohbete yazılır), Ctrl+O görünüm kipleri, ⌘⇧E efor menüsü (efor Ayarlar › Modeller'de
-seçilir), ⌘⌥1-9 ortam seç (Fusion'da ortam seçici yok).
+`/btw` ana sohbete yazılır), Ctrl+O görünüm kipleri, ⌘⌥1-9 ortam seç (Fusion'da ortam seçici yok).
+Efor menüsü tur sürerken kapalıdır (komut sıraya mesaj olarak girerdi).
 
 Kenar çubuğunda sohbetin `···` menüsünün ilk eylemi **Arşivle**dir (Claude Desktop'taki Archive):
 arşivlenen sohbet silinmez, ana listeden kalkar ve listenin başındaki **Arşivlenenler (N)**

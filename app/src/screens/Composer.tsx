@@ -5,6 +5,7 @@ import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
+import { EffortMenu } from "./EffortMenu";
 import { ModelPicker, shortModelName, type ModelOption } from "./ModelPicker";
 import {
   ApprovalModeMenu,
@@ -588,6 +589,8 @@ export function Composer({
                   <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24" width="18"><path d="M3 10v4M7 6v12M11 3v18M15 7v10M19 5v14M23 10v4" /></svg>
                 </button>
               )}
+              {/* Efor menüsü (⌘⇧E, #444): tur sürerken komut mesaj olarak gidebileceği için yok. */}
+              {onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
               {onModelSelect && (
                 <ModelPicker
                   active={activeModel}
