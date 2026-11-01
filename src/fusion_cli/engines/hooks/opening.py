@@ -37,5 +37,7 @@ async def settle_opening(session: HookSession) -> HookVerdict:
     if not isinstance(task, asyncio.Task):
         return NO_VERDICT
     with contextlib.suppress(asyncio.CancelledError):
-        return await task
+        verdict = await task
+        if isinstance(verdict, HookVerdict):
+            return verdict
     return NO_VERDICT
