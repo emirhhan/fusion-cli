@@ -70,7 +70,7 @@ async def test_worktree_komutu_gecmisi_korur_ve_ayni_sohbete_yazar(repo, tmp_pat
         sonuc = await oturum._dispatch(
             Request("w", "komut.calistir", {"ad": "worktree", "arguman": "ozellik"})
         )
-        agac = repo / ".fusion" / "worktrees" / "ozellik"
+        agac = repo / ".claude" / "worktrees" / "ozellik"
         assert sonuc["ok"] and sonuc["kok"] == str(agac.resolve())
         assert [m.content for m in oturum._state.history] == ["merhaba", "selam"], "geçmiş kaybı"
         assert oturum._state.worktree is not None and oturum._state.worktree.name == "ozellik"
@@ -206,7 +206,7 @@ async def test_enter_worktree_araci_tur_sonunda_masaustu_kokunu_degistirir(
     oturum = await _session(repo, tmp_path, lines)
     try:
         sonuc = await oturum._run_turn("ayrı worktree'de dene")
-        agac = repo / ".fusion" / "worktrees" / "ajan"
+        agac = repo / ".claude" / "worktrees" / "ajan"
         assert sonuc["kok"] == str(agac.resolve()), sonuc
         assert "çalışma ağacına geçti" in sonuc["metin"]
         assert oturum._root == agac and oturum._state.worktree is not None

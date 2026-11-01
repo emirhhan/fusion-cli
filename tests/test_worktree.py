@@ -55,7 +55,7 @@ def repo(tmp_path: Path) -> Path:
 def test_create_worktree_dizin_dal_kunye_ve_include(repo):
     tree = core_worktree.enter_worktree(repo, "deneme")
 
-    assert tree.path == repo / ".fusion" / "worktrees" / "deneme"
+    assert tree.path == repo / ".claude" / "worktrees" / "deneme"
     assert tree.branch == "worktree-deneme"
     assert tree.base_commit == _git(repo, "rev-parse", "HEAD")
     assert _git(tree.path, "rev-parse", "--abbrev-ref", "HEAD") == "worktree-deneme"
@@ -70,7 +70,7 @@ def test_create_worktree_dizin_dal_kunye_ve_include(repo):
 
 
 def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):
-    """Ölçüldü (31 Ekim): `../outside.txt` deseni `.fusion/worktrees/outside.txt` olarak ağaç
+    """Ölçüldü (31 Ekim): `../outside.txt` deseni `.claude/worktrees/outside.txt` olarak ağaç
     DIŞINA yazılıyor, `/etc/hosts`'a işaret eden symlink'in içeriği ağaçta düz dosya oluyordu.
     `.worktreeinclude` depoyla gelen güvenilmeyen bir dosyadır."""
     (tmp_path / "outside.txt").write_text("DIŞ SIR", encoding="utf-8")
@@ -91,7 +91,7 @@ def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):
     tree = core_worktree.enter_worktree(repo, "guvenli")
 
     assert set(tree.included) == {"ic/ayar.local", ".env"}, tree.included
-    assert not (repo / ".fusion" / "worktrees" / "outside.txt").exists(), "ağaç dışına yazıldı"
+    assert not (repo / ".claude" / "worktrees" / "outside.txt").exists(), "ağaç dışına yazıldı"
     assert not (tree.path / "baglanti.txt").exists(), "symlink hedefi kopyalandı"
     assert not (tree.path / "outside.txt").exists()
     assert not (tree.path / "disa-dizin").exists()
@@ -157,7 +157,7 @@ def test_worktree_komutu_girer_listeler_cikar(state, repo):
     giris = _run(state, "/worktree ozellik")
 
     assert "Çalışma ağacı:" in giris and "worktree-ozellik" in giris
-    assert state.root == repo / ".fusion" / "worktrees" / "ozellik"
+    assert state.root == repo / ".claude" / "worktrees" / "ozellik"
     assert state.worktree is not None and state.worktree.origin == repo
     assert "ozellik" in _run(state, "/worktree")
     assert "worktree-ozellik" in _run(state, "/worktree liste")
@@ -181,7 +181,7 @@ def test_worktree_cikista_is_kalmissa_korur_ve_yolu_soyler(state, repo):
 def test_masaustu_koprusu_worktree_calistirir(state, repo):
     sonuc = run_command(build_registry(), state, "worktree", "masa")
     assert sonuc["ok"] and "worktree-masa" in sonuc["metin"]
-    assert state.root == repo / ".fusion" / "worktrees" / "masa"
+    assert state.root == repo / ".claude" / "worktrees" / "masa"
 
 
 # --- Ajan araçları ------------------------------------------------------------------- #
@@ -195,7 +195,7 @@ def test_enter_worktree_araci_kurar_ve_tur_sonunda_kok_degisir(state, repo):
     result = asyncio.run(enter_worktree_tool({"name": "ajan"}, context))
 
     assert result.ok, result.output
-    assert ".fusion/worktrees/ajan" in result.output
+    assert ".claude/worktrees/ajan" in result.output
     requested, exit_requested = (
         context.worktree_switch.requested,
         context.worktree_switch.exit_requested,
@@ -288,7 +288,7 @@ def test_alt_ajan_degisiklik_yapmazsa_agaci_kaldirir_yaparsa_korur(repo, tmp_pat
         return SimpleNamespace(final_text="yazdım", ok=True, tool_calls_made=1)
 
     temiz = asyncio.run(_run_isolated_member(repo, tmp_path, bos))
-    assert temiz.ok and roots[0].parent == repo / ".fusion" / "worktrees"
+    assert temiz.ok and roots[0].parent == repo / ".claude" / "worktrees"
     assert not roots[0].exists(), "değişiklik yok: ağaç kaldırılır"
     assert core_worktree.list_worktrees(repo) == ()
     assert "[Çalışma ağacı]" not in temiz.text

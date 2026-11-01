@@ -829,7 +829,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="enter_worktree",
-        description="İzole git çalışma ağacı aç (.fusion/worktrees/<ad>, dal worktree-<ad>); "
+        description="İzole git çalışma ağacı aç (.claude/worktrees/<ad>, dal worktree-<ad>); "
         "tur bitince oturum kökü oraya geçer. Ana proje değişmez.",
         parameters=worktree_tools.ENTER_WORKTREE_SCHEMA,
         run=worktree_tools.enter_worktree_tool,

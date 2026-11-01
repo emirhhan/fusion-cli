@@ -737,7 +737,7 @@ async def run_team(
 async def _isolated_worktree(
     context: ToolContext, subtask: SubTask, sub_id: str
 ) -> Worktree | None:
-    """`izolasyon: "worktree"` ise üyeye `.fusion/worktrees/ajan-<kimlik>` ağacı aç.
+    """`izolasyon: "worktree"` ise üyeye `.claude/worktrees/ajan-<kimlik>` ağacı aç.
 
     Ağaç oturumun KENDİ kökünün HEAD'inden dallanır (oturum bir ağaçtaysa o dalından).
     Üye bitince `_settle_worktree` karar verir: iş kaldıysa ağaç kalır, kalmadıysa

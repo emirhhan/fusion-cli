@@ -316,7 +316,7 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 ## 7b) İzole çalışma ağacı → `--worktree`, `/worktree`
 
 Riskli ya da paralel bir işi ana projeye dokunmadan denemek için Fusion git çalışma ağacı
-(worktree) açar: `.fusion/worktrees/<ad>` dizini, `worktree-<ad>` dalı. `.fusion/` git
+(worktree) açar: `.claude/worktrees/<ad>` dizini, `worktree-<ad>` dalı. `.fusion/` git
 durumunda görünmez (`.git/info/exclude`).
 
 | Yaz | Ne yapar |
@@ -335,7 +335,7 @@ durumunda görünmez (`.git/info/exclude`).
 - Sohbet projeye aittir: ağaca geçmek konuşmayı bölmez; `fusion -w <ad> --continue` de projenin
   son sohbetini bulur.
 - Ajan araçları `enter_worktree` / `exit_worktree`: model bir ağaç açar, aynı turda
-  `.fusion/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
+  `.claude/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
   masaüstünde). `fusion agent "…"` tek atışta kök değişmez; açılan ağaç bildirilir ve korunur.
   Bu araçlar yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur
   (istem bütçesi).

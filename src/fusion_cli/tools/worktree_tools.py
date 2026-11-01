@@ -2,7 +2,7 @@
 
 Araç çalışma ağacını kurar ve isteği `ToolContext.worktree_switch`'e bırakır; kökü
 değiştirmek REPL'in işidir (tur bitince, bkz. `cli/repl/worktrees.apply_switch`). Aynı
-tur içinde model dosyalara `.fusion/worktrees/<ad>/…` göreli yoluyla ulaşır — bu yol kökün
+tur içinde model dosyalara `.claude/worktrees/<ad>/…` göreli yoluyla ulaşır — bu yol kökün
 içindedir, kısıtlı kip bozulmaz.
 """
 
