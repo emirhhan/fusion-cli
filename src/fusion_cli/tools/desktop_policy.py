@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget
 from ..core.tools import ToolArgs, ToolContext, ToolEffect
 from .args import coerce_int
-from .desktop_risk import risky_reason
+from .desktop_risk import UNVERIFIED_ELEMENT, risky_reason
 from .native_desktop import SwiftDesktop
 
 #: Hedef sorgusu: yardımcıya giden istek gövdesi → yanıt (testte sahte verilir).
@@ -281,6 +281,8 @@ def _number(value: object) -> float | None:
 def _element_label(raw: object) -> str:
     if not isinstance(raw, Mapping):
         return ""
+    if raw.get("unverified"):
+        return UNVERIFIED_ELEMENT
     role = str(raw.get("role") or "").removeprefix("AX")
     name = next(
         (str(raw[key]).strip() for key in ("title", "description", "help") if raw.get(key)), ""

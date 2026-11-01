@@ -82,6 +82,7 @@ class Win32Like(Protocol):
     def window_pid(self, hwnd: int) -> int: ...
     def process_image(self, pid: int) -> str | None: ...
     def windows(self) -> list[WindowInfo]: ...
+    def child_pids(self, hwnd: int) -> list[int]: ...
     def show(self, hwnd: int, command: int) -> None: ...
     def parent_pids(self) -> dict[int, int]: ...
     def escape_hook(self, on_escape: Callable[[], None]) -> Callable[[], None] | None: ...
@@ -299,6 +300,18 @@ class Win32Api:
 
         user32.EnumWindows(proc_type(visit), 0)
         return rows
+
+    def child_pids(self, hwnd: int) -> list[int]:
+        """Çocuk pencerelerin süreçleri (UWP çerçevesindeki CoreWindow uygulamanın kendisidir)."""
+        wintypes, pids = self._types["wintypes"], []
+        proc_type = _functype()(wintypes.BOOL, ctypes.c_void_p, ctypes.c_ssize_t)
+
+        def visit(child: int, _data: int) -> bool:
+            pids.append(self.window_pid(int(child)))
+            return True
+
+        self._user32.EnumChildWindows(ctypes.c_void_p(hwnd), proc_type(visit), 0)
+        return pids
 
     def show(self, hwnd: int, command: int) -> None:
         self._user32.ShowWindowAsync(ctypes.c_void_p(hwnd), command)

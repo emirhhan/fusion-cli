@@ -5,8 +5,10 @@ macOS'taki Swift yardımcısının (`native_desktop`) Windows karşılığı; ay
 - Hedef: tıklama noktasındaki üst düzey pencerenin (WindowFromPoint + GA_ROOT) ya da öndeki
   pencerenin süreci → exe yolu. Uygulama adı exe kökü (`chrome`), "paket" exe adıdır
   (`chrome.exe`); ret listesi ve kategori tablosu ikisine de bakar. Fusion'ın süreçleri (bu
-  süreç + ataları: Fusion.exe) her zaman `com.fusion.desktop` sayılır → engelli (kendi onay
-  kartına tıklayamaz). Süreç adı okunamazsa hedef çözülmemiş sayılır.
+  süreç + Fusion.exe'ye kadar ataları; explorer.exe ve kabuklar asla) her zaman
+  `com.fusion.desktop` sayılır → engelli (kendi onay kartına tıklayamaz). UWP uygulamasının
+  çerçevesi (ApplicationFrameHost.exe) barındırdığı uygulamanın (ör. SystemSettings.exe)
+  süreciyle tanınır; çözülemezse hedef çözülmemiş sayılır. Süreç adı okunamazsa da öyle.
 - Görüntü: GDI ile yakalanır; Fusion pencereleri ve reddedilen uygulamaların pencereleri
   karartılır (Fusion penceresi WDA_EXCLUDEFROMCAPTURE ile zaten görüntü dışıysa karartılmaz).
   Karartma pencere dikdörtgenidir: önünde başka pencere olsa da o alan gösterilmez (temkinli).
@@ -39,6 +41,18 @@ FUSION_BUNDLE = "com.fusion.desktop"
 EXCLUDED_FROM_CAPTURE = 0x11
 _SW_SHOWNOACTIVATE, _SW_SHOWMINNOACTIVE = 4, 7
 _MAX_ANCESTORS = 6
+#: Fusion masaüstü uygulamasının exe adları (kurulu: ürün adı; geliştirme: Cargo paketi).
+_FUSION_IMAGES = frozenset({"fusion.exe", "fusion-desktop.exe"})
+#: Fusion'ı başlatan kabuk/sistem süreçleri: ata zinciri bunlarda durur (dahil edilmez).
+_SHELL_IMAGES = frozenset({
+    "explorer.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe",
+    "openconsole.exe", "conhost.exe", "userinit.exe", "winlogon.exe", "wininit.exe",
+    "services.exe", "svchost.exe", "sihost.exe", "runtimebroker.exe",
+})  # fmt: skip
+#: UWP uygulamalarının üst düzey çerçevesini barındıran süreç.
+_FRAME_HOST = "applicationframehost.exe"
+#: UI Automation okunamadı: tıklanan öğe doğrulanamaz (`desktop_risk` her seferinde sorar).
+UNVERIFIED_ELEMENT: dict[str, str] = {"unverified": "1"}
 _UIA_TIMEOUT_S = 8
 _CREATE_NO_WINDOW = 0x08000000
 _APP_NAME = re.compile(r"[\w][\w .+\-]{0,79}")
@@ -59,32 +73,74 @@ _UIA_SCRIPT = (
 )
 
 
+def _image_name(win: Win32Like, pid: int) -> str | None:
+    image = win.process_image(pid) if pid > 0 else None
+    return Path(image.replace("\\", "/")).name if image else None
+
+
 def fusion_pids(win: Win32Like | None = None) -> list[int]:
-    """Bu süreç + ataları (sidecar → Fusion.exe); ebeveyn zinciri Toolhelp'ten."""
-    parents = (win or desktop_win32.api()).parent_pids()
+    """Bu süreç + Fusion.exe'ye kadar ataları (sidecar → … → Fusion.exe).
+
+    Zincir Fusion.exe'de (dahil) biter; kabuk/sistem sürecinde (explorer.exe: Başlat menüsü)
+    ya da adı okunamayan süreçte (ölmüş/yetkili) dahil etmeden durur. Ölçüldü (1 Kas): yalnız
+    ebeveyn sayısıyla durmak explorer.exe'yi ve ölmüş userinit'in yeniden kullanılan pid'ini
+    Fusion sayıyordu: masaüstü penceresi karartılıp görüntü tamamen siyah oluyor, görev
+    çubuğuna tıklama "Fusion kendi penceresi" diye engelleniyordu.
+    """
+    win = win or desktop_win32.api()
+    parents = win.parent_pids()
     pids, current = [os.getpid()], os.getpid()
     for _ in range(_MAX_ANCESTORS):
         parent = parents.get(current, 0)
         if parent <= 4 or parent in pids:  # 0 = boşta, 4 = System
             break
+        name = (_image_name(win, parent) or "").casefold()
+        if not name or name in _SHELL_IMAGES:
+            break
         pids.append(parent)
+        if name in _FUSION_IMAGES:
+            break
         current = parent
     return pids
+
+
+def owner_pid(win: Win32Like, hwnd: int, pid: int) -> int:
+    """Pencerenin uygulama süreci: UWP çerçevesinde barındırılan uygulama (yoksa 0)."""
+    if (_image_name(win, pid) or "").casefold() != _FRAME_HOST:
+        return pid
+    return next((child for child in win.child_pids(hwnd) if child > 0 and child != pid), 0)
+
+
+def _owners(win: Win32Like, windows: Iterable[WindowInfo]) -> dict[int, int]:
+    """Pencere → uygulama süreci (UWP çerçeveleri çözülür; süreç adı bir kez okunur)."""
+    frame_hosts: dict[int, bool] = {}
+    owners: dict[int, int] = {}
+    for window in windows:
+        if window.pid not in frame_hosts:
+            name = (_image_name(win, window.pid) or "").casefold()
+            frame_hosts[window.pid] = name == _FRAME_HOST
+        owners[window.hwnd] = (
+            owner_pid(win, window.hwnd, window.pid) if frame_hosts[window.pid] else window.pid
+        )
+    return owners
 
 
 def identity(win: Win32Like, pid: int, fusion: Sequence[int]) -> tuple[str, str] | None:
     """Süreç → (uygulama, paket); Fusion süreçleri sabit kimlik alır; okunamazsa None."""
     if pid in fusion:
         return FUSION_APP, FUSION_BUNDLE
-    image = win.process_image(pid) if pid > 0 else None
-    if not image:
+    name = _image_name(win, pid)
+    if not name:
         return None
-    name = Path(image.replace("\\", "/")).name
     return Path(name).stem, name.casefold()
 
 
 def element_at(x: float, y: float) -> dict[str, str]:
-    """UI Automation ile noktadaki öğe (rol, ad); PowerShell yoksa ya da hata → boş."""
+    """UI Automation ile noktadaki öğe (rol, ad).
+
+    PowerShell yoksa, engelliyse ya da zaman aşımında öğe doğrulanamadı işareti döner: riskli
+    düğme (gönder/sil/öde) denetimi sessizce kapanmasın, o tıklama sorulsun.
+    """
     script = _UIA_SCRIPT.format(x=int(x), y=int(y))
     try:
         result = subprocess.run(
@@ -95,11 +151,13 @@ def element_at(x: float, y: float) -> dict[str, str]:
             check=False,
             creationflags=_CREATE_NO_WINDOW,
         )
-        raw = json.loads(result.stdout or "{}") if not result.returncode else {}
+        if result.returncode:
+            return dict(UNVERIFIED_ELEMENT)
+        raw = json.loads(result.stdout or "{}")
     except (OSError, subprocess.TimeoutExpired, ValueError):
-        return {}
+        return dict(UNVERIFIED_ELEMENT)
     if not isinstance(raw, dict):
-        return {}
+        return dict(UNVERIFIED_ELEMENT)
     role = str(raw.get("role") or "").removeprefix("ControlType.")
     return {"role": _ROLE_MAP.get(role, role), "title": str(raw.get("title") or "")}
 
@@ -121,7 +179,7 @@ def probe(
         point = None
         x = y = 0.0
         hwnd = win.foreground()
-    pid = win.window_pid(hwnd) if hwnd else 0
+    pid = owner_pid(win, hwnd, win.window_pid(hwnd)) if hwnd else 0
     found = identity(win, pid, fusion_pids(win))
     if found is None:
         return {"ok": False, "metin": "Hedef pencerenin uygulaması okunamadı."}
@@ -156,18 +214,19 @@ def mask_rects(
     from .desktop_visibility import is_hidden_app
 
     fusion = fusion_pids(win)
+    windows = [window for window in win.windows() if window.visible and not window.iconic]
+    owners = _owners(win, windows)
     names: dict[int, tuple[str, str] | None] = {}
     rects = []
-    for window in win.windows():
-        if not window.visible or window.iconic:
-            continue
-        if window.pid in fusion:
+    for window in windows:
+        pid = owners[window.hwnd]
+        if pid in fusion:
             if window.affinity == EXCLUDED_FROM_CAPTURE:
                 continue
         else:
-            if window.pid not in names:
-                names[window.pid] = identity(win, window.pid, fusion)
-            found = names[window.pid]
+            if pid not in names:
+                names[pid] = identity(win, pid, fusion)
+            found = names[pid]
             if found is None or not is_hidden_app(settings, *found):
                 continue
         clipped = _intersect(window.rect, area)
@@ -216,11 +275,14 @@ def hide(keep: Iterable[int], win: Win32Like | None = None) -> tuple[int, ...]:
     win = win or desktop_win32.api()
     kept = {pid for pid in keep if pid > 0}
     grouped: dict[int, list[int]] = {}
-    for window in win.windows():
-        if window.pid in kept or not _hideable(window):
+    windows = [window for window in win.windows() if _hideable(window)]
+    owners = _owners(win, windows)
+    for window in windows:
+        pid = owners[window.hwnd]
+        if pid in kept:
             continue
         win.show(window.hwnd, _SW_SHOWMINNOACTIVE)
-        grouped.setdefault(window.pid, []).append(window.hwnd)
+        grouped.setdefault(pid, []).append(window.hwnd)
     with _MINIMIZED_LOCK:
         for pid, hwnds in grouped.items():
             _MINIMIZED[pid] = (*_MINIMIZED.get(pid, ()), *hwnds)
@@ -241,10 +303,12 @@ def running_apps(win: Win32Like | None = None) -> tuple[str, ...]:
     win = win or desktop_win32.api()
     fusion = fusion_pids(win)
     names: set[str] = set()
-    for window in win.windows():
-        if window.pid in fusion or not _app_window(window):
+    windows = [window for window in win.windows() if _app_window(window)]
+    owners = _owners(win, windows)
+    for window in windows:
+        if owners[window.hwnd] in fusion:
             continue
-        found = identity(win, window.pid, fusion)
+        found = identity(win, owners[window.hwnd], fusion)
         if found is not None:
             names.add(found[0])
     return tuple(sorted(names, key=str.casefold))

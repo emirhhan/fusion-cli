@@ -52,6 +52,7 @@ class FakeApi:
             APP_PID: r"C:\Windows\System32\notepad.exe",
             901: r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             902: r"C:\Program Files\1Password\1Password.exe",
+            700: r"C:\Program Files\Fusion\Fusion.exe",
         }
         self.parents = {FUSION_PID: 700, 700: 4}
         self.at_point = 11

@@ -140,9 +140,9 @@ hemen etkindir (Erişilebilirlik/Ekran Kaydı "verilmiş" görünür).
 |---|---|
 | Fare, kaydırma, klavye, metin | `SendInput` (mutlak sanal masaüstü koordinatı, Unicode metin); `cmd`/`win` = Windows tuşu, `alt`/`option` = Alt |
 | Ekran görüntüsü | GDI yakalama, çoklu ekran (ana ekran 1), fiziksel piksel (DPI farkında), aynı sabit hedef boyut |
-| Hedef uygulama | tıklama noktasındaki/öndeki üst düzey pencerenin süreci → exe (`chrome` / `chrome.exe`); öğe adı UI Automation ile (riskli düğme denetimi) |
+| Hedef uygulama | tıklama noktasındaki/öndeki üst düzey pencerenin süreci → exe (`chrome` / `chrome.exe`); UWP uygulamalarında (Ayarlar, Hesap Makinesi, Store) çerçeve süreci ApplicationFrameHost.exe değil barındırılan uygulama (`SystemSettings.exe`) sayılır, çözülemezse hedef çözülmemiştir; öğe adı UI Automation ile (riskli düğme denetimi). UI Automation yanıt vermezse (zaman aşımı, PowerShell engelli) öğe "doğrulanamadı" sayılır ve o tıklama her seferinde sorulur |
 | Kademe ve ret listesi | aynı sabit tablo; Windows exe adları eklendi (Chrome/Edge/Firefox = Yalnız bak, Windows Terminal/PowerShell/cmd/VS Code = Tıkla, Dosya Gezgini, Ayarlar/Denetim Masası ayrıca sorulur). Ret listesine exe kökü ya da adı yazılır (`1Password`, `notepad.exe`) |
-| Fusion'ın penceresi | Fusion.exe ve çocukları her zaman engelli (kendi onay kartına tıklayamaz); görüntüde karartılır (macOS'taki gibi arkası gösterilmez; pencere WDA_EXCLUDEFROMCAPTURE taşırsa karartılmaz) |
+| Fusion'ın penceresi | Fusion.exe ve çocukları (yan süreç → … → Fusion.exe; zincir Fusion.exe'de biter, explorer.exe ve kabuklar asla Fusion sayılmaz) her zaman engelli (kendi onay kartına tıklayamaz); görüntüde karartılır (macOS'taki gibi arkası gösterilmez; pencere WDA_EXCLUDEFROMCAPTURE taşırsa karartılmaz) |
 | Reddedilen uygulamalar | pencereleri görüntüde karartılır; yakalama olmazsa karartmasız geri düşüş yapılmaz |
 | Diğer uygulamaları gizle | etkinleştirmeden simge durumuna küçültme; tur sonunda yalnız Fusion'ın küçülttükleri geri açılır |
 | Esc ile durdur | alçak düzey klavye kancası; fiziksel Esc uygulamaya gitmez, Fusion'ın gönderdiği Esc turu durdurmaz |
@@ -153,7 +153,7 @@ için kapalı kalır), `desktop_accessibility` / `desktop_windows` / `desktop_wi
 (AppleScript tabanlı) ve işletim sistemi bildirimi (uygulama içi şerit gösterilir). Karartma
 pencere dikdörtgenidir: reddedilen pencerenin önünde başka pencere olsa da o alan gösterilmez.
 Windows yolu bu sürümde gerçek bir Windows makinesinde elle denenmedi; davranış sahte Win32
-katmanıyla sınandı (`tests/test_desktop_win32.py`).
+katmanıyla sınandı (`tests/test_desktop_win32.py`, `tests/test_desktop_win32_kimlik.py`).
 
 ## `fusion mcp` sunucusunda ve etkileşimsiz kipte
 
