@@ -40,13 +40,13 @@ def test_sessionstart_girdisi_model_agent_type_ve_baslik(tmp_path):
     session = HookSession(root=tmp_path, loader=HookSet, model=lambda: "anthropic/claude-x")
     session.agent_type = "inceleyici"
     session.session_title = "hata avı"
-    assert session._start_fields("startup") == {
+    assert asyncio.run(session._start_fields("startup")) == {
         "source": "startup",
         "model": "anthropic/claude-x",
         "agent_type": "inceleyici",
         "session_title": "hata avı",
     }
-    assert "model" not in session._start_fields("clear")
+    assert "model" not in asyncio.run(session._start_fields("clear"))
     asyncio.run(session.start("fork"))
     assert session.started
 

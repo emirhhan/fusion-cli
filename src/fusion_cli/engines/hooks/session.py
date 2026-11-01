@@ -462,7 +462,7 @@ class HookSession:
         ensure_watcher(self)
         source = source or self.next_source
         verdict = await self.emit(
-            HookEvent.SESSION_START, subjects=(source,), fields=self._start_fields(source)
+            HookEvent.SESSION_START, subjects=(source,), fields=await self._start_fields(source)
         )
         if verdict.reload_skills and self.skills_reloader is not None:
             self.skills_reloader()
@@ -476,8 +476,12 @@ class HookSession:
         if self.title_sink is not None:
             self.title_sink(title)
 
-    def _start_fields(self, source: str) -> dict[str, object]:
-        """Claude girdisi: `source`, `model`, `agent_type` (`--agent`), `session_title`."""
+    async def _start_fields(self, source: str) -> dict[str, object]:
+        """Claude girdisi: `source`, `model`, `agent_type` (`--agent`), `session_title`.
+
+        `resume`/`fork` maliyet alanları yalnız SessionStart kancası varsa ve olay döngüsü
+        dışında hesaplanır (döküm okuma + fiyat tablosu içe aktarımı döngüyü bloke etmesin).
+        """
         fields: dict[str, object] = {"source": source}
         model = self.model() if self.model is not None and source != "clear" else ""
         if model:
@@ -486,12 +490,17 @@ class HookSession:
             fields["agent_type"] = self.agent_type
         if self.session_title:
             fields["session_title"] = self.session_title
-        if source in ("resume", "fork") and self.context_chars is not None:
+        if (
+            source in ("resume", "fork")
+            and self.context_chars is not None
+            and self.has(HookEvent.SESSION_START)
+        ):
             from .resume_cost import resume_fields
 
             transcript = self.transcript()
             path = transcript.path if transcript is not None else None
-            fields.update(resume_fields(path, self.context_chars(), model or ""))
+            chars = self.context_chars()
+            fields.update(await asyncio.to_thread(resume_fields, path, chars, model or ""))
         return fields
 
     async def open(self) -> HookVerdict:
@@ -531,7 +540,10 @@ class HookSession:
         )
 
     async def post_compact(self, trigger: str, summary: str) -> HookVerdict:
-        """`PostCompact`: özetleme bitti (`compact_summary`)."""
+        """`PostCompact`: özetleme bitti (`compact_summary`); dökümüne sınır satırı."""
+        transcript = self.transcript()
+        if transcript is not None:
+            transcript.append_compact_boundary(self.session_id, trigger)
         return await self.emit(
             HookEvent.POST_COMPACT,
             subjects=(trigger,),
