@@ -120,3 +120,69 @@ def test_headless_allowed_tools_mcp_adi_aynen_kalir():
     sonuc = map_claude_tool_names(frozenset({"mcp__github__get_issue", "jira__list"}))
 
     assert sonuc == frozenset({"mcp__github__get_issue", "mcp__jira__list"})
+
+
+# --- 65-128 karakterlik ad: kısaltılmış kayıt adı Claude'un tam adıyla eşleşir (#242) ---
+
+_LONG_SERVER = "my_server"
+_LONG_TOOL = "get_extremely_long_customer_account_balance_history_report"
+_LONG_FULL = f"mcp__{_LONG_SERVER}__{_LONG_TOOL}"
+
+
+def _long_registered() -> str:
+    short = fusion_tool_name(_LONG_SERVER, _LONG_TOOL)
+    assert short is not None and short != _LONG_FULL and len(short) <= MAX_TOOL_NAME_CHARS
+    return short
+
+
+def test_uzun_adda_tam_adla_yazilan_deny_kurali_kisaltilmis_kayit_adina_uyar():
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRuleSet,
+        parse_rule,
+    )
+    from fusion_cli.tools.permission_match import evaluate
+
+    short = _long_registered()
+    rule = parse_rule(_LONG_FULL, PermissionDecision.DENY)
+    assert rule is not None
+    rules = PermissionRuleSet((rule,))
+
+    match = evaluate(rules, short, {}, None)
+
+    assert match is not None and match.decision is PermissionDecision.DENY
+
+
+def test_uzun_adda_onek_joker_kurali_da_kisaltilmis_ada_uyar():
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRuleSet,
+        parse_rule,
+    )
+    from fusion_cli.tools.permission_match import evaluate
+
+    short = _long_registered()
+    pattern = f"mcp__{_LONG_SERVER}__get_extremely_long_customer_account_balance_*"
+    rule = parse_rule(pattern, PermissionDecision.DENY)
+    assert rule is not None
+
+    match = evaluate(PermissionRuleSet((rule,)), short, {}, None)
+
+    assert match is not None and match.decision is PermissionDecision.DENY
+
+
+def test_uzun_adda_kanca_eslestiricisi_tam_adi_tanir():
+    from fusion_cli.tools.permission_match import claude_tool_names
+
+    short = _long_registered()
+
+    assert _LONG_FULL in claude_tool_names(short)
+    assert canonical_mcp_name(short) == _LONG_FULL
+
+
+def test_uzun_adda_allowed_tools_tam_adi_kayit_adina_acilir():
+    from fusion_cli.tools.capabilities import expand_tool_patterns
+
+    short = _long_registered()
+
+    assert short in expand_tool_patterns({_LONG_FULL}, (short, "read_file"))

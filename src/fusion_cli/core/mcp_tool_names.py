@@ -9,6 +9,10 @@ modele gönderilmez.
 Fusion'ın eski kayıt adı `<sunucu>__<araç>` (öneksiz) bir sürüm boyunca takma ad
 olarak okunur: izin kuralı, kanca eşleştirici ve `--allowed-tools` bu yazımı da
 tanır. Bu modül yalnız stdlib kullanır; bütün katmanlar adı buradan ayrıştırır.
+
+65-128 karakterlik adda kayıt adı sağlayıcı sınırı için kısalır; kısaltılmış ad
+süreç içi takma ad tablosuna Claude'un tam adıyla yazılır ve `canonical_mcp_name`
+onu tam ada çevirir: izin kuralı, kanca ve `--allowed-tools` tam adla eşleşir.
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ MAX_PROVIDER_TOOL_NAME_CHARS = 64
 _SEPARATOR = "__"
 _INVALID = re.compile(r"[^a-zA-Z0-9_-]")
 _HASH_CHARS = 8
+#: Kısaltılmış kayıt adı → Claude'un tam adı (yalnız 65-128 karakterlik adlar).
+_SHORT_TO_FULL: dict[str, str] = {}
 
 
 def claude_mcp_tool_name(server: str, tool: str) -> str:
@@ -57,7 +63,9 @@ def provider_mcp_tool_name(server: str, tool: str) -> str | None:
         return full
     digest = hashlib.sha256(full.encode("utf-8")).hexdigest()[:_HASH_CHARS]
     keep = MAX_PROVIDER_TOOL_NAME_CHARS - _HASH_CHARS - 1
-    return f"{full[:keep]}_{digest}"
+    short = f"{full[:keep]}_{digest}"
+    _SHORT_TO_FULL[short] = full
+    return short
 
 
 def split_mcp_tool_name(name: str) -> tuple[str, str] | None:
@@ -81,7 +89,13 @@ def is_legacy_mcp_name(name: str) -> bool:
 
 
 def canonical_mcp_name(name: str) -> str:
-    """Eski `s__t` yazımını `mcp__s__t` yap; diğer adlar (yerleşik araç) aynen kalır."""
+    """Eski `s__t` yazımını `mcp__s__t`, kısaltılmış kayıt adını tam ada çevir.
+
+    Diğer adlar (yerleşik araç) aynen kalır.
+    """
+    full = _SHORT_TO_FULL.get(name)
+    if full is not None:
+        return full
     return f"{MCP_TOOL_PREFIX}{name}" if is_legacy_mcp_name(name) else name
 
 
