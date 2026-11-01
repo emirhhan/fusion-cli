@@ -350,6 +350,11 @@ durumunda görünmez (`.git/info/exclude`).
   çok 5 sn'de çekilir, uzak yoksa yerel `HEAD`'e düşülür. `"head"` bulunulan checkout'un
   `HEAD`'inden dallanır (gönderilmemiş commit'ler de gelir). `--worktree`, `/worktree`,
   `enter_worktree` ve alt ajan ağaçları aynı ayarı kullanır.
+- `worktree.symlinkDirectories` (ör. `["node_modules", ".cache"]`): ana depodaki bu dizinler
+  yeni ağaca sembolik bağ olarak konur, kopyalanmaz; bağlar çıkışta "iş" sayılmaz.
+  `worktree.sparsePaths` (ör. `["src", "docs"]`): yeni ağaca git sparse-checkout (cone kipi)
+  ile yalnız bu dizinler ve kök dosyaları yazılır. İki liste ayar dosyaları boyunca birleşir.
+  Git dışı VCS için `WorktreeCreate`/`WorktreeRemove` kancaları henüz yok.
 - Aynı adla yeniden açılan ağaç (`"fresh"` tabanda): commit'lenmemiş/izlenmeyen dosyası yoksa,
   kendi dalındaysa ve kendi commit'i yoksa varsayılan dala ileri sarılır; aksi hâlde (ya da
   `"head"` tabanda, PR/MR adında) eski ucunda açılır.

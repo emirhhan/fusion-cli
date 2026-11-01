@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..core.worktree import Worktree, enter_worktree, project_root_of, repository_root
 from ..core.worktree_fetch import BASE_FRESH, BASE_REFS
+from ..core.worktree_layout import WorktreeLayout
 from .claude_home import claude_user_dir
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
@@ -51,8 +52,37 @@ def _base_ref(path: Path) -> str | None:
     return value if isinstance(value, str) or value is None else str(value)
 
 
+def _string_list(path: Path, key: str) -> list[str]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    section = raw.get("worktree") if isinstance(raw, dict) else None
+    value = section.get(key) if isinstance(section, dict) else None
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        _LOG.warning("worktree.%s metin listesi olmalı; atlandı: %s", key, path)
+        return []
+    return value
+
+
+def worktree_layout(root: Path, *, home: Path | None = None) -> WorktreeLayout:
+    """`worktree.symlinkDirectories` ve `worktree.sparsePaths` (#361; listeler birleşir)."""
+    paths = [claude_user_dir(home) / "settings.json"]
+    if is_project_settings_trusted(root):
+        paths.append(root / ".claude" / "settings.json")
+    if is_permissions_trusted(root):
+        paths.append(root / ".claude" / "settings.local.json")
+    links = [item for path in paths for item in _string_list(path, "symlinkDirectories")]
+    sparse = [item for path in paths for item in _string_list(path, "sparsePaths")]
+    return WorktreeLayout(tuple(dict.fromkeys(links)), tuple(dict.fromkeys(sparse)))
+
+
 def enter_configured_worktree(cwd: Path, name: str) -> Worktree:
-    """`worktree.baseRef` ayarına göre çalışma ağacını aç ya da yeniden kullan."""
+    """`worktree.*` ayarlarına göre çalışma ağacını aç ya da yeniden kullan."""
     project = project_root_of(cwd.expanduser().resolve())
     root = repository_root(project) or project
-    return enter_worktree(cwd, name, base_mode=worktree_base_mode(root))
+    return enter_worktree(
+        cwd, name, base_mode=worktree_base_mode(root), layout=worktree_layout(root)
+    )

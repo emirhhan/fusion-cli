@@ -31,6 +31,7 @@ from pathlib import Path
 from .errors import WorktreeError
 from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
 from .worktree_include import included_files
+from .worktree_layout import WorktreeLayout, add_worktree, link_directories
 from .worktree_pr import parse_pull_request
 from .worktree_reuse import refresh_to
 
@@ -214,7 +215,12 @@ def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
 
 
 def enter_worktree(
-    cwd: Path, name: str, *, base_ref: str = "HEAD", base_mode: str = BASE_HEAD
+    cwd: Path,
+    name: str,
+    *,
+    base_ref: str = "HEAD",
+    base_mode: str = BASE_HEAD,
+    layout: WorktreeLayout | None = None,
 ) -> Worktree:
     """Adı verilen çalışma ağacını aç: varsa onu, yoksa `base_ref`'ten yenisini.
 
@@ -248,7 +254,7 @@ def enter_worktree(
     elif base_mode == BASE_FRESH and (fresh := fresh_base(origin)) != "HEAD":
         cwd, base_ref = origin, fresh  # yedek `HEAD` bulunulan checkout'ta çözülür
     base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
-    return create_worktree(origin, name, base_ref=base_commit)
+    return create_worktree(origin, name, base_ref=base_commit, layout=layout)
 
 
 def _refresh_reused(worktree: Worktree, origin: Path) -> None:
@@ -265,8 +271,14 @@ def _refresh_reused(worktree: Worktree, origin: Path) -> None:
         _write_meta(replace(worktree, base_commit=resolved.strip()))
 
 
-def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
-    """`origin/.claude/worktrees/<ad>` altında `worktree-<ad>` dalıyla yeni ağaç kur."""
+def create_worktree(
+    origin: Path, name: str, *, base_ref: str = "HEAD", layout: WorktreeLayout | None = None
+) -> Worktree:
+    """`origin/.claude/worktrees/<ad>` altında `worktree-<ad>` dalıyla yeni ağaç kur.
+
+    `layout` Claude `worktree.sparsePaths` / `worktree.symlinkDirectories`'dir (#361).
+    """
+    layout = layout or WorktreeLayout()
     name = validate_name(name)
     origin = origin.expanduser().resolve()
     path = origin / WORKTREE_DIR / name
@@ -279,11 +291,16 @@ def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Workt
     base_commit = _git(origin, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
     path.parent.mkdir(parents=True, exist_ok=True)
     _ensure_excluded(origin)
-    if _branch_exists(origin, branch):
-        _git(origin, "worktree", "add", str(path), branch)
-    else:
-        _git(origin, "worktree", "add", "-b", branch, str(path), base_commit)
-    copied = copy_includes(origin, path)
+    add_worktree(
+        _git,
+        origin,
+        path,
+        branch,
+        base_commit,
+        new_branch=not _branch_exists(origin, branch),
+        layout=layout,
+    )
+    copied = (*copy_includes(origin, path), *link_directories(origin, path, layout.symlink_dirs))
     worktree = Worktree(
         name=name,
         path=path,
