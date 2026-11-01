@@ -200,7 +200,7 @@ def list_plugins(
         from ..tools.plugin_listing import list_payload
 
         try:
-            # Claude `--data-size [eklenti]`: isteğe bağlı değer çıplak bağımsız değişken olarak gelir.
+            # Claude `--data-size [eklenti]`: isteğe bağlı değer çıplak bağımsız değişkendir.
             wanted = (ctx.args[0] if ctx.args else "") if data_size else None
             payload = list_payload(available=available, data_size=wanted)
         except PluginError as error:
@@ -528,8 +528,8 @@ for _alias, _command, _hidden in (
     ("trust", trust, True),
     ("discover", discover, True),
 ):
-    _extra = _EXTRA_ARGS if _command is list_plugins else None
-    app.command(_alias, hidden=_hidden, context_settings=_extra)(_command)
+    _list_settings = _EXTRA_ARGS if _command is list_plugins else None
+    app.command(_alias, hidden=_hidden, context_settings=_list_settings)(_command)
 for _m_alias, _m_command, _m_hidden in (
     ("add", market_add, False),
     ("list", market_list, False),
