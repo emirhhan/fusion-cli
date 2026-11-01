@@ -269,7 +269,10 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
   yazmak sorulmadan engellenir; modele dizinin `--add-dir` ile açılabileceği söylenir. Yazma
   engeli kabuk yönlendirmesini de kapsar (`echo x > ~/.zshrc`, `| tee /etc/hosts`); başka kabuk
   komutlarının (`cp a ~/b`) kök dışı yazması engellenmez, Otomatik modda sorulur.
-  `restrict_to_root` ikisini birden kapatır.
+  `restrict_to_root` ikisini birden kapatır. Okuma anahtarı Claude'un
+  `permissions.blockReadsOutsideWorkingDirectories` ayarıyla aynıdır (o da okunur); **yazma
+  anahtarı Fusion ekidir** (Claude'da karşılığı yok, varsayılan kapalı, kapalıyken davranış
+  Claude ile aynı).
 
 ### Otomatik kip denetçisi (risk sınıflandırıcısı) — `/auto-mode`
 
