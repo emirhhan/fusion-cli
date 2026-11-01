@@ -21,9 +21,7 @@ from .instruction_rules import matches_paths
 
 NOTE_HEADER = "[Çalışılan dosyalarla ilgili beceriler etkinleşti; Skill aracıyla çağırabilirsin:]"
 
-_ACTIVE: weakref.WeakKeyDictionary[CapabilityRegistry, frozenset[str]] = (
-    weakref.WeakKeyDictionary()
-)
+_ACTIVE: weakref.WeakKeyDictionary[CapabilityRegistry, frozenset[str]] = weakref.WeakKeyDictionary()
 
 
 def is_conditional(skill: Capability) -> bool:

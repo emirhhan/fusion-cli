@@ -78,7 +78,9 @@ def test_ayni_adda_ikisi_de_kalir_ic_ice_dizin_nitelikli(tmp_path: Path):
     assert note is not None and "paket:ortak" in note.content
     assert registry.get_skill("ortak").description == "kökteki"  # type: ignore[union-attr]
     nested = registry.get_skill("paket:ortak")
-    assert nested is not None and "paket/" in nested.description and "paketteki" in nested.description
+    assert (
+        nested is not None and "paket/" in nested.description and "paketteki" in nested.description
+    )
 
 
 def test_ust_dizin_becerileri_depo_kokune_kadar_yuklenir(tmp_path: Path):

@@ -194,7 +194,6 @@ def ancestor_skill_dirs(root: Path) -> tuple[Path, ...]:
     return ()
 
 
-
 #: Claude Code'da olmayan, bir sürüm boyunca okunan beceri kökleri (#157): kullanımdan kalktı.
 DEPRECATED_SKILL_ROOTS: tuple[tuple[str, str], ...] = (
     (".fusion/skills", "proje"),

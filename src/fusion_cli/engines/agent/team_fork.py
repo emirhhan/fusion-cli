@@ -140,7 +140,11 @@ async def run_forked_turn(
         text, ok = await _launch_background(deps, subtask, run_agent)
         return AgentOutcome(
             final_text=text,
-            messages=[*snapshot, Message("user", task, images=tuple(images)), Message("assistant", text)],
+            messages=[
+                *snapshot,
+                Message("user", task, images=tuple(images)),
+                Message("assistant", text),
+            ],
             ok=ok,
         )
     run = await run_subagent(deps, subtask, depth=0, run_agent=run_agent)

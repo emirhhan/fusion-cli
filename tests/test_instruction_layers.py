@@ -224,7 +224,7 @@ def test_ayni_icerik_bir_kez(ev: Path, mono: Path) -> None:
 def test_ek_dizinin_kurallari_ortam_degiskeniyle_yuklenir(
     ev: Path, mono: Path, tmp_path: Path, monkeypatch
 ) -> None:
-    """Belge (#170): CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 ek dizinin kurallarını da yükler."""
+    """Belge (#170): ortam değişkeni 1 iken ek dizinin kuralları da yüklenir."""
     ek = tmp_path / "ek"
     _yaz(ek / "CLAUDE.md", "EK TALIMAT")
     _yaz(ek / ".claude" / "rules" / "stil.md", "EK KURAL")

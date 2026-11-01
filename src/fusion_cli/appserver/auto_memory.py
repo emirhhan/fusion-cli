@@ -30,9 +30,7 @@ def status(state: ReplState) -> dict[str, Any]:
     """Durum + indeks metni; bellek kapalıysa yalnız `etkin: false` ve dizin."""
     from ..memory import auto_memory_location as location
 
-    enabled = location.enabled(
-        state.root, bool(getattr(state.config.runtime, "auto_memory", True))
-    )
+    enabled = location.enabled(state.root, bool(getattr(state.config.runtime, "auto_memory", True)))
     directory = project_memory_dir(state.config, state.root)
     payload: dict[str, Any] = {
         "ok": True,

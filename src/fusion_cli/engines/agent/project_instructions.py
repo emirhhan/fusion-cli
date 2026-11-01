@@ -276,7 +276,9 @@ def _nested_rule_blocks(
             continue
         blok, eklenen = rule_block(kural, max_chars)
         if blok:
-            found.append((kural.label, f"{nested_marker(kural.label)}\n{blok}\n</alt_talimat>", eklenen))
+            found.append(
+                (kural.label, f"{nested_marker(kural.label)}\n{blok}\n</alt_talimat>", eklenen)
+            )
     return found
 
 

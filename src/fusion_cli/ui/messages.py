@@ -677,9 +677,7 @@ REPL_SKILL_FORK_NOTE = (
     "etkileşimli oturumda arka planda koşar (background: false bekletir)."
 )
 REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
-REPL_SKILL_ENGINE_NOTE = (
-    "Beceri bu tur agent motorunda çalışır; oturumun motoru değişmez."
-)
+REPL_SKILL_ENGINE_NOTE = "Beceri bu tur agent motorunda çalışır; oturumun motoru değişmez."
 CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"

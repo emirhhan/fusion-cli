@@ -12,7 +12,9 @@ kullanımda yüklenir):
 - Tek düz listedir; proje becerileri ayrı etiketle ya da güvenilmezlik notuyla işaretlenmez.
 
 - Bütçe aşılınca en az çağrılan becerinin açıklaması önce düşer (`skill_usage` sayıları); eşit
-  sayıda keşif önceliğinin sonundan (en düşük öncelikli kaynak) başlanır. `disable-model-invocation` olan beceriler listeye girmez. `runtime.skill_index_chars: 0`
+  sayıda keşif önceliğinin sonundan (en düşük öncelikli kaynak) başlanır.
+
+`disable-model-invocation` olan beceriler listeye girmez. `runtime.skill_index_chars: 0`
 listeyi kapatır (eski Fusion ayarı).
 """
 
@@ -123,9 +125,7 @@ def skill_index_block(
     lines = [_line(item.name, text) for item, text in zip(skills, summaries, strict=True)]
     total = len(HEADER) + sum(len(line) + 1 for line in lines)
     counts = usage or {}
-    order = sorted(
-        range(len(skills)), key=lambda i: (counts.get(skills[i].name.lower(), 0), -i)
-    )
+    order = sorted(range(len(skills)), key=lambda i: (counts.get(skills[i].name.lower(), 0), -i))
     for index in order:
         if total <= budget:
             break

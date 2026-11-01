@@ -254,9 +254,7 @@ def test_inherit_modeli_degistirmez(tmp_path: Path) -> None:
     assert deps.active_model_override is None and deps.turn_effort_override is None
 
 
-def test_fork_becerisi_etkilesimli_oturumda_arka_planda_kosar(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_fork_becerisi_etkilesimli_oturumda_arka_planda_kosar(tmp_path: Path, monkeypatch) -> None:
     """Belge: fork varsayılan arka planda; `background: false` bekletir (#141)."""
     from fusion_cli.engines.agent import agent_runtime_tools, team
 
