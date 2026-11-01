@@ -1,4 +1,4 @@
-"""Claude yönetilen (managed) ayar katmanı: kurallar, öncelik, allowManagedPermissionRulesOnly (#65)."""
+"""Claude yönetilen (managed) ayar katmanı: kurallar, öncelik ve yalnız-managed kipi (#65)."""
 
 from __future__ import annotations
 
@@ -46,7 +46,11 @@ def _oturum_kurallari_temiz():
 
 
 def _kalip(rules: tuple[PermissionRule, ...], decision: PermissionDecision) -> set[str]:
-    return {f"{r.tool}({r.specifier})" if r.specifier else r.tool for r in rules if r.decision is decision}
+    return {
+        f"{r.tool}({r.specifier})" if r.specifier else r.tool
+        for r in rules
+        if r.decision is decision
+    }
 
 
 def test_yonetilen_dosya_yoksa_katman_bos(tmp_path: Path) -> None:
@@ -65,7 +69,10 @@ def test_yonetilen_deny_kurali_yuklenir_ve_kaynak_yonetilen(managed: Path, tmp_p
 
 def test_dropin_parcalari_alfabetik_birlesir(managed: Path) -> None:
     _yaz(managed / "managed-settings.json", {"permissions": {"deny": ["WebFetch"]}, "x": 1})
-    _yaz(managed / "managed-settings.d" / "20-b.json", {"permissions": {"deny": ["Bash(rm *)"]}, "x": 3})
+    _yaz(
+        managed / "managed-settings.d" / "20-b.json",
+        {"permissions": {"deny": ["Bash(rm *)"]}, "x": 3},
+    )
     _yaz(managed / "managed-settings.d" / "10-a.json", {"x": 2})
 
     data = managed_settings_data()
@@ -90,7 +97,10 @@ def test_yalniz_yonetilen_kurallari_kullanici_ve_proje_kurallarini_dusurur(
         managed / "managed-settings.json",
         {"allowManagedPermissionRulesOnly": True, "permissions": {"allow": ["Bash(git status *)"]}},
     )
-    _yaz(Path.home() / ".claude" / "settings.json", {"permissions": {"allow": ["Bash(*)"], "deny": ["Read"]}})
+    _yaz(
+        Path.home() / ".claude" / "settings.json",
+        {"permissions": {"allow": ["Bash(*)"], "deny": ["Read"]}},
+    )
     _yaz(tmp_path / ".claude" / "settings.json", {"permissions": {"ask": ["Edit"]}})
     set_session_rules(
         [

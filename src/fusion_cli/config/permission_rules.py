@@ -164,7 +164,8 @@ def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
         RuleLayer(LAYER_MANAGED, path, description="Claude yönetilen ayarı")
         for path in managed_settings_files()
     )
-    return managed + (
+    return (
+        *managed,
         RuleLayer(LAYER_FUSION, user_permissions_file(), description="Fusion kullanıcı dosyası"),
         RuleLayer(
             LAYER_USER, Path.home() / CLAUDE_USER_SETTINGS, description="Claude kullanıcı ayarı"

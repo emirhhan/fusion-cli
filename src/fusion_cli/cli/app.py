@@ -202,7 +202,7 @@ def main_callback(
         str,
         typer.Option(
             "--permission-mode",
-            help="Başlangıç izin kipi: default, acceptEdits, plan, auto, dontAsk, bypassPermissions.",
+            help="Başlangıç kipi: default, acceptEdits, plan, auto, dontAsk, bypassPermissions.",
         ),
     ] = "",
     skip_permissions: Annotated[
@@ -283,11 +283,16 @@ def _apply_launch_permissions(flag: str, skip: bool, allow_skip: bool) -> None:
 
     try:
         set_launch_permissions(
-            flag=flag.strip() or None, skip_permissions=skip, allow_bypass=allow_skip, root=Path.cwd()
+            flag=flag.strip() or None,
+            skip_permissions=skip,
+            allow_bypass=allow_skip,
+            root=Path.cwd(),
         )
     except ValueError:
         valid = "default, manual, acceptEdits, plan, auto, dontAsk, bypassPermissions"
-        raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=flag, valid=valid)) from None
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_MODE.format(given=flag, valid=valid)
+        ) from None
 
 
 def _print_worktree_notice(tree: Worktree) -> None:

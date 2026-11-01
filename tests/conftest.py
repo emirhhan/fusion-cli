@@ -167,7 +167,9 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     ev.mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(ev))
     # Claude yönetilen ayarları (#65) gerçek sistem dizininden okunmasın.
-    monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-managed"))
+    monkeypatch.setenv(
+        "FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-managed")
+    )
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")

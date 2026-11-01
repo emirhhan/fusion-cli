@@ -26,7 +26,9 @@ def mark_outside_read(
     if shell:
         # Salt okunur kabuk komutu (`cat ~/x`) okuma aracı gibi değerlendirilir (#56).
         command = request.args.get("command")
-        target = shell_outside_read_target(command, root, roots) if isinstance(command, str) else None
+        target = (
+            shell_outside_read_target(command, root, roots) if isinstance(command, str) else None
+        )
     if target is None or request.pre_denied is not None:
         return request
     reason = OUTSIDE_READ_REASON.format(yol=target)

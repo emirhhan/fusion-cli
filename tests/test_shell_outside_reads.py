@@ -65,7 +65,8 @@ async def test_disari_okuyan_kabuk_komutu_kipe_gore(alan, mod, beklenen):
 
 
 @pytest.mark.parametrize(
-    "mod", [ApprovalMode.SECURITY, ApprovalMode.ACCEPT_EDITS, ApprovalMode.PLAN, ApprovalMode.DONT_ASK]
+    "mod",
+    [ApprovalMode.SECURITY, ApprovalMode.ACCEPT_EDITS, ApprovalMode.PLAN, ApprovalMode.DONT_ASK],
 )
 async def test_icerideki_okuma_sorulmaz(alan, mod):
     kok, _ = alan
