@@ -208,7 +208,19 @@ def _shell_file_rules(
         hit = evaluate(restricted, name, call, root)
         if hit is not None and (found is None or hit.decision is PermissionDecision.DENY):
             found = hit
+    if found is None and targets.dynamic:
+        # Çözülemeyen hedef (`cat $X`): bir Read/Edit kısıtı varsa eşleşebilir, sorulur (#44).
+        found = _unresolved_target_ask(rules)
     return found
+
+
+def _unresolved_target_ask(rules: PermissionRuleSet) -> RuleMatch | None:
+    for rule in rules.rules:
+        if rule.decision is PermissionDecision.ALLOW or rule.specifier is None:
+            continue
+        if _tool_matches(rule, "read_file") or _tool_matches(rule, "edit_file"):
+            return RuleMatch(rule, PermissionDecision.ASK)
+    return None
 
 
 def _writes_allowed(rules: PermissionRuleSet, command: str, root: Path | None) -> bool:
