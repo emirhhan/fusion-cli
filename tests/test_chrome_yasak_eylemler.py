@@ -89,3 +89,48 @@ async def test_hassas_alana_yazma_bypassta_da_sorulur(tmp_path, veri):
 async def test_siradan_alana_yazma_etkilesimdir(tmp_path):
     context = _baglam(tmp_path, {"name": "Ad soyad"})
     assert await chrome.chrome_type_effect({"ref": "e1"}, context) is ToolEffect.REMOTE_INTERACT
+
+
+@pytest.mark.parametrize(
+    "ad", ["Place your order", "Continue to payment", "Proceed to checkout", "Confirm order",
+           "Submit order", "Complete your purchase", "Join now", "Siparişi gönder",
+           "Ödemeye devam et"],
+)  # fmt: skip
+async def test_gercek_magaza_dugmeleri_de_yasak(tmp_path, ad):
+    """Amazon 'Place your order' ve benzeri gerçek düğme adları da yasak deseninde (#422)."""
+    context = _baglam(tmp_path, {"name": ad, "type": "button"})
+    result = await chrome.chrome_click({"ref": "e1"}, context)
+    assert not result.ok and "her kipte yasak" in result.output
+    assert "click" not in context.chrome.calls  # type: ignore[union-attr]
+
+
+class _OkunmayanKopru:
+    """Öğe tarifi zaman aşımına uğrar; diğer komutlar çalışır."""
+
+    async def invoke(self, name, data):
+        if name.startswith("describe"):
+            raise TimeoutError("describe yanıt vermedi")
+        return {"ok": True, "veri": {"changed": True}}
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [("chrome_click", {"ref": "e1"}), ("chrome_type", {"ref": "e1", "text": "x"}),
+     ("chrome_action", {"action": "double_click", "ref": "e1"})],
+)  # fmt: skip
+async def test_tarif_okunamazsa_bypassta_da_sorulur(tmp_path, tool, args):
+    """Açık kapı yok: öğe okunamazsa yasak/hassas denetimi yapılamaz, her kipte sorulur."""
+    context = ToolContext(root=tmp_path, chrome=_OkunmayanKopru())  # type: ignore[arg-type]
+    request = await resolve_request(
+        build_registry().get(tool), args, root=tmp_path, context=context
+    )
+    asked: list[object] = []
+
+    class _Sor:
+        async def confirm(self, req):
+            asked.append(req)
+            return False
+
+    decision = await build_policy(ApprovalMode.BYPASS, _Sor()).decide(request)
+    assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert decision is not Decision.ALLOW and len(asked) == 1

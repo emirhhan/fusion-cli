@@ -28,7 +28,7 @@ RISKY_ACTION_PATTERN = re.compile(
     r"submit|send|post|publish|share|delete|remove|buy|purchase|pay|checkout|"
     r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment|sign up|register|"
     r"create (?:an )?account|connect (?:your )?account|"
-    r"place (?:an? )?(?:order|bid)|order now|allow|authorize|approve|subscribe|donate|"
+    r"place (?:an? |your |the |my )?(?:order|bid)|order now|join now|allow|authorize|approve|subscribe|donate|"
     r"withdraw|transfer|upgrade|unfollow|"
     r"cancel (?:my |your |the )?(?:subscription|order|membership|booking|reservation|plan))\b",
     re.IGNORECASE,

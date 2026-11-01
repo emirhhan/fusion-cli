@@ -13,8 +13,13 @@ Fusion bunu tıklanan / Enter'la gönderilen öğenin adına bakarak uygular:
 - Her kipte sorulan eylem: etki `REMOTE_DESTRUCTIVE` olur; bypass dahil her seferinde sorulur
   ve oturum iznine dönüşmez.
 
-Web içeriğindeki talimatları uygulamama kuralı modele araç sonucu çerçevesiyle verilir (sayfa
-metni veri olarak işaretlenir); burada yalnız eylem kapısı vardır.
+Öğenin tarifi okunamazsa (describe zaman aşımı, bağlantı hatası) yasak/hassas denetimi
+yapılamaz; açık kapı bırakılmaz: tıklama ve yazma `REMOTE_DESTRUCTIVE` sayılır ve bypass
+dahil her kipte sorulur (`chrome.unverified_effect`).
+
+Web içeriğindeki talimatları uygulamama kuralı her araç çıktısında `tools.injection`
+(`flag_injection`, kayıt defterinde) ile uygulanır: modele yönelik talimat kalıbı taşıyan
+sayfa metni işaretlenir; burada yalnız eylem kapısı vardır.
 """
 
 from __future__ import annotations
@@ -23,16 +28,25 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+#: "Place your order", "Confirm the order": isteğe bağlı belirleyici.
+_DET = r"(?:an? |your |the |my )?"
 #: Satın alma ve finansal işlem (TR/EN), kelime olarak.
 _PURCHASE = (
     r"satın al|satın alın|hemen al|ödeme yap|öde|ödemeyi tamamla|ödemeye geç|siparişi tamamla|"
     r"siparişi onayla|siparişi ver|sipariş ver|bağış yap|havale yap|eft yap|para gönder|"
-    r"para çek|teklif ver|buy(?: now)?|purchase|pay(?: now)?|checkout|check out|"
-    r"place (?:an? )?(?:order|bid)|order now|complete (?:order|purchase|payment)|donate|"
+    r"para çek|teklif ver|siparişi gönder|ödemeye devam et|alışverişi tamamla|"
+    r"buy(?: now)?|purchase|pay(?: now)?|checkout|check out|order now|donate|"
+    # Ölçüldü (1 Kasım, bağımsız inceleme): Amazon'un gerçek düğmesi "Place your order"
+    # ve "Continue to payment", "Confirm order", "Submit order" yakalanmıyordu.
+    rf"place {_DET}(?:order|bid)|(?:complete|confirm|submit) {_DET}(?:order|purchase|payment)|"
+    r"(?:continue|proceed) to (?:payment|checkout)|"
     r"withdraw|transfer (?:money|funds)|send money"
 )
-#: Hesap oluşturma.
-_ACCOUNT = r"kayıt ol|üye ol|hesap oluştur|hesap aç|sign up|register|create (?:an? |your )?account"
+#: Hesap oluşturma ("Join now" üyelik kaydıdır).
+_ACCOUNT = (
+    r"kayıt ol|üye ol|hesap oluştur|hesap aç|sign up|register|join now|"
+    r"create (?:an? |your )?account"
+)
 #: Bot doğrulaması (CAPTCHA).
 _CAPTCHA = r"captcha|recaptcha|hcaptcha|ben robot değilim|i'?m not a robot|robot olmadığımı"
 

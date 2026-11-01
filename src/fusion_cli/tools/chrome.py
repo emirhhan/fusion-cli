@@ -197,13 +197,13 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
         if context is None or context.chrome is None:
             return None
         if isinstance(ref, str) and ref:
-            result = await _describe(context, "describe", {"ref": ref})
-            return None if result is None else _click_effect(result)
+            return _verified_click(await _describe(context, "describe", {"ref": ref}))
         point = _point(args.get("value"), context)
         if point is None:
             return None
-        result = await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
-        return None if result is None else _click_effect(result)
+        return _verified_click(
+            await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
+        )
     if action == "key":
         return await _key_effect(args, context)
     if action == "type_focused":
@@ -231,7 +231,8 @@ async def chrome_type_effect(args: ToolArgs, context: ToolContext | None) -> Too
     veri = chrome_guard.described(
         await _describe(context, "describe" if data else "describe_key", data)
     )
-    if chrome_guard.sensitive_field_reason(veri) is not None:
+    if veri is None or chrome_guard.sensitive_field_reason(veri) is not None:
+        # Alan okunamadıysa hassas olup olmadığı bilinmez: açık kapı yok, her kipte sorulur.
         return ToolEffect.REMOTE_DESTRUCTIVE
     return ToolEffect.REMOTE_INTERACT
 
@@ -295,21 +296,35 @@ async def _describe(
 async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
     """Tıklanacak öğenin adına bak: gönder/sil/satın al gibi ise sor, değilse sorma.
 
-    Ad okunamazsa `None` döner ve aracın kendi (sorulan) etkisi geçerli olur.
+    Ad okunamazsa `REMOTE_DESTRUCTIVE` döner: bypass dahil her kipte sorulur (#422).
     """
     ref = args.get("ref")
     if context is None or context.chrome is None or not isinstance(ref, str):
         return None
-    result = await _describe(context, "describe", {"ref": ref})
-    return None if result is None else _click_effect(result)
+    return _verified_click(await _describe(context, "describe", {"ref": ref}))
+
+
+def _verified_click(result: dict[str, Any] | None) -> ToolEffect | None:
+    """Tarif okunamadıysa (zaman aşımı, bağlantı, `ok: false`) tıklama her kipte sorulur (#422).
+
+    Ölçüldü (1 Kasım, bağımsız inceleme): describe zaman aşımında etki `None`a düşüyor,
+    İzinleri atla kipinde "Siparişi tamamla" tıklaması yasak denetimi yapılamadan
+    sorulmadan gidiyordu (açık kapı).
+    """
+    if result is None or chrome_guard.described(result) is None:
+        return ToolEffect.REMOTE_DESTRUCTIVE
+    return _click_effect(result)
 
 
 def click_is_risky(result: dict[str, Any]) -> bool:
     """`describe` sonucuna göre tıklama gönder/sil/satın al gibi mi (ya da okunamadı mı).
 
     Kit → Chrome yolu (`appserver/kits_browser_routes.py`) onay penceresini bununla
-    uyarır; Fusion'ın kendi araçlarıyla aynı sınıflandırma, ikinci bir liste yok.
+    uyarır; Fusion'ın kendi araçlarıyla aynı sınıflandırma, ikinci bir liste yok. Her kipte
+    yasak öğe (#422: satın alma, hesap oluşturma, CAPTCHA) de riskli sayılır.
     """
+    if chrome_guard.prohibited_reason(chrome_guard.described(result)) is not None:
+        return True
     return _click_effect(result) is None
 
 
