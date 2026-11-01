@@ -121,8 +121,14 @@ def install_scoped(
             return _add_user_scope(spec, store)
         return _add_scope(spec, target, store, project)
     from .plugin_dependencies import install_dependencies
+    from .plugin_dependency_versions import DependencyVersionError
 
-    notes = install_dependencies(item.record, approve, base=store)  # #389
+    try:
+        notes = install_dependencies(item.record, approve, base=store)  # #389
+    except DependencyVersionError:
+        # Claude: sürüm aralığı karşılanamazsa bağımlı eklentinin kurulumu da geri alınır.
+        plugin_install.uninstall_plugin(item.record.name, base=store, everywhere=True)
+        raise
     if target == SCOPE_USER:
         # Claude: user kurulumu `~/.claude/settings.json` `enabledPlugins`'e yazar (#376).
         write_user_enabled(plugin_id(item.record), item.record.enabled)

@@ -7,8 +7,8 @@ bağımlılık yalnız kök pazarın `marketplace.json` `allowCrossMarketplaceDe
 pazarı içeriyorsa kurulur; yoksa kurulmaz. Kendiliğinden kurulanlar artık hiçbir eklentiye
 gerekmeyince `plugin prune` (`autoremove`) ya da `uninstall --prune` ile kaldırılır.
 
-Fusion'da `version` aralığı (`^2.0`, `~2.1.0`…) `<ad>--v<sürüm>` etiketlerinden çözülmez: pazardaki
-güncel sürüm kurulur (aralık yok sayılır).
+`{name, version}` aralıkları (`^2.0`, `~2.1.0`…) `plugin_dependency_versions` ile
+`<ad>--v<sürüm>` git etiketlerinden çözülür; karşılanamazsa bağımlı eklentinin kurulumu geri alınır.
 """
 
 from __future__ import annotations
@@ -45,6 +45,32 @@ def _dependencies(record: PluginRecord, base: Path) -> tuple[str, ...]:
         return ()
 
 
+def _ranges_of(record: PluginRecord, base: Path) -> dict[str, str]:
+    """`ad@pazar` → aralık (pazarsız bağımlılık bağımlının pazarına çözülür)."""
+    from ..config.plugin_scan import scan_plugin
+
+    try:
+        pairs = scan_plugin(plugin_folder(record, base), record.name).manifest.dependency_versions
+    except (PluginError, OSError):
+        return {}
+    return {(d if "@" in d else f"{d}@{record.marketplace}"): r for d, r in pairs}
+
+
+def _requirements(
+    ident: str, record: PluginRecord, base: Path
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Bu bağımlılığı isteyen tüm eklentilerin aralıkları ve adları (Claude: hepsi VE'lenir)."""
+    ranges: list[str] = []
+    dependents: list[str] = []
+    others = [r for r in load_state(base).plugins if r.store_key != record.store_key]
+    for owner in (record, *others):
+        wanted = _ranges_of(owner, base).get(ident)
+        if wanted:
+            ranges.append(wanted)
+            dependents.append(owner.name)
+    return tuple(ranges), tuple(dependents)
+
+
 def _cross_allowed(root_market: str, market: str, base: Path) -> bool:
     if market == root_market:
         return True
@@ -78,35 +104,72 @@ def install_dependencies(
         if not _cross_allowed(record.marketplace, market, store):
             notes.append(ERR_CROSS.format(dep=dep, market=market, root=record.marketplace))
             continue
-        notes.extend(_ensure(f"{name}@{market}", approve, store, depth))
+        ident = f"{name}@{market}"
+        ranges, dependents = _requirements(ident, record, store)
+        notes.extend(_ensure(ident, approve, store, depth, ranges, dependents))
     return tuple(notes)
 
 
 def _ensure(
-    ident: str, approve: plugin_install.ApprovalCallback, store: Path, depth: int
+    ident: str,
+    approve: plugin_install.ApprovalCallback,
+    store: Path,
+    depth: int,
+    ranges: tuple[str, ...] = (),
+    dependents: tuple[str, ...] = (),
 ) -> list[str]:
+    from . import plugin_dependency_versions as versions
     from .plugin_toggle import find_record
 
+    wanted = versions.combined(ident, ranges) if ranges else "*"
     try:
         existing = find_record(load_state(store), ident)
     except PluginError:
         existing = None
     if existing is not None:
+        versions.check_installed(ident, existing.version, ranges, wanted)
         if existing.enabled:
             return []
         opened = replace(existing, enabled=True)
         plugin_store.update_state(lambda state: state.with_plugin(opened), store)
         return [NOTE_ENABLED.format(ident=ident)]
+    pin = _pin_for(ident, wanted, store)
     try:
-        item = plugin_install.install_plugin(ident, approve=approve, base=store)
+        item = plugin_install.install_plugin(ident, approve=approve, base=store, pin=pin)
     except PluginError as error:
         return [NOTE_FAILED.format(dep=ident, error=error)]
+    if ranges and pin is None:
+        try:
+            versions.check_pinned(item.record, ranges, dependents)
+        except versions.DependencyVersionError:
+            plugin_install.uninstall_plugin(item.record.name, base=store, everywhere=True)
+            raise
     marked = replace(item.record, dependency=True, enabled=True)
     plugin_store.update_state(lambda state: state.with_plugin(marked), store)
     return [
         NOTE_INSTALLED.format(ident=ident),
         *install_dependencies(marked, approve, base=store, depth=depth + 1),
     ]
+
+
+def _pin_for(ident: str, wanted: str, store: Path) -> tuple[str, str] | None:
+    """Aralık varsa git deposundaki `<ad>--v<sürüm>` etiketi (yoksa göreli eklentide `None`)."""
+    from . import plugin_dependency_versions as versions
+
+    if wanted == "*":
+        return None
+    try:
+        target = versions.pin_target(ident, store)
+    except PluginError:
+        return None
+    if target is None:
+        return None
+    name, url, relative = target
+    found = versions.resolve_pin(name, url, wanted, relative=relative)
+    if found is None:
+        _LOG.info("%s: aralığa uyan %s--v* etiketi yok; güncel kopya kuruluyor", ident, name)
+        return None
+    return found.tag, found.sha
 
 
 def prunable(base: Path | None = None) -> tuple[str, ...]:

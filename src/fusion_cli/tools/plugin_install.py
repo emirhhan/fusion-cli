@@ -465,8 +465,11 @@ def install_plugin(
     base: Path | None = None,
     expected_digest: str = "",
     accept_command: CommandConsent | None = None,
+    pin: tuple[str, str] | None = None,
 ) -> InstalledPlugin:
     """Kur. `expected_digest` verildiyse çekilen içerik önizlemedekiyle aynı olmalıdır.
+
+    `pin`: (etiket, sha) — bağımlılık sürüm aralığının çözdüğü `<ad>--v<sürüm>` etiketi (#389).
 
     `accept_command`: pazarın bildirdiği komut (command kaynağı, archive headersHelper) için
     onay; verilmezse böyle bir kaynak `CommandRefusedError` ile reddedilir (#399).
@@ -479,6 +482,10 @@ def install_plugin(
     if refresh_marketplace_for(spec, state.marketplaces, base=root):  # Claude: ad@pazar (#393)
         state = load_state(root)
     resolved = _resolve(spec, state)
+    if pin:
+        from .plugin_dependency_versions import pinned_source
+
+        resolved = pinned_source(resolved, pin, state)
     resolved = _linked_command(resolved, accept_command)
     if _loads_in_place(resolved, state):
         from .plugin_in_place import install_in_place

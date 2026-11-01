@@ -356,14 +356,22 @@ ajanın kabuk aracının (`run_shell`) PATH'ine eklenir.
 ("Bağımlılık kuruldu/açıldı"); başka pazardaki bağımlılık yalnız kök pazarın
 `allowCrossMarketplaceDependenciesOn` listesinde o pazar varsa kurulur. Kendiliğinden kurulanlar
 artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`) ya da
-`uninstall --prune` ile kaldırılır; elle kurulan eklenti budanmaz. `version` aralığı yok sayılır
-(güncel sürüm kurulur).
+`uninstall --prune` ile kaldırılır; elle kurulan eklenti budanmaz. `{name, version}` npm semver
+aralığı (`^2.0`, `~2.1.0`, `>=1 <3`, `1.x`, `||`) Claude gibi çözülür: bağımlılığı isteyen tüm kurulu
+eklentilerin aralıkları VE'lenir (çelişki: "conflicting version requirements"); kurulu bağımlılık
+aralığı karşılamıyorsa "is installed at <sürüm>, which does not satisfy"; kurulu değilse kaynağın git
+deposundaki (`git ls-remote --tags`; pazar içi göreli eklentide pazarın deposu) `<ad>--v<sürüm>`
+etiketlerinden aralığa uyan en yükseği o etiketten kurulur; dış git kaynağında etiket yoksa "has no git
+tag satisfying", göreli eklentide güncel kopya; git dışı pazarda kurulan sürüm aralığı karşılamazsa
+"pinned to its listed commit". Bu hatalar `--json`'da `failureCode: dependency_version_conflict` taşır
+ve bağımlı eklentinin kurulumunu da geri alır. `plugin update` aralığı yeniden çözmez (güncel sürüme
+çeker).
 
 **Claude Code'dan farklar (Hâlâ eksik):** kurulum kayıtları ve kopyalar Fusion'ın kendi deposundadır
 (`<veri>/eklentiler/kayit.json`); Claude'un `~/.claude/plugins/installed_plugins.json`'ı yalnız
 okunur (#377). `--settings` bayrağı kapsamı yok (Fusion'da `--settings` bayrağı yok); managed kapsamda
-`managed-settings.d/*.json` parçaları ad sırasıyla okunur. Bağımlılık sürüm aralıkları
-(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`.lsp.json` (Fusion'da LSP istemcisi yok), `monitors`, `themes`,
+`managed-settings.d/*.json` parçaları ad sırasıyla okunur. `plugin update` bağımlılık
+sürüm aralığını yeniden çözmez; `lspServers`/`.lsp.json` (Fusion'da LSP istemcisi yok), `monitors`, `themes`,
 `workflows`, `channels` ve `subagentStatusLine` yok; `plugin eval` rapor yayımlamaz. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 

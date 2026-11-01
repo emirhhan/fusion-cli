@@ -117,6 +117,8 @@ class PluginManifest:
     display_name: str = ""
     default_enabled: bool = True
     dependencies: tuple[str, ...] = ()
+    #: `{name, version}` bağımlılıklarının npm semver aralığı: (`ad[@pazar]`, aralık) (#389).
+    dependency_versions: tuple[tuple[str, str], ...] = ()
 
 
 def check_name(value: object, where: str) -> str:
@@ -208,6 +210,7 @@ def _parse_manifest(raw: Mapping[str, object], fallback_name: str, where: str) -
         display_name=_text(raw, "displayName", where),
         default_enabled=raw.get("defaultEnabled") is not False,
         dependencies=_dependencies(raw.get("dependencies")),
+        dependency_versions=_dependency_versions(raw.get("dependencies")),
     )
 
 
@@ -220,6 +223,21 @@ def _dependencies(raw: object) -> tuple[str, ...]:
         elif isinstance(item, Mapping) and isinstance(item.get("name"), str):
             market = item.get("marketplace")
             found.append(f"{item['name']}@{market}" if isinstance(market, str) else item["name"])
+    return tuple(found)
+
+
+def _dependency_versions(raw: object) -> tuple[tuple[str, str], ...]:
+    """`{name, marketplace?, version}` → (`ad[@pazar]`, aralık); sürümsüz girdiler atlanır."""
+    found: list[tuple[str, str]] = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, Mapping) or not isinstance(item.get("name"), str):
+            continue
+        version = item.get("version")
+        if not isinstance(version, str) or not version.strip():
+            continue
+        market = item.get("marketplace")
+        ident = f"{item['name']}@{market}" if isinstance(market, str) else item["name"]
+        found.append((ident, version.strip()))
     return tuple(found)
 
 
