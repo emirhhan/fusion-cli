@@ -25,7 +25,8 @@ from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.hooks.events import HookSet
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...core.worktree import LeaveOutcome, Worktree, enter_worktree, leave_worktree
+from ...config.worktree_settings import enter_configured_worktree
+from ...core.worktree import LeaveOutcome, Worktree, leave_worktree
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
 from ...tools.capabilities import (
     CapabilityRegistry,
@@ -746,7 +747,7 @@ async def _isolated_worktree(
     if subtask.isolation != "worktree" or subtask.read_only:
         return None
     name = "ajan-" + re.sub(r"[^A-Za-z0-9._-]", "-", sub_id)[:48]
-    return await asyncio.to_thread(enter_worktree, context.root, name)
+    return await asyncio.to_thread(enter_configured_worktree, context.root, name)
 
 
 def _settle_worktree(worktree: Worktree) -> str:

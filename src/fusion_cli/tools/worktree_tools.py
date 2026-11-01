@@ -12,7 +12,8 @@ import asyncio
 
 from ..core.errors import WorktreeError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from ..core.worktree import WORKTREE_DIR, enter_worktree, worktree_for_path
+from ..config.worktree_settings import enter_configured_worktree
+from ..core.worktree import WORKTREE_DIR, worktree_for_path
 from ..ui import messages
 
 ENTER_WORKTREE_SCHEMA: dict[str, object] = {
@@ -40,7 +41,7 @@ async def enter_worktree_tool(args: ToolArgs, context: ToolContext) -> ToolResul
             "Zaten bir çalışma ağacındasın; iç içe ağaç açılmaz. Önce exit_worktree çağır."
         )
     try:
-        worktree = await asyncio.to_thread(enter_worktree, context.root, name)
+        worktree = await asyncio.to_thread(enter_configured_worktree, context.root, name)
     except WorktreeError as error:
         return ToolResult.failure(str(error))
     context.worktree_switch.request(worktree)

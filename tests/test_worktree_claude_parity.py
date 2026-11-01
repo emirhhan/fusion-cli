@@ -88,20 +88,36 @@ def test_adsiz_worktree_bayragina_ad_uretilir(argv, beklenen):
 
 
 @pytest.mark.parametrize(
-    ("metin", "numara", "refspec"),
+    ("metin", "numara"),
     [
-        ("#12", 12, "pull/12/head"),
-        ("https://github.com/o/r/pull/34", 34, "pull/34/head"),
-        ("https://github.com/o/r/pull/34/files", 34, "pull/34/head"),
-        ("https://gitlab.com/g/alt/r/-/merge_requests/5", 5, "merge-requests/5/head"),
+        ("#12", 12),
+        ("https://github.com/o/r/pull/34", 34),
+        ("https://github.com/o/r/pull/34/files", 34),
+        ("https://gitlab.com/g/alt/r/-/merge_requests/5", 5),
     ],
 )
-def test_pr_mr_baglantisi_ayristirilir(metin, numara, refspec):
+def test_pr_mr_baglantisindan_yalniz_numara_okunur(metin, numara):
     from fusion_cli.core.worktree_pr import parse_pull_request
 
     ref = parse_pull_request(metin)
-    assert ref is not None and (ref.number, ref.refspec) == (numara, refspec)
+    assert ref is not None and ref.number == numara
     assert ref.worktree_name == f"pr-{numara}"
+    assert parse_pull_request("ozellik") is None
+
+
+@pytest.mark.parametrize(
+    ("uzak", "beklenen"),
+    [
+        ("git@github.com:o/r.git", ("pull/3/head",)),
+        ("https://github.com/o/r.git", ("pull/3/head",)),
+        ("ssh://git@gitlab.com/g/r.git", ("merge-requests/3/head",)),
+        ("https://git.sirket.local/g/r.git", ("pull/3/head", "merge-requests/3/head")),
+    ],
+)
+def test_cekme_yolu_originin_sunucusuna_gore(uzak, beklenen):
+    from fusion_cli.core.worktree_pr import PullRequestRef
+
+    assert PullRequestRef(3).refspecs(uzak) == beklenen
 
 
 def test_pr_numarasindan_agac_acilir(repo, tmp_path):
@@ -123,3 +139,106 @@ def test_pr_numarasindan_agac_acilir(repo, tmp_path):
     assert tree.path == repo / ".claude" / "worktrees" / "pr-7"
     assert (tree.path / "pr.txt").read_text(encoding="utf-8") == "pr işi\n"
     assert core_worktree.enter_worktree(repo, "#7").path == tree.path  # ikinci kez aynı ağaç
+
+
+def test_pr_cekilemezse_claude_mesaji(repo, tmp_path):
+    from fusion_cli.core.errors import WorktreeError
+
+    uzak = tmp_path / "bos.git"
+    _git(tmp_path, "init", "-q", "--bare", str(uzak))
+    _git(repo, "remote", "add", "origin", str(uzak))
+    with pytest.raises(WorktreeError, match="PR/MR #9 çekilemedi"):
+        core_worktree.enter_worktree(repo, "#9")
+
+
+def _uzakli_depo(repo: Path, tmp_path: Path) -> Path:
+    """`origin` (varsayılan dal ana) + yerelde ilerlemiş, push edilmemiş commit."""
+    uzak = tmp_path / "uzak.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(repo), str(uzak))
+    _git(repo, "remote", "add", "origin", str(uzak))
+    _git(repo, "fetch", "-q", "origin")
+    _git(repo, "remote", "set-head", "origin", "--auto")
+    (repo / "yerel.txt").write_text("push edilmedi\n", encoding="utf-8")
+    _git(repo, "add", "yerel.txt")
+    _git(repo, "commit", "-qm", "yerel")
+    return uzak
+
+
+def test_fresh_taban_uzak_varsayilan_daldan_dallanir(repo, tmp_path):
+    _uzakli_depo(repo, tmp_path)
+    tree = core_worktree.enter_worktree(repo, "taze", base_mode="fresh")
+    assert not (tree.path / "yerel.txt").exists()
+    assert tree.base_commit == _git(repo, "rev-parse", "origin/HEAD")
+
+
+def test_head_taban_yerel_isi_tasir(repo, tmp_path):
+    _uzakli_depo(repo, tmp_path)
+    tree = core_worktree.enter_worktree(repo, "yerel", base_mode="head")
+    assert (tree.path / "yerel.txt").exists()
+
+
+def test_fresh_taban_uzak_yoksa_yerel_heade_duser(repo):
+    tree = core_worktree.enter_worktree(repo, "uzaksiz", base_mode="fresh")
+    assert tree.base_commit == _git(repo, "rev-parse", "HEAD")
+
+
+def test_fresh_taban_24_saatten_eski_depoyu_ceker(repo, tmp_path, monkeypatch):
+    from fusion_cli.core import worktree_fetch
+
+    _uzakli_depo(repo, tmp_path)
+    cagrilar: list[tuple[str, ...]] = []
+    gercek = worktree_fetch.quiet_git
+
+    def _izle(cwd, args, *, timeout_s):
+        cagrilar.append(tuple(args))
+        return gercek(cwd, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(worktree_fetch, "quiet_git", _izle)
+    worktree_fetch.fresh_base(repo, now=10**12)
+    assert ("fetch", "--quiet", "origin", "main") in cagrilar or (
+        "fetch", "--quiet", "origin", "master"
+    ) in cagrilar
+    cagrilar.clear()
+    worktree_fetch.fresh_base(repo)
+    assert not any(c[0] == "fetch" for c in cagrilar), "yeni çekilmiş depo yeniden çekildi"
+
+
+def test_sessiz_git_ortami_soru_acmaz():
+    from fusion_cli.core.worktree_fetch import quiet_env
+
+    env = quiet_env({"PATH": "/bin"})
+    assert env["GIT_TERMINAL_PROMPT"] == "0" and "BatchMode=yes" in env["GIT_SSH_COMMAND"]
+
+
+def test_baseref_ayari_claude_settings_jsondan_okunur(repo, tmp_path, monkeypatch):
+    from fusion_cli.config import worktree_settings
+
+    home = tmp_path / "ev"
+    (home / ".claude").mkdir(parents=True)
+    assert worktree_settings.worktree_base_mode(repo, home=home) == "fresh"
+    (home / ".claude" / "settings.json").write_text(
+        '{"worktree": {"baseRef": "head"}}', encoding="utf-8"
+    )
+    assert worktree_settings.worktree_base_mode(repo, home=home) == "head"
+    (home / ".claude" / "settings.json").write_text(
+        '{"worktree": {"baseRef": "main"}}', encoding="utf-8"
+    )
+    assert worktree_settings.worktree_base_mode(repo, home=home) == "fresh"
+
+
+def test_ayarli_giris_varsayilan_fresh_tabani_kullanir(repo, tmp_path, monkeypatch):
+    from fusion_cli.config import worktree_settings
+
+    monkeypatch.setenv("HOME", str(tmp_path / "ev"))
+    _uzakli_depo(repo, tmp_path)
+    tree = worktree_settings.enter_configured_worktree(repo, "ayarli")
+    assert not (tree.path / "yerel.txt").exists()
+
+
+def test_fresh_yedegi_agac_icinde_o_agacin_headi(repo):
+    ilk = core_worktree.enter_worktree(repo, "ilk", base_mode="head")
+    (ilk.path / "dal.txt").write_text("dal işi\n", encoding="utf-8")
+    _git(ilk.path, "add", "dal.txt")
+    _git(ilk.path, "commit", "-qm", "dal")
+    ikinci = core_worktree.enter_worktree(ilk.path, "ikinci", base_mode="fresh")
+    assert (ikinci.path / "dal.txt").exists()

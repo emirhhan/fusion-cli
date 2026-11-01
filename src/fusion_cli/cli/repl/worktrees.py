@@ -16,11 +16,11 @@ from ...core.worktree import (
     LeaveResult,
     Worktree,
     WorktreeSwitch,
-    enter_worktree,
     leave_worktree,
     list_worktrees,
     worktree_for_path,
 )
+from ...config.worktree_settings import enter_configured_worktree
 from ...ui import messages
 from .state import ReplState
 
@@ -52,7 +52,7 @@ def enter_session_worktree(state: ReplState, name: str) -> str:
     if state.worktree is not None:
         return messages.WORKTREE_ALREADY_IN.format(name=state.worktree.name)
     try:
-        worktree = enter_worktree(state.root, name)
+        worktree = enter_configured_worktree(state.root, name)
     except WorktreeError as error:
         return str(error)
     _switch_root(state, worktree)
@@ -112,7 +112,7 @@ def resolve_launch_root(cwd: Path, name: str) -> tuple[Path, Worktree | None]:
     """`--worktree <ad>`: kökü çalışma ağacına çevir; ad boşsa `cwd` olduğu gibi kalır."""
     if not name.strip():
         return cwd, worktree_for_path(cwd)
-    worktree = enter_worktree(cwd, name)
+    worktree = enter_configured_worktree(cwd, name)
     return worktree.path, worktree
 
 

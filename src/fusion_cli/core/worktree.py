@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
+from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
 from .worktree_pr import parse_pull_request
 
 #: Depo kökü altındaki çalışma ağacı dizini (git'e `info/exclude` ile gizlenir).
@@ -210,13 +211,19 @@ def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
     return tuple(worktree for worktree in found if worktree is not None)
 
 
-def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
+def enter_worktree(
+    cwd: Path, name: str, *, base_ref: str = "HEAD", base_mode: str = BASE_HEAD
+) -> Worktree:
     """Adı verilen çalışma ağacını aç: varsa onu, yoksa `base_ref`'ten yenisini.
 
     `cwd` bir çalışma ağacının içindeyse ana depoya gidilir; iç içe ağaç açılmaz. `base_ref`
     `cwd`'nin KENDİ checkout'unda çözülür: bir ağaçtan açılan yeni ağaç (alt ajan izolasyonu)
     o ağacın dalından dallanır. Ölçüldü (31 Ekim): ana depoda çözülünce üye, oturumun
     dalındaki işi görmeyen ana HEAD'in kopyasında çalışıyordu.
+
+    `base_mode` Claude Code `worktree.baseRef`'idir (#338): `"head"` yukarıdaki davranış,
+    `"fresh"` uzak varsayılan dal (`origin/HEAD`; yoksa yerel `HEAD`). Varsayılanı çağıran
+    ayardan verir (`config.worktree_settings`); burada geri uyum için `"head"`.
     """
     pull_request = parse_pull_request(name)
     name = validate_name(pull_request.worktree_name if pull_request else name)
@@ -231,8 +238,11 @@ def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
         return existing
     if pull_request is not None:
         # PR/MR başı `origin`'den çekilir (Claude Code, #341); taban FETCH_HEAD'dir.
-        _git(origin, "fetch", "--quiet", "origin", pull_request.refspec)
+        remote = quiet_git(origin, ("remote", "get-url", "origin"), timeout_s=GIT_TIMEOUT_S) or ""
+        fetch_pull_request(origin, pull_request.refspecs(remote), pull_request.number)
         cwd, base_ref = origin, "FETCH_HEAD"
+    elif base_mode == BASE_FRESH and (fresh := fresh_base(origin)) != "HEAD":
+        cwd, base_ref = origin, fresh  # yedek `HEAD` bulunulan checkout'ta çözülür
     base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
     return create_worktree(origin, name, base_ref=base_commit)
 

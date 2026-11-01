@@ -323,12 +323,18 @@ durumunda görünmez (`.git/info/exclude`).
 |-----|----------|
 | `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse kaldırır, iş kaldıysa korur ve yolu söyler |
 | `fusion -w` (adsız) | `bright-running-fox` biçiminde ad üretir |
-| `fusion -w "#1234"` / PR ya da MR adresi | `origin`'den `pull/<n>/head` (GitLab `merge-requests/<n>/head`) çekilir, `.claude/worktrees/pr-<n>` açılır |
+| `fusion -w "#1234"` / PR ya da MR adresi | Adresten yalnız numara okunur; `origin` github.com ise `pull/<n>/head`, gitlab.com ise `merge-requests/<n>/head`, başka sunucuda önce biri sonra öteki çekilir; `.claude/worktrees/pr-<n>` açılır. Çekme parola/SSH onayı beklemez, gerekirse `PR/MR #<n> çekilemedi` der |
 | `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |
 | `/worktree <ad>` | Oturum kökünü ağaca taşır (yoksa oluşturur) |
 | `/worktree cik` | Ana depoya döner; temiz ağaç kaldırılır (dalı dahil), iş varsa `git merge worktree-<ad>` ipucu verir |
 | `/worktree liste` | Depodaki Fusion çalışma ağaçları |
 
+- Taban dal: Claude Code `worktree.baseRef` (`~/.claude/settings.json`, güvenilen projede
+  `.claude/settings.json` / `.claude/settings.local.json`). `"fresh"` (varsayılan) uzak
+  varsayılan daldan (`origin/HEAD`) dallanır; depo 24 saattir çekilmediyse varsayılan dal en
+  çok 5 sn'de çekilir, uzak yoksa yerel `HEAD`'e düşülür. `"head"` bulunulan checkout'un
+  `HEAD`'inden dallanır (gönderilmemiş commit'ler de gelir). `--worktree`, `/worktree`,
+  `enter_worktree` ve alt ajan ağaçları aynı ayarı kullanır.
 - `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
   ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz. Depo kökü dışına çıkan
   desenler (`../x`, mutlak yol) ve symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
