@@ -73,3 +73,28 @@ def test_ayarlar_claude_settings_jsondan_okunur_ve_birlesir(repo, tmp_path):
     )
     duzen = worktree_settings.worktree_layout(repo, home=home)
     assert duzen == WorktreeLayout(("node_modules",), ("src",))
+
+
+def test_bag_kaynagi_depo_disina_cikan_sembolik_bagsa_atlanir(tmp_path):
+    """`cache -> ~/.ssh` gibi depo dışını gösteren kaynak ağaca bağlanmaz (inceleme #10)."""
+    from fusion_cli.core.worktree_layout import link_directories
+
+    origin, agac, gizli = tmp_path / "depo", tmp_path / "agac", tmp_path / "gizli"
+    for dizin in (origin, agac, gizli):
+        dizin.mkdir()
+    (origin / "cache").symlink_to(gizli, target_is_directory=True)
+    (origin / "node_modules").mkdir()
+    bagli = link_directories(origin, agac, ("cache", "node_modules"))
+    assert bagli == (Path("node_modules"),)
+    assert not (agac / "cache").exists()
+
+
+def test_bag_hedefinin_ust_dizini_agac_disina_cikiyorsa_atlanir(tmp_path):
+    from fusion_cli.core.worktree_layout import link_directories
+
+    origin, agac, dis = tmp_path / "depo", tmp_path / "agac", tmp_path / "dis"
+    for dizin in (origin / "paket" / "cache", agac, dis):
+        dizin.mkdir(parents=True)
+    (agac / "paket").symlink_to(dis, target_is_directory=True)
+    assert link_directories(origin, agac, ("paket/cache",)) == ()
+    assert not (dis / "cache").exists()

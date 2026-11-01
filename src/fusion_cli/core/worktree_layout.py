@@ -68,7 +68,15 @@ def link_directories(origin: Path, path: Path, dirs: tuple[str, ...]) -> tuple[P
         target = path / relative
         if not source.is_dir() or target.exists() or target.is_symlink():
             continue
+        if not _inside(source, origin) or not _inside(target.parent, path):
+            # Depo dışını gösteren bağ (`cache -> ~/.ssh`) ya da ağaçtan taşan üst dizin.
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(source, target_is_directory=True)
         linked.append(Path(relative))
     return tuple(linked)
+
+
+def _inside(candidate: Path, base: Path) -> bool:
+    """Sembolik bağlar çözüldüğünde `candidate` `base` içinde mi (var olmayan kısım dahil)?"""
+    return candidate.resolve().is_relative_to(base.resolve())
