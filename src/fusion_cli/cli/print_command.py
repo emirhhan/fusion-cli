@@ -98,8 +98,6 @@ def print_command(
 ) -> None:
     """Claude Code `-p`: istemi etkileşimsiz çalıştır, cevabı yaz ve çık."""
     ignored = {
-        "--include-hook-events": include_hooks,
-        "--prompt-suggestions": prompt_suggestions,
         # Setup kanca olayı henüz tetiklenmiyor (kancalar alanı); bayrak düşmez, uyarır.
         "--init": init,
         "--init-only": init_only,
@@ -152,6 +150,8 @@ def print_command(
         include_partial=include_partial,
         replay_user=replay_user,
         forward_subagent=forward_subagent,
+        include_hooks=include_hooks,
+        prompt_suggestions=prompt_suggestions,
         background=background,
         disable_slash=disable_slash,
         config_set=tuple(config_set or ()),

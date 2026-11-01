@@ -29,6 +29,7 @@ from ..engines.agent import dynamic_sections, subagent_prompt
 from ..engines.agent.approval import ApprovalMemory
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentOutcome
+from ..engines.hooks import lifecycle as hook_lifecycle
 from ..observability.usage_log import open_usage_log
 from ..providers import beta_headers
 from ..tools.capabilities import CapabilityRegistry
@@ -109,6 +110,7 @@ def run_print(request: PrintRequest) -> int:
         subagent_prompt.appended(plan.subagent_append),
         dynamic_sections.excluded(request.exclude_dynamic),
         beta_headers.enabled(beta_headers.parse(request.betas)),
+        hook_lifecycle.observer_scope(),
     ):
         try:
             return _start(plan, root)
@@ -172,6 +174,8 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
             lambda: plan.config.agent.model,
             partial=request.include_partial,
             forward_subagent_text=request.forward_subagent,
+            include_hooks=request.include_hooks,
+            prompt_suggestions=request.prompt_suggestions,
         )
         run.stream.write(_init(run))
     if plan.stream_input:
@@ -370,6 +374,8 @@ def _finish(
     _write_json(
         sdk.result_message(_result_input(run, outcome, subtype, structured, errors), run.stats)
     )
+    if run.stream is not None:
+        run.stream.after_result()
     return 0 if subtype == sdk.SUBTYPE_SUCCESS else 1
 
 

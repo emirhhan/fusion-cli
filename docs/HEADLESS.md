@@ -143,9 +143,18 @@ Yalnız varsayılan sistem isteminde geçerlidir; `--system-prompt(-file)` veril
 başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız Anthropic API'sine
 giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
 
-Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--prompt-suggestions`; Setup kanca olayı tetiklenmediği için `--init`, `--maintenance` ve
-konuşma başlatmadan çıkan `--init-only`)
+`--include-hook-events` (stream-json) her kanca komutu için `system/hook_started`
+(`hook_id`, `hook_name` = `Olay:konu`, ör. `PreToolUse:Bash`, `hook_event`) ve bittiğinde
+aynı `hook_id` ile `system/hook_response` (`output`, `stdout`, `stderr`, `exit_code`,
+`outcome`: `success|error|cancelled`) yazar; alt ajanların kancaları dahil.
+
+`--prompt-suggestions` (stream-json) her turun `result` mesajından sonra
+`{"type": "prompt_suggestion", "suggestion": …}` yazar. Fusion'da öneri turun kendi
+kanıtından (değişen dosyalar, düşen araç/doğrulama, adım sınırı) üretilen ilk takip
+önerisidir; ek model çağrısı açılmaz, kanıt yoksa mesaj yazılmaz.
+
+Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (Setup kanca olayı tetiklenmediği
+için `--init`, `--maintenance` ve konuşma başlatmadan çıkan `--init-only`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına

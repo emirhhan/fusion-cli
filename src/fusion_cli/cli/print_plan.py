@@ -85,6 +85,10 @@ class PrintRequest:
     include_partial: bool = False
     replay_user: bool = False
     forward_subagent: bool = False
+    #: `--include-hook-events` (#289): stream-json'a kanca yaşam döngüsü mesajları.
+    include_hooks: bool = False
+    #: `--prompt-suggestions` (#289): tur sonrası `prompt_suggestion` mesajı.
+    prompt_suggestions: bool = False
     background: bool = False
     disable_slash: bool = False
     config_set: tuple[str, ...] = ()

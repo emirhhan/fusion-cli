@@ -277,8 +277,11 @@ class SdkStream:
         stdout: TextIO | None = None,
         partial: bool = False,
         forward_subagent_text: bool = False,
+        include_hooks: bool = False,
+        prompt_suggestions: bool = False,
     ) -> None:
         from .sdk_subagents import SubagentForwarder, forward_text_enabled
+        from .sdk_suggestions import PromptSuggestions
 
         self.session_id = session_id
         self._model = model
@@ -292,6 +295,11 @@ class SdkStream:
             user=lambda content, parent: self.write(user_message(self.session_id, content, parent)),
             forward_text=forward_text_enabled(forward_subagent_text),
         )
+        self._suggestions = PromptSuggestions(self.write) if prompt_suggestions else None
+        if include_hooks:
+            from ..engines.hooks.lifecycle import add_observer
+
+            add_observer(self.hook_event)
 
     def write(self, message: Mapping[str, object]) -> None:
         line = json.dumps(redacted(message), ensure_ascii=False, default=str)
@@ -301,6 +309,8 @@ class SdkStream:
     def handle(self, event: Event) -> None:
         if self._subagents.observe(event):
             return
+        if self._suggestions is not None:
+            self._suggestions.observe(event)
         if isinstance(event, TokenReceived):
             self._token(event)
         elif isinstance(event, ToolStarted):
@@ -318,6 +328,17 @@ class SdkStream:
                     "uuid": _uuid(),
                 }
             )
+
+    def hook_event(self, message: Mapping[str, object]) -> None:
+        """`--include-hook-events` (#289): `system/hook_started` / `system/hook_response`."""
+        self.write(
+            {"type": "system", **message, "session_id": self.session_id, "uuid": _uuid()}
+        )
+
+    def after_result(self) -> None:
+        """Sonuç mesajından sonra: `--prompt-suggestions` önerisi (#289)."""
+        if self._suggestions is not None:
+            self._suggestions.flush(self.session_id)
 
     def final_answer(self, text: str) -> None:
         """Turun kabul edilen cevabını `assistant` mesajı olarak yaz."""
