@@ -103,6 +103,13 @@ class ReplInput:
     def interactive(self) -> bool:
         return self._session is not None
 
+    def history_strings(self) -> list[str]:
+        """İstem geçmişi (en yeni önce); `!` kipi Tab tamamlaması (#219)."""
+        history = getattr(self._session, "history", None)
+        if history is None:
+            return []
+        return list(reversed(list(history.get_strings())))
+
     @property
     def waiting(self) -> bool:
         """İstem açık mı (durum satırı gözcüsü yalnız bu sırada yazar, #192)?"""
@@ -301,7 +308,12 @@ def _build_session(
             history=FileHistory(str(history_path)),
             # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022); sözlük çağrılabilir olabilir,
             # dinamik beceri komutları eklendikçe tamamlama da yenilenir (P-019).
-            completer=ReplCompleter(words, roots, agents=agents),
+            completer=ReplCompleter(
+                words,
+                roots,
+                agents=agents,
+                shell_history=lambda: owner.history_strings(),
+            ),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
             # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.

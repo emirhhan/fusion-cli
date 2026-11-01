@@ -339,6 +339,7 @@ class _TuiSession:
                 self._registry.completion_words,
                 lambda: (state.root, *state.extra_roots),
                 agents=lambda: agent_names(state),
+                shell_history=lambda: self._tui.history_strings(),
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),

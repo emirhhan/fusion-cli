@@ -2571,10 +2571,23 @@ class AppSession:
             parts: list[str] = []
             if result.output:
                 parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
+            follow_up = ""
             if result.context_block:
-                parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
+                from ..cli.repl import shell_mode
+
+                if shell_mode.responds_to_bash_commands(self._state.root, self._state.home):
+                    # Claude Code (#219): çıktı bağlama girince model kendiliğinden yanıtlar;
+                    # arayüz bu görevi kullanıcı mesajı göstermeden tur olarak başlatır.
+                    follow_up = shell_mode.follow_up_task(command)
+                else:
+                    parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
             parts.extend(result.notes)
-            return {"ok": result.ok, "metin": "\n\n".join(parts), "yerel_yanit": True}
+            reply: dict[str, Any] = {
+                "ok": result.ok,
+                "metin": "\n\n".join(parts),
+                "yerel_yanit": True,
+            }
+            return {**reply, "gorev": follow_up} if follow_up else reply
         for mention_note in apply_mentions(task, self._state):
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)

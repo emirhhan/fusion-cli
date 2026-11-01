@@ -95,6 +95,7 @@ class ReplCompleter(Completer):
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]],
         *,
         agents: Callable[[], list[str]] | None = None,
+        shell_history: Callable[[], Iterable[str]] | None = None,
     ) -> None:
         #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
@@ -103,11 +104,17 @@ class ReplCompleter(Completer):
         self._roots = roots
         #: Etkin alt ajan adları: `@agent-<ad>` önerisi (Claude Code typeahead, #26).
         self._agents = agents
+        #: `!` kabuk kipinde Tab geçmişteki `!` satırlarını önerir (Claude Code, #219).
+        self._shell_history = shell_history
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterator[Completion]:
         word = document.get_word_before_cursor(WORD=True)
+        typed = document.text_before_cursor.lstrip()
+        if typed.startswith("!"):
+            yield from self._shell_completions(typed, word)
+            return
         if word.startswith("@"):
             partial = word[1:]
             for name in agent_suggestions(partial, self._agents() if self._agents else []):
@@ -121,3 +128,18 @@ class ReplCompleter(Completer):
             for candidate in words:
                 if candidate.startswith(word):
                     yield Completion(candidate, start_position=-len(word))
+
+    def _shell_completions(self, typed: str, word: str) -> Iterator[Completion]:
+        """`!` kipi (#219): önce geçmişteki `!` komutları, sonra son sözcük için yollar."""
+        seen: set[str] = set()
+        for line in self._shell_history() if self._shell_history else ():
+            entry = line.strip()
+            matches = entry.startswith("!") and entry != typed and entry.startswith(typed)
+            if matches and entry not in seen and len(seen) < MAX_SUGGESTIONS:
+                seen.add(entry)
+                yield Completion(entry, start_position=-len(typed), display=entry)
+        if word.startswith("!") or (not word and typed == "!"):
+            return
+        roots = self._roots() if callable(self._roots) else self._roots
+        for suggestion in path_suggestions(word, roots):
+            yield Completion(suggestion, start_position=-len(word), display=suggestion)

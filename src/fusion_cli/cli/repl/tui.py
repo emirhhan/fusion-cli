@@ -1037,6 +1037,13 @@ class FusionTui:
         self._last_clear_escape_at = 0.0 if is_double else stamp
         return is_double
 
+    def history_strings(self) -> list[str]:
+        """Giriş geçmişi (en yeni önce); `!` kipi Tab tamamlaması kullanır (#219)."""
+        history = getattr(self._input.buffer, "history", None)
+        if history is None:
+            return []
+        return list(reversed(list(history.get_strings())))
+
     def _clear_into_history(self) -> None:
         """Girdiyi temizle; taslak dizin geçmişine yazılır, Up ile geri gelir (#222)."""
         buffer = self._input.buffer

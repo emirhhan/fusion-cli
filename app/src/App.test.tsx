@@ -237,6 +237,28 @@ describe("SessionUygulama", () => {
     )).toBe(true));
   });
 
+  it("! kabuk çıktısından sonra model turu kendiliğinden başlar (#219)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "tur.calistir"() {
+        calls += 1;
+        return calls === 1
+          ? { ok: true, metin: "$ ls", yerel_yanit: true, gorev: "Kabuk çıktısına yanıt ver" }
+          : { ok: true, metin: "Klasörde iki dosya var." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "! ls" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "tur.calistir")
+      .map((request) => request.veri.gorev)).toEqual(["! ls", "Kabuk çıktısına yanıt ver"]));
+    expect(await screen.findByText("Klasörde iki dosya var.")).toBeTruthy();
+  });
+
   it("/rewind konuşmayı sarınca dönen istem giriş kutusuna konur (#200)", async () => {
     const fake = composerTransport({
       "gecmis.kaynaklar": { ok: true, kaynaklar: [] },

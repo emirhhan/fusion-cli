@@ -642,6 +642,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: GOAL_WAITING_USER, ara: true } });
           } else if (hedef.devam) send(id, hedef.devam, [], false);
         }
+        // `!` kabuk çıktısı bağlama girdiyse model kendiliğinden yanıtlar (#219, respondToBashCommands).
+        if (result.yerel_yanit === true && typeof result.gorev === "string" && result.gorev.trim()) {
+          send(id, result.gorev, [], false);
+        }
       })
       .catch((reason) => {
         if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;

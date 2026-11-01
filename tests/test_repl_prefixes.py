@@ -277,3 +277,18 @@ def test_bilinmeyen_agent_anmasi_not_dusurur(state):
     result = prefixes.expand_mentions("@agent-yok bak", state)
 
     assert not result.blocks and any("yok" in note for note in result.notes)
+
+
+def test_kabuk_kipinde_tab_gecmis_ve_yol_onerir(tmp_path):
+    """Claude Code `!` kipi (#219): Tab geçmişteki `!` komutlarından ve yoldan tamamlar."""
+    (tmp_path / "Makefile").write_text("", encoding="utf-8")
+    gecmis = ["!git status", "selam", "!git log --oneline", "!git status"]
+    completer = ReplCompleter([], (tmp_path,), shell_history=lambda: gecmis)
+    oneriler = [c.text for c in completer.get_completions(Document("!git"), None)]
+    assert oneriler == ["!git status", "!git log --oneline"]
+    yollar = [c.text for c in completer.get_completions(Document("!cat Make"), None)]
+    assert "Makefile" in yollar
+    assert [c.text for c in completer.get_completions(Document("!"), None)] == [
+        "!git status",
+        "!git log --oneline",
+    ]

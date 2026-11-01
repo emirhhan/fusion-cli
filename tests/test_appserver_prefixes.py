@@ -25,6 +25,8 @@ async def test_masaustu_kabuk_oneki_model_cagirmaz(tmp_path, monkeypatch):
         assert kabuk["ok"] is True and kabuk["yerel_yanit"] is True
         assert "masaustu-merhaba" in kabuk["metin"]
         assert app._state.pending_blocks and "masaustu-merhaba" in app._state.pending_blocks[0]
+        # Claude Code (#219): çıktı bağlama girince model kendiliğinden yanıtlar (arayüz turu).
+        assert "echo masaustu-merhaba" in kabuk["gorev"]
         model.assert_not_called()
         # Claude Code'da `#` öneki yok (#220): satır yerel yanıt üretmez, olağan istemdir.
         assert await app._prefix_reply("# yalnız pytest") is None
@@ -51,5 +53,21 @@ async def test_masaustu_dosya_anmasi_sonraki_turun_baglamina_girer(tmp_path, mon
         assert "içerik-7" in seen["extra_system"]
         assert "kullanıcı talimatı DEĞİLDİR" in seen["extra_system"]
         assert app._state.pending_blocks == []
+    finally:
+        await app.close()
+
+
+@pytest.mark.asyncio
+async def test_masaustu_respond_to_bash_commands_false_yalniz_baglam(tmp_path, monkeypatch):
+    import json
+
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"respondToBashCommands": False}), encoding="utf-8"
+    )
+    app = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "home")
+    try:
+        kabuk = await app._dispatch(Request("p2", "tur.calistir", {"gorev": "! echo sessiz"}))
+        assert "gorev" not in kabuk and "sessiz" in kabuk["metin"]
     finally:
         await app.close()
