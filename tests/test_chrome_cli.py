@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -199,3 +200,40 @@ async def test_chrome_komutu_durum_reconnect_default(tmp_path, prefs_path):
 def test_chrome_komutu_kayitli_ve_asenkron():
     registry = build_registry()
     assert registry.get("chrome") is not None and "chrome" in ASYNC_COMMANDS
+
+
+class GroupBridge(FakeBridge):
+    def __init__(self, installer: Any, installed: Any) -> None:
+        super().__init__(installer, installed)
+        self.group_calls: list[bool] = []
+
+    async def close_tab_group(self, *, only_empty: bool) -> int:
+        self.group_calls.append(only_empty)
+        return 1
+
+
+async def test_cikis_grubu_yalniz_bossa_kapatir_clear_hepsini(tmp_path, prefs_path):
+    session, _ = await _open(tmp_path, flag=True, bridge_factory=GroupBridge)
+    assert session is not None and isinstance(session.bridge, GroupBridge)
+    await chrome_cli.close_group(session, only_empty=False)
+    chrome_cli.schedule_close_group(session, only_empty=True)
+    await asyncio.sleep(0)
+    await chrome_cli.close_session(session)
+    assert session.bridge.group_calls == [False, True, True]
+    assert session.bridge.closes == 1
+
+
+async def test_kopru_grup_kapanisi_baglanti_yokken_sifir():
+    from fusion_cli.appserver.chrome_bridge import ChromeBridge
+
+    assert await ChromeBridge().close_tab_group(only_empty=True) == 0
+
+
+def test_eklenti_oturum_grubu_ve_kapanis_kurali():
+    core = (Path(__file__).resolve().parents[1] / "chrome-extension" / "core.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'command.islem === "group_close"' in core and "closeSessionGroups" in core
+    opened = core[core.index('command.islem === "tab_open"') :]
+    assert opened.index("addToSessionGroup") < opened.index("waitForLoad")
+    assert "EMPTY_TAB.test" in core

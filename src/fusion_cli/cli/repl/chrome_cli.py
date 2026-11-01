@@ -250,8 +250,17 @@ class _ClosedBridge:
 
 
 async def close_session(session: ChromeSession | None) -> None:
+    """Çıkış: grup yalnız boş yeni sekmelerden oluşuyorsa kapanır (#436), sonra köprü kapanır."""
     if session is not None:
+        await close_group(session, only_empty=True)
         await session.bridge.close()
+
+
+async def close_group(session: ChromeSession | None, *, only_empty: bool) -> None:
+    """Oturum sekme grubunu kapat: `/clear` sayfalarıyla, `/resume` ve çıkış yalnız boşsa."""
+    closer = getattr(session.bridge, "close_tab_group", None) if session is not None else None
+    if closer is not None:
+        await closer(only_empty=only_empty)
 
 
 def bind_chooser(session: ChromeSession | None, chooser: Chooser) -> None:
@@ -263,3 +272,20 @@ def bind_chooser(session: ChromeSession | None, chooser: Chooser) -> None:
 def bridge_of(session: ChromeSession | None) -> BridgeLike | None:
     """Turun `ToolContext.chrome` değeri: Chrome kapalıyken `None` (araçlar sunulmaz)."""
     return session.bridge if session is not None else None
+
+
+#: `schedule_close_group` görevleri: çöp toplayıcı bitmeden silmesin diye tutulur.
+_PENDING_CLOSES: set[asyncio.Task[None]] = set()
+
+
+def schedule_close_group(session: ChromeSession | None, *, only_empty: bool) -> None:
+    """Eşzamanlı komut işleyicisinden (`/resume`) grup kapanışını arka plana bırak."""
+    if session is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(close_group(session, only_empty=only_empty))
+    _PENDING_CLOSES.add(task)
+    task.add_done_callback(_PENDING_CLOSES.discard)

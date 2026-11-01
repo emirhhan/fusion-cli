@@ -1076,6 +1076,47 @@ export async function clearSelected() {
   await chrome.storage.session.remove(TAB_KEY);
 }
 
+/**
+ * Oturum sekme grubu (#436, Claude in Chrome): Fusion'ın açtığı sekmeler pencere başına tek bir
+ * "Fusion" grubunda toplanır. Kapanış kuralı köprüden gelir (`group_close`): `/clear` grubu
+ * sayfalarıyla kapatır; oturum değişince ya da çıkışta grup yalnız boş yeni sekmelerden
+ * oluşuyorsa kapanır.
+ */
+const GROUP_KEY = "fusionGroups";
+const GROUP_TITLE = "Fusion";
+const EMPTY_TAB = /^(chrome:\/\/newtab\/?|about:blank|edge:\/\/newtab\/?)?$/;
+
+async function sessionGroups() {
+  return (await chrome.storage.session.get(GROUP_KEY))[GROUP_KEY] || {};
+}
+
+async function addToSessionGroup(tab) {
+  if (!tab?.id || !chrome.tabs.group) return null;
+  const groups = await sessionGroups();
+  const known = groups[tab.windowId];
+  const alive = known !== undefined && await chrome.tabGroups?.get(known).then(() => true, () => false);
+  const groupId = alive
+    ? await chrome.tabs.group({ groupId: known, tabIds: [tab.id] })
+    : await chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: tab.windowId } });
+  if (!alive && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title: GROUP_TITLE });
+  await chrome.storage.session.set({ [GROUP_KEY]: { ...groups, [tab.windowId]: groupId } });
+  return groupId;
+}
+
+async function closeSessionGroups(onlyEmpty) {
+  const groups = await sessionGroups();
+  let closed = 0;
+  for (const groupId of Object.values(groups)) {
+    const tabs = await chrome.tabs.query({ groupId }).catch(() => []);
+    if (!tabs.length) continue;
+    if (onlyEmpty && !tabs.every((tab) => EMPTY_TAB.test(tab.pendingUrl || tab.url || ""))) continue;
+    await chrome.tabs.remove(tabs.map((tab) => tab.id));
+    closed += 1;
+  }
+  await chrome.storage.session.remove(GROUP_KEY);
+  return closed;
+}
+
 /** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
 export const PERMISSION_KEY = "fusionPermission";
 
@@ -1382,11 +1423,15 @@ export async function execute(command) {
     if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.");
     const created = await chrome.windows.create({ url: url ? url.href : undefined, focused: true, state: "normal" });
     const tab = created.tabs?.[0];
+    await addToSessionGroup(tab).catch(() => null);
     if (tab?.id && url) {
       await waitForLoad(tab.id);
       await setSelected(await chrome.tabs.get(tab.id));
     }
     return { window: created.id, opened: tab?.id ?? null, url: url ? url.href : null };
+  }
+  if (command.islem === "group_close") {
+    return { closed: await closeSessionGroups(veri.mode !== "all") };
   }
   if (command.islem === "tab_group") {
     const ids = (Array.isArray(veri.ids) ? veri.ids : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
@@ -1424,6 +1469,8 @@ export async function execute(command) {
       await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.");
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
+    // Oturum grubuna koy (#436); gruplama başarısızsa sekme yine açılır.
+    await addToSessionGroup(tab).catch(() => null);
     await waitForLoad(tab.id);
     const bound = await setSelected(await chrome.tabs.get(tab.id));
     return { opened: bound.id, url: destination.href };

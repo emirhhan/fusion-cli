@@ -3753,6 +3753,8 @@ class AppSession:
         steps += [
             close_mcp_pool,
             self._mcp_connections.close,
+            # Claude in Chrome: çıkışta sekme grubu yalnız boş yeni sekmelerdense kapanır (#436).
+            lambda: self._chrome.close_tab_group(only_empty=True),
             self._chrome.close,
             self._processes.close,
             self._browser_panel.close,

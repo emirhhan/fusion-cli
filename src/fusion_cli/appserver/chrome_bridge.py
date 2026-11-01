@@ -53,6 +53,8 @@ _REF_IN_OUTPUT = re.compile(r'"ref":\s*"(e\d+)"')
 #: Hatırlanan ref→belge eşlemesinin üst sınırı (uzun oturumda bellek büyümesin).
 _MAX_REF_DOCS = 5_000
 COMMAND_TIMEOUT_SECONDS = 30
+#: Oturum sekme grubunun kapanışında beklenen en uzun süre (çıkışı geciktirmesin).
+GROUP_CLOSE_TIMEOUT_SECONDS = 3.0
 CONNECTION_STALE_SECONDS = 35
 #: `/events` uzun yoklamasının bekleme süresi; `/poll` ile aynı: bağlantı canlı sayılır.
 EVENTS_WAIT_SECONDS = 20
@@ -301,6 +303,26 @@ class ChromeBridge:
             self._remember_element(args, result)
         self._remember_ref_docs(result)
         return result
+
+    async def close_tab_group(self, *, only_empty: bool) -> int:
+        """Oturumun "Fusion" sekme grubunu kapat (#436); eklenti bağlı değilse 0.
+
+        Claude in Chrome: `/clear` grubu sayfalarıyla kapatır (`only_empty=False`); oturum
+        değişince ve çıkışta grup yalnız boş yeni sekmelerden oluşuyorsa kapanır. Kapanış
+        Chrome'u açmaz, eklentiyi kurdurmaz ve en çok `GROUP_CLOSE_TIMEOUT_SECONDS` bekler.
+        """
+        if not self.running or not self.status()["bagli"]:
+            return 0
+        mode = "empty" if only_empty else "all"
+        try:
+            result = await asyncio.wait_for(
+                self.invoke("group_close", {"mode": mode}), GROUP_CLOSE_TIMEOUT_SECONDS
+            )
+        except (TimeoutError, ConnectionError, OSError, ValueError, RuntimeError):
+            return 0
+        veri = result.get("veri") if result.get("ok") else None
+        closed = veri.get("closed") if isinstance(veri, dict) else 0
+        return closed if isinstance(closed, int) else 0
 
     def _with_ref_doc(self, args: dict[str, Any]) -> dict[str, Any]:
         ref = args.get("ref")
