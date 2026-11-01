@@ -368,3 +368,60 @@ def test_ajan_bellegi_otomatik_bellek_kapaliyken_etkisizdir(tmp_path):
     deps, _ = _deps(tmp_path, auto_memory=False)
 
     assert team_settings.child_memory(deps, _persona(memory_scope="project")) is None
+
+
+def test_bellekli_ajana_read_write_edit_kendiliginden_acilir(tmp_path):
+    """Claude Code: `memory` alanı Read, Write ve Edit'i kendiliğinden açar (#24)."""
+
+    class _BosDefter:
+        def is_remote(self, name: str) -> bool:
+            return "__" in name
+
+        def __iter__(self):
+            return iter(())
+
+    deps = SimpleNamespace(base_registry=_BosDefter(), tool_context=ToolContext(root=tmp_path))
+    mevcut = ("read_file", "write_file", "edit_file", "grep_search", "remember", "memory_read")
+    bellekli = _persona(memory_scope="user", tools=frozenset({"grep_search"}))
+
+    acik = allowed_tools(deps, bellekli, SubTask("iş"), available=mevcut)
+    assert acik is not None and {"read_file", "write_file", "edit_file"} <= acik
+
+    salt = allowed_tools(deps, bellekli, SubTask("iş", read_only=True), available=mevcut)
+    assert salt is not None and "read_file" in salt
+    assert not {"write_file", "edit_file"} & salt
+
+    yasakli = _persona(
+        memory_scope="user",
+        tools=frozenset({"grep_search"}),
+        disallowed_tools=frozenset({"write_file"}),
+    )
+    kisitli = allowed_tools(deps, yasakli, SubTask("iş"), available=mevcut)
+    assert kisitli is not None and "write_file" not in kisitli and "edit_file" in kisitli
+
+
+async def test_bellek_dizini_alt_ajanin_dosya_araclarina_acilir(tmp_path):
+    """Bellek dizini kök dışında olsa da (user kapsamı) alt ajanın dosya araçlarına açılır."""
+    home = tmp_path / "ev"
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: d\ntools: Read\nmemory: user\n---\ngövde",
+        encoding="utf-8",
+    )
+    deps, _ = _deps(tmp_path)
+    deps.home = home
+    gorulen: dict[str, object] = {}
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen["kokler"] = sub_deps.tool_context.extra_roots
+        gorulen["blok"] = sub_deps.plain_memory.prompt_block()
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    arac = spawn_agent_tool(deps, depth=0, run_agent=_sahte_ajan)
+    await arac.run({"task": "a", "uzman": "denetci"}, deps.tool_context)
+
+    dizin = home / ".claude" / "agent-memory" / "denetci"
+    assert dizin in tuple(gorulen["kokler"])
+    assert str(dizin) in str(gorulen["blok"]) and "MEMORY.md" in str(gorulen["blok"])
+    assert deps.tool_context.extra_roots == ()

@@ -40,6 +40,7 @@ from .approval import strictest_mode as strictest_mode
 
 if TYPE_CHECKING:
     from ...config.models import Config
+    from ...core.tools import ToolContext
     from .loop import AgentDeps
     from .team import Persona
 
@@ -255,6 +256,27 @@ def agent_mcp_config(
 
 #: Ajan belleği olan üyeye kısıtlı araç kümesinde de açılan araçlar (P-055).
 MEMORY_TOOL_NAMES = frozenset({"remember", "memory_read"})
+
+#: Claude Code: `memory` alanı Read, Write ve Edit'i kendiliğinden açar (#24). Okuma adları
+#: salt-okur görevde de kalır; yazma adları yalnız yazabilen görevde eklenir.
+MEMORY_READ_FILE_TOOLS = frozenset({"read_file", "view_file"})
+MEMORY_WRITE_FILE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
+
+
+def with_memory_roots(context: ToolContext, memory: PlainMemory | None) -> ToolContext:
+    """Bellek dizinini dosya araçlarına aç; kök dışındaki `user` kapsamı da erişilir olur.
+
+    Yazma alanı olan paralel alt ajanda dizin o alana da eklenir. Onay kuralları değişmez.
+    """
+    if memory is None:
+        return context
+    directory = memory.directory
+    scope = context.write_scope
+    return dataclasses.replace(
+        context,
+        extra_roots=tuple(dict.fromkeys((*context.extra_roots, directory))),
+        write_scope=None if scope is None else tuple(dict.fromkeys((*scope, directory))),
+    )
 
 
 def child_memory(deps: AgentDeps, persona: Persona) -> PlainMemory | None:

@@ -94,6 +94,8 @@ def prepare_main_metadata(deps: AgentDeps) -> None:
     deps.hooks = scoped_hooks(deps, persona, child=False)
     if persona.memory_scope:
         deps.plain_memory = team_settings.child_memory(deps, persona)
+        # Claude Code: ajan belleği Read/Write/Edit ile yönetilir; dizin dosya araçlarına açık.
+        deps.tool_context = team_settings.with_memory_roots(deps.tool_context, deps.plain_memory)
         deps.lesson_owner = persona.name
     deps.allowed_agent_types = persona.allowed_agent_types
     deps.main_metadata_applied = True

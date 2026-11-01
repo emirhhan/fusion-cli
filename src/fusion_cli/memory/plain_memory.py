@@ -228,8 +228,14 @@ class PlainMemory:
     def prompt_block(self) -> str:
         """Sistem istemine girecek blok: indeksin ilk 200 satırı / 25 KB, maskeli."""
         text = self._read_text(self.index_path)
+        guide = self._agent_guide()
         if not text.strip():
-            return ""
+            if not guide:
+                return ""
+            return (
+                f'<{BLOCK_TAG} kaynak="{self.label}" dosya="{self.index_name}">\n'
+                f"{guide.strip()}\n</{BLOCK_TAG}>"
+            )
         head, truncated = _head(text, PROMPT_MAX_LINES, PROMPT_MAX_BYTES)
         body = _neutralize_tags(redact(head))
         suffix = (
@@ -241,7 +247,16 @@ class PlainMemory:
         topic_line = f"\nKonu dosyaları (memory_read ile): {topics}" if topics else ""
         return (
             f'<{BLOCK_TAG} kaynak="{self.label}" dosya="{self.index_name}">\n'
-            f"{body}{suffix}{topic_line}\n</{BLOCK_TAG}>"
+            f"{body}{suffix}{topic_line}{guide}\n</{BLOCK_TAG}>"
+        )
+
+    def _agent_guide(self) -> str:
+        """Ajan belleğinde dizin yolu: Claude Code'daki gibi Read/Write/Edit ile yönetilir (#24)."""
+        if not self.label.startswith("ajan:"):
+            return ""
+        return (
+            f"\nBellek dizini: {self.directory} — {self.index_name} ve konu dosyalarını "
+            "Read/Write/Edit ile oku ve güncelle."
         )
 
     # ------------------------------------------------------------------ yazma

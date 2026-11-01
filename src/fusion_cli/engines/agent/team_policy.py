@@ -11,7 +11,7 @@ from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
 from .team_scope import derive_sub_context
-from .team_settings import MEMORY_TOOL_NAMES
+from .team_settings import MEMORY_READ_FILE_TOOLS, MEMORY_WRITE_FILE_TOOLS
 from .team_tools_member import TEAM_MEMBER_TOOLS
 
 _LOG = logging.getLogger(__name__)
@@ -72,6 +72,8 @@ def allowed_tools(
     # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
     # denen görevde .fusion/ altına yazıyordu; `disallowedTools: remember` de deliniyordu).
     memory_tools = _memory_tools(persona, subtask)
+    if available:
+        memory_tools &= set(available)
     if allowed is not None and memory_tools:
         allowed = allowed | memory_tools
     # Ekip üyesinin pano araçları (P-061) rol kısıtından (`tools:`) bağımsız açıktır: üye
@@ -100,8 +102,11 @@ def allowed_tools(
 def _memory_tools(persona: Persona, subtask: SubTask) -> set[str]:
     if not persona.memory_scope:
         return set()
-    tools = set(MEMORY_TOOL_NAMES) - set(persona.disallowed_tools)
-    return tools - {"remember"} if subtask.read_only else tools
+    # Claude Code Read/Write/Edit'i kendiliğinden açar (#24); `remember`/`memory_read` aynı
+    # dosyalara giden Fusion kısayollarıdır. Yasak listesi ve salt-okur görev yine kazanır.
+    writes = set() if subtask.read_only else {"remember", *MEMORY_WRITE_FILE_TOOLS}
+    tools = {"memory_read", *MEMORY_READ_FILE_TOOLS, *writes}
+    return tools - set(persona.disallowed_tools)
 
 
 def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[str, ...]) -> None:

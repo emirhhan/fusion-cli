@@ -454,6 +454,9 @@ async def _run_child(
     except ConfigError as error:
         return _Outcome(final_text=str(error), messages=[], tool_calls_made=0, ok=False)
     policy_parent = dataclasses.replace(deps, active_model_override=selected_model)
+    # Tanımdaki `memory` alanı: ajana özel MEMORY.md (P-055, #24); dizin dosya araçlarına açılır.
+    child_memory = team_settings.child_memory(deps, persona)
+    context = team_settings.with_memory_roots(context, child_memory)
     label = team_settings.agent_label(persona, sub_id)
     policy, policy_factory = team_settings.child_policies(policy_parent, persona, label)
     sub_deps = _Deps(
@@ -480,8 +483,7 @@ async def _run_child(
         # Torun, bu ajan için matrisle seçilmiş güncel kipi temel alır.
         approval_mode=team_settings.child_approval_mode(policy_parent, persona),
         policy_for_mode=getattr(deps, "policy_for_mode", None),
-        # Tanımdaki `memory` alanı: ajana özel BELLEK.md (P-055); blok ve araçlar bundan gelir.
-        plain_memory=team_settings.child_memory(deps, persona),
+        plain_memory=child_memory,
         # Belleği olan ajan derslerini de kendine ayırır; olmayan ortak havuza yazar (P-055).
         lesson_owner=persona.name if persona.memory_scope else "",
         effect_recorder=deps.effect_recorder,
