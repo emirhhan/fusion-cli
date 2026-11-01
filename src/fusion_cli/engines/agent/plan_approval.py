@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...core.tools import ToolEffect, ToolFamily, tool_family
+from ...tools.outside_reads import is_read_tool
 
 if TYPE_CHECKING:
     from .approval import ApprovalMemory, ApprovalRequest, Decision, Denial, Prompter
@@ -64,11 +65,11 @@ class PlanApproval:
 def _edits_files(request: ApprovalRequest) -> bool:
     """Plan kipinde sorulmadan engellenen değişiklik mi?
 
-    Yalnız kabuk, web (#55) ve MCP (uzak araç ailesi) çağrısı soruya gider; yerel dosya yazımı, masaüstü
+    Yalnız kabuk, web (#55), çalışma dizini dışı okuma (#56) ve MCP (uzak araç ailesi) çağrısı soruya gider; yerel dosya yazımı, masaüstü
     ve tarayıcı eylemi plan onaylanana dek engellenir.
     """
     family = tool_family(request.tool.name)
-    if family in {ToolFamily.SHELL, ToolFamily.WEB}:
+    if family in {ToolFamily.SHELL, ToolFamily.WEB} or is_read_tool(request.tool.name):
         return False
     return not (family is ToolFamily.EXTERNAL and request.effect is not ToolEffect.LOCAL)
 

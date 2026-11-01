@@ -138,6 +138,7 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
+from ...tools.outside_reads import reads_outside
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
@@ -4298,7 +4299,10 @@ async def _execute(
     # araçlarını da kapıdan geçirir (P-001).
     rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
     if tool is not None and (
-        tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
+        tool.mutating
+        or tool.effect_resolver is not None
+        or _rule_gates(rules, tool, args, deps)
+        or reads_outside(tool.name, args, deps.tool_context)
     ):
         revision = deps.approval_revision() if deps.approval_revision else None
         policy = deps.policy_factory() if deps.policy_factory else deps.policy

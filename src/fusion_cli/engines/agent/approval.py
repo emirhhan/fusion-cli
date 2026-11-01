@@ -53,6 +53,7 @@ from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
+from ...tools.outside_reads import read_roots
 from ...tools.permission_match import RuleMatch, evaluate, writes_files
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
@@ -62,6 +63,7 @@ from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
+from .read_approval import mark_outside_read
 from .web_approval import adjust_web_request, web_scope
 from .sandbox_approval import apply_sandbox_policy
 
@@ -553,6 +555,13 @@ async def resolve_request(
         touched=touched,
         extra_roots=extra_roots,
         rules=rules,
+    )
+    # Çalışma dizinleri dışından okuma (#56): Manuel/acceptEdits/plan sorar.
+    request = mark_outside_read(
+        request,
+        root,
+        read_roots(context),
+        blocked=bool(getattr(context, "block_reads_outside_root", False)),
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
