@@ -57,6 +57,7 @@ from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.sandbox_runtime import asks_unsandboxed
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
+from ...tools.ws_watch import is_ws_watch, ws_url
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .sandbox_approval import apply_sandbox_policy
@@ -645,6 +646,8 @@ def build_request(
     # karşılaştırması `bash`/`shell`/`execute_command` takma adıyla çağrılan bir
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
     effect = effect or tool.effect
+    if is_ws_watch(tool.name, args):
+        return _ws_watch_request(tool, args, effect, rules, root)
     match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
         request = _shell_request(
@@ -686,6 +689,35 @@ def build_request(
         pre_denied=pre_denied,
     )
     return _apply_rule(request, match)
+
+
+def _ws_watch_request(
+    tool: Tool,
+    args: ToolArgs,
+    effect: ToolEffect,
+    rules: PermissionRuleSet | None,
+    root: Path | None,
+) -> ApprovalRequest:
+    """`monitor(ws=…)`: Claude'da WebSocket izlemesi Bash kurallarından geçmez, ayrıca sorulur.
+
+    `Bash` kuralları (çıplak `Bash` izni dahil) uygulanmaz; `Monitor` kuralı uygulanır.
+    """
+    url = ws_url(args) or "?"
+    reason = f"WebSocket izlemesi açıyor: {url}"
+    request = ApprovalRequest(
+        tool=tool,
+        args=args,
+        danger=None,
+        unattended_safe=False,
+        effect=effect,
+        risk=reason,
+        read_only=False,
+        note=reason,
+    )
+    if rules is None:
+        return request
+    own = rules.with_rules(rule for rule in rules.rules if rule.tool != "Bash")
+    return _apply_rule(request, evaluate(own, tool.name, args, root))
 
 
 #: Kök-dışı yazma engeli açıkken (P-002) modele dönen gerekçe.
@@ -861,6 +893,9 @@ def _scope(request: ApprovalRequest) -> str | None:
     farklı bir anahtara düşer, komuta özgü daralma kaybolur ve izin aracın TÜM
     komutlarını kapsayacak kadar genişler.
     """
+    if is_ws_watch(request.tool.name, request.args):
+        # WebSocket izlemesinin oturum izni yalnız aynı adres içindir (#336).
+        return f"monitor:ws:{ws_url(request.args) or ''}"
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         key = f"run_shell:{str(request.args.get('command', '')).strip()}"
         # Sandbox dışı yeniden deneme ayrı izindir: sandbox'lı komuta verilen oturum izni

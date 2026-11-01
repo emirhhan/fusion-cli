@@ -7,6 +7,10 @@ Komut Bash ile aynı izin kurallarından geçer: araç kabuk ailesindedir (`Tool
 onay ve sandbox `run_shell` ile aynı yoldan işler (`start_background`). Kimlik `task_stop`
 ile erken durdurulur.
 
+`ws: {url, protocols?}` kaynağı (Claude v2.1.195+) komut yerine bir WebSocket açar; her metin
+iletisi olaydır (`tools.ws_watch`). Tam olarak biri verilir: `command` ya da `ws`. WebSocket
+izlemesi Bash kurallarından geçmez, ayrıca onay ister.
+
 Satırlar oturumun olay kuyruğuna (`BackgroundEvents`) girer: tur sürerken sıradaki model
 isteğine, oturum boştayken yeni bir tura. Olay metni komut çıktısıdır, kullanıcı talimatı
 sayılmaz (harness notu etiketi).
@@ -58,15 +62,20 @@ def monitor(args: ToolArgs, context: ToolContext) -> ToolResult:
             "Bu oturumda olay kanalı yok (tek atışlık koşu); run_shell run_in_background kullan."
         )
     command = args.get("command")
-    if args.get("ws"):
-        return ToolResult.failure("WebSocket (ws) kaynağı henüz desteklenmiyor; command ver.")
-    if not isinstance(command, str) or not command.strip():
-        return ToolResult.failure("'command' alanı gerekli (her stdout satırı bir olaydır).")
+    has_ws = args.get("ws") is not None
+    if has_ws and command is not None:
+        return ToolResult.failure("Tam olarak biri verilmeli: 'command' ya da 'ws'.")
+    if not has_ws and (not isinstance(command, str) or not command.strip()):
+        return ToolResult.failure(
+            "'command' ya da 'ws' alanı gerekli (her stdout satırı / ileti bir olaydır)."
+        )
     timeout = _timeout_ms(args)
     if isinstance(timeout, ToolResult):
         return timeout
     description = args.get("description")
     label = description.strip() if isinstance(description, str) and description.strip() else ""
+    if has_ws or not isinstance(command, str):
+        return _monitor_ws(args, events, label, timeout)
     started = start_background(command, {"command": command}, context, notify=False)
     data = started.structured or {}
     job_id, log = data.get("task_id"), data.get("output_file")
@@ -78,6 +87,24 @@ def monitor(args: ToolArgs, context: ToolContext) -> ToolResult:
         f"gelir; beklemek için turu bitirebilirsin. Erken bitirmek için task_stop(task_id="
         f"'{job_id}').",
         structured={"taskId": job_id, "timeoutMs": timeout, "persistent": False},
+        is_observation=True,
+    )
+
+
+def _monitor_ws(args: ToolArgs, events: BackgroundEvents, label: str, timeout: int) -> ToolResult:
+    """WebSocket kaynağı: her metin iletisi bir olay (#336)."""
+    from .ws_watch import parse_ws_source, start_ws_watch
+
+    parsed = parse_ws_source(args.get("ws"))
+    if isinstance(parsed, ToolResult):
+        return parsed
+    url, protocols = parsed
+    task_id = start_ws_watch(events, url, protocols, label or url, timeout)
+    return ToolResult(
+        f"WebSocket izlemesi başladı: {task_id} ({url}, süre {timeout // 1000} sn). Her metin "
+        "iletisi bildirim olarak gelir; beklemek için turu bitirebilirsin. Erken bitirmek için "
+        f"task_stop(task_id='{task_id}').",
+        structured={"taskId": task_id, "timeoutMs": timeout, "persistent": False},
         is_observation=True,
     )
 
@@ -153,15 +180,25 @@ class _Watch(threading.Thread):
 
 MONITOR_TOOL = Tool(
     name="monitor",
-    description="Komutu arka planda çalıştır; her çıktı satırı sana bildirim olarak gelir.",
+    description=(
+        "Komutu (command) ya da WebSocket'i (ws) arka planda izle; her satır/ileti bildirim olur."
+    ),
     parameters={
         "type": "object",
         "properties": {
             "command": {"type": "string"},
             "description": {"type": "string"},
             "timeout_ms": {"type": "integer"},
+            "ws": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "protocols": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["url"],
+            },
         },
-        "required": ["command", "description"],
+        "required": ["description"],
     },
     run=monitor,
     mutating=True,

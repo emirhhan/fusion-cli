@@ -27,6 +27,10 @@ def task_stop(args: ToolArgs, context: ToolContext) -> ToolResult:
     job_id = _task_id(args)
     if not job_id:
         return ToolResult.failure("'task_id' alanı gerekli (arka plan işinin kimliği).")
+    from .ws_watch import stop_ws_watch
+
+    if stop_ws_watch(job_id):
+        return ToolResult(f"WebSocket izlemesi {job_id} durduruldu.")
     resolved = _job_id({"id": job_id}, context)
     if isinstance(resolved, ToolResult):
         return resolved

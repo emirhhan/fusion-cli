@@ -73,6 +73,8 @@ _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
     "WebFetch": frozenset({"web_fetch", "download_file"}),
     "WebSearch": frozenset({"web_search"}),
     "Skill": frozenset({"read_skill", "find_skill"}),
+    # Claude Monitor: komut izlemesi Bash kurallarına da tabidir; ws izlemesi yalnız buna (#336).
+    "Monitor": frozenset({"monitor"}),
     # Çekirdekte alt ajan araçları `spawn_agent`/`spawn_agents`tır (ölçüldü, 31 Ekim:
     # yalnız `invoke_agent` bağlıydı, `Agent(*)` deny hiçbir şeyle eşleşmiyordu).
     "Agent": frozenset(

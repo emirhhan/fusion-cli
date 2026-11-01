@@ -167,7 +167,7 @@ def test_ertelenmis_araclar_imzayla_sunulur_job_status_sunulmaz():
     assert {"enter_worktree", "exit_worktree", "monitor", "task_stop"} <= names
     text = render_tool_instructions(registry.schemas(names))
 
-    assert "monitor(command,description,timeout_ms?)" in text
+    assert "monitor(command?,description,timeout_ms?,ws?)" in text
     assert "task_stop(task_id)" in text and "enter_worktree(name?,path?)" in text
     assert "- job_status:" not in text
     assert registry.get("job_status") is not None

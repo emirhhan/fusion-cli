@@ -159,11 +159,15 @@ Claude Code'daki gibi iki kez basılır (tmux ikincisini uygulamaya iletir).
   girer; oturum boştaysa (terminal, TUI, masaüstü) yeni bir tur başlar. Çıktı `read_file` ile
   okunur, iş `task_stop(task_id)` ile durdurulur (Claude TaskStop; eski `shell_id` ve
   `job_status(id, stop=true)` kullanımdan kalkan takma ad, `job_status` şemada sunulmaz).
-- `monitor(command, description, timeout_ms?)` (Claude Monitor): komutu arka planda çalıştırır,
-  her stdout satırı bildirim olarak gelir; süre varsayılan 5 dk, en çok 1 sa kabul edilir, etkin
-  tavan 30 dk; süre dolunca iş durdurulur ve bir kez haber verilir. Komut Bash izin kurallarından
-  ve sandbox'tan geçer; `task_stop` ile erken biter. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
-  iken çalışmaz. Claude'dan fark (henüz): WebSocket kaynağı (`ws`) yok.
+- `monitor(description, command? | ws?, timeout_ms?)` (Claude Monitor): tam olarak biri verilir.
+  `command` arka planda çalışır, her stdout satırı bildirim olarak gelir; `ws: {url, protocols?}`
+  bir WebSocket (`ws://`/`wss://`) açar, her metin iletisi bildirim olur (parçalı ileti
+  birleşir, ping yanıtlanır, ikili çerçeve atlanır). Süre varsayılan 5 dk, en çok 1 sa kabul
+  edilir, etkin tavan 30 dk; süre dolunca izleme durdurulur ve bir kez haber verilir. Komut Bash
+  izin kurallarından ve sandbox'tan geçer; WebSocket izlemesi Claude'daki gibi Bash
+  kurallarından geçmez, ayrıca onay ister (`Monitor` kuralı uygulanır; oturum izni yalnız aynı
+  adres için). İkisi de `task_stop` ile erken biter. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  iken çalışmaz.
 - `/tasks` (`/bashes`) kabuk arka plan işlerini de listeler (`kabuk <kimlik> · sürüyor · komut`);
   `/tasks stop <kimlik>` işi durdurur (süreç başlangıç kimliği doğrulanır).
 - Arka plan işinin ömrü: Fusion kapanırken o oturumun başlattığı işler durdurulur; çıktısı
