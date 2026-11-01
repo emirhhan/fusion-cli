@@ -63,3 +63,40 @@ async def test_claude_env_file_yalniz_izinli_olaylara_verilir(monkeypatch, tmp_p
     await _tur(monkeypatch, tmp_path, [model_result("ok")], session)
     satirlar = sorted(kayit.read_text(encoding="utf-8").split())
     assert satirlar == ["SessionStart=True", "UserPromptSubmit=False"]
+
+
+def _yazan(tmp_path: Path, event: HookEvent, line: str):
+    body = (
+        "import os\n"
+        f"open(os.environ['CLAUDE_ENV_FILE'], 'a', encoding='utf-8').write({line!r} + '\\n')\n"
+    )
+    return _kanca(tmp_path, event, body)
+
+
+def _ortam_metni(session: HookSession) -> str:
+    return "".join(path.read_text(encoding="utf-8") for path in session.env_files())
+
+
+async def test_cwdchanged_onceki_cwd_ve_filechanged_degiskenlerini_temizler(tmp_path):
+    # Claude: CwdChanged/FileChanged değişkenleri "until the next CwdChanged event, when
+    # Claude Code clears them"; SessionStart'ınkiler oturum boyu kalır.
+    session = _oturum(
+        tmp_path,
+        _yazan(tmp_path, HookEvent.SESSION_START, "export A=1"),
+        _yazan(tmp_path, HookEvent.FILE_CHANGED, "export B=2"),
+    )
+    await session.emit(HookEvent.SESSION_START, subjects=("startup",))
+    await session.emit(HookEvent.FILE_CHANGED, subjects=(".envrc",))
+    assert "B=2" in _ortam_metni(session)
+    await session.emit(HookEvent.CWD_CHANGED)
+    metin = _ortam_metni(session)
+    assert "A=1" in metin
+    assert "B=2" not in metin
+
+
+async def test_cwdchanged_kancasinin_yazdigi_sonraki_cwdchanged_e_dek_kalir(tmp_path):
+    session = _oturum(tmp_path, _yazan(tmp_path, HookEvent.CWD_CHANGED, "export C=3"))
+    await session.emit(HookEvent.CWD_CHANGED)
+    assert _ortam_metni(session).count("C=3") == 1
+    await session.emit(HookEvent.CWD_CHANGED)
+    assert _ortam_metni(session).count("C=3") == 1

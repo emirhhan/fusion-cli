@@ -172,8 +172,7 @@ def _share_env_file(deps: AgentDeps, session: HookSession) -> None:
     shared = getattr(getattr(deps, "tool_context", None), "shell_env_files", None)
     if shared is None or not records_tools(deps):
         return
-    env_file = session.env_file()
-    shared[:] = [env_file] if env_file is not None else []
+    shared[:] = session.env_files()
 
 
 @dataclass(frozen=True, slots=True)

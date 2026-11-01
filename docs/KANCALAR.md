@@ -173,7 +173,9 @@ Ortam: Fusion'ınki (MCP sırları ve `OTEL_*` hariç) + `CLAUDE_PROJECT_DIR` /
 `CLAUDE_EFFORT`. `SessionStart`, `CwdChanged` ve `FileChanged` kancalarına ek olarak `CLAUDE_ENV_FILE`
 verilir: kanca bu dosyaya `export AD=değer` satırları ekler (`>>`), oturumdaki her kabuk
 komutu (`run_shell`, arka plan dahil) dosyayı komuttan önce kabuk kodu olarak çalıştırır
-(`export PATH="$PATH:./node_modules/.bin"` gibi satırlar değerlendirilir).
+(`export PATH="$PATH:./node_modules/.bin"` gibi satırlar değerlendirilir). `SessionStart`'ın
+yazdıkları oturum boyu kalır; `CwdChanged` ve `FileChanged`'in yazdıkları bir sonraki
+`CwdChanged`'de temizlenir (Claude Code ile aynı; direnv deseni).
 
 ## Çıktı
 

@@ -16,6 +16,7 @@ yenisi bir sonraki kök turda `SessionStart` (`source: clear|resume`) ile açıl
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -52,6 +53,8 @@ _CLAUDE_MODES = {
 ENV_FILE_EVENTS = frozenset(
     {HookEvent.SESSION_START, HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED}
 )
+#: Değişkenleri bir sonraki CwdChanged'e dek geçerli olan olaylar (ayrı dosya).
+CWD_ENV_EVENTS = frozenset({HookEvent.CWD_CHANGED, HookEvent.FILE_CHANGED})
 
 
 def claude_permission_mode(mode: str) -> str:
@@ -232,6 +235,8 @@ class HookSession:
         `target` (Fusion araç adı, argümanlar) `if` koşulunun değerlendirildiği çağrıdır.
         """
         root = self.project_dir or self.root
+        if event is HookEvent.CWD_CHANGED:
+            self._clear_cwd_env()
         commands = tuple(
             command
             for command in self.current().for_event(event, subjects)
@@ -342,26 +347,40 @@ class HookSession:
 
     def _extra_env(self, event: HookEvent | None = None) -> dict[str, str]:
         extra = {} if self.effort is None else {"CLAUDE_EFFORT": self.effort()}
-        env_file = self.env_file() if event in ENV_FILE_EVENTS else None
+        env_file = self.env_file(event) if event in ENV_FILE_EVENTS else None
         if env_file is not None:
             extra["CLAUDE_ENV_FILE"] = str(env_file)
         return extra
 
-    def env_file(self) -> Path | None:
-        """`CLAUDE_ENV_FILE`: kancaların `export` yazdığı dosya (oturum başına bir tane).
+    def env_file(self, event: HookEvent | None = None) -> Path | None:
+        """`CLAUDE_ENV_FILE`: kancaların `export` yazdığı dosya.
 
-        Kanca `>>` ile ekler; dosya her kabuk komutundan önce çalışır (`shell_env_file`).
-        Döküm klasörü yoksa (alt sistem testleri) `None`.
+        Kanca `>>` ile ekler; dosyalar her kabuk komutundan önce çalışır (`shell_env_file`).
+        SessionStart'ınki oturum boyu kalır; CwdChanged/FileChanged'inki ayrı dosyadadır ve
+        her CwdChanged'de temizlenir (Claude). Döküm klasörü yoksa (alt sistem testleri) `None`.
         """
         if self.transcript_dir is None:
             return None
-        path = self.transcript_dir / f"{self.session_id}-env.sh"
+        suffix = "-cwd-env.sh" if event in CWD_ENV_EVENTS else "-env.sh"
+        path = self.transcript_dir / f"{self.session_id}{suffix}"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
         except OSError:
             return None
         return path
+
+    def env_files(self) -> list[Path]:
+        """Kabuk önsözü sırası: önce oturum, sonra dizin (CwdChanged/FileChanged) dosyası."""
+        found = (self.env_file(), self.env_file(HookEvent.CWD_CHANGED))
+        return [path for path in found if path is not None]
+
+    def _clear_cwd_env(self) -> None:
+        """CwdChanged: önceki CwdChanged/FileChanged kancalarının değişkenleri kalkar."""
+        path = self.env_file(HookEvent.CWD_CHANGED)
+        if path is not None:
+            with contextlib.suppress(OSError):
+                path.write_text("", encoding="utf-8")
 
     def defer(
         self,
