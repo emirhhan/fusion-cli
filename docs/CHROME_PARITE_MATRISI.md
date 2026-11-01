@@ -91,7 +91,8 @@ Claude Code ile aynı akış (code.claude.com/docs/en/chrome):
   ve hassas alana yazma (parola, kart, CVV, IBAN, kimlik numarası).
 - Sorulan adımlar (kipe göre): gönder, paylaş, sil, oturumu kapat, mesaj kutusunda Enter, `form submit`, sekme kapatma.
 - Dosya yükleme (#437): toplam 10 MB; sabit bağlantılı (hard link) dosya, kimlik bilgisi adı taşıyan dosya
-  (`.env`, `.pem`, `.key`, `.ssh/…`, `.aws/…`) ve `sandbox.deny_read` altındaki dosya reddedilir.
+  (`.env`, `.pem`, `.key`, `.ssh/…`, `.aws/…`) ve `sandbox.deny_read` altındaki dosya reddedilir; `Read(...)` izin
+  kuralları yüklemeye de uygulanır (`deny` reddeder, `ask` sorar; `allow` yüklemeyi genişletmez).
 - Yerel adresler (#438): projenin çalışan önizleme/dev sunucularının kökenleri onaysız açılır; diğer yerel portlar,
   özel ağ ve metadata ucu kapalıdır.
 - Panel turlarında sunucu tarafı `web_fetch`/`web_search` yoktur (girişli oturumu görmez).

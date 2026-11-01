@@ -47,6 +47,7 @@ from ..config.permission_rules import (
 )
 from ..core.tools import ToolFamily, tool_family
 from .auto_policy import command_words, nested_command, written_files
+from .upload_rules import upload_read_rule_matches
 from .write_targets import WRITE_TOOLS, write_targets
 
 #: Claude'un `Read` kuralının kapsadığı Fusion araçları (okuma, listeleme, arama).
@@ -222,6 +223,8 @@ def matches(
     rule: PermissionRule, tool_name: str, args: Mapping[str, object], root: Path | None
 ) -> bool:
     """Kural bu çağrıya uyuyor mu? (Kabuk zinciri için `evaluate` kullanılır.)"""
+    if upload_read_rule_matches(rule, tool_name, args, _path_matches, root):
+        return True  # Chrome yüklemesi `Read` kuralına da tabidir (#437).
     if not _tool_matches(rule, tool_name):
         return False
     if rule.specifier is None:
