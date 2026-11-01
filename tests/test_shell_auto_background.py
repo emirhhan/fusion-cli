@@ -93,3 +93,18 @@ def test_devir_istegi_suren_komut_yoksa_false():
     from fusion_cli.core import foreground_handoff
 
     assert foreground_handoff.request_background() is False
+
+
+def test_tasinan_komuttaki_cd_kalici_olmaz_notu(tmp_path, monkeypatch):
+    """Claude Code: 'Session cwd remains <dir>; …' notu (#374)."""
+    from fusion_cli.tools.shell_adopt import _changes_directory
+
+    assert _changes_directory("cd alt && sleep 9")
+    assert _changes_directory("echo a; pushd x")
+    assert not _changes_directory("echo abcd")
+    monkeypatch.delenv("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", raising=False)
+    (tmp_path / "alt").mkdir()
+    context = ToolContext(root=tmp_path, shell_fingerprint=False)
+    sonuc = shell.run_shell({"command": "cd alt && echo a && sleep 3", "timeout": 500}, context)
+    assert f"Oturum dizini {tmp_path} olarak kalır" in sonuc.output
+    job_status({"id": _kimlik(sonuc.output), "stop": True}, context)

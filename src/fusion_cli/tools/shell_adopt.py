@@ -13,6 +13,7 @@ Sahiplik doğrulaması için `run_foreground(ownership_marker=…)` komut başı
 from __future__ import annotations
 
 import logging
+import re
 import shlex
 import threading
 import uuid
@@ -86,9 +87,22 @@ def adopt(
         f"Durum ve son çıktı için job_status(id='{job_id}', wait_s=...) çağır; "
         "gerekirse job_status(id, stop=true) ile durdur."
     )
+    if _changes_directory(command):
+        text += (
+            f"\nOturum dizini {context.root} olarak kalır; arka plana taşınan komuttaki dizin "
+            "değişiklikleri sonraki komutlara uygulanmaz."
+        )
     if partial:
         text += f"\n\n[şimdiye kadarki çıktı]\n{partial[-2000:]}"
     return ToolResult(text, job_completion=delivery)
+
+
+_CD_WORDS = re.compile(r"(?:^|[;&|(]\s*|\s)(?:cd|pushd|popd|chdir)(?:\s|$|;)")
+
+
+def _changes_directory(command: str) -> bool:
+    """Komutta `cd`/`pushd`/`popd`/`chdir` var mı (Claude: taşınan komutta kalıcı olmaz, #374)?"""
+    return bool(_CD_WORDS.search(command))
 
 
 class _LogSink:
