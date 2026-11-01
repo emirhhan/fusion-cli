@@ -96,3 +96,22 @@ async def test_tui_diff_goruntuleyiciyi_acar(state: ReplState) -> None:
     assert session.tui._choice_alt_keys == ("left", "right")
     session.tui._resolve(None)
     await task
+
+
+def test_git_gorunumu_turkce_ve_yeniden_adlandirilmis_dosya_farkini_acar(state: ReplState) -> None:
+    # `core.quotepath` açıkken numstat Türkçe adı tırnaklı sekizlik kaçışla verir; ad pathspec
+    # olarak aynen kullanılırsa fark boş gelir. Yeniden adlandırma `old => new` biçimindedir.
+    (state.root / "türkçe.txt").write_text("eski\n", encoding="utf-8")
+    (state.root / "yildiz[1].txt").write_text("x\n", encoding="utf-8")
+    _git(state.root, "add", ".")
+    _git(state.root, "commit", "-qm", "iki")
+    _git(state.root, "config", "core.quotepath", "true")
+    (state.root / "türkçe.txt").write_text("yeni\n", encoding="utf-8")
+    (state.root / "yildiz[1].txt").write_text("y\n", encoding="utf-8")
+    _git(state.root, "mv", "a.txt", "b.txt")
+    view = diff_viewer.views(state)[0]
+    assert set(view.files) == {"türkçe.txt", "yildiz[1].txt", "a.txt", "b.txt"}
+    assert "+yeni" in view.diff_of("türkçe.txt")
+    assert "+y" in view.diff_of("yildiz[1].txt")
+    assert "-bir" in view.diff_of("a.txt")
+    assert "+bir" in view.diff_of("b.txt")

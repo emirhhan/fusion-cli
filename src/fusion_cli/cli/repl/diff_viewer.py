@@ -35,14 +35,28 @@ class DiffView:
     diff_of: Callable[[str], list[str]]
 
 
+#: Ad kaçışsız (`-z`, `core.quotepath` kapalı), yeniden adlandırma iki ayrı dosya (`old => new`
+#: biçimi pathspec olamaz); fark açılırken ad glob değil birebir yol (`:(literal)`).
+_GIT_QUIET_NAMES = ("-c", "core.quotepath=false")
+
+
+def _numstat_files(numstat: str) -> tuple[str, ...]:
+    """`git diff --numstat -z --no-renames` çıktısı: `ekl<TAB>sil<TAB>ad<NUL>` kayıtları."""
+    records = (record.split("\t", 2) for record in numstat.split("\0"))
+    return tuple(parts[2] for parts in records if len(parts) == 3 and parts[2])
+
+
 def _git_view(state: ReplState) -> DiffView | None:
-    numstat = _git(state.root, "diff", "HEAD", "--numstat")
+    numstat = _git(state.root, *_GIT_QUIET_NAMES, "diff", "HEAD", "--numstat", "-z", "--no-renames")
     if numstat is None:
         return None
-    files = tuple(line.split("\t", 2)[2] for line in numstat.splitlines() if line.count("\t") >= 2)
+    files = _numstat_files(numstat)
 
     def _diff(name: str) -> list[str]:
-        return (_git(state.root, "diff", "HEAD", "--", name) or "").splitlines()
+        output = _git(
+            state.root, *_GIT_QUIET_NAMES, "diff", "HEAD", "--no-renames", "--", f":(literal){name}"
+        )
+        return (output or "").splitlines()
 
     return DiffView(messages.DIFF_VIEW_GIT, files, _diff)
 
