@@ -294,9 +294,13 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
-- Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) yoksa `Elicitation`
-  kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
-  kancaları kullanılır.
+- Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) henüz yok. Bağlanan
+  oturumda `Elicitation` kancası yoksa Fusion elicitation yeteneğini MCP sunucusuna hiç
+  bildirmez (sunucu yeteneksiz yoluna düşer); kanca varsa bildirir, kanca karar vermediğinde
+  istek `cancel` ile döner ve `ElicitationResult` çalışmaz. Sunucu isteği o sunucuya o an
+  çağrı yapan oturumun kancalarından geçer (masaüstünde her sohbet kendi kancalarıyla).
+  Bağlantı oturumlar arasında paylaşıldığından yetenek, bağlantıyı ilk kuran oturumun
+  kancalarına göre belirlenir.
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli
   `fusion --init`/`--init-only`/`--maintenance` tetikler.
 - `WorktreeCreate` kancasının kurduğu ağaçta `exit_worktree` aracı ağacı tanımaz

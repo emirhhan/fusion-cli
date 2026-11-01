@@ -53,6 +53,10 @@ class SessionElicitationHooks:
     def __init__(self, session: HookSession) -> None:
         self._session = session
 
+    def handles(self, server: str) -> bool:
+        del server  # eşleştirici istek anında uygulanır; yetenek kanca varlığına bağlı
+        return self._session.has(HookEvent.ELICITATION)
+
     async def before(self, request: ElicitationRequest) -> ElicitationAnswer | None:
         if not self._session.has(HookEvent.ELICITATION):
             return None

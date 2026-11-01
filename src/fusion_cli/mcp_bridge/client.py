@@ -37,7 +37,7 @@ from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_reso
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .elicitation_hooks import with_completion_notice, with_elicitation_hooks
+from .elicitation_hooks import elicitation_callback_for, elicitation_scope, with_completion_notice
 from .failures import STATE_CONNECTED
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
@@ -223,7 +223,8 @@ class McpClient:
                             ),
                         ),
                         # Elicitation/ElicitationResult kancaları; soru varsa kullanıcıya (#90).
-                        elicitation_callback=with_elicitation_hooks(config.name),
+                        # Yanıtlayacak taraf yoksa None: yetenek sunucuya bildirilmez (#125).
+                        elicitation_callback=elicitation_callback_for(config.name),
                     )
                 )
                 await session.initialize()
@@ -343,7 +344,7 @@ class McpClient:
         "görev başarısız" görüyordu.
         """
         session = self._session(server)
-        with self._tracker.track(server) as scope:
+        with self._tracker.track(server) as scope, elicitation_scope(server):
             try:
                 async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
                     result = await session.call_tool(name, args)
@@ -390,14 +391,16 @@ class McpClient:
 
     async def get_prompt(self, server: str, name: str, arguments: dict[str, str]) -> str:
         """`prompts/get` → görev metni."""
-        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-            result = await self._session(server).get_prompt(name, arguments or None)
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).get_prompt(name, arguments or None)
         return prompt_text(result)
 
     async def read_resource(self, server: str, uri: str) -> str:
         """`resources/read` → maskeli, sınırlı bağlam bloğu."""
-        async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-            result = await self._session(server).read_resource(as_uri(uri))
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).read_resource(as_uri(uri))
         return resource_block(server, uri, result)
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:

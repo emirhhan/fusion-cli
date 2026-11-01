@@ -11,13 +11,24 @@ Bu modül `mcp_bridge` katmanındadır: kanca oturumunu tanımaz, yalnız kayıt
 Kullanıcıya soran iç geri çağırım varsa (`mcp_bridge.elicitation.elicitation_callback`) o
 kullanılır; yoksa kanca karar vermediğinde istek `cancel` ile döner (kullanıcı yerine hiçbir
 şey uydurulmaz).
+
+Yetenek: soran modül de bağlanan oturumda `Elicitation` kancası da yoksa geri çağırım hiç
+verilmez (`elicitation_callback_for` → None); SDK elicitation yeteneğini sunucuya bildirmez
+ve sunucu yeteneksiz yoluna düşer (sessiz `cancel` yok).
+
+Oturum başına: danışman süreç geneli değil, oturum bağlamına (ContextVar) kaydedilir. MCP
+bağlantısı oturumlar arasında paylaşılabildiği ve sunucu isteği bağlantının alım görevinden
+geldiği için istek, o sunucuya o an çağrı yapan oturumun danışmanına gider
+(`elicitation_scope`); çağrı bitince kayıt düşer, kapanmış oturuma referans kalmaz.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -48,6 +59,9 @@ class ElicitationAnswer:
 
 
 class ElicitationHooks(Protocol):
+    def handles(self, server: str) -> bool:
+        """Bu sunucunun isteğini yanıtlayabilecek bir `Elicitation` kancası var mı?"""
+
     async def before(self, request: ElicitationRequest) -> ElicitationAnswer | None: ...
 
     def dialog(self, request: ElicitationRequest) -> None:
@@ -61,16 +75,51 @@ class ElicitationHooks(Protocol):
     ) -> ElicitationAnswer: ...
 
 
-_HOOKS: list[ElicitationHooks | None] = [None]
+_CURRENT: ContextVar[ElicitationHooks | None] = ContextVar("fusion_elicitation_hooks", default=None)
+#: Sunucu adı → o sunucuya şu an çağrı yapan oturumların danışmanları (son giren önce).
+_ACTIVE: dict[str, list[ElicitationHooks]] = {}
+#: url kipinde tamamlandı bildirimi çağrı bittikten sonra gelebilir: kimlik → danışman.
+_URL_OWNERS: dict[str, ElicitationHooks] = {}
+_URL_OWNER_LIMIT = 32
 
 
 def register_elicitation_hooks(hooks: ElicitationHooks | None) -> None:
-    """Oturumun kanca danışmanını kaydet (None: kaldır)."""
-    _HOOKS[0] = hooks
+    """Bu oturum bağlamının kanca danışmanını kaydet (None: kaldır)."""
+    _CURRENT.set(hooks)
 
 
 def registered_elicitation_hooks() -> ElicitationHooks | None:
-    return _HOOKS[0]
+    return _CURRENT.get()
+
+
+@contextlib.contextmanager
+def elicitation_scope(server: str) -> Iterator[None]:
+    """Çağrı süresince sunucudan gelen elicitation bu bağlamın danışmanına gider."""
+    hooks = _CURRENT.get()
+    if hooks is None:
+        yield
+        return
+    stack = _ACTIVE.setdefault(server, [])
+    stack.append(hooks)
+    try:
+        yield
+    finally:
+        stack.remove(hooks)
+        if not stack:
+            _ACTIVE.pop(server, None)
+
+
+def _hooks_for(server: str) -> ElicitationHooks | None:
+    stack = _ACTIVE.get(server)
+    return stack[-1] if stack else None
+
+
+def _remember_url_owner(elicitation_id: str, hooks: ElicitationHooks) -> None:
+    if not elicitation_id:
+        return
+    _URL_OWNERS[elicitation_id] = hooks
+    while len(_URL_OWNERS) > _URL_OWNER_LIMIT:
+        _URL_OWNERS.pop(next(iter(_URL_OWNERS)))
 
 
 def request_of(server: str, params: object) -> ElicitationRequest:
@@ -111,15 +160,28 @@ def _result(answer: ElicitationAnswer) -> types.ElicitResult:
     return types.ElicitResult(action=answer.action, content=content)  # type: ignore[arg-type]
 
 
+def elicitation_callback_for(server: str, inner: Callback | None = None) -> ElicitationFnT | None:
+    """Bağlantının geri çağırımı; yanıtlayacak taraf yoksa None (yetenek bildirilmez)."""
+    asking = inner if inner is not None else _asking_callback(server)
+    if asking is _cancel:
+        hooks = _CURRENT.get()
+        handles = getattr(hooks, "handles", None)
+        if not (callable(handles) and handles(server)):
+            return None
+    return with_elicitation_hooks(server, asking)
+
+
 def with_elicitation_hooks(server: str, inner: Callback | None = None) -> ElicitationFnT:
     """`ClientSession(elicitation_callback=…)`: kancalar + (karar yoksa) kullanıcıya sorma."""
     asking = inner if inner is not None else _asking_callback(server)
 
     async def _callback(context: object, params: object) -> types.ElicitResult | types.ErrorData:
-        hooks = _HOOKS[0]
+        hooks = _hooks_for(server)
         if hooks is None:
             return await asking(context, params)
         request = request_of(server, params)
+        if request.mode == "url":
+            _remember_url_owner(request.elicitation_id, hooks)
         try:
             decided = await hooks.before(request)
         except Exception as error:  # kanca katmanı düşerse soru normal akışla sorulur
@@ -149,9 +211,11 @@ def with_completion_notice(server: str, inner: MessageHandlerFnT) -> MessageHand
 
     async def _handle(message: object) -> None:
         root = getattr(message, "root", None)
-        hooks = _HOOKS[0]
-        if isinstance(root, types.ElicitCompleteNotification) and hooks is not None:
-            hooks.completed(server, str(root.params.elicitationId))
+        if isinstance(root, types.ElicitCompleteNotification):
+            elicitation_id = str(root.params.elicitationId)
+            hooks = _URL_OWNERS.pop(elicitation_id, None) or _hooks_for(server)
+            if hooks is not None:
+                hooks.completed(server, elicitation_id)
         await inner(message)  # type: ignore[arg-type]
 
     return cast(MessageHandlerFnT, _handle)
