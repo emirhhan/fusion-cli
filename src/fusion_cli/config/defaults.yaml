@@ -1012,17 +1012,11 @@ desktop:
   # Bu bilgisayar › "Computer use'u etkinleştir"; CLI'de proje başına `/mcp enable computer-use`.
   # Etkileşimsiz yolda (-p, arka plan işi, `fusion mcp`) her zaman kapalıdır.
   enabled: false
-  # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
-  control_level: full
-  # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
-  # yöneticisi = engelli. false: her uygulama control_level alır.
-  category_defaults: true
-  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği).
+  # Kademeler Claude Code gibi uygulama kategorisine göre SABİT: tarayıcı ve yatırım platformu =
+  # yalnız bak, terminal/IDE = tıkla, diğer her şey = tam kontrol. Uygulama ilk kez
+  # kullanılırken her kipte "Bu oturum için izin ver / Reddet" sorulur.
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği); sorulmadan reddedilir.
   denied_apps: []
-  # Uygulama başına kademe, kategoriyi ezer: ["Terminal=full", "com.apple.Safari=click"].
-  app_levels: []
-  # Bir uygulama oturumda ilk kez kullanılırken sor ("Bu oturum / Reddet / Her zaman reddet").
-  app_consent: true
   # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
   # hedef uygulama ve Fusion dışındakiler gizlenir.
   background: true

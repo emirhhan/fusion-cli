@@ -148,20 +148,15 @@ async def test_riskli_tik_oturum_izni_olsa_da_her_seferinde_sorulur(tmp_path, pr
     assert request.can_remember is False
 
 
-async def test_terminalde_enter_her_seferinde_sorulur(tmp_path, probe):
+async def test_terminalde_klavye_sabit_kademe_yuzunden_kapanir(tmp_path, probe):
+    """#424: Terminal "Click only"; eski `app_levels` ile tam kontrole çıkarılamaz."""
     probe["answer"] = _answer("Terminal", "com.apple.Terminal")
     context = _context(tmp_path, app_levels=("Terminal=full",))
-    memory = ApprovalMemory()
-    request, _decision, prompter = await _decide(
-        "desktop_key", {"key": "enter"}, context, ApprovalMode.AUTO, memory
+    request, decision, prompter = await _decide(
+        "desktop_key", {"key": "enter"}, context, ApprovalMode.AUTO, ApprovalMemory()
     )
-    assert "Enter komutu" in (request.danger or "") and len(prompter.asked) == 1
-    # Ok tuşu riskli değildir: oturum onayıyla bir kez sorulur, sonra sorulmaz.
-    for _ in range(2):
-        request, _decision, prompter = await _decide(
-            "desktop_key", {"key": "up"}, context, ApprovalMode.AUTO, memory
-        )
-    assert request.danger is None and prompter.asked == []
+    assert decision is Decision.BLOCKED and prompter.asked == []
+    assert "run_shell" in (request.pre_denied or "")
 
 
 # --- İnceleme (31 Ekim): down/up, sohbet uygulamasında Enter, rol öneki ------------------------

@@ -55,12 +55,12 @@ def consent_key(app_key: str) -> str:
 
 
 def apply_desktop(
-    request: ApprovalRequest, assessment: DesktopAssessment | None, *, consent: bool = True
+    request: ApprovalRequest, assessment: DesktopAssessment | None
 ) -> ApprovalRequest:
     """İsteği masaüstü kararıyla güncelle; karar yoksa olduğu gibi döndür.
 
-    `consent` = `desktop.app_consent`: kapalıysa sıradan eylem gözetimsiz çalışabilir
-    (`REMOTE_INTERACT`, otomatik kipte sorulmaz); riskli eylem ve engel yine geçerlidir.
+    Uygulama onayı her zaman sorulur (#426: Claude'da istemi kapatan ayar yok; eski
+    `desktop.app_consent` okunur ama uygulanmaz).
     """
     if assessment is None:
         return request
@@ -99,16 +99,6 @@ def apply_desktop(
             desktop_target=target,
         )
     level = target.level.label
-    if not consent:
-        return replace(
-            request,
-            effect=ToolEffect.REMOTE_INTERACT,
-            risk=None,
-            unattended_safe=True,
-            read_only=False,
-            note=target.warning or None,
-            desktop_target=target,
-        )
     reason = CONSENT_REASON.format(app=target.app, level=level)
     note = f"{reason} {target.warning}".strip()
     return replace(

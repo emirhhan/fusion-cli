@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from ..config.desktop_denied import with_denied_app
 from ..config.models import Config
 from ..config.settings_access import format_value, write_setting
-from ..core.desktop_settings import DesktopLevel, DesktopSettings
+from ..core.desktop_settings import DEPRECATED_KEYS, DesktopLevel, DesktopSettings
 from ..core.errors import ConfigError
 from ..tools.desktop import running_app_names
 
@@ -30,8 +30,12 @@ COMPUTER_ROUTES = frozenset(
         "bilgisayar.uygulama_reddet",
     }
 )
-#: Arayüzden yazılabilen alanlar: `DesktopSettings`'in tamamı.
-SETTING_KEYS = tuple(field.name for field in dataclasses.fields(DesktopSettings))
+#: Arayüzden yazılabilen alanlar: `DesktopSettings`'in kullanımdan kalkmamış alanları (#424).
+SETTING_KEYS = tuple(
+    field.name
+    for field in dataclasses.fields(DesktopSettings)
+    if field.name not in DEPRECATED_KEYS
+)
 
 
 def settings_view(config: Config) -> dict[str, object]:

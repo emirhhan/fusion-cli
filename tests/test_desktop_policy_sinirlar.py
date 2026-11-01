@@ -160,7 +160,8 @@ def test_fusion_adi_gecen_ilgisiz_uygulama_engellenmez(app, bundle):
 )
 async def test_desktop_open_uzanti_yol_ve_paket_adiyla_da_engellenir(tmp_path, probe, name):
     request, decision, _ = await _decide(
-        "desktop_open", {"app": name}, _context(tmp_path), ApprovalMode.BYPASS
+        "desktop_open", {"app": name}, _context(tmp_path, denied_apps=("Binance", "com.binance.desktop")),
+        ApprovalMode.BYPASS,
     )
     assert decision is Decision.BLOCKED and request.pre_denied
     _, decision, _ = await _decide(

@@ -29,3 +29,7 @@
 .computer-settings__add input:focus-visible,
 .computer-settings__add select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 720px) { .computer-settings__add { grid-template-columns: 1fr; } }
+.computer-settings__tiers { border-collapse: collapse; width: 100%; font-size: 13px; }
+.computer-settings__tiers th, .computer-settings__tiers td { padding: 6px 8px; text-align: left; vertical-align: top; }
+.computer-settings__tiers tbody tr + tr { border-top: 1px solid var(--settings-border); }
+.computer-settings__tiers thead th { color: var(--settings-muted, inherit); font-weight: 500; }

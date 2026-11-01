@@ -550,7 +550,7 @@ async def resolve_request(
         return request
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
     assessment = await desktop_policy.assess(tool.name, args, context)
-    return apply_desktop(request, assessment, consent=context.desktop_settings.app_consent)
+    return apply_desktop(request, assessment)
 
 
 def build_request(

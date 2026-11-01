@@ -1,27 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../../protocol/client";
 import { Button } from "../../ui/Button";
-import { ChoiceCards, Field, PanelGroup, PanelIntro, ToggleRow } from "../PanelParts";
+import { Field, PanelGroup, PanelIntro, ToggleRow } from "../PanelParts";
 import "./Computer.css";
 
 /**
  * Ayarlar › Bu bilgisayar — bilgisayar kullanımı (computer use) tercihleri (P-006, P-007).
  *
- * Claude Desktop "This computer" karşılığı: etkinleştirme anahtarı, kademe tavanı (yalnız bak /
- * tıkla / tam kontrol), kategori tablosu, reddedilen uygulamalar, uygulama başına kademe ve
- * tur davranışı (arka plan, gizlenenleri geri göster, Esc ile durdur). Değerler çekirdekte
- * `desktop:` bölümüne yazılır (`bilgisayar.ayar_yaz`); CLI'de `fusion config set desktop.<alan>`.
+ * Claude Desktop "This computer" karşılığı: etkinleştirme anahtarı (varsayılan kapalı, #420),
+ * sabit kademe tablosu (#424: "These tiers are fixed by app category and can't be changed"),
+ * reddedilen uygulamalar ve tur davranışı (arka plan, gizlenenleri geri göster, Esc ile durdur).
+ * Değerler çekirdekte `desktop:` bölümüne yazılır (`bilgisayar.ayar_yaz`).
  */
-
-export type ComputerLevel = "observe" | "click" | "full";
 
 export interface ComputerSettings {
   enabled: boolean;
-  control_level: ComputerLevel;
-  category_defaults: boolean;
   denied_apps: string[];
-  app_levels: string[];
-  app_consent: boolean;
   background: boolean;
   unhide_on_finish: boolean;
   escape_stops: boolean;
@@ -29,26 +23,20 @@ export interface ComputerSettings {
 
 type Key = keyof ComputerSettings;
 
-const LEVELS: { value: ComputerLevel; title: string; description: string }[] = [
-  { value: "observe", title: "Yalnız bak", description: "Ekranı görür; tıklamaz, yazmaz." },
-  { value: "click", title: "Tıkla", description: "Tıklar ve kaydırır; yazmaz, kısayol kullanmaz." },
-  { value: "full", title: "Tam kontrol", description: "Tıklar, yazar, sürükler, kısayol kullanır." },
+/** Claude Desktop "App permissions" tablosu; değiştirilemez. */
+const TIERS: { title: string; can: string; applies: string }[] = [
+  { title: "Yalnız bak", can: "Uygulamayı ekran görüntüsünde görür", applies: "Tarayıcılar, yatırım platformları" },
+  { title: "Tıkla", can: "Tıklar ve kaydırır; yazmaz, kısayol kullanmaz", applies: "Terminaller, IDE'ler" },
+  { title: "Tam kontrol", can: "Tıklar, yazar, sürükler, kısayol kullanır", applies: "Diğer her şey" },
 ];
-
-const LEVEL_LABEL: Record<ComputerLevel, string> = { observe: "Yalnız bak", click: "Tıkla", full: "Tam kontrol" };
 
 function readSettings(value: unknown): ComputerSettings | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const list = (item: unknown) => (Array.isArray(item) ? item.filter((entry): entry is string => typeof entry === "string") : []);
-  const level = raw.control_level === "observe" || raw.control_level === "click" ? raw.control_level : "full";
   return {
-    enabled: raw.enabled !== false,
-    control_level: level,
-    category_defaults: raw.category_defaults !== false,
+    enabled: raw.enabled === true,
     denied_apps: list(raw.denied_apps),
-    app_levels: list(raw.app_levels),
-    app_consent: raw.app_consent !== false,
     background: raw.background !== false,
     unhide_on_finish: raw.unhide_on_finish !== false,
     escape_stops: raw.escape_stops !== false,
@@ -62,8 +50,6 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<Key | null>(null);
   const [newDenied, setNewDenied] = useState("");
-  const [newLevelApp, setNewLevelApp] = useState("");
-  const [newLevel, setNewLevel] = useState<ComputerLevel>("click");
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -120,20 +106,13 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
     setNewDenied("");
     void save("denied_apps", [...settings.denied_apps, name]);
   };
-  const addLevel = () => {
-    const name = newLevelApp.trim();
-    if (!name || name.includes("=") || name.includes(",")) return;
-    const kept = settings.app_levels.filter((entry) => entry.split("=")[0].trim().toLocaleLowerCase("tr") !== name.toLocaleLowerCase("tr"));
-    setNewLevelApp("");
-    void save("app_levels", [...kept, `${name}=${newLevel}`]);
-  };
   const off = !settings.enabled;
 
   return (
     <article className="settings__card" data-testid="computer-settings" id="settings-computer">
       <PanelIntro title="Bilgisayar kullanımı">
-        Fusion'ın ekranı görmesi, tıklaması ve yazması. Her eylem yine onay politikasından geçer;
-        gönder, sil, öde gibi riskli düğmeler ve Sistem Ayarları her seferinde sorulur.
+        Fusion'ın ekranı görmesi, tıklaması ve yazması. Bir uygulama oturumda ilk kez
+        kullanılırken "Bu oturum için izin ver / Reddet" sorulur.
       </PanelIntro>
       {error && <p className="settings__warning" role="alert">{error}</p>}
       {notice && <p className="settings__hint" role="status">{notice}</p>}
@@ -144,31 +123,15 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
           description="Kapalıyken desktop_* araçları modele hiç sunulmaz."
           disabled={busy === "enabled"}
           onChange={(value) => void save("enabled", value)}
-          title="Bilgisayar kullanımını etkinleştir"
+          title="Computer use'u etkinleştir"
         />
-        <ChoiceCards
-          disabled={off || busy === "control_level"}
-          legend="Uygulamalar en çok"
-          name="computer-level"
-          note="Tavandır: kategori ya da uygulama ayarı bunu aşamaz."
-          onChange={(value) => void save("control_level", value as ComputerLevel)}
-          options={LEVELS}
-          value={settings.control_level}
-        />
-        <ToggleRow
-          checked={settings.category_defaults}
-          description="Tarayıcılar yalnız bak, terminal ve IDE'ler tıkla; yatırım, kripto ve parola yöneticileri engelli."
-          disabled={off || busy === "category_defaults"}
-          onChange={(value) => void save("category_defaults", value)}
-          title="Kategori kademeleri"
-        />
-        <ToggleRow
-          checked={settings.app_consent}
-          description="Bir uygulama oturumda ilk kez kullanılırken sorulur: Bu oturum / Reddet / Her zaman reddet."
-          disabled={off || busy === "app_consent"}
-          onChange={(value) => void save("app_consent", value)}
-          title="Uygulama başına onay"
-        />
+      </PanelGroup>
+
+      <PanelGroup note="Kademeler uygulama kategorisine göre sabittir ve değiştirilemez." title="Uygulama izinleri">
+        <table aria-label="Uygulama kademeleri" className="computer-settings__tiers">
+          <thead><tr><th scope="col">Kademe</th><th scope="col">Yapabildiği</th><th scope="col">Uygulandığı</th></tr></thead>
+          <tbody>{TIERS.map((tier) => <tr key={tier.title}><th scope="row">{tier.title}</th><td>{tier.can}</td><td>{tier.applies}</td></tr>)}</tbody>
+        </table>
       </PanelGroup>
 
       <PanelGroup note="Fusion bu uygulamalara tıklamaz, yazmaz; pencereleri ekran görüntüsüne ve pencere listelerine girmez (dışlanamıyorsa görüntü alınmaz)." title="Reddedilen uygulamalar">
@@ -192,32 +155,6 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
         </Field>
       </PanelGroup>
 
-      <PanelGroup note="Kategori kademesini ezer; tavanı ve ret listesini ezmez." title="Uygulama kademeleri">
-        {settings.app_levels.length === 0 && <p className="px-note">Uygulamaya özel kademe yok; kategori kademesi geçerli.</p>}
-        {settings.app_levels.length > 0 && <ul aria-label="Uygulama kademeleri" className="computer-settings__list">
-          {settings.app_levels.map((entry) => {
-            const [name, level] = entry.split("=");
-            return (
-              <li key={entry}>
-                <span>{name.trim()} · {LEVEL_LABEL[(level?.trim() as ComputerLevel)] ?? level}</span>
-                <Button disabled={busy !== null} onClick={() => void save("app_levels", settings.app_levels.filter((item) => item !== entry))} variant="secondary">Kaldır</Button>
-              </li>
-            );
-          })}
-        </ul>}
-        <Field label="Kademe ekle">
-          {(id) => (
-            <div className="computer-settings__add">
-              <input aria-label="Uygulama adı" id={id} list="computer-running-apps" onChange={(event) => setNewLevelApp(event.target.value)} value={newLevelApp} />
-              <select aria-label="Kademe" onChange={(event) => setNewLevel(event.target.value as ComputerLevel)} value={newLevel}>
-                {LEVELS.map((level) => <option key={level.value} value={level.value}>{level.title}</option>)}
-              </select>
-              <Button disabled={busy !== null || !newLevelApp.trim()} onClick={addLevel} variant="primary">Ekle</Button>
-            </div>
-          )}
-        </Field>
-      </PanelGroup>
-
       <PanelGroup title="Tur davranışı">
         <ToggleRow
           checked={settings.background}
@@ -231,7 +168,7 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
           description="Tur bitince Fusion'ın gizlediği uygulamalar yeniden gösterilir."
           disabled={off || busy === "unhide_on_finish"}
           onChange={(value) => void save("unhide_on_finish", value)}
-          title="Bitince uygulamaları geri göster"
+          title="Bitince uygulamaları geri göster (Unhide apps when Claude finishes)"
         />
         <ToggleRow
           checked={settings.escape_stops}

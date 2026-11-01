@@ -378,8 +378,18 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
     `can_persist` istekte "bir daha sorma" (kalıcı kural, P-003) de sunulur; açıklama
     yazılacak kuralı gösterir ki kullanıcı neye izin verdiğini görsün.
     """
-    options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     target = request.desktop_target
+    if target is not None and request.consent_key is not None:
+        # Uygulama onayı (#426): Claude'daki gibi yalnız "Allow for this session / Deny";
+        # tek çağrılık "Evet" ve "Her zaman reddet" yok (ret listesi Ayarlar'dan yönetilir).
+        session = {
+            "deger": "session",
+            "etiket": messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app),
+        }
+        if request.remembered_scope_description:
+            session["aciklama"] = request.remembered_scope_description
+        return [session, {"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY}]
+    options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     if request.can_remember:
         label = (
             messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
@@ -401,14 +411,6 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
             }
         )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
-    if target is not None and request.consent_key is not None:
-        options.append(
-            {
-                "deger": "never",
-                "etiket": messages.BILGISAYAR_APPROVAL_NEVER,
-                "aciklama": messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
-            }
-        )
     return options
 
 

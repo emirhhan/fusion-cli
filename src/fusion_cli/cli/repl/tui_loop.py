@@ -188,19 +188,11 @@ class TuiPrompter:
             if not request.danger:
                 choices.append(deny)
             if target is not None and offers_never(request):
-                choices.append(
-                    Choice(
-                        "never",
-                        messages.BILGISAYAR_APPROVAL_NEVER,
-                        messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
-                    )
-                )
+                # Uygulama onayı (#426): yalnız "Bu oturum için izin ver / Reddet".
+                choices = [
+                    choice for choice in choices if choice.value in {"session", "deny"}
+                ]
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
-            if answer == "never" and offers_never(request):
-                self._tui.console.print(
-                    f"[{theme.WARN}]{escape(self._denials.deny(request))}[/{theme.WARN}]"
-                )
-                return ApprovalAnswer.DENY
             if answer == "once":
                 return ApprovalAnswer.ONCE
             if answer == "session" and request.can_remember:

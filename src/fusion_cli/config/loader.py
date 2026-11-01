@@ -26,7 +26,7 @@ from typing import Any, Literal, TypeVar, Union, get_args, get_origin, get_type_
 import yaml
 from dotenv import dotenv_values
 
-from ..core.desktop_settings import DesktopSettings, parse_app_level
+from ..core.desktop_settings import DesktopSettings
 from . import computer_use_projects
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
@@ -306,14 +306,11 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
 
 
 def _build_desktop(raw: object) -> DesktopSettings:
-    """`desktop:` bölümü; `app_levels` girdileri yüklemede doğrulanır (çalışma anında değil)."""
-    desktop = _build(DesktopSettings, raw, "desktop")
-    for entry in desktop.app_levels:
-        try:
-            parse_app_level(entry)
-        except ValueError as error:
-            raise ConfigError(f"desktop.app_levels: {error}") from None
-    return desktop
+    """`desktop:` bölümü; kullanımdan kalkan kademe anahtarları okunur, bir kez uyarılır (#424)."""
+    from .desktop_deprecation import warn_deprecated_desktop_keys
+
+    warn_deprecated_desktop_keys(raw)
+    return _build(DesktopSettings, raw, "desktop")
 
 
 def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:

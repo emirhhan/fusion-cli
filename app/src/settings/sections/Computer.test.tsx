@@ -7,8 +7,7 @@ afterEach(cleanup);
 function client(overrides: Record<string, unknown> = {}) {
   const calls: { name: string; data: Record<string, unknown> }[] = [];
   const ayarlar: Record<string, unknown> = {
-    enabled: true, control_level: "full", category_defaults: true, denied_apps: [], app_levels: [],
-    app_consent: true, background: true, unhide_on_finish: true, escape_stops: true, ...overrides,
+    enabled: true, denied_apps: [], background: true, unhide_on_finish: true, escape_stops: true, ...overrides,
   };
   return {
     calls,
@@ -25,10 +24,10 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Bu bilgisayar ayarları", () => {
-  it("anahtar kapatılınca desktop.enabled yazılır ve kademe seçimi kilitlenir", async () => {
+  it("anahtar kapatılınca desktop.enabled yazılır", async () => {
     const api = client();
     render(<Computer client={api} />);
-    const toggle = await screen.findByRole("switch", { name: "Bilgisayar kullanımını etkinleştir" });
+    const toggle = await screen.findByRole("switch", { name: "Computer use'u etkinleştir" });
 
     fireEvent.click(toggle);
 
@@ -36,13 +35,17 @@ describe("Bu bilgisayar ayarları", () => {
     expect(screen.getByText("desktop.enabled kaydedildi")).toBeTruthy();
   });
 
-  it("kademe seçilir ve reddedilen uygulama eklenip kaldırılır", async () => {
+  it("varsayılan kapalı okunur (#420)", async () => {
+    const api = client({ enabled: undefined });
+    render(<Computer client={api} />);
+    const toggle = await screen.findByRole("switch", { name: "Computer use'u etkinleştir" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("reddedilen uygulama eklenip kaldırılır", async () => {
     const api = client({ denied_apps: ["Notes"] });
     render(<Computer client={api} />);
-    fireEvent.click(await screen.findByRole("radio", { name: /^TıklaTıklar/ }));
-    await waitFor(() => expect(api.calls.some((c) => c.data.anahtar === "control_level" && c.data.deger === "click")).toBe(true));
-
-    fireEvent.change(screen.getByLabelText("Uygulama ekle"), { target: { value: "Mail" } });
+    fireEvent.change(await screen.findByLabelText("Uygulama ekle"), { target: { value: "Mail" } });
     fireEvent.click(screen.getByRole("button", { name: "Reddet" }));
     await waitFor(() => expect(api.calls.some((c) => c.data.anahtar === "denied_apps" && JSON.stringify(c.data.deger) === '["Notes","Mail"]')).toBe(true));
 
@@ -50,28 +53,24 @@ describe("Bu bilgisayar ayarları", () => {
     await waitFor(() => expect(api.calls.some((c) => c.data.anahtar === "denied_apps" && JSON.stringify(c.data.deger) === '["Mail"]')).toBe(true));
   });
 
-  it("uygulama kademesi 'ad=kademe' olarak eklenir; aynı uygulamanın eskisi düşer", async () => {
-    const api = client({ app_levels: ["Terminal=click"] });
-    render(<Computer client={api} />);
-    expect(await screen.findByText("Terminal · Tıkla")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText("Uygulama adı"), { target: { value: "terminal" } });
-    fireEvent.change(screen.getByLabelText("Kademe"), { target: { value: "full" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
-
-    await waitFor(() => expect(api.calls.some((c) => c.data.anahtar === "app_levels" && JSON.stringify(c.data.deger) === '["terminal=full"]')).toBe(true));
+  it("kademeler sabit tablo olarak gösterilir, değiştirilecek denetim yok (#424)", async () => {
+    render(<Computer client={client()} />);
+    const table = await screen.findByRole("table", { name: "Uygulama kademeleri" });
+    expect(table.textContent).toContain("yatırım platformları");
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByLabelText("Kademe")).toBeNull();
   });
 
   it("yazma hatası kullanıcıya gösterilir", async () => {
     const api = client();
     api.request.mockImplementation(async (name: string) => {
-      if (name === "bilgisayar.ayar_yaz") return { ok: false, metin: "desktop.app_levels: hata" };
+      if (name === "bilgisayar.ayar_yaz") return { ok: false, metin: "desktop.escape_stops: hata" };
       if (name === "bilgisayar.uygulamalar") return { ok: true, uygulamalar: [] };
       return { ok: true, ayarlar: { enabled: true } };
     });
     render(<Computer client={api} />);
     fireEvent.click(await screen.findByRole("switch", { name: "Esc ile durdur" }));
 
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "desktop.app_levels: hata");
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "desktop.escape_stops: hata");
   });
 });

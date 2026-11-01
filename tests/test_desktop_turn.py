@@ -234,12 +234,11 @@ async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(
 
 
 def test_reddedilen_ve_engelli_uygulamalar_goruntuden_dislanir(monkeypatch):
-    names, prefixes = capture_exclusions(
-        DesktopSettings(denied_apps=("Mail",), app_levels=("Binance=observe",))
-    )
-    assert "mail" in names and "1password" in names and "binance" not in names
-    assert "com.binance" in prefixes and "com.fusion.desktop" not in prefixes
-    assert capture_exclusions(DesktopSettings(category_defaults=False)) == ((), ())
+    # #425: yalnız ret listesi görüntüden çıkar; View only "See the app in screenshots".
+    names, prefixes = capture_exclusions(DesktopSettings(denied_apps=("Mail",)))
+    assert names == ("mail",) and "binance" not in names and "1password" not in names
+    assert "com.binance" not in prefixes and "com.fusion.desktop" not in prefixes
+    assert capture_exclusions(DesktopSettings()) == ((), ())
 
     requests: list[dict[str, object]] = []
 
