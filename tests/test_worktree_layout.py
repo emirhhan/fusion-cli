@@ -51,7 +51,9 @@ def test_symlink_dizini_ana_depoya_baglanir_ve_is_sayilmaz(repo):
 
 
 def test_sparse_paths_yalniz_listelenen_dizinleri_yazar(repo):
-    agac = core_worktree.enter_worktree(repo, "seyrek", layout=WorktreeLayout(sparse_paths=("src",)))
+    agac = core_worktree.enter_worktree(
+        repo, "seyrek", layout=WorktreeLayout(sparse_paths=("src",))
+    )
     assert (agac.path / "src" / "x.txt").exists()
     assert (agac.path / "kok.txt").exists()  # cone kipi kök dosyalarını tutar
     assert not (agac.path / "docs").exists() and not (agac.path / "app").exists()
