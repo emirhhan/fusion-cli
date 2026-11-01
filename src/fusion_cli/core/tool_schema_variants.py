@@ -25,7 +25,8 @@ __all__ = [
 
 #: araç adı → (sadeleştirilmiş şemanın parmak izi, ham şema)
 _RAW: dict[str, tuple[str, dict[str, object]]] = {}
-_RAW_MODEL_MARKERS = ("anthropic/", "claude")
+#: Claude modelini Anthropic API'sine götüren LiteLLM sağlayıcı önekleri (önek yoksa da).
+_RAW_PROVIDERS = frozenset({"", "anthropic", "bedrock", "vertex_ai", "vertex_ai_beta"})
 
 
 def _fingerprint(schema: Mapping[str, object]) -> str:
@@ -53,7 +54,10 @@ def forget_raw_schema(name: str) -> None:
 def accepts_raw_schemas(model: str) -> bool:
     """Ham JSON Schema'yı eksiksiz kabul eden model mi (Anthropic/Claude)?"""
     lowered = model.lower()
-    return any(marker in lowered for marker in _RAW_MODEL_MARKERS)
+    if "claude" not in lowered:
+        return False
+    provider, _, rest = lowered.partition("/") if "/" in lowered else ("", "", lowered)
+    return provider in _RAW_PROVIDERS or rest.startswith("anthropic/")
 
 
 def with_raw_schemas(tools: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:

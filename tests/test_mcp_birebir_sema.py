@@ -87,3 +87,19 @@ def test_sema_degisirse_eski_ham_sema_kullanilmaz():
     )
 
     assert tools[0]["function"]["parameters"] == yeni
+
+
+def test_ham_sema_yalniz_anthropic_yolundaki_claude_modellerine():
+    """Yerel/üçüncü taraf sağlayıcıda adı 'claude' geçen model ham şema almaz."""
+    from fusion_cli.core.tool_schema_variants import accepts_raw_schemas
+
+    for model in (
+        "claude-opus-4-1",
+        "anthropic/claude-sonnet-4-5",
+        "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "vertex_ai/claude-sonnet-4@20250514",
+        "openrouter/anthropic/claude-sonnet-4",
+    ):
+        assert accepts_raw_schemas(model), model
+    for model in ("ollama/claude-distill:7b", "lm_studio/claude-like", "gemini/gemini-2.5-flash"):
+        assert not accepts_raw_schemas(model), model
