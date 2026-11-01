@@ -189,3 +189,17 @@ def test_claude_disi_kok_kullanimdan_kalkti_uyarisi(tmp_path: Path, caplog):
         assert CapabilityRegistry(home, root).get_skill("eski") is not None
 
     assert any("kullanımdan kalktı" in record.message for record in caplog.records)
+
+
+def test_baslangic_dizini_depo_kokuyse_ust_dizinlere_cikilmaz(tmp_path) -> None:
+    """#158: iç içe depoda (üstte dotfiles deposu) depo kökünün üstü taranmaz."""
+    from fusion_cli.tools.capability_roots import ancestor_skill_dirs
+
+    (tmp_path / "x" / ".git").mkdir(parents=True)
+    proj = tmp_path / "x" / "work" / "proj"
+    (proj / ".git").mkdir(parents=True)
+
+    assert ancestor_skill_dirs(proj) == ()
+    sub = proj / "pkg"
+    sub.mkdir()
+    assert ancestor_skill_dirs(sub) == ((proj / ".claude" / "skills").resolve(),)

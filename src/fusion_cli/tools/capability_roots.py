@@ -186,6 +186,9 @@ def ancestor_skill_dirs(root: Path) -> tuple[Path, ...]:
         start = root.resolve()
     except OSError:
         return ()
+    # Başlangıç dizini depo köküyse üst dizinler depo DIŞIDIR (üstte başka .git olsa da).
+    if (start / ".git").exists():
+        return ()
     chain: list[Path] = []
     for parent in start.parents:
         chain.append(parent / ".claude" / "skills")
