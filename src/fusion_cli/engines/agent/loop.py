@@ -4055,6 +4055,10 @@ async def _run_tools(
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
             budget.forget_call(signature)
+        notice = (result.structured or {}).get("user_notice") if outcome is ToolOutcome.OK else None
+        if isinstance(notice, str) and notice:
+            # Aracın kullanıcıya göstermek istediği tek satır (ör. bekleyen uyanma iptali, #362).
+            deps.publisher.publish(NarrationPublished(text=notice))
         if outcome is ToolOutcome.OK and call.name in {"todo_write", "task_create", "task_update"}:
             for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
                 deps.publisher.publish(NarrationPublished(text=sentence))

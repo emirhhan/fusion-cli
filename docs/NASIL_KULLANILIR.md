@@ -1365,7 +1365,8 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
 - Ajan araçları (Claude `CronCreate/CronList/CronDelete/ScheduleWakeup`): `cron_create {cron,
   prompt, recurring}` (`recurring=false` bir sonraki eşleşmede bir kez çalışır; eski `every`/`in`
   alanları da okunur), `cron_list`, `cron_delete {id}`, `schedule_wakeup {loop_id, in, stop}`
-  (yalnız kendi tempolu döngü; `stop=true` döngüyü bitirir: "Bekleyen uyanma iptal edildi").
+  (yalnız kendi tempolu döngü; `stop=true` döngüyü bitirir ve kullanıcı ekranında Claude gibi
+  "Bekleyen uyanma iptal edildi" bildirimi çıkar: terminal, TUI ve masaüstü).
   Cron 5 alanlıdır: `*/15 9-18 * * 1-5`. `CLAUDE_CODE_DISABLE_CRON=1` araçları ve `/loop`'u kapatır.
 - Kayıt: `memory_dir/oturum-cron/<sohbet>.json`; masaüstü sekmesi aynı kimlikle açılınca
   süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği

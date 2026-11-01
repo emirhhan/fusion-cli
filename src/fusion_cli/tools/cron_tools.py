@@ -100,7 +100,10 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         if args.get("stop") is True:
             if not cron.delete(loop_id):
                 return ToolResult.failure(f"Döngü bulunamadı: {loop_id}")
-            return ToolResult(messages.WAKEUP_CANCELLED)
+            # Claude kullanıcı ekranında "Pending wakeup cancelled" gösterir (#362).
+            return ToolResult(
+                messages.WAKEUP_CANCELLED, structured={"user_notice": messages.WAKEUP_CANCELLED}
+            )
         # Kendi tempolu `/loop` (P-038): yeni görev değil, döngünün sıradaki çalışması.
         try:
             seconds = parse_interval(delay or "10m")

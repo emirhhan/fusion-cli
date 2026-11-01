@@ -194,3 +194,61 @@ def test_masaustu_yoklamasi_bekleyen_olayda_duz_metin_uyandirma_verir():
     assert background_wake_tasks(events) == []  # aynı olay tekrar uyandırmaz
     events.release_wake()  # arayüz gönderemedi (`cron.geri_ver`)
     assert len(background_wake_tasks(events)) == 1
+
+
+async def test_tur_ici_olay_sonraki_model_istegine_girer_ve_bos_turu_surdurur(
+    monkeypatch, tmp_path
+):
+    from fusion_cli.engines.agent import loop
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_turn_budget import TAM_CEVAP, _deps, _kur
+
+    provider = _kur(
+        monkeypatch, ScriptedProvider([model_result("ara cevap"), model_result(TAM_CEVAP)])
+    )
+    events = BackgroundEvents()
+    deps = _deps(tmp_path, RecordingSink())
+    from dataclasses import replace as dc_replace
+
+    deps = dc_replace(deps, tool_context=ToolContext(root=tmp_path, background_events=events))
+    events.push("Arka plan işi abcd1234 bitti (çıkış kodu 0)")
+
+    await loop.run_agent("durumu söyle", deps, self_review=False, verify=False)
+
+    first = provider.seen_messages[0]
+    assert any(m.harness_note and "abcd1234" in m.content for m in first)
+    assert not events.pending
+
+
+async def test_schedule_wakeup_stop_kullaniciya_bildirim_yayinlar(monkeypatch, tmp_path):
+    from dataclasses import replace as dc_replace
+
+    from fusion_cli.core.events import NarrationPublished
+    from fusion_cli.core.session_cron import SessionCron, Source
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.ui import messages
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_turn_budget import TAM_CEVAP, _deps, _kur
+
+    cron = SessionCron()
+    task = cron.create_self_paced("/loop kontrol", now=time.time(), source=Source.USER)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("schedule_wakeup", loop_id=task.id, stop=True)]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    deps = dc_replace(deps, tool_context=ToolContext(root=tmp_path, cron=cron))
+    # Bağlamda zamanlayıcı varsa motor cron araçlarını kendisi kaydeder.
+    await loop.run_agent("döngüyü bitir", deps, self_review=False, verify=False)
+
+    notes = [e.text for e in sink.events if isinstance(e, NarrationPublished)]
+    assert messages.WAKEUP_CANCELLED in notes
+    assert cron.list(time.time()) == ()
