@@ -72,18 +72,18 @@ olmalıdır. Eklenti kaynağındaki `git` türü kullanımdan kalktı (Claude ad
 ## Komutlar
 
 ```
-fusion eklenti kur ./benim-eklentim            # yerel klasör
-fusion eklenti kur sahip/repo                  # GitHub (sığ klon, betik çalışmaz)
-fusion eklenti kur https://git.ornek.com/x.git # genel https git adresi
-fusion eklenti kur rapor@ekip [--yes]          # kayıtlı pazardan
-fusion eklenti kur <kaynak> --dry-run          # yalnız doğrula ve özetle
-fusion eklenti listele
+fusion plugin install rapor@ekip [--yes] [--scope user|project|local] [--json]  # kayıtlı pazardan
+fusion plugin install rapor --marketplace <yol|sahip/repo|https…>  # pazar yoksa önce eklenir
+fusion plugin install <kaynak> --dry-run       # yalnız doğrula ve özetle
+fusion plugin list [--json] [--available]      # --available: pazarlardaki kurulmamışlar (JSON nesnesi)
+fusion plugin details <ad|ad@pazar>            # bileşen envanteri + öngörülen token maliyeti
+fusion plugin prune [--dry-run] [-y]           # (autoremove) Fusion bağımlılık kurmaz: "Nothing to prune"
 fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
 fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
 fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # Fusion çöpüne; veri klasörü silinir
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
-fusion eklenti kesfet [pazar]
+fusion eklenti kesfet [pazar]                  # kullanımdan kalktı → plugin list --json --available
 fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
 fusion plugin marketplace remove <ad>          # o pazardan kurulan eklentiler de kaldırılır
 ```
@@ -101,6 +101,11 @@ verilmezse local, project, user sırasıyla eklentiyi anan ilk kapsam kullanıl�
 kılma yazılır. Güvenlik: `fusion trust` sonrası değişmiş (güvenilmeyen) proje dosyasındaki `true`
 eklenti açmaz; `false` her zaman uygulanır. Fusion'ın yazdığı güvenilir dosya güvenilir kalır.
 Kaldırma eklentinin `${CLAUDE_PLUGIN_DATA}` klasörünü siler (`--keep-data` korur).
+`install --scope project|local` dosyaları ortak depoya kurar, user kaydını kapalı başlatır ve yalnız
+o kapsamın dosyasına `enabledPlugins["ad@pazar"] = true` yazar. `install`, `uninstall`, `enable`,
+`disable` `--json` ile son satıra `{"command","outcome":"ok|failed","message",…}` nesnesini basar.
+Yerel klasör/https/sahip-repo kaynağından doğrudan kurulum bir sürüm boyunca çalışır ama
+kullanımdan kalktı uyarısı verir (Claude `install` yalnız pazardan kurar; `--marketplace` kullan).
 
 Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
 eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;
@@ -112,8 +117,8 @@ kopyalama sınırıdır: 20.000 dosya / 256 MiB.
 Birincil adlar Claude Code'unkilerdir ve yardımda görünür: `fusion plugin install (i) | list | validate |
 enable | disable | uninstall (remove, rm) | update`, `fusion plugin marketplace add | list | update |
 remove (rm)`; `fusion plugins` da aynı gruptur. Yukarıdaki Türkçe adlar (`eklenti kur`, `pazar ekle`…)
-bir sürüm boyunca gizli, kullanımdan kalkmış takma addır. Henüz yok: `details`, `configure`, `prune`,
-`init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
+bir sürüm boyunca gizli, kullanımdan kalkmış takma addır. `details`, `prune` (`autoremove`) var; henüz yok:
+`configure`, `init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
 komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
 değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
 Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula, değişmiş eklentide "İncele ve yeniden
@@ -127,8 +132,8 @@ Claude'un `workflows/` iş akışları ve `hooks.json` `modules` (mod) bileşenl
 yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
-`~/.claude/settings.json`'ına yazılmaz; kurulum yalnız user kapsamındadır (`install --scope`
-yok), `uninstall --scope project|local` "kurulu değil" der. `extraKnownMarketplaces` ve managed
+`~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
+"kurulu değil" der. `--plugin-dir`/`--plugin-url` yok. `extraKnownMarketplaces` ve managed
 kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 

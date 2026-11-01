@@ -6,10 +6,8 @@ from ..config.plugin_layout import PluginLayout, ValidationReport, server_target
 from ..config.plugin_store import InstalledPlugin, PluginState
 from ..tools.plugin_install import CatalogEntry, PluginPreview
 
-EMPTY = (
-    "Kurulu eklenti yok. Örnek: fusion eklenti kur ./eklentim · "
-    "pazar: fusion eklenti pazar ekle resmi"
-)
+EMPTY = "Kurulu eklenti yok. Eklenti kurmak için `fusion plugin install` kullan."
+INSTALLED_HEADING = "Kurulu eklentiler:"
 ALL_OFF = "Bütün eklentiler kapalı (fusion eklenti ac --hepsi ile açılır)."
 EXEC_WARNING = (
     "DİKKAT: bu eklenti Fusion dışında komut çalıştırabilir ({parts}). Kancalar her olayda, MCP "
@@ -49,12 +47,13 @@ def format_installed(items: tuple[InstalledPlugin, ...], state: PluginState) -> 
     if not items:
         return EMPTY
     rows = [ALL_OFF] if state.all_disabled else []
+    rows.append(INSTALLED_HEADING)
     for item in items:
         record = item.record
         version = f" {record.version}" if record.version else ""
         summary = components(item.layout) if item.layout else item.detail
-        origin = record.marketplace or record.kind
-        rows.append(f"  {record.name}{version} — {item.status} · {summary} · {origin}")
+        ident = f"{record.name}@{record.marketplace}" if record.marketplace else record.name
+        rows.append(f"  {ident}{version} — {item.status} · kapsam: user · {summary}")
         if item.detail and item.layout is not None:
             rows.append(f"      {item.detail} (yeniden onay: fusion eklenti guven {record.name})")
     return "\n".join(rows)

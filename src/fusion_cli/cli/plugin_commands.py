@@ -24,6 +24,7 @@ from ..config.plugin_store import inspect_plugin, installed_plugins, load_state,
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
+from .plugin_result import run_result
 from .plugin_view import (
     DIGEST_HINT,
     format_catalog,
@@ -41,7 +42,10 @@ console = Console()
 CONFIRM = "Bu eklenti kurulsun mu?"
 CONFIRM_TRUST = "Güncel içerik onaylansın mı?"
 NEEDS_YES = "Bu eklenti komut çalıştırabilir; etkileşimsiz terminalde onay için --yes ekle."
-INSTALLED = "Kuruldu: {name} ({status}). Açık oturuma uygulamak için /reload-plugins çalıştır."
+INSTALLED = (
+    "Kuruldu: {name} (kapsam: {scope} · {status}). "
+    "Açık oturuma uygulamak için /reload-plugins çalıştır."
+)
 REMOVED = "Eklenti kaldırıldı: {name} (kapsam: user; klasör çöpte{data})"
 DATA_KEPT = ", veri korundu"
 TOGGLED = "Eklenti {verb}: {name} (kapsam: {scope})"
@@ -57,6 +61,11 @@ MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti
 MARKET_REMOVED = "Pazar kaldırıldı: {name}"
 MARKET_ALSO = "Ayrıca bu pazardan {count} eklenti kaldırıldı:"
 SCOPE_HELP = "Kapsam: user, project ya da local (verilmezse algılanır)."
+JSON_HELP = "Sonucu son satırda tek JSON nesnesi olarak bas."
+DISCOVER_DEPRECATED = (
+    "discover/kesfet kullanımdan kalktı; Claude Code karşılığı: "
+    "fusion plugin list --json --available"
+)
 
 
 def _run(action: Callable[[], str]) -> None:
@@ -86,16 +95,23 @@ def approver(yes: bool) -> plugins.ApprovalCallback:
 
 @app.command("kur")
 def install(
-    source: str = typer.Argument(
-        ..., help="Yerel klasör, https git adresi, sahip/repo ya da ad@pazar"
-    ),
+    source: str = typer.Argument(..., help="Eklenti adı ya da ad@pazar (eski: klasör/https/repo)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Yalnız doğrula ve özetle."),
     digest: str = typer.Option(
         "", "--karma", help="--dry-run'da gösterilen karma; içerik değiştiyse kurulmaz."
     ),
+    scope: str = typer.Option(
+        "", "--scope", "-s", help="Kapsam: user (varsayılan), project, local."
+    ),
+    marketplace: str = typer.Option(
+        "",
+        "--marketplace",
+        help="Çıplak adı bu kaynaktaki pazardan kur (pazar yoksa önce eklenir).",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Sonucu son satırda tek JSON nesnesi bas."),
 ) -> None:
-    """Eklentiyi kur (betik çalıştırılmaz; kanca/MCP içeriyorsa açık onay ister)."""
+    """Eklentiyi pazardan kur (betik çalıştırılmaz; kanca/MCP içeriyorsa açık onay ister)."""
     if dry_run:
 
         def preview() -> str:
@@ -108,16 +124,40 @@ def install(
         _run(preview)
         return
 
-    def act() -> str:
-        item = plugins.install_plugin(source, approve=approver(yes), expected_digest=digest)
-        return INSTALLED.format(name=item.record.name, status=item.status)
+    def act() -> tuple[str, dict[str, object]]:
+        from ..tools.plugin_install_scope import install_scoped
 
-    _run(act)
+        done = install_scoped(
+            source,
+            approve=approver(yes),
+            scope=scope,
+            marketplace=marketplace,
+            expected_digest=digest,
+        )
+        text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
+        return text, {"pluginId": done.ident, "scope": done.scope}
+
+    run_result("install", as_json, act)
 
 
 @app.command("listele")
-def list_plugins() -> None:
-    """Kurulu eklentiler: durum (etkin/kapalı/değişmiş), bileşenler, kaynak."""
+def list_plugins(
+    as_json: bool = typer.Option(False, "--json", help="Listeyi JSON olarak bas."),
+    available: bool = typer.Option(
+        False, "--available", help="Pazarlardaki kurulmamış eklentileri de ekle (yalnız --json)."
+    ),
+) -> None:
+    """Kurulu eklentiler: sürüm, kapsam, durum (Claude `plugin list`)."""
+    if as_json:
+        from ..tools.plugin_listing import list_payload
+
+        try:
+            payload = list_payload(available=available)
+        except PluginError as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(1) from error
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
     _run(lambda: format_installed(installed_plugins(), load_state()))
 
 
@@ -149,6 +189,15 @@ def validate(
     raise typer.Exit(run.exit_code)
 
 
+def _toggle_json(name: str, everything: bool, enabled: bool, scope: str, as_json: bool) -> None:
+    def act() -> tuple[str, dict[str, object]]:
+        text = _toggle(name, everything, enabled, scope)
+        fields: dict[str, object] = {"pluginId": name} if name else {}
+        return text, fields
+
+    run_result("enable" if enabled else "disable", as_json, act)
+
+
 def _toggle(name: str, everything: bool, enabled: bool, scope: str = "") -> str:
     if everything and (name or scope):
         raise PluginError("--all bir eklenti adı ya da --scope ile birlikte kullanılamaz.")
@@ -171,9 +220,10 @@ def enable(
     name: str = typer.Argument("", help="Eklenti adı ya da ad@pazar"),
     everything: bool = typer.Option(False, "--hepsi", "--all", help="Genel kapatmayı kaldır."),
     scope: str = typer.Option("", "--scope", "-s", help=SCOPE_HELP),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Eklentiyi aç (enabledPlugins; kapsam verilmezse local → project → user algılanır)."""
-    _run(lambda: _toggle(name, everything, True, scope))
+    _toggle_json(name, everything, True, scope, as_json)
 
 
 @app.command("kapat")
@@ -183,9 +233,10 @@ def disable(
         False, "--hepsi", "--all", "-a", help="Bütün eklentileri kapat."
     ),
     scope: str = typer.Option("", "--scope", "-s", help=SCOPE_HELP),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Eklentiyi kaldırmadan kapat; bileşenleri yüklenmez."""
-    _run(lambda: _toggle(name, everything, False, scope))
+    _toggle_json(name, everything, False, scope, as_json)
 
 
 @app.command("kaldir")
@@ -195,15 +246,17 @@ def uninstall(
     keep_data: bool = typer.Option(
         False, "--keep-data", help="Eklentinin kalıcı veri klasörünü (CLAUDE_PLUGIN_DATA) koru."
     ),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Eklentiyi kaldır (klasör Fusion çöpüne taşınır; veri klasörü --keep-data yoksa silinir)."""
 
-    def act() -> str:
+    def act() -> tuple[str, dict[str, object]]:
         plugins.uninstall_plugin(name, keep_data=keep_data, scope=scope)
         data = DATA_KEPT if keep_data else ""
-        return REMOVED.format(name=name.split("@", 1)[0], data=data)
+        text = REMOVED.format(name=name.split("@", 1)[0], data=data)
+        return text, {"pluginId": name, "scope": "user"}
 
-    _run(act)
+    run_result("uninstall", as_json, act)
 
 
 @app.command("guven")
@@ -242,7 +295,8 @@ def update(
 
 @app.command("kesfet")
 def discover(marketplace: str = typer.Argument("", help="Yalnız bu pazar")) -> None:
-    """Kayıtlı pazarlardaki eklentiler (✓ kurulu)."""
+    """Kayıtlı pazarlardaki eklentiler (✓ kurulu). Kullanımdan kalktı (#415)."""
+    typer.echo(DISCOVER_DEPRECATED, err=True)
     _run(lambda: format_catalog(plugins.browse(marketplace)))
 
 
@@ -321,15 +375,18 @@ for _alias, _command, _hidden in (
     ("discover", discover, True),
 ):
     app.command(_alias, hidden=_hidden)(_command)
-for _alias, _command, _hidden in (
+for _m_alias, _m_command, _m_hidden in (
     ("add", market_add, False),
     ("list", market_list, False),
     ("update", market_update, False),
     ("remove", market_remove, False),
     ("rm", market_remove, True),
 ):
-    market_app.command(_alias, hidden=_hidden)(_command)
+    market_app.command(_m_alias, hidden=_m_hidden)(_m_command)
 app.add_typer(market_app, name="marketplace")
+
+from . import plugin_extra_commands as _extra  # noqa: E402,F401  (details, prune)
+
 for _group in app.registered_groups:
     if _group.name == "pazar":
         _group.hidden = True
