@@ -105,11 +105,58 @@ def test_bos_metin_ve_tavan_hata_verir() -> None:
         cron.create_interval("fazla", "5m", now=NOW)
 
 
-def test_yedi_gun_sonra_gorev_sessizce_duser() -> None:
+def test_yedi_gun_dolunca_son_bir_kez_calisir_sonra_silinir() -> None:
+    """Claude: yineleyen görev 7 gün dolunca son bir kez çalışır, sonra kendini siler (#364)."""
     cron = SessionCron()
-    cron.create_interval("eski", "1h", now=NOW)
-    assert cron.due(NOW + MAX_AGE_S) == ()
-    assert cron.list() == ()
+    gorev = cron.create_interval("eski", "1h", now=NOW)
+    son = NOW + MAX_AGE_S
+    assert [t.id for t in cron.due(son)] == [gorev.id]
+    cron.complete(gorev.id, now=son)
+    assert cron.due(son + 7200) == () and cron.list(son + 7200) == ()
+
+
+def test_tek_seferlik_ve_kendi_tempolu_yedi_gun_sonra_duser() -> None:
+    cron = SessionCron()
+    cron.create_self_paced("döngü", now=NOW)
+    assert cron.due(NOW + MAX_AGE_S + 1) == () and cron.list() == ()
+
+
+def test_kendi_tempolu_dongu_yedek_uyanmadan_sonra_biter() -> None:
+    """Claude: zamanlanmayan yinelemeden ~20 dk sonra tek yedek uyanma; yine yoksa biter (#343)."""
+    from fusion_cli.core.session_cron import SELF_PACED_FALLBACK_S
+
+    assert SELF_PACED_FALLBACK_S == 1200
+    cron = SessionCron()
+    gorev = cron.create_self_paced("bak", now=NOW)
+    cron.complete(gorev.id, now=NOW)  # 1. yineleme; ajan zamanlamadı
+    yedek = NOW + SELF_PACED_FALLBACK_S
+    assert [t.id for t in cron.due(yedek)] == [gorev.id]
+    cron.complete(gorev.id, now=yedek)  # yedek yineleme; yine zamanlanmadı
+    assert cron.due(yedek + SELF_PACED_FALLBACK_S) == () and cron.list() == ()
+
+
+def test_kendi_tempolu_dongu_zamanlanirsa_yedek_sifirlanir() -> None:
+    from fusion_cli.core.session_cron import SELF_PACED_FALLBACK_S
+
+    cron = SessionCron()
+    gorev = cron.create_self_paced("bak", now=NOW)
+    cron.complete(gorev.id, now=NOW)
+    cron.complete(gorev.id, now=NOW + SELF_PACED_FALLBACK_S)  # yedek kullanıldı
+    cron.reschedule_self_paced(gorev.id, 300, now=NOW + SELF_PACED_FALLBACK_S + 1)
+    sonraki = NOW + SELF_PACED_FALLBACK_S + 301
+    assert [t.id for t in cron.due(sonraki)] == [gorev.id]
+
+
+def test_surdurmede_kendi_tempolu_ve_vakti_gecmis_tek_seferlik_dusurulur() -> None:
+    """Claude (#372): --resume kendi tempolu döngüyü ve vakti geçmiş tek seferliği getirmez."""
+    cron = SessionCron()
+    aralik = cron.create_interval("a", "1h", now=NOW)
+    cron.create_self_paced("döngü", now=NOW)
+    geri = cron.restored(NOW + 3 * 3600 + 60)
+    gorevler = geri.list(NOW + 3 * 3600 + 60)
+    assert [t.id for t in gorevler] == [aralik.id]
+    # Kaçırılan üç çalışma telafi edilmez: sıradaki vade gelecekte.
+    assert gorevler[0].next_due > NOW + 3 * 3600 + 60
 
 
 def test_sil_ve_temizle() -> None:

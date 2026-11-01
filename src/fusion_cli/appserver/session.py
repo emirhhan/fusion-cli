@@ -2240,7 +2240,8 @@ class AppSession:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
-            verilen.append({"id": task.id, "gorev": fire_prompt(task), "kaynak": task.source.value})
+            gorev = fire_prompt(task, root=self._state.root, home=self._state.home)
+            verilen.append({"id": task.id, "gorev": gorev, "kaynak": task.source.value})
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 

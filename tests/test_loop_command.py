@@ -58,21 +58,32 @@ def test_loop_aralikli_gorev_kurar(state: ReplState) -> None:
     assert tasks[0].id in cikti and "5m" in cikti
 
 
-def test_loop_araliksiz_gorev_varsayilan_aralikla_kurulur(state: ReplState) -> None:
+def test_loop_araliksiz_komut_gorevi_de_kendi_tempolu(state: ReplState) -> None:
+    """Claude: aralık verilmezse (görev beceri olsa da) aralığı ajan seçer (#344)."""
+    from fusion_cli.core.session_cron import Kind
+
     _loop(state, "/verify")
     (task,) = state.cron.list()
-    assert task.prompt == "/verify"
-    assert task.every_s == 600
+    assert task.prompt == "/verify" and task.kind is Kind.SELF_PACED
 
 
-def test_loop_argumansiz_bakim_dosyasini_okur_yoksa_yerlesik(state: ReplState) -> None:
+def test_loop_argumansiz_bakim_dosyasi_her_calismada_okunur(state: ReplState) -> None:
+    """Claude: loop.md her yinelemede yeniden okunur ve 25.000 baytta kesilir (#346)."""
     _loop(state, "")
-    assert state.cron.list()[0].prompt == loop_command.DEFAULT_MAINTENANCE_PROMPT
-    state.cron.clear()
+    (task,) = state.cron.list()
+    yeniden = lambda: loop_command.fire_prompt(task, root=state.root, home=state.home)  # noqa: E731
+    assert loop_command.DEFAULT_MAINTENANCE_PROMPT in yeniden()
     (state.root / ".claude").mkdir()
     (state.root / ".claude" / "loop.md").write_text("Projeye özel bakım.\n", encoding="utf-8")
-    _loop(state, "")
-    assert state.cron.list()[0].prompt == "Projeye özel bakım."
+    assert "Projeye özel bakım." in yeniden()
+    (state.root / ".claude" / "loop.md").write_text("x" * 30_000, encoding="utf-8")
+    assert yeniden().count("x") == loop_command.LOOP_MD_MAX_BYTES
+
+
+def test_yerlesik_bakim_istemi_claude_sirasinda() -> None:
+    metin = loop_command.DEFAULT_MAINTENANCE_PROMPT
+    assert metin.index("yarım") < metin.index("PR") < metin.index("temizlik")
+    assert "Yeni bir girişim başlatma" in metin
 
 
 def test_loop_list_ve_stop(state: ReplState) -> None:
@@ -88,10 +99,30 @@ def test_loop_list_ve_stop(state: ReplState) -> None:
     assert state.cron.list() == ()
 
 
-def test_loop_kisa_aralik_turkce_hata_ve_kullanim(state: ReplState) -> None:
+def test_loop_saniye_ust_dakikaya_yuvarlanir_ve_bildirilir(state: ReplState) -> None:
+    """Claude: saniye üst dakikaya yuvarlanır; temiz adıma denk gelmeyen değer bildirilir (#345)."""
     cikti = _loop(state, "30s a")
-    assert "en az 1 dakika" in cikti and messages.LOOP_USAGE in cikti
-    assert state.cron.list() == ()
+    (task,) = state.cron.list()
+    assert task.every_s == 60 and "1m" in cikti and "30s" in cikti
+
+
+@pytest.mark.parametrize(
+    ("girdi", "dakika", "gorev", "yuvarlandi"),
+    [
+        ("5m testleri koştur", 5, "testleri koştur", False),
+        ("testleri koştur every 2 hours", 120, "testleri koştur", False),
+        ("PR'a bak every 30 minutes", 30, "PR'a bak", False),
+        ("7m a", 6, "a", True),
+        ("90m a", 60, "a", True),
+        ("raporu yaz her 2 saatte", 120, "raporu yaz", False),
+        ("sadece görev", None, "sadece görev", False),
+    ],
+)
+def test_aralik_bastaki_belirtecten_ya_da_sondaki_ifadeden(girdi, dakika, gorev, yuvarlandi):
+    from fusion_cli.cli.repl.loop_interval import split_loop_interval
+
+    sonuc = split_loop_interval(girdi)
+    assert (sonuc.minutes, sonuc.prompt, bool(sonuc.rounded_from)) == (dakika, gorev, yuvarlandi)
 
 
 # --- Araçlar ---------------------------------------------------------------------- #
@@ -166,7 +197,9 @@ async def _run(tool, args, context):
 
 def test_kayit_yazilir_okunur_bos_listede_silinir(tmp_path: Path) -> None:
     cron = SessionCron()
-    task = cron.create_interval("a", "5m", now=100.0)
+    import time
+
+    task = cron.create_interval("a", "5m", now=time.time())
     cron_store.save(tmp_path, "sohbet/1", cron)
     yol = cron_store.store_path(tmp_path, "sohbet/1")
     assert yol.exists() and yol.parent == tmp_path / "oturum-cron"

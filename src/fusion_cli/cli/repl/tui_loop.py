@@ -370,7 +370,9 @@ class _TuiSession:
             cron_store.save(
                 self._state.config.memory_dir, self._state.conversation_id, self._state.cron
             )
-            self._submit(loop_command.fire_prompt(task))
+            self._submit(
+                loop_command.fire_prompt(task, root=self._state.root, home=self._state.home)
+            )
 
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:

@@ -1085,9 +1085,12 @@ LOOP_USAGE = "Kullanım: /loop [aralık] <görev|/komut> · /loop list · /loop 
 LOOP_SET = (
     "döngü kuruldu ({id}): her {every} → {prompt}  (en az {min} dk; /loop stop {id} ile durur)"
 )
+LOOP_ROUNDED = "Aralık {raw} temiz bir cron adımına denk gelmiyor; {every} olarak ayarlandı."
+LOOP_MD_LABEL = "loop.md (her çalışmada yeniden okunur)"
 LOOP_SET_SELF_PACED = (
     "kendi tempolu döngü kuruldu ({id}): {prompt}\n"
-    "Şimdi çalışır; sıradaki çalışmayı ajan seçer (1 dk–1 sa, seçmezse 10 dk). "
+    "Şimdi çalışır; sıradaki çalışmayı ajan seçer (1 dk–1 sa; seçmezse ~20 dk sonra bir kez "
+    "daha çalışır, yine seçmezse biter). "
     "/loop stop {id} ile durur."
 )
 LOOP_SELF_PACED_TASK = (
@@ -1096,7 +1099,7 @@ LOOP_SELF_PACED_TASK = (
     "Bu görev kendi tempolu bir döngüdür. İşi yaptıktan sonra sıradaki çalışmayı kendin seç: "
     'schedule_wakeup aracını loop_id="{id}" ile çağır (1m-1h; değişiklik bekliyorsan kısa, '
     "sakin dönemde uzun). Döngüye artık gerek yoksa cron_delete ile {id} kimliğini sil. "
-    "Seçmezsen 10 dakika sonra yeniden çalışır.\n"
+    "Seçmezsen ~20 dakika sonra bir kez daha çalışır; o zaman da seçmezsen döngü biter.\n"
     "</kendi_tempolu_dongu>"
 )
 LOOP_EMPTY = "Zamanlanmış görev yok."

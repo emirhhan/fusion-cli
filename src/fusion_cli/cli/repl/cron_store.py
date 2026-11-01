@@ -40,7 +40,9 @@ def load(memory_dir: Path, conversation_id: str) -> SessionCron:
     except OSError:
         return SessionCron()
     try:
-        return SessionCron.from_dict(json.loads(raw))
+        # Sürdürmede Claude kuralı (#372): kendi tempolu döngü ve vakti geçmiş tek seferlik
+        # görev geri gelmez, kaçırılan çalışma telafi edilmez.
+        return SessionCron.from_dict(json.loads(raw)).restored(time.time())
     except ValueError:
         return SessionCron()
 

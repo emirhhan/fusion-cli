@@ -1,8 +1,9 @@
 """`/loop` komutu (P-038): oturum boyunca yineleyen görev.
 
     /loop 5m <görev|/komut>   sabit aralıkla
-    /loop <görev>             kendi tempolu: hemen çalışır, sıradakini ajan seçer (1 dk–1 sa;
-                              seçmezse 10 dk); `/komut` görevi sabit 10 dk
+    /loop <görev> every 2h    sondaki ifadeyle de aralık verilir (Claude; #345)
+    /loop <görev|/komut>      kendi tempolu: hemen çalışır, sıradakini ajan seçer (1 dk–1 sa;
+                              seçmezse ~20 dk sonra tek yedek uyanma, sonra biter)
     /loop                     bakım görevi (kendi tempolu): .claude/loop.md, yoksa yerleşik metin
     /loop list                görevleri listele
     /loop stop [id|all]       görevi (ya da hepsini) durdur
@@ -25,13 +26,11 @@ from ...core.session_cron import (
     CronTask,
     Kind,
     SessionCronError,
-    looks_like_interval,
 )
 from ...ui import messages
+from .loop_interval import split_loop_interval
 from .state import ReplState
 
-#: Aralıksız `/loop /komut` için sabit aralık (komut modele gitmez, tempo seçemez).
-DEFAULT_INTERVAL = "10m"
 #: Argümansız `/loop`'un okuduğu bakım dosyaları (proje, sonra ev).
 LOOP_FILES = (Path(".claude") / "loop.md",)
 #: Zamanlanmış satır olarak REDDEDİLEN komutlar: onay kipi, model/sağlayıcı ve oturum
@@ -58,32 +57,32 @@ BLOCKED_COMMANDS = frozenset(
         "rc",
     }
 )
+#: Claude'daki yerleşik bakım istemi sırası (#346): yarım işi sürdür → dalın PR'ı → temizlik.
 DEFAULT_MAINTENANCE_PROMPT = (
-    "Bakım turu: çalışma ağacındaki değişiklikleri gözden geçir, testleri ve lint'i koştur, "
-    "kırık bir şey varsa düzelt; her şey yeşilse kısa bir durum özeti ver ve dur."
+    "Bakım turu. Şu sırayla ilerle: (1) Bu sohbette yarım kalan bir iş varsa onu sürdür. "
+    "(2) Yoksa bu dalın PR'ına bak: yorumlar, CI sonuçları, birleştirme çakışmaları; "
+    "gerekeni ele al. (3) Başka iş yoksa küçük bir temizlik turu yap. Yeni bir girişim "
+    "başlatma; geri alınamaz bir işlemi yalnız bu sohbette daha önce onaylandıysa yap."
 )
+#: Görevde saklanan yer tutucu: `loop.md` her çalışmada yeniden okunur (#346).
+LOOP_MD_PROMPT = "<fusion-loop-md>"
+#: `loop.md`'nin okunan en çok bayt sayısı (Claude: 25.000).
+LOOP_MD_MAX_BYTES = 25_000
 
 
 def maintenance_prompt(root: Path, home: Path) -> str:
-    """`.claude/loop.md` (proje) → `~/.claude/loop.md` (ev) → yerleşik metin."""
+    """`.claude/loop.md` (proje) → `~/.claude/loop.md` (ev) → yerleşik metin; 25.000 baytta kesilir."""
     for base in (root, home):
         for relative in LOOP_FILES:
             path = base / relative
             try:
-                text = path.read_text(encoding="utf-8").strip()
+                raw = path.read_bytes()[:LOOP_MD_MAX_BYTES]
             except OSError:
                 continue
+            text = raw.decode("utf-8", errors="ignore").strip()
             if text:
                 return text
     return DEFAULT_MAINTENANCE_PROMPT
-
-
-def _split(argument: str) -> tuple[str | None, str]:
-    """Baştaki aralığı ayır: `5m testleri koştur` → ("5m", "testleri koştur")."""
-    parts = argument.strip().split(None, 1)
-    if not parts or not looks_like_interval(parts[0]):
-        return None, argument.strip()
-    return parts[0], parts[1] if len(parts) > 1 else ""
 
 
 def command(state: ReplState, argument: str) -> str:
@@ -105,32 +104,47 @@ def command(state: ReplState, argument: str) -> str:
         if state.cron.delete(target):
             return messages.LOOP_STOPPED.format(id=target)
         return messages.LOOP_NOT_FOUND.format(id=target)
-    interval, prompt = _split(sub)
-    if not prompt:
-        prompt = maintenance_prompt(state.root, state.home)
+    try:
+        parsed = split_loop_interval(sub)
+    except SessionCronError as error:
+        return f"{error} {messages.LOOP_USAGE}"
+    prompt = parsed.prompt or LOOP_MD_PROMPT
     blocked = blocked_command(prompt)
     if blocked is not None:
         return messages.LOOP_COMMAND_BLOCKED.format(name=blocked)
-    self_paced = interval is None and not _is_slash(prompt)
+    # Claude: aralık verilmezse (görev beceri olsa da) tempoyu ajan seçer (#344).
+    every = f"{parsed.minutes}m" if parsed.minutes is not None else None
     try:
-        if self_paced:
+        if every is None:
             task = state.cron.create_self_paced(prompt, now=now)
         else:
-            task = state.cron.create_interval(prompt, interval or DEFAULT_INTERVAL, now=now)
+            task = state.cron.create_interval(prompt, every, now=now)
     except SessionCronError as error:
         return f"{error} {messages.LOOP_USAGE}"
-    if self_paced:
-        return messages.LOOP_SET_SELF_PACED.format(id=task.id, prompt=prompt[:80])
-    return messages.LOOP_SET.format(
-        id=task.id, every=interval or DEFAULT_INTERVAL, prompt=prompt[:80], min=MIN_INTERVAL_S // 60
-    )
+    shown = _shown_prompt(prompt)
+    if every is None:
+        return messages.LOOP_SET_SELF_PACED.format(id=task.id, prompt=shown)
+    text = messages.LOOP_SET.format(id=task.id, every=every, prompt=shown, min=MIN_INTERVAL_S // 60)
+    if parsed.rounded_from:
+        text += "\n" + messages.LOOP_ROUNDED.format(raw=parsed.rounded_from, every=every)
+    return text
 
 
-def fire_prompt(task: CronTask) -> str:
-    """Vadesi gelen görevin tura giden metni; kendi tempolu döngüye tempo talimatı eklenir."""
+def _shown_prompt(prompt: str) -> str:
+    return messages.LOOP_MD_LABEL if prompt == LOOP_MD_PROMPT else prompt[:80]
+
+
+def fire_prompt(task: CronTask, *, root: Path | None = None, home: Path | None = None) -> str:
+    """Vadesi gelen görevin tura giden metni; kendi tempolu döngüye tempo talimatı eklenir.
+
+    Argümansız `/loop` görevi `loop.md`'yi HER çalışmada yeniden okur (Claude; #346).
+    """
+    prompt = task.prompt
+    if prompt == LOOP_MD_PROMPT:
+        prompt = maintenance_prompt(root or Path.cwd(), home or Path.home())
     if task.kind is not Kind.SELF_PACED:
-        return task.prompt
-    return messages.LOOP_SELF_PACED_TASK.format(prompt=task.prompt, id=task.id)
+        return prompt
+    return messages.LOOP_SELF_PACED_TASK.format(prompt=prompt, id=task.id)
 
 
 def _is_slash(prompt: str) -> bool:

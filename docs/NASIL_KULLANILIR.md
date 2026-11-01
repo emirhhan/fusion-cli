@@ -1253,11 +1253,18 @@ Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tu
 gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
 
 - `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
-- `/loop <görev>` → **kendi tempolu**: görev hemen (boşta) çalışır; sıradaki çalışmayı ajan
-  `schedule_wakeup(in, loop_id)` ile 1 dk–1 sa arasında kendisi seçer, seçmezse 10 dk sonra
-  yine çalışır; gerek kalmayınca `cron_delete` ile döngüyü kendisi kapatabilir. Aralıksız
-  `/loop /verify` gibi komut görevleri sabit 10 dk'dır. Argümansız `/loop` → `.claude/loop.md`
-  (proje ya da ev), yoksa yerleşik bakım görevi (o da kendi tempolu).
+- Aralık baştaki belirteçle (`/loop 30m …`) ya da sondaki ifadeyle (`/loop … every 2 hours`,
+  `her 2 saatte`) verilir. Saniye üst dakikaya yuvarlanır; temiz bir cron adımına denk gelmeyen
+  aralık (7m, 90m) en yakın adıma yuvarlanır ve bildirilir.
+- `/loop <görev>` → **kendi tempolu** (görev `/verify` gibi bir komut olsa da): görev hemen
+  (boşta) çalışır; sıradaki çalışmayı ajan `schedule_wakeup(in, loop_id)` ile 1 dk–1 sa arasında
+  kendisi seçer. Seçmezse ~20 dk sonra tek bir yedek uyanma kurulur; o yinelemede de seçmezse
+  döngü biter. Argümansız `/loop` → `.claude/loop.md` (proje ya da ev; her çalışmada yeniden
+  okunur, 25.000 baytta kesilir), yoksa yerleşik bakım görevi: yarım işi sürdür → dalın PR'ına
+  bak (yorumlar, CI, çakışma) → başka iş yoksa temizlik; yeni girişim başlatılmaz.
+- Yineleyen görev 7 gün dolunca son bir kez çalışır ve silinir. `--resume` ile sürdürülen
+  sohbette kendi tempolu döngü ve vakti geçmiş tek seferlik görev geri gelmez; kaçırılan
+  çalışmalar telafi edilmez.
 - `/loop list`, `/loop stop <id>`, `/loop stop all`.
 - Zamanlanamayan komutlar (takma adlarıyla birlikte): onay kipi (`/auto`, `/bypass`, `/mode`…),
   model/sağlayıcı, `/clear`, `/exit`, `/loop`, `/cd`, `/voice` (`/dikte`) ve `/rc`
