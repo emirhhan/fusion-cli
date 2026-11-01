@@ -38,6 +38,8 @@ class HookEvent(Enum):
     TASK_COMPLETED = "TaskCompleted"
     TEAMMATE_IDLE = "TeammateIdle"
     PERMISSION_REQUEST = "PermissionRequest"
+    STOP_FAILURE = "StopFailure"
+    POST_TOOL_BATCH = "PostToolBatch"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -59,6 +61,8 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.TASK_COMPLETED: None,
     HookEvent.TEAMMATE_IDLE: None,
     HookEvent.PERMISSION_REQUEST: "araç adı",
+    HookEvent.POST_TOOL_BATCH: None,
+    HookEvent.STOP_FAILURE: "hata türü (rate_limit|authentication_failed|server_error|…)",
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -77,6 +81,8 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.TEAMMATE_IDLE,
         # Claude: PreCompact çıkış 2 ya da `decision: block` ile özetlemeyi engeller.
         HookEvent.PRE_COMPACT,
+        # PostToolBatch: döngü sonraki model çağrısından önce durur.
+        HookEvent.POST_TOOL_BATCH,
     }
 )
 
@@ -90,9 +96,7 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "Setup",
         "UserPromptExpansion",
         "PermissionDenied",
-        "PostToolBatch",
         "MessageDisplay",
-        "StopFailure",
         "InstructionsLoaded",
         "ConfigChange",
         "DirectoryAdded",

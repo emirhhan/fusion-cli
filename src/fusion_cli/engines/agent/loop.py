@@ -194,6 +194,7 @@ from .expertise import (
     is_worktree_task,
 )
 from .history import needs_compression, total_chars
+from .hook_batch import batch_hook
 from .hook_bridge import (
     ToolNote,
     compacted_context,
@@ -2079,6 +2080,7 @@ async def _drive(
                 plan_mode=plan_mode,
                 parse_warnings=result.parse_warnings,
             )
+            await batch_hook(deps, result.tool_calls, messages, state, budget)
             if any(warning.blocks_mutation for warning in result.parse_warnings):
                 if not budget.take_contract_repair():
                     return _halt(

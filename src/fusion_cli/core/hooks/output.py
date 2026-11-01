@@ -21,6 +21,8 @@ DISCARDS_SYSTEM_MESSAGE = frozenset(
         HookEvent.PRE_COMPACT,
         HookEvent.POST_COMPACT,
         HookEvent.SESSION_END,
+        # StopFailure: yalnız `terminalSequence` uygulanır.
+        HookEvent.STOP_FAILURE,
     }
 )
 #: Yalnız `continue`'yu atan olaylar: CwdChanged, TaskCreated (`continue: false` yok sayılır).
@@ -30,7 +32,7 @@ DISCARDS_CONTINUE = DISCARDS_SYSTEM_MESSAGE | frozenset(
 #: JSON alanlarının TAMAMI atılan olaylar (SessionEnd karar denetimi yoktur).
 DISCARDS_ALL_JSON = frozenset({HookEvent.SESSION_END})
 #: Çıkış kodu ve stderr'i yok sayılan olaylar (Notification hataları kullanıcıya basılmaz).
-IGNORES_EXIT_CODE = frozenset({HookEvent.NOTIFICATION})
+IGNORES_EXIT_CODE = frozenset({HookEvent.NOTIFICATION, HookEvent.STOP_FAILURE})
 
 #: İzinli terminal dizileri: OSC 0/1/2/9/99/777 (BEL ya da ST ile biten) ve yalın BEL.
 _OSC = r"\x1b\][0-9]+;[^\x07\x1b]*(?:\x07|\x1b\\)"

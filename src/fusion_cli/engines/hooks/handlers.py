@@ -190,7 +190,7 @@ def blocked_run(
         if continue_on_block:
             return HookRun(command, BLOCK_EXIT_CODE, "", reason)
         return _json(command, _halt(reason))
-    # UserPromptSubmit (turu bitirir), PostToolUseFailure (araç hatası olarak döner).
+    # UserPromptSubmit/PostToolBatch (turu bitirir), PostToolUseFailure (araç hatası).
     return _json(command, _block(reason))
 
 

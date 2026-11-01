@@ -54,10 +54,12 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PermissionRequest` | izin sorusu gösterilmeden önce (etkileşimsiz oturumda da) | `tool_name` | — (`decision.behavior`: `allow` sormadan izin; `deny` + `message` gerekçe, `interrupt` turu durdurur; `updatedInput`/`updatedPermissions` henüz uygulanmaz) |
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
+| `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (art arda en çok 8) |
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
+| `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
 | `SessionStart` | REPL/TUI oturumu açılırken (masaüstü ve `-p`'de ilk turda); bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
 | `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme | `permission_prompt`, `idle_prompt` | — |
@@ -239,7 +241,7 @@ Tanımlar her kök turun başında yeniden okunur.
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - Olaylar: `Setup`, `UserPromptExpansion`, `PermissionDenied`,
-  `PostToolBatch`, `MessageDisplay`, `StopFailure`, `InstructionsLoaded`, `ConfigChange`,
+  `MessageDisplay`, `InstructionsLoaded`, `ConfigChange`,
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
   `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").

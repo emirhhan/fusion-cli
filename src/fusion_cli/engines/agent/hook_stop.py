@@ -116,6 +116,12 @@ async def continue_until_stop_allowed(
         outcome = await rerun(prompt, outcome.messages)
         total += 1
         consecutive = 0 if _called_tool(outcome.messages[before:]) else consecutive + 1
+    model_error = getattr(outcome, "model_error", None)
+    if model_error and not subagent:
+        # Claude: tur API hatasıyla bitince Stop yerine StopFailure.
+        from .hook_stop_failure import stop_failure
+
+        await stop_failure(deps, str(model_error), outcome.final_text)
     return outcome
 
 
