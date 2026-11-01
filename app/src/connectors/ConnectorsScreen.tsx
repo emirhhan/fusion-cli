@@ -8,6 +8,7 @@ import { ConnectorSetupForm } from "./ConnectorSetupForm";
 import { ConnectorDialog } from "./ConnectorDialog";
 import { McpToolCatalog } from "./McpToolCatalog";
 import { CustomConnectorWizard } from "./CustomConnectorWizard";
+import { ProjectMcpApprovals } from "./ProjectMcpApprovals";
 import {
   addPayloadFor,
   allConnectors,
@@ -413,6 +414,7 @@ export function ConnectorsScreen({
         </ConnectorDialog>
       )}
 
+      <ProjectMcpApprovals client={client} onChanged={() => void load()} />
       {catalog?.client === client && <McpToolCatalog client={client} server={catalog.server} onClose={() => setCatalog(null)} />}
       {showCustom && (
         <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={closeCustom}>

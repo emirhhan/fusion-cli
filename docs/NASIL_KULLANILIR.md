@@ -681,7 +681,9 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   `fusion trust` ile güvenilmişse okunur; `disabledMcpjsonServers` her yerden ve her kipte
   reddeder. `fusion exec` (Claude `-p` gibi) sormadan yükler, ama klasöre hiç güvenilmemişse
   yüklemez. `fusion trust` ile güvenilen (ya da Fusion'ın kendi yazdığı) dosya onaylı sayılır.
-  Onay bekleyenler `fusion mcp list`'te "⏸ Onay bekliyor" görünür; masaüstünde istem yoktur.
+  Onay bekleyenler `fusion mcp list`'te "⏸ Onay bekliyor" görünür. Masaüstünde Bağlantılar
+  ekranı aynı üç seçeneği sunucu sunucu sorar ve seçimi aynı kayda yazar; onaylanan sunucu
+  oturuma hemen eklenir.
 - `.mcp.json` / `add-json` alanları: `type` (stdio|http|sse|ws), `command`, `args`, `env`,
   `url`, `headers`, `headersHelper`, `timeout` (ms), `alwaysLoad`, `oauth` {`clientId`,
   `callbackPort`, `authServerMetadataUrl`, `scopes`}. Hatalı tek girdi (ör. `type`'sız `url`,
@@ -751,7 +753,6 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   turda listelenmesi (Fusion'da sonraki turda gelir), `alwaysLoad` sunucusunu ayrıca bekleme,
   `WaitForMcpServers` aracı, uzun çağrının
   2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
-  masaüstünde proje sunucusu onay istemi,
   `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
