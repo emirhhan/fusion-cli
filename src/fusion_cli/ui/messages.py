@@ -1444,6 +1444,14 @@ STATUS_ACCOUNT = "Hesap"
 STATUS_CONVERSATION = "Sohbet"
 STATUS_CONFIG_FILE = "Yapılandırma"
 STATUS_LESSONS = "Dersler"
+STATUS_SESSION_KIND = "Session kind"
+STATUS_CONNECTIVITY = "Bağlantı"
+STATUS_CONNECTIVITY_UNKNOWN = "bilinmiyor"
+STATUS_CONNECTIVITY_VALUES = {
+    "ready": "hazır",
+    "partially_ready": "kısmen hazır (bazı roller için anahtar yok)",
+    "not_ready": "hazır değil (sağlayıcı anahtarı yok)",
+}
 STATUS_NONE = "(yok)"
 #: Durum çubuğundaki bağlam sayacı.
 STATUS_CONTEXT_LABEL = "bağlam %{percent} · ~{tokens} tok"

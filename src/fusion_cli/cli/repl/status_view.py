@@ -17,6 +17,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.markup import escape
 
+from ...config.models import Config
 from ...config.paths import active_account
 from ...engines import agent as _agent_package
 from ...engines.agent.context_budget import CHARS_PER_TOKEN_ESTIMATE, context_budget
@@ -193,10 +194,13 @@ def status_rows(state: ReplState) -> list[tuple[str, str]]:
         (messages.STATUS_APPROVAL, state.approval.value),
         (messages.STATUS_MODEL, model),
         (messages.STATUS_EFFORT, config.runtime.reasoning_effort.value),
-        (messages.STATUS_OUTPUT_STYLE, getattr(config.runtime, "output_style", "default")),
+        (messages.STATUS_OUTPUT_STYLE, _style_name(state)),
         (messages.STATUS_DIR, dirs),
         (messages.STATUS_MCP, mcp),
         (messages.STATUS_ACCOUNT, active_account()),
+        # Claude Code `/status` (#225): oturum türü ve bağlantı satırları.
+        (messages.STATUS_SESSION_KIND, getattr(state, "session_kind", "") or "interactive"),
+        (messages.STATUS_CONNECTIVITY, _connectivity(config)),
         (messages.STATUS_CONVERSATION, state.conversation_id),
         (
             messages.STATUS_CONFIG_FILE,
@@ -206,6 +210,25 @@ def status_rows(state: ReplState) -> list[tuple[str, str]]:
     if state.memory.enabled:
         rows.append((messages.STATUS_LESSONS, str(state.memory.lessons.count())))
     return rows
+
+
+def _style_name(state: ReplState) -> str:
+    from ...engines.agent.output_style import selected_style
+
+    style = selected_style(state.config, home=state.home, root=state.root)
+    return "default" if style is None else (style.display or style.name)
+
+
+def _connectivity(config: Config) -> str:
+    """Sağlayıcı kurulumunun hazırlık durumu (anahtar/oturum var mı); ağ çağrısı yapmaz."""
+    from ...config.keys import detect
+    from ...config.readiness import evaluate
+
+    try:
+        state = evaluate(config, detect()).state.value
+    except Exception as error:  # hazırlık okunamazsa satır yine basılır
+        return f"{messages.STATUS_CONNECTIVITY_UNKNOWN} ({type(error).__name__})"
+    return messages.STATUS_CONNECTIVITY_VALUES.get(state, state)
 
 
 def _tier_name(state: ReplState) -> str:

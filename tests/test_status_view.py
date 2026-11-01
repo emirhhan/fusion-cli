@@ -110,3 +110,11 @@ def test_context_sistem_istemi_ve_arac_tanimlari_tahminle_sayilir(state):
     report = context_report(state)
     assert not report.system_estimated and report.system_chars == 300
     assert "Sistem istemi" in dict(context_rows(report))
+
+
+def test_status_oturum_turu_ve_baglanti_satiri(state):
+    """Claude Code `/status` (#225): Session kind ve bağlantı satırları."""
+    rows = dict(status_rows(state))
+    assert rows["Session kind"] == "interactive"
+    assert rows["Bağlantı"]
+    assert rows["Çıktı stili"] == "default"
