@@ -565,14 +565,17 @@ def trust_plugin(
 # --- Pazar yerleri ------------------------------------------------------------ #
 
 
-def read_marketplace(folder: Path) -> Marketplace:
-    """Pazar klasörünün bildirimini ya da doğrudan verilen `.json` dosyasını (#395) oku."""
+def read_marketplace(folder: Path, *, source: str = "") -> Marketplace:
+    """Pazar klasörünün bildirimini ya da doğrudan verilen `.json` dosyasını (#395) oku.
+
+    `source` kayıtlı kaynaktır: resmî pazar adları yalnız Anthropic deposundan kabul (#411).
+    """
     if folder.is_file():
         try:
             raw = json.loads(folder.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise PluginError(f"{folder.name}: okunamadı: {error}") from error
-        return parse_marketplace(raw, where=folder.name)
+        return parse_marketplace(raw, where=folder.name, source=source)
     for relative in MARKETPLACE_PATHS:
         path = folder / relative
         if path.is_file():
@@ -580,7 +583,7 @@ def read_marketplace(folder: Path) -> Marketplace:
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as error:
                 raise PluginError(f"{relative}: okunamadı: {error}") from error
-            return parse_marketplace(raw, where=relative)
+            return parse_marketplace(raw, where=relative, source=source)
     raise PluginError(ERR_MARKET_FILE.format(path=folder))
 
 
@@ -600,7 +603,7 @@ def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord
         with _workspace(root) as workspace:
             clone = workspace / "pazar"
             _clone(source.location, clone, ref=source.ref)
-            market = read_marketplace(clone)
+            market = read_marketplace(clone, source=source.location)
             _check_market_name(market.name, source.record_source, root)
             destination = markets_dir(root) / market.name
             shutil.rmtree(destination, ignore_errors=True)
@@ -645,7 +648,7 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> tuple[str, ...
 def _entries(state: PluginState) -> Iterator[tuple[MarketplaceRecord, MarketplaceEntry]]:
     for record in state.marketplaces:
         try:
-            market = read_marketplace(Path(record.path))
+            market = read_marketplace(Path(record.path), source=record.source)
         except PluginError:
             continue
         for entry in market.entries:

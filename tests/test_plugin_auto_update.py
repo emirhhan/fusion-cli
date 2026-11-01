@@ -122,3 +122,71 @@ def test_bildirimdeki_false_resmi_varsayilani_ezer(tmp_path):
         "claude-plugins-official": DeclaredMarket("claude-plugins-official", "x", "project", False)
     }
     assert plugin_auto_update.is_auto_update("claude-plugins-official", declared) is False
+
+
+def _official_clone(name: str):
+    def fake_clone(url, target, *, ref="", sha=""):
+        plugin = target / "plugins" / "rapor"
+        (plugin / ".claude-plugin").mkdir(parents=True)
+        _version(plugin, "1.0.0")
+        (plugin / "skills" / "ozet").mkdir(parents=True)
+        (plugin / "skills" / "ozet" / "SKILL.md").write_text(
+            "---\nname: ozet\ndescription: Ö\n---\nÖ\n", "utf-8"
+        )
+        (target / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+        (target / ".claude-plugin" / "marketplace.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "owner": {"name": "Anthropic"},
+                    "plugins": [{"name": "rapor", "source": "./plugins/rapor"}],
+                }
+            ),
+            "utf-8",
+        )
+        return "b" * 40
+
+    return fake_clone
+
+
+def test_resmi_pazar_resmi_kaynaktan_eklenir_ve_varsayilan_acik(tmp_path, monkeypatch):
+    """#411: ayrılmış ad yalnız github.com/anthropics/ kaynağına serbest; #394 DEFAULT_ON."""
+    monkeypatch.setattr(plugin_install, "_clone", _official_clone("claude-plugins-official"))
+
+    record = plugin_install.add_marketplace("resmi")
+
+    assert record.name == "claude-plugins-official"
+    assert plugin_auto_update.is_auto_update(record.name, {}) is True
+
+
+def test_resmi_pazar_eklentisi_otomatik_guncellenir(tmp_path, monkeypatch):
+    monkeypatch.setattr(plugin_install, "_clone", _official_clone("claude-plugins-official"))
+    plugin_install.add_marketplace("resmi")
+    plugin_install.install_plugin("rapor@claude-plugins-official", approve=lambda _p: True)
+
+    def newer(url, target, *, ref="", sha=""):
+        commit = _official_clone("claude-plugins-official")(url, target, ref=ref, sha=sha)
+        _version(target / "plugins" / "rapor", "2.0.0")
+        return commit
+
+    monkeypatch.setattr(plugin_install, "_clone", newer)
+    from fusion_cli.tools import plugin_update
+
+    monkeypatch.setattr(plugin_update, "_clone", newer)
+    assert plugin_auto_update.auto_update_pass(tmp_path / "proje") == ("rapor",)
+
+
+def test_ayrilmis_ad_baska_kaynaktan_reddedilir(monkeypatch):
+    from fusion_cli.core.plugins import PluginError
+
+    monkeypatch.setattr(plugin_install, "_clone", _official_clone("claude-plugins-official"))
+    with pytest.raises(PluginError, match="ayrılmış"):
+        plugin_install.add_marketplace("saldirgan/claude-plugins-official")
+
+
+def test_taklit_ad_resmi_kaynaktan_da_reddedilir(monkeypatch):
+    from fusion_cli.core.plugins import PluginError
+
+    monkeypatch.setattr(plugin_install, "_clone", _official_clone("official-claude-plugins"))
+    with pytest.raises(PluginError, match="ayrılmış"):
+        plugin_install.add_marketplace("resmi")

@@ -4,7 +4,8 @@ Belge (https://code.claude.com/docs/en/plugins/marketplace-reference.md):
 - `name`, `owner` (`owner.name` zorunlu) ve `plugins` zorunlu; her girdi AYRI doğrulanır,
   bozuk tek girdi pazarı düşürmez (#397). Bilinmeyen anahtar yok sayılır; yinelenen ad hata.
 - Pazar adı harf/rakam ile başlar, harf, rakam, `.`, `_`, `-` içerir; resmî ve ayrılmış adlar
-  reddedilir (#411).
+  reddedilir (#411). Resmî/topluluk/dizin adları yalnız `github.com/anthropics/` altındaki
+  github/git kaynağına serbesttir (taklitler ve öteki ayrılmış adlar her kaynakta reddedilir).
 - Göreli kaynak `./` ile başlar, `.` tek başına köktür; çıplak ad yalnız `metadata.pluginRoot`
   altında ve `/` içermeden. `sha` tam 40 karakter küçük harf; eklenti kaynağında `git` türü
   yoktur (Fusion'ın eski adı olarak uyarıyla okunur) (#399).
@@ -58,6 +59,10 @@ _RESERVED = frozenset(
         "propertyisenumerable", "tolocalestring", "tostring", "valueof",
     }
 )  # fmt: skip
+_ANTHROPIC_SOURCE = re.compile(
+    r"^(?:https://github\.com/|git@github\.com:)anthropics/[A-Za-z0-9._-]+?(?:\.git)?/?(?:#.*)?$",
+    re.IGNORECASE,
+)
 _IMITATED_PREFIXES = ("claude-plugins", "claude-code-plugins", "anthropic-plugins")
 _SPELLING = re.compile(r"[^a-z0-9_]+")
 
@@ -127,20 +132,35 @@ def is_reserved_marketplace(name: str) -> bool:
     return "official" in words or spelled.startswith(_IMITATED_PREFIXES)
 
 
-def check_marketplace_name(value: object, where: str) -> str:
+def is_anthropic_source(source: str) -> bool:
+    """Pazar kaynağı `github.com/anthropics/` altındaki bir github/git deposu mu?"""
+    return bool(_ANTHROPIC_SOURCE.match(source.strip()))
+
+
+def check_marketplace_name(value: object, where: str, *, official_source: bool = False) -> str:
+    """Ad kuralı ve ayrılmış adlar; resmî adın birebir kendisi yalnız resmî kaynağa serbest."""
     text = value.strip() if isinstance(value, str) else ""
     if not _ID_PART.match(text) or ".." in text:
         raise PluginError(ERR_MARKET_NAME.format(where=where, value=value))
+    if official_source and text.lower() in _OFFICIAL:
+        return text
     if is_reserved_marketplace(text):
         raise PluginError(ERR_MARKET_RESERVED.format(where=where, value=value))
     return text
 
 
-def parse_marketplace(raw: object, *, where: str = "marketplace.json") -> Marketplace:
-    """`marketplace.json` içeriğini doğrula; bozuk girdi atlanır ve uyarı olur."""
+def parse_marketplace(
+    raw: object, *, where: str = "marketplace.json", source: str = ""
+) -> Marketplace:
+    """`marketplace.json` içeriğini doğrula; bozuk girdi atlanır ve uyarı olur.
+
+    `source`: pazarın kayıtlı kaynağı; resmî adlara izin yalnız Anthropic deposundan (#411).
+    """
     if not isinstance(raw, Mapping):
         raise PluginError(ERR_NOT_OBJECT.format(where=where))
-    name = check_marketplace_name(raw.get("name"), where)
+    name = check_marketplace_name(
+        raw.get("name"), where, official_source=is_anthropic_source(source)
+    )
     owner = raw.get("owner")
     owner_name = owner.get("name") if isinstance(owner, Mapping) else owner
     if not isinstance(owner_name, str) or not owner_name.strip():

@@ -49,7 +49,7 @@ def _read_market(record: MarketplaceRecord) -> Marketplace | None:
         if candidate.is_file():
             try:
                 raw = json.loads(candidate.read_text(encoding="utf-8"))
-                return parse_marketplace(raw, where=candidate.name)
+                return parse_marketplace(raw, where=candidate.name, source=record.source)
             except (OSError, ValueError, PluginError) as error:
                 _LOG.warning("pazar '%s' okunamadı: %s", record.name, error)
                 return None

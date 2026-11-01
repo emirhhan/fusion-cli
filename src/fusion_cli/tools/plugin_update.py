@@ -199,7 +199,7 @@ def update_marketplace(name: str, *, base: Path | None = None) -> MarketplaceRec
         clone = workspace / "pazar"
         url, ref = split_ref(record.source)
         _clone(url, clone, ref=ref)
-        market = read_marketplace(clone)
+        market = read_marketplace(clone, source=url)
         if market.name != record.name:
             raise PluginError(ERR_MARKET_RENAMED.format(old=record.name, new=market.name))
         destination = markets_dir(root) / market.name

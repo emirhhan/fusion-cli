@@ -95,4 +95,4 @@ def sync_by_name(name: str, *, base: Path | None = None) -> tuple[str, ...]:
     record = load_state(base or plugins_dir()).marketplace(name)
     if record is None:
         return ()
-    return sync_marketplace(read_marketplace(Path(record.path)), base=base)
+    return sync_marketplace(read_marketplace(Path(record.path), source=record.source), base=base)
