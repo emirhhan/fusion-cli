@@ -103,6 +103,34 @@ class ReplInput:
     def interactive(self) -> bool:
         return self._session is not None
 
+    @property
+    def waiting(self) -> bool:
+        """İstem açık mı (durum satırı gözcüsü yalnız bu sırada yazar, #192)?"""
+        return self._waiting
+
+    def vi_state(self) -> str:
+        """Vim kipindeyse prompt_toolkit'in giriş kipi (`INSERT`/`NORMAL`…); değilse boş."""
+        if not self.vim_mode or self._session is None:
+            return ""
+        app = getattr(self._session, "app", None)
+        mode = getattr(getattr(app, "vi_state", None), "input_mode", None)
+        value = str(getattr(mode, "value", "") or "insert")
+        return "NORMAL" if value == "navigation" else value.upper()
+
+    def invalidate(self) -> None:
+        app = getattr(self._session, "app", None)
+        if app is not None:
+            app.invalidate()
+
+    async def print_above(self, write: Callable[[], None]) -> None:
+        """İstem açıkken çıktıyı istemin ÜSTÜNE bas (prompt_toolkit `run_in_terminal`)."""
+        if self._session is None or not self._waiting:
+            write()
+            return
+        from prompt_toolkit.application import run_in_terminal
+
+        await run_in_terminal(write)
+
     def cycle_mode(self) -> ApprovalMode:
         self.mode = next_mode(self.mode)
         return self.mode

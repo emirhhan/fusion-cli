@@ -23,7 +23,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from rich.console import Console
 from rich.markup import escape
@@ -325,8 +325,11 @@ async def _run_inline(
     if not switched:
         _print_inline_welcome(state, console, resume)
     _sync_status_bar(reader, state, background)
-    # Claude Code (#192): durum satırı betiği oturum başında da çalışır.
+    # Claude Code (#192): durum satırı betiği oturum başında da çalışır; istem açıkken kip
+    # değişimi ve `refreshInterval` gözcüsü (`status_line_inline`) yeniden çalıştırır.
+    status_watcher = _status_watcher(state, reader, console)
     await _show_status_line(reader, state, console)
+    status_task = asyncio.ensure_future(status_watcher.run())
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
     # `--resume` ile açılan sohbetin hedefi geri gelir (P-058).
     state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
@@ -367,8 +370,11 @@ async def _run_inline(
             cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
         cron_watcher.cancel()
+        status_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        with contextlib.suppress(asyncio.CancelledError):
+            await status_task
         await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
         await remote_control.shutdown(state)
@@ -577,11 +583,31 @@ async def _handle(
 async def _show_status_line(reader: ReplInput, state: ReplState, console: Console) -> None:
     from .input import toolbar_enabled
 
+    watcher = getattr(state, "status_watcher", None)
+    if watcher is not None:
+        watcher.mark_ran()
     block = await status_line.status_line_block(state)
     if toolbar_enabled():
         reader.custom_status = status_line.first_plain_line(block)
-    else:
-        status_line.show_status_block(console.file, block)
+        reader.invalidate()
+    elif block:
+        await reader.print_above(lambda: status_line.show_status_block(console.file, block))
+
+
+def _status_watcher(state: ReplState, reader: ReplInput, console: Console) -> Any:
+    """İstem açıkken kip değişimi/`refreshInterval` tetikleri (#192)."""
+    from .status_line_inline import InlineStatusWatcher
+    from .status_line_settings import resolve_status_line
+
+    def _interval() -> int | None:
+        spec = resolve_status_line(state.config, state.root, state.home)
+        return None if spec is None else spec.refresh_interval_s
+
+    watcher = InlineStatusWatcher(
+        state, reader, lambda: _show_status_line(reader, state, console), _interval
+    )
+    state.status_watcher = watcher
+    return watcher
 
 
 def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:

@@ -60,13 +60,13 @@ def test_onay_onizlemesi_argumandaki_isaretleri_yutmaz_ve_cokertmez():
 
 
 async def test_komut_sonucundaki_etiketler_yutulmaz(tmp_path, monkeypatch):
-    """`/model` gibi komut çıktısındaki `[strict]` etiketi Rich işareti sanılıp silinirdi."""
-    from fusion_cli.config import model_select
+    """Komut çıktısındaki `[strict]` etiketi Rich işareti sanılıp silinirdi.
 
-    monkeypatch.setattr(model_select, "format_models", lambda config: "agent : x/y [strict]")
+    Argümansız `/model` artık seçici açar (#211); metin dönen rol alt komutu kullanılır.
+    """
     session = _TuiSession(_state(tmp_path))
 
-    await session._command("/model")
+    await session._command("/models agent x/y[strict]")
 
     duz = re.sub(r"\x1b\[[0-9;]*m", "", session.tui.transcript)
     assert "[strict]" in duz

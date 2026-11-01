@@ -227,6 +227,8 @@ class ReplState:
     add_dir_legacy_warned: bool = field(default=False, kw_only=True)
     #: `/model agent|judge|…` eski alt komut uyarısı bir kez gösterildi mi (#211).
     model_subcommand_warned: bool = field(default=False, kw_only=True)
+    #: Satır içi REPL durum satırı gözcüsü (#192); tam ekranda ve masaüstünde None.
+    status_watcher: object | None = field(default=None, kw_only=True)
     #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
     side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
