@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { APPROVAL_MODES, type ApprovalMode } from "../screens/ApprovalModeMenu";
+import { readAutoGate } from "./autoGate";
 import { saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./useSessions";
 
 interface ActiveSession {
@@ -17,6 +18,8 @@ export interface SessionPersona {
 
 /** `oturum.durum` / `oturum.baslat` cevabındaki mod alanlarını doğrulayarak okur. */
 export function modlariOku(result: Record<string, unknown>): { approval?: ApprovalMode; workspace?: WorkspaceMode; persona?: SessionPersona | null } {
+  // `auto_kapali` (#85): ayar auto'yu kapattıysa kip seçici onu gizler.
+  readAutoGate(result);
   const approval = APPROVAL_MODES.find((mode) => mode.id === result.mod)?.id;
   const workspace = result.kip === "sohbet" || result.kip === "kod" ? result.kip : undefined;
   return { approval, workspace, persona: kisilikOku(result) };

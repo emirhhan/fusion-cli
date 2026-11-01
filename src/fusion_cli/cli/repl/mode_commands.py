@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from ...engines.agent.approval import ApprovalMode
 from ...ui import messages
+from ...ui.permission_dialog_messages import AUTO_MODE_SETTING_DISABLED
 
 if TYPE_CHECKING:
     from .state import ReplState
@@ -36,7 +37,7 @@ def legacy_mode(name: str, mode: ApprovalMode) -> Callable[[ReplState, str], str
         if mode is ApprovalMode.BYPASS and not getattr(state, "bypass_available", False):
             return BYPASS_UNAVAILABLE
         if mode is ApprovalMode.AUTO and not getattr(state, "auto_available", True):
-            return "auto kipi ayarla kapatılmış (disableAutoMode)."
+            return AUTO_MODE_SETTING_DISABLED
         state.approval = mode
         text = messages.REPL_MODE_CHANGED.format(mode=mode.value)
         if name not in _warned:

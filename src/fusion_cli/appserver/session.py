@@ -59,6 +59,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
+from ..config.permission_settings import auto_mode_disabled
 from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
@@ -100,6 +101,7 @@ from ..tools.safe_delete import is_container_root, project_folders
 from ..tools.skill_commands import map_denied_tools
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
+from ..ui.permission_dialog_messages import AUTO_MODE_SETTING_DISABLED
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, computer_routes, intelligence, ui_prefs
@@ -1876,6 +1878,8 @@ class AppSession:
     def _apply_mode(self, value: str | None, *, persist: bool = True) -> dict[str, Any] | None:
         if not isinstance(value, str) or not value:
             return None
+        if (auto_error := self._auto_mode_refusal(value)) is not None:
+            return auto_error
         try:
             mode = parse_mode(value)
         except ValueError:
@@ -1890,6 +1894,14 @@ class AppSession:
         if persist:
             self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
+
+    def _auto_mode_refusal(self, value: str) -> dict[str, Any] | None:
+        """Claude (#85): `disableAutoMode: "disable"` olan oturumda auto seçilemez."""
+        if value.strip().lower() != ApprovalMode.AUTO.value:
+            return None
+        if self._state.approval is ApprovalMode.AUTO or not auto_mode_disabled(self._state.root):
+            return None
+        return {"ok": False, "metin": AUTO_MODE_SETTING_DISABLED}
 
     def _note_persist_warning(self, warning: str | None) -> None:
         """Kalıcı yazma uyarısını sonraki yanıta taşımak üzere sakla.
@@ -2339,6 +2351,8 @@ class AppSession:
                 if self._state.linked_pr is not None
                 else None
             ),
+            # Bir ayar dosyası `disableAutoMode: "disable"` diyorsa kip seçici auto'yu gizler (#85).
+            "auto_kapali": auto_mode_disabled(self._state.root),
         }
 
     def _container_projects(self) -> list[str]:
