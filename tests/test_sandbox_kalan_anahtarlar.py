@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.config import claude_sandbox_settings, sandbox_claude_keys, trust
+from fusion_cli.config import claude_sandbox_settings, sandbox_claude_keys, sandbox_scopes, trust
 from fusion_cli.config.claude_sandbox_settings import read_claude_sandbox
 from fusion_cli.core import shell_sandbox
 from fusion_cli.core.errors import ConfigError
@@ -35,6 +35,7 @@ _SEATBELT = pytest.mark.skipif(
 def _uyarilar_sifir(monkeypatch):
     monkeypatch.setattr(sandbox_claude_keys, "_WARNED", set())
     monkeypatch.setattr(claude_sandbox_settings, "_WARNED", set())
+    monkeypatch.setattr(sandbox_scopes, "_WARNED", set())
 
 
 def test_claude_adlari_ic_alanlara_uyarisiz_cevrilir(caplog):

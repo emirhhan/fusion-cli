@@ -10,6 +10,9 @@ bölümü bunların altında en düşük katmandır.
 Birleştirme Claude'daki gibidir (sandboxing › "Path prefixes", "merged across scopes"): yol ve
 alan adı listeleri katmanlar boyunca BİRLEŞİR, tekil değerlerde son katman kazanır.
 
+Hangi anahtarın hangi kapsamdan okunabildiği (managed-only, proje yok sayımı, admin-required)
+`sandbox_scopes` modülündedir (#350).
+
 Göreli yollar ayar dosyasının kapsamına göre çözülür (#369): proje ayarında proje kökü,
 kullanıcı ayarında `~/.claude`. `/` mutlak, `~/` ev dizinidir.
 
@@ -35,6 +38,7 @@ from .sandbox_claude_keys import (
     normalize_claude_sandbox,
 )
 from .sandbox_config import SandboxConfig
+from .sandbox_scopes import MANAGED, PROJECT, admin_required, managed_domains_only, scope_filter
 
 __all__ = [
     "ClaudeSandbox",
@@ -61,21 +65,6 @@ LIST_FIELDS = frozenset(
         "credential_mask",
     }
 )
-#: Proje ayar dosyalarından (`.claude/settings*.json`) OKUNMAYAN alanlar: Claude'da depo
-#: yalıtımı gevşetemez, CA veremez, mask kaydı açamaz (settings-reference › sandbox).
-PROJECT_IGNORED = frozenset(
-    {
-        "tls_terminate",
-        "tls_ca_cert",
-        "tls_ca_key",
-        "credential_mask",
-        "allow_plaintext_inject",
-        "filesystem_disabled",
-        "allow_nested_user_namespaces",
-        "ripgrep_command",
-        "ripgrep_args",
-    }
-)
 #: Göreli yolu ayar dosyasının kapsamına göre çözülen alanlar.
 PATH_FIELDS = ("allow_write", "deny_write", "deny_read", "allow_read", "credential_files")
 _KNOWN = frozenset(item.name for item in fields(SandboxConfig))
@@ -91,15 +80,15 @@ class ClaudeSandbox:
     sources: tuple[Path, ...] = ()
 
 
-def _sources(root: Path, home: Path | None) -> list[tuple[Path, Path]]:
-    """(dosya, göreli yol tabanı) çiftleri; Claude sırasıyla, güvenilmeyen proje hariç."""
+def _sources(root: Path, home: Path | None) -> list[tuple[Path, Path, str]]:
+    """(dosya, göreli yol tabanı, tür) üçlüleri; Claude sırasıyla, güvenilmeyen proje hariç."""
     user_dir = claude_user_dir(home)
-    pairs = [(user_dir / "settings.json", user_dir)]
+    triples = [(user_dir / "settings.json", user_dir, "kullanici")]
     if trust.is_project_settings_trusted(root):
-        pairs.append((root / trust.PROJECT_SETTINGS_PATH, root))
+        triples.append((root / trust.PROJECT_SETTINGS_PATH, root, PROJECT))
     if trust.is_permissions_trusted(root):
-        pairs.append((root / trust.PROJECT_PERMISSIONS_PATH, root))
-    return pairs
+        triples.append((root / trust.PROJECT_PERMISSIONS_PATH, root, PROJECT))
+    return triples
 
 
 def _load(path: Path) -> dict[str, object] | None:
@@ -134,28 +123,14 @@ def _known_only(section: dict[str, object], path: Path) -> dict[str, object]:
 
 def _candidates(
     root: Path, home: Path | None
-) -> Iterator[tuple[Mapping[str, object], Path, Path, bool]]:
-    """(içerik, kaynak, taban, managed mı) artan öncelikle: dosyalar, `--settings`, managed."""
-    for path, base in _sources(root, home):
+) -> Iterator[tuple[Mapping[str, object], Path, Path, str]]:
+    """(içerik, kaynak, taban, tür) artan öncelikle: dosyalar, `--settings`, managed."""
+    for path, base, kind in _sources(root, home):
         data = _load(path)
         if data is not None:
-            yield data, path, base, False
+            yield data, path, base, kind
     for top in top_layers(root):
-        yield top.data, top.source, top.base, top.name == "managed"
-
-
-def _without_project_only(section: dict[str, object], path: Path) -> dict[str, object]:
-    """Proje katmanında yok sayılan sandbox alanlarını (iç adlarla) çıkar; bir kez uyarır."""
-    for key in sorted(PROJECT_IGNORED & {key for key, value in section.items() if value}):
-        if f"proje:{key}" not in _WARNED:
-            _WARNED.add(f"proje:{key}")
-            _LOG.warning(
-                "sandbox.%s proje ayarında yok sayıldı (Claude gibi yalnız kullanıcı, managed "
-                "ya da --settings): %s",
-                key,
-                path,
-            )
-    return {key: value for key, value in section.items() if key not in PROJECT_IGNORED}
+        yield top.data, top.source, top.base, top.name
 
 
 def _managed_flag(data: Mapping[str, object], group: str, key: str) -> bool:
@@ -225,16 +200,19 @@ def merge_sandbox_sections(
 
 def read_claude_sandbox(root: Path, *, home: Path | None = None) -> ClaudeSandbox:
     """Claude ayar dosyalarındaki `sandbox` bölümlerini sırayla birleştir."""
+    candidates = list(_candidates(root, home))
+    kinds = [(kind, data) for data, _, _, kind in candidates]
+    admin, domains = admin_required(kinds), managed_domains_only(kinds)
     layers: list[tuple[dict[str, object], bool]] = []
     raw: list[Mapping[str, object]] = []
     enabled: bool | None = None
     sources: list[Path] = []
-    for data, path, base, is_managed in _candidates(root, home):
+    for data, path, base, kind in candidates:
         layer = _layer_from(data, path, base)
         if layer is None:
             continue
-        project = not is_managed and base == root and path.parent.name == ".claude"
-        layers.append((_without_project_only(layer[0], path) if project else layer[0], is_managed))
+        section = scope_filter(kind, layer[0], path, admin=admin, domains=domains)
+        layers.append((section, kind == MANAGED))
         raw.append(data)
         if layer[1] is not None:
             enabled = layer[1]

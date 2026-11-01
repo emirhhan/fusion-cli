@@ -96,7 +96,9 @@ Ek Claude anahtarları: `network.allowUnixSockets` (bağlanılabilen Unix soket 
 ayar dosyasının kapsamına göre) ve `network.allowAllUnixSockets` macOS Seatbelt'te soket
 bağlantısını açar (Linux'ta dosya sistemi soketleri zaten erişilebilir); `network.allowLocalBinding`
 localhost portunda dinlemeye izin verir (Fusion uzantısı `allow_localhost` kapalıyken anlamlıdır);
-`bwrapPath` / `socatPath` Linux araçlarının yolunu verir. `allowMachLookup`, `allowAppleEvents` ve
+`bwrapPath` / `socatPath` Linux araçlarının yolunu verir; Claude'daki gibi yalnız managed
+ayardan okunur (kullanıcı, proje ya da `--settings` sandbox'ı başka bir ikiliye
+yönlendiremez; Fusion YAML'ındaki `sandbox.bwrap_path` kullanıcının kendi ayarıdır). `allowMachLookup`, `allowAppleEvents` ve
 `enableWeakerNetworkIsolation` okunur ama etkisizdir: Fusion'ın Seatbelt profili `(allow default)`
 olduğu için Mach araması ve Apple Events zaten açıktır (Claude'da varsayılan kapalıdır).
 `network.httpProxyPort` / `socksProxyPort` trafiği kullanıcının localhost'taki kendi HTTP /
@@ -124,7 +126,13 @@ PATH'teki `rg`, o da yoksa yalnız kök düzeyi korunur.
 Claude'daki gibi proje ayar dosyaları (`.claude/settings.json`, `.claude/settings.local.json`)
 `tlsTerminate`, mask girdileri, `allowPlaintextInject`, `filesystem.disabled`,
 `allowNestedUserNamespaces` ve `ripgrep` ayarlayamaz: bunlar yok sayılır ve bir kez uyarılır;
-yalnız kullanıcı ayarı, managed ve `--settings` geçerlidir. Etkin olanlar `/sandbox`
+yalnız kullanıcı ayarı, managed ve `--settings` geçerlidir. Sandbox "admin-required" iken
+(managed ya da `--settings` `allowUnsandboxedCommands: false` — managed `true` demedikçe — veya
+managed `network.allowManagedDomainsOnly: true`) proje dosyaları yalıtımı gevşetemez:
+`excludedCommands`, `network.allowedDomains`, `filesystem.allowWrite`, `allowUnixSockets`,
+`httpProxyPort`/`socksProxyPort` ve `allowAllUnixSockets: true`,
+`enableWeakerNestedSandbox: true` yok sayılır (`false` yine uygulanır).
+`allowManagedDomainsOnly` açıkken proxy portları yalnız managed ayardan okunur. Etkin olanlar `/sandbox`
 Yapılandırma ekranında ve masaüstü Sandbox kartında listelenir. Bilinmeyen anahtarlar yok
 sayılır ve bir kez uyarılır.
 
