@@ -218,12 +218,28 @@ değerlendiriciler `regex`, `tool_order`, `tool_used`, `file_exists`, `llm`, `ba
 `allowed_tools`/`max_turns`/`timeout_seconds` ile koşar; eklenti çözülünce varsayılan
 `--ablation with-without` eklentisiz kolu da koşar ve farkı raporlar (`tool_used: Skill` ve
 `arm: with-only` gösterge olur). `llm`/`baseline` yargıç alt süreciyle puanlanır. Sonuç
-`<eval>/results/<zaman>/aggregate-result.json` (`--output-dir`), `--json` tam sonucu basar,
-`--json-file <yol>` yazar; vaka `--threshold`'un (varsayılan 1.0) altındaysa çıkış 1. Güvenilmeyen
-eklenti klasöründe ilk koşu onay ister (`--trust-plugin`). Claude'dan farklar: claude.ai'de rapor
-yayımlama (`--publish-report`) claude.ai hesabı gerektirir ve hata verir; `--mocks`, `--scaffold`,
-`--allow-tools`, `--judge-model`, `--max-cost-usd`, `-j` ve `eval init` sohbet sihirbazı yok; Claude'un
-`--json [yol]` biçimi Fusion'da `--json` + `--json-file`.
+`<eval>/results/<zaman>/aggregate-result.json` (`--output-dir`, üst düzey `costUsd`) ve kendi içinde
+yeterli `report.html` (`--report <yol>` başka yere yazar); `--json` tam sonucu basar, `--json <yol>.json`
+(ya da `--json-file <yol>`) dosyaya yazar; vaka `--threshold`'un (varsayılan 1.0) altındaysa çıkış 1.
+`-j/--concurrency <1-8>` koşuları eşzamanlı yürütür (sonuç sırası vaka sırası). `--max-cost-usd`
+tavanı her koşu başlamadan denetlenir; aşılınca kalan koşular başlamaz, kısmi sonuç yazılır, tavanı
+aşan koşunun ücretli `llm`/`baseline` değerlendiricileri atlanır ve çıkış 2. Kapılı araçlar (`Bash`,
+`Write`, `Edit`, `NotebookEdit`, `WebFetch`) alt süreçte kapalıdır; `--allow-tools` operatör izni ya da
+eklentili kolda eklenti becerisinin `allowed-tools` ön maddesi açar (`Bash(desen:*)` deseni Fusion'da
+araç ailesinin tamamına uygulanır). `--model` tüm vakaların, vaka `model:` alanı o vakanın, `--judge-model`
+yargıcın modelini seçer (alt sürece `FUSION_EVAL_MODEL` ile; aday adı ya da model kimliği; varsayılan
+yargıç Fusion yapılandırmasıdır, Claude'daki `haiku` değil). `--scaffold` vakanın `scaffold_script`'ini
+(vaka klasöründe dosya ya da bash metni) çalışma klasöründe çalıştırır; varsayılan kapalıdır ve atlanınca
+uyarı basılır, `--no-scaffold` sessizce atlar; `--keep-temp` çalışma klasörlerini bırakır. `--mocks record`
+(varsayılan) `<eval>/mocks/<sunucu>/<araç>.md` sahtelerini MCP sunucusu olarak başlatır (`{{input.<alan>}}`,
+`expect:` ihlali koşuyu durdurur ve puanı 0 yapar, `error: true`, `_tools.json`, `_server.md` `type: agent`
+ile sahte dünya); sahtesi olmayan eklenti sunucusu `--allow-real-servers` yoksa başlamaz; taslak (`TODO:
+replace…`) sahte varken eval başlamaz; `--mocks off` gerçek sunucuları başlatır. `plugin eval init --bare
+<ad>` Claude'la aynı boş şablonu yazar; bayraksız ya da `-i` ile terminalde vaka yazma görüşmesi bir
+Fusion oturumu olarak açılır, Fusion oturumunun içinden ya da terminal yokken görüşme metni basılır.
+Güvenilmeyen eklenti klasöründe ilk koşu onay ister (`--trust-plugin`). Claude'dan kalan fark: raporu
+claude.ai'de yayımlama (`--publish-report`) claude.ai hesabı gerektirir ve hata verir, `--no-publish`
+etkisizdir; kullanıcının kendi (eklenti dışı) MCP sunucuları sahtelerle değiştirilmez.
 
 `plugin init <ad>` Claude Code gibi `~/.claude/skills/<ad>/` altına `.claude-plugin/plugin.json`
 (`$schema`, `version: 0.1.0`, `author`, `skills: ["./"]`) ve kök `SKILL.md` yazar; `--with` ek iskelet

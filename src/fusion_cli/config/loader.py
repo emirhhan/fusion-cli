@@ -197,6 +197,7 @@ def load_config(path: str | Path | None = None) -> Config:
             ),
         )
         yapilandirma = _with_plugin_default_agent(yapilandirma)  # #389: eklenti settings.json
+        yapilandirma = with_eval_model(yapilandirma)  # #380: plugin eval --model
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
@@ -463,6 +464,12 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     )
 
 
+def with_eval_model(config: Config) -> Config:
+    from .plugin_eval_env import with_eval_model as apply
+
+    return apply(config)
+
+
 def _with_plugin_default_agent(config: Config) -> Config:
     """Kullanıcı/proje `agent` vermediyse etkin eklentinin `settings.json` `agent`'ı (Claude)."""
     if config.agent_launch.default_agent:
@@ -478,10 +485,12 @@ def _with_plugin_default_agent(config: Config) -> Config:
 
 def _with_plugin_mcp_servers(config: Config) -> Config:
     """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
+    from .plugin_eval_env import with_eval_mocks
     from .plugin_store import plugin_mcp_servers
 
     taken = {server.name for server in config.mcp_servers}
-    extra = tuple(server for server in plugin_mcp_servers() if server.name not in taken)
+    found = with_eval_mocks(plugin_mcp_servers())  # #380: plugin eval --mocks
+    extra = tuple(server for server in found if server.name not in taken)
     if not extra:
         return config
     return dataclasses.replace(config, mcp_servers=(*config.mcp_servers, *extra))

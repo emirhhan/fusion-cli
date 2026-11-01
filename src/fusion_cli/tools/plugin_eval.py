@@ -39,6 +39,7 @@ _EXECUTION = {
     "growthbook_overrides",
     "append_system_prompt",
     "env",
+    "scaffold_script",
 }
 ERR_KEY = '{path}: unknown frontmatter key "{key}" (expected one of: {keys})'
 ERR_TYPE = (
@@ -75,6 +76,7 @@ class EvalCase:
     allowed_tools: tuple[str, ...] = ()
     append_system_prompt: str = ""
     env: Mapping[str, str] = field(default_factory=dict)
+    scaffold_script: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +87,7 @@ class RunTrace:
     tools: tuple[tuple[str, Mapping[str, object]], ...]
     workdir: Path
     trace_text: str = ""
+    cost_usd: float = 0.0
 
 
 Judge = Callable[[str], float]
@@ -225,6 +228,7 @@ def _case(folder: Path, data: Mapping[str, object]) -> EvalCase:
         tuple(str(t) for t in tools),
         str(data.get("append_system_prompt") or ""),
         {str(k): str(v) for k, v in env.items()},
+        str(data.get("scaffold_script") or ""),
     )
 
 

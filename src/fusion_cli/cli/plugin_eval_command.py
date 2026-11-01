@@ -1,51 +1,51 @@
 """`fusion plugin eval [hedef]` (Claude Code 2.1.287 `claude plugin eval`, #380).
 
 Her vaka için `runs` kez (varsayılan 3, `--runs`) ayrı bir `fusion agent` alt süreci, geçici
-çalışma klasöründe ve vakanın `allowed_tools`/`max_turns`/`timeout_seconds` sınırlarıyla koşar.
-Eklenti çözüldüyse varsayılan `--ablation with-without`: eklentili kol `--plugin-dir` ile (kurulu
-hedefte kurulu kopya), eklentisiz kol eklenti dışlanarak koşar ve puan farkı raporlanır.
-`llm`/`baseline` değerlendiricileri yargıç alt süreciyle puanlanır (`SCORE: <0..1>`).
-Sonuç `<eklenti>/<eval>/results/<zaman>/aggregate-result.json`'a yazılır (`--output-dir`);
-`--json [yol]` tam sonucu basar ya da yazar; herhangi bir vaka `--threshold`'un (varsayılan 1.0)
-altındaysa çıkış 1. Güvenilmeyen eklenti klasöründe ilk koşu onay ister (`--trust-plugin` CI
-için). Claude'un claude.ai'de rapor yayımlaması Fusion'da yoktur (`--publish-report` hata,
-`--no-publish` etkisiz); MCP sahte sunucu kaydı (`--mocks record`) yoktur.
+çalışma klasöründe ve vakanın `allowed_tools`/`max_turns`/`timeout_seconds` sınırlarıyla koşar
+(`-j` ile eşzamanlı; koşu düzeni `tools/plugin_eval_run.py`). Eklenti çözüldüyse varsayılan
+`--ablation with-without`: eklentili kol `--plugin-dir` ile (kurulu hedefte kurulu kopya),
+eklentisiz kol eklenti dışlanarak koşar ve puan farkı raporlanır. `llm`/`baseline`
+değerlendiricileri yargıç alt süreciyle puanlanır (`SCORE: <0..1>`, `--judge-model`). MCP
+sunucuları `--mocks record` (varsayılan) ile `<eval>/mocks/`'taki sahtelerle değişir
+(`tools/plugin_eval_mocks.py`). Sonuç `<eklenti>/<eval>/results/<zaman>/aggregate-result.json` ve
+`report.html` (`--output-dir`, `--report`); `--json [yol]` tam sonucu basar ya da yazar; herhangi
+bir vaka `--threshold`'un (varsayılan 1.0) altındaysa çıkış 1, `--max-cost-usd` aşılınca çıkış 2.
+Güvenilmeyen eklenti klasöründe ilk koşu onay ister (`--trust-plugin` CI için). Claude'un raporu
+claude.ai'de yayımlaması Fusion'da yoktur (`--publish-report` hata, `--no-publish` etkisiz).
+`eval init` için bkz. `plugin_eval_init.py`.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 import typer
 
 from ..config.plugin_store import load_state, plugin_folder, plugins_dir
 from ..core.plugins import PluginError
-from ..tools.plugin_eval import (
-    EvalCase,
-    Judge,
-    RunTrace,
-    eval_dir,
-    load_cases,
-    parse_score,
-    score_run,
+from ..tools import plugin_eval_run as run
+from ..tools.plugin_eval import EvalCase, Judge, eval_dir, load_cases
+from ..tools.plugin_eval_run import (
+    EXCLUDE_ENV,
+    EvalOptions,
+    RunSpec,
+    Target,
+    parse_trace,
+    run_agent,
 )
 from .plugin_commands import app
 
-EXCLUDE_ENV = "FUSION_EVAL_EXCLUDE_PLUGINS"
+__all__ = ["EXCLUDE_ENV", "RunSpec", "Target", "parse_trace", "run_agent", "run_suite"]
+
 TRUST_FILE = "eval-trusted.json"
 ERR_PUBLISH = "Rapor yayımlama claude.ai hesabı gerektirir; Fusion'da yok (--report <yol> kullan)."
 ERR_NO_CASES = "Eval vakası bulunamadı: {path}"
 ERR_TARGET = "Eval hedefi çözülemedi: {target}"
+ERR_CONCURRENCY = "--concurrency must be an integer from 1 to 8"
+ERR_SCAFFOLD_BOTH = "--scaffold and --no-scaffold cannot be used together"
 ERR_UNTRUSTED = (
     "Bu eklenti klasörüne eval için henüz güvenilmedi ({path}). Eklentinin kodunu ve eval "
     "paketini kendin çalıştırırdın diyorsan --trust-plugin ver."
@@ -53,24 +53,11 @@ ERR_UNTRUSTED = (
 CONFIRM_TRUST = (
     "Eval eklentinin kodunu senin kullanıcınla çalıştırır. Bu eklentiye güveniyor musun?"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class Target:
-    root: Path
-    name: str
-    installed: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RunSpec:
-    case: EvalCase
-    arm: str
-    target: Target | None
-    workdir: Path
-
-
-Runner = Callable[[RunSpec], RunTrace]
+NOTE_SCAFFOLD = (
+    "Note: --scaffold runs each case's scaffold_script as you. Only use it on case files you "
+    "(or your org) authored."
+)
+NOTE_COST = "Maliyet tavanı (--max-cost-usd {ceiling}) aşıldı; kısmi sonuç yazıldı."
 
 
 def resolve_target(target: str) -> Target | None:
@@ -94,123 +81,23 @@ def resolve_target(target: str) -> Target | None:
     return Target(plugin_folder(record), record.name, installed=True)
 
 
-def _fusion() -> list[str]:
-    exe = shutil.which("fusion")
-    return [exe] if exe else [sys.executable, "-c", "from fusion_cli.cli.app import main; main()"]
-
-
-def _command(spec: RunSpec) -> list[str]:
-    case = spec.case
-    args = _fusion()
-    if spec.arm == "with" and spec.target is not None and not spec.target.installed:
-        args += ["--plugin-dir", str(spec.target.root)]
-    args += ["agent", case.prompt, "--output-format", "stream-json", "--no-memory"]
-    args += ["--max-turns", str(case.max_turns)]
-    if case.allowed_tools:
-        args += ["--allowed-tools", ",".join(case.allowed_tools)]
-    if case.append_system_prompt:
-        args += ["--append-system-prompt", case.append_system_prompt]
-    return args
-
-
-def run_agent(spec: RunSpec) -> RunTrace:
-    """Bir koşuyu alt süreçte yürüt ve olay satırlarından izi çıkar."""
-    env = {**os.environ, **spec.case.env}
-    if spec.arm == "without" and spec.target is not None:
-        env[EXCLUDE_ENV] = spec.target.name
-    try:
-        done = subprocess.run(
-            _command(spec),
-            cwd=spec.workdir,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=spec.case.timeout_seconds,
-            stdin=subprocess.DEVNULL,
-        )
-        output = done.stdout
-    except subprocess.TimeoutExpired as error:
-        output = error.stdout if isinstance(error.stdout, str) else ""
-    return parse_trace(output, spec.workdir)
-
-
-def parse_trace(output: str, workdir: Path) -> RunTrace:
-    tools: list[tuple[str, dict[str, object]]] = []
-    last = ""
-    for line in output.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        if event.get("event") == "ToolExecuted":
-            raw = event.get("args")
-            args: dict[str, object] = dict(raw) if isinstance(raw, dict) else {}
-            tools.append((str(event.get("name")), args))
-        elif event.get("event") == "TurnAnswered":
-            last = str(event.get("text") or "")
-        elif event.get("type") == "result" and not last:
-            last = str(event.get("sonuc") or "")
-    return RunTrace(last, tuple(tools), workdir, output)
-
-
-def judge_subprocess(prompt: str) -> float:
-    try:
-        done = subprocess.run(
-            [
-                *_fusion(),
-                "agent",
-                prompt,
-                "--output-format",
-                "json",
-                "--no-memory",
-                "--max-turns",
-                "1",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired:
-        return 0.0
-    text = done.stdout.strip().splitlines()[-1] if done.stdout.strip() else ""
-    with contextlib.suppress(ValueError, AttributeError):
-        text = str(json.loads(text).get("sonuc") or "")
-    return parse_score(text)
+def judge_subprocess(prompt: str, model: str = "") -> float:
+    return run.judge_command(prompt, model)[0]
 
 
 def run_suite(
     cases: tuple[EvalCase, ...],
     target: Target | None,
     *,
-    runner: Runner,
+    runner: run.Runner,
     judge: Judge,
     runs: int = 0,
     ablation: bool = True,
+    options: EvalOptions | None = None,
 ) -> dict[str, object]:
-    arms = ("with", "without") if ablation and target is not None else ("with",)
-    rows: list[dict[str, object]] = []
-    for case in cases:
-        row: dict[str, object] = {"name": case.name}
-        means: dict[str, float] = {}
-        for arm in arms:
-            results: list[dict[str, object]] = []
-            for _ in range(runs or case.runs):
-                with tempfile.TemporaryDirectory(prefix="fusion-eval-") as folder:
-                    trace = runner(RunSpec(case, arm, target, Path(folder)))
-                    results.append(score_run(case, trace, judge, arm=arm, ablation=len(arms) == 2))
-            means[arm] = sum(_number(r.get("score")) for r in results) / len(results)
-            row[arm] = {"score": means[arm], "runs": results}
-        if len(arms) == 2:
-            row["delta"] = means["with"] - means["without"]
-        rows.append(row)
-    return {
-        "plugin": target.name if target else "",
-        "ablation": "with-without" if len(arms) == 2 else "none",
-        "cases": rows,
-    }
+    return run.run_suite(
+        cases, target, runner=runner, judge=judge, runs=runs, ablation=ablation, options=options
+    )
 
 
 def _number(value: object) -> float:
@@ -251,9 +138,104 @@ def _summary(result: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _declared_servers(target: Target | None) -> tuple[str, ...]:
+    if target is None:
+        return ()
+    from ..config.plugin_eval_env import server_key
+    from ..config.plugin_layout import mcp_servers
+    from ..config.plugin_scan import scan_plugin
+
+    try:
+        return tuple(server_key(s.name) for s in mcp_servers(scan_plugin(target.root, target.name)))
+    except (PluginError, OSError):
+        return ()
+
+
+def _options(
+    folder: Path, resolved: Target | None, flags: dict[str, object]
+) -> tuple[EvalOptions, tuple[str, ...]]:
+    from ..tools.plugin_eval_mocks import load_mocks, mock_env, mock_notes
+
+    concurrency = int(flags["concurrency"])  # type: ignore[call-overload]
+    if not 1 <= concurrency <= run.MAX_CONCURRENCY:
+        raise PluginError(ERR_CONCURRENCY)
+    if flags["scaffold"] and flags["no_scaffold"]:
+        raise PluginError(ERR_SCAFFOLD_BOTH)
+    mode = str(flags["mocks"] or "record")
+    allow_real = bool(flags["allow_real_servers"])
+    mocks = load_mocks(folder) if mode != "off" else {}
+    notes = mock_notes(_declared_servers(resolved), mocks, mode=mode, allow_real=allow_real)
+    ceiling = flags["max_cost_usd"]
+    options = EvalOptions(
+        concurrency=concurrency,
+        max_cost_usd=float(ceiling) if isinstance(ceiling, int | float) else None,
+        allow_tools=tuple(str(t) for t in flags["allow_tools"]),  # type: ignore[attr-defined]
+        model=str(flags["model"] or ""),
+        judge_model=str(flags["judge_model"] or ""),
+        scaffold=bool(flags["scaffold"]),
+        keep_temp=bool(flags["keep_temp"]),
+        mock_env=mock_env(mode, mocks, allow_real=allow_real),
+        plugin_grants=run.skill_grants(resolved.root) if resolved else (),
+    )
+    if options.scaffold:
+        notes = (NOTE_SCAFFOLD, *notes)
+    return options, notes
+
+
+def _scaffold_notes(
+    cases: tuple[EvalCase, ...], options: EvalOptions, explicit_off: bool
+) -> list[str]:
+    if options.scaffold or explicit_off:
+        return []
+    return [run.NOTE_SCAFFOLD_SKIPPED.format(case=c.name) for c in cases if c.scaffold_script]
+
+
+def _write_outputs(
+    result: dict[str, object],
+    cases: tuple[EvalCase, ...],
+    out: Path,
+    *,
+    json_file: str,
+    report: str,
+    threshold: float,
+) -> str:
+    from ..tools.plugin_eval_report import render_report, write_report
+
+    out.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(result, ensure_ascii=False, indent=2)
+    (out / "aggregate-result.json").write_text(text + "\n", "utf-8")
+    if json_file:
+        Path(json_file).write_text(text + "\n", "utf-8")
+    html = render_report(result, cases, threshold=threshold)
+    write_report(Path(report) if report else out / "report.html", html)
+    return text
+
+
+def _init(name: str, eval_dir_name: str, bare: bool, interactive: bool) -> None:
+    from .plugin_eval_init import run_init
+
+    try:
+        text = run_init(
+            Path.cwd(), name, eval_dir_name=eval_dir_name, bare=bare, interactive=interactive
+        )
+    except PluginError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    if text:
+        typer.echo(text)
+
+
+def _json_target(as_json: bool, target: str, name: str, json_file: str) -> tuple[str, str]:
+    """Claude `--json [yol]`: `--json`'dan sonra gelen `.json` adı hedef değil çıktı dosyasıdır."""
+    if as_json and not json_file and target.endswith(".json") and not Path(target).is_dir():
+        return name, target
+    return target, json_file
+
+
 @app.command("eval")
 def eval_command(
     target: str = typer.Argument("", help="Eklenti yolu, adı ya da ad@pazar (varsayılan: .)"),
+    name: str = typer.Argument("", help="`eval init [ad]` vaka adı."),
     eval_dir_name: str = typer.Option(
         "", "--eval-dir", help="Vakaların klasörü (varsayılan evals/)."
     ),
@@ -262,10 +244,37 @@ def eval_command(
     runs: int = typer.Option(0, "--runs", help="Vaka başına koşu (varsayılan case.runs ?? 3)."),
     ablation: str = typer.Option("", "--ablation", help="none | with-without"),
     threshold: float = typer.Option(1.0, "--threshold", help="Bu puanın altındaki vaka çıkış 1."),
-    as_json: bool = typer.Option(False, "--json", help="Tam sonucu JSON olarak bas."),
+    as_json: bool = typer.Option(
+        False, "--json", help="Tam sonucu JSON bas (--json <yol>.json yazar)."
+    ),
     json_file: str = typer.Option("", "--json-file", help="Tam sonucu bu .json dosyasına yaz."),
     output_dir: str = typer.Option("", "--output-dir", help="aggregate-result.json klasörü."),
+    report: str = typer.Option("", "--report", help="HTML raporunu bu yola yaz."),
     trust_plugin: bool = typer.Option(False, "--trust-plugin", help="İlk koşu güven onayını geç."),
+    concurrency: int = typer.Option(
+        1, "--concurrency", "-j", help="Aynı anda en çok n koşu (1-8)."
+    ),
+    max_cost_usd: float | None = typer.Option(
+        None, "--max-cost-usd", help="Maliyet tavanı; aşılınca kısmi sonuç ve çıkış 2."
+    ),
+    allow_tools: list[str] = typer.Option(  # noqa: B008
+        [], "--allow-tools", help="Kapılı araç izni (Bash, Write, Edit, WebFetch, mcp__*)."
+    ),
+    model: str = typer.Option("", "--model", help="Tüm vakaların modeli."),
+    judge_model: str = typer.Option("", "--judge-model", help="llm değerlendirici modeli."),
+    scaffold: bool = typer.Option(
+        False, "--scaffold", help="Vakanın scaffold_script'ini çalıştır."
+    ),
+    no_scaffold: bool = typer.Option(False, "--no-scaffold", help="scaffold_script'i açıkça atla."),
+    keep_temp: bool = typer.Option(False, "--keep-temp", help="Çalışma klasörlerini silme."),
+    mocks: str = typer.Option("record", "--mocks", help="MCP sahte sunucuları: record | off."),
+    allow_real_servers: bool = typer.Option(
+        False,
+        "--allow-real-servers",
+        help="Sahtesi olmayan gerçek eklenti MCP sunucularını başlat.",
+    ),
+    bare: bool = typer.Option(False, "--bare", help="eval init: boş şablon yaz."),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="eval init: görüşme."),
     publish_report: bool = typer.Option(
         False, "--publish-report", help="claude.ai'de yayımla (yok)."
     ),
@@ -273,6 +282,22 @@ def eval_command(
 ) -> None:
     """Eklentinin eval vakalarını koştur ve puanla (Claude `plugin eval`)."""
     del no_publish
+    if target == "init":
+        _init(name, eval_dir_name, bare, interactive)
+        return
+    target, json_file = _json_target(as_json, target, name, json_file)
+    flags: dict[str, object] = {
+        "concurrency": concurrency,
+        "max_cost_usd": max_cost_usd,
+        "allow_tools": allow_tools,
+        "model": model,
+        "judge_model": judge_model,
+        "scaffold": scaffold,
+        "no_scaffold": no_scaffold,
+        "keep_temp": keep_temp,
+        "mocks": mocks,
+        "allow_real_servers": allow_real_servers,
+    }
     try:
         if publish_report:
             raise PluginError(ERR_PUBLISH)
@@ -284,28 +309,31 @@ def eval_command(
         cases = load_cases(folder, case_glob=case, tags=tag)
         if not cases:
             raise PluginError(ERR_NO_CASES.format(path=folder))
+        options, notes = _options(folder, resolved, flags)
         _trusted(root, trust_plugin)
-        with_without = ablation != "none" and resolved is not None
+        for note in (*notes, *_scaffold_notes(cases, options, no_scaffold)):
+            typer.echo(note, err=True)
+        chosen = options.judge_model
+        judge = judge_subprocess if not chosen else (lambda p: judge_subprocess(p, chosen))
         result = run_suite(
             cases,
             resolved,
             runner=run_agent,
-            judge=judge_subprocess,
+            judge=judge,
             runs=runs,
-            ablation=with_without,
+            ablation=ablation != "none" and resolved is not None,
+            options=options,
         )
     except PluginError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
     out = Path(output_dir) if output_dir else folder / "results" / time.strftime("%Y%m%dT%H%M%S")
-    out.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(result, ensure_ascii=False, indent=2)
-    (out / "aggregate-result.json").write_text(text + "\n", "utf-8")
-    if json_file:
-        Path(json_file).write_text(text + "\n", "utf-8")
-    if as_json:
-        typer.echo(text)
-    else:
-        typer.echo(_summary(result))
+    text = _write_outputs(
+        result, cases, out, json_file=json_file, report=report, threshold=threshold
+    )
+    typer.echo(text if as_json and not json_file else _summary(result))
+    if result.get("aborted"):
+        typer.echo(NOTE_COST.format(ceiling=max_cost_usd), err=True)
+        raise typer.Exit(2)
     if any(score < threshold for score in with_scores(result)):
         raise typer.Exit(1)
