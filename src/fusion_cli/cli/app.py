@@ -14,10 +14,10 @@ import json
 import logging
 import logging.handlers
 import sys
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar, cast
 
 import typer
 from rich.console import Console
@@ -32,10 +32,12 @@ from ..config.paths import user_data_dir
 from ..config.readiness import Readiness, evaluate
 from ..config.start_mode import auto_available as start_auto_available
 from ..config.start_mode import headless_start_mode, skip_permissions_flag
+from ..core.background_events import BackgroundEvents
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
-from ..core.types import ModelSpec, VerdictSource
+from ..core.types import Message, ModelSpec, VerdictSource
 from ..core.worktree import Worktree, WorktreeSwitch
+from ..engines.agent import AgentOutcome
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..engines.agent.team import Persona
 from ..engines.agent.team_settings import validate_agent_hooks
@@ -44,6 +46,7 @@ from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
 from ..tools import job_lifetime
 from ..tools.agent_catalog_launch import session_agents_from_json
 from ..tools.agent_tasks import WORKER_COMMAND
+from ..tools.bash_settings import background_disabled
 from ..tools.capabilities import Capability
 from ..tools.capability_overrides import registry_from_config
 from ..ui import background_messages as bg_texts
@@ -75,6 +78,7 @@ from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
+from .print_jobs import run_with_background
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
@@ -650,39 +654,55 @@ def agent(
     # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
     # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
     approval_memory = attach_rule_writer(ApprovalMemory(), root)
-    outcome = _run_observed(
-        with_web_cleanup(
-            run_agent_task(
-                options.task,
+    # Claude `-p`: biten arka plan işi/`monitor` satırı bildirimle yeni tur açar (#335).
+    events = BackgroundEvents()
+
+    def _turn(task: str, history: Sequence[Message]) -> Awaitable[AgentOutcome]:
+        return run_agent_task(
+            task,
+            config,
+            history=list(history) or None,
+            background_events=events,
+            sinks=observers.sinks,
+            prompter_factory=_prompter,
+            mode=options.approval,
+            root=root,
+            home=Path.home(),
+            memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
+            extra_roots=tuple(add_dir or ()),
+            extra_system=options.extra_system,
+            system_prompt=options.system_prompt,
+            session_persona=options.session_persona,
+            capabilities=registry_from_config(
                 config,
-                sinks=observers.sinks,
-                prompter_factory=_prompter,
-                mode=options.approval,
-                root=root,
-                home=Path.home(),
-                memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
+                Path.home(),
+                root,
+                session_agents=options.session_agents,
                 extra_roots=tuple(add_dir or ()),
-                extra_system=options.extra_system,
-                system_prompt=options.system_prompt,
-                session_persona=options.session_persona,
-                capabilities=registry_from_config(
-                    config,
-                    Path.home(),
-                    root,
-                    session_agents=options.session_agents,
-                    extra_roots=tuple(add_dir or ()),
-                    headless=options.channel is None,
-                ),
-                allowed_tools=options.allowed_tools,
-                denied_tools=options.denied_tools,
-                strict_tool_names=True,
-                interactive=True if options.channel is not None else None,
-                approval_memory=approval_memory,
-                worktree_switch=switch,
-            )
+                headless=options.channel is None,
+            ),
+            allowed_tools=options.allowed_tools,
+            denied_tools=options.denied_tools,
+            strict_tool_names=True,
+            interactive=True if options.channel is not None else None,
+            approval_memory=approval_memory,
+            worktree_switch=switch,
+        )
+
+    outcome = cast(
+        "AgentOutcome",
+        _run_observed(
+            with_web_cleanup(
+                run_with_background(
+                    _turn,
+                    options.task,
+                    events,
+                    enabled=not bare and not background_disabled(),
+                )
+            ),
+            renderer,
+            observers,
         ),
-        renderer,
-        observers,
     )
     observers.finish()
     # Kural bildirimi kaybolmasın ama makine çıktısını da bozmasın: metin dışı kipte stderr.

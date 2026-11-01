@@ -423,6 +423,8 @@ class ToolContext:
     cron: SessionCron | None = None
     #: Oturumun arka plan olay kuyruğu: biten iş ve `monitor` satırı tura girer (#334, #336).
     background_events: BackgroundEvents | None = field(default=None, kw_only=True)
+    #: Ön plan alt ajanının iş grubu: alt ajan bitince başlattığı arka plan işleri durur (#335).
+    job_group: str = field(default="", kw_only=True)
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).

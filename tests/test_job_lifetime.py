@@ -81,3 +81,33 @@ def test_5gb_tavani_asilinca_durdurur(tmp_path):
     with gunluk.open("r+b") as akis:
         akis.truncate(job_lifetime.MAX_OUTPUT_BYTES + 1)  # seyrek dosya, disk tutmaz
     assert "5 GB" in job_lifetime._over_limit(gunluk, "k", None, 0)
+
+
+def test_on_plan_alt_ajaninin_isleri_grubuyla_durur_ana_konusmaninki_kalir(tmp_path):
+    """Claude: ön plan alt ajanının başlattığı komut, alt ajanın koşusu bitince durur (#335)."""
+    from fusion_cli.engines.agent.team_scope import derive_sub_context
+
+    parent = ToolContext(root=tmp_path)
+    child = derive_sub_context(parent, None)
+    assert child.job_group and child.job_group != parent.job_group
+    ana = _kimlik(
+        shell.run_shell({"command": "sleep 30", "run_in_background": True}, parent).output
+    )
+    alt = _kimlik(shell.run_shell({"command": "sleep 30", "run_in_background": True}, child).output)
+
+    assert job_lifetime.stop_group(child.job_group) == 1
+    assert alt not in job_lifetime.running_owned()
+    assert ana in job_lifetime.running_owned()
+    assert "alt ajan bittiği için" in (tmp_path / ".fusion" / "is" / f"{alt}.log").read_text()
+    assert job_lifetime.stop_group("") == 0
+    job_lifetime.cleanup_owned_jobs()
+
+
+def test_wait_owned_isler_bitince_doner_sure_dolunca_false(tmp_path):
+    context = ToolContext(root=tmp_path)
+    job_lifetime.cleanup_owned_jobs()
+    shell.run_shell({"command": "sleep 0.3", "run_in_background": True}, context)
+    assert job_lifetime.wait_owned(10, poll_s=0.05) is True
+    shell.run_shell({"command": "sleep 30", "run_in_background": True}, context)
+    assert job_lifetime.wait_owned(0.2, poll_s=0.05) is False
+    job_lifetime.cleanup_owned_jobs()

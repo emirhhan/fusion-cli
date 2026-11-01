@@ -45,6 +45,8 @@ class _Unattended:
 
 _LOCK = threading.Lock()
 _OWNED: dict[str, tuple[int, Path]] = {}
+#: İş → başlatan alt ajan grubu (`ToolContext.job_group`); ön plan alt ajanı bitince durur.
+_GROUPS: dict[str, str] = {}
 _unattended: _Unattended | None = None
 _atexit_registered = False
 
@@ -88,12 +90,21 @@ def time_limit_s(
 
 
 def own(
-    job_id: str, pid: int, folder: Path, *, log: Path, command: str, limit_s: float | None
+    job_id: str,
+    pid: int,
+    folder: Path,
+    *,
+    log: Path,
+    command: str,
+    limit_s: float | None,
+    group: str = "",
 ) -> None:
     """İşi bu sürecin sahipliğine al ve gözetimini başlat (5 GB, süre sınırı, çıkış)."""
     global _atexit_registered
     with _LOCK:
         _OWNED[job_id] = (pid, folder)
+        if group:
+            _GROUPS[job_id] = group
         if not _atexit_registered:
             atexit.register(cleanup_owned_jobs)
             _atexit_registered = True
@@ -175,6 +186,55 @@ def cleanup_owned_jobs() -> int:
             stopped += 1
         except (OSError, CleanupFailedError):
             _LOG.exception("Oturum kapanışında arka plan işi durdurulamadı", extra={"is": job_id})
+    return stopped
+
+
+def _running(job_id: str, pid: int, folder: Path) -> bool:
+    return not (folder / f"{job_id}.exit").exists() and _group_alive(pid)
+
+
+def running_owned() -> tuple[str, ...]:
+    """Bu sürecin başlattığı, hâlâ süren arka plan işleri (ana konuşma ve alt ajanlar)."""
+    with _LOCK:
+        owned = dict(_OWNED)
+    return tuple(job_id for job_id, (pid, folder) in owned.items() if _running(job_id, pid, folder))
+
+
+def wait_owned(timeout_s: float | None, *, poll_s: float = 0.2) -> bool:
+    """Süren işler bitene (ya da süre sınırına takılana) kadar bekle; hepsi bittiyse True.
+
+    Claude `-p`: ana konuşmanın arka plan komutu, komut çıkana ya da süre sınırına ulaşana
+    kadar koşuyu açık tutar (sınır `_guard` tarafından uygulanır).
+    """
+    deadline = None if timeout_s is None else time.monotonic() + timeout_s
+    while running_owned():
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_s)
+    return True
+
+
+def stop_group(group: str) -> int:
+    """Ön plan alt ajanının başlattığı, hâlâ süren işleri durdur (Claude: alt ajan bitince)."""
+    if not group:
+        return 0
+    with _LOCK:
+        members = [job_id for job_id, owner in _GROUPS.items() if owner == group]
+        for job_id in members:
+            _GROUPS.pop(job_id, None)
+        targets = [(job_id, *_OWNED[job_id]) for job_id in members if job_id in _OWNED]
+    stopped = 0
+    for job_id, pid, folder in targets:
+        if not _running(job_id, pid, folder):
+            continue
+        _stop(
+            job_id,
+            pid,
+            folder,
+            folder / f"{job_id}.log",
+            "Arka plan işi, onu başlatan alt ajan bittiği için durduruldu.",
+        )
+        stopped += 1
     return stopped
 
 

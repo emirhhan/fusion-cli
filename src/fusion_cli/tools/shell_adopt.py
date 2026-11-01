@@ -71,7 +71,15 @@ def adopt(
     process = moved.process
     save_owner(folder, job_id, process.pid, token, context, lambda: process.poll() is not None)
     atomic_replace_text(folder / f"{job_id}.pid", str(process.pid))
-    own(job_id, process.pid, folder, log=log, command=command, limit_s=time_limit_s(moved=True))
+    own(
+        job_id,
+        process.pid,
+        folder,
+        log=log,
+        command=command,
+        limit_s=time_limit_s(moved=True),
+        group=getattr(context, "job_group", ""),
+    )
     threading.Thread(
         target=_watch,
         args=(moved, folder, context.root, job_id, sink, on_exit),

@@ -149,7 +149,15 @@ def start_job(
         save_owner(klasor, kimlik, surec.pid, token, context, lambda: surec.poll() is not None)
         atomic_replace_text(klasor / f"{kimlik}.pid", str(surec.pid))
         # Oturum kapanınca durdurulur; 5 GB ve (gözetimsizse) süre sınırı (#335).
-        own_job(kimlik, surec.pid, klasor, log=gunluk, command=command, limit_s=limit_s)
+        own_job(
+            kimlik,
+            surec.pid,
+            klasor,
+            log=gunluk,
+            command=command,
+            limit_s=limit_s,
+            group=getattr(context, "job_group", ""),
+        )
     except (OSError, ValueError, subprocess.SubprocessError):
         terminate_process_tree(surec.pid, force=True)
         try:

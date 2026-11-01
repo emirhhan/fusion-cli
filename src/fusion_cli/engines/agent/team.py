@@ -28,6 +28,7 @@ from ...core.hooks.events import HookSet
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...core.worktree import LeaveOutcome, Worktree, leave_worktree
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
+from ...tools import job_lifetime
 from ...tools.capabilities import (
     CapabilityRegistry,
     agent_prompt,
@@ -367,6 +368,8 @@ async def run_subagent(
             outcome = await owned
         finally:
             deps.child_runs.detach(sub_id, owned)
+            # Claude: ön plan alt ajanının başlattığı komut, alt ajanın koşusu bitince durur.
+            await asyncio.to_thread(job_lifetime.stop_group, context.job_group)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
         if worktree is not None:
             text += await asyncio.to_thread(_settle_worktree, worktree)
