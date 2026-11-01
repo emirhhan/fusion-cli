@@ -103,7 +103,11 @@ def run_print(request: PrintRequest) -> int:
         return 1
     for warning in plan.warnings:
         _warn(warning)
-    enable_debug_logging(request.debug, request.debug_file)
+    try:
+        enable_debug_logging(request.debug, request.debug_file)
+    except OSError as error:
+        _warn(texts.PRINT_DEBUG_FILE_FAILED.format(path=request.debug_file, error=error))
+        return 1
     with (
         sigterm_as_exception(),
         subagent_prompt.appended(plan.subagent_append),

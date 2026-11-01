@@ -181,3 +181,16 @@ def test_icinde_cit_gecen_gecerli_json_bozulmaz():
 def test_citli_json_hala_ayiklanir():
     value, errors = print_run._structured('Sonuç:\n```json\n{"a": 1}\n```', {"type": "object"})
     assert errors == () and value == {"a": 1}
+
+
+# --- bulgu 8: ulaşılamayan --debug-file düzgün hata (#301) ----------------------------- #
+
+
+def test_ulasilamayan_debug_file_hata_ve_cikis_1(monkeypatch, tmp_path):
+    calls = _fake_agent(monkeypatch)
+    target = tmp_path / "yok" / "dizin" / "x.log"
+    result = runner.invoke(app_module.app, ["-p", "x", "--debug-file", str(target)])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "--debug-file" in result.output
+    assert not calls
