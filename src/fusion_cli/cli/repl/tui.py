@@ -185,6 +185,7 @@ class FusionTui:
         self._scroll = 0
         self._unread_lines = 0
 
+        self._secret = False
         self._input = TextArea(
             height=1,
             multiline=False,
@@ -194,6 +195,8 @@ class FusionTui:
             # Tab ile `/komut` ve `@yol` tamamlama (P-022); yazarken menü açılmaz.
             completer=completer,
             complete_while_typing=False,
+            # #388: hassas eklenti seçeneği sorulurken girdi gizlenir.
+            password=Condition(lambda: self._secret),
         )
         conversation = Window(
             FormattedTextControl(self._conversation_fragments),
@@ -423,6 +426,14 @@ class FusionTui:
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
+    async def await_secret(self) -> str:
+        """Gizli metin (yıldızlı; geçmişe yazılmaz) — hassas eklenti seçeneği (#388)."""
+        self._secret = True
+        try:
+            return await self.await_text()
+        finally:
+            self._secret = False
+
     async def await_choice(self, title: str, choices: list[Choice]) -> str | None:
         """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None."""
         if not choices:
@@ -487,6 +498,10 @@ class FusionTui:
         text = self._expand_pastes(getattr(buffer, "text", ""))
         self._pastes.clear()  # yer tutucular yalnızca içinde bulunulan satır boyunca geçerli
         if self._mode == "ask":
+            setter = getattr(buffer, "set_document", None)
+            if self._secret and callable(setter):
+                # Boş tampon geçmişe eklenmez: gizli değer girdi geçmişinde kalmaz.
+                setter(Document("", 0), bypass_readonly=True)
             self._resolve(text)
         elif self._mode == "choice":
             self._pick_current()

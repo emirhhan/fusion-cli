@@ -5,14 +5,15 @@ girilen değerler kaydedilir ("Enabled and configured <ad>"), boş geçilirse "P
 Configuration skipped." Hassas seçenek ekrana yansıtılmadan sorulur.
 
 Fusion'da satır-içi REPL'de terminal varsa her ayarlanmamış seçenek sırayla sorulur (Enter =
-atla); TUI ve terminal olmayan yüzeylerde `/plugin configure <id>` ipucu verilir.
+atla). TUI'de komut bitince uygulama-içi metin istemiyle sorulur (hassas seçenek yıldızlı, girdi
+geçmişine yazılmaz; `drain_tui`). Terminal olmayan yüzeylerde `/plugin configure <id>` ipucu.
 """
 
 from __future__ import annotations
 
 import getpass
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ...config import plugin_user_config as user_config
@@ -25,6 +26,10 @@ HINT = "Ayarlanmamış seçenekler var: {keys}. Ayarlamak için: /plugin configu
 FAILED = "Failed to save configuration: {reason}"
 
 Asker = Callable[[user_config.UserOption], "str | None"]
+AsyncText = Callable[[], Awaitable[str]]
+
+#: TUI'de sorulmayı bekleyen (kayıt, kimlik); komut bitince `drain_tui` sorar.
+_TUI_PENDING: list[tuple[PluginRecord, str]] = []
 
 
 def _tui_running() -> bool:
@@ -70,15 +75,44 @@ def prompt_after_enable(
     if not pending:
         return ""
     if ask is None:
+        if _tui_running() and base is None:
+            _TUI_PENDING.append((record, ident))
+            return ""
         if not can_prompt():
             return HINT.format(keys=", ".join(o.key for o in pending), ident=ident)
         ask = ask_terminal
-    schema = user_config.read_schema(plugin_folder(record, store))
     answers = {o.key: value for o in pending if (value := ask(o)) is not None}
+    return _save(record, ident, answers, store)
+
+
+def _save(record: PluginRecord, ident: str, answers: dict[str, str], store: Path) -> str:
     if not answers:
         return SKIPPED
+    schema = user_config.read_schema(plugin_folder(record, store))
     try:
         user_config.save_values(record.name, schema, answers, store)
     except PluginError as error:
         return FAILED.format(reason=error)
     return CONFIGURED.format(name=ident)
+
+
+def label(option: user_config.UserOption) -> str:
+    return f"{option.title} ({option.key}{', zorunlu' if option.required else ''}):"
+
+
+async def drain_tui(
+    show: Callable[[str], None], ask_text: AsyncText, ask_secret: AsyncText
+) -> list[str]:
+    """TUI: bekleyen eklentilerin ayarlanmamış seçeneklerini uygulama-içi istemle sor."""
+    results: list[str] = []
+    while _TUI_PENDING:
+        record, ident = _TUI_PENDING.pop(0)
+        store = plugins_dir()
+        answers: dict[str, str] = {}
+        for option in unset_options(record, store):
+            show(label(option))
+            value = (await (ask_secret() if option.sensitive else ask_text())).strip()
+            if value:
+                answers[option.key] = value
+        results.append(_save(record, ident, answers, store))
+    return results

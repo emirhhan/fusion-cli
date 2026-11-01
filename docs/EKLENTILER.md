@@ -57,8 +57,10 @@ benim-eklentim/
   sayar. Eklenti son kapsamından kaldırılınca seçenekleri ve sırları da silinir. REPL'de
   `/plugin enable` ya da `/plugin install` sonrası ayarlanmamış (varsayılanı olmayan) seçenekler Claude
   gibi sırayla sorulur (hassaslar ekrana yansımaz; Enter atlar): "Enabled and configured <ad>." ya da
-  "Plugin enabled. Configuration skipped."; TUI'de ve terminal olmayan yüzeyde `/plugin configure <id>`
-  ipucu verilir. Henüz yok: `channels`, `/config` satırları.
+  "Plugin enabled. Configuration skipped."; TUI'de (komut ve `/plugin` paneli dahil) aynı sorular
+  uygulama-içi metin istemiyle sorulur, hassas seçenek yıldızlı girilir ve girdi geçmişine yazılmaz;
+  terminal olmayan yüzeyde `/plugin configure <id>` ipucu verilir. Henüz yok: `channels` (MCP
+  `claude/channel` bildirimleri).
 - Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).

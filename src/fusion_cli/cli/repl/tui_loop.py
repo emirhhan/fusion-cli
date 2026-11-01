@@ -630,6 +630,7 @@ class _TuiSession:
             start = start_key(argument) or "discover"
             message = await run_async(self._state, self._tui.await_choice, start)
             self._echo(f"[{theme.DIM}]{escape(message)}[/{theme.DIM}]")
+            await self._plugin_options()
             return
         elif command.name == "development":
             # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
@@ -695,6 +696,8 @@ class _TuiSession:
             self._tui.refresh_style()
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        if command.name == "plugin":
+            await self._plugin_options()
         for hook_line in await hook_events.flush(self._state):
             self._echo(f"[{theme.WARN}]{escape(hook_line)}[/{theme.WARN}]")
         self._sync_conversation_binding()
@@ -707,6 +710,16 @@ class _TuiSession:
             await self._turn(pending, mode=mode)
             await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _plugin_options(self) -> None:
+        """#388: açılan/kurulan eklentinin ayarlanmamış userConfig seçenekleri (TUI istemi)."""
+        from .plugin_options_prompt import drain_tui
+
+        def show(text: str) -> None:
+            self._echo(f"[{theme.ACCENT}]{escape(text)}[/{theme.ACCENT}]")
+
+        for line in await drain_tui(show, self._tui.await_text, self._tui.await_secret):
+            self._echo(f"[{theme.DIM}]{escape(line)}[/{theme.DIM}]")
 
     async def _continue_goal(self) -> None:
         """`/goal` etkinse turu değerlendir, gerekiyorsa hedef kipinde sürdür (P-058).

@@ -64,3 +64,31 @@ def test_repl_enable_ipucu_verir(tmp_path):
     out = plugin_command._HANDLERS["enable"](None, ["rapor"], False, False)
 
     assert "/plugin configure rapor" in out
+
+
+def test_tui_de_bekleyen_secenekler_uygulama_ici_istemle_sorulur(tmp_path, monkeypatch):
+    import asyncio
+
+    from fusion_cli.cli.repl import plugin_options_prompt as prompt
+
+    item = plugin_install.install_plugin(str(_plugin(tmp_path)), approve=lambda _p: True)
+    monkeypatch.setattr(prompt, "_tui_running", lambda: True)
+
+    assert prompt_after_enable(item.record, "rapor") == ""  # TUI: istem komuttan sonra
+    shown: list[str] = []
+    kinds: list[str] = []
+
+    async def text() -> str:
+        kinds.append("metin")
+        return "eu"
+
+    async def secret() -> str:
+        kinds.append("gizli")
+        return "s3cr3t"
+
+    results = asyncio.run(prompt.drain_tui(shown.append, text, secret))
+
+    assert results == [CONFIGURED.format(name="rapor")]
+    assert kinds == ["metin", "gizli"] and shown[0].startswith("Bölge (bolge")
+    assert user_config.saved_values("rapor", plugin_store.plugins_dir())["bolge"] == "eu"
+    assert asyncio.run(prompt.drain_tui(shown.append, text, secret)) == []
