@@ -385,3 +385,18 @@ def test_pazar_guncelle_adsiz_hepsini_yeniler(tmp_path):
         plugin_install.add_marketplace(str(tmp_path / name))
     result = CliRunner().invoke(app, ["pazar", "guncelle"])
     assert result.exit_code == 0 and "2 pazar güncellendi" in result.output
+
+
+def test_claude_komut_adlari_birincil_ve_takma_adlar():
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.plugin_commands import app
+
+    runner = CliRunner()
+    shown = runner.invoke(app, ["--help"]).output
+    for name in ("install", "uninstall", "enable", "disable", "list", "validate", "marketplace"):
+        assert name in shown
+    assert "│ kur " not in shown and "│ pazar " not in shown
+    for alias in (["i", "--help"], ["rm", "--help"], ["remove", "--help"], ["kur", "--help"]):
+        assert runner.invoke(app, alias).exit_code == 0
+    assert runner.invoke(app, ["marketplace", "rm", "--help"]).exit_code == 0

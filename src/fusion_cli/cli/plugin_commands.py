@@ -273,24 +273,38 @@ def market_remove(name: str = typer.Argument(..., help="Pazar adı")) -> None:
 
 app.add_typer(market_app, name="pazar")
 
-#: Claude Code adlarıyla gizli takma adlar (`fusion plugin install …`).
-for _alias, _command in (
-    ("install", install),
-    ("list", list_plugins),
-    ("validate", validate),
-    ("enable", enable),
-    ("disable", disable),
-    ("uninstall", uninstall),
-    ("trust", trust),
-    ("update", update),
-    ("discover", discover),
+#: Claude Code adları BİRİNCİL ve görünür (`claude plugin install|i …`, #380); Fusion'ın Türkçe
+#: adları bir sürüm boyunca gizli, kullanımdan kalkmış takma addır.
+_TURKISH_NAMES = frozenset(
+    {"kur", "listele", "dogrula", "ac", "kapat", "kaldir", "guven", "guncelle", "kesfet"}
+)
+for _info in (*app.registered_commands, *market_app.registered_commands):
+    if _info.name in _TURKISH_NAMES | {"ekle", "liste"}:
+        _info.hidden = True
+for _alias, _command, _hidden in (
+    ("install", install, False),
+    ("i", install, True),
+    ("list", list_plugins, False),
+    ("validate", validate, False),
+    ("enable", enable, False),
+    ("disable", disable, False),
+    ("uninstall", uninstall, False),
+    ("remove", uninstall, True),
+    ("rm", uninstall, True),
+    ("update", update, False),
+    ("trust", trust, True),
+    ("discover", discover, True),
 ):
-    app.command(_alias, hidden=True)(_command)
-for _alias, _command in (
-    ("add", market_add),
-    ("list", market_list),
-    ("update", market_update),
-    ("remove", market_remove),
+    app.command(_alias, hidden=_hidden)(_command)
+for _alias, _command, _hidden in (
+    ("add", market_add, False),
+    ("list", market_list, False),
+    ("update", market_update, False),
+    ("remove", market_remove, False),
+    ("rm", market_remove, True),
 ):
-    market_app.command(_alias, hidden=True)(_command)
-app.add_typer(market_app, name="marketplace", hidden=True)
+    market_app.command(_alias, hidden=_hidden)(_command)
+app.add_typer(market_app, name="marketplace")
+for _info in app.registered_groups:
+    if _info.name == "pazar":
+        _info.hidden = True

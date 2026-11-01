@@ -94,8 +94,11 @@ kalktı. Eklenti ajanlarında `permissionMode`, `hooks`, `mcpServers`, `initialP
 `agents/` alt klasörleri ada katılır (`eklenti:inceleme:guvenlik`). Kurulum boyut sınırı Claude'un
 kopyalama sınırıdır: 20.000 dosya / 256 MiB.
 
-Claude Code adları gizli takma ad olarak çalışır: `fusion plugin install|list|validate|enable|disable|
-uninstall|update|marketplace add|update`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
+Birincil adlar Claude Code'unkilerdir ve yardımda görünür: `fusion plugin install (i) | list | validate |
+enable | disable | uninstall (remove, rm) | update`, `fusion plugin marketplace add | list | update |
+remove (rm)`; `fusion plugins` da aynı gruptur. Yukarıdaki Türkçe adlar (`eklenti kur`, `pazar ekle`…)
+bir sürüm boyunca gizli, kullanımdan kalkmış takma addır. Henüz yok: `details`, `configure`, `prune`,
+`init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
 komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
 değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
 Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula, değişmiş eklentide "İncele ve yeniden
