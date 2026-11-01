@@ -250,7 +250,7 @@ def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
             "kapsam",
             "secim",
             messages.REWIND_PICK_SCOPE,
-            rewind.scope_choices(),
+            rewind.scope_choices(entries, int(argument)),
             "rewind",
             f"{argument} ",
         )

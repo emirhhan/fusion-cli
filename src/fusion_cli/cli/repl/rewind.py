@@ -44,13 +44,25 @@ def turn_choices(entries: Sequence[TurnCheckpoint]) -> list[Choice]:
     ]
 
 
-def scope_choices() -> list[Choice]:
-    """Kapsam seçenekleri; sırası Claude Code'un sırasıdır (ikisi, yalnız konuşma, yalnız kod)."""
-    return [
-        Choice(RewindScope.BOTH.value, messages.REWIND_SCOPE_BOTH, ""),
+#: Menünün "Never mind" satırının değeri; argüman olarak gelirse hiçbir şey yapılmaz (#199).
+CANCEL_VALUE = "vazgec"
+
+
+def scope_choices(entries: Sequence[TurnCheckpoint] = (), index: int | None = None) -> list[Choice]:
+    """Kapsam seçenekleri; sıra Claude Code'unkidir, sonda 'Vazgeç' satırı durur (#199).
+
+    Kod seçenekleri yalnız hedef ya da sonraki turlarda izlenen dosya değişikliği varsa
+    görünür. Defter verilmezse (eski çağıranlar) hepsi gösterilir.
+    """
+    has_code = not entries or any(
+        entry.changes for entry in entries if index is None or entry.index >= index
+    )
+    rows = [
+        *((Choice(RewindScope.BOTH.value, messages.REWIND_SCOPE_BOTH, ""),) if has_code else ()),
         Choice(RewindScope.CONVERSATION.value, messages.REWIND_SCOPE_CONVERSATION, ""),
-        Choice(RewindScope.CODE.value, messages.REWIND_SCOPE_CODE, ""),
+        *((Choice(RewindScope.CODE.value, messages.REWIND_SCOPE_CODE, ""),) if has_code else ()),
     ]
+    return [*rows, Choice(CANCEL_VALUE, messages.REWIND_CANCEL, "")]
 
 
 def parse_arguments(
@@ -83,6 +95,8 @@ def rewind_command(state: ReplState, argument: str) -> str:
     entries = state.checkpoints.entries()
     if not entries:
         return messages.REWIND_NOTHING
+    if CANCEL_VALUE in argument.split():
+        return ""
     index, scope, error = parse_arguments(argument, state.checkpoints)
     if error:
         return error
@@ -92,8 +106,8 @@ def rewind_command(state: ReplState, argument: str) -> str:
             return ""
         index = int(chosen)
     if scope is None:
-        picked = pick(scope_choices(), title=messages.REWIND_PICK_SCOPE)
-        if picked is None:
+        picked = pick(scope_choices(entries, index), title=messages.REWIND_PICK_SCOPE)
+        if picked is None or picked == CANCEL_VALUE:
             return ""
         scope = parse_scope(picked) or RewindScope.BOTH
     return apply_rewind(state, index, scope)

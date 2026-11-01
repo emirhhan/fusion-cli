@@ -840,9 +840,9 @@ class _TuiSession:
             index = int(picked)
         if scope is None:
             chosen = await self._tui.await_choice(
-                messages.REWIND_PICK_SCOPE, rewind.scope_choices()
+                messages.REWIND_PICK_SCOPE, rewind.scope_choices(entries, index)
             )
-            if chosen is None:
+            if chosen is None or chosen == rewind.CANCEL_VALUE:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
             return f"{index} {chosen}"

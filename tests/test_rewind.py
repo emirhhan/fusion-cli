@@ -230,7 +230,17 @@ def test_turn_choices_yeniden_eskiye_ve_dosya_sayisi(state):
     secenekler = rewind.turn_choices(state.checkpoints.entries())
     assert [c.value for c in secenekler] == ["2", "1"]
     assert "1 dosya" in secenekler[0].description
-    assert [c.value for c in rewind.scope_choices()] == ["ikisi", "konusma", "kod"]
+    assert [c.value for c in rewind.scope_choices()] == ["ikisi", "konusma", "kod", "vazgec"]
+
+
+def test_kod_degisikligi_yoksa_kod_secenekleri_gizlenir_ve_vazgec_var(state):
+    """Claude Code (#199): kod seçenekleri yalnız izlenen değişiklik varsa görünür;
+    menüde 'Never mind' satırı vardır."""
+    state.checkpoints.begin("yalnız soru", [])
+    entries = state.checkpoints.entries()
+    assert [c.value for c in rewind.scope_choices(entries, 1)] == ["konusma", "vazgec"]
+    assert _run(state, "/rewind 1 vazgec") == ""
+    assert len(state.checkpoints.entries()) == 1
 
 
 # --- Masaüstü köprüsü ------------------------------------------------------------------ #

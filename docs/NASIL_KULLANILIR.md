@@ -131,7 +131,8 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   o turun dosya kaydını tutar (en fazla 100 tur, bu oturum boyunca). İstediğin turun başına
   dönmek için
   ```
-  /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod"
+  /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod / Vazgeç"
+                         (kod seçenekleri yalnız o turdan beri dosya değiştiyse görünür)
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
   Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
