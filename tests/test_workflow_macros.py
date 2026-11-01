@@ -82,7 +82,8 @@ def test_batch_paralel_alt_ajan_ve_yazma_alani_ister(state: ReplState) -> None:
     command = build_registry().get("batch")
     assert command is not None
     command.handler(state, "tüm print çağrılarını logging'e çevir")
-    assert "spawn_agents" in state.pending_task
+    assert "`Agent` çağrılarıyla PARALEL" in state.pending_task
+    assert "spawn_agents" not in state.pending_task
     assert "yazma_alani" in state.pending_task
     assert state.engine is Engine.AGENT
 

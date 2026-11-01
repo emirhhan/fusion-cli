@@ -199,8 +199,8 @@ MACROS: dict[str, Macro] = {
         task="",
         template="Şu talimatı kod tabanının tamamına uygula: {argument}. Önce etkilenen "
         "dosyaları bul ve işi birbirinden bağımsız 3-10 parçaya böl (dosya ya da klasör "
-        "kümesi). Her parçayı `spawn_agents` ile PARALEL alt ajanlara ver; her ajanın "
-        "`yazma_alani` değerini yalnız kendi dosyalarıyla sınırla ki iki ajan aynı "
+        "kümesi). Her parçayı aynı yanıtta ayrı `Agent` çağrılarıyla PARALEL alt ajanlara ver; "
+        "her çağrının `yazma_alani` değerini yalnız kendi dosyalarıyla sınırla ki iki ajan aynı "
         "dosyaya dokunmasın. Ajanlar bitince sonuçları birleştir, testleri koştur ve "
         "parça parça özetle.",
         argument_required=True,

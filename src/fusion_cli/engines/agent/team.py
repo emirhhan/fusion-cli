@@ -140,6 +140,8 @@ class Persona:
     hook_definitions: HookSet = field(default_factory=HookSet, repr=False)
     inline_mcp_servers: tuple[McpServerConfig, ...] = field(default=(), repr=False)
     background: bool = False
+    #: Tanımdaki `isolation`; `worktree` ise çağrı istemese de ajan ayrı ağaçta koşar (#22).
+    isolation: str = ""
     source: str = ""
     definition_path: Path | None = None
     allowed_agent_types: tuple[str, ...] | None = None
@@ -258,6 +260,7 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
         hook_definitions=agent.hook_definitions,
         inline_mcp_servers=agent.inline_mcp_servers,
         background=agent.background,
+        isolation=agent.isolation,
         source=agent.source,
         definition_path=agent.path,
         allowed_agent_types=agent_type_subset(agent.tools),
@@ -323,6 +326,8 @@ async def run_subagent(
             text = budget_message
             status = "budget"
             return SubRun(sub_id, persona, text, False, 0, status=status)
+        if persona.isolation == "worktree" and not subtask.isolation:
+            subtask = dataclasses.replace(subtask, isolation="worktree")
         worktree = await _isolated_worktree(deps.tool_context, subtask, sub_id)
         context = derive_sub_context(
             deps.tool_context, subtask, root=worktree.path if worktree is not None else None
@@ -781,9 +786,9 @@ def spawn_agent_tool(
 
     return Tool(
         name=legacy_name or ("Agent" if canonical else "spawn_agent"),
-        description="Odaklı bir ALT-GÖREVİ temiz bağlamlı bir ekip üyesine devret; üye işi "
-        "kendi araçlarıyla yapıp özet döner. Birden çok bağımsız iş varsa spawn_agents ile "
-        "AYNI ANDA başlat. Basit işlerde kullanma.",
+        description="Odaklı bir ALT-GÖREVİ temiz bağlamlı bir alt ajana devret; ajan işi "
+        "kendi araçlarıyla yapıp sonucunu döner. Birden çok bağımsız iş varsa aynı yanıtta "
+        "birden çok Agent çağrısı yap. Basit işlerde kullanma.",
         parameters={
             "type": "object",
             "properties": {

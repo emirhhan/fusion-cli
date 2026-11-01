@@ -23,7 +23,7 @@ _FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("öğretmen", ("ask_teacher",)),
     ("çoklu-model danışma", ("council",)),
     ("ders belleği", ("recall_lessons",)),
-    ("beceri ve ajanlar", ("find_skill", "find_agent", "invoke_agent", "spawn_agent")),
+    ("beceri ve ajanlar", ("find_skill", "find_agent", "invoke_agent", "Agent", "spawn_agent")),
     ("görsel/video", ("generate_image", "render_remotion", "scaffold_remotion")),
     ("site araçları", ("scaffold_web", "start_preview", "site_design", "clone_site")),
     ("arka plan işleri", ("start_job", "job_status")),

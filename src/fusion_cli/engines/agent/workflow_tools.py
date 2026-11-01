@@ -31,7 +31,7 @@ CONFIRM_QUESTION = (
     "kullanımı tek ajana göre kat kat artabilir. Başlatılsın mı?"
 )
 DISABLED_MESSAGE = (
-    "Dinamik iş akışları kapalı (runtime.dynamic_workflows: false); işi spawn_agents ile böl."
+    "Dinamik iş akışları kapalı (runtime.dynamic_workflows: false); işi ayrı Agent çağrılarına böl."
 )
 NOT_SAVED_NOTE = (
     "\n\nTanım kaydedilmedi: koşu '{status}' bitti. Düzeltip kaydet: true ile yeniden çalıştır."

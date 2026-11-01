@@ -32,7 +32,7 @@ parçalarıdır.
   Ulaşılamazsa durma; kendi bilgin ve araçlarınla sürdür. Öğretmeni her adımda çağırma.
 - council: aynı soruyu birden çok modele sorup karşılaştırır; yalnız gerçekten tartışmalı kararda.
 - recall_lessons: önceki işlerden öğrenilmiş dersler; benzer iş başlarken bak.
-- find_skill/read_skill, find_agent/invoke_agent, spawn_agent(s): hazır beceri ve uzman ajanlar;
+- find_skill/read_skill, Agent (subagent_type), SendMessage: hazır beceri ve uzman ajanlar;
   paralel alt ajanlar bağımsız parçalar içindir. Basit işi orkestrasyonla büyütme.
 - todo_write: çok adımlı işte kısa plan; ilerledikçe işaretle.
 - make_tool: tekrar eden işe küçük araç yazmak gerekirse.

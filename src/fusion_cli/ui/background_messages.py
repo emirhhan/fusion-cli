@@ -56,7 +56,7 @@ BG_TOOL_STARTED_DETACHED = (
 BG_TOOL_WORKTREE = " Görev izole çalışma ağacında: {path} (ağaç korunur)."
 BG_NESTED_WORKER = (
     "Arka plan görevinin içinden yeni arka plan görevi açılamaz; işi kendin yap ya da "
-    "spawn_agent'ı arka_plan olmadan kullan."
+    "Agent'ı run_in_background: false ile kullan."
 )
 BG_LIMITS_FAILED = "Arka plan görevi başlatılamadı: {error}"
 BG_DETAIL_PROMPT = "Görev: {prompt}"

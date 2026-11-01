@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic as _monotonic
 from typing import TYPE_CHECKING, Protocol
@@ -126,13 +126,18 @@ def build_agent_registry(
     from .agent_runtime_tools import runtime_tools
 
     extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent, canonical=True))
-    extended.register(
-        spawn_agent_tool(deps, depth=depth, run_agent=run_agent, canonical=True, legacy_name="Task")
-    )
     for runtime_tool in runtime_tools(deps, depth=depth, run_agent=run_agent):
         extended.register(runtime_tool)
-    extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
-    extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
+    # Claude Code modele tek alt ajan aracı (`Agent`) sunar; `Task` onun eski adıdır (#8).
+    # Eski Fusion adları adıyla çağrılırsa çalışır ama şema olarak sunulmaz.
+    for legacy in (
+        spawn_agent_tool(
+            deps, depth=depth, run_agent=run_agent, canonical=True, legacy_name="Task"
+        ),
+        spawn_agent_tool(deps, depth=depth, run_agent=run_agent),
+        spawn_agents_tool(deps, depth=depth, run_agent=run_agent),
+    ):
+        extended.register(replace(legacy, advertised=False))
     for agent_tool in agent_task_tools(deps, depth=depth, run_agent=run_agent):
         extended.register(agent_tool)
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.

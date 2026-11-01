@@ -123,7 +123,8 @@ def test_aciklama_dizini_govdeyi_yuklemez_ve_buyuk_dizinde_ajan_dusurmez(
 
     assert "denetci" in index and "Güvenlik için proaktif inceleme" in index
     assert "GİZLİ AJAN GÖVDESİ" not in index
-    assert "spawn_agent" in index and "description" not in index
+    assert "Agent aracıyla" in index and "spawn_agent" not in index
+    assert "description" not in index
     assert len(registry.agents()) >= 11
     assert any(getattr(record, "token_sayisi", 0) == 15_001 for record in caplog.records)
 

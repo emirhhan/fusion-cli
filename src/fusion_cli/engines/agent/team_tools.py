@@ -25,7 +25,9 @@ CONFIRM_QUESTION = (
     "'{name}' ekibi {members} üyeyle çalışacak (en fazla {runs} üye koşusu). Üyeler aynı "
     "anda çalışır; token kullanımı tek ajana göre kat kat artabilir. Başlatılsın mı?"
 )
-DISABLED_MESSAGE = "Ajan ekipleri kapalı (runtime.agent_teams: false); işi spawn_agents ile böl."
+DISABLED_MESSAGE = (
+    "Ajan ekipleri kapalı (runtime.agent_teams: false); işi ayrı Agent çağrılarına böl."
+)
 DECLINED_MESSAGE = "Kullanıcı ekibi başlatmadı; üye çalıştırılmadı."
 _STRING = {"type": "string"}
 
