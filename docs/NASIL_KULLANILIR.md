@@ -267,8 +267,11 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
   kalıcı kural yazılamayan isteklerde (web, uzak araç, masaüstü) çıkar. Korumalı `.claude/`
   klasörüne dosya aracıyla yazımda Claude gibi "Evet, ve bu oturumda projenin .claude
   klasöründeki dosyaları düzenlemeye izin ver" (ev dizini için `~/.claude` sürümü) çıkar; izin
-  yalnız o klasörü kapsar, `.git/` gibi öteki korumalı yollar yine sorulur. Henüz yok: "Yes, and
-  switch to auto mode" seçeneği.
+  yalnız o klasörü kapsar, `.git/` gibi öteki korumalı yollar yine sorulur. Manuel ve
+  acceptEdits kiplerinde, auto kullanılabiliyorsa (`disableAutoMode` yok) kart Claude'un "Yes, and
+  switch to auto mode" seçeneğini **Evet, ve auto kipine geç** olarak sunar (terminalde `oto`):
+  bu işlem çalışır, oturum auto kipine geçer; geri dönmek için Shift+Tab. Kritik yol silmesinde
+  sunulmaz; uzak onay (telefon) bu seçeneği taşımaz.
 - Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
   modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
   Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar. Bilinen sınır: **evet**

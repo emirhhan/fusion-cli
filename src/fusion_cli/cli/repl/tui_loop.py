@@ -186,6 +186,12 @@ class TuiPrompter:
                         always_description(request, self._state_root()),
                     )
                 )
+            if request.offers_auto:
+                choices.append(
+                    Choice(
+                        "auto", messages.APPROVAL_AUTO_SWITCH, messages.APPROVAL_AUTO_SWITCH_DESC
+                    )
+                )
             if not request.danger:
                 choices.append(deny)
             if target is not None and offers_never(request):
@@ -208,6 +214,8 @@ class TuiPrompter:
                 return ApprovalAnswer.SESSION
             if answer == "always" and request.can_persist:
                 return ApprovalAnswer.ALWAYS
+            if answer == "auto" and request.offers_auto:
+                return ApprovalAnswer.AUTO
             return ApprovalAnswer.DENY
         finally:
             if previous_work is None:

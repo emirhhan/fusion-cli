@@ -22,6 +22,7 @@ from rich.text import Text
 
 from ..core.tools import ToolContext
 from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
+from ..engines.agent.auto_switch import AUTO_SWITCH_WORDS
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
@@ -101,6 +102,9 @@ class ConsolePrompter:
                     else messages.CONFIRM_NOTE_HINT_NO_PERSIST
                 )
                 self._console.print(f"[{theme.DIM}]{escape(hint)}[/{theme.DIM}]")
+                if request.offers_auto:
+                    auto_hint = messages.CONFIRM_AUTO_SWITCH_HINT
+                    self._console.print(f"[{theme.DIM}]{escape(auto_hint)}[/{theme.DIM}]")
                 target = request.desktop_target
                 if target is not None and request.consent_key is not None:
                     session_hint = messages.BILGISAYAR_CONFIRM_SESSION_HINT.format(app=target.app)
@@ -238,6 +242,8 @@ def parse_console_answer(
         return ApprovalAnswer.ALWAYS if request.can_persist else True
     if word in _SESSION and request.can_remember:
         return ApprovalAnswer.SESSION
+    if word in AUTO_SWITCH_WORDS and request.offers_auto:
+        return ApprovalAnswer.AUTO
     decision = _is_affirmative(word, enter_approves=enter_approves)
     if not decision and note.strip():
         return ApprovalReply(False, note.strip())

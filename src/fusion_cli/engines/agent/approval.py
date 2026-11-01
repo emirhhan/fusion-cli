@@ -62,6 +62,7 @@ from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
 from .auto_guard import AutoReviewState
+from .auto_switch import AutoSwitch, apply_auto_switch, with_auto_offer
 from .claude_dir_session import claude_dir_key, claude_dir_label
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
@@ -198,6 +199,8 @@ class ApprovalAnswer(Enum):
     SESSION = "session"
     #: Kalıcı kural: "bir daha sorma" (`permission_persist`); yalnız `can_persist` isteklerde.
     ALWAYS = "always"
+    #: "Evet, ve auto kipine geç" (#82); yalnız `offers_auto` isteklerde.
+    AUTO = "auto"
     DENY = "deny"
     #: Kimseye SORULAMADI (oturum etkileşimsiz — TTY yok, boru hattı, CI).
     #:
@@ -288,6 +291,8 @@ class ApprovalRequest:
     #: Plan kipinde auto sınıflandırıcısı komutu güvenli buldu (#52, `useAutoModeDuringPlan`):
     #: `PlanApproval` sormadan geçirir. Yalnız `plan_review` doldurur.
     classifier_allowed: bool = False
+    #: Kart "Evet, ve auto kipine geç" seçeneğini sunar (#82; `auto_switch.with_auto_offer`).
+    offers_auto: bool = False
 
     @property
     def rule_opens(self) -> bool:
@@ -402,6 +407,8 @@ class ApprovalMemory:
         #: Bypass kullanılabilir oturum: plan kipinde de soru/sınıflandırıcı yok (#52).
         self.plan_bypass = False
         self.auto_review.plan_bypass = lambda: self.plan_bypass
+        #: Kartta "auto kipine geç" seçeneği (#82); sahip (`ReplState`) bağlar.
+        self.auto_switch: AutoSwitch | None = None
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
@@ -431,6 +438,9 @@ class _AskingApproval:
     listesindeki komut (`pre_allowed`) her soran kipte serbesttir.
     """
 
+    #: Kart "Evet, ve auto kipine geç" sunar mı (#82; Claude: yalnız Manuel ve acceptEdits).
+    _offers_auto = False
+
     def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
@@ -448,7 +458,9 @@ class _AskingApproval:
             return Decision.ALLOW
         if request.pre_ask is None and self._memory.is_remembered(request):
             return Decision.ALLOW
-        return await _ask_and_remember(self._prompter, request, self._memory)
+        return await _ask_and_remember(
+            self._prompter, request, self._memory, offer_auto=self._offers_auto
+        )
 
 
 class AutoApproval(_AskingApproval):
@@ -481,6 +493,8 @@ class AutoApproval(_AskingApproval):
 class AcceptEditsApproval(_AskingApproval):
     """Düzenlemeleri kabul et: dosya düzenlemeleri ve tanınan güvenli komutlar serbest."""
 
+    _offers_auto = True
+
     def _allows(self, request: ApprovalRequest) -> bool:
         # Kabukta Claude kapsamı (#53): 7 dosya sistemi komutu çalışma dizinlerinde + salt okuma.
         if request.accept_edits_ok is not None:
@@ -497,6 +511,8 @@ class SecurityApproval(_AskingApproval):
     İstisna: kullanıcının kendi izin listesine yazdığı komutlar sorulmaz — kullanıcı
     o kararı zaten vermiştir. Yıkıcı komutlar bu istisnadan yararlanamaz.
     """
+
+    _offers_auto = True
 
     def _allows(self, request: ApprovalRequest) -> bool:
         return request.read_only
@@ -818,7 +834,11 @@ async def _ask_and_remember(
     prompter: Prompter,
     request: ApprovalRequest,
     memory: ApprovalMemory,
+    *,
+    offer_auto: bool = False,
 ) -> Decision | Denial:
+    if offer_auto:
+        request = with_auto_offer(request, memory)
     revision = memory.revision
     reply = await prompter.confirm(request)
     answer, note = (
@@ -843,6 +863,10 @@ async def _ask_and_remember(
         memory.remember(request)
         return Decision.ALLOW
     if answer is ApprovalAnswer.ONCE or answer is True:
+        return Decision.ALLOW
+    if answer is ApprovalAnswer.AUTO and request.offers_auto:
+        # Claude "Yes, and switch to auto mode" (#82): bu çağrı çalışır, oturum auto'ya geçer.
+        apply_auto_switch(memory)
         return Decision.ALLOW
     if answer is ApprovalAnswer.UNAVAILABLE:
         # Kimseye SORULAMADI — bu insanın "hayır" demesiyle AYNI şey değildir.

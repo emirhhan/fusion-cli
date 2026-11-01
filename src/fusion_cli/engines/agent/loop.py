@@ -4324,7 +4324,11 @@ async def _execute(
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
             policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        switches = guard.mode_switches if guard is not None else 0
         verdict = await policy.decide(request)
+        if guard is not None and guard.mode_switches != switches:
+            # Kartta "auto kipine geç" (#82): onaylanan çağrı yeni kipin kapsamında çalışır.
+            revision = deps.approval_revision() if deps.approval_revision else None
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
         ):

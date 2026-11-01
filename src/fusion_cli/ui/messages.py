@@ -436,6 +436,12 @@ TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
 #: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
 TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
+#: "Yes, and switch to auto mode" (Claude metni, #82); satır içinde `oto`.
+APPROVAL_AUTO_SWITCH = "Evet, ve auto kipine geç"
+APPROVAL_AUTO_SWITCH_DESC = (
+    "Bu işlem çalışır; oturum auto kipine geçer, sonraki eylemleri kurallar ve denetçi inceler."
+)
+CONFIRM_AUTO_SWITCH_HINT = "oto = evet ve auto kipine geç (Shift+Tab ile geri dönülür)"
 #: Korumalı `.claude/` yazımında oturumluk seçenek (Claude metni, #82).
 CLAUDE_DIR_SESSION_PROJECT = (
     "Evet, ve bu oturumda projenin .claude klasöründeki dosyaları düzenlemeye izin ver"

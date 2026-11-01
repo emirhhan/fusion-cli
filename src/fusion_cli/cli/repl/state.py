@@ -29,6 +29,7 @@ from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree, WorktreeSwitch
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode, parse_mode
+from ...engines.agent.auto_switch import AutoSwitch
 from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...engines.agent.skill_turn import TurnModelChoice
@@ -412,6 +413,10 @@ class ReplState:
         attach_rule_writer(self.approval_memory, lambda: self.root)
         # Denetçi engel eşiğini aşınca (P-011) oturum Manuel kipe düşer; kalıcı ayar değişmez.
         self.approval_memory.auto_review.on_fallback = self._fall_back_to_manual
+        # Onay kartında "Evet, ve auto kipine geç" (#82): Manuel/acceptEdits'te auto açıksa.
+        self.approval_memory.auto_switch = AutoSwitch(
+            available=self._auto_switch_available, switch=self._switch_to_auto
+        )
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
 
@@ -473,6 +478,16 @@ class ReplState:
                 conversation_id=self.conversation_id,
             )
         return session
+
+    def _auto_switch_available(self) -> bool:
+        return self.auto_available and self.approval in (
+            ApprovalMode.SECURITY,
+            ApprovalMode.ACCEPT_EDITS,
+        )
+
+    def _switch_to_auto(self) -> None:
+        if self._auto_switch_available():
+            self.approval = ApprovalMode.AUTO
 
     def _fall_back_to_manual(self) -> None:
         if self.approval is ApprovalMode.AUTO:
