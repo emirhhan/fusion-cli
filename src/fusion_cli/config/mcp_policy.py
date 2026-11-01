@@ -41,9 +41,10 @@ _DEFAULT_PORTS = {"https": 443, "http": 80}
 
 def managed_dir() -> Path:
     """Claude Code'un sistem yönetim dizini (platforma göre)."""
-    if sys.platform == "darwin":
+    platform = str(sys.platform)  # mypy platform daraltması dalları erişilmez saymasın
+    if platform == "darwin":
         return Path("/Library/Application Support/ClaudeCode")
-    if sys.platform.startswith("win"):
+    if platform.startswith("win"):
         return Path(r"C:\Program Files\ClaudeCode")
     return Path("/etc/claude-code")
 
@@ -57,9 +58,8 @@ class McpPolicy:
 
     @property
     def is_empty(self) -> bool:
-        return (
-            self.exclusive is None and not self.provided and self.allowed is None and not self.denied
-        )
+        unset = self.exclusive is None and self.allowed is None
+        return unset and not self.provided and not self.denied
 
 
 def _read_json(path: Path) -> dict[str, object] | None:
@@ -151,9 +151,7 @@ def load_policy(
     defined = [value for value in allowed_lists if isinstance(value, list)]
     allowed = tuple(item for value in defined for item in _entries(value)) if defined else None
     denied = tuple(
-        item
-        for layer in (managed, *layers)
-        for item in _entries(layer.get("deniedMcpServers"))
+        item for layer in (managed, *layers) for item in _entries(layer.get("deniedMcpServers"))
     )
     return McpPolicy(exclusive, _provided(managed.get("managedMcpServers")), allowed, denied)
 
@@ -225,9 +223,8 @@ def is_allowed(server: McpServerConfig, policy: McpPolicy, env: Mapping[str, str
     for entry in policy.allowed:
         if "serverName" in entry and has_strict:
             continue
-        if strict_key in entry or "serverName" in entry:
-            if _matches(entry, server, env):
-                return True
+        if (strict_key in entry or "serverName" in entry) and _matches(entry, server, env):
+            return True
     return False
 
 
@@ -269,9 +266,7 @@ def _merge(
     return (*first, *(item for item in second if item.name not in names))
 
 
-def apply_mcp_policy(
-    config: Config, root: Path, *, policy: McpPolicy | None = None
-) -> Config:
+def apply_mcp_policy(config: Config, root: Path, *, policy: McpPolicy | None = None) -> Config:
     """`load_config` sonu: yönetilen MCP politikasını yapılandırmaya uygula."""
     active = policy if policy is not None else load_policy(root)
     if active.is_empty:
@@ -289,7 +284,10 @@ def add_refusal(server: McpServerConfig, root: Path, *, policy: McpPolicy | None
             "control over MCP servers"
         )
     if is_denied(server, active, os.environ):
-        return f'Cannot add MCP server "{server.name}": server is explicitly blocked by enterprise policy'
+        return (
+            f'Cannot add MCP server "{server.name}": server is explicitly blocked by '
+            "enterprise policy"
+        )
     if not is_allowed(server, active, os.environ):
         return f'Cannot add MCP server "{server.name}": not allowed by enterprise policy'
     return ""

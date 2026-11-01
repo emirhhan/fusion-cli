@@ -36,12 +36,12 @@ from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
+from .auth_retry import AuthFailures, Reauth
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
-from .auth_retry import AuthFailures, Reauth
 from .elicitation import elicitation_callback
+from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
 from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack

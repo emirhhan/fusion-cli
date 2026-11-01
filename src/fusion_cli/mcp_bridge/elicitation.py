@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import logging
 import webbrowser
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from mcp import types
+from mcp.client.session import ElicitationFnT
 
 _LOG = logging.getLogger(__name__)
 
@@ -94,7 +95,9 @@ async def _ask_form(
         hint = str(field.get("description") or "")
         kind = str(field.get("type") or "string")
         enum = tuple(str(item) for item in field.get("enum") or ())
-        options = _options(*enum) if enum else _options("true", "false") if kind == "boolean" else ()
+        options = _options(*enum) if enum else ()
+        if not enum and kind == "boolean":
+            options = _options("true", "false")
         answer = await asker.ask(f"{label}{(' — ' + hint) if hint else ''}", options)
         if not answer.strip():
             if name in required:
@@ -125,13 +128,10 @@ async def _ask_url(
     return types.ElicitResult(action="accept")
 
 
-ElicitationCallback = Callable[[Any, types.ElicitRequestParams], Awaitable[Any]]
-
-
-def elicitation_callback(server: str) -> ElicitationCallback:
+def elicitation_callback(server: str) -> ElicitationFnT:
     """`ClientSession(elicitation_callback=…)`: kayıtlı soru sorabilen tarafla yanıtla."""
 
-    async def _callback(context: Any, params: types.ElicitRequestParams) -> types.ElicitResult:
+    async def _callback(context: object, params: types.ElicitRequestParams) -> types.ElicitResult:
         del context
         asker = _ASKER[0]
         if asker is None:

@@ -1,7 +1,8 @@
 """MCP istemlerinin slash komutları ve `/mcp prompts|resources` listeleri (P-049).
 
 Bağlı sunucunun her istemi menüde `/<sunucu>:<istem> (MCP)` olarak "MCP" grubunda sunulur;
-`/mcp__<sunucu>__<istem>` yazmak da çalışır (Claude Code, #268). İşleyici turu ÇALIŞTIRMAZ (makro sözleşmesi): satırı bekleyen görev yapar; tur
+`/mcp__<sunucu>__<istem>` yazmak da çalışır (Claude Code, #268). İşleyici turu ÇALIŞTIRMAZ
+(makro sözleşmesi): satırı bekleyen görev yapar; tur
 yürütücüsü MCP bağlandıktan sonra istemi `prompts/get` ile çözer (`mcp_bridge.reference_service`).
 Katalog bağlantı kurulunca dolar: sunucu henüz hiç bağlanmadıysa ilk turdan sonra görünür.
 """

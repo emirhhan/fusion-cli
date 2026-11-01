@@ -44,8 +44,7 @@ def test_at_tamamlama_kaynaklari_bulanik_onerir(tmp_path: Path, monkeypatch):
     completer = ReplCompleter([], (tmp_path,))
 
     shown = [
-        item.text
-        for item in completer.get_completions(Document("bak @ghread"), CompleteEvent())
+        item.text for item in completer.get_completions(Document("bak @ghread"), CompleteEvent())
     ]
     files = [
         item.text for item in completer.get_completions(Document("bak @read"), CompleteEvent())
