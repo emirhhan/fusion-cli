@@ -150,6 +150,7 @@ from . import (
     denial,
     desktop_approval,
     gate_escalation,
+    instructions_hook,
     learning_steps,
     lesson_attribution,
     liveness,
@@ -1009,6 +1010,10 @@ async def _run_agent(
         else InstructionLoad("")
     )
     proje_ve_dis_bellek = instruction_load.text
+    # `InstructionsLoaded` kancası (#169): oturumda ilk kez yüklenen her talimat dosyası.
+    instructions_hook.notify(
+        getattr(deps, "hooks", None), instructions_hook.startup_events(instruction_load.files)
+    )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps, task) if depth == 0 and not chat_mode else ""
@@ -3292,6 +3297,15 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         messages.append(yuk.message)
         deps.publisher.publish(
             NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
+        )
+        instructions_hook.notify(
+            getattr(deps, "hooks", None),
+            [
+                instructions_hook.payload(
+                    str(kok / rel), "proje", "nested_traversal", trigger_file_path=str(hedef)
+                )
+                for rel in yuk.files
+            ],
         )
     # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
     beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
