@@ -96,10 +96,16 @@ export function pageAction(operation, args) {
   const MouseKind = (type) => (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent);
   // Tıklama türleri: tek (varsayılan), çift ve sağ. Sağ tık yalnız bağlam menüsü olayını
   // gönderir; `click()` ÇAĞRILMAZ (sağ tık bağlantıya/düğmeye basmış olmamalı).
-  const pressAt = (element, x, y, kind) => {
+  // Claude computer `modifiers` (cmd+shift…): Python tarafı ["meta", "shift"] gönderir.
+  const modFlags = (mods) => {
+    const list = Array.isArray(mods) ? mods : [];
+    return { ctrlKey: list.includes("ctrl"), shiftKey: list.includes("shift"),
+      altKey: list.includes("alt"), metaKey: list.includes("meta") };
+  };
+  const pressAt = (element, x, y, kind, mods) => {
     const right = kind === "right";
     const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
-      button: right ? 2 : 0, buttons: right ? 2 : 1 };
+      button: right ? 2 : 0, buttons: right ? 2 : 1, ...modFlags(mods) };
     const rounds = kind === "triple" ? 3 : kind === "double" ? 2 : 1;
     for (let detail = 1; detail <= rounds; detail += 1) {
       for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
@@ -384,14 +390,19 @@ export function pageAction(operation, args) {
     return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
   }
   if (operation === "hover") {
-    const element = target();
-    element.scrollIntoView({ block: "center" });
+    // ref ya da ekran görüntüsü koordinatı (Claude computer hover coordinate).
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? document.elementFromPoint(Number(args.x), Number(args.y)) : target();
+    if (!element || !safe(element)) throw new Error("Bu noktada öğe yok ya da hassas alan.");
+    if (!atPoint) element.scrollIntoView({ block: "center" });
     const rect = element.getBoundingClientRect();
-    const point = { bubbles: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+    const point = { bubbles: true, composed: true,
+      clientX: atPoint ? Number(args.x) : rect.left + rect.width / 2,
+      clientY: atPoint ? Number(args.y) : rect.top + rect.height / 2 };
     for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"]) {
       element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
     }
-    return { hovered: args.ref, name: nameOf(element) };
+    return { hovered: args.ref || [point.clientX, point.clientY], name: nameOf(element) };
   }
   if (operation === "describe_at" || operation === "click_at") {
     // Ekran görüntüsündeki koordinat (CSS piksel): Claude'un computer tıklaması gibi.
@@ -409,14 +420,14 @@ export function pageAction(operation, args) {
         link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
       };
     }
-    pressAt(element, x, y, args.kind);
+    pressAt(element, x, y, args.kind, args.mods);
     return { clicked_at: [x, y], kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "click") {
     const element = target();
     element.scrollIntoView({ block: "center", inline: "center" });
     const rect = element.getBoundingClientRect();
-    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind);
+    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind, args.mods);
     return { clicked: args.ref, kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "type") {
@@ -526,12 +537,15 @@ export function pageAction(operation, args) {
     return { checked: after, name: nameOf(element) };
   }
   if (operation === "drag") {
-    // Kaynak ref'ten hedef ref'e ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
-    const source = target();
-    source.scrollIntoView({ block: "center", inline: "center" });
+    // Kaynak ref'ten ya da (from_x,from_y) noktasından (Claude start_coordinate) hedef ref'e
+    // ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
+    const fromPoint = !args.ref && Number.isFinite(Number(args.from_x)) && Number.isFinite(Number(args.from_y));
+    const source = fromPoint ? document.elementFromPoint(Number(args.from_x), Number(args.from_y)) : target();
+    if (!source || !safe(source)) throw new Error("Sürüklenecek noktada öğe yok ya da hassas alan.");
+    if (!fromPoint) source.scrollIntoView({ block: "center", inline: "center" });
     const from = source.getBoundingClientRect();
-    const sx = from.left + from.width / 2;
-    const sy = from.top + from.height / 2;
+    const sx = fromPoint ? Number(args.from_x) : from.left + from.width / 2;
+    const sy = fromPoint ? Number(args.from_y) : from.top + from.height / 2;
     let destination;
     let dx;
     let dy;
@@ -609,13 +623,28 @@ export function pageAction(operation, args) {
     };
   }
   if (operation === "upload") {
-    const element = target();
-    if (!element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? null : target();
+    if (element && !element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
     const files = (args.files || []).map((file) => {
       const bytes = Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0));
       return new File([bytes], file.name, { type: file.mime || "application/octet-stream" });
     });
     if (!files.length) throw new Error("Yüklenecek dosya yok.");
+    if (atPoint) {
+      // Claude upload_image coordinate: dosyayı noktadaki bırakma hedefine sürükle-bırak.
+      const x = Number(args.x);
+      const y = Number(args.y);
+      const zone = document.elementFromPoint(x, y);
+      if (!zone || !safe(zone)) throw new Error("Bu noktada bırakma hedefi yok ya da hassas alan.");
+      const transfer = new DataTransfer();
+      files.forEach((file) => transfer.items.add(file));
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, composed: true,
+          clientX: x, clientY: y, dataTransfer: transfer }));
+      }
+      return { dropped: files.map((file) => file.name), name: nameOf(zone) };
+    }
     if (files.length > 1 && !element.multiple) throw new Error("Bu alan tek dosya kabul ediyor.");
     const transfer = new DataTransfer();
     files.forEach((file) => transfer.items.add(file));

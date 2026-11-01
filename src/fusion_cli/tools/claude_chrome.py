@@ -124,8 +124,8 @@ _SPECS: dict[str, tuple[str, SchemaFragment]] = {
         _obj({"paths": {"type": "array", "items": _S}, "ref": _S, **_TAB}, ["ref", "paths"]),
     ),
     "upload_image": (
-        "Ekran görüntüsünü yükle (Fusion'da yok; file_upload kullan).",
-        _obj({"imageId": _S, "ref": _S, "coordinate": _XY, **_TAB}, ["imageId"]),
+        "Ekran görüntüsünü (imageId) dosya alanına ya da bırakma noktasına yükle.",
+        _obj({"imageId": _S, "ref": _S, "coordinate": _XY, "filename": _S, **_TAB}, ["imageId"]),
     ),
     "resize_window": (
         "Pencereyi boyutlandır.",

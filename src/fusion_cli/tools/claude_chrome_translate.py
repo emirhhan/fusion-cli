@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from ..core.claude_chrome_names import claude_chrome_short
+from .chrome_claude_args import parse_modifiers
 
 Legacy = tuple[str, dict[str, object]]
 Translation = Legacy | str | None
@@ -49,16 +50,18 @@ def _act(action: str, **extra: object) -> Legacy:
 
 
 def _click(args: Args, action: str) -> Translation:
-    if args.get("modifiers"):
-        return "Değiştirici tuşlu tıklama (modifiers) Fusion'ın Chrome köprüsünde yok."
+    mods = parse_modifiers(args.get("modifiers"))
+    if isinstance(mods, str):
+        return mods
+    modifiers = "+".join(mods)
     ref = _ref(args)
-    if action == "left_click" and ref:
+    if action == "left_click" and ref and not modifiers:
         return "chrome_click", ref
     point = _xy(args.get("coordinate"))
     if not ref and point is None:
         return f"{action} için coordinate [x, y] ya da ref gerekli."
     inner = "click_at" if action == "left_click" else action
-    return _act(inner, value=None if ref else point, **ref)
+    return _act(inner, value=None if ref else point, modifiers=modifiers, **ref)
 
 
 def _keys(args: Args) -> Translation:
@@ -87,13 +90,11 @@ def _scroll(args: Args) -> Translation:
 
 def _drag(args: Args) -> Translation:
     target = _xy(args.get("coordinate"))
+    start = _xy(args.get("start_coordinate"))
     ref = _ref(args)
-    if not ref or target is None:
-        return (
-            "left_click_drag Fusion'da kaynak öğenin ref'i ve hedef coordinate ile çalışır; "
-            "start_coordinate yerine ref ver."
-        )
-    return _act("drag", value=target, **ref)
+    if target is None or (not ref and start is None):
+        return "left_click_drag için start_coordinate (ya da kaynak ref) ve coordinate gerekli."
+    return _act("drag", value=target, start=None if ref else start, **ref)
 
 
 def _zoom(args: Args) -> Translation:
@@ -123,6 +124,9 @@ def _computer(args: Args) -> Translation:
         return simple[action](args)
     if action in {"hover", "scroll_to"}:
         ref = _ref(args)
+        point = _xy(args.get("coordinate"))
+        if action == "hover" and not ref and point is not None:
+            return _act("hover", value=point)
         if not ref:
             return f"{action} Fusion'da öğe ref'i ister (read_page/find)."
         return _act("hover", **ref)
@@ -150,6 +154,9 @@ def _read_page(args: Args) -> Translation:
         data["depth"] = args["depth"]
     if isinstance(args.get("ref_id"), str) and args["ref_id"]:
         data["ref"] = args["ref_id"]
+    limit = args.get("max_chars")
+    if isinstance(limit, int | float) and not isinstance(limit, bool) and limit > 0:
+        data["max_chars"] = int(limit)
     return "chrome_page", data
 
 
@@ -181,11 +188,14 @@ def _gif(args: Args) -> Translation:
     action = args.get("action")
     if action == "start_recording":
         return _act("record", value="start")
-    if action in {"stop_recording", "export"}:
-        # Fusion kareleri durdururken GIF'i diske yazar; export ayrı adım değildir.
-        return _act("record", value="stop")
+    if action == "stop_recording":
+        # Claude gibi: kare almayı durdurur, kareler export/clear'e dek tutulur.
+        return _act("record", value="halt")
+    if action == "export":
+        name = args.get("filename")
+        return _act("record", value="stop", filename=name if isinstance(name, str) else None)
     if action == "clear":
-        return "gif_creator clear Fusion'da yok: stop_recording kaydı bitirir."
+        return _act("record", value="clear")
     return "gif_creator action: start_recording, stop_recording, export ya da clear."
 
 
@@ -220,6 +230,23 @@ def _upload(args: Args) -> Translation:
     return _act("upload", value=",".join(paths), **ref)
 
 
+def _upload_image(args: Args) -> Translation:
+    image_id = args.get("imageId")
+    if not isinstance(image_id, str) or not image_id.strip():
+        return "upload_image için imageId gerekli (screenshot çıktısındaki kimlik)."
+    ref, point = _ref(args), _xy(args.get("coordinate"))
+    if bool(ref) == (point is not None):
+        return "upload_image için ref ya da coordinate'ten yalnız birini ver."
+    name = args.get("filename")
+    return _act(
+        "upload_image",
+        value=image_id.strip(),
+        point=point,
+        filename=name if isinstance(name, str) else None,
+        **ref,
+    )
+
+
 def _resize(args: Args) -> Translation:
     width, height = args.get("width"), args.get("height")
     if not isinstance(width, int | float) or not isinstance(height, int | float):
@@ -241,15 +268,14 @@ _TRANSLATORS: dict[str, Callable[[Args], Translation]] = {
     "gif_creator": _gif,
     "shortcuts_list": lambda _a: _act("shortcuts"),
     "shortcuts_execute": _shortcut,
-    "tabs_context_mcp": lambda _a: _act("tabs"),
+    "tabs_context_mcp": lambda a: _act(
+        "tabs", value="create_if_empty" if a.get("createIfEmpty") is True else None
+    ),
     "tabs_create_mcp": lambda _a: _act("new_tab"),
     "tabs_close_mcp": _close,
     "javascript_tool": _javascript,
     "file_upload": _upload,
-    "upload_image": lambda _a: (
-        "upload_image Fusion'da yok: ekran görüntülerine kimlik verilmez; dosyayı "
-        "file_upload ile yükle."
-    ),
+    "upload_image": _upload_image,
     "resize_window": _resize,
 }
 

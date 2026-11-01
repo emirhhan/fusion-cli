@@ -269,3 +269,70 @@ def test_rol_sozcugune_esit_sorgu_o_adi_tasiyan_ogeyi_onde_dondurur(sayfa):
     assert {m["name"] for m in menu["matches"]} >= {"Menü", "Profil", "Çıkış"}
     assert secim["matches"][0]["name"] == "Select all"
     assert any(m["tag"] == "select" for m in secim["matches"])
+
+
+_MERKEZ = (
+    "(s) => { const r = document.querySelector(s).getBoundingClientRect(); "
+    "return [r.left + r.width / 2, r.top + r.height / 2]; }"
+)
+_BAYRAK = (
+    "(s) => { window.__olay = null; document.querySelector(s).addEventListener('click', "
+    "(e) => { window.__olay = {meta: e.metaKey, shift: e.shiftKey, ctrl: e.ctrlKey, "
+    "alt: e.altKey}; }); }"
+)
+
+
+def test_degistirici_tuslu_tiklama_olay_bayraklarini_tasir(sayfa):
+    """#431: Claude computer `modifiers` (cmd+shift) tıklama olayına geçer."""
+    sayfa.evaluate(_BAYRAK, "#bos")
+    sayfa.islem("click", {"ref": _ref(sayfa, "Hiçbir şey yapmaz"), "mods": ["meta", "shift"]})
+    assert sayfa.evaluate("window.__olay") == {
+        "meta": True,
+        "shift": True,
+        "ctrl": False,
+        "alt": False,
+    }
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    sayfa.islem("click_at", {"x": x, "y": y, "mods": ["ctrl"]})
+    assert sayfa.evaluate("window.__olay")["ctrl"] is True
+
+
+def test_koordinatla_hover_noktadaki_ogeye_gider(sayfa):
+    sayfa.evaluate(
+        "window.__ustunde = false; document.querySelector('#bos')"
+        ".addEventListener('mouseover', () => { window.__ustunde = true; })"
+    )
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    sonuc = sayfa.islem("hover", {"x": x, "y": y})
+    assert sayfa.evaluate("window.__ustunde") is True
+    assert sonuc["name"] == "Hiçbir şey yapmaz"
+
+
+def test_baslangic_noktasindan_surukleme(sayfa):
+    sayfa.evaluate(
+        "window.__iz = []; document.querySelector('#bos').addEventListener('mousedown', "
+        "() => window.__iz.push('down')); document.querySelector('#sayac')"
+        ".addEventListener('mouseup', () => window.__iz.push('up'))"
+    )
+    fx, fy = sayfa.evaluate(_MERKEZ, "#bos")
+    tx, ty = sayfa.evaluate(_MERKEZ, "#sayac")
+    sonuc = sayfa.islem("drag", {"from_x": fx, "from_y": fy, "x": tx, "y": ty})
+    assert sayfa.evaluate("window.__iz") == ["down", "up"]
+    assert sonuc["name"] == "Hiçbir şey yapmaz"
+
+
+def test_dosyalar_noktadaki_birakma_alanina_suruklenip_birakilir(sayfa):
+    """#431: Claude upload_image coordinate: sürükle-bırak hedefine dosya bırakılır."""
+    sayfa.evaluate(
+        "window.__birakilan = null; const h = document.querySelector('#bos'); "
+        "h.addEventListener('dragover', (e) => e.preventDefault()); "
+        "h.addEventListener('drop', (e) => { e.preventDefault(); "
+        "window.__birakilan = [...e.dataTransfer.files].map((f) => f.name); })"
+    )
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    veri = base64.b64encode(b"jpeg").decode()
+    sonuc = sayfa.islem(
+        "upload", {"x": x, "y": y, "files": [{"name": "a.jpg", "mime": "image/jpeg", "data": veri}]}
+    )
+    assert sayfa.evaluate("window.__birakilan") == ["a.jpg"]
+    assert sonuc["dropped"] == ["a.jpg"]

@@ -58,6 +58,7 @@ _CHROME_ACTIONS = (
     "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
     "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
     "upload", "assets", "console", "network", "record", "shortcuts", "shortcut", "window", "group",
+    "upload_image",
 )  # fmt: skip
 
 #: Claude adlı araçların (#431) arkasındaki iç araçlar: modele sunulmaz, çağrılırsa çalışır.

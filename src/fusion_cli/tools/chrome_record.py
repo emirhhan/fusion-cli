@@ -83,7 +83,37 @@ async def start_recording(context: ToolContext) -> ToolResult:
     )
 
 
-async def stop_recording(context: ToolContext) -> ToolResult:
+def gif_name(filename: str | None) -> str:
+    """Claude `export` `filename`'inden güvenli dosya adı; boşsa zaman damgalı ad."""
+    base = Path(filename or "").name.strip().strip(".")
+    if not base:
+        return f"chrome-{time.strftime('%Y%m%d-%H%M%S')}.gif"
+    return base if base.lower().endswith(".gif") else f"{base}.gif"
+
+
+async def halt_recording(context: ToolContext) -> ToolResult:
+    """Kare almayı durdur; kareler export ya da clear'e dek eklentide kalır (Claude gibi)."""
+    stopped = await _invoke(context, {"op": "stop"})
+    if isinstance(stopped, ToolResult):
+        return stopped
+    return ToolResult(
+        f"Ekran kaydı durdu ({int(stopped.get('frames') or 0)} kare). GIF için gif_creator "
+        "export, kareleri atmak için clear."
+    )
+
+
+async def clear_recording(context: ToolContext) -> ToolResult:
+    """Kaydı durdur ve kareleri GIF yazmadan at."""
+    stopped = await _invoke(context, {"op": "stop"})
+    if isinstance(stopped, ToolResult):
+        return stopped
+    released = await _invoke(context, {"op": "release"})
+    if isinstance(released, ToolResult):
+        return released
+    return ToolResult(f"Kayıt kareleri silindi ({int(released.get('frames') or 0)} kare).")
+
+
+async def stop_recording(context: ToolContext, filename: str | None = None) -> ToolResult:
     """Kaydı durdur, kareleri parça parça çek ve GIF'i proje köküne yaz."""
     stopped = await _invoke(context, {"op": "stop"})
     if isinstance(stopped, ToolResult):
@@ -113,7 +143,7 @@ async def stop_recording(context: ToolContext) -> ToolResult:
     # siliyor, hata durumunda kayıt kayboluyordu.
     try:
         data = await asyncio.to_thread(build_gif, frames)
-        name = f"chrome-{time.strftime('%Y%m%d-%H%M%S')}.gif"
+        name = gif_name(filename)
         target = writable_path(context, str(RECORD_DIR / name))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

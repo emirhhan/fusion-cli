@@ -15,8 +15,9 @@ from typing import Any
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
-from . import chrome_guard, chrome_inspect, chrome_record
+from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
+from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
 from .key_spec import key_base
 from .preview_origins import allowed_local
@@ -73,10 +74,11 @@ async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
     if isinstance(query, str) and query.strip():
         return await _call(context, "find", {"query": query.strip()})
     if args.get("tree"):
-        return chrome_inspect.format_tree(
+        tree = chrome_inspect.format_tree(
             await _call(context, "tree", chrome_inspect.tree_args(args))
         )
-    return await _call(context, "snapshot", {})
+        return limit_output(tree, args.get("max_chars"))
+    return limit_output(await _call(context, "snapshot", {}), args.get("max_chars"))
 
 
 async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -193,7 +195,7 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
         ref = args.get("ref")
         if context is None or context.chrome is None:
             return None
-        if action in _CLICK_KINDS and isinstance(ref, str) and ref:
+        if isinstance(ref, str) and ref:
             result = await _describe(context, "describe", {"ref": ref})
             return None if result is None else _click_effect(result)
         point = _point(args.get("value"), context)
@@ -407,7 +409,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     if action == "network":
         return await chrome_inspect.read_network(value, context, _call)
     if action == "record":
-        return await _record(value, context)
+        return await _record(value, context, args.get("filename"))
     if action == "shortcuts":
         return await _call(context, "shortcuts", {})
     if action == "shortcut":
@@ -427,6 +429,8 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     if action == "screenshot":
         return await chrome_screenshot(args, context)
     if action == "tabs":
+        if value == "create_if_empty":
+            return await tabs_create_if_empty(context, _call)
         return await _call(context, "tabs", {})
     if action == "open":
         if not isinstance(value, str) or not value.strip():
@@ -456,16 +460,24 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
             return ToolResult.failure("close için 'value' alanına sekme id'sini yaz.")
         return await _call(context, "tab_close", {"id": int(value)})
     if action == "hover":
-        if "ref" not in data:
-            return ToolResult.failure("hover için 'ref' gerekli.")
-        return await _call(context, "hover", data)
+        if "ref" in data:
+            return await _call(context, "hover", data)
+        spot = _point(value, context)
+        if spot is None:
+            return ToolResult.failure("hover için 'ref' ya da 'value' alanına 'x,y' gerekli.")
+        return await _call(context, "hover", {"x": spot[0], "y": spot[1]})
     if action == "text":
         page = int(value) if isinstance(value, str) and value.strip().isdigit() else 1
         return await _call(context, "text_page", {"page": max(1, page)})
     if action in {"click_at", *_CLICK_KINDS}:
         kind = _CLICK_KINDS.get(action)
-        extra = {"kind": kind} if kind else {}
-        if action in _CLICK_KINDS and "ref" in data:
+        mods = parse_modifiers(args.get("modifiers"))
+        if isinstance(mods, str):
+            return ToolResult.failure(mods)
+        extra: dict[str, Any] = {"kind": kind} if kind else {}
+        if mods:
+            extra["mods"] = mods
+        if "ref" in data:
             refused = await _prohibited(context, "describe", {"ref": data["ref"]})
             if refused is not None:
                 return refused
@@ -482,7 +494,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
             await _call(context, "click_at", {"x": point[0], "y": point[1], **extra})
         )
     if action == "drag":
-        return await _drag(data, value, context)
+        return await _drag(data, value, context, args.get("start"))
     if action == "wheel":
         delta = _delta(value)
         if delta is None:
@@ -490,6 +502,8 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await _call(context, "wheel", {**data, "dx": delta[0], "dy": delta[1]})
     if action == "upload":
         return await _upload(data, value, context)
+    if action == "upload_image":
+        return await chrome_images.upload_image(dict(args), context, _call, _point)
     if action == "assets":
         return await chrome_assets(args, context)
     return ToolResult.failure(
@@ -504,14 +518,22 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
 _CLICK_KINDS = {"double_click": "double", "right_click": "right", "triple_click": "triple"}
 
 
-async def _record(value: object, context: ToolContext) -> ToolResult:
-    """`record start|stop`: kareler eklentide toplanır, GIF `chrome_record` ile yazılır."""
+async def _record(value: object, context: ToolContext, filename: object = None) -> ToolResult:
+    """`record start|halt|stop|clear`: kareler eklentide toplanır, GIF `chrome_record` yazar.
+
+    Claude `gif_creator`: halt = stop_recording (kareler tutulur), stop = export, clear.
+    """
     op = value.strip().lower() if isinstance(value, str) else ""
     if op == "start":
         return await chrome_record.start_recording(context)
+    if op == "halt":
+        return await chrome_record.halt_recording(context)
+    if op == "clear":
+        return await chrome_record.clear_recording(context)
     if op == "stop":
-        return await chrome_record.stop_recording(context)
-    return ToolResult.failure("record için 'value' alanına start ya da stop yaz.")
+        name = filename if isinstance(filename, str) else None
+        return await chrome_record.stop_recording(context, name)
+    return ToolResult.failure("record için 'value' alanına start, halt, stop ya da clear yaz.")
 
 
 def _delta(value: object) -> tuple[float, float] | None:
@@ -566,11 +588,16 @@ async def _zoom(value: object, context: ToolContext) -> ToolResult:
     )
 
 
-async def _drag(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
-    """Kaynak `ref` → hedef `value` (öğe ref'i ya da ekran görüntüsünde 'x,y')."""
-    if "ref" not in data or not isinstance(value, str) or not value.strip():
+async def _drag(
+    data: dict[str, Any], value: object, context: ToolContext, start: object = None
+) -> ToolResult:
+    """Kaynak `ref` ya da `start` ('x,y') → hedef `value` (öğe ref'i ya da 'x,y')."""
+    origin = None if "ref" in data else _point(start, context)
+    if origin is not None:
+        data = {"from_x": origin[0], "from_y": origin[1]}
+    if ("ref" not in data and origin is None) or not isinstance(value, str) or not value.strip():
         return ToolResult.failure(
-            "drag için 'ref' (kaynak) ve 'value' (hedef ref ya da x,y) gerekli."
+            "drag için 'ref' ya da 'start' (kaynak x,y) ve 'value' (hedef ref ya da x,y) gerekli."
         )
     if re.fullmatch(r"e\d+", value.strip()):
         return await _call(context, "drag", {**data, "to_ref": value.strip()})
@@ -641,6 +668,9 @@ async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult
         note += (
             f" Görüntü {size[0]}x{size[1]} px; tıklamak için computer left_click coordinate [x,y]."
         )
+    image_id = chrome_images.remember(context.chrome, encoded)
+    if image_id is not None:
+        note += f" (imageId: {image_id}; upload_image ile yüklenebilir)"
     return ToolResult(note, content=(ToolContent.image("image/jpeg", encoded),))
 
 
