@@ -12,9 +12,9 @@ import asyncio
 import functools
 import logging
 import time
-from pathlib import Path
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from weakref import WeakKeyDictionary
 
 from ..config.mcp_project_approval import is_noninteractive

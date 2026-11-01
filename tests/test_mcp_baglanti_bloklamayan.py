@@ -54,7 +54,7 @@ async def test_gec_kalan_sunucu_arka_planda_baglanir_sonraki_turda_gelir(monkeyp
 
 
 async def test_bloklayan_kip_butun_sunuculari_sinira_kadar_bekler(monkeypatch):
-    """Claude: `MCP_CONNECTION_NONBLOCKING=0` bütün kümeyi bekler, `MCP_CONNECT_TIMEOUT_MS`'e kadar."""
+    """Claude: `MCP_CONNECTION_NONBLOCKING=0` kümeyi `MCP_CONNECT_TIMEOUT_MS`'e kadar bekler."""
     serbest, kapandi = asyncio.Event(), asyncio.Event()
     monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
     monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "400")

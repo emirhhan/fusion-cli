@@ -139,9 +139,10 @@ def stdio_process_env(
     temel ortamı (HOME, USER, PATH…) + `env` kullanılır.
     """
     source = os.environ if environ is None else environ
+    stamped = str(getattr(config, "project_dir", "") or "")
     configured = {
         "PATH": stdio_search_path(source),
-        "CLAUDE_PROJECT_DIR": str(project_dir or getattr(config, "project_dir", "") or Path.cwd()),
+        "CLAUDE_PROJECT_DIR": str(project_dir or stamped or Path.cwd()),
         **resolve_stdio_env(config, environ=source),
     }
     if source.get(ALLOWLIST_ENV, "").strip() == "1":
