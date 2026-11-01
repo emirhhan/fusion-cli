@@ -90,6 +90,18 @@ def persona(state: ReplState, argument: str) -> str:
     return messages.PERSONA_SET.format(title=found.title, name=found.name, tools=tools)
 
 
+def persona_command(state: ReplState, argument: str) -> str:
+    """`/persona` slash komutu: kullanımdan kalkmış takma ad (#34), oturumda bir kez uyarır.
+
+    Claude Code'da ajan yalnız oturum başında (`--agent`, `agent` ayarı) seçilir.
+    """
+    result = persona(state, argument)
+    if getattr(state, "persona_command_warned", False):
+        return result
+    state.persona_command_warned = True
+    return f"{messages.PERSONA_DEPRECATED}\n{result}"
+
+
 def initial_persona_task(persona: Persona | None, task: str) -> str:
     """Ajanın başlangıç istemini kullanıcı görevinden önce ekle; çağıran bir kez tüketir."""
     if persona is None or persona.source == "eklenti" or not persona.initial_prompt.strip():

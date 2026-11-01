@@ -1078,7 +1078,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "persona",
         messages.CMD_PERSONA,
-        persona_commands.persona,
+        persona_commands.persona_command,
         ("kisilik", "kişilik"),
         group="Agent",
         usage="[ad|off]",

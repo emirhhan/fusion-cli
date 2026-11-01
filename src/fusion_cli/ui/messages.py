@@ -1418,6 +1418,10 @@ MENTION_FILE_BLOCK = (
 MENTION_DIR_BLOCK = PREFIX_UNTRUSTED_NOTE + "\n[Kullanıcının andığı dizin: {path}]\n{listing}"
 MENTION_TRUNCATED = " (ilk {limit} karakter)"
 MENTION_ADDED = "@{path} bağlama eklendi"
+PERSONA_DEPRECATED = (
+    "/persona kullanımdan kalkıyor: Claude Code'daki gibi ajanı oturum başında seç - "
+    'fusion --agent <ad> ya da .claude/settings.json içinde "agent".'
+)
 SESSION_AGENT_MISSING = (
     "Bu oturumun ajanı '{name}' artık bulunamıyor; varsayılan araçlarla devam ediliyor."
 )

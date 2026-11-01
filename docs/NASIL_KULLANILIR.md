@@ -473,6 +473,9 @@ değişkeni Claude Code'daki gibi okumaz.
   > `--agents` > proje `.claude/agents` (çalışma dizinine en yakın) > `~/.claude/agents` > eklenti;
   dizinler alt klasörleriyle taranır.
 - `/persona` → durum · `/persona Plan` → seç · `/persona off` → kapat (`/kisilik` eş anlamlı).
+  **Kullanımdan kalkıyor:** Claude Code'da oturum ortasında ajan değiştiren komut yoktur;
+  `/persona` bu sürüm boyunca çalışır, oturumda ilk kullanımda bir kez uyarır. Ajanı oturum
+  başında `--agent` ya da `agent` ayarıyla seç. Masaüstü Kişilik seçicisi henüz değişmedi.
 - Masaüstü: mesaj kutusunun altındaki **Kişilik** seçici (etkin ajanlar listelenir);
   RPC: `oturum.baslat {kisilik: "<ad>" | ""}`, `oturum.durum.kisilik → {ad, unvan} | null`.
 

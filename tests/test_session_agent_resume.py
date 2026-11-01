@@ -70,3 +70,16 @@ def test_baslikta_ajan_adi_at_isaretiyle_gorunur(tmp_path: Path) -> None:
     persona_commands.persona(state, "denetci")
 
     assert "@denetci" in _facts_line(session_info(state)).plain
+
+
+def test_persona_komutu_kullanimdan_kalkma_uyarisini_bir_kez_basar(tmp_path: Path) -> None:
+    """Claude Code'da oturum ortasında ajan değiştiren komut yok (#34): /persona bir sürüm
+    takma addır ve oturumda bir kez uyarır."""
+    _agent(tmp_path)
+    state = _state(tmp_path)
+
+    first = persona_commands.persona_command(state, "denetci")
+    second = persona_commands.persona_command(state, "off")
+
+    assert "--agent" in first and state.persona is None
+    assert "--agent" not in second

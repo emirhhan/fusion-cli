@@ -26,7 +26,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
 | Düz metin bellek (`/memory`, `# not`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
 | Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory`, `mcpServers` (ad ve satır içi tanım), `background`, `isolation`, `hooks`, `initialPrompt` Claude Code kurallarıyla uygulanır |
-| Oturum kişiliği (`fusion --agent`, `/persona`) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `explore`, `plan`); masaüstünde Kişilik seçici |
+| Oturum ajanı (`fusion --agent`, `agent` ayarı; `/persona` kullanımdan kalkıyor) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `Explore`, `Plan`...); sürdürmede geri yüklenir; masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
 | Arka plan ajan görevleri (`fusion agent --bg`, `fusion agents`, `/bg`, `/tasks`, Ctrl+B) | Turdan bağımsız, ayrı süreçte koşan görev; girdi/bitiş bildirimi, devam mesajı, sonucun sıradaki tura teslimi; masaüstünde Ajanlar sekmesi — bkz. `ARKA_PLAN_GOREVLERI.md` |
 | Oturumlar arası mesaj (`/list-agents`, `@oturum`, `list_agents`/`send_message`) | Açık REPL/masaüstü oturumları birbirine mesaj atar; gelen mesaj etiketli güvenilmez girdi, `runtime.cross_session_inbound` accept/hold/refuse |

@@ -196,6 +196,8 @@ class ReplState:
     persona: Persona | None = field(default=None, kw_only=True)
     #: initialPrompt yalnız ana oturumun ilk kullanıcı turunda tüketilir.
     persona_initial_prompt_applied: bool = field(default=False, kw_only=True)
+    #: `/persona` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#34).
+    persona_command_warned: bool = field(default=False, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
     _configured_persona: Persona | None = field(default=None, init=False, repr=False)
     _persona_base_config: Config | None = field(default=None, init=False, repr=False)
