@@ -1,36 +1,58 @@
-"""`/export` ve `/copy` işleyicileri (P-028).
+"""`/export` ve `/copy` işleyicileri (P-028, #206).
 
-`/export [yol] [json] [pano]` konuşmayı dosyaya (varsayılan: proje kökünde
-`fusion-sohbet-<tarih>.md`) ya da panoya yazar. Dosya PROJE KÖKÜ (ya da `--add-dir`
-kökleri) dışına yazılmaz: "proje kökü dışına yazma onaysız olmaz" ilkesi.
-Var olan dosya onaysız EZİLMEZ: `zorla` sözcüğü istenir (Ölçüldü 31 Ekim: `/export README.md`
-kaynak dosyayı geri alma kaydı olmadan eziyordu). `/copy [N]` sondan N. asistan cevabını
-panoya kopyalar.
+`/export [dosya]` Claude Code'daki gibi konuşmayı DÜZ METİN olarak aktarır: dosya adı
+verilirse doğrudan yazar (uzantısızsa `.txt` eklenir), verilmezse Pano/Dosya seçicisi açar.
+Fusion ekleri: `md`/`json` bayrakları ya da `.md`/`.json` uzantısı biçimi seçer, `pano`
+doğrudan panoya, `dosya` varsayılan adla dosyaya yazar. Dosya PROJE KÖKÜ (ya da `--add-dir`
+kökleri) dışına yazılmaz; var olan dosya onaysız EZİLMEZ (`zorla` ister; Ölçüldü 31 Ekim:
+`/export README.md` kaynak dosyayı geri alma kaydı olmadan eziyordu). `/copy [N]` sondan N.
+asistan cevabını panoya kopyalar.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ...core.transcript_export import (
     default_export_name,
     export_json,
     export_markdown,
+    export_text,
     last_answer,
 )
 from ...ui import messages
 from ...ui.clipboard import ClipboardResult, copy_to_clipboard
+from ...ui.picker import Choice, pick
 from .state import ReplState
 
 #: Panoya yazan yardımcı; testte sahte verilir.
 Copier = Callable[[str], ClipboardResult]
+#: Seçici (`ui.picker.pick` imzası); testte sahte verilir.
+Picker = Callable[..., str | None]
 
 _JSON_FLAGS = frozenset({"json", "--json"})
+_MARKDOWN_FLAGS = frozenset({"md", "--md", "markdown", "--markdown"})
 _CLIPBOARD_FLAGS = frozenset({"pano", "--pano", "clipboard", "--clipboard"})
+_FILE_FLAGS = frozenset({"dosya", "--dosya", "file", "--file"})
 _FORCE_FLAGS = frozenset({"zorla", "--zorla", "force", "--force"})
-_ALL_FLAGS = _JSON_FLAGS | _CLIPBOARD_FLAGS | _FORCE_FLAGS
+_ALL_FLAGS = _JSON_FLAGS | _MARKDOWN_FLAGS | _CLIPBOARD_FLAGS | _FILE_FLAGS | _FORCE_FLAGS
+#: Biçim → (üretici, varsayılan uzantı).
+_FORMATS = {
+    "text": (export_text, "txt"),
+    "markdown": (export_markdown, "md"),
+    "json": (export_json, "json"),
+}
+_SUFFIX_FORMATS = {".md": "markdown", ".markdown": "markdown", ".json": "json"}
+
+
+def export_dialog_choices() -> tuple[Choice, ...]:
+    """Argümansız `/export` seçicisi: Claude Code'daki Pano / Dosya diyaloğu."""
+    return (
+        Choice("pano", messages.EXPORT_CHOICE_CLIPBOARD, messages.EXPORT_CHOICE_CLIPBOARD_HINT),
+        Choice("dosya", messages.EXPORT_CHOICE_FILE, messages.EXPORT_CHOICE_FILE_HINT),
+    )
 
 
 def _title(state: ReplState) -> str:
@@ -44,40 +66,58 @@ def _inside_roots(state: ReplState, target: Path) -> bool:
     return any(concrete == root.resolve() or root.resolve() in concrete.parents for root in roots)
 
 
+def _format_for(words: Sequence[str], paths: Sequence[str]) -> str:
+    lowered = {word.lower() for word in words}
+    if lowered & _JSON_FLAGS:
+        return "json"
+    if lowered & _MARKDOWN_FLAGS:
+        return "markdown"
+    suffix = Path(paths[0]).suffix.lower() if paths else ""
+    return _SUFFIX_FORMATS.get(suffix, "text")
+
+
 def export_transcript(
     state: ReplState,
     argument: str,
     *,
     copier: Copier = copy_to_clipboard,
     now: Callable[[], float] = time.time,
+    picker: Picker = pick,
 ) -> str:
-    """`/export` — konuşmayı Markdown/JSON dosyasına ya da panoya aktar."""
+    """`/export` — konuşmayı düz metin (ya da md/json) dosyasına veya panoya aktar."""
     if not any(m.role in ("user", "assistant") for m in state.history):
         return messages.EXPORT_EMPTY
     words = argument.split()
-    as_json = any(word.lower() in _JSON_FLAGS for word in words)
-    to_clipboard = any(word.lower() in _CLIPBOARD_FLAGS for word in words)
-    force = any(word.lower() in _FORCE_FLAGS for word in words)
+    if not words:
+        chosen = picker(export_dialog_choices(), title=messages.EXPORT_DIALOG_TITLE)
+        if chosen is None:
+            return ""
+        words = [chosen]
     paths = [word for word in words if word.lower() not in _ALL_FLAGS]
-    title = _title(state)
-    text = (
-        export_json(state.history, title=title)
-        if as_json
-        else export_markdown(state.history, title=title)
-    )
-    if to_clipboard:
+    fmt = _format_for(words, paths)
+    produce, ext = _FORMATS[fmt]
+    text = produce(state.history, title=_title(state))
+    if any(word.lower() in _CLIPBOARD_FLAGS for word in words):
         result = copier(text)
         if not result.ok:
             return messages.CLIPBOARD_FAILED.format(error=result.error)
         return messages.EXPORT_COPIED.format(chars=len(text))
-    raw = paths[0] if paths else default_export_name(as_json=as_json, now=now)
-    target = Path(raw).expanduser()
+    force = any(word.lower() in _FORCE_FLAGS for word in words)
+    return _write(state, paths[0] if paths else "", text, ext=ext, force=force, now=now)
+
+
+def _write(
+    state: ReplState, raw: str, text: str, *, ext: str, force: bool, now: Callable[[], float]
+) -> str:
+    target = Path(raw or default_export_name(ext=ext, now=now)).expanduser()
+    if not target.suffix and raw:
+        target = target.with_name(f"{target.name}.{ext}")
     if not target.is_absolute():
         target = state.root / target
     if not _inside_roots(state, target):
         return messages.EXPORT_OUTSIDE_ROOT.format(path=target, root=state.root)
     if target.is_dir():
-        target = target / default_export_name(as_json=as_json, now=now)
+        target = target / default_export_name(ext=ext, now=now)
     if target.exists() and not force:
         return messages.EXPORT_EXISTS.format(path=target)
     try:

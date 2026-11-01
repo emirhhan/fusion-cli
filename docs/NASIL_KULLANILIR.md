@@ -1044,7 +1044,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ### Dışa aktarma ve pano
 
-- `/export` → proje kökünde `fusion-sohbet-<tarih>.md`; `/export notlar/sohbet.md`, `/export json`, `/export pano`. Sistem istemi dışarıda, araç çağrıları katlanmış ve kırpılmış, sırlar (başlık dahil) maskeli. Proje kökü dışına yazılmaz; var olan dosya `zorla` eklenmeden ezilmez.
+- `/export [dosya]` Claude Code'daki gibi konuşmayı **düz metin** aktarır (kullanıcı `> `, asistan ve araç çağrısı `⏺ `, araç çıktısı `⎿` girintili). Dosya adı verilirse doğrudan yazar (uzantısızsa `.txt`); argümansız çağrı **Panoya kopyala / Dosyaya kaydet** seçicisini açar (terminal, tam ekran TUI, masaüstü). Fusion ekleri: `md`/`json` bayrağı ya da `.md`/`.json` uzantısı biçimi seçer, `pano` doğrudan panoya, `dosya` varsayılan adla (`fusion-sohbet-<tarih>.txt`) yazar. Sistem istemi dışarıda, uzun araç çıktıları kırpılır, sırlar (başlık dahil) maskeli. Proje kökü dışına yazılmaz; var olan dosya `zorla` eklenmeden ezilmez.
 - `/copy` → son asistan cevabı panoya; `/copy 2` sondan ikinci. (pbcopy / wl-copy / xclip / xsel / clip)
 - `/diff` → çalışma ağacının `git diff HEAD --stat` özeti ve bu oturumda dosya değiştiren turlar (tur numarası, görev, dosyalar); `/diff tam` farkın kendisini de basar. Claude Code bunu etkileşimli görüntüleyicide gösterir; Fusion metin basar.
 - Masaüstü: Sohbeti paylaş penceresinde Markdown/JSON seçimi ve "Dosyaya kaydet" (RPC `sohbet.disa_aktar {bicim, baslik}`).

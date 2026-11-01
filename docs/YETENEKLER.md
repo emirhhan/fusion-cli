@@ -37,7 +37,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
 | Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
-| REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
+| REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/config editorMode=vim` (bkz. NASIL_KULLANILIR §15) |
 | Komut paleti ve kısayollar (masaüstü) | ⌘K palet (eylem/ekran/sohbet/komut/ayar/dosya, son kullanılanlar), ⌘P dosya, ⌘N/⌘,/⌘B/⌘J/⌘1-9; Ayarlar › Kısayollar ile yeniden bağlama; `keybindings.json` `masaustu` bölümü (bkz. NASIL_KULLANILIR §17) |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`

@@ -43,6 +43,7 @@ from . import (
     browser_command,
     busy_commands,
     cron_store,
+    export_commands,
     goal_flow,
     goal_store,
     help_view,
@@ -647,6 +648,15 @@ class _TuiSession:
             # Çıktı stili (P-068): uygulama-içi modalla seç, seçileni argüman yap.
             selected = await self._tui.await_choice(
                 messages.OUTPUT_STYLE_TITLE, output_style_command.style_choices(self._state)
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
+        elif command.name == "export" and not argument.strip():
+            # Claude Code `/export` (#206): Pano / Dosya diyaloğu uygulama-içi modalda.
+            selected = await self._tui.await_choice(
+                messages.EXPORT_DIALOG_TITLE, list(export_commands.export_dialog_choices())
             )
             if selected is None:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")

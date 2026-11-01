@@ -35,6 +35,7 @@ from rich.console import Console
 
 from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
 from ..cli.repl.commands import CommandRegistry, model_command_result
+from ..cli.repl.export_commands import export_dialog_choices
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -263,6 +264,8 @@ def _simple_choices(state: ReplState, name: str) -> ChoicePayload | None:
         "mode": ("profil", messages.MODE_TITLE, model_flows.mode_choices(state.config), ""),
         "effort": ("yogunluk", messages.EFFORT_TITLE, model_flows.effort_choices(), ""),
         "provider": ("saglayici", _provider_title(state), _provider_choices(state), ""),
+        # Claude Code `/export` (#206): argümansız Pano / Dosya diyaloğu.
+        "export": ("disa_aktar", messages.EXPORT_DIALOG_TITLE, export_dialog_choices(), ""),
         # Çıktı stili (P-068): masaüstü aynı listeyi seçici olarak gösterir.
         "output-style": (
             "cikti_stili",

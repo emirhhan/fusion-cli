@@ -1421,6 +1421,11 @@ CMD_EXPORT = (
 )
 CMD_COPY = "son asistan cevabını panoya kopyala: /copy [N] (sondan N.)"
 EXPORT_DEFAULT_TITLE = "Fusion sohbeti"
+EXPORT_DIALOG_TITLE = "Konuşmayı dışa aktar"
+EXPORT_CHOICE_CLIPBOARD = "Panoya kopyala"
+EXPORT_CHOICE_CLIPBOARD_HINT = "düz metin, sırlar maskeli"
+EXPORT_CHOICE_FILE = "Dosyaya kaydet"
+EXPORT_CHOICE_FILE_HINT = "proje kökünde fusion-sohbet-<tarih>.txt"
 EXPORT_EMPTY = "Aktarılacak konuşma yok: önce bir mesaj gönder."
 EXPORT_WRITTEN = "Konuşma yazıldı: {path} ({chars} karakter). Sırlar maskelendi."
 EXPORT_COPIED = "Konuşma panoya kopyalandı ({chars} karakter). Sırlar maskelendi."
