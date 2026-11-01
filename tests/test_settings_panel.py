@@ -116,3 +116,29 @@ async def test_tui_argumansiz_config_paneli_acar(state: ReplState) -> None:
     assert "[Config]" in session.tui._choice_title
     session.tui._resolve(None)
     await gorev
+
+
+async def test_satir_ici_status_paneli_terminalde_acar(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import commands, loop
+
+    seen: list[str] = []
+
+    def fake_pick(choices, *, title, alt_keys=(), initial=""):
+        seen.append(title)
+        return None
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(commands, "pick", fake_pick)
+
+    class _Reader:
+        mode = None
+        vim_mode = False
+
+    registry = commands.build_registry()
+    reader = _Reader()
+    await loop._run_command("/status", state, registry, reader, Console(record=True))  # type: ignore[arg-type]
+    assert seen and "[Status]" in seen[0]

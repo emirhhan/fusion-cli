@@ -109,6 +109,7 @@ from .commands import (
     is_command_line,
     parse,
     renders_itself,
+    status_panel,
 )
 from .completion import agent_names
 from .input import ReplInput
@@ -661,7 +662,12 @@ async def _run_command(
         )
         return
 
-    if renders_itself(command.name, argument):
+    if command.name == "status" and sys.stdin.isatty():
+        # Claude Code (#225): /status Settings panelini Status sekmesinde açar.
+        notes = status_panel(state)
+        if notes:
+            console.print(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+    elif renders_itself(command.name, argument):
         await help_view.render(command.name, state, registry, console, argument)
         return
     if command.name in ASYNC_COMMANDS:

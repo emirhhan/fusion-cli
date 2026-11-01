@@ -432,6 +432,17 @@ def _config(state: ReplState, argument: str) -> str:
     return settings_panel.run(state, _ask) or messages.PICKER_CANCELLED
 
 
+def status_panel(state: ReplState) -> str:
+    """Satır içi `/status` (#225): Settings paneli Status sekmesinde."""
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return pick(choices, title=title, alt_keys=keys, initial=initial)
+
+    return settings_panel.run(state, _ask, settings_panel.STATUS)
+
+
 def model_picker_command(state: ReplState, picker: Callable[..., str | None]) -> str:
     """Argümansız `/model` seçicisi (#211): Enter kaydeder, `s` oturumluk, ←/→ effort."""
 
