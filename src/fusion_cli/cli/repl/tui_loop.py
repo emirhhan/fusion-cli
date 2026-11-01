@@ -42,6 +42,7 @@ from . import (
     background_commands,
     browser_command,
     busy_commands,
+    copy_blocks,
     cron_store,
     export_commands,
     goal_flow,
@@ -699,7 +700,9 @@ class _TuiSession:
             copy_rows := export_commands.copy_picker_choices(self._state, argument)
         ):
             # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi modalda.
-            selected = await self._tui.await_choice(messages.COPY_PICK_TITLE, list(copy_rows))
+            selected = await self._tui.await_choice(
+                messages.COPY_PICK_TITLE, list(copy_rows), alt_keys=(copy_blocks.WRITE_KEY,)
+            )
             if selected is None:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return

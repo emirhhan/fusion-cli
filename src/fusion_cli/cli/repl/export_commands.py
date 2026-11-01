@@ -132,10 +132,10 @@ def _write(
 def split_copy_argument(argument: str) -> tuple[int, str] | None:
     """`/copy [N] [tam|K]` → (N, seçim); seçim yoksa boş. Geçersizse None."""
     words = argument.split()
-    if len(words) > 2 or any(not (w.isdigit() or w == copy_blocks.FULL) for w in words):
+    if len(words) > 2 or any(not (w.isdigit() or copy_blocks.is_selector(w)) for w in words):
         return None
     index = int(words[0]) if words and words[0].isdigit() else 1
-    selector = words[-1] if len(words) == 2 or (words and words[0] == copy_blocks.FULL) else ""
+    selector = words[-1] if len(words) == 2 or (words and not words[0].isdigit()) else ""
     return (index, selector) if index >= 1 else None
 
 
@@ -154,10 +154,12 @@ def copy_answer(
     *,
     copier: Copier = copy_to_clipboard,
     picker: Picker = pick,
+    now: Callable[[], float] = time.time,
 ) -> str:
     """`/copy [N]` — sondan N. asistan cevabını panoya kopyala (varsayılan: son).
 
-    Claude Code (#231): cevapta kod bloğu ya da alıntı varsa önce blok seçicisi açılır.
+    Claude Code (#231): cevapta kod bloğu ya da alıntı varsa önce blok seçicisi açılır;
+    seçicide `w` seçimi panoya değil proje kökünde bir dosyaya yazar.
     """
     parsed = split_copy_argument(argument)
     if parsed is None:
@@ -169,16 +171,37 @@ def copy_answer(
     if not selector:
         choices = copy_blocks.copy_choices(answer)
         if choices:
-            chosen = picker(choices, title=messages.COPY_PICK_TITLE)
+            chosen = picker(
+                choices, title=messages.COPY_PICK_TITLE, alt_keys=(copy_blocks.WRITE_KEY,)
+            )
             if chosen is None:
                 return messages.PICKER_CANCELLED
             selector = chosen
         else:
             selector = copy_blocks.FULL
+    to_file, selector = copy_blocks.split_write(selector)
     text = copy_blocks.select(answer, selector)
     if text is None:
         return messages.COPY_USAGE
+    if to_file:
+        return _write_copy(state, text, copy_blocks.extension_for(answer, selector), now)
     result = copier(text)
     if not result.ok:
         return messages.CLIPBOARD_FAILED.format(error=result.error)
     return messages.COPY_DONE.format(chars=len(text))
+
+
+def _write_copy(state: ReplState, text: str, ext: str, now: Callable[[], float]) -> str:
+    """`/copy` seçicisinde `w`: seçimi proje kökünde yeni bir dosyaya yaz (ezmeden)."""
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now()))
+    target = state.root / f"fusion-copy-{stamp}.{ext}"
+    serial = 1
+    while target.exists():
+        serial += 1
+        target = state.root / f"fusion-copy-{stamp}-{serial}.{ext}"
+    body = text if text.endswith("\n") else f"{text}\n"
+    try:
+        target.write_text(body, encoding="utf-8")
+    except OSError as error:
+        return messages.EXPORT_WRITE_FAILED.format(path=target, error=error)
+    return messages.COPY_WRITTEN.format(path=target, chars=len(text))

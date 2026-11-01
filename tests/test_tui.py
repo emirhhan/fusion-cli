@@ -760,3 +760,39 @@ async def test_secim_modali_j_k_home_end_gezer():
         assert await asyncio.wait_for(choice, 2) == "c"
         tui.request_exit()
         await asyncio.wait_for(task, 2)
+
+
+async def test_await_choice_w_tusu_dosyaya_yaz_secimi_doner():
+    """#231: `/copy` seçicisinde `w` imlecin üzerindekini `w:<değer>` olarak döndürür."""
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    task = asyncio.ensure_future(
+        tui.await_choice("t", [Choice("tam", "T"), Choice("1", "B")], alt_keys=("w",))
+    )
+    await asyncio.sleep(0)
+    _press(tui, "down")
+    _press(tui, "w")
+    assert await task == "w:1"
+    # Ek tuş verilmeyen seçicide `w` yutulur, seçim yapmaz.
+    task = asyncio.ensure_future(tui.await_choice("t", [Choice("a", "A")]))
+    await asyncio.sleep(0)
+    _press(tui, "w")
+    assert not task.done()
+    _press(tui, "escape")
+    assert await task is None
+
+
+def test_duz_secicide_w_on_eki():
+    from fusion_cli.ui.picker import Choice, _pick_plain
+
+    secenekler = [Choice("tam", "Tam"), Choice("1", "Blok")]
+    import builtins
+    import io
+
+    eski = builtins.input
+    builtins.input = lambda: "w 2"
+    try:
+        assert _pick_plain(secenekler, title="t", stream=io.StringIO(), alt_keys=("w",)) == "w:1"
+    finally:
+        builtins.input = eski

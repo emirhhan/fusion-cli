@@ -86,8 +86,12 @@ def pick(
     title: str,
     gradient_rows: bool = False,
     stream: TextStream | None = None,
+    alt_keys: Sequence[str] = (),
 ) -> str | None:
     """Bir seçim al. Vazgeçilirse `None` döner.
+
+    `alt_keys`: Enter yerine basılınca `<tuş>:<değer>` döndüren tek harfli tuşlar
+    (ör. `/copy` seçicisinde `w` = dosyaya yaz). Düz kipte `w 2` biçiminde yazılır.
 
     `gradient_rows` açıkken satırlar turuncudan pembeye boyanır (kademe merdiveni);
     kapalıyken tek vurgu rengi kullanılır (kaynak listesi, model listesi).
@@ -95,8 +99,10 @@ def pick(
     if not choices:
         return None
     if not sys.stdin.isatty():
-        return _pick_plain(choices, title=title, stream=stream)
-    picked = _pick_interactive(choices, title=title, gradient_rows=gradient_rows)
+        return _pick_plain(choices, title=title, stream=stream, alt_keys=alt_keys)
+    picked = _pick_interactive(
+        choices, title=title, gradient_rows=gradient_rows, alt_keys=alt_keys
+    )
     return picked
 
 
@@ -120,7 +126,13 @@ def row_colors(count: int, *, gradient_rows: bool) -> tuple[str, ...]:
 # --------------------------------------------------------------------------- #
 
 
-def _pick_plain(choices: Sequence[Choice], *, title: str, stream: TextStream | None) -> str | None:
+def _pick_plain(
+    choices: Sequence[Choice],
+    *,
+    title: str,
+    stream: TextStream | None,
+    alt_keys: Sequence[str] = (),
+) -> str | None:
     """Numaralı liste + `input()`. Renk yok, gezinme yok; otomasyon için."""
     target = stream if stream is not None else sys.stdout
     target.write(f"{title}\n")
@@ -133,6 +145,10 @@ def _pick_plain(choices: Sequence[Choice], *, title: str, stream: TextStream | N
         answer = input().strip()
     except (EOFError, KeyboardInterrupt):
         return None
+    key, _, rest = answer.partition(" ")
+    if key in alt_keys and rest.strip():
+        picked = resolve_plain(choices, rest)
+        return None if picked is None else f"{key}:{picked}"
     return resolve_plain(choices, answer)
 
 
@@ -161,7 +177,7 @@ def resolve_plain(choices: Sequence[Choice], answer: str) -> str | None:
 
 
 def _pick_interactive(
-    choices: Sequence[Choice], *, title: str, gradient_rows: bool
+    choices: Sequence[Choice], *, title: str, gradient_rows: bool, alt_keys: Sequence[str] = ()
 ) -> str | None:  # pragma: no cover - gerçek terminal gerektirir
     """prompt_toolkit tam-ekran seçim. Kurulamazsa düz listeye düşülür."""
     try:
@@ -170,7 +186,7 @@ def _pick_interactive(
         from prompt_toolkit.layout import HSplit, Layout, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
     except ImportError:
-        return _pick_plain(choices, title=title, stream=None)
+        return _pick_plain(choices, title=title, stream=None, alt_keys=alt_keys)
 
     state = PickerState(len(choices))
     colors = row_colors(len(choices), gradient_rows=gradient_rows)
@@ -205,6 +221,13 @@ def _pick_interactive(
     @bindings.add("c-c")
     def _cancel(event: KeyEvent) -> None:
         event.app.exit(result=None)
+
+    for key in alt_keys:
+
+        def _alt(event: KeyEvent, key: str = key) -> None:
+            event.app.exit(result=f"{key}:{choices[state.index].value}")
+
+        bindings.add(key)(_alt)
 
     # Pencere yüksekliği terminalden gelir; başlık, boşluk, ipucu ve iki gösterge
     # satırı için yer ayrılır. Ayrılmasaydı liste ipucu satırını ekrandan iterdi.

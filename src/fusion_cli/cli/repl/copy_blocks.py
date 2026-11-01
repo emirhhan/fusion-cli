@@ -14,6 +14,16 @@ from ...ui import messages
 from ...ui.picker import Choice
 
 FULL = "tam"
+#: Seçicide panoya değil dosyaya yazdıran tuş; seçim değeri `w:<seçim>` olur.
+WRITE_KEY = "w"
+WRITE_PREFIX = f"{WRITE_KEY}:"
+#: Kod dili → dosya uzantısı (bilinmeyen dil `.txt`, tam yanıt/alıntı `.md`).
+_EXTENSIONS = {
+    "python": "py", "py": "py", "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
+    "tsx": "tsx", "jsx": "jsx", "bash": "sh", "sh": "sh", "shell": "sh", "zsh": "sh",
+    "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml", "rust": "rs", "go": "go",
+    "html": "html", "css": "css", "sql": "sql", "markdown": "md", "md": "md",
+}
 _FENCE = re.compile(r"^(```|~~~)(.*)$")
 
 
@@ -60,6 +70,29 @@ def copy_choices(answer: str) -> tuple[Choice, ...]:
             )
         )
     return tuple(rows)
+
+
+def split_write(selector: str) -> tuple[bool, str]:
+    """`w:<seçim>` → (True, seçim); düz seçim → (False, seçim)."""
+    if selector.startswith(WRITE_PREFIX):
+        return True, selector[len(WRITE_PREFIX) :]
+    return False, selector
+
+
+def is_selector(word: str) -> bool:
+    """`tam`, blok sırası ya da bunların `w:` ile dosyaya yazma biçimi."""
+    inner = split_write(word)[1]
+    return inner == FULL or (inner.isascii() and inner.isdecimal())
+
+
+def extension_for(answer: str, selector: str) -> str:
+    """Dosyaya yazmada uzantı: kod bloğunda dilden, tam yanıt ve alıntıda `md`."""
+    blocks = answer_blocks(answer)
+    if selector.isdigit() and 1 <= int(selector) <= len(blocks):
+        kind = blocks[int(selector) - 1][0]
+        if kind.startswith("kod"):
+            return _EXTENSIONS.get(kind.partition(":")[2].lower(), "txt")
+    return "md"
 
 
 def select(answer: str, selector: str) -> str | None:

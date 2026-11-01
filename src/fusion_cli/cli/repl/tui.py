@@ -199,6 +199,8 @@ class FusionTui:
         self._choices: list[Choice] = []
         self._choice_index = 0
         self._choice_title = ""
+        # Enter yerine `<tuş>:<değer>` döndüren seçim tuşları (#231 `/copy` seçicisinde `w`).
+        self._choice_alt_keys: tuple[str, ...] = ()
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
@@ -499,15 +501,29 @@ class FusionTui:
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
-    async def await_choice(self, title: str, choices: list[Choice]) -> str | None:
-        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None."""
+    async def await_choice(
+        self, title: str, choices: list[Choice], *, alt_keys: tuple[str, ...] = ()
+    ) -> str | None:
+        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
+
+        `alt_keys` tuşları Enter yerine `<tuş>:<değer>` döndürür (`/copy` seçicisinde `w`).
+        """
         if not choices:
             return None
         self._choices = list(choices)
         self._choice_index = 0
         self._choice_title = title
-        result = await self._await_answer("choice")
+        self._choice_alt_keys = alt_keys
+        try:
+            result = await self._await_answer("choice")
+        finally:
+            self._choice_alt_keys = ()
         return None if result is None else str(result)
+
+    def _pick_alt(self, key: str) -> None:
+        """Seçim kipinde ek tuş: imlecin üzerindeki seçeneği `<tuş>:<değer>` olarak döndür."""
+        if self._choices and key in self._choice_alt_keys:
+            self._resolve(f"{key}:{self._choices[self._choice_index].value}")
 
     async def _await_answer(self, mode: str) -> object:
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
@@ -703,6 +719,11 @@ class FusionTui:
         @kb.add("end", filter=modal, eager=True)
         def _select_last(_event: object) -> None:
             self._move_choice(len(self._choices) - 1 - self._choice_index)
+
+        # Claude Code `/copy` (#231): seçicide `w` seçimi dosyaya yazdırır.
+        @kb.add("w", filter=modal & Condition(lambda: "w" in self._choice_alt_keys), eager=True)
+        def _select_write(_event: object) -> None:
+            self._pick_alt("w")
 
         # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
         # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.
