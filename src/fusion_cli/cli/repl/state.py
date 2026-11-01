@@ -264,6 +264,7 @@ class ReplState:
         approval = _initial_approval(config, kwargs.get("root"))
         state = cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
         _apply_mode_availability(state, approval)
+        _apply_additional_directories(state)
         return state
 
     async def reset_child_runs(self) -> None:
@@ -564,6 +565,15 @@ def _initial_approval(config: Config, root: object) -> ApprovalMode:
     if approval is ApprovalMode.BYPASS and setting is None:
         approval = ApprovalMode.AUTO
     return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval
+
+
+def _apply_additional_directories(state: ReplState) -> None:
+    """Ayarlardaki `permissions.additionalDirectories` oturumun ek dizinlerine eklenir (#57)."""
+    from ...config.permission_settings import working_directories
+
+    root = getattr(state, "root", None)
+    if isinstance(root, Path):
+        state.extra_roots = working_directories(root, tuple(state.extra_roots))
 
 
 def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:

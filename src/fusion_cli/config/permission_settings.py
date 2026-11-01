@@ -123,6 +123,21 @@ def additional_directories(root: Path, home: Path | None = None) -> tuple[Path, 
     return tuple(dict.fromkeys(found))
 
 
+def working_directories(
+    root: Path, extra: tuple[Path, ...] = (), home: Path | None = None
+) -> tuple[Path, ...]:
+    """`--add-dir` dizinleri + ayarlardaki `additionalDirectories` (var olan dizinler, #57)."""
+    found = [Path(item) for item in extra]
+    for path in additional_directories(root, home):
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved.is_dir():
+            found.append(resolved)
+    return tuple(dict.fromkeys(found))
+
+
 def _read(path: Path) -> Mapping[str, object] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

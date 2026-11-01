@@ -30,6 +30,7 @@ from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
 from ..config.permission_rules import set_session_rules
+from ..config.permission_settings import working_directories
 from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
@@ -606,7 +607,7 @@ def agent(
         sys.stdout.flush()
     tool_context = ToolContext(
         root=root,
-        extra_roots=tuple(add_dir or ()),
+        extra_roots=working_directories(root, tuple(add_dir or ())),
         restrict_to_root=config.runtime.restrict_to_root,
     )
 
@@ -642,7 +643,7 @@ def agent(
                 root=root,
                 home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
-                extra_roots=tuple(add_dir or ()),
+                extra_roots=working_directories(root, tuple(add_dir or ())),
                 extra_system=options.extra_system,
                 system_prompt=options.system_prompt,
                 session_persona=options.session_persona,
@@ -651,7 +652,7 @@ def agent(
                     Path.home(),
                     root,
                     session_agents=options.session_agents,
-                    extra_roots=tuple(add_dir or ()),
+                    extra_roots=working_directories(root, tuple(add_dir or ())),
                     headless=options.channel is None,
                 ),
                 allowed_tools=options.allowed_tools,
