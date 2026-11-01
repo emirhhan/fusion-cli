@@ -1,0 +1,8 @@
+import csv
+from io import StringIO
+
+def oku(text):
+    rows = [row for row in csv.reader(StringIO(text)) if row and any(cell.strip() for cell in row)]
+    if any(len(row) != 2 for row in rows):
+        raise ValueError("Satır iki alan içermeli")
+    return rows

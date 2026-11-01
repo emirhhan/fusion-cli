@@ -160,3 +160,55 @@ def test_cookie_deseni_kaynak_kodu_ve_duz_metni_yakmaz():
     # Gerçek başlık biçimi yine maskelenir.
     assert "GIZLI" not in redact("Cookie: sid=GIZLI; pref=tr")
     assert "GIZLI" not in redact("set-cookie:sid=GIZLI")
+
+
+def test_recursive_redaction_masks_decoded_secret_values_and_sensitive_keys():
+    from fusion_cli.core.redaction import redact_value
+
+    payload = {
+        "authorization": "plain-secret",
+        "nested": [{"token": "short-secret"}],
+        "person@example.com": "public",
+        "prompt_tokens": 3,
+    }
+    cleaned = redact_value(payload)
+    assert "plain-secret" not in str(cleaned)
+    assert "short-secret" not in str(cleaned)
+    assert "person@example.com" not in str(cleaned)
+    assert cleaned["prompt_tokens"] == 3
+
+
+@pytest.mark.parametrize("field", ["passwd", "api-key", "access-token"])
+@pytest.mark.parametrize("value", ["IN02_CONTROL_VALUE", 982766, {"value": "IN02_NESTED"}, [False]])
+def test_decoded_redaction_preserves_established_aliases_and_usage(field, value):
+    from fusion_cli.core.redaction import redact_value
+
+    payload = {
+        field: value,
+        "password": 982761,
+        "credentials": {"value": "IN02_ORIGINAL_NESTED"},
+        "safe": [1, True, "visible"],
+        "usage": {
+            "prompt_tokens": 7,
+            "completion_tokens": 11,
+            "total_tokens": 18,
+            "input_tokens": 7,
+            "output_tokens": 11,
+            "cache_read_input_tokens": 4,
+        },
+    }
+
+    cleaned = redact_value(payload)
+
+    assert cleaned[field] == REDACTED_MARK
+    assert cleaned["password"] == REDACTED_MARK
+    assert cleaned["credentials"] == REDACTED_MARK
+    assert cleaned["safe"] == [1, True, "visible"]
+    assert cleaned["usage"] == {
+        "prompt_tokens": 7,
+        "completion_tokens": 11,
+        "total_tokens": 18,
+        "input_tokens": 7,
+        "output_tokens": 11,
+        "cache_read_input_tokens": 4,
+    }

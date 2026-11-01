@@ -18,6 +18,7 @@ import httpx
 
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import Message
+from ..core.web_provenance import WebResponseProvenance, safe_observed_identifier
 from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 
 
@@ -45,8 +46,6 @@ def build_http_transport(
         model: str,
         context: WebTurnContext | None = None,
     ) -> WebTurn:
-        # Durumsuz HTTP ucunda sohbet anahtarı ve sözleşme çerçevesi yoktur: bağlam yok sayılır.
-        del context
         headers = _headers(credential)
         payload = {
             "model": model,
@@ -57,7 +56,7 @@ def build_http_transport(
         ) as client:
             response = await client.post(endpoint, json=payload, headers=headers)
         _raise_for_status(response)
-        return WebTurn(_extract_text(response))
+        return WebTurn(_extract_text(response), provenance=_http_provenance(response, context))
 
     return _transport
 
@@ -131,3 +130,22 @@ def _extract_text(response: httpx.Response) -> str:
             f"{detail}"
         ) from None
     return str(content)
+
+
+def _http_provenance(
+    response: httpx.Response, context: WebTurnContext | None
+) -> WebResponseProvenance:
+    """Aynı HTTP yanıtının gözlemi browser/DOM kimliğine yükseltilmez."""
+    body = response.json()
+    message = body["choices"][0]["message"]
+    role = message.get("role") if isinstance(message, dict) else None
+    return WebResponseProvenance(
+        transport_kind="http",
+        extraction_kind="http_json_content",
+        observed_message_id=safe_observed_identifier(body.get("id")),
+        assistant_role_evidence="message.role=assistant" if role == "assistant" else None,
+        adapter_revision="fusion-http-origin-v1",
+        observed_model=safe_observed_identifier(body.get("model")),
+        origin_status="observed_http" if role == "assistant" else "unknown",
+        call_context=context.web_call_context if context else None,
+    )

@@ -4,13 +4,41 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...core.evidence import summarize_criteria
+
 if TYPE_CHECKING:
+    from ...core.evidence import CriterionEvidence
     from .turn_report import TurnReport
 
 
 #: Kits'e giden kanıt özetindeki liste tavanları (protokol satırı küçük kalır).
 EVIDENCE_MAX_PATHS = 50
 EVIDENCE_MAX_PROBLEMS = 10
+EVIDENCE_MAX_CRITERIA = 50
+EVIDENCE_MAX_TEXT = 500
+
+
+def _client_criterion(item: CriterionEvidence) -> dict[str, object]:
+    """Tek koşulu metin sınırlarını ve mevcut kimlik referanslarını koruyarak yansıt."""
+    return {
+        "criterion_id": item.criterion_id[:EVIDENCE_MAX_TEXT],
+        "step_id": item.step_id[:EVIDENCE_MAX_TEXT],
+        "text_truncated": any(
+            len(value) > EVIDENCE_MAX_TEXT
+            for value in (
+                item.criterion_id,
+                item.step_id,
+                item.summary,
+                item.call_id,
+                item.source_digest,
+            )
+        ),
+        "status": item.status.value,
+        "summary": item.summary[:EVIDENCE_MAX_TEXT],
+        "applicable": item.applicable,
+        "source_digest": item.source_digest[:EVIDENCE_MAX_TEXT],
+        "call_id": item.call_id[:EVIDENCE_MAX_TEXT],
+    }
 
 
 def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
@@ -21,11 +49,19 @@ def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
     """
     if report is None:
         return None
+    criteria = summarize_criteria(report.criteria)
     problems = [item.problem for item in report.job_deliveries if item.problem]
     if report.gate is not None and not report.gate.ok:
         problems.extend(report.gate.findings)
     payload: dict[str, object] = {
         "schema_version": 1,
+        "criteria": [_client_criterion(item) for item in criteria[:EVIDENCE_MAX_CRITERIA]],
+        "criteria_count": len(criteria),
+        "criteria_truncated": len(criteria) > EVIDENCE_MAX_CRITERIA,
+        "criteria_status_counts": {
+            status: sum(item.status.value == status for item in criteria)
+            for status in ("passed", "failed", "unverified")
+        },
         "dogrulandi": report.is_verified,
         "engelliyor": report.blocks_success,
         "yanlis_iddia": report.false_claim,

@@ -990,7 +990,9 @@ async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
     async def _sikistir(messages, *, config, publisher=None, threshold_chars=None):
         return messages[:1]
 
-    monkeypatch.setattr(agent_loop.compaction, "compress", _sikistir)
+    from fusion_cli.engines.agent import compaction
+
+    monkeypatch.setattr(compaction, "compress", _sikistir)
 
     await run_agent("gorev", _deps(tmp_path, sink))
 
@@ -1025,7 +1027,9 @@ def test_gecerli_json_hatasiz_ayristirilir():
 
 
 def _sabit_denetim(sonuc):
-    async def _review(task, final_text, messages, *, config, publisher=None):
+    async def _review(
+        task, final_text, messages, *, config, publisher=None, diff="", criteria=(), failures=()
+    ):
         return sonuc
 
     return _review
@@ -2744,8 +2748,18 @@ async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
     bir model çağrısı yapıyor, panel cevabı ancak ondan sonra görüyordu. Tarayıcıda
     denetlenecek dosya yoktur."""
 
+    from socket import AF_INET, IPPROTO_TCP, SOCK_STREAM
+
+    # URL kapısı gerçek DNS'e bağlı olmadan genel IP'yi doğrulasın.
+    monkeypatch.setattr(
+        "fusion_cli.tools.web.socket.getaddrinfo",
+        lambda *args, **kwargs: [(AF_INET, SOCK_STREAM, IPPROTO_TCP, "", ("8.8.8.8", 443))],
+    )
+    invoked = []
+
     class _Kopru:
         async def invoke(self, name, data):
+            invoked.append((name, data))
             return {"ok": True, "veri": {"url": "https://ads.google.com/aw/overview"}}
 
     _kur(
@@ -2770,6 +2784,7 @@ async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
 
     sonuc = await run_agent("Google Ads'i aç", deps)
 
+    assert invoked == [("navigate", {"url": "https://ads.google.com"})]
     assert sonuc.mutating_tool_calls_made == 1
     assert denetim_cagrildi is False
 

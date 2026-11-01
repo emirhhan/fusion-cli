@@ -322,3 +322,32 @@ async def test_maskelenmis_okuma_yer_tutucunun_dedigi_gibi_yeniden_okunabilir(
     assert all(m.ok and not m.content.startswith("TOOL_CALL") for m in ana)
     engelli = [m for m in sonuc.messages if m.role == "tool" and m.ok is False]
     assert engelli == []
+
+
+def test_api_ve_temizlik_ayni_pin_kimligini_ayni_sinirla_korur():
+    messages = _konusma(12, cikti="özgün kanıt " + "z" * 4_000)
+    pins = frozenset({"0"})
+    ledger = masking.MaskLedger()
+    masking.mask_view(messages, 2, ledger)
+    view = masking.mask_view(messages, 2, ledger, pinned_call_ids=pins)
+    cleared = history.clear_old_tool_outputs(messages, 3_000, pinned_call_ids=pins)
+    assert view.messages[3].content == cleared[3].content
+    assert view.messages[3].content.startswith("özgün kanıt ")
+    assert len(view.messages[3].content) <= 1_500
+    released = masking.mask_view(messages, 2, ledger)
+    assert released.messages[3].content.startswith(masking.MASK_PREFIX)
+    assert messages[3].content == "özgün kanıt " + "z" * 4_000
+
+
+@pytest.mark.parametrize("window", [0, 1, 3])
+def test_pinler_son_gorulmemis_paralel_grubun_tum_sonuclarini_tam_birakir(window):
+    messages = _konusma(5, cikti="z" * 4_000)
+    calls = tuple(_cagri(f"parallel{i}") for i in range(5))
+    messages.append(Message("assistant", "", tool_calls=calls))
+    for call in calls:
+        messages.append(Message("tool", "taze" * 2_000, tool_call_id=call.id))
+    pins = frozenset(call.id for call in calls)
+    view = masking.mask_view(messages, window, masking.MaskLedger(), pinned_call_ids=pins)
+    cleared = history.clear_old_tool_outputs(messages, 1, pinned_call_ids=pins)
+    assert view.messages[-5:] == messages[-5:]
+    assert cleared[-5:] == messages[-5:]

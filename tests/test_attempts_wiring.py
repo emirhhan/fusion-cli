@@ -147,6 +147,7 @@ async def test_adaylar_arac_durumunu_paylasmaz_kazanan_geri_alinabilir(tmp_path)
         yol = baglam.root / "kod.py"
         baglam.changes.record(yol)
         yol.write_text("yanlis\n" if len(baglamlar) == 1 else "sağlam\n", encoding="utf-8")
+        baglam.changes.record_applied(yol)
         baglam.touched.add(yol)
         baglam.browser.page = Sayfa()
         return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1, tool_calls_made=1)
@@ -182,6 +183,7 @@ async def test_sonraki_basarisiz_adim_onceki_aday_ciktisini_geri_almaz(tmp_path)
         yol = agent_deps.tool_context.root / f"{ad}.py"
         agent_deps.tool_context.changes.record(yol)
         yol.write_text("sağlam\n" if ad == "a" else "yanlış\n", encoding="utf-8")
+        agent_deps.tool_context.changes.record_applied(yol)
         agent_deps.tool_context.touched.add(yol)
         return AgentOutcome(
             final_text="tamam",
@@ -198,3 +200,35 @@ async def test_sonraki_basarisiz_adim_onceki_aday_ciktisini_geri_almaz(tmp_path)
     assert not sonuc.ok
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "sağlam\n"
     assert (tmp_path / "b.py").read_text(encoding="utf-8") == "eski-b\n"
+
+
+async def test_kaynak_terfi_cakismasi_tipli_olay_ve_kullanici_dosyasini_korur(tmp_path):
+    from fusion_cli.core.events import CandidatePromoted, WorkspaceConflictDetected
+
+    deps = _deneme_butcesi(_deps(tmp_path), 4)
+    source = tmp_path / "kod.py"
+    source.write_text("ilk", encoding="utf-8")
+    calls = 0
+
+    async def agent(task, active, **kwargs):
+        nonlocal calls
+        del task, kwargs
+        calls += 1
+        (active.tool_context.root / "kod.py").write_text("sağlam", encoding="utf-8")
+        if calls == 2:
+            source.write_text("kullanıcı değiştirdi", encoding="utf-8")
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1, tool_calls_made=1)
+
+    outcome = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("conflict", "iş", (_adim("kod.py"),))
+    )
+    events = deps.publisher.events
+    assert not outcome.ok
+    assert source.read_text(encoding="utf-8") == "kullanıcı değiştirdi"
+    assert any(
+        isinstance(event, WorkspaceConflictDetected)
+        and event.phase == "source-promotion"
+        and event.count == 1
+        for event in events
+    )
+    assert any(isinstance(event, CandidatePromoted) and not event.ok for event in events)

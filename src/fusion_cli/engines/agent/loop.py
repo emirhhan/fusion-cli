@@ -36,6 +36,7 @@ from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
+from ...core.active_context import ActiveContext
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
 from ...core.clock import SystemClock
@@ -48,6 +49,7 @@ from ...core.constants import (
 )
 from ...core.effects import EffectRecorder
 from ...core.errors import ConfigError, FusionError
+from ...core.event_scope import TurnPublisher, new_trace_id
 from ...core.events import (
     ApprenticeHandoff,
     ChangesDigested,
@@ -79,13 +81,16 @@ from ...core.events import (
     VerificationFailed,
     VerificationPassed,
 )
-from ...core.evidence import ToolUse
+from ...core.evidence import EvidenceEnvironment, ToolUse
+from ...core.execution_plan import PlanStep
 from ...core.health import HealthRegistry
 from ...core.job_evidence import JobCompletion, JobCurrentSnapshot
 from ...core.leak_filter import strip_harness_leaks
-from ...core.memory import CodeIndex, Lesson, LessonMemory
+from ...core.lesson_runtime import LessonRuntimeContext
+from ...core.memory import CodeIndex, Lesson, LessonMemory, SkillProposalMemory
 from ...core.progress import RoundSignals, progressed
-from ...core.protocols import TurnJournal
+from ...core.proposal_invocation import ProposalPolicy
+from ...core.protocols import Clock, TurnJournal
 from ...core.reasoning import ReasoningEffort
 from ...core.redaction import redact
 from ...core.refusal import looks_like_refusal
@@ -106,6 +111,7 @@ from ...core.types import (
     Message,
     ModelResult,
     ModelSpec,
+    ParseWarning,
     StreamDone,
     TextChunk,
     ToolCall,
@@ -113,6 +119,7 @@ from ...core.types import (
     is_rate_limit_error,
 )
 from ...core.verification import VerificationResult, Verifier
+from ...core.web_provenance import WebCallContext
 from ...core.web_response import classify_response
 from ...core.workspace_fingerprint import WorkspaceEffect
 from ...memory.plain_memory import PlainMemory
@@ -138,12 +145,13 @@ from ..effects.pull_request import disclose_unverified_pr
 from ..effects.runner import maybe_run_effect_workflow
 from ..hooks.session import HookSession
 from . import (
-    compaction,
     denial,
     desktop_approval,
     gate_escalation,
     learning_steps,
+    lesson_attribution,
     liveness,
+    localization,
     output_style,
     reflexion,
     review,
@@ -159,11 +167,13 @@ from .approval import (
     Denial,
     resolve_request,
 )
+from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
+from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -193,7 +203,9 @@ from .hook_bridge import (
     user_prompt_submit,
     with_system_note,
 )
+from .instruction_layers import InstructionLoad
 from .instruction_rules import discover_rules
+from .lesson_attribution import LessonTurnState
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
 )
@@ -240,18 +252,20 @@ from .orchestration_tools import (
     orchestration_task_kinds,
 )
 from .output_verify import requested_outputs_in
+from .parse_feedback import mutation_deferral, partial_repair_note
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import (
+    load_all_instructions,
     load_nested_instructions,
     nested_marker,
-    read_all_instructions,
     resolve_access_path,
 )
+from .prompt_manifest import PromptComponents, publish_manifest
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
-from .repo_context import map_budget_for, repo_map_with_stats
+from .repo_context import RepoMapFocus, map_budget_for, repo_map_with_stats, task_focus
 from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import index_budget_for, skill_index_block
@@ -262,6 +276,7 @@ from .teacher_flow import (
     settle_teacher_plan,
     teacher_is_ready,
 )
+from .teacher_lessons import PendingAdvice
 from .teacher_plan import TeacherPlan, UnworkablePart
 from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
@@ -274,7 +289,7 @@ from .turn_report import (
     claims_command_success,
     summarize_evidence,
 )
-from .verifier_repair import observe_verifier_failures
+from .verifier_repair import observe_verifier_failures, should_repair_verifier
 from .web_contract import render_answer_contract, tool_names
 from .workspace_hint import find_workspace_for
 
@@ -469,12 +484,24 @@ class AgentOutcome:
 class AgentDeps:
     """Motorun dış bağımlılıkları. Testte tamamı sahteyle verilebilir."""
 
+    def __post_init__(self) -> None:
+        """Varsayılan kayıt defterini güvenilir çalışma zamanı ayarından kur."""
+        if self.base_registry is None:
+            from ...tools.symbol_query import SymbolQuerySettings
+
+            server = self.config.runtime.lsp_server
+            self.base_registry = build_registry(
+                symbol_query_enabled=self.config.runtime.symbol_query_enabled,
+                symbol_query_settings=SymbolQuerySettings(server.command, server.timeout_s),
+            )
+        self.tool_context.localization.enabled = self.config.runtime.localization_cards
+
     config: Config
     publisher: EventPublisher
     policy: ApprovalPolicy
     tool_context: ToolContext
     #: Yerleşik araçlar. Motora bağlı araçlar çalışma anında bunun kopyasına eklenir.
-    base_registry: ToolRegistry = field(default_factory=build_registry)
+    base_registry: ToolRegistry | None = None
     #: Kullanıcıya soru sorabilen taraf. Yoksa `ask_user` aracı hiç sunulmaz.
     asker: UserAsker | None = None
     #: Anlamsal kod araması. Yoksa `search_codebase` aracı hiç sunulmaz.
@@ -548,6 +575,10 @@ class AgentDeps:
     #: tur ortasında kapanırsa sekme kaldığı adımdan sürdürebilir. Alt ajanlar ve
     #: iç (denetim) turları yazmaz: günlük kullanıcının asıl turunu taşır.
     journal: TurnJournal | None = None
+    original_cursor: OriginalCursor = field(default_factory=OriginalCursor)
+    context_step: PlanStep | None = None
+    active_context: ActiveContext = field(default_factory=ActiveContext)
+    prompt_components: PromptComponents = field(default_factory=PromptComponents)
     #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
     auto_teacher_used: bool = False
     #: İlk plan, takılma ve son denetim aynı tur bütçesini paylaşır.
@@ -560,6 +591,7 @@ class AgentDeps:
     teacher_lesson_sync_deferred: bool = False
     #: Bu turda öğretmenden alınan ve tur sonunda sonucuyla yazılacak plan.
     pending_teacher_plan: TeacherPlan | None = None
+    pending_advice: list[PendingAdvice] = field(default_factory=list)
     #: Bu turda hafızadan yeniden kullanılan plan dersi.
     reused_teacher_lesson: Lesson | None = None
     #: Öğretmenin bu turda bildirdiği dış kısıtlar; cevapta anılmadıysa eklenir.
@@ -587,12 +619,19 @@ class AgentDeps:
     checkpoint_store: CheckpointStore | None = None
     #: Aynı kökteki farklı sohbetlerin checkpoint'lerini birbirinden ayırır.
     conversation_id: str = ""
+    attempt_id: str | None = None
+    trace_id_factory: Callable[[], str] = new_trace_id
     #: İlk dış turda çıkarılan zorunlu model yetenekleri; iç turlar aynı kararı taşır.
     task_requirements: TaskRequirements | None = None
     #: Bu turda `recall_lessons` ile hatırlanan dersler. Tur sonunda güvenleri
     #: turun sonucuna göre güncellenir (`learning_steps.reinforce_recalled`).
     recalled_lessons: list[Lesson] = field(default_factory=list)
 
+    lesson_context: LessonRuntimeContext = field(default_factory=LessonRuntimeContext)
+    lesson_state: LessonTurnState | None = None
+    skill_proposals: SkillProposalMemory | None = None
+    clock: Clock = field(default_factory=SystemClock)
+    invocation_budget: InvocationBudget | None = None
     deadline: TurnDeadline | None = None
 
     def mutation_blocked_by_pending_input(self) -> bool:
@@ -640,9 +679,49 @@ async def run_agent(
     Plan kipindeki kök tur bitince plan dosyaya yazılır (`plan_mode.record_plan`);
     iç turlar ve alt ajanlar plan yazmaz.
     """
+    original_publisher = deps.publisher
+    original_attempt = deps.attempt_id
+    if depth == 0 and not internal:
+        if isinstance(original_publisher, TurnPublisher):
+            deps.attempt_id = deps.attempt_id or original_publisher.turn_id
+        else:
+            deps.attempt_id = deps.attempt_id or deps.trace_id_factory()
+            deps.publisher = TurnPublisher(
+                original_publisher,
+                session_id=deps.conversation_id or None,
+                attempt_id=deps.attempt_id,
+                id_factory=deps.trace_id_factory,
+            )
+        deps.original_cursor = OriginalCursor(
+            turn_id=deps.attempt_id or "",
+            excluded_call_ids=frozenset(
+                call.id for message in history or () for call in message.tool_calls
+            ),
+        )
     try:
         # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
         root_turn = depth == 0 and not internal
+        owns_learning = not internal and (depth == 0 or deps.channel is Channel.SUBAGENT)
+        if owns_learning:
+            if deps.capabilities is not None:
+                deps.capabilities = deps.capabilities.with_proposal_policy(
+                    ProposalPolicy(
+                        deps.config.runtime.verified_skill_proposals,
+                        deps.lesson_context.policy.source_split,
+                    )
+                )
+            if deps.config.runtime.verified_skill_proposals and deps.skill_proposals is None:
+                from ...memory.skill_proposals import SkillProposalStore
+                from ..capability_proposals import PROPOSAL_FILENAME
+
+                deps.skill_proposals = SkillProposalStore(
+                    deps.config.memory_dir / PROPOSAL_FILENAME
+                )
+            deps.lesson_state = LessonTurnState()
+            deps.recalled_lessons.clear()
+            hint = learning_steps.recall_hints(task, deps)
+            if hint:
+                extra_system = "\n\n".join(part for part in (extra_system, hint) if part)
         prompt_gate = await user_prompt_submit(deps, task) if root_turn else None
         if prompt_gate is not None and prompt_gate.blocked is not None:
             # Sebep burada yayınlanır; `budget_stopped` çağıranın ikinci kez basmasını önler.
@@ -680,6 +759,8 @@ async def run_agent(
                 lambda prompt, past: turn(prompt, history=past),
                 subagent=subagent,
             )
+        if owns_learning:
+            await learning_steps.finish_learning(outcome, deps, plan_mode=plan_mode, task=task)
         if plan_mode and depth == 0 and not internal:
             from .plan_mode import record_plan
 
@@ -688,7 +769,15 @@ async def run_agent(
                 outcome = replace(outcome, plan_path=written)
         return outcome
     finally:
+        if not internal and (depth == 0 or deps.channel is Channel.SUBAGENT):
+            if deps.config.runtime.lesson_attributed_feedback:
+                lesson_attribution.settle(AgentOutcome("", [], ok=False), deps)
+            deps.lesson_state = None
+            deps.pending_advice.clear()
+            deps.recalled_lessons.clear()
+        deps.attempt_id = original_attempt
         if depth == 0 and not internal:
+            deps.publisher = original_publisher
             await deps.questions.close()
 
 
@@ -782,6 +871,7 @@ async def _run_agent(
         if played is not None:
             return played
 
+    deps.tool_context.localization.enabled = deps.config.runtime.localization_cards
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     if deps.task_requirements is None and depth == 0:
         deps.task_requirements = infer_task_requirements(
@@ -839,25 +929,27 @@ async def _run_agent(
     # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
     # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
     # `--bare` (P-026): betik koşusu proje talimatını ve dış bellekleri hiç okumaz.
-    proje_ve_dis_bellek = (
-        read_all_instructions(
+    instruction_load = (
+        load_all_instructions(
             deps.tool_context.root,
             deps.home,
             instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
             instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
         )
         if deps.config.runtime.project_instructions
-        else ""
+        else InstructionLoad("")
     )
+    proje_ve_dis_bellek = instruction_load.text
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
-    harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""
+    harita = _repo_map_for_turn(deps, task) if depth == 0 and not chat_mode else ""
     # Beceri dizini (P-018): ad + kısa açıklama, bütçeli; gövde yalnız read_skill ile gelir.
     beceri_dizini = (
         skill_index_block(deps.capabilities, index_budget_for(deps.config))
         if depth == 0 and not internal
         else ""
     )
+    deps.prompt_components = PromptComponents(instruction_load, harita, beceri_dizini)
     teacher_hint = (
         "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
         "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
@@ -980,6 +1072,8 @@ async def _run_agent(
                 execution,
                 deps.tool_context.task_kinds,
                 denied=getattr(deps, "denied_tools", ()),
+                task=task,
+                phase=deps.tool_context.tool_phase,
             )
             or ()
         )
@@ -1046,6 +1140,29 @@ async def _run_agent(
                 ok=False,
             )
 
+    if depth == 0 and not internal:
+        from .routine_invocation import selected_routine
+
+        try:
+            selected_invocation = await asyncio.to_thread(selected_routine, extra_system, deps)
+        except (ValueError, OSError) as error:
+            return AgentOutcome(str(error), messages, ok=False)
+        if selected_invocation is not None:
+            routine, arguments = selected_invocation
+            if plan_mode or chat_mode:
+                return AgentOutcome(
+                    "Rutin yürütmesi için normal ajan kipi gerekli.", messages, ok=False
+                )
+            invocation_task = "Doğrulanmış rutin girdileri:\n" + arguments
+            return await run_execution_plan(
+                invocation_task,
+                deps,
+                run_agent,
+                plan=routine,
+                conversation=[*messages, Message("user", invocation_task)],
+                self_review=self_review,
+            )
+
     if depth == 0 and not internal and not plan_mode and not chat_mode:
         await _publish_intro(task, messages, deps, execution, tuple(registry.names()))
         # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
@@ -1095,7 +1212,7 @@ async def _run_agent(
     fix_rounds = 0
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
-    while verify and budget.stop is None and budget.take_verify_round():
+    while verify and budget.stop is None and budget.verify_rounds < budget.max_verify_rounds:
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
         # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
         # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
@@ -1103,6 +1220,9 @@ async def _run_agent(
         # düzeltmeye hiç başlamıyordu.
         fix_unverified = False
         if verification is None or verification.ok:
+            break
+        # Ölçüm ürün kusuru göstermiyorsa düzeltme hakkı veya model çağrısı tüketme.
+        if not should_repair_verifier(verification) or not budget.take_verify_round():
             break
         # Somut bir verifier bulgusu correction için yeni ve eyleme geçirilebilir
         # bilgidir. Idle saatini tazele; mutlak tur deadline'ı değişmez. Aksi halde
@@ -1112,15 +1232,16 @@ async def _run_agent(
         if repair_note:
             verification = replace(verification, findings=(*verification.findings, repair_note))
         budget.record_progress()
+        if deps.lesson_state is not None:
+            deps.lesson_state.verification = verification
         outcome = await _fix_findings(verification, outcome, deps)
         fix_unverified = True
         fix_rounds += 1
 
-    # Kapı bütçesi "doğrula+düzelt" çiftini değil yalnız doğrulamayı sayar; son
-    # düzeltmenin sonucu bu yüzden hiç ölçülmüyor, `verification` bayat BAŞARISIZ
-    # sonucu taşıyordu. Ölçüldü (29 Ekim, A2-01): iki başarısız doğrulama + işe
-    # yarayan ikinci düzeltme `ok=False` bitiyordu. Düzeltme turu açmadan, yalnız
-    # salt-doğrulama yapılır; sonuç artık gerçeği taşır (iyiye de kötüye de).
+    # Son onarım hakkıyla yapılan düzeltme de yeniden ölçülür; salt doğrulama
+    # yeni bir ürün düzeltme hakkı tüketmez. Ölçüldü (29 Ekim, A2-01): son
+    # düzeltme işe yarasa da eski başarısız ölçüm sonucu taşındığı için
+    # tur yanlışlıkla `ok=False` bitiyordu.
     if fix_unverified and budget.stop is None:
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
 
@@ -1137,7 +1258,19 @@ async def _run_agent(
             outcome, verification, deps, fix_rounds=fix_rounds, plan_mode=plan_mode, depth=depth
         )
 
-    if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
+    is_measurement_failure = (
+        verification is not None
+        and not verification.ok
+        and not should_repair_verifier(verification)
+    )
+    if (
+        depth == 0
+        and not internal
+        and not plan_mode
+        and not chat_mode
+        and budget.stop is None
+        and not is_measurement_failure
+    ):
         teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
         if teacher_findings:
             teacher_gate = VerificationResult(
@@ -1197,10 +1330,10 @@ async def _run_agent(
     # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
     # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
     # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
-    if outcome.wrong_workspace:
+    if outcome.wrong_workspace or is_measurement_failure:
         should_review = False
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
-        outcome = await _self_review(task, outcome, deps)
+        outcome = await _self_review(task, outcome, deps, verification=verification)
 
     # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
     # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
@@ -1237,6 +1370,8 @@ async def _run_agent(
             ),
         )
 
+    if deps.lesson_state is not None:
+        deps.lesson_state.verification = verification
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
     # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
     # kullanıcı 20 dakika boş ekran gördü. Öğrenme muhasebedir; kullanıcıyı
@@ -1247,20 +1382,22 @@ async def _run_agent(
         disclose_unverified_pr(outcome)
     _announce_answer(outcome, deps, depth=depth, internal=internal)
 
-    await learning_steps.learn(
-        task,
-        outcome,
-        deps,
-        plan_mode=plan_mode,
-        allow_read_only=execution.learn_read_only_turns,
-    )
-    # Hatırlanan derslerin kaydı turun TAMAMINA aittir; iç içe düzeltici turlar
-    # onu erkenden tüketip kendi (ara) sonucuyla pekiştirmemeli.
-    if depth == 0 and not internal:
-        await learning_steps.reinforce_recalled(
-            outcome, deps, plan_mode=plan_mode, verification=verification
+    # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
+    if not is_measurement_failure:
+        await learning_steps.learn(
+            task,
+            outcome,
+            deps,
+            plan_mode=plan_mode,
+            allow_read_only=execution.learn_read_only_turns,
         )
-        settle_teacher_plan(task, outcome, deps, verification=verification)
+        # Hatırlanan derslerin kaydı turun TAMAMINA aittir; iç içe düzeltici turlar
+        # onu erkenden tüketip kendi (ara) sonucuyla pekiştirmemeli.
+        if depth == 0 and not internal and not deps.config.runtime.lesson_attributed_feedback:
+            await learning_steps.reinforce_recalled(
+                outcome, deps, plan_mode=plan_mode, verification=verification
+            )
+            settle_teacher_plan(task, outcome, deps, verification=verification)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     # Özetleme sayısı turun sonucuna taşınır: plan yürütücüsü onu checkpoint'e
     # yazar ve devam eden tur neyin özetlendiğini bilir.
@@ -1560,7 +1697,12 @@ async def _drive(
         time_stop = budget.time_stop_reason()
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
-        if not await _compact_before_call(messages, deps, state):
+        if not await _compact_before_call(
+            messages,
+            deps,
+            state,
+            local_remaining=local_limit - local_calls + 1 if local_limit is not None else None,
+        ):
             return _halt(final_text, messages, state, budget, BudgetStop.CONTEXT_THRASH, deps)
         if local_calls == 1:
             # Turun ilk çağrısından önceki hazırlık (bağlam sıkıştırma, hatırlama,
@@ -1624,7 +1766,9 @@ async def _drive(
                 # harcar ve tekrarlarsa turu bitirir. Kullanıcı turun neden
                 # uzadığını göremezse Fusion'ı yavaş sanır — ekranda hiçbir iz
                 # yokken arka planda üç çağrı yanmış olabilir.
-                deps.publisher.publish(ToolCallRepaired())
+                deps.publisher.publish(
+                    ToolCallRepaired(repair_kind="retry_missing", failure_stage="parse")
+                )
                 continue
             budget.halt(BudgetStop.CONTRACT_UNREPAIRABLE)
             _publish_budget_stop(deps, budget, state)
@@ -1740,6 +1884,8 @@ async def _drive(
                     execution,
                     deps.tool_context.task_kinds,
                     denied=getattr(deps, "denied_tools", ()),
+                    task=_surface_task(messages),
+                    phase=deps.tool_context.tool_phase,
                 ),
             )
             if refusal_note is not None:
@@ -1813,12 +1959,23 @@ async def _drive(
                 state,
                 execution=execution,
                 plan_mode=plan_mode,
+                parse_warnings=result.parse_warnings,
             )
+            if any(warning.blocks_mutation for warning in result.parse_warnings):
+                if not budget.take_contract_repair():
+                    return _halt(
+                        final_text, messages, state, budget, BudgetStop.CONTRACT_UNREPAIRABLE, deps
+                    )
+                messages.append(partial_repair_note(result.parse_warnings))
+                deps.publisher.publish(
+                    ToolCallRepaired(repair_kind="retry_missing", failure_stage="parse")
+                )
             _inject_nested_instructions(messages, deps, state)
         finally:
             # Bir araç grubu ortasında durdurulsa da tamamlanan sonuçlar ve
             # sonucu belirsiz çağrı kimlikleri kaybolmaz. İptal yutulmaz.
             if deps.journal is not None:
+                await deps.original_cursor.append(messages, deps)
                 deps.journal.save(messages)
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
@@ -2077,6 +2234,10 @@ def _note_tool_use(
     job_completion: JobCompletion | None = None,
     is_observation: bool = False,
     workspace_effect: WorkspaceEffect | None = None,
+    source_before: str = "",
+    source_after: str = "",
+    environment: EvidenceEnvironment | None = None,
+    call_id: str = "",
 ) -> None:
     """Denenen araç çağrısını sırayla kaydet (adım ve tur kanıtı)."""
     state.tool_uses.append(
@@ -2088,6 +2249,10 @@ def _note_tool_use(
             output=output,
             job_completion=job_completion,
             workspace_effect=workspace_effect,
+            source_digest=source_before,
+            source_after_digest=source_after,
+            environment=environment,
+            call_id=call_id,
         )
     )
 
@@ -2564,6 +2729,15 @@ async def _call_model(
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
     spec = live_fallbacks(_active_spec(deps, execution), deps.config)
+    if deps.invocation_budget is not None and not deps.invocation_budget.claim(spec):
+        return ModelResult(
+            name=spec.name,
+            model=spec.model,
+            text="",
+            latency_ms=0,
+            ok=False,
+            error="Model çağrı bütçesi tükendi veya sabit model sözleşmesi değişti.",
+        )
     offered_tools = (
         tuple(
             registry.schemas(
@@ -2573,7 +2747,10 @@ async def _call_model(
                     execution,
                     deps.tool_context.task_kinds,
                     denied=getattr(deps, "denied_tools", ()),
-                )
+                    task=_surface_task(messages),
+                    phase=deps.tool_context.tool_phase,
+                ),
+                edit_format=execution.edit_format,
             )
         )
         if offer_tools
@@ -2581,6 +2758,7 @@ async def _call_model(
     )
     if offered_tools:
         _publish_surface(deps, registry, execution, offered_tools)
+    await localization.refresh_prompt(messages, deps.tool_context)
     gorunum = _masked_view(messages, deps, spec)
     if gorunum.masked:
         deps.publisher.publish(
@@ -2603,6 +2781,13 @@ async def _call_model(
         ),
         disable_thinking=state.reasoning_relief,
         conversation_id=deps.conversation_id,
+        edit_format=execution.edit_format,
+        emulation_protocol=runtime.emulation_protocol,
+        web_call_context=(
+            WebCallContext(deps.conversation_id, deps.attempt_id, deps.attempt_id, "")
+            if deps.conversation_id and deps.attempt_id
+            else None
+        ),
         answer_contract=render_answer_contract(
             tool_names(offered_tools), has_todos=bool(deps.tool_context.todos.items)
         ),
@@ -2638,7 +2823,7 @@ async def _call_model(
         await _consume_with_liveness(_consume, spec, state)
     else:
         await _consume()
-    return result or ModelResult(
+    outcome = result or ModelResult(
         name=spec.name,
         model=spec.model,
         text="",
@@ -2646,6 +2831,19 @@ async def _call_model(
         ok=False,
         error="Model akışı sonuç üretmeden bitti.",
     )
+    if runtime.prompt_manifest:
+        from .context_budget import context_budget
+
+        publish_manifest(
+            request,
+            outcome,
+            deps.prompt_components,
+            deps.publisher,
+            profile=context_budget(deps.config, spec).profile
+            if outcome.model == spec.model
+            else None,
+        )
+    return outcome
 
 
 async def _consume_with_liveness(
@@ -2727,12 +2925,19 @@ SCOPED_TOOLS: dict[str, str] = {
 }
 
 
+def _surface_task(messages: Sequence[Message]) -> str:
+    """Araç ilgisini önceki görevler yerine güncel kullanıcı adımından hesapla."""
+    return next((message.content for message in reversed(messages) if message.role == "user"), "")
+
+
 def _permitted(
     allowed_tools: set[str] | None,
     registry: ToolRegistry,
     execution: ExecutionPolicy,
     task_kinds: frozenset[str] | set[str] = frozenset(),
     denied: Collection[str] = (),
+    task: str = "",
+    phase: str = "",
 ) -> set[str] | None:
     """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
 
@@ -2770,6 +2975,9 @@ def _permitted(
             task_kinds=task_kinds,
             explicit=allowed_tools,
             profiles=execution.tool_profiles,
+            external_tool_selection=execution.external_tool_selection,
+            task=task,
+            phase=phase,
         )
     if not execution.allow_mutation:
         names = {
@@ -2911,9 +3119,16 @@ def _looks_like_wrong_workspace(state: _State) -> bool:
     return len(state.missing_paths) >= MAX_MISSING_READS
 
 
-def _repo_map_for_turn(deps: AgentDeps) -> str:
+def _repo_map_for_turn(deps: AgentDeps, task: str) -> str:
     """Kök tur için harita bloğu; bütçe ayardan, ölçüm izi `RepoMapBuilt` olarak yayınlanır."""
-    harita = repo_map_with_stats(deps.tool_context.root, budget_chars=map_budget_for(deps.config))
+    root = deps.tool_context.root
+    focus = task_focus(root, task) if deps.config.runtime.repo_map_focused else RepoMapFocus()
+    harita = repo_map_with_stats(
+        root,
+        budget_chars=map_budget_for(deps.config),
+        focus_paths=focus.paths,
+        focus_symbols=focus.symbols,
+    )
     if harita.stats is not None:
         deps.publisher.publish(RepoMapBuilt(**asdict(harita.stats)))
     return harita.text
@@ -3196,9 +3411,11 @@ async def _consult_teacher_on_plateau(
         ok=result.ok,
         arguments=args,
         output=result.output,
+        call_id=call.id,
     )
     deps.publisher.publish(
         ToolExecuted(
+            call_id=call.id,
             name="ask_teacher",
             args={"question": args["question"]},
             outcome=ToolOutcome.OK if result.ok else ToolOutcome.FAILED,
@@ -3369,6 +3586,7 @@ async def _run_tools(
     *,
     execution: ExecutionPolicy,
     plan_mode: bool = False,
+    parse_warnings: tuple[ParseWarning, ...] = (),
 ) -> bool:
     """Çalıştırmadan ÖNCE doğrula; bozuk ve tekrar eden çağrı zincirini kes.
 
@@ -3382,10 +3600,26 @@ async def _run_tools(
 
     budget = deps.require_budget()
     for call in calls:
+        if (deferred := mutation_deferral(registry.get(call.name), parse_warnings)) is not None:
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args={},
+                    outcome=ToolOutcome.BLOCKED,
+                    output=deferred,
+                    call_id=call.id,
+                )
+            )
+            messages.append(
+                Message("tool", deferred, tool_call_id=call.id, name=call.name, ok=False)
+            )
+            errored = True
+            continue
         if state.repeated_failure_abort:
             output = "Tekrar döngüsü durduruldu; bu araç başlatılmadı."
             deps.publisher.publish(
                 ToolExecuted(
+                    call_id=call.id,
                     name=call.name,
                     args={},
                     outcome=ToolOutcome.BLOCKED,
@@ -3425,6 +3659,7 @@ async def _run_tools(
             output = denial.SKIPPED_TOOL_RESULT if state.hook_halt is None else state.hook_halt
             deps.publisher.publish(
                 ToolExecuted(
+                    call_id=call.id,
                     name=call.name,
                     args={},
                     outcome=ToolOutcome.DENIED,
@@ -3506,6 +3741,7 @@ async def _run_tools(
             outcome = ToolOutcome.BLOCKED if no_more_repairs else ToolOutcome.FAILED
             deps.publisher.publish(
                 ToolExecuted(
+                    call_id=call.id,
                     name=call.name,
                     args=args,
                     outcome=outcome,
@@ -3515,7 +3751,9 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
-            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+            _note_tool_use(
+                state, call.name, tool, ok=False, arguments=args, output=output, call_id=call.id
+            )
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
             #
@@ -3547,6 +3785,7 @@ async def _run_tools(
                 )
                 deps.publisher.publish(
                     ToolExecuted(
+                        call_id=call.id,
                         name=call.name,
                         args=args,
                         outcome=ToolOutcome.BLOCKED,
@@ -3565,7 +3804,9 @@ async def _run_tools(
                 )
                 state.failed_tool_calls += 1
                 state.repeated_failure_abort = output
-                _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+                _note_tool_use(
+                    state, call.name, tool, ok=False, arguments=args, output=output, call_id=call.id
+                )
                 errored = True
                 continue
 
@@ -3596,6 +3837,7 @@ async def _run_tools(
                 output = _repeat_block_message(call.name, seen + 1)
                 deps.publisher.publish(
                     ToolExecuted(
+                        call_id=call.id,
                         name=call.name,
                         args=args,
                         outcome=ToolOutcome.BLOCKED,
@@ -3608,7 +3850,9 @@ async def _run_tools(
                 )
                 state.failed_tool_calls += 1
                 state.repeat_blocked = True
-                _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+                _note_tool_use(
+                    state, call.name, tool, ok=False, arguments=args, output=output, call_id=call.id
+                )
                 errored = True
                 continue
             onbellek = budget.recall_read(signature)
@@ -3616,6 +3860,7 @@ async def _run_tools(
                 output = f"{_REPEATED_READ_NOTE}\n\n{onbellek}"
                 deps.publisher.publish(
                     ToolExecuted(
+                        call_id=call.id,
                         name=call.name,
                         args=args,
                         outcome=ToolOutcome.OK,
@@ -3626,7 +3871,9 @@ async def _run_tools(
                 messages.append(
                     Message("tool", output, tool_call_id=call.id, name=call.name, ok=True)
                 )
-                _note_tool_use(state, call.name, tool, ok=True, arguments=args, output=output)
+                _note_tool_use(
+                    state, call.name, tool, ok=True, arguments=args, output=output, call_id=call.id
+                )
                 # Kanıt sayaçları ARTMAZ: yeni bir iş yapılmadı, yalnızca bilinen
                 # bir sonuç tekrar sunuldu. İlerleme kapısı bunu ilerleme saymaz
                 # ve model kendini toparlayamazsa tur yine biter.
@@ -3634,6 +3881,7 @@ async def _run_tools(
             output = _duplicate_call_message()
             deps.publisher.publish(
                 ToolExecuted(
+                    call_id=call.id,
                     name=call.name,
                     args=args,
                     outcome=ToolOutcome.BLOCKED,
@@ -3643,7 +3891,9 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
-            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+            _note_tool_use(
+                state, call.name, tool, ok=False, arguments=args, output=output, call_id=call.id
+            )
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
             # turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar. Ölçüldü: model dört
@@ -3657,8 +3907,9 @@ async def _run_tools(
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
         todos_before = tuple(deps.tool_context.todos.items)
+        recorded_uses = len(state.tool_uses)
         result, outcome = await _execute(
-            call, args, deps, registry, execution=execution, plan_mode=plan_mode
+            call, args, deps, registry, execution=execution, plan_mode=plan_mode, state=state
         )
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
@@ -3666,17 +3917,16 @@ async def _run_tools(
         if outcome is ToolOutcome.OK and call.name == "todo_write":
             for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
                 deps.publisher.publish(NarrationPublished(text=sentence))
-        _note_tool_use(
-            state,
-            call.name,
-            tool,
-            ok=outcome is ToolOutcome.OK,
-            arguments=args,
-            output=result.output,
-            job_completion=result.job_completion,
-            is_observation=result.is_observation,
-            workspace_effect=result.workspace_effect,
-        )
+        if len(state.tool_uses) == recorded_uses:
+            _note_tool_use(
+                state,
+                call.name,
+                tool,
+                ok=outcome is ToolOutcome.OK,
+                arguments=args,
+                output=result.output,
+                call_id=call.id,
+            )
         if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
             # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
             # Tekrar kapısına kanıt olarak yazılırsa, koşullar düzelse bile aynı
@@ -3775,12 +4025,14 @@ async def _run_tools(
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(
             ToolExecuted(
+                call_id=call.id,
                 name=call.name,
                 args=args,
                 outcome=outcome,
                 output=result.output,
                 diff=diff,
                 workspace=result.workspace_effect.label if result.workspace_effect else "",
+                mutating=tool.mutating if tool else None,
             )
         )
         govde = result.output
@@ -3875,6 +4127,7 @@ async def _execute(
     *,
     execution: ExecutionPolicy,
     plan_mode: bool = False,
+    state: _State | None = None,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
@@ -4007,11 +4260,63 @@ async def _execute(
                 ToolResult.failure("Dış işlem başlamadan süre sınırı doldu."),
                 ToolOutcome.BLOCKED,
             )
-    deps.publisher.publish(ToolStarted(name=call.name, args=args))
-    result = await registry.execute(call.name, args, deps.tool_context)
+    deps.publisher.publish(ToolStarted(name=call.name, args=args, call_id=call.id))
+    result = await _execute_registered_tool(call, args, deps, registry, tool, state)
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
+
+
+async def _execute_registered_tool(
+    call: ToolCall,
+    args: dict[str, object],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    tool: Tool | None,
+    state: _State | None,
+) -> ToolResult:
+    """Onaydan sonra gerçekleşen çağrının kaynak/ortam kimliğini ölç."""
+    from .verify_discovery import evidence_environment, source_digest
+
+    command = args.get("command", args.get("cmd"))
+    is_shell = tool_family(call.name) is ToolFamily.SHELL and isinstance(command, str)
+    before = await asyncio.to_thread(source_digest, deps.tool_context.root) if is_shell else ""
+    environment = (
+        await asyncio.to_thread(
+            evidence_environment, deps.tool_context.root, (str(command),), runtime=sys.version
+        )
+        if is_shell
+        else None
+    )
+    result = await registry.execute(call.name, args, deps.tool_context)
+    await localization.record_result(call, result, deps.tool_context)
+    if state is not None:
+        after = await asyncio.to_thread(source_digest, deps.tool_context.root) if is_shell else ""
+        current_environment = (
+            await asyncio.to_thread(
+                evidence_environment, deps.tool_context.root, (str(command),), runtime=sys.version
+            )
+            if is_shell
+            else None
+        )
+        if current_environment != environment:
+            environment = None
+        _note_tool_use(
+            state,
+            call.name,
+            tool,
+            ok=result.ok,
+            arguments=args,
+            output=result.output,
+            job_completion=result.job_completion,
+            is_observation=result.is_observation,
+            workspace_effect=result.workspace_effect,
+            source_before=before,
+            source_after=after,
+            environment=environment,
+            call_id=call.id,
+        )
+    return result
 
 
 def _rule_gates(
@@ -4163,10 +4468,27 @@ _REPEATED_READ_NOTE = (
 #: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
 
 
-async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
+async def _self_review(
+    task: str,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    verification: VerificationResult | None = None,
+) -> AgentOutcome:
+    from .evidence_handoff import current_diff
+
     deps.publisher.publish(SelfReviewStarted())
     feedback = await review.review_turn(
-        task, outcome.final_text, outcome.messages, config=deps.config, publisher=deps.publisher
+        task,
+        outcome.final_text,
+        outcome.messages,
+        config=deps.config,
+        publisher=deps.publisher,
+        diff=await asyncio.to_thread(current_diff, deps)
+        if deps.config.runtime.review_diff_only
+        else "",
+        criteria=verification.evidence if verification else (),
+        failures=verification.findings if verification else (),
     )
     deps.publisher.publish(
         SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
@@ -4231,6 +4553,8 @@ async def _fix_findings(
     `escalation_deps` verilirse tur ÜST modelle koşar (bkz. `gate_escalation`) ve
     başarısız olursa zayıf modelle yeniden denenmez: ek tur tek bir turdur.
     """
+    if not should_repair_verifier(verification):
+        return outcome
     deps.publisher.publish(
         VerificationFailed(summary=verification.summary, findings=verification.findings)
     )
@@ -4283,6 +4607,8 @@ async def _escalate_after_gate(
     Tur sayısı sabittir: bu çağrı en çok bir kez yapılır ve kendi içinde döngü yoktur.
     Sonuç kullanıcıya durum satırı + olay + tur metnindeki rapor satırı olarak gider.
     """
+    if not should_repair_verifier(verification):
+        return outcome, verification
     escalation = gate_escalation.prepare(deps)
     if escalation is None:
         return outcome, verification
@@ -4441,15 +4767,26 @@ def _masked_view(
     window = deps.config.runtime.tool_output_window
     if window <= 0 or uses_web_context(deps.config, spec):
         return MaskView(messages)
-    return mask_view(messages, window, deps.mask_ledger, commit=commit)
+    return mask_view(
+        messages,
+        window,
+        deps.mask_ledger,
+        commit=commit,
+        pinned_call_ids=deps.active_context.pinned_call_ids
+        if deps.config.runtime.context_evidence_pins
+        else frozenset(),
+    )
 
 
-async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: _State) -> bool:
+async def _compact_before_call(
+    messages: list[Message], deps: AgentDeps, state: _State, *, local_remaining: int | None = None
+) -> bool:
     """Model çağrısından ÖNCE bağlamı eşiğin altına indir; taşma kalıcıysa False.
 
     Eskiden sıkıştırma yalnız tur BİTTİKTEN sonra yapılıyordu: uzun tek bir turda
     geçmiş sınırsız büyüyor, sonunda modelin penceresi taşıyordu (ölçüldü, 28 Eylül).
     """
+    await prepare_context(messages, deps, local_remaining=local_remaining)
     selected = _context_spec(deps)
     from .context_budget import context_budget
 
@@ -4463,9 +4800,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     before = len(messages)
     before_chars = total_chars(gorunur)
     await pre_compact(deps, "auto")
-    compacted = await compaction.compact_in_turn(
-        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
-    )
+    compacted = await compact_context(messages, deps, threshold)
     after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
     if after_chars < before_chars:
         note = await compacted_context(deps)
@@ -4476,9 +4811,9 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
             )
         )
         deps.condensations += 1
-    if needs_compression(
-        _masked_view(messages, deps, selected, commit=False).messages, threshold_chars=threshold
-    ):
+    visible = _masked_view(messages, deps, selected, commit=False).messages
+    record_protection(visible, deps, threshold)
+    if needs_compression(visible, threshold_chars=threshold):
         state.compaction_thrash += 1
         return state.compaction_thrash < MAX_COMPACTION_THRASH
     state.compaction_thrash = 0
@@ -4487,13 +4822,12 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
+    await prepare_context(messages, deps)
     selected = _context_spec(deps)
     from .context_budget import context_budget
 
     threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
-    compressed = await compaction.compress(
-        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
-    )
+    compressed = await compact_context(messages, deps, threshold, between_turns=True)
     if len(compressed) < before:
         deps.publisher.publish(
             ContextCompressed(

@@ -1,0 +1,1 @@
+from .ayirici import parse_value as parse_ozel

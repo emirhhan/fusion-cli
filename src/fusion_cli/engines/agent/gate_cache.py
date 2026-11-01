@@ -22,9 +22,10 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field
 from pathlib import Path
 
+from ...core.evidence import EvidenceEnvironment, EvidenceStatus
 from ...core.execution_plan import PlanStep
 from ...core.verification import VerificationResult
 
@@ -43,9 +44,12 @@ def step_mutates(step: PlanStep) -> bool:
     )
 
 
-def workspace_key(paths: Iterable[Path]) -> str:
+def workspace_key(paths: Iterable[Path], *, environment: EvidenceEnvironment | None = None) -> str:
     """Dokunulan dosyaların durumundan kısa bir parmak izi üret."""
     digest = hashlib.sha256()
+    if environment is not None:
+        for value in astuple(environment):
+            digest.update(f"{value}\0".encode())
     for path in sorted(set(paths)):
         try:
             stat = path.stat()
@@ -75,7 +79,11 @@ class GateCache:
         return result
 
     def store(self, key: str, result: VerificationResult) -> None:
-        if result.ok:
+        if (
+            result.ok
+            and not result.failure_evidence
+            and all(item.status is EvidenceStatus.PASSED for item in result.evidence)
+        ):
             self._entry = (key, self.clock(), result)
         else:
             self._entry = None

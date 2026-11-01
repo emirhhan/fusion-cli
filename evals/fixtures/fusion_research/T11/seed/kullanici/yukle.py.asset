@@ -1,0 +1,4 @@
+from rastgele import parse_ozel_2026
+
+def yukle(metin):
+    return parse_ozel_2026(metin)

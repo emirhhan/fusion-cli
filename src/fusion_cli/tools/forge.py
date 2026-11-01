@@ -70,6 +70,7 @@ def forge_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
     # ezince eski içerik ancak böyle geri gelir.
     context.changes.record(hedef)
     hedef.write_text(source, encoding="utf-8")
+    context.changes.record_applied(hedef)
     trust.approve_file(context.root, hedef)
     return ToolResult(f"araç üretildi: {name} ({hedef}). Sonraki adımlarda çağırabilirsin.")
 

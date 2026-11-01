@@ -9,19 +9,56 @@ yapılandırma hiç yüklenmez ve test kırılır.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from ..core.auto_review import AutoClassifierMode
 from ..core.desktop_settings import DesktopSettings
+from ..core.errors import ConfigError
 from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
 from .sandbox_config import SandboxConfig
+
+
+class CodeChunkStrategy(StrEnum):
+    """Kod indeksinin desteklenen parçalama stratejileri."""
+
+    LINES = "lines"
+    SYMBOLS = "symbols"
+
+
+class ExternalToolSelection(StrEnum):
+    """Dış araç yüzeyinin seçim stratejisi."""
+
+    REGISTRATION_ORDER = "registration_order"
+    RELEVANCE = "relevance"
+
+
+@dataclass(frozen=True, slots=True)
+class LspServerConfig:
+    """Yalnız güvenilir yapılandırmanın seçebildiği yerel sunucu."""
+
+    command: tuple[str, ...] = ()
+    timeout_s: float = 8.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.command, tuple) or any(
+            not isinstance(part, str) or not part.strip() or "\x00" in part for part in self.command
+        ):
+            raise ConfigError("runtime.lsp_server.command: geçerli argv listesi gerekli.")
+        if (
+            type(self.timeout_s) not in (int, float)
+            or not math.isfinite(self.timeout_s)
+            or self.timeout_s <= 0
+        ):
+            raise ConfigError("runtime.lsp_server.timeout_s: pozitif sonlu süre gerekli.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +144,8 @@ class RuntimeConfig:
     #: bile. Kullanıcının "öğretmensiz çalış" tercihi (Faz 4, Görev 3); `council`
     #: bundan ETKİLENMEZ, o ayrı ve çoklu-API-model bir araçtır.
     teacherless: bool = False
+    #: Ara kapıda ilişkili Python testlerini seç; final her zaman tam çalışır.
+    related_test_selection: bool = False
     #: `ask_teacher`'ın öğretmen cevabından çıkardığı ders `ChromaLessonMemory`'ye
     #: de yazılsın mı (model `recall_lessons` ile geri çağırabilsin)? Varsayılan
     #: AÇIK. Çakışan bir ders bulunursa (bkz. `engine_tools._ogretmen_dersi_yaz`)
@@ -398,6 +437,12 @@ class RuntimeConfig:
     #: değeri bu deponun haritasında yalnız ~10 dosyaya yetiyordu. Küçük pencereli modelde
     #: harita pencerenin %3'ünü aşmaz (bkz. `engines/agent/repo_context.effective_budget`).
     repo_map_chars: int = 3000
+    #: Deneysel bağımsız lexical aday havuzu; 0 mevcut yalnız vektör yolunu korur.
+    code_lexical_candidates: int = 0
+    #: Python AST sembol sınırları yalnız `symbols` açıkça seçildiğinde kullanılır.
+    code_chunk_strategy: CodeChunkStrategy = CodeChunkStrategy.LINES
+    #: Görev yolları/sembolleri haritada genel keşifle birlikte öne alınsın mı?
+    repo_map_focused: bool = False
     #: Model alt klasördeki bir dosyayı okuyup/düzenlediğinde o klasör ve üst klasörlerindeki
     #: (kök hariç) AGENTS.md/CLAUDE.md bir kez, kısa biçimde bağlama eklenir (Claude Code'un
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
@@ -449,6 +494,60 @@ class RuntimeConfig:
     auto_classifier_model: str = ""
     #: Tek sınıflandırma çağrısının süre sınırı (saniye). Aşılırsa kurallar geçerli olur.
     auto_classifier_timeout_s: float = 12.0
+
+    external_tool_selection: ExternalToolSelection = ExternalToolSelection.REGISTRATION_ORDER
+    symbol_query_enabled: bool = False
+    localization_cards: bool = False
+    lsp_server: LspServerConfig = field(default_factory=LspServerConfig)
+    context_evidence_pins: bool = False
+    context_original_trace: bool = False
+    context_restore_state: bool = False
+    prompt_manifest: bool = True
+    lesson_recall_hints: bool = False
+    lesson_attributed_feedback: bool = False
+    lesson_conflict_quarantine: bool = False
+    verified_skill_proposals: bool = False
+    subagent_context_mode: Literal["existing", "evidence_bundle"] = "existing"
+    teacher_max_brief_chars: int = 25000
+    review_diff_only: bool = False
+    emulation_protocol: Literal["v1", "v2"] = "v1"
+
+    def __post_init__(self) -> None:
+        """İndeks sınırı dosyadan ve programmatik kurulumda geçerli kalsın."""
+        try:
+            selection = ExternalToolSelection(self.external_tool_selection)
+        except (TypeError, ValueError) as error:
+            raise ConfigError(
+                "runtime.external_tool_selection: geçersiz seçim stratejisi."
+            ) from error
+        object.__setattr__(self, "external_tool_selection", selection)
+        if not isinstance(self.lsp_server, LspServerConfig):
+            raise ConfigError("runtime.lsp_server: tipli sunucu ayarı gerekli.")
+        if type(self.symbol_query_enabled) is not bool or type(self.localization_cards) is not bool:
+            raise ConfigError("runtime: araç özellik bayrakları boolean olmalı.")
+        if any(
+            type(value) is not bool
+            for value in (
+                self.context_evidence_pins,
+                self.context_original_trace,
+                self.context_restore_state,
+                self.prompt_manifest,
+                self.lesson_recall_hints,
+                self.lesson_attributed_feedback,
+                self.lesson_conflict_quarantine,
+                self.verified_skill_proposals,
+                self.review_diff_only,
+            )
+        ):
+            raise ConfigError("runtime: bağlam özellik bayrakları boolean olmalı.")
+        if self.subagent_context_mode not in {"existing", "evidence_bundle"}:
+            raise ConfigError("runtime.subagent_context_mode: geçersiz bağlam kipi.")
+        if type(self.teacher_max_brief_chars) is not int or self.teacher_max_brief_chars < 1000:
+            raise ConfigError("runtime.teacher_max_brief_chars: en az 1000 olmalı.")
+        if self.emulation_protocol not in {"v1", "v2"}:
+            raise ConfigError("runtime.emulation_protocol: v1 veya v2 olmalı.")
+        if self.code_lexical_candidates < 0:
+            raise ConfigError("runtime.code_lexical_candidates: negatif olamaz.")
 
 
 class SkillVisibility(StrEnum):

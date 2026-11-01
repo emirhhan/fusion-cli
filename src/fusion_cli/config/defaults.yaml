@@ -64,6 +64,20 @@ agent:
 
 # Çalışma zamanı davranışı.
 runtime:
+  emulation_protocol: v1
+  lesson_recall_hints: false
+  lesson_attributed_feedback: false
+  lesson_conflict_quarantine: false
+  verified_skill_proposals: false
+  subagent_context_mode: existing
+  teacher_max_brief_chars: 25000
+  review_diff_only: false
+  context_evidence_pins: false
+  context_original_trace: false
+  context_restore_state: false
+  prompt_manifest: true
+  # Yalnız ara kapıda ilişkili Python testlerini seç; final tam kalır.
+  related_test_selection: false
   # Takılan çağrı bu sürede düşer.
   #
   # Ölçülen üretim hızı (2026-07-25, nemotron-3-super): ~104 token/s. Aşağıdaki
@@ -130,6 +144,12 @@ runtime:
   # görev bağlamını boğar. 0 = pencereye bakma. Mevcut kullanıcının açık ayarı ezilmez.
   compact_tools_window_tokens: 32768
   compact_external_tools: 12
+  external_tool_selection: registration_order
+  symbol_query_enabled: false
+  localization_cards: false
+  lsp_server:
+    command: []
+    timeout_s: 8.0
   # Sıkı yüzeyli (zayıf) modele görev türüne göre sabit araç alt kümesi (yol haritası 4.
   # adım): soru/okuma, kod, web, oyun/medya, masaüstü. Tür konuşmanın isteklerinden gelir,
   # yalnız genişler; profil dışı araç çağrılırsa yüzey tur için bir kez genişler. false =
@@ -350,6 +370,12 @@ runtime:
   # 3000 ≈ 1k token (Aider repo-map ölçeği). Harita içe aktarma grafıyla sıralanır, test
   # dosyaları geriye atılır; küçük pencereli modelde pencerenin %3'ünü aşmaz.
   repo_map_chars: 3000
+  # Deneysel bağımsız lexical aday havuzu: 0 = mevcut arama davranışı.
+  code_lexical_candidates: 0
+  # lines | symbols: Python AST parçalama yalnız açık seçimle etkinleşir.
+  code_chunk_strategy: lines
+  # Görev odağı haritada genel keşifle birlikte öne alınsın mı?
+  repo_map_focused: false
   # Model alt klasördeki dosyayı okuyunca/düzenleyince o klasörün ve üst klasörlerinin
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.

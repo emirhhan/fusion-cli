@@ -178,3 +178,32 @@ def test_sabit_ve_sade_degiskenler_tanim_sayilmaz(tmp_path):
     harita = build_repo_map(tmp_path, budget_chars=500)
 
     assert "SAYI" not in harita and "f" in harita
+
+
+def test_farkli_odaklar_onbellekte_karismaz_ve_genel_kesif_kalir(tmp_path):
+    from fusion_cli.core.repo_map import build_repo_map_report
+
+    root = _proje(tmp_path)
+    first = build_repo_map_report(root, focus_paths=("rapor.py",), budget_chars=2000)
+    second = build_repo_map_report(root, focus_symbols=("oran",), budget_chars=2000)
+    general = build_repo_map_report(root, budget_chars=2000)
+
+    assert first.text.splitlines()[0] == "rapor.py: ozet"
+    assert second.text.splitlines()[0] == "sabitler.py: oran"
+    assert first.text != second.text
+    assert general.text.splitlines()[0] != "rapor.py: ozet"
+    assert second.stats.cached and general.stats.cached
+    assert "fatura.py: toplam" in first.text
+
+
+def test_odak_genel_siradan_duzenli_kesif_alani_birakir(tmp_path):
+    from fusion_cli.core.repo_map import build_repo_map_report
+
+    (tmp_path / "focus.py").write_text(
+        "\n".join(f"def focused{n}():\n    pass\n" for n in range(12)), encoding="utf-8"
+    )
+    (tmp_path / "global.py").write_text("def discovery():\n    pass\n", encoding="utf-8")
+    report = build_repo_map_report(tmp_path, focus_paths=("focus.py",), budget_chars=100)
+    assert report.text.startswith("focus.py:")
+    assert "global.py: discovery" in report.text
+    assert len(report.text) <= 100

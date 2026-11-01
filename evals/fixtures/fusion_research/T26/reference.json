@@ -1,0 +1,12 @@
+[
+  {
+    "raw": "<tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"notlar.txt\"}}\n</tool_call>\n<tool_call>\n{\"name\":\"write_file\",\"arguments\":\"bozuk\"}\n</tool_call>"
+  },
+  {
+    "name": "write_file",
+    "arguments": {
+      "path": "sonuc.txt",
+      "content": "Tam içerik\n"
+    }
+  }
+]

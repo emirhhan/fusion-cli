@@ -303,6 +303,7 @@ def _check_path(path: object) -> None:
             *_NUMBERS,
             *_TEXT_LISTS,
             "provider",
+            "escalation_model",
             "retry_delays_s",
             "rate_limit_per_minute",
         )
@@ -310,7 +311,8 @@ def _check_path(path: object) -> None:
     if not isinstance(path, str) or not (
         path in allowed
         or re.fullmatch(
-            r"(agent|judge|vision|teacher|selected_agent|candidates\.[0-9]+)(\.(name|model|tags|fallback))?",
+            r"(agent|judge|vision|teacher|selected_agent|candidates\.[0-9]+)"
+            r"(\.(name|model|tags|fallback|recommended_edit_format))?",
             path,
         )
     ):
@@ -335,6 +337,7 @@ def _path_kind(path: str) -> str:
                 return kind
         return {
             "provider": "text_digest",
+            "escalation_model": "text_digest",
             "retry_delays_s": "numbers_digest",
             "rate_limit_per_minute": "mapping_digest",
         }[name]

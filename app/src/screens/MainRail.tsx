@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import "./MainRail.css";
 
 /** En soldaki ana menünün bölümleri; sıra kullanıcının belirlediği sıradır. */
-// "Görsel ve video üretimi" rayda YOK (kullanıcı istemedi); ekran yalnız komut paletinden
-// (⌘K › Görsel oluştur / Video oluştur) açılır ve Home'a dönülür.
+// Görsel oluştur rayda yer almaz; ekran yalnız komut paletinden
+// (⌘K › Görsel oluştur) açılır ve Home vurgulu kalır.
 export type MainSection = "home" | "scheduled" | "library" | "kits";
 
 interface RailItem {

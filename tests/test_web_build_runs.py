@@ -19,6 +19,7 @@ import pytest
 
 from fusion_cli.config.models import WebSessionConfig
 from fusion_cli.core.events import ToolExecuted, ToolOutcome
+from fusion_cli.core.memory import Lesson, LessonRecallPolicy
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import loop as agent_loop
@@ -408,8 +409,15 @@ class _SahteDersBellegi:
         return True
 
     def recall(
-        self, task: str, limit: int = 4, *, scope=None, workspace=None, tags=()
-    ) -> tuple[object, ...]:
+        self,
+        task: str,
+        limit: int = 4,
+        *,
+        scope=None,
+        workspace=None,
+        tags=(),
+        policy: LessonRecallPolicy | None = None,
+    ) -> tuple[Lesson, ...]:
         return ()
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:

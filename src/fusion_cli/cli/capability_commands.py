@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Coroutine
 from pathlib import Path
 
 import typer
@@ -9,6 +11,8 @@ from rich.console import Console
 from rich.markup import escape
 
 from ..config.paths import capabilities_dir, trash_dir
+from ..core.errors import FusionError
+from ..engines.capability_proposals import CapabilityProposals, proposal_service
 from ..tools.capability_install import CapabilityInstallError, install, installed, summary
 from ..tools.safe_delete import DeleteRefusedError, move_to_trash
 
@@ -51,3 +55,40 @@ def remove(name: str = typer.Argument(..., help="`fusion yetenek liste` adı")) 
         console.print(f"[red]{escape(str(error))}[/red]")
         raise typer.Exit(1) from error
     console.print(f"Kaldırıldı (çöpte): {escape(name)}")
+
+
+def _proposal_service() -> CapabilityProposals:
+    return proposal_service(Path.home(), Path.cwd())
+
+
+def _present_proposal(operation: Coroutine[None, None, str]) -> None:
+    try:
+        console.print(escape(asyncio.run(operation)), soft_wrap=True)
+    except FusionError as error:
+        console.print(escape(str(error)), soft_wrap=True)
+        raise typer.Exit(1) from error
+
+
+@app.command("oneri-liste")
+def list_proposals(split: str | None = typer.Option(None, help="Kaynak split süzgeci.")) -> None:
+    """Üç bağımsız doğrulanmış koşumu olan beceri önerilerini listele."""
+    _present_proposal(_proposal_service().list(source_split=split))
+
+
+@app.command("oneri-goster")
+def show_proposal(
+    proposal_id: str = typer.Argument(..., help="Listelenen önerinin kimliği."),
+    split: str | None = typer.Option(None, help="Kaynak split süzgeci."),
+) -> None:
+    """Öneriyi göster; beceri kurmaz veya çalıştırmaz."""
+    _present_proposal(_proposal_service().show(proposal_id, source_split=split))
+
+
+@app.command("oneri-uygula")
+def apply_proposal(
+    proposal_id: str = typer.Argument(..., help="Açıkça kurulacak önerinin kimliği."),
+    parametreler: str = typer.Option("{}", help="Girdi şemasına uygun JSON nesnesi."),
+    split: str | None = typer.Option(None, help="Kaynak split süzgeci."),
+) -> None:
+    """Öneriyi mevcut beceri keşfine kur; model veya komut çalıştırmaz."""
+    _present_proposal(_proposal_service().apply(proposal_id, parametreler, source_split=split))

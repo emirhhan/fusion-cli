@@ -26,10 +26,8 @@ for (const theme of ["dark", "light"] as const) {
             expect(boxes[a]!.x + boxes[a]!.width <= boxes[b]!.x + 1).toBe(true);
 
         }
-        const types = await page.getByRole("tablist", { name: "Üretim türü" }).boundingBox();
-        const modes = await page.getByRole("group", { name: "Görsel oluşturma modu" }).boundingBox();
-        expect(types && modes && types.x < modes.x + modes.width && modes.x < types.x + types.width
-          && types.y < modes.y + modes.height && modes.y < types.y + types.height).toBe(false);
+        await expect(page.getByRole("tablist", { name: "Üretim türü" })).toHaveCount(0);
+        await expect(page.getByRole("group", { name: "Görsel oluşturma modu" })).toBeVisible();
         if (scenario === "error") await expect(jobs.getByRole("button", { name: "İşleri yeniden oku" })).toBeVisible();
         else {
           const stop = jobs.getByRole("button", { name: "Üretimi durdur" });

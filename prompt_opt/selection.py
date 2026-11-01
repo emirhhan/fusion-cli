@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from evals.compare import compare_reports
 from evals.metrics import RunReport
 
+from .research_evidence import safety_problem
 from .variants import PromptVariant
 
 #: Yeni sürümün yayımlanması için gereken asgari başarı oranı artışı.
@@ -28,6 +29,7 @@ class Candidate:
 
     variant: PromptVariant
     report: RunReport
+    reference: RunReport | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +52,11 @@ def select_winner(
     best: Candidate | None = None
     best_delta = 0.0
     for candidate in candidates:
-        comparison = compare_reports(baseline.report, candidate.report)
-        if comparison.regressions:
+        reference = candidate.reference or baseline.report
+        comparison = compare_reports(reference, candidate.report)
+        if comparison.regressions or safety_problem(reference, candidate.report):
             continue
-        delta = candidate.report.task_success_rate - baseline.report.task_success_rate
+        delta = candidate.report.task_success_rate - reference.task_success_rate
         if delta >= min_improvement and delta > best_delta:
             best = candidate
             best_delta = delta

@@ -1,0 +1,2 @@
+def iki_kati(value):
+    return value

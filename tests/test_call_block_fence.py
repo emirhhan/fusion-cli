@@ -107,3 +107,30 @@ def test_uzun_metin_sus_sayilmaz():
     govde = f'{uzun}\n{{"name":"read_file"}}'
 
     assert strip_call_fence(govde) == govde
+
+
+def test_renderer_uses_frozen_edit_preference_and_readonly_schemas():
+    from fusion_cli.core.tool_emulation import (
+        EDIT_EXAMPLE,
+        PAYLOAD_EXAMPLE,
+        render_tool_instructions,
+    )
+
+    schemas = tuple(
+        {"function": {"name": name}} for name in ("read_file", "edit_file", "write_file")
+    )
+    assert EDIT_EXAMPLE in render_tool_instructions(schemas, edit_format="exact")
+    assert PAYLOAD_EXAMPLE not in render_tool_instructions(schemas, edit_format="exact")
+    assert PAYLOAD_EXAMPLE in render_tool_instructions(schemas, edit_format="whole")
+    assert EDIT_EXAMPLE not in render_tool_instructions(schemas, edit_format="whole")
+    readonly = render_tool_instructions(schemas[:1], edit_format="whole")
+    assert EDIT_EXAMPLE not in readonly and PAYLOAD_EXAMPLE not in readonly
+
+
+def test_whole_edit_advice_requires_fresh_full_read_without_exact_conflict():
+    from fusion_cli.core.tool_emulation import render_tool_instructions
+
+    text = render_tool_instructions(({"function": {"name": "write_file"}},), edit_format="whole")
+    assert "TAMAMINI yeniden oku" in text
+    assert "tazelik" in text and "onay" in text
+    assert "write_file DEĞİL" not in text

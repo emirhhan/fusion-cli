@@ -24,13 +24,14 @@ from ..core.execution_plan import (
     VerificationCheckKind,
 )
 from ..core.file_lease import FileLease
+from ..core.routine_codec import decode_routine, encode_routine
 from .checkpoint_effects import effects_payload, parse_effects
 from .checkpoint_evidence import budget_payload, evidence_payload, parse_budget, parse_evidence
 from .checkpoint_repair import parse_repair, repair_payload
 
 _logger = logging.getLogger(__name__)
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
-_SUPPORTED_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6})
+_SUPPORTED_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6, 7})
 
 
 def _step_to_dict(step: PlanStep) -> dict[str, object]:
@@ -63,9 +64,10 @@ def _step_to_dict(step: PlanStep) -> dict[str, object]:
 def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
     plan = checkpoint.plan
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "storage_revision": checkpoint.storage_revision,
         "plan": {
+            "routine": encode_routine(plan.routine),
             "plan_id": plan.plan_id,
             "task": plan.task,
             "schema_version": plan.schema_version,
@@ -146,6 +148,8 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
     if schema >= 6 and "effect_intents" not in data:
         raise ValueError("Dış işlem intent metadata'sı eksik.")
     plan_data = _mapping(data.get("plan"))
+    if schema >= 7 and "routine" not in plan_data:
+        raise ValueError("Rutin metadata alanı eksik.")
     steps_raw = plan_data.get("steps")
     if not isinstance(steps_raw, list):
         raise ValueError("geçersiz steps")
@@ -187,6 +191,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
             steps=tuple(steps),
             status=PlanStatus(_text(plan_data, "status")),
             schema_version=_integer(plan_data, "schema_version", 1),
+            routine=decode_routine(plan_data.get("routine")),
         ),
         root=_text(data, "root"),
         conversation_id=_text(data, "conversation_id"),

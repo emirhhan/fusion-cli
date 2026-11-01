@@ -64,6 +64,8 @@ EXECUTION_RUNTIME_KEYS = (
     "verification_commands",
     "status_line_command",
     "voice_listener",
+    "lsp_server",
+    "symbol_query_enabled",
     # Kanca HTTP isteğinin iç ağa gitmesi (P-009): güvenilmeyen depo açamaz.
     "hook_http_allow_private",
 )

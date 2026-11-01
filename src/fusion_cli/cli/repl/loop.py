@@ -23,7 +23,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from rich.console import Console
 from rich.markup import escape
@@ -35,6 +35,7 @@ from ...tools.remotion_observe import browser_transport
 if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
     from ...engines.agent.remotion_bridge import FrameTransport
+    from ...tools.registry import ToolRegistry
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
@@ -705,6 +706,8 @@ async def _drive_agent(
     except ImportError:
         console.print(f"[{theme.WARN}]{messages.MCP_MISSING_DEP}[/{theme.WARN}]")
         return await run_agent(line, deps, **kwargs)
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = cast("ToolRegistry", deps.base_registry)
     added: tuple[str, ...] = ()
     if state.config.mcp_servers:
         try:
@@ -712,7 +715,7 @@ async def _drive_agent(
             # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
             added += await ensure_mcp_tools(
                 state.config.mcp_servers,
-                deps.base_registry,
+                registry,
                 retry_delays_s=state.config.runtime.retry_delays_s,
             )
         except Exception as error:
@@ -727,7 +730,7 @@ async def _drive_agent(
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.
         try:
-            added += await ensure_hosted_tools(state.config, deps.base_registry)
+            added += await ensure_hosted_tools(state.config, registry)
         except Exception as error:
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"

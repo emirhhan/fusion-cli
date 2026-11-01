@@ -15,8 +15,9 @@ Tasarım:
   `MIN_MASK_CHARS`'tan kısa sonuçlar; kullanıcıya sorulan soruların / öğretmenin / alt
   ajanların / derslerin / plan ve yapılacaklar listesinin sonuçları; kural dosyası
   okumaları. `user` mesajları (kurallar, özetler) bu modülün kapsamında DEĞİLDİR.
-- **Önek kararlılığı.** Maskelenen mesaj `MaskLedger`'a yazılır ve bir daha eski haline
-  dönmez; yer tutucu mesajın kendisinden belirlenir (aynı girdi, aynı metin). Pencere
+- **Önek kararlılığı.** Maskelenen mesaj `MaskLedger`'a yazılır; açık kanıt pini
+  geçici olarak sınırlı özgün içeriği gösterir, pin bırakılınca maske geri gelir.
+  Yer tutucu mesajın kendisinden belirlenir (aynı girdi, aynı metin). Pencere
   her turda 1 mesaj kaymaz: sonuçlar `batch_size(window)` kadar birikince TOPLU
   maskelenir, böylece sağlayıcı önbelleği her çağrıda değil birkaç çağrıda bir bozulur.
   Model bu yüzden `window` ile `window + batch_size - 1` arası tam sonuç görür.
@@ -31,7 +32,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import PurePath
 
 from ...core.types import Message, ToolCall
-from .history import CLEARED_TOOL_OUTPUT, total_chars
+from .history import (
+    CLEARED_TOOL_OUTPUT,
+    PIN_MAX_CHARS,
+    pin_tool_output,
+    total_chars,
+    unseen_tool_indexes,
+)
 
 #: Yer tutucunun başlığı; yeniden maskelemeyi önler ve testlerde tanıma işaretidir.
 MASK_PREFIX = "[eski araç çıktısı gizlendi"
@@ -134,7 +141,13 @@ class MaskView:
 
 
 def mask_view(
-    messages: Sequence[Message], window: int, ledger: MaskLedger, *, commit: bool = True
+    messages: Sequence[Message],
+    window: int,
+    ledger: MaskLedger,
+    *,
+    commit: bool = True,
+    pinned_call_ids: frozenset[str] = frozenset(),
+    pin_chars: int = PIN_MAX_CHARS,
 ) -> MaskView:
     """Eski araç sonuçlarını yer tutucuya indirmiş bir görünüm üret; girdiye dokunma.
 
@@ -146,15 +159,17 @@ def mask_view(
     araclar = [i for i, m in enumerate(messages) if m.role == "tool"]
     if len(araclar) <= window:
         return MaskView(list(messages))
-    korunan = set(araclar[-window:]) | _after_last_call(messages, araclar)
+    unseen = unseen_tool_indexes(messages)
+    pins = {i for i in araclar if messages[i].tool_call_id in pinned_call_ids} - unseen
+    korunan = set(araclar[-window:]) | unseen | pins
     cagrilar = _paired_calls(messages)
     adaylar = [i for i in araclar if i not in korunan and _maskable(messages[i], cagrilar.get(i))]
     bekleyen = [i for i in adaylar if messages[i] not in ledger]
     yeni = bekleyen if len(bekleyen) >= batch_size(window) else []
     maskeli = {i for i in adaylar if messages[i] in ledger} | set(yeni)
-    if not maskeli:
-        return MaskView(list(messages))
     gorunum = list(messages)
+    for index in pins:
+        gorunum[index] = pin_tool_output(messages[index], pin_chars)
     for i in maskeli:
         gorunum[i] = _masked_message(messages[i], cagrilar.get(i))
     if commit and yeni:
@@ -166,21 +181,6 @@ def mask_view(
         newly_masked=len(yeni),
         saved_chars=total_chars(messages) - total_chars(gorunum),
     )
-
-
-def _after_last_call(messages: Sequence[Message], tool_indexes: list[int]) -> set[int]:
-    """Son araç çağıran assistant mesajından sonraki TÜM sonuçlar (paralel çağrılar).
-
-    Model aynı turda N çağrı yaptıysa N sonucun hepsini görmeden hiçbiri maskelenemez
-    (A1-01). Araç çağıran assistant yoksa yalnız son sonuç korunur.
-    """
-    son = max(
-        (i for i, m in enumerate(messages) if m.role == "assistant" and m.tool_calls),
-        default=None,
-    )
-    if son is None:
-        return set(tool_indexes[-1:])
-    return {i for i in tool_indexes if i > son}
 
 
 def _paired_calls(messages: Sequence[Message]) -> dict[int, ToolCall]:

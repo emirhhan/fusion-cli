@@ -36,8 +36,16 @@ import re
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
-from .types import ToolCall
+from .types import ParseWarning, ToolCall
+from .web_provenance import (
+    ORIGIN_WARNING,
+    PROTOCOL_VERSIONS,
+    QUOTED_WARNING,
+    WebCallContext,
+    WebResponseProvenance,
+)
 
 #: Kanonik sınırlayıcılar. Kendi satırlarında dururlar ve düz metindir.
 CALL_OPEN = "FUSION_TOOL_CALL"
@@ -374,6 +382,18 @@ PAYLOAD_RULES = (
     '{"$ref":"id"} biçiminde kullanılır.',
 )
 
+_EXACT_EDIT_RULE = (
+    "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
+    "edit_file kullan; write_file DEĞİL."
+)
+_EXACT_MATCH_RULE = (
+    "- edit_file'da 'old' dosyadakiyle BİREBİR ve BENZERSİZ olmalı; eklemede "
+    "mevcut komşu satırı 'old'a al ve 'new' içinde aynen tekrar et."
+)
+_WHOLE_EDIT_RULE = (
+    "- Tam dosya düzenlemesi için önce dosyanın TAMAMINI yeniden oku; tazelik, "
+    "boyut ve onay kapıları geçmeden write_file kullanma."
+)
 _GENERAL_RULES = (
     "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
     "- Kullanıcının verdiği dosya yolu, komut ve arama desenini arguments içinde "
@@ -381,10 +401,8 @@ _GENERAL_RULES = (
     "- Çağrı gövdesini ```json kod bloğunun İÇİNE yaz. Kod bloğu dışındaki metin "
     "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
     "çizgiler siliniyor.",
-    "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
-    "edit_file kullan; write_file DEĞİL.",
-    "- edit_file'da 'old' dosyadakiyle BİREBİR ve BENZERSİZ olmalı; eklemede "
-    "mevcut komşu satırı 'old'a al ve 'new' içinde aynen tekrar et.",
+    _EXACT_EDIT_RULE,
+    _EXACT_MATCH_RULE,
     "- Düzenleme sonucu dönen diff'i oku; istemediğin bir '-' satırı varsa geri ekle.",
     "- write_file yeni ya da tamamen yenilenecek dosya içindir.",
     "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap "
@@ -440,8 +458,40 @@ def _compact_schema(parameters: object) -> object:
 TOOL_INSTRUCTIONS_LEAD = "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan."
 
 
+def _edit_rules(edit_format: Literal["exact", "whole"] | None) -> tuple[str, ...]:
+    """Tam-dosya önerisini eski exact talimatıyla çeliştirme; izin kapıları korunur."""
+    if edit_format != "whole":
+        return _GENERAL_RULES
+    return tuple(
+        _WHOLE_EDIT_RULE if rule == _EXACT_EDIT_RULE else rule
+        for rule in _GENERAL_RULES
+        if rule != _EXACT_MATCH_RULE
+    )
+
+
+def _edit_examples(
+    schemas: Sequence[Mapping[str, object]],
+    edit_format: Literal["exact", "whole"] | None,
+) -> list[str]:
+    """Dondurulmuş edit tercihi yalnız sunulan araçların örneklerini seçer."""
+    names = {
+        function.get("name")
+        for schema in schemas
+        if isinstance(function := schema.get("function"), Mapping)
+    }
+    examples: list[str] = []
+    if "write_file" in names and edit_format != "exact":
+        examples.extend(("Kod / çok satırlı içerik payload örneği:", PAYLOAD_EXAMPLE, ""))
+    if "edit_file" in names and edit_format != "whole":
+        examples.extend(("Mevcut dosyada kısmi düzenleme örneği:", EDIT_EXAMPLE, ""))
+    return examples
+
+
 def render_tool_instructions(
-    schemas: Sequence[Mapping[str, object]], *, compact: bool = False
+    schemas: Sequence[Mapping[str, object]],
+    *,
+    compact: bool = False,
+    edit_format: Literal["exact", "whole"] | None = None,
 ) -> str:
     """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök.
 
@@ -454,17 +504,12 @@ def render_tool_instructions(
         "Kısa değer çağrısı:",
         render_call({"name": "read_file", "arguments": {"path": "src/app.py"}}),
         "",
-        "Kod / çok satırlı içerik payload örneği:",
-        PAYLOAD_EXAMPLE,
-        "",
-        "Mevcut dosyada kısmi düzenleme örneği:",
-        EDIT_EXAMPLE,
-        "",
+        *_edit_examples(schemas, edit_format),
         "Payload kuralları:",
         *PAYLOAD_RULES,
         "",
         "Genel kurallar:",
-        *_GENERAL_RULES,
+        *_edit_rules(edit_format),
         "",
         "Kullanılabilir araçlar:",
     ]
@@ -497,6 +542,7 @@ class EmulatedParse:
     calls: tuple[ToolCall, ...]
     text: str
     errors: tuple[str, ...]
+    warnings: tuple[ParseWarning, ...] = ()
 
 
 def _strip_payload_transport_prefix(body: str) -> str:
@@ -718,8 +764,38 @@ _NAME_ALIASES = ("tool", "function", "tool_name")
 #: `arguments` alanının karşılıkları.
 _ARGS_ALIASES = ("parameters", "args", "input")
 
-#: JSON'da nesne/dizi kapanışından hemen önce gelen fazla virgül.
-_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+def _remove_trailing_commas(raw: str) -> str:
+    """Yalnız JSON dizelerinin dışındaki kapanış öncesi fazla virgülleri kaldır."""
+    characters: list[str] = []
+    is_in_string = False
+    is_escaped = False
+    for index, character in enumerate(raw):
+        if is_in_string:
+            if is_escaped:
+                is_escaped = False
+            elif character == "\\":
+                is_escaped = True
+            elif character == '"':
+                is_in_string = False
+        elif character == '"':
+            is_in_string = True
+        elif character == ",":
+            following = index + 1
+            while following < len(raw) and raw[following] in " \t\r\n":
+                following += 1
+            preceding = index - 1
+            while preceding >= 0 and raw[preceding] in " \t\r\n":
+                preceding -= 1
+            if (
+                preceding >= 0
+                and raw[preceding] not in "[{,:"
+                and following < len(raw)
+                and raw[following] in "}]"
+            ):
+                continue
+        characters.append(character)
+    return "".join(characters)
 
 
 def _loads_tolerant(raw: str) -> object | None:
@@ -736,8 +812,8 @@ def _loads_tolerant(raw: str) -> object | None:
     for aday in (
         raw,
         raw.strip("*` \n"),
-        _TRAILING_COMMA.sub(r"\1", raw),
-        _TRAILING_COMMA.sub(r"\1", raw.strip("*` \n")),
+        _remove_trailing_commas(raw),
+        _remove_trailing_commas(raw.strip("*` \n")),
     ):
         try:
             cozulmus: object = json.loads(aday)
@@ -790,10 +866,29 @@ def _cut_spans(text: str, matches: list[re.Match[str]]) -> str:
     return "".join(pieces)
 
 
-def parse_tool_calls(text: str) -> EmulatedParse:
+def _parse_warning(message: str) -> ParseWarning:
+    """Eski hata metnini korurken yürütme için ihtiyatlı sınıflandır."""
+    index_match = re.search(r"blok (\d+)", message)
+    call_index = int(index_match.group(1)) if index_match else None
+    if message.startswith("payload kullanılmadı:"):
+        return ParseWarning("unused_payload", message, call_index, blocks_mutation=False)
+    kind = "invalid_call" if call_index is not None else "invalid_protocol"
+    return ParseWarning(kind, message, call_index)
+
+
+def parse_tool_calls(
+    text: str,
+    *,
+    protocol: str = "v1",
+    provenance: WebResponseProvenance | None = None,
+    call_context: WebCallContext | None = None,
+) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
+    if protocol not in PROTOCOL_VERSIONS:
+        raise ValueError("Taklit araç protokolü v1 veya v2 olmalı.")
     calls: list[ToolCall] = []
     errors: list[str] = []
+    origin_warnings: tuple[ParseWarning, ...] = ()
     # Kimlik yanıt içi sıraya ek olarak her ayrıştırmaya özgü bir etiket taşır: ardışık
     # turlarda `emu-0` tekrar ediyor, geçmiş yedek sağlayıcıya taşınınca `tool_call_id`
     # eşlemesi çakışabiliyordu. Ölçüldü (30 Ekim).
@@ -836,6 +931,10 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     live_matches, quoted_matches = _split_by_origin(
         without_payloads, _call_matches(without_payloads)
     )
+    if protocol == "v2":
+        live_matches, quoted_matches, origin_warnings = _v2_origin_matches(
+            without_payloads, live_matches, quoted_matches, provenance, call_context
+        )
     for index, match in enumerate(live_matches):
         raw = strip_call_fence(match.group("body").strip())
         obj = _loads_tolerant(raw)
@@ -912,4 +1011,43 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         calls=tuple(calls),
         text=outside.strip(),
         errors=tuple(errors),
+        warnings=tuple(_parse_warning(message) for message in errors) + origin_warnings,
+    )
+
+
+def _v2_origin_matches(
+    text: str,
+    live: list[re.Match[str]],
+    quoted: list[re.Match[str]],
+    provenance: WebResponseProvenance | None,
+    context: WebCallContext | None,
+) -> tuple[list[re.Match[str]], list[re.Match[str]], tuple[ParseWarning, ...]]:
+    """V1 çit uyumunu yalnız opt-in güncel köken denetimiyle daralt."""
+    if not live and not quoted:
+        return live, quoted, ()
+    is_current = provenance is not None and provenance.has_current_assistant_origin(context)
+    warnings = [] if is_current else [ParseWarning("unverified_origin", ORIGIN_WARNING)]
+    ranges = _fenced_ranges(text)
+    is_quoted = provenance is not None and provenance.content_kind == "quoted"
+    outside_blocks = _cut_spans(text, [*live, *quoted])
+    has_only_frame = not _FENCE_LINE.sub("", outside_blocks).strip()
+    has_direct_evidence = (
+        is_current
+        and provenance is not None
+        and provenance.content_kind == "direct"
+        and has_only_frame
+    )
+    suppressed = [
+        match
+        for match in live
+        if is_quoted
+        or (not has_direct_evidence and any(low < match.start() < high for low, high in ranges))
+        or text[text.rfind("\n", 0, match.start()) + 1 : match.start()].lstrip().startswith(">")
+    ]
+    if suppressed:
+        warnings.append(ParseWarning("quoted_origin", QUOTED_WARNING))
+    return (
+        [match for match in live if match not in suppressed],
+        [*quoted, *suppressed],
+        tuple(warnings),
     )

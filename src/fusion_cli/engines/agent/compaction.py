@@ -14,6 +14,7 @@ from pathlib import Path
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.original_trace import OriginalTraceReader, OriginalTraceScope
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
@@ -78,6 +79,9 @@ async def compress(
     config: Config,
     publisher: EventPublisher | None = None,
     threshold_chars: int | None = None,
+    original_source: OriginalTraceReader | None = None,
+    original_scope: OriginalTraceScope | None = None,
+    pinned_call_ids: frozenset[str] = frozenset(),
 ) -> list[Message]:
     """Geçmiş eşiği aştıysa eski kısmı özetle. Aksi halde aynen döndür."""
     if not history.needs_compression(messages, threshold_chars=threshold_chars):
@@ -96,7 +100,14 @@ async def compress(
     anchor, old, recent = messages[:anchor_len], messages[anchor_len:cut], messages[cut:]
     if not old:
         return messages
-    trace = history.transcript(old, limit=TRACE_CHARS, message_chars=trace_message_chars(old))
+    source_messages, provenance = await _original_messages(
+        old, recent, original_source, original_scope
+    )
+    trace = history.transcript(
+        source_messages, limit=TRACE_CHARS, message_chars=trace_message_chars(source_messages)
+    )
+    if provenance:
+        trace = f"{provenance}\n{trace}"
     if not trace.strip():
         return messages
 
@@ -107,7 +118,7 @@ async def compress(
     # `harness_note`: bu bir kullanıcı görevi DEĞİL. Eksikken "devam et" sonrası
     # `task_effect` özet metnini en son gerçek görev sanıyordu (A1-03).
     ozet = Message("user", f"{history.CONVERSATION_SUMMARY_PREFIX}\n{summary}", harness_note=True)
-    return [*anchor, ozet, *recent]
+    return [*anchor, ozet, *_pinned_messages(old, pinned_call_ids), *recent]
 
 
 async def compact_in_turn(
@@ -116,6 +127,9 @@ async def compact_in_turn(
     config: Config,
     publisher: EventPublisher | None = None,
     threshold_chars: int,
+    original_source: OriginalTraceReader | None = None,
+    original_scope: OriginalTraceScope | None = None,
+    pinned_call_ids: frozenset[str] = frozenset(),
 ) -> list[Message]:
     """Tur SÜRERKEN bağlamı eşiğin altına indir: önce eski çıktılar, sonra özet.
 
@@ -126,7 +140,9 @@ async def compact_in_turn(
     """
     if not history.needs_compression(messages, threshold_chars=threshold_chars):
         return messages
-    temiz = history.clear_old_tool_outputs(messages, threshold_chars)
+    temiz = history.clear_old_tool_outputs(
+        messages, threshold_chars, pinned_call_ids=pinned_call_ids
+    )
     if not history.needs_compression(temiz, threshold_chars=threshold_chars):
         return temiz
     anchor_len = history.task_anchor_length(temiz)
@@ -134,15 +150,89 @@ async def compact_in_turn(
     if cut <= anchor_len:
         return temiz
     anchor, old, recent = temiz[:anchor_len], temiz[anchor_len:cut], temiz[cut:]
-    trace = history.transcript(old, limit=TRACE_CHARS, message_chars=trace_message_chars(old))
+    source_messages, provenance = await _original_messages(
+        old, recent, original_source, original_scope
+    )
+    trace = history.transcript(
+        source_messages, limit=TRACE_CHARS, message_chars=trace_message_chars(source_messages)
+    )
+    if provenance:
+        trace = f"{provenance}\n{trace}"
     if not trace.strip():
         return temiz
     summary = await _summarize(trace, config, publisher)
     if not summary:
         return temiz
-    summary = _with_user_rules(summary, old)
+    summary = _with_user_rules(summary, [*old, *source_messages])
     ozet = Message("user", f"{history.STEPS_SUMMARY_PREFIX}\n{summary}", harness_note=True)
-    return [*anchor, ozet, *recent]
+    retained = _pinned_messages(old, pinned_call_ids)
+    return [*anchor, ozet, *retained, *recent]
+
+
+def _pinned_messages(messages: list[Message], identities: frozenset[str]) -> list[Message]:
+    """Seçili kanıtın çağrı/sonuç çiftini sınırlı tut; ikinci iz deposu kurma."""
+    from dataclasses import replace
+
+    retained: list[Message] = []
+    for message in messages:
+        if message.role == "assistant":
+            calls = tuple(
+                replace(call, arguments=history._stub_arguments(call.arguments))
+                for call in message.tool_calls
+                if call.id in identities
+            )
+            if calls:
+                retained.append(replace(message, content="", tool_calls=calls))
+        elif message.role == "tool" and message.tool_call_id in identities:
+            retained.append(history.pin_tool_output(message))
+    return retained
+
+
+async def _original_messages(
+    old: list[Message],
+    recent: list[Message],
+    source: OriginalTraceReader | None,
+    scope: OriginalTraceScope | None,
+) -> tuple[list[Message], str]:
+    """Doğrulanmış kaynağı gerçekten oku; eksik iz yerine özeti özgün diye sunma."""
+    if source is None and scope is None:
+        return old, ""
+    status = "invalid_scope"
+    if source is not None and scope is not None and scope.is_valid():
+        try:
+            result = await source.read_original(scope)
+            status = result.status
+            originals = list(result.messages)
+            if (
+                result.is_usable()
+                and result.scope == scope
+                and _matches_original_scope(originals, old, recent, scope)
+            ):
+                return originals, "[kaynak: maskelenmiş özgün segment; iz örneklenebilir]"
+            if status == "redacted_original":
+                status = "incomplete"
+        except (OSError, ValueError) as error:
+            status = "unavailable"
+            _LOG.warning("özgün iz kaynağı okunamadı", extra={"hata": type(error).__name__})
+    _LOG.info("özgün iz kullanılamadı; sıkıştırılmış geçmiş kullanılıyor", extra={"durum": status})
+    return old, f"[kaynak: sıkıştırılmış geçmiş; özgün iz kullanılamadı ({status})]"
+
+
+def _matches_original_scope(
+    originals: list[Message],
+    old: list[Message],
+    recent: list[Message],
+    scope: OriginalTraceScope,
+) -> bool:
+    """Kaynak bütçeyi aşamaz, özet içeremez veya son araç grubunu yeniden özetleyemez."""
+    if not originals or history.total_chars(originals) > scope.max_chars:
+        return False
+    if any(message.harness_note or history.is_summary_message(message) for message in originals):
+        return False
+    original_calls = {call.id for message in originals for call in message.tool_calls}
+    old_calls = {call.id for message in old for call in message.tool_calls}
+    recent_calls = {call.id for message in recent for call in message.tool_calls}
+    return old_calls <= original_calls and not original_calls & recent_calls
 
 
 def _with_user_rules(summary: str, old: list[Message]) -> str:

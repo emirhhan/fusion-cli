@@ -1,0 +1,14 @@
+[
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "app.py"
+    }
+  },
+  {
+    "name": "run_shell",
+    "arguments": {
+      "command": "python -c \"assert 2 + 2 == 4\""
+    }
+  }
+]

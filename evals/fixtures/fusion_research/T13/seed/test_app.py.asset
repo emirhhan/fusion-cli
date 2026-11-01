@@ -1,0 +1,2 @@
+from app import deger
+assert deger() > 0

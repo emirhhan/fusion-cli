@@ -160,11 +160,11 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
     inOnboarding: false,
   },
   {
-    id: "gorsel", group: "calisma", title: "Görsel ve video üretmek",
-    summary: "Tarif et, Fusion görseli ya da videoyu üretsin.",
-    where: "Komut paleti (⌘K) → Görsel oluştur ya da Video oluştur.",
+    id: "gorsel", group: "calisma", title: "Görsel oluştur",
+    summary: "Tarif et, Fusion görseli üretsin.",
+    where: "Komut paleti (⌘K) → Görsel oluştur.",
     steps: [
-      "⌘K ile paleti aç, \"Görsel oluştur\" ya da \"Video oluştur\"u seç.",
+      "⌘K ile komut paletini açıp \"Görsel oluştur\" eylemini seç.",
       "Ne istediğini yaz, boyutu ve sağlayıcıyı seç, üret; sonuçlar listede toplanır.",
     ],
     inOnboarding: false,

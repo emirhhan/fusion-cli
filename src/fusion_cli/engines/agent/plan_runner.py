@@ -16,7 +16,14 @@ from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
 from ...core.clock import SystemClock
 from ...core.effects import EffectPhase, ExternalEffectIntent
+from ...core.errors import WorkspaceConflictError
+from ...core.event_scope import TurnPublisher
 from ...core.events import (
+    AttemptExperimentFinished,
+    CandidateFinished,
+    CandidatePromoted,
+    CandidateSelected,
+    CandidateStarted,
     ExecutionCheckpointSaved,
     ExecutionCompleted,
     ExecutionPaused,
@@ -27,8 +34,9 @@ from ...core.events import (
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
+    WorkspaceConflictDetected,
 )
-from ...core.evidence import EvidenceStatus
+from ...core.evidence import CriterionEvidence, EvidenceStatus, summarize_criteria
 from ...core.execution_plan import (
     ExecutionPlan,
     PlanPhase,
@@ -49,10 +57,17 @@ from ...core.types import Message
 from ...core.verification import VerificationResult
 from ...core.workspace import IsolatedWorkspace, isolate
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
-from . import review
-from .attempts import Attempt, choose_attempt
+from . import evidence_handoff, review
+from .attempts import (
+    Attempt,
+    AttemptExperiment,
+    CandidatePublisher,
+    ExperimentPublisher,
+    InvocationBudget,
+    choose_attempt,
+)
 from .effect_checkpoint import PlanEffectRecorder, settle_observed
-from .execution_policy import ExecutionPolicy
+from .execution_policy import ExecutionPolicy, policy_for
 from .gate_cache import GateCache, GateScope
 from .plan_checkpoint import (
     artifact_changed,
@@ -76,6 +91,7 @@ from .plan_phase_repair import repair_discovery_phase
 from .progress import progress_fingerprint
 from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
 from .replan import merge_replanned_plan
+from .routine_observer import RoutineStart, begin_routine, stage_routine
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
 from .tamper_check import collect_test_tampering
 from .turn_report import TurnReport, build_turn_report
@@ -112,6 +128,10 @@ def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext
 # yazdım" sanıp atlamamalı. Not, `reflexion.CHANGE_LOG_NOTE` ile aynı deseni
 # izler: harness'ın kendi gözlemidir, model beyanı değildir.
 _ROLLBACK_NOTE = "[Fusion] Şu değişiklikler geri alındı: {paths}"
+_ROLLBACK_CONFLICT_NOTE = (
+    "Geri alma çakışması: {paths}. Mevcut dosyalar ve ilk kayıtları korundu; "
+    "dosyaları incelemeden yeniden yazma."
+)
 
 
 def _rollback_note(paths: tuple[str, ...]) -> Message:
@@ -145,6 +165,20 @@ _BOLUNEMEDI_SORUSU = (
 
 
 #: Salt-okunur inceleme araçları: bunların kanıtını Fusion kendi gözlemiyle verebilir.
+_EXPERIMENT_BLOCKED_TOOLS = frozenset(
+    {
+        "council",
+        "ask_teacher",
+        "delegate",
+        "spawn_agent",
+        "spawn_agents",
+        "invoke_agent",
+        "generate_image",
+        "view_image",
+        "make_tool",
+    }
+)
+
 _INSPECTION_TOOLS = frozenset(
     {"list_dir", "list_files", "read_file", "view_file", "glob", "grep_search", "search_code"}
 )
@@ -256,6 +290,33 @@ class _PlanRun:
     self_review: bool = False
     review_calls: int = 0
     quality_feedback: str = ""
+    final_gate: VerificationResult | None = None
+    experiment: AttemptExperiment | None = None
+    routine_start: RoutineStart | None = None
+    experiment_publisher: ExperimentPublisher | None = None
+
+    def experiment_result(self, result: AgentOutcome) -> AgentOutcome:
+        """Planlama ve doğrulama dahil bütün normal deney çıkışlarını tam bir kez kapat."""
+        if self.experiment is None:
+            return result
+        assert self.experiment_publisher is not None
+        report = result.completion_report or self._turn_report()
+        required = tuple(name for step in self.current.steps for name in step.success_criteria)
+        unavailable = not result.ok and self.experiment_publisher.is_unavailable
+        self.deps.publisher.publish(
+            AttemptExperimentFinished(
+                self.experiment.task_id,
+                self.experiment.repeat,
+                self.experiment.arm,
+                result.ok,
+                report.criteria,
+                required,
+                len(self.experiment_publisher.call_ids),
+                self.experiment.total_calls,
+                measurement="unavailable" if unavailable else "measured",
+            )
+        )
+        return result
 
     def charge(self, envelope: BudgetEnvelope, calls: int, scope: str = "") -> bool:
         """Reddedilen harcama bile gerçekte yapıldı; checkpoint'te kaybolmaz."""
@@ -299,6 +360,25 @@ class _PlanRun:
         butce = getattr(self.deps, "budget", None)
         if butce is not None:
             butce.forget_calls_touching(paths)
+
+    def restore_changes(self, changes: ChangeSet) -> tuple[Path, ...]:
+        """Dosyaları güvenle geri al; çakışmayı mevcut olay/geçmiş yoluyla bildir."""
+        restored = StepRollback(changes).discard()
+        if changes.conflicts:
+            self.deps.publisher.publish(
+                WorkspaceConflictDetected(
+                    self.current.plan_id, "", "rollback", len(changes.conflicts)
+                )
+            )
+            paths = _display_paths(
+                self.deps.tool_context.root, tuple(conflict.path for conflict in changes.conflicts)
+            )
+            note = _ROLLBACK_CONFLICT_NOTE.format(paths=", ".join(paths))
+            self.deps.publisher.publish(StatusChanged(note))
+            self.messages.append(Message("user", f"[Fusion] {note}", harness_note=True))
+            if changes is not self.deps.tool_context.changes:
+                self.deps.tool_context.changes.absorb(changes)
+        return restored
 
     def progress(self) -> None:
         """Doğrulama kapısı çalıştı: idle saatini tazele.
@@ -362,9 +442,8 @@ class _PlanRun:
 
         `engines/agent/loop.py::_apply_turn_report` ile aynı kaynağı kullanır:
         modelin "hiçbir dosya değiştirmedim" demesi değil, GERÇEKTEN dokunulan
-        dosyalar (A12). Kapı burada verilmez: `finish`/`pause` metni zaten kendi
-        uyarılarını (`warnings`, duraklama nedeni) üretir; ikinci bir uyarı bloğu
-        açmak aynı bulguyu iki kez göstermek olurdu.
+        dosyalar (A12). Son kabul kapısı ve mevcut kriter kimlikleri istemciye de
+        taşınır; modelin tamamlanma beyanı ölçülen sonucu yükseltemez.
         """
         from ...tools.files import display_path
 
@@ -373,13 +452,43 @@ class _PlanRun:
             for path in self.deps.tool_context.changes.paths
         )
         tool_uses = tuple(use for item in self.outcomes for use in item.tool_uses)
-        return build_turn_report(
+        report = build_turn_report(
             changed_paths,
             tool_uses,
-            gate=None,
+            gate=self.final_gate,
             current_jobs=current_jobs,
             test_tamper=collect_test_tampering(self.deps, tool_uses, self.task),
         )
+        criteria: list[CriterionEvidence] = []
+        for step in self.current.steps:
+            saved = self.evidence.get(step.step_id)
+            for criterion_id in step.success_criteria:
+                checked = (
+                    tuple(item for item in saved.criteria if item.criterion_id == criterion_id)
+                    if saved
+                    else ()
+                )
+                if self.final_gate is not None:
+                    final = tuple(
+                        item
+                        for item in self.final_gate.evidence
+                        if item.criterion_id == criterion_id and item.step_id in {"", step.step_id}
+                    )
+                    if final:
+                        checked = final
+                if checked:
+                    criteria.extend(replace(item, step_id=step.step_id) for item in checked)
+                else:
+                    criteria.append(
+                        CriterionEvidence(
+                            criterion_id,
+                            VerificationCheckKind.TOOL,
+                            EvidenceStatus.UNVERIFIED,
+                            "başarı koşulunun ölçülmüş kanıtı yok",
+                            step_id=step.step_id,
+                        )
+                    )
+        return replace(report, criteria=summarize_criteria(criteria))
 
     def outcome(
         self,
@@ -441,6 +550,8 @@ class _PlanRun:
         """Çağrıdan önce zarfı sınırla; yürütme başlamadan checkpoint al."""
         envelope = BudgetEnvelope.RECOVERY if recovery else BudgetEnvelope.PER_STEP
         remaining = self.remaining(envelope, step.step_id)
+        if self.experiment is not None:
+            remaining = min(remaining, self._experiment_budget().remaining)
         if remaining <= 0:
             return None
         running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
@@ -517,7 +628,7 @@ class _PlanRun:
                 history=self.messages,
             )
         except BaseException:
-            deps.tool_context.changes.restore()
+            self.restore_changes(deps.tool_context.changes)
             raise
         finally:
             if deps.tool_context.browser.is_open:
@@ -596,96 +707,242 @@ class _PlanRun:
         """
         if step.retry_safety is RetrySafety.NEVER or self.deps.tool_context.extra_roots:
             return 1
+        if self.experiment is not None:
+            return 2 if self.experiment.arm == "candidates" else 1
         kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
         return 2 if kalan >= 2 else 1
 
-    async def run_candidates(self, step: PlanStep, slots: int) -> AgentOutcome | None:
-        """Adımı izole kopyalarda birkaç kez dene, kazananı KANITLA seç.
+    def _experiment_budget(self) -> InvocationBudget:
+        budget = self.deps.invocation_budget
+        assert budget is not None
+        return budget
 
-        Adaylar asıl projeyi görmez; yalnız kazananın değişikliği uygulanır. Hiçbir
-        aday doğrulanmış kanıt üretemezse kazanan yoktur ve akış normal (tek turlu)
-        yola düşer: yanlış adayı uygulamak, hiç denememekten kötüdür.
-        """
-        adaylar: list[tuple[Attempt, IsolatedWorkspace, AgentOutcome]] = []
-        with ExitStack() as stack:
-            for sira in range(slots):
-                kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
-                if kalan <= 0:
-                    break
-                alan = stack.enter_context(
-                    isolate(self.deps.tool_context.root, name=f"{step.step_id}-{sira}")
+    def _candidate_limit(self, ordinal: int) -> int:
+        if self.experiment is None:
+            return self.remaining(BudgetEnvelope.ATTEMPTS)
+        return min(self.experiment.slot_limits[ordinal - 1], self._experiment_budget().remaining)
+
+    def _candidate_started(
+        self, step: PlanStep, candidate_id: str, ordinal: int, limit: int
+    ) -> None:
+        experiment = self.experiment
+        spec = experiment.requested_spec if experiment else getattr(self.deps.config, "agent", None)
+        self.deps.publisher.publish(
+            CandidateStarted(
+                self.current.plan_id,
+                step.step_id,
+                ordinal,
+                spec.model if spec else "",
+                getattr(self.deps.execution, "edit_format", None),
+                limit,
+                experiment.arm if experiment else "production",
+                experiment.task_id if experiment else "",
+                experiment.repeat if experiment else 1,
+                candidate_id=candidate_id,
+            )
+        )
+
+    async def _candidate_task_evidence(
+        self,
+        step: PlanStep,
+        outcome: AgentOutcome,
+        deps: AgentDeps,
+        checked: StepVerificationResult,
+    ) -> VerificationResult | None:
+        """Bağlı adım ve dış köke bağlı verifier varsa tam aday sonucu uydurma."""
+        if (
+            self.experiment is None
+            or len(self.current.steps) != 1
+            or self.uncovered
+            or deps.verifier is not None
+        ):
+            return None
+        completed = replace(step, status=StepStatus.COMPLETED)
+        plan = replace(self.current, steps=(completed,))
+        acceptance = await verify_plan_acceptance(plan, deps, evidence=checked.criteria)
+        from ...tools.files import display_path
+        from ...tools.job_current import snapshot_current_jobs
+
+        uses = outcome.tool_uses
+        jobs = await asyncio.to_thread(snapshot_current_jobs, deps.tool_context.root, uses)
+        report = build_turn_report(
+            tuple(
+                display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
+            ),
+            uses,
+            gate=acceptance,
+            current_jobs=jobs,
+            test_tamper=collect_test_tampering(deps, uses, self.task),
+        )
+        return replace(acceptance, ok=outcome.ok and acceptance.ok and not report.blocks_success)
+
+    async def _run_candidate(
+        self, step: PlanStep, area: IsolatedWorkspace, ordinal: int, limit: int
+    ) -> tuple[Attempt, AgentOutcome]:
+        prefix = f"{self.experiment.task_id}:{self.experiment.repeat}:" if self.experiment else ""
+        candidate_id = f"{prefix}{self.current.plan_id}:{step.step_id}:{ordinal}"
+        publisher = CandidatePublisher(self.deps.publisher, candidate_id)
+        context = _step_context(self.deps.tool_context, area.root)
+        deps = replace(self.deps, tool_context=context, publisher=publisher)
+        if self.experiment is not None:
+            deps = replace(
+                deps, invocation_budget=InvocationBudget(limit, parent=self._experiment_budget())
+            )
+        running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
+        deps = step_deps(deps, running, limit, observe=False)
+        if self.experiment is not None:
+            assert deps.execution is not None
+            deps = replace(deps, execution=replace(deps.execution, escalation=0))
+        self._candidate_started(step, candidate_id, ordinal, limit)
+        try:
+            outcome = await self.agent(
+                step_prompt(running, self.evidence, workspace=workspace_block(context)),
+                deps,
+                depth=1,
+                self_review=False,
+                verify=False,
+                internal=True,
+                history=self.messages,
+            )
+        finally:
+            if context.browser.is_open:
+                await context.browser.close()
+        calls = len(publisher.call_ids) if self.experiment else outcome.model_calls_made
+        self.attempt_model_calls += calls
+        within_budget = self.charge(BudgetEnvelope.ATTEMPTS, calls)
+        if not within_budget and self.experiment is None:
+            outcome = replace(outcome, ok=False)
+        checked = await verify_step(running, outcome, deps, self.baseline)
+        whole = await self._candidate_task_evidence(running, outcome, deps, checked)
+        self._publish_candidate_evidence(
+            publisher, running, candidate_id, ordinal, outcome, checked, whole
+        )
+        return Attempt(candidate_id, outcome.ok, checked.criteria, calls), outcome
+
+    def _publish_candidate_evidence(
+        self,
+        publisher: CandidatePublisher,
+        step: PlanStep,
+        candidate_id: str,
+        ordinal: int,
+        outcome: AgentOutcome,
+        checked: StepVerificationResult,
+        whole: VerificationResult | None,
+    ) -> None:
+        """Adım ve bağımsız tam-görev snapshot'larını açık kapsamla ayrı kaydet."""
+        publisher.publish(
+            CandidateFinished(
+                self.current.plan_id,
+                step.step_id,
+                ordinal,
+                outcome.ok and checked.ok,
+                checked.criteria,
+                step.success_criteria,
+                tuple(publisher.call_ids),
+                candidate_id=candidate_id,
+                scope="step",
+            )
+        )
+        if whole is not None:
+            publisher.publish(
+                CandidateFinished(
+                    self.current.plan_id,
+                    step.step_id,
+                    ordinal,
+                    whole.ok,
+                    whole.evidence,
+                    step.success_criteria,
+                    tuple(publisher.call_ids),
+                    candidate_id=candidate_id,
+                    scope="task",
                 )
-                aday_baglam = _step_context(self.deps.tool_context, alan.root)
-                aday_deps = replace(self.deps, tool_context=aday_baglam)
-                running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
-                try:
-                    outcome = await self.agent(
-                        step_prompt(
-                            running,
-                            self.evidence,
-                            workspace=workspace_block(aday_baglam),
-                        ),
-                        step_deps(
-                            aday_deps,
-                            running,
-                            kalan,
-                            observe=False,
-                        ),
-                        depth=1,
-                        self_review=False,
-                        verify=False,
-                        internal=True,
-                        history=self.messages,
-                    )
-                finally:
-                    if aday_baglam.browser.is_open:
-                        await aday_baglam.browser.close()
-                self.attempt_model_calls += outcome.model_calls_made
-                if not self.charge(BudgetEnvelope.ATTEMPTS, outcome.model_calls_made):
-                    break
-                checked = await verify_step(running, outcome, aday_deps, self.baseline)
-                adaylar.append(
-                    (
-                        Attempt(
-                            name=f"{step.step_id}-{sira}",
-                            ok=outcome.ok,
-                            criteria=checked.criteria,
-                            model_calls=outcome.model_calls_made,
-                        ),
-                        alan,
-                        outcome,
-                    )
+            )
+
+    async def _promote_candidate(
+        self, step: PlanStep, area: IsolatedWorkspace, outcome: AgentOutcome, candidate_id: str
+    ) -> AgentOutcome | None:
+        changes = ChangeSet()
+        try:
+            changed = area.apply(changes=changes)
+        except WorkspaceConflictError:
+            self.deps.publisher.publish(
+                WorkspaceConflictDetected(self.current.plan_id, step.step_id, "source-promotion", 1)
+            )
+            self.restore_changes(changes)
+            self.deps.publisher.publish(
+                CandidatePromoted(
+                    self.current.plan_id,
+                    step.step_id,
+                    False,
+                    (),
+                    step.success_criteria,
+                    candidate_id=candidate_id,
                 )
-            kazanan = choose_attempt([aday for aday, _, _ in adaylar])
-            if kazanan is None:
-                return None
-            secilen = next(item for item in adaylar if item[0].name == kazanan.name)
-            terfi_kaydi = ChangeSet()
-            try:
-                degisenler = secilen[1].apply(changes=terfi_kaydi)
-            except BaseException:
-                # Yarıda kalan uygulama asıl projede kısmi dosya bırakmasın (A3-18).
-                terfi_kaydi.restore()
-                raise
-            uygulanan = {self.deps.tool_context.root / goreli for goreli in degisenler}
-            self.deps.tool_context.touched.update(uygulanan)
-            tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
-            checked = await verify_step(tamam, secilen[2], self.deps, self.baseline)
-            if not checked.ok:
-                terfi_kaydi.restore()
-                self.deps.tool_context.touched.difference_update(uygulanan)
-                return None
-            self.deps.tool_context.changes.absorb(terfi_kaydi)
-            # Model çağrıları yukarıda bütün adaylar için ayrıca sayıldı. Kazananın
-            # araç ve mutasyon kanıtlarını korurken çağrısını iki kez sayma.
-            self.outcomes.append(replace(secilen[2], model_calls_made=0))
-            self.messages = secilen[2].messages
-        self.current = replace_step(self.current, tamam)
+            )
+            return await self.pause(
+                "Aday terfisi sırasında kaynak değişti; mevcut dosyalar korundu."
+            )
+        except BaseException:
+            self.restore_changes(changes)
+            raise
+        applied = {self.deps.tool_context.root / relative for relative in changed}
+        self.deps.tool_context.touched.update(applied)
+        completed = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+        checked = await verify_step(completed, outcome, self.deps, self.baseline)
+        self.deps.publisher.publish(
+            CandidatePromoted(
+                self.current.plan_id,
+                step.step_id,
+                checked.ok,
+                checked.criteria,
+                step.success_criteria,
+                candidate_id=candidate_id,
+            )
+        )
+        if not checked.ok:
+            self.restore_changes(changes)
+            self.deps.tool_context.touched.difference_update(applied)
+            if changes.conflicts:
+                return await self.pause(
+                    "Aday doğrulaması sonrası geri alma çakıştı; dosyalar korundu."
+                )
+            return None
+        self.deps.tool_context.changes.absorb(changes)
+        self.outcomes.append(replace(outcome, model_calls_made=0))
+        self.messages = outcome.messages
+        self.current = replace_step(self.current, completed)
         self.evidence[step.step_id] = await capture_evidence(
-            tamam, secilen[2], checked, self.deps.tool_context.root
+            completed, outcome, checked, self.deps.tool_context.root
         )
         await self.save()
         return None
+
+    async def run_candidates(self, step: PlanStep, slots: int) -> AgentOutcome | None:
+        """Mevcut sıralı iki-slot yolunu kullan; deneyde her slotun hakkı sabittir."""
+        candidates: list[tuple[Attempt, IsolatedWorkspace, AgentOutcome]] = []
+        with ExitStack() as stack:
+            for ordinal in range(1, slots + 1):
+                limit = self._candidate_limit(ordinal)
+                if limit <= 0:
+                    break
+                area = stack.enter_context(
+                    isolate(self.deps.tool_context.root, name=f"{step.step_id}-{ordinal}")
+                )
+                attempt, outcome = await self._run_candidate(step, area, ordinal, limit)
+                candidates.append((attempt, area, outcome))
+            winner = choose_attempt([attempt for attempt, _, _ in candidates])
+            self.deps.publisher.publish(
+                CandidateSelected(
+                    self.current.plan_id,
+                    step.step_id,
+                    winner.name if winner else None,
+                    "" if winner else "Doğrulanmış seçilebilir aday yok.",
+                )
+            )
+            if winner is None:
+                return None
+            selected = next(item for item in candidates if item[0].name == winner.name)
+            return await self._promote_candidate(step, selected[1], selected[2], winner.name)
 
     async def _skip_empty_discovery(self, step: PlanStep) -> None:
         """Boş dizindeki keşif adımını Fusion'ın kendi gözlemiyle tamamla."""
@@ -793,6 +1050,8 @@ class _PlanRun:
         slots = self._attempt_slots(step)
         if slots > 1 and step.step_id not in self.repair_ids and not step.attempts:
             secildi = await self.run_candidates(step, slots)
+            if secildi is not None:
+                return secildi
             if (
                 secildi is None
                 and self.current.steps
@@ -853,7 +1112,7 @@ class _PlanRun:
             try:
                 verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)
             except BaseException:
-                self.forget_rolled_back(geri_alma.discard())
+                self.forget_rolled_back(self.restore_changes(geri_alma.changes))
                 raise
             if verification.ok:
                 self.deps.tool_context.changes.absorb(turn_deps.tool_context.changes)
@@ -872,8 +1131,14 @@ class _PlanRun:
             # Geri alınan yazmalar tekrar kaydından da düşmelidir: aksi halde model
             # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
             # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
-            rolled_back = geri_alma.discard()
+            rolled_back = self.restore_changes(geri_alma.changes)
             self.forget_rolled_back(rolled_back)
+            if self.deps.tool_context.changes.conflicts:
+                conflicts = _display_paths(
+                    self.deps.tool_context.root,
+                    tuple(conflict.path for conflict in self.deps.tool_context.changes.conflicts),
+                )
+                return await self.pause(_ROLLBACK_CONFLICT_NOTE.format(paths=", ".join(conflicts)))
             gorunen_yollar: tuple[str, ...] = ()
             if rolled_back:
                 # Geri alınan dosya artık ESKİ hâlinde: "zaten okudum" bilgisi geçersiz.
@@ -1206,6 +1471,9 @@ class _PlanRun:
                 candidate.messages,
                 config=self.deps.config,
                 publisher=self.deps.publisher,
+                diff=await asyncio.to_thread(evidence_handoff.current_diff, self.deps),
+                criteria=self.final_gate.evidence if self.final_gate else (),
+                failures=self.final_gate.findings if self.final_gate else (),
             )
             self.deps.publisher.publish(
                 SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
@@ -1245,26 +1513,40 @@ class _PlanRun:
             self.condensations += correction.condensations
             allowed = self.charge(BudgetEnvelope.RECOVERY, correction.model_calls_made, scope)
             if not allowed or not correction.ok:
-                self.forget_rolled_back(rollback.discard())
+                self.forget_rolled_back(self.restore_changes(rollback.changes))
                 return await self.pause("Öz denetim düzeltmesi tamamlanamadı.", budget=not allowed)
             self.charge(BudgetEnvelope.FINAL, 1)
             self.final_calls += 1
             # Persist actual correction and gate charges before a cancellable await.
             await self.save()
             # Previously captured evidence may describe files changed by correction.
-            acceptance = await verify_plan_acceptance(self.current, self.deps)
+            acceptance = await verify_plan_acceptance(
+                self.current, self.deps, evidence=await self._current_final_evidence()
+            )
+            self.final_gate = acceptance
             self.progress()
             if not acceptance.ok:
-                self.forget_rolled_back(rollback.discard())
+                self.forget_rolled_back(self.restore_changes(rollback.changes))
                 detail = "; ".join(acceptance.findings) or acceptance.summary
                 return await self.pause(f"Öz denetim sonrası final doğrulama başarısız: {detail}")
         except BaseException:
-            self.forget_rolled_back(rollback.discard())
+            self.forget_rolled_back(self.restore_changes(rollback.changes))
             raise
         self.deps.tool_context.changes.absorb(correction_deps.tool_context.changes)
         self.deps.tool_context.touched.update(correction_deps.tool_context.touched)
         self.quality_feedback = ""
         return acceptance
+
+    async def _current_final_evidence(self) -> tuple[CriterionEvidence, ...]:
+        """Güncel artifact kapsamındaki mevcut kriter kanıtlarını kullan."""
+        return tuple(
+            [
+                criterion
+                for saved in self.evidence.values()
+                if not await artifact_changed(saved, self.deps.tool_context.root)
+                for criterion in saved.criteria
+            ]
+        )
 
     async def _current_delivery_report(self) -> TurnReport:
         """Son onarım ve aday terfisinden sonra yalnız final kök kapsamını ölç."""
@@ -1289,7 +1571,7 @@ class _PlanRun:
             for ad in self.uncovered
         )
         for saved in self.evidence.values():
-            for criterion in saved.criteria:
+            for criterion in summarize_criteria(saved.criteria):
                 if criterion.status is not EvidenceStatus.PASSED:
                     warnings.append(
                         f"Başarı koşulu doğrulanamadı: {saved.step_id} / {criterion.criterion_id}."
@@ -1313,8 +1595,17 @@ class _PlanRun:
             return await self.pause(
                 "İş teslim kanıtı final kapsamını doğrulamadı; plan duraklatıldı.", report=report
             )
+        if self.deps.lesson_state is not None:
+            self.deps.lesson_state.verification = acceptance
         self.current = replace(self.current, status=PlanStatus.COMPLETED)
         await self.save()
+        await stage_routine(
+            self.routine_start,
+            self.current,
+            self.deps,
+            acceptance=acceptance,
+            evidence=tuple(self.evidence.values()),
+        )
         self.deps.publisher.publish(
             ExecutionCompleted(
                 plan_id=self.current.plan_id,
@@ -1348,15 +1639,9 @@ class _PlanRun:
                     "Workflow final doğrulama bütçesi tükendi; görev duraklatıldı.", budget=True
                 )
             self.final_calls += 1
-            evidence = tuple(
-                [
-                    criterion
-                    for saved in self.evidence.values()
-                    if not await artifact_changed(saved, self.deps.tool_context.root)
-                    for criterion in saved.criteria
-                ]
-            )
+            evidence = await self._current_final_evidence()
             acceptance = await verify_plan_acceptance(self.current, self.deps, evidence=evidence)
+            self.final_gate = acceptance
             self.progress()
             if acceptance.ok:
                 return await self.finish(acceptance)
@@ -1378,6 +1663,7 @@ async def run_execution_plan(
     self_review: bool | None = None,
     uncovered: tuple[str, ...] = (),
     conversation: list[Message] | None = None,
+    experiment: AttemptExperiment | None = None,
 ) -> AgentOutcome:
     """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası.
 
@@ -1388,6 +1674,34 @@ async def run_execution_plan(
     biten KÖK konuşmadır. Verilirse plan üretimi ve HER adım bu geçmişi görür
     (bkz. `_PlanRun.messages`); `None` ise bugünkü davranış korunur.
     """
+    experiment_publisher = None
+    if experiment is not None:
+        if self_review:
+            raise ValueError("Deney doğrudan öz denetim model çağrısına izin vermez.")
+        _validate_experiment(deps, experiment)
+        invocation_budget = InvocationBudget(
+            experiment.total_calls, requested_spec=experiment.requested_spec
+        )
+        deps = replace(
+            deps,
+            invocation_budget=invocation_budget,
+            denied_tools=deps.denied_tools | _EXPERIMENT_BLOCKED_TOOLS,
+            execution=deps.execution or policy_for(deps.config, experiment.requested_spec, task),
+        )
+        if not isinstance(deps.publisher, TurnPublisher):
+            attempt_id = deps.attempt_id or deps.trace_id_factory()
+            deps = replace(
+                deps,
+                attempt_id=attempt_id,
+                publisher=TurnPublisher(
+                    deps.publisher,
+                    session_id=deps.conversation_id or None,
+                    attempt_id=attempt_id,
+                    id_factory=deps.trace_id_factory,
+                ),
+            )
+        experiment_publisher = ExperimentPublisher(deps.publisher)
+        deps = replace(deps, publisher=experiment_publisher)
     limits = workflow_budget(deps)
     checkpoint = None
     store = deps.checkpoint_store
@@ -1421,6 +1735,8 @@ async def run_execution_plan(
         limits,
         BudgetLedger(limits),
         messages=list(conversation) if conversation is not None else [],
+        experiment=experiment,
+        experiment_publisher=experiment_publisher,
     )
     run.self_review = (
         getattr(getattr(getattr(deps, "config", None), "runtime", None), "self_review", False)
@@ -1447,7 +1763,7 @@ async def run_execution_plan(
             # Yalnız BİÇİM yüzünden üretilemediyse (kota/kimlik/bütçe değil) çağıran
             # düz döngüye düşebilir.
             failed.plan_unavailable = generated.parse_failed and allowed
-            return failed
+            return run.experiment_result(failed)
         # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
         current = replace(generated.plan, task=task)
         run.uncovered = generated.missing or uncovered
@@ -1455,7 +1771,9 @@ async def run_execution_plan(
         run.uncovered = uncovered
     validation = validate_plan(current)
     if not validation.ok:
-        return run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)
+        return run.experiment_result(
+            run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)
+        )
     deps.publisher.publish(
         ExecutionPlanCreated(plan_id=current.plan_id, total_steps=len(current.steps))
     )
@@ -1479,6 +1797,7 @@ async def run_execution_plan(
         run.grant_extra_budget(current)
     run.current = replace(current, status=PlanStatus.RUNNING)
     await run.save()
+    run.routine_start = await begin_routine(run.current, deps)
     # Plan BAŞLAMADAN önceki kapı bulguları planın suçu değildir; yarım kurulmuş
     # projede kapı her adımda düşer ve hiçbir adım geçemez. Ölçüldü: sıfırdan
     # Godot projesi kuran plan "no main scene defined" ile her adımda düştü. Bir
@@ -1496,7 +1815,7 @@ async def run_execution_plan(
                     (baseline.summary,) if baseline.summary else ()
                 )
     run.progress()
-    return await run.run()
+    return run.experiment_result(await run.run())
 
 
 def _pause_text(
@@ -1532,3 +1851,30 @@ def _pause_text(
     if rolled_back:
         parcalar.append("Geri alınan değişiklikler: " + ", ".join(rolled_back))
     return " ".join(parca for parca in parcalar if parca)
+
+
+def _validate_experiment(deps: AgentDeps, experiment: AttemptExperiment) -> None:
+    """Ölçüm koluna öğretmen/yedek/override ile farklı model sızmasına izin verme."""
+    config = deps.config
+    runtime = config.runtime
+    unsafe = (
+        config.agent != experiment.requested_spec
+        or config.teacher is not None
+        or bool(config.tiers)
+        or not runtime.teacherless
+        or runtime.lessons
+        or runtime.teacher_lesson_sync
+        or runtime.teacher_codex_fallback
+        or runtime.escalate_on_gate_failure
+        or runtime.auto_web_fallback
+        or bool(runtime.escalation_model)
+        or runtime.self_review
+        or runtime.web_verification
+        or runtime.browser_verification
+        or runtime.visual_verification
+        or deps.active_model_override is not None
+    )
+    if unsafe:
+        raise ValueError(
+            "Deney aynı strict model, öğretmensiz ve yükseltmesiz çözülmüş ayar gerektirir."
+        )

@@ -1,3 +1,4 @@
+import { TYPOGRAPHY_TEXT, typographyMessages } from "./typographyFixture";
 import { AgentPanel } from "../src/team/AgentPanel";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -17,7 +18,6 @@ import { Inspector } from "../src/screens/Inspector";
 import { Shell } from "../src/screens/Shell";
 import { MainRail, type MainSection } from "../src/screens/MainRail";
 import { LibraryScreen } from "../src/library/LibraryScreen";
-import { MediaScreen } from "../src/sections/MediaScreen";
 import { ScheduleScreen } from "../src/schedule/ScheduleScreen";
 import { Sidebar } from "../src/screens/Sidebar";
 import { applyTheme, type ThemePreference } from "../src/theme/theme";
@@ -43,7 +43,8 @@ import type { AccountController } from "../src/account/useAccount";
 
 const params = new URLSearchParams(location.search);
 const theme = (params.get("theme") ?? "light") as ThemePreference;
-const state = params.get("state") ?? "conversation";
+const incomingState = params.get("state") ?? "conversation";
+const state = incomingState === "video" ? "image" : incomingState;
 const imageJobsPreview = params.get("imageJobs");
 const inspectorOpen = params.get("inspector") !== "0";
 const inspectorPlacement = params.get("inspectorPlacement") === "bottom" ? "bottom" : "right";
@@ -401,6 +402,13 @@ function historyFixture(): HistoryController {
 }
 
 function Preview() {
+  const isTypographyStreaming = state === "typography" && params.get("streaming") === "1";
+  const [typographyLength, setTypographyLength] = React.useState(isTypographyStreaming ? 180 : TYPOGRAPHY_TEXT.length);
+  React.useEffect(() => {
+    if (!isTypographyStreaming) return;
+    const timer = window.setInterval(() => setTypographyLength((length) => Math.min(length + 80, TYPOGRAPHY_TEXT.length)), 100);
+    return () => window.clearInterval(timer);
+  }, [isTypographyStreaming]);
   const [accountHost, setAccountHost] = React.useState<HTMLDivElement | null>(null);
   const [previewMode, setPreviewMode] = React.useState<"sohbet" | "kod">(params.get("mode") === "chat" ? "sohbet" : "kod");
   const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
@@ -497,7 +505,7 @@ function Preview() {
           : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
         surfaceActive={railSection === "library" || railSection === "scheduled"}
         emptyChat={state === "empty"}
-        composer={managementPage || state === "image" || state === "video" ? undefined : (
+        composer={managementPage || state === "image" ? undefined : (
           <Composer
             workspaceMode={previewMode}
             onWorkspaceModeChange={setPreviewMode}
@@ -519,7 +527,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} onOpenProviders={() => undefined} /> : help ? <HelpScreen onClose={() => undefined} onOpenSettings={() => undefined} surum="0.7.19" /> : settings ? <Settings accountContent={<AccountProfile account={accountPreview} client={workspaceClient} layout="embedded" onOpenProviders={() => undefined} />} client={workspaceClient} initialSection={settingsSection} onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} onOpenProviders={() => undefined} /> : help ? <HelpScreen onClose={() => undefined} onOpenSettings={() => undefined} surum="0.7.19" /> : settings ? <Settings accountContent={<AccountProfile account={accountPreview} client={workspaceClient} layout="embedded" onOpenProviders={() => undefined} />} client={workspaceClient} initialSection={settingsSection} onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" ? <ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onOpenFile={state === "typography" ? () => undefined : undefined} onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "typography" ? typographyMessages(TYPOGRAPHY_TEXT.slice(0, typographyLength), isTypographyStreaming && typographyLength < TYPOGRAPHY_TEXT.length) : state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team" || (isTypographyStreaming && typographyLength < TYPOGRAPHY_TEXT.length)} />}
           {feedback && <FeedbackDialog initial={{ tur: "geri-bildirim" }} loadVersion={async () => "0.7.19"} onClose={() => undefined} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}

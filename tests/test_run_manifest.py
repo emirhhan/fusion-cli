@@ -163,3 +163,42 @@ def test_invalid_viewport_rejected_explicitly(viewports):
             assets=(),
             evidence=FreezeEvidence(),
         )
+
+
+def test_frozen_run_links_eval_identity_and_missing_environment_explicitly():
+    from evals.profiles import RunMetadata
+
+    metadata = RunMetadata(requested_model="local/small", source_digest="d" * 64)
+    record = freeze_run(
+        area(),
+        run_id="html_oyun.curA",
+        variant="A",
+        engine=engine(),
+        brief=b"A",
+        final_brief=True,
+        viewports=((1280, 800),),
+        assets=(),
+        evidence=FreezeEvidence(),
+        evaluation=metadata,
+    )
+    assert record.evaluation == metadata
+    assert "evaluation.environment_digest" in record.missing_inputs
+    assert "evaluation.corpus_digest" in record.missing_inputs
+    assert not record.runnable
+
+
+def test_per_task_budgets_only_freeze_with_complete_known_task_coverage():
+    from dataclasses import replace
+
+    from evals.kabul.run_manifest import _evaluation_missing
+    from evals.profiles import RunMetadata
+
+    metadata = RunMetadata(
+        task_ids=("T01", "T25"), task_budgets=(("T01", 12, 480.0), ("T25", 20, 720.0))
+    )
+    assert "evaluation.max_model_calls" not in _evaluation_missing(metadata)
+    assert "evaluation.timeout_s" not in _evaluation_missing(metadata)
+    for invalid in ((), (("T01", 12, 480.0),), (("T01", 0, 480.0), ("T25", 20, 720.0))):
+        missing = _evaluation_missing(replace(metadata, task_budgets=invalid))
+        assert "evaluation.max_model_calls" in missing
+        assert "evaluation.timeout_s" in missing

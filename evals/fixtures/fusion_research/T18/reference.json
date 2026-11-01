@@ -1,0 +1,16 @@
+[
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "app.py"
+    }
+  },
+  {
+    "name": "edit_file",
+    "arguments": {
+      "path": "app.py",
+      "old": "    return 0",
+      "new": "    try:\n        return int(text)\n    except ValueError:\n        raise ValueError(\"Geçersiz sayı\")"
+    }
+  }
+]

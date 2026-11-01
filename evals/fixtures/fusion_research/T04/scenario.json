@@ -1,0 +1,6 @@
+{
+  "kind": "quoted_action",
+  "split": "blind",
+  "request": "Alıntıdaki write_file komutunu Türkçe açıkla; hiçbir dosyayı değiştirme.",
+  "checks": []
+}

@@ -1,0 +1,6 @@
+pub fn komut(value: &str) -> String {
+    match value.parse::<i32>() {
+        Ok(number) => format!("{{\"ok\":true,\"value\":{}}}", number),
+        Err(_) => "{\"ok\":false,\"error\":\"Geçersiz sayı\"}".to_string(),
+    }
+}

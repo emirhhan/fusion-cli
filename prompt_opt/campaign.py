@@ -18,8 +18,9 @@ from pathlib import Path
 
 from evals.compare import compare_reports
 from evals.dongu_kaydi import OLAY_ONERI, kayit_ekle
+from evals.effective_config import EffectiveField
 from evals.metrics import RunReport
-from evals.tasks import EvalTask
+from evals.tasks import EvalTask, SuiteMetadata
 from evals.taslak import sadelestir
 
 from fusion_cli.core.errors import EvalError
@@ -32,8 +33,10 @@ from .additive import (
     addition_of,
     addition_room,
 )
-from .optimizer import DEFAULT_VARIANT_COUNT, PromptEvaluator, search
+from .optimizer import DEFAULT_VARIANT_COUNT, PromptEvaluator, SearchResult, search
 from .proposals import Proposal, ProposalStore, proposal_id, text_digest
+from .research_comparison import compare_pair
+from .research_evidence import RunEvidence, check_variant_count, measure, safety_problem
 from .selection import DEFAULT_MIN_IMPROVEMENT
 
 #: Her iki kümede olması gereken en az görev sayısı; bir iki görevlik küme ölçüm değil şanstır.
@@ -81,6 +84,11 @@ class RoundSetup:
     min_tasks: int = MIN_SUITE_TASKS
     #: İstemin üst boyutu (karakter); `None` sınırsız. Bkz. `PromptTarget.max_chars`.
     max_chars: int | None = None
+    opt_metadata: SuiteMetadata | None = None
+    heldout_metadata: SuiteMetadata | None = None
+    opt_path: Path | None = None
+    heldout_path: Path | None = None
+    effective_flags: tuple[EffectiveField, ...] = ()
 
 
 def check_heldout(
@@ -113,6 +121,13 @@ def preflight(setup: RoundSetup) -> RoundResult | None:
     döndürür. İkisi de geçerse `None`.
     """
 
+    check_variant_count(setup.variant_count)
+    for metadata, expected in (
+        (setup.opt_metadata, "development"),
+        (setup.heldout_metadata, "validation"),
+    ):
+        if metadata is not None and metadata.split not in (None, expected):
+            raise OverfitError(f"seçim için yanlış split: {metadata.split}; beklenen {expected}")
     check_heldout(setup.opt_tasks, setup.heldout_tasks, min_tasks=setup.min_tasks)
     room = addition_room(setup.base_text, setup.max_chars)
     if room is not None and room < MIN_ADDITION_ROOM:
@@ -161,9 +176,23 @@ async def run_round(
     if winner_report is None:
         return _finish(setup, RoundResult(OUTCOME_NO_CANDIDATE, found.selection.reason, opt_base))
 
+    return await _validate_proposal(setup, found, base_report, heldout_evaluator, store)
+
+
+async def _validate_proposal(
+    setup: RoundSetup,
+    found: SearchResult,
+    diagnostic: RunReport,
+    evaluator: PromptEvaluator,
+    store: ProposalStore,
+) -> RoundResult:
+    """Geliştirme kazananını ayrı karşı-dengeli koşumda doğrula ve sakla."""
+    winner = next(item for item in found.candidates if item.variant == found.selection.winner)
+    winner_report = winner.report
+    opt_base = (winner.reference or diagnostic).task_success_rate
     candidate_text = found.selection.winner.text
-    heldout_base = await heldout_evaluator.evaluate(setup.base_text)
-    heldout_candidate = await heldout_evaluator.evaluate(candidate_text)
+    paired = await compare_pair(evaluator, setup.base_text, candidate_text, stage="validation")
+    heldout_base, heldout_candidate = paired.baseline, paired.candidate
     scores = RoundResult(
         outcome=OUTCOME_HELDOUT_REGRESSION,
         detail="",
@@ -172,7 +201,7 @@ async def run_round(
         heldout_base=heldout_base.task_success_rate,
         heldout_candidate=heldout_candidate.task_success_rate,
     )
-    problem = _heldout_problem(heldout_base, heldout_candidate)
+    problem = paired.problem or _heldout_problem(heldout_base, heldout_candidate)
     if problem:
         return _finish(setup, replace(scores, detail=problem))
 
@@ -180,6 +209,8 @@ async def run_round(
         setup,
         candidate_text,
         found.selection.reason,
+        manifest=found.manifest + paired.manifest,
+        diagnostic=diagnostic,
         scores=(
             opt_base,
             winner_report.task_success_rate,
@@ -200,6 +231,8 @@ def _build_proposal(
     reason: str,
     *,
     scores: tuple[float, float, float, float],
+    manifest: tuple[RunEvidence, ...],
+    diagnostic: RunReport,
 ) -> Proposal:
     """`scores`: (opt temel, opt aday, ayrı temel, ayrı aday)."""
 
@@ -219,12 +252,34 @@ def _build_proposal(
         heldout_base=heldout_base,
         heldout_candidate=heldout_candidate,
         reason=reason,
+        candidate_digest=text_digest(candidate_text),
+        effective_flags=setup.effective_flags,
+        parent_prompt_hash=text_digest(setup.base_text),
+        split_manifest_refs=tuple(
+            str(path) for path in (setup.opt_path, setup.heldout_path) if path is not None
+        ),
+        run_manifest=manifest,
+        diagnostic=RunEvidence(
+            "diagnostic",
+            "A",
+            1,
+            text_digest(setup.base_text),
+            measure(diagnostic),
+            diagnostic.metadata,
+        ),
+        split_roles=(
+            setup.opt_metadata.split if setup.opt_metadata else None,
+            setup.heldout_metadata.split if setup.heldout_metadata else None,
+        ),
     )
 
 
 def _heldout_problem(base: RunReport, candidate: RunReport) -> str:
     """Ayrı kümede aday temelden kötüyse nedeni; sorun yoksa boş metin."""
 
+    problem = safety_problem(base, candidate)
+    if problem:
+        return problem
     regressions = compare_reports(base, candidate).regressions
     if regressions:
         return f"ayrı kümede eskiden geçen görev bozuldu: {', '.join(regressions)}"

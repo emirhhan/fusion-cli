@@ -21,6 +21,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from ...core.redaction import redact
+
 #: Brief'in sert üst sınırı. Aşan kısım KIRPILIR, sessizce değil — kırpma notu
 #: eklenir (bkz. `compile_brief` docstring'i).
 BRIEF_CHAR_BUDGET = 25_000
@@ -97,6 +99,9 @@ def compile_brief(
     Sıra bilinçlidir: soru EN SONDA durur ki kırpma gerekirse önce durum/kod/
     denenenler kısalır, soru asla kaybolmaz (öğretmenin cevaplayacağı şey budur).
     """
+    durum, denenenler, question = redact(durum), redact(denenenler), redact(question)
+    touched_paths = tuple(redact(path) for path in touched_paths)
+    code_excerpts = tuple((redact(path), redact(content)) for path, content in code_excerpts)
     ilgili_kod = "\n".join(f"- {yol}" for yol in dict.fromkeys(touched_paths))
     kesitler = "\n\n".join(
         f"### {yol}\n```\n{_kesit(icerik)}\n```" for yol, icerik in code_excerpts if icerik.strip()

@@ -8,6 +8,8 @@ Varsayılan modelin eki DEĞİŞMEZ: mevcut dersler ve kod indeksi kaybolmaz.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from fusion_cli.memory import embeddings
@@ -118,3 +120,261 @@ def test_onbellek_dosyasi_anahtari_acik_yazmaz_bozuksa_yoklar(tmp_path, yoklama_
     build_embedding_function(NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat)
 
     assert yoklama_sayaci["cagri"] == 2
+
+
+def test_symbol_stratejisi_eski_embeddingi_kullanmaz_ve_reindex_artimlidir(tmp_path):
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "a.py").write_text("def exactSymbol():\n    return 1\n", encoding="utf-8")
+    lines = ChromaCodeIndex(tmp_path / "memory", root, embedding_function=LocalRetrievalEmbedding())
+    lines.reindex()
+    symbols = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        chunk_strategy="symbols",
+        lexical_candidates=4,
+    )
+    assert symbols.search("exactSymbol") == ()
+    assert symbols.reindex().added == 1
+    assert symbols.search("exactSymbol")[0].path == "a.py"
+    assert symbols.reindex().added == 0
+    assert lines.search("exactSymbol") == ()
+
+
+def test_reindex_silinen_ve_degisen_chunk_lexicalden_donmez(tmp_path):
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    path = root / "a.py"
+    path.write_text("def oldIdentifier():\n    return 1\n", encoding="utf-8")
+    index = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=5,
+    )
+    index.reindex()
+    assert "oldIdentifier" in index.search("oldIdentifier")[0].snippet
+    path.write_text("def newIdentifier():\n    return 2\n", encoding="utf-8")
+    stats = index.reindex()
+    assert stats.added == stats.removed == 1
+    assert all("oldIdentifier" not in match.snippet for match in index.search("oldIdentifier"))
+    path.unlink()
+    index.reindex()
+    assert index.search("newIdentifier") == ()
+
+
+def test_ayni_indeksi_kullanan_diger_nesne_guncel_nesli_gorur(tmp_path):
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    path = root / "a.py"
+    path.write_text("def beforeGeneration():\n    return 1\n", encoding="utf-8")
+    first = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=4,
+    )
+    first.reindex()
+    second = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=4,
+    )
+    path.write_text("def afterGeneration():\n    return 2\n", encoding="utf-8")
+    second.reindex()
+    matches = first.search("afterGeneration")
+    assert matches and "afterGeneration" in matches[0].snippet
+    assert all(
+        "beforeGeneration" not in match.snippet for match in first.search("beforeGeneration")
+    )
+
+
+@pytest.mark.parametrize("lexical_candidates", [0, 4])
+@pytest.mark.parametrize("is_existing_reader", [False, True])
+@pytest.mark.parametrize("mutation", ["delete", "change", "failed_add"])
+def test_basarisiz_fiziksel_silme_diger_nesnede_eski_chunk_dondurmez(
+    tmp_path, monkeypatch, lexical_candidates, is_existing_reader, mutation
+):
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    path = root / "a.py"
+    path.write_text("def obsoleteIdentifier():\n    return 1\n", encoding="utf-8")
+    writer = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=lexical_candidates,
+    )
+    writer.reindex()
+    reader = (
+        ChromaCodeIndex(
+            tmp_path / "memory",
+            root,
+            embedding_function=LocalRetrievalEmbedding(),
+            lexical_candidates=lexical_candidates,
+        )
+        if is_existing_reader
+        else None
+    )
+    monkeypatch.setattr(writer._collection, "delete", lambda **kwargs: False)
+    if mutation == "delete":
+        path.unlink()
+    else:
+        path.write_text("def currentIdentifier():\n    return 2\n", encoding="utf-8")
+    if mutation == "failed_add":
+        monkeypatch.setattr(writer._collection, "add", lambda **kwargs: False)
+    stats = writer.reindex()
+    assert stats.failed >= 1
+    assert writer._collection.count() >= 1
+    if reader is None:
+        reader = ChromaCodeIndex(
+            tmp_path / "memory",
+            root,
+            embedding_function=LocalRetrievalEmbedding(),
+            lexical_candidates=lexical_candidates,
+        )
+    matches = reader.search("obsoleteIdentifier")
+    assert all("obsoleteIdentifier" not in match.snippet for match in matches)
+    if mutation == "change":
+        assert "currentIdentifier" in reader.search("currentIdentifier")[0].snippet
+    else:
+        assert matches == ()
+
+
+@pytest.mark.parametrize("unsafe_path", ["outside", "symlink", "environment", "excluded"])
+def test_guvensiz_indeks_yolu_kaynak_okumadan_elenir(tmp_path, monkeypatch, unsafe_path):
+    from fusion_cli.memory import code_index
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    source = root / "a.py"
+    source.write_text("def indexedIdentifier():\n    return 1\n", encoding="utf-8")
+    index = code_index.ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=4,
+    )
+    index.reindex()
+    identifier = index._collection.get(include=[])["ids"][0]
+    outside = tmp_path / "outside.py"
+    outside.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    if unsafe_path == "outside":
+        candidate_path = "../outside.py"
+    elif unsafe_path == "symlink":
+        (root / "alias.py").symlink_to(outside)
+        candidate_path = "alias.py"
+    elif unsafe_path == "environment":
+        (root / ".env.py").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        candidate_path = ".env.py"
+    else:
+        (root / "node_modules").mkdir()
+        (root / "node_modules" / "a.py").write_text(
+            source.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        candidate_path = "node_modules/a.py"
+    index._collection.update(ids=[identifier], metadatas=[{"path": candidate_path}])
+
+    def forbidden_read(*args, **kwargs):
+        raise AssertionError("Güvensiz aday için kaynak okunmamalı")
+
+    monkeypatch.setattr("fusion_cli.core.source_read.os.read", forbidden_read)
+    assert index.search("indexedIdentifier") == ()
+
+
+def test_okunamayan_mevcut_kaynak_eski_chunk_dondurmez(tmp_path, monkeypatch):
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "a.py").write_text("def currentIdentifier():\n    return 1\n", encoding="utf-8")
+    index = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=4,
+    )
+    index.reindex()
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("Kaynak okunamıyor")
+
+    monkeypatch.setattr("fusion_cli.core.source_read.os.open", unreadable)
+    assert index.search("currentIdentifier") == ()
+
+
+def test_bellek_ortak_descriptor_okumasini_kullanir_ve_utf8_hata_davranisini_korur(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.memory import code_index
+    from fusion_cli.memory.chunking import MAX_FILE_BYTES
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "a.py").write_bytes(b"def currentIdentifier():\n    return 1\n# \xff\n")
+    index = code_index.ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=4,
+    )
+    index.reindex()
+    read_scoped_source = code_index.read_scoped_source
+    calls = []
+
+    def record_read(source_root, relative, *, max_bytes):
+        calls.append((source_root, relative, max_bytes))
+        return read_scoped_source(source_root, relative, max_bytes=max_bytes)
+
+    monkeypatch.setattr(code_index, "read_scoped_source", record_read)
+    matches = index.search("currentIdentifier")
+    assert matches and "currentIdentifier" in matches[0].snippet
+    assert calls == [(root, Path("a.py"), MAX_FILE_BYTES)]
+
+
+@pytest.mark.parametrize("lexical_candidates", [0, 4])
+def test_bellek_guvenli_okuma_destegi_yoksa_eski_kaynak_dondurmez(
+    tmp_path, monkeypatch, lexical_candidates
+):
+    import os
+
+    from fusion_cli.memory.code_index import ChromaCodeIndex
+
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "a.py").write_text("def currentIdentifier():\n    return 1\n", encoding="utf-8")
+    index = ChromaCodeIndex(
+        tmp_path / "memory",
+        root,
+        embedding_function=LocalRetrievalEmbedding(),
+        lexical_candidates=lexical_candidates,
+    )
+    index.reindex()
+    monkeypatch.setattr(os, "supports_dir_fd", set())
+    assert index.search("currentIdentifier") == ()

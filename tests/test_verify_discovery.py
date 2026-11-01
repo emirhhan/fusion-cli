@@ -413,3 +413,32 @@ async def test_kapsam_dogrulayicisi_uyari_uretir_engellemez(tmp_path):
 
     assert sonuc.ok is True and not sonuc.findings
     assert any("app/ (node)" in uyari for uyari in sonuc.warnings)
+
+
+def test_evidence_environment_hashes_explicit_test_config_and_never_reads_secret_files(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import evidence_environment
+
+    config = tmp_path / "custom.ini"
+    config.write_text("one")
+    (tmp_path / ".env").write_text("TEST_FIXTURE_SECRET=do-not-copy-this-value")
+    command = "pytest -c custom.ini"
+    before = evidence_environment(tmp_path, (command,), runtime="pytest-8")
+    config.write_text("two")
+    after = evidence_environment(tmp_path, (command,), runtime="pytest-8")
+    assert before.config_digest != after.config_digest
+    assert before.dependency_digest == after.dependency_digest
+    assert "do-not-copy-this-value" not in repr(after)
+    assert "TEST_FIXTURE_SECRET" not in repr(after)
+
+
+def test_evidence_environment_tracks_selected_python_runner_distribution_version(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.engines.agent.verify_discovery import evidence_environment
+
+    versions = {"pytest": "8.0.0"}
+    monkeypatch.setattr("importlib.metadata.version", lambda package: versions[package])
+    before = evidence_environment(tmp_path, ("python -m pytest",), runtime="Python 3.12")
+    versions["pytest"] = "8.1.0"
+    after = evidence_environment(tmp_path, ("python -m pytest",), runtime="Python 3.12")
+    assert before.runtime != after.runtime

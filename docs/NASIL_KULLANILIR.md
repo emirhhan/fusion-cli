@@ -120,10 +120,13 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
   yaz. Fusion sadece PLAN yapar, dosyaya dokunmaz. Beğenirsen `/auto` ile uygulamaya
   geçersin.
-- **Geri al:** son turun dosya değişikliklerini geri almak için
+- **Geri al:** son turda Fusion’ın yazdığı ve sonradan değişmemiş dosyaları geri almak için
   ```
   /undo
   ```
+  Yalnız Fusion’ın yazdığı doğrulanabilen dosyalar otomatik geri alınır. Senin sonradan
+  değiştirdiğin dosyalar ve yazarı doğrulanamayan kabuk değişiklikleri korunur; çakışma
+  bildirilir, önceki hâlin kaydı bellekte tutulur.
 - **Daha geriye sar (checkpoint):** Fusion her agent turunun başında konuşmanın kopyasını ve
   o turun dosya kaydını tutar (en fazla 100 tur, bu oturum boyunca). İstediğin turun başına
   dönmek için
@@ -135,8 +138,10 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
   Sınır: kod kaydı bellekte tutulur; `fusion --continue` ile açılan sohbette konuşma geri gelir,
-  önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) ürettiği dosyalar
-  izlenmez. Tur sayımı yalnız senin mesajlarını sayar (harness notları ve bağlam özetleri değil).
+  önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) tüm etkileri
+  kaydedilmez; bazı mevcut dosyalar için başlangıç yedeği alınır ve dosya farkı gözlenir.
+  Bu gözlem, kabuk değişikliklerinin otomatik geri alınacağı anlamına gelmez. Tur sayımı
+  yalnız senin mesajlarını sayar (harness notları ve bağlam özetleri değil).
 - **Doğrula:** değişiklikten sonra test/lint çalıştırmak için
   ```
   /verify
@@ -935,7 +940,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 | Yaz | Ne olur |
 |-----|---------|
-| `! git status` | Komut **doğrudan** çalışır (model çağrılmaz). Çıktı ekrana basılır ve bir sonraki mesajın bağlamına "kullanıcının çalıştırdığı kabuk çıktısı" olarak girer. Plan kipinde çalışmaz. Silmeler yine çöpe gider, ezilen dosya `/undo` kaydına girer. |
+| `! git status` | Komut **doğrudan** çalışır (model çağrılmaz). Çıktı ekrana basılır ve bir sonraki mesajın bağlamına "kullanıcının çalıştırdığı kabuk çıktısı" olarak girer. Plan kipinde çalışmaz. Silmeler yine çöpe gider. Bazı mevcut dosyaların başlangıç hâli kaydedilir; yazarı doğrulanamayan kabuk değişiklikleri otomatik geri alınmaz. |
 | `@src/app.py şu fonksiyonu incele` | Anılan dosya (ya da dizin listesi) bağlama eklenir; mesaj olduğu gibi gider. En çok 8 dosya, dosya başına 20 bin karakter. Tab ile yol tamamlama: `@src/mo<Tab>`. |
 | `# testleri her zaman pytest ile çalıştır` | Kalıcı bellek notu (`/learn` ile aynı depo). `/lessons` ile gör, `/forget` ile sil. |
 

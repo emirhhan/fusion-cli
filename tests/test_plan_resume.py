@@ -13,6 +13,7 @@ from fusion_cli.core.execution_plan import (
     StepStatus,
 )
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent.lesson_attribution import LessonTurnState
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
 from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
@@ -28,6 +29,8 @@ class _Deps:
     tool_context: ToolContext
     checkpoint_store: JsonCheckpointStore
     conversation_id: str = "conv"
+    context_step: PlanStep | None = None
+    lesson_state: LessonTurnState | None = None
     verifier: object | None = None
     budget: object | None = None
     execution: object | None = None

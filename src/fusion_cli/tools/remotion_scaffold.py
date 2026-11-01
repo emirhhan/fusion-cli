@@ -268,5 +268,6 @@ def _install(args: ToolArgs, context: ToolContext) -> RegisteredKitContract:
         context.changes.record(path)
         with path.open("xb") as stream:
             stream.write(content)
+        context.changes.record_applied(path)
         context.touched.add(path)
     return contract

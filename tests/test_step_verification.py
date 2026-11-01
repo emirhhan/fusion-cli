@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
@@ -919,3 +921,275 @@ def test_maskelenen_ya_da_sonu_belirsiz_git_commit_kanit_degildir():
         "echo 'git commit' && ls",
     ):
         assert not _contains_git_action(command, "commit"), command
+
+
+async def test_final_full_gate_cannot_mask_missing_second_typed_criterion(tmp_path):
+    from dataclasses import replace
+
+    class FullGate:
+        calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return VerificationResult(
+                True,
+                evidence=(
+                    CriterionEvidence(
+                        "first",
+                        VerificationCheckKind.COMMAND,
+                        EvidenceStatus.PASSED,
+                        "ilk kontrol geçti",
+                        command="pytest -q test_first.py",
+                    ),
+                ),
+            )
+
+    deps = _deps(tmp_path)
+    deps.verifier = FullGate()
+    checks = tuple(
+        VerificationCheck(name, VerificationCheckKind.COMMAND, f"pytest -q test_{name}.py")
+        for name in ("first", "second")
+    )
+    step = replace(
+        _file_step("app.py"),
+        expected_effects=(),
+        status=StepStatus.COMPLETED,
+        success_criteria=("first", "second"),
+        verification_checks=checks,
+    )
+    result = await verify_plan_acceptance(ExecutionPlan("p", "feature", (step,)), deps)
+    assert deps.verifier.calls == 1
+    assert not result.ok
+    assert any("second" in finding for finding in result.findings)
+    assert any(
+        item.criterion_id == "second" and item.status is EvidenceStatus.UNVERIFIED
+        for item in result.evidence
+    )
+
+
+async def test_final_gate_rejects_stale_reproduction_source(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.core.evidence import EvidenceEnvironment
+
+    check = VerificationCheck("bug", VerificationCheckKind.REPRODUCTION, "pytest -q")
+    step = replace(
+        _file_step("app.py"),
+        expected_effects=(),
+        status=StepStatus.COMPLETED,
+        success_criteria=("bug",),
+        verification_checks=(check,),
+    )
+    proof = CriterionEvidence(
+        "bug",
+        VerificationCheckKind.REPRODUCTION,
+        EvidenceStatus.PASSED,
+        "geçmiş kanıt",
+        source_digest="old",
+        source_after_digest="old",
+        call_id="green",
+        environment=EvidenceEnvironment("pytest -q", str(tmp_path), "python", "deps", "config"),
+    )
+    result = await verify_plan_acceptance(
+        ExecutionPlan("p", "bugfix", (step,)), _deps(tmp_path), evidence=(proof,)
+    )
+    assert not result.ok
+    assert any(item.status is EvidenceStatus.UNVERIFIED for item in result.evidence)
+
+
+async def test_final_out_of_scope_discovery_check_is_explicit_and_not_success(tmp_path):
+    from dataclasses import replace
+
+    check = VerificationCheck("discovery", VerificationCheckKind.FILE_EXISTS, "unknown.py")
+    step = replace(
+        _file_step("unknown.py"),
+        expected_effects=(),
+        status=StepStatus.COMPLETED,
+        success_criteria=("discovery",),
+        verification_checks=(check,),
+    )
+    result = await verify_plan_acceptance(
+        ExecutionPlan("p", "Dosyaları incele", (step,)), _deps(tmp_path)
+    )
+    assert result.ok
+    criterion = next(item for item in result.evidence if item.criterion_id == "discovery")
+    assert criterion.status is EvidenceStatus.UNVERIFIED
+    assert criterion.applicable is False
+
+
+async def test_final_reproduction_rejects_environment_changed_after_green(tmp_path):
+    import sys
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent.verify_discovery import evidence_environment, source_digest
+
+    command = "python -m pytest -q"
+    check = VerificationCheck("bug", VerificationCheckKind.REPRODUCTION, command)
+    step = replace(
+        _file_step("app.py"),
+        expected_effects=(),
+        status=StepStatus.COMPLETED,
+        success_criteria=("bug",),
+        verification_checks=(check,),
+    )
+    (tmp_path / "app.py").write_text("value = 1\n")
+    identity = evidence_environment(tmp_path, (command,), runtime=sys.version)
+    source = source_digest(tmp_path)
+    proof = CriterionEvidence(
+        "bug",
+        VerificationCheckKind.REPRODUCTION,
+        EvidenceStatus.PASSED,
+        "geçmiş ölçüm",
+        command=command,
+        source_digest=source,
+        source_after_digest=source,
+        call_id="green",
+        environment=identity,
+    )
+    (tmp_path / "pytest.ini").write_text("[pytest]\naddopts=-x\n")
+    result = await verify_plan_acceptance(
+        ExecutionPlan("p", "bugfix", (step,)), _deps(tmp_path), evidence=(proof,)
+    )
+    assert not result.ok
+    assert result.evidence[-1].status is EvidenceStatus.UNVERIFIED
+
+
+@pytest.mark.parametrize("mixed", [True, False])
+async def test_shared_checks_survive_step_checkpoint_and_final(tmp_path, monkeypatch, mixed):
+    from dataclasses import replace
+
+    from fusion_cli.core.checkpoint import StepCheckpointEvidence
+    from fusion_cli.engines.agent.loop import run_agent
+    from fusion_cli.engines.agent.turn_report import TurnReport, evidence_payload
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload as checkpoint_payload
+    from fusion_cli.memory.checkpoint_evidence import parse_evidence
+    from tests.fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from tests.test_agent_loop import _deps as loop_deps
+    from tests.test_agent_loop import _kur
+
+    (tmp_path / "a.txt").write_text("ölçülen içerik\n")
+    first = tool_call("run_shell", command="true")
+    second = (
+        tool_call("read_file", path="a.txt")
+        if mixed
+        else replace(tool_call("run_shell", command="printf second"), id="second-command")
+    )
+    deps = loop_deps(tmp_path, RecordingSink())
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=(first, second)), model_result("İki kontrol çalıştırıldı.")]
+        ),
+    )
+    outcome = await run_agent("İki kontrolü çalıştır ve sonucu bildir.", deps)
+    assert len(outcome.tool_uses) == 2
+    checks = (
+        VerificationCheck("all", VerificationCheckKind.COMMAND, "true"),
+        VerificationCheck("all", VerificationCheckKind.TOOL, "read_file", '{"path":"a.txt"}')
+        if mixed
+        else VerificationCheck("all", VerificationCheckKind.COMMAND, "printf second"),
+    )
+    step = replace(
+        _file_step("a.txt"),
+        expected_effects=(),
+        success_criteria=("all",),
+        verification_checks=checks,
+        status=StepStatus.COMPLETED,
+    )
+    checked = await verify_step(step, outcome, _deps(tmp_path))
+    proofs = tuple(item for item in checked.criteria if item.criterion_id == "all")
+    assert checked.ok
+    assert len(proofs) == 2
+    loaded = parse_evidence(
+        checkpoint_payload(
+            (StepCheckpointEvidence(step.step_id, criteria=proofs, tool_uses=outcome.tool_uses),)
+        )
+    )
+    assert len(loaded[0].criteria) == 2
+    final = await verify_plan_acceptance(
+        ExecutionPlan("p", "iki kontrol", (step,)), _deps(tmp_path), evidence=loaded[0].criteria
+    )
+    assert final.ok
+    payload = evidence_payload(TurnReport(criteria=loaded[0].criteria, gate=final))
+    assert payload["criteria_count"] == 1
+    assert payload["criteria"][0]["criterion_id"] == "all"
+    assert payload["criteria"][0]["status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [VerificationCheckKind.COMMAND, VerificationCheckKind.TOOL, VerificationCheckKind.REPRODUCTION],
+)
+@pytest.mark.parametrize("changed", ["check_target", "check_expected"])
+def test_bound_check_rejects_other_target_or_expected_reference(kind, changed):
+    from dataclasses import replace
+
+    from fusion_cli.core.evidence import EvidenceEnvironment
+    from fusion_cli.engines.agent.step_verification import _bound_check_evidence
+
+    target = "read_file" if kind is VerificationCheckKind.TOOL else "pytest -q test_first.py"
+    check = VerificationCheck("all", kind, target, "expected")
+    proof = CriterionEvidence(
+        "all",
+        kind,
+        EvidenceStatus.PASSED,
+        "ölçüm",
+        command=target,
+        source_digest="source",
+        source_after_digest="source",
+        call_id="run",
+        environment=EvidenceEnvironment(target, "/repo", "python", "deps", "cfg"),
+        check_target=target,
+        check_expected="expected",
+    )
+    assert _bound_check_evidence(check, (proof,), "step", "source").status is EvidenceStatus.PASSED
+    wrong = replace(proof, **{changed: "different"})
+    assert (
+        _bound_check_evidence(check, (wrong,), "step", "source").status is EvidenceStatus.UNVERIFIED
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value,passed",
+    [
+        ("command", "pytest -q test_second.py", False),
+        ("command", "", False),
+        ("check_target", "", True),
+        ("environment_command", "pytest -q test_second.py", False),
+        ("legacy_wrong_command", "pytest -q test_second.py", False),
+        ("cosmetic_command", "pytest  -q 'test_first.py'", True),
+    ],
+)
+def test_reproduction_binding_requires_its_recorded_command(field, value, passed):
+    from dataclasses import replace
+
+    from fusion_cli.core.evidence import EvidenceEnvironment
+    from fusion_cli.engines.agent.step_verification import _bound_check_evidence
+
+    command = "pytest -q test_first.py"
+    check = VerificationCheck("all", VerificationCheckKind.REPRODUCTION, command)
+    proof = CriterionEvidence(
+        "all",
+        check.kind,
+        EvidenceStatus.PASSED,
+        "ölçüm",
+        command=command,
+        source_digest="source",
+        source_after_digest="source",
+        call_id="run",
+        environment=EvidenceEnvironment(command, "/repo", "python", "deps", "cfg"),
+        check_target=command,
+    )
+    if field == "environment_command":
+        proof = replace(proof, environment=replace(proof.environment, command=value))
+    elif field in {"legacy_wrong_command", "cosmetic_command"}:
+        proof = replace(
+            proof,
+            check_target="",
+            command=value,
+            environment=replace(proof.environment, command=value),
+        )
+    else:
+        proof = replace(proof, **{field: value})
+    result = _bound_check_evidence(check, (proof,), "step", "source")
+    assert result.status is (EvidenceStatus.PASSED if passed else EvidenceStatus.UNVERIFIED)

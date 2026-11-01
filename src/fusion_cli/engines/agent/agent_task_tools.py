@@ -116,6 +116,10 @@ async def spawn_background(deps: AgentDeps, subtask: SubTask) -> ToolResult:
     Ölçüldü (31 Ekim): yalnız görev/kişilik/salt-okur/kip taşınıyordu; salt-okur kişilikli ya da
     `disallowedTools`lu oturumdan açılan arka plan görevi tam araç setiyle koşuyordu.
     """
+    if deps.invocation_budget is not None or deps.budget is not None:
+        return ToolResult.failure(
+            "Ortak model bütçesi ayrı sürece devredilemiyor; aynı süreçte alt ajan kullan."
+        )
     if getattr(deps, "conversation_id", "").startswith(WORKER_CONVERSATION_PREFIX):
         # İşçi de derinlik 0'dır; açacağı görevin sonucunu teslim alacak gözcü yoktur.
         return ToolResult.failure(texts.BG_NESTED_WORKER)
@@ -126,6 +130,8 @@ async def spawn_background(deps: AgentDeps, subtask: SubTask) -> ToolResult:
     history = (
         agent_tasks.fork_history(team_fork.parent_history(deps)) if subtask.inherit_context else ()
     )
+    if deps.config.runtime.subagent_context_mode == "evidence_bundle":
+        history = ()
     request = agent_tasks.LaunchRequest(
         prompt=subtask.task,
         root=root,
@@ -176,12 +182,14 @@ def _inherited_limits(deps: AgentDeps, subtask: SubTask) -> tuple[Path, TaskOpti
         root = enter_worktree(context.root, name).path
         # Yazma alanı ana köke göre çözüldü; izole ağaçta aynı göreli yollara çevrilir.
         scope = tuple(_rebase(path, context.root, root) for path in scope) if scope else scope
+    from .evidence_handoff import compile_handoff
+
     options = TaskOptions(
         allowed_tools=tuple(sorted(allowed)) if allowed is not None else None,
         denied_tools=tuple(sorted(denied)),
         write_scope=tuple(str(path) for path in scope or ()),
         extra_roots=tuple(str(path) for path in context.extra_roots),
-        extra_system=subtask.brief,
+        extra_system=compile_handoff(deps, subtask.brief),
     )
     return root, options
 

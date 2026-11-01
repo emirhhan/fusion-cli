@@ -7,6 +7,8 @@
   ],
   "providers": {
     "chatgpt_web": {
+      "origin_roles": ["data-message-author-role=assistant", "data-markdown-text-style=assistant-message"],
+      "origin_ids": ["id", "data-content-search-unit-key"],
       "input": [
         "div.ProseMirror[contenteditable=\"true\"]",
         "#prompt-textarea",

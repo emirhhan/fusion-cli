@@ -7,12 +7,16 @@ sahte gözlem (`TaskExecution`) kullanır.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from evals.acceptance import evaluate
 from evals.criteria import evaluate_criterion
 from evals.execution import TaskExecution
 from evals.metrics import RunReport, TaskResult, merge_runs, score_task
 from evals.report import report_from_dict, report_to_dict
 from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+_RESEARCH_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _task(task_id: str = "t", kind: CriterionKind = CriterionKind.FILE_CHANGED) -> EvalTask:
@@ -187,3 +191,141 @@ def test_kotaya_takilan_tur_oturumu_tamamlanmamis_sayar():
     assert rapor.measured_task_count == 9
     assert hukum.passed is False
     assert "oturum tamamlanması" in [k.name for k in hukum.failures]
+
+
+async def test_research_pilot_reference_and_seed_negative_controls(tmp_path):
+    """İlk sekiz gerçek dosya görevinin bağımsız kabulü ve negatif kontrolü."""
+    import json
+
+    from evals.executor import AgentRunObservation, AgentTaskExecutor
+    from evals.loader import load_tasks
+
+    root = _RESEARCH_ROOT
+    fixtures = root / "evals/fixtures/fusion_research"
+    pilots = {"T01", "T02", "T05", "T06", "T07", "T09", "T10", "T11"}
+    tasks = tuple(
+        task
+        for suite in ("dev", "validation")
+        for task in load_tasks(root / f"evals/suite/fusion-research-{suite}.yaml")
+        if task.id in pilots
+    )
+    assert {task.id for task in tasks} == pilots
+
+    class LocalRunner:
+        def __init__(self, use_reference):
+            self.use_reference = use_reference
+
+        async def run(self, request, *, root, **kwargs):
+            task_id = root.name
+            assert not (root / "acceptance.json").exists()
+            assert not (root / "reference").exists()
+            if self.use_reference:
+                reference = fixtures / task_id / "reference"
+                for source in reference.rglob("*"):
+                    if source.is_file():
+                        target = root / source.relative_to(reference).with_suffix("")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(source.read_bytes())
+                response = (fixtures / task_id / "response.txt").read_text()
+            else:
+                response = ""
+            return AgentRunObservation(response, 0)
+
+    class Clock:
+        def monotonic(self):
+            return 0.0
+
+    for task in tasks:
+        for use_reference in (False, True):
+            execution = await AgentTaskExecutor(
+                LocalRunner(use_reference), workspace_root=tmp_path, clock=Clock()
+            ).run(task)
+            assert (execution.exit_code == 0) is use_reference, (task.id, execution)
+    manifest = json.loads((fixtures / "manifest.json").read_text())
+    assert len(manifest["tasks"]) == 32
+    assert manifest["live_baseline"] is None
+
+
+async def test_research_remaining_file_references_and_negatives(tmp_path):
+
+    from evals.executor import AgentRunObservation, AgentTaskExecutor
+    from evals.loader import load_tasks
+
+    root = _RESEARCH_ROOT
+    fixtures = root / "evals/fixtures/fusion_research"
+    expected = {"T12", "T14", "T29", "T30", "T31", "T32"}
+    tasks = tuple(
+        task
+        for split in ("dev", "validation", "blind")
+        for task in load_tasks(root / f"evals/suite/fusion-research-{split}.yaml")
+        if task.id in expected
+    )
+    assert {task.id for task in tasks} == expected
+
+    class Runner:
+        def __init__(self, reference, weaken=False):
+            self.reference = reference
+            self.weaken = weaken
+
+        async def run(self, request, *, root, **kwargs):
+            if self.reference:
+                reference = fixtures / root.name / "reference"
+                for source in reference.rglob("*"):
+                    if source.is_file():
+                        target = root / source.relative_to(reference).with_suffix("")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(source.read_bytes())
+                if self.weaken:
+                    (root / "test_calcul.py").write_text("assert True\n")
+            return AgentRunObservation("tamam", 0)
+
+    class Clock:
+        def monotonic(self):
+            return 0.0
+
+    for task in tasks:
+        for reference in (False, True):
+            execution = await AgentTaskExecutor(
+                Runner(reference),
+                workspace_root=tmp_path,
+                clock=Clock(),
+            ).run(task)
+            assert (execution.exit_code == 0) is reference, (task.id, execution)
+        if task.id == "T14":
+            execution = await AgentTaskExecutor(
+                Runner(True, weaken=True),
+                workspace_root=tmp_path,
+                clock=Clock(),
+            ).run(task)
+            assert execution.exit_code != 0
+
+
+def test_research_manifest_freezes_split_assets_and_setup_bytes():
+    import hashlib
+    import json
+
+    from evals.loader import load_tasks
+
+    fixtures = _RESEARCH_ROOT / "evals/fixtures/fusion_research"
+    manifest = json.loads((fixtures / "manifest.json").read_text())
+    records = manifest["tasks"]
+    assert [
+        sum(record["split"] == split for record in records)
+        for split in ("development", "validation", "blind")
+    ] == [16, 8, 8]
+    assert len({record["id"] for record in records}) == 32
+    tasks = {
+        task.id: task
+        for split in ("dev", "validation", "blind")
+        for task in load_tasks(_RESEARCH_ROOT / f"evals/suite/fusion-research-{split}.yaml")
+    }
+    assert len(tasks) == 32
+    for record in records:
+        if record["id"] not in tasks:
+            assert record["status"] == "pending-runtime-scenario"
+            continue
+        for relative, expected in record["asset_digests"].items():
+            assert hashlib.sha256((fixtures / relative).read_bytes()).hexdigest() == expected
+        for source in (fixtures / record["id"] / "seed").rglob("*.asset"):
+            relative = source.relative_to(fixtures / record["id"] / "seed").with_suffix("")
+            assert tasks[record["id"]].setup[str(relative)].encode() == source.read_bytes()

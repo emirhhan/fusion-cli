@@ -19,7 +19,8 @@ for (const theme of ["light", "dark"] as const) {
       await expect(rail).toHaveCSS("background-color", theme === "dark" ? "rgb(24, 24, 24)" : "rgb(237, 237, 237)");
       await expect(page.locator(".app-shell__sidebar")).toHaveCSS("background-color", theme === "dark" ? "rgb(38, 38, 38)" : "rgb(249, 249, 249)");
       const home = page.getByRole("button", { name: "Home", exact: true });
-      const tooltip = home.getByRole("tooltip");
+      const tooltip = home.getByRole("tooltip", { includeHidden: true });
+      await expect(home).toHaveAccessibleName("Home");
       await expect(tooltip).toBeHidden();
       await home.hover();
       await expect(tooltip).toBeVisible();

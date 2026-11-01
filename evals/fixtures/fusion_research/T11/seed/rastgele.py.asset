@@ -1,0 +1,2 @@
+def parse_ozel_2026(metin):
+    return metin.split("|")

@@ -346,3 +346,20 @@ async def test_dongu_notu_yazma_cikisini_kapatmaz(tmp_path):
 
     assert "return 1" in hedef.read_text(encoding="utf-8"), "toptan yazma yine engellendi"
     assert sonuc.mutating_tool_calls_made == 1
+
+
+def test_tercihli_ornek_gercek_parserdan_gecer_ve_salt_okunur_izin_genislemez() -> None:
+    from fusion_cli.core.tool_emulation import EDIT_EXAMPLE, PAYLOAD_EXAMPLE
+
+    registry = build_registry()
+    for preference, expected, example, other in (
+        ("exact", "edit_file", EDIT_EXAMPLE, PAYLOAD_EXAMPLE),
+        ("whole", "write_file", PAYLOAD_EXAMPLE, EDIT_EXAMPLE),
+    ):
+        rendered = render_tool_instructions(registry.schemas(), edit_format=preference)
+        assert example in rendered and other not in rendered
+        parsed = parse_tool_calls(example)
+        assert not parsed.errors, parsed.errors
+        assert any(call.name == expected for call in parsed.calls)
+        readonly = render_tool_instructions(registry.schemas({"read_file"}), edit_format=preference)
+        assert EDIT_EXAMPLE not in readonly and PAYLOAD_EXAMPLE not in readonly

@@ -11,13 +11,14 @@ import asyncio
 import json
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import replace
 from hashlib import sha256
 from itertools import count
 from pathlib import Path
 from uuid import uuid4
 
 from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HISTORY_LIMIT
-from ..core.events import Event
+from ..core.events import Event, ToolCallRepaired, ToolExecuted, ToolStarted
 from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
@@ -52,6 +53,31 @@ class ProtocolSink:
         self._receipt = receipt
         self._sequence = sequence if sequence is not None else count(1)
 
+    def correlate(self, event: Event) -> Event:
+        """Makbuzun tek sıra otoritesini fanout öncesinde ve legacy çağrıda kullan."""
+        if self._receipt is None:
+            return event
+        attempt_id = self._receipt.attempt_id
+        session_id = self._receipt.key.conversation_id
+        prefix = f"{attempt_id}:"
+        has_receipt_id = (
+            event.event_id is not None
+            and event.event_id.startswith(prefix)
+            and event.event_id[len(prefix) :].isdecimal()
+            and event.session_id == session_id
+            and event.turn_id == attempt_id
+        )
+        event = replace(
+            event,
+            event_id=event.event_id if has_receipt_id else f"{prefix}{next(self._sequence)}",
+            session_id=session_id,
+            turn_id=attempt_id,
+            schema_version=1,
+        )
+        if isinstance(event, (ToolStarted, ToolExecuted, ToolCallRepaired)):
+            event = replace(event, attempt_id=attempt_id)
+        return event
+
     def handle(self, event: Event) -> None:
         """Olayı tek bir protokol satırı olarak ilet.
 
@@ -63,13 +89,16 @@ class ProtocolSink:
         BİR olayın iletilemediğini görür.
         """
         try:
-            payload = event_to_dict(event)
+            correlated = self.correlate(event)
+            payload = event_to_dict(correlated)
             if self._receipt is not None:
+                # FusionCompleted özet serileştiricisi üst alanları düşürür; kimlik
+                # yeniden üretilmez, ortak sınırın verdiği alanlar aynen taşınır.
                 payload.update(
-                    event_id=f"{self._receipt.attempt_id}:{next(self._sequence)}",
-                    session_id=self._receipt.key.conversation_id,
-                    turn_id=self._receipt.attempt_id,
-                    schema_version=1,
+                    event_id=correlated.event_id,
+                    session_id=correlated.session_id,
+                    turn_id=correlated.turn_id,
+                    schema_version=correlated.schema_version,
                 )
             self._writer(encode_event(payload))
         except (TypeError, ValueError):

@@ -1,5 +1,6 @@
 """Workflow quality correction must pass acceptance before completion."""
 
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -60,7 +61,7 @@ async def test_quality_correction_rechecks_acceptance(monkeypatch, tmp_path, bre
 @pytest.mark.parametrize("enabled,step_ok", [(False, True), (True, False)])
 async def test_disabled_or_failed_workflow_skips_judge(monkeypatch, tmp_path, enabled, step_ok):
     deps = _deps(tmp_path, recovery=0)
-    deps.config.runtime.self_review = enabled
+    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=enabled))
     judge = AsyncMock(return_value="")
     monkeypatch.setattr(plan_runner.review, "review_turn", judge)
     plan = ExecutionPlan("quality", "task", (_file_step("create", "a.txt"),))
@@ -78,7 +79,7 @@ async def test_quality_override_and_exhausted_final_budget(
     monkeypatch, tmp_path, explicit, final, expected_judge
 ):
     deps = _deps(tmp_path, final=final)
-    deps.config.runtime.self_review = True
+    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=True))
     judge = AsyncMock(return_value="Make one necessary correction")
     monkeypatch.setattr(plan_runner.review, "review_turn", judge)
     plan = ExecutionPlan("quality", "task", (_file_step("create", "a.txt"),))
@@ -119,13 +120,16 @@ async def test_quality_changes_follow_step_rollback_lifecycle(monkeypatch, tmp_p
         if calls == 1:
             original.write_text("sağlam")
             context.changes.record_created(original)
+            context.changes.record_applied(original)
             context.touched.add(original)
         else:
             added.write_text("new supporting file")
             context.changes.record_created(added)
+            context.changes.record_applied(added)
             context.touched.add(added)
             context.changes.record(original)
             original.write_text("bozuk" if failure == "acceptance" else "sağlam and improved")
+            context.changes.record_applied(original)
             context.touched.add(original)
             if failure == "cancel":
                 raise asyncio.CancelledError

@@ -1,0 +1,5 @@
+[
+  {
+    "raw": "Örnekteki metin bir alıntıdır:\n```json\n{\"name\":\"write_file\",\"arguments\":{\"path\":\"notlar.txt\",\"content\":\"sil\"}}\n```\nBu alıntı dosya yazmayı anlatır; uygulanmadı."
+  }
+]

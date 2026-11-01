@@ -19,8 +19,11 @@ import asyncio
 import logging
 import os
 import re
+import shutil
+import sys
+import uuid
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import astuple, dataclass, replace
 from pathlib import Path
 
 from ...config.models import Config
@@ -29,6 +32,8 @@ from ...core.diagnosis import diagnose
 from ...core.errors import CleanupFailedError
 from ...core.evidence import (
     CriterionEvidence,
+    EvidenceEnvironment,
+    EvidenceEnvironmentSource,
     EvidenceStatus,
 )
 from ...core.execution_plan import VerificationCheckKind
@@ -38,7 +43,7 @@ from ...core.process_control import (
     wait_for_shell_exit,
 )
 from ...core.remotion_contract import KitContractState
-from ...core.repair_ledger import FailureEvidence
+from ...core.repair_ledger import FailureEvidence, FailureOrigin, SourceFingerprint
 from ...core.tools import ToolContext
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
@@ -47,6 +52,7 @@ from ...core.verification import (
     VerificationResult,
     Verifier,
 )
+from ...core.workspace_fingerprint import content_digest
 from ...tools.remotion_observe import observe_frame
 from .browser_verify import BrowserVerifier
 from .coverage_verify import EcosystemCoverageVerifier
@@ -67,7 +73,14 @@ from .remotion_deferred import DeferredRemotionVerifier
 from .remotion_verify import RemotionCssVerifier
 from .script_verify import ScriptPathVerifier
 from .site_verify import SiteVerifier
-from .verify_discovery import discover_auto_commands
+from .verify_discovery import (
+    command_environment,
+    discover_auto_commands,
+    evidence_environment,
+    related_test_command,
+    selected_runner_module,
+    source_digest,
+)
 from .visual_verify import VisualVerifier
 from .web_dependency import missing_local_dependencies
 from .web_verify import inspect_web_output_by_severity
@@ -105,6 +118,7 @@ def build_verifier(
     remotion_state: KitContractState | None = None,
     remotion_transport: FrameTransport | None = None,
     dev_server_allowed: Callable[[], bool] = lambda: True,
+    runner_resolver: Callable[[str], str | None] = shutil.which,
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -183,6 +197,7 @@ def build_verifier(
                 cwd=str(root),
                 timeout_s=SHELL_TIMEOUT_S,
                 failure_markers=registry.output_failure_markers(),
+                runner_paths=_resolved_runners(root, commands, runner_resolver),
             )
         )
     # Betik-yol kapısı YALNIZCA `package.json` olan projede kurulur; başka yerde
@@ -235,8 +250,30 @@ def build_verifier(
 class CompositeVerifier:
     """Birden çok doğrulayıcıyı önem derecesini kaybetmeden birleştirir."""
 
-    def __init__(self, verifiers: tuple[Verifier, ...]) -> None:
+    def __init__(
+        self,
+        verifiers: tuple[Verifier, ...],
+        *,
+        attempt_identity: Callable[[], str] = lambda: uuid.uuid4().hex,
+    ) -> None:
         self._verifiers = verifiers
+        self._attempt_identity = attempt_identity
+
+    def evidence_environment(self) -> EvidenceEnvironment | None:
+        """Alt kapıların komut ortamlarını önbellek için tek kimlikte birleştir."""
+        environments = [
+            verifier.evidence_environment()
+            for verifier in self._verifiers
+            if isinstance(verifier, EvidenceEnvironmentSource)
+        ]
+        if any(environment is None for environment in environments):
+            return None
+        known = [environment for environment in environments if environment is not None]
+        if not known:
+            return None
+        return EvidenceEnvironment(
+            *("\n".join(values) for values in zip(*(astuple(item) for item in known), strict=True))
+        )
 
     async def verify(self) -> VerificationResult:
         ozetler: list[str] = []
@@ -269,6 +306,16 @@ class CompositeVerifier:
                 continue
 
             failed = True
+            if not result.failure_evidence:
+                # Legacy kapının gerçek başarısızlığı sınıflandırılmamıştır; başka
+                # kapının altyapı kanıtı bu bağımsız ürün düzeltmesi yolunu kapatamaz.
+                failure_evidence.append(
+                    FailureEvidence(
+                        check_id=f"{type(verifier).__name__}/unclassified",
+                        family="unclassified_verifier_failure",
+                        attempt_id=self._attempt_identity(),
+                    )
+                )
             if result.summary:
                 ozetler.append(result.summary)
             blocking.extend(result.findings)
@@ -399,10 +446,16 @@ class CommandVerifier:
         cwd: str,
         timeout_s: float,
         failure_markers: tuple[ToolFailureMarkers, ...] | None = None,
+        runtime_identity: Callable[[], str] = lambda: sys.version,
+        attempt_identity: Callable[[], str] = lambda: uuid.uuid4().hex,
+        runner_paths: tuple[Path, ...] = (),
     ) -> None:
         self._commands = commands
         self._cwd = cwd
         self._timeout_s = timeout_s
+        self._runtime_identity = runtime_identity
+        self._attempt_identity = attempt_identity
+        self._runner_paths = runner_paths
         # İşaretler alan kaydından gelir; verilmezse varsayılan kaydın işaretleri.
         # Tarama proje işaretinden bağımsızdır: hatayı basıp `0` dönen ARAÇTIR.
         self._failure_markers = (
@@ -411,13 +464,43 @@ class CommandVerifier:
             else default_domain_registry().output_failure_markers()
         )
 
+    def evidence_environment(self) -> EvidenceEnvironment | None:
+        """Dosya hashlerini her kapı sorgusunda yeniden ölç; ortamı tarama."""
+        return evidence_environment(
+            Path(self._cwd),
+            self._commands,
+            runtime=self._runtime_identity(),
+            runner_paths=self._runner_paths,
+        )
+
+    async def verify_intermediate(self, changed: tuple[str, ...]) -> VerificationResult:
+        """Ara kapıya özel seçimi bağımsız örnekte çalıştır; final komutlarını değiştirme."""
+        commands = tuple(
+            [
+                await asyncio.to_thread(related_test_command, Path(self._cwd), command, changed)
+                for command in self._commands
+            ]
+        )
+        verifier = CommandVerifier(
+            commands,
+            cwd=self._cwd,
+            timeout_s=self._timeout_s,
+            failure_markers=self._failure_markers,
+            runtime_identity=self._runtime_identity,
+            attempt_identity=self._attempt_identity,
+            runner_paths=self._runner_paths,
+        )
+        return await verifier.verify()
+
     async def verify(self) -> VerificationResult:
         evidence: list[CriterionEvidence] = []
         warnings: list[str] = []
+        failures: list[FailureEvidence] = []
         for command in self._commands:
             result = await self._run(command)
             evidence.extend(result.evidence)
             warnings.extend(result.warnings)
+            failures.extend(result.failure_evidence)
             if not result.ok:
                 return VerificationResult(
                     ok=False,
@@ -426,15 +509,68 @@ class CommandVerifier:
                     warnings=tuple(warnings),
                     advisories=result.advisories,
                     evidence=tuple(evidence),
+                    failure_evidence=tuple(failures),
                 )
-        return VerificationResult(ok=True, warnings=tuple(warnings), evidence=tuple(evidence))
+        return VerificationResult(
+            ok=True,
+            warnings=tuple(warnings),
+            evidence=tuple(evidence),
+            failure_evidence=tuple(failures),
+        )
 
     async def _run(self, command: str) -> VerificationResult:
-        uyarilar: list[str] = []
-        sonuc = await self._calistir(command, uyarilar)
-        if not uyarilar:
-            return sonuc
-        return replace(sonuc, warnings=(*sonuc.warnings, *uyarilar))
+        environment = await asyncio.to_thread(
+            evidence_environment,
+            Path(self._cwd),
+            (command,),
+            runtime=self._runtime_identity(),
+            runner_paths=self._runner_paths,
+        )
+        before = await asyncio.to_thread(source_digest, Path(self._cwd))
+        call_id = self._attempt_identity()
+        warnings: list[str] = []
+        result = await self._calistir(command, warnings)
+        failures: tuple[FailureEvidence, ...] = ()
+        if any(item.status is not EvidenceStatus.PASSED for item in result.evidence):
+            output = "\n".join(item.output for item in result.evidence)
+            origin, family = _command_failure(result, output, cwd=Path(self._cwd), command=command)
+            sources = await asyncio.to_thread(_failure_sources, Path(self._cwd), output)
+            failures = (
+                FailureEvidence(
+                    check_id=command,
+                    family=family,
+                    attempt_id=call_id,
+                    sources=sources,
+                    origin=origin,
+                    environment=environment,
+                ),
+            )
+        after = await asyncio.to_thread(source_digest, Path(self._cwd))
+        current_environment = await asyncio.to_thread(
+            evidence_environment,
+            Path(self._cwd),
+            (command,),
+            runtime=self._runtime_identity(),
+            runner_paths=self._runner_paths,
+        )
+        if current_environment != environment:
+            environment = None
+        measured = tuple(
+            replace(
+                item,
+                source_digest=before,
+                source_after_digest=after,
+                environment=environment,
+                call_id=call_id,
+            )
+            for item in result.evidence
+        )
+        return replace(
+            result,
+            evidence=measured,
+            warnings=(*result.warnings, *warnings),
+            failure_evidence=failures,
+        )
 
     @staticmethod
     async def _okuyucuyu_bitir(okuyucu: asyncio.Future[None]) -> None:
@@ -711,3 +847,81 @@ def _tail(raw: bytes) -> str:
         return "(komut hiç çıktı üretmedi)"
     tail = "\n".join(text.split("\n")[-_OUTPUT_TAIL_LINES:])
     return tail if len(tail) <= _OUTPUT_MAX_CHARS else tail[-_OUTPUT_MAX_CHARS:]
+
+
+_PROVIDER_FAILURE = re.compile(
+    r"\b(?:provider quota|quota exceeded|rate.?limit|insufficient_quota|HTTP\s+429)\b",
+    re.IGNORECASE,
+)
+_ERROR_FAMILY = re.compile(r"\b([A-Za-z_][\w.]*(?:Error|Exception))\b")
+
+
+def _command_failure(
+    result: VerificationResult, output: str, *, cwd: Path, command: str
+) -> tuple[FailureOrigin, str]:
+    """Ölçülemeyen koşucuyu ve sağlayıcı kesintisini ürün arızasından ayır."""
+    if any(item.status is EvidenceStatus.UNVERIFIED for item in result.evidence):
+        return FailureOrigin.INFRASTRUCTURE, "runner_unavailable"
+    environment = command_environment(cwd, command)
+    module = selected_runner_module(environment) if environment is not None else None
+    if (
+        module is not None
+        and "Traceback (most recent call last)" not in output
+        and re.search(rf": No module named ['\"]?{re.escape(module)}['\"]?(?:\s|$)", output)
+    ):
+        return FailureOrigin.INFRASTRUCTURE, "runner_unavailable"
+    if _PROVIDER_FAILURE.search(output):
+        return FailureOrigin.PROVIDER, "provider_unavailable"
+    if result.summary.startswith(TIMEOUT_FINDING_PREFIX):
+        return FailureOrigin.INFRASTRUCTURE, "timeout"
+    families = _ERROR_FAMILY.findall(output)
+    return FailureOrigin.PRODUCT, families[-1] if families else "command_failed"
+
+
+def _failure_sources(root: Path, output: str) -> tuple[SourceFingerprint, ...]:
+    """Tanıdaki ilgili tek kaynak için içerik özeti; kaynak metni kayda taşınmaz."""
+    diagnosis = diagnose(output)
+    if diagnosis is None:
+        return ()
+    root = root.resolve()
+    source = (root / diagnosis.path.removeprefix("res://")).resolve()
+    if not source.is_relative_to(root) or source.name.startswith(".env") or not source.is_file():
+        return ()
+    return (SourceFingerprint(source.relative_to(root).as_posix(), content_digest((source,))),)
+
+
+def _resolved_runners(
+    root: Path, commands: tuple[str, ...], resolver: Callable[[str], str | None]
+) -> tuple[Path, ...]:
+    """Uygulama kurulum sınırında koşucu erişimini çöz ve kanıt yoluna enjekte et."""
+    runners: set[Path] = set()
+    for command in commands:
+        environment = command_environment(root, command)
+        if environment is None:
+            continue
+        program = environment.tokens[0]
+        resolved = str(environment.cwd / program) if "/" in program else resolver(program)
+        if resolved is not None:
+            runners.add(Path(resolved).resolve())
+    return tuple(sorted(runners))
+
+
+async def verify_intermediate(verifier: Verifier, changed: tuple[str, ...]) -> VerificationResult:
+    """Yalnız mevcut komut kapısını daralt; diğer kapılar normal çalışır."""
+    if isinstance(verifier, CommandVerifier):
+        return await verifier.verify_intermediate(changed)
+    if isinstance(verifier, CompositeVerifier):
+        selected = tuple(_IntermediateVerifier(item, changed) for item in verifier._verifiers)
+        return await CompositeVerifier(selected).verify()
+    return await verifier.verify()
+
+
+@dataclass(frozen=True, slots=True)
+class _IntermediateVerifier:
+    """Bileşik kapının mevcut birleştirme davranışına ara seçim bağlar."""
+
+    verifier: Verifier
+    changed: tuple[str, ...]
+
+    async def verify(self) -> VerificationResult:
+        return await verify_intermediate(self.verifier, self.changed)

@@ -701,3 +701,20 @@ async def test_run_shell_mcp_sir_adlarini_cocuk_ortamina_gecirmez(registry, cont
     gizli = replace(context, hidden_env=frozenset({"MG_MCP_SIRRI"}))
     sonuc = await _calistir(registry, gizli, "run_shell", command=komut)
     assert "yok|gorunur" in sonuc.output and "gizli-deger" not in sonuc.output
+
+
+def test_explicit_authorized_external_search_keeps_existing_results(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.search import search_code
+
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "source.py").write_text("def outside_target():\n    return 1\n")
+    result = search_code(
+        {"pattern": "outside_target", "path": str(external)},
+        ToolContext(project, extra_roots=(external,)),
+    )
+    assert "outside_target" in result.output
+    assert result.structured["localization_candidates"] == ()

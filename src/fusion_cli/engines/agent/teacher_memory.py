@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
-from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
+from ...core.memory import Lesson, LessonKind, LessonMemory, LessonRecallPolicy, LessonSource
 from .teacher_plan import TeacherPlan
 
 #: Plan derslerini diğer derslerden ayıran kapsam. `recall(scope=...)` kapsamsız
@@ -133,7 +133,12 @@ def _task_key(task: str) -> str:
 
 
 def find_reusable_plan(
-    memory: LessonMemory, task: str, *, workspace: str, tags: tuple[str, ...]
+    memory: LessonMemory,
+    task: str,
+    *,
+    workspace: str,
+    tags: tuple[str, ...],
+    policy: LessonRecallPolicy | None = None,
 ) -> tuple[Lesson, float] | None:
     """Başarıyla kaydedilmiş ve göreve yeterince benzer en iyi planı bul.
 
@@ -141,9 +146,15 @@ def find_reusable_plan(
     plan bir kez tutmadığında bir sonraki benzer görevde öğretmene yeniden sorulur.
     """
     best: tuple[Lesson, float] | None = None
-    for lesson in memory.recall(
-        task, limit=_RECALL_LIMIT, scope=TEACHER_PLAN_SCOPE, workspace=workspace, tags=tags
-    ):
+    candidates = memory.recall(
+        task,
+        limit=_RECALL_LIMIT,
+        scope=TEACHER_PLAN_SCOPE,
+        workspace=workspace,
+        tags=tags,
+        **({"policy": policy} if policy is not None else {}),
+    )
+    for lesson in candidates:
         if lesson.source is not LessonSource.TEACHER or lesson.scope != TEACHER_PLAN_SCOPE:
             continue
         if lesson.success_count <= lesson.failure_count or not plan_steps_from_lesson(lesson.text):

@@ -10,6 +10,10 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import Literal
+
+from .prompt_manifest import ContextProfile, PromptTransportMeasurement
+from .web_provenance import WebCallContext, WebResponseProvenance
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,13 +118,20 @@ class ModelSpec:
     fallback: tuple[str, ...] = ()
     supported_reasoning_efforts: tuple[str, ...] = ()
     reasoning_efforts_verified: bool = False
+    context_profile: ContextProfile | None = None
+    recommended_edit_format: Literal["exact", "whole"] | None = None
 
     def with_identity(self, model: str) -> ModelSpec:
         """Başka model eski modelin doğrulanmış yetenek kaydını miras alamaz."""
         if model == self.model:
             return self
         return replace(
-            self, model=model, supported_reasoning_efforts=(), reasoning_efforts_verified=False
+            self,
+            model=model,
+            supported_reasoning_efforts=(),
+            reasoning_efforts_verified=False,
+            context_profile=None,
+            recommended_edit_format=None,
         )
 
     @property
@@ -380,6 +391,20 @@ class CompletionRequest:
     #: hangi araçların sunulduğunu bildiği için metni o üretir; taşıma yalnız
     #: biçimlendirir (P1-33). Boşsa taşıma hiçbir sözleşme metni eklemez.
     answer_contract: str = ""
+    edit_format: Literal["exact", "whole"] | None = None
+    emulation_protocol: Literal["v1", "v2"] = "v1"
+    web_call_context: WebCallContext | None = None
+    is_capture_probe: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ParseWarning:
+    """Kurtarılan çağrıların yanında kaybolmadan taşınan protokol uyarısı."""
+
+    kind: str
+    message: str
+    call_index: int | None = None
+    blocks_mutation: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +427,7 @@ class ModelResult:
     #: Reasoning modellerinin düşünme metni. Nihai cevaba KARIŞTIRILMAZ; ayrı taşınır
     #: ki teşhis ve gösterim kararı üst katmanlara kalsın.
     reasoning: str = ""
+    parse_warnings: tuple[ParseWarning, ...] = ()
     #: Çıktı bütçesi dolduğu için yanıt yarıda mı kesildi? Metin gelmiş olabilir ama
     #: TAMAMLANMAMIŞTIR: JSON'a, talimata ya da koda güvenilmemelidir.
     truncated: bool = False
@@ -412,6 +438,7 @@ class ModelResult:
     # seçili kademesi yazar ve oturum düşerse bu anonim ücretsiz kademe olur.
     # Bilinmiyorsa boş kalır; boş olması "istenen kademe geldi" demek DEĞİLDİR.
     served_by: str = ""
+    prompt_measurement: PromptTransportMeasurement | None = field(default=None, kw_only=True)
     requested_effort: str | None = None
     applied_effort: str | None = None
     effort_reason: str = ""
@@ -419,6 +446,7 @@ class ModelResult:
     #: Hız kapısı paylaşılan soğumayı bu alanla bildirir; yeniden deneme katmanı
     #: kısa sabit gecikme yerine en az bu kadar bekler (P1-07). Bilinmiyorsa `None`.
     retry_after_s: float | None = None
+    web_provenance: WebResponseProvenance | None = None
 
     @property
     def is_rate_limited(self) -> bool:

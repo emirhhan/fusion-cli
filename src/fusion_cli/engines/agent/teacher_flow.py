@@ -326,13 +326,24 @@ async def _apply_remembered_plan(task: str, messages: list[Message], deps: Agent
         return False
     # Chroma/embedding araması ilk çağrıda model yükleyebilir: olay döngüsünü bloklamasın (A4-38).
     found = await asyncio.to_thread(
-        find_reusable_plan, deps.lessons, task, workspace=_workspace(deps), tags=lesson_tags(deps)
+        find_reusable_plan,
+        deps.lessons,
+        task,
+        workspace=_workspace(deps),
+        tags=lesson_tags(deps),
+        policy=deps.lesson_context.policy,
     )
     if found is None:
         return False
     lesson, similarity = found
     steps = plan_steps_from_lesson(lesson.text)
     deps.reused_teacher_lesson = lesson
+    from ...core.lesson_runtime import LessonDelivery
+    from .lesson_attribution import offer
+
+    if deps.config.runtime.lesson_attributed_feedback:
+        deps.recalled_lessons.append(lesson)
+    offer((lesson,), deps, LessonDelivery.TEACHER)
     _publish_todos(steps, deps)
     messages.append(
         Message(
@@ -365,6 +376,8 @@ def settle_teacher_plan(
 
     reused, fresh = deps.reused_teacher_lesson, deps.pending_teacher_plan
     deps.reused_teacher_lesson = deps.pending_teacher_plan = None
+    if deps.config.runtime.lesson_attributed_feedback:
+        return
     if not _lessons_enabled(deps) or (reused is None and fresh is None):
         return
     if deps.lessons is None:

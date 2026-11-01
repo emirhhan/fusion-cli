@@ -133,6 +133,7 @@ async def test_rewind_konusma_arayuze_kalan_gecmisi_doner(repo, tmp_path, memory
             checkpoint = oturum._state.checkpoints.begin(ad, oturum._state.history)
             checkpoint.changes.record(dosya)
             dosya.write_text(ad, encoding="utf-8")
+            checkpoint.changes.record_applied(dosya)
             oturum._state.history = [
                 *oturum._state.history,
                 Message("user", ad),

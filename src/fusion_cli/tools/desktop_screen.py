@@ -379,7 +379,9 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
                     "Ekran görüntüsü alınamadı. Sistem Ayarları > Gizlilik ve Güvenlik > "
                     "Ekran Kaydı bölümünde Fusion iznini kontrol et. " + result.stderr.strip()
                 )
+        context.changes.record_applied(target)
         _shrink(target, max_width)
+        context.changes.record_applied(target)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return ToolResult.failure(f"Ekran görüntüsü alınamadı: {exc}")
     data = target.read_bytes()

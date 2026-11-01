@@ -704,3 +704,15 @@ def test_aralik_disi_runtime_degerleri_reddedilir(tmp_path):
         yol = _yaz(tmp_path, {"runtime": ayar})
         with pytest.raises(ConfigError, match=mesaj):
             load_config(yol)
+
+
+@pytest.mark.parametrize("protocol", ["v1", "v2"])
+def test_web_protokolu_yaml_sabit_tur_olarak_yuklenir(tmp_path, protocol):
+    config = load_config(_yaz(tmp_path, {"runtime": {"emulation_protocol": protocol}}))
+    assert config.runtime.emulation_protocol == protocol
+
+
+@pytest.mark.parametrize("protocol", [True, 1, "v3", None, ["v2"]])
+def test_web_protokolu_gecersiz_yaml_turunu_reddeder(tmp_path, protocol):
+    with pytest.raises(ConfigError):
+        load_config(_yaz(tmp_path, {"runtime": {"emulation_protocol": protocol}}))

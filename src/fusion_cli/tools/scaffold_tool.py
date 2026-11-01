@@ -54,6 +54,7 @@ def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
         # dosyaların agent tarafından oluşturulduğunu bilemiyordu.
         context.changes.record(dosya)
         dosya.write_text((_TEMPLATES / ad).read_text(encoding="utf-8"), encoding="utf-8")
+        context.changes.record_applied(dosya)
         context.touched.add(dosya)
         yazilan.append(ad)
 

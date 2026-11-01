@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { isFullPage, SOHBET_KABUGU_SAYFALARI, type Page } from "./pageLayout";
 
 describe("tam sayfa kuralı", () => {
-  it("sohbet ve görsel/video oluşturma kenar çubuğuyla açılır", () => {
+  it("yalnız sohbet ve görsel oluşturma kenar çubuğuyla açılır", () => {
+    expect(SOHBET_KABUGU_SAYFALARI).toEqual(["chat", "image-create"]);
     for (const page of SOHBET_KABUGU_SAYFALARI) expect(isFullPage(page, null), page).toBe(false);
   });
 

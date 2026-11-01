@@ -84,11 +84,18 @@ class _FakeDeps:
     tool_context: ToolContext
     execution: object | None = None
     effect_recorder: object | None = None
+    context_step: object | None = None
+    invocation_budget: object | None = None
+    lesson_state: object | None = None
     budget: object | None = None
     verifier: object | None = None
     checkpoint_store: object | None = None
     conversation_id: str = ""
-    config: object | None = None
+    config: object | None = field(
+        default_factory=lambda: SimpleNamespace(
+            runtime=SimpleNamespace(verified_skill_proposals=False)
+        )
+    )
     publisher: object = field(default_factory=_Publisher)
 
 

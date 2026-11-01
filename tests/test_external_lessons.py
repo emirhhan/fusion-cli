@@ -9,12 +9,15 @@ import pytest
 
 from fusion_cli.core.events import LessonsLearned
 from fusion_cli.core.evidence import ToolUse
+from fusion_cli.core.lesson_runtime import LessonRuntimeContext
 from fusion_cli.core.memory import Lesson, LessonKind
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent import learning, learning_steps
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.memory.lesson_scoring import LESSON_CONFIDENCE_FLOOR, reinforced
 from fusion_cli.memory.lessons import as_prompt_block
+
+from .fakes import make_config
 
 
 def _ders(metin: str = "pip yerine uv kullan", **alan) -> Lesson:
@@ -104,8 +107,10 @@ def test_eski_kayit_dis_kaynakli_degil_okunur() -> None:
 def test_bayrak_chroma_gidis_donusunde_korunur_ve_dogrulaninca_duser(tmp_path) -> None:
     from fusion_cli.memory.lessons import ChromaLessonMemory
 
-    bellek = ChromaLessonMemory(tmp_path)
-    bellek.add(_ders(confidence=0.5, external=True))
+    from .test_memory_store import _LocalEmbedding
+
+    bellek = ChromaLessonMemory(tmp_path, embedding_function=_LocalEmbedding())
+    assert bellek.add(_ders(confidence=0.5, external=True))
 
     assert bellek.reinforce(("pip yerine uv kullan",), success=True, external_turn=True) == 1
     assert bellek.all()[0].external is True
@@ -141,9 +146,9 @@ class _Bellek:
 def _deps(bellek, olaylar, guven=0.5):
     return SimpleNamespace(
         lessons=bellek,
-        config=SimpleNamespace(
-            runtime=SimpleNamespace(lessons=True, external_lesson_confidence=guven)
-        ),
+        config=make_config(runtime={"lessons": True, "external_lesson_confidence": guven}),
+        lesson_context=LessonRuntimeContext(),
+        lesson_state=None,
         publisher=SimpleNamespace(publish=olaylar.append),
         tool_context=None,
         mcp_servers=(),

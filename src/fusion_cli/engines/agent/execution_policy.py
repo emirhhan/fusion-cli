@@ -15,12 +15,14 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
+from .edit_profiles import EditFormat
 from .tool_profiles import conversation_tool_profiles
 from .tool_surface import uses_compact_surface
 
@@ -67,6 +69,7 @@ class ExecutionPolicy:
     """
 
     is_web: bool
+    edit_format: EditFormat | None = None
     max_model_calls: int | None = None
     max_tool_rounds: int | None = None
     max_same_tool_without_change: int = 2
@@ -108,6 +111,8 @@ class ExecutionPolicy:
     max_external_tools: int | None = None
     #: Sıkı yüzeyde görev türüne göre sabit alt küme (bkz. `tool_profiles`); boş = profil yok.
     tool_profiles: tuple[str, ...] = ()
+    #: İsteğe bağlı yüzey stratejisi; ortak ayar ve çağıran bağlantısı Task 8b'dedir.
+    external_tool_selection: Literal["registration_order", "relevance"] = "registration_order"
 
 
 def policy_for(
@@ -145,6 +150,7 @@ def policy_for(
         # başarıya bütün sağlayıcılarda izin verilmez.
         return ExecutionPolicy(
             is_web=False,
+            edit_format=spec.recommended_edit_format,
             allow_mutation=mutation.ok,
             mutation_block_reason=mutation.reason,
             mutation_blocked_by_capability=not mutation.ok,
@@ -156,11 +162,13 @@ def policy_for(
             compact_tool_surface=compact,
             max_external_tools=max_external_tools,
             tool_profiles=profiles,
+            external_tool_selection=config.runtime.external_tool_selection.value,
         )
 
     simple_chat = _is_genuine_simple_chat(task, required_effect)
     return ExecutionPolicy(
         is_web=True,
+        edit_format=spec.recommended_edit_format,
         allow_mutation=mutation.ok,
         mutation_block_reason=mutation.reason,
         mutation_blocked_by_capability=not mutation.ok,
@@ -187,6 +195,7 @@ def policy_for(
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,
         tool_profiles=profiles,
+        external_tool_selection=config.runtime.external_tool_selection.value,
     )
 
 

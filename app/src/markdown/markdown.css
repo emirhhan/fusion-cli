@@ -266,3 +266,72 @@
 .diff-card__line[data-kind="meta"],
 .diff-card__line[data-kind="hunk"] { color: var(--text-secondary); }
 .diff-card__line[data-kind="context"] { color: var(--text-primary); }
+
+/* Yalnız asistan anlatımı: güvenli Markdown çizicisi ve diğer roller korunur. */
+.conversation__message--assistant .markdown {
+  font-family: var(--assistant-font-family);
+  font-size: var(--assistant-font-size);
+  font-weight: var(--assistant-font-weight);
+  font-optical-sizing: auto;
+  letter-spacing: var(--assistant-tracking);
+  line-height: var(--assistant-line-height);
+  width: min(100%, var(--assistant-prose-width));
+  white-space: normal;
+}
+.conversation__message--assistant .markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--assistant-font-family);
+  font-weight: var(--assistant-heading-weight);
+  line-height: var(--assistant-heading-line-height);
+  margin: var(--assistant-heading-gap-before) 0 var(--assistant-heading-gap-after);
+}
+.conversation__message--assistant .markdown h1 { font-size: var(--assistant-heading-1-size); }
+.conversation__message--assistant .markdown h2 { font-size: var(--assistant-heading-2-size); }
+.conversation__message--assistant .markdown h3 { font-size: var(--assistant-heading-3-size); }
+.conversation__message--assistant .markdown h4 { font-size: var(--assistant-heading-4-size); }
+.conversation__message--assistant .markdown :is(h5, h6) { font-size: var(--assistant-heading-small-size); }
+.conversation__message--assistant .markdown p { margin: 0 0 var(--assistant-paragraph-gap); }
+.conversation__message--assistant .markdown :is(ul, ol) {
+  margin: 0 0 var(--assistant-paragraph-gap);
+  padding-inline-start: var(--assistant-list-indent);
+}
+.conversation__message--assistant .markdown li { margin: 0 0 var(--assistant-list-gap); padding-inline-start: 0; }
+.conversation__message--assistant .markdown li > p { margin-bottom: var(--assistant-list-gap); }
+.conversation__message--assistant .markdown li > :is(ul, ol) { margin: var(--assistant-list-gap) 0 0; }
+.conversation__message--assistant .markdown li > :last-child { margin-bottom: 0; }
+.conversation__message--assistant .markdown > :first-child { margin-top: 0; }
+.conversation__message--assistant .markdown > :last-child { margin-bottom: 0; }
+.conversation__message--assistant .markdown table {
+  font-family: var(--font-sans);
+  font-size: var(--assistant-table-font-size);
+  line-height: var(--assistant-table-line-height);
+}
+.conversation__message--assistant .markdown :is(.markdown__inline-code, .code-card code) {
+  font-family: var(--font-mono);
+  font-size: var(--assistant-code-font-size);
+}
+.conversation__message--assistant .markdown .code-card pre {
+  font-size: var(--assistant-code-font-size);
+  line-height: var(--assistant-code-line-height);
+}
+.conversation__message--assistant .markdown .code-card code { line-height: var(--assistant-code-line-height); }
+.conversation__message--assistant .markdown .code-card__head {
+  font-family: var(--chat-font-family, var(--font-sans));
+  font-size: var(--chat-font-size, 13px);
+  line-height: var(--chat-line-height, 1.5);
+}
+.conversation__message--assistant .markdown .code-card__toggle {
+  line-height: var(--chat-line-height, 1.5);
+}
+.conversation__message--assistant .markdown :is(.code-card__copy, .code-card__lang, .code-card__toggle, .markdown__image-remote) {
+  font-family: var(--chat-font-family, var(--font-sans));
+}
+.conversation__message--assistant .markdown .markdown__image-remote {
+  font-size: var(--chat-font-size, 13px);
+  line-height: var(--chat-line-height, 1.5);
+}
+@container conversation-workspace (max-width: 640px) {
+  .conversation__message--assistant .markdown {
+    font-size: var(--assistant-font-size-narrow);
+    line-height: var(--assistant-line-height-narrow);
+  }
+}

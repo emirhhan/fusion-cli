@@ -10,11 +10,13 @@ regresyonsuz en iyi adayı seç → yalnızca iyileşme varsa yeni sürümü yay
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from evals.metrics import RunReport
 
+from .research_comparison import compare_pair
+from .research_evidence import RunEvidence, check_variant_count
 from .selection import DEFAULT_MIN_IMPROVEMENT, Candidate, Selection, select_winner
 from .variants import PromptVariant
 from .versioning import PromptStore
@@ -42,6 +44,7 @@ class SearchResult:
     baseline: Candidate
     candidates: tuple[Candidate, ...]
     selection: Selection
+    manifest: tuple[RunEvidence, ...] = ()
 
     @property
     def winner_report(self) -> RunReport | None:
@@ -67,28 +70,37 @@ async def search(
 ) -> SearchResult:
     """Temeli ve adayları ölç, regresyonsuz en iyisini seç. YAYIMLAMAZ.
 
-    `baseline_report` verilirse temel yeniden ölçülmez: çağıran temelin başarısız
-    görevlerini adaylara ipucu yapmak için onu zaten ölçmüş olabilir (model çağrısı pahalı).
+    `baseline_report` yalnız teşhistir; her aday bağımsız AB/BA çiftleriyle ölçülür.
     """
 
+    check_variant_count(variant_count)
     baseline = Candidate(
-        variant=PromptVariant(name=name, text=base_text, version=base_version),
-        report=baseline_report
-        if baseline_report is not None
-        else await evaluator.evaluate(base_text),
+        PromptVariant(name=name, text=base_text, version=base_version),
+        baseline_report if baseline_report is not None else await evaluator.evaluate(base_text),
     )
     texts = await generator.generate(base_text, variant_count)
-    candidates = tuple(
-        [
-            Candidate(
-                variant=PromptVariant(name=name, text=text),
-                report=await evaluator.evaluate(text),
-            )
-            for text in texts
-        ]
-    )
-    selection = select_winner(baseline, candidates, min_improvement=min_improvement)
-    return SearchResult(baseline=baseline, candidates=candidates, selection=selection)
+    if len(texts) > variant_count:
+        raise ValueError("üretici istenenden fazla aday döndürdü; tur durduruldu")
+    candidates: list[Candidate] = []
+    manifest: list[RunEvidence] = []
+    for text in texts:
+        paired = await compare_pair(evaluator, base_text, text, stage="development")
+        offset = len(manifest)
+        manifest.extend(replace(item, order=offset + item.order) for item in paired.manifest)
+        if paired.problem:
+            continue
+        candidate = Candidate(
+            PromptVariant(name=name, text=text), paired.candidate, paired.baseline
+        )
+        local = select_winner(
+            Candidate(baseline.variant, paired.baseline),
+            (candidate,),
+            min_improvement=min_improvement,
+        )
+        if local.improved:
+            candidates.append(candidate)
+    selection = select_winner(baseline, tuple(candidates), min_improvement=min_improvement)
+    return SearchResult(baseline, tuple(candidates), selection, tuple(manifest))
 
 
 async def optimize(

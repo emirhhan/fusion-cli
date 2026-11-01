@@ -1,0 +1,318 @@
+[
+  {
+    "name": "01-operator",
+    "path": "dosya.py",
+    "seed": "def topla(a, b):\n    # komşu\n    return a - b\n",
+    "edits": [
+      {
+        "old": "a - b",
+        "new": "a + b"
+      }
+    ],
+    "content": "def topla(a, b):\n    # komşu\n    return a + b\n"
+  },
+  {
+    "name": "02-docstring",
+    "path": "dosya.py",
+    "seed": "def oku():\n    return 1\n",
+    "edits": [
+      {
+        "old": "def oku():\n",
+        "new": "def oku():\n    \"\"\"Oku.\"\"\"\n"
+      }
+    ],
+    "content": "def oku():\n    \"\"\"Oku.\"\"\"\n    return 1\n"
+  },
+  {
+    "name": "03-eof-yeni-satir",
+    "path": "dosya.txt",
+    "seed": "bir\n",
+    "edits": [
+      {
+        "old": "bir\n",
+        "new": "bir\niki\n"
+      }
+    ],
+    "content": "bir\niki\n"
+  },
+  {
+    "name": "04-eof-satirsiz",
+    "path": "dosya.txt",
+    "seed": "ilk son",
+    "edits": [
+      {
+        "old": "son",
+        "new": "yeni"
+      }
+    ],
+    "content": "ilk yeni"
+  },
+  {
+    "name": "05-silme",
+    "path": "dosya.txt",
+    "seed": "bir\ngereksiz\nson\n",
+    "edits": [
+      {
+        "old": "gereksiz\n",
+        "new": ""
+      }
+    ],
+    "content": "bir\nson\n"
+  },
+  {
+    "name": "06-baglam",
+    "path": "dosya.txt",
+    "seed": "bir = 1\niki = 1\n",
+    "edits": [
+      {
+        "old": "iki = 1",
+        "new": "iki = 2"
+      }
+    ],
+    "content": "bir = 1\niki = 2\n"
+  },
+  {
+    "name": "07-bagimsiz",
+    "path": "dosya.txt",
+    "seed": "bir = 1\niki = 2\n",
+    "edits": [
+      {
+        "old": "bir = 1",
+        "new": "bir = 3"
+      },
+      {
+        "old": "iki = 2",
+        "new": "iki = 4"
+      }
+    ],
+    "content": "bir = 3\niki = 4\n"
+  },
+  {
+    "name": "08-bagimli",
+    "path": "dosya.txt",
+    "seed": "ilk\n",
+    "edits": [
+      {
+        "old": "ilk",
+        "new": "ara"
+      },
+      {
+        "old": "ara",
+        "new": "son"
+      }
+    ],
+    "content": "son\n"
+  },
+  {
+    "name": "09-replace-all",
+    "path": "dosya.txt",
+    "seed": "sabit\nsabit\n",
+    "edits": [
+      {
+        "old": "sabit",
+        "new": "yeni",
+        "replace_all": true
+      }
+    ],
+    "content": "yeni\nyeni\n"
+  },
+  {
+    "name": "10-unicode",
+    "path": "dosya.py",
+    "seed": "ileti = \"İstanbul 🐈\"\n",
+    "edits": [
+      {
+        "old": "İstanbul 🐈",
+        "new": "Ankara 🐕"
+      }
+    ],
+    "content": "ileti = \"Ankara 🐕\"\n"
+  },
+  {
+    "name": "11-json-kacis",
+    "path": "dosya.json",
+    "seed": "{\"yol\": \"a\\\\b\", \"soz\": \"\\\"eski\\\"\"}\n",
+    "edits": [
+      {
+        "old": "eski",
+        "new": "yeni"
+      }
+    ],
+    "content": "{\"yol\": \"a\\\\b\", \"soz\": \"\\\"yeni\\\"\"}\n"
+  },
+  {
+    "name": "12-coksatir",
+    "path": "dosya.py",
+    "seed": "metin = \"\"\"ilk\n\n    son\"\"\"\n",
+    "edits": [
+      {
+        "old": "\n\n    son",
+        "new": "\n\n    yeni"
+      }
+    ],
+    "content": "metin = \"\"\"ilk\n\n    yeni\"\"\"\n"
+  },
+  {
+    "name": "13-crlf",
+    "path": "dosya.txt",
+    "seed": "bir\r\niki\r\n",
+    "edits": [
+      {
+        "old": "iki",
+        "new": "yeni"
+      }
+    ],
+    "content": "bir\nyeni\n",
+    "expected_final": "bir\r\nyeni\r\n"
+  },
+  {
+    "name": "14-json",
+    "path": "dosya.json",
+    "seed": "{\"adet\": 1}\n",
+    "edits": [
+      {
+        "old": "1",
+        "new": "2"
+      }
+    ],
+    "content": "{\"adet\": 2}\n"
+  },
+  {
+    "name": "15-toml",
+    "path": "dosya.toml",
+    "seed": "[urun]\nadet = 1\n",
+    "edits": [
+      {
+        "old": "1",
+        "new": "2"
+      }
+    ],
+    "content": "[urun]\nadet = 2\n"
+  },
+  {
+    "name": "16-python",
+    "path": "dosya.py",
+    "seed": "import os\ndef oku():\n    return os.name\n",
+    "edits": [
+      {
+        "old": "os.name",
+        "new": "os.sep"
+      }
+    ],
+    "content": "import os\ndef oku():\n    return os.sep\n"
+  },
+  {
+    "name": "17-bozuk-python",
+    "path": "dosya.py",
+    "seed": "def oku():\n    return 1\n",
+    "edits": [
+      {
+        "old": "    return 1",
+        "new": "return 2"
+      }
+    ],
+    "content": "def oku():\nreturn 2\n",
+    "exact_ok": false,
+    "whole_ok": false
+  },
+  {
+    "name": "18-bozuk-json",
+    "path": "dosya.json",
+    "seed": "{\"adet\": 1}\n",
+    "edits": [
+      {
+        "old": "1",
+        "new": "}"
+      }
+    ],
+    "content": "{\"adet\": }}\n",
+    "exact_ok": false,
+    "whole_ok": false
+  },
+  {
+    "name": "19-dis-ekleme",
+    "path": "dosya.txt",
+    "seed": "bir\nson\n",
+    "edits": [
+      {
+        "old": "bir",
+        "new": "yeni"
+      }
+    ],
+    "content": "yeni\nson\n",
+    "external": "bir\nson\nkullanıcı\n",
+    "exact_final": "yeni\nson\nkullanıcı\n",
+    "whole_ok": false
+  },
+  {
+    "name": "20-dis-hedef",
+    "path": "dosya.txt",
+    "seed": "bir\nson\n",
+    "edits": [
+      {
+        "old": "bir",
+        "new": "yeni"
+      }
+    ],
+    "content": "yeni\nson\n",
+    "external": "değişmiş\nson\n",
+    "exact_ok": false,
+    "whole_ok": false
+  },
+  {
+    "name": "21-okunmamis",
+    "path": "dosya.txt",
+    "seed": "bir\nson\n",
+    "edits": [
+      {
+        "old": "bir",
+        "new": "yeni"
+      }
+    ],
+    "content": "yeni\nson\n",
+    "read": false,
+    "whole_ok": false
+  },
+  {
+    "name": "22-belirsiz",
+    "path": "dosya.txt",
+    "seed": "bir\nbir\n",
+    "edits": [
+      {
+        "old": "bir",
+        "new": "yeni"
+      }
+    ],
+    "content": "yeni\nbir\n",
+    "exact_ok": false
+  },
+  {
+    "name": "23-symlink",
+    "path": "dosya.txt",
+    "seed": "bir\n",
+    "edits": [
+      {
+        "old": "bir",
+        "new": "yeni"
+      }
+    ],
+    "content": "yeni\n",
+    "symlink": true,
+    "exact_ok": false,
+    "whole_ok": false
+  },
+  {
+    "name": "24-buyuk-web",
+    "path": "dosya.txt",
+    "seed": "satir0\nsatir1\nsatir2\nsatir3\nsatir4\nsatir5\nsatir6\nsatir7\nsatir8\nsatir9\nsatir10\nsatir11\nsatir12\nsatir13\nsatir14\nsatir15\nsatir16\nsatir17\nsatir18\nsatir19\nsatir20\nsatir21\nsatir22\nsatir23\nsatir24\nsatir25\nsatir26\nsatir27\nsatir28\nsatir29\nsatir30\nsatir31\nsatir32\nsatir33\nsatir34\nsatir35\nsatir36\nsatir37\nsatir38\nsatir39\nsatir40\nsatir41\nsatir42\nsatir43\nsatir44\nsatir45\nsatir46\nsatir47\nsatir48\nsatir49\nsatir50\nsatir51\nsatir52\nsatir53\nsatir54\nsatir55\nsatir56\nsatir57\nsatir58\nsatir59\nsatir60\nsatir61\nsatir62\nsatir63\nsatir64\nsatir65\nsatir66\nsatir67\nsatir68\nsatir69\nsatir70\nsatir71\nsatir72\nsatir73\nsatir74\nsatir75\nsatir76\nsatir77\nsatir78\nsatir79\n",
+    "edits": [
+      {
+        "old": "satir40",
+        "new": "yeni40"
+      }
+    ],
+    "content": "satir0\nsatir1\nsatir2\nsatir3\nsatir4\nsatir5\nsatir6\nsatir7\nsatir8\nsatir9\nsatir10\nsatir11\nsatir12\nsatir13\nsatir14\nsatir15\nsatir16\nsatir17\nsatir18\nsatir19\nsatir20\nsatir21\nsatir22\nsatir23\nsatir24\nsatir25\nsatir26\nsatir27\nsatir28\nsatir29\nsatir30\nsatir31\nsatir32\nsatir33\nsatir34\nsatir35\nsatir36\nsatir37\nsatir38\nsatir39\nyeni40\nsatir41\nsatir42\nsatir43\nsatir44\nsatir45\nsatir46\nsatir47\nsatir48\nsatir49\nsatir50\nsatir51\nsatir52\nsatir53\nsatir54\nsatir55\nsatir56\nsatir57\nsatir58\nsatir59\nsatir60\nsatir61\nsatir62\nsatir63\nsatir64\nsatir65\nsatir66\nsatir67\nsatir68\nsatir69\nsatir70\nsatir71\nsatir72\nsatir73\nsatir74\nsatir75\nsatir76\nsatir77\nsatir78\nsatir79\n",
+    "web": true,
+    "whole_ok": false
+  }
+]

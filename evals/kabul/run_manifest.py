@@ -15,6 +15,8 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from evals.kabul.model import Area
+from evals.profiles import RunMetadata
+from evals.research_contracts import has_task_config_coverage
 
 _DOMAIN_ALIASES = {"site_kopyasi_2": "site_kopyasi"}
 _DOMAINS = ("html_oyun", "remotion", "site_kopyasi", "animasyon")
@@ -134,6 +136,7 @@ class FrozenRun:
     assets: tuple[PublicAsset, ...]
     evidence: FreezeEvidence
     missing_inputs: tuple[str, ...]
+    evaluation: RunMetadata | None = None
     original_baseline_provenance: str = "unknown"
     authentication_status: str = "unknown"
     cache_initial_state: str = "unknown"
@@ -176,6 +179,7 @@ def freeze_run(
     viewports: tuple[tuple[int, int], ...],
     assets: tuple[PublicAsset, ...],
     evidence: FreezeEvidence,
+    evaluation: RunMetadata | None = None,
 ) -> FrozenRun:
     """Aynı Area bütçesi; metin normalize edilmez, B taslağı nihai sayılmaz."""
     if (
@@ -192,6 +196,8 @@ def freeze_run(
         raise ValueError("Koşu kimliği alan/rol/varyant ile eşleşmiyor.")
     _validate_content(area, brief, final_brief, viewports, assets)
     missing = evidence.missing + (() if final_brief else ("final_brief",))
+    if evaluation is not None:
+        missing += _evaluation_missing(evaluation)
     return FrozenRun(
         run_id,
         area.name,
@@ -204,6 +210,7 @@ def freeze_run(
         tuple(sorted(assets, key=lambda item: item.name)),
         evidence,
         missing,
+        evaluation=evaluation,
     )
 
 
@@ -290,3 +297,55 @@ def _public_name(name: object) -> None:
     if PurePosixPath(name).is_absolute() or any(part in {"", ".", ".."} for part in parts):
         raise ValueError("Public kaynak göreli ve kök içinde olmalı.")
     _secret_parts(tuple(parts))
+
+
+def _evaluation_missing(metadata: RunMetadata) -> tuple[str, ...]:
+    """Task3/4 kanıtı bağlanmadıysa donmuş eval iddiası üretme."""
+    names = (
+        "source_digest",
+        "prompt_digest",
+        "initial_workspace_digest",
+        "split_digest",
+        "scorer_digest",
+        "effective_config_digest",
+        "environment_digest",
+        "corpus_digest",
+    )
+    missing = []
+    for name in names:
+        value = getattr(metadata, name)
+        if value is None:
+            missing.append("evaluation." + name)
+        else:
+            _check_digest(value)
+    if "task_effective_config" in metadata.unknowns or not has_task_config_coverage(
+        metadata.task_ids, metadata.repeat, metadata.execution_ids, metadata.task_config_digests
+    ):
+        missing.append("evaluation.task_effective_config")
+    has_budgets = _has_complete_task_budgets(metadata)
+    for name in ("requested_model", "split", "max_model_calls", "timeout_s"):
+        if has_budgets and name in {"max_model_calls", "timeout_s"}:
+            continue
+        if getattr(metadata, name) is None:
+            missing.append("evaluation." + name)
+    return tuple(missing)
+
+
+def _has_complete_task_budgets(metadata: RunMetadata) -> bool:
+    """Kısmi veya geçersiz görev bütçesi donmuş koşuyu tamamlamaz."""
+    import math
+
+    budgets = metadata.task_budgets
+    return bool(
+        metadata.task_ids
+        and len(set(metadata.task_ids)) == len(metadata.task_ids) == len(budgets)
+        and {item[0] for item in budgets} == set(metadata.task_ids)
+        and all(
+            type(calls) is int
+            and calls > 0
+            and type(timeout) in {int, float}
+            and timeout > 0
+            and math.isfinite(timeout)
+            for _, calls, timeout in budgets
+        )
+    )

@@ -4,8 +4,9 @@ Yanlış yazılmış bir ölçüt, ölçütün olmamasından kötüdür: doğru 
 başarısız gösterir ya da başarısız olanı geçirir. Bu dosya her `exit_code`
 ölçütünü ELDE YAZILMIŞ DOĞRU ÇÖZÜME karşı koşturur ve geçmesini bekler.
 
-Ağ ve model yoktur: yalnızca ölçüt komutu çalışır. Set büyüdükçe buraya referans
-çözüm eklenir; eklenmeyen görev testte açıkça listelenir.
+Canlı ağ ve model yoktur. Araştırma referansları mevcut betikli sağlayıcı ve gerçek
+runner/yürütücü hattını kullanır; diğer referanslarda ölçüt komutu çalışır. Yeni
+görevler aynı kapıda açıkça listelenir.
 """
 
 from __future__ import annotations
@@ -13,11 +14,12 @@ from __future__ import annotations
 import base64
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from evals.loader import load_tasks
-from evals.tasks import CriterionKind
+from evals.loader import load_suite
+from evals.tasks import CriterionKind, EvalTask
 
 SUITE_DIR = Path(__file__).resolve().parents[1] / "evals" / "suite"
 #: Setlerin TAMAMI denetlenir: yeni bir set eklendiğinde ölçütleri de referans
@@ -354,59 +356,83 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
 TARAYICI_GEREKTIREN = frozenset({"arena-survival-core-loop"})
 
 
-def _exit_code_gorevleri():
-    gorevler = []
-    for suite in SUITES:
-        gorevler.extend(
-            gorev
-            for gorev in load_tasks(suite)
-            if gorev.criterion.kind is CriterionKind.EXIT_CODE
-            and gorev.id not in TARAYICI_GEREKTIREN
+@dataclass(frozen=True)
+class ReferenceCase:
+    namespace: str
+    task: EvalTask
+
+    @property
+    def identity(self) -> str:
+        return f"{self.namespace}:{self.task.id}"
+
+
+def _exit_code_gorevleri() -> tuple[ReferenceCase, ...]:
+    cases = []
+    for path in SUITES:
+        suite = load_suite(path)
+        namespace = suite.metadata.namespace or path.stem
+        cases.extend(
+            ReferenceCase(namespace, task)
+            for task in suite.tasks
+            if task.criterion.kind is CriterionKind.EXIT_CODE and task.id not in TARAYICI_GEREKTIREN
         )
-    return gorevler
+    return tuple(cases)
 
 
-def _gorev_kimlikleri():
-    return [gorev.id for gorev in _exit_code_gorevleri()]
+def _has_reference(case: ReferenceCase) -> bool:
+    if case.namespace == "fusion_research":
+        fixture = SUITE_DIR.parent / "fixtures/fusion_research" / case.task.id
+        return (fixture / "response.txt").is_file()
+    return case.task.id in REFERANS_COZUMLER
 
 
-@pytest.mark.parametrize("gorev_id", _gorev_kimlikleri())
-def test_olcut_dogru_cozumu_kabul_eder(gorev_id, tmp_path: Path):
-    """Referans çözüm ölçütü GEÇMELİ; geçmiyorsa ölçüt fazla dar ya da hatalı."""
-    gorev = next(g for g in _exit_code_gorevleri() if g.id == gorev_id)
-    cozum = REFERANS_COZUMLER.get(gorev_id)
-    if cozum is None:
-        pytest.fail(
-            f"'{gorev_id}' için referans çözüm yok. Yeni eval görevi eklendiğinde "
-            "REFERANS_COZUMLER'e de eklenmeli — ölçütün doğru çözümü kabul ettiği "
-            "doğrulanmadan sete girmemeli."
+@pytest.mark.parametrize("case", _exit_code_gorevleri(), ids=lambda case: case.identity)
+async def test_olcut_dogru_cozumu_kabul_eder(case, tmp_path: Path, monkeypatch):
+    """Her ad alanı aynı kapıda gerçek insan referansını kabul etmeli."""
+    assert _has_reference(case), f"'{case.identity}' için referans çözüm yok"
+    if case.namespace == "fusion_research":
+        from evals.executor import AgentTaskExecutor
+
+        from fusion_cli.core.clock import SystemClock
+        from tests.test_research_support import scripted_runner
+
+        runner = await scripted_runner(case.task, tmp_path, monkeypatch, True)
+        result = await AgentTaskExecutor(
+            runner, workspace_root=tmp_path / "work", clock=SystemClock()
+        ).run(case.task)
+        assert result.exit_code == case.task.criterion.expected_exit_code, (
+            case.identity,
+            (tmp_path / "work" / case.task.id / "_acceptance.stderr.txt").read_text(),
         )
+        assert result.model_calls > 0
+        return
+    _check_file_reference(case.task, REFERANS_COZUMLER[case.task.id], tmp_path)
 
-    for yol, icerik in {**gorev.setup, **cozum}.items():
-        hedef = tmp_path / yol
-        hedef.parent.mkdir(parents=True, exist_ok=True)
-        if icerik.startswith("base64:"):
-            hedef.write_bytes(base64.b64decode(icerik.removeprefix("base64:")))
+
+def _check_file_reference(task, solution, root: Path):
+    for path, content in {**task.setup, **solution}.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if content.startswith("base64:"):
+            target.write_bytes(base64.b64decode(content.removeprefix("base64:")))
         else:
-            hedef.write_text(icerik, encoding="utf-8")
-
-    komut = (gorev.criterion.command or "").replace("python ", f"{sys.executable} ")
-    sonuc = subprocess.run(
-        komut,
-        shell=True,
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=120,
+            target.write_text(content, encoding="utf-8")
+    command = (task.criterion.command or "").replace("python ", f"{sys.executable} ")
+    result = subprocess.run(
+        command, shell=True, cwd=root, capture_output=True, text=True, timeout=120
     )
-
-    assert sonuc.returncode == gorev.criterion.expected_exit_code, (
-        f"'{gorev_id}' ölçütü DOĞRU çözümü reddetti.\n"
-        f"komut: {komut}\nstdout: {sonuc.stdout}\nstderr: {sonuc.stderr}"
+    assert result.returncode == task.criterion.expected_exit_code, (
+        task.id,
+        command,
+        result.stdout,
+        result.stderr,
     )
 
 
 def test_her_exit_code_gorevinin_referans_cozumu_var():
-    """Set büyüdüğünde bu test unutulan referans çözümü hemen gösterir."""
-    eksik = [gorev.id for gorev in _exit_code_gorevleri() if gorev.id not in REFERANS_COZUMLER]
-    assert not eksik, f"referans çözümü olmayan eval görevleri: {eksik}"
+    """Yeni görev aynı kapıya girer; kısa ID başka setin çözümünü seçemez."""
+    cases = _exit_code_gorevleri()
+    assert len({case.identity for case in cases}) == len(cases)
+    missing = [case.identity for case in cases if not _has_reference(case)]
+    assert not missing, f"referans çözümü olmayan eval görevleri: {missing}"
+    assert len([case for case in cases if case.namespace == "fusion_research"]) == 32

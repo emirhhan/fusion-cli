@@ -1,0 +1,38 @@
+[
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "notlar.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "notlar.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "notlar.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "notlar.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "notlar.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "yeni.txt"
+    }
+  }
+]

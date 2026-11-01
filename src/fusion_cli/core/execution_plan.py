@@ -86,6 +86,15 @@ class PlanStep:
     last_progress_fingerprint: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class RoutineDefinition:
+    """Planın doğrulanabilir rutin girdi ve koşul rolleri."""
+
+    input_schema: str
+    preconditions: tuple[str, ...]
+    checks: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class ExecutionPlan:
     """Bağımlılık grafiği biçimindeki sürümlü yürütme planı."""
@@ -95,6 +104,7 @@ class ExecutionPlan:
     steps: tuple[PlanStep, ...]
     status: PlanStatus = PlanStatus.PENDING
     schema_version: int = 1
+    routine: RoutineDefinition | None = None
 
 
 @dataclass(frozen=True)
@@ -185,7 +195,7 @@ def _target_conflicts(step: PlanStep, check: VerificationCheck) -> tuple[str, ..
 
 def validate_plan(plan: ExecutionPlan) -> PlanValidation:
     """Planın temel alanlarını ve yönsüz olmayan bağımlılık grafiğini doğrula."""
-    errors: list[str] = []
+    errors: list[str] = list(_routine_errors(plan))
     known_ids: set[str] = set()
 
     for step in plan.steps:
@@ -247,3 +257,23 @@ def ready_steps(plan: ExecutionPlan) -> tuple[PlanStep, ...]:
         for step in plan.steps
         if step.status is StepStatus.PENDING and set(step.depends_on) <= completed
     )
+
+
+def _routine_errors(plan: ExecutionPlan) -> tuple[str, ...]:
+    """Bildirilen roller planın tekil kontrol kimlikleriyle aynı kümeyi kapsamalı."""
+    definition = plan.routine
+    if definition is None:
+        return ()
+    identities = tuple(
+        check.criterion_id for step in plan.steps for check in step.verification_checks
+    )
+    roles = (*definition.preconditions, *definition.checks)
+    if (
+        not definition.preconditions
+        or not definition.checks
+        or len(set(roles)) != len(roles)
+        or len(set(identities)) != len(identities)
+        or set(roles) != set(identities)
+    ):
+        return ("Rutin rolleri planın benzersiz kontrollerini ayrık ve eksiksiz kapsamalı.",)
+    return ()

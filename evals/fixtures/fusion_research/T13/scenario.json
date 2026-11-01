@@ -1,0 +1,12 @@
+{
+  "kind": "reproduction",
+  "split": "development",
+  "request": "Mevcut yeşil test eksik: deger() 2 dönmeli. Yeni yeniden üretimi önce çalıştır, ürünü düzelt ve tekrar doğrula.",
+  "checks": [],
+  "reproduction": {
+    "input_path": "app.py",
+    "before_command": "python -B -c \"from app import deger; assert deger() == 2\"",
+    "after_command": "python -B -c \"from app import deger; assert deger() == 2\"",
+    "before_success": false
+  }
+}

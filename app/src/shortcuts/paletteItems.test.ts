@@ -50,6 +50,9 @@ describe("palet kaynakları ve eylemler", () => {
       commands: [{ ad: "status", aciklama: "durum" }], runAction, openScreen: vi.fn(), openChat: vi.fn(),
       insertCommand: insert, openSettings: vi.fn(),
     });
+    expect(items.some((entry) => entry.id === "ekran:video-create")).toBe(false);
+    rememberRecent("ekran:video-create");
+    expect(rankItems(items, "", readRecent()).some((entry) => entry.id === "ekran:video-create")).toBe(false);
     const terminal = items.find((x) => x.id === "eylem:terminal");
     expect(terminal?.shortcut).toBe("⌘J");
     terminal?.run();

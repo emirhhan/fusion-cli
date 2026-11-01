@@ -21,7 +21,7 @@ from ...core.constants import (
     TOOL_CALL_BLOCKED_PREFIX,
     TOOL_CALL_DUPLICATE_PREFIX,
 )
-from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
+from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse, summarize_criteria
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
@@ -191,6 +191,7 @@ class TurnReport:
     #: O kabuk komutunun parmak izinde ÖLÇÜLEN değişen dosyaları; `None` = ölçülemedi
     #: ("değiştirmiş olabilir" varsayımı).
     last_shell_changes: tuple[str, ...] | None = None
+    criteria: tuple[CriterionEvidence, ...] = ()
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -223,6 +224,10 @@ class TurnReport:
         Değişiklik varsa: son mutasyondan sonra çalışan davranış kanıtı YOKSA
         veya kanıtlardan biri başarısızsa `False`; hepsi başarılıysa `True`.
         """
+        if any(
+            item.status is not EvidenceStatus.PASSED for item in summarize_criteria(self.criteria)
+        ):
+            return False
         if self.gate is not None and not self.gate.ok:
             return False
         if any(item.problem for item in self.job_deliveries):
@@ -270,6 +275,8 @@ class TurnReport:
         Basit değişikliklerde eksik kanıt uyarıdır. Uzun kod görevinde son
         değişiklikten sonra test yoksa başarı iddiası için gereken kanıt eksiktir.
         """
+        if any(item.status is EvidenceStatus.FAILED for item in summarize_criteria(self.criteria)):
+            return True
         if any(item.problem for item in self.job_deliveries):
             return True
         if self.gate is not None and not self.gate.ok:
@@ -489,6 +496,7 @@ def build_turn_report(
         changed_paths=changed_paths,
         command_runs=command_runs,
         gate=gate,
+        criteria=gate.evidence if gate is not None else (),
         require_behavioral_evidence=require_behavioral_evidence,
         job_deliveries=jobs,
         test_tamper=test_tamper,

@@ -1,0 +1,1 @@
+exports.adetGuncelle = (sepet, kimlik, adet) => sepet.map(urun => ({...urun, adet}));

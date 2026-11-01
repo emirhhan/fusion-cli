@@ -314,3 +314,78 @@ async def test_dogrulama_zaman_asimi_ve_calistirilamama_beklenen_kodla_eslesmez(
     execution = await executor.run(task)
     assert execution.exit_code == executor_module.EXIT_VERIFICATION_UNAVAILABLE
     assert evaluate_criterion(task.criterion, execution) is False
+
+
+async def test_temiz_kabul_agentin_sildigi_testle_yesile_donmez(tmp_path):
+    """Ürün düzelmeden görünür testi silmek dış kabulü etkileyemez."""
+
+    class TestDeletingRunner:
+        async def run(self, request, *, root, **kwargs):
+            (root / "test_behavior.py").unlink()
+            return AgentRunObservation(output_text="tamam", model_calls=1)
+
+    task = EvalTask(
+        id="clean-acceptance",
+        request="hesaplamayı düzelt",
+        setup={
+            "product.py": "def calculate():\n    return 0\n",
+            "test_behavior.py": (
+                "from product import calculate\n\ndef test_value():\n    assert calculate() == 7\n"
+            ),
+        },
+        criterion=SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE, expected_exit_code=0, command="python -m pytest -q"
+        ),
+    )
+    execution = await AgentTaskExecutor(
+        TestDeletingRunner(), workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0)
+    ).run(task)
+    assert execution.exit_code != 0
+    assert "test_behavior.py" in execution.changed_files
+    assert (
+        "assert calculate() == 7" in (tmp_path / task.id / "_acceptance.stderr.txt").read_text()
+        or "1 failed" in (tmp_path / task.id / "_acceptance.stdout.txt").read_text()
+    )
+
+
+async def test_temiz_kabul_agentin_zayiflattigi_testle_yesile_donmez(tmp_path):
+    task = EvalTask(
+        id="weakened",
+        request="hesaplamayı düzelt",
+        setup={
+            "product.py": "def calculate():\n    return 0\n",
+            "test_behavior.py": (
+                "from product import calculate\n\ndef test_value():\n    assert calculate() == 7\n"
+            ),
+        },
+        criterion=SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE, expected_exit_code=0, command="python -m pytest -q"
+        ),
+    )
+    execution = await AgentTaskExecutor(
+        _FakeRunner(files={"test_behavior.py": "def test_value():\n    assert True\n"}),
+        workspace_root=tmp_path,
+        clock=_FakeClock(0.0, 1.0),
+    ).run(task)
+    assert execution.exit_code != 0
+
+
+async def test_eval_workspace_task_id_cannot_delete_outside_root(tmp_path):
+    import pytest
+
+    from fusion_cli.core.errors import EvalError
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("koru")
+    executor = AgentTaskExecutor(
+        _FakeRunner(),
+        workspace_root=tmp_path / "runs",
+        clock=_FakeClock(0.0, 1.0),
+    )
+    with pytest.raises(EvalError):
+        await executor.run(
+            _task("../sibling", SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="x"))
+        )
+    assert sentinel.read_text() == "koru"

@@ -12,15 +12,14 @@ export type Page =
   | "help"
   | "settings"
   | "account"
-  | "image-create"
-  | "video-create";
+  | "image-create";
 
 /**
- * Sohbet kabuğunda açılan sayfalar: sohbet ve sohbete iş üreten ekranlar (görsel/video
+ * Sohbet kabuğunda açılan sayfalar: sohbet ve sohbete iş üreten ekranlar (görsel
  * oluşturma komut paletinden açılır, Home vurgulu kalır). Sol sohbet kenar çubuğu
  * (Fusion başlığı, Yeni sohbet, Projeler) YALNIZ bu sayfalarda görünür.
  */
-export const SOHBET_KABUGU_SAYFALARI: readonly Page[] = ["chat", "image-create", "video-create"];
+export const SOHBET_KABUGU_SAYFALARI: readonly Page[] = ["chat", "image-create"];
 
 /**
  * TAM SAYFA KURALI — tek yer burası.

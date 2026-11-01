@@ -143,10 +143,10 @@ async def test_dusen_adimin_geri_alinan_dosyalari_duraklama_metninde_ve_gecmiste
         del task, kwargs
         a = deps.tool_context.root / "a.py"
         b = deps.tool_context.root / "b.py"
-        deps.tool_context.changes.record_created(a)
-        deps.tool_context.changes.record_created(b)
         a.write_text("a")
         b.write_text("b")
+        deps.tool_context.changes.record_created(a)
+        deps.tool_context.changes.record_created(b)
         deps.tool_context.touched.add(a)
         deps.tool_context.touched.add(b)
         return AgentOutcome(

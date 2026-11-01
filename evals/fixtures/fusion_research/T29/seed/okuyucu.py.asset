@@ -1,0 +1,8 @@
+import csv
+from io import StringIO
+
+def oku(text):
+    rows = list(csv.reader(StringIO(text)))
+    if any(len(row) != 2 for row in rows):
+        raise ValueError("Invalid row")
+    return rows

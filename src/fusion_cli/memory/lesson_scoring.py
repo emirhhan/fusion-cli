@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..core.memory import Lesson
+from ..core.repair_ledger import FailureOrigin
 
 #: Başarılı turda güvene eklenen miktar.
 LESSON_SUCCESS_DELTA = 0.10
@@ -31,7 +32,20 @@ LESSON_CONFIDENCE_FLOOR = 0.35
 LESSON_REVIVE_AFTER_S = 7 * 24 * 3600.0
 
 
-def reinforced(lesson: Lesson, *, success: bool, external_turn: bool = False) -> Lesson:
+VERIFIED_OUTCOME_REASON = "verified_outcome"
+
+
+def reinforced(
+    lesson: Lesson,
+    *,
+    success: bool,
+    external_turn: bool = False,
+    feedback_reason: str | None = None,
+    evidence_refs: tuple[str, ...] = (),
+    used: bool | None = None,
+    failure_origin: FailureOrigin = FailureOrigin.PRODUCT,
+    verified_at: str = "",
+) -> Lesson:
     """Dersin güvenini ve sayaçlarını tur sonucuna göre güncellenmiş kopyayla döndürür.
 
     `external_turn`: tur dış içerik (web/MCP/klonlanan site) okudu. Dış kaynaklı ve henüz
@@ -40,6 +54,18 @@ def reinforced(lesson: Lesson, *, success: bool, external_turn: bool = False) ->
     (`external=False`) ve normal artış uygulanır. Başarısızlık her durumda normal cezadır.
     """
 
+    if failure_origin is not FailureOrigin.PRODUCT:
+        return lesson
+    has_attribution = feedback_reason is not None or bool(evidence_refs) or used is not None
+    has_attribution = has_attribution or bool(verified_at)
+    if has_attribution and (
+        feedback_reason != VERIFIED_OUTCOME_REASON
+        or used is not True
+        or not evidence_refs
+        or not all(reference.strip() for reference in evidence_refs)
+        or (success and not verified_at)
+    ):
+        return lesson
     if lesson.external and success and external_turn:
         return lesson
     delta = LESSON_SUCCESS_DELTA if success else -LESSON_FAILURE_DELTA
@@ -49,6 +75,8 @@ def reinforced(lesson: Lesson, *, success: bool, external_turn: bool = False) ->
         success_count=lesson.success_count + (1 if success else 0),
         failure_count=lesson.failure_count + (0 if success else 1),
         external=lesson.external and not success,
+        verified_at=verified_at if success and feedback_reason is not None else lesson.verified_at,
+        evidence_refs=tuple(dict.fromkeys((*lesson.evidence_refs, *evidence_refs))),
     )
 
 

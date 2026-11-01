@@ -8,7 +8,7 @@ from rich.console import Console
 
 from fusion_cli.core.events import ModelCallFinished, TierDegraded, TurnFinished
 from fusion_cli.core.tier import expected_tier, tier_mismatch
-from fusion_cli.core.types import ModelResult
+from fusion_cli.core.types import CompletionRequest, Message, ModelResult
 from fusion_cli.providers.eventing import EventingProvider
 from fusion_cli.ui import messages
 from fusion_cli.ui.renderer import ConsoleRenderer
@@ -60,6 +60,13 @@ class _Publisher:
         self.events.append(event)
 
 
+def _request() -> CompletionRequest:
+    """Gerçek sağlayıcı sözleşmesine uygun yerel test isteği."""
+    return CompletionRequest(
+        messages=(Message("user", "Yanıtla."),), temperature=0.0, max_tokens=32, timeout_s=5.0
+    )
+
+
 class _SahteSaglayici:
     def __init__(self, result):
         self._result = result
@@ -84,7 +91,7 @@ async def test_uyusmazlik_varsa_tier_degraded_yayinlanir():
     publisher = _Publisher()
     provider = EventingProvider(_SahteSaglayici(result), publisher=publisher, role="ogretmen")
 
-    await provider.complete(request=None)
+    await provider.complete(request=_request())
 
     olaylar = [e for e in publisher.events if isinstance(e, TierDegraded)]
     assert len(olaylar) == 1
@@ -104,7 +111,7 @@ async def test_auto_kademede_tier_degraded_yayinlanmaz():
     publisher = _Publisher()
     provider = EventingProvider(_SahteSaglayici(result), publisher=publisher, role="ogretmen")
 
-    await provider.complete(request=None)
+    await provider.complete(request=_request())
 
     assert not any(isinstance(e, TierDegraded) for e in publisher.events)
 
@@ -121,7 +128,7 @@ async def test_uyusma_varsa_tier_degraded_yayinlanmaz():
     publisher = _Publisher()
     provider = EventingProvider(_SahteSaglayici(result), publisher=publisher, role="ogretmen")
 
-    await provider.complete(request=None)
+    await provider.complete(request=_request())
 
     assert not any(isinstance(e, TierDegraded) for e in publisher.events)
 
@@ -139,7 +146,7 @@ async def test_model_call_finished_yine_yayinlanir():
     publisher = _Publisher()
     provider = EventingProvider(_SahteSaglayici(result), publisher=publisher, role="ogretmen")
 
-    await provider.complete(request=None)
+    await provider.complete(request=_request())
 
     assert any(isinstance(e, ModelCallFinished) for e in publisher.events)
 

@@ -7,12 +7,15 @@ etkisi yoktur; doğrudan test edilir.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
+from evals.candidate_metrics import CandidateMetrics, reduce_candidate_metrics
 from evals.criteria import evaluate_criterion
 from evals.execution import TaskExecution
 from evals.profiles import RunMetadata
 from evals.tasks import EvalTask
+from fusion_cli.core.events import Event
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,7 @@ class TaskResult:
     # kullanıcı işin bittiğine inanıp üstüne inşa eder. 17 Eylül denetiminin en
     # pahalı bulgu sınıfı buydu ve o güne kadar HİÇ ölçülmüyordu.
     false_success: bool = False
+    trace_events: tuple[Event, ...] = ()
 
     @property
     def pass_rate(self) -> float:
@@ -74,6 +78,7 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         # Kota yüzünden ölçülemeyen tur yalan başarı DEĞİLDİR: agent orada
         # bitirdiğini iddia etmiyor, sağlayıcı turu kesiyor.
         false_success=execution.claimed_success and not success and not execution.rate_limited,
+        trace_events=execution.trace_events,
     )
 
 
@@ -99,6 +104,7 @@ def merge_runs(results: list[TaskResult]) -> TaskResult:
         # Tek koşuda bile yalan başarı verdiyse görev yalan başarı sayılır:
         # eşiği sıfır olan bir metrik çoğunluğa yuvarlanamaz.
         false_success=any(item.false_success for item in results),
+        trace_events=tuple(event for item in results for event in item.trace_events),
     )
 
 
@@ -114,6 +120,23 @@ class RunReport:
 
     results: tuple[TaskResult, ...]
     metadata: RunMetadata | None = None
+    candidate_metrics: CandidateMetrics | None = None
+
+    def __post_init__(self) -> None:
+        events = tuple(event for result in self.results for event in result.trace_events)
+        if self.candidate_metrics is None and events:
+            object.__setattr__(self, "candidate_metrics", reduce_candidate_metrics(events))
+
+    @classmethod
+    def from_events(
+        cls,
+        results: tuple[TaskResult, ...],
+        events: Sequence[Event],
+        *,
+        metadata: RunMetadata | None = None,
+    ) -> RunReport:
+        """Genel tipli trace akışını kayıpsız aday raporuna bağla."""
+        return cls(results, metadata, reduce_candidate_metrics(events))
 
     @property
     def task_count(self) -> int:

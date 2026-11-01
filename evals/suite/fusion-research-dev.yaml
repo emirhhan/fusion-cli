@@ -1,0 +1,243 @@
+namespace: fusion_research
+split: development
+task6_complete: false
+tasks:
+- id: T01
+  request: notlar.txt dosyasına tam olarak literal,} yaz.
+  setup:
+    notlar.txt: ''
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T01
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T02
+  request: 'mesaj.txt içine tam olarak şu iki satırı ve son satır sonunu kaydet:
+
+    İ, ı, ş
+
+    C:\örnek\mesaj
+
+    '
+  setup:
+    mesaj.txt: ''
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T02
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T05
+  request: indirim_hesapla işlevindeki yanlış dalı düzelt.
+  setup:
+    fiyat.py: "def indirim_hesapla(tutar, uye):\n    if uye:\n        return tutar\n\
+      \    return tutar * 0.9\n\ndef vergi_hesapla(tutar):\n    return tutar * 0.2\n"
+    komsu.txt: 'Komşu hesap değişmemeli.
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T05
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T06
+  request: ayar_oku içindeki varsayılan değeri düzelt; satır sonlarını koru.
+  setup:
+    ayar.py: "def ayar_oku(ayarlar):\r\n    return ayarlar.get(\"tekrar\", 0)\r\n\r\
+      \n# Kullanıcı notu: satır sonları korunur.\r\n"
+    baska.txt: 'koru
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T06
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T09
+  request: 'Giriş başarısızlığını bul: gecerli-token kabul edilmeli, eski-token reddedilmeli.
+    auth.py arayüzünü koru.'
+  setup:
+    auth.py: "from token_dogrula import dogrula\n\ndef giris(token):\n    return dogrula(token)\n"
+    token_dogrula.py: "def dogrula(token):\n    return token == \"eski-token\"\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T09
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T10
+  request: Ödeme tutarını iki ondalığa ROUND_HALF_UP ile yuvarla; aynı adlı metin
+    normalize işlevini koru.
+  setup:
+    odeme/__init__.py: ''
+    odeme/tutar.py: "def normalize(deger):\n    return int(deger)\n"
+    metin/__init__.py: ''
+    metin/islem.py: "def normalize(deger):\n    return deger.strip().lower()\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T10
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T13
+  request: 'Mevcut yeşil test eksik: deger() 2 dönmeli. Yeni yeniden üretimi önce
+    çalıştır, ürünü düzelt ve tekrar doğrula.'
+  setup:
+    app.py: "def deger():\n    return 1\n"
+    test_app.py: 'from app import deger
+
+      assert deger() > 0
+
+      '
+  runtime_scenario: reproduction
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T13
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T14
+  request: Hesaplama hatasını düzelt; mevcut testleri zayıflatma.
+  setup:
+    calcul.py: "def carp(a, b):\n    return a + b\n"
+    test_calcul.py: "from calcul import carp\n\ndef test_carp():\n    assert carp(3,\
+      \ 4) == 12\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T14
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T17
+  request: Birinci ve ikinci açık koşulu birlikte tamamla; iki dosyada da TAM yazmalı.
+  setup:
+    bir.txt: 'eksik
+
+      '
+    iki.txt: 'eksik
+
+      '
+  runtime_scenario: open_criteria
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T17
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T18
+  request: Parser sayıyı okumalı ve hatalı girdide Türkçe Geçersiz sayı mesajını korumalı.
+  setup:
+    app.py: "def oku(text):\n    return 0\n"
+  runtime_scenario: user_rule
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T18
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T21
+  request: python dersini geri çağır ve sonuc.txt içine ilgili düzeltmeyi uygula.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: lesson_relevance
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T21
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T22
+  request: python API sürüm 2 için güncel dersi kullanıp app.py değerini 2 yap.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: lesson_version
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T22
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T25
+  request: local__lookup dış aracını kullanarak yerel depo bilgisini al; bilinmeyen
+    local__delete aracına yetki verme.
+  setup:
+    notlar.txt: 'koru
+
+      '
+  runtime_scenario: external_tool
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T25
+  budget:
+    max_model_calls: 20
+    timeout_s: 720
+- id: T26
+  request: notlar.txt dosyasını oku; eksik yazmayı onararak sonuc.txt oluştur, sağlam
+    okumayı tekrarlama.
+  setup:
+    notlar.txt: 'koru
+
+      '
+  runtime_scenario: partial_parse
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T26
+  budget:
+    max_model_calls: 20
+    timeout_s: 720
+- id: T29
+  request: CSV okuyucuya boş satır desteği ekle; iki sütun kuralında Satır iki alan
+    içermeli hatasını üret. Alıntılı CSV davranışını koru.
+  setup:
+    okuyucu.py: "import csv\nfrom io import StringIO\n\ndef oku(text):\n    rows =\
+      \ list(csv.reader(StringIO(text)))\n    if any(len(row) != 2 for row in rows):\n\
+      \        raise ValueError(\"Invalid row\")\n    return rows\n"
+    cli.py: 'from okuyucu import oku
+
+      '
+    README.txt: 'CSV iki sütun taşır.
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T29
+  budget:
+    max_model_calls: 20
+    timeout_s: 720
+- id: T30
+  request: Sepette adet güncellemesindeki hatayı düzelt.
+  setup:
+    sepet.cjs: 'exports.adetGuncelle = (sepet, kimlik, adet) => sepet.map(urun =>
+      ({...urun, adet}));
+
+      '
+    test.cjs: 'const {adetGuncelle} = require(''./sepet.cjs'');
+
+      if (adetGuncelle([{id:1,adet:1}],1,2)[0].adet !== 2) process.exit(1);
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T30
+  budget:
+    max_model_calls: 20
+    timeout_s: 720

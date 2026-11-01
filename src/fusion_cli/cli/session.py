@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
@@ -27,9 +27,11 @@ from ..core.artifacts import ArtifactStore
 from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
+from ..core.event_scope import TurnPublisher, new_trace_id
 from ..core.events import (
     DesktopEscapeStopped,
     ErrorOccurred,
+    Event,
     EventSink,
     FilesChanged,
     FollowupsSuggested,
@@ -94,6 +96,7 @@ from .mcp_notice import new_failure_lines
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from ..engines.agent.approval import Prompter
     from ..engines.agent.engine_tools import UserAsker
+    from ..tools.registry import ToolRegistry
 
     class AgentPrompter(Prompter, UserAsker, Protocol):
         """Hem onay soran hem soru sorabilen arayüz (terminal uygulaması ikisini de yapar)."""
@@ -220,6 +223,8 @@ async def run_agent_task(
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     conversation_id: str = "cli",
+    attempt_id: str | None = None,
+    event_correlator: Callable[[Event], Event] | None = None,
     step_limit: int | None = None,
     approval_memory: ApprovalMemory | None = None,
     steering: SteeringQueue | None = None,
@@ -269,8 +274,9 @@ async def run_agent_task(
     """
     can_ask = sys.stdin.isatty() if interactive is None else interactive
     started_at = time.monotonic()
+    attempt_id = attempt_id or new_trace_id()
 
-    async with EventBus() as bus:
+    async with EventBus(event_correlator=event_correlator) as bus:
         for sink in sinks:
             bus.subscribe(sink)
         # Her araç sonucu kalıcı denetim günlüğüne de yazılır (silinmez).
@@ -348,7 +354,12 @@ async def run_agent_task(
         deps = AgentDeps(
             config=config,
             deadline=deadline,
-            publisher=bus,
+            publisher=TurnPublisher(
+                bus,
+                session_id=conversation_id,
+                attempt_id=attempt_id,
+                should_assign_event_ids=event_correlator is None,
+            ),
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
             policy=_policy(mode),
@@ -410,6 +421,7 @@ async def run_agent_task(
                 conversation_id=conversation_id,
             ),
             conversation_id=conversation_id,
+            attempt_id=attempt_id,
             # Kayıt verilmezse tur kendi kaydını kurar: circuit breaker ve ortak hız
             # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
             health=health or build_health(config),
@@ -546,6 +558,8 @@ async def _run_agent_with_mcp(
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
         return await _run()
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = cast("ToolRegistry", deps.base_registry)
     eklenen: tuple[str, ...] = ()
     if config.mcp_servers:
         try:
@@ -553,7 +567,7 @@ async def _run_agent_with_mcp(
             # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
             # kapanışında yapılır, tur içinde değil.
             eklenen += await ensure_mcp_tools(
-                config.mcp_servers, deps.base_registry, retry_delays_s=config.runtime.retry_delays_s
+                config.mcp_servers, registry, retry_delays_s=config.runtime.retry_delays_s
             )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
@@ -563,7 +577,7 @@ async def _run_agent_with_mcp(
         # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
         # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
         try:
-            eklenen += await ensure_hosted_tools(config, deps.base_registry)
+            eklenen += await ensure_hosted_tools(config, registry)
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru

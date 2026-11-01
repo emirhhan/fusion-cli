@@ -25,6 +25,7 @@ from .transcript_store import TranscriptStore
 
 #: Seçim listesinde görev metninin en fazla uzunluğu.
 TASK_PREVIEW_CHARS = 60
+_REWIND_CONFLICT = "Geri alma çakışması: {count} dosya ve ilk kayıtları korundu."
 
 
 def turn_choices(entries: Sequence[TurnCheckpoint]) -> list[Choice]:
@@ -136,9 +137,16 @@ def summarize(result: RewindResult) -> str:
                 messages.REWIND_CODE_DONE.format(index=result.index, count=len(result.restored))
             )
             lines.extend(f"  {path}" for path in result.restored)
-            if result.failed:
-                lines.append(messages.REWIND_CODE_FAILED.format(count=len(result.failed)))
-                lines.extend(f"  {path}" for path in result.failed)
+            if result.conflicts:
+                lines.append(_REWIND_CONFLICT.format(count=len(result.conflicts)))
+                lines.extend(
+                    f"  {conflict.path}: {conflict.reason}" for conflict in result.conflicts
+                )
+            protected = {conflict.path for conflict in result.conflicts}
+            failed = tuple(path for path in result.failed if path not in protected)
+            if failed:
+                lines.append(messages.REWIND_CODE_FAILED.format(count=len(failed)))
+                lines.extend(f"  {path}" for path in failed)
         else:
             lines.append(messages.REWIND_CODE_EMPTY.format(index=result.index))
     if result.history is not None:

@@ -40,3 +40,12 @@ def test_blok_baslikla_gelir(tmp_path):
     blok = repo_map_block(_proje(tmp_path))
 
     assert blok.splitlines()[0].startswith("#")
+
+
+def test_repo_context_odagi_gercek_harita_ciktisina_tasir(tmp_path):
+    from fusion_cli.engines.agent.repo_context import repo_map_with_stats
+
+    root = _proje(tmp_path)
+    focused = repo_map_with_stats(root, focus_paths=("rapor.py",), focus_symbols=("ozet",))
+    assert focused.text.splitlines()[2] == "rapor.py: ozet"
+    assert "hesap.py: topla" in focused.text

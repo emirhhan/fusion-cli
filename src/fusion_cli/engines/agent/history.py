@@ -103,7 +103,20 @@ def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGE
     start = max(0, len(messages) - keep_recent)
     while start < len(messages) and messages[start].role != "user":
         start += 1
-    return 0 if start >= len(messages) else start
+    if start >= len(messages):
+        return 0
+    unseen = unseen_tool_indexes(messages)
+    if unseen:
+        group_start = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if message.role == "assistant" and message.tool_calls
+            ),
+            default=start,
+        )
+        start = min(start, group_start)
+    return start
 
 
 #: Temizlenen eski araç çıktısının yerine konan not. Model gerekirse yeniden okur.
@@ -112,8 +125,37 @@ CLEARED_TOOL_OUTPUT = (
 )
 
 
+PIN_MAX_CHARS = 1_500
+
+
+def pin_tool_output(message: Message, pin_chars: int = PIN_MAX_CHARS) -> Message:
+    """Eski kanıtın başını sınırlı tut; görseller karakter bütçesini aşmasın."""
+    limit = max(0, min(pin_chars, PIN_MAX_CHARS))
+    return replace(message, content=message.content[:limit], images=())
+
+
+def unseen_tool_indexes(messages: Sequence[Message]) -> set[int]:
+    """Son assistant araç grubundan sonraki tüm sonuçları koru."""
+    tool_indexes = [index for index, message in enumerate(messages) if message.role == "tool"]
+    last_call = max(
+        (
+            index
+            for index, message in enumerate(messages)
+            if message.role == "assistant" and message.tool_calls
+        ),
+        default=None,
+    )
+    if last_call is None:
+        return set(tool_indexes[-1:])
+    return {index for index in tool_indexes if index > last_call}
+
+
 def clear_old_tool_outputs(
-    messages: Sequence[Message], threshold_chars: int | None = None
+    messages: Sequence[Message],
+    threshold_chars: int | None = None,
+    *,
+    pinned_call_ids: frozenset[str] = frozenset(),
+    pin_chars: int = PIN_MAX_CHARS,
 ) -> list[Message]:
     """En ESKİ araç çıktılarından başlayarak geçmişi eşiğin altına indir.
 
@@ -130,33 +172,26 @@ def clear_old_tool_outputs(
     """
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
     sonuc = list(messages)
-    arac_indeksleri = [index for index, message in enumerate(sonuc) if message.role == "tool"]
-    # Korunan küme "son araç çağıran assistant mesajından SONRAKİ tüm sonuçlar"dır: model
-    # aynı turda paralel N çağrı yaptıysa N sonucun hepsini görmeden temizlenemez.
-    # Ölçüldü (29 Ekim, A1-01): eskiden yalnız SON tek `tool` mesajı korunuyor, 3
-    # paralel okumanın ilk 2 sonucu model onları görmeden notla değişiyordu.
-    son_asistan = max(
-        (
-            index
-            for index, message in enumerate(sonuc)
-            if message.role == "assistant" and message.tool_calls
-        ),
-        default=None,
-    )
-    if son_asistan is None:
-        temizlenebilir = arac_indeksleri[:-1]
-    else:
-        temizlenebilir = [index for index in arac_indeksleri if index < son_asistan]
+    unseen = unseen_tool_indexes(sonuc)
+    temizlenebilir = [
+        index
+        for index, message in enumerate(sonuc)
+        if message.role == "tool" and index not in unseen
+    ]
     toplam = total_chars(sonuc)
     for index in temizlenebilir:
         if toplam < limit:
             break
         message = sonuc[index]
-        not_metni = CLEARED_TOOL_OUTPUT.format(chars=len(message.content))
-        if len(message.content) <= len(not_metni):
-            continue
-        sonuc[index] = replace(message, content=not_metni)
-        toplam -= len(message.content) - len(not_metni)
+        if message.tool_call_id in pinned_call_ids:
+            replacement = pin_tool_output(message, pin_chars)
+        else:
+            note = CLEARED_TOOL_OUTPUT.format(chars=len(message.content))
+            if len(message.content) <= len(note):
+                continue
+            replacement = replace(message, content=note)
+        sonuc[index] = replacement
+        toplam -= total_chars([message]) - total_chars([replacement])
     if toplam >= limit:
         sonuc = _stub_old_tool_arguments(sonuc, toplam, limit)
     return sonuc
@@ -232,7 +267,20 @@ def round_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAG
     start = max(0, len(messages) - keep_recent)
     while start < len(messages) and messages[start].role not in {"user", "assistant"}:
         start += 1
-    return 0 if start >= len(messages) else start
+    if start >= len(messages):
+        return 0
+    unseen = unseen_tool_indexes(messages)
+    if unseen:
+        group_start = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if message.role == "assistant" and message.tool_calls
+            ),
+            default=start,
+        )
+        start = min(start, group_start)
+    return start
 
 
 def root_anchor_length(messages: Sequence[Message]) -> int:

@@ -1682,7 +1682,9 @@ class AppSession:
         """Bu konuşmanın tur günlüğü (transcript klasöründe, konuşma başına tek dosya)."""
         kimlik = _SAFE_JOURNAL_ID.sub("_", self._conversation_id or FALLBACK_CONVERSATION_ID)
         return FileTurnJournal(
-            self._transcript_store.base_dir / "journals" / f"{kimlik}.json", task=task
+            self._transcript_store.base_dir / "journals" / f"{kimlik}.json",
+            task=task,
+            original_owner_id=kimlik,
         )
 
     def _restore_interrupted_turn(self) -> None:
@@ -2925,9 +2927,10 @@ class AppSession:
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
+        protocol_sink = ProtocolSink(writer, receipt=receipt, sequence=event_sequence)
         sink = LibrarySink(
             _MeteredSink(
-                ProtocolSink(writer, receipt=receipt, sequence=event_sequence),
+                protocol_sink,
                 self._usage,
                 self._usage_log,
             ),
@@ -3048,6 +3051,8 @@ class AppSession:
                 capabilities=self._state.capabilities,
                 plain_memory=self._state.plain_memory,
                 conversation_id=self._conversation_id or "app",
+                attempt_id=receipt.attempt_id if receipt is not None else None,
+                event_correlator=protocol_sink.correlate if receipt is not None else None,
                 step_limit=macros.mode_step_limit(turn_mode),
                 workflow=macros.mode_workflow(turn_mode),
                 # `/subtask` ya da `context: fork` beceri: tur fork alt ajanda (P-054).

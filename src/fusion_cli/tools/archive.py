@@ -140,6 +140,7 @@ def _yaz(akis: IO[bytes], uye: _Member, context: ToolContext, yeni: list[Path]) 
         yeni.append(uye.hedef)
     with uye.hedef.open("wb") as hedef:
         shutil.copyfileobj(akis, hedef)
+    context.changes.record_applied(uye.hedef)
     # EDİNİM: içerik arşivden geldi, agent yazmadı. Adım düşse bile silinmez;
     # yeniden indirip açmak ağ, süre ve sağlayıcı kotası harcar.
     if uye.hedef in yeni:

@@ -1,0 +1,13 @@
+{
+  "kind": "user_rule",
+  "split": "development",
+  "request": "Parser sayıyı okumalı ve hatalı girdide Türkçe Geçersiz sayı mesajını korumalı.",
+  "checks": [
+    {
+      "id": "turkce",
+      "path": "app.py",
+      "text": "Geçersiz sayı"
+    }
+  ],
+  "rule": "Hata mesajı daima Türkçe: Geçersiz sayı"
+}

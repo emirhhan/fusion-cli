@@ -1,0 +1,12 @@
+{
+  "kind": "stale_evidence",
+  "split": "validation",
+  "request": "app.py değerini 2 yap; eski yeşil sonucu yeni kod için kanıt sayma, yeni kontrolü çalıştır.",
+  "checks": [],
+  "reproduction": {
+    "input_path": "app.py",
+    "before_command": "python -B -c \"from app import deger; assert deger() == 1\"",
+    "after_command": "python -B -c \"from app import deger; assert deger() == 2\"",
+    "before_success": true
+  }
+}

@@ -1,0 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
+
+def normalize(deger):
+    return Decimal(str(deger)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

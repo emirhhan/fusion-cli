@@ -23,13 +23,50 @@ def _mesajlar():
 # --- Geçmiş ----------------------------------------------------------------- #
 
 
-def test_kesme_noktasi_user_sinirina_kaydirilir():
-    """Araç çağrısı ile sonucu asla ayrılmamalı; aksi halde sağlayıcı hata verir."""
+def test_kesme_noktasi_son_arac_grubunu_butun_korur():
+    """Son çağrının sonuçları sonraki kullanıcı sınırında kaybolmamalı."""
     mesajlar = _mesajlar()
 
     kesim = history.safe_cut(mesajlar, keep_recent=5)
 
-    assert mesajlar[kesim].role == "user"
+    assert kesim == 2
+    assert mesajlar[kesim:] == _mesajlar()[2:]
+    assert mesajlar[kesim].tool_calls[0].id == mesajlar[kesim + 1].tool_call_id
+
+
+def test_kesme_noktasi_paralel_sonuc_grubunun_ortasina_girmez():
+    mesajlar = [
+        Message("system", "sistem"),
+        Message("user", "görev"),
+        Message("assistant", "", tool_calls=(_arac_cagrisi("a"), _arac_cagrisi("b"))),
+        Message("tool", "birinci", tool_call_id="a"),
+        Message("tool", "ikinci", tool_call_id="b"),
+        Message("user", "devam"),
+    ]
+
+    kesim = history.safe_cut(mesajlar, keep_recent=2)
+
+    assert kesim == 2
+    assert {call.id for call in mesajlar[kesim].tool_calls} == {"a", "b"}
+    assert [message.tool_call_id for message in mesajlar[kesim + 1 : -1]] == ["a", "b"]
+
+
+def test_kesme_noktasi_son_otuz_paralel_sonucun_hicbirini_atmaz():
+    cagrilar = tuple(_arac_cagrisi(f"cagri-{index}") for index in range(30))
+    mesajlar = [
+        Message("user", "görev"),
+        Message("assistant", "", tool_calls=cagrilar),
+        *[Message("tool", "sonuç", tool_call_id=call.id) for call in cagrilar],
+        Message("user", "devam"),
+    ]
+
+    kesim = history.safe_cut(mesajlar, keep_recent=2)
+
+    assert kesim == 1
+    assert mesajlar[kesim].tool_calls == cagrilar
+    assert [message.tool_call_id for message in mesajlar[kesim + 1 : -1]] == [
+        call.id for call in cagrilar
+    ]
 
 
 def test_guvenli_kesim_yoksa_sifir_doner():
@@ -116,9 +153,20 @@ def test_somut_talimat_dondurulur():
     assert review.parse_feedback(talimat) == talimat
 
 
-def test_review_prompt_davranisi_isimden_degil_state_mutasyonundan_dogrular():
+async def test_review_prompt_davranisi_isimden_degil_state_mutasyonundan_dogrular(monkeypatch):
     """Eksik state değişimi, fonksiyon adının varlığıyla gözden kaçmamalı."""
-    prompt = review._PROMPT.lower()
+    yakalanan: list[str] = []
+
+    async def sor(prompt, config, publisher):
+        yakalanan.append(prompt)
+        return ModelResult(name="h", model="m", text="TAMAM", latency_ms=1, ok=True)
+
+    monkeypatch.setattr(review, "_ask", sor)
+    await review.review_turn(
+        "state davranışını düzelt", "tamamlandı", [Message("user", "görev")], config=make_config()
+    )
+    assert len(yakalanan) == 1
+    prompt = yakalanan[0].lower()
 
     assert "tetikleyici" in prompt
     assert "state mutasyonu" in prompt

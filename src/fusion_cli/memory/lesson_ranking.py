@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core.memory import Lesson, LessonKind
+from ..core.memory import Lesson, LessonKind, LessonRecallPolicy
 from .lesson_scoring import is_injectable
 
 #: Kosinüs mesafesi eşiği: 0 aynı, 1 ilgisiz. Bunun ötesindeki ders alakasız sayılır.
@@ -53,6 +53,7 @@ def select_lessons(
     limit: int,
     max_distance: float = MAX_RELEVANCE_DISTANCE,
     scope: str | None = None,
+    policy: LessonRecallPolicy | None = None,
 ) -> tuple[Lesson, ...]:
     """Alaka, güven ve kapsam eşiğini geçen dersleri sıralayıp en iyi `limit` tanesini döndürür.
 
@@ -61,6 +62,16 @@ def select_lessons(
     embedding'in ıskaladığı birebir terim eşleşmesini kurtarır.
     """
 
+    if policy is not None:
+        candidates = _apply_policy(
+            tuple(
+                item
+                for item in candidates
+                if _scope_matches(item.lesson.scope, scope)
+                and is_injectable(item.lesson, idle_s=item.idle_s)
+            ),
+            policy,
+        )
     relevant = [
         candidate
         for candidate in candidates
@@ -112,4 +123,71 @@ def _rank_key(candidate: Candidate) -> tuple[int, int, float, float, float]:
         -lesson.confidence,
         -candidate.fused,
         candidate.distance,
+    )
+
+
+def _apply_policy(
+    candidates: tuple[Candidate, ...],
+    policy: LessonRecallPolicy,
+) -> tuple[Candidate, ...]:
+    """Bağlam dışı kaydı eleyip açık, doğrulanmış haleflerin eskilerini bastır."""
+    eligible = tuple(item for item in candidates if _policy_matches(item.lesson, policy))
+    if not policy.conflict_quarantine:
+        return eligible
+    current = tuple(
+        item
+        for item in eligible
+        if not any(_supersedes(other.lesson, item.lesson) for other in eligible)
+    )
+    return tuple(
+        item
+        for item in current
+        if not any(_conflicts(item.lesson, other.lesson) for other in current)
+    )
+
+
+def _policy_matches(lesson: Lesson, policy: LessonRecallPolicy) -> bool:
+    return (
+        not lesson.quarantined
+        and (not policy.subject_key or lesson.subject_key == policy.subject_key)
+        and (not policy.version or not lesson.version or lesson.version == policy.version)
+        and (not policy.source_split or lesson.source_split == policy.source_split)
+        and (
+            not policy.applies_to
+            or not lesson.applies_to
+            or bool(set(lesson.applies_to).intersection(policy.applies_to))
+        )
+    )
+
+
+def _supersedes(new: Lesson, old: Lesson) -> bool:
+    return bool(
+        new.id != old.id
+        and old.id
+        and old.id in new.supersedes
+        and new.subject_key
+        and new.subject_key == old.subject_key
+        and new.verified_at
+        and new.evidence_refs
+        and (
+            not new.applies_to
+            or not old.applies_to
+            or set(new.applies_to).intersection(old.applies_to)
+        )
+    )
+
+
+def _conflicts(first: Lesson, second: Lesson) -> bool:
+    """Açık konu kimliği tek bir iddiayı temsil eder; çözümsüz varyantlar bekler."""
+    return bool(
+        first.id != second.id
+        and first.subject_key
+        and first.subject_key == second.subject_key
+        and first.source_split == second.source_split
+        and first.text.strip().lower() != second.text.strip().lower()
+        and (
+            not first.applies_to
+            or not second.applies_to
+            or set(first.applies_to).intersection(second.applies_to)
+        )
     )

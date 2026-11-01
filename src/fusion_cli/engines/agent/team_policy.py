@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
@@ -17,6 +17,7 @@ from .team_tools_member import TEAM_MEMBER_TOOLS
 _LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from ...tools.registry import ToolRegistry
     from .loop import AgentDeps
     from .team import Persona, SubRun, SubTask
 
@@ -48,6 +49,8 @@ def allowed_tools(
     kümeyi DARALTIR, bu yüzden tam yetkili (`None`) üye bile o anda adlandırılabilir bir
     kümeye iner. Her adım yalnız çıkarır; alt ajan üstünden fazla araç göremez.
     """
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = cast("ToolRegistry", deps.base_registry)
     allowed: set[str] | None = set(persona.tools) if persona.tools is not None else None
     if allowed is not None and available:
         allowed = expand_tool_patterns(allowed, available)
@@ -63,8 +66,7 @@ def allowed_tools(
                 allowed = {
                     name
                     for name in allowed
-                    if not deps.base_registry.is_remote(name)
-                    or name.split("__", 1)[0] in persona.mcp_servers
+                    if not registry.is_remote(name) or name.split("__", 1)[0] in persona.mcp_servers
                 }
     # Ajan belleği olan üyenin bellek araçları (P-055): yasak listesindekiler açılmaz ve
     # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
@@ -82,7 +84,7 @@ def allowed_tools(
         return allowed
     safe = {
         tool.name
-        for tool in deps.base_registry
+        for tool in registry
         if not tool.mutating or (not subtask.read_only and tool.name in EDIT_TOOLS)
     }
     narrowed = safe if allowed is None else allowed & safe
@@ -100,7 +102,9 @@ def _memory_tools(persona: Persona, subtask: SubTask) -> set[str]:
 def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[str, ...]) -> None:
     """`mcpServers` Fusion'da yalnız SÜZGEÇTİR (Claude Code'daki gibi sunucu tanımlamaz):
     yapılandırmada olmayan ad sessizce 'araç yok' sonucu verirdi, günlüğe uyarı düşer."""
-    known = {name.split("__", 1)[0] for name in available if deps.base_registry.is_remote(name)}
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = cast("ToolRegistry", deps.base_registry)
+    known = {name.split("__", 1)[0] for name in available if registry.is_remote(name)}
     missing = sorted(set(persona.mcp_servers) - known)
     if missing:
         _LOG.warning(

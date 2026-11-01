@@ -20,6 +20,7 @@ from fusion_cli.core.execution_plan import (
     VerificationCheckKind,
     validate_plan,
 )
+from fusion_cli.core.routine_codec import decode_routine
 
 
 class PlanParseError(FusionError):
@@ -389,12 +390,17 @@ def parse_execution_plan(raw: str) -> ExecutionPlan:
     if not isinstance(schema_version, int) or isinstance(schema_version, bool):
         raise PlanParseError("Eksik veya geçersiz plan alanı: schema_version")
 
+    try:
+        routine = decode_routine(data.get("routine"))
+    except ValueError as error:
+        raise PlanParseError(str(error)) from error
     plan = ExecutionPlan(
         plan_id=_require_string(data, "plan_id"),
         task=_require_string(data, "task"),
         steps=tuple(_parse_step(step, index) for index, step in enumerate(steps_value)),
         status=PlanStatus.PENDING,
         schema_version=schema_version,
+        routine=routine,
     )
     validation = validate_plan(plan)
     if not validation.ok:

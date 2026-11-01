@@ -64,7 +64,10 @@ def registry_from_config(
     session_disabled_agents: frozenset[str] = frozenset(),
 ) -> CapabilityRegistry:
     """Kalıcı `capabilities.disabled` + `overrides` uygulanmış katalog (tüm yüzeyler aynı)."""
-    from .capabilities import CapabilityRegistry  # döngüsel: `capabilities` bu modülü kullanır
+    from ..core.proposal_invocation import (
+        ProposalPolicy,  # döngüsel: `capabilities` bu modülü kullanır
+    )
+    from .capabilities import CapabilityRegistry
 
     disabled = frozenset(getattr(getattr(config, "capabilities", None), "disabled", ()) or ())
     return CapabilityRegistry(
@@ -73,5 +76,6 @@ def registry_from_config(
         disabled_skills=disabled | session_disabled_skills,
         disabled_agents=disabled | session_disabled_agents,
         extra_roots=extra_roots,
+        proposal_policy=ProposalPolicy(enabled=config.runtime.verified_skill_proposals),
         overrides=overrides_from(config),
     )

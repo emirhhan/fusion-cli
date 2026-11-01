@@ -307,7 +307,7 @@ async def test_optimizasyon_kumesinde_iyilesme_yoksa_ayri_kume_olculmez(tmp_path
     assert ayri.cagrilar == []
 
 
-async def test_baslangic_degerlendirmesi_tekrarlanmaz(tmp_path):
+async def test_teshis_sonrasi_bagimsiz_ab_ba_temelleri_olculur(tmp_path):
     aday = _aday()
     opt = _SahteDegerlendirici(
         {
@@ -325,7 +325,8 @@ async def test_baslangic_degerlendirmesi_tekrarlanmaz(tmp_path):
         heldout_evaluator=ayri,
         store=ProposalStore(tmp_path / "o"),
     )
-    assert opt.cagrilar.count(TEMEL) == 1  # temel bir kez ölçüldü
+    assert opt.cagrilar == [TEMEL, TEMEL, aday, aday, TEMEL]
+    assert ayri.cagrilar == [TEMEL, aday, aday, TEMEL]
 
 
 # --------------------------------------------------------------------------- #

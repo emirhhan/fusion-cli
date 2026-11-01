@@ -1,0 +1,2 @@
+def normalize(deger):
+    return int(deger)

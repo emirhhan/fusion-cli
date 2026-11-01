@@ -95,6 +95,7 @@ def srcset_variants(
     suffix: str = ".webp",
     quality: int = DEFAULT_QUALITY,
     before_write: Callable[[Path], None] | None = None,
+    after_write: Callable[[Path], None] | None = None,
 ) -> tuple[ImageFile, ...]:
     """Kaynaktan daha dar genişliklerde kopyalar üret (büyütme YAPILMAZ).
 
@@ -116,6 +117,8 @@ def srcset_variants(
             if before_write is not None:
                 before_write(target)
             variants.append(_save(resized, target, fmt, quality))
+            if after_write is not None:
+                after_write(target)
     return tuple(variants)
 
 
@@ -249,8 +252,12 @@ def optimize_image(args: ToolArgs, context: ToolContext) -> ToolResult:
             main = fit_cover(source, target, width, height)
         else:
             main = _convert(source, target)
+        context.changes.record_applied(target)
         variants = srcset_variants(
-            target, suffix=target.suffix, before_write=lambda yol: _record(context, yol)
+            target,
+            suffix=target.suffix,
+            before_write=lambda yol: _record(context, yol),
+            after_write=context.changes.record_applied,
         )
     except ImageOpsError as error:
         return ToolResult.failure(f"Görsel işlenemedi: {error}")

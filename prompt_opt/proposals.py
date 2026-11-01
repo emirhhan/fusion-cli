@@ -14,8 +14,14 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from evals.effective_config import EffectiveField
+from evals.execution import ModelCallIdentity
+from evals.profiles import RunMetadata
+
 from fusion_cli.core.atomic_file import atomic_replace_text
 from fusion_cli.core.errors import EvalError
+
+from .research_evidence import Measurement, RunEvidence
 
 STATUS_PENDING = "bekliyor"
 STATUS_APPLIED = "uygulandi"
@@ -55,6 +61,16 @@ class Proposal:
     reason: str
     status: str = STATUS_PENDING
     applied_version: int | None = None
+    effective_flags: tuple[EffectiveField, ...] = ()
+    candidate_digest: str | None = None
+    parent_prompt_hash: str | None = None
+    split_manifest_refs: tuple[str, ...] = ()
+    split_roles: tuple[str | None, ...] = ()
+    run_manifest: tuple[RunEvidence, ...] = ()
+    diagnostic: RunEvidence | None = None
+    proposal_generation_role: str = (
+        "proposal-generation; usage_unknown; candidate ölçümüne dahil değil"
+    )
 
 
 class ProposalStore:
@@ -103,6 +119,42 @@ class ProposalStore:
 def _load(path: Path) -> Proposal:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["effective_flags"] = tuple(
+            EffectiveField(**item) for item in raw.get("effective_flags", ())
+        )
+        raw["run_manifest"] = tuple(_evidence(item) for item in raw.get("run_manifest", ()))
+        if raw.get("diagnostic") is not None:
+            raw["diagnostic"] = _evidence(raw["diagnostic"])
+        for key in ("split_manifest_refs", "split_roles"):
+            raw[key] = tuple(raw.get(key, ()))
         return Proposal(**raw)
-    except (json.JSONDecodeError, TypeError) as error:
+    except (json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
         raise EvalError(f"öneri okunamadı: {path.name} — {error}") from error
+
+
+def _evidence(raw: dict[str, object]) -> RunEvidence:
+    """JSON sınırında tipli kanıtı yeniden kur; eski kayda kanıt uydurma."""
+    measurement_raw = raw["measurement"]
+    metadata_raw = raw.get("metadata")
+    if not isinstance(measurement_raw, dict):
+        raise TypeError("ölçüm alanı sözlük olmalı")
+    measurement_raw["unknowns"] = tuple(measurement_raw.get("unknowns", ()))
+    metadata = None
+    if isinstance(metadata_raw, dict):
+        metadata_raw["calls"] = tuple(
+            ModelCallIdentity(**call) for call in metadata_raw.get("calls", ())
+        )
+        for key in ("unknowns", "exclusions"):
+            metadata_raw[key] = tuple(metadata_raw.get(key, ()))
+        for key in ("task_budgets", "corpus_counts"):
+            if key in metadata_raw:
+                metadata_raw[key] = tuple(tuple(item) for item in metadata_raw[key])
+        metadata = RunMetadata(**metadata_raw)
+    return RunEvidence(
+        stage=str(raw["stage"]),
+        arm=str(raw["arm"]),
+        order=int(str(raw["order"])),
+        prompt_digest=str(raw["prompt_digest"]),
+        measurement=Measurement(**measurement_raw),
+        metadata=metadata,
+    )

@@ -33,19 +33,28 @@ import sys
 import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
 from ..core.constants import MIN_BROWSER_TURN_S, WEB_IMAGE_UPLOAD_PROVIDERS
+from ..core.prompt_manifest import PromptTransportMeasurement
 from ..core.redaction import redact, strip_driver_log
 from ..core.refusal import looks_like_refusal
 from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
+from ..core.web_provenance import WebCallContext
 from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
+from .web_response import (
+    ObservedResponse,
+    accepted_snapshot,
+    observation_options,
+    observed_response,
+    origin_script,
+)
 from .web_selectors import ProviderSelectors, web_selectors
 from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 from .web_shared_browser import (
@@ -1565,7 +1574,7 @@ def build_browser_transport(
             deadline = time.monotonic() + limit
             last_selector_error: WebBrowserSelectorError | None = None
 
-            for attempt in range(2):
+            for attempt in range(1 if turn.is_capture_probe else 2):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -1580,7 +1589,7 @@ def build_browser_transport(
                             definition,
                             browser_context,
                             messages,
-                            trace_dir,
+                            None if turn.is_capture_probe else trace_dir,
                             limit_s=max(1.0, remaining),
                             turn=turn,
                         ),
@@ -1596,7 +1605,7 @@ def build_browser_transport(
                     # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
                     # sıfırdan başlasın. Aynı hesap, aynı profil — gizli yedek yok.
                     await manager.drop_conversation(session.provider, session.account, root)
-                    if attempt == 0:
+                    if attempt == 0 and not turn.is_capture_probe:
                         await asyncio.sleep(0.75)
                         continue
                     raise
@@ -1710,6 +1719,10 @@ async def _retry_with_adjacent_model(
     refusal: str,
     choice: str,
     limit_s: float,
+    *,
+    measurement_sink: Callable[[PromptTransportMeasurement], None] | None = None,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
 ) -> tuple[str, str]:
     """Seçili model kalıp ret verdiyse aynı sohbette komşu modelle bir kez yeniden sor.
 
@@ -1734,7 +1747,15 @@ async def _retry_with_adjacent_model(
             choice,
             komsu,
         )
-        answer = await _send_turn(page, definition, prompt, previous=refusal, limit_s=limit_s)
+        answer = await _send_turn(
+            page,
+            definition,
+            prompt,
+            previous=refusal,
+            limit_s=limit_s,
+            measurement_sink=measurement_sink,
+            **observation_options(web_call_context, observation_sink),
+        )
     except WebBrowserError:
         return refusal, choice
     if looks_like_refusal(strip_role_headers(answer)):
@@ -1833,6 +1854,8 @@ async def _deliver_turn(
     # başka bir ilk mesajla gelir ve kendi sohbetlerini alır; aynı sistem istemli
     # paralel işler (alt ajan, konsey) de kendi `conversation_id`'leriyle ayrılır.
     turn = turn or WebTurnContext()
+    measurements: list[PromptTransportMeasurement] = []
+    observations: list[ObservedResponse] = []
     root = conversation_root(messages, turn.conversation_id)
     state = manager.conversation(session.provider, session.account, root)
     resumable = (
@@ -1865,6 +1888,8 @@ async def _deliver_turn(
             previous=state.last_answer,
             limit_s=limit_s,
             images=pending_images(messages[state.sent_count :]),
+            measurement_sink=measurements.append,
+            **observation_options(turn.web_call_context, observations.append),
         )
     else:
         await _pace_new_conversation(manager, session)
@@ -1886,7 +1911,13 @@ async def _deliver_turn(
                 messages, trim=False, answer_contract=turn.answer_contract
             )
             answer = await _send_turn(
-                page, definition, prompt, limit_s=limit_s, images=pending_images(messages)
+                page,
+                definition,
+                prompt,
+                limit_s=limit_s,
+                images=pending_images(messages),
+                measurement_sink=measurements.append,
+                **observation_options(turn.web_call_context, observations.append),
             )
         except BaseException:
             # Sohbet henüz havuza kaydedilmedi: sayfa burada bırakılmazsa açık kalır.
@@ -1895,9 +1926,19 @@ async def _deliver_turn(
             manager.discard_page(page)
             raise
 
-    if choice and looks_like_refusal(strip_role_headers(answer)):
+    if choice and not turn.is_capture_probe and looks_like_refusal(strip_role_headers(answer)):
+        observations.clear()
         answer, choice = await _retry_with_adjacent_model(
-            manager, session, definition, state.page, prompt, answer, choice, limit_s
+            manager,
+            session,
+            definition,
+            state.page,
+            prompt,
+            answer,
+            choice,
+            limit_s,
+            measurement_sink=measurements.append,
+            **observation_options(turn.web_call_context, observations.append),
         )
     elif choice == session.selected_model:
         manager.forget_fallback_candidate(session)
@@ -1942,7 +1983,15 @@ async def _deliver_turn(
         _append_trace(
             trace_dir, session, prompt=prompt, answer=answer, resumed=resumable, tier=kademe
         )
-    return WebTurn(answer, kademe, manager.take_mode_note(session))
+    return WebTurn(
+        answer,
+        kademe,
+        manager.take_mode_note(session),
+        prompt_measurement=measurements[-1] if measurements else None,
+        provenance=observations[-1].provenance
+        if observations and strip_role_headers(observations[-1].text) == answer
+        else None,
+    )
 
 
 def _native_login_executable() -> str | None:
@@ -2146,6 +2195,9 @@ async def _send_turn(
     previous: str = "",
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
     images: tuple[str, ...] = (),
+    measurement_sink: Callable[[PromptTransportMeasurement], None] | None = None,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
 ) -> str:
     """Açık bir sohbete tek mesaj gönder ve yanıtı bekle.
 
@@ -2173,10 +2225,23 @@ async def _send_turn(
     if await _strong_login_signal(page, definition):
         raise WebBrowserAuthError(_login_required_message(definition))
 
-    before = await _response_snapshot(page, definition.response_selectors)
+    before_observations: list[ObservedResponse] = []
+    before = (
+        await _response_snapshot(
+            page,
+            definition.response_selectors,
+            observation_sink=before_observations.extend,
+            provider_id=definition.id,
+        )
+        if observation_sink is not None
+        else await _response_snapshot(page, definition.response_selectors)
+    )
     composer_metni = await _prepare_prompt_for_composer(page, definition, prompt)
     eklenen = await _attach_images(page, definition, images)
+    measurement = _prompt_transport_measurement(prompt, composer_metni)
     composer_metni += image_upload_notice(eklenen, len(images))
+    if measurement_sink is not None:
+        measurement_sink(replace(measurement, sent_chars=len(composer_metni)))
     await _fill_editor(input_locator, composer_metni)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
     if send is not None:
@@ -2185,7 +2250,14 @@ async def _send_turn(
         await input_locator.press("Enter")
 
     return await _wait_for_response(
-        page, definition, before, previous=previous, sent_prompt=composer_metni, limit_s=limit_s
+        page,
+        definition,
+        before,
+        previous=previous,
+        sent_prompt=composer_metni,
+        limit_s=limit_s,
+        before_observations=tuple(before_observations),
+        **observation_options(web_call_context, observation_sink),
     )
 
 
@@ -2573,7 +2645,13 @@ def _icerikten_metin(deger: object) -> str:
     return str(deger)
 
 
-async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:
+async def _response_snapshot(
+    page: Any,
+    selectors: Sequence[str],
+    *,
+    observation_sink: Callable[[tuple[ObservedResponse, ...]], None] | None = None,
+    provider_id: str = "",
+) -> tuple[str, ...]:
     """Sayfadaki yanıtları oku. Seçiciler BİRLİK değil TERCİH SIRASIDIR.
 
     Ölçüldü (Gemini web): cevaba "COGNOiSe.com - The IBM Cognos Community" gibi
@@ -2591,10 +2669,18 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
     seçiciden bir kez sayılıyordu ve "yeni yanıt geldi mi" ölçütü seçici sayısına
     göre kayıyordu.
     """
+    origin = _SELECTORS.providers.get(provider_id)
+    script = _SUSSUZ_ICERIK_BETIGI
+    if observation_sink is not None and origin is not None:
+        script = script.replace(
+            "text: kopya.innerText ?? ''",
+            "text: kopya.innerText ?? '', origin: "
+            + origin_script(origin.origin_roles, origin.origin_ids),
+        )
     for selector in selectors:
         locator = page.locator(selector)
         try:
-            values = await locator.evaluate_all(_SUSSUZ_ICERIK_BETIGI)
+            values = await locator.evaluate_all(script)
         except Exception:
             # Betik çalıştırılamıyorsa (eski Playwright, sahte sayfa) ham metne
             # düşülür: süslü metin, hiç metin olmamasından iyidir.
@@ -2602,9 +2688,22 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
                 values = await locator.all_inner_texts()
             except Exception:
                 continue
-        okunanlar = (_clean_text(_icerikten_metin(value)) for value in values)
-        texts = tuple(metin for metin in okunanlar if metin)
+        observations = tuple(
+            observed_response(
+                text,
+                value,
+                provider_id=provider_id,
+                selector=selector,
+                selector_version=_SELECTORS.schema_version,
+                selector_digest=_SELECTORS.bundle_digest,
+            )
+            for value in values
+            if (text := _clean_text(_icerikten_metin(value)))
+        )
+        texts = tuple(item.text for item in observations)
         if texts:
+            if observation_sink is not None:
+                observation_sink(observations)
             return texts
     return ()
 
@@ -2668,6 +2767,9 @@ async def _wait_for_response(
     previous: str = "",
     sent_prompt: str = "",
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
+    before_observations: tuple[ObservedResponse, ...] = (),
 ) -> str:
     """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
 
@@ -2703,7 +2805,17 @@ async def _wait_for_response(
     checks = 0
     while time.monotonic() < deadline:
         checks += 1
-        current = await _response_snapshot(page, definition.response_selectors)
+        current_observations: list[ObservedResponse] = []
+        current = (
+            await _response_snapshot(
+                page,
+                definition.response_selectors,
+                observation_sink=current_observations.extend,
+                provider_id=definition.id,
+            )
+            if observation_sink is not None
+            else await _response_snapshot(page, definition.response_selectors)
+        )
         # Yeni yanıt ÖĞESİ oluştu mu? Sayının artması, metnin değişmesinden daha
         # güvenilir bir işarettir: aynı metin tekrar üretilebilir, ama öğe sayısı
         # yalnızca gerçekten yeni bir yanıt eklendiğinde artar.
@@ -2729,11 +2841,24 @@ async def _wait_for_response(
         if text_changed or generating:
             calm_since = time.monotonic()
         now = time.monotonic()
-        if latest and not generating:
-            if saw_new and now - stable_since >= RESPONSE_STABLE_S:
-                return latest
-            if changed and now - calm_since >= RESPONSE_QUIET_S:
-                return latest
+        if (
+            latest
+            and not generating
+            and (
+                (saw_new and now - stable_since >= RESPONSE_STABLE_S)
+                or (changed and now - calm_since >= RESPONSE_QUIET_S)
+            )
+        ):
+            if observation_sink is not None and current_observations:
+                observation_sink(
+                    accepted_snapshot(
+                        current_observations[-1],
+                        before_observations,
+                        has_new_node=saw_new,
+                        context=web_call_context,
+                    )
+                )
+            return latest
         if checks % 15 == 0:
             # BEKLERKEN yalnızca gerçekten ENGELLEYEN durumlar turu keser: oturum
             # kapalıysa ya da insan doğrulaması isteniyorsa cevap zaten gelmeyecek.
@@ -3151,3 +3276,14 @@ def _clean_text(value: str) -> str:
 def _slug(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip()).strip("-._")
     return cleaned or "main"
+
+
+def _prompt_transport_measurement(prompt: str, composer: str) -> PromptTransportMeasurement:
+    """Gerçek composer çıktısında kaynak kaybını işaret metninden ayrı say."""
+    if composer == prompt:
+        return PromptTransportMeasurement(len(prompt), len(composer), 0)
+    if composer == _UPLOAD_NOTICE.format(chars=len(prompt)):
+        return PromptTransportMeasurement(len(prompt), len(composer), 0, len(prompt))
+    marker = _TRIM_MARK.format(atilan=len(prompt) - MAX_WEB_PROMPT_CHARS)
+    retained = len(composer) - len(marker) if marker in composer else len(composer)
+    return PromptTransportMeasurement(len(prompt), len(composer), max(0, len(prompt) - retained))

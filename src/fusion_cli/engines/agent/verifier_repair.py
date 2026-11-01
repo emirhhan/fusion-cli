@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...core.budget import TurnBudget
+from ...core.repair_ledger import FailureOrigin
 from ...core.verification import VerificationResult
 
 
@@ -17,3 +18,10 @@ def observe_verifier_failures(result: VerificationResult, budget: TurnBudget) ->
         if decision.note and decision.note not in notes:
             notes.append(decision.note)
     return "\n".join(notes)
+
+
+def should_repair_verifier(result: VerificationResult) -> bool:
+    """Yalnız altyapı/sağlayıcı arızası olan ölçüm ürün düzeltmesi başlatmaz."""
+    return not result.failure_evidence or any(
+        evidence.origin is FailureOrigin.PRODUCT for evidence in result.failure_evidence
+    )

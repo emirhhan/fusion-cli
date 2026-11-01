@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ...core.clock import SystemClock
 from ...core.errors import PathAccessError
@@ -53,6 +53,7 @@ from .team_session import TeamSession, unread_counts
 from .team_tools_member import member_tools
 
 if TYPE_CHECKING:
+    from ...tools.registry import ToolRegistry
     from .loop import AgentDeps
 
 _LOG = logging.getLogger(__name__)
@@ -195,7 +196,9 @@ class TeamRun:
 
     async def _member_loop(self, member: TeamMember) -> None:
         session, name = self._session, member.name
-        registry = registry_with(self._deps.base_registry, member_tools(session, name))
+        # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+        base_registry = cast("ToolRegistry", self._deps.base_registry)
+        registry = registry_with(base_registry, member_tools(session, name))
         member_deps = orchestration_deps(
             self._deps, self._runs, agent_limit=self._limits.max_runs, registry=registry
         )

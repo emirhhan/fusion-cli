@@ -90,5 +90,14 @@ def _score(item: Capability, terms: list[str]) -> int:
     ("ve", "in", "er") İngilizce açıklamaların İÇİNDE eşleşip ("de-ve-lopment",
     "serv-er") tamamen alakasız skill'leri öne çıkarıyordu.
     """
-    haystack = set(_search_terms(f"{item.name} {item.description}"))
+    return _overlap(f"{item.name} {item.description}", terms)
+
+
+def relevance_score(name: str, description: str, query: str) -> int:
+    """Araç yüzeyi ve yetenek araması için aynı sözcük örtüşmesini kullan."""
+    return _overlap(f"{name} {description}", _query_terms(query))
+
+
+def _overlap(text: str, terms: list[str]) -> int:
+    haystack = set(_search_terms(text))
     return sum(1 for term in terms if term in haystack)

@@ -6,9 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from fusion_cli.core.evidence import EvidenceStatus
+from fusion_cli.core.evidence import EvidenceStatus, ToolUse
 from fusion_cli.core.execution_plan import VerificationCheck, VerificationCheckKind
+from fusion_cli.core.lesson_runtime import LessonRuntimeContext
 from fusion_cli.engines.agent import step_verification as sv
+from fusion_cli.engines.agent.loop import AgentOutcome
+
+from .fakes import make_config
 
 # --- A4-14: git seçenekli çağrılarda alt komut doğru çıkarılır -------------------- #
 
@@ -56,11 +60,11 @@ def test_eski_dosya_kosulu_varsayilan_kelimesine_takilmaz():
 
 
 def _cikti(*kullanimlar):
-    return SimpleNamespace(tool_uses=tuple(kullanimlar))
+    return AgentOutcome("", [], tool_uses=tuple(kullanimlar))
 
 
 def _kullanim(name, arguments=None, output=""):
-    return SimpleNamespace(name=name, ok=True, arguments=arguments or {}, output=output)
+    return ToolUse(name=name, ok=True, arguments=arguments or {}, output=output)
 
 
 def test_arac_kontrolu_takma_adi_ve_bos_expected_kabul_eder(tmp_path):
@@ -422,7 +426,9 @@ async def test_hafiza_plan_aramasi_olay_dongusunu_bloklamaz(monkeypatch):
         "fusion_cli.engines.agent.learning_steps.lesson_tags", lambda deps: (), raising=True
     )
     deps = SimpleNamespace(
-        lessons=object(), config=SimpleNamespace(runtime=SimpleNamespace(lessons=True))
+        lessons=object(),
+        config=make_config(runtime={"lessons": True}),
+        lesson_context=LessonRuntimeContext(),
     )
 
     assert await teacher_flow._apply_remembered_plan("görev", [], deps) is False
@@ -650,7 +656,7 @@ async def test_denetim_istemi_iz_icindeki_yer_tutucuyu_yeniden_doldurmaz(monkeyp
         return ModelResult(text="TAMAM", ok=True)
 
     monkeypatch.setattr(review, "_ask", sor)
-    config = SimpleNamespace(runtime=SimpleNamespace(judge_timeout_s=5.0))
+    config = make_config(runtime={"judge_timeout_s": 5.0})
 
     await review.review_turn(
         "görev {final}", "SON-METIN", [Message("user", "iz {task}")], config=config
