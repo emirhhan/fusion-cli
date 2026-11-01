@@ -48,8 +48,9 @@ _LABELS = {
 class DesktopSettings:
     """`desktop:` bölümü: computer use anahtarı, kademe tavanı, uygulama listeleri."""
 
-    #: Kapalıysa `desktop_*` araçları modele hiç sunulmaz (kayıt defterinden çıkar).
-    enabled: bool = True
+    #: Kapalıysa `desktop_*` araçları modele hiç sunulmaz (kayıt defterinden çıkar). Claude
+    #: Code gibi varsayılan KAPALI (#420); CLI'de proje başına `/mcp enable computer-use`.
+    enabled: bool = False
     #: Bütün uygulamalar için tavan; kategori ya da uygulama kademesi bunu aşamaz.
     control_level: DesktopLevel = DesktopLevel.FULL
     #: Kategori tablosu (tarayıcı = yalnız bak, terminal/IDE = tıkla, yatırım/kripto/parola

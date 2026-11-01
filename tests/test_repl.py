@@ -801,7 +801,7 @@ def test_mcp_bos_argumanla_sunucu_yoksa_kurulum_ipucu_verir(state):
     komut = build_registry().get("mcp")
 
     assert komut is not None
-    assert komut.handler(state, "") == messages.MCP_NO_SERVERS
+    assert komut.handler(state, "").endswith(messages.MCP_NO_SERVERS)
 
 
 def test_mcp_add_sunucu_ekler_ve_listede_gorunur(state, tmp_path, monkeypatch):

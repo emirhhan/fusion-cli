@@ -175,7 +175,14 @@ def apply_limits(
     max_budget_usd: float | None,
     bare: bool,
 ) -> Config:
-    """Bayrakları yapılandırmaya işle; `--bare` MCP/bağlayıcı/talimat yüklemesini kapatır."""
+    """Bayrakları yapılandırmaya işle; `--bare` MCP/bağlayıcı/talimat yüklemesini kapatır.
+
+    Computer use etkileşimli oturum ister (Claude Code: `-p` ile yok, #445): `desktop_*`
+    ailesi etkileşimsiz yolda her zaman kapalıdır.
+    """
+    from ..config.computer_use_projects import interactive_only
+
+    config = replace(config, desktop=interactive_only(config.desktop))
     runtime = config.runtime
     if max_turns is not None:
         runtime = replace(runtime, agent_max_steps=max_turns)

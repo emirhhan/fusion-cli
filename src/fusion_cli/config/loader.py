@@ -27,6 +27,7 @@ import yaml
 from dotenv import dotenv_values
 
 from ..core.desktop_settings import DesktopSettings, parse_app_level
+from . import computer_use_projects
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
@@ -199,6 +200,11 @@ def load_config(path: str | Path | None = None) -> Config:
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
+        # Computer use proje başına açılabilir (`/mcp enable computer-use`, #420).
+        yapilandirma = dataclasses.replace(
+            yapilandirma,
+            desktop=computer_use_projects.effective(yapilandirma.desktop, Path.cwd()),
+        )
         # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
         yapilandirma = _with_plugin_mcp_servers(yapilandirma)
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı

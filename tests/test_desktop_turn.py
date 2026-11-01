@@ -96,7 +96,9 @@ async def test_esc_tur_gorevini_iptal_eder_ve_kilit_birakilir(tmp_path, monkeypa
     fake = _FakeIo()
     released: list[str] = []
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
-    context = ToolContext(root=tmp_path, job_scope="tur-1")
+    context = ToolContext(
+        root=tmp_path, job_scope="tur-1", desktop_settings=DesktopSettings(enabled=True)
+    )
     started = asyncio.Event()
 
     async def turn_body() -> None:
@@ -219,7 +221,7 @@ async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(
 ):
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: None)
     fake = _FakeIo()
-    context = ToolContext(root=tmp_path)
+    context = ToolContext(root=tmp_path, desktop_settings=DesktopSettings(enabled=True))
     turn = desktop_turn.begin(context, fake.io())
     assert turn is not None and not desktop_turn.escape_listening()
     desktop_turn.foreground_action(context)
@@ -267,7 +269,9 @@ async def test_gizlemede_degerlendirilen_hedef_uygulama_korunur(tmp_path, monkey
 
     monkeypatch.setattr(desktop_policy, "_swift_probe", mail)
     fake = _FakeIo()
-    context = ToolContext(root=tmp_path, desktop_settings=DesktopSettings(background=False))
+    context = ToolContext(
+        root=tmp_path, desktop_settings=DesktopSettings(enabled=True, background=False)
+    )
     context.desktop.frame = DesktopFrame(100, 100, 0.0, 0.0, 100.0, 100.0)
     turn = desktop_turn.begin(context, fake.io())
     assert turn is not None

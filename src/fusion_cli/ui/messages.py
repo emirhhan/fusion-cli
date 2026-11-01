@@ -793,6 +793,16 @@ MCP_ADD_JSON_INVALID = "JSON tanımı okunamadı: {error}"
 MCP_LOGIN_RESULT = "{name}: {state}{detail}"
 MCP_LOGIN_TIMEOUT = "'{name}' girişi {seconds:.0f} sn içinde tamamlanmadı."
 MCP_LIST_ROW = "· {name} [{scope} · {transport}] {target}"
+# Yerleşik computer-use satırı (#420; Claude Code `/mcp` › computer-use › Enable).
+COMPUTER_USE_MCP_ROW = "· {name} [yerleşik] {status}"
+COMPUTER_USE_MCP_DISABLED = "disabled — açmak için: /mcp enable computer-use"
+COMPUTER_USE_MCP_ENABLED = "enabled (bu proje)"
+COMPUTER_USE_MCP_ENABLED_GLOBAL = "enabled (Ayarlar › Bu bilgisayar)"
+COMPUTER_USE_MCP_ON = (
+    "computer-use bu projede açıldı ({root}); ayar proje başına kalıcıdır. İlk kullanımda "
+    "Erişilebilirlik ve Ekran Kaydı izni istenir."
+)
+COMPUTER_USE_MCP_OFF = "computer-use bu projede kapatıldı ({root})."
 MCP_LIST_HEADER_PROJECT_HINT = (
     "Proje kaydı: {path} (yalnız güvenilen projede yüklenir; fusion trust)"
 )

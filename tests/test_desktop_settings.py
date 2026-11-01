@@ -54,7 +54,8 @@ def test_varsayilanlar_kod_ve_yaml_ile_ayni(tmp_path: Path):
 
 
 def test_eski_dosya_desktop_bolumu_olmadan_yuklenir(tmp_path: Path):
-    assert load_config(_config_file(tmp_path)).desktop.enabled is True
+    # #420: Claude Code gibi computer use varsayılan kapalı.
+    assert load_config(_config_file(tmp_path)).desktop.enabled is False
 
 
 def test_bozuk_app_levels_yuklemede_hata_verir(tmp_path: Path):
@@ -99,8 +100,8 @@ def test_config_set_kademe_ve_liste_dogrulanir(tmp_path: Path):
 
 
 def test_kapaliyken_masaustu_ailesi_kayit_defterinde_yok(tmp_path: Path):
-    acik = _registry(tmp_path, DesktopSettings())
-    kapali = _registry(tmp_path, DesktopSettings(enabled=False))
+    acik = _registry(tmp_path, DesktopSettings(enabled=True))
+    kapali = _registry(tmp_path, DesktopSettings())
 
     assert {"desktop_mouse", "desktop_screenshot", "desktop_key"} <= _desktop_names(acik)
     assert _desktop_names(kapali) == set()

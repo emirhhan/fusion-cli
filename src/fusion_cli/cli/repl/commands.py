@@ -572,12 +572,19 @@ def _mcp(state: ReplState, argument: str) -> str:
     alt_komut = parcalar[0].lower() if parcalar else ""
     kalan = parcalar[1] if len(parcalar) > 1 else ""
 
+    from .computer_use_command import handle as computer_use, status_row
+
+    yerlesik = computer_use(state, alt_komut, kalan)
+    if yerlesik is not None:
+        return yerlesik
     if alt_komut in ("", "list"):
         if not state.config.mcp_servers:
-            return messages.MCP_NO_SERVERS
+            return f"{status_row(state)}\n{messages.MCP_NO_SERVERS}"
         # Argümanlarda gömülü token olabilir (`--token=…`): listeye ve transcript'e MASKELİ
         # girer (L2-28).
         return "\n".join(
+            [status_row(state)]
+            + [
             redact(
                 messages.MCP_LIST_ROW.format(
                     name=sunucu.name,
@@ -587,6 +594,7 @@ def _mcp(state: ReplState, argument: str) -> str:
                 )
             )
             for sunucu in state.config.mcp_servers
+            ]
         )
 
     if alt_komut in ("prompts", "istemler", "resources", "kaynaklar"):

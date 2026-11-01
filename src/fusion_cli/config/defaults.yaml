@@ -1008,8 +1008,10 @@ mcp_servers: []
 # Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
 # Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
 desktop:
-  # false: desktop_* araçları modele hiç sunulmaz.
-  enabled: true
+  # Computer use (Claude Code ile aynı: varsayılan KAPALI). Masaüstü uygulamasında Ayarlar ›
+  # Bu bilgisayar › "Computer use'u etkinleştir"; CLI'de proje başına `/mcp enable computer-use`.
+  # Etkileşimsiz yolda (-p, arka plan işi, `fusion mcp`) her zaman kapalıdır.
+  enabled: false
   # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
   control_level: full
   # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
