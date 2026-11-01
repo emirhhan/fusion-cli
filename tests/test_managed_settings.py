@@ -156,3 +156,18 @@ def test_mdm_profili_dosya_tabanli_ayarin_ustunde(managed: Path, tmp_path: Path)
 
     assert ps.default_mode_setting(tmp_path) == "acceptEdits"
     assert _kalip(load_permission_rules(tmp_path).rules, PermissionDecision.DENY) == {"WebFetch"}
+
+
+def test_ortam_degiskeni_yalniz_testte_dizini_ezer(tmp_path, monkeypatch):
+    """İnceleme (1 Kasım): `FUSION_CLAUDE_MANAGED_DIR` üretimde yönetici kurallarını kapatıyordu.
+
+    Claude'da kullanıcı yönetilen ayarı aşamaz; değişken yalnız test sürecinde geçerlidir.
+    """
+    import platform
+
+    from fusion_cli.config import managed_settings
+
+    monkeypatch.setenv(managed_settings.MANAGED_DIR_ENV, str(tmp_path / "bos"))
+    assert managed_settings.managed_dir() == tmp_path / "bos"
+    monkeypatch.setattr(managed_settings, "_testing", lambda: False)
+    assert managed_settings.managed_dir() == managed_settings.MANAGED_DIRS.get(platform.system())

@@ -17,7 +17,9 @@ Sunucu tarafı yönetilen ayarlar (Claude.ai yönetici paneli) Fusion'da yoktur.
 yerel ayarların allow/ask/deny kurallarını devre dışı bırakır; yalnız managed kurallar uygulanır.
 
 Fusion yalnız okur; bu dosyalara hiçbir koşulda yazmaz. Testler gerçek sistem dizinine
-dokunmasın diye `FUSION_CLAUDE_MANAGED_DIR` dizini ezer (talimat katmanıyla aynı değişken).
+dokunmasın diye `FUSION_CLAUDE_MANAGED_DIR` dizini ezer; değişken YALNIZ test sürecinde
+(pytest yüklüyken) geçerlidir. Üretimde süreç ortamını değiştirebilen biri (`.envrc`, kabuk
+profili) onunla yönetici kurallarını kapatamaz (inceleme, 1 Kasım).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import json
 import os
 import platform
 import plistlib
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -45,11 +48,15 @@ MANAGED_RULES_ONLY_KEY = "allowManagedPermissionRulesOnly"
 
 
 def managed_dir() -> Path | None:
-    """Yönetilen ayar dizini; ortam değişkeni verilmişse o."""
+    """Yönetilen ayar dizini; test sürecinde ortam değişkeni verilmişse o."""
     override = os.environ.get(MANAGED_DIR_ENV, "").strip()
-    if override:
+    if override and _testing():
         return Path(override).expanduser()
     return MANAGED_DIRS.get(platform.system())
+
+
+def _testing() -> bool:
+    return "pytest" in sys.modules
 
 
 def managed_settings_files() -> tuple[Path, ...]:
