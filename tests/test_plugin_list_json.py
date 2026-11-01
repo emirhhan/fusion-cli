@@ -183,3 +183,30 @@ def test_yerel_pazar_eklentisi_yerinde_yuklenir_duzenleme_gorunur(tmp_path):
 
     plugin_install.uninstall_plugin("rapor")
     assert source.is_dir()  # kaynak klasör çöpe taşınmaz
+
+
+def test_marketplace_json_ve_turkce_ad_uyarisi(tmp_path):
+    market = _market(tmp_path)
+    added = runner.invoke(app, ["marketplace", "add", str(market), "--json"])
+    payload = json.loads(added.output.strip().splitlines()[-1])
+    assert payload == {
+        "command": "marketplace-add",
+        "outcome": "ok",
+        "message": payload["message"],
+        "marketplace": "ekip",
+    }
+    old = runner.invoke(app, ["listele"])
+    assert "'listele' kullanımdan kalktı; Claude Code adı: fusion plugin list" in old.output
+    gone = runner.invoke(app, ["pazar", "kaldir", "ekip", "--json"])
+    assert "fusion plugin marketplace remove" in gone.output
+    assert json.loads(gone.output.strip().splitlines()[-1])["command"] == "marketplace-remove"
+    missing = runner.invoke(app, ["marketplace", "remove", "ekip", "--json"])
+    assert missing.exit_code == 1
+
+
+def test_fusion_plugins_ortam_degiskeni_uyarir(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(plugin_store, "_ENV_WARNED", [])
+    monkeypatch.setenv("FUSION_PLUGINS", "off")
+    assert plugin_store.plugins_disabled_by_environment() is True
+    plugin_store.plugins_disabled_by_environment()
+    assert caplog.text.count("FUSION_PLUGINS kullanımdan kalktı") == 1

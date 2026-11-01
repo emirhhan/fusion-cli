@@ -314,14 +314,16 @@ def market_add(
     source: str = typer.Argument(
         ..., help="Yerel klasör, https git adresi, sahip/repo ya da 'resmi'"
     ),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Pazar yeri ekle (`resmi` = anthropics/claude-plugins-official)."""
 
-    def act() -> str:
+    def act() -> tuple[str, dict[str, object]]:
         record = plugins.add_marketplace(source)
-        return MARKET_ADDED.format(name=record.name, kind=record.kind)
+        text = MARKET_ADDED.format(name=record.name, kind=record.kind)
+        return text, {"marketplace": record.name}
 
-    _run(act)
+    run_result("marketplace-add", as_json, act)
 
 
 @market_app.command("liste")
@@ -331,32 +333,38 @@ def market_list() -> None:
 
 
 @market_app.command("guncelle")
-def market_update(name: str = typer.Argument("", help="Pazar adı (boşsa hepsi)")) -> None:
+def market_update(
+    name: str = typer.Argument("", help="Pazar adı (boşsa hepsi)"),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
+) -> None:
     """Git pazarını yeniden klonla; ad verilmezse bütün pazarları yenile (#410)."""
 
-    def act() -> str:
+    def act() -> tuple[str, dict[str, object]]:
         if not name:
             count = len(plugin_update.update_all_marketplaces())
-            return MARKETS_UPDATED.format(count=count)
+            return MARKETS_UPDATED.format(count=count), {}
         plugin_update.update_marketplace(name)
-        return MARKET_UPDATED.format(name=name)
+        return MARKET_UPDATED.format(name=name), {"marketplace": name}
 
-    _run(act)
+    run_result("marketplace-update", as_json, act)
 
 
 @market_app.command("kaldir")
-def market_remove(name: str = typer.Argument(..., help="Pazar adı")) -> None:
+def market_remove(
+    name: str = typer.Argument(..., help="Pazar adı"),
+    as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
+) -> None:
     """Pazarı ve ondan kurulan bütün eklentileri kaldır (Claude `marketplace remove`)."""
 
-    def act() -> str:
+    def act() -> tuple[str, dict[str, object]]:
         removed = plugins.remove_marketplace(name)
         lines = [MARKET_REMOVED.format(name=name)]
         if removed:
             lines.append(MARKET_ALSO.format(count=len(removed)))
             lines.extend(f"  - {plugin}" for plugin in removed)
-        return "\n".join(lines)
+        return "\n".join(lines), {"marketplace": name}
 
-    _run(act)
+    run_result("marketplace-remove", as_json, act)
 
 
 app.add_typer(market_app, name="pazar")
@@ -366,6 +374,46 @@ app.add_typer(market_app, name="pazar")
 _TURKISH_NAMES = frozenset(
     {"kur", "listele", "dogrula", "ac", "kapat", "kaldir", "guven", "guncelle", "kesfet"}
 )
+TURKISH_DEPRECATED = "'{old}' kullanımdan kalktı; Claude Code adı: fusion plugin {new}"
+_CLAUDE_NAMES = {
+    "kur": "install",
+    "listele": "list",
+    "dogrula": "validate",
+    "ac": "enable",
+    "kapat": "disable",
+    "kaldir": "uninstall",
+    "guven": "trust",
+    "guncelle": "update",
+    "kesfet": "list --json --available",
+    "ekle": "marketplace add",
+    "liste": "marketplace list",
+    "pazar": "marketplace",
+}
+
+
+@app.callback()
+def _warn_turkish(ctx: typer.Context) -> None:
+    """Eklenti paketlerini (beceri+ajan+komut+kanca+MCP) yönet."""
+    _warn_alias(ctx.invoked_subcommand or "")
+
+
+@market_app.callback()
+def _warn_turkish_market(ctx: typer.Context) -> None:
+    """Eklenti pazar yerleri (marketplace.json)."""
+    command = ctx.invoked_subcommand or ""
+    market = {"guncelle": "marketplace update", "kaldir": "marketplace remove"}
+    if command in market:
+        typer.echo(TURKISH_DEPRECATED.format(old=command, new=market[command]), err=True)
+    else:
+        _warn_alias(command)
+
+
+def _warn_alias(command: str) -> None:
+    new = _CLAUDE_NAMES.get(command)
+    if new and command != "kesfet":  # kesfet kendi uyarısını basar
+        typer.echo(TURKISH_DEPRECATED.format(old=command, new=new), err=True)
+
+
 for _info in (*app.registered_commands, *market_app.registered_commands):
     if _info.name in _TURKISH_NAMES | {"ekle", "liste"}:
         _info.hidden = True

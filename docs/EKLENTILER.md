@@ -124,7 +124,10 @@ kopyalama sınırıdır: 20.000 dosya / 256 MiB.
 Birincil adlar Claude Code'unkilerdir ve yardımda görünür: `fusion plugin install (i) | list | validate |
 enable | disable | uninstall (remove, rm) | update`, `fusion plugin marketplace add | list | update |
 remove (rm)`; `fusion plugins` da aynı gruptur. Yukarıdaki Türkçe adlar (`eklenti kur`, `pazar ekle`…)
-bir sürüm boyunca gizli, kullanımdan kalkmış takma addır. `details`, `prune` (`autoremove`) var; henüz yok:
+bir sürüm boyunca gizli, kullanımdan kalkmış takma addır; kullanılınca stderr'e Claude adını söyleyen
+uyarı basılır. `marketplace add|remove|update --json` aynı sonuç nesnesini (`command`:
+`marketplace-add|remove|update`, `marketplace`) basar. Eski `FUSION_PLUGINS=off` ortam değişkeni bir
+sürüm boyunca okunur ve süreç başına bir kez uyarır (Claude karşılığı `disable --all`). `details`, `prune` (`autoremove`) var; henüz yok:
 `configure`, `init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
 komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
 değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·

@@ -131,8 +131,20 @@ def state_file(base: Path | None = None) -> Path:
     return (base or plugins_dir()) / STATE_NAME
 
 
+_ENV_WARNED: list[bool] = []
+WARN_PLUGINS_ENV = (
+    "FUSION_PLUGINS kullanımdan kalktı (Claude Code'da yok); eklentileri kapatmak için: "
+    "fusion plugin disable --all"
+)
+
+
 def plugins_disabled_by_environment() -> bool:
-    return os.environ.get(PLUGINS_ENV, "").strip().lower() in _OFF_VALUES
+    """Eski `FUSION_PLUGINS=off` (#409): bir sürüm boyunca okunur, süreç başına bir kez uyarır."""
+    off = os.environ.get(PLUGINS_ENV, "").strip().lower() in _OFF_VALUES
+    if off and not _ENV_WARNED:
+        _ENV_WARNED.append(True)
+        _LOG.warning(WARN_PLUGINS_ENV)
+    return off
 
 
 def load_state(base: Path | None = None) -> PluginState:
