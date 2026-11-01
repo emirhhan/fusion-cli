@@ -312,10 +312,16 @@ class SdkStream:
         """`--include-hook-events` (#289): `system/hook_started` / `system/hook_response`."""
         self.write({"type": "system", **message, "session_id": self.session_id, "uuid": _uuid()})
 
-    def after_result(self) -> None:
-        """Sonuç mesajından sonra: `--prompt-suggestions` önerisi (#289)."""
+    def after_result(
+        self, predict: Callable[[], str | None] | None = None, *, skip: bool = False
+    ) -> None:
+        """Sonuç mesajından sonra: `--prompt-suggestions` önerisi (#289).
+
+        `predict` yalnız bayrak açıkken çağrılır (model tahmini); `skip` hatalı tur ya da
+        plan kipidir (Claude bu turlarda öneri vermez).
+        """
         if self._suggestions is not None:
-            self._suggestions.flush(self.session_id)
+            self._suggestions.flush(self.session_id, predict, skip=skip)
 
     def final_answer(self, text: str) -> None:
         """Turun kabul edilen cevabını `assistant` mesajı olarak yaz."""

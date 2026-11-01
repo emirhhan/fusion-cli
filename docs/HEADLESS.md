@@ -158,9 +158,13 @@ aynı `hook_id` ile `system/hook_response` (`output`, `stdout`, `stderr`, `exit_
 `outcome`: `success|error|cancelled`) yazar; alt ajanların kancaları dahil.
 
 `--prompt-suggestions` (stream-json) her turun `result` mesajından sonra
-`{"type": "prompt_suggestion", "suggestion": …}` yazar. Fusion'da öneri turun kendi
-kanıtından (değişen dosyalar, düşen araç/doğrulama, adım sınırı) üretilen ilk takip
-önerisidir; ek model çağrısı açılmaz, kanıt yoksa mesaj yazılmaz.
+`{"type": "prompt_suggestion", "suggestion": …, "uuid": …, "session_id": …}` yazar. Öneri
+Claude'daki gibi kullanıcının sıradaki isteminin model tahminidir: hakem rolünün modeli
+(`judge`, `/goal` değerlendiricisiyle aynı ucuz rol) konuşmanın son bölümüne bakıp tek kısa
+istem önerir; bu bayrak açıkken her tur sonunda bir ek model çağrısı yapılır. Model
+ulaşılamaz ya da tahmin vermezse turun kanıtından (değişen dosyalar, düşen araç/doğrulama,
+adım sınırı) üretilen ilk takip önerisi kullanılır. Hatayla biten turda ve plan kipinde öneri
+yazılmaz; mesaj `result`'tan sonra gelir, akışı sonuna kadar oku.
 
 `-p --init` ve `-p --maintenance` konuşmadan önce `Setup` kanca olayını tetikler
 (eşleştirici ve girdideki `trigger` sırasıyla `init` / `maintenance`); `fusion --init-only`

@@ -26,7 +26,7 @@ from ..core.errors import FusionError
 from ..core.events import EventSink
 from ..core.types import Message
 from ..engines.agent import dynamic_sections, subagent_prompt
-from ..engines.agent.approval import ApprovalMemory
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentOutcome
 from ..engines.hooks import lifecycle as hook_lifecycle
@@ -60,6 +60,7 @@ from .print_slash import SlashExpansion
 from .print_turn import catalog, prepare_turn, turn_tools
 from .repl.persona_commands import initial_persona_task
 from .sdk_init import CatalogSummary, active_plugin_paths, catalog_summary, init_message
+from .sdk_suggestions import model_suggestion
 from .session import build_observers, open_memory, run_agent_task
 
 #: Şemaya uymayan yapısal çıktı için en fazla yeniden deneme.
@@ -364,7 +365,10 @@ def _finish(
         sdk.result_message(_result_input(run, outcome, subtype, structured, errors), run.stats)
     )
     if run.stream is not None:
-        run.stream.after_result()
+        run.stream.after_result(
+            lambda: model_suggestion(run.history, plan.config),
+            skip=not ok or plan.mode is ApprovalMode.PLAN,
+        )
     return 0 if subtype == sdk.SUBTYPE_SUCCESS else 1
 
 

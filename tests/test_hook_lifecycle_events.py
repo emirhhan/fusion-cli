@@ -7,15 +7,25 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from fusion_cli.cli import app as app_module
-from fusion_cli.cli import print_run
+from fusion_cli.cli import print_run, sdk_suggestions
 from fusion_cli.core.hooks.events import HookCommand, HookEvent, HookRun, HookSet
 from fusion_cli.engines.hooks import lifecycle
 from fusion_cli.engines.hooks.session import HookSession
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _no_model_prediction(monkeypatch):
+    # Öneri tahmini hakem modeline gider; bu dosya kanıt önerisini sınar (ağ yok).
+    async def _none(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(sdk_suggestions, "predict_next_prompt", _none)
 
 
 def _command(event: HookEvent = HookEvent.PRE_TOOL_USE) -> HookCommand:
