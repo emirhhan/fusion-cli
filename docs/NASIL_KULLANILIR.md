@@ -927,13 +927,30 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
   Form alanlarının **değeri** (parola, kart, kimlik) sohbete gitmez; alan `placeholder` ya da
   `aria-label` ile tanıtılır. `◧` görünür sayfanın görüntüsünü sohbete ekler, `≡` konsol ve ağ
   isteklerini gösterir (son 200 konsol mesajı ve 300 istek; `⌫` biriktirileni temizler).
-- **Oturum:** **Temiz** (varsayılan; çıkınca silinir), **Panel oturumu** (Claude Code'daki
+- **Oturum:** **Temiz** (varsayılan; çıkınca silinir) ya da **Panel oturumu** (Claude Code'daki
   "Keep cookies": çerezler `tarayici-paneli` profiline şifreli saklanır, sonraki açılışta
-  girişli kalırsın) ya da `fusion browser` ile kurulan bir profil. Girişli bir oturumu sen
-  seçtiysen ajan onu **yalnız "Ajan girişli oturumu kullanabilir" işaretliyken** görür; aksi
-  hâlde tur kendi temiz tarayıcısını açar. Girişli oturumda tıklama/form gönderme yine onay ister.
-  **Tarayıcıyı kapat** seçtiğin profili de bırakır: sonraki tur yapılandırmadaki varsayılan
-  profille (onay sorarak) başlar.
+  girişli kalırsın). Bölme Claude'daki gibi temiz profildir: `fusion browser` ile kurulan kayıtlı
+  giriş profilleri burada sunulmaz (girişli iş için Chrome eklentisi; ajanın `browser_open
+  profile=` argümanı CLI'de çalışmaya devam eder). Girişli panel oturumunu ajan **yalnız "Ajan
+  girişli oturumu kullanabilir" işaretliyken** görür; aksi hâlde tur kendi temiz tarayıcısını
+  açar. Girişli oturumda tıklama/form gönderme yine onay ister.
+- **⋮ menüsü** (Claude Desktop Browser ⋮): **Keep cookies** (Panel oturumunu aç/kapat),
+  **Clear browsing data** (tarayıcıyı kapatır, saklanan panel çerezlerini siler),
+  **Auto-verify changes** (projenin `.claude/launch.json` dosyasındaki üst düzey `autoVerify`;
+  yorumlu dosyaya yazılmaz, elle değiştir) ve **Open links in built-in browser** (sohbetteki
+  http(s) bağlantıları sistem tarayıcısı yerine bu bölmede açılır; tercih bu bilgisayarda).
+- **Dev servers menüsü (▶︎):** `.claude/launch.json` sunucularını listeler; **Başlat** (güven
+  gerekiyorsa "Güven ve başlat"), **Durdur**, **Hepsini durdur**. Başlayan sunucu bölmede açılır.
+- **Dış siteler:** ajan bu bölmede bir dış siteyi (localhost dışı) ilk kez açmak isteyince
+  **Allow once / Always allow / Deny** sorulur; "Always allow" o siteyi bu oturum boyunca
+  izinli yapar. Soru her kipte (İzinleri atla dahil) çıkar; CLI'nin tur tarayıcısı sormaz.
+- **Ayarlar › Web oturumları › Browser tools** (`browser.tools`): kapalıyken ajan `browser_*`
+  araçlarını görmez; bölme senin için çalışır. Chrome eklentisi araçları etkilenmez.
+- **Yönetici ayarları** (yalnız `managed-settings.json`, Claude Code ile aynı konum):
+  `disableBrowserExternalNavigation: true` dış sitelere gezinmeyi hem sana hem ajana kapatır
+  (localhost ve yerel dosya açılır; tıklama/yönlendirme ile gezinme de engellenir);
+  `browserExternalPageTools: false` dış sitelere gitmene izin verir ama ajan o sayfaları okuyamaz,
+  tıklayamaz, yazamaz, görüntüsünü alamaz (sonuç yalnız adresi söyler).
 - **Kapatmak:** **Ajan bu tarayıcıyı kullanır** kutusu kaldırılınca ajan eski davranışa döner
   (her tur ayrı tarayıcı; Tarayıcı sekmesi de kendiliğinden öne gelmez). Seçim kalıcıdır
   (`browser.panel_agent`); aynı ayar **Ayarlar → Web oturumları**'nda ve terminalde
@@ -945,13 +962,16 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 - **Yerel adres izinleri:** panelde açtığın ya da bir turda yazdığın `localhost:port` paylaşılan
   tarayıcının izin kümesine girer ve tarayıcı kapanana kadar sonraki turlarda da izinli kalır
   (tur başına tarayıcıda her tur boş başlardı). Kümeyi sıfırlamak için **Tarayıcıyı kapat**.
+- **Henüz yok (#439):** Önizleme ve Tarayıcı Claude'daki gibi tek "Browser" sekmesinde
+  birleşmedi (iki sekme ayrı: Önizleme yerel sayfayı gömer, Tarayıcı ajanla paylaşılan Chromium'u
+  gösterir); "Always allow" kalıcı değil, oturumluktur.
 - **Sınırlar:** panel tarayıcısı her zaman başsız çalışır (görüntü panelde; `browser.headless`
   tur başına tarayıcı içindir). Plan adımları ve alt ajanlar kendi ayrı tarayıcılarını kullanır,
   panelde görünmez. Açık panel oturumunda ajan başka profil yükleyemez; profili panelden seç.
 
 RPC'ler `tarayici_panel.*` (`durum`, `ac`, `kare`, `git`, `geri`, `ileri`, `yenile`,
 `sekme_ac/sec/kapat`, `tikla`, `kaydir`, `yaz`, `tus`, `boyut`, `devral`, `birak`, `oge`,
-`oge_sec`, `ekran`, `konsol`, `ayar`, `profil`, `kapat`). Görüntü Chromium'un ekran yayınıdır;
+`oge_sec`, `ekran`, `konsol`, `ayar`, `profil`, `veri_temizle`, `kapat`). Görüntü Chromium'un ekran yayınıdır;
 panel kapalıyken kare üretilmez. Gereksinim: `pip install 'fusion-cli[web]'` ve
 `playwright install chromium`.
 

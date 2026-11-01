@@ -60,13 +60,19 @@ def site_key(host: str) -> str:
 def is_site_consent(request: ApprovalRequest) -> bool:
     """Her kipte (bypass dahil) sorulan finansal site izni mi?"""
     site = getattr(request, "chrome_site", None)
-    return isinstance(site, ChromeSite) and site.financial and request.consent_key is not None
+    return (
+        isinstance(site, ChromeSite)
+        and (site.financial or site.builtin)
+        and request.consent_key is not None
+    )
 
 
 def site_description(request: ApprovalRequest) -> str | None:
     site = getattr(request, "chrome_site", None)
     if not isinstance(site, ChromeSite) or request.consent_key is None:
         return None
+    if site.builtin:
+        return BUILTIN_SCOPE.format(host=site.host)
     return SITE_SCOPE.format(host=site.host)
 
 
@@ -105,6 +111,12 @@ async def apply_site(
     request: ApprovalRequest, tool_name: str, args: ToolArgs, context: ToolContext
 ) -> ApprovalRequest:
     """İsteğe site iznini işle; okuma ve hedefi okunamayan çağrı olduğu gibi kalır."""
+    if tool_name in BUILTIN_NAVIGATION:
+        # Yalnız masaüstü Browser bölmesi (paylaşılan panel tarayıcısı); CLI'nin tur başına
+        # tarayıcısı Claude Code CLI gibi site sormaz.
+        if not getattr(context.browser, "persistent", False):
+            return request
+        return apply_builtin_site(request, args)
     if (
         not tool_name.startswith("chrome_")
         or tool_name in {"chrome_batch", "chrome_navigate"}
@@ -134,3 +146,43 @@ async def apply_site(
         if request.effect is ToolEffect.REMOTE_READ:
             updates["effect"] = ToolEffect.REMOTE_INTERACT
     return replace(request, **updates)
+
+
+#: Yerleşik tarayıcıda dış siteye giden araçlar (#439).
+BUILTIN_NAVIGATION = frozenset({"browser_open", "browser_tab_open"})
+BUILTIN_KEY_PREFIX = "browser-site:"
+BUILTIN_NOTE = "Fusion yerleşik tarayıcıda dış siteyi açmak istiyor: {host}."
+BUILTIN_SCOPE = "Bu oturum boyunca {host} sitesi yerleşik tarayıcıda sorulmadan açılır."
+
+
+def apply_builtin_site(request: ApprovalRequest, args: ToolArgs) -> ApprovalRequest:
+    """Claude Desktop Browser: dış siteye ilk gidişte Allow once / Always allow / Deny.
+
+    Her kipte (İzinleri atla dahil) oturumda site başına bir kez sorulur; plan kipinde de
+    sorulur (okuma araştırması plan için gereklidir). localhost ve yerel dosya sorulmaz.
+    """
+    from ...tools.browser import normalize_url
+    from ...tools.browser_policy import external_host
+    from ...tools.chrome_site_policy import classify
+
+    raw = args.get("url")
+    if request.pre_denied is not None or not isinstance(raw, str) or not raw.strip():
+        return request
+    host = external_host(normalize_url(raw))
+    if host is None:
+        return request
+    site = ChromeSite(host, classify(host), "açmak", builtin=True)
+    note = BUILTIN_NOTE.format(host=host)
+    return replace(
+        request,
+        chrome_site=site,
+        consent_key=f"{BUILTIN_KEY_PREFIX}{host}",
+        note=note,
+        risk=note,
+        read_only=False,
+        unattended_safe=False,
+        plan_prompt=True,
+        effect=ToolEffect.REMOTE_INTERACT
+        if request.effect is ToolEffect.REMOTE_READ
+        else request.effect,
+    )

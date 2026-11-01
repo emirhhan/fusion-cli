@@ -17,6 +17,10 @@ SITE_SESSION = "Always allow actions on this site"
 SITE_SESSION_SHORT = "{host} sitesinde bu oturum boyunca"
 SITE_DENY = "Decline"
 SITE_DENY_DESC = "bu eylem yapılmaz"
+#: Yerleşik Browser bölmesi (#439): Allow once / Always allow / Deny.
+BUILTIN_ONCE = "Allow once"
+BUILTIN_SESSION = "Always allow"
+BUILTIN_DENY = "Deny"
 #: Düz terminal ipucu (`o` oturum iznidir).
 SITE_SESSION_HINT = "o = Always allow actions on this site ({host}, bu oturum)"
 
@@ -33,10 +37,11 @@ def relabel_choices(request: ApprovalRequest, choices: list[Choice]) -> list[Cho
     host = site_host(request)
     if host is None:
         return choices
+    once, session, deny = _labels(request)
     names = {
-        "once": (SITE_ONCE, SITE_ONCE_DESC),
-        "session": (SITE_SESSION, SITE_SESSION_SHORT.format(host=host)),
-        "deny": (SITE_DENY, SITE_DENY_DESC),
+        "once": (once, SITE_ONCE_DESC),
+        "session": (session, SITE_SESSION_SHORT.format(host=host)),
+        "deny": (deny, SITE_DENY_DESC),
     }
     relabeled = []
     for choice in choices:
@@ -52,15 +57,23 @@ def site_options(request: ApprovalRequest) -> list[dict[str, str]] | None:
     host = site_host(request)
     if host is None:
         return None
-    options = [{"deger": "once", "etiket": SITE_ONCE, "aciklama": SITE_ONCE_DESC}]
+    once, session, deny = _labels(request)
+    options = [{"deger": "once", "etiket": once, "aciklama": SITE_ONCE_DESC}]
     if request.can_remember:
         options.append(
             {
                 "deger": "session",
-                "etiket": SITE_SESSION,
+                "etiket": session,
                 "aciklama": request.remembered_scope_description
                 or SITE_SESSION_SHORT.format(host=host),
             }
         )
-    options.append({"deger": "deny", "etiket": SITE_DENY, "aciklama": SITE_DENY_DESC})
+    options.append({"deger": "deny", "etiket": deny, "aciklama": SITE_DENY_DESC})
     return options
+
+
+def _labels(request: ApprovalRequest) -> tuple[str, str, str]:
+    site = request.chrome_site
+    if site is not None and site.builtin:
+        return BUILTIN_ONCE, BUILTIN_SESSION, BUILTIN_DENY
+    return SITE_ONCE, SITE_SESSION, SITE_DENY

@@ -144,3 +144,29 @@ async def test_chrome_permissions_izinli_siteleri_listeler_ve_geri_alir(tmp_path
     assert "geri alındı" in chrome_command.permissions(memory, "revoke example.com")
     assert "yok" in chrome_command.permissions(memory, "revoke example.com")
     assert "verilmiş site yok" in chrome_command.permissions(memory, "")
+
+
+async def test_yerlesik_tarayici_dis_site_her_kipte_bir_kez_sorulur(tmp_path) -> None:
+    """#439: Claude Desktop Browser — dış sitede Allow once / Always allow / Deny."""
+    from fusion_cli.engines.agent.approval import AutoApproval
+
+    from fusion_cli.core.browser_session import BrowserSession
+
+    tool = _REGISTRY.get("browser_open")
+    assert tool is not None
+    cli = await resolve_request(tool, {"url": "example.com"}, root=tmp_path, context=ToolContext(root=tmp_path))
+    assert cli.consent_key is None  # CLI tur tarayıcısı sormaz
+    shared = BrowserSession()
+    shared.persistent = True  # masaüstü Browser bölmesinin paylaşılan tarayıcısı
+    context = ToolContext(root=tmp_path, browser=shared)
+    request = await resolve_request(tool, {"url": "example.com"}, root=tmp_path, context=context)
+    assert request.consent_key == "browser-site:example.com" and not request.read_only
+    assert [o["etiket"] for o in _approval_options(request)] == ["Allow once", "Always allow", "Deny"]
+    for policy_type in (BypassApproval, AutoApproval):
+        memory, prompter = ApprovalMemory(), _Prompter()
+        policy = policy_type(prompter, memory)
+        assert await policy.decide(request) is Decision.ALLOW
+        assert await policy.decide(request) is Decision.ALLOW
+        assert len(prompter.asked) == 1, policy_type
+    local = await resolve_request(tool, {"url": "http://localhost:5173"}, root=tmp_path, context=context)
+    assert local.consent_key is None

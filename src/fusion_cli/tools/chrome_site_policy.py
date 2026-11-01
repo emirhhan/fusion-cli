@@ -30,6 +30,8 @@ class ChromeSite:
     category: SiteCategory
     #: Kartta gösterilecek eylem ("tıklamak", "yazmak").
     action: str = "işlem yapmak"
+    #: Yerleşik Browser bölmesinde dış site (#439): Allow once / Always allow / Deny, her kipte.
+    builtin: bool = False
 
     @property
     def financial(self) -> bool:

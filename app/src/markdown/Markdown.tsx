@@ -1,4 +1,5 @@
 import { assetUrl } from "../platform/assetUrl";
+import { routeLinkToBrowser } from "../browser/openLinks";
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
@@ -66,7 +67,13 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
       // İzin listesi dışındaki şema (javascript:, data:, file:) bağlantı olmaz, metin kalır.
       if (href === null) return <span className="markdown__link-blocked">{label}</span>;
       return (
-        <a href={href} rel="noreferrer noopener" target="_blank">
+        <a
+          href={href}
+          // Browser ⋮ › Open links in built-in browser (#439): açıksa bağlantı Tarayıcı bölmesinde açılır.
+          onClick={(event) => { if (routeLinkToBrowser(href)) event.preventDefault(); }}
+          rel="noreferrer noopener"
+          target="_blank"
+        >
           {label}
         </a>
       );

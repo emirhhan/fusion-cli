@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { PreviewLog } from "../workspace/PreviewLog";
+import { BrowserMoreMenu, DevServersMenu } from "./BrowserMenus";
 import { BrowserToolbar } from "./BrowserToolbar";
 import { LiveScreen } from "./LiveScreen";
 import { useBrowserLive } from "./useBrowserLive";
@@ -40,7 +41,6 @@ type Drawer = "none" | "console";
 export function BrowserPanel({ client, request = null, onPick }: BrowserPanelProps) {
   const live = useBrowserLive(client);
   const [status, setStatus] = useState<BrowserState | null>(null);
-  const [profiles, setProfiles] = useState<string[]>([]);
   const [panelProfile, setPanelProfile] = useState("");
   const [address, setAddress] = useState("");
   const [editing, setEditing] = useState(false);
@@ -75,7 +75,6 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
     void client.request(`${BROWSER_RPC}durum`, {}).then((payload) => {
       if (!alive || payload.ok !== true) return;
       setStatus(decodeState(payload));
-      setProfiles(Array.isArray(payload.profiller) ? payload.profiller.filter((p): p is string => typeof p === "string") : []);
       setPanelProfile(typeof payload.panel_profili === "string" ? payload.panel_profili : "");
     }).catch(() => undefined);
     return () => { alive = false; };
@@ -137,6 +136,7 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
 
   return (
     <div className="browser-panel">
+      <div className="browser-panel__bar">
       <BrowserToolbar
         address={address}
         busy={busy}
@@ -152,6 +152,14 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
         picking={picking}
         viewportId={viewportId}
       />
+      <DevServersMenu client={client} onStarted={(url) => { setAddress(url); void go(url); }} />
+      <BrowserMoreMenu
+        client={client}
+        keepCookies={Boolean(panelProfile) && state?.kullaniciProfili === panelProfile}
+        onClearData={() => void call("veri_temizle")}
+        onKeepCookies={(value) => void call("profil", { ad: value ? panelProfile : "" })}
+      />
+      </div>
 
       {isOpen && snapshot && (
         <div aria-label="Tarayıcı sekmeleri" className="browser-tabs" role="tablist">
@@ -228,7 +236,6 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
         onProfile={(name) => void call("profil", { ad: name })}
         onShare={(value) => void call("ayar", { anahtar: "ajan_paylasir", deger: value })}
         panelProfile={panelProfile}
-        profiles={profiles}
         state={state}
       />
     </div>
@@ -237,7 +244,6 @@ export function BrowserPanel({ client, request = null, onPick }: BrowserPanelPro
 
 interface BrowserSessionMenuProps {
   state: BrowserState | null;
-  profiles: string[];
   panelProfile: string;
   onProfile: (name: string) => void;
   onShare: (value: boolean) => void;
@@ -245,10 +251,13 @@ interface BrowserSessionMenuProps {
   onClose: () => void;
 }
 
-/** Oturum ayarları: profil (temiz / kalıcı panel oturumu / kayıtlı), ajan paylaşımı, kapatma. */
-function BrowserSessionMenu({ state, profiles, panelProfile, onProfile, onShare, onConsent, onClose }: BrowserSessionMenuProps) {
+/**
+ * Oturum ayarları: temiz ya da kalıcı panel oturumu (Keep cookies), ajan paylaşımı, kapatma.
+ * Kayıtlı giriş profilleri bu bölmede sunulmaz (#439, Claude Desktop: Browser temiz profildir;
+ * girişli iş için Chrome eklentisi kullanılır).
+ */
+function BrowserSessionMenu({ state, panelProfile, onProfile, onShare, onConsent, onClose }: BrowserSessionMenuProps) {
   const current = state?.kullaniciProfili ?? "";
-  const others = profiles.filter((name) => name !== panelProfile);
   return (
     <footer className="browser-session">
       <label>
@@ -256,7 +265,6 @@ function BrowserSessionMenu({ state, profiles, panelProfile, onProfile, onShare,
         <select aria-label="Tarayıcı oturumu" onChange={(event) => onProfile(event.target.value)} value={current}>
           <option value="">Temiz (çıkınca silinir)</option>
           {panelProfile && <option value={panelProfile}>Panel oturumu (çerezleri sakla)</option>}
-          {others.map((name) => <option key={name} value={name}>Profil: {name}</option>)}
         </select>
       </label>
       <label className="browser-session__check">

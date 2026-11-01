@@ -25,6 +25,7 @@ from ..tools.preview_log import (
     save_screenshot,
 )
 from ..tools.preview_server import PreviewError
+from .launch_autoverify import RPC_AUTO_VERIFY, set_auto_verify
 from .web_preview import is_local_preview_url
 
 RPC_CONFIGS = "onizleme.yapilandirmalar"
@@ -35,7 +36,7 @@ RPC_SCREENSHOT = "onizleme.ekran_goruntusu"
 #: Okunan launch.json'un şu anki içeriğine güven (kullanıcı komutu panelde görüp onaylar).
 RPC_TRUST = "onizleme.guven"
 PREVIEW_RPC_NAMES = frozenset(
-    {RPC_CONFIGS, RPC_START, RPC_STOP, RPC_LOG, RPC_SCREENSHOT, RPC_TRUST}
+    {RPC_CONFIGS, RPC_START, RPC_STOP, RPC_LOG, RPC_SCREENSHOT, RPC_TRUST, RPC_AUTO_VERIFY}
 )
 #: Aynı anda tek ekran görüntüsü: her istek bir Chromium açar ve aynı dosyaya yazar. Ölçüldü
 #: (31 Ekim): 320→375→768 hızlı geçişte geç biten 320 isteği dosyayı sonradan eziyordu.
@@ -74,6 +75,8 @@ def list_configs(root: Path) -> dict[str, Any]:
         "dosya": preview_launch.LAUNCH_FILE,
         "guvenli": loaded.trusted,
         "uyarilar": list(loaded.warnings),
+        # Browser ⋮ › Auto-verify changes (#439): üst düzey `autoVerify`.
+        "otomatik_dogrulama": loaded.auto_verify,
         "yapilandirmalar": [_config_payload(root, config) for config in loaded.configs],
     }
 
@@ -193,4 +196,6 @@ async def handle_preview_rpc(root: Path, name: str, data: dict[str, Any]) -> dic
         return await screenshot(root, data)
     if name == RPC_TRUST:
         return await asyncio.to_thread(trust_config_file, root)
+    if name == RPC_AUTO_VERIFY:
+        return await asyncio.to_thread(set_auto_verify, root, data)
     return _error(f"Bilinmeyen önizleme isteği: {name}")
