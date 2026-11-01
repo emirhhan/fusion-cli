@@ -68,6 +68,24 @@ def path_suggestions(partial: str, roots: Iterable[Path]) -> list[str]:
     return seen
 
 
+def agent_suggestions(partial: str, agents: Iterable[str]) -> list[str]:
+    """`@` sonrası parçaya uyan ajanlar `agent-<ad>` biçiminde (`@agent-co`, `@revi`)."""
+    typed = partial.casefold()
+    return [
+        f"agent-{name}"
+        for name in agents
+        if f"agent-{name}".casefold().startswith(typed) or typed in name.casefold()
+    ][:MAX_SUGGESTIONS]
+
+
+def agent_names(state: object) -> list[str]:
+    """Oturumun etkin ajan adları (katalog yoksa boş); tamamlama hatası istemi bozmaz."""
+    library = getattr(state, "capabilities", None)
+    if library is None:
+        return []
+    return [item.name for item in library.agents()]
+
+
 class ReplCompleter(Completer):
     """Komut adı ve `@yol` tamamlayıcısı."""
 
@@ -75,12 +93,16 @@ class ReplCompleter(Completer):
         self,
         words: list[str] | Callable[[], list[str]],
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]],
+        *,
+        agents: Callable[[], list[str]] | None = None,
     ) -> None:
         #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
         #: Kökler de çağrılabilir olabilir: `/cd`, `/add-dir`, `/worktree` sonrası `@yol`
         #: tamamlaması yeni köke bakar (P-072; ölçüldü 31 Ekim: açılış köküne çiviliydi).
         self._roots = roots
+        #: Etkin alt ajan adları: `@agent-<ad>` önerisi (Claude Code typeahead, #26).
+        self._agents = agents
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
@@ -88,6 +110,8 @@ class ReplCompleter(Completer):
         word = document.get_word_before_cursor(WORD=True)
         if word.startswith("@"):
             partial = word[1:]
+            for name in agent_suggestions(partial, self._agents() if self._agents else []):
+                yield Completion(f"@{name}", start_position=-len(word), display=name)
             roots = self._roots() if callable(self._roots) else self._roots
             for suggestion in path_suggestions(partial, roots):
                 yield Completion(f"@{suggestion}", start_position=-len(word), display=suggestion)

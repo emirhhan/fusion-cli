@@ -374,6 +374,20 @@ describe("Composer — @ ile dosya anma", () => {
     return { ...utils, onFileQuery, onSend, textbox };
   }
 
+  it("@ listesinde ajanlar @agent-<ad> olarak önerilir (#26)", () => {
+    const { textbox } = anmaliComposer({
+      agentOptions: [
+        { ad: "code-reviewer", aciklama: "Kod inceler" },
+        { ad: "plan", aciklama: "Planlar" },
+      ],
+    });
+    fireEvent.change(textbox, { target: { value: "@agent-code", selectionStart: 11 } });
+    const ajan = screen.getByRole("option", { name: "Ajan code-reviewer" });
+    expect(screen.queryByRole("option", { name: "Ajan plan" })).toBeNull();
+    fireEvent.click(ajan);
+    expect(textbox.value).toBe("@agent-code-reviewer ");
+  });
+
   it("@ yazılınca sorguyu üst katmana bildirir", () => {
     const { onFileQuery } = anmaliComposer();
     expect(onFileQuery).toHaveBeenCalledWith("comp");

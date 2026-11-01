@@ -73,7 +73,7 @@ from .commands import (
     renders_itself,
     resume_choices,
 )
-from .completion import ReplCompleter
+from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
@@ -307,7 +307,9 @@ class _TuiSession:
             initial_transcript="",  # TUI isolation: yalnız mevcut oturum
             on_transcript_change=None,
             completer=ReplCompleter(
-                self._registry.completion_words, lambda: (state.root, *state.extra_roots)
+                self._registry.completion_words,
+                lambda: (state.root, *state.extra_roots),
+                agents=lambda: agent_names(state),
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),

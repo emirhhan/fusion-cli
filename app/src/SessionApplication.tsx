@@ -1875,6 +1875,7 @@ export function SessionUygulama({
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
           mcpServers={mcpServers}
+          agentOptions={personaOptions}
           onFileQuery={searchProjectFiles}
           context={active.baglam}
           costUsd={active.maliyetUsd}

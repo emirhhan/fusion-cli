@@ -65,6 +65,7 @@ class ReplInput:
         *,
         mode: ApprovalMode,
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
+        agents: Callable[[], list[str]] | None = None,
     ) -> None:
         """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
 
@@ -95,7 +96,7 @@ class ReplInput:
         #: İstem açık mı? `inject` yalnız bu sırada satır verebilir.
         self._waiting = False
         if sys.stdin.isatty():
-            self._session = _build_session(self, history_path, words, roots)
+            self._session = _build_session(self, history_path, words, roots, agents)
 
     @property
     def interactive(self) -> bool:
@@ -251,6 +252,7 @@ def _build_session(
     history_path: Path,
     words: list[str] | Callable[[], list[str]],
     roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
+    agents: Callable[[], list[str]] | None = None,
 ) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
@@ -270,7 +272,7 @@ def _build_session(
             history=FileHistory(str(history_path)),
             # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022); sözlük çağrılabilir olabilir,
             # dinamik beceri komutları eklendikçe tamamlama da yenilenir (P-019).
-            completer=ReplCompleter(words, roots),
+            completer=ReplCompleter(words, roots, agents=agents),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
             # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.

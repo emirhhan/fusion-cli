@@ -107,6 +107,7 @@ from .commands import (
     parse,
     renders_itself,
 )
+from .completion import agent_names
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
@@ -255,6 +256,7 @@ async def _run_surface(
         registry.completion_words,
         mode=state.approval,
         roots=lambda: (state.root, *state.extra_roots),
+        agents=lambda: agent_names(state),
     )
     background = BackgroundTasks()
 

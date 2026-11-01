@@ -64,9 +64,9 @@ export interface PersonaOption {
   aciklama?: string;
 }
 
-/** `@` listesindeki tek satır: MCP sunucusu ya da proje dosyası. */
+/** `@` listesindeki tek satır: MCP sunucusu, alt ajan ya da proje dosyası. */
 interface AnmaOgesi {
-  tur: "mcp" | "dosya";
+  tur: "mcp" | "ajan" | "dosya";
   deger: string;
   aciklama: string;
 }
@@ -109,6 +109,8 @@ interface ComposerProps {
   fileSuggestions?: DosyaOnerisi[];
   /** `@ad` ile bu tur için seçilebilen etkin MCP sunucuları. */
   mcpServers?: McpSunucusu[];
+  /** `@agent-<ad>` ile çağrılabilen etkin alt ajanlar (Claude Code typeahead, #26). */
+  agentOptions?: PersonaOption[];
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
   /** Metni kutuya yazan dikte; konuşma kipinden ayrıdır. */
@@ -138,6 +140,23 @@ interface ComposerProps {
   value?: string;
 }
 
+/** Sorguya uyan ajanlar `agent-<ad>` anması olarak (`@agent-code` ya da `@code`). */
+function ajanAnmalari(ajanlar: PersonaOption[], sorgu: string): AnmaOgesi[] {
+  const aranan = sorgu.toLocaleLowerCase("tr");
+  return ajanlar
+    .filter((ajan) => {
+      const ad = ajan.ad.toLocaleLowerCase("tr");
+      return ad.includes(aranan) || `agent-${ad}`.startsWith(aranan);
+    })
+    .map((ajan) => ({ tur: "ajan" as const, deger: `agent-${ajan.ad}`, aciklama: `${ajan.aciklama ?? ajan.unvan ?? ""} · Ajan` }));
+}
+
+function anmaEtiketi(oge: AnmaOgesi): string {
+  if (oge.tur === "mcp") return `MCP ${oge.deger}`;
+  if (oge.tur === "ajan") return `Ajan ${oge.deger.slice("agent-".length)}`;
+  return oge.deger;
+}
+
 export function Composer({
   workspaceMode = "kod",
   onWorkspaceModeChange,
@@ -158,6 +177,7 @@ export function Composer({
   onFileQuery,
   fileSuggestions = [],
   mcpServers = [],
+  agentOptions = [],
   onVoice,
   onDictation,
   dictating = false,
@@ -232,6 +252,7 @@ export function Composer({
         ...mcpServers
           .filter((sunucu) => sunucu.ad.toLocaleLowerCase("tr").includes(mention.sorgu.toLocaleLowerCase("tr")))
           .map((sunucu) => ({ tur: "mcp" as const, deger: sunucu.ad, aciklama: `${sunucu.aciklama} · MCP` })),
+        ...ajanAnmalari(agentOptions, mention.sorgu),
         ...fileSuggestions.map((oneri) => ({ tur: "dosya" as const, deger: oneri.yol, aciklama: oneri.yol })),
       ]
     : [];
@@ -443,7 +464,7 @@ export function Composer({
           <div aria-label="Anma önerileri" className="composer__palette" id="composer-anma-listesi" role="listbox">
             {mentionItems.map((oge, index) => (
               <button
-                aria-label={oge.tur === "mcp" ? `MCP ${oge.deger}` : oge.deger}
+                aria-label={anmaEtiketi(oge)}
                 aria-selected={index === mentionIndex}
                 id={`composer-anma-${index}`}
                 key={`${oge.tur}:${oge.deger}`}
@@ -451,7 +472,7 @@ export function Composer({
                 role="option"
                 type="button"
               >
-                <code>@{oge.tur === "mcp" ? oge.deger : dosyaAdi(oge.deger)}</code>
+                <code>@{oge.tur === "dosya" ? dosyaAdi(oge.deger) : oge.deger}</code>
                 <span>{oge.aciklama}</span>
               </button>
             ))}

@@ -167,6 +167,17 @@ def test_tamamlayici_komut_ve_yol_ayirir(tmp_path):
     assert list(completer.get_completions(Document("bak /he"), None)) == []
 
 
+def test_tamamlayici_at_ile_ajanlari_agent_onekiyle_onerir(tmp_path):
+    """Claude Code typeahead: `@` yazınca alt ajanlar `@agent-<ad>` olarak önerilir (#26)."""
+    completer = ReplCompleter([], (tmp_path,), agents=lambda: ["code-reviewer", "plan"])
+
+    oneriler = [c.text for c in completer.get_completions(Document("@agent-co"), None)]
+    kisa = [c.text for c in completer.get_completions(Document("bak @revi"), None)]
+
+    assert oneriler == ["@agent-code-reviewer"]
+    assert kisa == ["@agent-code-reviewer"]
+
+
 # --- İnceleme düzeltmeleri (31 Ekim) ------------------------------------------ #
 
 

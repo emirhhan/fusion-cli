@@ -506,7 +506,8 @@ adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulma
 - `permissions.deny` içine `Agent(Explore)` yazmak o tipi kapatır (eski adlara da uygulanır).
 - `@agent-<ad>` ya da `@"<ad> (agent)"` yazmak o alt ajanın o turda kesin çalışmasını ister
   (görev metnini model yazar); eklenti ajanında `@agent-<eklenti>:<ad>`. Terminal REPL ve
-  masaüstü mesajında çalışır. **Henüz yok:** masaüstü `@` öneri listesinde ajanlar yok.
+  masaüstü mesajında çalışır. `@` yazınca Claude Code'daki gibi etkin ajanlar `@agent-<ad>`
+  olarak önerilir (REPL/TUI Tab tamamlaması ve masaüstü `@` listesi).
 - `SendMessage`'i olan fork olmayan alt ajanın başlangıç bağlamına `main` ve oturumdaki adlı
   (`name` verilmiş) ajanların listesi girer; başlangıç anının görüntüsüdür.
 - İç içe alt ajan: varsayılan ana konuşmanın altında 3 kat (`runtime.max_agent_depth`,
