@@ -128,6 +128,9 @@ class HookSession:
     pending_expansion: dict[str, object] | None = None
     #: Ayar katmanlarının ev klasörü (`ConfigChange` izleyicisi; `None` = gerçek HOME).
     home: Path | None = None
+    #: Ana konuşmanın kalıcı kabuk dizini (#126; `None` = kök): Bash `cd`'si turlar arası
+    #: sürer, kanca girdisinin `cwd`'si budur.
+    shell_cwd: Path | None = None
     #: `FileChanged` dinamik izleme listesi (`watchPaths`; mutlak yollar).
     watch_paths: tuple[str, ...] = ()
     #: `ConfigChange`'in engellediği ayar dosyaları → engelden önceki içerik (`None` = yoktu).
@@ -411,6 +414,7 @@ class HookSession:
 
     def defer_cwd_changed(self, old: Path, new: Path) -> None:
         """`CwdChanged` (Claude Code ile aynı yük): `/cd` oturum kökünü değiştirdi."""
+        self.shell_cwd = None
         self.defer(HookEvent.CWD_CHANGED, fields={"old_cwd": str(old), "new_cwd": str(new)})
 
     def drop_deferred(self) -> None:
@@ -576,7 +580,7 @@ class HookSession:
     def _payload(self, event: HookEvent, fields: Mapping[str, object]) -> dict[str, object]:
         payload: dict[str, object] = {
             "session_id": self.session_id,
-            "cwd": str(self.root),
+            "cwd": str(self.shell_cwd or self.root),
             "hook_event_name": event.value,
         }
         if self.prompt_id:

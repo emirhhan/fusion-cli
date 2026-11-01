@@ -32,7 +32,7 @@ from ...tools.permission_match import claude_tool_names
 from ...ui import messages
 from ..hooks.session import HookSession
 from ..hooks.worktree_hooks import worktree_hook_calls
-from . import hook_text
+from . import hook_shell_cwd, hook_text
 from .hook_input import claude_tool_input, claude_tool_response, fusion_tool_args
 from .skill_hooks import after_skill_tool
 
@@ -103,6 +103,9 @@ async def pre_tool_use(
     session = session_of(deps)
     if session is None:
         return ToolGate(args)
+    if records_tools(deps):
+        # Onay denetimi ve çalıştırma aynı kalıcı kabuk dizinini görür (#126).
+        hook_shell_cwd.adopt(getattr(deps, "tool_context", None), session)
     fields = tool_hook_fields(tool_name, args, call_id, root=_root(session), deps=deps)
     claude_name = str(fields["tool_name"])
     if records_tools(deps):
@@ -247,6 +250,11 @@ async def post_tool_use(
         event, subjects=(claude_name,), fields=fields, target=(tool_name, args)
     )
     _publish(deps, verdict)
+    if records_tools(deps):
+        moved = await hook_shell_cwd.after_tool(
+            getattr(deps, "tool_context", None), session, tool_name
+        )
+        _publish(deps, moved)
     after_skill_tool(deps, session, tool_name, args, ok=ok)
     notes = [session.pending_tool_context.pop(call_id, "")]
     if verdict.blocked:

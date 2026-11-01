@@ -69,7 +69,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `ElicitationResult` | kullanıcı elicitation sorusunu yanıtlayınca (reddetse/vazgeçse de), yanıt sunucuya gitmeden (girdi ek olarak `action`, `content`) | MCP sunucusunun adı | yanıt `decline` olur; `action`/`content` kullanıcının yanıtının yerine geçer |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
-| `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
+| `CwdChanged` | kabuk komutunun `cd`'si çalışma dizinini değiştirince ya da `/cd` oturum kökünü değiştirince | — | — |
 | `ConfigChange` | oturumdayken ayar dosyası (`~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, `managed-settings.json`/`managed-settings.d/`) ya da `.claude/skills/` altındaki beceri dosyası değişince (girdi `source`, `file_path`) | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` | yeni tanımlar çalışan oturuma uygulanmaz (`policy_settings` engellenemez; engel gösterilmez) |
 | `FileChanged` | izlenen dosya diskte değişince (kim değiştirirse değiştirsin; girdi `file_path`, `event`: `change`/`add`/`unlink`). İzleme listesi: eşleştiricinin `\|` ile ayrılmış parçaları (çalışma klasöründe birebir dosya adı) + `watchPaths` | değişen dosyanın adı | — (`watchPaths` dinamik listeyi değiştirir, `systemMessage` kısa satır) |
 | `PreModelSwitch` | `/model agent <id>` oturum modelini değiştirmeden önce (girdi `from_model`, `to_model`, `requested_model`, `source`, maliyet alanları; süre 30 sn) | hedef modelin kanonik adı (`claude-opus-5`; `sağlayıcı/model` de eşleşir) | model değişmez; `permissionDecision` `deny` ve `ask` (Fusion'da soru kartı yok) reddeder, `allow` geçirir; `systemMessage` her durumda gösterilir |
@@ -306,7 +306,14 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   verilir, kanca mesaj vermezse koşu "Görev metni boş olamaz." ile biter. Etkileşimli
   oturumda yok sayılır (Claude gibi). `reloadSkills: true` REPL ve masaüstünde beceri
   kataloğunu yeniden taratır.
-- `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
+- Kabuk dizini: Claude'daki gibi kabuk komutunun `cd`'si sonraki komutlara (ve turlara)
+  taşınır, proje kökü ya da `--add-dir` dışına çıkınca köke sıfırlanır (model araç sonucunda
+  not görür), `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` her komuttan sonra köke döndürür.
+  Ana konuşmada dizin değişince `CwdChanged` tetiklenir; kanca girdisindeki `cwd` bu
+  dizindir. Alt ajanın `cd`'si ana konuşmanın dizinini değiştirmez; arka plana alınan
+  komut (`background: true`) güncel dizinde başlar ama kendi `cd`'si kalıcı olmaz. Onay,
+  korumalı yol ve silme denetimleri komutu bu dizinde çalışacağı gibi değerlendirir
+  (kartta asıl komut görünür).
 - `transcript_path` Fusion'ın sohbet kaydından (`transcripts/<proje>/events.jsonl`) ayrı,
   Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde
   kırpılır.

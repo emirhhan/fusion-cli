@@ -55,6 +55,7 @@ from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
+from ...tools.shell_cwd_check import checked_command, context_cwd
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
@@ -254,6 +255,8 @@ class ApprovalRequest:
     consent_key: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
+    #: Kabuk komutunun kalıcı kabuk dizinine göre denetlenen eşdeğeri (#126); `None` = aynı.
+    checked_command: str | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -543,6 +546,7 @@ async def resolve_request(
         touched=touched,
         extra_roots=extra_roots,
         rules=rules,
+        shell_cwd=context_cwd(context),
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
@@ -563,6 +567,7 @@ def build_request(
     touched: Collection[Path] = (),
     extra_roots: tuple[Path, ...] = (),
     rules: PermissionRuleSet | None = None,
+    shell_cwd: Path | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
@@ -577,9 +582,18 @@ def build_request(
     effect = effect or tool.effect
     match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
+        checked = checked_command(command, shell_cwd, root)
         request = _shell_request(
-            tool, args, command, allowed_commands, effect, root, touched, rules=rules
+            tool, args, checked, allowed_commands, effect, root, touched, rules=rules
         )
+        if checked != command:
+            # Kart ve kural/izin listesi asıl komutu görür; yol denetimleri `checked`ı (#126).
+            request = replace(
+                request,
+                checked_command=checked,
+                pre_allowed=is_allowed(command, allowed_commands),
+                read_only=is_read_only_command(command),
+            )
         return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
@@ -698,7 +712,8 @@ def _shell_request(
     if danger is None and root is not None:
         danger = script_danger(command, root, home)
     if danger is None:
-        danger = protected_path_reason(tool.name, args, root, is_shell=True)
+        # `command` kalıcı kabuk dizinine göre denetlenen eşdeğer olabilir (#126).
+        danger = protected_path_reason(tool.name, {**args, "command": command}, root, is_shell=True)
     caution = delete_caution(command, root, home) if root is not None else None
     target = describe_delete(command, root, home) if root is not None else ""
     chain = script_chain_risk(command, root, touched)
