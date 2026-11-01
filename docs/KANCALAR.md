@@ -51,6 +51,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | Olay | Ne zaman | Eşleştirici | Engel (çıkış 2 / `decision: block`) |
 |---|---|---|---|
 | `PreToolUse` | araç çalışmadan, onaydan önce | `tool_name` | araç çalışmaz, gerekçe modele |
+| `PermissionRequest` | izin sorusu gösterilmeden önce (etkileşimsiz oturumda da) | `tool_name` | — (`decision.behavior`: `allow` sormadan izin; `deny` + `message` gerekçe, `interrupt` turu durdurur; `updatedInput`/`updatedPermissions` henüz uygulanmaz) |
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
@@ -236,7 +237,8 @@ Tanımlar her kök turun başında yeniden okunur.
 
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
-- Olaylar: `Setup`, `UserPromptExpansion`, `PermissionRequest`, `PermissionDenied`,
+- `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
+- Olaylar: `Setup`, `UserPromptExpansion`, `PermissionDenied`,
   `PostToolBatch`, `MessageDisplay`, `StopFailure`, `InstructionsLoaded`, `ConfigChange`,
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
   `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu

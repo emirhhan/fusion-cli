@@ -168,6 +168,9 @@ def blocked_run(
 ) -> HookRun:
     """`ok: false` → olayın komut kancası karşılığı (Claude "Response schema" tablosu)."""
     reason = reason or "kanca koşulu sağlanmadı"
+    if event is HookEvent.PERMISSION_REQUEST:
+        # Claude: `ok: false` izin isteğinde etkisizdir (karar için komut kancası gerekir).
+        return HookRun(command, 0)
     if event in (HookEvent.STOP, HookEvent.SUBAGENT_STOP):
         return HookRun(command, 0) if impossible else _json(command, _block(reason))
     if event in _TOOL_ERROR_EVENTS:

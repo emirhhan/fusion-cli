@@ -1,4 +1,7 @@
-"""`Notification` kancası: kullanıcıdan izin istenirken (P-009, `permission_prompt`).
+"""`PermissionRequest` ve `Notification` kancaları: kullanıcıdan izin istenirken.
+
+Soru açılmadan önce `PermissionRequest` kancaları çalışır; karar verirlerse soru hiç
+gösterilmez (bkz. `engines/agent/hook_permission.py`).
 
 Claude Code gibi: onay sorusu açılır, kullanıcı ~6 sn yanıt vermezse kanca arka planda
 tetiklenir; yanıt daha önce gelirse bildirim iptal edilir. Kanca soruyu ASLA bekletmez ve
@@ -31,6 +34,11 @@ class NotifyingPrompter:
         self._delay_s = delay_s
 
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
+        from ..agent.hook_permission import permission_request
+
+        decided = await permission_request(self._session, request)
+        if decided is not None:
+            return decided
         message = messages.HOOKS_PERMISSION_NOTICE.format(tool=request.tool.name)
         notice = asyncio.get_running_loop().create_task(self._notify_later(message))
         try:

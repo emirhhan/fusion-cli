@@ -57,6 +57,8 @@ EVENT_HANDLERS: dict[HookEvent, frozenset[str]] = {
     HookEvent.TASK_CREATED: _ALL,
     HookEvent.TASK_COMPLETED: _ALL,
     HookEvent.TEAMMATE_IDLE: _ALL,
+    # Claude: PermissionRequest agent kancasını desteklemez.
+    HookEvent.PERMISSION_REQUEST: frozenset({"command", "http", "mcp_tool", "prompt"}),
     HookEvent.SESSION_START: _START,
 }
 

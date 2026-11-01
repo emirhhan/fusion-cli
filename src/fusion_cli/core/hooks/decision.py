@@ -95,6 +95,10 @@ def _exit_two(
     event: HookEvent, run: HookRun, label: str, payload: Mapping[str, object] | None
 ) -> HookVerdict:
     stderr = run.stderr.strip()
+    if event is HookEvent.PERMISSION_REQUEST:
+        # Claude: kararsız çıkış 2 izin akışını değiştirmez, stderr atılır.
+        fields = _from_json(event, payload) if payload is not None else HookVerdict()
+        return replace(fields, ran=1)
     if event not in BLOCKING_EVENTS:
         return _failure(f"{label} hook error: {stderr}".rstrip(": "))
     fields = _from_json(event, payload) if payload is not None else HookVerdict()
@@ -147,6 +151,8 @@ def _from_json(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:
         verdict = _pre_tool_fields(verdict, specific)
     if event is HookEvent.POST_TOOL_USE:
         verdict = _post_tool_fields(verdict, specific)
+    if event is HookEvent.PERMISSION_REQUEST:
+        verdict = _permission_request_fields(verdict, specific)
     context = _text(specific.get("additionalContext"))
     if context and verdict.permission != "defer":
         verdict = replace(verdict, additional_context=(context,))
@@ -179,6 +185,30 @@ def _pre_tool_fields(verdict: HookVerdict, specific: Mapping[str, object]) -> Ho
     updated = specific.get("updatedInput")
     if isinstance(updated, Mapping):
         verdict = replace(verdict, updated_input=dict(updated))
+    return verdict
+
+
+def _permission_request_fields(verdict: HookVerdict, specific: Mapping[str, object]) -> HookVerdict:
+    """`decision.behavior` allow|deny; deny'da `message` gerekçe, `interrupt` turu durdurur."""
+    decision = specific.get("decision")
+    if not isinstance(decision, Mapping):
+        return verdict
+    behavior = decision.get("behavior")
+    if behavior == "allow":
+        updated = decision.get("updatedInput")
+        return replace(
+            verdict,
+            permission="allow",
+            updated_input=dict(updated) if isinstance(updated, Mapping) else None,
+        )
+    if behavior == "deny":
+        message = _text(decision.get("message"))
+        return replace(
+            verdict,
+            permission="deny",
+            reason=message,
+            halt=verdict.halt or decision.get("interrupt") is True,
+        )
     return verdict
 
 
@@ -217,7 +247,9 @@ def merge_verdicts(verdicts: Iterable[HookVerdict]) -> HookVerdict:
     for item in verdicts:
         merged = HookVerdict(
             blocked=merged.blocked or item.blocked,
-            reason=_join(merged.reason, item.reason if item.blocked else ""),
+            reason=_join(
+                merged.reason, item.reason if item.blocked or item.permission == "deny" else ""
+            ),
             permission=_stricter(merged.permission, item.permission),
             updated_input=_last(merged.updated_input, item.updated_input),
             updated_output=_last(merged.updated_output, item.updated_output),
