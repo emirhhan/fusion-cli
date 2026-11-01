@@ -168,3 +168,64 @@ def test_vim_kipinde_escape_insert_ten_normale_gecer_kesmez():
         tui.set_vim(False)
         tui._mode = "idle"
         assert escape[0].filter()
+
+
+async def _vi_prompt(
+    tmp_path: Path, monkeypatch, steps, mode: EditingMode = EditingMode.VI
+) -> tuple[str, list[str]]:
+    """Satır içi istemi vim kipinde gerçek girdi borusuyla sür; (gönderilen, eylemler)."""
+    import asyncio
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    reader = ReplInput(tmp_path / "h", [], mode=ApprovalMode.AUTO)
+    calls: list[str] = []
+    reader.extra_actions = {
+        name: (lambda name: lambda _event: calls.append(name))(name)
+        for name in ("model_sec", "dusunme", "hizli_kip", "kisayollar")
+    }
+    kb = build_input_bindings(reader, keybindings.load_keymap(tmp_path / "yok.json"))
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        session: PromptSession[str] = PromptSession(key_bindings=kb, editing_mode=mode)
+        task = asyncio.ensure_future(session.prompt_async())
+        await asyncio.sleep(0.2)
+        for text, pause in steps:
+            pipe.send_text(text)
+            await asyncio.sleep(pause)
+        return await asyncio.wait_for(task, timeout=5), calls
+
+
+async def test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil(tmp_path, monkeypatch):
+    # Elle basılan Esc ayrı okumada gelir (ayrıştırıcı ~0,5 sn sonra salar); hemen ardından
+    # gelen `o` vim'in "alta satır aç" komutudur, Option+O (hızlı kip) değil.
+    sent, calls = await _vi_prompt(
+        tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("o", 0.1), ("x\r", 0.2)]
+    )
+    assert calls == [] and sent == "abc\nx"
+
+
+async def test_vim_normal_kipinde_soru_isareti_geri_aramadir(tmp_path, monkeypatch):
+    sent, calls = await _vi_prompt(
+        tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("?", 0.3), ("b\r", 0.2), ("\r", 0.2)]
+    )
+    assert calls == [] and sent == "abc"
+
+
+async def test_vim_kipinde_option_harfi_ayni_okumada_gelince_eylemdir(tmp_path, monkeypatch):
+    # Terminal Option+P'yi `ESC p` olarak TEK okumada yollar: vim kipinde de model seçici.
+    sent, calls = await _vi_prompt(tmp_path, monkeypatch, [("abc\x1bp", 0.3), ("\r", 0.2)])
+    assert calls == ["model_sec"] and sent == "abc"
+
+
+async def test_emacs_kipinde_option_ve_soru_isareti_degismez(tmp_path, monkeypatch):
+    sent, calls = await _vi_prompt(
+        tmp_path,
+        monkeypatch,
+        [("abc", 0.1), ("\x1bt", 0.3), ("?", 0.2), ("\r", 0.2)],
+        EditingMode.EMACS,
+    )
+    assert calls == ["dusunme", "kisayollar"] and sent == "abc"
