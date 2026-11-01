@@ -47,8 +47,9 @@ yönlendirilemez ve Fusion bunlara yazmaz. Yönetilen ayarda
 `sandbox.filesystem.allowManagedReadPathsOnly: true` kullanıcı/proje/yerel/`--settings`
 katmanlarındaki `allowRead` yollarını, `sandbox.network.allowManagedDomainsOnly: true` ise
 oradaki `allowedDomains` listelerini yok sayar; ikincisinde izinli olmayan alan adı sorulmadan
-engellenir. Bu iki anahtar yönetilen dosya dışında etkisizdir. `--settings` bayrağı henüz
-komut satırında yok (katman yalnız iç API'den beslenir).
+engellenir. Bu iki anahtar yönetilen dosya dışında etkisizdir. `--settings <dosya|json>`
+katmanı kök komutun argümanından okunur (sandbox bölümü ve `permissions.defaultMode`) ve aynı
+süreçteki alt ajanlarla oturumdan başlayan alt süreçlere ortamla geçer.
 
 Göreli yollar ayar dosyasının kapsamına göre çözülür: proje ayarında proje kökü, kullanıcı
 ayarında `~/.claude`, `--settings` dosyasında o dosyanın dizini, yönetilen ayarda yönetilen

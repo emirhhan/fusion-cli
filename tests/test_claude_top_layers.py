@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import platform
+import sys
 from pathlib import Path
 
 import pytest
@@ -159,3 +160,31 @@ def test_allow_managed_bayraklari_managed_disinda_etkisiz(ortam):
     assert birlesik.section["allow_read"] == ["/k"]
     assert birlesik.section["allowed_domains"] == ["a.example"]
     assert "strict_allowlist" not in birlesik.section
+
+
+def test_kok_komutun_settings_argumani_katmana_alinir(ortam, tmp_path, monkeypatch):
+    """`fusion --settings <dosya|json>` (#321, #328): bayrağı tanımlayan komuttan bağımsız
+    olarak sandbox ve permissions.defaultMode katmanı argümandan okunur."""
+    root, home, _ = ortam
+    _yaz(home / ".claude" / "settings.json", {"permissions": {"defaultMode": "plan"}})
+    ayar = tmp_path / "bayrak" / "ayar.json"
+    _yaz(
+        ayar,
+        {
+            "permissions": {"defaultMode": "acceptEdits"},
+            "sandbox": {"enabled": True, "filesystem": {"allowWrite": ["./cikti"]}},
+        },
+    )
+    monkeypatch.setattr(sys, "argv", ["fusion", "--settings", str(ayar), "görev"])
+
+    assert _kip(root, home) == "edits"
+    birlesik = read_claude_sandbox(root, home=home)
+    assert birlesik.enabled is True
+    assert birlesik.section["allow_write"] == [str(ayar.parent.resolve() / "cikti")]
+
+    claude_top_layers.set_flag_settings(None)
+    monkeypatch.setattr(sys, "argv", ["fusion", '--settings={"sandbox": {"enabled": false}}'])
+    assert read_claude_sandbox(root, home=home).enabled is False
+    claude_top_layers.set_flag_settings(None)
+    monkeypatch.setattr(sys, "argv", ["fusion", "--settings", str(tmp_path / "yok.json")])
+    assert claude_top_layers.flag_layer(root) is None

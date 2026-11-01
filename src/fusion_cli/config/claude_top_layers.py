@@ -12,8 +12,9 @@ bu dosyalara yazmaz. Claude'daki gibi ortam değişkeniyle başka dizine yönlen
 yönetici kuralından böyle kaçamaz); testler `MANAGED_DIRS` sözlüğünü ezer.
 
 `--settings <dosya|json>` içeriği süreç ortamında taşınır (`FUSION_FLAG_SETTINGS_JSON`) ki aynı
-süreçteki alt ajanlar ve oturumdan başlatılan alt süreçler aynı değeri görsün. Bayrağı okuyan
-kök komut `set_flag_settings(veri, dosya)` çağırır; dosyanın dizini göreli sandbox yollarının
+süreçteki alt ajanlar ve oturumdan başlatılan alt süreçler aynı değeri görsün. Değer kök komutun
+argümanından okunur (`adopt_argv_settings`; bayrağı tanımlayan komut ayrıca
+`set_flag_settings(veri, dosya)` çağırabilir); dosyanın dizini göreli sandbox yollarının
 tabanıdır (`FUSION_FLAG_SETTINGS_DIR`), satır içi JSON'da proje kökü.
 """
 
@@ -24,13 +25,15 @@ import json
 import logging
 import os
 import platform
-from collections.abc import Mapping
+import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
     "FLAG_SETTINGS_ENV",
     "SettingsLayer",
+    "adopt_argv_settings",
     "flag_layer",
     "managed_layers",
     "set_flag_settings",
@@ -102,8 +105,50 @@ def set_flag_settings(settings: Mapping[str, object] | None, source: Path | None
         os.environ[FLAG_SETTINGS_DIR_ENV] = str(Path(source).expanduser().resolve().parent)
 
 
+#: `--settings` dosyasının en büyük boyutu (Claude/headless ile aynı: 2 MiB).
+_SETTINGS_LIMIT_BYTES = 2 * 1024 * 1024
+
+
+def _argv_settings(argv: Sequence[str]) -> str | None:
+    """`--settings <değer>` ya da `--settings=<değer>`; yoksa `None`."""
+    for index, item in enumerate(argv):
+        if item == "--settings" and index + 1 < len(argv):
+            return argv[index + 1]
+        if item.startswith("--settings="):
+            return item.split("=", 1)[1]
+    return None
+
+
+def adopt_argv_settings(argv: Sequence[str] | None = None) -> None:
+    """Kök komutun `--settings` bayrağını (bayrağı tanımlayan komuttan bağımsız) katmana al.
+
+    Bayrak `cli` katmanında ayrıştırılır; bu modül değeri süreç argümanından da okur ki
+    sandbox ve `permissions.defaultMode` katmanı bayrağı işleyen komuttan bağımsız çalışsın.
+    Ortamda değer zaten varsa (üst süreç ya da `set_flag_settings`) dokunulmaz.
+    """
+    if os.environ.get(FLAG_SETTINGS_ENV, "").strip():
+        return
+    raw = _argv_settings(sys.argv[1:] if argv is None else argv)
+    if raw is None or not raw.strip():
+        return
+    text, source = raw.strip(), None
+    try:
+        if not text.startswith("{"):
+            source = Path(text).expanduser()
+            if source.stat().st_size > _SETTINGS_LIMIT_BYTES:
+                return
+            text = source.read_text(encoding="utf-8")
+        data = json.loads(text)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        _LOG.warning("--settings okunamadı; sandbox/izin kipi katmanı atlandı")
+        return
+    if isinstance(data, dict):
+        set_flag_settings(data, source)
+
+
 def flag_layer(root: Path) -> SettingsLayer | None:
     """Ortamdaki `--settings` katmanı; yoksa ya da bozuksa `None`."""
+    adopt_argv_settings()
     raw = os.environ.get(FLAG_SETTINGS_ENV, "").strip()
     if not raw:
         return None
