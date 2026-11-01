@@ -20,6 +20,7 @@ from ...engines.agent.approval import ApprovalMode
 from ...engines.agent.routine_invocation import RoutineInvocationValidator
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
+from ...tools.plugin_capabilities import is_repository_plugin_file
 from ...tools.skill_commands import TemplateEnv, build_invocation
 from ...ui import messages
 from .macros import Mode
@@ -29,7 +30,8 @@ from .state import Engine, ReplState
 TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
 
 #: Kurulu eklenti becerileri (#386): Claude Code'daki gibi `!`cmd`` kullanıcı becerisiyle aynı
-#: kipte ve aynı riskli komut denetimiyle koşar (güvenlik davranışı değişti).
+#: kipte ve aynı riskli komut denetimiyle koşar (güvenlik davranışı değişti). Projeden açılan ya
+#: da kaynağı proje klasöründe duran eklenti depo içeriğidir: proje becerisi gibi salt-okur.
 PLUGIN_SOURCES = frozenset({"eklenti", "claude-plugin"})
 
 #: Depo içeriği sayılan kaynaklar: güvenilen projede bile yalnız salt-okur `!`cmd``.
@@ -55,9 +57,15 @@ def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, boo
     if state.approval not in SHELL_CONTEXT_MODES:
         return False, False
     sources = set(skill.source.split("+"))
-    if sources & (TRUSTED_SOURCES | PLUGIN_SOURCES):
+    if sources & TRUSTED_SOURCES:
         return True, False
-    project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(state.root).trusted
+    repository = bool(sources & PROJECT_SOURCES)
+    if sources & PLUGIN_SOURCES:
+        # Depodan açılan eklenti proje kısıtını eklenti kanalıyla aşamaz (#386).
+        repository = is_repository_plugin_file(skill.path, state.root)
+        if not repository:
+            return True, False
+    project = repository and trust.resolve_project_trust(state.root).trusted
     return project, True
 
 

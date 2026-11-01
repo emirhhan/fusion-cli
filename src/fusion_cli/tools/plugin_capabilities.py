@@ -63,6 +63,32 @@ def with_plugin_root(text: str, path: Path, project: Path | None = None) -> str:
     return _with_user_config(text, root)
 
 
+def is_repository_plugin_file(path: Path, project: Path) -> bool:
+    """Dosya depodan gelen bir eklentinin mi? (#386)
+
+    Projede (`.claude/settings.json`) açılan ya da kaynağı proje klasöründe yerinde duran
+    eklentinin içeriği depoyla değişir: proje becerisi gibi yalnız salt-okur `!`komut`` koşar.
+    """
+    from ..config.plugin_project_mcp import is_project_scope
+    from ..config.plugin_store import load_state
+
+    state = load_state()
+    for item in active_plugins(root=project):
+        if item.layout is None or item.record.kind == "inline":
+            continue
+        if not _within(path, item.layout.root):
+            continue
+        return is_project_scope(item, state, project) or _within(item.layout.root, project)
+    return False
+
+
+def _within(path: Path, folder: Path) -> bool:
+    try:
+        return path.resolve().is_relative_to(folder.resolve())
+    except OSError:
+        return False
+
+
 def _with_user_config(text: str, root: Path) -> str:
     """`${user_config.KEY}` (#388): içerikte yalnız hassas olmayan değer; hassas yer tutucu."""
     if "${user_config." not in text:
