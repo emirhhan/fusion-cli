@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.plugin_marketplace import parse_marketplace
+from ..core.plugin_paths import reserved_error
 from ..core.plugins import PluginError
 from .plugin_layout import ERR_NO_COMPONENTS, validate_plugin
 
@@ -153,6 +154,8 @@ def _plugin(root: Path, file: Path) -> FileResult:
             (manifest.author, WARN_AUTHOR),
         )
         warnings.extend(text for value, text in missing if not value)
+    if report.layout is not None and (reserved := reserved_error(report.layout.name)):
+        errors.append(reserved)  # Claude: ayrılmış ad validate'te hatadır (#406)
     if (root / "CLAUDE.md").is_file():
         warnings.append(WARN_CLAUDE_MD)
     return FileResult(str(file), tuple(errors), tuple(warnings))

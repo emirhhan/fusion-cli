@@ -210,3 +210,10 @@ def test_fusion_plugins_ortam_degiskeni_uyarir(tmp_path, monkeypatch, caplog):
     assert plugin_store.plugins_disabled_by_environment() is True
     plugin_store.plugins_disabled_by_environment()
     assert caplog.text.count("FUSION_PLUGINS kullanımdan kalktı") == 1
+
+
+def test_validate_ayrilmis_ad_hata_verir(tmp_path):
+    root = _plugin(tmp_path / "x", "claude-araclar")
+    result = runner.invoke(app, ["validate", str(root)])
+    assert result.exit_code == 1, result.output
+    assert "ayrılmış" in result.output
