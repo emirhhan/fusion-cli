@@ -153,7 +153,8 @@ async def test_cron_create_list_delete_araclari(tmp_path: Path) -> None:
     sonuc = await _run(create, {"prompt": "stok kontrol", "every": "15m"}, context)
     assert sonuc.ok and "her 15 dk" in sonuc.output
     (task,) = cron.list()
-    assert task.next_due == 1_000_000.0 + 900
+    # Claude gecikmesi (#363): planlanan vade + göreve sabit gecikme (≤ aralığın yarısı).
+    assert task.next_due - task.jitter_s == 1_000_000.0 + 900 and 0 <= task.jitter_s <= 450
 
     listed = await _run(list_tool, {}, context)
     assert task.id in listed.output
@@ -290,7 +291,7 @@ async def test_vadesi_gelen_gorev_istem_beklerken_satir_olarak_girer(
 
     assert reader.injected == ["testleri koştur"]
     guncel = state.cron.get(task.id)
-    assert guncel is not None and guncel.runs == 1 and guncel.next_due == 601.0
+    assert guncel is not None and guncel.runs == 1 and guncel.next_due == 301.0 + 285
     assert task.id in console.export_text()
 
 

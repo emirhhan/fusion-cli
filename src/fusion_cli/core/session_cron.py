@@ -21,6 +21,7 @@ from enum import Enum
 from itertools import pairwise
 from uuid import uuid4
 
+from .cron_jitter import is_five_minute, once_offset, recurring_offset
 from .errors import FusionError
 
 #: Oturum başına en çok görev (Claude Code ile aynı tavan).
@@ -262,6 +263,8 @@ class CronTask:
     fallback_armed: bool = False
     #: Yalnız `SELF_PACED`: yedek uyanma bir kez kullanıldı; yine zamanlanmazsa döngü biter.
     fallback_spent: bool = False
+    #: `next_due`'ya eklenmiş Claude gecikmesi (sn; erken çalışmada negatif, #363).
+    jitter_s: float = 0.0
 
     @property
     def expires_at(self) -> float:
@@ -277,7 +280,10 @@ class CronTask:
             zaman = "kendi tempolu"
         else:
             zaman = "bir kez"
-        return f"{self.id} · {zaman} · {self.runs} çalışma · {self.prompt[:80]}"
+        sirada = datetime.fromtimestamp(self.next_due).strftime("%H:%M")
+        return (
+            f"{self.id} · {zaman} · sıradaki {sirada} · {self.runs} çalışma · {self.prompt[:80]}"
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -293,7 +299,40 @@ class CronTask:
             "source": self.source.value,
             "fallback_armed": self.fallback_armed,
             "fallback_spent": self.fallback_spent,
+            "jitter_s": self.jitter_s,
         }
+
+
+def _cron_offset(task: CronTask, base: float) -> float:
+    spec = parse_cron(task.cron)
+    gap = cron_next_local(spec, base) - base
+    return recurring_offset(task.id, gap, five_minute=is_five_minute(cron=task.cron))
+
+
+def _with_jitter(task: CronTask) -> CronTask:
+    """Yeni görevin ilk vadesine Claude gecikmesini uygula (#363)."""
+    if task.kind is Kind.INTERVAL:
+        offset = recurring_offset(
+            task.id, task.every_s, five_minute=is_five_minute(every_s=task.every_s)
+        )
+    elif task.kind is Kind.CRON:
+        offset = _cron_offset(task, task.next_due)
+    elif task.kind is Kind.ONCE:
+        offset = once_offset(task.id, task.next_due)
+    else:
+        return task
+    return replace(task, next_due=task.next_due + offset, jitter_s=offset)
+
+
+def _next_cron_run(task: CronTask, now: float) -> tuple[float, float]:
+    """Sıradaki cron çalışması (gecikmeli) ve gecikmesi; kaçırılan çalışma telafi edilmez."""
+    spec = parse_cron(task.cron)
+    base = cron_next_local(spec, task.next_due - task.jitter_s)
+    offset = _cron_offset(task, base)
+    while base + offset <= now:
+        base = cron_next_local(spec, base)
+        offset = _cron_offset(task, base)
+    return base + offset, offset
 
 
 def _human_interval(seconds: int) -> str:
@@ -449,11 +488,14 @@ class SessionCron:
             self._tasks[task_id] = updated
             return updated
         if task.kind is Kind.INTERVAL:
-            next_due = now + task.every_s
+            # Aralık çalışmadan sayılır: ilk çalışmadaki gecikme sonrakilere de taşınır (Claude:
+            # eşit aralıklı görev her seferinde aynı kadar geç); 5 dakikalık 15 sn erken (#363).
+            next_due, jitter = now + task.every_s + min(task.jitter_s, 0.0), task.jitter_s
         else:
-            spec = parse_cron(task.cron)
-            next_due = cron_next_local(spec, now)
-        updated = replace(task, runs=task.runs + 1, last_run_at=now, next_due=next_due)
+            next_due, jitter = _next_cron_run(task, now)
+        updated = replace(
+            task, runs=task.runs + 1, last_run_at=now, next_due=next_due, jitter_s=jitter
+        )
         self._tasks[task_id] = updated
         return updated
 
@@ -488,6 +530,7 @@ class SessionCron:
                         source=Source(item.get("source", Source.USER.value)),
                         fallback_armed=item.get("fallback_armed") is True,
                         fallback_spent=item.get("fallback_spent") is True,
+                        jitter_s=float(item.get("jitter_s", 0.0)),
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -521,5 +564,6 @@ class SessionCron:
             cron=cron,
             source=source,
         )
+        task = _with_jitter(task)
         self._tasks[task.id] = task
         return task

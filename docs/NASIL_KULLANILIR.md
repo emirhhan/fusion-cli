@@ -1290,6 +1290,10 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
 - Yineleyen görev 7 gün dolunca son bir kez çalışır ve silinir. `--resume` ile sürdürülen
   sohbette kendi tempolu döngü ve vakti geçmiş tek seferlik görev geri gelmez; kaçırılan
   çalışmalar telafi edilmez.
+- Claude Code gibi çalışma saati kaydırılır (jitter): yineleyen görev sıradaki çalışmaya kalan
+  aralığın en çok yarısı ve en çok 30 dk geç başlar (eşit aralıkta her seferinde aynı kadar);
+  `/loop 5m` (`*/5`) geciktirilmez, her çalışma 4 dk 45 sn sonra başlar; :00 ya da :30'a
+  kurulmuş tek seferlik görev en çok 90 sn erken çalışır. Liste satırı sıradaki saati gösterir.
 - Listeleme ve iptal Claude Code gibi ajandan doğal dille istenir (`cron_list`, `cron_delete`).
   `/loop list`, `/loop stop <id>`, `/loop stop all` Claude'da yoktur; kullanımdan kalkan takma
   ad olarak bir sürüm daha çalışır ve oturumda bir kez uyarır.

@@ -71,11 +71,12 @@ def test_aralikli_gorev_vadesi_gelince_listelenir_ve_tamamlaninca_ilerler() -> N
     cron = SessionCron()
     task = cron.create_interval("testleri koştur", "5m", now=NOW)
 
-    assert cron.due(NOW + 299) == ()
-    assert cron.due(NOW + 300) == (task,)
-    guncel = cron.complete(task.id, now=NOW + 300)
-    assert guncel is not None and guncel.runs == 1 and guncel.next_due == NOW + 600
-    assert cron.due(NOW + 300) == ()
+    # Claude (#363): 5 dakikalık görev 15 sn erken, her çalışma 4 dk 45 sn sonra.
+    assert cron.due(NOW + 284) == ()
+    assert cron.due(NOW + 285) == (task,)
+    guncel = cron.complete(task.id, now=NOW + 285)
+    assert guncel is not None and guncel.runs == 1 and guncel.next_due == NOW + 570
+    assert cron.due(NOW + 285) == ()
 
 
 def test_tek_seferlik_gorev_tamamlaninca_duser() -> None:
@@ -90,9 +91,12 @@ def test_cron_gorevi_ifadeye_gore_ilerler() -> None:
     cron = SessionCron()
     simdi = datetime(2026, 10, 31, 10, 7).astimezone().timestamp()
     task = cron.create_cron("günlük rapor", "*/30 * * * *", now=simdi)
-    assert datetime.fromtimestamp(task.next_due).minute == 30
+    assert datetime.fromtimestamp(task.next_due - task.jitter_s).minute == 30
+    assert 0 <= task.jitter_s <= 15 * 60  # aralığın yarısı (#363)
     guncel = cron.complete(task.id, now=task.next_due)
-    assert guncel is not None and datetime.fromtimestamp(guncel.next_due).minute == 0
+    assert guncel is not None
+    assert datetime.fromtimestamp(guncel.next_due - guncel.jitter_s).minute == 0
+    assert guncel.jitter_s == task.jitter_s  # eşit aralık: her seferinde aynı gecikme
 
 
 def test_bos_metin_ve_tavan_hata_verir() -> None:
@@ -220,11 +224,11 @@ def test_cron_vadesi_yaz_saati_gecisinde_yerel_saati_korur(berlin) -> None:
     kurulus = datetime(2026, 10, 24, 10, 0).astimezone().timestamp()
     cron = SessionCron()
     gorev = cron.create_cron("rapor", "0 9 * * *", now=kurulus)
-    ilk = datetime.fromtimestamp(gorev.next_due)
+    ilk = datetime.fromtimestamp(gorev.next_due - gorev.jitter_s)
     assert (ilk.day, ilk.hour, ilk.minute) == (25, 9, 0)
     sonraki = cron.complete(gorev.id, now=gorev.next_due)
     assert sonraki is not None
-    ikinci = datetime.fromtimestamp(sonraki.next_due)
+    ikinci = datetime.fromtimestamp(sonraki.next_due - sonraki.jitter_s)
     assert (ikinci.day, ikinci.hour) == (26, 9)
 
 
@@ -236,3 +240,24 @@ def test_cron_en_kucuk_aralik_ifadeden_hesaplanir() -> None:
     assert cron_min_gap_minutes(parse_cron("0 9 * * *")) == 1440
     assert cron_min_gap_minutes(parse_cron("50 8 * * *")) == 1440
     assert cron_min_gap_minutes(parse_cron("55 8,9 * * *")) == 60
+
+
+def test_claude_jitter_tablosu() -> None:
+    """#363: yineleyen ≤ aralığın yarısı ve ≤ 30 dk geç; */5 15 sn erken; :00/:30 tek seferlik
+    ≤ 90 sn erken, başka dakikada kaydırılmaz."""
+    from fusion_cli.core.cron_jitter import once_offset, recurring_offset, task_fraction
+
+    assert recurring_offset("ffffffff", 600, five_minute=False) < 300
+    assert recurring_offset("ffffffff", 86400, five_minute=False) <= 1800
+    assert recurring_offset("00000000", 3600, five_minute=False) == 0
+    assert recurring_offset("abc", 300, five_minute=True) == -15
+    tam = datetime(2026, 11, 1, 9, 0).timestamp()
+    assert -90 <= once_offset("ffffffff", tam) < 0
+    assert once_offset("ffffffff", tam + 180) == 0
+    assert task_fraction("80000000") == 0.5
+
+    cron = SessionCron()
+    simdi = datetime(2026, 11, 1, 8, 0).timestamp()
+    gorev = cron.create_cron("tek", "*/5 * * * *", now=simdi)
+    assert gorev.jitter_s == -15
+    assert "sıradaki" in gorev.describe()
