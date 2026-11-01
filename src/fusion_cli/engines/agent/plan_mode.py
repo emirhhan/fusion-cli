@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ...config.paths import plans_dir
+from ...config.plans_location import legacy_directory, plans_directory
 from ...core.events import PlanDrafted
 from ...ui import messages
 from .approval import ApprovalMode, ApprovalPolicy, PlanApproval
@@ -36,39 +36,43 @@ _DEFAULT_STEM = "oturum"
 _PREVIOUS_SUFFIX = ".onceki.md"
 
 
-def plan_path(conversation_id: str) -> Path:
-    """Sohbetin plan dosyası. Kimlik dosya adına indirgenir, dizin daima `plans_dir()`."""
-    stem = _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
-    return plans_dir() / f"{stem}.md"
+def _stem(conversation_id: str) -> str:
+    return _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
 
 
-def previous_plan_path(conversation_id: str) -> Path:
+def plan_path(conversation_id: str, root: Path | None = None) -> Path:
+    """Sohbetin plan dosyası: `plansDirectory` (varsayılan `~/.claude/plans`) altında (#354)."""
+    return plans_directory(root) / f"{_stem(conversation_id)}.md"
+
+
+def previous_plan_path(conversation_id: str, root: Path | None = None) -> Path:
     """Üzerine yazılan önceki planın yedeği (`<sohbet>.onceki.md`)."""
-    path = plan_path(conversation_id)
+    path = plan_path(conversation_id, root)
     return path.with_name(path.stem + _PREVIOUS_SUFFIX)
 
 
-def save_plan(conversation_id: str, markdown: str) -> Path:
+def save_plan(conversation_id: str, markdown: str, root: Path | None = None) -> Path:
     """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır, eskisi `.onceki.md`ye alınır."""
-    path = plan_path(conversation_id)
+    path = plan_path(conversation_id, root)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         previous = path.read_text(encoding="utf-8")
     except OSError:
         previous = None
     if previous is not None and previous != markdown:
-        previous_plan_path(conversation_id).write_text(previous, encoding="utf-8")
+        previous_plan_path(conversation_id, root).write_text(previous, encoding="utf-8")
     path.write_text(markdown, encoding="utf-8")
     return path
 
 
-def read_plan(conversation_id: str) -> str | None:
-    """Sohbetin kayıtlı planı; yoksa None."""
-    path = plan_path(conversation_id)
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
+def read_plan(conversation_id: str, root: Path | None = None) -> str | None:
+    """Sohbetin kayıtlı planı; yoksa eski Fusion dizinine bakılır, orada da yoksa None."""
+    for path in (plan_path(conversation_id, root), legacy_directory() / f"{_stem(conversation_id)}.md"):
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+    return None
 
 
 def plan_title(markdown: str) -> str:
@@ -101,7 +105,7 @@ def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> P
     if not (plan_mode or switch.entered) or not outcome.ok or not deps.config.runtime.plan_files:
         return None
     try:
-        path = save_plan(deps.conversation_id, submitted)
+        path = save_plan(deps.conversation_id, submitted, deps.tool_context.root)
     except OSError:
         return None
     deps.publisher.publish(PlanDrafted(path=str(path), title=plan_title(submitted)))

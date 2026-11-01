@@ -38,7 +38,7 @@ from .fakes import (
 def plans_in_tmp(tmp_path: Path, monkeypatch) -> Path:
     """Plan dosyaları kullanıcı dizinine değil tmp'ye yazılsın."""
     hedef = tmp_path / "planlar"
-    monkeypatch.setattr(plan_mode, "plans_dir", lambda: hedef)
+    monkeypatch.setattr(plan_mode, "plans_directory", lambda root=None: hedef)
     return hedef
 
 
@@ -505,3 +505,33 @@ async def test_kartta_ctrl_g_plani_editorde_acar_ve_karti_yeniden_gosterir(
     assert gorulen == [{"c-g": plan_card.CHOICE_EDIT_PLAN}] * 2
     assert gorev == messages.PLAN_IMPLEMENT_TASK.format(path=yol)
     assert state.approval is ApprovalMode.AUTO
+
+
+def test_plan_dosyalari_claude_plans_altinda_ve_plansdirectory(tmp_path, monkeypatch) -> None:
+    """Claude Code: varsayılan ~/.claude/plans; `plansDirectory` proje köküne göre (#354)."""
+    import json
+
+    from fusion_cli.config import plans_location
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    assert plans_location.plans_directory(proje) == tmp_path / "claude" / "plans"
+    monkeypatch.setattr(
+        "fusion_cli.config.claude_settings.is_project_settings_trusted", lambda _r: True
+    )
+    (proje / ".claude").mkdir()
+    (proje / ".claude" / "settings.json").write_text(
+        json.dumps({"plansDirectory": "./planlar"}), encoding="utf-8"
+    )
+    assert plans_location.plans_directory(proje) == proje / "planlar"
+
+
+def test_eski_fusion_plan_dizini_okuma_yedegi(tmp_path, monkeypatch) -> None:
+    from fusion_cli.config.paths import plans_dir
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    eski = plans_dir() / "eski.md"
+    eski.parent.mkdir(parents=True, exist_ok=True)
+    eski.write_text("# Eski plan", encoding="utf-8")
+    assert plan_mode.read_plan("eski", tmp_path) == "# Eski plan"

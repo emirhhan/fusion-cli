@@ -1247,7 +1247,8 @@ iken otomatik kip denetçisi karar verir (onaylanan çalışır, reddedilen enge
 `false` iken sorulur. Açık `ask` kuralı ve yıkıcı komut her durumda sorulur.
 
 Plan hazır olunca ajan planı `exit_plan_mode(plan)` aracıyla (Claude `ExitPlanMode`) sunar;
-plan `~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
+plan Claude Code ile aynı yerde, `~/.claude/plans/<sohbet>.md` dosyasına yazılır (`plansDirectory`
+ayarıyla değişir; göreli yol proje köküne göre; eski `~/.config/fusion-cli/plans` okunmaya devam eder) (`runtime.plan_files: false`
 ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
 ve "Plan hazır — uygulansın mı?" kartı çıkar:
 

@@ -88,11 +88,11 @@ def mode_for(choice: str | None) -> ApprovalMode | None:
 
 def accept(state: ReplState, mode: ApprovalMode) -> str:
     """Planı kabul et: kipi değiştir, adsız oturuma başlık ver, uygulama görevini döndür."""
-    path = state.pending_plan or plan_mode.plan_path(state.conversation_id)
+    path = state.pending_plan or plan_mode.plan_path(state.conversation_id, state.root)
     state.pending_plan = None
     state.approval = mode
     if not state.conversation_name.strip():
-        title = _title_from_plan(plan_mode.read_plan(state.conversation_id))
+        title = _title_from_plan(plan_mode.read_plan(state.conversation_id, state.root))
         if title:
             _name_session(state, title)
     return messages.PLAN_IMPLEMENT_TASK.format(path=path)
@@ -146,18 +146,18 @@ async def offer(state: ReplState, console: Console, *, interactive: bool) -> str
 
 def show(state: ReplState) -> str:
     """`/plan goster`: kayıtlı planı ve yolunu yaz."""
-    text = plan_mode.read_plan(state.conversation_id)
+    text = plan_mode.read_plan(state.conversation_id, state.root)
     if text is None:
         return messages.PLAN_NONE
-    path = plan_mode.plan_path(state.conversation_id)
+    path = plan_mode.plan_path(state.conversation_id, state.root)
     return f"{messages.PLAN_SAVED.format(path=path)}\n\n{text.rstrip()}"
 
 
 def open_in_editor(state: ReplState) -> str:
     """`/plan ac`: planı `VISUAL`/`EDITOR` ile aç; editör yoksa yolu söyle."""
-    if plan_mode.read_plan(state.conversation_id) is None:
+    if plan_mode.read_plan(state.conversation_id, state.root) is None:
         return messages.PLAN_NONE
-    path = plan_mode.plan_path(state.conversation_id)
+    path = plan_mode.plan_path(state.conversation_id, state.root)
     editor = preferred_editor()
     if editor is None:
         return messages.PLAN_NO_EDITOR.format(path=path)
