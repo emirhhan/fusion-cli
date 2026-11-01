@@ -1231,7 +1231,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |
 | `/undo` | Son değişikliği geri al |
 | `/rewind` · Esc Esc | Bir turun başına dön (kod/konuşma/ikisi) |
-| `/btw [soru]` | Konuşma hakkında yan soru (Claude Code): model konuşmayı görür ama araç kullanmaz; soru ve cevap konuşma geçmişine ve transcript'e girmez. Son 20 yan soru tutulur; argümansız `/btw` en sonuncusunu gösterir |
+| `/btw [soru]` | Konuşma hakkında yan soru (Claude Code): model konuşmayı görür ama araç kullanmaz; soru ve cevap konuşma geçmişine ve transcript'e girmez. Son 20 yan soru tutulur; argümansız `/btw` en sonuncusunu gösterir. Terminalde cevap kapatılabilir katmanda açılır (Esc/Enter kapatır, ←/→ önceki yan sorular) ve konuşma alanına basılmaz; borulu girdide ve masaüstünde ayrı blok olarak gösterilir |
 | `/fork [istem]` | Konuşmayı arka plan kopyasına ver, burada devam et (bkz. ARKA_PLAN_GOREVLERI) |
 | `fusion -c` · `/resume` | Kaldığın sohbete dön |
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |

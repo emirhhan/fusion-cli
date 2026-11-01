@@ -3,12 +3,15 @@
 Claude Code: yan soru mevcut konuşmayı görür ama soru ve cevap konuşma geçmişine HİÇ
 girmez; araç kullanılmaz; son yan sorular ayrıca tutulur, argümansız çağrı en sonuncusunu
 gösterir, hiç yoksa kullanım satırı basar. Fusion: agent modeline araçsız tek çağrı; sonuç
-konuşma alanında ayrı bir blokta basılır (Claude'daki kapatılabilir katmanın karşılığı),
-transcript'e ve motor geçmişine yazılmaz. Üç yüzey `help_view.render` üzerinden çalışır.
+tam ekranda Claude'daki gibi kapatılabilir bir katmanda gösterilir (←/→ önceki yan sorular,
+Esc/Enter kapatır; konuşma alanına basılmaz); satır içi REPL ve masaüstünde ayrı blok olarak
+basılır. Transcript'e ve motor geçmişine yazılmaz.
 """
 
 from __future__ import annotations
 
+import textwrap
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
 
 from rich.console import Console
@@ -16,6 +19,7 @@ from rich.markup import escape
 
 from ...core.types import CompletionRequest, Message, ModelResult
 from ...ui import messages, theme
+from ...ui.picker import Choice
 from .state import ReplState
 
 #: Tutulan en çok yan soru (Claude Code: son 20).
@@ -95,3 +99,49 @@ def btw_command(state: ReplState, argument: str) -> str:
         return messages.BTW_USAGE
     question, answer = state.side_questions[-1]
     return f"{messages.BTW_HEADER.format(question=question)}\n{answer}"
+
+
+#: Katmanın satır genişliği; uzun cevap satırları sarılır.
+OVERLAY_WIDTH = 96
+OVERLAY_KEYS = ("left", "right")
+ChoiceAsker = Callable[[str, Sequence[Choice], tuple[str, ...]], Awaitable[str | None]]
+
+
+def overlay_rows(answer: str) -> tuple[Choice, ...]:
+    lines: list[str] = []
+    for raw in answer.splitlines() or [""]:
+        lines.extend(textwrap.wrap(raw, OVERLAY_WIDTH) or [" "])
+    return tuple(Choice(f"satir:{index}", line) for index, line in enumerate(lines))
+
+
+async def show_overlay(state: ReplState, ask_choice: ChoiceAsker, index: int = -1) -> None:
+    """Yan soruyu kapatılabilir katmanda göster; ←/→ önceki/sonraki yan soruya geçer."""
+    total = len(state.side_questions)
+    position = index % total if total else 0
+    while total:
+        question, answer = state.side_questions[position]
+        title = messages.BTW_OVERLAY_TITLE.format(
+            question=question, position=position + 1, total=total
+        )
+        picked = await ask_choice(title, overlay_rows(answer), OVERLAY_KEYS)
+        if picked is None or not picked.startswith(OVERLAY_KEYS):
+            return
+        step = -1 if picked.startswith("left") else 1
+        position = max(0, min(total - 1, position + step))
+
+
+async def inline_overlay(state: ReplState, argument: str, console: Console) -> None:
+    """Satır içi REPL: aynı katman `ui.picker.pick` ile (terminal gerektirir)."""
+    from ...ui.picker import pick
+
+    question = argument.strip()
+    if not question and not state.side_questions:
+        console.print(f"[{theme.DIM}]{escape(messages.BTW_USAGE)}[/]")
+        return
+    if question:
+        await ask(state, question)
+
+    async def _ask(title: str, rows: Sequence[Choice], keys: tuple[str, ...]) -> str | None:
+        return pick(rows, title=title, alt_keys=keys)
+
+    await show_overlay(state, _ask)

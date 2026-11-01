@@ -41,6 +41,7 @@ from . import (
     async_commands,
     background_commands,
     browser_command,
+    btw_command,
     busy_commands,
     copy_blocks,
     cron_store,
@@ -656,6 +657,10 @@ class _TuiSession:
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
             return
+        if command.name == "btw":
+            # Claude Code `/btw` (#221): cevap kapatılabilir katmanda, konuşmaya basılmaz.
+            await self._side_question(argument)
+            return
         if command.name == "status" or (command.name == "config" and not argument.strip()):
             # Claude Code Settings paneli (#210, #225): /status Status, /config Config sekmesi.
             await self._run_settings_panel(
@@ -838,6 +843,19 @@ class _TuiSession:
             await self._turn(pending, mode=mode)
             await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _side_question(self, argument: str) -> None:
+        question = argument.strip()
+        if not question and not self._state.side_questions:
+            self._echo(f"[{theme.DIM}]{escape(messages.BTW_USAGE)}[/{theme.DIM}]")
+            return
+        if question:
+            await btw_command.ask(self._state, question)
+
+        async def _ask(title: str, rows: Sequence[Choice], keys: tuple[str, ...]) -> str | None:
+            return await self._tui.await_choice(title, list(rows), alt_keys=keys)
+
+        await btw_command.show_overlay(self._state, _ask)
 
     async def _run_settings_panel(self, tab: str) -> None:
         async def _ask(

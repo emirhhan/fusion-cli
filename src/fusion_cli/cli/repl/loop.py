@@ -79,6 +79,7 @@ from . import (
     agent_link,
     async_commands,
     browser_command,
+    btw_command,
     cron_store,
     goal_flow,
     goal_store,
@@ -667,6 +668,9 @@ async def _run_command(
         notes = status_panel(state)
         if notes:
             console.print(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+    elif command.name == "btw" and sys.stdin.isatty():
+        # Claude Code `/btw` (#221): cevap kapatılabilir katmanda (seçici), geçmişe girmez.
+        await btw_command.inline_overlay(state, argument, console)
     elif renders_itself(command.name, argument):
         await help_view.render(command.name, state, registry, console, argument)
         return

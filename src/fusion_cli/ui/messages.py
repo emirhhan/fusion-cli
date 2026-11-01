@@ -1559,6 +1559,9 @@ BTW_SYSTEM = (
 BTW_USAGE = "Kullanım: /btw <soru> — konuşma hakkında yan soru; geçmişe eklenmez."
 BTW_HEADER = "─ yan soru: {question}"
 BTW_FOOTER = "─ (konuşma geçmişine eklenmedi)"
+BTW_OVERLAY_TITLE = (
+    "Yan soru {position}/{total}: {question}  · ←/→ önceki/sonraki · Esc kapatır · geçmişe eklenmez"
+)
 BTW_FAILED = "Yan soru yanıtlanamadı: {error}"
 BTW_EMPTY = "model boş döndü"
 CMD_RECAP = "oturumun tek satırlık özetini üret (geçmişe eklenmez)"

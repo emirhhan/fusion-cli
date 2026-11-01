@@ -90,3 +90,48 @@ def test_btw_kendi_basan_komut_makro_degil() -> None:
     command = build_registry().get("btw")
     assert command is not None and command.group != "Makro"
     assert renders_itself("btw", "soru")
+
+
+async def test_tui_yan_soru_kapatilabilir_katmanda_gezinir(state, sahte) -> None:
+    """Claude Code: cevap kapatılabilir katmanda; konuşma alanına basılmaz (#221)."""
+    import asyncio
+
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+
+    state.side_questions = [("ilk soru", "ilk cevap")]
+    session = _TuiSession(state)
+    gorev = asyncio.ensure_future(session._command("/btw hangi motor?"))
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+        if session.tui._mode == "choice":
+            break
+    assert "2/2: hangi motor?" in session.tui._choice_title
+    assert [c.label for c in session.tui._choices] == ["Yan cevap"]
+    session.tui._pick_alt("left")
+    await asyncio.sleep(0.01)
+    assert "1/2: ilk soru" in session.tui._choice_title
+    session.tui._resolve(None)
+    await gorev
+    assert "Yan cevap" not in session.tui.transcript
+    assert state.history[-1].content == "Godot ile başladım"
+
+
+def test_katman_satirlari_uzun_cevabi_sarar() -> None:
+    rows = btw_command.overlay_rows("a" * 200 + "\n\nb")
+    assert len(rows) == 5 and rows[3].label == " " and rows[4].label == "b"
+
+
+async def test_satir_ici_yan_soru_katmani_secicide(state, sahte, monkeypatch) -> None:
+    from fusion_cli.ui import picker
+
+    titles: list[str] = []
+
+    def fake_pick(rows, *, title, alt_keys=()):
+        titles.append(title)
+        return None
+
+    monkeypatch.setattr(picker, "pick", fake_pick)
+    console = _console()
+    await btw_command.inline_overlay(state, "neden Godot?", console)
+    assert titles and "neden Godot?" in titles[0]
+    assert "Yan cevap" not in console.export_text()
