@@ -67,7 +67,14 @@ def stop_shell_job(root: Path, job_id: str) -> str:
             return f"İş {job_id} durdurulmadı: süreç başlangıcı değişmiş (PID başka sürece geçmiş)."
         terminate_process_tree(pid, force=False)
         ensure_process_group_exit(pid, graceful=True)
-    except (OSError, ValueError, KeyError, TypeError, CleanupFailedError, subprocess.SubprocessError) as error:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        CleanupFailedError,
+        subprocess.SubprocessError,
+    ) as error:
         return f"İş {job_id} durdurulamadı: {error}"
     atomic_replace_text(folder / f"{job_id}.exit", str(_TERMINATED_EXIT))
     return f"İş {job_id} durduruldu."

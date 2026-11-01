@@ -194,8 +194,8 @@ def command(state: ReplState, argument: str) -> str:
 __all__ = [
     "CHOICE_AUTO",
     "CHOICE_BYPASS",
-    "CHOICE_EDIT_PLAN",
     "CHOICE_EDITS",
+    "CHOICE_EDIT_PLAN",
     "CHOICE_KEEP_PLANNING",
     "CHOICE_SECURITY",
     "accept",

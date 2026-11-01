@@ -196,7 +196,10 @@ def test_fresh_taban_24_saatten_eski_depoyu_ceker(repo, tmp_path, monkeypatch):
     monkeypatch.setattr(worktree_fetch, "quiet_git", _izle)
     worktree_fetch.fresh_base(repo, now=10**12)
     assert ("fetch", "--quiet", "origin", "main") in cagrilar or (
-        "fetch", "--quiet", "origin", "master"
+        "fetch",
+        "--quiet",
+        "origin",
+        "master",
     ) in cagrilar
     cagrilar.clear()
     worktree_fetch.fresh_base(repo)

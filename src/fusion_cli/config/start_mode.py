@@ -115,8 +115,10 @@ def resolve_start_mode(
     if flag.strip():
         mode = parse_mode(flag)
     else:
-        mode, _ = _from_settings(root, home)
-        if mode is None:
+        configured, _ = _from_settings(root, home)
+        if configured is not None:
+            mode = configured
+        else:
             legacy_mode = _MODES.get(legacy.strip(), BUILT_IN_DEFAULT)
             if legacy_mode == "bypass":
                 # Eski davranış (#370): YAML'daki bypass döngüye eklenir, oturum auto açılır.

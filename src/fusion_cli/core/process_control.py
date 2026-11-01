@@ -215,7 +215,7 @@ def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
             time.sleep(min(PROCESS_POLL_S, remaining))
 
 
-class MovedToBackground(FusionError):
+class MovedToBackgroundError(FusionError):
     """Zaman aşımında süreç öldürülmedi; sahipliği çağırana devredildi (#319)."""
 
     def __init__(
@@ -257,7 +257,7 @@ def run_foreground(
     `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
     çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür;
     yalnız `adopt_on_timeout()` doğruysa zaman aşımında süreç öldürülmez,
-    `MovedToBackground` ile sahipliği çağırana geçer (Claude Code, #319). `handoff` olayı
+    `MovedToBackgroundError` ile sahipliği çağırana geçer (Claude Code, #319). `handoff` olayı
     kurulursa (Ctrl+B, #320) süreç aynı yolla hemen devredilir. `ownership_marker` verilirse
     betiğin başına `: <işaret>` eklenir; `trap : EXIT` kabuğun son komutu `exec` ile
     değiştirmesini engeller, işaret süreç satırında kalır (devredilen işin sahiplik kanıtı).
@@ -306,7 +306,7 @@ _SETTLED = (
     ProcessCancelledError,
     CleanupFailedError,
     subprocess.TimeoutExpired,
-    MovedToBackground,
+    MovedToBackgroundError,
 )
 
 
@@ -327,11 +327,11 @@ def _supervise(
             _drain(process, captures, force=False)
             raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
         if handoff is not None and handoff.is_set():
-            raise MovedToBackground(process, captures, timeout_s, by_user=True)
+            raise MovedToBackgroundError(process, captures, timeout_s, by_user=True)
         remaining = deadline - timing.monotonic()
         if remaining <= 0:
             if adopt_on_timeout is not None and adopt_on_timeout():
-                raise MovedToBackground(process, captures, timeout_s)
+                raise MovedToBackgroundError(process, captures, timeout_s)
             stdout, stderr = _drain(process, captures, force=True)
             raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
         try:

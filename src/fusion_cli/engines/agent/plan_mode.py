@@ -67,7 +67,10 @@ def save_plan(conversation_id: str, markdown: str, root: Path | None = None) -> 
 
 def read_plan(conversation_id: str, root: Path | None = None) -> str | None:
     """Sohbetin kayıtlı planı; yoksa eski Fusion dizinine bakılır, orada da yoksa None."""
-    for path in (plan_path(conversation_id, root), legacy_directory() / f"{_stem(conversation_id)}.md"):
+    for path in (
+        plan_path(conversation_id, root),
+        legacy_directory() / f"{_stem(conversation_id)}.md",
+    ):
         try:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:

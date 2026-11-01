@@ -61,25 +61,32 @@ def quiet_git(cwd: Path, args: Sequence[str], *, timeout_s: float) -> str | None
 def fetch_pull_request(origin: Path, refspecs: Sequence[str], number: int) -> None:
     """PR/MR başını `origin`'den `FETCH_HEAD`'e çek; hiçbiri olmazsa `WorktreeError`."""
     for refspec in refspecs:
-        if quiet_git(origin, ("fetch", "--quiet", "origin", refspec), timeout_s=PR_FETCH_TIMEOUT_S) is not None:
+        if (
+            quiet_git(origin, ("fetch", "--quiet", "origin", refspec), timeout_s=PR_FETCH_TIMEOUT_S)
+            is not None
+        ):
             return
     raise WorktreeError(f"Çalışma ağacı oluşturulamadı: PR/MR #{number} çekilemedi.")
 
 
 def fresh_base(origin: Path, *, now: float | None = None) -> str:
-    """"fresh" tabanın commit'e çözülebilir başvurusu: `origin/HEAD` ya da yedek `HEAD`."""
+    """ "fresh" tabanın commit'e çözülebilir başvurusu: `origin/HEAD` ya da yedek `HEAD`."""
     if quiet_git(origin, ("remote", "get-url", "origin"), timeout_s=FRESH_FETCH_TIMEOUT_S) is None:
         return "HEAD"
     branch = _origin_head_branch(origin)
     if branch is None:
-        quiet_git(origin, ("remote", "set-head", "origin", "--auto"), timeout_s=FRESH_FETCH_TIMEOUT_S)
+        quiet_git(
+            origin, ("remote", "set-head", "origin", "--auto"), timeout_s=FRESH_FETCH_TIMEOUT_S
+        )
         branch = _origin_head_branch(origin)
         if branch is None:
             return "HEAD"
     elif _fetch_is_stale(origin, time.time() if now is None else now):
         quiet_git(origin, ("fetch", "--quiet", "origin", branch), timeout_s=FRESH_FETCH_TIMEOUT_S)
     resolved = quiet_git(
-        origin, ("rev-parse", "--verify", "--quiet", f"{_ORIGIN_HEAD}^{{commit}}"), timeout_s=FRESH_FETCH_TIMEOUT_S
+        origin,
+        ("rev-parse", "--verify", "--quiet", f"{_ORIGIN_HEAD}^{{commit}}"),
+        timeout_s=FRESH_FETCH_TIMEOUT_S,
     )
     return _ORIGIN_HEAD if resolved else "HEAD"
 

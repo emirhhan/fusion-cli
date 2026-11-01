@@ -255,7 +255,9 @@ def _refresh_reused(worktree: Worktree, origin: Path) -> None:
     target = fresh_base(origin)
     if target == "HEAD":
         return
-    resolved = quiet_git(origin, ("rev-parse", "--verify", f"{target}^{{commit}}"), timeout_s=GIT_TIMEOUT_S)
+    resolved = quiet_git(
+        origin, ("rev-parse", "--verify", f"{target}^{{commit}}"), timeout_s=GIT_TIMEOUT_S
+    )
     if resolved and refresh_to(
         worktree.path, worktree.branch, resolved.strip(), included=worktree.included
     ):

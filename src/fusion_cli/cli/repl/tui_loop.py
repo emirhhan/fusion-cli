@@ -381,7 +381,8 @@ class _TuiSession:
 
     def _background_turn(self) -> None:
         """Ctrl+B: beklenen ön plan alt ajanı ya da süren kabuk komutu varsa onu kesmeden
-        arka plana al (Claude Code, #12, #320); yoksa turu kes, iptal yakalayıcısı aynı görevi arka planda sürdürür."""
+        arka plana al (Claude Code, #12, #320); yoksa turu kes, iptal yakalayıcısı aynı görevi
+        arka planda sürdürür."""
         if self._state.config.agent_launch.disable_background_tasks:
             return
         if self._busy and self._state.child_runs.request_background():

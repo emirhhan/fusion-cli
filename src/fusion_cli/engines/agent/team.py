@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...config.models import McpServerConfig
+from ...config.worktree_settings import enter_configured_worktree
 from ...core.clock import SystemClock
 from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.hooks.events import HookSet
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...config.worktree_settings import enter_configured_worktree
 from ...core.worktree import LeaveOutcome, Worktree, leave_worktree
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
 from ...tools.capabilities import (

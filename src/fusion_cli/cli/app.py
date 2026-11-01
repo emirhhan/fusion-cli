@@ -39,6 +39,7 @@ from ..engines.agent.team import Persona
 from ..engines.agent.team_settings import validate_agent_hooks
 from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
+from ..tools import job_lifetime
 from ..tools.agent_catalog_launch import session_agents_from_json
 from ..tools.agent_tasks import WORKER_COMMAND
 from ..tools.capabilities import Capability
@@ -79,7 +80,6 @@ from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 from .unprompted import UnpromptedPrompter
-from ..tools import job_lifetime
 from .worktree_argv import fill_missing_worktree_name
 
 app = typer.Typer(
@@ -195,7 +195,8 @@ def main_callback(
         typer.Option(
             "--worktree",
             "-w",
-            help="Git çalışma ağacında çalış: .claude/worktrees/<ad>, dal worktree-<ad>; ad verilmezse üretilir.",
+            help="Git çalışma ağacında çalış: .claude/worktrees/<ad>, dal worktree-<ad>; "
+            "ad verilmezse üretilir.",
         ),
     ] = "",
     permission_mode: Annotated[

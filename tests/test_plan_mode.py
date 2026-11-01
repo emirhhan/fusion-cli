@@ -261,7 +261,8 @@ def state(tmp_path: Path) -> ReplState:
 
 
 def test_kabul_karti_claude_uclusu(state: ReplState) -> None:
-    """Claude Code: 'Yes, and use auto mode' / 'Yes, manually approve edits' / 'No, keep planning' (#325)."""
+    """Claude Code üçlüsü: 'Yes, and use auto mode' / 'Yes, manually approve edits' /
+    'No, keep planning' (#325)."""
     etiketler = [choice.value for choice in plan_card.choices(state)]
     assert etiketler == [
         plan_card.CHOICE_AUTO,

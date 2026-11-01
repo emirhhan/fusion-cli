@@ -22,7 +22,7 @@ from ..core.constants import (
 )
 from ..core.errors import ProcessCancelledError
 from ..core.foreground_handoff import handoff_slot
-from ..core.process_control import MovedToBackground, run_foreground
+from ..core.process_control import MovedToBackgroundError, run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
@@ -139,7 +139,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         return _run_foreground(
             command, context, run, integrity_error, timeout_seconds(args), token=token
         )
-    except MovedToBackground as moved:
+    except MovedToBackgroundError as moved:
         # Süreç ve proxy artık işe aittir: iş bitince kapanır (#319).
         handed_over = True
         return adopt(moved, command, token or "", context, lambda: background_exit_note(run))
@@ -159,7 +159,7 @@ def _run_foreground(
 ) -> ToolResult:
     """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır).
 
-    `token` verilirse zaman aşımında süreç öldürülmez, `MovedToBackground` yükselir (#319).
+    `token` verilirse zaman aşımında süreç öldürülmez, `MovedToBackgroundError` yükselir (#319).
     """
     if run.plan.refused:
         return ToolResult.failure(run.plan.refused)

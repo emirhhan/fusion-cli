@@ -9,6 +9,7 @@ kesit, dosya yolu yok. `BASH_MAX_OUTPUT_LENGTH` geri okuma penceresi (tavan 150.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -31,7 +32,7 @@ def test_gecerli_uzun_cikti_dosya_yolu_ve_2000_onizleme(tmp_path):
     assert sonuc.ok
     assert sonuc.artifact_path, sonuc.output[:300]
     assert len(sonuc.output) < 3_000
-    tam = open(sonuc.artifact_path, encoding="utf-8").read()
+    tam = Path(sonuc.artifact_path).read_text(encoding="utf-8")
     assert tam.count("a") >= 40_000
 
 
@@ -78,5 +79,5 @@ def test_sinirlar_ortamdan_ve_ayardan(tmp_path, monkeypatch):
 @pytest.mark.parametrize("gecerli", [True, False])
 def test_depo_yoksa_kirpilir_ve_soylenir(gecerli):
     metin, yol = shape_output("z" * 50_000, valid=gecerli, inline=30_000, window=30_000, store=None)
-    assert yol is None and "KIRPILDI" in metin or "atıldı" in metin
+    assert (yol is None and "KIRPILDI" in metin) or "atıldı" in metin
     assert len(metin) < 31_000

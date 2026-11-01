@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import asyncio
 
+from ..config.worktree_settings import enter_configured_worktree
 from ..core.errors import WorktreeError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from ..config.worktree_settings import enter_configured_worktree
 from ..core.worktree import WORKTREE_DIR, worktree_for_path
 from ..ui import messages
 

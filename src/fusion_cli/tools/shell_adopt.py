@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
 from ..core.constants import PROCESS_TERMINATE_GRACE_S
-from ..core.process_control import MovedToBackground
+from ..core.process_control import MovedToBackgroundError
 from ..core.tools import ToolContext, ToolResult
 from .bash_settings import background_disabled
 from .job_delivery import save_completion, save_delivery
@@ -49,7 +49,7 @@ def can_adopt(command: str) -> bool:
 
 
 def adopt(
-    moved: MovedToBackground,
+    moved: MovedToBackgroundError,
     command: str,
     token: str,
     context: ToolContext,
@@ -124,7 +124,7 @@ class _LogSink:
 
 
 def _watch(
-    moved: MovedToBackground,
+    moved: MovedToBackgroundError,
     folder: Path,
     root: Path,
     job_id: str,

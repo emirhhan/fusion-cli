@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...config.worktree_settings import enter_configured_worktree
 from ...core.errors import WorktreeError
 from ...core.tools import ToolContext
 from ...core.worktree import (
@@ -20,7 +21,6 @@ from ...core.worktree import (
     list_worktrees,
     worktree_for_path,
 )
-from ...config.worktree_settings import enter_configured_worktree
 from ...ui import messages
 from .state import ReplState
 

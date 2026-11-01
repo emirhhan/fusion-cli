@@ -74,7 +74,7 @@ def time_limit_s(
     if _unattended is None:
         return None
     source = os.environ if env is None else env
-    default = (
+    default = float(
         UNATTENDED_TEXT_PROMPT_DEFAULT_S if _unattended.text_prompt else UNATTENDED_DEFAULT_S
     )
     configured = _ms(source, "BASH_DEFAULT_TIMEOUT_MS") / 1000
@@ -87,7 +87,9 @@ def time_limit_s(
     return float(min(asked / 1000, ceiling))
 
 
-def own(job_id: str, pid: int, folder: Path, *, log: Path, command: str, limit_s: float | None) -> None:
+def own(
+    job_id: str, pid: int, folder: Path, *, log: Path, command: str, limit_s: float | None
+) -> None:
     """İşi bu sürecin sahipliğine al ve gözetimini başlat (5 GB, süre sınırı, çıkış)."""
     global _atexit_registered
     with _LOCK:
