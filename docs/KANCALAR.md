@@ -47,6 +47,7 @@ güvenilmiyor" diye görünür.
 | `PostToolUseFailure` | araç hata verince | araç adı | gerekçe modele not |
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (en çok 3 kez) |
+| `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz, gerekçe üst ajana (stdout bağlamı alt ajana eklenir) |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
 | `SessionStart` | oturumun ilk turunda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, sohbet değişince | `prompt_input_exit`, `clear`, `other` | — |
@@ -183,6 +184,9 @@ Tanımlar her kök turun başında yeniden okunur; tur ortasında değişmez.
 - `SessionStart(compact)` tur içi otomatik özetlemede bağlamını sistem mesajına, `/compact`
   sonrasında sonraki tura ekler; oturumu yeniden başlatmaz. Claude'un `/clear`'ının karşılığı
   Fusion'da `/reset`tir (`/clear` yalnız ekranı temizler).
+- Ajan tanımındaki `hooks` (`PreToolUse`, `PostToolUse`, `Stop`) yalnız o ajan etkinken çalışır;
+  alt ajanda `Stop` → `SubagentStop` olur, `--agent` ana oturum ajanında oturum boyunca geçerlidir.
+  Proje ajanında klasör güveni gerekir, eklenti ajanında alan yok sayılır.
 - `transcript_path` dökümünde alt ajanların araç çağrıları yoktur (Claude'da ayrı dökümdür);
   oturum bitince silinir.
 - `CwdChanged` yalnız `/cd` ile tetiklenir; `/worktree` kök değişimi oturumu yenilemez ve bu

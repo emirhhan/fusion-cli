@@ -167,8 +167,8 @@ geçerlidir; `ask` Otomatik modda bile sordurur ve oturum hafızasıyla susturul
 yalnız yazan araçlarda değil **okuma, arama ve web araçlarında da** uygulanır
 (`Read(~/.ssh/**)` deny → `read_file`, `search_code`, `glob`; `WebFetch(domain:x)` → `web_fetch`).
 Arama/listeleme aracına `path` verilmediyse kök alınır: deny/ask kuralının kapsamı aramanın
-içindeyse arama da yasaklanır/sorulur. `Agent(...)`/`Task(...)` çekirdekteki `spawn_agent`,
-`spawn_agents` araçlarını kapsar; `Edit/Write(...)` indirme, arşiv açma ve görsel üretme
+içindeyse arama da yasaklanır/sorulur. `Agent(...)`/`Task(...)` `Agent` aracını ve eski `spawn_agent`,
+`spawn_agents` adlarını kapsar (`Agent(Explore)` yalnız o tipi); `Edit/Write(...)` indirme, arşiv açma ve görsel üretme
 araçlarının hedefini de kapsar.
 
 Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak, hepsi
@@ -339,7 +339,7 @@ durumunda görünmez (`.git/info/exclude`).
   masaüstünde). `fusion agent "…"` tek atışta kök değişmez; açılan ağaç bildirilir ve korunur.
   Bu araçlar yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur
   (istem bütçesi).
-- Alt ajan: `spawn_agents` görevine `izolasyon: "worktree"` verilirse üye kendi ağacında
+- Alt ajan: `Agent` çağrısına `isolation: "worktree"` verilirse (ya da tanımda `isolation: worktree` varsa) üye kendi ağacında
   (`ajan-<kimlik>`) yazar; ana proje değişmez. Üye dosya değiştirmediyse ağaç ve dal kaldırılır,
   iş kaldıysa korunur ve yolu özetine yazılır.
 - Masaüstü: `/worktree` aynı komuttur; dosya gezgini yeni kökü otomatik alır, geçmiş ve tur
@@ -384,14 +384,17 @@ Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`,
 | Alan (İngilizce / Türkçe) | Fusion'da ne olur |
 |---|---|
 | `tools`, `disallowedTools` / `yasak_araclar` | Araç kümesi yalnız DARALIR; `mcp__sunucu__arac` ve `mcp__sunucu` (tüm araçları) tanınır; `Agent`, `Skill`, `AskUserQuestion`, `NotebookEdit`, `TodoWrite` eşlenir; tanınmayan ad günlüğe uyarı düşer |
-| `model` | `<sağlayıcı>/<model>` biçimiyse yalnız o alt ajanın çağrıları o modele gider; `inherit`/`sonnet` gibi takma adlar üst ajanı kullanır |
-| `permissionMode` / `izin_kipi` | Üst kipi yalnız SIKILAŞTIRIR: `auto` oturumda `plan` isteyen ajan plan kipinde koşar, `bypass` isteyen `auto`da kalır; torun ajan üstünün sıkılaştırılmış kipini temel alır |
+| `model` | Claude Code sırası: çağrıdaki `model` > tanımdaki `model` > `CLAUDE_CODE_SUBAGENT_MODEL` > ana model (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` ortam modelini zorlar). `inherit` ana modeldir; `sonnet`/`opus`/`haiku`/`fable` ana model aynı ailedeyse ana modelin kendisi, değilse `agent_launch.model_aliases` / `ANTHROPIC_DEFAULT_<AİLE>_MODEL` ya da aday modellerdeki aynı aileden model; çözülemezse alt ajan açık hatayla başlamaz. Tam kimlik (`claude-opus-5-5` ya da `<sağlayıcı>/<model>`) kabul edilir |
+| `permissionMode` / `izin_kipi` | Claude Code kuralları: ana oturum `bypassPermissions`, `acceptEdits` ya da `auto` ise alt ajan o kipte koşar (alan yok sayılır); `plan` ise plan kipinde kalır; `default`/`dontAsk` ise tanımdaki kip uygulanır (`bypassPermissions` ve kullanılamayan `auto` hariç, o zaman ana kip korunur). Değerler: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`, `manual` (= `default`). Eklenti ajanlarında alan yok sayılır |
 | `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı; derinliğe göre yarılanan bütçeden ve `runtime.agent_max_steps`'ten küçükse o geçerli (büyüğü aşamaz) |
 | `skills` / `beceriler` | Başlangıçta yüklenen beceriler (en fazla 32, 24 KB) |
-| `mcpServers` | Yalnız SÜZGEÇ: ana yapılandırmada bağlı sunuculardan yalnız bu adlılar açılır. Claude Code'daki gibi yeni sunucu TANIMLAMAZ, satır içi sunucu tanımı okunmaz; yapılandırmada olmayan ad günlüğe uyarı düşer |
+| `mcpServers` | Ad listesi yapılandırmadaki sunuculardan yalnız bunları açar; satır içi sunucu tanımı yalnız bu ajanın koşusu için bağlanır ve ajan bitince kapatılır. Yapılandırmada olmayan ad günlüğe uyarı düşer |
 | `effort` / `efor` | `low` · `medium` · `high`: yalnız o alt ajanın düşünme yoğunluğu |
 | `memory` / `bellek` | `user` · `project` · `local`: ajana özel kalıcı bellek (bkz. aşağı) |
-| `background`, `isolation`, `hooks` | Okunur ve katalogda gösterilir; Fusion'da alt ajan tur içinde biter ve kendi worktree'si yoktur, uygulanmaz |
+| `background` | `true` ise ajan beklenmesi istense de arka planda kalır (ana konuşmadan açılan alt ajan zaten varsayılan olarak arka planda başlar) |
+| `isolation` | `worktree`: ajan geçici bir git çalışma ağacında koşar |
+| `hooks` | `PreToolUse`, `PostToolUse`, `Stop` (alt ajanda `SubagentStop` olur) yalnız o ajan etkinken çalışır; proje ajanında klasör güveni gerekir, eklenti ajanında yok sayılır. Desteklenmeyen kanca alanı varsa ajan başlatılmaz (sessizce atlanmaz) |
+| `initialPrompt` | Ajan `--agent` ya da `agent` ayarıyla ana oturum ajanıysa ilk kullanıcı turu olarak kendiliğinden gönderilir |
 
 Alt ajan bir izin isterse terminal, masaüstü kartı ve Telegram bildirimi
 "Alt ajan izin istiyor: Denetçi (denetci-3f9a1c)" diye kimin istediğini söyler. Masaüstü:
@@ -424,21 +427,47 @@ sembolik bağ izlenmez, yazma reddedilir.
 
 ### Oturumu bir ajan kişiliğiyle açmak (`--agent`, `/persona`)
 
-Claude Code'un `claude --agent <ad>` karşılığı: oturumun tamamı bir ajan tanımıyla çalışır;
-tanımın gövdesi her turun sistem istemine girer, `tools`/`disallowedTools` kümesi araçları
-daraltır (`tools` yazılmayıp yalnız `disallowedTools` verilmişse yasak, araç defteri
-kurulduktan sonra `mcp__sunucu` deseni açılarak uygulanır). Yerleşik iki kişilik var: **`explore`** (Kâşif — salt-okur keşif: Read/Grep/Glob/LS)
-ve **`plan`** (Planlayıcı — değiştirmeden plan çıkarır). Kendi `.claude/agents/<ad>.md`
-tanımların da kullanılabilir.
+Claude Code'un `claude --agent <ad>` karşılığı: oturumun ana iş parçacığı o ajanın araç
+kısıtlarını VE modelini alır. Gövde doluysa varsayılan sistem isteminin TAMAMININ yerine geçer
+(`--system-prompt` gibi); proje talimatları (CLAUDE.md/FUSION.md) olağan mesaj akışıyla yine
+yüklenir. `tools`/`disallowedTools` araçları daraltır, `tools: Agent(a, b)` ana ajanın
+açabileceği alt ajan tiplerini sınırlar. Tanımdaki `mcpServers`, `hooks` ve `effort` ana oturuma
+bağlanır; `initialPrompt` ilk kullanıcı turu olarak kendiliğinden gönderilir. Ayarlar seçimde
+bir kez uygulanır: sonradan `/model` ile yaptığın seçim ezilmez.
 
-- `fusion --agent explore` → REPL o kişilikle açılır (ad yoksa açılmaz, hata verir) ·
-  `fusion agent "şunu bul" --agent explore` → tek atış.
-- `/persona` → durum · `/persona plan` → seç · `/persona off` → kapat (`/kisilik` eş anlamlı).
+Yerleşik ajanlar Claude Code'daki adlarla: **`Explore`** (salt okur keşif), **`Plan`** (salt
+okur plan araştırması), **`general-purpose`** ve **`claude`** (alt ajanlara açık tüm araçlar),
+**`statusline-setup`**, **`claude-code-guide`**. Eski küçük harfli `explore`/`plan` ve Türkçe
+roller (`kodcu`, `mimar`...) takma ad olarak çalışmaya devam eder. Kendi
+`.claude/agents/<ad>.md` tanımların da kullanılabilir; aynı adlı (ör. `Explore`) tanım
+yerleşiği ezer. `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` yalnız yerleşik `Explore` ve
+`Plan`'ı kaldırır.
+
+- `fusion --agent Explore` → REPL o ajanla açılır (ad yoksa açılmaz, hata verir) ·
+  `fusion agent "şunu bul" --agent Explore` → tek atış.
+- Proje varsayılanı: `.claude/settings.json` içinde `{"agent": "kod-denetci"}`; `--agent`
+  bayrağı ayarı ezer.
+- Oturumluk tanım: `fusion --agents '{"denetci": {"description": "Kodu inceler", "prompt": "..."}}'`
+  (dosya yazılmaz, en fazla 128 KiB). Aynı ad için öncelik: yönetilen (`agent_launch.managed_agent_roots`)
+  > `--agents` > proje `.claude/agents` (çalışma dizinine en yakın) > `~/.claude/agents` > eklenti;
+  dizinler alt klasörleriyle taranır.
+- `/persona` → durum · `/persona Plan` → seç · `/persona off` → kapat (`/kisilik` eş anlamlı).
 - Masaüstü: mesaj kutusunun altındaki **Kişilik** seçici (etkin ajanlar listelenir);
   RPC: `oturum.baslat {kisilik: "<ad>" | ""}`, `oturum.durum.kisilik → {ad, unvan} | null`.
-- Alt ajan olarak da çağrılır: model `spawn_agent(uzman="explore")` ile keşfi, `plan` ile
-  planlamayı devredebilir. Tanımdaki `model`/`permissionMode` alanları oturum kişiliğinde
-  uygulanmaz; oturumun modelini ve kipini `/model`, `/auto` gibi komutlarla sen seçersin.
+
+### Alt ajan aracı: `Agent` ve `SendMessage`
+
+Model alt ajanı tek bir **`Agent`** aracıyla açar (`subagent_type`, `prompt`, `description`,
+`model`, `name`, `isolation`, `run_in_background`). Ana konuşmadan açılan alt ajan, ayar yoksa
+ARKA PLANDA başlar; sonucu bittiğinde sonraki tura bildirim olarak gelir. Biten alt ajanın
+kimliği (`agentId`) döner ve `SendMessage(to=<kimlik|ad>)` ile bilinen geçmişiyle sürdürülür;
+`Explore` ve `Plan` tek atışlıktır, kimlik dönmez. `ListAgents` ve `TaskStop` arka plan
+ajanlarını listeler/durdurur. Eski `Task`, `spawn_agent`, `spawn_agents` ve `invoke_subagent`
+adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulmaz.
+
+- `permissions.deny` içine `Agent(Explore)` yazmak o tipi kapatır (eski adlara da uygulanır).
+- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` arka planı kapatır; `CLAUDE_CODE_FORK_SUBAGENT=0`
+  fork kipini kapatır (varsayılan açık).
 
 ### Fork alt ajan: `/subtask`, `baglam_miras`, `context: fork`
 
@@ -450,14 +479,14 @@ ara işi ana bağlamı şişirmeden yürütmek için.
 - `/subtask testleri koştur ve raporla` → tur fork alt ajanda koşar (`/altgorev` eş anlamlı);
   masaüstünde de aynı komut (slash menüsü) çalışır; ayrıca yazı kutusunda bir istem varken
   gönder düğmesinin yanındaki **Alt görev** düğmesi taslağı `/subtask` ile gönderir.
-- Model kendi kararıyla: `spawn_agent(task=…, baglam_miras=true)`.
+- Model kendi kararıyla: `Agent(prompt=…, baglam_miras=true)`.
 - Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
   otomatik fork alt ajanda koşar; masaüstü katalogda seçince bildirim "tur bağlamı devralan
   alt ajanda koşacak" der (RPC `yetenek.kullan` yanıtında `fork: true`).
 - Fork turuna oturum kişiliğinin notu ve araç kısıtı (yalnız daraltır), seçilen becerinin
   metni, kip istemi, görsel ekler ve adım tavanı aynen geçer; alt ajan bunların üstüne kendi
   `FORK_BRIEF` açıklamasını alır. Plan kipinde fork salt-okur koşar. Canlı geçmişin sonundaki
-  cevapsız araç çağrısı (o an çalışan `spawn_agent`) devredilmez.
+  cevapsız araç çağrısı (o an çalışan `Agent`) devredilmez.
 
 ---
 

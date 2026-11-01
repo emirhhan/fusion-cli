@@ -35,7 +35,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
 | Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
-| Model | `spawn_agent(task=…, arka_plan=true)` kimliği hemen döner |
+| Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
 REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan mesajını devralır
@@ -143,8 +143,7 @@ okunmadığı için orada `/bg` kullanılır.
 
 ## Bilinen sınırlar
 
-- Ajan tanımındaki `background: true` alanı hâlâ yalnız okunur; arka plan için çağrıda
-  `arka_plan=true` gerekir.
+- Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
 - `/tasks` kabuk arka plan işlerini (`run_shell(background=true)`, `job_status`) listelemez.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.

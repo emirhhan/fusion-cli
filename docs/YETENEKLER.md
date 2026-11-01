@@ -25,7 +25,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
 | Düz metin bellek (`/memory`, `# not`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
-| Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory` uygulanır; `mcpServers` yalnız süzgeç; `background`/`isolation`/`hooks` okunur, uygulanmaz |
+| Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory`, `mcpServers` (ad ve satır içi tanım), `background`, `isolation`, `hooks`, `initialPrompt` Claude Code kurallarıyla uygulanır |
 | Oturum kişiliği (`fusion --agent`, `/persona`) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `explore`, `plan`); masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
 | Arka plan ajan görevleri (`fusion agent --bg`, `fusion agents`, `/bg`, `/tasks`, Ctrl+B) | Turdan bağımsız, ayrı süreçte koşan görev; girdi/bitiş bildirimi, devam mesajı, sonucun sıradaki tura teslimi; masaüstünde Ajanlar sekmesi — bkz. `ARKA_PLAN_GOREVLERI.md` |
@@ -51,9 +51,6 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
-- Ajan tanımındaki `background: true` ve `isolation` alanlarını uygulama (çağrıda
-  `spawn_agent(arka_plan=true)` ve `subtask(izolasyon="worktree")` var) ve
-  `--agents '<json>'` satır içi ajan tanımı; tanımlar şimdilik yalnız dosyadan okunur.
 
 ## Bilerek yapılmayanlar
 
