@@ -166,7 +166,7 @@ def test_allowed_ve_disallowed_tools_oturuma_gecer(monkeypatch):
 
 
 def test_allowed_tools_claude_gibi_izin_kurali_olur_kumeyi_daraltmaz(monkeypatch):
-    """Claude (#47): --allowedTools allow kuralıdır; --disallowedTools "Bash(rm *)" aracı açık bırakır."""
+    """Claude (#47): --allowedTools allow kuralıdır; "Bash(rm *)" yasağı aracı açık bırakır."""
     from fusion_cli.config.permission_rules import PermissionDecision, session_rules
 
     yakalanan, result = _agent(

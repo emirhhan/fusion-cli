@@ -111,8 +111,9 @@ def test_cli_kurallari_parantez_icindeki_virgulu_bolmez():
 
 
 def test_repl_ve_masaustu_defaultmode_okur(proje):
-    from fusion_cli.cli.repl.state import _initial_approval
     from types import SimpleNamespace
+
+    from fusion_cli.cli.repl.state import _initial_approval
 
     config = SimpleNamespace(runtime=SimpleNamespace(approval_mode="auto"))
     assert _initial_approval(config, proje) is ApprovalMode.AUTO

@@ -4,7 +4,7 @@
                                          bypassPermissions; settings `defaultMode`'u ezer
     --dangerously-skip-permissions       `--permission-mode bypassPermissions` ile eşdeğer
     --allow-dangerously-skip-permissions bypass'ı Shift+Tab döngüsüne ekler, başlatmaz
-    --allowedTools / --allowed-tools     ALLOW kuralları (sorulmadan çalışır; araç kümesini daraltmaz)
+    --allowedTools / --allowed-tools     ALLOW kuralları (sorulmadan çalışır; kümeyi daraltmaz)
     --disallowedTools / --disallowed-tools  DENY kuralları; yalın ad aracı bağlamdan çıkarır,
                                          `Bash(rm *)` aracı açık bırakıp yalnız eşleşeni reddeder
     --tools                              modele sunulan araç kümesini daraltır

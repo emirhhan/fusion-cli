@@ -8,7 +8,7 @@ Claude Code belgesiyle birebir (code.claude.com/docs/en/permission-modes, settin
                                             kapatır; her ayar dosyasında geçerli (#85)
     permissions.disableBypassPermissionsMode: "disable"  bypass kipini kapatır (#51)
     permissions.blockReadsOutsideWorkingDirectories      `true` her kapsamdan geçerli (#76)
-    permissions.additionalDirectories       ek çalışma dizinleri; proje/yerel girdi güven ister (#57)
+    permissions.additionalDirectories       ek çalışma dizinleri; proje/yerel güven ister (#57)
 
 Öncelik (yüksekten alçağa): yerel > proje > kullanıcı. Managed ve `--settings` katmanı henüz
 yok (#65).
