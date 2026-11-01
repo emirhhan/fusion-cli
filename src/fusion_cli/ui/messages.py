@@ -1039,6 +1039,11 @@ AGENTS_REMINDER = (
     "doğrudan düzenle. Koşan alt ajanlar için /tasks."
 )
 SKILLS_RELOADED = "Katalog yeniden tarandı: {skills} beceri, {agents} ajan."
+#: `/reload-skills` (Claude Code): eklenen/çıkarılan beceri ve komut sayısı.
+SKILLS_RELOAD_DIFF = (
+    "Beceriler yeniden tarandı: {added} eklendi, {removed} çıkarıldı ({total} toplam)."
+)
+CMD_RELOAD_SKILLS = "beceri ve komut dizinlerini yeniden tara"
 CAPABILITY_AUTHORING_STARTED = (
     "{name} için üretim görevi hazırlandı; model önce birkaç soru soracak."
 )

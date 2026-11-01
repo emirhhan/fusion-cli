@@ -163,7 +163,7 @@ bu keşfi de kapatır.
 
 | Yüzey | Ne yapar |
 |---|---|
-| `/skills reload` (`yenile`) · masaüstü **Yenile** · `yetenek.yenile` | Kataloğu diskten yeniden tarar. Yeni klasör eklenip silindiğinde kök dizinin mtime'ı değiştiği için bir sonraki turda **kendiliğinden** yenilenir; var olan bir SKILL.md'nin içeriği değiştiyse `reload` gerekir. |
+| `/reload-skills` · `/skills reload` · masaüstü **Yenile** · `yetenek.yenile` | Beceri ve komut dizinlerini yeniden tarar; `/reload-skills` eklenen/çıkarılan sayısını söyler. Claude Code gibi var olan bir SKILL.md'nin ya da komut dosyasının düzenlenmesi, klasör ekleme/silme de bir sonraki sorguda **kendiliğinden** algılanır. |
 | `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `/agents` | Güncel Claude Code gibi yalnız hatırlatma basar: Fusion'a sor ya da `.claude/agents/` ve `~/.claude/agents/` dosyalarını düzenle. Eski `/agents <arama>` ve `/agents new <ad>` biçimleri bir sürüm boyunca çalışır. |

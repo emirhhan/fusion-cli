@@ -692,6 +692,18 @@ def _skills(state: ReplState, argument: str) -> str:
     return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
 
 
+def _reload_skills(state: ReplState, argument: str) -> str:
+    """`/reload-skills` (Claude Code): dizinleri yeniden tara, eklenen/çıkarılan sayısını söyle."""
+    del argument
+    assert state.capabilities is not None
+    before = {item.qualified_name for item in state.capabilities.skills()}
+    state.capabilities.invalidate()
+    after = {item.qualified_name for item in state.capabilities.skills()}
+    return messages.SKILLS_RELOAD_DIFF.format(
+        added=len(after - before), removed=len(before - after), total=len(after)
+    )
+
+
 def _agents(state: ReplState, argument: str) -> str:
     """`/agents`: güncel Claude Code gibi yalnız hatırlatma basar (#37).
 
@@ -1146,6 +1158,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         lambda state, argument: _skills(state, "doctor"),
         group="Bilgi",
     ),
+    SlashCommand("reload-skills", messages.CMD_RELOAD_SKILLS, _reload_skills, group="Bilgi"),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi"),
     # `/goal <koşul>` (P-058): ilk turu hedef makrosu hazırlar; turlar arası değerlendirme
     # `goal_flow`'dadır. Argümansız `/goal` durumu söyler (Claude Code ile aynı).

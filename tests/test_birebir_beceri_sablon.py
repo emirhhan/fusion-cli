@@ -212,3 +212,32 @@ def test_disable_model_invocation_alt_ajana_on_yuklenmez(tmp_path: Path) -> None
     persona = SimpleNamespace(skills=("b",), name="ajan")
 
     assert team_settings.preloaded_skills(deps, persona) == ""  # type: ignore[arg-type]
+
+
+# --- #176 ----------------------------------------------------------------------- #
+
+
+def test_reload_skills_ve_icerik_degisikligi_kendiliginden_algilanir(tmp_path: Path) -> None:
+    from fusion_cli.cli.repl.commands import _reload_skills
+
+    home, root = tmp_path / "ev", tmp_path / "p"
+    beceri = home / ".claude" / "skills" / "x" / "SKILL.md"
+    beceri.parent.mkdir(parents=True)
+    beceri.write_text("---\nname: x\ndescription: eski\n---\nx", encoding="utf-8")
+    root.mkdir()
+    registry = CapabilityRegistry(home, root)
+    assert registry.get_skill("x").description == "eski"  # type: ignore[union-attr]
+
+    import os
+
+    beceri.write_text("---\nname: x\ndescription: yeni\n---\nx", encoding="utf-8")
+    stat = beceri.stat()
+    os.utime(beceri, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10_000_000))
+    assert registry.get_skill("x").description == "yeni"  # type: ignore[union-attr]
+
+    from types import SimpleNamespace
+
+    (home / ".claude" / "skills" / "y").mkdir()
+    (home / ".claude" / "skills" / "y" / "SKILL.md").write_text("---\nname: y\n---\ny", "utf-8")
+    cikti = _reload_skills(SimpleNamespace(capabilities=registry), "")  # type: ignore[arg-type]
+    assert "eklendi" in cikti

@@ -128,9 +128,8 @@ def roots_signature(
 ) -> tuple[tuple[str, int], ...]:
     """Var olan köklerin (yol, mtime_ns) imzası: klasör eklenip silinince değişir.
 
-    Dizin mtime'ı yalnız doğrudan çocuk değişince güncellenir; bir SKILL.md'nin İÇERİĞİ
-    değişince değişmez — onun için `CapabilityRegistry.invalidate()` (`/skills reload`).
-    Ajan dosyaları ise tek tek imzaya girer.
+    Dizin mtime'ı yalnız doğrudan çocuk değişince güncellenir; bu yüzden ajan dosyaları,
+    kullanıcı/proje/ek kök SKILL.md dosyaları ve komut dosyaları tek tek imzaya girer.
     """
     from .skill_commands import COMMAND_ROOTS
 
@@ -143,6 +142,20 @@ def roots_signature(
         for folder, source in agent_roots_found
         if source in _WATCHED_AGENT_SOURCES and folder.is_dir()
         for path in sorted(folder.rglob("*.md"))
+    )
+    # Claude Code canlı değişiklik algılama (#176): var olan becerinin/komutun düzenlenmesi
+    # yeniden başlatmadan ya da `/reload-skills` olmadan etkin olur.
+    candidates.extend(
+        path
+        for folder, source in skill_roots_found
+        if source in _WATCHED_AGENT_SOURCES and folder.is_dir()
+        for path in sorted(folder.rglob("SKILL.md"))
+    )
+    candidates.extend(
+        path
+        for rel, _s, in_home in COMMAND_ROOTS
+        if ((home if in_home else root) / rel).is_dir()
+        for path in sorted(((home if in_home else root) / rel).rglob("*.md"))
     )
     found: list[tuple[str, int]] = []
     for path in candidates:
