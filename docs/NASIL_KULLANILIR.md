@@ -1046,6 +1046,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 - `/export` → proje kökünde `fusion-sohbet-<tarih>.md`; `/export notlar/sohbet.md`, `/export json`, `/export pano`. Sistem istemi dışarıda, araç çağrıları katlanmış ve kırpılmış, sırlar (başlık dahil) maskeli. Proje kökü dışına yazılmaz; var olan dosya `zorla` eklenmeden ezilmez.
 - `/copy` → son asistan cevabı panoya; `/copy 2` sondan ikinci. (pbcopy / wl-copy / xclip / xsel / clip)
+- `/diff` → çalışma ağacının `git diff HEAD --stat` özeti ve bu oturumda dosya değiştiren turlar (tur numarası, görev, dosyalar); `/diff tam` farkın kendisini de basar. Claude Code bunu etkileşimli görüntüleyicide gösterir; Fusion metin basar.
 - Masaüstü: Sohbeti paylaş penceresinde Markdown/JSON seçimi ve "Dosyaya kaydet" (RPC `sohbet.disa_aktar {bicim, baslik}`).
 
 ### Ayarlar: `/config` ve `fusion config`

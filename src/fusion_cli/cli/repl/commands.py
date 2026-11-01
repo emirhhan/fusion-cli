@@ -66,6 +66,7 @@ from . import (
 )
 from .browser_command import browser_command
 from .cd_command import cd_command
+from .diff_command import diff_command
 from .macros import Mode
 from .preview_command import preview_command
 from .sandbox_command import sandbox_command
@@ -1246,6 +1247,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "copy", messages.CMD_COPY, export_commands.copy_answer, group="Agent", usage="[N]"
     ),
+    SlashCommand("diff", messages.CMD_DIFF, diff_command, group="Agent", usage="[tam]"),
     SlashCommand(
         "theme", messages.CMD_THEME, view_commands.theme_command, group="Görünüm", usage="[ad]"
     ),
