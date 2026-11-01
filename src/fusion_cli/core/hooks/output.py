@@ -44,6 +44,8 @@ IGNORES_EXIT_CODE = frozenset(
         HookEvent.STOP_FAILURE,
         HookEvent.WORKTREE_REMOVE,
         HookEvent.PERMISSION_DENIED,
+        # MessageDisplay: yalnız görünen metni değiştirir; çıkış kodu yok sayılır (Claude).
+        HookEvent.MESSAGE_DISPLAY,
     }
 )
 

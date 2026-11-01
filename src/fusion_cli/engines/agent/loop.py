@@ -26,7 +26,7 @@ import json
 import re
 import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, nullcontext
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from functools import partial
@@ -37,6 +37,7 @@ from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
+from ...core import display_filter
 from ...core.active_context import ActiveContext
 from ...core.agent_runtime_state import AgentTranscriptCapture
 from ...core.budget import BudgetStop, TurnBudget
@@ -208,6 +209,7 @@ from .hook_bridge import (
     user_prompt_submit,
     with_system_note,
 )
+from .hook_display import message_display
 from .hook_permission_denied import classifier_reason, permission_denied, review_mark
 from .hook_services import bind_hook_services
 from .hook_stop import continue_until_stop_allowed
@@ -802,16 +804,18 @@ async def run_agent(
             workflow=workflow,
             denied_tools=denied_tools,
         )
-        outcome = await turn(model_task, history=history)
-        subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
-        if root_turn or subagent:
-            # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
-            outcome = await continue_until_stop_allowed(
-                deps,
-                outcome,
-                lambda prompt, past: turn(prompt, history=past),
-                subagent=subagent,
-            )
+        # MessageDisplay (#90): kök turda görünen asistan metni kancadan geçer.
+        with message_display(deps) if root_turn else nullcontext():
+            outcome = await turn(model_task, history=history)
+            subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
+            if root_turn or subagent:
+                # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
+                outcome = await continue_until_stop_allowed(
+                    deps,
+                    outcome,
+                    lambda prompt, past: turn(prompt, history=past),
+                    subagent=subagent,
+                )
         if root_turn and not deps.child_runs.persistent:
             await deps.child_runs.drain()
         if owns_learning:
@@ -978,7 +982,7 @@ async def _run_agent(
             ok=True,
             model_calls_made=0,
         )
-        _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
+        await _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
         return vague_outcome
 
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
@@ -1484,7 +1488,7 @@ async def _run_agent(
         ensure_limitations_disclosed(outcome, deps)
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
-    _announce_answer(outcome, deps, depth=depth, internal=internal)
+    await _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
     if not is_measurement_failure:
@@ -1587,7 +1591,9 @@ def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps
         deps.publisher.publish(ChangesDigested(lines=report.change_lines))
 
 
-def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:
+async def _announce_answer(
+    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
+) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
     Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
@@ -1617,9 +1623,10 @@ def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, inte
         return
     if not outcome.final_text.strip():
         return
-    deps.publisher.publish(
-        TurnAnswered(channel=deps.channel, text=strip_harness_leaks(outcome.final_text))
-    )
+    # Görünen metin MessageDisplay süzgecinden geçer (#90); kayıt `outcome`tan yazılır.
+    shown = await display_filter.transform(strip_harness_leaks(outcome.final_text))
+    if shown:
+        deps.publisher.publish(TurnAnswered(channel=deps.channel, text=shown))
 
 
 # --------------------------------------------------------------------------- #

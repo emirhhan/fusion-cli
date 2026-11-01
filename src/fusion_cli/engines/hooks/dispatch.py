@@ -32,6 +32,8 @@ _EVENT_DEFAULT_TIMEOUT = {
     HookEvent.USER_PROMPT_SUBMIT: 30.0,
     HookEvent.PRE_MODEL_SWITCH: 30.0,
     HookEvent.POST_MODEL_SWITCH: 30.0,
+    # MessageDisplay her satır partisinde çalışır; ekranı uzun bekletmesin (Claude: 10 sn).
+    HookEvent.MESSAGE_DISPLAY: 10.0,
 }
 #: `onFailure: block`'un etkisiz olduğu olaylar (çıkış 2 ajanı sürdürür).
 _NO_FAILURE_BLOCK = frozenset(

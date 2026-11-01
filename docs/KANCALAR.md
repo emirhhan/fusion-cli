@@ -60,6 +60,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PreToolUse` | araç çalışmadan, onaydan önce | `tool_name` | araç çalışmaz, gerekçe modele |
 | `PermissionRequest` | izin sorusu gösterilmeden önce (etkileşimsiz oturumda da) | `tool_name` | — (`decision.behavior`: `allow` sormadan izin; `deny` + `message` gerekçe, `interrupt` turu durdurur; `updatedInput`/`updatedPermissions` henüz uygulanmaz) |
 | `PermissionDenied` | otomatik kip denetçisi çağrıyı reddedince: denetçi modeli "riskli" dedi ve soru sorulamayan koşuda (`fusion agent`, `-p`) çağrı sorulmadan reddedildi. Etkileşimli oturumda riskli çağrı kullanıcıya sorulur; elle ret, `deny` kuralı ve PreToolUse engeli tetiklemez (girdi `tool_name`, `tool_input`, `tool_use_id`, `reason`) | `tool_name` | — (ret verilmiştir; çıkış kodu/stderr yok sayılır, `hookSpecificOutput.retry: true` modele çağrıyı yeniden deneyebileceğini söyler) |
+| `MessageDisplay` | etkileşimli oturumda (REPL, TUI, masaüstü) asistan metni ekrana basılmadan önce, satır partileriyle (akan cevap, öncü beyan ve akışsız nihai cevap; girdi `turn_id`, `message_id`, `index`, `final`, `delta`; yazılmamış süre 10 sn). `-p`/`fusion agent` çıktısı, alt ajan ve konsey metni süzülmez | — | — (`hookSpecificOutput.displayContent` partinin ekrandaki metni olur, boş metin partiyi gizler; döküm, sohbet kaydı ve modelin bağlamı değişmez; çıkış kodu yok sayılır) |
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
@@ -293,7 +294,6 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
-- `MessageDisplay` tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
 - Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) yoksa `Elicitation`
   kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
   kancaları kullanılır.

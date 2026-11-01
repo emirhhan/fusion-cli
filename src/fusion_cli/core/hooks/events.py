@@ -53,6 +53,7 @@ class HookEvent(Enum):
     PERMISSION_DENIED = "PermissionDenied"
     ELICITATION = "Elicitation"
     ELICITATION_RESULT = "ElicitationResult"
+    MESSAGE_DISPLAY = "MessageDisplay"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -96,6 +97,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.PERMISSION_DENIED: "araç adı",
     HookEvent.ELICITATION: "MCP sunucusunun adı",
     HookEvent.ELICITATION_RESULT: "MCP sunucusunun adı",
+    HookEvent.MESSAGE_DISPLAY: None,
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -142,11 +144,7 @@ STDOUT_CONTEXT_EVENTS = frozenset(
 
 #: Claude Code'un tanıdığı ama Fusion'ın (henüz) tetiklemediği olaylar: listede
 #: "tetiklenmiyor" diye görünür, hata sayılmaz.
-CLAUDE_ONLY_EVENTS = frozenset(
-    {
-        "MessageDisplay",
-    }
-)
+CLAUDE_ONLY_EVENTS: frozenset[str] = frozenset()
 
 #: İşleyici türleri (Claude: command, http, mcp_tool, prompt, agent).
 COMMAND_HANDLER = "command"
@@ -345,6 +343,8 @@ class HookVerdict:
     #: Elicitation/ElicitationResult `action` (accept|decline|cancel) ve `content`.
     elicitation_action: str = ""
     elicitation_content: Mapping[str, object] | None = None
+    #: MessageDisplay `displayContent`: partinin ekranda görünen metni (`None` = değişmez).
+    display_content: str | None = None
 
     @property
     def context_text(self) -> str:

@@ -167,6 +167,9 @@ def _from_json(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:
         return replace(verdict, worktree_path=_text(specific.get("worktreePath")))
     if event is HookEvent.PERMISSION_DENIED:
         return replace(verdict, retry=specific.get("retry") is True)
+    if event is HookEvent.MESSAGE_DISPLAY:
+        shown = specific.get("displayContent")
+        return replace(verdict, display_content=shown if isinstance(shown, str) else None)
     if event in (HookEvent.ELICITATION, HookEvent.ELICITATION_RESULT):
         return _elicitation_fields(verdict, specific)
     context = _text(specific.get("additionalContext"))
@@ -316,6 +319,7 @@ def merge_verdicts(verdicts: Iterable[HookVerdict]) -> HookVerdict:
             terminal_sequences=merged.terminal_sequences + item.terminal_sequences,
             worktree_path=merged.worktree_path or item.worktree_path,
             retry=merged.retry or item.retry,
+            display_content=_last(merged.display_content, item.display_content),
             elicitation_action=item.elicitation_action or merged.elicitation_action,
             elicitation_content=item.elicitation_content
             if item.elicitation_action
