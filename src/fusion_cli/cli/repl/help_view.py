@@ -56,6 +56,10 @@ async def render(
         console.print(f"[{theme.DIM}]{note}[/{theme.DIM}]")
     elif name == "doctor":
         await _doctor(console)
+    elif name == "btw":
+        from .btw_command import render as render_btw
+
+        await render_btw(state, argument, console)
 
 
 async def _doctor(console: Console) -> None:

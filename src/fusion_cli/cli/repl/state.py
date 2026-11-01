@@ -207,6 +207,8 @@ class ReplState:
     vim_command_warned: bool = field(default=False, kw_only=True)
     #: `fusion "query"` ile verilen ilk istem (#204); yüzey açılınca bir kez gönderilir.
     initial_prompt: str = field(default="", kw_only=True)
+    #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
+    side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
     _configured_persona: Persona | None = field(default=None, init=False, repr=False)
     _persona_base_config: Config | None = field(default=None, init=False, repr=False)

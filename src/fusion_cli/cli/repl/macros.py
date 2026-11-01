@@ -152,15 +152,6 @@ MACROS: dict[str, Macro] = {
         "kaynakları oku, bulguları kaynak bağlantılarıyla özetle.",
         argument_required=True,
     ),
-    "btw": Macro(
-        task="",
-        template=(
-            "Ana görevi değiştirmeden şu yan soruyu kısa ve doğrudan yanıtla: {argument}. "
-            "Yanıtı ana görevin çalışma planına veya dosya değişikliklerine uygulama; "
-            "kullanıcı ayrıca isterse ana göreve dön."
-        ),
-        argument_required=True,
-    ),
     "simplify": Macro(
         task="Çalışma ağacındaki değişen kodu (`git diff`, staged ve unstaged) yeniden "
         "kullanım, sadeleştirme, verimlilik ve soyutlama düzeyi açısından incele: tekrar "

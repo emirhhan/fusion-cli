@@ -34,6 +34,7 @@ from ...ui.picker import Choice, pick
 from . import (
     auto_mode_command,
     background_commands,
+    btw_command,
     config_command,
     doctor_command,
     export_commands,
@@ -1178,7 +1179,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             # Claude Code'daki ad da tanınır; aynı makro, ikinci yol değil.
             ("review", messages.CMD_REVIEW, ("code-review",)),
             ("browser", messages.CMD_BROWSER, ()),
-            ("btw", messages.CMD_BTW, ()),
             ("plan-yurut", messages.CMD_PLAN_RUN, ()),
             ("simplify", messages.CMD_SIMPLIFY, ()),
             ("security-review", messages.CMD_SECURITY_REVIEW, ()),
@@ -1290,6 +1290,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
     ),
+    # Claude Code (#221): `/btw` geçmişe girmeyen, araçsız yan soru (help_view basar).
+    SlashCommand("btw", messages.CMD_BTW, btw_command.btw_command, group="Agent", usage="[soru]"),
     # Claude Code (#229): `/fork [istem]` konuşmayı arka plan kopyasına verir.
     SlashCommand(
         "fork", messages.CMD_FORK, fork_command.fork_command, group="Agent", usage="[istem]"
@@ -1379,6 +1381,7 @@ RENDERED_COMMANDS = frozenset(
         "status",
         "context",
         "doctor",
+        "btw",
     }
 )
 

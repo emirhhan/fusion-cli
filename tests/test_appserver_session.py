@@ -1517,7 +1517,18 @@ async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
     assert yakalanan["kwargs"]["step_limit"] is None
 
 
-async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar(tmp_path):
+async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar(
+    tmp_path, monkeypatch
+):
+    """Claude Code (#221): `/btw` tur başlatmaz (görev dönmez), araçsız yanıt metni döner."""
+    from fusion_cli.cli.repl import btw_command
+    from fusion_cli.core.types import ModelResult
+
+    class _Sahte:
+        async def complete(self, request):
+            return ModelResult(name="a", model="m/x", text="yan cevap", latency_ms=1, ok=True)
+
+    monkeypatch.setattr(btw_command, "_provider", lambda state: _Sahte())
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
 
@@ -1532,8 +1543,8 @@ async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar
     )
     yan_soru = _sonuc(satirlar, "2")
     assert yan_soru["ok"] is True
-    assert "Bu dosya ne yapıyor?" in yan_soru["gorev"]
-    assert "Ana görevi değiştirmeden" in yan_soru["gorev"]
+    assert "gorev" not in yan_soru
+    assert "Bu dosya ne yapıyor?" in yan_soru["metin"] and "yan cevap" in yan_soru["metin"]
 
 
 async def test_makro_olmayan_komut_gorev_dondurmez(tmp_path):

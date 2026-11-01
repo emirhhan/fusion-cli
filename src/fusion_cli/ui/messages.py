@@ -1436,6 +1436,15 @@ FORK_WAITING = (
 FORK_COPY_FAILED = "Kopya oluşturulamadı: {error}"
 FORK_WORKTREE = " Kopya kendi çalışma ağacında: {path}"
 FORK_IN_PLACE = " Git deposu yok; kopya aynı dizinde çalışıyor."
+BTW_SYSTEM = (
+    "Bu bir yan soru: kullanıcı ana işi bölmeden konuşma hakkında kısa bir şey soruyor. "
+    "Araç yok; yalnız konuşmada görünenden kısa ve doğrudan yanıtla, ana göreve devam etme."
+)
+BTW_USAGE = "Kullanım: /btw <soru> — konuşma hakkında yan soru; geçmişe eklenmez."
+BTW_HEADER = "─ yan soru: {question}"
+BTW_FOOTER = "─ (konuşma geçmişine eklenmedi)"
+BTW_FAILED = "Yan soru yanıtlanamadı: {error}"
+BTW_EMPTY = "model boş döndü"
 EXPORT_DIALOG_TITLE = "Konuşmayı dışa aktar"
 EXPORT_CHOICE_CLIPBOARD = "Panoya kopyala"
 EXPORT_CHOICE_CLIPBOARD_HINT = "düz metin, sırlar maskeli"
