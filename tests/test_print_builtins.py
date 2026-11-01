@@ -20,8 +20,12 @@ def _print(monkeypatch, args, *, input=None):
     async def _fake(task, config, **kwargs):
         calls.append({"task": task, "config": config, **kwargs})
         return SimpleNamespace(
-            final_text="model cevabı", ok=True, stop_reason=None, model_calls_made=1,
-            hit_step_limit=False, messages=[],
+            final_text="model cevabı",
+            ok=True,
+            stop_reason=None,
+            model_calls_made=1,
+            hit_step_limit=False,
+            messages=[],
         )
 
     monkeypatch.setattr(print_run, "run_agent_task", _fake)

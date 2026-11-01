@@ -23,7 +23,9 @@ def _events(nested: bool = False):
         SubAgentStarted(task="dosyaları say", sub_id="s1"),
         TokenReceived(Channel.MAIN, "sayıyorum", provisional=True, agent_id="s1"),
         ToolStarted("run_shell", {"command": "ls"}, call_id="c1", agent_id="s1"),
-        ToolExecuted("run_shell", {"command": "ls"}, ToolOutcome.OK, "a b", call_id="c1", agent_id="s1"),
+        ToolExecuted(
+            "run_shell", {"command": "ls"}, ToolOutcome.OK, "a b", call_id="c1", agent_id="s1"
+        ),
     ]
     if nested:
         events += [

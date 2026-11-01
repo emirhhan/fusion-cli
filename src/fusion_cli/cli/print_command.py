@@ -41,9 +41,7 @@ def print_command(
     system_prompt_file: Annotated[str | None, typer.Option("--system-prompt-file")] = None,
     append_system_prompt: Annotated[str | None, typer.Option("--append-system-prompt")] = None,
     system_prompt_snapshot: Annotated[str | None, typer.Option("--system-prompt-snapshot")] = None,
-    subagent_append: Annotated[
-        str | None, typer.Option("--append-subagent-system-prompt")
-    ] = None,
+    subagent_append: Annotated[str | None, typer.Option("--append-subagent-system-prompt")] = None,
     subagent_append_file: Annotated[
         str | None, typer.Option("--append-subagent-system-prompt-file")
     ] = None,

@@ -17,9 +17,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..ui import print_messages as texts
+
+if TYPE_CHECKING:
+    from .repl.persona_commands import PersonaTurn
 
 SNAPSHOT_DIR = "system-prompt-snapshots"
 _SNAPSHOT_VALUES = frozenset({"on", "off"})
@@ -119,12 +122,12 @@ def _save(path: Path, prompts: LaunchPrompts) -> None:
         return  # kayıt yazılamazsa istem yine bu oturumda uygulanır
 
 
-def bind(state: Any, prompts: object, *, resumed: object) -> LaunchPrompts | None:
+def bind(state: object, prompts: object, *, resumed: object) -> LaunchPrompts | None:
     """REPL açılışı: sürdürülen sohbette kayıtlı istemi, yenisinde bayrak metnini bağla."""
     if not isinstance(prompts, LaunchSpec):
         return None
     return recorded(
-        state.config.memory_dir,
+        Path(getattr(getattr(state, "config", None), "memory_dir", ".")),
         str(getattr(state, "conversation_id", "") or ""),
         prompts.prompts,
         resuming=resumed is not None,
@@ -140,7 +143,7 @@ class LaunchSpec:
     snapshot: bool = True
 
 
-def apply_to_turn(turn: Any, state: object) -> Any:
+def apply_to_turn(turn: PersonaTurn, state: object) -> PersonaTurn:
     """REPL turu: oturumun açılış istemini kişilik turuna kat (bayrak kişilikten önce gelir)."""
     prompts = getattr(state, "launch_prompts", None)
     if not isinstance(prompts, LaunchPrompts) or prompts.empty:

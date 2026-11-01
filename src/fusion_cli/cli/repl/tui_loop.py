@@ -20,7 +20,6 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...config import keybindings
-from .. import launch_prompts as launch_prompts_mod
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -34,6 +33,7 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from .. import launch_prompts as launch_prompts_mod
 from ..desktop_never import AppDenials, config_persist, offers_never
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task

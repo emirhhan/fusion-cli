@@ -1,4 +1,4 @@
-"""`--bare` kataloğu: kullanıcı/proje becerileri keşfedilmez, --add-dir becerileri yüklenir (#298)."""
+"""`--bare` kataloğu: kullanıcı/proje becerileri keşfedilmez, --add-dir becerileri gelir (#298)."""
 
 from __future__ import annotations
 
@@ -43,8 +43,12 @@ def test_bare_mcp_config_sunucusu_baglanir_araclari_acik(monkeypatch):
     async def _fake(task, config, **kwargs):
         calls.append({"config": config, **kwargs})
         return SimpleNamespace(
-            final_text="t", ok=True, stop_reason=None, model_calls_made=1,
-            hit_step_limit=False, messages=[],
+            final_text="t",
+            ok=True,
+            stop_reason=None,
+            model_calls_made=1,
+            hit_step_limit=False,
+            messages=[],
         )
 
     monkeypatch.setattr(print_run, "run_agent_task", _fake)

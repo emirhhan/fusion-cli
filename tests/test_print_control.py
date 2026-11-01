@@ -42,9 +42,9 @@ def _channel() -> tuple[ControlChannel, _Feed, list[dict]]:
     return ControlChannel(feed, out.append).start(), feed, out  # type: ignore[arg-type]
 
 
-async def _until(predicate, timeout: float = 2.0) -> None:
+async def _until(predicate, limit_s: float = 2.0) -> None:
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
+    deadline = loop.time() + limit_s
     while not predicate():
         if loop.time() > deadline:
             raise AssertionError("koşul gerçekleşmedi")
@@ -174,7 +174,9 @@ def test_initialize_ve_set_permission_mode_sonraki_tura_uygulanir(monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    responses = {m["response"]["request_id"]: m["response"] for m in out if m["type"] == "control_response"}
+    responses = {
+        m["response"]["request_id"]: m["response"] for m in out if m["type"] == "control_response"
+    }
     assert responses["i1"]["subtype"] == "success"
     assert responses["m1"]["subtype"] == "success"
     assert calls[0]["mode"] is ApprovalMode.ACCEPT_EDITS

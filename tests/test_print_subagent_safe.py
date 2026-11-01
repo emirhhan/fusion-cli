@@ -26,8 +26,12 @@ async def _child(deps) -> str:
     tool = build_agent_registry(deps, depth=0, run_agent=loop.run_agent).get("Agent")
     assert tool is not None
     await tool.run(
-        {"prompt": "Merhaba", "description": "Kısa", "subagent_type": "general-purpose",
-         "run_in_background": False},
+        {
+            "prompt": "Merhaba",
+            "description": "Kısa",
+            "subagent_type": "general-purpose",
+            "run_in_background": False,
+        },
         deps.tool_context,
     )
     return ""
@@ -56,8 +60,12 @@ def _print(monkeypatch, args):
     async def _fake(task, config, **kwargs):
         calls.append({"config": config, "append": subagent_prompt.current(), **kwargs})
         return SimpleNamespace(
-            final_text="t", ok=True, stop_reason=None, model_calls_made=1,
-            hit_step_limit=False, messages=[],
+            final_text="t",
+            ok=True,
+            stop_reason=None,
+            model_calls_made=1,
+            hit_step_limit=False,
+            messages=[],
         )
 
     monkeypatch.setattr(print_run, "run_agent_task", _fake)
@@ -80,8 +88,14 @@ def test_iki_alt_ajan_bayragi_birlesmez(monkeypatch, tmp_path):
     rules.write_text("a", encoding="utf-8")
     _calls, result = _print(
         monkeypatch,
-        ["-p", "x", "--append-subagent-system-prompt", "b",
-         "--append-subagent-system-prompt-file", str(rules)],
+        [
+            "-p",
+            "x",
+            "--append-subagent-system-prompt",
+            "b",
+            "--append-subagent-system-prompt-file",
+            str(rules),
+        ],
     )
     assert result.exit_code == 1 and "cannot be used together" in result.output
 

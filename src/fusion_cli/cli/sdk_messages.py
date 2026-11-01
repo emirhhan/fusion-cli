@@ -289,9 +289,7 @@ class SdkStream:
             assistant=lambda content, parent: self.write(
                 assistant_message(self.session_id, self._model(), content, parent)
             ),
-            user=lambda content, parent: self.write(
-                user_message(self.session_id, content, parent)
-            ),
+            user=lambda content, parent: self.write(user_message(self.session_id, content, parent)),
             forward_text=forward_text_enabled(forward_subagent_text),
         )
 

@@ -38,6 +38,7 @@ from ..ui.renderer import ConsoleRenderer
 from . import sdk_messages as sdk
 from .cleanup import with_web_cleanup
 from .headless import OutputFormat
+from .print_builtins import apply_builtin
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan, plan_extra_system
 from .print_runtime import (
@@ -55,7 +56,6 @@ from .print_session import (
     resolve_print_session,
     snapshot_plan,
 )
-from .print_builtins import apply_builtin
 from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
@@ -193,8 +193,8 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
             session_id=run.session.session_id,
         )
         if run.slash.error:
-            reply = AgentOutcome(final_text=run.slash.error, messages=[], ok=True)
-            return _finish(run, task, reply, None, ())
+            failed = AgentOutcome(final_text=run.slash.error, messages=[], ok=True)
+            return _finish(run, task, failed, None, ())
         task_to_run = run.slash.task
     else:
         task_to_run = task
@@ -315,7 +315,9 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
     )
     try:
         main = with_web_cleanup(_and_wait(coro, child_runs))
-        outcome = asyncio.run(run.control.guard(main) if run.control is not None else main)
+        outcome: AgentOutcome = asyncio.run(
+            run.control.guard(main) if run.control is not None else main
+        )
     finally:
         observers.finish()
     run.history = list(getattr(outcome, "messages", None) or run.history)

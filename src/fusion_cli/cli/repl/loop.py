@@ -30,8 +30,8 @@ from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
 from ...tools import desktop_turn
-from .. import launch_prompts as launch_prompts_mod
 from ...tools.remotion_observe import browser_transport
+from .. import launch_prompts as launch_prompts_mod
 
 if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome

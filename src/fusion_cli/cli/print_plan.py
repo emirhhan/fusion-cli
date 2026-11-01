@@ -22,8 +22,8 @@ from ..ui import print_messages as texts
 from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
-from .print_settings import apply_settings, check_setting_sources, read_settings
 from .print_runtime import BARE_TOOLS, apply_print_limits, apply_safe_mode, apply_session_flags
+from .print_settings import apply_settings, check_setting_sources, read_settings
 
 
 @dataclass(frozen=True, slots=True)

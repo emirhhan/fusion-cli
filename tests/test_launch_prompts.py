@@ -37,7 +37,9 @@ def _print(monkeypatch, args):
 def test_surdurulen_p_oturumu_kayitli_istemi_kullanir(monkeypatch):
     sid = str(uuid.uuid4())
     _print(monkeypatch, ["-p", "ilk", "--session-id", sid, "--append-system-prompt", "ESKİ"])
-    calls, result = _print(monkeypatch, ["-r", sid, "-p", "sonra", "--append-system-prompt", "YENİ"])
+    calls, result = _print(
+        monkeypatch, ["-r", sid, "-p", "sonra", "--append-system-prompt", "YENİ"]
+    )
     assert result.exit_code == 0, result.output
     assert "ESKİ" in calls[0]["extra_system"] and "YENİ" not in calls[0]["extra_system"]
 
@@ -59,7 +61,9 @@ def test_gecersiz_snapshot_degeri(monkeypatch):
 
 def test_bare_kipinde_kayit_kapali(tmp_path):
     current = lp.LaunchPrompts(None, "A")
-    lp.recorded(tmp_path, "s1", current, resuming=False, enabled=lp.snapshot_enabled(None, bare=True))
+    lp.recorded(
+        tmp_path, "s1", current, resuming=False, enabled=lp.snapshot_enabled(None, bare=True)
+    )
     assert not (tmp_path / lp.SNAPSHOT_DIR).exists()
     assert lp.snapshot_enabled("on", bare=True)
 

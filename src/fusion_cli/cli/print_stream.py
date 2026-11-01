@@ -38,7 +38,9 @@ def stream_turns(run: _Run) -> int:
             stream.write(sdk.user_message(run.session.session_id, raw))
         reply = None if run.plan.request.disable_slash else apply_builtin(run, task)
         if reply is not None:
-            code = _finish(run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ())
+            code = _finish(
+                run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ()
+            )
             continue
         try:
             code = _finish(run, task, *_turn(run, task))

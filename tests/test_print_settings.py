@@ -51,9 +51,7 @@ def test_settings_defaultmode_dizin_env_ve_kancalar(monkeypatch, tmp_path):
 
 def test_permission_mode_bayragi_settings_kipinden_onceliklidir(monkeypatch):
     settings = json.dumps({"permissions": {"defaultMode": "acceptEdits"}})
-    calls, _ = _print(
-        monkeypatch, ["-p", "x", "--settings", settings, "--permission-mode", "plan"]
-    )
+    calls, _ = _print(monkeypatch, ["-p", "x", "--settings", settings, "--permission-mode", "plan"])
     assert calls[0]["mode"] is ApprovalMode.PLAN
 
 

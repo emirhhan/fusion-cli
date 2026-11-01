@@ -15,7 +15,10 @@ from fusion_cli.core.errors import WorktreeError
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-        cwd=cwd, check=True, capture_output=True, text=True,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 

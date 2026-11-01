@@ -228,7 +228,9 @@ def main_callback(
     ] = None,
     system_prompt_snapshot: Annotated[
         str | None,
-        typer.Option("--system-prompt-snapshot", help="on (varsayılan) ya da off: her istekte kur."),
+        typer.Option(
+            "--system-prompt-snapshot", help="on (varsayılan) ya da off: her istekte kur."
+        ),
     ] = None,
     _version: Annotated[
         bool,
