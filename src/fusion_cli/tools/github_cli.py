@@ -1,7 +1,7 @@
 """Salt-okunur `gh` (GitHub CLI) aracı — PR/CI bağlamı (P-057).
 
 Claude Code PR işlerini `gh` üzerinden yapar ("create a pr" → `gh pr create`, `--from-pr`,
-`/pr-comments`). Fusion'da okuma `gh` aracıyla onaysızdır; yazan `gh` komutları
+PR yorumlarını doğrudan sormak). Fusion'da okuma `gh` aracıyla onaysızdır; yazan `gh` komutları
 (`pr create`, `pr merge`, `pr comment`…) bu araçtan GEÇMEZ: model onları `run_shell` ile
 çalıştırır ve onay akışına girer (`tools/auto_policy.py::_outward_risk` bu modülün
 `gh_reads_only` kapısını kullanır; yazan `gh` dışa dönük risk sayılır).

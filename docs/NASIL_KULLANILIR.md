@@ -722,7 +722,7 @@ satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }
 
 ---
 
-## 12c) PR ve CI → `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`, `gh-action`
+## 12c) PR ve CI → `/pr`, `/autofix-pr`, `--from-pr`, `gh-action`
 
 GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış olmalı.
 
@@ -730,7 +730,8 @@ GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış
   `pr checks N`, `run view`, `api …` (yalnız GET). Yazan komutlar (`gh pr create`,
   `gh pr comment`, `gh pr merge`) `run_shell` ile çalışır ve **onay ister**.
 - Sohbette: `/pr [bağlam]` mevcut dal için PR açar (başlık, gövde, test planı);
-  `/pr-comments [no]` inceleme yorumlarını dosya:satır ile özetler, kod değiştirmez;
+  PR yorumları için komut yoktur (Claude Code v2.1.91'de `/pr-comments` kaldırıldı):
+  "42 numaralı PR'ın yorumlarını özetle" diye doğrudan sorulur;
   `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
 - Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
   (başlık, dallar, açıklama, adres) ekler.

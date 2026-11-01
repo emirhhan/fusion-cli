@@ -1176,7 +1176,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("debug", messages.CMD_DEBUG, ()),
             ("batch", messages.CMD_BATCH, ()),
             ("pr", messages.CMD_PR, ()),
-            ("pr-comments", messages.CMD_PR_COMMENTS, ()),
             ("autofix-pr", messages.CMD_AUTOFIX_PR, ()),
         )
     ),

@@ -1056,7 +1056,6 @@ CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"
 # --- PR/CI makroları ve gh-action (P-057) --- #
 CMD_PR = "mevcut dal için gh ile PR aç (başlık, gövde, test planı)"
-CMD_PR_COMMENTS = "PR inceleme yorumlarını oku ve dosya:satır ile özetle"
 CMD_AUTOFIX_PR = "PR'daki başarısız CI ve yorumları düzelt, push et, bildir"
 HEADLESS_FROM_PR_FAILED = "PR bağlamı alınamadı: {error}"
 GH_ACTION_USAGE = "kullanım: fusion gh-action kur [--force]"
