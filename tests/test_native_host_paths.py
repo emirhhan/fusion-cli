@@ -12,8 +12,14 @@ from fusion_cli.appserver.native_host_paths import host_dirs, windows_host_keys
 
 def test_macos_ve_linux_dizinleri_edge_brave_arc_vivaldi_opera_icerir(tmp_path):
     mac = {str(path) for path in host_dirs(tmp_path, "darwin")}
-    for data in ("Microsoft Edge", "BraveSoftware/Brave-Browser", "Arc/User Data", "Vivaldi",
-                 "com.operasoftware.Opera", "Google/Chrome"):
+    for data in (
+        "Microsoft Edge",
+        "BraveSoftware/Brave-Browser",
+        "Arc/User Data",
+        "Vivaldi",
+        "com.operasoftware.Opera",
+        "Google/Chrome",
+    ):
         assert str(tmp_path / "Library/Application Support" / data / "NativeMessagingHosts") in mac
     linux = {str(path) for path in host_dirs(tmp_path, "linux")}
     assert str(tmp_path / ".config/microsoft-edge/NativeMessagingHosts") in linux

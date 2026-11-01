@@ -19,7 +19,7 @@ from fusion_cli.config.desktop_denied import with_denied_app
 from fusion_cli.core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget
 from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
+from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 
 from .fakes import make_config
 

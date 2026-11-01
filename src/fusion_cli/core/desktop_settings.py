@@ -72,7 +72,12 @@ class DesktopSettings:
 
 
 #: Okunup uygulanmayan eski `desktop:` anahtarları (kullanıcı dosyası bozulmaz, bir kez uyarılır).
-DEPRECATED_KEYS: tuple[str, ...] = ("control_level", "category_defaults", "app_levels", "app_consent")
+DEPRECATED_KEYS: tuple[str, ...] = (
+    "control_level",
+    "category_defaults",
+    "app_levels",
+    "app_consent",
+)
 
 
 @dataclass(frozen=True, slots=True)

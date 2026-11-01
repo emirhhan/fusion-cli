@@ -257,7 +257,9 @@ async def test_reddedilen_uygulama_arka_plan_goruntusunde_de_kapanir(tmp_path, p
 
 async def test_desktop_open_ada_gore_engellenir(tmp_path, probe):
     _request, decision, _ = await _decide(
-        "desktop_open", {"app": "Binance"}, _context(tmp_path, denied_apps=("binance",)),
+        "desktop_open",
+        {"app": "Binance"},
+        _context(tmp_path, denied_apps=("binance",)),
         ApprovalMode.BYPASS,
     )
     assert decision is Decision.BLOCKED and probe.requests == []

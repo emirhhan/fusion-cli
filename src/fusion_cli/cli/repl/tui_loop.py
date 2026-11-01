@@ -189,9 +189,7 @@ class TuiPrompter:
                 choices.append(deny)
             if target is not None and offers_never(request):
                 # Uygulama onayı (#426): yalnız "Bu oturum için izin ver / Reddet".
-                choices = [
-                    choice for choice in choices if choice.value in {"session", "deny"}
-                ]
+                choices = [choice for choice in choices if choice.value in {"session", "deny"}]
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
             if answer == "once":
                 return ApprovalAnswer.ONCE

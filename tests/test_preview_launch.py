@@ -206,7 +206,12 @@ def test_port_degisince_port_bayragi_yeniden_yazilir():
     from fusion_cli.tools.launch_json import rewrite_port_flags
 
     assert rewrite_port_flags(("dev", "--port", "3000", "-p", "3000", "--port=3000"), 3001) == (
-        "dev", "--port", "3001", "-p", "3001", "--port=3001"
+        "dev",
+        "--port",
+        "3001",
+        "-p",
+        "3001",
+        "--port=3001",
     )
 
 

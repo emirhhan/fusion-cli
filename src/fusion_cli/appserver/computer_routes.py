@@ -32,9 +32,7 @@ COMPUTER_ROUTES = frozenset(
 )
 #: Arayüzden yazılabilen alanlar: `DesktopSettings`'in kullanımdan kalkmamış alanları (#424).
 SETTING_KEYS = tuple(
-    field.name
-    for field in dataclasses.fields(DesktopSettings)
-    if field.name not in DEPRECATED_KEYS
+    field.name for field in dataclasses.fields(DesktopSettings) if field.name not in DEPRECATED_KEYS
 )
 
 

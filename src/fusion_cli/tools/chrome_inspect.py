@@ -14,8 +14,8 @@ from typing import Any
 
 from ..core.redaction import redact
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .web import browser_block_reason
 from .preview_origins import allowed_local
+from .web import browser_block_reason
 
 #: Konsol/ağ okumasında tek seferde dönen en çok kayıt.
 MONITOR_LIMIT = 50

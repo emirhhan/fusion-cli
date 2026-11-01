@@ -117,8 +117,8 @@ def _default_notify(text: str) -> None:
     """macOS bildirimi (beklemeden); `FUSION_NO_OS_NOTIFY` ya da başka platformda sessiz."""
     if os.environ.get("FUSION_NO_OS_NOTIFY") or sys.platform != "darwin":
         return
-    script = f"display notification {json.dumps(text)} with title \"Fusion\""
-    subprocess.Popen(  # noqa: S603 - sabit ikili, metin json ile kaçışlı
+    script = f'display notification {json.dumps(text)} with title "Fusion"'
+    subprocess.Popen(
         ["/usr/bin/osascript", "-e", script],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

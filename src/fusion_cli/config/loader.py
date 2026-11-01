@@ -27,11 +27,10 @@ import yaml
 from dotenv import dotenv_values
 
 from ..core.desktop_settings import DesktopSettings
-from . import computer_use_projects
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
-from . import trust
+from . import computer_use_projects, trust
 from .agent_launch_compat import read_agent_launch
 from .agent_launch_settings import AgentLaunchConfig
 from .keys import ProviderPreference, apply_preference, detect, prune_config

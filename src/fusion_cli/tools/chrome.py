@@ -19,9 +19,9 @@ from . import chrome_guard, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
 from .key_spec import key_base
+from .preview_origins import allowed_local
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
 from .web import browser_block_reason
-from .preview_origins import allowed_local
 
 __all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
 

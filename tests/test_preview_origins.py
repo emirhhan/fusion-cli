@@ -29,7 +29,9 @@ async def test_calisan_onizleme_kokeni_acilir_baskasi_kapali(tmp_path, monkeypat
     _onizleme(monkeypatch, "http://localhost:5173/", static="http://127.0.0.1:8770/index.html")
     kopru = _Kopru()
     context = ToolContext(root=tmp_path, chrome=kopru)
-    ok = await chrome.chrome_action({"action": "open", "value": "http://localhost:5173/app"}, context)
+    ok = await chrome.chrome_action(
+        {"action": "open", "value": "http://localhost:5173/app"}, context
+    )
     assert ok.ok and kopru.calls == ["tab_open"]
     assert preview_origins.project_preview_origins(context) == {"localhost:5173", "127.0.0.1:8770"}
     blocked = await chrome.chrome_action(
@@ -41,5 +43,7 @@ async def test_calisan_onizleme_kokeni_acilir_baskasi_kapali(tmp_path, monkeypat
 async def test_onizleme_yoksa_yerel_adres_kapali(tmp_path, monkeypatch):
     _onizleme(monkeypatch, None)
     context = ToolContext(root=tmp_path, chrome=_Kopru())
-    result = await chrome.chrome_action({"action": "open", "value": "http://localhost:5173/"}, context)
+    result = await chrome.chrome_action(
+        {"action": "open", "value": "http://localhost:5173/"}, context
+    )
     assert not result.ok

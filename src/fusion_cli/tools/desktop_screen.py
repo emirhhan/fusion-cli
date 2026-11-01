@@ -390,9 +390,7 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     data = target.read_bytes()
     size = png_size(data)
     if size is None or len(data) > SCREENSHOT_MAX_BYTES:
-        return ToolResult.failure(
-            "Ekran görüntüsü sınırı aştı ya da PNG değil."
-        )
+        return ToolResult.failure("Ekran görüntüsü sınırı aştı ya da PNG değil.")
     context.touched.add(target)
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
     if region is not None:

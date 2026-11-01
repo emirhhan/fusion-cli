@@ -572,7 +572,8 @@ def _mcp(state: ReplState, argument: str) -> str:
     alt_komut = parcalar[0].lower() if parcalar else ""
     kalan = parcalar[1] if len(parcalar) > 1 else ""
 
-    from .computer_use_command import handle as computer_use, status_row
+    from .computer_use_command import handle as computer_use
+    from .computer_use_command import status_row
 
     yerlesik = computer_use(state, alt_komut, kalan)
     if yerlesik is not None:
@@ -585,15 +586,15 @@ def _mcp(state: ReplState, argument: str) -> str:
         return "\n".join(
             [status_row(state)]
             + [
-            redact(
-                messages.MCP_LIST_ROW.format(
-                    name=sunucu.name,
-                    scope=messages.MCP_SCOPE_LABELS.get(sunucu.scope.value, sunucu.scope.value),
-                    transport=sunucu.transport.value,
-                    target=sunucu.url or f"{sunucu.command} {' '.join(sunucu.args)}".rstrip(),
+                redact(
+                    messages.MCP_LIST_ROW.format(
+                        name=sunucu.name,
+                        scope=messages.MCP_SCOPE_LABELS.get(sunucu.scope.value, sunucu.scope.value),
+                        transport=sunucu.transport.value,
+                        target=sunucu.url or f"{sunucu.command} {' '.join(sunucu.args)}".rstrip(),
+                    )
                 )
-            )
-            for sunucu in state.config.mcp_servers
+                for sunucu in state.config.mcp_servers
             ]
         )
 

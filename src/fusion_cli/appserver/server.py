@@ -74,7 +74,9 @@ async def serve(
                 remotion_browser=remotion_browser,
                 require_remotion_kit=require_remotion_kit,
             )
-            if remotion_transport is not None or remotion_browser is not None or require_remotion_kit
+            if remotion_transport is not None
+            or remotion_browser is not None
+            or require_remotion_kit
             else AppSession(writer, root=root, home=home)
         )
         tasks: set[asyncio.Task[None]] = set()

@@ -42,8 +42,8 @@ from .mirror import (
     mirror_summary,
     rewrite_links,
 )
-from .web import access_wall_notice, browser_block_reason
 from .preview_origins import allowed_local
+from .web import access_wall_notice, browser_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
 #: yavaştır; `WEB_TIMEOUT_S` bir HTTP isteği bütçesidir ve buraya uymaz.

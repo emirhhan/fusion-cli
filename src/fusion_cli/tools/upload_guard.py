@@ -9,7 +9,6 @@ listesinden okunur.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from ..core.tools import ToolContext
@@ -51,7 +50,7 @@ def upload_refusal(path: Path, context: ToolContext) -> str | None:
     if _read_denied(path, context):
         return DENY_READ_REASON.format(name=path.name)
     try:
-        links = os.stat(path).st_nlink
+        links = path.stat().st_nlink
     except OSError:
         return None
     return HARD_LINK_REASON.format(name=path.name) if links > 1 else None
