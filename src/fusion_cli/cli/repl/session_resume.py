@@ -22,7 +22,7 @@ from pathlib import Path
 from ...core.errors import SessionNotFoundError
 from ...core.types import Message
 from ...ui import messages
-from ...ui.picker import Choice, pick
+from ...ui.picker import Choice
 from . import linked_pr, resume_lookup
 from .session_snapshot import PERMISSION_ALL, PERMISSION_NONE, PERMISSION_PLAN
 from .state import ReplState
@@ -221,7 +221,7 @@ def resume_command(state: ReplState, argument: str) -> str:
         return messages.SESSION_LIST_EMPTY
     query = argument.strip()
     if not query:
-        chosen = pick(resume_choices(refs), title=messages.SESSION_PICK_TITLE)
+        chosen = _pick_session(state)
         if chosen is None:
             return ""
         query = chosen
@@ -261,6 +261,13 @@ def resume_command(state: ReplState, argument: str) -> str:
         note = ""
     resumed = messages.SESSION_RESUMED.format(title=ref.title, count=len(history))
     return f"{resumed}\n{note}" if note else resumed
+
+
+def _pick_session(state: ReplState) -> str | None:
+    """Satır içi Claude Code seçicisi (#202); terminal yoksa düz numaralı liste."""
+    from .resume_launch import _claude_picker
+
+    return _claude_picker(state.config.memory_dir, state.root)
 
 
 def rename_command(state: ReplState, argument: str) -> str:

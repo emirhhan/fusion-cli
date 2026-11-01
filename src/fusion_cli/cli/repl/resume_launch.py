@@ -40,6 +40,22 @@ def _default_chooser(choices: list[Choice], title: str) -> str | None:
     return pick(choices, title=title)
 
 
+def _claude_picker(memory_dir: Path, root: Path) -> str | None:
+    from . import resume_picker
+
+    def _ask(title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str) -> str | None:
+        # Ana liste aranabilir (Claude Code: `/` ya da yazmak); önizleme değil.
+        return pick(rows, title=title, alt_keys=keys, initial=initial, searchable=bool(keys))
+
+    def _ask_name() -> str:
+        try:
+            return input(f"{messages.SESSION_RENAME_PROMPT} ")
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
+    return resume_picker.run(memory_dir, root, _ask, _ask_name)
+
+
 def pick_conversation(memory_dir: Path, root: Path, chooser: Chooser | None = None) -> str:
     """Bu projedeki sohbetlerden birini seçtir ve kimliğini döndür."""
     from .session_resume import resume_choices
@@ -47,7 +63,11 @@ def pick_conversation(memory_dir: Path, root: Path, chooser: Chooser | None = No
     refs = list_conversations(memory_dir, root)
     if not refs:
         raise SessionNotFoundError(messages.SESSION_LIST_EMPTY)
-    chosen = (chooser or _default_chooser)(resume_choices(refs), messages.SESSION_PICK_TITLE)
+    if chooser is None:
+        # Claude Code oturum seçicisi (#202): önizleme, ad, kapsam ve dal süzgeçleri.
+        chosen = _claude_picker(memory_dir, root)
+    else:
+        chosen = chooser(resume_choices(refs), messages.SESSION_PICK_TITLE)
     if not chosen:
         raise SessionNotFoundError(messages.SESSION_PICK_CANCELLED)
     return chosen

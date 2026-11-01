@@ -94,7 +94,7 @@ def test_seciciden_secilen_oturum_yalniz_plani_geri_yukler(tmp_path, monkeypatch
     _saved(tmp_path, "session-plan", ApprovalMode.PLAN)
     yeni = _state(tmp_path, "session-yeni")
     yeni.approval = ApprovalMode.SECURITY
-    monkeypatch.setattr(resume_launch, "_default_chooser", lambda choices, title: "session-abc")
+    monkeypatch.setattr(resume_launch, "_claude_picker", lambda memory, root: "session-abc")
     target = session_resume.resolve_launch(
         yeni.config.memory_dir, yeni.root, resume=resume_launch.RESUME_PICKER
     )
@@ -105,7 +105,7 @@ def test_seciciden_secilen_oturum_yalniz_plani_geri_yukler(tmp_path, monkeypatch
 
     plan = _state(tmp_path, "session-yeni2")
     plan.approval = ApprovalMode.SECURITY
-    monkeypatch.setattr(resume_launch, "_default_chooser", lambda choices, title: "session-plan")
+    monkeypatch.setattr(resume_launch, "_claude_picker", lambda memory, root: "session-plan")
     target = session_resume.resolve_launch(
         plan.config.memory_dir, plan.root, resume=resume_launch.RESUME_PICKER
     )

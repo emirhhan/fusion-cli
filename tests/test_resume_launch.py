@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from fusion_cli.cli.repl import resume_launch, session_resume
+from fusion_cli.cli.repl import resume_launch, resume_picker, session_resume
 from fusion_cli.cli.repl.transcript_store import TranscriptStore
 from fusion_cli.core.errors import SessionNotFoundError
 
@@ -32,11 +32,13 @@ def test_secici_secilen_sohbeti_acar(tmp_path, monkeypatch):
     store.record_assistant("tamam")
     secenekler: list[str] = []
 
-    def _sec(choices, _title):
-        secenekler.extend(choice.value for choice in choices)
+    def _sec(memory_dir, root_dir):
+        # Claude Code seçicisi (#202) bu projenin satırlarını gösterir.
+        found = resume_picker.rows(memory_dir, root_dir, resume_picker.PickerView())
+        secenekler.extend(choice.value for choice in resume_picker.choices(found))
         return "session-abc"
 
-    monkeypatch.setattr(resume_launch, "_default_chooser", _sec)
+    monkeypatch.setattr(resume_launch, "_claude_picker", _sec)
 
     target = session_resume.resolve_launch(memory, root, resume=resume_launch.RESUME_PICKER)
 
@@ -48,7 +50,7 @@ def test_secici_secilen_sohbeti_acar(tmp_path, monkeypatch):
 def test_secici_vazgecilirse_oturum_acilmaz(tmp_path, monkeypatch):
     memory, root = tmp_path / "m", tmp_path / "r"
     TranscriptStore(memory, root, conversation_id="session-abc").record_user("selam")
-    monkeypatch.setattr(resume_launch, "_default_chooser", lambda *_a: None)
+    monkeypatch.setattr(resume_launch, "_claude_picker", lambda *_a: None)
 
     with pytest.raises(SessionNotFoundError):
         session_resume.resolve_launch(memory, root, resume=resume_launch.RESUME_PICKER)

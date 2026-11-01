@@ -311,6 +311,11 @@ class ConversationRef:
     message_count: int
     #: Kullanıcının verdiği ad (`/rename`, `--name`); yoksa boş. Varsa `title` da budur.
     name: str = ""
+    #: Son kullanıcı mesajındaki git dalı ve çalışma dizini (seçici süzgeçleri, #202).
+    git_branch: str = ""
+    cwd: str = ""
+    #: Sohbetin transcript satırlarının toplam boyutu (bayt).
+    size_bytes: int = 0
 
 
 def find_conversation(base_dir: Path, root: Path, query: str) -> ConversationRef | None:
@@ -411,6 +416,8 @@ def list_conversations(
     stamps: dict[str, float] = {}
     #: Sohbet başına mesaj rolleri; geri sarma olayı listeyi keser, sayım yüklenenle eşleşir.
     roles: dict[str, list[str]] = {}
+    places: dict[str, tuple[str, str]] = {}
+    sizes: dict[str, int] = {}
     for line in lines:
         try:
             event = json.loads(line)
@@ -419,6 +426,10 @@ def list_conversations(
         if not isinstance(event, dict):
             continue
         conversation = event.get("session_id")
+        if isinstance(conversation, str):
+            sizes[conversation] = sizes.get(conversation, 0) + len(line.encode("utf-8")) + 1
+            if event.get("event") == "UserMessage" and isinstance(event.get("cwd"), str):
+                places[conversation] = (str(event.get("git_branch") or ""), event["cwd"])
         if _conversation_digest(conversation) in deleted:
             continue
         if event.get("event") == _NAME_EVENT:
@@ -454,6 +465,9 @@ def list_conversations(
             updated_at=stamps.get(conversation, 0.0),
             message_count=len(roles.get(conversation, ())),
             name=names.get(conversation, ""),
+            git_branch=places.get(conversation, ("", ""))[0],
+            cwd=places.get(conversation, ("", ""))[1],
+            size_bytes=sizes.get(conversation, 0),
         )
         for conversation, title in titles.items()
     )
@@ -510,11 +524,15 @@ class TranscriptStore:
     def record_user(self, text: str, *, message_id: str | None = None) -> None:
         if is_harness_note(text):
             return
+        branch = current_git_branch(self.root)
         self._append(
             {
                 "event": "UserMessage",
                 "text": text,
                 **({"message_id": message_id} if message_id else {}),
+                # Claude Code oturum seçicisi dal/worktree süzgeçleri için (#202).
+                "cwd": str(self.root),
+                **({"git_branch": branch} if branch else {}),
             }
         )
 
@@ -568,6 +586,25 @@ class TranscriptStore:
             self.events_path.chmod(0o600)
         except OSError:
             return
+
+
+def current_git_branch(root: Path) -> str:
+    """`root`'un git dalı (alt süreçsiz, `.git/HEAD` okunur); dal yoksa ya da ayrık HEAD'de boş."""
+    for folder in (root, *root.parents):
+        marker = folder / ".git"
+        try:
+            if marker.is_file():
+                text = marker.read_text(encoding="utf-8").strip()
+                marker = Path(text.removeprefix("gitdir:").strip())
+                if not marker.is_absolute():
+                    marker = folder / marker
+            elif not marker.is_dir():
+                continue
+            head = (marker / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+        return head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else ""
+    return ""
 
 
 def _redact_values(value: object) -> object:

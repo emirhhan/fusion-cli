@@ -804,6 +804,20 @@ class FusionTui:
             if not (self._searching() and self._choice_type("s")):
                 self._pick_alt("s")
 
+        # Claude Code oturum seçicisi (#202): Space önizler (aramada boşluk yazılır), Ctrl+R/A/W/B.
+        for special in ("space", "c-r", "c-a", "c-w", "c-b"):
+
+            def _select_special(_event: object, special: str = special) -> None:
+                if special == "space" and self._searching() and self._choice_type(" "):
+                    return
+                self._pick_alt(special)
+
+            kb.add(
+                special,
+                filter=modal & Condition(lambda special=special: special in self._choice_alt_keys),
+                eager=True,
+            )(_select_special)
+
         for arrow in ("left", "right"):
 
             def _select_arrow(_event: object, arrow: str = arrow) -> None:

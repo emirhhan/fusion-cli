@@ -318,10 +318,14 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 | `/rename [ad]` | Açık sohbete ad verir (`--resume <ad>` ile bulunur); argümansız ad ilk istemden üretilir |
 | `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer; argümansız dal ilk isteme göre adlandırılır, onay yeni ve özgün kimliği basar |
 
-- Oturum seçicisi Claude Code tuşlarıyla gezilir: Up/Down, J/K, Home/End; tam ekranda `/` ya da
-  yazdırılabilir karakter arama kipine geçip listeyi ad/açıklamaya göre süzer, Backspace siler, ilk
-  Esc aramadan çıkar, ikincisi seçiciyi kapatır. Henüz yok: Space önizleme, Ctrl+R yeniden adlandırma,
-  Ctrl+W/Ctrl+A/Ctrl+B kapsam süzgeçleri ve satır içi seçicide arama.
+- Oturum seçicisi (`/resume`, argümansız `fusion --resume`) Claude Code tuşlarıyla gezilir: Up/Down,
+  J/K, Home/End, 1-9 doğrudan seçer; `/` ya da yazdırılabilir karakter arama kipine geçip listeyi
+  ad/açıklamaya göre süzer, Backspace siler, ilk Esc aramadan çıkar, ikincisi seçiciyi kapatır (tam
+  ekran ve satır içi). Satırda zaman, git dalı, boyut ve mesaj sayısı görünür. Space oturumun son
+  mesajlarını önizler, Ctrl+R yeniden adlandırır, Ctrl+W bütün çalışma ağaçlarının, Ctrl+A bütün
+  projelerin oturumlarını gösterir, Ctrl+B yalnız geçerli git dalının oturumlarını bırakır;
+  varsayılan liste geçerli dizinin (çalışma ağacının) oturumlarıdır. Dal ve dizin her kullanıcı
+  mesajıyla transcript'e yazılır; eski kayıtlar dizinsiz sayılıp varsayılan listede kalır.
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
   `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
 - Sürdürme (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,

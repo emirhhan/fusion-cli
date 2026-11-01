@@ -63,6 +63,7 @@ from . import (
     provider_flow,
     queue_steer,
     remote_control,
+    resume_picker,
     rewind,
     rewind_clear,
     rewind_summary,
@@ -1033,8 +1034,21 @@ class _TuiSession:
         if not refs:
             self._echo(f"[{theme.DIM}]{messages.SESSION_LIST_EMPTY}[/{theme.DIM}]")
             return None
-        selected = await self._tui.await_choice(
-            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs), searchable=True
+
+        async def _ask(
+            title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            # Claude Code seçicisi (#202): Space/Ctrl+R/Ctrl+A/Ctrl+W/Ctrl+B, yazarak arama.
+            return await self._tui.await_choice(
+                title, list(rows), alt_keys=keys, searchable=bool(keys), initial=initial
+            )
+
+        async def _ask_name() -> str:
+            self._echo(f"[{theme.DIM}]{messages.SESSION_RENAME_PROMPT}[/{theme.DIM}]")
+            return await self._tui.await_text()
+
+        selected = await resume_picker.run_async(
+            self._state.config.memory_dir, self._state.root, _ask, _ask_name
         )
         if selected is None:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")

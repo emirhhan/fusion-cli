@@ -1245,6 +1245,19 @@ SESSION_FORK_NEEDS_SOURCE = (
     "--fork-session kopyalanacak sohbeti ister: --continue ya da --resume <kimlik|ad> ile ver."
 )
 SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
+SESSION_PICKER_DETAIL = "{detail} · {count} mesaj"
+SESSION_PICKER_TITLE = (
+    "Hangi sohbet sürdürülsün? ({scope}{branch}) · Space önizle · Ctrl+R ad · "
+    "Ctrl+A projeler · Ctrl+W ağaçlar · Ctrl+B dal · / ara"
+)
+SESSION_SCOPE_HERE = "bu dizin"
+SESSION_SCOPE_ALL_WORKTREES = "bütün çalışma ağaçları"
+SESSION_SCOPE_ALL_PROJECTS = "bütün projeler"
+SESSION_SCOPE_BRANCH = ", yalnız bu dal"
+SESSION_PREVIEW_TITLE = "Önizleme · Enter/Esc seçiciye döner"
+SESSION_PREVIEW_USER = "› "
+SESSION_PREVIEW_EMPTY = "(mesaj yok)"
+SESSION_RENAME_PROMPT = "Oturumun yeni adı (boş: vazgeç):"
 
 #: `/rewind` — çok adımlı checkpoint'e geri sarma.
 CMD_REWIND = "bir turun başına dön: kod + konuşma, yalnız konuşma ya da yalnız kod (Esc Esc)"
