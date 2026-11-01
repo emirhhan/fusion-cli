@@ -79,7 +79,40 @@ def rows(memory_dir: Path, root: Path, view: PickerView) -> list[Row]:
         branch = current_git_branch(root)
         found = [row for row in found if row.ref.git_branch == branch]
     found.sort(key=lambda row: row.ref.updated_at, reverse=True)
-    return found[:LIST_LIMIT]
+    return grouped(found[:LIST_LIMIT])
+
+
+def _root_of(conversation_id: str, parents: dict[str, str]) -> str:
+    seen = {conversation_id}
+    while (parent := parents.get(conversation_id)) and parent not in seen:
+        seen.add(parent)
+        conversation_id = parent
+    return conversation_id
+
+
+def grouped(found: list[Row]) -> list[Row]:
+    """Dallar (kopyalar) kök oturumlarının hemen altında; gruplar en yeni üyeye göre sıralı."""
+    present = {row.ref.conversation_id for row in found}
+    parents = {
+        row.ref.conversation_id: row.ref.forked_from
+        for row in found
+        if row.ref.forked_from in present
+    }
+    order: dict[str, int] = {}
+    for index, row in enumerate(found):
+        order.setdefault(_root_of(row.ref.conversation_id, parents), index)
+    return sorted(
+        found,
+        key=lambda row: (
+            order[_root_of(row.ref.conversation_id, parents)],
+            row.ref.conversation_id in parents,
+            found.index(row),
+        ),
+    )
+
+
+def is_branch(row: Row, found: list[Row]) -> bool:
+    return any(other.ref.conversation_id == row.ref.forked_from for other in found)
 
 
 def human_size(size: int) -> str:
@@ -104,7 +137,9 @@ def choices(found: list[Row]) -> list[Choice]:
         result.append(
             Choice(
                 ref.conversation_id,
-                ref.title,
+                f"{messages.SESSION_BRANCH_MARK}{ref.title}"
+                if is_branch(row, found)
+                else ref.title,
                 messages.SESSION_PICKER_DETAIL.format(detail=detail, count=ref.message_count),
             )
         )

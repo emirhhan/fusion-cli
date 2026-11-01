@@ -1256,6 +1256,7 @@ SESSION_SCOPE_ALL_PROJECTS = "bütün projeler"
 SESSION_SCOPE_BRANCH = ", yalnız bu dal"
 SESSION_PREVIEW_TITLE = "Önizleme · Enter/Esc seçiciye döner"
 SESSION_PREVIEW_USER = "› "
+SESSION_BRANCH_MARK = "  ↳ "
 SESSION_PREVIEW_EMPTY = "(mesaj yok)"
 SESSION_RENAME_PROMPT = "Oturumun yeni adı (boş: vazgeç):"
 

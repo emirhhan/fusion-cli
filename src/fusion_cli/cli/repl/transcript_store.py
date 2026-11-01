@@ -30,6 +30,8 @@ _MAX_HISTORY_MESSAGES = 100
 
 #: Sohbete ad verme olayı (`/rename`, `--name`). Mesaj değildir; listede başlık olur.
 _NAME_EVENT = "ConversationNamed"
+#: Kopyanın kaynağı (`/branch`, `--fork-session`, `/fork`); seçici dalları gruplar (#202).
+_FORK_EVENT = "ConversationForked"
 #: Konuşmanın geri sarıldığı olay (`/rewind`): ilk `keep_users` kullanıcı mesajı ve
 #: cevapları kalır, sonrası düşer. Sayım KULLANICI mesajıyla yapılır: motor geçmişindeki
 #: araç/ara mesajlar transcript'te yoktur, kullanıcı mesajı ise iki tarafta da birdir.
@@ -316,6 +318,8 @@ class ConversationRef:
     cwd: str = ""
     #: Sohbetin transcript satırlarının toplam boyutu (bayt).
     size_bytes: int = 0
+    #: Kopyalandığı sohbet (`/branch`, `--fork-session`); kök oturumda boş.
+    forked_from: str = ""
 
 
 def find_conversation(base_dir: Path, root: Path, query: str) -> ConversationRef | None:
@@ -417,6 +421,7 @@ def list_conversations(
     #: Sohbet başına mesaj rolleri; geri sarma olayı listeyi keser, sayım yüklenenle eşleşir.
     roles: dict[str, list[str]] = {}
     places: dict[str, tuple[str, str]] = {}
+    forks: dict[str, str] = {}
     sizes: dict[str, int] = {}
     for line in lines:
         try:
@@ -431,6 +436,11 @@ def list_conversations(
             if event.get("event") == "UserMessage" and isinstance(event.get("cwd"), str):
                 places[conversation] = (str(event.get("git_branch") or ""), event["cwd"])
         if _conversation_digest(conversation) in deleted:
+            continue
+        if event.get("event") == _FORK_EVENT and isinstance(conversation, str):
+            source = event.get("forked_from")
+            if isinstance(source, str):
+                forks[conversation] = source
             continue
         if event.get("event") == _NAME_EVENT:
             # Son verilen ad geçerlidir; ad bir mesaj değildir, sayılmaz ve zaman damgası vermez.
@@ -468,6 +478,7 @@ def list_conversations(
             git_branch=places.get(conversation, ("", ""))[0],
             cwd=places.get(conversation, ("", ""))[1],
             size_bytes=sizes.get(conversation, 0),
+            forked_from=forks.get(conversation, ""),
         )
         for conversation, title in titles.items()
     )
@@ -549,6 +560,10 @@ class TranscriptStore:
     def record_name(self, name: str) -> None:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
+
+    def record_fork(self, source_id: str) -> None:
+        """Bu sohbet `source_id`'nin kopyasıdır (oturum seçicisi gruplaması, #202)."""
+        self._append({"event": _FORK_EVENT, "forked_from": source_id})
 
     def record_rewind(self, keep_users: int) -> None:
         """Konuşmayı ilk `keep_users` kullanıcı mesajına (ve cevaplarına) geri sar (`/rewind`).

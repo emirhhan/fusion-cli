@@ -50,7 +50,11 @@ def _waiting_copy(state: ReplState) -> str:
 
     try:
         target_id = fork_conversation(
-            state.config.memory_dir, state.root, state.history, name=state.conversation_name
+            state.config.memory_dir,
+            state.root,
+            state.history,
+            name=state.conversation_name,
+            source_id=state.conversation_id,
         )
     except (OSError, ValueError, FusionError) as error:
         return messages.FORK_COPY_FAILED.format(error=error)

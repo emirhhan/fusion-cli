@@ -133,7 +133,12 @@ def resolve_launch(
     )
     if fork:
         target_id = fork_conversation(
-            memory_dir, root, history, name=name or ref.name, target_id=wanted_id
+            memory_dir,
+            root,
+            history,
+            name=name or ref.name,
+            target_id=wanted_id,
+            source_id=ref.conversation_id,
         )
         linked_pr.save(memory_dir, target_id, linked_pr.load(memory_dir, ref.conversation_id))
         return ResumeTarget(
@@ -157,10 +162,17 @@ def fork_conversation(
     *,
     name: str = "",
     target_id: str = "",
+    source_id: str = "",
 ) -> str:
-    """Konuşmayı yeni bir kimliğe kopyala ve kimliği döndür (`ValueError`: kopya doğrulanamadı)."""
+    """Konuşmayı yeni bir kimliğe kopyala ve kimliği döndür (`ValueError`: kopya doğrulanamadı).
+
+    `source_id` verilirse kopya kaynağına bağlanır; oturum seçicisi dalları kök oturumun altında
+    gruplar (Claude Code, #202).
+    """
     target_id = target_id or new_conversation_id()
     copy_conversation(memory_dir, root, history, target_id=target_id, name=name)
+    if source_id:
+        TranscriptStore(memory_dir, root, conversation_id=target_id).record_fork(source_id)
     return target_id
 
 
@@ -292,7 +304,13 @@ def branch_command(state: ReplState, argument: str) -> str:
     name = argument.strip() or auto_name(state.history)
     source_id = state.conversation_id
     try:
-        target_id = fork_conversation(state.config.memory_dir, state.root, state.history, name=name)
+        target_id = fork_conversation(
+            state.config.memory_dir,
+            state.root,
+            state.history,
+            name=name,
+            source_id=state.conversation_id,
+        )
     except (ValueError, OSError) as error:
         return messages.SESSION_COPY_FAILED.format(reason=error)
     count = len(conversation_prefix(state.history))

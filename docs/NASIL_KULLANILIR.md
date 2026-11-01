@@ -325,7 +325,8 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
   mesajlarını önizler, Ctrl+R yeniden adlandırır, Ctrl+W bütün çalışma ağaçlarının, Ctrl+A bütün
   projelerin oturumlarını gösterir, Ctrl+B yalnız geçerli git dalının oturumlarını bırakır;
   varsayılan liste geçerli dizinin (çalışma ağacının) oturumlarıdır. Dal ve dizin her kullanıcı
-  mesajıyla transcript'e yazılır; eski kayıtlar dizinsiz sayılıp varsayılan listede kalır.
+  mesajıyla transcript'e yazılır; eski kayıtlar dizinsiz sayılıp varsayılan listede kalır. `/branch`,
+  `/fork` ve `--fork-session` kopyaları kök oturumlarının altında `↳` ile gruplanır.
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
   `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
 - Sürdürme (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,

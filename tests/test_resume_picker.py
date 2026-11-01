@@ -138,3 +138,24 @@ def test_satir_ici_secici_arama_gorunumu() -> None:
     assert view.type_if_active("j", None, state) and view.rows() == []
     assert view.leave(state) and len(view.rows()) == 2 and not view.leave(state)
     assert SearchView(rows, searchable=False).type("f", state) is False
+
+
+def test_dallar_kok_oturumun_altinda_gruplanir(ortam) -> None:
+    """Claude Code: /branch ve --fork-session kopyaları kök oturumun altında (#202)."""
+    from fusion_cli.cli.repl.session_resume import fork_conversation
+    from fusion_cli.core.types import Message
+
+    memory, root = ortam
+    _sohbet(memory, root, "s-kok", "kök istem")
+    fork_conversation(
+        memory,
+        root,
+        [Message("user", "kök istem"), Message("assistant", "cevap")],
+        target_id="s-dal",
+        source_id="s-kok",
+    )
+    _sohbet(memory, root, "s-yeni", "en yeni")
+    found = resume_picker.rows(memory, root, resume_picker.PickerView())
+    assert [row.ref.conversation_id for row in found] == ["s-yeni", "s-kok", "s-dal"]
+    labels = {c.value: c.label for c in resume_picker.choices(found)}
+    assert labels["s-dal"].startswith("  ↳ ") and not labels["s-kok"].startswith(" ")
