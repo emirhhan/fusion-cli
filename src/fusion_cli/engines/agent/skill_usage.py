@@ -67,7 +67,7 @@ def _locked(memory_dir: Path) -> Iterator[None]:
     except ImportError:  # Windows: kilitsiz (eski davranış)
         yield
         return
-    with open(memory_dir / f"{USAGE_FILE}.lock", "a", encoding="utf-8") as handle:
+    with (memory_dir / f"{USAGE_FILE}.lock").open("a", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             yield

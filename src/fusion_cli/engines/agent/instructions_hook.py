@@ -59,7 +59,7 @@ def _is_compacted(hooks: object) -> bool:
 
 def _set_compacted(hooks: object, value: bool) -> None:
     if hasattr(hooks, "instructions_compacted"):
-        hooks.instructions_compacted = value  # type: ignore[attr-defined]
+        hooks.instructions_compacted = value
     else:
         _fallback(hooks)["compacted"] = value
 
@@ -148,7 +148,10 @@ def startup_events(files: Iterable[object]) -> list[dict[str, object]]:
     """Tur başı yüklenen katman dosyaları → olay yükleri (`import` katmanı `include`)."""
     items = list(files)
     layers = {
-        str(getattr(item, "path", "")): (str(getattr(item, "layer", "")), getattr(item, "parent", None))
+        str(getattr(item, "path", "")): (
+            str(getattr(item, "layer", "")),
+            getattr(item, "parent", None),
+        )
         for item in items
     }
     result = []

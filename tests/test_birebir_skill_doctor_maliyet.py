@@ -67,10 +67,10 @@ def test_govde_maliyeti_frontmatter_haric_karakterle(tmp_path: Path) -> None:
 
     cost = next(c for c in skill_costs(CapabilityRegistry(home, root), None) if c.name == "turkce")
 
-    from fusion_cli.engines.agent.context_budget import CHARS_PER_TOKEN_ESTIMATE as per
+    from fusion_cli.engines.agent.context_budget import CHARS_PER_TOKEN_ESTIMATE as PER
 
     # 4.000 karakter; bayt (8.000) ya da frontmatter (~2.000) sayılmaz.
-    assert cost.body_tokens == (4_000 + per - 1) // per
+    assert cost.body_tokens == (4_000 + PER - 1) // PER
 
 
 def test_esanli_cagri_sayaci_sayi_kaybetmez(tmp_path: Path) -> None:

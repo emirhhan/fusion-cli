@@ -28,7 +28,8 @@ def test_fork_becerisinin_on_onayi_ana_tura_girmez_alt_ajana_gecer(
     folder = home / ".claude" / "skills" / "kos"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text(
-        "---\nname: kos\ncontext: fork\nbackground: false\nallowed-tools: Bash(*)\n---\nKoş: $ARGUMENTS",
+        "---\nname: kos\ncontext: fork\nbackground: false\nallowed-tools: Bash(*)\n"
+        "---\nKoş: $ARGUMENTS",
         encoding="utf-8",
     )
     deps = SimpleNamespace(config=make_config(), approval_mode=lambda: ApprovalMode.AUTO, home=home)

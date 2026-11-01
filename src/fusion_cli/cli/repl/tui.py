@@ -505,7 +505,9 @@ class FusionTui:
 
     def _choice_fragments(self) -> StyleAndTextTuples:
         """Seçim modalının satırları: başlık + seçenekler, seçili olan işaretli."""
-        title = self._choice_title + (f"  [süz: {self._choice_filter}]" if self._choice_filter else "")
+        title = self._choice_title + (
+            f"  [süz: {self._choice_filter}]" if self._choice_filter else ""
+        )
         fragments: StyleAndTextTuples = [("class:choice-title", f" {title}\n")]
         for index, choice in enumerate(self._choices):
             selected = index == self._choice_index
