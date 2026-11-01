@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from ..config.paths import base_config_dir
+from .native_host_paths import host_dirs, windows_host_keys
 
 HOST_NAME = "com.fusion.browser"
 #: Chrome yerel mesajlaşma iletisi üst sınırı (host → Chrome yönü 1 MB).
@@ -121,12 +122,9 @@ def _host_command() -> list[str]:
     return [sys.executable, "-m", "fusion_cli.appserver.chrome_host"]
 
 
-def _chrome_host_dirs(home: Path) -> list[Path]:
-    destek = home / "Library" / "Application Support"
-    return [
-        destek / "Google" / "Chrome" / "NativeMessagingHosts",
-        destek / "Chromium" / "NativeMessagingHosts",
-    ]
+def _chrome_host_dirs(home: Path, platform: str | None = None) -> list[Path]:
+    """Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera dizinleri (#433)."""
+    return host_dirs(home, sys.platform if platform is None else platform)
 
 
 EXTENSION_NAME = "Fusion Browser"
@@ -205,7 +203,7 @@ def install_native_host(extension_ids: set[str], home: Path | None = None) -> li
     if os.environ.get("FUSION_NO_NATIVE_HOST"):
         return []
     sistem = sys.platform
-    if sistem == "darwin":
+    if sistem == "darwin" or sistem.startswith("linux"):
         return _write_native_host(extension_ids, home or Path.home())
     if sistem == "win32":
         return _write_native_host_windows(extension_ids)
@@ -232,13 +230,15 @@ def _write_native_host_windows(extension_ids: set[str]) -> list[Path]:
     betik.write_text(f"@echo off\r\n{komut}\r\n", encoding="utf-8")
     hedef = base_config_dir() / f"{HOST_NAME}.json"
     hedef.write_text(json.dumps(_manifest_body(betik, extension_ids), indent=2), encoding="utf-8")
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _WINDOWS_HOST_KEY) as anahtar:
-        winreg.SetValueEx(anahtar, "", 0, winreg.REG_SZ, str(hedef))
+    # Chrome, Chromium, Edge, Brave, Vivaldi, Opera anahtarları (#433).
+    for key in windows_host_keys(HOST_NAME):
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as anahtar:
+            winreg.SetValueEx(anahtar, "", 0, winreg.REG_SZ, str(hedef))
     return [hedef]
 
 
 def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
-    """macOS'ta başlatıcı betiği ve her Chrome dizinine bildirim dosyasını yaz."""
+    """macOS/Linux'ta başlatıcı betiği ve kurulu her tarayıcı dizinine bildirim dosyasını yaz."""
     betik = base_config_dir() / "chrome-host.sh"
     betik.parent.mkdir(parents=True, exist_ok=True)
     komut = " ".join(shlex.quote(parca) for parca in _host_command())
@@ -248,7 +248,7 @@ def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
     yazilan: list[Path] = []
     for dizin in _chrome_host_dirs(home):
         if not dizin.parent.is_dir():
-            continue
+            continue  # tarayıcı kurulu değil
         dizin.mkdir(exist_ok=True)
         hedef = dizin / f"{HOST_NAME}.json"
         hedef.write_text(json.dumps(bildirim, indent=2), encoding="utf-8")
