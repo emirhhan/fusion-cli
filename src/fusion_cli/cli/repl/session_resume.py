@@ -198,8 +198,8 @@ def resume_command(state: ReplState, argument: str) -> str:
 
 
 def rename_command(state: ReplState, argument: str) -> str:
-    """`/rename <ad>` — açık sohbete ad ver; `--resume <ad>` ile bulunur."""
-    name = argument.strip()
+    """`/rename [ad]` — açık sohbete ad ver; argümansız ad geçmişten üretilir (#224)."""
+    name = argument.strip() or auto_name(state.history)
     if not name:
         return messages.SESSION_RENAME_USAGE
     TranscriptStore(
@@ -210,10 +210,14 @@ def rename_command(state: ReplState, argument: str) -> str:
 
 
 def branch_command(state: ReplState, argument: str) -> str:
-    """`/branch [ad]` — konuşmayı yeni sohbete kopyala ve oradan sür; özgün sohbet değişmez."""
+    """`/branch [ad]` — konuşmayı yeni sohbete kopyala ve oradan sür; özgün sohbet değişmez.
+
+    Claude Code (#224): argümansız dal ilk isteme göre adlandırılır, onay iki kimliği basar.
+    """
     if not any(message.role == "user" and message.content.strip() for message in state.history):
         return messages.SESSION_BRANCH_EMPTY
-    name = argument.strip()
+    name = argument.strip() or auto_name(state.history)
+    source_id = state.conversation_id
     try:
         target_id = fork_conversation(state.config.memory_dir, state.root, state.history, name=name)
     except (ValueError, OSError) as error:
@@ -226,7 +230,21 @@ def branch_command(state: ReplState, argument: str) -> str:
     # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo`/`/rewind` kaydı yeni kimliğe taşınmaz.
     state.last_changes = None
     state.checkpoints.clear()
-    return messages.SESSION_BRANCHED.format(count=count, name=f" ({name})" if name else "")
+    branched = messages.SESSION_BRANCHED.format(count=count, name=f" ({name})" if name else "")
+    return f"{branched}\n{messages.SESSION_BRANCH_IDS.format(new=target_id, source=source_id)}"
+
+
+#: Otomatik adın en fazla uzunluğu (`/rename`, `/branch` argümansız).
+AUTO_NAME_CHARS = 60
+
+
+def auto_name(history: Sequence[Message]) -> str:
+    """İlk gerçek kullanıcı isteminin ilk satırı; geçmiş boşsa boş metin."""
+    for message in conversation_prefix(history):
+        if message.role == "user":
+            first = message.content.strip().splitlines()[0].strip()
+            return first[:AUTO_NAME_CHARS].rstrip()
+    return ""
 
 
 def _when(epoch: float) -> str:

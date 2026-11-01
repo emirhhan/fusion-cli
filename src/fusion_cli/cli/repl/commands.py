@@ -1288,7 +1288,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[kimlik|ad]",
     ),
     SlashCommand(
-        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="<ad>"
+        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="[ad]"
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"

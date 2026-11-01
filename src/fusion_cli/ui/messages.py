@@ -1114,7 +1114,7 @@ HISTORY_RECENT_TITLE = "son oturumlar"
 
 #: Fusion'ın KENDİ sohbetlerini sürdürme (`--continue/--resume`, `/resume`, `/rename`, `/branch`).
 CMD_RESUME_OWN = "Fusion sohbetini sürdür (argümansız: bu projedeki sohbet listesi)"
-CMD_RENAME = "açık sohbete ad ver; --resume <ad> ve /resume listesinde görünür"
+CMD_RENAME = "açık sohbete ad ver (argümansız: geçmişten); --resume <ad> ile bulunur"
 CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
 SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
 SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
@@ -1125,7 +1125,7 @@ SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
 SESSION_RESUMED = "Sürdürülüyor: {title} ({count} mesaj)"
 SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet değişmez."
 SESSION_NAMED_NEW = "Yeni sohbet: {name}"
-SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
+SESSION_RENAME_USAGE = "Kullanım: /rename [ad] (sohbette henüz mesaj yok, ad üretilemedi)"
 SESSION_RENAMED = "Sohbet adı: {name}"
 SESSION_CLEARED = "Yeni sohbet başladı ({count} mesaj bırakıldı; /resume ile geri açılır)"
 SESSION_CLEARED_NAMED = (
@@ -1136,6 +1136,7 @@ SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder.
 SESSION_BRANCHED = (
     "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
 )
+SESSION_BRANCH_IDS = "Yeni sohbet: {new} · özgün sohbet: {source} (/resume {source} ile dönülür)"
 SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
 SESSION_FORK_NEEDS_SOURCE = (
     "--fork-session kopyalanacak sohbeti ister: --continue ya da --resume <kimlik|ad> ile ver."
