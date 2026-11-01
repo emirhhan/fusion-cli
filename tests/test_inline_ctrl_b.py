@@ -229,3 +229,28 @@ def test_disable_background_tasks_ile_gercek_ayar(tmp_path):
     )
     state = SimpleNamespace(config=config, child_runs=None, inline_keys=None)
     assert inline_keys.background_key_action(state) is BackgroundKey.NONE
+
+
+async def test_add_reader_basarisizsa_terminal_kipi_geri_yuklenir(monkeypatch):
+    """İnceleme bulgusu 1: tcsetattr'dan sonra add_reader düşerse kip kanonik kalmalı."""
+    import termios
+
+    master, slave = _pty()
+    try:
+        before = _lflag(slave)
+        loop_ = asyncio.get_running_loop()
+
+        def broken_add_reader(*args):
+            raise OSError("fd reddedildi")
+
+        monkeypatch.setattr(loop_, "add_reader", broken_add_reader)
+        keys = InlineKeys(frozenset({0x02}), slave, out=io.StringIO())
+        with keys.watching(lambda: None):
+            assert not keys.active
+            assert _lflag(slave) & termios.ICANON and _lflag(slave) & termios.ECHO
+        pendin = getattr(termios, "PENDIN", 0)
+        assert _lflag(slave) & ~pendin == before & ~pendin
+    finally:
+        os.close(master)
+        os.close(slave)
+
