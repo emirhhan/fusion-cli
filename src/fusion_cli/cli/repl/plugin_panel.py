@@ -81,7 +81,27 @@ def _installed() -> Screen:
         status = "kapalı" if not item.record.enabled else item.status
         rows.append(Choice(f"plugin:{ident}", ident, f"{item.record.version or ''} · {status}"))
     title = "Eklentiler · Installed" + (" (hepsi kapalı)" if state.all_disabled else "")
-    return Screen(title, (*rows, *_tabs("installed")))
+    return Screen(title, (*rows, *_flagged_rows(), *_tabs("installed")))
+
+
+def _flagged_rows() -> tuple[Choice, ...]:
+    """#397: pazardan kaldırılıp otomatik kaldırılanlar (Claude "Flagged" grubu); görüldü."""
+    from ...tools.plugin_flagged import load_flagged, mark_seen
+
+    flagged = load_flagged()
+    mark_seen(item.ident for item in flagged)
+    return tuple(
+        Choice(f"flagged:{item.ident}", item.ident, f"Flagged · Removed · {item.date}")
+        for item in flagged
+    )
+
+
+def _flagged_detail(ident: str) -> Screen:
+    from ...tools.plugin_flagged import format_flagged_detail, load_flagged
+
+    item = next((i for i in load_flagged() if i.ident == ident), None)
+    title = format_flagged_detail(item) if item is not None else f"{ident}: kayıt yok"
+    return Screen(title, _tabs(""))
 
 
 def _markets() -> Screen:
@@ -172,7 +192,12 @@ def screen(key: str) -> Screen:
     kind, _, target = key.partition(":")
     if kind in _SCREENS and not target:
         return _SCREENS[kind]()
-    builders = {"plugin": _plugin_actions, "market": _market_actions, "install": _install_screen}
+    builders = {
+        "plugin": _plugin_actions,
+        "market": _market_actions,
+        "install": _install_screen,
+        "flagged": _flagged_detail,
+    }
     return builders[kind](target)
 
 
@@ -182,7 +207,7 @@ def act(state: ReplState, key: str, value: str) -> Step:
     if value.startswith(_TAB_PREFIX):
         return Step(next_key=value.removeprefix(_TAB_PREFIX))
     verb, _, target = value.partition(":")
-    if verb in ("plugin", "market", "install"):
+    if verb in ("plugin", "market", "install", "flagged"):
         return Step(next_key=value)
     return Step(message=_run_action(state, verb, target))
 

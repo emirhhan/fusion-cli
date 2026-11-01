@@ -49,7 +49,6 @@ def sync_marketplace(
     record_root: Path | None = None,
 ) -> tuple[str, ...]:
     """Bu pazardan kurulu eklentileri girdiler ve `renames` ile eşle; bildirimleri döndür."""
-    from .plugin_install import uninstall_plugin
     from .plugin_toggle import entry_name
 
     root = base or plugins_dir()
@@ -70,12 +69,22 @@ def sync_marketplace(
             _drop_scope_keys(f"{old}@{market.name}", old, folder)
             notices.append(f"{old}: " + REMOVED_RENAME.format(market=market.name))
             if market.force_remove_deleted:
-                uninstall_plugin(record.name, base=root, everywhere=True)
+                _force_remove(record, root)
         elif market.force_remove_deleted:
             _drop_scope_keys(f"{old}@{market.name}", old, folder)
-            uninstall_plugin(record.name, base=root, everywhere=True)
+            _force_remove(record, root)
             notices.append(REMOVED_FORCED.format(name=old))
     return tuple(notices)
+
+
+def _force_remove(record: PluginRecord, root: Path) -> None:
+    """Her kapsamdan kaldır ve "Flagged" olarak işaretle (Claude delisted enforcement)."""
+    from .plugin_flagged import flag_plugin
+    from .plugin_install import uninstall_plugin
+
+    ident = plugin_store.plugin_id(record)
+    uninstall_plugin(ident, base=root, everywhere=True)
+    flag_plugin(ident, root)
 
 
 def _rename(record: PluginRecord, old: str, new: str, root: Path, project: Path) -> None:
@@ -127,7 +136,9 @@ def sync_all(*, base: Path | None = None) -> tuple[str, ...]:
     import logging
 
     from ..core.plugins import PluginError
+    from .plugin_flagged import expire_seen
 
+    expire_seen(base)  # görülmüş Flagged kayıtları 48 saat sonra düşer
     notices: list[str] = []
     for record in load_state(base or plugins_dir()).marketplaces:
         try:

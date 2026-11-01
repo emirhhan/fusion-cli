@@ -109,3 +109,33 @@ def test_repl_marketplace_update_esleme_bildirimlerini_gosterir(tmp_path):
     )
     out = plugin_command(state, "marketplace update ekip")
     assert 'rapor: Removed from the "ekip" marketplace' in out
+
+
+def test_force_remove_edilen_eklenti_flagged_olur_ve_panelde_gorunur(tmp_path):
+    """#397: Claude "Flagged" grubu; görüldükten 48 saat sonra kayıt düşer."""
+    from datetime import UTC, datetime, timedelta
+
+    from fusion_cli.cli.repl import plugin_panel
+    from fusion_cli.tools import plugin_flagged
+
+    entries = [
+        {"name": "rapor", "source": "./plugins/rapor"},
+        {"name": "cizim", "source": "./plugins/cizim"},
+    ]
+    plugin_install.add_marketplace(str(_market(tmp_path, entries)))
+    plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+    _market(tmp_path, entries[1:], forceRemoveDeletedPlugins=True)
+
+    CliRunner().invoke(app, ["marketplace", "update", "ekip"])
+
+    flagged = plugin_flagged.load_flagged()
+    assert [f.ident for f in flagged] == ["rapor@ekip"]
+    installed = plugin_panel.screen("installed")
+    assert any(c.value == "flagged:rapor@ekip" for c in installed.choices)
+    detail = plugin_panel.screen("flagged:rapor@ekip").title
+    assert "Status: Removed" in detail and "Flagged on" in detail
+    seen = plugin_flagged.load_flagged()[0]
+    assert seen.seen_at
+    later = datetime.fromisoformat(seen.seen_at) + timedelta(hours=49)
+    plugin_flagged.expire_seen(now=later.astimezone(UTC))
+    assert plugin_flagged.load_flagged() == ()
