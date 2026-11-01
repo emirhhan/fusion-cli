@@ -25,8 +25,11 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
 import os
+import subprocess
+import sys
 import threading
 import weakref
 from collections.abc import Callable, Sequence
@@ -104,6 +107,24 @@ def _default_escape(on_escape: Callable[[], None]) -> Callable[[], None] | None:
     return watch.stop if watch.start() else None
 
 
+#: İşletim sistemi bildirimleri (#447; Claude: "Claude is using your computer · press Esc to
+#: stop", bitince ikinci bildirim).
+NOTIFY_START = "Fusion bilgisayarını kullanıyor · durdurmak için Esc'e bas"
+NOTIFY_DONE = "Fusion bilgisayarı kullanmayı bitirdi"
+
+
+def _default_notify(text: str) -> None:
+    """macOS bildirimi (beklemeden); `FUSION_NO_OS_NOTIFY` ya da başka platformda sessiz."""
+    if os.environ.get("FUSION_NO_OS_NOTIFY") or sys.platform != "darwin":
+        return
+    script = f"display notification {json.dumps(text)} with title \"Fusion\""
+    subprocess.Popen(  # noqa: S603 - sabit ikili, metin json ile kaçışlı
+        ["/usr/bin/osascript", "-e", script],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def _default_keep() -> tuple[int, ...]:
     from .desktop_screen import fusion_pids
 
@@ -118,6 +139,7 @@ class DesktopTurnIo:
     unhide: Callable[[Sequence[int]], None] = _default_unhide
     start_escape: Callable[[Callable[[], None]], Callable[[], None] | None] = _default_escape
     keep_pids: Callable[[], tuple[int, ...]] = _default_keep
+    notify: Callable[[str], None] = _default_notify
 
 
 @dataclass(eq=False)  # kimlikle karşılaştırılır: `_LISTENING` kümesinde tutulur
@@ -152,6 +174,13 @@ class DesktopTurn:
             if not self.settings.background:
                 extra = tuple(pid for pid in keep if pid > 0)
                 self._hidden = self.io.hide((*self.io.keep_pids(), *extra))
+        self._notify(NOTIFY_START)
+
+    def _notify(self, text: str) -> None:
+        try:
+            self.io.notify(text)
+        except (OSError, ValueError):
+            _logger.warning("Bilgisayar kullanımı bildirimi gösterilemedi", exc_info=True)
 
     def _escape(self) -> None:
         self.stopped_by_escape = True
@@ -162,11 +191,14 @@ class DesktopTurn:
         with self._lock:
             stop, self._stop_escape = self._stop_escape, None
             hidden, self._hidden = self._hidden, ()
+            announce, self._started = self._started, False
         _LISTENING.discard(self)
         if stop is not None:
             stop()
         if hidden and self.settings.unhide_on_finish:
             self.io.unhide(hidden)
+        if announce:
+            self._notify(NOTIFY_DONE)
 
     @property
     def escape_active(self) -> bool:

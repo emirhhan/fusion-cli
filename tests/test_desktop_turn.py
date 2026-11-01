@@ -36,6 +36,7 @@ class _FakeIo:
         self.unhidden: list[tuple[int, ...]] = []
         self.escape_handlers: list[object] = []
         self.stopped = 0
+        self.notes: list[str] = []
 
     def io(self) -> DesktopTurnIo:
         def hide(keep):
@@ -50,7 +51,11 @@ class _FakeIo:
             return self._stop
 
         return DesktopTurnIo(
-            hide=hide, unhide=unhide, start_escape=start_escape, keep_pids=lambda: (1, 2)
+            hide=hide,
+            unhide=unhide,
+            start_escape=start_escape,
+            keep_pids=lambda: (1, 2),
+            notify=self.notes.append,
         )
 
     def _stop(self) -> None:
@@ -312,3 +317,17 @@ def test_kilit_belirteci_cli_de_surec_masaustunde_sohbet(tmp_path, monkeypatch):
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
     desktop_turn.end_session("sohbet-1")
     assert released == ["sohbet-1"]
+
+
+def test_ilk_eylemde_ve_tur_sonunda_isletim_sistemi_bildirimi(monkeypatch):
+    """#447: "Claude is using your computer · press Esc to stop", bitince ikinci bildirim."""
+    fake = _FakeIo()
+    turn = DesktopTurn(DesktopSettings(), lambda: None, fake.io())
+    turn.foreground_action()
+    turn.foreground_action()
+    turn.close()
+    turn.close()
+    assert fake.notes == [desktop_turn.NOTIFY_START, desktop_turn.NOTIFY_DONE]
+    eylemsiz = _FakeIo()
+    DesktopTurn(DesktopSettings(), lambda: None, eylemsiz.io()).close()
+    assert eylemsiz.notes == []
