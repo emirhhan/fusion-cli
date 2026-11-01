@@ -18,6 +18,7 @@ from collections.abc import Callable
 from ...engines.agent import skill_tool, skill_usage
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
+from ...tools.skill_commands import SkillInvocation
 from ...tools.skill_shell import ShellPolicy
 from ...ui import messages
 from .macros import Mode
@@ -65,19 +66,13 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         skill = registry.get_skill(qualified_name) if registry is not None else None
         if skill is None:
             return messages.REPL_SKILL_MISSING.format(name=qualified_name.split("@", 1)[0])
-        from pathlib import Path
+        from .skill_stack import split_stack
 
-        invocation = skill_tool.invoke(
-            skill,
-            argument,
-            mode=state.approval,
-            root=state.root,
-            home=Path.home(),
-            session_id=state.conversation_id,
-            effort=getattr(state.config.runtime, "reasoning_effort", "") or "",
-            verified_proposals=state.config.runtime.verified_skill_proposals,
-            memory_dir=state.config.memory_dir,
-        )
+        assert registry is not None
+        stack, stacked_argument = split_stack(registry, skill, argument)
+        if len(stack) > 1:
+            return _run_stack(state, stack, stacked_argument)
+        invocation = _invoke_for(state, skill, argument)
         if not invocation.ok:
             return "\n".join(invocation.notes)
         skill_usage.record_invocation(state.config.memory_dir, skill.name)
@@ -121,6 +116,65 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         return "\n".join(lines)
 
     return _handler
+
+
+def _invoke_for(state: ReplState, skill: Capability, argument: str) -> SkillInvocation:
+    from pathlib import Path
+
+    return skill_tool.invoke(
+        skill,
+        argument,
+        mode=state.approval,
+        root=state.root,
+        home=Path.home(),
+        session_id=state.conversation_id,
+        effort=getattr(state.config.runtime, "reasoning_effort", "") or "",
+        verified_proposals=state.config.runtime.verified_skill_proposals,
+        memory_dir=state.config.memory_dir,
+    )
+
+
+def _run_stack(state: ReplState, stack: tuple[Capability, ...], argument: str) -> str:
+    """`/a /b 123`: her beceri aynı argümanla açılır, gövdeleri aynı turda birlikte gider (#174)."""
+    from ...tools.skill_commands import DEFAULT_SKILL_TASK
+
+    invocations = [(skill, _invoke_for(state, skill, argument)) for skill in stack]
+    failed = [note for _, inv in invocations if not inv.ok for note in inv.notes]
+    if failed:
+        return "\n".join(failed)
+    for skill, _ in invocations:
+        skill_usage.record_invocation(state.config.memory_dir, skill.name)
+    commands = [inv.task for skill, inv in invocations if skill.kind == "komut"]
+    names = ", ".join(skill.name for skill in stack)
+    state.pending_task = "\n\n".join(commands) or argument or DEFAULT_SKILL_TASK.format(name=names)
+    state.pending_mode = Mode.NONE
+    state.pending_context = "\n\n".join(inv.context for _, inv in invocations if inv.context)
+    state.pending_tools = None
+    state.pending_grants = tuple(
+        entry for skill, _ in invocations for entry in skill_tool.grant_entries(skill, state.root)
+    )
+    state.pending_denied_tools = frozenset().union(*(inv.denied_tools for _, inv in invocations))
+    first_skill, first = invocations[0]
+    resolution = resolve_turn_model(
+        first.model,
+        first.effort,
+        allow_model=model_override_allowed(state, first_skill),
+        aliases=dict(getattr(state.config.agent_launch, "model_aliases", {}) or {}),
+    )
+    state.pending_model_choice = resolution.choice
+    state.pending_skill_name = ""
+    state.pending_stacked_skills = tuple(
+        (skill.name, inv.context)
+        for skill, inv in invocations
+        if inv.context and skill.proposal is None
+    )
+    lines = [messages.REPL_SKILL_STARTED.format(name=names)]
+    if state.engine is not Engine.AGENT:
+        state.pending_engine = Engine.AGENT
+        lines.append(messages.REPL_SKILL_ENGINE_NOTE)
+    lines.extend(resolution.notes)
+    lines.extend(note for _, inv in invocations for note in inv.notes)
+    return "\n".join(lines)
 
 
 def skill_slash_commands(registry: CapabilityRegistry | None) -> tuple[object, ...]:

@@ -48,13 +48,14 @@ class InvokedSkills:
         kept = tuple(pair for pair in self.bodies if pair[0] != name)
         return InvokedSkills(self.conversation_id, (*kept, (name, body)))
 
-    def carried_block(self, exclude: str = "") -> str:
+    def carried_block(self, exclude: str | tuple[str, ...] = "") -> str:
         """Sonraki tura taşınan blok: en yeni önce, beceri başına 5k, toplam 25k token."""
         remaining = TOTAL_TOKENS * CHARS_PER_TOKEN
         per_skill = PER_SKILL_TOKENS * CHARS_PER_TOKEN
+        excluded = {exclude} if isinstance(exclude, str) else set(exclude)
         parts: list[str] = []
         for name, body in reversed(self.bodies):
-            if name == exclude or remaining <= 0:
+            if name in excluded or remaining <= 0:
                 continue
             limit = min(per_skill, remaining)
             text = body if len(body) <= limit else body[:limit] + TRUNCATED_NOTE

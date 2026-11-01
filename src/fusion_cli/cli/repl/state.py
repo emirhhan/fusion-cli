@@ -261,6 +261,8 @@ class ReplState:
     #: Yalnız sıradaki tur için motor (#184): beceri Fusion motorunda agent turu olarak koşar,
     #: oturumun motoru değişmez.
     pending_engine: Engine | None = None
+    #: Yığılmış becerilerin `(ad, gövde)` çiftleri (#174): her biri sonraki turlarda kalır.
+    pending_stacked_skills: tuple[tuple[str, str], ...] = ()
     #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
     pending_skill_name: str = ""
     #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
@@ -388,10 +390,15 @@ class ReplState:
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
         record = self.invoked_skills.for_conversation(self.conversation_id)
-        carried = "" if self.pending_fresh_fork else record.carried_block(self.pending_skill_name)
+        stacked = self.pending_stacked_skills
+        names = (self.pending_skill_name, *(name for name, _ in stacked))
+        carried = "" if self.pending_fresh_fork else record.carried_block(names)
         if self.pending_skill_name and not self.pending_fresh_fork:
             record = record.remember(self.pending_skill_name, self.pending_context)
+        for name, body in stacked:
+            record = record.remember(name, body)
         self.invoked_skills = record
+        self.pending_stacked_skills = ()
         extras = PendingExtras(
             "\n\n".join(part for part in (carried, self.pending_context) if part),
             self.pending_tools,

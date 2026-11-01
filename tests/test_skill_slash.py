@@ -238,3 +238,50 @@ def test_tamamlama_sozlugu_yeni_beceriyi_yeniden_baslatmadan_gorur(state: ReplSt
     state.capabilities.invalidate()
 
     assert "/yeni" in sozluk()
+
+
+def test_tek_mesajda_beceri_yigma_ortak_argumanla(state: ReplState):
+    """Belge (#174): `/a /b 123` iki beceriyi açar, `123` ikisine de `$ARGUMENTS` olur."""
+    from fusion_cli.cli.repl import skill_stack
+
+    for ad in ("yaz", "duzelt", "ayir"):
+        klasor = state.home / ".claude" / "skills" / ad
+        klasor.mkdir(parents=True)
+        ek = "context: fork\n" if ad == "ayir" else ""
+        (klasor / "SKILL.md").write_text(
+            f"---\nname: {ad}\n{ek}---\n{ad.upper()} hedef=$ARGUMENTS", encoding="utf-8"
+        )
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
+
+    registry.get("yaz").handler(state, "/duzelt 123")  # type: ignore[union-attr]
+
+    assert "YAZ hedef=123" in state.pending_context
+    assert "DUZELT hedef=123" in state.pending_context
+    assert state.pending_task == "123"
+    extras = state.take_pending_extras()
+    assert "DUZELT" in extras.context
+    sonraki = state.invoked_skills.carried_block()
+    assert "YAZ hedef=123" in sonraki and "DUZELT hedef=123" in sonraki
+
+    # Fork becerisi yığına girmez: o belirteç ve sonrası argüman olur.
+    registry.get("yaz").handler(state, "/ayir 9")  # type: ignore[union-attr]
+    assert "YAZ hedef=/ayir 9" in state.pending_context
+    assert skill_stack.MAX_STACKED == 5
+
+
+def test_yigma_en_cok_bes_ek_beceri(state: ReplState):
+    from fusion_cli.cli.repl.skill_stack import split_stack
+
+    for index in range(8):
+        klasor = state.home / ".claude" / "skills" / f"b{index}"
+        klasor.mkdir(parents=True)
+        (klasor / "SKILL.md").write_text(f"---\nname: b{index}\n---\ng", encoding="utf-8")
+    registry = CapabilityRegistry(state.home, state.root)
+    first = registry.get_skill("b0")
+    assert first is not None
+
+    stack, rest = split_stack(registry, first, "/b1 /b2 /b3 /b4 /b5 /b6 /b7 x")
+
+    assert [item.name for item in stack] == ["b0", "b1", "b2", "b3", "b4", "b5"]
+    assert rest == "/b6 /b7 x"

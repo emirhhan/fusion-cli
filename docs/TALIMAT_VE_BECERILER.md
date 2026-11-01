@@ -126,6 +126,14 @@ Alan adları Claude Code'daki İngilizce adlardır. Eski Türkçe takma adlar (`
 | `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |
 | Gövdede `` !`cmd` `` ve ` ```! ` bloğu | Claude Code kuralları: satır içi biçim yalnız `!` satır başında ya da boşluktan sonra gelirse tanınır (`KEY=!`cmd`` düz metin kalır); çok satırlı komut ` ```! ` çitiyle yazılır; çıktı yeniden taranmaz. Komut hiç onay sormaz, izin kurallarıyla denetlenir: `deny` eşleşmesi ya da (izinli kip dışında) `allow` olmayan karar **çağrının tamamını iptal eder** (`Shell command permission check failed for pattern "…"`); `allowed-tools` içindeki `Bash(…)` deseni ön onaydır. Sıfır olmayan çıkış kodu da çağrıyı iptal eder (arama/karşılaştırma komutlarının 1 kodu hariç). Zaman aşımı 2 dakika. `disableSkillShellExecution: true` (settings.json) her komutu `[shell command execution disabled by policy]` ile değiştirir (yerleşik/kurumsal beceriler hariç). Fusion'ın ek güvencesi: açık kural olmadan `auto`/`edits`/`bypass` kipinde koşan komut `run_shell` tehlike/risk denetiminden geçer, proje becerisinde yalnız salt-okur komut koşar; çıktı 2.000 karakter, sırlar maskeli |
 
+### Tek mesajda beceri yığma
+
+Claude Code'daki gibi mesaj başında birden çok beceri yığılabilir: `/testler /duzelt 123` iki
+beceriyi aynı turda açar ve kalan metin (`123`) ikisine de `$ARGUMENTS` olur. İlk beceriden sonra
+en çok beş beceri daha açılır; açılım satır içi (fork olmayan), kullanıcının çağırabileceği beceri
+olmayan ilk belirteçte durur, o belirteç ve sonrası argümandır. `context: fork` becerisi yığına
+girmez. Yığılan her becerinin gövdesi sonraki turlarda da bağlamda kalır.
+
 ## Beceri listesi (Claude Code listeleme kuralları)
 
 Kök turda sistem bağlamına **BECERİ DİZİNİ** bloğu girer: beceri başına `ad — açıklama`,
