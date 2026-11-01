@@ -68,7 +68,9 @@ def test_bare_repl_katalogu_ve_arac_kumesi(monkeypatch, tmp_path):
         session_agents=(),
         capabilities=None,
     )
-    state.launch_prompts = lp.bind(state, lp.LaunchSpec(lp.LaunchPrompts(), bare=True), resumed=None)
+    state.launch_prompts = lp.bind(
+        state, lp.LaunchSpec(lp.LaunchPrompts(), bare=True), resumed=None
+    )
     names = {item.name for item in state.capabilities.skills()}
     assert "ek-beceri" in names and "proje-beceri" not in names
     turn = lp.apply_to_turn(PersonaTurn(allowed_tools={"read_file", "web_search"}), state)

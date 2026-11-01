@@ -66,9 +66,7 @@ def test_p_bayragi_artik_etkisiz_uyarisi_vermez_ve_kosuya_iletir(monkeypatch):
         )
 
     monkeypatch.setattr(print_run, "run_agent_task", _fake)
-    result = runner.invoke(
-        app_module.app, ["-p", "x", "--exclude-dynamic-system-prompt-sections"]
-    )
+    result = runner.invoke(app_module.app, ["-p", "x", "--exclude-dynamic-system-prompt-sections"])
     assert result.exit_code == 0, result.output
     assert seen == [True]
     assert "exclude-dynamic" not in result.output

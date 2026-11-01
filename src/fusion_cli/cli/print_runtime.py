@@ -35,7 +35,6 @@ BARE_TOOLS = frozenset(
 SIGTERM_EXIT_CODE = 143
 
 
-
 class PrintPrompter:
     """Etkileşimsiz `-p` onay arayüzü: kimseye sormaz, isteği "sorulamadı" sayar."""
 

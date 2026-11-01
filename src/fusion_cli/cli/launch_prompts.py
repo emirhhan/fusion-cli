@@ -17,12 +17,21 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol, cast
 
 from ..ui import print_messages as texts
 
 if TYPE_CHECKING:
+    from ..config.models import Config
     from .repl.persona_commands import PersonaTurn
+
+
+class _BareState(Protocol):
+    """`--bare` kataloğunun bağlandığı REPL durumu (ya da sınama ikamesi)."""
+
+    config: Config
+    capabilities: object
+
 
 SNAPSHOT_DIR = "system-prompt-snapshots"
 _SNAPSHOT_VALUES = frozenset({"on", "off"})
@@ -137,13 +146,13 @@ def bind(state: object, prompts: object, *, resumed: object) -> LaunchPrompts | 
     )
     if not prompts.bare:
         return bound
-    _bind_bare_catalog(state)
+    _bind_bare_catalog(cast("_BareState", state))
     from .print_runtime import BARE_TOOLS
 
     return replace(bound, tools=BARE_TOOLS)
 
 
-def _bind_bare_catalog(state: Any) -> None:
+def _bind_bare_catalog(state: _BareState) -> None:
     """`--bare`: oturum kataloğu yalnız `--add-dir` becerileri ve `--agents` tanımlarıdır."""
     from .print_runtime import bare_catalog
 
