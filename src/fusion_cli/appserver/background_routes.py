@@ -75,6 +75,8 @@ def _peer_payload(peer: PeerRecord) -> dict[str, Any]:
 def _status(state: ReplState, turn_owner: str) -> dict[str, Any]:
     link = _link(state)
     result = link.poll(state, busy=False)
+    # Uyandırma turları masaüstünde `cron.vadesi_gelenler` ile boştayken gönderilir.
+    link.queued_turns.extend(result.turns)
     if turn_owner and turn_owner != link.owner:
         # Masaüstü turu sekme kimliğiyle (`app`/sohbet) koşar; araçla başlayan görev oraya aittir.
         extra = agent_tasks.collect_deliveries(link.store, turn_owner)

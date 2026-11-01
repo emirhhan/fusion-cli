@@ -82,10 +82,10 @@ class AgentLink:
         if not busy and self.queued_turns:
             turns, self.queued_turns = tuple(self.queued_turns), []
         if not busy:
-            turns = (*turns, *self._wake_turns(state))
+            turns = (*turns, *self.take_wake_turns(state))
         return LinkPoll(tuple(notices), turns)
 
-    def _wake_turns(self, state: ReplState) -> tuple[str, ...]:
+    def take_wake_turns(self, state: ReplState) -> tuple[str, ...]:
         """Claude gibi boştaki oturumu uyandır: arka plan raporu ve `asyncRewake` kancası.
 
         Tur kendi başına başlar (UserPromptSubmit tetiklenir); rapor/kanca metni turun

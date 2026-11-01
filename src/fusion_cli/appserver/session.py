@@ -70,7 +70,7 @@ from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
-from ..core.session_cron import CronTask, SessionCron
+from ..core.session_cron import CronTask, SessionCron, Source
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
 from ..core.submission import SubmissionReceipt, SubmissionRepository
@@ -100,6 +100,7 @@ from ..tools.safe_delete import is_container_root, project_folders
 from ..tools.skill_commands import map_denied_tools
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
+from ..ui.background_messages import HOOK_WAKE_TURN
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, computer_routes, intelligence, ui_prefs
@@ -2239,7 +2240,7 @@ class AppSession:
         now = time.time()
         due = self._state.cron.due(now)
         if not due:
-            return {"ok": True, "gorevler": []}
+            return {"ok": True, "gorevler": _wake_tasks(self._state)}
         verilen = []
         for task in due[:1]:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
@@ -3778,3 +3779,20 @@ def _notify_auth(session: AppSession, server: str) -> None:
     from ..engines.hooks.notify import notify_auth_success
 
     notify_auth_success(session._state.hooks(), server)
+
+
+def _wake_tasks(state: ReplState) -> list[dict[str, Any]]:
+    """Boştaki sohbeti uyandıran turlar (#94, #123): arka plan raporu ve `asyncRewake`.
+
+    Arayüz bunları zamanlanmış görev gibi düz TUR olarak gönderir (komut olarak değil).
+    """
+    link = state.agent_link
+    if link is None:
+        hooks = state.hook_session
+        if hooks is None or not hooks.wake_requested:
+            return []
+        hooks.wake_requested = False
+        turns: tuple[str, ...] = (HOOK_WAKE_TURN,) if hooks.rewake_notes else ()
+    else:
+        turns, link.queued_turns = (*link.queued_turns, *link.take_wake_turns(state)), []
+    return [{"id": "", "gorev": turn, "kaynak": Source.AGENT.value} for turn in turns]

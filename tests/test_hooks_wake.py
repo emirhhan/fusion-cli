@@ -108,3 +108,29 @@ def test_async_rewake_cikis_2_bostaki_oturumu_uyandirir(state, tmp_path, exit_co
     assert turns == ((texts.HOOK_WAKE_TURN,) if wakes else ())
     if wakes:
         assert session.rewake_notes  # metin uyanan turun bağlamına gider
+
+
+async def test_masaustu_uyandirma_turu_vadesi_gelenlerle_verilir(tmp_path, monkeypatch):
+    import json
+
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    hooks = oturum._state.hooks()
+    hooks.rewake_notes.append("PostToolUse hook (async): testler kırıldı")
+    hooks.wake_requested = True
+
+    async def rpc(kimlik: str) -> dict:
+        await oturum.handle(Request(id=kimlik, name="cron.vadesi_gelenler", data={}))
+        for satir in reversed(satirlar):
+            paket = json.loads(satir)
+            if paket.get("tip") == "sonuc" and paket.get("id") == kimlik:
+                return paket["veri"]
+        raise AssertionError(kimlik)
+
+    first = await rpc("1")
+    assert first["gorevler"] == [{"id": "", "gorev": texts.HOOK_WAKE_TURN, "kaynak": "ajan"}]
+    assert (await rpc("2"))["gorevler"] == []
