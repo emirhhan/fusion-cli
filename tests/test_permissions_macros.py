@@ -161,8 +161,8 @@ async def test_izinli_komut_security_modda_sorulmaz():
     assert karar is Decision.ALLOW
 
 
-async def test_izinli_olsa_bile_yikici_komut_sorulur():
-    """İzin listesi yıkıcı komutlar için istisna sağlamaz."""
+async def test_izinli_yikici_komut_claude_gibi_gecer():
+    """Claude (#84): allow kuralı sezgisel yıkıcı komut adımını aşar (deny → ask → allow)."""
     from fusion_cli.core.tools import Tool
     from fusion_cli.engines.agent.approval import (
         ApprovalMode,
@@ -182,7 +182,7 @@ async def test_izinli_olsa_bile_yikici_komut_sorulur():
         build_request(tool, {"command": "git reset --hard"}, frozenset({"git reset --hard"}))
     )
 
-    assert karar is Decision.DENIED
+    assert karar is Decision.ALLOW
 
 
 # --- Makrolar ------------------------------------------------------------------- #
