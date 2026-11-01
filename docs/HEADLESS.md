@@ -122,6 +122,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |
 | `--append-subagent-system-prompt <metin>` / `--append-subagent-system-prompt-file <yol>` | İç içe olanlar dahil her alt ajanın sistem istemine eklenir (çatallı alt ajan hariç); ikisi birleştirilemez. |
 | `--safe-mode` | Proje talimatı, beceriler, özel komut/ajanlar, eklentiler, kancalar, MCP ve bellek yüklenmez; yerleşik araçlar ve izinler normal. `CLAUDE_CODE_SAFE_MODE=1` ayarlanır. |
+| `--restricted` | Kısıtlı kip: komut ya da kod çalıştıran araçlar (Bash ve Fusion'ın masaüstü/tarayıcı/iş/Python gibi ek araçları) ve WebFetch kaldırılır; `--tools` ile TEK TEK adı verilen kalır (`default` geri getirmez). Dosya araçları çalışma dizinlerine (kök + `--add-dir`) sınırlanır; kullanıcı/proje/yerel ayar katmanları yüklenmez (yalnız `--settings`); yapılandırmadaki MCP bağlanmaz (`--mcp-config` bağlanır); `bypassPermissions` reddedilir. Alt ajanlar aynı tavanı devralır. |
 | `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
 | `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
 

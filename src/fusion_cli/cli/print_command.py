@@ -46,6 +46,7 @@ def print_command(
         str | None, typer.Option("--append-subagent-system-prompt-file")
     ] = None,
     safe_mode: Annotated[bool, typer.Option("--safe-mode")] = False,
+    restricted: Annotated[bool, typer.Option("--restricted")] = False,
     append_system_prompt_file: Annotated[
         str | None, typer.Option("--append-system-prompt-file")
     ] = None,
@@ -127,6 +128,7 @@ def print_command(
         bare=bare,
         no_memory=no_memory or bare or safe_mode,
         safe_mode=safe_mode,
+        restricted=restricted,
         subagent_append=subagent_append,
         subagent_append_file=subagent_append_file,
         add_dir=tuple(add_dir or ()),

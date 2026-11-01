@@ -22,6 +22,12 @@ from ..ui import print_messages as texts
 from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
+from .print_restricted import (
+    apply_restricted_config,
+    check_restricted_mode,
+    prepare_restricted_sources,
+    restricted_selection,
+)
 from .print_runtime import BARE_TOOLS, apply_print_limits, apply_safe_mode, apply_session_flags
 from .print_settings import apply_setting_sources, apply_settings, read_settings
 
@@ -50,6 +56,8 @@ class PrintRequest:
     system_prompt_snapshot: str | None = None
     setting_sources: str | None = None
     safe_mode: bool = False
+    #: `--restricted` (#301): komut/kod araçları yok, ayar katmanları yok, bypass yok.
+    restricted: bool = False
     subagent_append: str | None = None
     subagent_append_file: str | None = None
     model: str | None = None
@@ -148,6 +156,8 @@ def _build_config(
         max_budget_usd=request.max_budget_usd,
         bare=request.bare,
     )
+    if request.restricted:
+        config = apply_restricted_config(config)
     config, mcp_errors = opts.load_mcp_configs(
         config, request.mcp_config, strict=request.strict_mcp_config
     )
@@ -190,6 +200,8 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     check_snapshot(request.system_prompt_snapshot)
     # Yükleyiciler (`load_config` dahil) okumadan önce ayarlanmalı (#296).
     apply_setting_sources(request.setting_sources)
+    if request.restricted:
+        prepare_restricted_sources()
     session_id = opts.checked_session_id(request.session_id)
     config, mcp_errors, settings = _build_config(request)
     session = read_settings(settings)
@@ -198,6 +210,8 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
         request.permission_mode or session.default_mode,
         skip_permissions=request.skip_permissions,
     )
+    if request.restricted:
+        check_restricted_mode(mode)
     if session.add_dirs:
         request = replace(request, add_dir=(*request.add_dir, *session.add_dirs))
     selection = opts.tool_selection(
@@ -212,6 +226,9 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
         # `--mcp-config` sunucuları `--bare`'de de kullanılabilir (Claude: komut satırı MCP'si).
         bare = bare | {f"{server.name}__*" for server in config.mcp_servers}
         selection = replace(selection, allowed=bare)
+    if request.restricted:
+        mcp = frozenset(f"{server.name}__*" for server in config.mcp_servers)
+        selection = restricted_selection(selection, request.tools, mcp)
     replacement, extra = opts.system_prompts(
         system_prompt=request.system_prompt,
         system_prompt_file=request.system_prompt_file,

@@ -63,6 +63,11 @@ PRINT_INTERRUPTED = "[Request interrupted by user]"
 PRINT_SETTING_SOURCES_INVALID = (
     "Hata: --setting-sources geçersiz kaynak: {given}. Geçerli: user, project, local"
 )
+PRINT_RESTRICTED_BYPASS = (
+    "Hata: --restricted kipinde bypassPermissions kullanılamaz "
+    "(--permission-mode bypassPermissions, --dangerously-skip-permissions ya da "
+    "--settings permissions.defaultMode)."
+)
 PRINT_SUBAGENT_APPEND_CONFLICT = (
     "Error: --append-subagent-system-prompt and --append-subagent-system-prompt-file "
     "cannot be used together."
