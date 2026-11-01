@@ -116,3 +116,32 @@ def test_kok_komut_setting_sources_dogrular_ve_alt_komuta_uygular(home, monkeypa
     good = runner.invoke(app_module.app, ["--setting-sources", "local", "permissions"])
     assert good.exit_code == 0, good.output
     assert os.environ.get(ENV) == "local"
+
+
+def test_kok_komut_settings_env_kanca_ve_dizinleri_uygular(home, monkeypatch, tmp_path):
+    from fusion_cli.config.readiness import Readiness
+
+    seen: dict[str, object] = {}
+
+    async def _repl(config, **kwargs):
+        seen.update(kwargs, config=config, env=os.environ.get("FUSION_TEST_KOK"))
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _repl)
+    monkeypatch.setattr(
+        app_module, "evaluate", lambda *_a, **_k: SimpleNamespace(state=Readiness.READY)
+    )
+    monkeypatch.setenv("FUSION_TEST_KOK", "")
+    extra = tmp_path / "ek"
+    extra.mkdir()
+    settings = {
+        "env": {"FUSION_TEST_KOK": "1"},
+        "disableAllHooks": True,
+        "permissions": {"additionalDirectories": [str(extra)], "deny": ["Bash"]},
+    }
+    result = runner.invoke(app_module.app, ["--settings", json.dumps(settings)])
+    assert result.exit_code == 0, result.output
+    assert seen["env"] == "1"
+    assert seen["config"].runtime.hooks_enabled is False
+    assert extra in seen["extra_roots"]
+    assert "permissions.deny" in result.output

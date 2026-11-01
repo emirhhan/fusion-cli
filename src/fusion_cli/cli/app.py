@@ -241,6 +241,13 @@ def main_callback(
             "keşfetmeden aç; araçlar Bash + dosya okuma/düzenleme.",
         ),
     ] = False,
+    settings_flag: Annotated[
+        str | None,
+        typer.Option(
+            "--settings",
+            help="Bu oturum için ayar dosyası ya da JSON (settings.json anahtarları).",
+        ),
+    ] = None,
     setting_sources: Annotated[
         str | None,
         typer.Option(
@@ -282,6 +289,13 @@ def main_callback(
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
+    try:
+        # Claude `claude --settings` (#296): model, env, disableAllHooks, ek dizinler.
+        config, settings_dirs = print_settings.root_settings(config, settings_flag, model)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    add_dir = [*(add_dir or ()), *settings_dirs]
     if bare:
         # Claude `claude --bare` (#298): özelleştirme keşfi kapalı etkileşimli oturum.
         config = _bare_config(config)

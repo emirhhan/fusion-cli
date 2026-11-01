@@ -82,3 +82,35 @@ def apply_setting_sources(raw: str | None) -> None:
     sources = check_setting_sources(raw)
     if sources is not None:
         set_setting_sources(sources)
+
+
+def root_settings(
+    config: Config, raw: str | None, model_flag: str | None
+) -> tuple[Config, tuple[Path, ...]]:
+    """Kök komut `--settings`: `model` (`--model` öncelikli), `env`, `disableAllHooks`,
+    `permissions.additionalDirectories`. İzin kuralları ve `defaultMode` etkileşimli oturuma
+    henüz taşınmıyor (kök komutta `--permission-mode` de yok); bunlar uyarıyla bildirilir.
+    """
+    from .print_options import apply_model, load_settings
+
+    settings = load_settings(raw)
+    if not settings:
+        return config, ()
+    session = read_settings(settings)
+    model = settings.get("model")
+    if not model_flag and isinstance(model, str) and model.strip():
+        config = apply_model(config, model, None)
+    _warn_root_only_print(settings)
+    return apply_settings(config, session), session.add_dirs
+
+
+def _warn_root_only_print(settings: dict[str, object]) -> None:
+    import sys
+
+    block = settings.get("permissions")
+    keys = [
+        k for k in ("allow", "ask", "deny", "defaultMode") if isinstance(block, dict) and k in block
+    ]
+    if keys:
+        names = ", ".join(f"permissions.{k}" for k in keys)
+        sys.stderr.write(texts.ROOT_SETTINGS_PRINT_ONLY.format(keys=names) + "\n")
