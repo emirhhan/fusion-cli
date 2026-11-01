@@ -1,7 +1,7 @@
 """`/permissions` — izin kurallarını listele/ekle/sil (P-003; Claude Code `/permissions`).
 
     /permissions                       tüm katmanlardaki kurallar (kalıp · karar · kaynak)
-    /permissions add allow Bash(npm test *) [--user]
+    /permissions add allow Bash(npm test *) [--user | --project]
     /permissions remove deny Edit(/src/**)
 
 Yazma işi `config.permission_admin` üzerinden gider; masaüstü `izin.*` RPC'leri ve
@@ -20,6 +20,8 @@ from .state import ReplState
 _ADD = frozenset({"add", "ekle"})
 _REMOVE = frozenset({"remove", "rm", "sil", "del"})
 _LIST = frozenset({"", "list", "liste"})
+#: Kayıt kapsamı (Claude #83): kullanıcı `~/.claude/settings.json`, proje `.claude/settings.json`.
+_SCOPE_FLAGS = frozenset({"--user", "--project"})
 
 
 def permissions(state: ReplState, argument: str) -> str:
@@ -34,8 +36,9 @@ def permissions(state: ReplState, argument: str) -> str:
     if action not in _ADD | _REMOVE:
         return messages.PERMISSIONS_USAGE
     user_level = "--user" in words
-    rest = [word for word in words[1:] if word != "--user"]
-    if len(rest) < 2:
+    project_shared = "--project" in words
+    rest = [word for word in words[1:] if word not in _SCOPE_FLAGS]
+    if len(rest) < 2 or (user_level and project_shared):
         return messages.PERMISSIONS_USAGE
     try:
         decision = permission_admin.parse_decision(rest[0])
@@ -48,7 +51,9 @@ def permissions(state: ReplState, argument: str) -> str:
         return messages.PERMISSIONS_BAD_PATTERN.format(given=pattern_text)
     try:
         if action in _ADD:
-            change = permission_admin.add_permission_rule(state.root, rule, user_level=user_level)
+            change = permission_admin.add_permission_rule(
+                state.root, rule, user_level=user_level, project_shared=project_shared
+            )
             if not change.changed:
                 return messages.PERMISSIONS_EXISTS.format(
                     rule=change.pattern, decision=decision.value

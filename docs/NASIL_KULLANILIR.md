@@ -161,7 +161,7 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 |---|---|---|
 | Yönetilen (managed) | macOS `/Library/Application Support/ClaudeCode/managed-settings.json` (Linux `/etc/claude-code/`, Windows `C:\Program Files\ClaudeCode\`) ve yanındaki `managed-settings.d/*.json` | her zaman, en yüksek öncelik; Fusion bu dosyalara yazmaz, satırları silinemez |
 | Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` buraya yazar |
-| Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`) |
+| Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`); `--project` buraya yazar |
 | Proje (yerel) | `<git kökü>/.claude/settings.local.json` (alt dizinde başlatılsa da depo kökündeki; worktree'de ana checkout'un kökündeki; depo dışında `<proje>/`) | allow kuralları klasör güveninden sonra; ev dizininde ve Fusion'ın kendi yazdığı dosyada güven gerekmez; "bir daha sorma" aynı dosyaya yazar; Fusion dosyayı depoda ilk kez oluşturduğunda ve depo onu zaten dışlamıyorsa Claude gibi genel git dışlamasına (`core.excludesFile`, yoksa `~/.config/git/ignore`) `**/.claude/settings.local.json` ekler |
 | Eski Fusion dosyası | `~/.config/fusion-cli/permissions.json` | kullanımdan kalktı: bu sürüm boyunca okunur, başlangıçta uyarı verir |
 
@@ -220,16 +220,19 @@ Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
 
 ```
 /permissions                              # listele
-/permissions add allow Bash(npm test *)   # projeye yaz
+/permissions add allow Bash(npm test *)   # projenin yerel dosyasına (settings.local.json)
 /permissions add deny Read(~/.ssh/**) --user
+/permissions add deny Bash(git push *) --project   # paylaşılan .claude/settings.json
 /permissions remove allow Bash(npm test *)
 fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
 ```
 
 Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
-Silme `~/.claude/settings.json`, eski `permissions.json` ve güvenilir `settings.local.json`
-dosyalarında çalışır; proje `settings.json` salt okunurdur (sil düğmesi kapalı, kuralı
-dosyadan elle kaldır). `/allowed-tools` `/permissions`'ın takma adıdır. Güvenilmeyen yerel dosyadan silme reddedilir:
+Claude gibi kural kullanıcı (`--user`), paylaşılan proje (`--project`, masaüstü RPC kapsamı
+`paylasilan`) ya da yerel dosyaya kaydedilir; proje dosyasına yazmak klasöre güven vermez.
+Silme `~/.claude/settings.json`, proje `settings.json`, eski `permissions.json` ve güvenilir
+`settings.local.json` dosyalarında çalışır; yalnız yönetilen dosyalar salt okunurdur.
+`/allowed-tools` `/permissions`'ın takma adıdır. Güvenilmeyen yerel dosyadan silme reddedilir:
 silmek izin açmaz. Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına yazılır ve bu
 **tüm projeleri** etkiler; kart ve komut çıktısı bunu açıkça söyler, masaüstünde "Bu proje"
 kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).

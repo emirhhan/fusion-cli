@@ -931,7 +931,7 @@ CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
 PERMISSIONS_EMPTY = "İzin kuralı yok. Ekle: /permissions add allow Bash(npm test *)"
 PERMISSIONS_USAGE = (
     "Kullanım: /permissions [list] · /permissions add <allow|ask|deny> <Araç(kalıp)> "
-    "[--user] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
+    "[--user | --project] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
 )
 PERMISSIONS_BAD_DECISION = "Karar allow, ask ya da deny olmalı: {given}"
 PERMISSIONS_BAD_PATTERN = "Kalıp `Araç` ya da `Araç(belirteç)` biçiminde olmalı: {given}"

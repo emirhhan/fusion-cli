@@ -1081,7 +1081,15 @@ def permissions(
     ] = None,
     user: Annotated[
         bool,
-        typer.Option("--user", help="Projeye değil kullanıcı dosyasına (permissions.json) yaz."),
+        typer.Option(
+            "--user", help="Projeye değil kullanıcı dosyasına (~/.claude/settings.json) yaz."
+        ),
+    ] = False,
+    project: Annotated[
+        bool,
+        typer.Option(
+            "--project", help="Paylaşılan proje dosyasına (.claude/settings.json) yaz (Claude #83)."
+        ),
     ] = False,
     path: Annotated[
         Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
@@ -1110,7 +1118,7 @@ def permissions(
             f"yazma {'KAPALI' if config.runtime.block_writes_outside_root else 'onayla'}"
         )
         return
-    if action not in ("add", "remove") or not decision or not pattern:
+    if action not in ("add", "remove") or not decision or not pattern or (user and project):
         console.print(f"[red]{escape(messages.PERMISSIONS_USAGE)}[/red]")
         raise typer.Exit(code=2)
     try:
@@ -1128,7 +1136,9 @@ def permissions(
         raise typer.Exit(code=2) from None
     try:
         if action == "add":
-            change = permission_admin.add_permission_rule(root, rule, user_level=user)
+            change = permission_admin.add_permission_rule(
+                root, rule, user_level=user, project_shared=project
+            )
             text = (
                 permission_admin.added_message(change, karar)
                 if change.changed

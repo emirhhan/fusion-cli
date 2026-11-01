@@ -89,6 +89,7 @@ def add_permission_rule(
     user_level: bool = False,
     strict_project: bool = False,
     local_only: bool = False,
+    project_shared: bool = False,
 ) -> RuleChange:
     """Kuralı hedef dosyaya ekle; proje dosyasına yazıldıysa güven karmasını tazele.
 
@@ -99,7 +100,13 @@ def add_permission_rule(
     `local_only` (Claude "bir daha sorma", #68): hedef her zaman yerel dosyadır. Dosya
     güvenilmiyorsa güven karması TAZELENMEZ: içindeki kurallar aklanmaz, yeni kural da
     klasöre güvenilene dek bekletilir.
+
+    `project_shared` (Claude `/permissions` proje kapsamı, #83): paylaşılan proje
+    `.claude/settings.json`'ı. Allow kuralları yine klasör güvenine bağlıdır.
     """
+    if project_shared:
+        shared = root / trust.PROJECT_SETTINGS_PATH
+        return RuleChange(rule, shared, add_rule(shared, rule))
     project_target = local_settings_path(root)
     was_trusted = trust.is_permissions_trusted(root)
     if local_only:
@@ -119,9 +126,9 @@ def add_permission_rule(
     return RuleChange(rule, target, changed, fell_back)
 
 
-#: Fusion'ın YAZDIĞI katmanlar; ötekiler (`~/.claude/settings.json`, proje `settings.json`)
-#: Claude Code'un dosyalarıdır ve yalnız okunur (tasarım kararı 3).
-WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_USER, LAYER_LOCAL})
+#: Fusion'ın YAZDIĞI katmanlar: Claude gibi kullanıcı, proje ve yerel dosya (#66, #83);
+#: yönetilen dosyalar salt okunurdur.
+WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_USER, LAYER_PROJECT, LAYER_LOCAL})
 
 
 def is_rule_removable(root: Path, layer_name: str) -> bool:

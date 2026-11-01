@@ -227,12 +227,11 @@ def test_sil_fusionun_yazdigi_yerel_dosyada_karmayi_tazeler_kalan_kurallar_dusme
     assert yuklenen.untrusted_layers == ()
 
 
-def test_sil_salt_okunur_katmanlardan_reddedilir(proje, _izole_ev):
-    """Proje `.claude/settings.json` Fusion tarafından YAZILMAZ; `~/.claude/settings.json`
-    Claude gibi kullanıcı kurallarının dosyasıdır ve yazılır (#66)."""
+def test_sil_kullanici_ve_proje_katmanindan_sirayla(proje, _izole_ev):
+    """Claude gibi (#66, #83): `~/.claude/settings.json` ve proje `.claude/settings.json`
+    `/permissions` ile düzenlenir; yalnız yönetilen dosyalar salt okunurdur."""
     from fusion_cli.config import permission_admin
     from fusion_cli.config.permission_rules import rule_layers
-    from fusion_cli.core.errors import ConfigError
 
     katmanlar = {k.name: k for k in rule_layers(proje)}
     _yaz(katmanlar["kullanici"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
@@ -241,10 +240,11 @@ def test_sil_salt_okunur_katmanlardan_reddedilir(proje, _izole_ev):
     kural = permission_admin.parse_pattern("Bash(rm *)", permission_admin.parse_decision("deny"))
     silindi = permission_admin.remove_permission_rule(proje, kural)
     assert silindi is not None and silindi.path == katmanlar["kullanici"].path
-    with pytest.raises(ConfigError, match="salt okunur"):
-        permission_admin.remove_permission_rule(proje, kural)
+    ikinci = permission_admin.remove_permission_rule(proje, kural)
+    assert ikinci is not None and ikinci.path == katmanlar["proje"].path
+    assert permission_admin.remove_permission_rule(proje, kural) is None
     assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == []
-    assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Read(.env)", "Bash(rm *)"]
+    assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Read(.env)"]
     assert trust.is_project_settings_trusted(proje)
 
 
@@ -264,7 +264,7 @@ def test_sil_dosya_verilirse_yalniz_o_katmandan_siler(proje):
     assert all(s["silinebilir"] is True for s in satirlar)
 
 
-async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _izole_ev):
+async def test_izin_rpc_sil_dosya_ile_proje_ve_yerel_katman(proje, _izole_ev):
     from fusion_cli.config.permission_rules import rule_layers
 
     katmanlar = {k.name: k for k in rule_layers(proje)}
@@ -276,15 +276,9 @@ async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _
         await _rpc(session, lines, "izin.ekle", {"kalip": "Bash(rm *)", "karar": "deny"})
         tablo = await _rpc(session, lines, "izin.kurallar")
         satirlar = {k["kaynak"]: k for k in tablo["kurallar"]}
-        assert satirlar["proje"]["silinebilir"] is False
+        # Claude gibi proje dosyası da düzenlenir (#83).
+        assert satirlar["proje"]["silinebilir"] is True
         assert satirlar["yerel"]["silinebilir"] is True
-        ret = await _rpc(
-            session,
-            lines,
-            "izin.sil",
-            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["proje"]["dosya"]},
-        )
-        assert ret["ok"] is False and "salt okunur" in ret["metin"]
         silindi = await _rpc(
             session,
             lines,
@@ -293,6 +287,14 @@ async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _
         )
         assert silindi["ok"] is True and silindi["dosya"] == satirlar["yerel"]["dosya"]
         assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Bash(rm *)"]
+        proje_sil = await _rpc(
+            session,
+            lines,
+            "izin.sil",
+            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["proje"]["dosya"]},
+        )
+        assert proje_sil["ok"] is True
+        assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == []
     finally:
         await session.close()
 

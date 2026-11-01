@@ -50,6 +50,8 @@ def add_rule(root: Path, data: dict[str, Any]) -> dict[str, Any]:
             rule,
             user_level=data.get("kapsam") == "kullanici",
             strict_project=data.get("kapsam") == "proje",
+            # Claude'un paylaşılan proje kapsamı: `.claude/settings.json` (#83).
+            project_shared=data.get("kapsam") == "paylasilan",
         )
     except ConfigError as error:
         return {"ok": False, "metin": str(error)}
