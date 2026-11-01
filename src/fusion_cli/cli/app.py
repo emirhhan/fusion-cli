@@ -79,6 +79,7 @@ from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 from .unprompted import UnpromptedPrompter
+from .worktree_argv import fill_missing_worktree_name
 
 app = typer.Typer(
     add_completion=False,
@@ -193,7 +194,7 @@ def main_callback(
         typer.Option(
             "--worktree",
             "-w",
-            help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
+            help="Git çalışma ağacında çalış: .claude/worktrees/<ad>, dal worktree-<ad>; ad verilmezse üretilir.",
         ),
     ] = "",
 ) -> None:
@@ -495,7 +496,7 @@ def agent(
         typer.Option(
             "--worktree",
             "-w",
-            help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
+            help="Görevi izole git çalışma ağacında koş (.claude/worktrees/<ad>); ağaç korunur.",
         ),
     ] = "",
     background: bool = typer.Option(
@@ -1586,7 +1587,8 @@ def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     configure_file_logging()
     try:
-        app(obj=host_dependencies)
+        # `-w` tek başına: Claude Code gibi rastgele ad üretilir (#339).
+        app(args=fill_missing_worktree_name(sys.argv[1:]), obj=host_dependencies)
     except FusionError as exc:
         error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "
