@@ -20,7 +20,14 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..config import plugin_store
-from ..config.plugin_scopes import SCOPE_LOCAL, SCOPE_PROJECT, scope_values, write_enabled
+from ..config.plugin_scopes import (
+    SCOPE_LOCAL,
+    SCOPE_PROJECT,
+    scope_values,
+    user_values,
+    write_enabled,
+    write_user_enabled,
+)
 from ..config.plugin_store import PluginRecord, load_state, plugins_dir
 from ..core.plugin_marketplace import Marketplace
 
@@ -90,6 +97,11 @@ def _force_remove(record: PluginRecord, root: Path) -> None:
 def _rename(record: PluginRecord, old: str, new: str, root: Path, project: Path) -> None:
     updated = replace(record, source=f"{new}@{record.marketplace}")
     plugin_store.update_state(lambda state: state.with_plugin(updated), root)
+    old_key, new_key = f"{old}@{record.marketplace}", f"{new}@{record.marketplace}"
+    user = user_values()
+    if old_key in user:  # Claude: user kapsamındaki `enabledPlugins` anahtarı da taşınır
+        write_user_enabled(new_key, user[old_key])
+        write_user_enabled(old_key, None)
     for scope in (SCOPE_PROJECT, SCOPE_LOCAL):
         values = scope_values(scope, project)
         key = f"{old}@{record.marketplace}"
@@ -113,6 +125,7 @@ def _moved_folder(
 
 
 def _drop_scope_keys(key: str, name: str, project: Path) -> None:
+    write_user_enabled(key, None)
     for scope in (SCOPE_PROJECT, SCOPE_LOCAL):
         if key in scope_values(scope, project):
             write_enabled(scope, key, name, None, project)

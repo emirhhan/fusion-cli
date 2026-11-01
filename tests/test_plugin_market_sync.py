@@ -39,6 +39,9 @@ def test_yeniden_adlandirilan_eklenti_yeni_adla_surer(tmp_path):
     entry = {"name": "rapor", "source": "./plugins/rapor"}
     plugin_install.add_marketplace(str(_market(tmp_path, [entry])))
     plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+    from fusion_cli.config.plugin_scopes import write_user_enabled
+
+    write_user_enabled("rapor@ekip", True)
     renamed = {"name": "rapor-yeni", "source": "./plugins/rapor"}
     _market(tmp_path, [renamed], renames={"rapor": "rapor-yeni"})
 
@@ -48,6 +51,9 @@ def test_yeniden_adlandirilan_eklenti_yeni_adla_surer(tmp_path):
     assert 'rapor: Renamed to "rapor-yeni" in the "ekip" marketplace' in out.output
     record = plugin_store.load_state().plugin("rapor")
     assert record is not None and record.source == "rapor-yeni@ekip"
+    from fusion_cli.config.plugin_scopes import user_values
+
+    assert user_values() == {"rapor-yeni@ekip": True}  # #397: user anahtarı da taşındı
 
 
 def test_force_remove_silinen_girdinin_kurulumunu_kaldirir(tmp_path):
