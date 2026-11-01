@@ -1,4 +1,4 @@
-"""Satır içi REPL'de tur sürerken tuş okuma: Ctrl+B (Claude Code, #12).
+"""Satır içi REPL'de tur sürerken tuş okuma: Ctrl+B ve mesaj kuyruğu (Claude Code, #12, #190).
 
 Tam ekran TUI tuşları prompt_toolkit ile tur boyunca okur. Satır içi REPL'de
 (`FUSION_INLINE=1`, `runtime.tui: inline`) terminal tur boyunca kanonik kipte kalıyordu:
@@ -9,6 +9,12 @@ turu keser), `arka_plana_al` eylemine bağlı Ctrl baytını yakalar, öteki tu�
 yansıtıp tampona yazar. Tur bitince yazılan kaybolmaz: Enter'la biten satırlar sıradaki
 mesaj olur, yarım satır istemi doldurur (Claude Code'da da tur sürerken yazılan mesaj
 sıraya girer). Onay/soru sorulurken (`paused`) terminal eski kipine döner.
+
+Agent turu `begin_turn`/`end_turn` ile kendi kancalarını bağlar (#190, #209): düz mesaj
+koşan turun yönlendirme kuyruğuna girer ve araç çağrıları bitince AYNI tura verilir
+(Claude Code "Queue messages while Claude works"); komut ve `!` satırları tur sonunu
+bekler; belgelenen anlık komutlar (`/status`, `/model` …) kuyruğa girmeden çalışır; taslak
+canlı göstergenin altında görünür (ham yansıtma yerine).
 """
 
 from __future__ import annotations
@@ -25,6 +31,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, TextIO
 
 from ...config import keybindings
+from ...core.steering import SteeringQueue
+from .queue_steer import SteerBridge
 
 if TYPE_CHECKING:
     from .state import ReplState
@@ -42,6 +50,7 @@ BACKGROUND_ACTION = "arka_plana_al"
 #: h=geri sil, i=Tab, j/m=Enter, q/s=akış denetimi, z=SIGTSTP).
 _RESERVED_CTRL = frozenset("cdhijmqsz")
 _BACKSPACE = frozenset({0x7F, 0x08})
+_CTRL_U = 0x15
 _NEWLINE = frozenset({0x0A, 0x0D})
 _ESC = 0x1B
 _CSI_FINAL = range(0x40, 0x7F)
@@ -87,6 +96,10 @@ class Typeahead:
                 if self._partial:
                     self._partial.pop()
                     echo.append("\b \b")
+            elif byte == _CTRL_U:
+                # Claude Code: Ctrl+U satırı siler.
+                echo.append("\b \b" * len(self._partial))
+                self._partial.clear()
             elif byte >= 0x20:
                 text = self._decoder.decode(bytes([byte]))
                 if text:
@@ -114,6 +127,10 @@ class Typeahead:
         text, self._partial = "".join(self._partial), []
         return text
 
+    @property
+    def partial(self) -> str:
+        return "".join(self._partial)
+
 
 class InlineKeys:
     """Oturum boyunca yaşayan satır içi tuş gözcüsü; tur başına `watching` ile açılır."""
@@ -134,6 +151,61 @@ class InlineKeys:
         self._loop: asyncio.AbstractEventLoop | None = None
         #: Açık `paused` sayısı: paralel alt ajanların onayları iç içe duraklatır.
         self._pause_depth = 0
+        #: Koşan agent turunun yönlendirme kuyruğu (#190) ve turun kancaları.
+        self._bridge = SteerBridge()
+        self._on_draft: Callable[[str], None] | None = None
+        self._on_queued: Callable[[str], None] | None = None
+        self._on_immediate: Callable[[str], bool] | None = None
+
+    def begin_turn(
+        self,
+        *,
+        on_draft: Callable[[str], None] | None = None,
+        on_queued: Callable[[str], None] | None = None,
+        on_immediate: Callable[[str], bool] | None = None,
+    ) -> SteeringQueue:
+        """Agent turu başladı: turun yönlendirme kuyruğu (`AgentDeps.steering`) ve kancalar."""
+        self._on_draft = on_draft
+        self._on_queued = on_queued
+        self._on_immediate = on_immediate
+        if on_draft is not None:
+            on_draft(self.typeahead.partial)
+        return self._bridge.begin()
+
+    def end_turn(self) -> None:
+        """Tur bitti: modele gitmemiş mesajlar sıradaki satırların başına geçer (#190)."""
+        _consumed, leftover = self._bridge.end()
+        self.typeahead.lines[:0] = leftover
+        self._on_draft = self._on_queued = self._on_immediate = None
+
+    def submit(self, line: str) -> None:
+        """Tur sürerken Enter'la biten satır: anlık komut, aynı tura mesaj ya da sıradaki satır."""
+        text = line.strip()
+        if not text:
+            return
+        if self._on_immediate is not None and self._on_immediate(text):
+            return  # anlık komut (#209): kuyruğa girmeden çalıştı
+        if not self._bridge.offer(text):
+            self.typeahead.lines.append(text)  # komut / `!` / `@` ya da tur yok: sıradaki satır
+        if self._on_queued is not None:
+            self._on_queued(text)
+
+    def feed(self, data: bytes) -> bool:
+        """Baytları işle (saf; testler doğrudan çağırır); tetik tuşu geldiyse True."""
+        before = len(self.typeahead.lines)
+        triggered, echo = self.typeahead.feed(data, self._triggers)
+        fresh = self.typeahead.lines[before:]
+        del self.typeahead.lines[before:]
+        for line in fresh:
+            self.submit(line)
+        if self._on_draft is not None:
+            # Canlı gösterge açıkken taslak onun altında görünür; ham yansıtma ekranı bozardı.
+            self._on_draft(self.typeahead.partial)
+        elif echo:
+            out = self._out or sys.stdout
+            out.write(echo)
+            out.flush()
+        return triggered
 
     @property
     def active(self) -> bool:
@@ -228,11 +300,7 @@ class InlineKeys:
         if not data:  # EOF / kopan terminal: dinlemeyi bırak, kipi geri yükle.
             self._leave()
             return
-        triggered, echo = self.typeahead.feed(data, self._triggers)
-        if echo:
-            out = self._out or sys.stdout
-            out.write(echo)
-            out.flush()
+        triggered = self.feed(data)
         if triggered and self._on_trigger is not None:
             self._on_trigger()
 

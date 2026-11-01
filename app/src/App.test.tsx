@@ -237,6 +237,87 @@ describe("SessionUygulama", () => {
     )).toBe(true));
   });
 
+  it("! kabuk çıktısından sonra model turu kendiliğinden başlar (#219)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "tur.calistir"() {
+        calls += 1;
+        return calls === 1
+          ? { ok: true, metin: "$ ls", yerel_yanit: true, gorev: "Kabuk çıktısına yanıt ver" }
+          : { ok: true, metin: "Klasörde iki dosya var." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "! ls" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "tur.calistir")
+      .map((request) => request.veri.gorev)).toEqual(["! ls", "Kabuk çıktısına yanıt ver"]));
+    expect(await screen.findByText("Klasörde iki dosya var.")).toBeTruthy();
+  });
+
+  it("tur biterken modele gitmemiş yönlendirme sıradaki tur olarak gider (#190)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "tur.calistir"() {
+        calls += 1;
+        return calls === 1
+          ? { ok: true, metin: "İlk iş bitti.", kalan_yonlendirme: ["testleri de koştur"] }
+          : { ok: true, metin: "Testler geçti." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "işi yap" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "tur.calistir")
+      .map((request) => request.veri.gorev)).toEqual(["işi yap", "testleri de koştur"]));
+    expect(await screen.findByText("Testler geçti.")).toBeTruthy();
+  });
+
+  it("tur sürerken kuyruğa giren komut tur bitince çalışır (#209)", async () => {
+    let calls = 0;
+    const responses: Record<string, Record<string, unknown>> = {
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      get "komut.calistir"() {
+        calls += 1;
+        return calls === 1 ? { ok: true, metin: "", kuyruk: true } : { ok: true, metin: "Özetlendi." };
+      },
+    };
+    const fake = composerTransport(responses);
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/compact" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.filter((request) => request.ad === "komut.calistir")
+      .map((request) => request.veri.kuyruktan === true)).toEqual([false, true]));
+    expect(await screen.findByText("Özetlendi.")).toBeTruthy();
+  });
+
+  it("/rewind konuşmayı sarınca dönen istem giriş kutusuna konur (#200)", async () => {
+    const fake = composerTransport({
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      "komut.calistir": { ok: true, metin: "Geri sarıldı.", girdi: "ikinci görev" },
+    });
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/rewind 2 konusma" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "komut.calistir" && request.veri.ad === "rewind",
+    )).toBe(true));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Mesaj" })).toHaveProperty("value", "ikinci görev"));
+  });
+
   it("ataç seçicisinin keyfi proje dosyasını ve görseli chip olarak gönderir", async () => {
     const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
     const selectFiles = vi.fn().mockResolvedValue([

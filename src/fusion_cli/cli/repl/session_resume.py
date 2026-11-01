@@ -22,15 +22,15 @@ from pathlib import Path
 from ...core.errors import SessionNotFoundError
 from ...core.types import Message
 from ...ui import messages
-from ...ui.picker import Choice, pick
-from . import linked_pr
+from ...ui.picker import Choice
+from . import linked_pr, resume_lookup
+from .session_snapshot import PERMISSION_ALL, PERMISSION_NONE, PERMISSION_PLAN
 from .state import ReplState
 from .transcript_store import (
     ConversationRef,
     TranscriptStore,
     conversation_prefix,
     copy_conversation,
-    find_conversation,
     list_conversations,
     load_transcript_messages,
 )
@@ -49,6 +49,8 @@ class ResumeTarget:
     name: str = ""
     #: `--fork-session` ile kopyalandıysa kaynağın kimliği (bilgi amaçlı).
     forked_from: str = ""
+    #: Kayıtlı izin kipinin ne ölçüde geri geleceği (`session_snapshot.PERMISSION_*`, #189).
+    permission: str = PERMISSION_ALL
 
 
 def new_conversation_id() -> str:
@@ -64,6 +66,8 @@ def resolve_launch(
     resume: str = "",
     fork: bool = False,
     name: str = "",
+    session_id: str = "",
+    via_picker: bool = False,
 ) -> ResumeTarget | None:
     """CLI bayraklarını açılış hedefine çevir. Hiçbiri verilmediyse `None` (yeni sohbet).
 
@@ -71,50 +75,110 @@ def resolve_launch(
     `--fork-session` seçilenin kopyasını yeni kimlikle açar (özgün sohbet değişmez);
     `--name` yeni ya da sürdürülen sohbete ad verir. Bulunamayan sohbet
     `SessionNotFoundError` ile bildirilir; sessizce yeni sohbet açılmaz.
+
+    `via_picker` (`--from-pr` seçicisi) ya da argümansız `--resume` / belirsiz ad seçicisi
+    kullanıldıysa kayıtlı izin kipinden yalnız plan geri gelir (Claude Code, #189).
     """
     name = name.strip()
+    from .launch_prompt import ensure_unused, session_id_value
+    from .resume_launch import RESUME_PICKER, pick_conversation
+
+    # Claude Code `--session-id <uuid>` (#204): yeni sohbet ya da `--fork-session` kopyası.
+    wanted_id = session_id_value(session_id) if session_id.strip() else ""
+    if wanted_id:
+        if (continue_last or resume.strip()) and not fork:
+            raise SessionNotFoundError(messages.SESSION_ID_NEEDS_FORK)
+        ensure_unused(memory_dir, root, wanted_id)
+
+    if resume == RESUME_PICKER:
+        # Argümansız `--resume` (#188): seçilen sohbetin kimliğiyle devam.
+        resume = pick_conversation(memory_dir, root)
+        via_picker = True
     if not continue_last and not resume.strip():
         if fork:
             # Ölçüldü (31 Ekim): bayrak sessizce yok sayılıp yeni boş sohbet açılıyordu.
             raise SessionNotFoundError(messages.SESSION_FORK_NEEDS_SOURCE)
-        if not name:
+        if not name and not wanted_id:
             return None
-        conversation_id = new_conversation_id()
-        TranscriptStore(memory_dir, root, conversation_id=conversation_id).record_name(name)
+        conversation_id = wanted_id or new_conversation_id()
+        if name:
+            TranscriptStore(memory_dir, root, conversation_id=conversation_id).record_name(name)
         return ResumeTarget(conversation_id, (), name, name=name)
+    events_path: Path | None = None
     if continue_last:
         refs = list_conversations(memory_dir, root)
         if not refs:
             raise SessionNotFoundError(messages.SESSION_NONE_TO_CONTINUE)
         ref = refs[0]
     else:
-        found = find_conversation(memory_dir, root, resume)
-        if found is None:
+        # Claude Code (#203): kimlik projeler arası, ad tam eşleşme; belirsiz ad seçici açar.
+        resolution = resume_lookup.resolve(memory_dir, root, resume)
+        if resolution.ambiguous:
+            from .resume_launch import pick_among
+
+            chosen = pick_among(list(resolution.ambiguous), resume.strip())
+            via_picker = True
+            resolution = resume_lookup.Resolution(
+                next(r for r in resolution.ambiguous if r.conversation_id == chosen),
+                events_path=resolution.events_path,
+            )
+        if resolution.ref is None:
             raise SessionNotFoundError(messages.SESSION_NOT_FOUND.format(query=resume.strip()))
-        ref = found
-    history = tuple(load_transcript_messages(memory_dir, root, conversation_id=ref.conversation_id))
+        ref = resolution.ref
+        events_path = resolution.events_path
+    history = tuple(
+        load_transcript_messages(
+            memory_dir, root, conversation_id=ref.conversation_id, events_path=events_path
+        )
+    )
     if fork:
-        target_id = fork_conversation(memory_dir, root, history, name=name or ref.name)
+        target_id = fork_conversation(
+            memory_dir,
+            root,
+            history,
+            name=name or ref.name,
+            target_id=wanted_id,
+            source_id=ref.conversation_id,
+        )
         linked_pr.save(memory_dir, target_id, linked_pr.load(memory_dir, ref.conversation_id))
         return ResumeTarget(
             target_id, history, ref.title, name=name or ref.name, forked_from=ref.conversation_id
         )
     if name:
         TranscriptStore(memory_dir, root, conversation_id=ref.conversation_id).record_name(name)
-    return ResumeTarget(ref.conversation_id, history, name or ref.title, name=name or ref.name)
+    return ResumeTarget(
+        ref.conversation_id,
+        history,
+        name or ref.title,
+        name=name or ref.name,
+        permission=PERMISSION_PLAN if via_picker else PERMISSION_ALL,
+    )
 
 
 def fork_conversation(
-    memory_dir: Path, root: Path, history: Sequence[Message], *, name: str = ""
+    memory_dir: Path,
+    root: Path,
+    history: Sequence[Message],
+    *,
+    name: str = "",
+    target_id: str = "",
+    source_id: str = "",
 ) -> str:
-    """Konuşmayı yeni bir kimliğe kopyala ve kimliği döndür (`ValueError`: kopya doğrulanamadı)."""
-    target_id = new_conversation_id()
+    """Konuşmayı yeni bir kimliğe kopyala ve kimliği döndür (`ValueError`: kopya doğrulanamadı).
+
+    `source_id` verilirse kopya kaynağına bağlanır; oturum seçicisi dalları kök oturumun altında
+    gruplar (Claude Code, #202).
+    """
+    target_id = target_id or new_conversation_id()
     copy_conversation(memory_dir, root, history, target_id=target_id, name=name)
+    if source_id:
+        TranscriptStore(memory_dir, root, conversation_id=target_id).record_fork(source_id)
     return target_id
 
 
 def apply_target(state: ReplState, target: ResumeTarget) -> None:
     """Oturum durumunu seçilen sohbete bağla; motor geçmişi transcript'ten gelir."""
+    state.opened_conversations = state.opened_conversations | {state.conversation_id}
     state.conversation_id = target.conversation_id
     state.conversation_name = target.name
     state.history = list(target.history)
@@ -125,6 +189,12 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
     # Başka sohbetin tur kayıtları bu konuşmaya ait değildir; PR künyesi sohbetinkidir.
     state.checkpoints.clear()
     linked_pr.restore(state)
+    if target.history and not target.forked_from:
+        # Claude Code (#187, #189): araç çağrıları/sonuçları, compaction özeti, model, izin
+        # kipi ve checkpoint'ler kayıtlı oturum durumundan gelir; yoksa metin geçmişi kalır.
+        from . import session_snapshot
+
+        session_snapshot.restore(state, permission=target.permission)
 
 
 def launch_notice(target: ResumeTarget) -> str:
@@ -166,19 +236,38 @@ def resume_command(state: ReplState, argument: str) -> str:
         return messages.SESSION_LIST_EMPTY
     query = argument.strip()
     if not query:
-        chosen = pick(resume_choices(refs), title=messages.SESSION_PICK_TITLE)
+        chosen = _pick_session(state)
         if chosen is None:
             return ""
         query = chosen
-    ref = find_conversation(state.config.memory_dir, state.root, query)
+    resolution = resume_lookup.resolve(state.config.memory_dir, state.root, query)
+    if resolution.ambiguous:
+        # Claude Code: `/resume <ad>` belirsizse hata; argümansız `/resume` seçiciyi açar.
+        return messages.SESSION_NAME_AMBIGUOUS.format(name=query, count=len(resolution.ambiguous))
+    ref = resolution.ref
     if ref is None:
         return messages.SESSION_NOT_FOUND.format(query=query)
     if ref.conversation_id == state.conversation_id:
         return messages.SESSION_ALREADY_ACTIVE
     history = load_transcript_messages(
-        state.config.memory_dir, state.root, conversation_id=ref.conversation_id
+        state.config.memory_dir,
+        state.root,
+        conversation_id=ref.conversation_id,
+        events_path=resolution.events_path,
     )
-    apply_target(state, ResumeTarget(ref.conversation_id, tuple(history), ref.title, name=ref.name))
+    # Claude Code (#189): `/resume` geçerli kipi korur, plan kipinde biten sohbet plana
+    # döner; bu süreçte zaten açılmış sohbete dönülürse plan da geri gelmez.
+    seen = ref.conversation_id in state.opened_conversations
+    apply_target(
+        state,
+        ResumeTarget(
+            ref.conversation_id,
+            tuple(history),
+            ref.title,
+            name=ref.name,
+            permission=PERMISSION_NONE if seen else PERMISSION_PLAN,
+        ),
+    )
     from . import chrome_cli, session_agent
 
     # Claude in Chrome: oturum değişince grup yalnız boş yeni sekmelerden oluşuyorsa kapanır (#436).
@@ -192,9 +281,16 @@ def resume_command(state: ReplState, argument: str) -> str:
     return f"{resumed}\n{note}" if note else resumed
 
 
+def _pick_session(state: ReplState) -> str | None:
+    """Satır içi Claude Code seçicisi (#202); terminal yoksa düz numaralı liste."""
+    from .resume_launch import _claude_picker
+
+    return _claude_picker(state.config.memory_dir, state.root)
+
+
 def rename_command(state: ReplState, argument: str) -> str:
-    """`/rename <ad>` — açık sohbete ad ver; `--resume <ad>` ile bulunur."""
-    name = argument.strip()
+    """`/rename [ad]` — açık sohbete ad ver; argümansız ad geçmişten üretilir (#224)."""
+    name = argument.strip() or auto_name(state.history)
     if not name:
         return messages.SESSION_RENAME_USAGE
     TranscriptStore(
@@ -205,12 +301,22 @@ def rename_command(state: ReplState, argument: str) -> str:
 
 
 def branch_command(state: ReplState, argument: str) -> str:
-    """`/branch [ad]` — konuşmayı yeni sohbete kopyala ve oradan sür; özgün sohbet değişmez."""
+    """`/branch [ad]` — konuşmayı yeni sohbete kopyala ve oradan sür; özgün sohbet değişmez.
+
+    Claude Code (#224): argümansız dal ilk isteme göre adlandırılır, onay iki kimliği basar.
+    """
     if not any(message.role == "user" and message.content.strip() for message in state.history):
         return messages.SESSION_BRANCH_EMPTY
-    name = argument.strip()
+    name = argument.strip() or auto_name(state.history)
+    source_id = state.conversation_id
     try:
-        target_id = fork_conversation(state.config.memory_dir, state.root, state.history, name=name)
+        target_id = fork_conversation(
+            state.config.memory_dir,
+            state.root,
+            state.history,
+            name=name,
+            source_id=state.conversation_id,
+        )
     except (ValueError, OSError) as error:
         return messages.SESSION_COPY_FAILED.format(reason=error)
     count = len(conversation_prefix(state.history))
@@ -222,7 +328,21 @@ def branch_command(state: ReplState, argument: str) -> str:
     # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo`/`/rewind` kaydı yeni kimliğe taşınmaz.
     state.last_changes = None
     state.checkpoints.clear()
-    return messages.SESSION_BRANCHED.format(count=count, name=f" ({name})" if name else "")
+    branched = messages.SESSION_BRANCHED.format(count=count, name=f" ({name})" if name else "")
+    return f"{branched}\n{messages.SESSION_BRANCH_IDS.format(new=target_id, source=source_id)}"
+
+
+#: Otomatik adın en fazla uzunluğu (`/rename`, `/branch` argümansız).
+AUTO_NAME_CHARS = 60
+
+
+def auto_name(history: Sequence[Message]) -> str:
+    """İlk gerçek kullanıcı isteminin ilk satırı; geçmiş boşsa boş metin."""
+    for message in conversation_prefix(history):
+        if message.role == "user":
+            first = message.content.strip().splitlines()[0].strip()
+            return first[:AUTO_NAME_CHARS].rstrip()
+    return ""
 
 
 def _when(epoch: float) -> str:

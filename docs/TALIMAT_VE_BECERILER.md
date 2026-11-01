@@ -206,7 +206,7 @@ bu keşfi de kapatır.
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
 | `skillOverrides: {ad: görünürlük}` (`settings.json` katmanları, Claude Code ile aynı; eklenti becerilerini etkilemez) ve eski `capabilities.overrides` (config.yaml; ikisi birden varsa `skillOverrides` kazanır) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
-## `/init`, `/doctor prompt` ve `/doctor prompt-audit`
+## `/init` ve `/doctor prompt-audit`
 
 - `/init [claude|agents]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
   [--format claude|agents] [--mode edits]`: Claude Code `/init` ile aynı — model kod tabanını
@@ -217,7 +217,9 @@ bu keşfi de kapatır.
   katılır; `AGENTS.md`/`.codex`/`GEMINI.md` bulunursa `/import codex|gemini` önerilir.
   `CLAUDE_CODE_NEW_INIT=1` çok aşamalı akışı açar (yapıt seçimi, alt ajanla inceleme, eksikleri
   sorma, yazmadan önce öneriyi gösterme). Dosya zaten varsa üzerine yazmaz, iyileştirme önerir.
-- `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
+- Yerel talimat denetimi (eski `/doctor prompt`/`/doctor talimat` bir sürüm boyunca çalışır ve
+  bir kez uyarır; argümansız `/doctor` kurulum tanısının üstünde aynı raporu basar; takma adı
+  `/checkup`):
   yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
   talimatında onay/izin kurallarını değiştirmeye ya da sır sızdırmaya çalışan şüpheli satırlar
   ("onay sorma", "bypass", "ignore previous rules", "print the API key"… — "sırları commit
@@ -227,8 +229,8 @@ bu keşfi de kapatır.
 - `/doctor prompt-audit [yol]`: Claude Code'daki gibi model denetimi. Kapsam yolsuzken
   `~/.claude` ve projedeki CLAUDE.md, `.claude/CLAUDE.md`, CLAUDE.local.md, AGENTS.md, alt
   dizinlerin CLAUDE.md/AGENTS.md'si, `.claude/rules`, beceriler, komutlar, alt ajanlar ve çıktı
-  stilleri; yol verilirse yalnız o dosya ya da dizin. Görev dosya listesi ve `/doctor prompt`
-  ön bulgularıyla sıradaki agent turunda koşar (oturumun motoru değişmez): model eskimiş
+  stilleri; yol verilirse yalnız o dosya ya da dizin (yol yoksa "Yol bulunamadı"). Görev dosya
+  listesi ve o kökün yerel talimat denetimi bulgularıyla sıradaki agent turunda koşar (oturumun motoru değişmez): model eskimiş
   talimatları, olmayan dosya/komut göndermelerini ve çelişkileri bulur, dosya/satır ve önerilen
   düzenlemeyi verir; onayın olmadan dosya değiştirmez.
 - Masaüstü **Ayarlar › Kişiselleştirme › Kalıcı talimat**: öneriler listelenir; **Talimat

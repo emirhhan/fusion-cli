@@ -10,6 +10,7 @@ Basma işi çağırana aittir.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -33,9 +34,14 @@ from ...ui.picker import Choice, pick
 from . import (
     auto_mode_command,
     background_commands,
+    btw_command,
     chrome_command,
+    code_review,
+    code_review_findings,
     config_command,
+    doctor_command,
     export_commands,
+    fork_command,
     goal_command,
     hooks_command,
     import_command,
@@ -45,6 +51,8 @@ from . import (
     memory_commands,
     mode_commands,
     model_flows,
+    model_picker,
+    model_switch,
     output_style_command,
     permissions_command,
     persona_commands,
@@ -52,11 +60,15 @@ from . import (
     plugin_command,
     profiles_flow,
     provider_flow,
+    recap_command,
     reload_plugins,
     rewind,
+    session_clear,
     session_resume,
+    settings_panel,
     status_line,
     team_commands,
+    terminal_setup,
     verify_flow,
     view_commands,
     voice_command,
@@ -67,6 +79,7 @@ from . import (
 )
 from .browser_command import browser_command
 from .cd_command import cd_command
+from .diff_command import diff_command
 from .macros import Mode
 from .preview_command import preview_command
 from .sandbox_command import sandbox_command
@@ -188,19 +201,55 @@ def build_registry(
     registry = CommandRegistry()
     for command in _COMMANDS:
         registry.register(command)
-    if home is not None:
-        for source in available_sources(home):
-            registry.register(
-                SlashCommand(
-                    f"resume{source.name}",
-                    messages.CMD_RESUME.format(source=source.name),
-                    _resume(source.name),
-                    group="Geçmiş",
-                )
-            )
     if skills is not None:
         attach_skill_commands(registry, skills)
+    if home is not None:
+        # Claude Code'da `/resume<kaynak>` yok (#223): dış araç geçmişi `/import history
+        # <kaynak>` ile devralınır. Eski adlar bir sürüm boyunca listede görünmeyen,
+        # kullanımdan kalkmış takma ad olarak çözülür.
+        registry.set_fallback(_with_legacy_resume(home, registry._fallback))
     return registry
+
+
+def _with_legacy_resume(home: Path, previous: FallbackCommand | None) -> FallbackCommand:
+    def _resolve(name: str) -> SlashCommand | None:
+        source_name = name.removeprefix("resume")
+        known = any(source.name == source_name for source in available_sources(home))
+        if name.startswith("resume") and source_name and known:
+            return SlashCommand(
+                name,
+                messages.CMD_RESUME.format(source=source_name),
+                _legacy_resume(source_name),
+                group="Geçmiş",
+            )
+        return previous(name) if previous is not None else None
+
+    return _resolve
+
+
+def _legacy_resume(source_name: str) -> Handler:
+    handler = _resume(source_name)
+
+    def _handler(state: ReplState, argument: str) -> str:
+        result = handler(state, argument)
+        if getattr(state, "legacy_resume_warned", False):
+            return result
+        state.legacy_resume_warned = True
+        note = messages.HISTORY_LEGACY_RESUME.format(source=source_name)
+        return f"{note}\n{result}" if result else note
+
+    return _handler
+
+
+def _import_or_history(state: ReplState, argument: str) -> str:
+    """`/import <araç>` ayar içe aktarır; `/import history <kaynak> [oturum]` geçmiş devralır."""
+    words = argument.split()
+    if not words or words[0] not in ("history", "gecmis"):
+        return import_command.import_command(state, argument)
+    names = [source.name for source in available_sources(state.home)]
+    if len(words) < 2 or words[1] not in names:
+        return messages.HISTORY_IMPORT_USAGE.format(sources="|".join(names) or "-")
+    return _resume(words[1])(state, " ".join(words[2:]))
 
 
 def attach_skill_commands(
@@ -243,10 +292,6 @@ def _use_agent(state: ReplState, argument: str) -> str:
 def _use_fusion(state: ReplState, argument: str) -> str:
     state.engine = Engine.FUSION
     return messages.REPL_ENGINE_FUSION
-
-
-def _reset(state: ReplState, argument: str) -> str:
-    return messages.REPL_HISTORY_CLEARED.format(count=state.reset_history())
 
 
 def _set_task_type(state: ReplState, argument: str) -> str:
@@ -357,14 +402,75 @@ def _forget(state: ReplState, argument: str) -> str:
 
 
 def _model(state: ReplState, argument: str) -> str:
-    """`/model` — oturum içinde model değiştir.
+    """`/model` — `/model <ad>` agent modelini değiştirip kaydeder (#211, Claude Code).
 
-    Alt komutlar: agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
-    | rm <ad>. Argümansız çağrı etkin modelleri listeler.
+    Fusion alt komutları (yalnız oturum): agent <id> | judge <id> | cand <ad|no> <id>
+    | add <ad> <id> [etiket…] | rm <ad>. Argümansız çağrı etkin modelleri listeler.
     """
     parts = argument.split()
     if not parts:
+        if not sys.stdin.isatty():
+            # Borulu girdide seçici sonraki satırı yutardı; liste basılır.
+            return model_select.format_models(state.config)
+        return model_picker_command(state, pick)
+    result = model_command_result(state, parts)
+    state.config = result.config
+    action = parts[0].lower()
+    if action in model_switch.FUSION_SUBCOMMANDS and not getattr(
+        state, "model_subcommand_warned", False
+    ):
+        # Claude'da `/model <ad>` model adı alır (#211); Fusion rol alt komutları /models'ta.
+        state.model_subcommand_warned = True
+        return f"{result.message}\n{messages.MODEL_SUBCOMMAND_LEGACY.format(action=action)}"
+    return result.message
+
+
+def _config(state: ReplState, argument: str) -> str:
+    """`/config` — argümansız ve terminalde Settings paneli (#210), aksi hâlde metin yolu."""
+    if argument.strip() or not sys.stdin.isatty():
+        return config_command.config_command(state, argument)
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return pick(choices, title=title, alt_keys=keys, initial=initial)
+
+    return settings_panel.run(state, _ask) or messages.PICKER_CANCELLED
+
+
+def status_panel(state: ReplState) -> str:
+    """Satır içi `/status` (#225): Settings paneli Status sekmesinde."""
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return pick(choices, title=title, alt_keys=keys, initial=initial)
+
+    return settings_panel.run(state, _ask, settings_panel.STATUS)
+
+
+def model_picker_command(state: ReplState, picker: Callable[..., str | None]) -> str:
+    """Argümansız `/model` seçicisi (#211): Enter kaydeder, `s` oturumluk, ←/→ effort."""
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return picker(choices, title=title, alt_keys=keys, initial=initial)
+
+    result = model_picker.run(state.config, _ask)
+    if result is None:
+        return messages.PICKER_CANCELLED
+    state.config, note = model_picker.apply(state.config, result)
+    return note
+
+
+def _models(state: ReplState, argument: str) -> str:
+    """`/models <agent|judge|cand|add|rm> …` — Fusion rol alt komutları (argümansız: liste)."""
+    parts = argument.split()
+    if not parts:
         return model_select.format_models(state.config)
+    if parts[0].lower() not in model_switch.FUSION_SUBCOMMANDS:
+        return messages.MODELS_USAGE
     result = model_command_result(state, parts)
     from .model_switch_hooks import apply_model_result
 
@@ -391,6 +497,8 @@ def model_command_result(state: ReplState, parts: list[str]) -> ModelCommandResu
 def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
     action, arguments = parts[0].lower(), parts[1:]
     config = state.config
+    if model_switch.is_direct_model(parts):
+        return model_switch.switch_and_save(config, parts[0])
 
     if action == "agent" and len(arguments) == 1:
         return model_select.set_agent_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
@@ -799,45 +907,6 @@ def _init(state: ReplState, argument: str) -> str:
     return messages.REPL_INIT_STARTED.format(target=target)
 
 
-def _doctor(state: ReplState, argument: str) -> str:
-    """`/doctor prompt` — tur başında yüklenen talimatları denetle (uzunluk, kırpma, şüpheli satır).
-
-    Argümansız `/doctor` da aynı denetimi yapar ve kurulum tanısı için `fusion doctor`u hatırlatır.
-    """
-    from ...engines.agent.instruction_audit import audit_instructions, render_audit
-
-    alt, _, yol = argument.strip().partition(" ")
-    if alt.lower() == "prompt-audit":
-        return _prompt_audit(state, yol)
-    runtime = state.config.runtime
-    rapor = render_audit(
-        audit_instructions(
-            state.root,
-            state.home,
-            merge=getattr(runtime, "instruction_merge", True),
-            max_chars=getattr(runtime, "instruction_max_chars", 32_000),
-        )
-    )
-    if argument.strip().lower() in ("prompt", "talimat"):
-        return rapor
-    return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
-
-
-def _prompt_audit(state: ReplState, target: str) -> str:
-    """`/doctor prompt-audit [yol]` (#168): model denetimi sıradaki agent turunda koşar."""
-    from ...engines.agent.instruction_audit import audit_instructions, render_audit
-    from ...engines.agent.prompt_audit import prompt_audit_task
-
-    findings = render_audit(audit_instructions(state.root, state.home)) if not target else ""
-    task = prompt_audit_task(state.root, state.home, target, findings=findings)
-    if not task:
-        return messages.REPL_PROMPT_AUDIT_EMPTY.format(target=target or state.root)
-    state.pending_engine = Engine.AGENT
-    state.pending_task = task
-    state.pending_mode = Mode.NONE
-    return messages.REPL_PROMPT_AUDIT_STARTED
-
-
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -849,6 +918,17 @@ def _health(state: ReplState, argument: str) -> str:
         phase = messages.HEALTH_PHASE.get(entry.phase.value, entry.phase.value)
         rows.append(messages.HEALTH_ROW.format(model=model_id, score=entry.score, phase=phase))
     return "\n".join(rows)
+
+
+def _rewind(state: ReplState, argument: str) -> str:
+    """`/rewind` (`/checkpoint`, `/undo`) — defter boşken eski son-tur kaydı geri alınır.
+
+    Tur defteri dolmadan kaydedilen değişiklik (dışarıdan verilen `last_changes`) için menüde
+    seçilecek tur yoktur; o durumda geri alınacak tek şey o kayıttır.
+    """
+    if not state.checkpoints.entries() and state.last_changes:
+        return _undo(state, argument)
+    return rewind.rewind_command(state, argument)
 
 
 def _undo(state: ReplState, argument: str) -> str:
@@ -954,6 +1034,42 @@ def _macro(name: str) -> Handler:
     return _handler
 
 
+def _code_review(state: ReplState, argument: str) -> str:
+    """`/code-review` (takma ad `/review`, #214): seviye/bayrak/hedef ayrıştırılır, inceleme
+    ana bağlamı devralan fork alt ajanda koşar."""
+    request = code_review.parse(argument)
+    if isinstance(request, str):
+        return request
+    if request.ultra:
+        return messages.CODE_REVIEW_ULTRA_UNAVAILABLE
+    remembered = code_review.remember(state.config.memory_dir, request)
+    lines = [messages.REPL_MACRO_STARTED.format(name="code-review")]
+    level = request.level
+    if level is None:
+        level = remembered.get("level")
+        if level is not None:
+            lines.append(messages.CODE_REVIEW_REUSING.format(level=level))
+        else:
+            effort = getattr(state.config.runtime.reasoning_effort, "value", "")
+            level = effort if effort in code_review.LEVELS else "medium"
+    max_findings = request.max_findings
+    if max_findings in (None, "default"):
+        max_findings = remembered.get("max_findings")
+    task = code_review.build_task(request, level, max_findings)
+    if getattr(state, "findings_host", False):
+        # Masaüstü bulgu listesi ister (Claude Code ReportFindings, #214): kartlar çizilir.
+        task = f"{task}\n{code_review_findings.HOST_REQUEST}"
+    override = macro_skill_override(state, "code-review")
+    if override is not None:
+        body, path = override
+        task = f"{body.strip()}\n\n{task}"
+        lines.append(messages.REPL_MACRO_SKILL_PREPENDED.format(name="code-review", path=path))
+    state.engine = Engine.AGENT
+    state.pending_task = task
+    state.pending_mode = Mode.SUBTASK
+    return "\n".join(lines)
+
+
 def macro_skill_override(state: ReplState, name: str) -> tuple[str, Path] | None:
     """Makroyla aynı adlı kullanıcı skill'inin gövdesi ve yolu; yoksa None.
 
@@ -1012,7 +1128,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", messages.CMD_HELP, lambda state, argument: "", ("h", "?")),
     SlashCommand("tips", messages.CMD_TIPS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("exit", messages.CMD_EXIT, _exit, ("quit", "q")),
-    SlashCommand("clear", messages.CMD_CLEAR, lambda state, argument: ""),
+    SlashCommand(
+        "clear",
+        messages.CMD_CLEAR,
+        session_clear.clear_command,
+        ("reset", "new"),
+        usage="[ad]",
+    ),
     SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
     SlashCommand("fusion", messages.CMD_FUSION, _use_fusion, group="Motor"),
     SlashCommand(
@@ -1068,8 +1190,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Onay modu",
         usage="[on|off|izin <alan>|…]",
     ),
-    SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
-    SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
+    SlashCommand(
+        "compact",
+        messages.CMD_COMPACT,
+        lambda state, argument: "",
+        group="Agent",
+        usage="[talimat]",
+    ),
     SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
     SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
     SlashCommand("thinking", messages.CMD_SHOW_THINKING, _toggle_thinking, group="Agent"),
@@ -1112,7 +1239,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("learn", messages.CMD_LEARN, _learn, group="Bellek", usage="<kural>"),
     SlashCommand("seed", messages.CMD_SEED, _seed, group="Bellek"),
     SlashCommand("reindex", messages.CMD_REINDEX, _reindex, group="Bellek"),
-    SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
+    SlashCommand("model-stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
     SlashCommand(
@@ -1139,8 +1266,20 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[ad|off]",
     ),
-    SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
-    SlashCommand("model", messages.CMD_MODEL, _model, group="Model", usage="[alt-komut]"),
+    SlashCommand(
+        "models",
+        messages.CMD_MODELS,
+        _models,
+        group="Model",
+        usage="[agent|judge|cand|add|rm …]",
+    ),
+    SlashCommand(
+        "model",
+        messages.CMD_MODEL,
+        _model,
+        group="Model",
+        usage="[model]",
+    ),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand(
         "profiles", messages.CMD_PROFILES, _profiles, group="Model", usage="[edit <profil>]"
@@ -1160,29 +1299,38 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
-    SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
+    # Claude Code: `/checkpoint` ve `/undo` `/rewind` takma adıdır, aynı menüyü açar (#201).
     SlashCommand(
         "rewind",
         messages.CMD_REWIND,
-        rewind.rewind_command,
-        ("checkpoint",),
+        _rewind,
+        ("checkpoint", "undo"),
         group="Agent",
         usage="[no] [kod|konuşma|ikisi]",
     ),
-    SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
-    SlashCommand("usage", messages.CMD_USAGE, lambda state, argument: "", group="Bilgi"),
+    # Claude Code: `/cost` ve `/stats` `/usage` takma adıdır (#208).
+    SlashCommand(
+        "usage", messages.CMD_USAGE, lambda state, argument: "", ("cost", "stats"), group="Bilgi"
+    ),
     SlashCommand(
         "config",
         messages.CMD_CONFIG,
-        config_command.config_command,
+        _config,
+        ("settings",),
         group="Bilgi",
-        usage="[filtre|yol|yol=değer]",
+        usage="[key=value ...|filtre|yol]",
     ),
     SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
+    # Claude Code (#212): `/doctor [prompt-audit [path]]`, takma adı `/checkup`.
     SlashCommand(
-        "doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt|prompt-audit [yol]]"
+        "doctor",
+        messages.CMD_DOCTOR,
+        doctor_command.doctor_command,
+        ("checkup",),
+        group="Bilgi",
+        usage="[prompt-audit [yol]]",
     ),
     SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[claude|agents]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
@@ -1217,19 +1365,30 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("grill-me", messages.CMD_GRILL, ()),
             ("bug", messages.CMD_BUG, ()),
             ("commit", messages.CMD_COMMIT, ()),
-            # Claude Code'daki ad da tanınır; aynı makro, ikinci yol değil.
-            ("review", messages.CMD_REVIEW, ("code-review",)),
             ("browser", messages.CMD_BROWSER, ()),
-            ("btw", messages.CMD_BTW, ()),
             ("plan-yurut", messages.CMD_PLAN_RUN, ()),
             ("simplify", messages.CMD_SIMPLIFY, ()),
             ("security-review", messages.CMD_SECURITY_REVIEW, ()),
             ("debug", messages.CMD_DEBUG, ()),
             ("batch", messages.CMD_BATCH, ()),
             ("pr", messages.CMD_PR, ()),
-            ("pr-comments", messages.CMD_PR_COMMENTS, ()),
             ("autofix-pr", messages.CMD_AUTOFIX_PR, ()),
         )
+    ),
+    SlashCommand(
+        "terminal-setup",
+        messages.CMD_TERMINAL_SETUP,
+        lambda state, _argument: terminal_setup.terminal_setup(state.home),
+        group="Görünüm",
+    ),
+    SlashCommand(
+        "code-review",
+        messages.CMD_REVIEW,
+        _code_review,
+        ("review",),
+        group="Makro",
+        usage="[low|medium|high|xhigh|max|ultra] [--fix] [--comment] "
+        "[--max-findings n|all|default] [pr#|branch|path]",
     ),
     SlashCommand(
         "cop",
@@ -1246,7 +1405,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_ADD_DIR,
         workspace_commands.add_dir,
         group="Agent",
-        usage="[yol|kaldir <yol>]",
+        usage="<yol>",
+    ),
+    SlashCommand(
+        "dirs",
+        messages.CMD_DIRS,
+        workspace_commands.dirs,
+        group="Agent",
+        usage="[kaldir <yol>]",
     ),
     SlashCommand("cd", messages.CMD_CD, cd_command, group="Agent", usage="[yol]"),
     # REPL'de asenkron (`async_commands`); bu eşzamanlı işleyici masaüstü/uzak yoludur.
@@ -1285,6 +1451,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "copy", messages.CMD_COPY, export_commands.copy_answer, group="Agent", usage="[N]"
     ),
+    SlashCommand("diff", messages.CMD_DIFF, diff_command, group="Agent", usage="[tam]"),
     SlashCommand(
         "theme", messages.CMD_THEME, view_commands.theme_command, group="Görünüm", usage="[ad]"
     ),
@@ -1293,7 +1460,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_TUI,
         view_commands.tui_command,
         group="Görünüm",
-        usage="[fullscreen|inline]",
+        usage="[default|fullscreen]",
     ),
     SlashCommand(
         "search",
@@ -1307,7 +1474,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_STATUSLINE,
         status_line.statusline_command,
         group="Görünüm",
-        usage="[komut|kapat]",
+        usage="[istek]",
     ),
     SlashCommand(
         "keybindings",
@@ -1322,14 +1489,22 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "resume",
         messages.CMD_RESUME_OWN,
         session_resume.resume_command,
+        ("continue",),
         group="Geçmiş",
         usage="[kimlik|ad]",
     ),
     SlashCommand(
-        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="<ad>"
+        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="[ad]"
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    # Claude Code (#221): `/btw` geçmişe girmeyen, araçsız yan soru (help_view basar).
+    SlashCommand("btw", messages.CMD_BTW, btw_command.btw_command, group="Agent", usage="[soru]"),
+    SlashCommand("recap", messages.CMD_RECAP, recap_command.recap_command, group="Agent"),
+    # Claude Code (#229): `/fork [istem]` konuşmayı arka plan kopyasına verir.
+    SlashCommand(
+        "fork", messages.CMD_FORK, fork_command.fork_command, group="Agent", usage="[istem]"
     ),
     SlashCommand(
         "background",
@@ -1404,10 +1579,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "import",
         messages.EKLENTI_CMD_IMPORT,
-        import_command.import_command,
+        _import_or_history,
         ("ice-aktar",),
         group="Bilgi",
-        usage="<claude|codex|gemini|cursor> [--dry-run|--yes]",
+        usage="<claude|codex|gemini|cursor> [--dry-run|--yes] | history <kaynak> [oturum]",
     ),
     SlashCommand(
         "release-notes",
@@ -1429,22 +1604,23 @@ RENDERED_COMMANDS = frozenset(
     {
         "help",
         "tips",
-        "clear",
-        "stats",
+        "model-stats",
         "lessons",
         "models",
         "compact",
-        "cost",
         "usage",
         "status",
         "context",
         "doctor",
+        "btw",
+        "recap",
     }
 )
 
 #: Argümansız hâli kendi basan, argümanla işleyiciye düşen komutlar: `/doctor` kurulum
-#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt` talimat denetimini döndürür.
-RENDERED_WHEN_BARE = frozenset({"doctor"})
+#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt-audit [yol]` talimat
+#: denetimini döndürür.
+RENDERED_WHEN_BARE = frozenset({"doctor", "models"})
 
 
 def renders_itself(name: str, argument: str) -> bool:

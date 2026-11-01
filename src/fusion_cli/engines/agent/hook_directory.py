@@ -2,7 +2,8 @@
 
 Claude: ekleme hemen tamamlanır, kanca beklenmez (arka planda, 600 sn varsayılan süre).
 Eşleştirici `source`'tur (`slash_command`). Karar denetimi yoktur; `continue` atılır,
-`systemMessage` kullanıcıya gösterilmez, sonraki turda modele bağlam olarak gider.
+`systemMessage` ve `additionalContext` kullanıcıya gösterilmez, sonraki turda modele
+bağlam olarak gider.
 `--add-dir` açılış bayrağı ve zaten çalışma kökü içinde olan klasör tetiklemez.
 """
 
@@ -28,5 +29,9 @@ def directory_added(
         verdict = await session.emit(HookEvent.DIRECTORY_ADDED, subjects=(source,), fields=fields)
         for text in verdict.system_messages:
             session.rewake_notes.append(f"{HookEvent.DIRECTORY_ADDED.value} hook: {text}")
+        if verdict.context_text:
+            # `additionalContext` (#213) da kullanıcıya basılmaz, sonraki turda modele gider.
+            note = f"{HookEvent.DIRECTORY_ADDED.value} hook: {verdict.context_text}"
+            session.rewake_notes.append(note)
 
     session.spawn(_run)

@@ -11,7 +11,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from ...core.types import ModelSpec
-from ...ui import banner, messages, theme
+from ...ui import messages, theme
 from ...ui.tables import cost_summary, cost_table
 from ..memory_commands import lessons_table, stats_table
 from .commands import CommandRegistry
@@ -21,27 +21,24 @@ from .state import ReplState
 HELP_COMMAND_MAX_WIDTH = 18
 
 
-async def render(name: str, state: ReplState, registry: CommandRegistry, console: Console) -> None:
-    """Kendi çıktısını basan komutu çalıştır."""
+async def render(
+    name: str,
+    state: ReplState,
+    registry: CommandRegistry,
+    console: Console,
+    argument: str = "",
+) -> None:
+    """Kendi çıktısını basan komutu çalıştır; `argument` yalnız `/compact` odağıdır."""
     if name == "help":
         _help(registry, console)
     elif name == "tips":
         _tips(console)
-    elif name == "clear":
-        from . import chrome_cli
-        from .loop import session_info
-
-        # Claude in Chrome: `/clear` oturumun sekme grubunu sayfalarıyla kapatır (#436).
-        await chrome_cli.close_group(state.chrome, only_empty=False)
-        banner.print_welcome(console, session_info(state))
-    elif name == "stats":
+    elif name == "model-stats":
         _stats(state, console)
     elif name == "lessons":
         _lessons(state, console)
     elif name == "models":
         _models(state, console)
-    elif name == "cost":
-        _cost(state, console)
     elif name == "usage":
         _usage(state, console)
     elif name == "status":
@@ -49,29 +46,47 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
 
         render_status(state, console)
     elif name == "context":
-        from .status_view import render_context
+        # Claude Code `/context [all]` (#207): ızgara, pencere yüzdesi, öneriler.
+        from .context_view import render as render_context
 
-        render_context(state, console)
+        render_context(state, console, argument)
     elif name == "compact":
         from .loop import compact_history
 
-        console.print(f"[{theme.DIM}]{await compact_history(state)}[/{theme.DIM}]")
+        note = await compact_history(state, argument)
+        console.print(f"[{theme.DIM}]{note}[/{theme.DIM}]")
     elif name == "doctor":
-        await _doctor(console)
+        await _doctor(console, state)
+    elif name == "btw":
+        from .btw_command import render as render_btw
+
+        await render_btw(state, argument, console)
+    elif name == "recap":
+        # Claude Code `/recap` (#230): tek satırlık özet, geçmişe girmez.
+        from .recap_command import render as render_recap
+
+        await render_recap(state, console)
 
 
-async def _doctor(console: Console) -> None:
+async def _doctor(console: Console, state: ReplState | None = None) -> None:
     """`/doctor` — `fusion doctor` ile AYNI tanı ve basıcı; ağ çağrısı yapılmaz.
 
     Tanı dosya ve ortam okur; olay döngüsünü tutmasın diye iş parçacığında koşar.
+    Claude Code (#212): sorun bulunursa düzeltmeleri önerip onayla uygulayan model turu
+    hazırlanır (`state.pending_task`); yüzey onu hemen başlatır.
     """
     import asyncio
 
     from ..doctor import diagnose, print_report
+    from .doctor_command import fix_task
 
     report = await asyncio.to_thread(diagnose, live=False)
     print_report(report, console)
     console.print(f"[{theme.DIM}]{messages.REPL_DOCTOR_PROMPT_HINT}[/{theme.DIM}]")
+    task = fix_task(report)
+    if state is not None and task:
+        state.pending_task = task
+        console.print(f"[{theme.DIM}]{messages.REPL_DOCTOR_FIX_STARTED}[/{theme.DIM}]")
 
 
 def _tips(console: Console) -> None:
@@ -175,7 +190,7 @@ def _cost(state: ReplState, console: Console) -> None:
 
 
 def _usage(state: ReplState, console: Console) -> None:
-    """`/usage` — bu oturum / 24s / 7g pencereleri ve atıf kırılımı (P-056)."""
+    """`/usage` (`/cost`, `/stats`) — bu oturum / 24s / 7g, atıf kırılımı ve maliyet (P-056)."""
     import time
 
     from ...observability.usage_log import summarize
@@ -187,8 +202,9 @@ def _usage(state: ReplState, console: Console) -> None:
         records, now=time.time(), session_id=log.session_id if log is not None else ""
     )
     print_usage(console, summary, log_path=str(log.path) if log is not None else None)
-    if log is None and state.cost.calls:
-        console.print(cost_table(state.cost))
+    if state.cost.calls:
+        # `/cost` artık `/usage` takma adı (#208): oturumun model kırılımı ve tahmini maliyet.
+        _cost(state, console)
 
 
 def _models(state: ReplState, console: Console) -> None:

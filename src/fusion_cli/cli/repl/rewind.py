@@ -44,13 +44,28 @@ def turn_choices(entries: Sequence[TurnCheckpoint]) -> list[Choice]:
     ]
 
 
-def scope_choices() -> list[Choice]:
-    """Kapsam seçenekleri; sırası Claude Code'un sırasıdır (ikisi, yalnız konuşma, yalnız kod)."""
-    return [
-        Choice(RewindScope.BOTH.value, messages.REWIND_SCOPE_BOTH, ""),
+#: Menünün "Never mind" satırının değeri; argüman olarak gelirse hiçbir şey yapılmaz (#199).
+CANCEL_VALUE = "vazgec"
+
+
+def scope_choices(entries: Sequence[TurnCheckpoint] = (), index: int | None = None) -> list[Choice]:
+    """Kapsam seçenekleri; sıra Claude Code'unkidir, sonda 'Vazgeç' satırı durur (#199).
+
+    Kod seçenekleri yalnız hedef ya da sonraki turlarda izlenen dosya değişikliği varsa
+    görünür. Defter verilmezse (eski çağıranlar) hepsi gösterilir.
+    """
+    has_code = not entries or any(
+        entry.changes for entry in entries if index is None or entry.index >= index
+    )
+    rows = [
+        *((Choice(RewindScope.BOTH.value, messages.REWIND_SCOPE_BOTH, ""),) if has_code else ()),
         Choice(RewindScope.CONVERSATION.value, messages.REWIND_SCOPE_CONVERSATION, ""),
-        Choice(RewindScope.CODE.value, messages.REWIND_SCOPE_CODE, ""),
+        *((Choice(RewindScope.CODE.value, messages.REWIND_SCOPE_CODE, ""),) if has_code else ()),
     ]
+    from . import rewind_summary
+
+    # Claude Code (#199): özet seçenekleri kod seçeneklerinden sonra, Vazgeç'ten önce.
+    return [*rows, *rewind_summary.choices(), Choice(CANCEL_VALUE, messages.REWIND_CANCEL, "")]
 
 
 def parse_arguments(
@@ -79,34 +94,69 @@ def parse_arguments(
 
 
 def rewind_command(state: ReplState, argument: str) -> str:
-    """`/rewind [no] [kod|konuşma|ikisi]` — seçilen turun başına dön."""
+    """`/rewind [no] [kod|konuşma|ikisi|ozet-buradan|ozet-oncesi [talimat]]` — geri sar/özetle."""
+    from . import rewind_clear, rewind_summary
+
+    summary = rewind_summary.parse(argument)
+    if summary is not None and summary[0] is not None:
+        return rewind_summary.summarize_blocking(state, summary[0], summary[1], summary[2])
+
+    if (target := rewind_clear.resume_target(argument)) is not None:
+        return _resume_previous(state, target)
     entries = state.checkpoints.entries()
-    if not entries:
+    previous = rewind_clear.previous_session_choices(state)
+    if not entries and not previous:
         return messages.REWIND_NOTHING
+    if CANCEL_VALUE in argument.split():
+        return ""
     index, scope, error = parse_arguments(argument, state.checkpoints)
     if error:
         return error
     if index is None:
-        chosen = pick(turn_choices(entries), title=messages.REWIND_PICK_TURN)
+        chosen = pick([*previous, *turn_choices(entries)], title=messages.REWIND_PICK_TURN)
         if chosen is None:
             return ""
+        if (target := rewind_clear.resume_target(chosen)) is not None:
+            return _resume_previous(state, target)
         index = int(chosen)
     if scope is None:
-        picked = pick(scope_choices(), title=messages.REWIND_PICK_SCOPE)
-        if picked is None:
+        picked = pick(scope_choices(entries, index), title=messages.REWIND_PICK_SCOPE)
+        if picked is None or picked == CANCEL_VALUE:
             return ""
+        if picked in rewind_summary.KINDS:
+            return rewind_summary.summarize_blocking(state, index, picked, _ask_instructions())
         scope = parse_scope(picked) or RewindScope.BOTH
     return apply_rewind(state, index, scope)
 
 
+def _ask_instructions() -> str:
+    """Özet için isteğe bağlı talimat (Claude Code "add context" satırı)."""
+    try:
+        return input(messages.REWIND_SUMMARY_PROMPT).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+def _resume_previous(state: ReplState, conversation_id: str) -> str:
+    """Menünün `/resume <kimlik> (önceki oturum)` satırı: `/clear` öncesine dön (#200)."""
+    from .session_resume import resume_command
+
+    return resume_command(state, conversation_id)
+
+
 def apply_rewind(state: ReplState, index: int, scope: RewindScope) -> str:
-    """Geri sarmayı duruma uygula ve tek satırlık sonucu döndür."""
+    """Geri sarmayı duruma uygula ve tek satırlık sonucu döndür.
+
+    Konuşma geri sarılınca hedef turun istemi giriş kutusuna konur (Claude Code #200).
+    """
+    target = state.checkpoints.find(index)
     try:
         result = state.checkpoints.rewind(index, scope)
     except ValueError:
         return messages.REWIND_UNKNOWN_TURN.format(index=index)
     if result.history is not None:
         state.history = list(result.history)
+        state.pending_input = target.task if target is not None else ""
         # Transcript eklemelidir: silinen mesaj kalır, yükleyici olaydan sonrasını atlar.
         TranscriptStore(
             state.config.memory_dir, state.root, conversation_id=state.conversation_id
@@ -114,6 +164,9 @@ def apply_rewind(state: ReplState, index: int, scope: RewindScope) -> str:
     if scope is not RewindScope.CONVERSATION:
         # `/undo`'nun bakacağı son tur kaydı geri alındı ya da düştü.
         state.last_changes = None
+    from . import session_snapshot
+
+    session_snapshot.save(state)
     return summarize(result)
 
 

@@ -1,5 +1,6 @@
 import type { Mesaj } from "../screens/Conversation";
 import { olayEkle } from "../protocol/olayAkisi";
+import { decodeReviewFindings } from "../protocol/reviewFindings";
 
 /** Yeniden açılan sohbet, canlı akışla aynı araç satırı sözleşmesini kullanır. */
 export function historyMessages(rows: unknown[]): Mesaj[] {
@@ -17,9 +18,13 @@ export function historyMessages(rows: unknown[]): Mesaj[] {
       if (last && !last.id) messages[messages.length - 1] = { ...last, id: typeof row.id === "string" ? row.id : `history-${index}` };
       return;
     }
-    if ((row.rol !== "kullanici" && row.rol !== "asistan") || typeof row.metin !== "string" || !row.metin.trim()) return;
+    if ((row.rol !== "kullanici" && row.rol !== "asistan") || typeof row.metin !== "string") return;
+    // `/code-review` bulguları (#214) canlı turdaki gibi kart olur; metni boş olabilir.
+    const findings = row.rol === "asistan" ? decodeReviewFindings(row.bulgular) : undefined;
+    if (!row.metin.trim() && !findings) return;
     messages.push({ rol: row.rol, metin: row.metin,
       ...(row.ara === true && row.rol === "asistan" ? { ara: true } : {}),
+      ...(findings ? { findings } : {}),
       id: typeof row.id === "string" ? row.id : `history-${index}`,
     });
   });

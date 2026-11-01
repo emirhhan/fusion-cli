@@ -329,3 +329,14 @@ describe("PlanDrafted", () => {
     expect(olayEkle([], { olay: "PlanDrafted", title: "Plan" })).toEqual([]);
   });
 });
+
+describe("kabuk canlı çıktısı (#219)", () => {
+  it("parçalar tek balonda birikir, bitti olayı balonu kaldırır", () => {
+    let mesajlar = olayEkle([], { olay: "KabukCiktisi", komut: "npm test", parca: "ilk\n" });
+    mesajlar = olayEkle(mesajlar, { olay: "KabukCiktisi", komut: "npm test", parca: "son\n" });
+    expect(mesajlar).toHaveLength(1);
+    expect(mesajlar[0].akan).toBe(true);
+    expect(mesajlar[0].metin).toBe("```text\n$ npm test\nilk\nson\n```");
+    expect(olayEkle(mesajlar, { olay: "KabukCiktisi", bitti: true })).toEqual([]);
+  });
+});

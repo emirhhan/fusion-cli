@@ -211,10 +211,13 @@ def test_rewind_bos_defter_ve_checkpoint_takma_adi(state):
     assert build_registry().get("checkpoint") is build_registry().get("rewind")
 
 
-def test_undo_defterden_son_turu_geri_alir(state):
+def test_undo_rewind_takma_adi_ayni_menuyu_acar(state):
+    """Claude Code: `/rewind` takma adları `/checkpoint` ve `/undo` (#201)."""
+    registry = build_registry()
+    assert registry.get("undo") is registry.get("rewind")
     dosya = _seed_turns(state)
 
-    sonuc = _run(state, "/undo")
+    sonuc = _run(state, "/undo 2 kod")
 
     assert "2. turdan önceki hâline" in sonuc
     assert dosya.read_text(encoding="utf-8") == "bir"
@@ -227,7 +230,29 @@ def test_turn_choices_yeniden_eskiye_ve_dosya_sayisi(state):
     secenekler = rewind.turn_choices(state.checkpoints.entries())
     assert [c.value for c in secenekler] == ["2", "1"]
     assert "1 dosya" in secenekler[0].description
-    assert [c.value for c in rewind.scope_choices()] == ["ikisi", "konusma", "kod"]
+    assert [c.value for c in rewind.scope_choices()] == [
+        "ikisi",
+        "konusma",
+        "kod",
+        "ozet-buradan",
+        "ozet-oncesi",
+        "vazgec",
+    ]
+
+
+def test_kod_degisikligi_yoksa_kod_secenekleri_gizlenir_ve_vazgec_var(state):
+    """Claude Code (#199): kod seçenekleri yalnız izlenen değişiklik varsa görünür;
+    menüde 'Never mind' satırı vardır."""
+    state.checkpoints.begin("yalnız soru", [])
+    entries = state.checkpoints.entries()
+    assert [c.value for c in rewind.scope_choices(entries, 1)] == [
+        "konusma",
+        "ozet-buradan",
+        "ozet-oncesi",
+        "vazgec",
+    ]
+    assert _run(state, "/rewind 1 vazgec") == ""
+    assert len(state.checkpoints.entries()) == 1
 
 
 # --- Masaüstü köprüsü ------------------------------------------------------------------ #
@@ -328,3 +353,31 @@ def test_yeni_turda_korunan_yol_eski_turdan_geri_yazilmaz(tmp_path, monkeypatch,
     assert ikinci.changes.snapshots[0].content == b"tur1"
     assert ilk.changes.paths == ikinci.changes.paths == (dosya,)
     assert bool(result.conflicts) == (failure == "user_change")
+
+
+def test_konusma_geri_sarilinca_hedef_turun_istemi_girdiye_konur(state):
+    """Claude Code (#200): Restore conversation sonrası seçilen mesajın istemi girişe gelir."""
+    _seed_turns(state)
+
+    _run(state, "/rewind 2 konuşma")
+
+    assert state.take_pending_input() == "iki"
+
+
+def test_yalniz_kod_geri_sarilinca_girdi_dolmaz(state):
+    _seed_turns(state)
+
+    _run(state, "/rewind 2 kod")
+
+    assert state.take_pending_input() == ""
+
+
+async def test_tui_rewind_sonrasi_istem_girdi_kutusuna_yazilir(state):
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+
+    _seed_turns(state)
+    session = _TuiSession(state)
+
+    await session._command("/rewind 2 ikisi")
+
+    assert session.tui._input.text == "iki"

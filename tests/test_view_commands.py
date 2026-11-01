@@ -81,9 +81,17 @@ def test_oturum_basinda_kayitli_tema_uygulanir_bozuksa_koyu(state: ReplState):
 
 def test_tui_komutu_gorunumu_kaydeder(state: ReplState, tmp_path: Path):
     assert "fullscreen" in tui_command(state, "")
-    assert "inline olarak kaydedildi" in tui_command(state, "inline")
+    assert "default olarak kaydedildi" in tui_command(state, "inline")
     assert load_config(tmp_path / "config.yaml").runtime.tui == "inline"
     assert "Bilinmeyen görünüm" in tui_command(state, "yarim")
+
+
+def test_tui_default_claude_adi_kabul_edilir(state: ReplState, tmp_path: Path):
+    """Claude Code `/tui [default|fullscreen]` (#232); `inline` eski takma ad olarak kalır."""
+    assert "default olarak kaydedildi" in tui_command(state, "default")
+    assert load_config(tmp_path / "config.yaml").runtime.tui == "inline"
+    assert "default · fullscreen" in tui_command(state, "")
+    assert "REPL görünümü: default" in tui_command(state, "")
 
 
 def test_search_satir_icinde_yonlendirir_tam_ekranda_kaydirir(state: ReplState, monkeypatch):
@@ -114,3 +122,47 @@ def test_refresh_style_tema_sonrasi_yeni_stil_kurar():
     theme.apply_palette("acik")
     tui.refresh_style()
     assert tui.application.style is not before
+
+
+def test_tui_etkin_yuzeyde_hemen_yeniden_acar(state: ReplState, tmp_path: Path):
+    """Claude Code `/tui` (#232): oluşturucu konuşma korunarak hemen değişir."""
+    state.surface = "inline"
+    assert "zaten default" in tui_command(state, "default")
+    assert state.running and not state.surface_switch
+    assert "yeniden açılıyor" in tui_command(state, "fullscreen")
+    assert state.surface_switch == "fullscreen" and state.running is False
+    assert load_config(tmp_path / "config.yaml").runtime.tui == "fullscreen"
+    assert state.take_surface_switch() == "fullscreen" and state.surface_switch == ""
+
+
+def test_borulu_yuzeyde_tui_yalniz_kaydeder(state: ReplState):
+    state.surface = ""
+    assert "sonraki" in tui_command(state, "fullscreen")
+    assert state.running and not state.surface_switch
+
+
+async def test_run_surface_gorunum_degisince_ayni_durumla_yeniden_acar(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+):
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop
+    from fusion_cli.core.types import Message
+
+    state.history = [Message("user", "merhaba"), Message("assistant", "selam")]
+    calls: list[tuple[str, bool, int]] = []
+
+    async def fake(st, config, console, resume, mode, *, switched=False):
+        calls.append((mode, switched, len(st.history)))
+        if len(calls) == 1:
+            assert st.surface == "inline"
+            tui_command(st, "fullscreen")
+        return 0
+
+    monkeypatch.setenv("FUSION_INLINE", "1")
+    monkeypatch.setattr(loop, "is_interactive_terminal", lambda: True)
+    monkeypatch.setattr(loop, "_run_one_surface", fake)
+    code = await loop._run_surface(state, state.config, Console(record=True), None)
+    assert code == 0
+    assert calls == [("inline", False, 2), ("fullscreen", True, 2)]
+    assert state.running and "konuşma sürüyor (2 mesaj)" in state.surface_notice

@@ -120,9 +120,9 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
   yaz. Fusion sadece PLAN yapar, dosyaya dokunmaz. Beğenirsen `/auto` ile uygulamaya
   geçersin.
-- **Geri al:** son turda Fusion’ın yazdığı ve sonradan değişmemiş dosyaları geri almak için
+- **Geri al:** Fusion’ın yazdığı ve sonradan değişmemiş dosyaları geri almak için
   ```
-  /undo
+  /undo        → /rewind ile aynı menü (tur, sonra "yalnız kod" seç)
   ```
   Yalnız Fusion’ın yazdığı doğrulanabilen dosyalar otomatik geri alınır. Senin sonradan
   değiştirdiğin dosyalar ve yazarı doğrulanamayan kabuk değişiklikleri korunur; çakışma
@@ -131,14 +131,29 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   o turun dosya kaydını tutar (en fazla 100 tur, bu oturum boyunca). İstediğin turun başına
   dönmek için
   ```
-  /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod"
+  /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod / Vazgeç"
+                         (kod seçenekleri yalnız o turdan beri dosya değiştiyse görünür)
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
-  Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` = `/rewind <son tur> kod`.
+  Konuşma geri sarılınca (konuşma ya da ikisi) seçilen turun istemi giriş kutusuna geri konur (terminal, TUI ve masaüstü).
+  Kapsam menüsünde Claude Code'daki gibi **Buradan itibaren özetle** (seçilen turdan sonrası
+  `/compact` sıkıştırıcısıyla özetlenir, turun istemi giriş kutusuna döner) ve **Buraya kadar özetle**
+  (öncesi özetlenir, sonrası kalır) da var; Enter ile seçilince isteğe bağlı talimat sorulur
+  (`/rewind 3 ozet-buradan <talimat>`), TUI'de numara tuşuyla seçilince talimatsız hemen özetlenir
+  (seçicilerde 1-9 tuşları satırı doğrudan seçer). Dosyalar değişmez, özgün mesajlar transcript'te
+  kalır; `DISABLE_COMPACT=1` bu seçenekleri gizler. Daha önceki bir özetin ya da `/compact`ın
+  içinde kalan tur oradan özetlenemez (açık ileti verilir); "Buraya kadar özetle" sonrasındaki
+  turlar yeniden özetlenebilir.
+  Aynı oturumda daha önce `/clear` çalıştıysa menünün başında `/resume <kimlik> (önceki oturum)` satırı
+  durur (terminal ve TUI; masaüstü sohbetleri sekmelerle sürdürür); seçilince `/clear` öncesi konuşma sürdürülür. Başka bir sohbete
+  geçince satır kaybolur.
+  Boş satırda **Esc Esc** de aynı seçiciyi açar. Girdi doluyken (tur sürmüyorsa) **Esc Esc** metni temizler; taslak Up ile geri gelir (yalnız bu oturumda, son 10 taslak; geçmiş dosyasına yazılmaz). `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
-  Sınır: kod kaydı bellekte tutulur; `fusion --continue` ile açılan sohbette konuşma geri gelir,
-  önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) tüm etkileri
+  Checkpoint'ler Claude Code'daki gibi konuşmayla birlikte diske yazılır
+  (`<bellek>/oturum-durum/<sohbet>.json`, 0600) ve `~/.claude/settings.json` içindeki
+  `cleanupPeriodDays` (varsayılan 30) gün saklanır: `--continue`/`--resume`/`/resume` ile
+  açılan sohbette `/rewind` önceki sürecin turlarına da çalışır. Kabuk komutlarının (`run_shell`) tüm etkileri
   kaydedilmez; bazı mevcut dosyalar için başlangıç yedeği alınır ve dosya farkı gözlenir.
   Bu gözlem, kabuk değişikliklerinin otomatik geri alınacağı anlamına gelmez. Tur sayımı
   yalnız senin mesajlarını sayar (harness notları ve bağlam özetleri değil).
@@ -416,18 +431,47 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 | `fusion --continue` (`-c`) | Bu projedeki SON sohbeti geçmişiyle açar |
 | `fusion --resume <kimlik\|ad>` (`-r`) | Kimliği, adı ya da kimlik önekiyle seçtiğin sohbeti açar |
 | `fusion --resume <ad> --fork-session` | Seçilen sohbetin KOPYASINI yeni kimlikle açar; özgün sohbet değişmez |
+| `fusion "soru"` · `fusion -r <ad> "soru"` · `fusion -c "soru"` | Etkileşimli oturumu açar (ya da sürdürür) ve istemi ilk mesaj olarak gönderir (Claude Code `claude "query"`); ilk sözcük bir alt komut adıysa (`run`, `agent`…) alt komut çalışır |
+| `fusion --session-id <uuid>` | Yeni sohbete bu UUID'yi kimlik olarak verir (`session-<hex>` olarak saklanır); kullanılmış kimlik reddedilir; `--continue`/`--resume` ile yalnız `--fork-session` birlikte |
 | `fusion --name "Ödeme akışı"` (`-n`) | Yeni (ya da sürdürülen) sohbete ad verir |
-| `/resume` | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
-| `/rename <ad>` | Açık sohbete ad verir (`--resume <ad>` ile bulunur) |
-| `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer |
+| `/resume` (`/continue`) | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
+| `/rename [ad]` | Açık sohbete ad verir (`--resume <ad>` ile bulunur); argümansız ad ilk istemden üretilir |
+| `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer; argümansız dal ilk isteme göre adlandırılır, onay yeni ve özgün kimliği basar |
 
+- Oturum seçicisi (`/resume`, argümansız `fusion --resume`) Claude Code tuşlarıyla gezilir: Up/Down,
+  J/K, Home/End, 1-9 doğrudan seçer; `/` ya da yazdırılabilir karakter arama kipine geçip listeyi
+  ad/açıklamaya göre süzer, Backspace siler, ilk Esc aramadan çıkar, ikincisi seçiciyi kapatır (tam
+  ekran ve satır içi). PR adresini yapıştırmak (ilk karakter aramayı açar) o PR'a bağlı oturumu
+  bulur; adres satırda görünmez. Satırda zaman, git dalı, boyut ve mesaj sayısı görünür. Space oturumun son
+  mesajlarını önizler, Ctrl+R yeniden adlandırır, Ctrl+W bütün çalışma ağaçlarının, Ctrl+A bütün
+  projelerin oturumlarını gösterir, Ctrl+B yalnız geçerli git dalının oturumlarını bırakır;
+  varsayılan liste geçerli dizinin (çalışma ağacının) oturumlarıdır. Dal ve dizin her kullanıcı
+  mesajıyla transcript'e yazılır; eski kayıtlar dizinsiz sayılıp varsayılan listede kalır. `/branch`,
+  `/fork` ve `--fork-session` kopyaları kök oturumlarının altında `↳` ile gruplanır.
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
   `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
-- Sınır: `--continue`, `--resume`, `--fork-session` ve `/branch` sohbetin SON 100 kullanıcı/cevap
-  mesajını yükler; daha eskisi diskte durur ama model bağlamına girmez. Aynı adı iki sohbete
-  verdiysen `--resume <ad>` "bulunamadı" der; kimlik (ya da 6+ karakterlik öneki) kullan.
-- `/resumeclaude`, `/resumecodex` başka araçların geçmişini yalnız künye olarak devralır;
-  `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
+- Sürdürme (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,
+  araç çağrılarını ve sonuçlarını, compaction özetini ve agent modelini geri yükler. İzin
+  kipi sürdürme yoluna bağlıdır: `fusion --continue` ve `fusion --resume <kimlik|tek sohbete
+  ait ad>` kayıtlı kipi geri yükler (`bypass` hariç: o kip yalnız açılış bayrağıyla girilir);
+  seçiciden seçilen sohbet (argümansız `--resume`, `--from-pr`, belirsiz ad) ve oturum içi
+  `/resume` geçerli kipte sürer, yalnız plan kipinde biten sohbet plan kipine döner. Bu süreçte
+  zaten açılmış bir sohbete (`/clear` ya da `/resume` ile bıraktığın) `/resume` ile dönersen
+  plan kipi de geri gelmez. Kayıtlı durum yoksa ya da
+  sohbet sonradan başka yüzeyde (masaüstü) sürdüyse transcript'in SON 100 kullanıcı/cevap
+  mesajı yüklenir; `--fork-session` ve `/branch` kopyası da metin geçmişiyle başlar. Aynı adı iki sohbete
+  verdiysen `fusion --resume <ad>` Claude Code'daki gibi seçiciyi o adı taşıyan sohbetlerle açar,
+  `/resume <ad>` ise hata verir (argümansız `/resume` seçiciyi açar). Ad tam eşleşir (büyük/küçük
+  harf duyarlı). `--resume <kimlik>` önce bu projede (ve çalışma ağaçlarında), sonra makinedeki
+  öteki projelerde arar; kimlik yalnız tek bir projede bulunursa açılır. Fusion'ın eski büyük/küçük
+  duyarsız ad ve 6+ karakterlik kimlik öneki eşleşmesi tam eşleşme yoksa yedek olarak kalır.
+  `--resume <mutlak-yol.jsonl>` o transcript dosyasındaki sohbeti açar (Fusion dosyası proje başına
+  tek `events.jsonl`'dır; içinde birden çok sohbet varsa seçici açılır). Claude Code'un kendi
+  `.jsonl` biçimi okunmaz; onun için `/import history claude`.
+- `/import history <kaynak> [oturum]` (ör. `/import history claude`) başka araçların geçmişini yalnız
+  künye olarak devralır; `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
+  Claude Code'da `/resume<kaynak>` komutları yok; Fusion'ın eski `/resumeclaude`, `/resumecodex` adları
+  bir sürüm boyunca listede görünmeyen, kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır.
 - Masaüstü: sohbet listesi (`sohbet.listele`) ve "buradan devam et" (`sohbet.dallan`) aynı
   depoyu kullanır; `sohbet.adlandir` ile verilen ad terminalde de görünür.
 
@@ -974,7 +1018,8 @@ fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
 
 ## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
 
-`/cost` bu oturumu gösterir. `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
+`/cost` ve `/stats` Claude Code'daki gibi `/usage` takma adıdır (model performans tablosu
+`/model-stats` adına taşındı). `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
 kullanım günlüğünden **bu oturum / son 24 saat / son 7 gün / son 30 gün** pencerelerini ve
 "kim harcadı" kırılımını (ana ajan, alt ajan, arka plan; model; MCP sunucusu; beceri)
 verir. Masaüstünde Ayarlar → Kullanım aynı veriyi "Son dönem" ve "Kim harcadı" olarak
@@ -992,7 +1037,7 @@ satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }
 
 ---
 
-## 12c) PR ve CI → `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`, `gh-action`
+## 12c) PR ve CI → `/pr`, `/autofix-pr`, `--from-pr`, `gh-action`
 
 GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış olmalı.
 
@@ -1000,10 +1045,13 @@ GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış
   `pr checks N`, `run view`, `api …` (yalnız GET). Yazan komutlar (`gh pr create`,
   `gh pr comment`, `gh pr merge`) `run_shell` ile çalışır ve **onay ister**.
 - Sohbette: `/pr [bağlam]` mevcut dal için PR açar (başlık, gövde, test planı);
-  `/pr-comments [no]` inceleme yorumlarını dosya:satır ile özetler, kod değiştirmez;
+  PR yorumları için komut yoktur (Claude Code v2.1.91'de `/pr-comments` kaldırıldı):
+  "42 numaralı PR'ın yorumlarını özetle" diye doğrudan sorulur;
   `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
-- Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
-  (başlık, dallar, açıklama, adres) ekler.
+- Terminalde: `fusion --from-pr 42` (ya da GitHub/GitLab/Bitbucket PR adresi) Claude Code'daki
+  gibi oturum seçicisini o PR'a bağlı sohbetlerle süzerek açar; sohbet, PR açtığında ya da PR
+  adresi geçtiğinde PR'a bağlanır. `fusion agent --from-pr 42 "yorumları uygula"` (Fusion eki,
+  headless alt komut) görevin başına PR özetini (başlık, dallar, açıklama, adres) ekler.
 - CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
   PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
   tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
@@ -1351,9 +1399,9 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ## 15) REPL önekleri, durum, dışa aktarma ve görünüm (Claude Code paritesi)
 
-### Önekler: `!`, `@`, `#`
+### Önekler: `!`, `@`
 
-Önekler TEK satırlıdır: çok satırlı `# …` ya da `! …` yapıştırması düz mesaj sayılır (not en çok 500 karakter). `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer).
+Önekler TEK satırlıdır: çok satırlı `! …` yapıştırması düz mesaj sayılır. `#` öneki Claude Code'da olmadığı için yoktur; `# …` satırı olağan istemdir. `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer). Terminal, TUI ve masaüstünde `! komut` çıktısı bağlama girince model Claude Code'daki gibi ikinci istem beklemeden yanıt verir; `settings.json` (`~/.claude/`, `.claude/`, `.claude/settings.local.json`) içinde `"respondToBashCommands": false` yalnız bağlama ekler. `!` kipinde Tab geçmişteki `!` komutlarını ve son sözcük için yolları önerir. Çıktı terminal ve TUI'de komut sürerken canlı akar; Ctrl+B komutu kesmeden arka plana alır (süre sınırı kalkar, çıktı `memory_dir/kabuk-gorevleri/` günlüğüne yazılır, `/tasks` listeler/durdurur, oturum kapanınca öldürülür). Ön planda komut 120 sn içinde bitmezse durdurulur. Masaüstünde de çıktı komut sürerken akar (`KabukCiktisi` olayı), bitince sonuç bloğu yerini alır. Plan kipinde `!` hâlâ reddedilir.
 
 | Yaz | Ne olur |
 |-----|---------|
@@ -1361,18 +1409,20 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 | `@src/app.py şu fonksiyonu incele` | Anılan dosya (ya da dizin listesi) bağlama eklenir; mesaj olduğu gibi gider. En çok 8 dosya, dosya başına 20 bin karakter. Tab ile yol tamamlama: `@src/mo<Tab>`. |
 | `# testleri her zaman pytest ile çalıştır` | Kalıcı bellek notu (`/learn` ile aynı depo). `/lessons` ile gör, `/forget` ile sil. |
 
-`@sunucu:kaynak` (MCP kaynağı) anması tur başında sunucudan okunup bağlama eklenir (bkz. "MCP istemleri ve kaynakları").
+`@sunucu:kaynak` (MCP kaynağı) anması tur başında sunucudan okunup bağlama eklenir (bkz. "MCP istemleri ve kaynakları"). Tab ile `@` tamamlaması dosyalarla birlikte bağlı sunucuların MCP kaynaklarını (`@sunucu:uri`) ve canlı öteki oturumları önerir.
 
 ### Durum ve bağlam
 
-- `/status` — sürüm, motor, izin kipi, model/kademe, düşünme, çıktı stili, dizin(ler), MCP sunucuları, hesap, sohbet kimliği, yapılandırma dosyası.
-- `/context` — bağlam penceresi kırılımı: sistem istemi / özet / kullanıcı / asistan / araç sonuçları (tahmini token ve yüzde), araç tanımları ve bekleyen `!`/`@` bağlamı ayrı satır, sıkıştırma eşiği ve model penceresi doluluğu. Yeni oturumda sistem istemi tahminle sayılır (`(tahmini)` etiketi); durum çubuğundaki `bağlam %N` yalnız konuşmayı sıkıştırma eşiğine göre sayar.
+- `/status` — sürüm, motor, izin kipi, model/kademe, düşünme, etkin çıktı stili, dizin(ler), MCP sunucuları, hesap, Claude Code'daki `Session kind` (`interactive`) ve bağlantı (sağlayıcı kurulumunun hazırlığı; ağ çağrısı yapmaz), sohbet kimliği, yapılandırma dosyası. Tur sürerken de hemen çalışır. Terminalde (tam ekran ve satır içi) Claude Code gibi Settings panelini Status sekmesinde açar (←/→ ile Config ve Usage sekmeleri, Esc kapatır); borulu girdide ve masaüstünde metin olarak basılır.
+- `/context [all]` — Claude Code'daki gibi bağlam kullanımını renkli ızgara olarak gösterir (her hücre model penceresinin %1'i; kategori başına renk ve boş alan). Yüzde MODEL PENCERESİNE göredir; token sayısı son API çağrısında ölçülen girdi token'ından, ölçüm yoksa tahminden (karakter/3) gelir ve hangisi olduğu yazılır. Araç çıktısı ağırlığı, büyük bellek dosyaları ve kapasite için öneriler; pencere aşılınca ne kadar aşıldığı ve `/compact`/`/clear` önerisi. Altında kalem kırılımı (sistem istemi / özet / kullanıcı / asistan / araç sonuçları, araç tanımları, bekleyen `!`/`@` bağlamı, sıkıştırma eşiği); `all` en büyük kalemleri de listeler. Durum çubuğundaki `bağlam %N` hâlâ sıkıştırma eşiğine göre sayar.
 - Durum çubuğunda `bağlam %12 · ~3k tok` sayacı her tur sonunda güncellenir (satır-içi kipte `FUSION_TOOLBAR=1` ile görünür).
 
 ### Dışa aktarma ve pano
 
-- `/export` → proje kökünde `fusion-sohbet-<tarih>.md`; `/export notlar/sohbet.md`, `/export json`, `/export pano`. Sistem istemi dışarıda, araç çağrıları katlanmış ve kırpılmış, sırlar (başlık dahil) maskeli. Proje kökü dışına yazılmaz; var olan dosya `zorla` eklenmeden ezilmez.
-- `/copy` → son asistan cevabı panoya; `/copy 2` sondan ikinci. (pbcopy / wl-copy / xclip / xsel / clip)
+- `/export [dosya]` Claude Code'daki gibi konuşmayı **düz metin** aktarır (kullanıcı `> `, asistan ve araç çağrısı `⏺ `, araç çıktısı `⎿` girintili). Dosya adı verilirse doğrudan yazar (uzantısızsa `.txt`); argümansız çağrı **Panoya kopyala / Dosyaya kaydet** seçicisini açar (terminal, tam ekran TUI, masaüstü). Fusion ekleri: `md`/`json` bayrağı ya da `.md`/`.json` uzantısı biçimi seçer, `pano` doğrudan panoya, `dosya` varsayılan adla (`fusion-sohbet-<tarih>.txt`) yazar. Sistem istemi dışarıda, uzun araç çıktıları kırpılır, sırlar (başlık dahil) maskeli. Proje kökü dışına yazılmaz; var olan dosya `zorla` eklenmeden ezilmez.
+- `/copy` → son asistan cevabı panoya; `/copy 2` sondan ikinci. Claude Code'daki gibi cevapta kod bloğu ya da alıntı varsa önce seçici açılır: tam yanıt ya da tek bir blok (satır içi, TUI ve masaüstünde). Seçicide `w` seçimi panoya değil proje kökünde `fusion-copy-<zaman>.<uzantı>` dosyasına yazar (SSH üzerinde işe yarar; kod bloğunda uzantı dilden gelir, tam yanıt `.md`). (pbcopy / wl-copy / xclip / xsel / clip) Masaüstü seçicisinde `w` tuşunun yerine her satırın "Dosyaya yaz: …" eşi vardır.
+- `/diff` → çalışma ağacının `git diff HEAD --stat` özeti ve bu oturumda dosya değiştiren turlar (tur numarası, görev, dosyalar); `/diff tam` farkın kendisini de basar. Terminalde argümansız `/diff` Claude Code gibi etkileşimli görüntüleyiciyi açar: ←/→ git çalışma ağacı farkı ile tek tek turlar arasında geçer, Up/Down dosyaları gezer, Enter dosyanın farkını gösterir (tur farkı: turun ilk anlık görüntüsü → sonraki hâl); borulu girdide ve masaüstünde metin basılır.
+- `/recap` → Claude Code'daki gibi oturumun tek satırlık özeti (en çok 400 karakter), yalnız istenince; agent modeline araçsız tek çağrıdır, özet konuşma geçmişine eklenmez (`/compact`'tan farkı). Tam ekranda en az 3 turluk oturumda 3 dakika etkinlik olmazsa (tur sürmüyorken) aynı özet bir kez kendiliğinden basılır (Claude Code Session recap); `runtime.session_recap=false` ya da `CLAUDE_CODE_ENABLE_AWAY_SUMMARY=0` kapatır. Eşik resmî belgede doğrulanamadı; Fusion terminal odak olayı yerine boşta kalma süresine bakar.
 - Masaüstü: Sohbeti paylaş penceresinde Markdown/JSON seçimi ve "Dosyaya kaydet" (RPC `sohbet.disa_aktar {bicim, baslik}`).
 
 ### Ayarlar: `/config` ve `fusion config`
@@ -1382,11 +1432,15 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 /config runtime.web           # süzgeç
 /config runtime.max_tokens    # tek değer
 /config runtime.max_tokens=8192   # oturuma uygula + config.yaml'a yaz
+/config theme=dark editorMode=vim model=sonnet   # Claude adları, birden çok çift
+/settings · /config --help        # takma ad · kullanım
 fusion config list [süzgeç] · fusion config get <yol> · fusion config set <yol> <değer>
 fusion --set runtime.max_tokens=8192 --set runtime.lessons=false   # yalnız bu oturum
 fusion --profile high                                        # yalnız bu oturum kademe
 fusion --set runtime.max_tokens=8192 run "görev"                # alt komutlarda da geçerli
 ```
+Claude Code ayar adları: `model` (`/model <model>` ile aynı, kaydeder), `theme` (`dark`/`light`/`dark-ansi`/`light-ansi`/`dark-daltonized`/`light-daltonized` → terminal paleti), `outputStyle`, `editorMode` (`vim`/`normal`), `tui` (`default`/`fullscreen`). Adlar Claude'daki gibi büyük/küçük harf duyarlıdır. Argümansız `/config` (`/settings`) Claude Code gibi Settings panelini Config sekmesinde açar: Enter seçili ayarın değer listesini açar, seçim `/config key=value` gibi kalıcı yazılır, ←/→ Status/Usage sekmelerine geçer (tam ekran ve satır içi terminal; masaüstünde ayar → değer seçicisi). Borulu girdide liste basılır.
+
 `--set`/`--profile` REPL'in yanında `run`, `agent`, `serve`, `models`, `trace`, `mcp-tools` ve `config get/list/show` alt komutlarına da uygulanır (`config set` dosyaya yazar, oturumluk değeri almaz; `app`/`mcp` sunucuları yapılandırmayı kendileri yükler). Hatalı çift çıkış kodu 2 ile durdurur.
 Erişilebilen bölümler `runtime.*`, `embedding.*` ve `capabilities.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, sözlük: `ad=değer, ad2=değer`, `null` anahtarı siler). Beceri görünürlüğü tek anahtarla: `/config capabilities.overrides.deploy=user-invocable-only` (`fusion config set capabilities.overrides.deploy kapali`); `capabilities.disabled=a,b` kalıcı kapatma. REPL'de değişiklik beceri kataloğuna hemen yansır. Model rolleri için `/model`, `/level`, `/mode`.
 
@@ -1394,36 +1448,73 @@ Erişilebilen bölümler `runtime.*`, `embedding.*` ve `capabilities.*`; tip dat
 
 Proje dizinindeki stil (`.claude/output-styles`, `.fusion/cikti-stilleri`) yerleşik ya da kullanıcı stiliyle aynı adı taşıyorsa `fusion trust` verilmeden onu GÖLGELEYEMEZ (yeni adlar yine listelenir).
 
-`varsayilan` · `ozlu` · `aciklayici` · `ogretici`. Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine kodlama talimatlarından sonra eklenir; `runtime.output_style` ile kalıcı.
+`default` · `Proactive` (sıradan kararlarda sormadan uygular) · `Concise` (sonuçla başlar) · `Explanatory` (`★ Insight` blokları) · `Learning` (Insight + `TODO(human)` ve "Learn by Doing" isteği, kullanıcıyı bekler); ad büyük/küçük harf duyarsız. Eski `varsayilan`/`ozlu`/`aciklayici`/`ogretici` adları kullanımdan kalkmış takma addır (bir kez uyarılır). Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine en sona eklenir. Claude Code'daki gibi özel stil `keep-coding-instructions: true` demedikçe sistem isteminin yazılım mühendisliği bölümleri (Kod değişiklikleri, Doğrulama) çıkarılır; yerleşik stiller bu bölümleri korur. Eklenti stili `force-for-plugin: true` taşıyorsa eklenti etkinken kullanıcı seçimini ezer (ilk yüklenen kazanır). Proje stilleri çalışma dizini ile depo kökü arasındaki her `.claude/output-styles`'tan yüklenir; aynı adda en yakın dizin kazanır.
+
+Seçim Claude Code'daki gibi projenin `.claude/settings.local.json` dosyasına `outputStyle` olarak (özgün adla, ör. `"outputStyle": "Explanatory"`) yazılır; `/config outputStyle=<ad>` aynı yoldan geçer. Elle yazılan değer büyük/küçük harf duyarlıdır ve katmanlardan okunur (`~/.claude/settings.json` < `.claude/settings.json` < `.claude/settings.local.json`); tam eşleşmeyen değer `default` olur. Eski `runtime.output_style` yalnız hiçbir katmanda `outputStyle` yokken okunur.
 
 ### Durum satırı betiği: `/statusline`
 
-`runtime.status_line_command` kabuk komutu çalıştırır; güven kaydı olmayan projenin `config.yaml`'ından gelirse (`verification_commands` gibi) `fusion trust` verilene kadar düşürülür.
+Ayar Claude Code ile aynıdır: `settings.json` içinde
+`"statusLine": {"type": "command", "command": "~/.claude/statusline.sh", "padding": 0, "refreshInterval": 5, "hideVimModeIndicator": false}`.
+Okuma sırası: `~/.claude/settings.json` → Fusion'ın eski `runtime.status_line_command` dizesi (kullanımdan kalkmış takma ad) → proje `.claude/settings.json` → `.claude/settings.local.json`; proje dosyaları kabuk komutu çalıştırdığı için yalnız `fusion trust` sonrası okunur.
 
 ```
-/statusline jq -r '.model.id + " · %" + (.context_window.percent|tostring)'
-/statusline kapat
+/statusline model adını, bağlam yüzdesini ve git dalını göster
+/statusline
 ```
-Betik her tur sonunda stdin'den JSON alır (`model`, `workspace`, `cost`, `context_window`, `session`, `version`), bastığı ilk satır durum çubuğunda gösterilir; 1 sn sınırı, hata olursa yerleşik çubuk. Ayar: `runtime.status_line_command`.
+`/statusline <istek>` betiği Claude Code'daki gibi `statusline-setup` ajanına yazdırır; argümansız hâli durum satırını kabuk isteminden (PS1) kurdurur.
+
+Betik oturum başında (sürdürmede de), her asistan cevabından sonra, `/compact` bitince, izin kipi ya da vim kipi değişince ve `refreshInterval` saniyede bir çalışır; tetikler 300 ms birleştirilir, yeni tetik süren betiği iptal eder, komut değişince beklemeden çalışır. stdin'den Claude Code statusline şemasında JSON alır (`cwd`, `session_id`, `session_name`, `transcript_path`, `model.{id,display_name}`, `workspace.{current_dir,project_dir,added_dirs,git_worktree}`, `version`, `output_style.name`, `cost.*` (`/clear` yeni oturumla $0'dan ve süre baştan başlar), `context_window.*` ve `exceeds_200k_tokens` (Claude Code'daki gibi en son API yanıtından; `/compact` sonrası `current_usage` sonraki çağrıya dek `null`), `effort.level`, `thinking.enabled`, `vim`, `agent`, `pr`, `worktree`; Fusion'a özgü motor/izin kipi/kademe `fusion` altında). Betiğe `COLUMNS`/`LINES` verilir. TUI'de bütün satırlar ANSI renk ve OSC 8 bağlantılarıyla yerleşik çubuğun üstünde gösterilir. Satır içi (`/tui default`) REPL'de betik oturum başında ve her tur sonunda çalışır, bütün satırlar ANSI/OSC 8 korunarak istemin üstüne basılır (`FUSION_TOOLBAR=1` ile alt çubuk açıksa orada yalnız ilk satır görünür); istem açıkken izin kipi (Shift+Tab) ya da vim kipi değişince ve `refreshInterval` saniyede bir de yeniden çalışır (300 ms yoklama).
+
+Claude Code'dan farklar: Fusion'ın ölçmediği `cost.total_api_duration_ms`, `total_lines_added/removed` 0 gelir; `prompt_cache`, `rate_limits`, `prompt_id`, `workspace.repo` yazılmaz.
 
 ### Görünüm: `/theme`, `/tui`, `/search`
 
 Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (masaüstü teması ayarlardan). `fusion config set runtime.terminal_theme`/`runtime.tui` yalnız geçerli değerleri kabul eder.
 
 - `/theme` → `koyu` · `acik` · `ansi` · `daltonizm`; anında uygulanır, `runtime.terminal_theme` ile kalıcı. Masaüstü teması ayrıdır (Ayarlar › Genel).
-- `/tui inline` / `/tui fullscreen` → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı).
+- `/tui default` / `/tui fullscreen` (Claude Code adları; `inline` eski takma ad) → `runtime.tui`'ye yazılır ve oluşturucu Claude Code'daki gibi konuşma (geçmiş, izin kipi, süren alt ajanlar) korunarak hemen yeniden açılır; argümansız çağrı etkin görünümü basar. Terminal olmayan (borulu) girişte geçiş yalnız kaydedilir, sonraki açılışta geçerli olur.
 - `/search <metin>` → tam ekran konuşmasında son eşleşmeye kaydırır; `End` canlı akışa döner.
 
-### Tuş bağları ve vim: `/keybindings`, `/vim`
+### Tam ekran girdi: çok satır, geçmiş, Ctrl+C/Ctrl+D (Claude Code ile aynı)
 
-`/vim` yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
+- **Çok satır:** `\` + Enter, Option+Enter, Shift+Enter (CSI-u ya da modifyOtherKeys gönderen terminallerde), Ctrl+J; yapıştırma. Enter gönderir. Kutu en çok 10 satıra uzar.
+- **Geçmiş:** Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son satırda geçmişi gezer. Geçmiş çalışma dizini başınadır (`<bellek>/girdi-gecmisi/`, 0600), art arda aynı satır bir kez yazılır. **Ctrl+R** satır içi tersine arama (Ctrl+R sonraki, Enter kabul, Ctrl+C/Esc iptal).
+- **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler (silinen taslak Claude Code'daki gibi Up ile geri gelir: hemen ya da sonraki mesajlardan sonra, oturumda son 10 taslak tutulur, dosyaya yazılmaz), 800 ms içindeki ikinci basış çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
+- Konuşma kaydırma: PageUp/PageDown, Home/End, Ctrl+Home/Ctrl+End, Shift+Up/Down.
+- **Kuyruk:** tur sürerken Enter mesajı kuyruğa alır. Düz mesaj Claude Code'daki gibi araç çağrıları bitince AYNI tura verilir; tur mesaj okunmadan biterse kendiliğinden sıradaki tur olarak gider. Komutlar, `!` kabuk satırları ve `@` anması tur sonunu bekler. İlk satırda Up kuyruktakileri (`!` satırları hariç) taslağın önüne geri alır. Ctrl+X Ctrl+S (`chat:sendNow`) kuyruğu hemen yollar: bekleyen varsa tur kesilir, taslak arkasına kuyruklanır. Esc turu keser, kuyruktakiler korunur ve hemen gönderilir. `/status`, `/tasks`, `/usage` (`/cost`), `/model`, `/effort`, `/add-dir` ve `/permissions` Claude Code'daki gibi kuyruğa girmez, tur sürerken hemen çalışır; diğer komutlar kuyruğa girer ve tur bitince sırayla çalışır (tam ekran TUI ve masaüstü). `/fast` Fusion'da yoktur: Claude Code'un hızlı kipi Anthropic API'nin hesap düzeyindeki sunucu özelliğidir.
+- **Düzenleme:** Ctrl+G ya da Ctrl+X Ctrl+E girdiyi dış editörde açar, Ctrl+_ son düzenlemeyi geri alır, Ctrl+S dolu taslağı saklar (boş girdide geri getirir), Ctrl+L girdi ve konuşmayı koruyarak ekranı yeniden çizer.
+- **Paneller:** boş girdide `?` kısayol panelini basar; Ctrl+T (`app:toggleTodos`) oturumun görev listesini durum alanının üstünde gösterir/gizler (en çok 5 madde; açık bırakılırsa sürdürmede açık gelir, ayrıntı aşağıda); Ctrl+X Ctrl+K (`chat:killAgents`) arka plandaki alt ajanları durdurur (3 sn içinde ikinci basışla onaylanır).
+- **Transcript (Ctrl+O, `app:toggleTranscript`):** konuşma alanı ayrıntılı transcript görünümüne geçer: araç çağrıları argümanlarıyla, araç sonuçları (varsayılan 60 satıra kadar) görünür, son 30 mesaj gösterilir. Görünümde Ctrl+E (`transcript:toggleShowAll`) bütün konuşma ve tam sonuçlar ile son mesajlar arasında geçer; q, Esc, Ctrl+C ya da yeniden Ctrl+O çıkar. Kaydırma PageUp/PageDown ile.
+- **Görüntü yapıştırma (Ctrl+V, `chat:imagePaste`):** panodaki görüntü (macOS `osascript`, Wayland `wl-paste`, X11 `xclip`) `[Image #N]` çipi olarak imlece girer; gönderimde görüntü mesaja eklenir, çip metni mesajda kalır. Panoda görüntü yoksa kısa uyarı. Metin yapıştırma terminalin yapıştırmasıdır (Cmd+V).
+- **Option+P / Option+T / Option+O** (terminalde "Option as Meta" açık olmalı; `/terminal-setup` Apple Terminal'de açar): Option+P model seçicisini girdiyi temizlemeden açar (`chat:modelPicker`), Option+T `/thinking`'i değiştirir (`chat:thinkingToggle`), Option+O (`chat:fastMode`) Fusion'da hızlı kip olmadığını söyler. Tam ekranda Esc anında keser; Option dizisi Esc ile aynı okumada geldiğinden kesme yerine eylem çalışır.
+- **`:emoji:` kısa kodları:** `:` ve en az iki harf yazıp Tab'a basınca eşleşen emojiler önerilir (`:tada` → 🎉).
+- **İstem önerileri:** yanıt bitince boş girdide sönük bir sonraki istem önerisi görünür; Tab ya da Sağ ok girdiye alır (göndermez), yazmaya başlamak kaldırır, boş girdide Enter öneriyi göndermez. `settings.json` `promptSuggestionEnabled: false` kapatır; `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0/1` ayarın önüne geçer. Öneri turun kendi kanıtından (takip önerileri) üretilir, ek model çağrısı açılmaz.
+- Bu kısayolların hepsi satır içi (varsayılan) REPL'de de vardır: Ctrl+O transcript'i, Ctrl+T görev listesini, `?` paneli istemin üstüne basar; Ctrl+V çipi, Option+P/T/O ve istem önerisi aynı çalışır. Satır içi istemin eski Ctrl+V eylemi (`yapistirma_katla`, uzun yapıştırmayı katlamayı aç/kapat) tuşsuz eylem olarak kalır; isteyen `keybindings.json`'da bağlar.
 
-`/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
+`chat:sendNow` Ctrl+X Ctrl+S'de ve Ctrl+Enter'ı ayrı dizi olarak gönderen terminallerde (kitty/CSI-u, xterm modifyOtherKeys) Ctrl+Enter'dadır; ajanın kabuk komutu sürüyorsa komutu kesmeden arka plana alır ve kuyruktaki mesaj aynı tura verilir. Satır içi (düz) REPL'de de tur sürerken yazılan mesaj canlı göstergenin altında görünür, Enter aynı tura verir, komutlar tur sonunu bekler, tur bitince kalanlar tuşa basmadan gider; Ctrl+B süren kabuk komutunu ya da alt ajanı kesmeden devreder. Masaüstünde "Çalışan işe mesaj: yönlendir" aynı tura verir; tur biterken modele gitmemiş mesaj sıradaki tur olarak gider.
+
+Claude Code'dan fark: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil).
+
+### Terminal kurulumu: `/terminal-setup`
+
+Claude Code'daki gibi terminali tanır ve tek seferlik ayarı yazar: VS Code, Cursor ve Devin Desktop'ta kullanıcı `keybindings.json`'una Shift+Enter → ESC CR bağı (ve `terminal.integrated.gpuAcceleration: "off"`), Zed'de `keymap.json`'a Terminal bağı (önce `keymap.json.<karma>.bak` yedeği; okunamayan dosya değiştirilmez, blok yazdırılır), Alacritty'de `alacritty.toml`'a Shift+Return bağı, Apple Terminal'de varsayılan profilde "Use Option as Meta Key" ve sesli zili kapatma, iTerm2'de uygulamaların panoya erişimi (`/copy` için). Var olan bağa dokunulmaz ("already configured"). Claude Code'dan fark: VS Code'da `mouseWheelScrollSensitivity` ayarlanmaz; ekran okuyucu kipine göre zil ayrımı yok.
+
+### Tuş bağları ve vim: `/keybindings`, `editorMode`
+
+Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Claude Code'daki gibi `~/.claude/settings.json` içinde `"vimInsertModeRemaps": {"jj": "<Esc>"}` iki tuşluk diziyi Escape'e eşler (tam ekran TUI): ikinci tuş bir saniye içinde gelirse iki karakter de yazılmaz ve NORMAL kipe geçilir; ayar yalnız kullanıcı dosyasından okunur. Durum satırı betiğine giden JSON'daki `vim.mode` gerçek kipi (`INSERT`/`NORMAL`/`VISUAL`) taşır. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
+
+`/keybindings` Claude Code'daki gibi `~/.claude/keybindings.json` dosyasını gösterir (yoksa `$schema`/`$docs` iskeletiyle yazar; `CLAUDE_CONFIG_DIR` verilmişse orada):
 ```json
-{ "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
-  "tui":   { "c-q": null, "c-g": "kes", "f2": "komut:status" } }
+{ "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
+  "bindings": [
+    { "context": "Chat", "bindings": { "ctrl+e": "chat:externalEditor", "ctrl+s": null,
+                                        "meta+g": "command:compact" } },
+    { "context": "Task", "bindings": { "ctrl+x ctrl+b": null } } ] }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`, `gorev_listesi` (Ctrl+T), `dongu_durdur` (Esc); `tui`: `cik`, `dongu_ya_da_cik` (Ctrl+C), `kes`, `kip_dongusu`, `gorev_listesi` (Ctrl+T), `arka_plana_al` (Ctrl+B), `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Tuş yazımı Claude Code ile aynıdır: `ctrl`/`shift`/`alt`/`meta`/`opt` ile `+`, büyük/küçük harf duyarsız, chord'lar boşlukla (`ctrl+x ctrl+e`), `escape`, `enter`, `space`, `pageup`, `wheelup`… `null` varsayılan bağı kaldırır, `command:<ad>` `/ad` komutunu çalıştırır. Ayrılmış kısayollar (Ctrl+C, Ctrl+D, Ctrl+M, Ctrl+[, Ctrl+I, Ctrl+H) bağlanamaz. Bağlamlar: `Global` ve `Chat` satır içi istem ile tam ekran TUI'ye, `Task` ve `Scroll` tam ekran TUI'ye uygulanır; belgelenen öteki bağlamlar geçerlidir ama Fusion'da ayrı yüzeyleri olmadığından yok sayılır. Karşılığı olan eylemler: `chat:cycleMode`, `chat:sendNow`, `chat:externalEditor`, `chat:undo`, `chat:stash`, `chat:clearInput`, `chat:clearScreen`, `app:redraw`, `chat:modelPicker`, `chat:thinkingToggle`, `chat:fastMode`, `chat:imagePaste`, `app:toggleTranscript`, `app:toggleTodos`, `chat:killAgents`, `app:interrupt`, `app:exit`, `task:background`, `scroll:*`. Karşılığı olmayan eylem dosyayı bozmaz, `/keybindings` uyarı olarak gösterir. Dosya kaydedilince yeniden başlatmadan uygulanır.
+
+Eski `~/.fusion/keybindings.json` (`giris`/`tui` bağlamları, `c-x` yazımı, `komut:<ad>`) bir sürüm boyunca kullanımdan kalkmış takma ad olarak okunur ve `/keybindings` uyarır; Claude dosyası onun üstüne uygulanır. Eski dosyanın eylem adları: `giris`: `kip_dongusu`, `yapistirma_katla`, `gorev_listesi` (Ctrl+T), `dongu_durdur` (boş istemde Esc bekleyen kendi tempolu /loop'u durdurur); `tui`: `kes_temizle_cik` (Ctrl+C; bekleyen kendi tempolu /loop varsa önce onu durdurur), `cift_basista_cik` (Ctrl+D), `cik`, `kes`, `kip_dongusu`, `gorev_listesi` (Ctrl+T), `arka_plana_al` (Ctrl+B), `simdi_gonder`, `ajanlari_durdur`, kaydırma eylemleri. Aynı eski dosyanın `masaustu` bölümü masaüstü kısayollarının yeri olarak kalır.
 
 ---
 
@@ -1484,13 +1575,16 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/agent` · `/fusion` | Motor değiştir |
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
-| `/model` | Model değiştir |
+| `/model [model]` | `/model <model>` agent modelini değiştirir ve varsayılan olarak kaydeder (tam kimlik, `claude-…`, aday adı ya da yapılandırılmış aileden `sonnet`/`opus`/`haiku`). Argümansız çağrı Claude Code gibi model seçicisini açar: Enter seçip kaydeder, `s` yalnız bu oturum için geçer, ←/→ effort düzeyini değiştirir (borulu girdide liste basılır) |
+| `/models [agent\|judge\|cand\|add\|rm …]` | Fusion eki: etkin rolleri listeler; rol alt komutları (yalnız oturum) burada. Eski `/model agent …` biçimi bir sürüm çalışır, bir kez uyarır |
 | `/plan [açıklama]` | Plan kipine geç; açıklama verilirse (`/plan giriş hatasını düzelt`) o görevle hemen başla. Eski `/plan goster` / `/plan ac` tek sözcük olarak hâlâ çalışır |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
 | `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |
 | `/undo` | Son değişikliği geri al |
 | `/rewind` · Esc Esc | Bir turun başına dön (kod/konuşma/ikisi) |
+| `/btw [soru]` | Konuşma hakkında yan soru (Claude Code): model konuşmayı görür ama araç kullanmaz; soru ve cevap konuşma geçmişine ve transcript'e girmez. Son 20 yan soru tutulur; argümansız `/btw` en sonuncusunu gösterir. Terminalde cevap kapatılabilir katmanda açılır (Esc/Enter kapatır, ←/→ önceki yan sorular) ve konuşma alanına basılmaz; borulu girdide ve masaüstünde ayrı blok olarak gösterilir |
+| `/fork [istem]` | Konuşmayı arka plan kopyasına ver, burada devam et (bkz. ARKA_PLAN_GOREVLERI) |
 | `fusion -c` · `/resume` | Kaldığın sohbete dön |
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
@@ -1499,11 +1593,12 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/voice` · `/voice gonder` · `/voice durum` | Terminalde yerel dikte (cihaz üstü) |
 | `/verify` | Test/lint çalıştır |
 | `/onizleme [ad]` · `/tarayici ac` | launch.json sunucuları · ajanla paylaşılan görünür tarayıcı (`devral`/`birak`) |
-| `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
+| `/code-review` (`/review`) `[low\|medium\|high\|xhigh\|max] [--fix] [--comment] [--max-findings n\|all\|default] [pr#\|dal\|yol]` | Claude Code'daki gibi dalın değişikliklerini (ya da PR/dal/yol/git aralığı) doğruluk hataları için fork alt ajanda inceler; `--fix` bulguları uygular, `--comment` PR/MR'a yazar; seviye yazılmazsa son yazılan seviye, `--max-findings` `default` verilene dek hatırlanır. Masaüstünde (bulgu listesi isteyen uygulama, Claude Code ReportFindings) bulgular her seviyede metin yerine kart olarak gelir: dosya:satır (tıklayınca dosya açılır), özet, hata senaryosu, tür ve doğrulandı/olası etiketi, en çok 32 bulgu; terminalde rapor metindir. `ultra` (Anthropic bulutunda çok ajanlı inceleme) Fusion'da yok |
+| `/simplify` | Değişen kodu sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
-| `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
+| `/doctor` (`/checkup`) | Kurulum denetimi (`fusion doctor` ile aynı çıktı); Claude Code gibi sorun bulunursa model düzeltmeleri önerir, hangilerinin uygulanacağını sorar ve onay olmadan değişiklik yapmaz (üç yüzeyde). `/doctor prompt-audit [yol]` talimat, beceri, komut ve alt ajan dosyalarını modele denetletir |
 | `/loop 5m <görev>` | Görevi aralıkla yinele (oturum boyunca); listeleme/iptal ajandan doğal dille istenir |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |
@@ -1514,9 +1609,9 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `! cmd` · `@dosya` | Kabuk · dosya anma |
 | `/status` · `/context` | Oturum durumu · bağlam kırılımı |
 | `/export` · `/copy` | Konuşmayı dosyaya/panoya · son cevabı panoya |
-| `/config yol=değer` | Ayar değiştir (`fusion config get/set/list`) |
+| `/config [key=value ...]` · `/settings` | Ayar değiştir; Claude adları ve `bölüm.alan` yolları (`fusion config get/set/list`) |
 | `/output-style` · `/theme` · `/tui` | Çıktı stili · terminal teması · görünüm |
-| `/statusline` · `/keybindings` · `/vim` | Durum satırı betiği · tuş bağları · vim |
+| `/statusline` · `/keybindings` | Durum satırı betiği · tuş bağları (vim: `/config editorMode=vim`) |
 | `fusion serve` | Yerel santral + panel |
 | `fusion mcp` | Araçları MCP ile dışa aç |
 | `fusion mcp-tools` | Dış MCP araçlarını listele |
@@ -1687,6 +1782,10 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   bildirimi) ve çalışma geçmişine yazılır (`zamanlama.calisma_kaydet`; görev başına son 10:
   zaman, sohbet, tamam/hata, cevap özeti). Kartta son üç çalışma görünür.
 
+## Ek klasörler: `/add-dir`, `/dirs`
+
+Claude Code'daki gibi `/add-dir <yol>` oturuma bir çalışma klasörü ekler (Tab yol önerir) ve `DirectoryAdded` kancalarını tetikler. Açık ek klasörleri listelemek ve kapatmak Fusion ekidir: `/dirs`, `/dirs kaldir <yol>`. Eski `/add-dir` (argümansız listeleme) ve `/add-dir kaldir <yol>` bir sürüm boyunca çalışır, ilk kullanımda bir kez uyarır.
+
 ## Çalışma dizini: `/cd`
 
 Claude Code / Codex `/cd` karşılığı. `/cd ../diger-proje` oturumun proje kökünü değiştirir;
@@ -1779,11 +1878,11 @@ Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gi
 /tasks answer gorev-1a2b evet                   # onay bekleyen göreve cevap
 @gorev-1a2b CHANGELOG'u da güncelle             # devam mesajı (bitmişse yeniden başlar)
 /list-agents                                    # açık öteki Fusion oturumları
-@backend-oturumu API şeması değişti, testleri koştur
+@backend-oturumu API şeması değişti, testleri koştur   # tur çalışır, model SendMessage ile iletir
 ```
 
-Tur sürerken **Ctrl+B** (tam ekran ve satır içi REPL) bekleyen ön plan alt ajanı varsa onu
-arka plana alır; yoksa turu keser ve görevi arka planda baştan başlatır (değişen dosyalar
-devredilir). Terminalden: `fusion agent --bg
+Tur sürerken **Ctrl+B** (tam ekran ve satır içi REPL) ajanın süren kabuk komutunu ya da
+bekleyen ön plan alt ajanı kesmeden arka plana alır ve tur sürer; ikisi de yoksa turu keser ve
+görevi arka planda baştan başlatır (değişen dosyalar devredilir). Terminalden: `fusion agent --bg
 "görev"`, izlemek için `fusion agents --izle`. Ayrıntı ve ayarlar:
 [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md).

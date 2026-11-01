@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from fusion_cli.cli import agent_commands
 from fusion_cli.cli.repl import agent_link
 from fusion_cli.cli.repl.background_commands import (
+    at_session_turn,
     background_command,
     interrupted_to_background,
     list_agents_command,
@@ -202,8 +203,14 @@ def test_at_mesaji_goreve_ya_da_oturuma_gider_dosya_anmasina_dokunmaz(state, lau
     (state.root / "notlar.md").write_text("x")
 
     assert "iletildi" in route_at_message(state, "@isci şunu da yap")
-    assert "iletildi" in route_at_message(state, "@oteki selam")
-    assert [m.text for m in link.registry.take(other.id)] == ["selam"]
+    # Claude Code (#228): açık oturum anması doğrudan gönderilmez; tur çalışır, model
+    # mesajı SendMessage ile iletir.
+    assert route_at_message(state, "@oteki selam") is None
+    gorev = at_session_turn(state, "@oteki selam")
+    assert gorev is not None and "SendMessage" in gorev and "oteki" in gorev and "selam" in gorev
+    assert not link.registry.take(other.id)
+    assert at_session_turn(state, "@isci şunu da yap") is None
+    assert at_session_turn(state, "@notlar.md özetle") is None
     assert route_at_message(state, "@notlar.md dosyasını özetle") is None
     assert route_at_message(state, "@bilinmeyen merhaba") is None
     assert route_at_message(state, "normal satır") is None

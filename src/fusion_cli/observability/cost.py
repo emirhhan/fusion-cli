@@ -26,11 +26,20 @@ class CostTracker:
     """Oturum boyunca token ve maliyet biriktiren dinleyici."""
 
     def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        """`/clear` yeni oturum başlatır: maliyet ve sayaçlar sıfırlanır (Claude Code, #191)."""
         self._by_role: dict[str, TokenUsage] = {}
         self._calls: dict[str, int] = defaultdict(int)
         self._failed_calls = 0
         self._abandoned_calls = 0
         self._unmeasured_calls = 0
+        #: Son başarılı çağrının ölçülen girdi token'ı (`/context`, #207); 0 = bilinmiyor.
+        self.last_prompt_tokens = 0
+        #: Son başarılı ve ölçülmüş agent çağrısının kullanımı (durum satırı
+        #: `context_window`, #191); ilk çağrıdan önce ve `/compact` sonrası `None`.
+        self.last_usage: TokenUsage | None = None
 
     def handle(self, event: Event) -> None:
         if isinstance(event, ModelCallAbandoned):
@@ -47,8 +56,16 @@ class CostTracker:
         # alınır. Ölçüldü (30 Ekim): tüm çağrılar ölçülmüş olsa da toplam "unknown" çıkıyordu.
         onceki = self._by_role.get(event.role)
         usage = event.result.usage
+        if usage.completeness == "complete" and usage.prompt_tokens > 0:
+            self.last_prompt_tokens = usage.prompt_tokens
+            if event.role == "agent":
+                self.last_usage = usage
         self._by_role[event.role] = usage if onceki is None else onceki + usage
         self._calls[event.role] += 1
+
+    def forget_last_call(self) -> None:
+        """`/compact` sonrası: son çağrının bağlam ölçümü artık geçerli değil (Claude Code)."""
+        self.last_usage = None
 
     @property
     def total(self) -> TokenUsage:
@@ -83,10 +100,3 @@ class CostTracker:
         """(rol, çağrı sayısı, kullanım) satırları — token toplamına göre azalan."""
         rows = tuple((role, self._calls[role], usage) for role, usage in self._by_role.items())
         return tuple(sorted(rows, key=lambda row: row[2].total_tokens, reverse=True))
-
-    def reset(self) -> None:
-        self._by_role.clear()
-        self._calls.clear()
-        self._failed_calls = 0
-        self._abandoned_calls = 0
-        self._unmeasured_calls = 0

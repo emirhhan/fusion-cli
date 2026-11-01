@@ -1626,6 +1626,8 @@ export function SessionUygulama({
       setCommandSelector(next);
       // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
       if (result.temizle === true) controller.clear(active.id);
+      // `/rewind` konuşmayı sardıysa hedef turun istemi giriş kutusuna döner (#200).
+      if (typeof result.girdi === "string" && result.girdi) setDraft(result.girdi);
       // Komut yapılandırmayı değiştirmiş olabilir; panel eski değeri göstermesin.
       if (next === null) setControlRevision((current) => current + 1);
       const outcome = operationResult(result, "Komut tamamlanamadı.", true);

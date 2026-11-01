@@ -34,7 +34,9 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 |---|---|
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
-| REPL (tam ekran ve satır içi) | Tur sürerken **Ctrl+B**: süren kabuk komutu ya da ön plan alt ajanı kesilmeden arka plana geçer, tur sürer; devredilecek komut ya da alt ajan yoksa tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| REPL | `/fork [istem]` (Claude Code): konuşmayı arka plan kopyasına verir, bu sohbette çalışmaya devam edilir. İstemle kopya hemen başlar; git deposunda kendi çalışma ağacında (`fork-<kısa kimlik>`) çalışır. İstemsiz `/fork` yeni kimlikli kayıtlı kopya açar; ilk istemi `/resume <kimlik>` ya da `fusion -r <kimlik>` ile verilir |
+| REPL (tam ekran ve satır içi) | Tur sürerken **Ctrl+B** (Claude Code gibi): ajanın süren `run_shell` komutu ya da ön plan alt ajanı **kesilmeden** arka plana geçer, tur sürer; devredilecek komut ya da alt ajan yoksa tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| Satır içi ve tam ekran REPL | `!` kabuk komutu sürerken **Ctrl+B** (Claude Code gibi): komut **kesilmeden** arka planda sürer (süre sınırı kalkar), istem hemen serbest kalır; `/tasks` listeler (`/tasks show bN`, `/tasks stop bN`); bitince çıktısı konuşmaya basılır, bağlama girer ve (`respondToBashCommands` açıksa) model yanıt verir |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -103,8 +105,10 @@ Her REPL, tam ekran ve masaüstü oturumu `<bellek dizini>/oturumlar/` defterine
 görünmez.
 
 - `/list-agents` (`/peers`): açık oturumlar ve bekletilen gelen mesajlar.
-- `@oturum-adı <metin>` ya da `/list-agents gonder <ad> <metin>`: mesaj gönder. `@ad`
-  projede bir dosya/dizin adıysa dosya anması olarak kalır.
+- `@oturum-adı <metin>` (Claude Code gibi): tur çalışır, model mesajı `SendMessage(to=<ad>)`
+  ile o oturuma iletir (terminal, TUI, masaüstü). `@` tamamlaması açık oturumları önerir.
+  `/list-agents gonder <ad> <metin>` modelsiz doğrudan gönderir. `@görev-adı <metin>` arka plan
+  görevine doğrudan devam mesajıdır. `@ad` projede bir dosya/dizin adıysa dosya anması kalır.
 - Model: `list_agents` (görevler + oturumlar), `send_message(to, message)`.
 
 Gelen mesaj BAŞKA bir ajan ya da kullanıcıdan gelir ve **güvenilmez girdi** sayılır: tura
@@ -138,11 +142,15 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_messaging` | `true` | `false`: oturum defteri ve mesajlaşma kapalı |
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
-Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırılabilir ya da
-başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır içi REPL'de de tur sürerken Ctrl+B
+Ctrl+B (ve Ctrl+X Ctrl+B) `~/.claude/keybindings.json` içinde `Task` bağlamında
+`"ctrl+b": null` ile kaldırılabilir ya da başka tuşa (`"task:background"` eylemi) bağlanabilir;
+Fusion'ın `~/.fusion/keybindings.json` dosyasında `"tui": {"c-b": null}` / `"arka_plana_al"`
+eylemi de okunur. Satır içi REPL'de de tur sürerken Ctrl+B
 çalışır: tur boyunca terminal tuş okur (yankısız), Ctrl+B süren kabuk komutunu ya da ön plan
-alt ajanını kesmeden arka plana alır, tur sürer; bu sırada yazılan metin sonraki istemin
-taslağı olur, onay/soru istemi açılınca okuma durur. tmux'ta Ctrl+B önek tuşu olduğu için
+alt ajanını kesmeden arka plana alır, tur sürer; bu sırada yazılan mesaj canlı göstergenin
+altında görünür, Enter'la araç çağrıları bitince aynı tura verilir (komut ve `!` satırları tur
+sonunu bekler, kalanlar tuşsuz gider), yarım metin sonraki istemin taslağı olur; onay/soru
+istemi açılınca okuma durur. `!` kabuk komutu sürerken de Ctrl+B çalışır. tmux'ta Ctrl+B önek tuşu olduğu için
 Claude Code'daki gibi iki kez basılır (tmux ikincisini uygulamaya iletir). Satır içinde yalnız
 `c-<harf>` biçimli tuşlar bağlanabilir (`c-c`, `c-d`, `c-h`, `c-i`, `c-j`, `c-m`, `c-q`, `c-s`,
 `c-z` terminale ayrılmış).
@@ -191,6 +199,7 @@ Claude Code'daki gibi iki kez basılır (tmux ikincisini uygulamaya iletir). Sat
 ## Bilinen sınırlar
 
 - Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
+- `/tasks` ajanın kabuk arka plan işlerini (`.fusion/is`, Ctrl+B ile devredilenler dahil) ve Ctrl+B ile arka plana alınan `!` komutlarını (`bN`) listeler.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u

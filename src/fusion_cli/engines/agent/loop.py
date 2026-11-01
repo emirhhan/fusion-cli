@@ -1177,7 +1177,12 @@ async def _run_agent(
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
-        system_prompt=system_prompt,
+        # Özel çıktı stili kodlama talimatını istemiyorsa temel istem kırpılır (#215).
+        system_prompt=system_prompt
+        if system_prompt is not None or depth > 0
+        else output_style.base_system_prompt(
+            SYSTEM_PROMPT, deps.config, home=deps.home, root=deps.tool_context.root
+        ),
         # Claude Code (#149): CLAUDE.md içeriği sistem isteminden SONRA kullanıcı mesajıdır.
         # Otomatik bellek (MEMORY.md başı, #153) da aynı mesajda, talimatlardan sonra.
         # `--exclude-dynamic-system-prompt-sections` (#301) kod haritasını da buraya taşır.

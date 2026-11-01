@@ -32,9 +32,9 @@ from dataclasses import replace
 from functools import partial
 from itertools import count
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
+from ..cli.repl import code_review_findings, cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.loop_command import fire_prompt, runs_as_command
@@ -213,6 +213,9 @@ from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+
+if TYPE_CHECKING:
+    from ..cli.repl.prefixes import ShellPrefixResult
 from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
@@ -339,6 +342,14 @@ _GORSEL_TURLERI = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+
+
+def findings_payload(text: str) -> dict[str, Any]:
+    """`/code-review` cevabındaki bulgu bloğu: temiz metin + `bulgular`; blok yoksa boş."""
+    extracted = code_review_findings.extract(text)
+    if extracted is None:
+        return {}
+    return {"metin": extracted.text, "bulgular": [dict(item) for item in extracted.findings]}
 
 
 def _attachment_images(value: object) -> tuple[str, ...]:
@@ -574,6 +585,9 @@ class AppSession:
         self._steering: SteeringQueue | None = None
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
+        #: Tur bitince modele gitmemiş yönlendirmeler (#190): arayüz bunları hemen sıradaki
+        #: tur olarak yollar (Claude Code "queued messages go out without another key press").
+        self._steering_leftover: list[str] = []
         self._registry = build_registry(home)
         # Beceri/komut dosyaları `/ad` olarak (P-019); defter sahteleri eski imzayı korur.
         attach_skill_commands(self._registry, lambda: self._state.capabilities)
@@ -586,6 +600,8 @@ class AppSession:
             remotion_transport=remotion_transport,
             remotion_browser=remotion_browser,
         )
+        # Masaüstü bulgu listesi isteyen ana uygulamadır (Claude Code ReportFindings, #214).
+        self._state.findings_host = True
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
@@ -1610,7 +1626,7 @@ class AppSession:
                 deadline=deadline,
             )
             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
-            return direct
+            return self._with_steering_leftover(direct)
         if request.name == "tur.kes":
             if self._goal_task is not None and not self._goal_task.done():
                 # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
@@ -2598,6 +2614,13 @@ class AppSession:
         self._state.line_scheduled = bool(fired) and fired == f"/{name} {argument}".strip()
         command = self._registry.get(name)
         turn_running = (self._turn is not None and not self._turn.done()) or self._goal_judging()
+        if turn_running and command is not None and data.get("kuyruktan") is not True:
+            from ..cli.repl.busy_commands import IMMEDIATE_COMMANDS
+
+            if command.name not in IMMEDIATE_COMMANDS:
+                # Claude Code (#209): tur sürerken yalnız belgelenen anlık komutlar çalışır;
+                # diğerleri kuyruğa girer, arayüz tur bitince `kuyruktan: true` ile yollar.
+                return {"ok": True, "metin": "", "kuyruk": True}
         if command is not None and command.name == "cd" and turn_running:
             # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
@@ -2611,17 +2634,26 @@ class AppSession:
             # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
-            self._state.history.clear()
-            linked_pr.forget(self._state)
+            # `/reset`, `/new` artık `/clear` takma adı (#185). Masaüstü sohbet kimliğini
+            # kendi sekmesi yönetir; geçmiş ve hook oturumu Claude `/clear` gibi yenilenir.
+            self._state.reset_history()
             # Claude in Chrome: /clear oturum sekme grubunu kapatır (#436); tur sürüyorsa
             # yalnız boş grup kapanır, süren işin sekmesi elinden alınmaz.
             schedule_group_close(self._chrome, only_empty=turn_running)
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
-            return {
+            rendered: dict[str, Any] = {
                 "ok": True,
-                "metin": await render_command_text(self._registry, self._state, command.name),
+                "metin": await render_command_text(
+                    self._registry, self._state, command.name, argument
+                ),
             }
+            # `/doctor` sorun bulunca düzeltme turu hazırlar (#212); arayüz onu tur yapar.
+            task, mode = self._state.take_pending()
+            if task:
+                self._next_turn_mode = mode
+                rendered["gorev"] = task
+            return rendered
         if command is not None and command.name in {
             "development",
             "model",
@@ -2695,6 +2727,9 @@ class AppSession:
         # Görev arayüze döner, arayüz onu normal tur olarak gönderir; kip ise o
         # tura burada taşınır.
         self._cron_save()
+        if text := self._state.take_pending_input():
+            # `/rewind` konuşmayı sardıysa hedef istem giriş kutusuna döner (#200).
+            result = {**result, "girdi": text}
         task, mode = self._state.take_pending()
         if not task:
             return result
@@ -2712,24 +2747,53 @@ class AppSession:
         from ..cli.repl.loop import apply_mentions
 
         if (command := prefixes.shell_command(task)) is not None:
-            result = await prefixes.run_shell_prefix(self._state, command)
+            result = await self._live_shell(command)
             parts: list[str] = []
             if result.output:
                 parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
+            follow_up = ""
             if result.context_block:
-                parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
+                from ..cli.repl import shell_mode
+
+                if shell_mode.responds_to_bash_commands(self._state.root, self._state.home):
+                    # Claude Code (#219): çıktı bağlama girince model kendiliğinden yanıtlar;
+                    # arayüz bu görevi kullanıcı mesajı göstermeden tur olarak başlatır.
+                    follow_up = shell_mode.follow_up_task(command)
+                else:
+                    parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
             parts.extend(result.notes)
-            return {"ok": result.ok, "metin": "\n\n".join(parts), "yerel_yanit": True}
-        if (note := prefixes.pending_memory_note(self._state, task)) is not None:
-            return {
-                "ok": True,
-                "metin": prefixes.add_memory_note(self._state, note),
+            reply: dict[str, Any] = {
+                "ok": result.ok,
+                "metin": "\n\n".join(parts),
                 "yerel_yanit": True,
             }
+            return {**reply, "gorev": follow_up} if follow_up else reply
         for mention_note in apply_mentions(task, self._state):
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
+
+    def _with_steering_leftover(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Tüketilmemiş yönlendirmeleri sonuca ekle; arayüz sıradaki tur olarak yollar."""
+        leftover, self._steering_leftover = self._steering_leftover, []
+        return {**result, "kalan_yonlendirme": leftover} if leftover else result
+
+    async def _live_shell(self, command: str) -> ShellPrefixResult:
+        """`! komut` çıktısı komut sürerken `KabukCiktisi` olayıyla akar (#219)."""
+        from ..cli.repl import prefixes
+
+        def _emit(payload: dict[str, Any]) -> None:
+            try:
+                self._writer(encode_event({"olay": "KabukCiktisi", "komut": command, **payload}))
+            except (OSError, ValueError):
+                logging.getLogger(__name__).debug("kabuk çıktısı iletilemedi")
+
+        try:
+            return await prefixes.run_shell_prefix(
+                self._state, command, on_chunk=lambda text: _emit({"parca": text})
+            )
+        finally:
+            _emit({"bitti": True})
 
     def _ensure_idle_watch(self) -> None:
         """Girdi bekleyen sekme boşta kalınca `Notification(idle_prompt)` (P-009)."""
@@ -3056,6 +3120,7 @@ class AppSession:
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
             )
+            result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
             # değişirse/yerelleştirilirse yanlış durum yazılırdı; ölçüldü 30 Ekim).
             was_cancelled = result.pop("_cancelled", False) is True
@@ -3152,6 +3217,10 @@ class AppSession:
             local = await self._prefix_reply(task)
             if local is not None:
                 return local
+            from ..cli.repl.background_commands import at_session_turn
+
+            # `@oturum mesaj` (#228): Claude Code gibi tur çalışır, model SendMessage ile iletir.
+            task = at_session_turn(self._state, task) or task
         image_command = None if browser_only else parse_image_command(task)
         if image_command is not None and not attachment_context and not images:
             ok, markdown = await run_image_command(self._state.config, image_command)
@@ -3384,6 +3453,7 @@ class AppSession:
                 self._iptal_bekliyor = False
                 self._turn = None
                 self._turn_settled.set()
+                self._steering_leftover = _leftover_steering(self._steering)
                 self._steering = None
                 self._steering_turn = None
                 self._steering_requests.clear()
@@ -3477,6 +3547,9 @@ class AppSession:
             **root_payload,
             **goal_payload,
         }
+        if not browser_only and code_review_findings.is_findings_turn(task):
+            # `/code-review` bulguları kart olarak (Claude Code ReportFindings, #214).
+            cevap.update(findings_payload(metin))
         if receipt is not None:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
@@ -3904,6 +3977,8 @@ class AppSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
         await self._state.child_runs.close()
+        # Arka plana alınmış `!` komutları oturumla kapanır (#218).
+        self._state.shell_jobs.kill_all()
         if self._child_runs is not None and self._child_runs is not self._state.child_runs:
             await self._child_runs.close()
         await self._voice_background.close()
@@ -3963,3 +4038,12 @@ def _notify_auth(session: AppSession, server: str) -> None:
     from ..engines.hooks.notify import notify_auth_success
 
     notify_auth_success(session._state.hooks(), server)
+
+
+def _leftover_steering(queue: SteeringQueue | None) -> list[str]:
+    """Tur sonunda tüketilmemiş yönlendirme metinleri (#190)."""
+    from ..core.steering import steering_text
+
+    if queue is None:
+        return []
+    return [text for message in queue.drain() if (text := steering_text(message))]

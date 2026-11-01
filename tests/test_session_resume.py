@@ -212,7 +212,9 @@ def test_resume_listesi_bos_ve_bulunamayan(state):
 
 def test_rename_adi_kalici_yazar(state):
     _seed(state.config.memory_dir, state.root, state.conversation_id, ("soru", "cevap"))
-    assert _run(state, "/rename") == "Kullanım: /rename <ad>"
+    state.history = [Message("user", "ödeme akışını düzelt\nayrıntı"), Message("assistant", "ok")]
+    # Claude Code (#224): argümansız `/rename` geçmişten otomatik ad üretir.
+    assert _run(state, "/rename") == "Sohbet adı: ödeme akışını düzelt"
 
     assert _run(state, "/rename Yeni ad") == "Sohbet adı: Yeni ad"
 
@@ -237,6 +239,14 @@ def test_branch_konusmayi_yeni_sohbete_kopyalar(state):
     }
     assert refs[state.conversation_id].name == "deneme"
     assert refs[kaynak].name == ""
+    # Claude Code (#224): onay iki kimliği de basar.
+    assert state.conversation_id in sonuc and kaynak in sonuc
+
+
+def test_branch_argumansiz_adi_ilk_istemden_alir(state):
+    state.history = [Message("user", "giriş sayfasını yap"), Message("assistant", "tamam")]
+    _run(state, "/branch")
+    assert state.conversation_name == "giriş sayfasını yap"
 
 
 def test_branch_harness_notlu_gecmisi_notsuz_kopyalar(state):

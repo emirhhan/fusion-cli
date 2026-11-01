@@ -30,6 +30,8 @@ _MAX_HISTORY_MESSAGES = 100
 
 #: Sohbete ad verme olayı (`/rename`, `--name`). Mesaj değildir; listede başlık olur.
 _NAME_EVENT = "ConversationNamed"
+#: Kopyanın kaynağı (`/branch`, `--fork-session`, `/fork`); seçici dalları gruplar (#202).
+_FORK_EVENT = "ConversationForked"
 #: Konuşmanın geri sarıldığı olay (`/rewind`): ilk `keep_users` kullanıcı mesajı ve
 #: cevapları kalır, sonrası düşer. Sayım KULLANICI mesajıyla yapılır: motor geçmişindeki
 #: araç/ara mesajlar transcript'te yoktur, kullanıcı mesajı ise iki tarafta da birdir.
@@ -41,7 +43,11 @@ _ID_PREFIX_MIN = 6
 
 
 def load_transcript_messages(
-    base_dir: Path, root: Path, *, conversation_id: str | None = None
+    base_dir: Path,
+    root: Path,
+    *,
+    conversation_id: str | None = None,
+    events_path: Path | None = None,
 ) -> list[Message]:
     """Bir workspace'in sürdürülebilir kullanıcı/cevap mesajlarını yaz-madan oku.
 
@@ -50,8 +56,8 @@ def load_transcript_messages(
     geçmişte birikir ve bir sekmeye tıklayan kullanıcı başka bir sekmenin
     konuşmasını görür. TUI kimlik vermez ve proje genelini okumaya devam eder.
     """
-    digest = _workspace_digest(root)
-    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    # `events_path`: başka projenin dosyası (`--resume <kimlik>` projeler arası arama, #203).
+    path = events_path or transcript_events_path(base_dir, root)
     deleted = _deleted_conversations(path.parent)
     messages: list[Message] = []
     try:
@@ -89,6 +95,40 @@ def load_transcript_messages(
                 messages, Message("assistant", safe_text, message_id=event.get("message_id"))
             )
     return messages[-_MAX_HISTORY_MESSAGES:]
+
+
+#: Konuşmayı değiştiren olaylar; `last_turn_timestamp` yalnız bunlara bakar (ad vermek sayılmaz).
+_TURN_EVENTS = frozenset({"UserMessage", "TurnAnswered", _REWIND_EVENT})
+
+
+def last_turn_timestamp(base_dir: Path, root: Path, conversation_id: str) -> float:
+    """Sohbetin son mesaj/geri sarma olayının zamanı; hiç yoksa 0.
+
+    Oturum anlık görüntüsü (`session_snapshot`) bundan yeniyse transcript'ten tam
+    geçmişe geçilir; transcript daha yeniyse (ör. sohbet masaüstünde sürdü) metin geçmişi
+    kullanılır.
+    """
+    path = (
+        base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    )
+    latest = 0.0
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return latest
+    for line in lines:
+        if conversation_id not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(event, dict) or event.get("session_id") != conversation_id:
+            continue
+        stamp = event.get("timestamp")
+        if event.get("event") in _TURN_EVENTS and isinstance(stamp, int | float):
+            latest = max(latest, float(stamp))
+    return latest
 
 
 def read_workspace_events(base_dir: Path, root: Path) -> list[dict[str, object]]:
@@ -273,6 +313,13 @@ class ConversationRef:
     message_count: int
     #: Kullanıcının verdiği ad (`/rename`, `--name`); yoksa boş. Varsa `title` da budur.
     name: str = ""
+    #: Son kullanıcı mesajındaki git dalı ve çalışma dizini (seçici süzgeçleri, #202).
+    git_branch: str = ""
+    cwd: str = ""
+    #: Sohbetin transcript satırlarının toplam boyutu (bayt).
+    size_bytes: int = 0
+    #: Kopyalandığı sohbet (`/branch`, `--fork-session`); kök oturumda boş.
+    forked_from: str = ""
 
 
 def find_conversation(base_dir: Path, root: Path, query: str) -> ConversationRef | None:
@@ -343,7 +390,16 @@ def copy_conversation(
     return len(restored)
 
 
-def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...]:
+def transcript_events_path(base_dir: Path, root: Path) -> Path:
+    """Bu çalışma alanının transcript dosyası (durum satırı `transcript_path`, #191)."""
+    return (
+        base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    )
+
+
+def list_conversations(
+    base_dir: Path, root: Path, *, events_path: Path | None = None
+) -> tuple[ConversationRef, ...]:
     """Bir workspace'te kayıtlı sohbetleri en yeniden eskiye sırala.
 
     Ölçüldü (kullanıcının diski, 8 Eylül): 110 sohbet transcript dosyalarında
@@ -353,8 +409,7 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
     Kullanıcı mesajı olmayan kayıt sohbet sayılmaz: yalnız araç olayı taşıyan
     bir kimlik kullanıcı için hiçbir şey ifade etmez.
     """
-    digest = _workspace_digest(root)
-    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    path = events_path or transcript_events_path(base_dir, root)
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -365,6 +420,9 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
     stamps: dict[str, float] = {}
     #: Sohbet başına mesaj rolleri; geri sarma olayı listeyi keser, sayım yüklenenle eşleşir.
     roles: dict[str, list[str]] = {}
+    places: dict[str, tuple[str, str]] = {}
+    forks: dict[str, str] = {}
+    sizes: dict[str, int] = {}
     for line in lines:
         try:
             event = json.loads(line)
@@ -373,7 +431,16 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
         if not isinstance(event, dict):
             continue
         conversation = event.get("session_id")
+        if isinstance(conversation, str):
+            sizes[conversation] = sizes.get(conversation, 0) + len(line.encode("utf-8")) + 1
+            if event.get("event") == "UserMessage" and isinstance(event.get("cwd"), str):
+                places[conversation] = (str(event.get("git_branch") or ""), event["cwd"])
         if _conversation_digest(conversation) in deleted:
+            continue
+        if event.get("event") == _FORK_EVENT and isinstance(conversation, str):
+            source = event.get("forked_from")
+            if isinstance(source, str):
+                forks[conversation] = source
             continue
         if event.get("event") == _NAME_EVENT:
             # Son verilen ad geçerlidir; ad bir mesaj değildir, sayılmaz ve zaman damgası vermez.
@@ -408,6 +475,10 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
             updated_at=stamps.get(conversation, 0.0),
             message_count=len(roles.get(conversation, ())),
             name=names.get(conversation, ""),
+            git_branch=places.get(conversation, ("", ""))[0],
+            cwd=places.get(conversation, ("", ""))[1],
+            size_bytes=sizes.get(conversation, 0),
+            forked_from=forks.get(conversation, ""),
         )
         for conversation, title in titles.items()
     )
@@ -464,11 +535,15 @@ class TranscriptStore:
     def record_user(self, text: str, *, message_id: str | None = None) -> None:
         if is_harness_note(text):
             return
+        branch = current_git_branch(self.root)
         self._append(
             {
                 "event": "UserMessage",
                 "text": text,
                 **({"message_id": message_id} if message_id else {}),
+                # Claude Code oturum seçicisi dal/worktree süzgeçleri için (#202).
+                "cwd": str(self.root),
+                **({"git_branch": branch} if branch else {}),
             }
         )
 
@@ -485,6 +560,10 @@ class TranscriptStore:
     def record_name(self, name: str) -> None:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
+
+    def record_fork(self, source_id: str) -> None:
+        """Bu sohbet `source_id`'nin kopyasıdır (oturum seçicisi gruplaması, #202)."""
+        self._append({"event": _FORK_EVENT, "forked_from": source_id})
 
     def record_rewind(self, keep_users: int) -> None:
         """Konuşmayı ilk `keep_users` kullanıcı mesajına (ve cevaplarına) geri sar (`/rewind`).
@@ -522,6 +601,25 @@ class TranscriptStore:
             self.events_path.chmod(0o600)
         except OSError:
             return
+
+
+def current_git_branch(root: Path) -> str:
+    """`root`'un git dalı (alt süreçsiz, `.git/HEAD` okunur); dal yoksa ya da ayrık HEAD'de boş."""
+    for folder in (root, *root.parents):
+        marker = folder / ".git"
+        try:
+            if marker.is_file():
+                text = marker.read_text(encoding="utf-8").strip()
+                marker = Path(text.removeprefix("gitdir:").strip())
+                if not marker.is_absolute():
+                    marker = folder / marker
+            elif not marker.is_dir():
+                continue
+            head = (marker / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+        return head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else ""
+    return ""
 
 
 def _redact_values(value: object) -> object:

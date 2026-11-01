@@ -38,20 +38,6 @@ def _catalogs() -> dict[str, object]:
     return dict(mcp_catalogs())
 
 
-def resource_mention_words() -> list[str]:
-    """`@` tamamlaması için bağlı sunucuların kaynakları `sunucu:uri` (#254); arayüz hariç."""
-    try:
-        from ...mcp_bridge.references import McpCatalog, visible_resources
-    except ImportError:
-        return []
-    return [
-        f"{resource.server}:{resource.uri}"
-        for catalog in _catalogs().values()
-        if isinstance(catalog, McpCatalog)
-        for resource in visible_resources(catalog.resources)
-    ]
-
-
 def _queue(state: ReplState, name: str, argument: str) -> None:
     """`UserPromptExpansion` (`mcp_prompt`): istem sıradaki turda açılmadan önce."""
     from ...engines.agent.hook_expansion import MCP_PROMPT, queue_expansion, state_hooks
@@ -59,6 +45,29 @@ def _queue(state: ReplState, name: str, argument: str) -> None:
     queue_expansion(
         state_hooks(state), name=name, args=argument, source="mcp", expansion_type=MCP_PROMPT
     )
+
+
+def resource_mentions() -> list[tuple[str, str]]:
+    """Bağlı sunucuların kaynakları: (`sunucu:uri`, ad) — `@` tamamlaması (#228).
+
+    Arayüz kaynakları (`ui://`, `text/html;profile=mcp-app`) önerilmez; URI ile okunur (#254).
+    """
+    rows: list[tuple[str, str]] = []
+    for server, catalog in _catalogs().items():
+        for resource in getattr(catalog, "resources", ()):
+            uri = str(getattr(resource, "uri", ""))
+            if uri and not _is_ui_resource(uri, str(getattr(resource, "mime_type", "") or "")):
+                rows.append((f"{server}:{uri}", str(getattr(resource, "name", "") or uri)))
+    return rows
+
+
+def _is_ui_resource(uri: str, mime_type: str) -> bool:
+    try:
+        from ...mcp_bridge.references import UI_RESOURCE_MIME, UI_RESOURCE_SCHEME
+    except ImportError:
+        return uri.startswith("ui://")
+    mime = mime_type.replace(" ", "").lower()
+    return uri.startswith(UI_RESOURCE_SCHEME) or mime == UI_RESOURCE_MIME
 
 
 def prompt_handler(name: str) -> Callable[[ReplState, str], str]:

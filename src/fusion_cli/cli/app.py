@@ -87,7 +87,7 @@ from .print_argv import INITIAL_PROMPT_OPTION, ClaudeArgsGroup
 from .print_command import print_command
 from .print_jobs import run_with_background
 from .prompter import ConsolePrompter
-from .repl import run_repl, session_resume, worktrees
+from .repl import pr_sessions, run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
@@ -198,7 +198,10 @@ def main_callback(
     resume: Annotated[
         str,
         typer.Option(
-            "--resume", "-r", help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür."
+            "--resume",
+            "-r",
+            help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür; değersiz verilirse "
+            "seçici açılır.",
         ),
     ] = "",
     fork_session: Annotated[
@@ -350,6 +353,21 @@ def main_callback(
             help="Eklenti .zip'ini adresten indirip yalnız bu oturum için yükle. Tekrarlanabilir.",
         ),
     ] = None,
+    session_id: Annotated[
+        str,
+        typer.Option(
+            "--session-id",
+            help="Sohbete bu UUID'yi kimlik olarak ver (yeni sohbet ya da --fork-session).",
+        ),
+    ] = "",
+    from_pr: Annotated[
+        str,
+        typer.Option(
+            "--from-pr",
+            help="Bu PR'a (numara ya da GitHub/GitLab/Bitbucket adresi) bağlı sohbetlerden "
+            "seçip sürdür.",
+        ),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     from ..config.plugin_session import add_session_dirs, add_session_urls
@@ -429,6 +447,9 @@ def main_callback(
         root, tree = worktrees.resolve_launch_root(
             Path.cwd(), worktree, hooks=_launch_worktree_hooks(config, worktree, interactive=True)
         )
+        if from_pr.strip():
+            # Claude Code `--from-pr` (#205): PR'a bağlı oturumlarla süzülmüş seçici.
+            resume = pr_sessions.pick_for_pr(config.memory_dir, root, from_pr)
         target = session_resume.resolve_launch(
             config.memory_dir,
             root,
@@ -436,6 +457,9 @@ def main_callback(
             resume=resume,
             fork=fork_session,
             name=name,
+            session_id=session_id,
+            # Claude Code (#189): `--from-pr` seçicisinde yalnız plan kipi geri gelir.
+            via_picker=bool(from_pr.strip()),
         )
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
@@ -2030,9 +2054,13 @@ def configure_file_logging() -> None:
 def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     configure_file_logging()
+    from .repl.resume_launch import normalize_resume_argv
+
+    argv = normalize_resume_argv(sys.argv[1:])
     try:
-        # `-w` tek başına: Claude Code gibi rastgele ad üretilir (#339).
-        app(args=fill_missing_worktree_name(sys.argv[1:]), obj=host_dependencies)
+        # `-w` tek başına: Claude Code gibi rastgele ad üretilir (#339). Argümansız
+        # `--resume` seçici işareti alır (#188); `fusion "query"` kök grupta çevrilir (#276).
+        app(args=fill_missing_worktree_name(argv), obj=host_dependencies)
     except FusionError as exc:
         error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "

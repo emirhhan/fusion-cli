@@ -58,3 +58,35 @@ def test_on_rewind_verilmezse_esc_yalniz_keser():
     app._cancel_or_interrupt()
     app._cancel_or_interrupt()
     assert calls == ["interrupt", "interrupt"]
+
+
+def test_dolu_girdide_cift_esc_metni_temizler_ve_gecmise_kaydeder(tui, monkeypatch):
+    """Claude Code (#222): girdi doluyken Esc Esc metni temizler, taslak Up ile geri gelir."""
+    app, calls = tui
+    zaman = iter([5.0, 5.2])
+    monkeypatch.setattr("fusion_cli.cli.repl.tui.time.monotonic", lambda: next(zaman))
+    app._input.text = "yarım mesaj"
+
+    app._cancel_or_interrupt()
+    assert app._input.text == "yarım mesaj"
+    app._cancel_or_interrupt()
+
+    assert app._input.text == ""
+    assert "rewind" not in calls
+    assert "yarım mesaj" in list(app._input.buffer.history.get_strings())
+
+
+def test_tur_surerken_dolu_girdide_esc_yine_keser(monkeypatch):
+    calls: list[str] = []
+    app = FusionTui(
+        on_submit=lambda text: None,
+        on_interrupt=lambda: calls.append("interrupt"),
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+        is_busy=lambda: True,
+    )
+    app._input.text = "kuyruk"
+    app._cancel_or_interrupt()
+    app._cancel_or_interrupt()
+    assert calls == ["interrupt", "interrupt"]
+    assert app._input.text == "kuyruk"

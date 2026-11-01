@@ -50,6 +50,21 @@ ERROR_CONFIG = "Yapılandırma hatası: {detail}"
 ERROR_INTERRUPTED = "işlem durduruldu"
 
 # --- config show ---------------------------------------------------------- #
+CONFIG_HELP = (
+    "Kullanım: /config [key=value ...]  (takma ad: /settings)\n"
+    "  argümansız ya da filtreyle: ayarları listeler · tek yol: değeri gösterir\n"
+    "  Claude adları: model=<model> · theme=dark|light|dark-ansi|light-ansi|"
+    "dark-daltonized|light-daltonized · outputStyle=<ad> · editorMode=vim|normal · "
+    "tui=default|fullscreen\n"
+    "  Fusion yolları: runtime.max_tokens=8192 (birden çok çift boşlukla ayrılır)"
+)
+CONFIG_PAIR_INVALID = "Geçersiz çift: {pair} (biçim: key=value)"
+CONFIG_EDITOR_MODE_SET = "editorMode → {mode} (kaydedildi)"
+CONFIG_EDITOR_MODE_UNSAVED = "editorMode → {mode} (yalnız bu oturum; yazılamadı: {error})"
+CONFIG_EDITOR_MODE_UNKNOWN = "Bilinmeyen editorMode: {value} (seçenekler: vim, normal)"
+VIM_DEPRECATED = (
+    "/vim Claude Code'da kaldırıldı (v2.1.92); Claude adı: /config editorMode=vim|normal"
+)
 CONFIG_SOURCE_DEFAULTS = "yalnızca gömülü varsayılanlar (kullanıcı dosyası yok)"
 CONFIG_SOURCE_FILE = "kullanıcı dosyası: {path}"
 CONFIG_HEADING_CANDIDATES = "Fusion adayları"
@@ -81,6 +96,13 @@ AGENT_TOOL_FAILED = "{name} başarısız · {summary}"
 DIFF_SUMMARY = "{added} ekleme, {removed} silme"
 #: Diff tavana ulaştığında alta basılan kırpma satırı.
 DIFF_TRUNCATED = "… (+{count} satır daha)"
+DIFF_VIEW_GIT = "Git çalışma ağacı (git diff HEAD)"
+DIFF_VIEW_TURN = "Tur {index}: {task}"
+DIFF_VIEW_TITLE = (
+    "/diff {position}/{total} · {title}  · ←/→ görünüm · Enter dosya farkı · Esc kapatır"
+)
+DIFF_VIEW_EMPTY = "(değişiklik yok)"
+DIFF_VIEW_NO_CHANGE = "(fark yok)"
 #: Araç sonucu kırpıldı. Kırpma SÖYLENİR; kullanıcı eksik baktığını bilmeli.
 RESULT_TRUNCATED = "… (+{count} satır daha)"
 AGENT_PREVIEW_READY = "önizleme çalışıyor → {url} (tarayıcıda aç)"
@@ -542,7 +564,7 @@ TIPS_SECTIONS = (
         (
             ("shift-tab", "onay modunu döndür: auto → security → edits → plan"),
             ("plan modu", "önce planı gör, onaylayınca uygulansın — büyük değişikliklerde"),
-            ("/undo", "son turun dosya değişikliklerini geri al"),
+            ("/undo", "bir turun başına dön (= /rewind)"),
             ("--add-dir", "proje dışına erişim gerekiyorsa açıkça ver"),
         ),
     ),
@@ -559,7 +581,7 @@ TIPS_SECTIONS = (
         (
             ("/compact", "geçmişi özetle, bağlam limitinden tasarruf et"),
             ("/reset", "sohbet geçmişini tamamen temizle"),
-            ("/cost", "bu oturumda ne kadar token/çağrı harcandı"),
+            ("/usage", "bu oturumda ne kadar token/çağrı harcandı (/cost, /stats)"),
         ),
     ),
 )
@@ -603,6 +625,7 @@ APP_TURN_INTERRUPTED_TASK_CHARS = 120
 CMD_TRASH = "Fusion'ın sildiklerini listele ya da geri al"
 CMD_TRACE = "Son koşunun teşhis özeti: nerede ve neden düştü"
 CMD_ADD_DIR = "Proje kökünün yanında başka bir klasöre de erişim aç"
+CMD_DIRS = "Ek klasörleri listele ya da birini kapat (Fusion eki)"
 #: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
 #:
 #: Ölçülen hata: araçlar tıkandığında protokol `{"ok": false, "metin": ""}`
@@ -673,7 +696,7 @@ REPL_FORGET_OUT_OF_RANGE = "{value} aralık dışı — tabloda 1..{total} aras�
 REPL_FORGET_DONE = "{count} ders silindi"
 REPL_LEARN_TASK_LABEL = "kullanıcının koyduğu kural"
 REPL_COMPACTED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
-REPL_NOTHING_TO_COMPACT = "sıkıştırılacak kadar uzun bir geçmiş yok"
+REPL_NOTHING_TO_COMPACT = "özetlenecek geçmiş yok ya da özet üretilemedi; geçmiş değişmedi"
 REPL_BACKGROUND_WAIT = "arka plandaki öğrenme tamamlanıyor…"
 REPL_HELP_TITLE = "Komutlar"
 #: Grubu olmayan komutların `/help`'te toplandığı başlık.
@@ -700,12 +723,33 @@ REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"
 REPL_SCHEDULE_FIRED = "⏰ hatırlatma zamanı geldi"
 REPL_MACRO_NEEDS_ARGUMENT = "/{name} bir görev metni ister. Örnek: /{name} <ne yapılacak>"
+REPL_MODEL_SAVED = "agent modeli → {model} (varsayılan olarak kaydedildi: {path})"
+REPL_MODEL_SESSION_ONLY = "agent modeli → {model} (yalnız bu oturum; ayar dosyası yazılamadı)"
+MODEL_PICK_TITLE = (
+    "Model seç · effort: {effort} (←/→ değiştirir) · Enter kaydeder · s yalnız bu oturum"
+)
+MODEL_PICK_CURRENT = "etkin"
+SETTINGS_TITLE = "Ayarlar  {tabs}  · ←/→ sekme · Enter değiştirir · Esc kapatır"
+SETTINGS_DESKTOP_TITLE = "Ayarlar · Config"
+MODELS_USAGE = (
+    "Kullanım: /models  ya da  /models agent|judge <id> · cand <ad|no> <id> · add <ad> <id>"
+    " · rm <ad>"
+)
+MODEL_PICK_SESSION = "agent modeli → {model} (yalnız bu oturum)"
+MODEL_SUBCOMMAND_LEGACY = (
+    "Not: /model {action} kullanımdan kalkıyor; Fusion rol komutları için /models {action} …"
+)
+REPL_MODEL_UNRESOLVED = (
+    "'{model}' çözülemedi: tam <sağlayıcı>/<model> kimliği, aday adı ya da yapılandırılmış "
+    "aileden bir Claude takma adı (sonnet/opus/haiku) yazın. Liste: /model"
+)
 REPL_MODEL_USAGE = (
-    "Kullanım: /model [agent|judge <id>] | [cand <ad|no> <id>] | "
+    "Kullanım: /model <model> (kaydeder) | [agent|judge <id>] | [cand <ad|no> <id>] | "
     "[add <ad> <id> [etiket…]] | [rm <ad>]   ·   liste için: /model"
 )
 # --- Seçim ekranı ---------------------------------------------------------- #
 PICKER_HINT = "↑↓ gez · Enter seç · Esc vazgeç"
+CHOICE_SEARCH = "Ara: {query}▏ (Esc aramadan çık)"
 PICKER_PLAIN_PROMPT = "Seçim (numara, boş bırakırsan vazgeçilir): "
 PICKER_CANCELLED = "seçim yapılmadı"
 PICKER_MORE_ABOVE = "   ↑ {count} satır daha"
@@ -924,7 +968,7 @@ REPL_PASTE_FOLDED_CHARS = "⧉ {count} karakter yapıştırıldı [#{index}]"
 # --- Komut açıklamaları ---------------------------------------------------- #
 CMD_HELP = "komut listesini göster"
 CMD_EXIT = "çıkış"
-CMD_CLEAR = "ekranı temizle"
+CMD_CLEAR = "yeni boş sohbet başlat; önceki sohbet /resume ile açılır (ekran: Ctrl+L)"
 CMD_AGENT = "agent motoruna geç (araçlarla iş yapar)"
 CMD_FUSION = "fusion motoruna geç (çoklu model + hakem)"
 CMD_AUTO = "otomatik: Fusion karar verir, yalnız riskli işlemde sorar"
@@ -999,7 +1043,7 @@ PERMISSIONS_UNTRUSTED_LAYERS = (
     "(deny/ask geçerli; fusion trust)"
 )
 CMD_RESET = "agent sohbet geçmişini temizle"
-CMD_COMPACT = "uzun geçmişi özetleyerek kısalt"
+CMD_COMPACT = "konuşmayı özetleyerek bağlam aç; isteğe bağlı odak talimatı"
 CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"
 CMD_SHOW_ALL = "tüm aday cevaplarını göster/gizle"
 CMD_SHOW_THINKING = "model düşünmesini göster/gizle (Claude Code stili)"
@@ -1052,26 +1096,39 @@ MEMORY_AGENT_CLEAR_NONE = "{agent} belleği zaten yok."
 MEMORY_NOTE_SAVED = "Not belleğe yazıldı ({path}, {lines} satır)."
 MEMORY_NOTE_EMPTY = "`#` ile başlayan satır not olarak belleğe yazılır; not boş olamaz."
 CMD_MODELS = "yapılandırılmış modeller"
-CMD_COST = "oturumda harcanan token ve tahmini maliyet"
-CMD_USAGE = "kullanım: bu oturum / 24 saat / 7 gün; model, alt ajan, MCP ve beceri kırılımı"
+CMD_USAGE = "kullanım ve maliyet: bu oturum / 24 saat / 7 gün; model, alt ajan, MCP, beceri"
 CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
 UNDO_NOTHING = "Geri alınacak bir değişiklik yok."
 UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"
 UNDO_PARTIAL = (
     "{count} dosya geri alındı; {failed} dosya geri alınamadı (izin ya da silinmiş dizin)."
 )
-CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_DOCTOR = (
     "kurulum denetimi: ne eksik, neden önemli, ne yapmalı · "
-    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar) · "
     "/doctor prompt-audit [yol]: talimat, beceri, komut ve alt ajan dosyalarının model denetimi"
 )
+REPL_DOCTOR_PROMPT_DEPRECATED = (
+    "`/doctor prompt` kullanımdan kalktı; Claude Code adı: /doctor prompt-audit [yol]"
+)
+REPL_DOCTOR_PATH_MISSING = "Yol bulunamadı: {path}"
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
-REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
+REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt-audit"
+REPL_DOCTOR_FIX_STARTED = (
+    "Sorunlar bulundu; düzeltme önerileri hazırlanıyor (onayın olmadan değişiklik yapılmaz)."
+)
+REPL_DOCTOR_FIX_LINE = "- {name}: {value} (öneri: {remedy})"
+REPL_DOCTOR_FIX_TASK = (
+    "/doctor kurulum teşhisi şu sorunları buldu:\n{issues}\n\n"
+    "Her sorun için nedenini ve önerdiğin düzeltmeyi kısaca listele. Ardından hangi "
+    "düzeltmelerin uygulanacağını kullanıcıya sor (ask_user); onay vermediği hiçbir dosyayı, "
+    "ayarı ya da komutu değiştirme. Anahtar ve token değerlerini asla yazma ya da isteme; "
+    "anahtar gerekiyorsa kullanıcıya nereye gireceğini söyle. Onaylananları uygula ve "
+    "sonucu özetle."
+)
 MEMORY_PICKER_HEADER = "Bellek dosyaları (açmak için /memory <n>):"
 MEMORY_PICKER_NEW = " (yok; seçilince oluşturulur)"
 MEMORY_PICKER_AUTO = (
@@ -1122,13 +1179,49 @@ CMD_GOAL = "turlar arası hedef: /goal <koşul> · durum · devam · clear"
 CMD_GRILL = "mülakat kipi: kod yazmadan önce gereksinimleri sor"
 CMD_BUG = "hata avı: bul, kök nedeni tespit et, düzelt, doğrula"
 CMD_COMMIT = "değişiklikleri incele ve conventional commit ile kaydet"
-CMD_REVIEW = "mevcut değişiklikleri güvenlik ve mimari açısından incele"
+CMD_TERMINAL_SETUP = (
+    "Shift+Enter yeni satır bağını kur (VS Code, Cursor, Zed, Alacritty); Apple Terminal'de "
+    "Option+Enter, iTerm2'de pano erişimi"
+)
+CMD_REVIEW = "dalın değişikliklerini (ya da PR/dal/yol) doğruluk hataları için incele"
+CODE_REVIEW_DEFAULT_SCOPE = (
+    "dalın üst dala göre önde olan commit'leri ve commit'lenmemiş (staged ve unstaged) "
+    "değişiklikler; üst dal yoksa main'e, o da yoksa bir önceki commit'e göre"
+)
+CODE_REVIEW_TARGET = "şu hedef: {target} (PR numarası, dal, yol ya da git aralığı olabilir)"
+CODE_REVIEW_TASK = (
+    "Kod incelemesi yap. İncelenecek kapsam: {scope}. Değişiklikleri `git diff`/`git log` (PR "
+    "için `gh pr diff`/`glab mr diff`) ile oku; doğruluk hatalarını (yanlış sonuç, çökme, "
+    "veri kaybı, güvenlik açığı, yarış durumu) ara. Her bulguyu dosya:satır, tek cümlelik "
+    "özet ve somut hata senaryosuyla, en ciddiden başlayarak ver. CLAUDE.md kurallarına uy."
+)
+CODE_REVIEW_LOW = "Seviye low: yalnız en emin olduğun bulguları bildir; yanlış alarmdan kaçın."
+CODE_REVIEW_BROAD = "Kapsamı geniş tut; olası hataları da gerekçesiyle bildir."
+CODE_REVIEW_CLEANUPS = (
+    "Hatalara ek olarak yeniden kullanım, sadeleştirme ve verimlilik temizliklerini ayrı "
+    "başlıkta ver."
+)
+CODE_REVIEW_MAX_FINDINGS = "En çok {count} bulgu bildir."
+CODE_REVIEW_ALL_FINDINGS = "Bulduğun her bulguyu bildir; sınır yok."
+CODE_REVIEW_REPORT_ONLY = "Yalnız rapor ver; dosya düzenleme."
+CODE_REVIEW_FIX = (
+    "Raporun ardından bulguları çalışma ağacına uygula (düzenlemeler izin kipinden geçer) "
+    "ve ilgili testleri koştur."
+)
+CODE_REVIEW_COMMENT = (
+    "Bulguları PR'a satır içi yorum olarak (`gh`), GitLab birleştirme isteğine tek not olarak "
+    "(`glab`) gönder; araç yoksa terminalde yazdır."
+)
+CODE_REVIEW_REUSING = "Son yazdığın {level} seviyesi yeniden kullanılıyor."
+CODE_REVIEW_ULTRA_UNAVAILABLE = (
+    "/code-review ultra Claude Code'un bulut incelemesidir; Fusion'da bulut oturumu yok. "
+    "Yerel inceleme için /code-review max kullanın."
+)
 CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"
 # --- PR/CI makroları ve gh-action (P-057) --- #
 CMD_PR = "mevcut dal için gh ile PR aç (başlık, gövde, test planı)"
-CMD_PR_COMMENTS = "PR inceleme yorumlarını oku ve dosya:satır ile özetle"
 CMD_AUTOFIX_PR = "PR'daki başarısız CI ve yorumları düzelt, push et, bildir"
 HEADLESS_FROM_PR_FAILED = "PR bağlamı alınamadı: {error}"
 GH_ACTION_USAGE = "kullanım: fusion gh-action kur [--force]"
@@ -1194,6 +1287,10 @@ CMD_BATCH = "talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygu
 REPL_MACRO_SKILL_PREPENDED = "{name} için kullanıcı skill'i öne alındı: {path}"
 CMD_RC = "uzaktan kontrol: telefondan/Telegram'dan sür · /rc [kod|onayla|durum|telegram|durdur]"
 CMD_RESUME = "{source} oturum geçmişinden devral"
+HISTORY_LEGACY_RESUME = (
+    "/resume{source} kullanımdan kalktı (Claude Code'da yok); /import history {source} kullanın."
+)
+HISTORY_IMPORT_USAGE = "Kullanım: /import history <{sources}> [oturum-kimliği]"
 HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."
 HISTORY_PICK_TITLE = "Hangi oturumdan devam edilsin?"
 HISTORY_RESUMED = "Devralındı: {title}"
@@ -1204,38 +1301,89 @@ HISTORY_RECENT_TITLE = "son oturumlar"
 
 #: Fusion'ın KENDİ sohbetlerini sürdürme (`--continue/--resume`, `/resume`, `/rename`, `/branch`).
 CMD_RESUME_OWN = "Fusion sohbetini sürdür (argümansız: bu projedeki sohbet listesi)"
-CMD_RENAME = "açık sohbete ad ver; --resume <ad> ve /resume listesinde görünür"
+CMD_RENAME = "açık sohbete ad ver (argümansız: geçmişten); --resume <ad> ile bulunur"
 CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
 SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
+FROM_PR_INVALID = (
+    "--from-pr değeri PR numarası ya da GitHub/GitLab/Bitbucket PR adresi olmalı: {value}"
+)
+FROM_PR_NONE = "PR #{number} ile bağlantılı Fusion sohbeti yok."
+FROM_PR_PICK_TITLE = "PR #{number} ile bağlantılı sohbetler"
 SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
+SESSION_PICK_CANCELLED = "Sohbet seçilmedi; oturum açılmadı."
 SESSION_NONE_TO_CONTINUE = "Bu projede sürdürülecek sohbet yok; `fusion` ile yeni sohbet aç."
 SESSION_NOT_FOUND = "Sohbet bulunamadı: {query} (kimlik, ad ya da kimlik öneki; liste için /resume)"
+SESSION_NAME_AMBIGUOUS = (
+    "'{name}' adı {count} sohbete verilmiş; seçmek için argümansız /resume çalıştırın."
+)
+SESSION_PICK_NAMED = "'{name}' adlı sohbetler"
 SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
 SESSION_RESUMED = "Sürdürülüyor: {title} ({count} mesaj)"
 SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet değişmez."
 SESSION_NAMED_NEW = "Yeni sohbet: {name}"
-SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
+SESSION_RENAME_USAGE = "Kullanım: /rename [ad] (sohbette henüz mesaj yok, ad üretilemedi)"
 SESSION_RENAMED = "Sohbet adı: {name}"
+SESSION_CLEARED = "Yeni sohbet başladı ({count} mesaj bırakıldı; /resume ile geri açılır)"
+SESSION_CLEARED_NAMED = (
+    "Yeni sohbet başladı; bırakılan sohbet '{name}' adıyla kayıtlı ({count} mesaj)"
+)
+SESSION_CLEARED_EMPTY = "Yeni sohbet başladı"
 SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder."
 SESSION_BRANCHED = (
     "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
 )
+SESSION_BRANCH_IDS = "Yeni sohbet: {new} · özgün sohbet: {source} (/resume {source} ile dönülür)"
 SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
 SESSION_FORK_NEEDS_SOURCE = (
     "--fork-session kopyalanacak sohbeti ister: --continue ya da --resume <kimlik|ad> ile ver."
 )
 SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
+SESSION_PICKER_DETAIL = "{detail} · {count} mesaj"
+SESSION_PICKER_TITLE = (
+    "Hangi sohbet sürdürülsün? ({scope}{branch}) · Space önizle · Ctrl+R ad · "
+    "Ctrl+A projeler · Ctrl+W ağaçlar · Ctrl+B dal · / ara"
+)
+SESSION_SCOPE_HERE = "bu dizin"
+SESSION_SCOPE_ALL_WORKTREES = "bütün çalışma ağaçları"
+SESSION_SCOPE_ALL_PROJECTS = "bütün projeler"
+SESSION_SCOPE_BRANCH = ", yalnız bu dal"
+SESSION_PREVIEW_TITLE = "Önizleme · Enter/Esc seçiciye döner"
+SESSION_PREVIEW_USER = "› "
+SESSION_BRANCH_MARK = "  ↳ "
+SESSION_PREVIEW_EMPTY = "(mesaj yok)"
+SESSION_RENAME_PROMPT = "Oturumun yeni adı (boş: vazgeç):"
 
 #: `/rewind` — çok adımlı checkpoint'e geri sarma.
 CMD_REWIND = "bir turun başına dön: kod + konuşma, yalnız konuşma ya da yalnız kod (Esc Esc)"
 REWIND_USAGE = "Kullanım: /rewind [tur no] [kod|konuşma|ikisi]  (argümansız: liste)"
 REWIND_NOTHING = "Geri sarılacak tur yok; henüz bir agent turu çalışmadı."
+REWIND_PREVIOUS_SESSION = "/resume {id} (önceki oturum)"
+REWIND_PREVIOUS_SESSION_HINT = "/clear öncesindeki konuşmayı sürdür"
 REWIND_UNKNOWN_TURN = "Böyle bir tur yok: {index} (liste için /rewind)"
 REWIND_PICK_TURN = "Hangi turun başına dönülsün?"
 REWIND_PICK_SCOPE = "Ne geri sarılsın?"
 REWIND_SCOPE_BOTH = "Kod ve konuşma"
 REWIND_SCOPE_CONVERSATION = "Yalnız konuşma (dosyalar kalsın)"
 REWIND_SCOPE_CODE = "Yalnız kod (konuşma kalsın)"
+REWIND_CANCEL = "Vazgeç"
+REWIND_SUMMARIZE_FROM = "Buradan itibaren özetle"
+REWIND_SUMMARIZE_FROM_HINT = "sonrası sıkıştırılır, istem giriş kutusuna döner"
+REWIND_SUMMARIZE_UP_TO = "Buraya kadar özetle"
+REWIND_SUMMARIZE_UP_TO_HINT = "öncesi sıkıştırılır, sonrası kalır"
+REWIND_SUMMARY_PROMPT = "Özet için talimat (isteğe bağlı, Enter ile geç): "
+REWIND_SUMMARY_NOTHING = "Özetlenecek mesaj yok."
+REWIND_SUMMARY_STALE = (
+    "Tur {index} daha önceki bir özetin ya da /compact'ın içinde kaldı; oradan özetlenemez."
+)
+REWIND_SUMMARIZED = "Konuşma özetlendi: {before} → {after} mesaj (dosyalar değişmedi)."
+CMD_DIFF = "çalışma ağacındaki değişiklikler ve bu oturumun düzenlemeleri tur tur"
+DIFF_WORKTREE_HEADING = "Çalışma ağacı (git diff HEAD):"
+DIFF_WORKTREE_CLEAN = "Çalışma ağacında değişiklik yok."
+DIFF_NO_GIT = "Git deposu değil ya da git çalışmadı; yalnız oturum düzenlemeleri gösteriliyor."
+DIFF_TRUNCATED = "… {count} satır daha (tamamı için: git diff HEAD)"
+DIFF_SESSION_HEADING = "Bu oturumdaki düzenlemeler:"
+DIFF_NO_TURNS = "Bu oturumda dosya değiştiren tur yok."
+DIFF_TURN = "Tur {index}: {task}"
 REWIND_TURN_LABEL = "#{index}  {task}"
 REWIND_TURN_DETAIL = "{when} · {files} dosya"
 REWIND_CODE_DONE = "{count} dosya {index}. turdan önceki hâline döndürüldü:"
@@ -1464,6 +1612,14 @@ STATUS_ACCOUNT = "Hesap"
 STATUS_CONVERSATION = "Sohbet"
 STATUS_CONFIG_FILE = "Yapılandırma"
 STATUS_LESSONS = "Dersler"
+STATUS_SESSION_KIND = "Session kind"
+STATUS_CONNECTIVITY = "Bağlantı"
+STATUS_CONNECTIVITY_UNKNOWN = "bilinmiyor"
+STATUS_CONNECTIVITY_VALUES = {
+    "ready": "hazır",
+    "partially_ready": "kısmen hazır (bazı roller için anahtar yok)",
+    "not_ready": "hazır değil (sağlayıcı anahtarı yok)",
+}
 STATUS_NONE = "(yok)"
 #: Durum çubuğundaki bağlam sayacı.
 STATUS_CONTEXT_LABEL = "bağlam %{percent} · ~{tokens} tok"
@@ -1480,6 +1636,22 @@ CONTEXT_TOTAL = "Toplam"
 CONTEXT_TOTAL_VALUE = "~{tokens} / {limit} tok · %{percent} · {count} mesaj"
 CONTEXT_WINDOW = "Model penceresi"
 CONTEXT_WINDOW_VALUE = "{window} tok · pencere doluluğu ~{tokens} tok (%{percent})"
+CONTEXT_HEADLINE = "{used} / {window} tok (%{percent}) · {source}"
+CONTEXT_MEASURED = "son API çağrısında ölçülen"
+CONTEXT_ESTIMATED = "tahmini (karakter/3)"
+CONTEXT_FREE = "Boş alan"
+CONTEXT_TOP_ITEMS = "En büyük kalemler"
+CONTEXT_EXCEEDED = (
+    "Bağlam pencereyi ~{over} token aşıyor; /compact ile özetleyin ya da /clear ile yeni "
+    "sohbet açın."
+)
+CONTEXT_NEAR_CAPACITY = "Pencere %{percent} dolu; yakında otomatik sıkıştırma çalışır (/compact)."
+CONTEXT_TOOL_HEAVY = (
+    "Araç çıktıları geçmişin %{share}'i; büyük çıktıları dosyaya yazdırın ya da /compact kullanın."
+)
+CONTEXT_MEMORY_HEAVY = (
+    "Sistem istemi ve bellek dosyaları büyük; CLAUDE.md/AGENTS.md'yi kısaltmayı düşünün (/memory)."
+)
 CONTEXT_EMPTY = (
     "Geçmiş boş: sistem istemi ve araç tanımları tahminidir; Toplam ve durum çubuğu yüzdesi "
     "yalnız konuşmayı (sıkıştırma eşiğine göre) sayar."
@@ -1491,6 +1663,50 @@ CMD_EXPORT = (
 )
 CMD_COPY = "son asistan cevabını panoya kopyala: /copy [N] (sondan N.)"
 EXPORT_DEFAULT_TITLE = "Fusion sohbeti"
+SESSION_ID_INVALID = "--session-id geçerli bir UUID olmalı: {value}"
+SESSION_ID_IN_USE = "Bu oturum kimliği zaten kullanılıyor: {value} (sürdürmek için --resume)"
+SESSION_ID_NEEDS_FORK = (
+    "--session-id --continue/--resume ile yalnız --fork-session birlikte verilince kullanılır."
+)
+CMD_FORK = "konuşmayı yeni bir arka plan oturumuna kopyala, burada devam et"
+FORK_EMPTY = "Kopyalanacak konuşma yok: önce bir mesaj gönder."
+FORK_STARTED = (
+    "↗ kopya arka planda çalışıyor: {id} ({name}) · /tasks ile izle; bu sohbet değişmedi."
+)
+FORK_WAITING = (
+    "Kopya hazır, ilk istemini bekliyor: {id} · /resume {id} ya da fusion -r {id}; "
+    "bu sohbet değişmedi."
+)
+FORK_COPY_FAILED = "Kopya oluşturulamadı: {error}"
+FORK_WORKTREE = " Kopya kendi çalışma ağacında: {path}"
+FORK_IN_PLACE = " Git deposu yok; kopya aynı dizinde çalışıyor."
+BTW_SYSTEM = (
+    "Bu bir yan soru: kullanıcı ana işi bölmeden konuşma hakkında kısa bir şey soruyor. "
+    "Araç yok; yalnız konuşmada görünenden kısa ve doğrudan yanıtla, ana göreve devam etme."
+)
+BTW_USAGE = "Kullanım: /btw <soru> — konuşma hakkında yan soru; geçmişe eklenmez."
+BTW_HEADER = "─ yan soru: {question}"
+BTW_FOOTER = "─ (konuşma geçmişine eklenmedi)"
+BTW_OVERLAY_TITLE = (
+    "Yan soru {position}/{total}: {question}  · ←/→ önceki/sonraki · Esc kapatır · geçmişe eklenmez"
+)
+BTW_FAILED = "Yan soru yanıtlanamadı: {error}"
+BTW_EMPTY = "model boş döndü"
+CMD_RECAP = "oturumun tek satırlık özetini üret (geçmişe eklenmez)"
+RECAP_SYSTEM = (
+    "Bu konuşmanın şimdiye kadarki durumunu TEK satırda, en çok 400 karakterle özetle: ne "
+    "yapılıyor, nerede kalındı, sıradaki adım ne. Araç yok; yalnız özeti yaz."
+)
+RECAP_REQUEST = "Oturumun tek satırlık özetini yaz."
+RECAP_MARK = "※"
+RECAP_EMPTY = "Özetlenecek konuşma yok."
+RECAP_FAILED = "Özet üretilemedi: {error}"
+RECAP_USAGE = "Kullanım: /recap — oturumun tek satırlık özeti."
+EXPORT_DIALOG_TITLE = "Konuşmayı dışa aktar"
+EXPORT_CHOICE_CLIPBOARD = "Panoya kopyala"
+EXPORT_CHOICE_CLIPBOARD_HINT = "düz metin, sırlar maskeli"
+EXPORT_CHOICE_FILE = "Dosyaya kaydet"
+EXPORT_CHOICE_FILE_HINT = "proje kökünde fusion-sohbet-<tarih>.txt"
 EXPORT_EMPTY = "Aktarılacak konuşma yok: önce bir mesaj gönder."
 EXPORT_WRITTEN = "Konuşma yazıldı: {path} ({chars} karakter). Sırlar maskelendi."
 EXPORT_COPIED = "Konuşma panoya kopyalandı ({chars} karakter). Sırlar maskelendi."
@@ -1502,7 +1718,14 @@ EXPORT_WRITE_FAILED = "Dosya yazılamadı ({path}): {error}"
 EXPORT_EXISTS = "Dosya zaten var, üzerine yazılmadı: {path} — ezmek için sona `zorla` ekle."
 COPY_USAGE = "Kullanım: /copy [N] — N sondan kaçıncı cevap (varsayılan 1)."
 COPY_NOTHING = "Kopyalanacak asistan cevabı yok."
-COPY_DONE = "Son cevap panoya kopyalandı ({chars} karakter)."
+COPY_DONE = "Panoya kopyalandı ({chars} karakter)."
+COPY_PICK_TITLE = "Neyi kopyalayayım? (w: dosyaya yaz)"
+COPY_PICK_TITLE_DESKTOP = "Neyi kopyalayayım?"
+COPY_WRITE_ROW = "Dosyaya yaz: {label}"
+COPY_WRITE_ROW_HINT = "panoya değil proje kökünde yeni bir dosyaya"
+COPY_WRITTEN = "Dosyaya yazıldı: {path} ({chars} karakter)."
+COPY_CHOICE_FULL = "Tam yanıt"
+COPY_CHOICE_BLOCK = "Blok {number} ({kind})"
 CLIPBOARD_FAILED = "Panoya yazılamadı: {error}"
 
 # --- REPL önekleri: ! kabuk, @dosya, # not (P-022) ------------------------- #
@@ -1520,6 +1743,48 @@ SHELL_PREFIX_BLOCK = (
     "$ {command}\n[{status}]\n{output}"
 )
 SHELL_PREFIX_CONTEXT_NOTE = "Çıktı bir sonraki mesajın bağlamına eklendi."
+SHELL_PREFIX_BACKGROUNDED = (
+    "↗ komut arka planda sürüyor; bitince çıktısı burada görünür ve bağlama eklenir."
+)
+SHELL_PREFIX_BG_DONE = "Arka plandaki `! {command}` bitti."
+SHELL_PREFIX_TIMEOUT = (
+    "\n[{seconds} sn içinde bitmedi, durduruldu. Uzun komutu Ctrl+B ile arka plana al.]"
+)
+SHELL_PREFIX_TRUNCATED = "\n[çıktı kısaltıldı; tamamı: {path}]"
+SHELL_JOBS_TITLE = "Kabuk komutları (! · Ctrl+B):"
+INLINE_QUEUED = "↳ sıraya alındı: {text}"
+KILL_AGENTS_CONFIRM = (
+    "Arka plan ajanlarını durdurmak için 3 sn içinde Ctrl+X Ctrl+K'ya yeniden bas."
+)
+KILL_AGENTS_DONE = "{count} arka plan alt ajanı durduruldu."
+SHORTCUTS_PANEL = (
+    "Kısayollar\n"
+    "  ! kabuk kipi · / komutlar · @ dosya/kaynak/oturum anması\n"
+    "  Enter gönder · \\+Enter, Shift+Enter, Option+Enter, Ctrl+J yeni satır\n"
+    "  Shift+Tab izin kipi · Esc kes · Esc Esc geri sar · Ctrl+C temizle/çık · Ctrl+D çık\n"
+    "  Ctrl+B arka plana al · Ctrl+X Ctrl+K arka plan ajanlarını durdur\n"
+    "  Ctrl+X Ctrl+S / Ctrl+Enter kuyruğu şimdi yolla · Up kuyruğu geri al\n"
+    "  Ctrl+G / Ctrl+X Ctrl+E dış editör · Ctrl+_ geri al · Ctrl+S taslağı sakla\n"
+    "  Ctrl+L yeniden çiz · Ctrl+R geçmişte ara · PageUp/PageDown kaydır\n"
+    "  Ctrl+O transcript · Ctrl+T görev listesi · Ctrl+V görüntü yapıştır\n"
+    "  Option+P model · Option+T düşünme · Option+O hızlı kip · :kod: + Tab emoji\n"
+    "  Tab / Sağ ok istem önerisini al\n"
+    "  /keybindings tuşları düzenler"
+)
+PEER_MENTION_TURN = (
+    "Kullanıcı @{name} anmasıyla açık öteki oturum `{name}`'e şu mesajı göndermek istiyor. "
+    'Mesajı SendMessage aracıyla (to: "{name}") ilet, sonra kısaca bildir:\n\n{text}'
+)
+SHELL_HANDOFF_DONE = "↗ süren kabuk komutu kesilmeden arka plana alındı; ajan çalışmayı sürdürüyor."
+SHELL_JOB_LINE = "  {id}  {status}  {command}  · {path}"
+SHELL_JOB_STOPPED = "Kabuk görevi durduruldu: {id} ({command})"
+SHELL_JOBS_KILLED = "{count} arka plan kabuk komutu oturum kapanırken durduruldu."
+SHELL_PREFIX_WORK = "! {command} · ctrl+b arka plana al · esc kes"
+SHELL_PREFIX_RESPOND = (
+    "Kullanıcı `! {command}` kabuk komutunu kendisi çalıştırdı; komut ve çıktısı bağlamda. "
+    "Çıktıya kısa ve doğrudan yanıt ver (hata varsa nedenini açıkla); istenmedikçe dosya "
+    "değiştirme."
+)
 MENTION_FILE_BLOCK = (
     PREFIX_UNTRUSTED_NOTE + "\n[Kullanıcının andığı dosya: {path}]{note}\n```\n{text}\n```"
 )
@@ -1561,7 +1826,9 @@ CONFIG_OVERRIDE_APPLIED = "Oturumluk ayar: {path} = {value}"
 CONFIG_PROFILE_APPLIED = "Oturumluk kademe: {tier}"
 
 # --- /output-style (P-068) ------------------------------------------------- #
-CMD_OUTPUT_STYLE = "çıktı stili: varsayilan · ozlu · aciklayici · ogretici · özel (.md)"
+CMD_OUTPUT_STYLE = (
+    "çıktı stili: default · Proactive · Concise · Explanatory · Learning · özel (.md)"
+)
 OUTPUT_STYLE_TITLE = "Çıktı stili"
 OUTPUT_STYLE_HEADER = "Çıktı stilleri (etkin: {current}):"
 OUTPUT_STYLE_HINT = (
@@ -1575,14 +1842,17 @@ OUTPUT_STYLE_SET_UNSAVED = "Çıktı stili bu oturum için {name}; dosyaya yazı
 
 # --- /theme, /tui, /search (P-070) ----------------------------------------- #
 CMD_THEME = "terminal teması: koyu · acik · ansi · daltonizm (anında uygulanır, kalıcı)"
-CMD_TUI = "REPL görünümü: /tui fullscreen|inline (yeni oturumda geçerli)"
+CMD_TUI = "REPL görünümü: /tui default|fullscreen (yeni oturumda geçerli; inline = default)"
 CMD_SEARCH = "tam ekran konuşmasında metin ara ve son eşleşmeye kaydır"
 THEME_TITLE = "Terminal teması"
 THEME_HEADER = "Temalar (etkin: {current}):"
 THEME_HINT = "Seçmek için: /theme <ad>. Masaüstü teması Ayarlar › Genel'den değişir."
 THEME_SET = "Tema: {name} — uygulandı ve kalıcı yazıldı."
 THEME_SET_UNSAVED = "Tema bu oturum için {name}; dosyaya yazılamadı: {error}"
-TUI_MODE_CURRENT = "REPL görünümü: {mode}. Seçenekler: {options}. Yeni oturumda geçerli olur."
+TUI_MODE_CURRENT = "REPL görünümü: {mode}. Seçenekler: {options}."
+TUI_MODE_ALREADY = "REPL görünümü zaten {mode}."
+TUI_MODE_SWITCHING = "REPL görünümü {mode} olarak kaydedildi; konuşma korunarak yeniden açılıyor."
+TUI_MODE_SWITCHED = "Görünüm {mode}: konuşma sürüyor ({count} mesaj)."
 TUI_MODE_UNKNOWN = "Bilinmeyen görünüm: {name}. Seçenekler: {options}"
 TUI_MODE_SET = "REPL görünümü {mode} olarak kaydedildi; bir sonraki `fusion` açılışında geçerli."
 TUI_MODE_SET_UNSAVED = "Görünüm {mode} dosyaya yazılamadı: {error}"
@@ -1596,7 +1866,7 @@ SEARCH_FOUND = (
 )
 
 # --- /statusline (P-069) --------------------------------------------------- #
-CMD_STATUSLINE = "durum satırı betiği: /statusline <komut> · /statusline kapat (stdin JSON alır)"
+CMD_STATUSLINE = "durum satırını modele kurdur: /statusline <istek> (argümansız: kabuk isteminden)"
 STATUSLINE_CURRENT = (
     "Durum satırı betiği: {command}\n"
     "Betik stdin'den JSON alır, bastığı ilk satır durum çubuğunda görünür (1 sn sınırı). "
@@ -1606,14 +1876,26 @@ STATUSLINE_CURRENT = (
 STATUSLINE_SET = "Durum satırı betiği kaydedildi: {command} — bir sonraki turdan itibaren."
 STATUSLINE_SET_UNSAVED = "Durum satırı betiği dosyaya yazılamadı: {error}"
 STATUSLINE_CLEARED = "Durum satırı betiği kaldırıldı; yerleşik çubuk kullanılıyor."
+TUI_QUEUE_SENT_NOW = "tur kesildi; kuyruktaki {count} mesaj şimdi gönderiliyor"
+TUI_PRESS_AGAIN_TO_EXIT = "çıkmak için tekrar {key}"
+STATUSLINE_FROM_PROMPT = "durum satırını kabuk istemimden (PS1) kur"
+STATUSLINE_DELEGATED = "Durum satırı isteği statusline-setup ajanına gönderiliyor."
+STATUSLINE_TASK = (
+    "statusline-setup ajanını kullan: {request}. Betiği ~/.claude/statusline.sh gibi bir dosyaya "
+    "yaz ve ~/.claude/settings.json içine Claude Code biçiminde "
+    '"statusLine": {{"type": "command", "command": "<betik yolu>"}} olarak kaydet. Betik '
+    "stdin'den şu JSON alanlarını alır: {fields}."
+)
 
 # --- /keybindings ve /vim (P-067) ------------------------------------------ #
 CMD_KEYBINDINGS = "tuş bağlarını göster; dosya keybindings.json (yeniden başlatmadan uygulanır)"
 CMD_VIM = "vim düzenleme kipi aç/kapa (NORMAL/INSERT); kalıcı"
 KEYBINDINGS_HEADER = "Tuş bağları — dosya: {path}"
 KEYBINDINGS_HINT = (
-    "Düzenle ve kaydet: bağlam → {{tuş: eylem}}; eylem 'komut:<ad>' bir slash komutu gönderir, "
-    "null varsayılan bağı kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz."
+    'Düzenle ve kaydet (Claude Code biçimi): {"bindings": [{"context": "Chat", '
+    '"bindings": {"ctrl+e": "chat:externalEditor"}}]}; \'command:<ad>\' bir slash '
+    "komutu çalıştırır, null varsayılan bağı kaldırır, chord 'ctrl+x ctrl+e'. Ayrılmış: "
+    "Ctrl+C, Ctrl+D, Ctrl+M, Ctrl+[, Ctrl+I, Ctrl+H."
 )
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."

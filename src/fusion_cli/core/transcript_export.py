@@ -1,4 +1,8 @@
-"""Konuşmayı Markdown ya da JSON'a aktar (P-028: `/export`, `/copy`, masaüstü paylaşım).
+"""Konuşmayı düz metne, Markdown'a ya da JSON'a aktar (P-028, #206: `/export`, `/copy`).
+
+`/export` Claude Code'daki gibi DÜZ METİN yazar (`export_text`): kullanıcı satırı `> `,
+asistan ve araç çağrısı `⏺ `, araç çıktısı `  ⎿  ` girintili ve okunur. Markdown ve JSON
+masaüstü paylaşımı ile `md`/`json` bayrakları içindir.
 
 Tek üretici, üç yüzey: REPL `/export`, masaüstü ShareDialog (`sohbet.disa_aktar` RPC)
 ve `/copy`. Claude Code'un `/export` davranışı örnek alınmıştır: kullanıcı ve asistan
@@ -138,7 +142,35 @@ def last_answer(messages: Sequence[Message], index: int = 1) -> str | None:
     return redact(answers[-index])
 
 
-def default_export_name(*, as_json: bool = False, now: Callable[[], float] = time.time) -> str:
-    """`fusion-sohbet-YYYYMMDD-HHMM.md` — saat enjekte edilebilir (testte sabit)."""
+def default_export_name(
+    *, as_json: bool = False, ext: str = "", now: Callable[[], float] = time.time
+) -> str:
+    """`fusion-sohbet-YYYYMMDD-HHMM.<uzantı>` — saat enjekte edilebilir (testte sabit)."""
     stamp = time.strftime("%Y%m%d-%H%M", time.localtime(now()))
-    return f"fusion-sohbet-{stamp}.{'json' if as_json else 'md'}"
+    suffix = ext or ("json" if as_json else "md")
+    return f"fusion-sohbet-{stamp}.{suffix}"
+
+
+def _indent_result(text: str) -> str:
+    """Araç çıktısı: ilk satır `  ⎿  `, sonrakiler aynı hizada."""
+    lines = text.splitlines() or [""]
+    return "\n".join([f"  ⎿  {lines[0]}", *(f"     {line}" for line in lines[1:])])
+
+
+def export_text(messages: Sequence[Message], *, title: str = DEFAULT_TITLE) -> str:
+    """Konuşmayı düz metne çevir (Claude Code `/export`): roller işaretli, araçlar okunur."""
+    parts = [_clean_title(title)]
+    for message in _shareable(messages):
+        if message.role == "tool":
+            body = redact(_clip(message.content.rstrip(), TOOL_OUTPUT_CHARS))
+            parts.append(_indent_result(body))
+            continue
+        body = redact(message.content.strip())
+        if message.role == "user":
+            parts.append("\n".join(f"> {line}" for line in body.splitlines()) or ">")
+        elif body:
+            parts.append(f"⏺ {body}")
+        for call in message.tool_calls:
+            args = redact(_clip(call.arguments, TOOL_ARGS_CHARS))
+            parts.append(f"⏺ {call.name}({args})")
+    return "\n\n".join(parts) + "\n"

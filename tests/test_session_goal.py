@@ -440,7 +440,11 @@ async def test_masaustu_degerlendirme_surerken_yeni_tur_baslamaz(tmp_path, monke
     await asyncio.wait_for(tur, 5)
 
     assert _sonuc(satirlar, "3")["metin"] == messages.APP_TURN_ALREADY_RUNNING
-    assert _sonuc(satirlar, "4")["ok"] is False
+    # Claude Code (#209): tur/değerlendirme sürerken anlık olmayan komut kuyruğa girer; kök
+    # değişmez (eski yol: doğrudan ret). İkisinde de `/cd` bu sırada çalışmaz.
+    dort = _sonuc(satirlar, "4")
+    assert dort.get("kuyruk") is True or dort["ok"] is False
+    assert oturum._state.root != cd
 
 
 def _sonuc(satirlar: list[str], kimlik: str) -> dict:

@@ -46,12 +46,10 @@ def test_kabuk_oneki_ayrisir():
     assert prefixes.shell_command("merhaba") is None
 
 
-def test_not_oneki_ayrisir():
-    assert prefixes.memory_note("# testleri her zaman çalıştır") == "testleri her zaman çalıştır"
-    assert prefixes.memory_note("#1234 nedir") is None
-    assert prefixes.memory_note("## başlık") is None
-    assert prefixes.memory_note("#!/bin/sh") is None
-    assert prefixes.memory_note("#   ") is None
+def test_diyez_oneki_yok():
+    """Claude Code Quick commands tablosunda `#` yok (#220): satır olağan istemdir."""
+    assert not hasattr(prefixes, "memory_note")
+    assert not hasattr(prefixes, "pending_memory_note")
 
 
 def test_dosya_anmalari_bulunur_eposta_ve_tekrar_elenir():
@@ -122,7 +120,7 @@ async def test_kabuk_satiri_konsola_basilir(state):
     console = Console(file=io.StringIO(), force_terminal=False, no_color=True, width=120)
     await run_shell_prefix_line("echo selam", state, console)
     out = console.file.getvalue()
-    assert "$ echo selam" in out and "selam" in out and "bağlamına eklendi" in out
+    assert "$ echo selam" in out and "selam" in out
 
 
 def test_not_duz_metin_bellege_yazilir(state):
@@ -184,9 +182,6 @@ def test_tamamlayici_at_ile_ajanlari_agent_onekiyle_onerir(tmp_path):
 def test_cok_satirli_not_ve_kabuk_mesaj_sayilir():
     """Ölçüldü (31 Ekim): `# Görev\\nşunu yap` Markdown yapıştırması model çağrılmadan kalıcı derse
     yazılıyor, `!ls\\nrm x` çok satırı komut oluyordu. Çok satır ve aşırı uzun not düz mesajdır."""
-    assert prefixes.memory_note("# Görev\nşunu yap\n- a") is None
-    assert prefixes.memory_note("# " + "x" * (prefixes.MEMORY_NOTE_MAX_CHARS + 1)) is None
-    assert prefixes.memory_note("# kısa not") == "kısa not"
     assert prefixes.shell_command("!ls\nrm x") is None
 
 
@@ -282,3 +277,55 @@ def test_bilinmeyen_agent_anmasi_not_dusurur(state):
     result = prefixes.expand_mentions("@agent-yok bak", state)
 
     assert not result.blocks and any("yok" in note for note in result.notes)
+
+
+def test_kabuk_kipinde_tab_gecmis_ve_yol_onerir(tmp_path):
+    """Claude Code `!` kipi (#219): Tab geçmişteki `!` komutlarından ve yoldan tamamlar."""
+    (tmp_path / "Makefile").write_text("", encoding="utf-8")
+    gecmis = ["!git status", "selam", "!git log --oneline", "!git status"]
+    completer = ReplCompleter([], (tmp_path,), shell_history=lambda: gecmis)
+    oneriler = [c.text for c in completer.get_completions(Document("!git"), None)]
+    assert oneriler == ["!git status", "!git log --oneline"]
+    yollar = [c.text for c in completer.get_completions(Document("!cat Make"), None)]
+    assert "Makefile" in yollar
+    assert [c.text for c in completer.get_completions(Document("!"), None)] == [
+        "!git status",
+        "!git log --oneline",
+    ]
+
+
+def test_at_tamamlamasi_mcp_kaynaklarini_da_onerir(tmp_path):
+    """Claude Code (#228): `@` dosyalarla birlikte `@sunucu:uri` MCP kaynaklarını önerir."""
+    (tmp_path / "notlar.md").write_text("", encoding="utf-8")
+    kaynaklar = [("github:repo://acme/issues/1", "Issue 1"), ("db:pg://tablo", "tablo")]
+    completer = ReplCompleter([], (tmp_path,), mcp_resources=lambda: kaynaklar)
+    oneriler = [c.text for c in completer.get_completions(Document("bak @git"), None)]
+    assert oneriler == ["@github:repo://acme/issues/1"]
+    hepsi = [c.text for c in completer.get_completions(Document("@"), None)]
+    assert "@notlar.md" in hepsi and "@db:pg://tablo" in hepsi
+
+
+def test_mcp_katalogundan_kaynak_anmalari(monkeypatch):
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl import mcp_prompt_commands
+
+    katalog = SimpleNamespace(resources=(SimpleNamespace(uri="file:///a.txt", name="a"),))
+    monkeypatch.setattr(mcp_prompt_commands, "_catalogs", lambda: {"dosya": katalog})
+    assert mcp_prompt_commands.resource_mentions() == [("dosya:file:///a.txt", "a")]
+
+
+def test_at_tamamlamasi_canli_oturumlari_onerir(tmp_path):
+    """Claude Code (#228): `@` canlı öteki oturumları önerir; kendisi listelenmez."""
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl.completion import live_session_names
+
+    peers = (SimpleNamespace(id="p1", name="ben"), SimpleNamespace(id="p2", name="derleyici"))
+    link = SimpleNamespace(
+        peer=SimpleNamespace(id="p1"), registry=SimpleNamespace(peers=lambda: peers)
+    )
+    assert live_session_names(SimpleNamespace(agent_link=link)) == ["derleyici"]
+    assert live_session_names(SimpleNamespace(agent_link=None)) == []
+    completer = ReplCompleter([], (tmp_path,), sessions=lambda: ["derleyici"])
+    assert [c.text for c in completer.get_completions(Document("@der"), None)] == ["@derleyici"]

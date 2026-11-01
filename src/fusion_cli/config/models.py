@@ -454,11 +454,12 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
-    #: Çıktı stili (P-068): `varsayilan` | `ozlu` | `aciklayici` | `ogretici` ya da
+    #: Çıktı stili (P-068, #193): `default` | `proactive` | `concise` | `explanatory` |
+    #: `learning` ya da
     #: `~/.fusion/cikti-stilleri/<ad>.md` / `.claude/output-styles/<ad>.md` dosyasının adı.
-    #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `varsayilan` hiçbir
+    #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `default` hiçbir
     #: şey eklemez. `/output-style` ile değişir.
-    output_style: str = "varsayilan"
+    output_style: str = "default"
     #: Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Doluysa her tur sonunda
     #: komut stdin'den JSON (model, workspace, cost, context_window, session…) alıp tek
     #: satır basar; 1 sn zaman aşımı, hata olursa yerleşik satıra dönülür. `/statusline`.
@@ -469,6 +470,9 @@ class RuntimeConfig:
     #: REPL görünümü (P-070): `fullscreen` (varsayılan, Ink-benzeri tam ekran) | `inline`
     #: (eski satır-içi yol; FUSION_INLINE=1 ile aynı). `/tui` ile değişir, yeni oturumda uygulanır.
     tui: str = "fullscreen"
+    #: Claude Code "Session recap" (#230): uzaklaşınca tek satırlık oturum özeti
+    #: (`CLAUDE_CODE_ENABLE_AWAY_SUMMARY=0` da kapatır).
+    session_recap: bool = True
     #: Vim düzenleme kipi (P-067): girdi satırı NORMAL/INSERT kiplerinde çalışır. `/vim`.
     vim_mode: bool = False
     #: Talimat katmanları birleştirilsin mi: `~/.claude/CLAUDE.md` + `~/.codex/AGENTS.md`

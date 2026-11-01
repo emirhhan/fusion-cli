@@ -1,4 +1,4 @@
-"""`/init` görevi ve `/doctor prompt` talimat denetimi (P-021).
+"""`/init` görevi ve `/doctor prompt-audit` talimat denetimi (P-021).
 
 Claude Code `/init` depo yapısını, build/test komutlarını ve kuralları inceleyip CLAUDE.md
 üretir; `/doctor prompt-audit` talimat kalitesini denetler. Fusion'da:

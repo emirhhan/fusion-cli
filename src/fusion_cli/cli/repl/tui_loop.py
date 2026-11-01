@@ -44,10 +44,16 @@ from ..session import run_agent_task, run_task
 from . import (
     agent_link,
     async_commands,
+    away_recap,
     background_commands,
     browser_command,
+    btw_command,
+    busy_commands,
     chrome_cli,
+    copy_blocks,
     cron_store,
+    diff_viewer,
+    export_commands,
     goal_flow,
     goal_store,
     help_view,
@@ -56,20 +62,31 @@ from . import (
     linked_pr,
     loop_command,
     macros,
+    mcp_prompt_commands,
     model_flows,
+    model_picker,
     output_style_command,
     plan_card,
     prefixes,
     profiles_flow,
     provider_flow,
+    queue_steer,
+    recap_command,
     remote_control,
+    resume_picker,
     rewind,
+    rewind_clear,
+    rewind_summary,
     session_resume,
+    session_snapshot,
+    settings_panel,
+    shell_background,
     status_line,
     status_view,
     task_view,
     verify_flow,
     view_commands,
+    vim_remaps,
 )
 from .commands import (
     ASYNC_COMMANDS,
@@ -80,15 +97,25 @@ from .commands import (
     renders_itself,
     resume_choices,
 )
-from .completion import ReplCompleter, agent_names
-from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
+from .completion import ReplCompleter, agent_names, live_session_names
+from .loop import (
+    CRON_POLL_S,
+    apply_auto_profile,
+    apply_mentions,
+    run_shell_prefix_line,
+    show_shell_result,
+)
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .sandbox_panel import sandbox_panel
 from .state import Engine, Reminder, ReplState
+from .status_line_runner import StatusLineRunner
+from .status_line_settings import resolve_status_line
 from .task_list import session_todos
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
+from .tui_input_keys import DirectoryHistory, history_path
+from .tui_shortcuts import TuiShortcuts
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
@@ -291,7 +318,7 @@ def _would_open_picker(name: str, argument: str) -> bool:
     """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)
 
     `/provider`, `/verify` ve `/profiles edit` uygulama-içi modalla çözülür (`_picker_flow`);
-    argümansız `/model` yalnız listeler, seçici açmaz (L2-14).
+    argümansız `/model` Claude Code ModelPicker modalını açar (#211).
     """
     arg = argument.strip().lower()
     if name == "development":
@@ -332,6 +359,10 @@ class _TuiSession:
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
         self._queue: list[str] = []
+        #: Düz mesajı koşan agent turuna veren köprü (#190).
+        self._steer = queue_steer.SteerBridge()
+        #: Tur sürerken çalışan anlık komut görevleri (#209); bitince kümeden düşer.
+        self._immediate: set[asyncio.Future[None]] = set()
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
         # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
         self._background = BackgroundTasks()
@@ -351,9 +382,15 @@ class _TuiSession:
                 self._registry.completion_words,
                 lambda: (state.root, *state.extra_roots),
                 agents=lambda: agent_names(state),
+                shell_history=lambda: self._tui.history_strings(),
+                mcp_resources=mcp_prompt_commands.resource_mentions,
+                sessions=lambda: live_session_names(state),
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),
+            # Claude Code: Up/Down ve Ctrl+R çalışma dizini başına geçmişte (#196).
+            history=DirectoryHistory(history_path(state.config.memory_dir, state.root)),
+            is_busy=lambda: self._busy,
             # Ctrl+B: süren turu arka plan görevine taşı (P-048).
             on_background=self._background_turn,
             # Ctrl+T: görev listesi (#330); açık bırakılırsa sürdürmede açık gelir.
@@ -362,9 +399,16 @@ class _TuiSession:
             task_lines=lambda: task_view.task_lines(state),
             tasks_visible=task_view.is_visible(state),
         )
+        self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
+        self._tui.set_agent_hooks(self._kill_agents)
+        #: #216: Ctrl+O transcript, Ctrl+V görüntü, Option+P/T/O, istem önerileri.
+        self._shortcuts = TuiShortcuts(state, self._tui, self._submit, self._echo)
+        self._tui.set_vim_remaps(vim_remaps.load_remaps(state.home))
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
         self._to_background = False
+        # Süren `!` komutunun arka plana alma isteği (#218); komut yokken None.
+        self._shell_detach: shell_background.ShellDetach | None = None
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(
             self._tui, drain, self._state.root, AppDenials(self._deny_persist())
@@ -372,6 +416,14 @@ class _TuiSession:
         self._custom_status = ""
         # Chrome kurulum sorusu (#421) tam ekranda uygulama-içi seçiciyle sorulur.
         chrome_cli.bind_chooser(state.chrome, self._tui.await_choice)
+        # Durum satırı betiği Claude Code tetikleriyle çalışır (#192, `status_line_runner`).
+        self._status_runner = StatusLineRunner(
+            lambda: resolve_status_line(self._state.config, self._state.root, self._state.home),
+            lambda: status_line.status_payload(self._state),
+            self._set_custom_status,
+            cwd_source=lambda: str(self._state.root),
+        )
+        self._status_trigger_key: tuple[str, bool] | None = None
         self._sync_status()
 
     @property
@@ -386,9 +438,18 @@ class _TuiSession:
         line = text.strip()
         if not line:
             return
+        self._touch_away()
+        if self._busy and busy_commands.runs_while_busy(self._registry, line):
+            # Claude Code (#209): belgelenen anlık komutlar kuyruğa girmez, hemen çalışır.
+            future = asyncio.ensure_future(self._command(line))
+            self._immediate.add(future)
+            future.add_done_callback(self._immediate.discard)
+            return
         if self._busy:
-            # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir.
-            self._queue.append(line)
+            # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir. Düz mesaj
+            # Claude Code'daki gibi araç çağrıları bitince AYNI tura verilir (#190).
+            if not self._steer.offer(line):
+                self._queue.append(line)
             self._echo(
                 f"[{theme.DIM}]{escape(messages.TUI_QUEUED.format(line=line))}[/{theme.DIM}]"
             )
@@ -445,13 +506,33 @@ class _TuiSession:
         arka planda sürdürür."""
         if self._state.config.agent_launch.disable_background_tasks:
             return
+        if self._shell_detach is not None:
+            # Süren `!` komutu kesilmeden arka plana alınır (#218).
+            self._shell_detach.request()
+            return
         if self._busy and self._state.child_runs.request_background():
             return
         if self._busy and foreground_handoff.request_background():
-            return  # süren kabuk komutu kesilmeden arka plana geçer, tur sürer (#320)
+            # Ajanın süren `run_shell` komutu kesilmeden arka plana geçer, tur sürer (#320).
+            self._echo(f"[{theme.DIM}]{messages.SHELL_HANDOFF_DONE}[/{theme.DIM}]")
+            return
         if self._busy and self._task is not None and self._current_line:
             self._to_background = True
             self._task.cancel()
+
+    def start_away_recap(self) -> asyncio.Future[None]:
+        """Uzaklık özeti gözcüsü (#230); gönderim ve tur sonu etkinlik sayılır."""
+        self._away = away_recap.AwayRecap(
+            self._state,
+            lambda: self._busy,
+            lambda: recap_command.recap(self._state),
+            lambda text: self._echo(f"{messages.RECAP_MARK} {escape(text)}"),
+        )
+        return asyncio.ensure_future(self._away.run())
+
+    def _touch_away(self) -> None:
+        if (away := getattr(self, "_away", None)) is not None:
+            away.touch()
 
     def start_agent_link(self) -> asyncio.Future[None]:
         """Arka plan bildirimleri ve gelen oturum mesajları (P-048/P-060)."""
@@ -481,6 +562,55 @@ class _TuiSession:
             )
         return bool(stopped)
 
+    def _settle_steer(self) -> None:
+        """Tur bitti: modele giden mesajlar dökümde, gitmeyenler kuyruğun başında (#190)."""
+        consumed, leftover = self._steer.end()
+        for text in consumed:
+            self._transcript_store.record_user(text)
+        self._queue[0:0] = leftover
+
+    def _take_back_queue(self) -> list[str]:
+        """İlk satırda Up (#190): kuyruktaki mesaj ve komutları geri ver; `!` satırları kalır."""
+        taken = self._steer.take_back()
+        shell = [line for line in self._queue if line.lstrip().startswith("!")]
+        taken.extend(line for line in self._queue if not line.lstrip().startswith("!"))
+        self._queue[:] = shell
+        return taken
+
+    def _kill_agents(self) -> None:
+        """Ctrl+X Ctrl+K (#216): bu oturumun arka plan alt ajanlarını durdur."""
+
+        async def _stop() -> None:
+            count = await self._state.child_runs.cancel_background()
+            self._out.print(
+                messages.KILL_AGENTS_DONE.format(count=count), style=theme.DIM, highlight=False
+            )
+            self._tui.sync_conversation()
+
+        future = asyncio.ensure_future(_stop())
+        self._immediate.add(future)
+        future.add_done_callback(self._immediate.discard)
+
+    def _send_now(self, draft: str) -> None:
+        """chat:sendNow (Ctrl+X Ctrl+S, #190): kuyruğu hemen yolla, taslak arkasına girer.
+
+        Ajanın süren kabuk komutu varsa ve kuyrukta yalnız mesaj varsa komut kesilmeden arka
+        plana geçer, mesaj aynı tura verilir. Kuyrukta tur sonunu bekleyen satır (komut, `!`)
+        ya da beklenen kabuk yokken modele gitmemiş mesaj varsa tur kesilir; kesme yolu kuyruğu
+        korur ve sıradakini hemen başlatır. Ctrl+Enter da bu eylemdir (CSI-u terminallerde).
+        """
+        if draft.strip():
+            self._submit(draft)
+        if not self._busy or self._task is None:
+            return
+        if not self._queue and self._steer.pending and foreground_handoff.request_background():
+            # Claude Code: süren kabuk komutu arka plana geçer, kuyruk araç sonucu döner
+            # dönmez aynı tura verilir; tur kesilmez (#190, #218).
+            self._echo(f"[{theme.DIM}]{messages.SHELL_HANDOFF_DONE}[/{theme.DIM}]")
+            return
+        if self._queue or self._steer.pending:
+            self._task.cancel()
+
     def _exit(self) -> None:
         self._state.running = False
         # Çalışan tur uygulamayla birlikte KABA iptal edilmesin: önce görev iptal edilir,
@@ -508,22 +638,43 @@ class _TuiSession:
 
     def _sync_status(self) -> None:
         vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
+        # Durum satırı JSON'unun `vim.mode` alanı gerçek kipi taşır (#217).
+        self._state.vim_state = self._tui.vim_mode_name() if vim else ""
         self._tui.set_vim(vim)
+        spec = resolve_status_line(self._state.config, self._state.root, self._state.home)
         self._tui.set_status(
             self._state.approval.value,
             self._state.engine.value,
             status_view.context_label(self._state),
             self._custom_status,
-            vim=vim,
+            vim=vim and not (spec is not None and spec.hide_vim_mode_indicator),
         )
+        # İzin kipi ya da vim kipi değişince betik yeniden çalışır (Claude Code ile aynı).
+        key = (self._state.approval.value, vim)
+        if self._status_trigger_key is not None and key != self._status_trigger_key:
+            self._request_status_line()
+        self._status_trigger_key = key
         # Tuş dosyası değiştiyse yeniden başlatmadan uygula (P-067).
         if keybindings.has_changed(self._tui.keymap):
-            self._tui.rebind(keybindings.load_keymap(self._tui.keymap.path))
+            self._tui.rebind(keybindings.reload_keymap(self._tui.keymap))
 
     async def _refresh_custom_status(self) -> None:
-        """Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; sonucu durum satırına gider."""
-        self._custom_status = await status_line.status_line_text(self._state)
+        """Asistan cevabından sonra durum satırı betiğini tetikle (#192; debounce'lu)."""
+        self._request_status_line()
+
+    def _request_status_line(self) -> None:
+        try:
+            self._status_runner.request()
+        except RuntimeError:
+            # Döngü yok (eşzamanlı test kurulumu): betik bir sonraki tetikte çalışır.
+            return
+
+    def _set_custom_status(self, text: str) -> None:
+        self._custom_status = text
         self._sync_status()
+
+    async def close_status_line(self) -> None:
+        await self._status_runner.close()
 
     def _echo(self, renderable: object) -> None:
         """Konuşmaya bir şey yaz ve ekranı tazele."""
@@ -567,17 +718,13 @@ class _TuiSession:
             scheduled_turn = self._state.take_scheduled_turn_only()
             # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
-                await run_shell_prefix_line(shell, self._state, self._out)
+                if not await self._shell_line(shell):
+                    return
                 self._tui.sync_conversation()
-            elif (
-                not scheduled_turn
-                and (note := prefixes.pending_memory_note(self._state, line)) is not None
-            ):
-                # `# not` düz metin belleğe yazılır (P-036); bellek kapalıysa olağan istem.
-                self._echo(
-                    f"[{theme.DIM}]{escape(prefixes.add_memory_note(self._state, note))}"
-                    f"[/{theme.DIM}]"
-                )
+                pending, mode = self._state.take_pending()
+                if pending:
+                    # `!` çıktısına model kendiliğinden yanıt verir (#219).
+                    await self._turn(pending, mode=mode)
             elif is_command_line(line) and not scheduled_turn:
                 await self._command(line)
             elif (
@@ -587,6 +734,9 @@ class _TuiSession:
                 # `@oturum mesaj` / `@görev mesaj` (P-060): tur değil, mesaj gönderimi.
                 self._echo(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
             else:
+                if not scheduled_turn:
+                    # `@oturum mesaj` (#228): tur çalışır, model SendMessage ile iletir.
+                    line = background_commands.at_session_turn(self._state, line) or line
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
@@ -600,14 +750,13 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{escape(moved)}[/{theme.DIM}]")
                 return
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
-            # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
-            # Ölçüldü (30 Ekim): `finally` kuyruğu çalıştırıyor, Esc'e basan kullanıcının
-            # durdurmak istediği yerde bir sonraki mesaj başlıyordu. Düşen satırlar söylenir.
-            if self._queue:
-                dusen = len(self._queue)
-                self._queue.clear()
+            # Claude Code (#190): "Esc ile tur kesilir; kuyruğa alınanlar korunur ve hemen
+            # gönderilir." Kuyruk silinmez; `finally` sıradakini başlatır. Çıkışta (`_exit`)
+            # kuyruk yine temizlenir.
+            if self._queue and self._state.running:
                 self._echo(
-                    f"[{theme.DIM}]{messages.TUI_QUEUE_DROPPED.format(count=dusen)}[/{theme.DIM}]"
+                    f"[{theme.DIM}]{messages.TUI_QUEUE_SENT_NOW.format(count=len(self._queue))}"
+                    f"[/{theme.DIM}]"
                 )
         except Exception as error:
             _logger.exception("TUI turu beklenmeyen hatayla bitti")
@@ -618,6 +767,7 @@ class _TuiSession:
             )
         finally:
             self._tui.clear_work()
+            self._touch_away()
             self._sync_status()
             cron_store.save(
                 self._state.config.memory_dir, self._state.conversation_id, self._state.cron
@@ -636,9 +786,28 @@ class _TuiSession:
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
             return
+        if command.name == "diff" and not argument.strip() and await self._run_diff_viewer():
+            # Claude Code `/diff` (#230): etkileşimli görüntüleyici; gösterecek yoksa metin.
+            return
+        if command.name == "btw":
+            # Claude Code `/btw` (#221): cevap kapatılabilir katmanda, konuşmaya basılmaz.
+            await self._side_question(argument)
+            return
+        if command.name == "status" or (command.name == "config" and not argument.strip()):
+            # Claude Code Settings paneli (#210, #225): /status Status, /config Config sekmesi.
+            await self._run_settings_panel(
+                settings_panel.STATUS if command.name == "status" else settings_panel.CONFIG
+            )
+            return
         if renders_itself(command.name, argument):
-            await help_view.render(command.name, self._state, self._registry, self._out)
+            await help_view.render(command.name, self._state, self._registry, self._out, argument)
             self._tui.sync_conversation()
+            if command.name == "compact":
+                self._request_status_line()
+            pending, mode = self._state.take_pending()
+            if pending:
+                # `/doctor` sorun bulunca düzeltme turu (#212).
+                await self._turn(pending, mode=mode)
             return
         if command.name in ASYNC_COMMANDS:
             # `/voice` kısmi metni canlı olarak giriş kutusuna yazar; sonuç orada kalır.
@@ -661,6 +830,10 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "model" and not argument.strip():
+            # Claude Code ModelPicker (#211): Enter kaydeder, `s` oturumluk, ←/→ effort.
+            await self._run_model_picker()
+            return
         elif command.name == "theme" and not argument.strip():
             selected = await self._tui.await_choice(
                 messages.THEME_TITLE, view_commands.theme_choices(self._state)
@@ -721,6 +894,26 @@ class _TuiSession:
             self._echo(f"[{theme.DIM}]{escape(message)}[/{theme.DIM}]")
             await self._plugin_options()
             return
+        elif command.name == "copy" and (
+            copy_rows := export_commands.copy_picker_choices(self._state, argument)
+        ):
+            # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi modalda.
+            selected = await self._tui.await_choice(
+                messages.COPY_PICK_TITLE, list(copy_rows), alt_keys=(copy_blocks.WRITE_KEY,)
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = f"{argument.strip() or '1'} {selected}"
+        elif command.name == "export" and not argument.strip():
+            # Claude Code `/export` (#206): Pano / Dosya diyaloğu uygulama-içi modalda.
+            selected = await self._tui.await_choice(
+                messages.EXPORT_DIALOG_TITLE, list(export_commands.export_dialog_choices())
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
         elif command.name == "development":
             # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.
@@ -741,6 +934,12 @@ class _TuiSession:
             # Claude (#83): argümansız /permissions sekmeli iletişim kutusunu açar.
             await self._permissions_dialog()
             return
+        elif command.name == "import" and (source := _history_source(argument)) is not None:
+            # `/import history <kaynak>` oturumsuz (#223): seçim uygulama-içi modalla.
+            resolved = await self._resolve_resume_argument(f"resume{source}")
+            if resolved is None:
+                return
+            argument = f"history {source} {resolved}"
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -788,7 +987,12 @@ class _TuiSession:
             )
             return
         previous = (self._state.root, self._state.conversation_id)
-        result = command.handler(self._state, argument)
+        summary = rewind_summary.parse(argument) if command.name == "rewind" else None
+        if summary is not None and summary[0] is not None:
+            # Özet modele gider: olay döngüsünü tutmadan beklenir (#199).
+            result = await rewind_summary.summarize(self._state, summary[0], summary[1], summary[2])
+        else:
+            result = command.handler(self._state, argument)
         if command.name == "reset" or previous != (self._state.root, self._state.conversation_id):
             await self._state.reset_child_runs()
         if command.name == "theme":
@@ -797,6 +1001,9 @@ class _TuiSession:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
         if command.name == "plugin":
             await self._plugin_options()
+        if text := self._state.take_pending_input():
+            # `/rewind` konuşmayı sardıysa hedef istem giriş kutusuna gelir (#200).
+            self._tui.set_input(text)
         for hook_line in await hook_events.flush(self._state):
             self._echo(f"[{theme.WARN}]{escape(hook_line)}[/{theme.WARN}]")
         self._sync_conversation_binding()
@@ -819,6 +1026,62 @@ class _TuiSession:
 
         for line in await drain_tui(show, self._tui.await_text, self._tui.await_secret):
             self._echo(f"[{theme.DIM}]{escape(line)}[/{theme.DIM}]")
+
+    async def _run_diff_viewer(self) -> bool:
+        async def _ask(
+            title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(title, list(rows), alt_keys=keys, initial=initial)
+
+        return await diff_viewer.run_async(self._state, _ask)
+
+    async def _side_question(self, argument: str) -> None:
+        question = argument.strip()
+        if not question and not self._state.side_questions:
+            self._echo(f"[{theme.DIM}]{escape(messages.BTW_USAGE)}[/{theme.DIM}]")
+            return
+        if question:
+            await btw_command.ask(self._state, question)
+
+        async def _ask(title: str, rows: Sequence[Choice], keys: tuple[str, ...]) -> str | None:
+            return await self._tui.await_choice(title, list(rows), alt_keys=keys)
+
+        await btw_command.show_overlay(self._state, _ask)
+
+    async def _run_settings_panel(self, tab: str) -> None:
+        async def _ask(
+            title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(
+                title, list(choices), alt_keys=keys, initial=initial
+            )
+
+        palette = theme.CURRENT_THEME
+        notes = await settings_panel.run_async(self._state, _ask, tab)
+        if notes:
+            self._echo(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+        if palette != theme.CURRENT_THEME:
+            self._tui.refresh_style()
+        self._sync_status()
+        if not self._state.running:
+            # Panelden `tui` değiştiyse yüzey konuşmayı koruyarak yeniden açılır (#232).
+            self._tui.request_exit()
+
+    async def _run_model_picker(self) -> None:
+        async def _ask(
+            title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(
+                title, list(choices), alt_keys=keys, initial=initial
+            )
+
+        result = await model_picker.run_async(self._state.config, _ask)
+        if result is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return
+        self._state.config, note = model_picker.apply(self._state.config, result)
+        self._echo(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        self._sync_status()
 
     async def _continue_goal(self) -> None:
         """`/goal` etkinse turu değerlendir, gerekiyorsa hedef kipinde sürdür (P-058).
@@ -946,7 +1209,13 @@ class _TuiSession:
         Vazgeçilirse ya da geri sarılacak tur yoksa `None` döner.
         """
         entries = self._state.checkpoints.entries()
-        if not entries:
+        previous = rewind_clear.previous_session_choices(self._state)
+        if rewind_clear.resume_target(argument) is not None:
+            return argument
+        summary = rewind_summary.parse(argument)
+        if summary is not None and summary[0] is not None:
+            return argument
+        if not entries and not previous:
             self._echo(f"[{theme.DIM}]{messages.REWIND_NOTHING}[/{theme.DIM}]")
             return None
         index, scope, error = rewind.parse_arguments(argument, self._state.checkpoints)
@@ -955,19 +1224,29 @@ class _TuiSession:
             return None
         if index is None:
             picked = await self._tui.await_choice(
-                messages.REWIND_PICK_TURN, rewind.turn_choices(entries)
+                messages.REWIND_PICK_TURN, [*previous, *rewind.turn_choices(entries)]
             )
             if picked is None:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
+            if rewind_clear.resume_target(picked) is not None:
+                return picked  # `/clear` öncesi oturum (#200)
             index = int(picked)
         if scope is None:
             chosen = await self._tui.await_choice(
-                messages.REWIND_PICK_SCOPE, rewind.scope_choices()
+                messages.REWIND_PICK_SCOPE, rewind.scope_choices(entries, index)
             )
-            if chosen is None:
+            if chosen is None or chosen == rewind.CANCEL_VALUE:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
+            if chosen in rewind_summary.KINDS and getattr(self._tui, "picked_by_number", False):
+                # Claude Code: numara tuşuyla seçilen özet seçeneği talimatsız hemen çalışır.
+                return f"{index} {chosen}"
+            if chosen in rewind_summary.KINDS:
+                # Claude Code "add context": özeti yönlendiren isteğe bağlı talimat (#199).
+                self._echo(f"[{theme.DIM}]{messages.REWIND_SUMMARY_PROMPT}[/{theme.DIM}]")
+                guide = (await self._tui.await_text()).strip()
+                return f"{index} {chosen} {guide}".strip()
             return f"{index} {chosen}"
         return f"{index} {scope.value}"
 
@@ -977,8 +1256,21 @@ class _TuiSession:
         if not refs:
             self._echo(f"[{theme.DIM}]{messages.SESSION_LIST_EMPTY}[/{theme.DIM}]")
             return None
-        selected = await self._tui.await_choice(
-            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs)
+
+        async def _ask(
+            title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            # Claude Code seçicisi (#202): Space/Ctrl+R/Ctrl+A/Ctrl+W/Ctrl+B, yazarak arama.
+            return await self._tui.await_choice(
+                title, list(rows), alt_keys=keys, searchable=bool(keys), initial=initial
+            )
+
+        async def _ask_name() -> str:
+            self._echo(f"[{theme.DIM}]{messages.SESSION_RENAME_PROMPT}[/{theme.DIM}]")
+            return await self._tui.await_text()
+
+        selected = await resume_picker.run_async(
+            self._state.config.memory_dir, self._state.root, _ask, _ask_name
         )
         if selected is None:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
@@ -998,7 +1290,9 @@ class _TuiSession:
         if not refs:
             self._echo(f"[{theme.DIM}]{messages.HISTORY_EMPTY}[/{theme.DIM}]")
             return None
-        selected = await self._tui.await_choice(messages.HISTORY_PICK_TITLE, resume_choices(refs))
+        selected = await self._tui.await_choice(
+            messages.HISTORY_PICK_TITLE, resume_choices(refs), searchable=True
+        )
         if selected is None:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
             return None
@@ -1048,6 +1342,45 @@ class _TuiSession:
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
 
+    async def _shell_line(self, command: str) -> bool:
+        """`! komut`: Ctrl+B ile kesilmeden arka plana alınabilir (#218).
+
+        Komut ön planda bittiyse True (yanıt turu başlayabilir); arka plana alındıysa False.
+        """
+        detach = shell_background.ShellDetach()
+        self._shell_detach = detach
+        self._tui.set_work_source(lambda: messages.SHELL_PREFIX_WORK.format(command=command))
+        try:
+            await run_shell_prefix_line(
+                command,
+                self._state,
+                self._out,
+                detach=detach,
+                on_detached=lambda result: self._shell_finished(command, result),
+                on_chunk=self._shell_chunk,
+            )
+        finally:
+            self._shell_detach = None
+            self._tui.clear_work()
+        return not detach.event.is_set()
+
+    def _shell_chunk(self, text: str) -> None:
+        """`!` çıktısı canlı akar (#219): parça konuşma alanına yazılır, ekran tazelenir."""
+        self._out.file.write(text)
+        self._tui.sync_conversation()
+
+    def _shell_finished(self, command: str, result: prefixes.ShellPrefixResult) -> None:
+        """Arka plana alınan `!` komutu bitti: çıktıyı bas, yanıt turunu sıraya koy."""
+        self._echo(
+            f"[{theme.DIM}]{escape(messages.SHELL_PREFIX_BG_DONE.format(command=command))}"
+            f"[/{theme.DIM}]"
+        )
+        show_shell_result(command, result, self._state, self._out)
+        self._tui.sync_conversation()
+        pending, _mode = self._state.take_pending()
+        if pending:
+            self._submit(pending)
+
     async def _turn(self, line: str, *, mode: macros.Mode = macros.Mode.NONE) -> None:
         """Turu çalıştır. Makro kipi turun ÜÇ ayarını birden belirler.
 
@@ -1078,6 +1411,7 @@ class _TuiSession:
             pump,
             self._state.cost,
             *((usage_log,) if usage_log is not None else ()),
+            self._shortcuts.begin_turn(),
         )
         try:
             if self._state.take_turn_engine() is Engine.FUSION:
@@ -1111,6 +1445,7 @@ class _TuiSession:
                     chrome=chrome_cli.bridge_of(self._state.chrome),
                     todos=session_todos(self._state),  # oturum boyu liste (#331)
                 )
+                self._state.last_tool_context = tool_context
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
                 self._state.last_changes = tool_context.changes
@@ -1137,6 +1472,7 @@ class _TuiSession:
                     )
                     if part
                 )
+                steering = self._steer.begin()
                 try:
                     outcome = await run_agent_task(
                         line,
@@ -1174,6 +1510,10 @@ class _TuiSession:
                         turn_runner=(
                             extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else None
                         ),
+                        # Tur sürerken yazılan düz mesaj aynı tura girer (#190).
+                        steering=steering,
+                        # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
+                        images=self._shortcuts.take_images(line),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
@@ -1185,7 +1525,10 @@ class _TuiSession:
                     if digest and not self._state.pending_digest:
                         self._state.pending_digest = digest
                     raise
+                finally:
+                    self._settle_steer()
                 self._state.history = outcome.messages
+                session_snapshot.save(self._state)  # sürdürme için tam durum (#187, #189)
                 linked_pr.bind_from_turn(self._state, outcome.tool_uses)
                 # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
                 # açılır (bkz. `loop._run_turn`).
@@ -1207,6 +1550,8 @@ class _TuiSession:
             renderer.abort()
             self._tui.clear_work()
             self._tui.sync_conversation()
+        if not self._queue:
+            self._shortcuts.finish_turn()
 
 
 def _print_startup(
@@ -1231,6 +1576,12 @@ def _print_startup(
         session.tui.console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
     for uyari in skipped_rule_warnings(state.root):
         session.tui.console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
+    if notice := getattr(state, "surface_notice", ""):
+        # `/tui fullscreen` (#232): konuşma sürüyor; son oturum listesi yeniden basılmaz.
+        state.surface_notice = ""
+        session.tui.console.print(f"[{theme.DIM}]{escape(notice)}[/{theme.DIM}]")
+        session.tui.sync_conversation()
+        return
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)
@@ -1274,11 +1625,14 @@ async def run_tui_repl(
         lambda: session._busy,
         lambda text: session._echo(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
     )
+    # Claude Code "Session recap" (#230): uzaklaşınca tek satırlık özet.
+    away = session.start_away_recap()
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
-    if state.initial_prompt:
-        # `fusion "istem"` (#276): istem ilk satır olarak gönderilir.
-        first, state.initial_prompt = state.initial_prompt, ""
+    # Oturum başında (sürdürmede de) durum satırı betiği bir kez çalışır (#192).
+    session._request_status_line()
+    if first := state.take_initial_prompt():
+        # `fusion "query"` (#204, #276): uygulama açılınca ilk mesaj olarak gönderilir.
         session._submit(first)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
@@ -1292,11 +1646,17 @@ async def run_tui_repl(
     finally:
         import_offer.cancel()
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
-        await state.child_runs.close()
+        if not getattr(state, "surface_switch", ""):
+            # `/tui default` (#232): alt ajanlar öteki yüzeyde sürer; kapanış run_repl'de.
+            await state.child_runs.close()
+        await session.close_status_line()
         session.tui.restore_wheel_modes()
         cron_watcher.cancel()
+        away.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        with contextlib.suppress(asyncio.CancelledError):
+            await away
         await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
 
@@ -1311,3 +1671,11 @@ async def run_tui_repl(
     sys.stdout.write(session.tui.transcript)
     sys.stdout.flush()
     return 0
+
+
+def _history_source(argument: str) -> str | None:
+    """`history <kaynak>` oturum kimliği olmadan verildiyse kaynak adı (#223)."""
+    words = argument.split()
+    if len(words) == 2 and words[0] in ("history", "gecmis"):
+        return words[1]
+    return None

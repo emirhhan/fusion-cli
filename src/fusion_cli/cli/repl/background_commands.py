@@ -15,7 +15,9 @@ from ...engines.agent.approval import ApprovalMode
 from ...tools import agent_tasks
 from ...tools.job_listing import shell_job_lines, stop_shell_job
 from ...ui import background_messages as texts
+from ...ui import messages
 from ...ui.background_view import peer_lines, task_detail, task_lines
+from .shell_live import ShellJob
 from .state import ReplState
 
 
@@ -99,8 +101,9 @@ def tasks_command(state: ReplState, argument: str) -> str:
     try:
         if action in {"", "list", "liste"}:
             text = task_lines(store.tasks(root=_root(state, rest)))
-            shell = shell_job_lines(state.root)  # kabuk işleri de listede (#333)
-            return "\n".join([text, "", *shell]) if shell else text
+            shell_lines = shell_job_lines(state.root)  # ajan kabuk işleri de listede (#333)
+            text = "\n".join([text, "", *shell_lines]) if shell_lines else text
+            return text + _shell_job_lines(state)
         if action in {"clean", "temizle"}:
             removed, failed = agent_tasks.clean_finished(store, _root(state, rest))
             text = texts.BG_CLEANED.format(count=removed)
@@ -113,10 +116,68 @@ def tasks_command(state: ReplState, argument: str) -> str:
                 return stop_shell_job(state.root, query.strip())
             except KeyError:
                 pass  # kabuk işi değil: arka plan görevi olarak çöz
+        if (shell := _shell_job_action(state, action, query)) is not None:
+            return shell
         task = store.resolve(query)
         return _task_action(state, action, task, value.strip())
     except BackgroundTaskError as error:
         return str(error)
+
+
+def _listed_shells(state: ReplState) -> tuple[ShellJob, ...]:
+    """Ctrl+B ile arka plana alınmış `!` komutları (#218).
+
+    Ajanın Ctrl+B ile devredilen `run_shell` komutu `.fusion/is` kabuk işi olur (#320) ve
+    `shell_job_lines` ile listelenir.
+    """
+    jobs = getattr(state, "shell_jobs", None)
+    return tuple(jobs.background()) if jobs is not None else ()
+
+
+def _shell_job_lines(state: ReplState) -> str:
+    listed = _listed_shells(state)
+    if not listed:
+        return ""
+    rows = [
+        messages.SHELL_JOB_LINE.format(
+            id=job.id,
+            status=_shell_status(job),
+            command=job.command,
+            path=job.log_path,
+        )
+        for job in listed
+    ]
+    return "\n\n" + "\n".join((messages.SHELL_JOBS_TITLE, *rows))
+
+
+def _shell_status(job: ShellJob) -> str:
+    if job.running:
+        return "çalışıyor"
+    if job.stopped:
+        return "durduruldu"
+    return f"bitti ({job.returncode})"
+
+
+def _shell_job_action(state: ReplState, action: str, query: str) -> str | None:
+    """`/tasks show|stop <bN>`: kabuk görevi; kimlik eşleşmezse None (ajan görevine düşer)."""
+    job = next((item for item in _listed_shells(state) if item.id == query.strip()), None)
+    if job is None:
+        return None
+    if action in {"stop", "durdur"}:
+        state.shell_jobs.stop(job.id)
+        return messages.SHELL_JOB_STOPPED.format(id=job.id, command=job.command)
+    if action in {"show", "goster", "göster", "attach"}:
+        try:
+            text = job.log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            return str(error)
+        tail = text[-SHOW_TAIL_CHARS:]
+        return f"{_shell_status(job)} · {job.log_path}\n{tail}"
+    return None
+
+
+#: `/tasks show bN` için günlüğün son kesiti.
+SHOW_TAIL_CHARS = 4000
 
 
 def _root(state: ReplState, rest: str) -> Path | None:
@@ -183,32 +244,50 @@ def _number(raw: str) -> int:
 
 
 def route_at_message(state: ReplState, line: str) -> str | None:
-    """`@ad mesaj`: ad açık bir oturum ya da arka plan görevi ise mesajı gönder.
+    """`@görev mesaj`: ad bu projenin arka plan görevi ise mesajı doğrudan gönder.
 
-    Ad bir dosya/dizin olarak VARSA dokunulmaz (`@dosya` anması; P-022). Eşleşme yoksa None:
-    satır olağan tura gider.
+    Ad bir dosya/dizin olarak VARSA dokunulmaz (`@dosya` anması; P-022). Açık öteki oturum
+    anması (`@oturum mesaj`) burada gönderilmez: Claude Code'daki gibi tur çalışır ve model
+    mesajı `SendMessage` aracıyla iletir (`at_session_turn`, #228). Eşleşme yoksa None.
     """
+    parsed = _at_target(state, line)
+    if parsed is None:
+        return None
+    name, text = parsed
+    store = agent_tasks.task_store(state.config.memory_dir)
+    try:
+        task = store.resolve(name)
+    except BackgroundTaskError:
+        return None
+    try:
+        updated = agent_tasks.send_to_task(store, task, text, sender=state.conversation_id)
+    except BackgroundTaskError as error:
+        return str(error)
+    return texts.BG_SENT.format(name=updated.name, status=updated.status.value)
+
+
+def at_session_turn(state: ReplState, line: str) -> str | None:
+    """`@oturum mesaj` açık öteki oturumu anıyorsa modelin göndereceği turun görevi (#228)."""
+    parsed = _at_target(state, line)
+    link = state.agent_link
+    if parsed is None or link is None or link.peer is None:
+        return None
+    name, text = parsed
+    peers = link.registry.peers()
+    peer = next(
+        (item for item in peers if item.id != link.peer_id and name in {item.name, item.id}),
+        None,
+    )
+    if peer is None:
+        return None
+    return messages.PEER_MENTION_TURN.format(name=peer.name, text=text)
+
+
+def _at_target(state: ReplState, line: str) -> tuple[str, str] | None:
     if not line.startswith("@"):
         return None
     head, _, text = line[1:].partition(" ")
     name = head.strip()
     if not name or not text.strip() or (state.root / name).exists():
         return None
-    store = agent_tasks.task_store(state.config.memory_dir)
-    try:
-        task = store.resolve(name)
-    except BackgroundTaskError:
-        task = None
-    try:
-        if task is not None:
-            updated = agent_tasks.send_to_task(store, task, text, sender=state.conversation_id)
-            return texts.BG_SENT.format(name=updated.name, status=updated.status.value)
-        link = state.agent_link
-        if link is None or link.peer is None:
-            return None
-        if not any(peer.name == name or peer.id == name for peer in link.registry.peers()):
-            return None
-        peer = link.registry.send(link.peer, name, text)
-    except BackgroundTaskError as error:
-        return str(error)
-    return texts.PEER_SENT.format(name=peer.name)
+    return name, text.strip()

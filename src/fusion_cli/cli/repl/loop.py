@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
     from ...engines.agent.remotion_bridge import FrameTransport
     from ...tools.registry import ToolRegistry
+    from ...ui.picker import Choice
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
@@ -84,8 +85,10 @@ from . import (
     agent_link,
     async_commands,
     browser_command,
+    btw_command,
     chrome_cli,
     cron_store,
+    diff_viewer,
     goal_flow,
     goal_store,
     help_view,
@@ -100,13 +103,16 @@ from . import (
     remote_control,
     session_agent,
     session_resume,
+    session_snapshot,
+    shell_background,
+    shell_mode,
     status_line,
     task_list,
     task_view,
     view_commands,
     worktree_exit,
 )
-from .background_commands import interrupted_to_background, route_at_message
+from .background_commands import at_session_turn, interrupted_to_background, route_at_message
 from .commands import (
     ASYNC_COMMANDS,
     CommandRegistry,
@@ -114,8 +120,9 @@ from .commands import (
     is_command_line,
     parse,
     renders_itself,
+    status_panel,
 )
-from .completion import agent_names
+from .completion import agent_names, live_session_names
 from .hook_open import open_hooks
 from .inline_keys import (
     BackgroundKey,
@@ -130,6 +137,7 @@ from .macros import Mode
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .state import Engine, Reminder, ReplState
+from .status_line_inline import InlineStatusWatcher
 
 #: `_cancel_on_interrupt` her sonuç tipindeki görevi kesebilir (tur, hedef değerlendirmesi).
 ResultT = TypeVar("ResultT")
@@ -184,6 +192,8 @@ async def run_repl(
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
     `setup_trigger` (`fusion --init` / `--maintenance`): `Setup` kancası SessionStart'tan önce.
+
+    `initial_prompt` (`fusion "query"`, #204, #276) oturum açılınca ilk mesaj olarak gönderilir.
 
     `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
     geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
@@ -263,6 +273,12 @@ async def run_repl(
     finally:
         await chrome_cli.close_session(state.chrome)
         await state.child_runs.close()
+        # Claude Code: arka plana alınan `!` komutları oturum kapanınca temizlenir (#218).
+        killed = state.shell_jobs.kill_all()
+        if killed:
+            console.print(
+                f"[{theme.DIM}]{messages.SHELL_JOBS_KILLED.format(count=killed)}[/{theme.DIM}]"
+            )
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
         # Çalışma ağacındaki oturum (`--worktree`, `/worktree`, `enter_worktree`): temiz ağaç
@@ -279,7 +295,11 @@ async def _run_surface(
     resume: session_resume.ResumeTarget | None,
     setup_trigger: str = "",
 ) -> int:
-    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
+    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır.
+
+    `/tui <kip>` (#232) yüzeyi kapatıp `state.surface_switch` bırakırsa aynı durum
+    (konuşma, izin kipi, alt ajanlar) öteki yüzeyde hemen yeniden açılır.
+    """
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
     # Claude: SessionStart oturum açılırken çalışır (ilk istem beklenmez, #111).
@@ -287,7 +307,37 @@ async def _run_surface(
     inline_requested = (
         os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
     )
-    if not inline_requested and is_interactive_terminal():
+    interactive = is_interactive_terminal()
+    mode = "fullscreen" if not inline_requested and interactive else "inline"
+    switched = False
+    while True:
+        state.surface = mode if interactive else ""
+        code = await _run_one_surface(state, config, console, resume, mode, switched=switched)
+        wanted = state.take_surface_switch()
+        if not wanted or code != 0:
+            return code
+        mode, resume, switched = wanted, None, True
+        state.running = True
+        notice = messages.TUI_MODE_SWITCHED.format(
+            mode=view_commands.TUI_DISPLAY.get(mode, mode), count=len(state.history)
+        )
+        if mode == "inline":
+            console.print(f"[{theme.DIM}]{escape(notice)}[/{theme.DIM}]")
+        else:
+            state.surface_notice = notice
+
+
+async def _run_one_surface(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+    mode: str,
+    *,
+    switched: bool = False,
+) -> int:
+    """Tek bir yüzeyi çalıştır; `switched` görünüm değişiminden sonraki açılıştır (#232)."""
+    if mode == "fullscreen":
         from .tui_loop import run_tui_repl
 
         # Sürdürme bilgisi yalnız varsa geçirilir: TUI giriş noktasının eski çağrı
@@ -295,7 +345,18 @@ async def _run_surface(
         if resume is None:
             return await run_tui_repl(state, console)
         return await run_tui_repl(state, console, resume=resume)
+    return await _run_inline(state, config, console, resume, switched=switched)
 
+
+async def _run_inline(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+    *,
+    switched: bool = False,
+) -> int:
+    """Satır içi (default) yüzey."""
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
     registry = build_registry(state.home, skills=lambda: state.capabilities)
@@ -307,10 +368,17 @@ async def _run_surface(
         mode=state.approval,
         roots=lambda: (state.root, *state.extra_roots),
         agents=lambda: agent_names(state),
+        sessions=lambda: live_session_names(state),
     )
     # Satır içi yedek girişte de Shift+Tab döngüsü TUI ile aynı kipleri içerir (#73, #85).
     reader.bypass_available = bool(getattr(state, "bypass_available", False))
     reader.auto_available = bool(getattr(state, "auto_available", True))
+    # #216 genel kısayolları: Ctrl+O/Ctrl+T/Ctrl+V/Ctrl+X Ctrl+K/?/Option+P/T/O, istem önerisi.
+    from .inline_shortcuts import InlineShortcuts
+
+    shortcuts = InlineShortcuts(state, console)
+    state.inline_shortcuts = shortcuts
+    reader.set_shortcuts(shortcuts.actions(reader), shortcuts.next_suggestion)
     background = BackgroundTasks()
 
     # Isıtma kota harcar ve kullanıcı henüz bir şey göndermeden kafa karıştırıcı
@@ -321,32 +389,27 @@ async def _run_surface(
         background.spawn(_warm_up(state))
 
     reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
-    banner.print_welcome(console, session_info(state))
-    if resume is not None:
-        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
-    bildirim = apprentice_switch_notice(state.config)
-    if bildirim:
-        console.print(bildirim)
-        console.print()
-    if has_untrusted_permissions(state.root):
-        console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
-    # Dış `@import` ilk görüldüğünde onay (Claude Code #145).
-    from ...engines.agent import import_approval
+    if not switched:
+        _print_inline_welcome(state, console, resume)
+        # Dış `@import` ilk görüldüğünde onay (Claude Code #145).
+        from ...engines.agent import import_approval
 
-    await import_approval.offer(
-        state.root,
-        state.home,
-        show=lambda text: console.print(escape(text), highlight=False),
-        read_answer=reader.prompt,
-        extra_roots=tuple(state.extra_roots),
-    )
-    for uyari in skipped_rule_warnings(state.root):
-        console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
-    recent = history_view.render_recent(state.home, state.root)
-    if recent:
-        console.print(recent, highlight=False)
-        console.print()
+        await import_approval.offer(
+            state.root,
+            state.home,
+            show=lambda text: console.print(escape(text), highlight=False),
+            read_answer=reader.prompt,
+            extra_roots=tuple(state.extra_roots),
+        )
+        for uyari in skipped_rule_warnings(state.root):
+            console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
+        _print_recent_sessions(state, console)
     _sync_status_bar(reader, state, background)
+    # Claude Code (#192): durum satırı betiği oturum başında da çalışır; istem açıkken kip
+    # değişimi ve `refreshInterval` gözcüsü (`status_line_inline`) yeniden çalıştırır.
+    status_watcher = _status_watcher(state, reader, console)
+    await _show_status_line(reader, state, console)
+    status_task = asyncio.ensure_future(status_watcher.run())
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
     # `--resume` ile açılan sohbetin hedefi geri gelir (P-058).
     state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
@@ -377,9 +440,11 @@ async def _run_surface(
         lambda text: console.print(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
     )
 
+    # Tur sürerken yazılan anlık komut (#209: /status, /model …) kuyruğa girmez, hemen çalışır.
+    state.inline_immediate = lambda line: _run_immediate(line, state, registry, reader, console)
     try:
-        if state.initial_prompt:
-            first, state.initial_prompt = state.initial_prompt, ""
+        if first := state.take_initial_prompt():
+            # `fusion "query"` (#204): ilk satır kullanıcı yazmış gibi işlenir.
             await _handle_safely(first, state, registry, reader, console, background)
         while state.running:
             line = await _read_line(reader, state)
@@ -398,14 +463,39 @@ async def _run_surface(
             cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
         cron_watcher.cancel()
+        status_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        with contextlib.suppress(asyncio.CancelledError):
+            await status_task
         await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
         await remote_control.shutdown(state)
         await browser_command.shutdown(state)
         await _shutdown(background, console)
     return 0
+
+
+def _print_inline_welcome(
+    state: ReplState, console: Console, resume: session_resume.ResumeTarget | None
+) -> None:
+    """Satır içi açılış kutusu, sürdürme notu, uyarılar ve son oturumlar."""
+    banner.print_welcome(console, session_info(state))
+    if resume is not None:
+        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
+    bildirim = apprentice_switch_notice(state.config)
+    if bildirim:
+        console.print(bildirim)
+        console.print()
+    if has_untrusted_permissions(state.root):
+        console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+
+
+def _print_recent_sessions(state: ReplState, console: Console) -> None:
+    recent = history_view.render_recent(state.home, state.root)
+    if recent:
+        console.print(recent, highlight=False)
+        console.print()
 
 
 #: Zamanlayıcı vadesi bu sıklıkla yoklanır; görev en az 1 dakikalık olduğundan yeter.
@@ -509,7 +599,8 @@ async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     """
     typed = take_typed_line(state)
     if typed is not None:
-        # Tur sürerken yazılıp Enter'lanan satır sıradaki mesajdır (Claude Code kuyruğu, #12).
+        # Tur sürerken yazılıp modele gitmeyen satır sıradaki mesajdır; istem açılmaz
+        # (Claude Code kuyruğu, #12, #190).
         return typed
     try:
         default = state.take_pending_input() + take_typed_partial(state)
@@ -578,19 +669,14 @@ async def _handle(
     ConsoleRenderer(console).print_user_message(line)
     # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `_cron_watcher`).
     scheduled_turn = state.take_scheduled_turn_only()
-    if not scheduled_turn:
-        # Önekler (P-022): `!` kabuk ve `#` not model çağırmaz; `@dosya` bağlama eklenir.
-        if (shell := prefixes.shell_command(line)) is not None:
-            await run_shell_prefix_line(shell, state, console)
-            _sync_status_bar(reader, state, background)
-            return
-        if (note := prefixes.pending_memory_note(state, line)) is not None:
-            # `# not` düz metin belleğe yazılır (Claude Code kısayolu, P-036); bellek
-            # kapalıysa satır olağan istemdir.
-            console.print(
-                f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]"
-            )
-            return
+    # Önekler (P-022): `!` kabuk model çağırmaz, `@dosya` bağlama eklenir (#220: `#` yok).
+    if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
+        await run_shell_prefix_line(shell, state, console)
+        task, mode = state.take_pending()
+        if task and await _run_turn(task, state, console, background, mode=mode):
+            await _continue_goal(state, console, background)
+        _sync_status_bar(reader, state, background)
+        return
     if is_command_line(line) and not scheduled_turn:
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -609,14 +695,47 @@ async def _handle(
     if not scheduled_turn and (sent := route_at_message(state, line)) is not None:
         console.print(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
         return
+    # `@oturum mesaj` (#228): Claude Code gibi tur çalışır, model SendMessage ile iletir.
+    if not scheduled_turn:
+        line = at_session_turn(state, line) or line
     for note in apply_mentions(line, state):
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
     if await _run_turn(line, state, console, background):
         await _continue_goal(state, console, background)
     await _offer_plan_card(state, console, background, reader)
     _sync_status_bar(reader, state, background)
-    # Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; yerleşik satırın yerine geçer.
-    reader.custom_status = await status_line.status_line_text(state)
+    # Kullanıcı betiği (P-069, #192) tur sonunda çalışır: alt çubuk açıksa ilk satır orada,
+    # değilse Claude Code gibi bütün satırlar (ANSI/OSC 8) istemin üstüne basılır.
+    await _show_status_line(reader, state, console)
+
+
+async def _show_status_line(reader: ReplInput, state: ReplState, console: Console) -> None:
+    from .input import toolbar_enabled
+
+    watcher = getattr(state, "status_watcher", None)
+    if watcher is not None:
+        watcher.mark_ran()
+    block = await status_line.status_line_block(state)
+    if toolbar_enabled():
+        reader.custom_status = status_line.first_plain_line(block)
+        reader.invalidate()
+    elif block:
+        await reader.print_above(lambda: status_line.show_status_block(console.file, block))
+
+
+def _status_watcher(state: ReplState, reader: ReplInput, console: Console) -> InlineStatusWatcher:
+    """İstem açıkken kip değişimi/`refreshInterval` tetikleri (#192)."""
+    from .status_line_settings import resolve_status_line
+
+    def _interval() -> int | None:
+        spec = resolve_status_line(state.config, state.root, state.home)
+        return None if spec is None else spec.refresh_interval_s
+
+    watcher = InlineStatusWatcher(
+        state, reader, lambda: _show_status_line(reader, state, console), _interval
+    )
+    state.status_watcher = watcher
+    return watcher
 
 
 def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
@@ -627,21 +746,68 @@ def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
     return result.notes
 
 
-async def run_shell_prefix_line(command: str, state: ReplState, console: Console) -> None:
-    """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır."""
+async def run_shell_prefix_line(
+    command: str,
+    state: ReplState,
+    console: Console,
+    *,
+    detach: shell_background.ShellDetach | None = None,
+    on_detached: Callable[[prefixes.ShellPrefixResult], None] | None = None,
+    on_chunk: Callable[[str], None] | None = None,
+) -> None:
+    """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır.
+
+    Çıktı canlı akar (#219; `on_chunk` yoksa konsola basılır). `detach` verilirse Ctrl+B
+    komutu kesmeden arka plana alır (#218): istem serbest kalır, komut `/tasks`'ta görünür,
+    bitince `on_detached` (yoksa `show_shell_result`) sonucu gösterir.
+    """
     console.print(
         f"[{theme.ACCENT}]{escape(messages.SHELL_PREFIX_RUNNING.format(command=command))}"
         f"[/{theme.ACCENT}]",
         highlight=False,
     )
-    result = await prefixes.run_shell_prefix(state, command)
+    # Satır içi REPL'de (detach verilmez) Ctrl+B terminalden ham kipte okunur; tam ekran
+    # TUI tuşu kendi bağıyla iletir.
+    inline = detach is None
+    detach = detach or shell_background.ShellDetach()
+    chunk = on_chunk or (lambda text: _print_chunk(console, text))
+    job = prefixes.run_shell_prefix(state, command, on_chunk=chunk, detach=detach.event)
+    done = on_detached or (lambda finished: show_shell_result(command, finished, state, console))
+    with shell_background.watch_ctrl_b(detach, enabled=inline):
+        result = await shell_background.run_detachable(job, detach, done)
+    if result is None:
+        console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_BACKGROUNDED}[/{theme.DIM}]")
+        return
+    show_shell_result(command, result, state, console)
+
+
+def _print_chunk(console: Console, text: str) -> None:
+    console.file.write(text)
+    console.file.flush()
+
+
+def show_shell_result(
+    command: str, result: prefixes.ShellPrefixResult, state: ReplState, console: Console
+) -> None:
+    """`!` sonucunu bas; çıktı bağlama girdiyse modelin yanıt turunu hazırla (#219)."""
     for note in result.notes:
         console.print(f"[{theme.WARN}]{escape(note)}[/{theme.WARN}]")
-    if result.output:
+    if result.output and not result.streamed:
         color = theme.DIM if result.ok else theme.ERROR
         console.print(f"[{color}]{escape(result.output)}[/{color}]", highlight=False)
-    if result.context_block:
-        console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
+    elif result.streamed and not result.ok:
+        # Çıktı canlı basıldı; yalnız çıkış kodu satırı ve ekler (zaman aşımı) kalır.
+        status = result.output.splitlines()[0] if result.output else ""
+        console.print(f"[{theme.ERROR}]{escape(status)}[/{theme.ERROR}]", highlight=False)
+    if not result.context_block:
+        return
+    if shell_mode.responds_to_bash_commands(state.root, state.home):
+        # Claude Code (#219): çıktı bağlama girince model ikinci istem beklemeden yanıtlar;
+        # yüzey bekleyen görevi hemen başlatır. `respondToBashCommands: false` kapatır.
+        state.pending_task = shell_mode.follow_up_task(command)
+        state.pending_mode = Mode.NONE
+        return
+    console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
 
 
 async def _offer_plan_card(
@@ -652,6 +818,33 @@ async def _offer_plan_card(
     reader.mode = state.approval
     if task:
         await _run_turn(task, state, console, background)
+
+
+async def _run_inline_panel(name: str, argument: str, state: ReplState, console: Console) -> bool:
+    """Terminalde seçici/katman açan komutlar (#221, #225, #230); açtıysa True."""
+    if not sys.stdin.isatty():
+        return False
+    if name == "status":
+        # Claude Code (#225): /status Settings panelini Status sekmesinde açar.
+        if notes := status_panel(state):
+            console.print(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+        return True
+    if name == "btw":
+        # Claude Code `/btw` (#221): cevap kapatılabilir katmanda (seçici), geçmişe girmez.
+        await btw_command.inline_overlay(state, argument, console)
+        return True
+    if name == "diff" and not argument.strip():
+        # Claude Code `/diff` (#230): git farkı ↔ turlar arasında ←/→, Enter dosya farkı.
+        return await diff_viewer.run_async(state, _inline_asker)
+    return False
+
+
+async def _inline_asker(
+    title: str, rows: Sequence[Choice], keys: tuple[str, ...], initial: str
+) -> str | None:
+    from ...ui.picker import pick
+
+    return pick(rows, title=title, alt_keys=keys, initial=initial)
 
 
 async def _run_command(
@@ -665,8 +858,10 @@ async def _run_command(
         )
         return
 
+    if await _run_inline_panel(command.name, argument, state, console):
+        return
     if renders_itself(command.name, argument):
-        await help_view.render(command.name, state, registry, console)
+        await help_view.render(command.name, state, registry, console, argument)
         return
     if command.name in ASYNC_COMMANDS:
         # Ctrl-C uzun süren işi (dikte) keser, REPL'i değil.
@@ -841,6 +1036,7 @@ async def _drive_agent(
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
     denied_tools: frozenset[str] = frozenset(),
+    images: tuple[str, ...] = (),
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -863,6 +1059,8 @@ async def _drive_agent(
         "allowed_tools": allowed_tools,
         "denied_tools": denied_tools,
     }
+    if images:
+        kwargs["images"] = images
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
     try:
@@ -977,10 +1175,23 @@ async def _agent_turn(
         bus.subscribe(tracer)
         if state.usage_log is not None:
             bus.subscribe(state.usage_log)
+        shortcuts = state.inline_shortcuts
+        if shortcuts is not None:
+            bus.subscribe(shortcuts.suggestions)  # tur sonrası istem önerisi (#216)
         # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
         checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = _turn_tool_context(state, checkpoint.changes)
+        state.last_tool_context = tool_context  # Ctrl+T görev listesi (#216)
         partial = PartialTurn()
+        # Tur sürerken yazılan mesaj aynı tura verilir (#190); Ctrl+B `_run_turn`'dedir (#12).
+        keys = session_keys(state)
+        steering = keys.begin_turn(
+            on_draft=renderer.set_draft,
+            on_queued=lambda text: console.print(
+                f"[{theme.DIM}]{escape(messages.INLINE_QUEUED.format(text=text))}[/{theme.DIM}]"
+            ),
+            on_immediate=state.inline_immediate,
+        )
         prompter = ConsolePrompter(
             console,
             tool_context,
@@ -1054,6 +1265,7 @@ async def _agent_turn(
             conversation_id=state.conversation_id,
             # İptal/hata halinde o turun araç sonuçları geçmişten düşmesin (L2-12).
             journal=partial,
+            steering=steering,
         )
         # Değişiklik kümesi tur boyunca yerinde dolar; kesilen turdaki yarım
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
@@ -1092,6 +1304,8 @@ async def _agent_turn(
                 # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                 allowed_tools=extras.merged_tools(persona.allowed_tools),
                 denied_tools=extras.merged_denied(persona.denied_tools),
+                # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
+                images=shortcuts.take_images(line) if shortcuts is not None else (),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
@@ -1129,6 +1343,7 @@ async def _agent_turn(
             state.restore_pending_digest(digest)
             raise
         finally:
+            keys.end_turn()
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
@@ -1137,6 +1352,8 @@ async def _agent_turn(
             if desktop_turn.finish(tool_context):
                 console.print(f"[{theme.WARN}]{messages.BILGISAYAR_ESC_STOPPED}[/{theme.WARN}]")
     state.history = outcome.messages
+    # Claude Code: tam geçmiş, model, izin kipi ve checkpoint'ler sürdürme için (#187, #189).
+    session_snapshot.save(state)
     # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
     linked_pr.bind_from_turn(state, outcome.tool_uses)
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
@@ -1145,6 +1362,20 @@ async def _agent_turn(
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
     if state.apply_plan_mode_switch(getattr(tool_context, "plan_mode_switch", None)):
         console.print(f"[{theme.DIM}]{messages.PLAN_MODE_ENTERED_BY_AGENT}[/{theme.DIM}]")
+
+
+def _run_immediate(
+    line: str, state: ReplState, registry: CommandRegistry, reader: ReplInput, console: Console
+) -> bool:
+    """Satır içi tur sürerken belgelenen anlık komutu hemen çalıştır (#209); değilse False."""
+    from .busy_commands import runs_while_busy
+
+    if not runs_while_busy(registry, line):
+        return False
+    future = asyncio.ensure_future(_run_command(line, state, registry, reader, console))
+    state.immediate_tasks.add(future)
+    future.add_done_callback(state.immediate_tasks.discard)
+    return True
 
 
 def _config_setter(state: ReplState) -> Callable[[Config], None]:
@@ -1187,20 +1418,24 @@ def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
     return tuple(display_path(tool_context, path) for path in tool_context.changes.paths)
 
 
-async def compact_history(state: ReplState) -> str:
-    """`/compact`: uzun geçmişi özetleyerek kısalt."""
+async def compact_history(state: ReplState, instructions: str = "") -> str:
+    """`/compact [talimat]`: geçmişi eşikten bağımsız özetle; talimat özetin odağıdır (#186)."""
     before = len(state.history)
     gate = await state.hooks().pre_compact("manual")
     if gate.blocked:
         # Claude: PreCompact çıkış 2 / `decision: block` özetlemeyi engeller.
         return messages.HOOKS_COMPACT_BLOCKED.format(reason=gate.reason)
     previous = list(state.history)
-    state.history = await compress(state.history, config=state.config)
+    state.history = await compress(
+        state.history, config=state.config, manual=True, focus=instructions
+    )
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT
     summary = "\n\n".join(m.content for m in state.history if m not in previous)
     await state.hooks().post_compact("manual", summary)
+    # Claude Code: `current_usage` /compact sonrası sonraki çağrıya dek boştur (#191).
+    state.cost.forget_last_call()
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
     # InstructionsLoaded (#169): sonraki turda talimatlar `compact` nedeniyle yeniden bildirilir.
@@ -1211,6 +1446,7 @@ async def compact_history(state: ReplState) -> str:
         prefixes.push_pending_context(
             state, context_reminder(HookEvent.SESSION_START, verdict.context_text)
         )
+    session_snapshot.save(state)
     summary = messages.REPL_COMPACTED.format(before=before, after=after)
     return "\n".join((summary, *hook_events.verdict_lines(verdict)))
 

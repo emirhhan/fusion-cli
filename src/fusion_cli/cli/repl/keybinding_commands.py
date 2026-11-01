@@ -15,15 +15,31 @@ VIM_SETTING_PATH = "runtime.vim_mode"
 
 
 def keybindings_command(state: ReplState, argument: str) -> str:
-    """Dosya yolunu (yoksa örnek dosyayı yazarak), etkin tabloyu ve uyarıları göster."""
-    path = keybindings.write_default_file()
-    keymap = keybindings.load_keymap(path)
+    """Claude Code dosyasını (yoksa iskeletiyle yazarak), etkin tabloyu ve uyarıları göster.
+
+    Claude Code'daki gibi dosya `~/.claude/keybindings.json` (#194); eski
+    `~/.fusion/keybindings.json` varsa kullanımdan kalkmış takma ad olarak okunur.
+    """
+    path = keybindings.write_claude_file()
+    keymap = keybindings.load_keymap(keybindings.keybindings_path(), path)
     lines = [messages.KEYBINDINGS_HEADER.format(path=path), *keybindings.describe(keymap)]
     lines.append(messages.KEYBINDINGS_HINT)
     return "\n".join(lines)
 
 
 def vim_command(state: ReplState, argument: str) -> str:
+    """`/vim` kullanımdan kalkmış takma ad (#217): Claude Code'da `/config editorMode=vim`.
+
+    Bir sürüm boyunca çalışır ve oturumda bir kez uyarır.
+    """
+    result = _toggle_vim(state, argument)
+    if getattr(state, "vim_command_warned", False):
+        return result
+    state.vim_command_warned = True
+    return f"{messages.VIM_DEPRECATED}\n{result}"
+
+
+def _toggle_vim(state: ReplState, argument: str) -> str:
     """Vim kipini aç/kapa (argümansız: tersle; `on|off` ile açık seç); kalıcı yazılır."""
     wanted = argument.strip().lower()
     current = bool(getattr(state.config.runtime, "vim_mode", False))

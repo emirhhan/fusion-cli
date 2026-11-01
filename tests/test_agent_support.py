@@ -184,7 +184,7 @@ async def test_esik_altinda_gecmise_dokunulmaz():
 
 
 async def test_ozet_uretilemezse_gecmis_degismez(monkeypatch):
-    async def _bos(trace, config, publisher):
+    async def _bos(trace, config, publisher, focus=""):
         return ""
 
     monkeypatch.setattr(compaction, "_summarize", _bos)
@@ -202,7 +202,7 @@ async def test_ozet_uretilemezse_gecmis_degismez(monkeypatch):
 
 
 async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
-    async def _ozet(trace, config, publisher):
+    async def _ozet(trace, config, publisher, focus=""):
         return "kisa ozet"
 
     monkeypatch.setattr(compaction, "_summarize", _ozet)
@@ -231,7 +231,7 @@ async def test_sikistirma_kok_konusmayi_ozetleyiciye_emanet_etmez(monkeypatch):
     turun hiç özetin İÇİNE girmemesine dayanır.
     """
 
-    async def _alakasiz_ozet(trace, config, publisher):
+    async def _alakasiz_ozet(trace, config, publisher, focus=""):
         del trace, config, publisher
         return "Özet: kullanıcı bir proje inceledi, dosyalar listelendi."
 

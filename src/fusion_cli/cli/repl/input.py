@@ -39,6 +39,7 @@ from typing import Any
 from ...config import keybindings
 from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
+from . import input_actions, option_keys, prompt_suggestion
 
 #: Yapıştırma bu satır ya da bu karakter sayısını aşarsa tek satırlık yer tutucuya
 #: katlanır (ikisinden biri yeterli). Karakter eşiği, az satırlı ama çok uzun tek
@@ -66,6 +67,7 @@ class ReplInput:
         mode: ApprovalMode,
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
         agents: Callable[[], list[str]] | None = None,
+        sessions: Callable[[], list[str]] | None = None,
     ) -> None:
         """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
 
@@ -101,8 +103,13 @@ class ReplInput:
         self._paste_seq = 0
         #: İstem açık mı? `inject` yalnız bu sırada satır verebilir.
         self._waiting = False
+        #: #216 genel kısayolları (`inline_shortcuts`) ve tur sonrası istem önerisi kaynağı.
+        self.extra_actions: dict[str, Callable[[Any], None]] = {}
+        self.suggestion_source: Callable[[], str] | None = None
+        #: Option+P gibi taslağı koruyan bağlı komuttan sonra istem bu metinle açılır.
+        self._restore_draft = ""
         if sys.stdin.isatty():
-            self._session = _build_session(self, history_path, words, roots, agents)
+            self._session = _build_session(self, history_path, words, roots, agents, sessions)
 
     @property
     def interactive(self) -> bool:
@@ -111,6 +118,50 @@ class ReplInput:
     #: Shift+Tab döngüsündeki isteğe bağlı kipler (#73, #85); `ReplState` ile aynı.
     bypass_available: bool = False
     auto_available: bool = True
+
+    def set_shortcuts(
+        self, actions: dict[str, Callable[[Any], None]], suggestion: Callable[[], str] | None
+    ) -> None:
+        """#216 eylemlerini ve istem önerisi kaynağını bağla; tuş tablosu yeniden kurulur."""
+        self.extra_actions = dict(actions)
+        self.suggestion_source = suggestion
+        if self._session is not None:
+            self._bindings = build_input_bindings(self, self._keymap)
+
+    def history_strings(self) -> list[str]:
+        """İstem geçmişi (en yeni önce); `!` kipi Tab tamamlaması (#219)."""
+        history = getattr(self._session, "history", None)
+        if history is None:
+            return []
+        return list(reversed(list(history.get_strings())))
+
+    @property
+    def waiting(self) -> bool:
+        """İstem açık mı (durum satırı gözcüsü yalnız bu sırada yazar, #192)?"""
+        return self._waiting
+
+    def vi_state(self) -> str:
+        """Vim kipindeyse prompt_toolkit'in giriş kipi (`INSERT`/`NORMAL`…); değilse boş."""
+        if not self.vim_mode or self._session is None:
+            return ""
+        app = getattr(self._session, "app", None)
+        mode = getattr(getattr(app, "vi_state", None), "input_mode", None)
+        value = str(getattr(mode, "value", "") or "insert")
+        return "NORMAL" if value == "navigation" else value.upper()
+
+    def invalidate(self) -> None:
+        app = getattr(self._session, "app", None)
+        if app is not None:
+            app.invalidate()
+
+    async def print_above(self, write: Callable[[], None]) -> None:
+        """İstem açıkken çıktıyı istemin ÜSTÜNE bas (prompt_toolkit `run_in_terminal`)."""
+        if self._session is None or not self._waiting:
+            write()
+            return
+        from prompt_toolkit.application import run_in_terminal
+
+        await run_in_terminal(write)
 
     def cycle_mode(self) -> ApprovalMode:
         if self.mode is ApprovalMode.BYPASS:
@@ -191,9 +242,18 @@ class ReplInput:
         # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.
         self._reload_keymap_if_changed()
         self._session.editing_mode = _editing_mode(self.vim_mode)
+        if not default and self._restore_draft:
+            default, self._restore_draft = self._restore_draft, ""
+        suggestion = self.suggestion_source() if self.suggestion_source is not None else ""
+        session = self._session
         self._waiting = True
         try:
-            line = await self._session.prompt_async(self._prompt_message, default=default)
+            line = await session.prompt_async(
+                self._prompt_message,
+                default=default,
+                # Tur sonrası istem önerisi boş girdide sönük görünür (Claude Code, #216).
+                pre_run=lambda: prompt_suggestion.offer(session.default_buffer, suggestion),
+            )
         finally:
             self._waiting = False
         if self._bound_command is not None:
@@ -204,16 +264,18 @@ class ReplInput:
 
     def _reload_keymap_if_changed(self) -> None:
         if keybindings.has_changed(self._keymap):
-            self._keymap = keybindings.load_keymap(self._keymap.path)
+            self._keymap = keybindings.reload_keymap(self._keymap)
             self._bindings = build_input_bindings(self, self._keymap)
 
     @property
     def keymap(self) -> keybindings.KeyMap:
         return self._keymap
 
-    def run_bound_command(self, command: str, event: Any) -> None:
-        """`komut:<ad>` bağı: `/ad` satırını gönder (tampondaki metin korunmaz)."""
+    def run_bound_command(self, command: str, event: Any, *, keep_draft: bool = False) -> None:
+        """`komut:<ad>` bağı: `/ad` satırını gönder; `keep_draft` taslağı sonraki isteme taşır."""
         self._bound_command = f"/{command.strip().lstrip('/')}"
+        if keep_draft:
+            self._restore_draft = event.current_buffer.text
         event.current_buffer.validate_and_handle()
 
     def _prompt_message(self) -> Any:
@@ -268,6 +330,7 @@ def _build_session(
     words: list[str] | Callable[[], list[str]],
     roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
     agents: Callable[[], list[str]] | None = None,
+    sessions: Callable[[], list[str]] | None = None,
 ) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
@@ -287,7 +350,14 @@ def _build_session(
             history=FileHistory(str(history_path)),
             # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022); sözlük çağrılabilir olabilir,
             # dinamik beceri komutları eklendikçe tamamlama da yenilenir (P-019).
-            completer=ReplCompleter(words, roots, agents=agents),
+            completer=ReplCompleter(
+                words,
+                roots,
+                agents=agents,
+                shell_history=lambda: owner.history_strings(),
+                mcp_resources=_mcp_resources,
+                sessions=sessions,
+            ),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
             # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.
@@ -308,6 +378,12 @@ def _build_session(
         # prompt_toolkit kurulamadı (terminal desteklemiyor, ortam kısıtlı…).
         # Düz girişe düşmek kabul edilebilir; REPL çalışmaya devam etmelidir.
         return None
+
+
+def _mcp_resources() -> list[tuple[str, str]]:
+    from .mcp_prompt_commands import resource_mentions
+
+    return resource_mentions()
 
 
 def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
@@ -346,25 +422,61 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         if lines:
             run_in_terminal(lambda: print("\n".join(lines)))
 
+    stash = input_actions.PromptStash()
+
+    def _stash(event: Any) -> None:
+        if stash.toggle(event.current_buffer):
+            event.app.invalidate()
+
     actions: dict[str, Callable[[Any], None]] = {
         "kip_dongusu": _cycle,
         "yapistirma_katla": _fold,
         "gorev_listesi": _tasks,
         "dongu_durdur": _stop_loops,
+        # Claude Code Chat bağlamı (#194, #216).
+        "dis_editor": lambda event: input_actions.open_external_editor(event.current_buffer),
+        "geri_al": lambda event: input_actions.undo(event.current_buffer),
+        "sakla": _stash,
+        "yeniden_ciz": lambda event: input_actions.redraw(event.app),
+        # #216: transcript, görüntü, görev listesi, ajanlar, `?`, Option+P/T/O.
+        **owner.extra_actions,
     }
     from prompt_toolkit.filters import vi_insert_mode
 
-    for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
+    table = keymap.bindings(keybindings.CONTEXT_INPUT)
+    for key, action in table.items():
         handler = _resolve_action(owner, action, actions)
         if handler is None:
             continue
         # Vim kipinde Esc INSERT'ten NORMAL'e geçmeli; döngü durdurma onu ezmez.
         condition = ~vi_insert_mode if action == "dongu_durdur" else True
+        # Vim kipiyle çakışan bağlar (Esc dizileri, NORMAL kipte tek harf) vim'e bırakılır.
+        vim = option_keys.vim_filter(key)
         try:
-            bindings.add(key, filter=condition)(handler)
+            keys = key.split(" ") if key != " " else [key]
+            if action != "dongu_durdur" and vim is not None:
+                condition = vim
+            bindings.add(*keys, filter=condition)(handler)
         except ValueError:
             # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
             continue
+    option_keys.add_vi_meta_binding(
+        bindings, table, lambda action: _resolve_action(owner, action, actions)
+    )
+
+    from prompt_toolkit.filters import Condition
+
+    @Condition
+    def _has_suggestion() -> bool:
+        from prompt_toolkit.application import get_app
+
+        return prompt_suggestion.available(get_app().current_buffer)
+
+    @bindings.add("tab", filter=_has_suggestion)
+    @bindings.add("right", filter=_has_suggestion)
+    def _accept_suggestion(event: Any) -> None:
+        # İstem önerisi (#216): Tab/Sağ ok girdiye alır, göndermez.
+        prompt_suggestion.accept(event.current_buffer)
 
     @bindings.add(Keys.BracketedPaste)
     def _paste(event: Any) -> None:

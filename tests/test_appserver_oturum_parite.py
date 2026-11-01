@@ -151,6 +151,8 @@ async def test_rewind_konusma_arayuze_kalan_gecmisi_doner(repo, tmp_path, memory
         assert [row["metin"] for row in sonuc["gecmis"]] == ["merhaba", "selam", "bir", "a-bir"]
         assert sonuc["gecmis"][0]["rol"] == "kullanici"
         assert "2. turun başına" in sonuc["metin"]
+        # Claude Code (#200): hedef turun istemi masaüstünde de giriş kutusuna döner.
+        assert sonuc["girdi"] == "iki"
         assert dosya.read_text(encoding="utf-8") == "iki", "yalnız konuşma: dosyalar kalır"
 
         yalniz_kod = await oturum._dispatch(

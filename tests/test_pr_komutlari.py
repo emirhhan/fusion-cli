@@ -219,12 +219,12 @@ def test_from_pr_gh_yoksa_acik_hata(monkeypatch):
 
 def test_pr_makrolari_kayitli_ve_gh_kullanir(tmp_path):
     registry = build_registry(tmp_path)
-    for ad in ("pr", "pr-comments", "autofix-pr"):
+    for ad in ("pr", "autofix-pr"):
         assert registry.get(ad) is not None, ad
+    # Claude Code v2.1.91'de `/pr-comments` kaldırıldı (#226): PR yorumları doğrudan sorulur.
+    assert registry.get("pr-comments") is None
 
     assert "gh pr create" in macros.get("pr").build("")
-    assert "pr view 12 --comments" in macros.get("pr-comments").build("12")
-    assert "Kod değiştirme" in macros.get("pr-comments").build("")
     assert "gh pr checks 3" in macros.get("autofix-pr").build("3")
 
 

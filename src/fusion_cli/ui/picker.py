@@ -23,7 +23,7 @@ import shutil
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from . import messages, theme
 
@@ -78,6 +78,8 @@ class Choice:
     label: str
     #: Adın yanında sönük yazılan açıklama. Boş olabilir.
     description: str = ""
+    #: Satırda görünmeyen ama aramada eşleşen metin (ör. oturumun PR adresi, #202).
+    keywords: str = ""
 
 
 def pick(
@@ -87,8 +89,16 @@ def pick(
     gradient_rows: bool = False,
     stream: TextStream | None = None,
     hotkeys: Mapping[str, str] | None = None,
+    alt_keys: Sequence[str] = (),
+    initial: str = "",
+    searchable: bool = False,
 ) -> str | None:
-    """Bir seçim al. Vazgeçilirse `None` döner.
+    """Bir seçim al. Vazgeçilirse `None` döner. `initial` imlecin başladığı değerdir.
+
+    `searchable`: Claude Code oturum seçicisi gibi `/` ya da yazmak listeyi süzer (#202).
+
+    `alt_keys`: Enter yerine basılınca `<tuş>:<değer>` döndüren tek harfli tuşlar
+    (ör. `/copy` seçicisinde `w` = dosyaya yaz). Düz kipte `w 2` biçiminde yazılır.
 
     `hotkeys` (ör. `{"c-g": "planı-düzenle"}`) etkileşimli seçicide tuşa basılınca o değeri
     döndürür (plan kartında Ctrl+G, #326); düz listede yok sayılır.
@@ -99,9 +109,15 @@ def pick(
     if not choices:
         return None
     if not sys.stdin.isatty():
-        return _pick_plain(choices, title=title, stream=stream)
+        return _pick_plain(choices, title=title, stream=stream, alt_keys=alt_keys)
     picked = _pick_interactive(
-        choices, title=title, gradient_rows=gradient_rows, hotkeys=hotkeys or {}
+        choices,
+        title=title,
+        gradient_rows=gradient_rows,
+        hotkeys=hotkeys or {},
+        alt_keys=alt_keys,
+        initial=initial,
+        searchable=searchable,
     )
     return picked
 
@@ -126,7 +142,13 @@ def row_colors(count: int, *, gradient_rows: bool) -> tuple[str, ...]:
 # --------------------------------------------------------------------------- #
 
 
-def _pick_plain(choices: Sequence[Choice], *, title: str, stream: TextStream | None) -> str | None:
+def _pick_plain(
+    choices: Sequence[Choice],
+    *,
+    title: str,
+    stream: TextStream | None,
+    alt_keys: Sequence[str] = (),
+) -> str | None:
     """Numaralı liste + `input()`. Renk yok, gezinme yok; otomasyon için."""
     target = stream if stream is not None else sys.stdout
     target.write(f"{title}\n")
@@ -139,6 +161,10 @@ def _pick_plain(choices: Sequence[Choice], *, title: str, stream: TextStream | N
         answer = input().strip()
     except (EOFError, KeyboardInterrupt):
         return None
+    key, _, rest = answer.partition(" ")
+    if key in alt_keys and rest.strip():
+        picked = resolve_plain(choices, rest)
+        return None if picked is None else f"{key}:{picked}"
     return resolve_plain(choices, answer)
 
 
@@ -167,7 +193,14 @@ def resolve_plain(choices: Sequence[Choice], answer: str) -> str | None:
 
 
 def _pick_interactive(
-    choices: Sequence[Choice], *, title: str, gradient_rows: bool, hotkeys: Mapping[str, str]
+    choices: Sequence[Choice],
+    *,
+    title: str,
+    gradient_rows: bool,
+    hotkeys: Mapping[str, str] | None = None,
+    alt_keys: Sequence[str] = (),
+    initial: str = "",
+    searchable: bool = False,
 ) -> str | None:  # pragma: no cover - gerçek terminal gerektirir
     """prompt_toolkit tam-ekran seçim. Kurulamazsa düz listeye düşülür."""
     try:
@@ -176,43 +209,76 @@ def _pick_interactive(
         from prompt_toolkit.layout import HSplit, Layout, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
     except ImportError:
-        return _pick_plain(choices, title=title, stream=None)
+        return _pick_plain(choices, title=title, stream=None, alt_keys=alt_keys)
 
-    state = PickerState(len(choices))
+    search = SearchView(choices, searchable)
+    state = PickerState(len(choices), initial_index(choices, initial))
     colors = row_colors(len(choices), gradient_rows=gradient_rows)
     bindings = KeyBindings()
 
+    def _value() -> str | None:
+        rows = search.rows()
+        return rows[state.index].value if rows else None
+
+    # Claude Code Select bağlamı (#202): Up/K/Ctrl+P, Down/J/Ctrl+N, Home/End.
     @bindings.add("up")
     @bindings.add("c-p")
+    @bindings.add("k")
     def _up(event: KeyEvent) -> None:
-        state.move(-1)
+        if not search.type_if_active("k", event, state):
+            state.move(-1)
 
     @bindings.add("down")
     @bindings.add("c-n")
+    @bindings.add("j")
     def _down(event: KeyEvent) -> None:
-        state.move(1)
+        if not search.type_if_active("j", event, state):
+            state.move(1)
+
+    @bindings.add("home")
+    def _first(event: KeyEvent) -> None:
+        state.move(-state.index)
+
+    @bindings.add("end")
+    def _last(event: KeyEvent) -> None:
+        state.move(state.count - 1 - state.index)
 
     @bindings.add("enter")
     def _accept(event: KeyEvent) -> None:
-        event.app.exit(result=choices[state.index].value)
+        event.app.exit(result=_value())
 
     @bindings.add("escape", eager=True)
     @bindings.add("c-c")
     def _cancel(event: KeyEvent) -> None:
-        event.app.exit(result=None)
+        if not search.leave(state):
+            event.app.exit(result=None)
 
-    for key, value in hotkeys.items():
+    for key in alt_keys:
+
+        def _alt(event: KeyEvent, key: str = key) -> None:
+            if key == "space" and search.type_if_active(" ", event, state):
+                return
+            value = _value()
+            if value is not None:
+                event.app.exit(result=f"{key}:{value}")
+
+        bindings.add(key)(_alt)
+    search.bind(bindings, state)
+
+    for key, value in (hotkeys or {}).items():
         bindings.add(key)(lambda event, value=value: event.app.exit(result=value))
 
     # Pencere yüksekliği terminalden gelir; başlık, boşluk, ipucu ve iki gösterge
     # satırı için yer ayrılır. Ayrılmasaydı liste ipucu satırını ekrandan iterdi.
     viewport = max(MIN_VIEWPORT_ROWS, shutil.get_terminal_size().lines - RESERVED_ROWS)
-    body = FormattedTextControl(lambda: fragments(choices, state.index, colors, height=viewport))
+    body = FormattedTextControl(
+        lambda: fragments(search.rows(), state.index, colors, height=viewport)
+    )
     layout = Layout(
         HSplit(
             [
                 Window(
-                    FormattedTextControl([(f"bold {theme.ACCENT}", title)]),
+                    FormattedTextControl(lambda: [(f"bold {theme.ACCENT}", search.title(title))]),
                     height=1,
                 ),
                 Window(height=1),
@@ -238,6 +304,62 @@ def _pick_interactive(
     return None if picked is None else str(picked)
 
 
+class SearchView:
+    """Satır içi seçicide yazarak arama (#202); `searchable` kapalıyken hiçbir şey yapmaz."""
+
+    def __init__(self, choices: Sequence[Choice], searchable: bool) -> None:
+        from .choice_search import ChoiceSearch
+
+        self._choices = list(choices)
+        self._search = ChoiceSearch(choices) if searchable else None
+
+    def rows(self) -> list[Choice]:
+        return self._search.visible() if self._search is not None else self._choices
+
+    def title(self, base: str) -> str:
+        if self._search is None or not self._search.active:
+            return base
+        return f"{base}  / {self._search.query}"
+
+    def _refresh(self, state: PickerState) -> None:
+        state.count = max(1, len(self.rows()))
+        state.index = 0
+
+    def type(self, char: str, state: PickerState) -> bool:
+        if self._search is None or not self._search.type(char):
+            return False
+        self._refresh(state)
+        return True
+
+    def type_if_active(self, char: str, _event: object, state: PickerState) -> bool:
+        return self._search is not None and self._search.active and self.type(char, state)
+
+    def leave(self, state: PickerState) -> bool:
+        if self._search is None or not self._search.exit():
+            return False
+        self._refresh(state)
+        return True
+
+    def bind(self, bindings: Any, state: PickerState) -> None:  # noqa: ANN401
+        if self._search is None:
+            return
+        search = self._search
+
+        def _char(event: Any) -> None:  # noqa: ANN401
+            self.type(str(getattr(event, "data", "") or ""), state)
+
+        def _back(_event: Any) -> None:  # noqa: ANN401
+            if search.backspace():
+                self._refresh(state)
+
+        from prompt_toolkit.keys import Keys
+
+        bindings.add("<any>")(_char)
+        # Yapıştırma tek olaydır (Claude Code: PR adresi yapıştırmak aramayı açar).
+        bindings.add(Keys.BracketedPaste)(_char)
+        bindings.add("backspace")(_back)
+
+
 @dataclass(slots=True)
 class PickerState:
     """İmlecin hangi satırda olduğu. Uçlarda sarar: listenin sonundan başa geçilir."""
@@ -247,6 +369,11 @@ class PickerState:
 
     def move(self, delta: int) -> None:
         self.index = (self.index + delta) % self.count
+
+
+def initial_index(choices: Sequence[Choice], value: str) -> int:
+    """`value` değerli satırın sırası; yoksa 0."""
+    return next((index for index, choice in enumerate(choices) if choice.value == value), 0)
 
 
 def window_bounds(total: int, selected: int, height: int) -> tuple[int, int]:

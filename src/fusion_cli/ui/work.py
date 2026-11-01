@@ -47,6 +47,8 @@ class WorkState:
     model: str = ""
     tokens: int = 0
     started_at: float = field(default_factory=time.monotonic)
+    #: Satır içi REPL'de tur sürerken yazılan taslak (#190); göstergenin altında görünür.
+    draft: str = ""
 
     @property
     def elapsed_ms(self) -> int:
@@ -61,6 +63,8 @@ class WorkState:
         # Claude Code dizilimi: süre/token/model ve kesme ipucu parantez içinde, sönük.
         detail = _details(self.elapsed_ms, self.tokens, self.model)
         line.append(f"  ({detail} · {messages.WORK_INTERRUPT})", style=theme.DIM)
+        if self.draft:
+            line.append(f"\n  › {self.draft}", style=theme.DIM)
         return line
 
 
@@ -105,6 +109,11 @@ class WorkIndicator:
             self._state.tokens += tokens
         if model is not None:
             self._state.model = model
+
+    def set_draft(self, text: str) -> None:
+        """Tur sürerken yazılan taslağı göstergenin altında göster (boş = gizle)."""
+        if self._state is not None:
+            self._state.draft = text
 
     def pause(self) -> None:
         """Canlı satırı gizle. Ekrana bir şey basılmadan ÖNCE çağrılmalıdır."""

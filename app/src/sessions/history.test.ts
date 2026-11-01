@@ -21,3 +21,12 @@ it('zamanı bilinmeyen eski araç için açılış zamanından sahte süre üret
  const result=historyMessages([{rol:'olay',olay:{olay:'ToolExecuted',name:'run_shell',outcome:'ok',output:'ok'}}]);
  expect(result[0].baslangicZamani).toBeUndefined();
 });
+
+it('yeniden yüklenen /code-review cevabındaki bulguları kart olarak çözer (#214)',()=>{
+ const result=historyMessages([
+  {rol:'asistan',metin:'İki bulgu.',id:'r',bulgular:[{file:'a.py',line:3,summary:'s',failure_scenario:'f',verdict:'CONFIRMED'},{file:''}]},
+  {rol:'asistan',metin:'Düz cevap',id:'d'},
+ ]);
+ expect(result[0].findings).toEqual([{file:'a.py',line:3,summary:'s',failureScenario:'f',verdict:'CONFIRMED'}]);
+ expect(result[1].findings).toBeUndefined();
+});

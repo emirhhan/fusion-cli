@@ -6,7 +6,9 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 from enum import Enum
@@ -45,6 +47,7 @@ from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capability_overrides import registry_from_config
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
+from .shell_live import ShellJobs
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
@@ -156,12 +159,20 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Bu süreçte açılıp bırakılan sohbetler (`/clear`, `/resume`); `/resume` ile bunlara
+    #: dönülürse kayıtlı izin kipi geri yüklenmez (Claude Code, #189).
+    opened_conversations: frozenset[str] = field(default_factory=frozenset, kw_only=True)
     #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
     hook_session: HookSession | None = field(default=None, kw_only=True)
     #: Bir sonraki SessionStart'ın zorunlu kaynağı (`/branch`, `--fork-session` → `fork`).
     hook_start_source: str = field(default="", kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
+    #: Son `/clear`: (bırakılan sohbet, yeni sohbet). `/rewind` menüsü bununla önceki oturumu
+    #: önerir (#200); başka sohbete geçilince yeni kimlik eşleşmez ve öneri kaybolur.
+    cleared_session: tuple[str, str] | None = field(default=None, kw_only=True)
+    #: Oturumun başladığı an (`time.monotonic`); durum satırı `cost.total_duration_ms` (#191).
+    started_at: float = field(default_factory=time.monotonic, kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
     worktree: Worktree | None = field(default=None, kw_only=True)
     #: Oturum boyu yaşayan görev listesi (#331; `task_list.session_todos` kurar).
@@ -214,6 +225,19 @@ class ReplState:
     child_runs: ChildRuns = field(
         default_factory=lambda: ChildRuns(persistent=True), kw_only=True, repr=False
     )
+    #: `!` komutları (#218): Ctrl+B ile arka plana alınanlar `/tasks`'ta, kapanışta öldürülür.
+    shell_jobs: ShellJobs = field(default_factory=ShellJobs, kw_only=True, repr=False)
+    #: Son agent turunun araç bağlamı (Ctrl+T görev listesi, #216).
+    last_tool_context: object | None = field(default=None, kw_only=True, repr=False)
+    #: Bulgu listesi isteyen ana uygulama (masaüstü, #214 ReportFindings); terminalde False.
+    findings_host: bool = field(default=False, kw_only=True, repr=False)
+    #: Satır içi REPL'in #216 kısayolları (`inline_shortcuts.InlineShortcuts`); TUI'de None.
+    inline_shortcuts: Any = field(default=None, kw_only=True, repr=False)
+    #: Satır içi REPL: tur sürerken anlık komut çalıştırıcı (#209) ve süren işleri.
+    inline_immediate: Callable[[str], bool] | None = field(default=None, kw_only=True, repr=False)
+    immediate_tasks: set[asyncio.Future[None]] = field(
+        default_factory=set, kw_only=True, repr=False
+    )
 
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None
@@ -226,6 +250,28 @@ class ReplState:
     persona_command_warned: bool = field(default=False, kw_only=True)
     #: Bu oturumda kullanımdan kalkma uyarısı basılmış Fusion'a özgü komutlar (#360, #365).
     deprecation_warned: set[str] = field(default_factory=set, kw_only=True)
+    #: `/doctor prompt` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#212).
+    doctor_prompt_warned: bool = field(default=False, kw_only=True)
+    #: `/vim` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#217).
+    vim_command_warned: bool = field(default=False, kw_only=True)
+    #: `/resume<kaynak>` kullanımdan kalkmış takma ad uyarısı verildi mi (#223)?
+    legacy_resume_warned: bool = field(default=False, kw_only=True)
+    #: Tam ekran TUI'nin vim kipi (`INSERT`/`NORMAL`/`VISUAL`); durum satırı JSON'u (#217).
+    vim_state: str = field(default="", kw_only=True)
+    #: Etkin yüzey (`inline`/`fullscreen`); boşsa görünüm oturum içinde değişemez (borulu, #232).
+    surface: str = field(default="", kw_only=True)
+    #: `/tui <kip>` isteği (#232): yüzey kapanınca konuşma korunarak bu kipte yeniden açılır.
+    surface_switch: str = field(default="", kw_only=True)
+    #: Görünüm değişiminden sonra tam ekranın açılışta basacağı not (#232).
+    surface_notice: str = field(default="", kw_only=True)
+    #: Eski `/add-dir` listeleme/kaldırma biçimi uyarısı bir kez gösterildi mi (#213).
+    add_dir_legacy_warned: bool = field(default=False, kw_only=True)
+    #: `/model agent|judge|…` eski alt komut uyarısı bir kez gösterildi mi (#211).
+    model_subcommand_warned: bool = field(default=False, kw_only=True)
+    #: Satır içi REPL durum satırı gözcüsü (#192); tam ekranda ve masaüstünde None.
+    status_watcher: object | None = field(default=None, kw_only=True)
+    #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
+    side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
     _configured_persona: Persona | None = field(default=None, init=False, repr=False)
     _persona_base_config: Config | None = field(default=None, init=False, repr=False)
@@ -402,6 +448,16 @@ class ReplState:
             return task
         self.persona_initial_prompt_applied = True
         return task if self.history else initial_persona_task(self.persona, task)
+
+    def take_initial_prompt(self) -> str:
+        """`fusion "query"` istemini bir kez döndür ve temizle (#204)."""
+        text, self.initial_prompt = self.initial_prompt, ""
+        return text
+
+    def take_surface_switch(self) -> str:
+        """`/tui` ile istenen yeni yüzeyi bir kez döndür ve temizle (#232)."""
+        wanted, self.surface_switch = self.surface_switch, ""
+        return wanted
 
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""
@@ -668,8 +724,11 @@ class ReplState:
         )
         return self.approval
 
-    def reset_history(self) -> int:
-        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+    def reset_history(self, *, session_id: str | None = None) -> int:
+        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür.
+
+        `session_id` verilirse (`/clear` yeni sohbet kimliği, #185) yeni hook oturumu onu taşır.
+        """
         from . import linked_pr
 
         removed = len(self.history)
@@ -677,7 +736,12 @@ class ReplState:
         self.invoked_skills = InvokedSkills(self.conversation_id)
         if self.hook_session is not None:
             # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
-            self.hook_session.restart("clear", reason="clear")
+            if session_id is None:
+                self.hook_session.restart("clear", reason="clear")
+            else:
+                self.hook_session.restart(
+                    "clear", reason="clear", session_id=session_id, conversation_id=session_id
+                )
             # Beceri kancaları (#161) oturuma bağlıdır; yeni oturumda yeniden çağrılmalı.
             from ...engines.agent import skill_hooks
 

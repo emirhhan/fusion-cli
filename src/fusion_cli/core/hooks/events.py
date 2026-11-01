@@ -80,7 +80,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.PERMISSION_REQUEST: "araç adı",
     HookEvent.POST_TOOL_BATCH: None,
     HookEvent.USER_PROMPT_EXPANSION: "komut adı (command_name)",
-    HookEvent.DIRECTORY_ADDED: "kaynak (slash_command)",
+    HookEvent.DIRECTORY_ADDED: "kaynak (slash_command|register_repo_root)",
     HookEvent.PRE_MODEL_SWITCH: "hedef modelin kanonik adı",
     HookEvent.POST_MODEL_SWITCH: "hedef modelin kanonik adı",
     HookEvent.INSTRUCTIONS_LOADED: (

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DeliveryCard } from "./DeliveryCard";
+import { FindingsCard } from "./FindingsCard";
 import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
+import type { ReviewFinding } from "../protocol/reviewFindings";
 
 import { Button } from "../ui/Button";
 import "./Conversation.css";
@@ -47,6 +49,8 @@ export interface Mesaj {
   id?: string;
   submissionId?: string;
   delivery?: DeliveryEvidence;
+  /** `/code-review` bulguları (#214, Claude Code ReportFindings): kart olarak çizilir. */
+  findings?: ReviewFinding[];
   metin: string;
   rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
   /** Yalnız `rol === "plan"` için: plan kipinde yazılan plan dosyası (P-025). */
@@ -70,6 +74,8 @@ export interface Mesaj {
   diff?: string;
   /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
   akan?: boolean;
+  /** `! komut` canlı çıktısı (#219): ham metin; komut bitince balon kalkar, sonuç gelir. */
+  kabuk?: { komut: string; cikti: string };
   /** Araç adımlarının arasındaki kısa ara anlatım; nihai cevap değildir. */
   ara?: boolean;
   /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */
@@ -465,6 +471,7 @@ export function Conversation({
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </AssistantMessage>
               {message.delivery && <DeliveryCard evidence={message.delivery} onOpenFile={onOpenFile} />}
+              {message.findings && <FindingsCard findings={message.findings} onOpenFile={onOpenFile} />}
               {!running && message.hata && message.submissionId && onRetrySubmission && (
                 <Button variant="ghost" onClick={() => onRetrySubmission(message.submissionId!)}>Yeniden dene</Button>
               )}

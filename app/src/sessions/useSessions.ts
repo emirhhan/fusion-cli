@@ -3,6 +3,7 @@ import { renameConversation } from "./renameConversation";
 import { decodeGoalResult, GOAL_WAITING_USER } from "../goal/goalResult";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
+import { decodeReviewFindings } from "../protocol/reviewFindings";
 import { nextAttemptTurnId, normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -140,7 +141,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const runningRequests = useRef(new Set<string>());
   //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
   //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
-  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata; requestId: string }[]>());
+  //: `komut`: tur sürerken kuyruğa giren slash komutu (#209); tur bitince sırasıyla çalışır.
+  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata; requestId: string; komut?: boolean }[]>());
+  const runCommandRef = useRef<((id: string, input: string, recordInput?: boolean, recordOutput?: boolean, fromQueue?: boolean) => Promise<unknown>) | null>(null);
   //: Temizlik doğrulanmazsa yalnız hata bildir; çalışan işin kabul kilidi açılmaz.
   const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
@@ -575,14 +578,29 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     dispatch({ type: "runningChanged", id, running: false });
     // Geçmiş tur SONUNDA büyür ve gerekirse özetlenir; ölçü de şimdi eskidi.
     olcuyuTazele(id, client, dispatch);
+    kuyruguSur(id);
+  };
+
+  /** Sıradaki kuyruk öğesi: komutsa çalıştır ve sürmeye devam et, mesajsa turu başlat. */
+  const kuyruguSur = (id: string) => {
     const bekleyen = kuyruk.current.get(id) ?? [];
     const sonraki = bekleyen.shift();
     kuyruk.current.set(id, bekleyen);
+    if (sonraki?.komut) {
+      // Kullanıcı satırı kuyruğa girerken zaten yazıldı; çıktı şimdi gelir (#209).
+      void Promise.resolve(runCommandRef.current?.(id, sonraki.task, false, true, true))
+        .finally(() => { if (!runningRequests.current.has(id)) kuyruguSur(id); });
+      return;
+    }
     // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
     // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
     // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
     if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments, sonraki.voice, sonraki.requestId);
   };
+  // `runCommand` (useCallback) kuyruğu güncel kapanışla sürer; bağımlılığa eklemek her
+  // render'da yeni geri çağrı üretirdi.
+  const kuyruguSurRef = useRef(kuyruguSur);
+  kuyruguSurRef.current = kuyruguSur;
 
   //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
   //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
@@ -633,7 +651,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};
         const delivery = decodeDeliveryEvidence(result.kanit);
-        if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
+        // `/code-review` bulguları (#214, Claude Code ReportFindings) metin yerine kart olur.
+        const findings = decodeReviewFindings(result.bulgular);
+        if (text || delivery || findings) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...(findings ? {findings} : {}), ...hata } });
         // `/goal` (P-058): karar ara not olur; "henüz değil" ise devam turu sürer. Sırada kullanıcı
         // mesajı varsa önce o koşar (TUI ile aynı); onun sonunda hedef yeniden değerlendirilir.
         const hedef = decodeGoalResult(result);
@@ -642,6 +662,18 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           if (hedef.devam && (kuyruk.current.get(id)?.length ?? 0) > 0) {
             dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: GOAL_WAITING_USER, ara: true } });
           } else if (hedef.devam) send(id, hedef.devam, [], false);
+        }
+        // `!` kabuk çıktısı bağlama girdiyse model kendiliğinden yanıtlar (#219, respondToBashCommands).
+        if (result.yerel_yanit === true && typeof result.gorev === "string" && result.gorev.trim()) {
+          send(id, result.gorev, [], false);
+        }
+        // Tur sürerken verilen ama modele gitmemiş yönlendirmeler (#190): mesaj zaten sohbette;
+        // tur biter bitmez tuşa basmadan sıradaki tur olarak gider (Claude Code kuyruğu).
+        const kalan = Array.isArray(result.kalan_yonlendirme)
+          ? result.kalan_yonlendirme.filter((text): text is string => typeof text === "string" && text.trim() !== "")
+          : [];
+        if (kalan.length) {
+          kuyruk.current.set(id, [{ task: kalan.join("\n\n"), attachments: [], requestId: nextSessionId() }, ...(kuyruk.current.get(id) ?? [])]);
         }
       })
       .catch((reason) => {
@@ -737,7 +769,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   };
 
   const runCommand = useCallback(
-    async (id: string, input: string, recordInput = true, recordOutput = true) => {
+    async (id: string, input: string, recordInput = true, recordOutput = true, fromQueue = false) => {
       const session = state.sessions[id];
       const trimmed = input.trim();
       if (!session || !trimmed.startsWith("/") || session.status !== "ready") {
@@ -752,12 +784,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       }
       let result: Record<string, unknown>;
       try {
-        result = await session.client.request("komut.calistir", { ad: name, arguman: argumanMetni });
+        result = await session.client.request("komut.calistir", { ad: name, arguman: argumanMetni, ...(fromQueue ? { kuyruktan: true } : {}) });
       } catch (reason) {
         // Reddedilen istek çağırana fırlamaz: komut sonucu olarak hata mesajı gösterilir (U4-40).
         const metin = `Komut çalıştırılamadı: ${reason instanceof Error ? reason.message : String(reason)}`;
         if (recordOutput) dispatch({ type: "messageAdded", id, message: { rol: "asistan", hata: true, metin } });
         return { ok: false, metin };
+      }
+      if (result.kuyruk === true) {
+        // Claude Code (#209): tur sürerken anlık olmayan komut kuyruğa girer, tur bitince çalışır.
+        kuyruk.current.set(id, [...(kuyruk.current.get(id) ?? []), { task: trimmed, attachments: [], requestId: nextSessionId(), komut: true }]);
+        // Tur bu arada bittiyse kuyruğu bekletme.
+        if (!runningRequests.current.has(id)) kuyruguSurRef.current?.(id);
+        return result;
       }
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
@@ -790,6 +829,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     },
     [state.sessions, send],
   );
+  runCommandRef.current = runCommand;
 
   /**
    * Sağlayıcı API anahtarını komut dizgesine katmadan `kontrol.anahtar_kaydet` ile kaydeder (S1-24).

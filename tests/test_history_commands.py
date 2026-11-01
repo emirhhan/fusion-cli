@@ -38,12 +38,29 @@ def test_repl_state_requires_injected_home() -> None:
     assert parameter.default is inspect.Parameter.empty
 
 
-def test_kurulu_kaynak_icin_komut_eklenir(tmp_path):
+def test_kurulu_kaynak_icin_eski_ad_takma_ad_olarak_cozulur(tmp_path):
+    """Claude Code'da `/resume<kaynak>` yok (#223): eski ad listede görünmez ama çözülür."""
     _claude_kur(tmp_path)
 
     registry = build_registry(tmp_path)
 
     assert registry.get("resumeclaude") is not None
+    assert "/resumeclaude" not in registry.completion_words()
+
+
+def test_import_history_devralir_ve_eski_ad_bir_kez_uyarir(tmp_path):
+    _claude_kur(tmp_path)
+    registry = build_registry(tmp_path)
+    state = _state(tmp_path)
+    komut = registry.get("import")
+    assert komut is not None
+    assert "Kullanım: /import history <claude>" in komut.handler(state, "history")
+    sonuc = komut.handler(state, "history claude s1")
+    assert state.pending_digest is not None and "devral" in sonuc.lower()
+    eski = registry.get("resumeclaude")
+    assert eski is not None
+    assert "kullanımdan kalktı" in eski.handler(state, "s1")
+    assert "kullanımdan kalktı" not in eski.handler(state, "s1")
 
 
 def test_kurulmamis_kaynak_icin_komut_hic_yok(tmp_path):
@@ -53,14 +70,6 @@ def test_kurulmamis_kaynak_icin_komut_hic_yok(tmp_path):
 
     assert registry.get("resumehermes") is None
     assert "/resumehermes" not in registry.completion_words()
-
-
-def test_komut_tamamlamada_gorunur(tmp_path):
-    _claude_kur(tmp_path)
-
-    registry = build_registry(tmp_path)
-
-    assert "/resumeclaude" in registry.completion_words()
 
 
 def test_komut_gecmis_grubunda(tmp_path):
@@ -76,7 +85,7 @@ def test_argumanla_cagrilinca_secici_acmadan_devralir(tmp_path):
     """Argüman (session_id) doluysa seçici AÇILMAZ — betiklenebilir/TUI yolu."""
     _claude_kur(tmp_path)
     registry = build_registry(tmp_path)
-    komut = registry.get("resumeclaude")
+    komut = _gecmis(registry)
     assert komut is not None
     state = _state(tmp_path)
 
@@ -90,7 +99,7 @@ def test_argumanla_cagrilinca_secici_acmadan_devralir(tmp_path):
 def test_bilinmeyen_session_id_devralmaz(tmp_path):
     _claude_kur(tmp_path)
     registry = build_registry(tmp_path)
-    komut = registry.get("resumeclaude")
+    komut = _gecmis(registry)
     assert komut is not None
     state = _state(tmp_path)
 
@@ -111,7 +120,7 @@ def test_bos_argumanla_ve_tty_yokken_vazgecilir(tmp_path, monkeypatch):
     vazgeçme sayılır ve devralma OLMAZ."""
     _claude_kur(tmp_path)
     registry = build_registry(tmp_path)
-    komut = registry.get("resumeclaude")
+    komut = _gecmis(registry)
     assert komut is not None
     state = _state(tmp_path)
 
@@ -178,3 +187,17 @@ def test_duz_repl_yuzeyi_de_ev_dizinini_gecirir():
     # Değişmez: bu modülde ARGÜMANSIZ çağrı kalmamalı. Hangi ifadeyle geçirildiği
     # serbesttir; asıl kural ev dizininin geçiriliyor olmasıdır.
     assert "build_registry()" not in kaynak, "kayıt defteri ev dizinsiz kuruluyor"
+
+
+class _GecmisKomutu:
+    """`/import history claude <oturum>` çağrısını eski `komut.handler` biçiminde sunar."""
+
+    def __init__(self, registry) -> None:
+        self._import = registry.get("import")
+
+    def handler(self, state, argument: str) -> str:
+        return self._import.handler(state, f"history claude {argument}".strip())
+
+
+def _gecmis(registry) -> _GecmisKomutu:
+    return _GecmisKomutu(registry)

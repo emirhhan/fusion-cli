@@ -7,10 +7,10 @@ yalnız konuşma / yalnız kod" geri sarabilir. Fusion'da `/undo` yalnız SON tu
 - **Konuşma**: turdan ÖNCEKİ motor geçmişi (mesaj listesi kopyası).
 - **Kod**: turun `ChangeSet`'i — ajan her yazmadan önce dosyanın ilk hâlini oraya alır.
 
-Kayıtlar BELLEKTE durur, diske yazılmaz: içerik kullanıcının kaynak kodudur ve
-`ChangeSet` ile aynı gerekçeyle (sızıntı yüzeyi) kopyalanmaz. Kapsam bu süreçtir;
-`fusion --continue` ile açılan sohbette konuşma geri gelir ama önceki sürecin kod
-checkpoint'leri gelmez — bu bilinen sınır belgelenmiştir.
+Defter bellekte tutulur; Claude Code'daki gibi konuşmayla birlikte diske de yazılır
+(`cli/repl/session_snapshot.py`, 0600, `cleanupPeriodDays` gün saklanır, #187). Sürdürülen
+oturumda (`--continue`, `--resume`, `/resume`) `restore_entries` ile geri kurulur ve
+`/rewind` önceki sürecin turlarına da çalışır.
 
 Ölçüldü (31 Ekim): `commands._undo` yalnız `last_changes`'i geri alıyordu; üç tur önceki
 değişikliğe dönmenin ya da konuşmayı geri sarmanın yolu yoktu.
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -152,6 +152,15 @@ class TurnCheckpointLedger:
 
     def find(self, index: int) -> TurnCheckpoint | None:
         return next((entry for entry in self._entries if entry.index == index), None)
+
+    def restore_entries(self, entries: Sequence[TurnCheckpoint]) -> None:
+        """Diskten okunan kayıtları yükle; numaralandırma son kaydın ardından sürer (#187)."""
+        self._entries = list(entries)[-self._limit :]
+        self._next_index = max((entry.index for entry in self._entries), default=0) + 1
+
+    def replace_entries(self, entries: Iterable[TurnCheckpoint]) -> None:
+        """Kayıtları (ör. özet sonrası yeni sınırlarla) değiştir; numaralandırma sürer."""
+        self._entries = list(entries)[-self._limit :]
 
     def clear(self) -> None:
         """Sohbet değişince (`/resume`, `/branch`) eski turların kaydı anlamını yitirir."""

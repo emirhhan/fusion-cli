@@ -53,7 +53,7 @@ def test_kullanici_dosyasi_ezer_null_kaldirir_bilinmeyen_uyarir(tmp_path: Path):
     keymap = keybindings.load_keymap(path)
     tui = keymap.bindings("tui")
     assert "c-q" not in tui and tui["c-g"] == "kes" and tui["f2"] == "komut:status"
-    assert tui["c-c"] == "dongu_ya_da_cik"  # varsayılan korunur (#365: önce döngü, yoksa çıkış)
+    assert tui["c-c"] == "kes_temizle_cik"  # varsayılan korunur (#195, #365: önce döngü)
     assert keymap.bindings("giris")["c-t"] == "kip_dongusu"
     assert any("yapısal" in w for w in keymap.warnings)
     assert any("ucmak" in w for w in keymap.warnings)
@@ -75,7 +75,7 @@ def test_bozuk_dosya_oturumu_dusurmez(tmp_path: Path):
 
 def test_tui_baglari_tablodan_kurulur_ve_yeniden_baglanir(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    path.write_text(json.dumps({"tui": {"c-q": None, "f2": "komut:status"}}), encoding="utf-8")
+    path.write_text(json.dumps({"tui": {"c-d": None, "f2": "komut:status"}}), encoding="utf-8")
     olaylar = []
     tui = FusionTui(
         on_submit=olaylar.append,
@@ -85,12 +85,12 @@ def test_tui_baglari_tablodan_kurulur_ve_yeniden_baglanir(tmp_path: Path):
         keymap=keybindings.load_keymap(path),
     )
     keys = _binding_keys(tui.application.key_bindings)
-    assert ("f2",) in keys and ("c-q",) not in keys and ("c-c",) in keys
+    assert ("f2",) in keys and ("c-d",) not in keys and ("c-c",) in keys
     # Yapısal bağlar yerinde.
     assert ("up",) in keys and ("c-m",) in keys  # Enter prompt_toolkit'te c-m
     tui.rebind(keybindings.load_keymap(tmp_path / "yok.json"))
     keys = _binding_keys(tui.application.key_bindings)
-    assert ("c-q",) in keys and ("f2",) not in keys
+    assert ("c-d",) in keys and ("f2",) not in keys
     tui.set_vim(True)
     assert tui.application.editing_mode is EditingMode.VI
     assert "· vim" in format_status("auto", "agent", vim=True)
@@ -130,10 +130,12 @@ def test_vim_komutu_tersler_ve_kalicilastirir(state: ReplState, tmp_path: Path):
 def test_keybindings_komutu_ornek_dosya_yazar_ve_listeler(
     state: ReplState, tmp_path: Path, monkeypatch
 ):
+    # Claude Code ile aynı (#194): dosya `~/.claude/keybindings.json` (CLAUDE_CONFIG_DIR).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ev"))
     path = tmp_path / "ev" / "keybindings.json"
-    monkeypatch.setattr(keybindings, "keybindings_path", lambda: path)
     out = keybindings_command(state, "")
     assert path.is_file() and str(path) in out and "[tui]" in out and "escape" in out
+    assert '"bindings"' in path.read_text(encoding="utf-8")
 
 
 def test_vim_kipinde_escape_insert_ten_normale_gecer_kesmez():
@@ -166,3 +168,67 @@ def test_vim_kipinde_escape_insert_ten_normale_gecer_kesmez():
         tui.set_vim(False)
         tui._mode = "idle"
         assert escape[0].filter()
+
+
+async def _vi_prompt(
+    tmp_path: Path, monkeypatch, steps, mode: EditingMode = EditingMode.VI
+) -> tuple[str, list[str]]:
+    """Satır içi istemi vim kipinde gerçek girdi borusuyla sür; (gönderilen, eylemler)."""
+    import asyncio
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    reader = ReplInput(tmp_path / "h", [], mode=ApprovalMode.AUTO)
+    calls: list[str] = []
+
+    def _recorder(name: str):
+        return lambda _event: calls.append(name)
+
+    reader.extra_actions = {
+        name: _recorder(name) for name in ("model_sec", "dusunme", "hizli_kip", "kisayollar")
+    }
+    kb = build_input_bindings(reader, keybindings.load_keymap(tmp_path / "yok.json"))
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        session: PromptSession[str] = PromptSession(key_bindings=kb, editing_mode=mode)
+        task = asyncio.ensure_future(session.prompt_async())
+        await asyncio.sleep(0.2)
+        for text, pause in steps:
+            pipe.send_text(text)
+            await asyncio.sleep(pause)
+        return await asyncio.wait_for(task, timeout=5), calls
+
+
+async def test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil(tmp_path, monkeypatch):
+    # Elle basılan Esc ayrı okumada gelir (ayrıştırıcı ~0,5 sn sonra salar); hemen ardından
+    # gelen `o` vim'in "alta satır aç" komutudur, Option+O (hızlı kip) değil.
+    sent, calls = await _vi_prompt(
+        tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("o", 0.1), ("x\r", 0.2)]
+    )
+    assert calls == [] and sent == "abc\nx"
+
+
+async def test_vim_normal_kipinde_soru_isareti_geri_aramadir(tmp_path, monkeypatch):
+    sent, calls = await _vi_prompt(
+        tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("?", 0.3), ("b\r", 0.2), ("\r", 0.2)]
+    )
+    assert calls == [] and sent == "abc"
+
+
+async def test_vim_kipinde_option_harfi_ayni_okumada_gelince_eylemdir(tmp_path, monkeypatch):
+    # Terminal Option+P'yi `ESC p` olarak TEK okumada yollar: vim kipinde de model seçici.
+    sent, calls = await _vi_prompt(tmp_path, monkeypatch, [("abc\x1bp", 0.3), ("\r", 0.2)])
+    assert calls == ["model_sec"] and sent == "abc"
+
+
+async def test_emacs_kipinde_option_ve_soru_isareti_degismez(tmp_path, monkeypatch):
+    sent, calls = await _vi_prompt(
+        tmp_path,
+        monkeypatch,
+        [("abc", 0.1), ("\x1bt", 0.3), ("?", 0.2), ("\r", 0.2)],
+        EditingMode.EMACS,
+    )
+    assert calls == ["dusunme", "kisayollar"] and sent == "abc"

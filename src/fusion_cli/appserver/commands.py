@@ -33,8 +33,17 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
-from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
+from ..cli.repl import (
+    model_flows,
+    output_style_command,
+    profiles_flow,
+    provider_flow,
+    rewind,
+    settings_panel,
+)
 from ..cli.repl.commands import CommandRegistry, model_command_result
+from ..cli.repl.copy_blocks import WRITE_PREFIX
+from ..cli.repl.export_commands import copy_picker_choices, export_dialog_choices
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -137,7 +146,9 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
 RENDER_WIDTH = 100
 
 
-async def render_command_text(registry: CommandRegistry, state: ReplState, name: str) -> str:
+async def render_command_text(
+    registry: CommandRegistry, state: ReplState, name: str, argument: str = ""
+) -> str:
     """Kendi çıktısını basan komutu METİN olarak üret.
 
     `RENDERED_COMMANDS` kümesindeki komutlar (tips, help, models, cost, …)
@@ -158,7 +169,7 @@ async def render_command_text(registry: CommandRegistry, state: ReplState, name:
         record=True,
         width=RENDER_WIDTH,
     )
-    await help_view.render(name, state, registry, console)
+    await help_view.render(name, state, registry, console, argument)
     return _bounded(console.export_text().strip())
 
 
@@ -219,6 +230,8 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return simple
     if canonical == "model":
         return _model_step(state, stripped)
+    if canonical in ("config", "settings"):
+        return _settings_step(state, stripped)
     if canonical == "development":
         return _development_choices(state, stripped)
     if canonical == "profiles":
@@ -227,7 +240,31 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return _providers_choices(stripped)
     if canonical in ("rewind", "checkpoint"):
         return _rewind_choices(state, stripped)
+    if canonical == "copy":
+        # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi.
+        rows = copy_picker_choices(state, stripped)
+        if rows:
+            prefix = f"{stripped or '1'} "
+            # Terminaldeki `w` tuşunun karşılığı: her satırın "dosyaya yaz" eşi (#231).
+            rows = (*rows, *(_write_row(row) for row in rows))
+            return _payload("blok", "secim", messages.COPY_PICK_TITLE_DESKTOP, rows, "copy", prefix)
     return None
+
+
+def _settings_step(state: ReplState, argument: str) -> ChoicePayload | None:
+    """Claude Code Settings paneli (#210): ayar → değer; seçim `/config key=value` olur."""
+    if not argument:
+        rows = settings_panel.config_rows(state)
+        return _payload("ayar", "secim", messages.SETTINGS_DESKTOP_TITLE, rows, "config", "")
+    values = settings_panel.value_choices(state, argument)
+    if "=" in argument or not values:
+        return None
+    return _payload("deger", "secim", argument, values, "config", f"{argument}=")
+
+
+def _write_row(row: Choice) -> Choice:
+    label = messages.COPY_WRITE_ROW.format(label=row.label)
+    return Choice(f"{WRITE_PREFIX}{row.value}", label, messages.COPY_WRITE_ROW_HINT)
 
 
 def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
@@ -248,7 +285,7 @@ def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
             "kapsam",
             "secim",
             messages.REWIND_PICK_SCOPE,
-            rewind.scope_choices(),
+            rewind.scope_choices(entries, int(argument)),
             "rewind",
             f"{argument} ",
         )
@@ -261,6 +298,8 @@ def _simple_choices(state: ReplState, name: str) -> ChoicePayload | None:
         "mode": ("profil", messages.MODE_TITLE, model_flows.mode_choices(state.config), ""),
         "effort": ("yogunluk", messages.EFFORT_TITLE, model_flows.effort_choices(), ""),
         "provider": ("saglayici", _provider_title(state), _provider_choices(state), ""),
+        # Claude Code `/export` (#206): argümansız Pano / Dosya diyaloğu.
+        "export": ("disa_aktar", messages.EXPORT_DIALOG_TITLE, export_dialog_choices(), ""),
         # Çıktı stili (P-068): masaüstü aynı listeyi seçici olarak gösterir.
         "output-style": (
             "cikti_stili",

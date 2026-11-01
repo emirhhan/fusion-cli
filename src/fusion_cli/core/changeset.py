@@ -164,6 +164,24 @@ class ChangeSet:
     def __bool__(self) -> bool:
         return bool(self._snapshots)
 
+    def export_state(self) -> tuple[tuple[Snapshot, ...], dict[Path, str | None], frozenset[Path]]:
+        """Diske yazmak için ilk hâller, son yazım kimlikleri ve edinilen yollar (#187)."""
+        return tuple(self._snapshots.values()), dict(self._applied), frozenset(self._acquired)
+
+    @classmethod
+    def from_state(
+        cls,
+        snapshots: tuple[Snapshot, ...],
+        applied: dict[Path, str | None],
+        acquired: frozenset[Path] = frozenset(),
+    ) -> ChangeSet:
+        """`export_state` çıktısından kaydı yeniden kur (sürdürülen oturumda `/rewind`)."""
+        changes = cls()
+        changes._snapshots = {snapshot.path: snapshot for snapshot in snapshots}
+        changes._applied = dict(applied)
+        changes._acquired = set(acquired)
+        return changes
+
     def restore(self, *, protected_paths: frozenset[Path] = frozenset()) -> tuple[Path, ...]:
         """Yalnız son başarılı ajan yazımıyla hâlâ eşleşen dosyaları geri al.
 
