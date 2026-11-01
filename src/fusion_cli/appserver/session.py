@@ -2462,12 +2462,18 @@ class AppSession:
             self._state.reset_history()
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
-            return {
+            rendered: dict[str, Any] = {
                 "ok": True,
                 "metin": await render_command_text(
                     self._registry, self._state, command.name, argument
                 ),
             }
+            # `/doctor` sorun bulunca düzeltme turu hazırlar (#212); arayüz onu tur yapar.
+            task, mode = self._state.take_pending()
+            if task:
+                self._next_turn_mode = mode
+                rendered["gorev"] = task
+            return rendered
         if command is not None and command.name in {
             "development",
             "model",

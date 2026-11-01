@@ -54,6 +54,7 @@ from . import (
     loop_command,
     macros,
     model_flows,
+    model_picker,
     output_style_command,
     plan_card,
     prefixes,
@@ -274,7 +275,7 @@ def _would_open_picker(name: str, argument: str) -> bool:
     """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)
 
     `/provider`, `/verify` ve `/profiles edit` uygulama-içi modalla çözülür (`_picker_flow`);
-    argümansız `/model` yalnız listeler, seçici açmaz (L2-14).
+    argümansız `/model` Claude Code ModelPicker modalını açar (#211).
     """
     arg = argument.strip().lower()
     if name == "development":
@@ -659,6 +660,10 @@ class _TuiSession:
             self._tui.sync_conversation()
             if command.name == "compact":
                 self._request_status_line()
+            pending, mode = self._state.take_pending()
+            if pending:
+                # `/doctor` sorun bulunca düzeltme turu (#212).
+                await self._turn(pending, mode=mode)
             return
         if command.name in ASYNC_COMMANDS:
             # `/voice` kısmi metni canlı olarak giriş kutusuna yazar; sonuç orada kalır.
@@ -681,6 +686,10 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "model" and not argument.strip():
+            # Claude Code ModelPicker (#211): Enter kaydeder, `s` oturumluk, ←/→ effort.
+            await self._run_model_picker()
+            return
         elif command.name == "theme" and not argument.strip():
             selected = await self._tui.await_choice(
                 messages.THEME_TITLE, view_commands.theme_choices(self._state)
@@ -822,6 +831,22 @@ class _TuiSession:
             await self._turn(pending, mode=mode)
             await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _run_model_picker(self) -> None:
+        async def _ask(
+            title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(
+                title, list(choices), alt_keys=keys, initial=initial
+            )
+
+        result = await model_picker.run_async(self._state.config, _ask)
+        if result is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return
+        self._state.config, note = model_picker.apply(self._state.config, result)
+        self._echo(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        self._sync_status()
 
     async def _continue_goal(self) -> None:
         """`/goal` etkinse turu değerlendir, gerekiyorsa hedef kipinde sürdür (P-058).

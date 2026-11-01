@@ -72,3 +72,47 @@ def test_eski_prompt_adi_bir_kez_uyarir(state: ReplState) -> None:
 
     assert ilk.startswith(messages.REPL_DOCTOR_PROMPT_DEPRECATED)
     assert messages.REPL_DOCTOR_PROMPT_DEPRECATED not in ikinci
+
+
+def _report(*checks):
+    from fusion_cli.cli.doctor import DoctorReport
+    from fusion_cli.config.readiness import Readiness, ReadinessReport
+
+    return DoctorReport(tuple(checks), ReadinessReport(Readiness.READY, True, True, True))
+
+
+def test_sorunsuz_teshis_duzeltme_turu_hazirlamaz() -> None:
+    from fusion_cli.cli.doctor import Check
+    from fusion_cli.cli.repl.doctor_command import fix_task
+
+    assert fix_task(_report(Check("PATH", "tamam", ok=True), Check("bilgi", "x"))) == ""
+
+
+def test_sorunlu_teshis_onayli_duzeltme_gorevi_uretir() -> None:
+    """Claude Code `/doctor` (#212): teşhis + onayla düzeltme; onaysız değişiklik yok."""
+    from fusion_cli.cli.doctor import Check
+    from fusion_cli.cli.repl.doctor_command import fix_task
+
+    task = fix_task(_report(Check("PATH", "fusion yok", ok=False, remedy="PATH'e ekle")))
+    assert "PATH: fusion yok (öneri: PATH'e ekle)" in task
+    assert "ask_user" in task and "onay vermediği" in task
+
+
+async def test_doctor_render_sorun_varsa_bekleyen_tur_kurar(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rich.console import Console
+
+    from fusion_cli.cli import doctor
+    from fusion_cli.cli.repl import help_view
+
+    monkeypatch.setattr(
+        doctor,
+        "diagnose",
+        lambda live=False: _report(doctor.Check("Anahtar", "yok", ok=False, remedy="ekle")),
+    )
+    console = Console(record=True, width=120)
+    await help_view.render("doctor", state, build_registry(), console)
+    assert "düzeltme önerileri" in console.export_text()
+    task, _ = state.take_pending()
+    assert "Anahtar: yok" in task

@@ -9,9 +9,13 @@ kullanımdan kalkmış takma ad olarak okunur ve oturumda bir kez uyarır.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ...ui import messages
 from .state import ReplState
+
+if TYPE_CHECKING:
+    from ..doctor import DoctorReport
 
 #: Claude Code alt komutu.
 PROMPT_AUDIT = "prompt-audit"
@@ -55,3 +59,22 @@ def _audit(state: ReplState, raw_path: str) -> str:
             max_chars=getattr(runtime, "instruction_max_chars", 32_000),
         )
     )
+
+
+def fix_task(report: DoctorReport) -> str:
+    """Kalan denetimlerden düzeltme turu görevi; sorun yoksa boş (#212).
+
+    Claude Code'un `/doctor`'u paketli bir skill'dir: sorunları teşhis eder ve kullanıcı
+    onaylarsa düzeltir. Görev modele önce öneri listesi sundurur, onay olmadan değişiklik
+    yaptırmaz; değerler sır taşımaz (`Check.value` sözleşmesi).
+    """
+    failed = [check for check in report.checks if check.ok is False]
+    if not failed:
+        return ""
+    lines = "\n".join(
+        messages.REPL_DOCTOR_FIX_LINE.format(
+            name=check.name, value=check.value, remedy=check.remedy or "-"
+        )
+        for check in failed
+    )
+    return messages.REPL_DOCTOR_FIX_TASK.format(issues=lines)

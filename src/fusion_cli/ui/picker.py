@@ -87,8 +87,9 @@ def pick(
     gradient_rows: bool = False,
     stream: TextStream | None = None,
     alt_keys: Sequence[str] = (),
+    initial: str = "",
 ) -> str | None:
-    """Bir seçim al. Vazgeçilirse `None` döner.
+    """Bir seçim al. Vazgeçilirse `None` döner. `initial` imlecin başladığı değerdir.
 
     `alt_keys`: Enter yerine basılınca `<tuş>:<değer>` döndüren tek harfli tuşlar
     (ör. `/copy` seçicisinde `w` = dosyaya yaz). Düz kipte `w 2` biçiminde yazılır.
@@ -100,7 +101,9 @@ def pick(
         return None
     if not sys.stdin.isatty():
         return _pick_plain(choices, title=title, stream=stream, alt_keys=alt_keys)
-    picked = _pick_interactive(choices, title=title, gradient_rows=gradient_rows, alt_keys=alt_keys)
+    picked = _pick_interactive(
+        choices, title=title, gradient_rows=gradient_rows, alt_keys=alt_keys, initial=initial
+    )
     return picked
 
 
@@ -175,7 +178,12 @@ def resolve_plain(choices: Sequence[Choice], answer: str) -> str | None:
 
 
 def _pick_interactive(
-    choices: Sequence[Choice], *, title: str, gradient_rows: bool, alt_keys: Sequence[str] = ()
+    choices: Sequence[Choice],
+    *,
+    title: str,
+    gradient_rows: bool,
+    alt_keys: Sequence[str] = (),
+    initial: str = "",
 ) -> str | None:  # pragma: no cover - gerçek terminal gerektirir
     """prompt_toolkit tam-ekran seçim. Kurulamazsa düz listeye düşülür."""
     try:
@@ -186,7 +194,7 @@ def _pick_interactive(
     except ImportError:
         return _pick_plain(choices, title=title, stream=None, alt_keys=alt_keys)
 
-    state = PickerState(len(choices))
+    state = PickerState(len(choices), initial_index(choices, initial))
     colors = row_colors(len(choices), gradient_rows=gradient_rows)
     bindings = KeyBindings()
 
@@ -270,6 +278,11 @@ class PickerState:
 
     def move(self, delta: int) -> None:
         self.index = (self.index + delta) % self.count
+
+
+def initial_index(choices: Sequence[Choice], value: str) -> int:
+    """`value` değerli satırın sırası; yoksa 0."""
+    return next((index for index, choice in enumerate(choices) if choice.value == value), 0)
 
 
 def window_bounds(total: int, selected: int, height: int) -> tuple[int, int]:

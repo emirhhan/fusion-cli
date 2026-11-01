@@ -39,7 +39,7 @@ from rich.console import Console
 
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
 from ...ui import messages, theme
-from ...ui.picker import Choice
+from ...ui.picker import Choice, initial_index
 from . import input_actions, vim_remaps
 from .choice_search import ChoiceSearch
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
@@ -520,21 +520,28 @@ class FusionTui:
         *,
         alt_keys: tuple[str, ...] = (),
         searchable: bool = False,
+        initial: str = "",
     ) -> str | None:
         """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
 
-        `alt_keys` tuşları Enter yerine `<tuş>:<değer>` döndürür (`/copy` seçicisinde `w`).
+        `alt_keys` tuşları Enter yerine `<tuş>:<değer>` döndürür (`/copy` seçicisinde `w`,
+        `/model` seçicisinde `s`/`left`/`right`). `initial` imlecin başladığı değerdir.
         """
         if not choices:
             return None
         async with self._modal_lock:
-            return await self._run_choice(title, choices, alt_keys, searchable)
+            return await self._run_choice(title, choices, alt_keys, searchable, initial)
 
     async def _run_choice(
-        self, title: str, choices: list[Choice], alt_keys: tuple[str, ...], searchable: bool
+        self,
+        title: str,
+        choices: list[Choice],
+        alt_keys: tuple[str, ...],
+        searchable: bool,
+        initial: str = "",
     ) -> str | None:
         self._choices = list(choices)
-        self._choice_index = 0
+        self._choice_index = initial_index(self._choices, initial)
         self._choice_title = title
         self._choice_alt_keys = alt_keys
         self._choice_search = ChoiceSearch(choices) if searchable else None
@@ -790,6 +797,23 @@ class FusionTui:
         def _select_write(_event: object) -> None:
             if not (self._searching() and self._choice_type("w")):
                 self._pick_alt("w")
+
+        # Claude Code ModelPicker (#211): `s` yalnız oturum, sol/sağ effort.
+        @kb.add("s", filter=modal & Condition(lambda: "s" in self._choice_alt_keys), eager=True)
+        def _select_session(_event: object) -> None:
+            if not (self._searching() and self._choice_type("s")):
+                self._pick_alt("s")
+
+        for arrow in ("left", "right"):
+
+            def _select_arrow(_event: object, arrow: str = arrow) -> None:
+                self._pick_alt(arrow)
+
+            kb.add(
+                arrow,
+                filter=modal & Condition(lambda arrow=arrow: arrow in self._choice_alt_keys),
+                eager=True,
+            )(_select_arrow)
 
         # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
         # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.

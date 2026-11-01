@@ -698,6 +698,18 @@ REPL_SCHEDULE_FIRED = "⏰ hatırlatma zamanı geldi"
 REPL_MACRO_NEEDS_ARGUMENT = "/{name} bir görev metni ister. Örnek: /{name} <ne yapılacak>"
 REPL_MODEL_SAVED = "agent modeli → {model} (varsayılan olarak kaydedildi: {path})"
 REPL_MODEL_SESSION_ONLY = "agent modeli → {model} (yalnız bu oturum; ayar dosyası yazılamadı)"
+MODEL_PICK_TITLE = (
+    "Model seç · effort: {effort} (←/→ değiştirir) · Enter kaydeder · s yalnız bu oturum"
+)
+MODEL_PICK_CURRENT = "etkin"
+MODELS_USAGE = (
+    "Kullanım: /models  ya da  /models agent|judge <id> · cand <ad|no> <id> · add <ad> <id>"
+    " · rm <ad>"
+)
+MODEL_PICK_SESSION = "agent modeli → {model} (yalnız bu oturum)"
+MODEL_SUBCOMMAND_LEGACY = (
+    "Not: /model {action} kullanımdan kalkıyor; Fusion rol komutları için /models {action} …"
+)
 REPL_MODEL_UNRESOLVED = (
     "'{model}' çözülemedi: tam <sağlayıcı>/<model> kimliği, aday adı ya da yapılandırılmış "
     "aileden bir Claude takma adı (sonnet/opus/haiku) yazın. Liste: /model"
@@ -1043,6 +1055,18 @@ REPL_DOCTOR_PROMPT_DEPRECATED = (
 REPL_DOCTOR_PATH_MISSING = "Yol bulunamadı: {path}"
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
 REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt-audit"
+REPL_DOCTOR_FIX_STARTED = (
+    "Sorunlar bulundu; düzeltme önerileri hazırlanıyor (onayın olmadan değişiklik yapılmaz)."
+)
+REPL_DOCTOR_FIX_LINE = "- {name}: {value} (öneri: {remedy})"
+REPL_DOCTOR_FIX_TASK = (
+    "/doctor kurulum teşhisi şu sorunları buldu:\n{issues}\n\n"
+    "Her sorun için nedenini ve önerdiğin düzeltmeyi kısaca listele. Ardından hangi "
+    "düzeltmelerin uygulanacağını kullanıcıya sor (ask_user); onay vermediği hiçbir dosyayı, "
+    "ayarı ya da komutu değiştirme. Anahtar ve token değerlerini asla yazma ya da isteme; "
+    "anahtar gerekiyorsa kullanıcıya nereye gireceğini söyle. Onaylananları uygula ve "
+    "sonucu özetle."
+)
 CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
 REPL_DOCTOR_SETUP_HINT = (

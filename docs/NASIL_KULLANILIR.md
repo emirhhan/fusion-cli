@@ -1223,7 +1223,8 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/agent` · `/fusion` | Motor değiştir |
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
-| `/model [model]` | `/model <model>` agent modelini değiştirir ve varsayılan olarak kaydeder (tam kimlik, `claude-…`, aday adı ya da yapılandırılmış aileden `sonnet`/`opus`/`haiku`); Fusion alt komutları `agent`/`judge`/`cand`/`add`/`rm` yalnız oturum içindir |
+| `/model [model]` | `/model <model>` agent modelini değiştirir ve varsayılan olarak kaydeder (tam kimlik, `claude-…`, aday adı ya da yapılandırılmış aileden `sonnet`/`opus`/`haiku`). Argümansız çağrı Claude Code gibi model seçicisini açar: Enter seçip kaydeder, `s` yalnız bu oturum için geçer, ←/→ effort düzeyini değiştirir (borulu girdide liste basılır) |
+| `/models [agent\|judge\|cand\|add\|rm …]` | Fusion eki: etkin rolleri listeler; rol alt komutları (yalnız oturum) burada. Eski `/model agent …` biçimi bir sürüm çalışır, bir kez uyarır |
 | `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
@@ -1245,7 +1246,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
-| `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
+| `/doctor` (`/checkup`) | Kurulum denetimi (`fusion doctor` ile aynı çıktı); Claude Code gibi sorun bulunursa model düzeltmeleri önerir, hangilerinin uygulanacağını sorar ve onay olmadan değişiklik yapmaz (üç yüzeyde). `/doctor prompt-audit [yol]` talimatları denetler |
 | `/loop 5m <görev>` · `/loop list` · `/loop stop [id]` | Görevi aralıkla yinele (oturum boyunca) |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |

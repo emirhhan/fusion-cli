@@ -56,7 +56,7 @@ async def render(
         note = await compact_history(state, argument)
         console.print(f"[{theme.DIM}]{note}[/{theme.DIM}]")
     elif name == "doctor":
-        await _doctor(console)
+        await _doctor(console, state)
     elif name == "btw":
         from .btw_command import render as render_btw
 
@@ -68,18 +68,25 @@ async def render(
         await render_recap(state, console)
 
 
-async def _doctor(console: Console) -> None:
+async def _doctor(console: Console, state: ReplState | None = None) -> None:
     """`/doctor` — `fusion doctor` ile AYNI tanı ve basıcı; ağ çağrısı yapılmaz.
 
     Tanı dosya ve ortam okur; olay döngüsünü tutmasın diye iş parçacığında koşar.
+    Claude Code (#212): sorun bulunursa düzeltmeleri önerip onayla uygulayan model turu
+    hazırlanır (`state.pending_task`); yüzey onu hemen başlatır.
     """
     import asyncio
 
     from ..doctor import diagnose, print_report
+    from .doctor_command import fix_task
 
     report = await asyncio.to_thread(diagnose, live=False)
     print_report(report, console)
     console.print(f"[{theme.DIM}]{messages.REPL_DOCTOR_PROMPT_HINT}[/{theme.DIM}]")
+    task = fix_task(report)
+    if state is not None and task:
+        state.pending_task = task
+        console.print(f"[{theme.DIM}]{messages.REPL_DOCTOR_FIX_STARTED}[/{theme.DIM}]")
 
 
 def _tips(console: Console) -> None:

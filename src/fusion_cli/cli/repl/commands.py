@@ -10,6 +10,7 @@ Basma işi çağırana aittir.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -48,6 +49,7 @@ from . import (
     macros,
     memory_commands,
     model_flows,
+    model_picker,
     model_switch,
     output_style_command,
     permissions_command,
@@ -400,7 +402,44 @@ def _model(state: ReplState, argument: str) -> str:
     """
     parts = argument.split()
     if not parts:
+        if not sys.stdin.isatty():
+            # Borulu girdide seçici sonraki satırı yutardı; liste basılır.
+            return model_select.format_models(state.config)
+        return model_picker_command(state, pick)
+    result = model_command_result(state, parts)
+    state.config = result.config
+    action = parts[0].lower()
+    if action in model_switch.FUSION_SUBCOMMANDS and not getattr(
+        state, "model_subcommand_warned", False
+    ):
+        # Claude'da `/model <ad>` model adı alır (#211); Fusion rol alt komutları /models'ta.
+        state.model_subcommand_warned = True
+        return f"{result.message}\n{messages.MODEL_SUBCOMMAND_LEGACY.format(action=action)}"
+    return result.message
+
+
+def model_picker_command(state: ReplState, picker: Callable[..., str | None]) -> str:
+    """Argümansız `/model` seçicisi (#211): Enter kaydeder, `s` oturumluk, ←/→ effort."""
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return picker(choices, title=title, alt_keys=keys, initial=initial)
+
+    result = model_picker.run(state.config, _ask)
+    if result is None:
+        return messages.PICKER_CANCELLED
+    state.config, note = model_picker.apply(state.config, result)
+    return note
+
+
+def _models(state: ReplState, argument: str) -> str:
+    """`/models <agent|judge|cand|add|rm> …` — Fusion rol alt komutları (argümansız: liste)."""
+    parts = argument.split()
+    if not parts:
         return model_select.format_models(state.config)
+    if parts[0].lower() not in model_switch.FUSION_SUBCOMMANDS:
+        return messages.MODELS_USAGE
     result = model_command_result(state, parts)
     state.config = result.config
     return result.message
@@ -1160,13 +1199,19 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[ad|off]",
     ),
-    SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
+    SlashCommand(
+        "models",
+        messages.CMD_MODELS,
+        _models,
+        group="Model",
+        usage="[agent|judge|cand|add|rm …]",
+    ),
     SlashCommand(
         "model",
         messages.CMD_MODEL,
         _model,
         group="Model",
-        usage="[model|agent|judge|cand|add|rm …]",
+        usage="[model]",
     ),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand(
@@ -1486,7 +1531,7 @@ RENDERED_COMMANDS = frozenset(
 #: Argümansız hâli kendi basan, argümanla işleyiciye düşen komutlar: `/doctor` kurulum
 #: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt-audit [yol]` talimat
 #: denetimini döndürür.
-RENDERED_WHEN_BARE = frozenset({"doctor"})
+RENDERED_WHEN_BARE = frozenset({"doctor", "models"})
 
 
 def renders_itself(name: str, argument: str) -> bool:

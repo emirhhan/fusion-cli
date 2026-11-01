@@ -229,7 +229,7 @@ def test_would_open_picker_nested_secici_komutlarini_yakalar():
     from fusion_cli.cli.repl.tui_loop import _would_open_picker
 
     assert _would_open_picker("development", "x")
-    # L2-14: argümansız /model yalnız listeler; /provider, /verify, /profiles edit modalla çözülür.
+    # #211: argümansız /model modal açar; /provider, /verify, /profiles edit de modalla çözülür.
     assert not _would_open_picker("model", "")
     assert not _would_open_picker("provider", "")
     assert not _would_open_picker("verify", "")
@@ -254,15 +254,20 @@ async def test_provider_komutu_uygulama_ici_modalla_cozulur(tmp_path):
     assert "seçim yapılmadı" in session.tui.transcript
 
 
-async def test_model_argumansiz_listeyi_gosterir(tmp_path):
-    """L2-14: argümansız /model seçici açmaz; etkin modeller listelenir."""
+async def test_model_argumansiz_model_seciciyi_acar(tmp_path):
+    """Claude Code ModelPicker (#211): argümansız /model uygulama içi seçiciyi açar."""
     state = _state(tmp_path)
     session = _TuiSession(state)
 
-    await session._command("/model")
+    gorev = asyncio.ensure_future(session._command("/model"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    assert session.tui._choice_alt_keys == ("s", "left", "right")
+    session.tui._resolve(None)
+    await gorev
 
     assert "argüman ister" not in session.tui.transcript
-    assert "agent :" in session.tui.transcript
+    assert "seçim yapılmadı" in session.tui.transcript
 
 
 async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):
