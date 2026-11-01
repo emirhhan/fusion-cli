@@ -308,7 +308,11 @@ def _shell_env(context: ToolContext) -> dict[str, str]:
     kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz. MCP sır adları
     (`context.hidden_env`) çıkarılır: komut `env` yazarsa sırlar modele gitmesin.
     """
-    return {name: value for name, value in php_env().items() if name not in context.hidden_env}
+    from ..core.env_scrub import scrubbed_env
+
+    # Claude `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`: sağlayıcı kimlik bilgileri çıkarılır (#368).
+    env = scrubbed_env(php_env())
+    return {name: value for name, value in env.items() if name not in context.hidden_env}
 
 
 def _timeout_message(timeout: subprocess.TimeoutExpired, timeout_s: float = SHELL_TIMEOUT_S) -> str:

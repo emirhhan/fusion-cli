@@ -131,6 +131,11 @@ yok sayılır ve uyarılır.
   kalkan Fusion uzantısı `hide_secret_env: true` adı sır gibi görünen değişkenleri
   (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`…) de çıkarır; varsayılan `false`. Bu
   macOS'ta **kaza önleyicidir, güvenlik sınırı değildir** (aşağıya bakın).
+  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (Claude Code ile aynı) sandbox açık olsun olmasın
+  `run_shell` komutlarının ortamından Anthropic ve bulut sağlayıcı kimlik bilgilerini
+  (`ANTHROPIC_API_KEY`, `AWS_*` anahtarları, `GOOGLE_APPLICATION_CREDENTIALS`…) ve Fusion'ın
+  sağlayıcı anahtarlarını (`OPENROUTER_API_KEY`, `NVIDIA_NIM_API_KEY`, `OPENAI_API_KEY`,
+  `GEMINI_API_KEY`) çıkarır; Fusion'ın kendisi onları API çağrıları için tutar.
 - **Başka süreçlerin ortamı:** Linux'ta komut kendi PID ad alanında ve taze `/proc` ile çalışır;
   başka süreçlerin `/proc/<pid>/environ`'ı görünmez. macOS'ta aynı kullanıcının Apple imzalı
   olmayan süreçlerinin (Fusion'ın Python'u, node, VS Code/iTerm gibi uygulamalar) **başlangıç**
