@@ -1255,7 +1255,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/voice` · `/voice gonder` · `/voice durum` | Terminalde yerel dikte (cihaz üstü) |
 | `/verify` | Test/lint çalıştır |
 | `/onizleme [ad]` · `/tarayici ac` | launch.json sunucuları · ajanla paylaşılan görünür tarayıcı (`devral`/`birak`) |
-| `/code-review` (`/review`) `[low\|medium\|high\|xhigh\|max] [--fix] [--comment] [--max-findings n\|all\|default] [pr#\|dal\|yol]` | Claude Code'daki gibi dalın değişikliklerini (ya da PR/dal/yol/git aralığı) doğruluk hataları için fork alt ajanda inceler; `--fix` bulguları uygular, `--comment` PR/MR'a yazar; seviye yazılmazsa son yazılan seviye, `--max-findings` `default` verilene dek hatırlanır. `ultra` (bulut incelemesi) Fusion'da yok |
+| `/code-review` (`/review`) `[low\|medium\|high\|xhigh\|max] [--fix] [--comment] [--max-findings n\|all\|default] [pr#\|dal\|yol]` | Claude Code'daki gibi dalın değişikliklerini (ya da PR/dal/yol/git aralığı) doğruluk hataları için fork alt ajanda inceler; `--fix` bulguları uygular, `--comment` PR/MR'a yazar; seviye yazılmazsa son yazılan seviye, `--max-findings` `default` verilene dek hatırlanır. Masaüstünde (bulgu listesi isteyen uygulama, Claude Code ReportFindings) bulgular her seviyede metin yerine kart olarak gelir: dosya:satır (tıklayınca dosya açılır), özet, hata senaryosu, tür ve doğrulandı/olası etiketi, en çok 32 bulgu; terminalde rapor metindir. `ultra` (Anthropic bulutunda çok ajanlı inceleme) Fusion'da yok |
 | `/simplify` | Değişen kodu sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |

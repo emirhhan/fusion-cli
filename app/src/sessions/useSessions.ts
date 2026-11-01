@@ -2,6 +2,7 @@ import { historyMessages } from "./history";
 import { decodeGoalResult, GOAL_WAITING_USER } from "../goal/goalResult";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
+import { decodeReviewFindings } from "../protocol/reviewFindings";
 import { nextAttemptTurnId, normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -645,7 +646,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};
         const delivery = decodeDeliveryEvidence(result.kanit);
-        if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
+        // `/code-review` bulguları (#214, Claude Code ReportFindings) metin yerine kart olur.
+        const findings = decodeReviewFindings(result.bulgular);
+        if (text || delivery || findings) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...(findings ? {findings} : {}), ...hata } });
         // `/goal` (P-058): karar ara not olur; "henüz değil" ise devam turu sürer. Sırada kullanıcı
         // mesajı varsa önce o koşar (TUI ile aynı); onun sonunda hedef yeniden değerlendirilir.
         const hedef = decodeGoalResult(result);

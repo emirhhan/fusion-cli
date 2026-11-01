@@ -902,6 +902,20 @@ it("RPC kanıtını tek correlated final mesajına bağlar", async () => {
   expect(result.current.activeSession!.messages.filter((message) => message.rol === "asistan")).toHaveLength(1);
 });
 
+it("/code-review bulgularını kart olarak final mesajına bağlar (#214)", async () => {
+  const fake = fakeTransport();
+  const {result} = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  act(() => result.current.send("varsayilan", "incele"));
+  await waitFor(() => expect(fake.sent.length).toBeGreaterThan(0));
+  const request = JSON.parse(fake.sent[0].line);
+  const bulgular = [{file: "a.py", line: 3, summary: "sıfıra bölme", failure_scenario: "n=0", verdict: "PLAUSIBLE"}];
+  act(() => fake.emitResult("varsayilan", request.id, {ok: true, metin: "Bir hata.", bulgular}));
+  await waitFor(() => expect(result.current.activeSession?.running).toBe(false));
+  const final = result.current.activeSession!.messages.filter((message) => message.rol === "asistan");
+  expect(final[0].findings).toEqual([{file: "a.py", line: 3, summary: "sıfıra bölme", failureScenario: "n=0", verdict: "PLAUSIBLE"}]);
+});
+
 // U4-04 — Ölçüldü (29 Ekim): makbuz kabul edilmezse tur boyunca bütün olaylar sessizce düşüyor,
 // kullanıcı turu donmuş sanıyordu.
 describe("Makbuzsuz tur olayları", () => {

@@ -37,6 +37,7 @@ from . import (
     background_commands,
     btw_command,
     code_review,
+    code_review_findings,
     config_command,
     doctor_command,
     export_commands,
@@ -1038,6 +1039,9 @@ def _code_review(state: ReplState, argument: str) -> str:
     if max_findings in (None, "default"):
         max_findings = remembered.get("max_findings")
     task = code_review.build_task(request, level, max_findings)
+    if getattr(state, "findings_host", False):
+        # Masaüstü bulgu listesi ister (Claude Code ReportFindings, #214): kartlar çizilir.
+        task = f"{task}\n{code_review_findings.HOST_REQUEST}"
     override = macro_skill_override(state, "code-review")
     if override is not None:
         body, path = override

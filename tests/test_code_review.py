@@ -56,3 +56,54 @@ def test_review_takma_ad_fork_alt_ajanda_ve_seviyeyi_hatirlar(state: ReplState):
 def test_ultra_bulut_yok_mesaji(state: ReplState):
     out = build_registry().get("code-review").handler(state, "ultra --fix")
     assert "bulut" in out and not state.pending_task
+
+
+def test_masaustu_bulgu_listesi_ister_terminal_istemez(state: ReplState):
+    """Claude Code ReportFindings (#214): bulgu listesi isteyen uygulamada her seviyede."""
+    from fusion_cli.cli.repl import code_review_findings as findings
+
+    registry = build_registry()
+    registry.get("code-review").handler(state, "low")
+    assert not findings.is_findings_turn(state.pending_task)
+    state.findings_host = True
+    registry.get("code-review").handler(state, "high main")
+    assert findings.is_findings_turn(state.pending_task)
+    assert "```findings" in state.pending_task and "failure_scenario" in state.pending_task
+
+
+def test_bulgu_blogu_ayiklanir_dogrulanir_metinden_cikar():
+    from fusion_cli.appserver.session import findings_payload
+    from fusion_cli.cli.repl import code_review_findings as findings
+
+    text = (
+        "İki hata buldum.\n\n```findings\n"
+        '[{"file": "src/a.py", "line": "12", "summary": "None kontrolü yok", '
+        '"failure_scenario": "boş girdi → AttributeError", "verdict": "confirmed", '
+        '"category": "correctness", "short_summary": "None kontrolü"},'
+        ' {"file": "b.py", "summary": "satırsız"}, "çöp"]\n```\n'
+    )
+    payload = findings_payload(text)
+    assert payload["metin"] == "İki hata buldum."
+    assert payload["bulgular"] == [
+        {
+            "file": "src/a.py",
+            "line": 12,
+            "summary": "None kontrolü yok",
+            "failure_scenario": "boş girdi → AttributeError",
+            "short_summary": "None kontrolü",
+            "category": "correctness",
+            "verdict": "CONFIRMED",
+        }
+    ]
+    assert findings_payload("blok yok") == {}
+    assert findings.extract("```findings\nbozuk json\n```") is None
+    empty = findings.extract("```findings\n[]\n```")
+    assert empty is not None and empty.findings == () and empty.text == findings.NO_FINDINGS
+    many = (
+        "```findings\n"
+        + str([{"file": "a", "line": 1, "summary": "s", "failure_scenario": "f"}] * 40).replace(
+            "'", '"'
+        )
+        + "\n```"
+    )
+    assert len(findings.extract(many).findings) == findings.MAX_FINDINGS

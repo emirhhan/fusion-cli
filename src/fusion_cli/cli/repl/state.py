@@ -208,6 +208,8 @@ class ReplState:
     queued_lines: list[str] = field(default_factory=list, kw_only=True, repr=False)
     #: Son agent turunun araç bağlamı (Ctrl+T görev listesi, #216).
     last_tool_context: object | None = field(default=None, kw_only=True, repr=False)
+    #: Bulgu listesi isteyen ana uygulama (masaüstü, #214 ReportFindings); terminalde False.
+    findings_host: bool = field(default=False, kw_only=True, repr=False)
     #: Satır içi REPL'in #216 kısayolları (`inline_shortcuts.InlineShortcuts`); TUI'de None.
     inline_shortcuts: Any = field(default=None, kw_only=True, repr=False)
     #: Satır içi REPL: tur sürerken anlık komut çalıştırıcı (#209) ve süren işleri.

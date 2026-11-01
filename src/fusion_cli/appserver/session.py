@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
+from ..cli.repl import code_review_findings, cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.loop_command import fire_prompt
@@ -319,6 +319,14 @@ _GORSEL_TURLERI = {
 }
 
 
+def findings_payload(text: str) -> dict[str, Any]:
+    """`/code-review` cevabındaki bulgu bloğu: temiz metin + `bulgular`; blok yoksa boş."""
+    extracted = code_review_findings.extract(text)
+    if extracted is None:
+        return {}
+    return {"metin": extracted.text, "bulgular": [dict(item) for item in extracted.findings]}
+
+
 def _attachment_images(value: object) -> tuple[str, ...]:
     """Görsel ekleri modele iliştirilebilir veri URI'lerine çevir.
 
@@ -566,6 +574,8 @@ class AppSession:
             remotion_transport=remotion_transport,
             remotion_browser=remotion_browser,
         )
+        # Masaüstü bulgu listesi isteyen ana uygulamadır (Claude Code ReportFindings, #214).
+        self._state.findings_host = True
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
@@ -3370,6 +3380,9 @@ class AppSession:
             **root_payload,
             **goal_payload,
         }
+        if not browser_only and code_review_findings.is_findings_turn(task):
+            # `/code-review` bulguları kart olarak (Claude Code ReportFindings, #214).
+            cevap.update(findings_payload(metin))
         if receipt is not None:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
