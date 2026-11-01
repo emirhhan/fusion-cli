@@ -68,3 +68,51 @@ def test_doctor_prompt_audit_turu_hazirlar_motoru_degistirmez(
     assert "`.claude/rules/stil.md`" in gorev and "`CLAUDE.md`" not in gorev
     assert state.engine is oturum_motoru and state.take_turn_engine() is Engine.AGENT
     assert "bulunamadı" in doctor.handler(state, "prompt-audit yok/yol")
+
+
+def test_ic_ice_tarama_derinlik_ve_dizin_sinirli(tmp_path, monkeypatch) -> None:
+    """#168: yolsuz denetim ev dizini gibi büyük köklerde sınırsız gezmez."""
+    from fusion_cli.engines.agent import prompt_audit
+
+    deep = tmp_path
+    for index in range(prompt_audit.MAX_WALK_DEPTH + 3):
+        deep = deep / f"d{index}"
+    deep.mkdir(parents=True)
+    (deep / "CLAUDE.md").write_text("derin", encoding="utf-8")
+    shallow = tmp_path / "d0" / "CLAUDE.md"
+    shallow.write_text("sığ", encoding="utf-8")
+
+    found = prompt_audit.audit_scope(tmp_path, None)
+    assert shallow in found and deep / "CLAUDE.md" not in found
+
+    for index in range(10):
+        (tmp_path / f"genis{index}").mkdir()
+    monkeypatch.setattr(prompt_audit, "MAX_WALK_DIRS", 3)
+    visited: list[str] = []
+    real_walk = prompt_audit.os.walk
+
+    def counting_walk(*args, **kwargs):  # type: ignore[no-untyped-def]
+        for item in real_walk(*args, **kwargs):
+            visited.append(item[0])
+            yield item
+
+    monkeypatch.setattr(prompt_audit.os, "walk", counting_walk)
+    prompt_audit.audit_scope(tmp_path, None)
+    assert len(visited) <= 4
+
+
+def test_dis_hedefe_isaret_eden_bag_kendi_yoluyla_listelenir(tmp_path) -> None:
+    """#168: kök içindeki sembolik bağ, kök dışındaki gerçek yolla listelenmez."""
+    from fusion_cli.engines.agent import prompt_audit
+
+    outside = tmp_path / "dis" / "CLAUDE.md"
+    outside.parent.mkdir()
+    outside.write_text("dış", encoding="utf-8")
+    root = tmp_path / "proje"
+    (root / "pkg").mkdir(parents=True)
+    (root / "pkg" / "CLAUDE.md").symlink_to(outside)
+
+    found = prompt_audit.audit_scope(root, None)
+
+    assert root.resolve() / "pkg" / "CLAUDE.md" in found
+    assert outside.resolve() not in found

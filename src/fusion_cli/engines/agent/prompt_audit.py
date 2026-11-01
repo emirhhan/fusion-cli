@@ -28,6 +28,9 @@ _GLOBS = (
     ".claude/agents/**/*.md",
     ".claude/output-styles/**/*.md",
 )
+#: İç içe tarama sınırları: ev dizini gibi büyük bir kökte komut takılmasın (#168).
+MAX_WALK_DEPTH = 6
+MAX_WALK_DIRS = 2_000
 #: İç içe CLAUDE.md/AGENTS.md ararken atlanan büyük dizinler.
 _SKIP_DIRS = frozenset({".git", "node_modules", ".venv", "venv", "dist", "build", "target"})
 
@@ -42,11 +45,19 @@ def _under(base: Path) -> list[Path]:
 def _nested(base: Path) -> list[Path]:
     """Alt dizinlerdeki CLAUDE.md / AGENTS.md (büyük üretim dizinlerine inilmez)."""
     found: list[Path] = []
-    for folder, dirs, names in os.walk(base):
-        dirs[:] = sorted(name for name in dirs if name not in _SKIP_DIRS)
-        if Path(folder) == base:
+    for visited, (folder, dirs, names) in enumerate(os.walk(base)):
+        here = Path(folder)
+        depth = len(here.relative_to(base).parts)
+        if visited >= MAX_WALK_DIRS:
+            break
+        dirs[:] = (
+            sorted(name for name in dirs if name not in _SKIP_DIRS)
+            if depth < MAX_WALK_DEPTH
+            else []
+        )
+        if here == base:
             continue
-        found.extend(Path(folder) / name for name in ("CLAUDE.md", "AGENTS.md") if name in names)
+        found.extend(here / name for name in ("CLAUDE.md", "AGENTS.md") if name in names)
     return found
 
 
@@ -65,7 +76,8 @@ def audit_scope(root: Path, home: Path | None, target: str = "") -> tuple[Path, 
             files.extend(sorted(path for path in chosen.rglob("*.md") if path.is_file()))
     else:
         files = [*(_under(home) if home is not None else []), *_under(root), *_nested(root)]
-    return tuple(dict.fromkeys(path.resolve() for path in files))
+    # Kökü çöz, dosyanın kendisini değil: dışarı işaret eden bağ kendi yoluyla listelenir.
+    return tuple(dict.fromkeys(path.parent.resolve() / path.name for path in files))
 
 
 def _display(path: Path, root: Path, home: Path | None) -> str:
