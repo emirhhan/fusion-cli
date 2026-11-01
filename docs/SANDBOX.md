@@ -32,10 +32,14 @@ Sandbox ayarları Claude Code'un kendi dosyalarından okunur (sonraki öncekini 
 `.claude/settings.local.json`; proje dosyaları yalnız güvenilen projede (`fusion trust`)
 uygulanır. Yol ve alan adı listeleri (`allowWrite`, `denyRead`, `allowedDomains`…) dosyalar
 boyunca **birleşir**; tekil değerlerde son dosya kazanır. Fusion YAML'ındaki `sandbox:` bölümü
-bunların altında en düşük katmandır.
+bunların altında en düşük katmandır. Dosyaların üstünde Claude'daki gibi `--settings` katmanı
+ve en üstte yönetilen (managed) ayarlar gelir: macOS `/Library/Application Support/ClaudeCode/`,
+Linux `/etc/claude-code/` altında `managed-settings.json` ve `managed-settings.d/*.json`
+(alfabetik). Yönetilen dosyalar güven denetimi istemez ve Fusion bunlara yazmaz.
 
 Göreli yollar ayar dosyasının kapsamına göre çözülür: proje ayarında proje kökü, kullanıcı
-ayarında `~/.claude`; `/` mutlak, `~/` ev dizinidir (Fusion YAML'ındaki göreli yollar proje
+ayarında `~/.claude`, `--settings` dosyasında o dosyanın dizini, yönetilen ayarda yönetilen
+dizin; `/` mutlak, `~/` ev dizinidir (Fusion YAML'ındaki göreli yollar proje
 köküne göredir).
 
 `/sandbox on|off|oto` (REPL) ve masaüstü sandbox paneli kip seçimini Claude'daki gibi projenin

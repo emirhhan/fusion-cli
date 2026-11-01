@@ -208,8 +208,8 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
 
 Claude Code ile aynı sıra: `fusion --permission-mode <kip>` (`default`/`manual`, `acceptEdits`,
 `plan`, `auto`, `dontAsk`, `bypassPermissions`) > Claude `settings.json`'daki
-`permissions.defaultMode` (`.claude/settings.local.json` > `.claude/settings.json` >
-`~/.claude/settings.json`) > eski `runtime.approval_mode` > `auto`. Proje ve yerel dosyada
+`permissions.defaultMode` (yönetilen `managed-settings.json` > `--settings` >
+`.claude/settings.local.json` > `.claude/settings.json` > `~/.claude/settings.json`) > eski `runtime.approval_mode` > `auto`. Proje ve yerel dosyada
 `"auto"` yok sayılır (kullanıcı dosyasına düşülmez), `"bypassPermissions"` yok sayılır ve
 oturum Manual açılır. Bayrakla ya da kullanıcı dosyasıyla bypass verilirse oturum bypass
 kipinde başlar (root olarak reddedilir); otomatik kip kullanılamıyorsa Manual açılır.

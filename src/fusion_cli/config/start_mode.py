@@ -2,8 +2,8 @@
 
 Claude Code (permission-modes, "Start in a different permission mode") sırası:
 1. `--permission-mode <kip>` bayrağı;
-2. `permissions.defaultMode` (`.claude/settings.local.json` > `.claude/settings.json` >
-   `~/.claude/settings.json`). Proje ve yerel dosyada `"auto"` yok sayılır ve kullanıcı
+2. `permissions.defaultMode` (managed > `--settings` > `.claude/settings.local.json` >
+   `.claude/settings.json` > `~/.claude/settings.json`). Proje ve yerel dosyada `"auto"` yok sayılır ve kullanıcı
    dosyasına düşülmez (yerleşik varsayılan kullanılır); `"bypassPermissions"` yok sayılır ve
    oturum Manual açılır;
 3. yerleşik varsayılan (`auto`). Fusion'ın eski `runtime.approval_mode` ayarı bu adımda okunur.
@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from .claude_home import claude_user_dir
+from .claude_top_layers import top_layers
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 _LOG = logging.getLogger(__name__)
@@ -73,13 +74,27 @@ def _default_mode(path: Path) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         _LOG.warning("Claude ayar dosyası okunamadı; defaultMode atlandı: %s", path)
         return None
+    return _mode_in(raw)
+
+
+def _mode_in(raw: object) -> str | None:
     permissions = raw.get("permissions") if isinstance(raw, dict) else None
     value = permissions.get("defaultMode") if isinstance(permissions, dict) else None
     return value if isinstance(value, str) else None
 
 
 def _from_settings(root: Path, home: Path | None) -> tuple[str | None, bool]:
-    """(kip, kullanıcı dosyasından mı) — dosyalarda yoksa (None, False)."""
+    """(kip, kullanıcı dosyasından mı) — dosyalarda yoksa (None, False).
+
+    Managed ve `--settings` katmanı (#328) dosyaların üstündedir ve yönetici/kullanıcının açık
+    seçimidir: `auto` ve `bypassPermissions` kullanıcı dosyasındaki gibi uygulanır.
+    """
+    for layer in reversed(top_layers(root)):
+        value = _mode_in(layer.data)
+        if value in _MODES:
+            return _MODES[value], True
+        if value is not None:
+            _LOG.warning("Geçersiz permissions.defaultMode yok sayıldı: %s", layer.source)
     project_files = []
     if is_permissions_trusted(root):
         project_files.append(root / ".claude" / "settings.local.json")

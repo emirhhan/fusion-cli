@@ -2,7 +2,8 @@
 
 Claude Code sandbox ayarlarını kendi ayar dosyalarından okur (settings-reference › sandbox):
 `~/.claude/settings.json` (ya da `CLAUDE_CONFIG_DIR`), proje `.claude/settings.json` ve
-`.claude/settings.local.json`; sonraki öncekini ezer. Fusion aynı dosyaları aynı sırayla okur;
+`.claude/settings.local.json`, sonra `--settings` ve yönetilen (managed) ayarlar
+(`claude_top_layers`, #321); sonraki öncekini ezer. Fusion aynı dosyaları aynı sırayla okur;
 proje dosyaları yalnız güvenilen projede uygulanır (`trust`). Fusion YAML'ındaki `sandbox:`
 bölümü bunların altında en düşük katmandır.
 
@@ -20,13 +21,14 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 from ..core.errors import ConfigError
 from . import trust
 from .claude_home import claude_user_dir
+from .claude_top_layers import top_layers
 from .sandbox_claude_keys import normalize_claude_sandbox
 from .sandbox_config import SandboxConfig
 
@@ -110,9 +112,20 @@ def _known_only(section: dict[str, object], path: Path) -> dict[str, object]:
     return kept
 
 
-def _layer(path: Path, base: Path) -> tuple[dict[str, object], bool | None] | None:
-    data = _load(path)
-    if data is None or "sandbox" not in data:
+def _candidates(root: Path, home: Path | None) -> Iterator[tuple[Mapping[str, object], Path, Path]]:
+    """(içerik, kaynak, göreli yol tabanı) artan öncelikle: dosyalar, `--settings`, managed."""
+    for path, base in _sources(root, home):
+        data = _load(path)
+        if data is not None:
+            yield data, path, base
+    for top in top_layers(root):
+        yield top.data, top.source, top.base
+
+
+def _layer_from(
+    data: Mapping[str, object], path: Path, base: Path
+) -> tuple[dict[str, object], bool | None] | None:
+    if "sandbox" not in data:
         return None
     try:
         section, enabled = normalize_claude_sandbox(data["sandbox"])
@@ -147,8 +160,8 @@ def read_claude_sandbox(root: Path, *, home: Path | None = None) -> ClaudeSandbo
     section: dict[str, object] = {}
     enabled: bool | None = None
     sources: list[Path] = []
-    for path, base in _sources(root, home):
-        layer = _layer(path, base)
+    for data, path, base in _candidates(root, home):
+        layer = _layer_from(data, path, base)
         if layer is None:
             continue
         section = merge_sandbox_sections(section, layer[0])
