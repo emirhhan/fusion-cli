@@ -79,3 +79,20 @@ def test_tui_ctrl_t_listeyi_acar_kapatir():
     assert tui._tasks_visible is True and calls == [True]
     tui._toggle_tasks()
     assert tui._tasks_visible is False
+
+
+def test_tui_ctrl_c_once_bekleyen_donguyu_durdurur_yoksa_cikar():
+    exits: list[bool] = []
+    stops = iter([True, False])
+    tui = FusionTui(
+        on_submit=lambda _line: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: exits.append(True),
+        on_cycle_mode=lambda: None,
+        on_stop_loops=lambda: next(stops),
+    )
+    assert keybindings.load_keymap(Path("/yok.json")).bindings("tui")["c-c"] == "dongu_ya_da_cik"
+    tui._stop_loops_or_exit()
+    assert exits == []
+    tui._stop_loops_or_exit()
+    assert exits == [True]

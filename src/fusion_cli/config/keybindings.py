@@ -49,7 +49,8 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "escape": "dongu_durdur",
     },
     CONTEXT_TUI: {
-        "c-c": "cik",
+        # Ctrl+C: bekleyen kendi tempolu /loop varsa onu durdurur (Claude, #365), yoksa çıkış.
+        "c-c": "dongu_ya_da_cik",
         "c-q": "cik",
         "escape": "kes",
         "s-tab": "kip_dongusu",
@@ -75,6 +76,7 @@ ACTIONS: dict[str, frozenset[str]] = {
     CONTEXT_TUI: frozenset(
         {
             "cik",
+            "dongu_ya_da_cik",
             "kes",
             "kip_dongusu",
             "sayfa_yukari",

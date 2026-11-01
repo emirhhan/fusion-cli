@@ -320,6 +320,7 @@ class _TuiSession:
             on_background=self._background_turn,
             # Ctrl+T: görev listesi (#330); açık bırakılırsa sürdürmede açık gelir.
             on_toggle_tasks=lambda: task_view.toggle_visible(state),
+            on_stop_loops=self._stop_waiting_loops,
             task_lines=lambda: task_view.task_lines(state),
             tasks_visible=task_view.is_visible(state),
         )
@@ -427,6 +428,17 @@ class _TuiSession:
             inject=_inject,
             is_busy=lambda: self._busy,
         )
+
+    def _stop_waiting_loops(self) -> bool:
+        """Ctrl+C (tur yokken): bekleyen kendi tempolu döngüleri durdur; durdurduysa True."""
+        if self._busy:
+            return False
+        stopped = loop_command.stop_waiting_self_paced(self._state)
+        for task_id in stopped:
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_STOPPED.format(id=task_id))}[/{theme.DIM}]"
+            )
+        return bool(stopped)
 
     def _exit(self) -> None:
         self._state.running = False

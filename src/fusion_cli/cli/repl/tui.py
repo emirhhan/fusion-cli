@@ -139,6 +139,7 @@ class FusionTui:
         on_rewind: Callable[[], None] | None = None,
         on_background: Callable[[], None] | None = None,
         on_toggle_tasks: Callable[[], bool] | None = None,
+        on_stop_loops: Callable[[], bool] | None = None,
         task_lines: Callable[[], list[str]] | None = None,
         tasks_visible: bool = False,
     ) -> None:
@@ -151,6 +152,8 @@ class FusionTui:
         self._on_background = on_background
         # Ctrl+T görev listesi (#330): durum alanının üstünde en çok 5 madde.
         self._on_toggle_tasks = on_toggle_tasks
+        #: Ctrl+C (#365): bekleyen kendi tempolu döngü varsa onu durdurur, yoksa çıkış.
+        self._on_stop_loops = on_stop_loops
         self._task_lines = task_lines
         self._tasks_visible = tasks_visible
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
@@ -650,6 +653,7 @@ class FusionTui:
         # `c-r` tarihsel olarak en başa gider (End ile canlı akışa dönülür).
         actions: dict[str, tuple[Callable[[], None], Filter | None]] = {
             "cik": (self._on_exit, None),
+            "dongu_ya_da_cik": (self._stop_loops_or_exit, None),
             "kes": (self._cancel_or_interrupt, None),
             # Yalnız tur sürerken: boştayken Ctrl+B satır düzenlemesinde (geri karakter) kalır.
             "arka_plana_al": (self._request_background, Condition(self._can_background)),
@@ -707,6 +711,11 @@ class FusionTui:
             kb.add(key, eager=True)(_run)
         else:
             kb.add(key, filter=condition, eager=True)(_run)
+
+    def _stop_loops_or_exit(self) -> None:
+        if self._mode == "idle" and self._on_stop_loops is not None and self._on_stop_loops():
+            return
+        self._on_exit()
 
     def _toggle_tasks(self) -> None:
         """Ctrl+T: görev listesini aç/kapat (durum oturumla saklanır)."""
