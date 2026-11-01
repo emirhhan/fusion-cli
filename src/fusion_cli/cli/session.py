@@ -69,9 +69,9 @@ from ..engines.agent.approval import (
     may_run_unasked_commands,
 )
 from ..engines.agent.child_runs import ChildRuns
-from ..engines.agent.skill_grants import grant as grant_skill_rules
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.skill_grants import grant as grant_skill_rules
 from ..engines.agent.tool_filter import DeniedToolsPolicy
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
