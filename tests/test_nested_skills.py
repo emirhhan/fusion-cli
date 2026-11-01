@@ -158,3 +158,32 @@ def test_config_ile_yeniden_kurulan_defter_kesfi_korur(tmp_path: Path):
 
     assert state.capabilities is not None
     assert state.capabilities.get_skill("paket-becerisi") is not None
+
+
+def test_kurumsal_beceri_koku_ilk_sirada_eklenti_onbellegi_taranmaz(tmp_path: Path, monkeypatch):
+    """Claude Code (#157): kurumsal kök; `~/.claude/plugins` ham taraması yok."""
+    managed = tmp_path / "yonetilen"
+    monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(managed))
+    home = tmp_path / "ev"
+    _skill(managed / ".claude" / "skills", "kurumsal", description="şirket")
+    _skill(home / ".claude" / "plugins" / "cache" / "pazar" / "skills", "onbellek", description="x")
+    root = tmp_path / "proje"
+    root.mkdir()
+
+    registry = CapabilityRegistry(home, root)
+
+    kurumsal = registry.get_skill("kurumsal")
+    assert kurumsal is not None and kurumsal.source == "managed"
+    assert registry.get_skill("onbellek") is None
+
+
+def test_claude_disi_kok_kullanimdan_kalkti_uyarisi(tmp_path: Path, caplog):
+    home = tmp_path / "ev"
+    _skill(home / ".codex" / "skills", "eski", description="x")
+    root = tmp_path / "proje"
+    root.mkdir()
+
+    with caplog.at_level("WARNING"):
+        assert CapabilityRegistry(home, root).get_skill("eski") is not None
+
+    assert any("kullanımdan kalktı" in record.message for record in caplog.records)

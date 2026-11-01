@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import logging
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -513,6 +514,7 @@ class CapabilityRegistry:
             bundled=bundled_skills_dir(),
             nested=self._nested_roots,
             ancestors=ancestor_skill_dirs(self._root),
+            managed=managed_skill_dirs(),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -540,6 +542,7 @@ class CapabilityRegistry:
         for root, source in self._skill_roots():
             if not root.exists():
                 continue
+            warn_deprecated_root(root, self._home, self._root)
             for path in sorted(root.rglob("SKILL.md")):
                 if not _trusted_path(path, root, source):
                     continue
@@ -753,6 +756,33 @@ def _read_head(path: Path, limit: int | None = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
+
+
+def managed_skill_dirs() -> tuple[Path, ...]:
+    """Kurumsal beceri kökü: Claude Code yönetilen dizinin `.claude/skills`'i (#157)."""
+    from ..config.claude_settings import managed_dir
+
+    folder = managed_dir()
+    return (folder / ".claude" / "skills",) if folder is not None else ()
+
+
+_LOG = logging.getLogger(__name__)
+_WARNED_ROOTS: set[Path] = set()
+
+
+def warn_deprecated_root(folder: Path, home: Path, root: Path) -> None:
+    """Claude Code'da olmayan kök bir sürüm okunur; kök başına bir kez uyarı loglanır (#157)."""
+    from .capability_roots import deprecated_root
+
+    label = deprecated_root(folder, home, root)
+    if not label or folder in _WARNED_ROOTS or not any(folder.rglob("SKILL.md")):
+        return
+    _WARNED_ROOTS.add(folder)
+    _LOG.warning(
+        "%s beceri kökü kullanımdan kalktı (Claude Code okumaz); becerileri "
+        "~/.claude/skills ya da .claude/skills altına taşı",
+        label,
+    )
 
 
 def qualify_nested(capability: Capability, folder: Path, root: Path) -> Capability:

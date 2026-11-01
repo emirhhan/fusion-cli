@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
 #: Kullanıcının kendi dizinindeki beceri kaynakları: `!`cmd`` koşabilir, ön onayı geçerli.
-TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
+TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion", "managed"})
 
 #: Depo içeriği sayılan kaynaklar: güvenilen projede yalnız salt-okur `!`cmd``.
 PROJECT_SOURCES = frozenset({"proje", "ek-kok"})

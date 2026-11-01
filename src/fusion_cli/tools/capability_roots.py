@@ -41,6 +41,7 @@ def skill_roots(
     bundled: Path,
     nested: tuple[Path, ...] = (),
     ancestors: tuple[Path, ...] = (),
+    managed: tuple[Path, ...] = (),
 ) -> Roots:
     """SKILL.md aranan kökler ve kaynak etiketleri, öncelik sırasıyla.
 
@@ -48,8 +49,10 @@ def skill_roots(
     (aynı adda kök becerisi kazanır) ve "proje" sayılır (depo içeriği, aynı güven kuralları).
     """
     return (
+        # Claude Code (#157): kurumsal (managed) beceriler ilk sırada; `~/.claude/plugins` ham
+        # taraması yok, eklenti becerileri yalnız etkin eklentilerden `eklenti:ad` olarak gelir.
+        *((folder, "managed") for folder in managed),
         (home / ".claude" / "skills", "claude"),
-        (home / ".claude" / "plugins", "claude-plugin"),
         (root / ".claude" / "skills", "proje"),
         (root / ".fusion" / "skills", "proje"),
         # Codex/ChatGPT "Agent Skills" açık standardı: ~/.agents/skills ve depo .agents/skills.
@@ -190,3 +193,22 @@ def ancestor_skill_dirs(root: Path) -> tuple[Path, ...]:
             return tuple(chain)
     return ()
 
+
+
+#: Claude Code'da olmayan, bir sürüm boyunca okunan beceri kökleri (#157): kullanımdan kalktı.
+DEPRECATED_SKILL_ROOTS: tuple[tuple[str, str], ...] = (
+    (".fusion/skills", "proje"),
+    (".agents/skills", "proje"),
+    ("~/.codex/skills", "codex"),
+    ("~/.agents/skills", "codex"),
+    ("~/.hermes/skills", "hermes"),
+)
+
+
+def deprecated_root(folder: Path, home: Path, root: Path) -> str:
+    """Kök kullanımdan kalkmış bir Fusion kökü mü: gösterilecek ad ya da boş."""
+    for label, _source in DEPRECATED_SKILL_ROOTS:
+        base = home if label.startswith("~/") else root
+        if folder == base / label.removeprefix("~/"):
+            return label
+    return ""

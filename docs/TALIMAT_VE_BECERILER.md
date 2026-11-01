@@ -159,9 +159,14 @@ işaretlenmez). Model uygun beceriyi aramadan tanır ve Claude Code'daki gibi `S
 
 ## Beceri keşif kökleri
 
-Öncelik sırasıyla (aynı adda ilk bulunan kazanır): `~/.claude/skills`, `~/.claude/plugins`,
-proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `~/.agents/skills`
-(Codex/ChatGPT açık standardı); `~/.hermes/skills`; `--add-dir` / `/add-dir` ile açılan her kökün
+Claude Code ile aynı öncelik sırası (aynı adda ilk bulunan kazanır): kurumsal (yönetilen dizinin
+`.claude/skills`'i, ör. macOS'ta `/Library/Application Support/ClaudeCode/.claude/skills`),
+`~/.claude/skills`, proje `.claude/skills` ve depo köküne kadar üst dizinlerinki, iç içe
+dizinler, eklentiler (yalnız etkin eklentiler, `eklenti:ad` adıyla; `~/.claude/plugins` önbellekleri
+ham taranmaz). **Kullanımdan kalktı:** `.fusion/skills`, `.agents/skills`, `~/.codex/skills`,
+`~/.agents/skills` ve `~/.hermes/skills` Claude Code'da okunmaz; bu sürüm boyunca okunur ve kök
+başına bir kez uyarı loglanır, becerileri `~/.claude/skills` ya da `.claude/skills` altına taşı.
+`--add-dir` / `/add-dir` ile açılan her kökün
 `.claude/skills`, `.agents/skills`, `.fusion/skills` ve `.claude/agents` dizinleri ("ek-kok");
 `fusion yetenek kur` repoları; yerleşik beceriler en sonda. Komut dosyaları için
 `~/.claude/commands`, `~/.fusion/commands`, proje `.claude/commands`, `.fusion/commands`.
