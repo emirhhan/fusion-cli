@@ -1056,11 +1056,15 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 /config runtime.web           # süzgeç
 /config runtime.max_tokens    # tek değer
 /config runtime.max_tokens=8192   # oturuma uygula + config.yaml'a yaz
+/config theme=dark editorMode=vim model=sonnet   # Claude adları, birden çok çift
+/settings · /config --help        # takma ad · kullanım
 fusion config list [süzgeç] · fusion config get <yol> · fusion config set <yol> <değer>
 fusion --set runtime.max_tokens=8192 --set runtime.lessons=false   # yalnız bu oturum
 fusion --profile high                                        # yalnız bu oturum kademe
 fusion --set runtime.max_tokens=8192 run "görev"                # alt komutlarda da geçerli
 ```
+Claude Code ayar adları: `model` (`/model <model>` ile aynı, kaydeder), `theme` (`dark`/`light`/`dark-ansi`/`light-ansi`/`dark-daltonized`/`light-daltonized` → terminal paleti), `outputStyle`, `editorMode` (`vim`/`normal`), `tui` (`default`/`fullscreen`). Adlar Claude'daki gibi büyük/küçük harf duyarlıdır. Etkileşimli Settings paneli henüz yok; argümansız `/config` listeyi basar.
+
 `--set`/`--profile` REPL'in yanında `run`, `agent`, `serve`, `models`, `trace`, `mcp-tools` ve `config get/list/show` alt komutlarına da uygulanır (`config set` dosyaya yazar, oturumluk değeri almaz; `app`/`mcp` sunucuları yapılandırmayı kendileri yükler). Hatalı çift çıkış kodu 2 ile durdurur.
 Erişilebilen bölümler `runtime.*`, `embedding.*` ve `capabilities.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, sözlük: `ad=değer, ad2=değer`, `null` anahtarı siler). Beceri görünürlüğü tek anahtarla: `/config capabilities.overrides.deploy=user-invocable-only` (`fusion config set capabilities.overrides.deploy kapali`); `capabilities.disabled=a,b` kalıcı kapatma. REPL'de değişiklik beceri kataloğuna hemen yansır. Model rolleri için `/model`, `/level`, `/mode`.
 
@@ -1104,16 +1108,16 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 
 Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+L ekran temizleme yok; kuyruğa alınan mesaj araç çağrıları arasında aynı tura verilmez (tur sonunu bekler), Ctrl+Enter / Ctrl+X Ctrl+S ve Up ile geri alma yok.
 
-### Tuş bağları ve vim: `/keybindings`, `/vim`
+### Tuş bağları ve vim: `/keybindings`, `editorMode`
 
-`/vim` yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
+Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
 
 `/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
 ```json
 { "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
   "tui":   { "c-d": null, "c-g": "kes", "f2": "komut:status" } }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kes_temizle_cik`, `cift_basista_cik`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kes_temizle_cik`, `cift_basista_cik`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/config editorMode=vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
 
 ---
 
@@ -1202,9 +1206,9 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `! cmd` · `@dosya` | Kabuk · dosya anma |
 | `/status` · `/context` | Oturum durumu · bağlam kırılımı |
 | `/export` · `/copy` | Konuşmayı dosyaya/panoya · son cevabı panoya |
-| `/config yol=değer` | Ayar değiştir (`fusion config get/set/list`) |
+| `/config [key=value ...]` · `/settings` | Ayar değiştir; Claude adları ve `bölüm.alan` yolları (`fusion config get/set/list`) |
 | `/output-style` · `/theme` · `/tui` | Çıktı stili · terminal teması · görünüm |
-| `/statusline` · `/keybindings` · `/vim` | Durum satırı betiği · tuş bağları · vim |
+| `/statusline` · `/keybindings` | Durum satırı betiği · tuş bağları (vim: `/config editorMode=vim`) |
 | `fusion serve` | Yerel santral + panel |
 | `fusion mcp` | Araçları MCP ile dışa aç |
 | `fusion mcp-tools` | Dış MCP araçlarını listele |

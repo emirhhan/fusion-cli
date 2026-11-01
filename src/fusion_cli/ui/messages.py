@@ -50,6 +50,21 @@ ERROR_CONFIG = "Yapılandırma hatası: {detail}"
 ERROR_INTERRUPTED = "işlem durduruldu"
 
 # --- config show ---------------------------------------------------------- #
+CONFIG_HELP = (
+    "Kullanım: /config [key=value ...]  (takma ad: /settings)\n"
+    "  argümansız ya da filtreyle: ayarları listeler · tek yol: değeri gösterir\n"
+    "  Claude adları: model=<model> · theme=dark|light|dark-ansi|light-ansi|"
+    "dark-daltonized|light-daltonized · outputStyle=<ad> · editorMode=vim|normal · "
+    "tui=default|fullscreen\n"
+    "  Fusion yolları: runtime.max_tokens=8192 (birden çok çift boşlukla ayrılır)"
+)
+CONFIG_PAIR_INVALID = "Geçersiz çift: {pair} (biçim: key=value)"
+CONFIG_EDITOR_MODE_SET = "editorMode → {mode} (kaydedildi)"
+CONFIG_EDITOR_MODE_UNSAVED = "editorMode → {mode} (yalnız bu oturum; yazılamadı: {error})"
+CONFIG_EDITOR_MODE_UNKNOWN = "Bilinmeyen editorMode: {value} (seçenekler: vim, normal)"
+VIM_DEPRECATED = (
+    "/vim Claude Code'da kaldırıldı (v2.1.92); Claude adı: /config editorMode=vim|normal"
+)
 CONFIG_SOURCE_DEFAULTS = "yalnızca gömülü varsayılanlar (kullanıcı dosyası yok)"
 CONFIG_SOURCE_FILE = "kullanıcı dosyası: {path}"
 CONFIG_HEADING_CANDIDATES = "Fusion adayları"
