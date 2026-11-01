@@ -34,7 +34,7 @@ async def test_istem_varsa_initial_user_message_kullanilmaz(monkeypatch, tmp_pat
 
 async def test_istemsiz_ve_mesajsiz_kosu_engellenir(monkeypatch, tmp_path):
     session = _oturum(tmp_path, _kanca(tmp_path, HookEvent.SESSION_START, "print('bağlam')\n"))
-    outcome, provider, _p, _s = await _tur(monkeypatch, tmp_path, [], session, task="")
+    outcome, _provider, _p, _s = await _tur(monkeypatch, tmp_path, [], session, task="")
     assert not outcome.ok
     assert "boş" in outcome.final_text
 
