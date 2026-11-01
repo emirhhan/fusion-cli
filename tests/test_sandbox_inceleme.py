@@ -314,11 +314,11 @@ def test_fusion_home_env_ve_temel_dizin_env_her_zaman_okuma_engelinde(tmp_path, 
     assert tmp_path / ".env" not in yollar
 
 
-def test_varsayilan_okuma_engeli_gh_ve_git_kimligini_kapsar():
+def test_yerlesik_okuma_engeli_claude_gibi_bos():
+    """Claude'da yerleşik kimlik bilgisi listesi yok (#348); korumak için denyRead/credentials."""
     from fusion_cli.config.sandbox_config import DEFAULT_DENY_READ
 
-    for yol in ("~/.config/gh", "~/.config/git/credentials", "~/.pypirc"):
-        assert yol in DEFAULT_DENY_READ
+    assert DEFAULT_DENY_READ == ()
 
 
 # --- 9. yüzeyler: notlar, gerçek ayar adı, CLI bayrakları -------------------- #

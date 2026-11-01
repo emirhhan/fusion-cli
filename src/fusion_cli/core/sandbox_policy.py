@@ -31,6 +31,7 @@ __all__ = [
     "normalize_domain",
     "protected_anchors",
     "protected_write_paths",
+    "read_rules",
 ]
 
 #: Ağ kısıtı yok (eski davranış).
@@ -75,6 +76,10 @@ class SandboxPolicy:
     extra_write: tuple[Path, ...] = ()
     #: Sandbox içinde okunamayan yollar (dizin ise altı da).
     deny_read: tuple[Path, ...] = ()
+    #: `deny_read` bölgesinin içini yeniden açan yollar (Claude `allowRead`; dar olan kazanır).
+    allow_read: tuple[Path, ...] = ()
+    #: `allow_read` ile açılamayan engeller (Fusion'ın kendi sır dosyaları).
+    locked_read: tuple[Path, ...] = ()
     #: `open` | `allowlist`.
     network: str = NETWORK_OPEN
     #: `allowlist` kipinde erişilebilen alan adları (`*.ornek.com` alt alan adları).
@@ -93,7 +98,9 @@ class SandboxPolicy:
     #: deny/ask kuralı ve plan kipi hariç). Claude'da varsayılan açık (#347).
     auto_allow: bool = True
     #: Sandbox içindeki komutun ortamından sır gibi görünen değişkenler (`*_TOKEN`…) çıkarılır.
-    hide_secret_env: bool = True
+    hide_secret_env: bool = False
+    #: Sandbox ortamından her zaman çıkarılan adlar (Claude `credentials.envVars` deny, #368).
+    deny_env: tuple[str, ...] = ()
     #: Her kipte kapalı loopback portları: Fusion Chrome'larının CDP portu (çalışma anında
     #: `tools.sandbox_cdp` doldurur; yapılandırmadan gelmez). Yalnız macOS Seatbelt uygular.
     denied_local_ports: tuple[int, ...] = ()
@@ -172,6 +179,37 @@ def is_excluded_command(command: str, patterns: tuple[str, ...]) -> bool:
         if wanted and words[: len(wanted)] == wanted:
             return True
     return False
+
+
+def _under(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
+
+
+def read_rules(policy: SandboxPolicy) -> tuple[tuple[Path, bool], ...]:
+    """Okuma kuralları uygulama sırasıyla: `(yol, izin_mi)`; SONRAKİ kural kazanır (#349).
+
+    Claude (sandboxing, Filesystem): okuma kuralları çakışınca dar yol kazanır — `denyRead
+    ["~/"]` + `allowRead ["~/projects"]` projeyi açar, `allowRead ["~/"]` + `denyRead
+    ["~/.env"]` sırrı kapalı tutar. Geniş yol önce, dar yol sonra yazılır; aynı yolda engel
+    kazanır. Yalnız bir engelin içindeki `allow_read` anlamlıdır (gerisi zaten okunur).
+    `locked_read` en sona eklenir: hiçbir `allow_read` onu açamaz.
+    """
+    locked = tuple(dict.fromkeys(path.resolve() for path in policy.locked_read))
+    denied = tuple(
+        path
+        for path in dict.fromkeys(item.resolve() for item in policy.deny_read)
+        if path not in locked
+    )
+    opened = tuple(
+        path
+        for path in dict.fromkeys(item.resolve() for item in policy.allow_read)
+        if any(_under(path, deny) for deny in denied)
+    )
+    ordered = sorted(
+        [(path, True) for path in opened] + [(path, False) for path in denied],
+        key=lambda item: (len(item[0].parts), not item[1]),
+    )
+    return (*ordered, *((path, False) for path in locked))
 
 
 def protected_write_paths(roots: Sequence[Path]) -> tuple[Path, ...]:

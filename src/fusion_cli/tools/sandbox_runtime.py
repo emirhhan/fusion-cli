@@ -256,14 +256,16 @@ def delete_blocked(targets: list[str], args: ToolArgs, context: ToolContext) -> 
 
 
 def sandbox_env(base: dict[str, str], run: SandboxRun) -> dict[str, str]:
-    """Komut ortamı: sandbox içindeyse sır gibi görünen adlar çıkar, proxy adresi eklenir."""
+    """Komut ortamı: sandbox içindeyse `credentials.envVars` adları (ve eski `hide_secret_env`
+    açıksa sır gibi görünen adlar) çıkar, proxy adresi eklenir."""
     if not run.plan.is_active:
         return base
-    env = (
-        {name: value for name, value in base.items() if not is_secret_env_name(name)}
-        if run.plan.hide_secret_env
-        else dict(base)
-    )
+    denied = set(run.policy.deny_env)
+    env = {
+        name: value
+        for name, value in base.items()
+        if name not in denied and not (run.plan.hide_secret_env and is_secret_env_name(name))
+    }
     run.hidden_env = tuple(sorted(name for name in base if name not in env))
     env.update(dict(run.plan.env))
     return env

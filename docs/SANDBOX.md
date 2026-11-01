@@ -69,27 +69,30 @@ yok sayılır ve uyarılır.
   yürütür. `git add/commit/checkout/fetch` çalışır; `git init`, `git remote add`,
   `git push -u`, `git config` bu dosyalara yazdığı için sandbox içinde düşer — gerekirse
   `dangerouslyDisableSandbox=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
-- **Okuma:** varsayılan okuma engeli her zaman uygulanır: `~/.ssh`, `~/.aws`, `~/.gnupg`,
-  `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
-  `~/.git-credentials`, `~/.password-store`, `~/Library/Keychains`, `~/.config/gh`,
-  `~/.config/git/credentials`, `~/.pypirc`. Fusion'ın yüklediği her `.env` (`FUSION_HOME/.env`,
-  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri de her
-  zaman engellidir. `sandbox.deny_read` bu listeye **eklenir**; varsayılandan bir yolu bilerek
-  açmak için `sandbox.allow_read` yazılır (ör. `["~/.kube"]`). `allow_read`'de okuma engelinde
-  olmayan bir yol yapılandırma hatasıdır; Fusion'ın sır dosyaları bu yolla açılamaz. `~/.npmrc`
-  bilinçli olarak listede yok (npm her kurulumda okur).
+- **Okuma:** Claude Code gibi sandbox makinenin tamamını okuyabilir; yerleşik bir kimlik
+  bilgisi listesi **yoktur** (`~/.ssh`, `~/.aws/credentials` de yazılmazsa okunur). Engellemek
+  için `sandbox.filesystem.denyRead` ya da `sandbox.credentials.files` yazılır.
+  `sandbox.filesystem.allowRead` engellenmiş bir bölgenin içini yeniden açar; kurallar çakışınca
+  **dar yol kazanır**: `denyRead ["~/"]` + `allowRead ["~/projeler"]` projeyi açar, `allowRead
+  ["~/"]` + `denyRead ["~/.env"]` sırrı kapalı tutar; aynı yol iki listede ise engel kazanır.
+  Fusion'ın yüklediği her `.env` (`FUSION_HOME/.env`, hesap ve temel yapılandırma dizini),
+  şifreli kasası ve tarayıcı/web oturum profilleri her zaman engellidir ve `allowRead` ile
+  açılamaz.
 
   ```yaml
   sandbox:
-    deny_read: ["~/ozel-anahtarlar"]   # varsayılana eklenir
-    allow_read: ["~/.kube"]            # kubectl sandbox içinde çalışsın
+    filesystem:
+      denyRead: ["~/"]
+      allowRead: ["~/projeler"]
+    credentials:
+      files: [{path: "~/.aws/credentials", mode: deny}, {path: "~/.ssh", mode: deny}]
+      envVars: [{name: GITHUB_TOKEN, mode: deny}]
   ```
 
-  **Eski davranış (1 Kasım öncesi):** `sandbox.deny_read` yazılınca liste varsayılanın YERİNE
-  geçiyordu; tek yol ekleyen kullanıcı `~/.ssh` gibi korumaları kaybediyordu. Varsayılanı
-  da kopyalayan eski yapılandırmalar aynı sonucu verir (yinelenenler birleşir). Bir varsayılanı
-  listeden silerek açan eski yapılandırma artık o yolu yeniden engeller; açık kalması için
-  `allow_read`'e yazın.
+  **Eski davranış (1 Kasım öncesi):** 14 yollu yerleşik okuma engeli (`~/.ssh`, `~/.aws`,
+  `~/.kube`…) vardı ve `allow_read` yalnız bu listedeki bir yolu birebir açabiliyordu (başka yol
+  yapılandırma hatasıydı). Bu korumayı isteyen kullanıcı yolları `denyRead`'e yazar. Göreli
+  yollar hâlâ proje köküne göre çözülür (Claude'da ayar dosyasının dizinine göre; #369 bekliyor).
 - **Ağ:** Claude Code gibi komutun doğrudan çıkışı yoktur; komut yalnız Fusion'ın yerel
   proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir). `deniedDomains` her
   kipte reddedilir; `allowedDomains` ve `WebFetch(domain:…)` allow kuralındaki adlar sorulmadan
@@ -102,12 +105,12 @@ yok sayılır ve uyarılır.
   ad iç ağ adresine (127.0.0.1, 10.x, 169.254.x…) çözülürse bağlanılmaz; iç adrese gitmek için
   IP'yi ya da `localhost`'u listeye açıkça yazın. `allow_localhost: true` dev sunucularına ve yerel
   veritabanına doğrudan erişimi açık tutar (Linux'ta yalnız sandbox içinde başlatılanlara).
-- **Sır ortamı:** `hide_secret_env: true` iken sandbox içindeki komutun ortamından adı sır gibi
-  görünen değişkenler (`*_API_KEY`, `*_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`, `*ACCESS_KEY*`,
-  `*CREDENTIAL*`, `API_KEY`, `TOKEN`, `DATABASE_URL`) çıkarılır. Komut başarısız olursa gizlenen
-  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu macOS'ta **kaza önleyicidir,
-  güvenlik sınırı değildir** (aşağıya bakın); sırrı kabukta `export` etmek yerine Fusion
-  kasasında ya da `.env`'de tutun.
+- **Sır ortamı:** Claude gibi ortam Fusion'dan miras alınır. `sandbox.credentials.envVars`
+  (`mode: deny`) adları sandbox içindeki komutun ortamından çıkarır; `mode: mask` Fusion'da
+  `deny`'a düşer ve bir kez uyarılır (Fusion proxy'si sırrı yeniden imzalamaz). Kullanımdan
+  kalkan Fusion uzantısı `hide_secret_env: true` adı sır gibi görünen değişkenleri
+  (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`…) de çıkarır; varsayılan `false`. Bu
+  macOS'ta **kaza önleyicidir, güvenlik sınırı değildir** (aşağıya bakın).
 - **Başka süreçlerin ortamı:** Linux'ta komut kendi PID ad alanında ve taze `/proc` ile çalışır;
   başka süreçlerin `/proc/<pid>/environ`'ı görünmez. macOS'ta aynı kullanıcının Apple imzalı
   olmayan süreçlerinin (Fusion'ın Python'u, node, VS Code/iTerm gibi uygulamalar) **başlangıç**
@@ -161,10 +164,10 @@ geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 | `sandbox.autoAllowBashIfSandboxed` | `true` | Claude gibi: sandbox içinde çalışan komut ağ kipinden bağımsız sorulmaz. Sandbox gerçekten kurulamıyorsa (ör. Linux'ta socat yok) sorulur. Yıkıcı komutlar, `ask`/`deny` kuralları, plan kipi ve `FOO=bar npm test`, `make CC=clang`, `eval "ls"` biçimleri olağan izin akışından geçer |
 | `sandbox.network.strictAllowlist` | `false` | `true`: listede olmayan ad sorulmadan reddedilir |
 | `sandbox.allow_localhost` | `true` | Allowlist kipinde `localhost`'a doğrudan erişim |
-| `sandbox.hide_secret_env` | `true` | Sır görünümlü ortam değişkenlerini gizle (yukarıya bakın) |
+| `sandbox.hide_secret_env` | `false` | Kullanımdan kalkan uzantı: sır görünümlü ortam değişkenlerini de gizle |
 | `sandbox.allow_write` | `[]` | Ek yazılabilir dizinler, ör. `["~/.npm", "~/.cache/pip"]` |
-| `sandbox.deny_read` | `[]` | Varsayılan okuma engeline EK yollar |
-| `sandbox.allow_read` | `[]` | Varsayılan okuma engelinden bilerek açılan yollar |
+| `sandbox.filesystem.denyRead` | `[]` | Okunamayan yollar (yerleşik liste yok) |
+| `sandbox.filesystem.allowRead` | `[]` | Engellenmiş bölgenin içinde yeniden açılan yollar (dar yol kazanır) |
 
 Hepsi `/config sandbox.<alan>=<değer>` ile de değişir, ör. `/config sandbox.allow_write=~/.npm`.
 Güvenilmeyen bir projenin `config.yaml`'ındaki `sandbox:` bölümü uygulanmaz (`fusion trust`).

@@ -1733,7 +1733,7 @@ SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
 SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
 SANDBOX_READ = "  Okuma engeli : {paths}"
 SANDBOX_READ_OPENED = (
-    "  Okuma izni   : {paths} (varsayılan engelden bilerek açıldı: sandbox.allow_read)"
+    "  Okuma izni   : {paths} (engelli bölgenin içi yeniden açıldı: sandbox.filesystem.allowRead)"
 )
 SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
 SANDBOX_NETWORK_ALLOWLIST = (

@@ -1,16 +1,14 @@
 """`sandbox:` yapılandırma bölümü ve çalışma anı politikasına çevirisi (P-010).
 
-Kip anahtarı geri uyumlu olarak `runtime.shell_sandbox` (`off` | `write_root`) kalır;
-bu bölüm kip açıkken NEYİN sınırlanacağını söyler. Eski yapılandırmada bölüm yoksa
-varsayılanlar geçerlidir ve `write_root` eskisi gibi yalnız yazmayı sınırlar — artı
-varsayılan okuma engeli listesi (`DEFAULT_DENY_READ`: `~/.ssh`, `~/.aws`…). Fusion'ın
-kendi sır dosyaları (`.env`, şifreli kasa, tarayıcı/web oturum profilleri) listede yazılı
-olmasa da her zaman okuma engeline eklenir.
+Claude Code gibi (sandboxing, Filesystem defaults; #348, #349): sandbox makinenin tamamını
+okuyabilir, yerleşik kimlik bilgisi listesi yoktur; yalnız `filesystem.denyRead` yolları
+engellenir. `filesystem.allowRead` engellenmiş bir bölgenin içini yeniden açar; kurallar
+çakışınca dar yol kazanır (`core.sandbox_policy.read_rules`). Fusion'ın kendi sır dosyaları
+(`.env`, şifreli kasa, tarayıcı/web oturum profilleri) her zaman engellidir ve `allowRead`
+ile açılamaz.
 
-Okuma engeli = `DEFAULT_DENY_READ` + `sandbox.deny_read` − `sandbox.allow_read` + Fusion
-sırları. Ölçüldü (1 Kasım): `deny_read` yazan kullanıcının listesi varsayılanın YERİNE
-geçiyordu; tek yol ekleyen `~/.ssh` korumasını sessizce kaybediyordu. Artık kullanıcı
-listesi eklenir; varsayılandan bir yolu açmak için açıkça `allow_read` yazılır.
+Eski davranış (1 Kasım öncesi): 14 yollu yerleşik okuma engeli (`~/.ssh`, `~/.aws`…) vardı ve
+`allow_read` yalnız bu listedeki bir yolu birebir açabiliyordu.
 """
 
 from __future__ import annotations
@@ -36,23 +34,11 @@ __all__ = [
     "validate_sandbox",
 ]
 
-#: Her zaman uygulanan okuma engeli (kullanıcının `deny_read`'i buna EKLENİR).
-DEFAULT_DENY_READ: tuple[str, ...] = (
-    "~/.ssh",
-    "~/.aws",
-    "~/.gnupg",
-    "~/.azure",
-    "~/.kube",
-    "~/.config/gcloud",
-    "~/.docker/config.json",
-    "~/.netrc",
-    "~/.git-credentials",
-    "~/.password-store",
-    "~/Library/Keychains",
-    "~/.config/gh",
-    "~/.config/git/credentials",
-    "~/.pypirc",
-)
+#: Claude Code'da yerleşik okuma engeli listesi yoktur (sandboxing, "Reads: most of the
+#: machine, including credential files such as ~/.ssh"; #348). Ad, eski içe aktarmalar için
+#: boş demet olarak kalır; Fusion'ın kendi sır dosyaları `fusion_secret_paths` ile ayrıca ve
+#: her zaman engellidir.
+DEFAULT_DENY_READ: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +56,12 @@ class SandboxConfig:
     allow_unsandboxed: bool = True
     excluded_commands: tuple[str, ...] = ()
     auto_allow: bool = True
-    hide_secret_env: bool = True
+    hide_secret_env: bool = False
     strict_allowlist: bool = False
+    #: Claude `sandbox.credentials.envVars` (deny): sandbox ortamından çıkarılan adlar (#368).
+    credential_env: tuple[str, ...] = ()
+    #: Claude `sandbox.credentials.files` (deny): sandbox içinde okunamayan yollar.
+    credential_files: tuple[str, ...] = ()
 
 
 def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
@@ -95,40 +85,14 @@ def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
     for command in config.excluded_commands:
         if not command.strip():
             raise ConfigError("sandbox.excluded_commands: boş önek olamaz.")
-    _validate_allow_read(config)
     return replace(
         config, allowed_domains=domains["allowed_domains"], denied_domains=domains["denied_domains"]
     )
 
 
-def _read_key(raw: str) -> str:
-    """Yol girdisinin karşılaştırma biçimi: `$HOME` → `~`, sondaki `/` atılır."""
-    text = raw.strip()
-    if text.startswith("$HOME"):
-        text = "~" + text.removeprefix("$HOME")
-    return text.rstrip("/") or text
-
-
-def _validate_allow_read(config: SandboxConfig) -> None:
-    """`allow_read` yalnız okuma engelindeki bir yolu açabilir (yazım hatası sessiz kalmasın).
-
-    Fusion'ın kendi sır dosyaları (`fusion_secret_paths`) bu listeyle açılamaz.
-    """
-    known = {_read_key(raw) for raw in (*DEFAULT_DENY_READ, *config.deny_read)}
-    for raw in config.allow_read:
-        if _read_key(raw) not in known:
-            raise ConfigError(
-                f"sandbox.allow_read: {raw!r} okuma engelinde değil; yalnız varsayılan listeden "
-                f"ya da sandbox.deny_read'den bir yol açılabilir (varsayılan: "
-                f"{', '.join(DEFAULT_DENY_READ)})."
-            )
-
-
 def effective_deny_read(config: SandboxConfig) -> tuple[str, ...]:
-    """Varsayılan + kullanıcı listesi − `allow_read` (ham yazımla; Fusion sırları hariç)."""
-    opened = {_read_key(raw) for raw in config.allow_read}
-    merged = {_read_key(raw): raw for raw in (*DEFAULT_DENY_READ, *config.deny_read)}
-    return tuple(raw for key, raw in merged.items() if key not in opened)
+    """Kullanıcının `denyRead` listesi (Fusion sırları hariç; yinelenenler birleşir)."""
+    return tuple(dict.fromkeys(config.deny_read))
 
 
 def fusion_secret_paths() -> tuple[Path, ...]:
@@ -176,9 +140,15 @@ def sandbox_policy(
         extra_write=tuple(_expand(raw, home, root) for raw in config.allow_write),
         deny_read=tuple(
             dict.fromkeys(
-                (*(_expand(raw, home, root) for raw in effective_deny_read(config)), *extra_deny)
+                (
+                    *(_expand(raw, home, root) for raw in effective_deny_read(config)),
+                    *(_expand(raw, home, root) for raw in config.credential_files),
+                    *extra_deny,
+                )
             )
         ),
+        allow_read=tuple(_expand(raw, home, root) for raw in config.allow_read),
+        locked_read=tuple(dict.fromkeys(extra_deny)),
         network=config.network,
         allowed_domains=config.allowed_domains,
         denied_domains=config.denied_domains,
@@ -189,4 +159,5 @@ def sandbox_policy(
         auto_allow=config.auto_allow,
         hide_secret_env=config.hide_secret_env,
         strict_allowlist=config.strict_allowlist,
+        deny_env=tuple(dict.fromkeys(config.credential_env)),
     )

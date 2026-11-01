@@ -43,7 +43,7 @@ def test_durum_kapali_kipte_de_platformu_ve_kurallari_soyler(tmp_path):
     status = sandbox_status(make_config(), tmp_path, platform="win32")
     assert not status.enabled and not status.available
     assert "macOS ve Linux" in status.reason
-    assert "~/.ssh" in status.deny_read
+    assert "~/.ssh" not in status.deny_read  # Claude: yerleşik liste yok (#348)
     assert any(item.endswith(".env") for item in status.deny_read)
 
 

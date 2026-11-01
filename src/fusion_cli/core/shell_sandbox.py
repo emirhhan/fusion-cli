@@ -32,6 +32,7 @@ from .sandbox_policy import (
     SandboxPolicy,
     protected_anchors,
     protected_write_paths,
+    read_rules,
 )
 from .shell_sandbox_linux import LINUX_BRIDGE_PORT, LinuxTools, linux_sandbox_argv
 
@@ -123,7 +124,9 @@ def _local_port_rules(ports: Sequence[int]) -> str:
     )
 
 
-def _profile(write_count: int, read_count: int, network: str = "", guard: str = "") -> str:
+def _profile(
+    write_count: int, reads: Sequence[bool] = (), network: str = "", guard: str = ""
+) -> str:
     """SBPL profili: her şeye izin ver, yazmayı kapat, kökleri geri aç, okuma/ağ kısıtla."""
     allowed = " ".join(f'(subpath (param "W{index}"))' for index in range(write_count))
     devices = " ".join(f'(literal "{path}")' for path in _DEVICE_FILES)
@@ -131,9 +134,10 @@ def _profile(write_count: int, read_count: int, network: str = "", guard: str = 
         "(version 1)\n(allow default)\n(deny file-write*)\n"
         f'(allow file-write* {allowed} {devices} (regex #"^/dev/fd/[0-9]+$"))'
     )
-    if read_count:
-        denied = " ".join(f'(subpath (param "R{index}"))' for index in range(read_count))
-        profile += f"\n(deny file-read* {denied})"
+    # Okuma kuralları geniş→dar sırada; SBPL'de sonraki kural kazanır (allowRead, #349).
+    for index, allowed_read in enumerate(reads):
+        verb = "allow" if allowed_read else "deny"
+        profile += f'\n({verb} file-read* (subpath (param "R{index}")))'
     return profile + guard + network
 
 
@@ -162,21 +166,23 @@ def _darwin_prefix(
     proxy: ProxyEndpoint | None,
     guarded: Sequence[Path] = (),
 ) -> tuple[str, ...]:
-    denied = tuple(dict.fromkeys(path.resolve() for path in policy.deny_read))
+    reads = read_rules(policy)
     protected = protected_write_paths(guarded)
     git_entries = tuple(root / PROTECTED_ANCHORS[0] for root in guarded)
     anchors = tuple(
         path for path in protected_anchors(guarded) if path.name != PROTECTED_ANCHORS[0]
     )
     parameters = [item for index, path in enumerate(roots) for item in ("-D", f"W{index}={path}")]
-    parameters += [item for index, path in enumerate(denied) for item in ("-D", f"R{index}={path}")]
+    parameters += [
+        item for index, (path, _) in enumerate(reads) for item in ("-D", f"R{index}={path}")
+    ]
     for prefix, paths in (("P", protected), ("G", git_entries), ("A", anchors)):
         parameters += [
             item for index, path in enumerate(paths) for item in ("-D", f"{prefix}{index}={path}")
         ]
     guard = _guard_rules(len(protected), len(git_entries), len(anchors))
     network = _network_rules(policy, proxy) + _local_port_rules(policy.denied_local_ports)
-    profile = _profile(len(roots), len(denied), network, guard)
+    profile = _profile(len(roots), tuple(allowed for _, allowed in reads), network, guard)
     return (executable, *parameters, "-p", profile)
 
 

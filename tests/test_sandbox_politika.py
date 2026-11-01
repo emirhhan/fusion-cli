@@ -257,13 +257,18 @@ def test_sir_ortam_degiskeni_sandbox_icinde_gizlenir(proje, monkeypatch):
     monkeypatch.setenv("SAHTE_API_KEY", "sk-sahte-123")
     monkeypatch.setenv("SIRADAN_DEGISKEN", "gorunur")
 
-    gizli = shell.run_shell({"command": "env"}, _context(proje, SandboxPolicy()))
-    acik = shell.run_shell(
-        {"command": "env"}, _context(proje, SandboxPolicy(hide_secret_env=False))
+    gizli = shell.run_shell(
+        {"command": "env"}, _context(proje, SandboxPolicy(hide_secret_env=True))
+    )
+    acik = shell.run_shell({"command": "env"}, _context(proje, SandboxPolicy()))
+    ad = shell.run_shell(
+        {"command": "env"}, _context(proje, SandboxPolicy(deny_env=("SAHTE_API_KEY",)))
     )
 
     assert "sk-sahte-123" not in gizli.output and "gorunur" in gizli.output
+    # Claude varsayılanı: ortam miras alınır; credentials.envVars adı çıkarır (#368).
     assert "sk-sahte-123" in acik.output
+    assert "sk-sahte-123" not in ad.output and "gorunur" in ad.output
 
 
 def test_sade_rm_kok_disinda_sandbox_acikken_silmez(tmp_path, proje):
@@ -455,8 +460,8 @@ def test_politika_tildeyi_ve_goreli_yolu_cozer_fusion_sirlarini_ekler(tmp_path):
     config = SandboxConfig(allow_write=("~/.npm", "build"), deny_read=("gizli",))
     policy = sandbox_policy(config, home=ev, root=kok, extra_deny=(tmp_path / "kasa",))
     assert policy.extra_write == (ev / ".npm", kok / "build")
-    assert policy.deny_read[0] == ev / ".ssh"
-    assert policy.deny_read[-2:] == (kok / "gizli", tmp_path / "kasa")
+    assert policy.deny_read == (kok / "gizli", tmp_path / "kasa")  # yerleşik liste yok (#348)
+    assert policy.locked_read == (tmp_path / "kasa",)
 
 
 def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):

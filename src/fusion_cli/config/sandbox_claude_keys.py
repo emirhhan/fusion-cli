@@ -110,6 +110,39 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
     return [f"network.{key}" for key in network]
 
 
+def _credential_entries(raw: object, where: str, key: str) -> list[str]:
+    """`[{<key>: ..., mode: deny|mask}]`; `mask` Fusion'da `deny`'a düşer (bir kez uyarılır)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ConfigError(f"{where} bir liste olmalı.")
+    values: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or not isinstance(entry.get(key), str):
+            raise ConfigError(f"{where}: her girdi {{{key}: ..., mode: deny|mask}} olmalı.")
+        mode = entry.get("mode", "deny")
+        if mode not in ("deny", "mask"):
+            raise ConfigError(f"{where}: mode deny ya da mask olmalı: {mode!r}")
+        if mode == "mask":
+            _warn_once(f"{where} mode: mask", f"{where} mode: deny (Fusion maskelemez)")
+        values.append(str(entry[key]))
+    return values
+
+
+def _credentials(raw: object, result: dict[str, object]) -> list[str]:
+    """Claude `sandbox.credentials` (#368): `envVars` ortamdan çıkar, `files` okunamaz."""
+    if raw is None:
+        return []
+    section = _section(raw, "sandbox.credentials")
+    result["credential_env"] = _credential_entries(
+        section.pop("envVars", None), "sandbox.credentials.envVars", "name"
+    )
+    result["credential_files"] = _credential_entries(
+        section.pop("files", None), "sandbox.credentials.files", "path"
+    )
+    return [f"credentials.{key}" for key in section]
+
+
 def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool | None]:
     """Kullanıcının `sandbox:` bölümünü iç adlara çevir; `enabled` değerini ayrı döndür.
 
@@ -130,6 +163,7 @@ def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool |
     _move(filesystem, _FILESYSTEM, result)
     unsupported = [f"filesystem.{key}" for key in filesystem]
     unsupported += _network(data.pop("network", None), result)
+    unsupported += _credentials(data.pop("credentials", None), result)
     _move(data, _TOP_LEVEL, result)
     for key in unsupported:
         _warn_once(f"sandbox.{key}", "(henüz desteklenmiyor; yok sayıldı)")

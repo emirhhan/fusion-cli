@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .sandbox_policy import PROTECTED_ANCHORS, SandboxPolicy, protected_write_paths
+from .sandbox_policy import PROTECTED_ANCHORS, SandboxPolicy, protected_write_paths, read_rules
 
 __all__ = ["LINUX_BRIDGE_PORT", "LinuxSandboxArgv", "LinuxTools", "linux_sandbox_argv"]
 
@@ -78,17 +78,26 @@ def _guards(protected_roots: Sequence[Path]) -> list[str]:
 
 
 def _mounts(
-    roots: Sequence[Path], deny_read: Sequence[Path], protected_roots: Sequence[Path] = ()
+    roots: Sequence[Path],
+    reads: Sequence[tuple[Path, bool]],
+    protected_roots: Sequence[Path] = (),
 ) -> list[str]:
+    """Bağlamalar; okuma kuralları geniş→dar sırada (sonraki bağlama kazanır, #349).
+
+    Engel dizinin üstüne boş tmpfs, dosyanın üstüne /dev/null; `allowRead` yolu engelin
+    içinde dış dosya sisteminden salt okunur yeniden bağlanır.
+    """
     arguments = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
     for root in roots:
         if root.exists():
             arguments += ["--bind", str(root), str(root)]
     arguments += _guards(protected_roots)
-    for path in deny_read:
-        if path.is_dir():
+    for path, allowed in reads:
+        if allowed and path.exists():
+            arguments += ["--ro-bind", str(path), str(path)]
+        elif not allowed and path.is_dir():
             arguments += ["--tmpfs", str(path)]
-        elif path.exists():
+        elif not allowed and path.exists():
             arguments += ["--ro-bind", "/dev/null", str(path)]
     return arguments
 
@@ -116,7 +125,7 @@ def linux_sandbox_argv(
         return LinuxSandboxArgv(
             unavailable="bubblewrap (bwrap) bulunamadı (kur: apt install bubblewrap)"
         )
-    arguments = [tools.bwrap, *_ISOLATION, *_mounts(roots, policy.deny_read, protected_roots)]
+    arguments = [tools.bwrap, *_ISOLATION, *_mounts(roots, read_rules(policy), protected_roots)]
     if not policy.restricts_network:
         return LinuxSandboxArgv(prefix=(*arguments, "--"))
     arguments.append("--unshare-net")

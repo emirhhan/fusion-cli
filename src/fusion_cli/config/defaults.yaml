@@ -1083,15 +1083,13 @@ sandbox:
   # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
   # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
   allow_write: []
-  # Sandbox içindeki komutun OKUYAMADIĞI EK yollar (dizinse altı da). Bu liste varsayılan
-  # okuma engeline EKLENİR (1 Kasım'dan önce yerine geçiyordu): ~/.ssh, ~/.aws, ~/.gnupg,
-  # ~/.azure, ~/.kube, ~/.config/gcloud, ~/.docker/config.json, ~/.netrc, ~/.git-credentials,
-  # ~/.password-store, ~/Library/Keychains, ~/.config/gh, ~/.config/git/credentials, ~/.pypirc
-  # her zaman engellidir; Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum
-  # profilleri de. ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur).
+  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da; Claude filesystem.denyRead).
+  # Claude gibi yerleşik bir liste yoktur: ~/.ssh ve ~/.aws/credentials da yazılmazsa okunur.
+  # Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum profilleri her zaman engelli.
   deny_read: []
-  # Varsayılan listeden (ya da deny_read'den) BİLEREK açılan yollar, örn. ["~/.kube"].
-  # Listede olmayan yol yazılırsa yapılandırma hata verir; Fusion sır dosyaları açılamaz.
+  # Engellenmiş bir bölgenin içini yeniden açan yollar (Claude filesystem.allowRead); çakışan
+  # kurallarda dar yol kazanır: deny_read ["~/"] + allow_read ["~/projects"]. Fusion sırları
+  # açılamaz.
   allow_read: []
   # Claude gibi: komutun doğrudan çıkışı yok, trafik Fusion'ın yerel proxy'sinden geçer
   # (HTTP_PROXY/HTTPS_PROXY verilir; iç ağ adresine çözülen ad reddedilir). Listede olmayan
@@ -1125,9 +1123,14 @@ sandbox:
   auto_allow: true
   # true: listede olmayan ana makine sorulmadan reddedilir (Claude network.strictAllowlist).
   strict_allowlist: false
-  # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
-  # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
-  hide_secret_env: true
+  # Claude sandbox.credentials.envVars (mode: deny): bu adlar sandbox ortamından çıkarılır.
+  # Claude'daki gibi varsayılan boş; ortam Fusion'dan miras alınır. mode: mask deny'a düşer.
+  credential_env: []
+  # Claude sandbox.credentials.files (mode: deny): sandbox içinde okunamayan dosya/dizinler.
+  credential_files: []
+  # Kullanımdan kalkan Fusion uzantısı: true iken adı sır gibi görünen değişkenler (*_API_KEY,
+  # *_TOKEN, *_SECRET, *PASSWORD*) de çıkarılır. Claude'da yok; varsayılan false.
+  hide_secret_env: false
 
 # Ajan başlatma: boş ayarlar mevcut anahtarsız modeli korur.
 agent_launch:
