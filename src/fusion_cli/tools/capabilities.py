@@ -37,6 +37,7 @@ from ..core.proposal_invocation import (
     visible_proposal,
 )
 from .capability_merge import merge_capability as _merge
+from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
 from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
@@ -480,16 +481,16 @@ class CapabilityRegistry:
                 if not _trusted_path(path, bound, source):
                     continue
                 capability = _to_capability(path, source, fallback=path.stem)
-                _merge(found, capability)
+                shadow_agent(found, capability)
             # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
             for path in sorted(root.glob("*.toml")):
                 if not _trusted_path(path, bound, source):
                     continue
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
-                    _merge(found, toml_capability)
+                    shadow_agent(found, toml_capability)
         for capability in plugin_agents(_to_capability):
-            _merge(found, capability)
+            shadow_agent(found, capability)
         return tuple(found.values())
 
 
@@ -580,10 +581,20 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         background=parse_setting_bool(fields.get("background", "")),
         isolation=str(fields.get("isolation") or "").lower(),
         hooks=_tuple_field(fields, "hooks"),
-        # Boş `disallowedTools:` yasak YOK demektir; `NO_TOOLS` yalnız izin listesinde anlamlı.
-        disallowed_tools=tuple(
-            item for item in _tuple_field(fields, "disallowed_tools") if item != NO_TOOLS[0]
-        ),
+        disallowed_tools=_disallowed_tools(fields),
+    )
+
+
+def _disallowed_tools(fields: dict[str, object]) -> tuple[str, ...]:
+    """Frontmatter yasağı belirteç taşısa da tüm araç ailesini kaldırır.
+
+    CLI izin kuralları ayrı ayrıştırılır; onların komut/yol kapsamı burada çözülmez.
+    `tools` izin listesi de bu dönüşümden geçmez (ör. `Agent(tip)`).
+    """
+    return tuple(
+        item.partition("(")[0].strip()
+        for item in _tuple_field(fields, "disallowed_tools")
+        if item != NO_TOOLS[0]
     )
 
 

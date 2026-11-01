@@ -1,4 +1,4 @@
-"""Yetenek kökenlerini yalnız aynı içerik kanıtıyla birleştir."""
+"""Becerileri içerikle birleştir; ajanlarda yüksek öncelikli tanımı koru."""
 
 from __future__ import annotations
 
@@ -7,6 +7,22 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .capabilities import Capability
+
+
+def shadow_agent(found: dict[str, Capability], capability: Capability) -> None:
+    """Claude proje ajanı kullanıcı tanımını gölgeler; dış kaynak seçimi korunur."""
+    if capability.source == "claude":
+        for key, existing in found.items():
+            if existing.name != capability.name or not {"proje", "ek-kok"}.intersection(
+                existing.source.split("+")
+            ):
+                continue
+            if existing.path.resolve() == capability.path.resolve():
+                # Ev ve proje aynı kökse bu iki tanım değil, tek dosyanın kaynak takma
+                # adlarıdır. Önceki nitelikli kimliğin kaynak sırasını koru.
+                found[key] = replace(existing, source=f"claude+{existing.source}")
+            return
+    merge_capability(found, capability)
 
 
 def merge_capability(found: dict[str, Capability], capability: Capability) -> None:

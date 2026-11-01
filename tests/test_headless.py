@@ -193,7 +193,8 @@ def test_agent_tanimi_sistem_metni_ve_arac_setini_verir(monkeypatch, tmp_path):
     yakalanan, result = _agent(monkeypatch, ["gorev", "--agent", "gozden-gecirici"])
 
     assert result.exit_code == 0, result.output
-    assert "kod gözden geçiricisin" in yakalanan["extra_system"]
+    assert "kod gözden geçiricisin" in yakalanan["system_prompt"]
+    assert "kod gözden geçiricisin" not in yakalanan["extra_system"]
     assert yakalanan["allowed_tools"] is not None
     assert "read_file" in yakalanan["allowed_tools"]
 

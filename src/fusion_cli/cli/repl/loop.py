@@ -678,6 +678,7 @@ async def _drive_agent(
     *,
     plan_mode: bool,
     extra_system: str,
+    system_prompt: str | None = None,
     step_limit: int | None,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
@@ -692,6 +693,7 @@ async def _drive_agent(
         "history": state.history,
         "plan_mode": plan_mode,
         "extra_system": extra_system,
+        "system_prompt": system_prompt,
         "step_limit": step_limit,
         "workflow": workflow,
         # Oturum kişiliğinin araç kısıtı (P-053); None = tam set. `denied_tools` yalnız
@@ -897,6 +899,7 @@ async def _agent_turn(
                 console,
                 plan_mode=state.approval.value == "plan",
                 extra_system=turn_extra_system,
+                system_prompt=persona.system_prompt,
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
                 # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.

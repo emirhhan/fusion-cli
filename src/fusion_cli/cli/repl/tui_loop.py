@@ -975,6 +975,7 @@ class _TuiSession:
                         root=self._state.root,
                         home=self._state.home,
                         extra_system=turn_extra_system,
+                        system_prompt=persona.system_prompt,
                         interactive=True,
                         conversation_id=self._state.conversation_id,
                         memory=self._state.memory,

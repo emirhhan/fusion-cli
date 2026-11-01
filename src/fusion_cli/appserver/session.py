@@ -3042,7 +3042,9 @@ class AppSession:
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
                 system_prompt=(
-                    None if browser_only or self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT
+                    persona.system_prompt
+                    if browser_only or self._workspace_mode == "kod"
+                    else CHAT_SYSTEM_PROMPT
                 ),
                 # Sohbet kipi çalışma alanına dokunmaz: ölçüldü, "kampanya planı
                 # yap" isteği sohbette diske dosya yazıyordu (bkz. `chat_mode.py`).

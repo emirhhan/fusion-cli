@@ -24,9 +24,10 @@ _OFF_WORDS = frozenset({"off", "kapat", "none", "yok"})
 
 @dataclass(frozen=True, slots=True)
 class PersonaTurn:
-    """Kişiliğin bir tura kattığı iki şey: sistem notu ve araç kısıtı (`None` = tam set)."""
+    """Kişiliğin bir tura kattığı sistem çekirdeği, ek not ve araç kısıtı (`None` = tam set)."""
 
     extra_system: str = ""
+    system_prompt: str | None = None
     allowed_tools: set[str] | None = None
     #: `tools` verilmeyip yalnız `disallowedTools` yazılmışsa (Claude Code'un yaygın salt-okur
     #: kalıbı) yasak kümesi: defter kurulduktan sonra `run_agent(denied_tools=...)` düşürür.
@@ -50,15 +51,18 @@ def persona_turn(persona: Persona | None) -> PersonaTurn:
     if persona is None:
         return PersonaTurn()
     parts = [f"# Oturum kişiliği: {persona.title} ({persona.name})"]
-    if persona.prompt.strip():
-        parts.append(persona.prompt.strip())
     allowed: set[str] | None = None
     denied: frozenset[str] = frozenset()
     if persona.tools is not None:
         allowed = set(persona.tools) - persona.disallowed_tools
     else:
         denied = persona.disallowed_tools
-    return PersonaTurn(extra_system="\n".join(parts), allowed_tools=allowed, denied_tools=denied)
+    return PersonaTurn(
+        extra_system="\n".join(parts),
+        system_prompt=persona.prompt.strip() or None,
+        allowed_tools=allowed,
+        denied_tools=denied,
+    )
 
 
 def persona(state: ReplState, argument: str) -> str:

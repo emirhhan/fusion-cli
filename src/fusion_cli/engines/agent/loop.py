@@ -529,6 +529,10 @@ class AgentDeps:
     hooks: HookSession | None = None
     #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
     agent_type: str = ""
+    #: Keşif/plan ilk bağlamında proje talimatı yok; dosya erişimindeki kurallar sürer.
+    omit_initial_instructions: bool = False
+    #: Olağan alt ajan ana oturumun otomatik belleğini yüklemez; fork korur.
+    include_external_memory: bool = True
     #: Otomatik kip denetçisinin oturum durumu (P-011; `ApprovalMemory.auto_review`). `None` =
     #: denetçi yok (eski çağıranlar, alt ajanlar); `getattr(deps, "auto_review", None)` ile okunur.
     auto_review: AutoReviewState | None = None
@@ -935,8 +939,9 @@ async def _run_agent(
             deps.home,
             instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
             instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
+            include_external_memory=deps.include_external_memory,
         )
-        if deps.config.runtime.project_instructions
+        if deps.config.runtime.project_instructions and not deps.omit_initial_instructions
         else InstructionLoad("")
     )
     proje_ve_dis_bellek = instruction_load.text
@@ -993,17 +998,20 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                proje_ve_dis_bellek,
+                proje_ve_dis_bellek if system_prompt is None else "",
                 memory_prompt_block(deps),
                 harita,
                 beceri_dizini,
                 teacher_hint,
                 netlestirme,
                 identity_hint(deps.config.agent.model),
+                f"Çalışma dizini: {deps.tool_context.root}" if depth > 0 else "",
                 *istek_notlari,
                 extra_system,
                 # Çıktı stili (P-068) kodlama talimatlarından SONRA, en sona eklenir.
-                output_style.style_prompt(deps.config, home=deps.home, root=deps.tool_context.root),
+                output_style.style_prompt(deps.config, home=deps.home, root=deps.tool_context.root)
+                if depth == 0
+                else "",
             )
             if part
         ),
@@ -1011,6 +1019,7 @@ async def _run_agent(
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
         system_prompt=system_prompt,
+        project_context=proje_ve_dis_bellek if system_prompt is not None else "",
         images=images,
     )
     if not internal:
@@ -4840,6 +4849,9 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     return compressed
 
 
+PROJECT_CONTEXT_HEADER = "[Oturum proje bağlamı]\n"
+
+
 def _initial_messages(
     task: str,
     history: list[Message] | None,
@@ -4849,6 +4861,7 @@ def _initial_messages(
     inherit_system: bool = False,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
+    project_context: str = "",
 ) -> list[Message]:
     """Turun mesaj listesini kur: TEK sistem mesajı + geçmiş + yeni görev.
 
@@ -4893,4 +4906,14 @@ def _initial_messages(
     # onları atmak öneki yine kaydırırdı.
     if gecmis and gecmis[0].role == "system":
         gecmis = gecmis[1:]
+    if not inherit_system:
+        gecmis = [
+            message
+            for message in gecmis
+            if not (message.harness_note and message.content.startswith(PROJECT_CONTEXT_HEADER))
+        ]
+        if project_context:
+            gecmis.insert(
+                0, Message("user", PROJECT_CONTEXT_HEADER + project_context, harness_note=True)
+            )
     return [Message("system", system), *gecmis, Message("user", task, images=images)]

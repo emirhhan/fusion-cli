@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ...core.clock import SystemClock
-from ...core.errors import PathAccessError, WorktreeError
+from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...core.worktree import LeaveOutcome, Worktree, enter_worktree, leave_worktree
@@ -128,6 +128,8 @@ class Persona:
     disallowed_tools: frozenset[str] = frozenset()
     #: Tanımda geçen ama Fusion'da karşılığı olmayan araç adları (uyarı için).
     unknown_tools: tuple[str, ...] = ()
+    #: Yerleşik keşif/plan ajanında ilk proje talimatları yüklenmez.
+    omit_initial_instructions: bool = False
 
 
 #: Adı verilmeyen ya da kütüphanede bulunmayan görevler için genel yardımcı.
@@ -220,7 +222,7 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
         prompt=load_agent_prompt(agent.path),
         tools=frozenset(allowed) if allowed is not None else None,
         model=agent.model,
-        permission_mode=agent.permission_mode,
+        permission_mode=team_settings.agent_permission_mode(agent),
         max_turns=agent.max_turns,
         skills=agent.skills,
         mcp_servers=agent.mcp_servers,
@@ -228,6 +230,7 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
         effort=agent.effort,
         disallowed_tools=frozenset(disallowed or ()),
         unknown_tools=unknown,
+        omit_initial_instructions=agent.source == "fusion" and agent.name in {"explore", "plan"},
     )
 
 
@@ -346,7 +349,11 @@ async def _run_child(
 ) -> AgentOutcome:
     from .engine_tools import build_agent_registry
     from .loop import AgentDeps as _Deps
+    from .loop import AgentOutcome as _Outcome
 
+    is_fork = (
+        subtask.inherit_context and deps.config.runtime.subagent_context_mode != "evidence_bundle"
+    )
     label = team_settings.agent_label(persona, sub_id)
     policy, policy_factory = team_settings.child_policies(deps, persona, label)
     sub_deps = _Deps(
@@ -369,7 +376,7 @@ async def _run_child(
         execution=_child_execution(deps, subtask),
         policy_factory=policy_factory,
         approval_revision=deps.approval_revision,
-        # Torun bu ajanın SIKILAŞTIRILMIŞ kipini temel alır, oturumun kipini değil.
+        # Torun, bu ajan için matrisle seçilmiş güncel kipi temel alır.
         approval_mode=team_settings.child_approval_mode(deps, persona),
         policy_for_mode=getattr(deps, "policy_for_mode", None),
         # Tanımdaki `memory` alanı: ajana özel BELLEK.md (P-055); blok ve araçlar bundan gelir.
@@ -384,13 +391,28 @@ async def _run_child(
         # Kancalar (P-009) alt ajanda da çalışır; `SubagentStop` eşleştiricisi türe bakar.
         hooks=getattr(deps, "hooks", None),
         agent_type=persona.name,
+        home=deps.home,
+        omit_initial_instructions=persona.omit_initial_instructions and not is_fork,
+        include_external_memory=is_fork,
     )
     # Tanımdaki `model` yalnız bu alt ajanın çağrılarını değiştirir (P-034).
-    sub_deps.active_model_override = team_settings.child_model(persona, deps.config.agent)
+    try:
+        sub_deps.active_model_override = team_settings.child_model(
+            persona,
+            deps.active_model_override or deps.config.agent,
+            candidates=deps.config.candidates,
+        )
+    except ConfigError as error:
+        # Yalnız model seçiminin güvenli tanı iletisini taşı; başka hataları açığa çıkarma.
+        return _Outcome(final_text=str(error), messages=[], tool_calls_made=0, ok=False)
     available = build_agent_registry(sub_deps, depth=depth + 1, run_agent=run_agent).names()
     # Fork (P-054): ana geçmişin sistemsiz, kırpılmış görünümü alt ajanın başlangıcı olur.
-    inherited = (
-        team_fork.fork_history(team_fork.parent_history(deps)) if subtask.inherit_context else None
+    parent_messages = team_fork.parent_history(deps) if subtask.inherit_context else []
+    inherited = team_fork.fork_history(parent_messages) if subtask.inherit_context else None
+    parent_prompt = (
+        parent_messages[0].content
+        if parent_messages and parent_messages[0].role == "system"
+        else None
     )
     from .evidence_handoff import compile_handoff
 
@@ -400,7 +422,7 @@ async def _run_child(
         compile_handoff,
         deps,
         _member_brief(
-            persona,
+            persona if inherited is not None else dataclasses.replace(persona, prompt=""),
             subtask,
             skills=team_settings.preloaded_skills(deps, persona),
             fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
@@ -414,6 +436,7 @@ async def _run_child(
             depth=depth + 1,
             self_review=False,
             extra_system=handoff,
+            system_prompt=parent_prompt if inherited is not None else persona.prompt.strip(),
             allowed_tools=_capped_tools(
                 _allowed_tools(deps, persona, subtask, available=available),
                 subtask.tool_cap,

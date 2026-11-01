@@ -2,12 +2,12 @@
 
 Claude Code'un `/subtask` ve beceri frontmatter'ındaki `context: fork` davranışının
 karşılığı. Olağan alt ajan TEMİZ bağlamla başlar (yalnız görev metni + kişilik); fork alt
-ajan ana konuşmanın o ana kadarki mesajlarını başlangıç geçmişi olarak alır, kendi
-sistem istemiyle ve kendi adım bütçesiyle koşar, sonucu tek özet olarak döner. Ana
+ajan ana konuşmanın o ana kadarki mesajlarını başlangıç geçmişi olarak alır,
+üst sistem istemiyle ve kendi adım bütçesiyle koşar, sonucu tek özet olarak döner. Ana
 konuşmaya yalnız bu özet eklenir; alt ajanın kendi araç çağrıları ana geçmişe karışmaz.
 
 Devredilen görünüm model çağırmadan kurulur (`compaction.compress` özetleyici çağırır,
-burada istenmez): sistem mesajı düşer (alt ajanın kendi sistemi var), eski araç çıktıları
+burada istenmez): sistem mesajı gövdeden ayrılır ve ayrıca devredilir; eski araç çıktıları
 `clear_old_tool_outputs` ile temizlenir, hâlâ uzunsa kök tur korunup ortadaki mesajlar
 atılır ve atıldığı not düşülür. Cevapsız araç çağrıları (o an çalışan `spawn_agent`
 dahil) devredilmez: sağlayıcı sınırı orphan çağrıyı reddeder.
@@ -93,18 +93,19 @@ def drop_orphan_tool_calls(messages: Sequence[Message]) -> list[Message]:
 
 
 def _root_turn_length(messages: Sequence[Message]) -> int:
-    """Kök turun uzunluğu: ikinci `user` mesajına kadar (sistemsiz listede de çalışır).
+    """Kök turun uzunluğu: ikinci gerçek kullanıcı mesajına kadar (sistemsiz listede de çalışır).
 
     `history.root_anchor_length` yalnız `system` ile başlayan listede anchor açar; fork
     görünümünde sistem düşmüştür ama kullanıcının kök talimatı yine korunmalıdır.
     """
     seen_users = 0
     for index, message in enumerate(messages):
-        if message.role == "user":
+        if message.role == "user" and not message.harness_note:
             seen_users += 1
             if seen_users == 2:
                 return index
-    return min(len(messages), 1)
+    # Tek kullanıcı turunda da öndeki bağlam notu gerçek görevi dışarıda bırakamaz.
+    return history_rules.task_anchor_length(messages) or min(len(messages), 1)
 
 
 def parent_history(deps: AgentDeps) -> list[Message]:
@@ -125,6 +126,7 @@ async def run_forked_turn(
     history: list[Message] | None = None,
     plan_mode: bool = False,
     extra_system: str = "",
+    system_prompt: str | None = None,
     allowed_tools: set[str] | None = None,
     denied_tools: frozenset[str] = frozenset(),
     images: tuple[str, ...] = (),
@@ -146,7 +148,13 @@ async def run_forked_turn(
     from .team import SubTask, run_subagent
 
     snapshot = list(history or [])
-    deps.live_history = lambda: snapshot
+    seed = list(snapshot)
+    if system_prompt is not None:
+        if seed and seed[0].role == "system":
+            seed[0] = Message("system", system_prompt)
+        else:
+            seed.insert(0, Message("system", system_prompt))
+    deps.live_history = lambda: seed
     subtask = SubTask(
         task=task.strip(),
         persona=persona,

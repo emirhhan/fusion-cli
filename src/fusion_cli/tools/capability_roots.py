@@ -67,11 +67,11 @@ def skill_roots(
 def agent_roots(
     home: Path, root: Path, extra_roots: tuple[Path, ...], *, installed: Path, bundled: Path
 ) -> Roots:
-    """Ajan (.md / .toml) aranan kökler, öncelik sırasıyla."""
+    """Ajan kökleri: proje/ek proje, kullanıcı, dış kaynak ve yerleşik sırası."""
     return (
-        (home / ".claude" / "agents", "claude"),
         (root / ".claude" / "agents", "proje"),
         *((extra / ".claude" / "agents", "ek-kok") for extra in extra_roots),
+        (home / ".claude" / "agents", "claude"),
         (home / ".codex" / "agents", "codex"),
         *((folder / "agents", "kurulu") for folder in installed_folders(installed)),
         (bundled, "fusion"),

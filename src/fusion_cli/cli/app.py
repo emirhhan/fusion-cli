@@ -596,6 +596,7 @@ def agent(
                 memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
                 extra_roots=tuple(add_dir or ()),
                 extra_system=options.extra_system,
+                system_prompt=options.system_prompt,
                 allowed_tools=options.allowed_tools,
                 denied_tools=options.denied_tools,
                 strict_tool_names=True,
@@ -667,6 +668,7 @@ class _HeadlessOptions:
     output_format: headless.OutputFormat
     schema: dict[str, object] | None
     extra_system: str
+    system_prompt: str | None
     allowed_tools: set[str] | None
     denied_tools: frozenset[str]
     channel: headless.PermissionChannel | None
@@ -712,6 +714,7 @@ def _headless_options(
         except RuntimeError as error:
             raise typer.BadParameter(messages.HEADLESS_FROM_PR_FAILED.format(error=error)) from None
     parts: list[str] = []
+    system_prompt: str | None = None
     persona_denied: frozenset[str] = frozenset()
     allowed = headless.parse_tool_list(allowed_tools)
     if allowed is not None:
@@ -721,9 +724,10 @@ def _headless_options(
             persona = headless.resolve_agent(agent_name, home=Path.home(), root=Path.cwd())
         except ValueError as error:
             raise typer.BadParameter(str(error)) from None
-        # REPL `--agent`/`/persona` ile aynı etki (P-053): kişilik başlığı + gövde sistem
-        # ekine; `tools` izinli kümeyle KESİŞİR, `disallowedTools` yasaklılara EKLENİR.
+        # REPL ile aynı etki: gövde çekirdeği değiştirir, başlık ek nottur.
+        # Araç izinleri kesişir; yasaklar birleştirilir.
         turn = persona_turn(persona)
+        system_prompt = turn.system_prompt
         if turn.extra_system:
             parts.append(turn.extra_system)
         if turn.allowed_tools is not None:
@@ -743,6 +747,7 @@ def _headless_options(
         output_format=fmt,
         schema=schema,
         extra_system="\n\n".join(parts),
+        system_prompt=system_prompt,
         allowed_tools=set(allowed) if allowed is not None else None,
         denied_tools=headless.map_claude_tool_names(
             headless.parse_tool_list(disallowed_tools) or frozenset()

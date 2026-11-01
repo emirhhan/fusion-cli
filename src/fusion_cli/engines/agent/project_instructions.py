@@ -347,11 +347,13 @@ def load_all_instructions(
     *,
     instruction_merge: bool = True,
     instruction_max_chars: int = TOTAL_MAX_CHARS,
+    include_external_memory: bool = True,
 ) -> InstructionLoad:
     """Proje talimatı ve ilk yükleme ölçümünü birlikte döndür.
 
     Kullanıcı katmanı önce, proje katmanı sonra gelir; yakın kural önceliklidir.
-    Dış bellek (MEMORY.md vb.) en sondadır.
+    Dış bellek (MEMORY.md vb.) en sondadır; `include_external_memory=False`
+    olağan alt ajanda bu katmanı atlar, kullanıcı/proje kurallarını korur.
 
     `home` verilmezse (ör. testte ya da ev dizini bilinmiyorsa) kullanıcı katmanı ve dış
     bellek hiç okunmaz — bu, `AgentDeps` alanlarının "yoksa o yetenek hiç sunulmaz"
@@ -390,7 +392,7 @@ def load_all_instructions(
     proje_talimati = instruction_load.text
     # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.
     kurallar = unscoped_rules_block(discover_rules(root, home)) if instruction_merge else ""
-    if home is None:
+    if home is None or not include_external_memory:
         return replace(
             instruction_load,
             text="\n".join(part for part in (ortam, ozet, proje_talimati, kurallar) if part),

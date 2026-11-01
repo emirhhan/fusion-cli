@@ -78,14 +78,14 @@ def test_izin_kipi_yalniz_sikilasir():
     assert strictest_mode(ApprovalMode.PLAN, None) is ApprovalMode.PLAN
 
 
-def test_alt_ajan_politikasi_ust_kipi_sikilastirir_gevsetmez(tmp_path):
-    deps, kurulan = _deps(tmp_path)
+def test_alt_ajan_varsayilan_ustun_secimini_uygular_bypassa_yukselmez(tmp_path):
+    deps, kurulan = _deps(tmp_path, mode=ApprovalMode.SECURITY)
 
     team_settings.child_policies(deps, _persona(permission_mode="plan"), "x")
     assert kurulan == [ApprovalMode.PLAN]
 
     team_settings.child_policies(deps, _persona(permission_mode="bypass"), "x")
-    assert kurulan[-1] is ApprovalMode.AUTO
+    assert kurulan[-1] is ApprovalMode.SECURITY
 
     # Tanınmayan kip yok sayılır: üstün politikası etiketlenerek aynen kullanılır.
     policy, factory = team_settings.child_policies(deps, _persona(permission_mode="uydurma"), "x")
@@ -94,16 +94,14 @@ def test_alt_ajan_politikasi_ust_kipi_sikilastirir_gevsetmez(tmp_path):
 
 
 def test_torun_ajanin_kipi_ust_ajanin_sikilastirilmis_kipine_gore_hesaplanir(tmp_path):
-    """Ölçüldü (31 Ekim): çocuğa `approval_mode` oturumun lambda'sı (auto) aktarılıyordu;
-    `permissionMode: plan` ajan A'nın çocuğu B (`acceptEdits`) strictest(auto, acceptEdits)
-    = acceptEdits ile dosya yazabiliyordu. Torun, A'nın sıkılaştırılmış kipini temel alır."""
-    deps, kurulan = _deps(tmp_path)
+    """Varsayılan üstten plan isteyen çocuk, torununa plan sınırını devreder."""
+    deps, kurulan = _deps(tmp_path, mode=ApprovalMode.SECURITY)
 
     cocuk_kipi = team_settings.child_approval_mode(deps, _persona(permission_mode="plan"))
     assert cocuk_kipi is not None and cocuk_kipi() is ApprovalMode.PLAN
     # Kip istemeyen çocuk üstün kipini olduğu gibi devralır.
     duz = team_settings.child_approval_mode(deps, _persona())
-    assert duz is not None and duz() is ApprovalMode.AUTO
+    assert duz is not None and duz() is ApprovalMode.SECURITY
 
     deps.approval_mode = cocuk_kipi
     team_settings.child_policies(deps, _persona(permission_mode="acceptEdits"), "torun")
@@ -178,8 +176,7 @@ def test_model_alani_saglayici_model_bicimini_ister():
     assert spec is not None and spec.model == "openrouter/a/b" and spec.name == "ajan:denetci"
     assert spec.fallback == parent.models
 
-    assert team_settings.child_model(_persona(model="sonnet"), parent) is None
-    assert team_settings.child_model(_persona(model="inherit"), parent) is None
+    assert team_settings.child_model(_persona(model="inherit"), parent) is parent
     assert team_settings.child_model(_persona(model="gpt-5"), parent) is None
 
 
@@ -265,7 +262,7 @@ async def test_alt_ajan_tanimi_kosuya_uygulanir(tmp_path):
         "permissionMode: plan\nmaxTurns: 3\neffort: high\n---\nSen denetçisin.",
         encoding="utf-8",
     )
-    deps, kurulan = _deps(tmp_path, agent_max_steps=64)
+    deps, kurulan = _deps(tmp_path, mode=ApprovalMode.SECURITY, agent_max_steps=64)
     gorulen: dict[str, object] = {}
 
     async def _sahte_ajan(task, sub_deps, **kwargs):
@@ -274,6 +271,7 @@ async def test_alt_ajan_tanimi_kosuya_uygulanir(tmp_path):
         gorulen["effort"] = sub_deps.config.runtime.reasoning_effort
         gorulen["allowed"] = kwargs["allowed_tools"]
         gorulen["extra"] = kwargs["extra_system"]
+        gorulen["system"] = kwargs["system_prompt"]
         istek = ApprovalRequest(tool=_Tool(), args={"path": "a"}, danger=None)
         gorulen["karar"] = await sub_deps.policy.decide(istek)
         return SimpleNamespace(final_text="bitti", ok=True, tool_calls_made=0)
@@ -286,8 +284,8 @@ async def test_alt_ajan_tanimi_kosuya_uygulanir(tmp_path):
     assert gorulen["step_limit"] == 3
     assert gorulen["effort"] is ReasoningEffort.HIGH
     assert gorulen["allowed"] == {"read_file", "view_file"}
-    assert "Sen denetçisin." in gorulen["extra"]
-    # `plan` kipi `auto` üstten SIKI: alt ajanın politikası plan kipiyle kuruldu ve
+    assert gorulen["system"] == "Sen denetçisin."
+    # Varsayılan üst `plan` isteğini uygular: alt ajanın politikası plan kipiyle kuruldu ve
     # düzenleme isteği reddedildi.
     assert kurulan and kurulan[0] is ApprovalMode.PLAN
     assert gorulen["karar"] is not Decision.ALLOW

@@ -295,7 +295,8 @@ def root_anchor_length(messages: Sequence[Message]) -> int:
     kaderi paylaşıyor, `[önceki konuşmanın özeti]` diye bir `user` mesajıyla
     değiştiriliyordu.
 
-    İKİNCİ `user` mesajına kadarki her şey (sistem + ilk soru + o turun
+    Bağlam notları kullanıcı turu sayılmaz. İkinci gerçek kullanıcı mesajına
+    kadarki her şey (sistem + ilk soru + o turun
     asistan/araç mesajları) kök turdur ve özetleyiciye değil, olduğu gibi
     kalır. Hiç ikinci `user` yoksa (kısa konuşma) TÜM liste kök turdur.
 
@@ -308,7 +309,7 @@ def root_anchor_length(messages: Sequence[Message]) -> int:
         return 0
     kullanici_sayisi = 0
     for index, message in enumerate(messages):
-        if message.role == "user":
+        if message.role == "user" and not message.harness_note:
             kullanici_sayisi += 1
             if kullanici_sayisi == 2:
                 return index
