@@ -90,7 +90,8 @@ async def test_toplu_cagri_sirayla_calisir_ilk_hatada_durur(tmp_path):
     assert (
         not result.ok and "[1] chrome_page" in result.output and "2. öğede durdu" in result.output
     )
-    assert [name for name, _ in kopru.calls] == ["snapshot", "javascript"]
+    # Önce onay anındaki öğe tarifleri okunur (#432 çalışma anı denetimi), sonra sırayla çalışır.
+    assert [name for name, _ in kopru.calls] == ["describe", "snapshot", "javascript"]
 
 
 @pytest.mark.parametrize(
@@ -182,3 +183,31 @@ def test_eklenti_betigi_son_ifadeyi_dondurur():
     )
     assert done.returncode == 0, done.stdout + done.stderr
     assert "chrome-javascript ✓" in done.stdout
+
+
+class _GezinenKopru(_Kopru):
+    """Gezinmeden sonra aynı ref parola alanını gösterir."""
+
+    def __init__(self) -> None:
+        super().__init__(describe={"name": "Ara", "type": "text"})
+
+    async def invoke(self, name, data):
+        if name == "navigate":
+            self._describe = {"name": "Parola", "type": "password"}
+        return await super().invoke(name, data)
+
+
+async def test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler(tmp_path):
+    """Onay anında sıradan görünen alan önceki öğeden sonra parola alanı olduysa durur (#432)."""
+    kopru = _GezinenKopru()
+    context = _ctx(tmp_path, kopru)
+    args = {"actions": [
+        {"name": "chrome_navigate", "input": {"url": "https://example.com/login"}},
+        {"name": "chrome_type", "input": {"ref": "e5", "text": "gizli"}},
+    ]}  # fmt: skip
+    request = await resolve_request(_REGISTRY.get("chrome_batch"), args, root=tmp_path,
+                                    context=context)  # fmt: skip
+    assert request.effect is not ToolEffect.REMOTE_DESTRUCTIVE
+    result = await chrome_script.chrome_batch(args, context)
+    assert not result.ok and "ayrı onay" in result.output
+    assert "type" not in [name for name, _ in kopru.calls]
