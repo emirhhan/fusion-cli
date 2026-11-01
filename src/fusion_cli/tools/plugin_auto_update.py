@@ -12,7 +12,13 @@ Claude Code (https://code.claude.com/docs/en/plugins/loading.md "When auto-updat
   bütün geçişi kapatır; `FORCE_AUTOUPDATE_PLUGINS=1` yeniden açar.
 
 Güvenlik davranışı değişti: Claude'daki gibi otomatik güncelleme ayrıca onay sormaz (yalnız
-auto-update'i açık pazarlarda). Fusion bildirimi günlüğe yazar (TUI'ye arka plandan basılmaz).
+auto-update'i açık pazarlarda). Bildirim günlüğe yazılır ve REPL/TUI'de bir sonraki turda
+basılır (`drain_notices`).
+
+Resmî pazar (install.md "Official Anthropic marketplace"): `claude-plugins-official` ilk
+etkileşimli oturumda kendiliğinden eklenir. Fusion bunu terminal etkileşimliyse, aynı arka plan
+geçişinin başında bir kez yapar (`<eklentiler>/.resmi-pazar`); kullanıcı sonra kaldırırsa yeniden
+eklenmez. Ağ kapatma değişkenleri (yukarıdaki) bunu da kapatır.
 """
 
 from __future__ import annotations
@@ -31,6 +37,10 @@ from .plugin_declared import DeclaredMarket, declared_marketplaces
 _LOG = logging.getLogger(__name__)
 
 NOTICE = "Plugin updated: {name} · Run /reload-plugins to apply"
+OFFICIAL_NAME = "claude-plugins-official"
+OFFICIAL_MARKER = ".resmi-pazar"
+_NOTICES: list[str] = []
+_NOTICES_LOCK = threading.Lock()
 #: Varsayılanı açık resmî pazarlar (Claude: knowledge-work-plugins ve first-party-plugins kapalı).
 DEFAULT_ON = frozenset(
     {
@@ -113,15 +123,60 @@ def auto_update_pass(root: Path | None = None, *, base: Path | None = None) -> t
     return tuple(updated)
 
 
+def push_notice(text: str) -> None:
+    with _NOTICES_LOCK:
+        _NOTICES.append(text)
+
+
+def drain_notices() -> tuple[str, ...]:
+    """Arka plandan gelen bildirimler (REPL/TUI bir sonraki turda basar); kuyruk boşalır."""
+    with _NOTICES_LOCK:
+        found = tuple(_NOTICES)
+        _NOTICES.clear()
+    return found
+
+
+def ensure_official_marketplace(*, base: Path | None = None) -> bool:
+    """İlk etkileşimli oturumda resmî pazarı bir kez ekle; eklendiyse True."""
+    from .plugin_install import add_marketplace
+    from .plugin_market_source import OFFICIAL_MARKETPLACE
+
+    store = base or plugins_dir()
+    marker = store / OFFICIAL_MARKER
+    if auto_update_disabled() or plugins_disabled_by_environment() or marker.exists():
+        return False
+    if load_state(store).marketplace(OFFICIAL_NAME) is None:
+        try:
+            add_marketplace(OFFICIAL_MARKETPLACE, base=store)
+        except PluginError as error:
+            _LOG.warning("resmî pazar eklenemedi (sonraki oturumda yeniden denenir): %s", error)
+            return False
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("1\n", encoding="utf-8")
+    return True
+
+
 def start_auto_update(
-    root: Path, *, notify: Callable[[str], None] | None = None, delay: float | None = None
+    root: Path,
+    *,
+    notify: Callable[[str], None] | None = push_notice,
+    delay: float | None = None,
+    interactive: bool = False,
 ) -> threading.Thread | None:
-    """Oturum açıldıktan sonra rastgele gecikmeyle (en çok 10 dk) arka planda bir geçiş."""
+    """Oturum açıldıktan sonra rastgele gecikmeyle (en çok 10 dk) arka planda bir geçiş.
+
+    `interactive` (terminal oturumu): geçişten önce resmî pazar bir kez eklenir.
+    """
     if auto_update_disabled():
         return None
     wait = random.uniform(0, MAX_DELAY_S) if delay is None else delay
 
     def run() -> None:
+        try:
+            if interactive:
+                ensure_official_marketplace()
+        except OSError as error:
+            _LOG.warning("resmî pazar eklenemedi: %s", error)
         threading.Event().wait(wait)
         try:
             names = auto_update_pass(root)

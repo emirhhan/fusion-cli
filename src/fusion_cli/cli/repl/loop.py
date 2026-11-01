@@ -192,7 +192,9 @@ async def run_repl(
     start_background_sync(root)  # #376: depoda bildirilen pazarlar arka planda kaydedilir
     from ...tools.plugin_auto_update import start_auto_update
 
-    start_auto_update(root)  # #394: auto-update'i açık pazarlar ≤10 dk sonra arka planda
+    # #394: auto-update'i açık pazarlar ≤10 dk sonra arka planda; terminal oturumunda resmî
+    # pazar ilk kez kendiliğinden eklenir.
+    start_auto_update(root, interactive=sys.stdin.isatty() and sys.stdout.isatty())
     restored_note = ""
     if resume is not None:
         session_resume.apply_target(state, resume)
@@ -722,6 +724,10 @@ async def _drive_agent(
     MCP kurulu değilse ya da bir sunucu başlatılamazsa DIŞ araçlar olmadan devam edilir
     (uyarı verilir): MCP bir zenginleştirmedir, turu engellememeli.
     """
+    from ...tools.plugin_auto_update import drain_notices
+
+    for notice in drain_notices():  # #394: "Plugin updated: … · Run /reload-plugins"
+        console.print(f"[{theme.INFO}]{escape(notice)}[/{theme.INFO}]")
     kwargs = {
         "history": state.history,
         "plan_mode": plan_mode,

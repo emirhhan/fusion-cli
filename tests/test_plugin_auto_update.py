@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.config import trust
+from fusion_cli.config import plugin_store, trust
 from fusion_cli.tools import plugin_auto_update, plugin_install
 
 _ENVS = (
@@ -190,3 +190,34 @@ def test_taklit_ad_resmi_kaynaktan_da_reddedilir(monkeypatch):
     monkeypatch.setattr(plugin_install, "_clone", _official_clone("official-claude-plugins"))
     with pytest.raises(PluginError, match="ayrılmış"):
         plugin_install.add_marketplace("resmi")
+
+
+def test_resmi_pazar_ilk_etkilesimli_oturumda_bir_kez_eklenir(tmp_path, monkeypatch):
+    """#394: claude-plugins-official ilk etkileşimli oturumda kendiliğinden eklenir."""
+    for name in plugin_auto_update.DISABLE_ENVS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(plugin_install, "_clone", _official_clone("claude-plugins-official"))
+
+    assert plugin_auto_update.ensure_official_marketplace() is True
+    state = plugin_store.load_state()
+    assert state.marketplace("claude-plugins-official") is not None
+    plugin_install.remove_marketplace("claude-plugins-official")
+    assert plugin_auto_update.ensure_official_marketplace() is False  # kaldırılırsa geri gelmez
+    assert plugin_store.load_state().marketplace("claude-plugins-official") is None
+
+
+def test_resmi_pazar_ag_kapaliysa_eklenmez_ve_bildirimler_kuyruktan_bosalir(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+    assert plugin_auto_update.ensure_official_marketplace() is False
+    plugin_auto_update.push_notice("Plugin updated: a · Run /reload-plugins to apply")
+    assert plugin_auto_update.drain_notices() == (
+        "Plugin updated: a · Run /reload-plugins to apply",
+    )
+    assert plugin_auto_update.drain_notices() == ()
+
+
+def test_resmi_kisa_adi_kullanimdan_kalkti_uyarisi(caplog):
+    from fusion_cli.tools.plugin_market_source import parse_market_source
+
+    assert parse_market_source("resmi").location.endswith("claude-plugins-official")
+    assert "'resmi' kısa adı kullanımdan kalktı" in caplog.text
