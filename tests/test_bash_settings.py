@@ -39,7 +39,9 @@ def test_cikti_siniri_claude_degeri_ve_ortam():
 def test_arka_plan_adi_ve_kapatma_anahtari():
     assert wants_background({"run_in_background": True}, {})
     assert wants_background({"background": True}, {})  # eski ad
-    assert not wants_background({"run_in_background": True}, {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"})
+    assert not wants_background(
+        {"run_in_background": True}, {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+    )
 
 
 def test_sandbox_disi_parametre_claude_adi_ve_eski_ad():

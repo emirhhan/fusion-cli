@@ -67,6 +67,7 @@ from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
 from ..core.errors import ConfigError
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.owned_thread import await_owned_thread
+from ..core.plan_switch import PlanModeSwitch
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
@@ -77,7 +78,6 @@ from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
-from ..core.plan_switch import PlanModeSwitch
 from ..core.worktree import WorktreeSwitch, worktree_for_path
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.child_runs import ChildRuns

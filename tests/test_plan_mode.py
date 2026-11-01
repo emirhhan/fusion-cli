@@ -177,9 +177,7 @@ async def test_run_agent_exit_plan_mode_plani_dosyaya_yazar(monkeypatch, tmp_pat
     monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
     sink = RecordingSink()
 
-    sonuc = await run_agent(
-        "planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True
-    )
+    sonuc = await run_agent("planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True)
 
     assert plan_mode.read_plan("s-9") == "# Oturum planı\n1. Oku\n2. Yaz\n"
     assert any(isinstance(e, PlanDrafted) for e in sink.events)

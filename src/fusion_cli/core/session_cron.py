@@ -59,6 +59,7 @@ class Kind(Enum):
 #: Yineleyen türler (7 gün dolunca son bir kez çalışır; #364).
 _RECURRING = frozenset({Kind.INTERVAL, Kind.CRON})
 
+
 class Source(Enum):
     """Görevi kim kurdu? Yüzeyler ajan görevini yalnız TUR olarak çalıştırır (komut değil).
 
@@ -338,7 +339,7 @@ class SessionCron:
     def create_cron_once(
         self, prompt: str, expression: str, *, now: float, source: Source = Source.USER
     ) -> CronTask:
-        """Cron ifadesinin bir sonraki eşleşmesinde BİR kez çalışan görev (CronCreate recurring=false)."""
+        """Cron ifadesinin sıradaki eşleşmesinde BİR kez çalışan görev (recurring=false)."""
         due = cron_next_local(parse_cron(expression), now)
         return self._add(prompt, Kind.ONCE, now, due, source=source)
 

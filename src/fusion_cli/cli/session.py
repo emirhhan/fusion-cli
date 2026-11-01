@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
-from ..core.plan_switch import PlanModeSwitch
 from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
@@ -46,6 +45,7 @@ from ..core.events import (
 )
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
+from ..core.plan_switch import PlanModeSwitch
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
 from ..core.session_cron import SessionCron

@@ -48,7 +48,9 @@ def test_izin_kanali_varsa_sorulur():
 
 
 async def test_sormayan_onaylayici_degisikligi_reddeder(tmp_path):
-    arac = Tool(name="write_file", description="", parameters={}, run=lambda a, c: None, mutating=True)
+    arac = Tool(
+        name="write_file", description="", parameters={}, run=lambda a, c: None, mutating=True
+    )
     politika = build_policy(ApprovalMode.SECURITY, UnpromptedPrompter())
     karar = await politika.decide(build_request(arac, {"path": "a.txt"}, root=tmp_path))
     assert karar is not Decision.ALLOW

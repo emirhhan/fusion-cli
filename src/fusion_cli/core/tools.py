@@ -30,6 +30,7 @@ from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .localization import LocalizationState
+from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
@@ -37,7 +38,6 @@ from .sandbox_policy import SandboxPolicy
 from .session_cron import SessionCron
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
-from .plan_switch import PlanModeSwitch
 from .worktree import WorktreeSwitch
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;

@@ -61,9 +61,7 @@ def test_claude_ic_ice_adlari_okunur(tmp_path):
 
 
 def test_sandbox_enabled_false_eski_anahtari_ezer(tmp_path):
-    config = _yukle(
-        tmp_path, "runtime:\n  shell_sandbox: write_root\nsandbox:\n  enabled: false\n"
-    )
+    config = _yukle(tmp_path, "runtime:\n  shell_sandbox: write_root\nsandbox:\n  enabled: false\n")
     assert config.runtime.shell_sandbox == "off"
 
 

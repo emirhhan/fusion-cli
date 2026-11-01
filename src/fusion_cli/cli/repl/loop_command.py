@@ -72,7 +72,10 @@ LOOP_MD_MAX_BYTES = 25_000
 
 
 def maintenance_prompt(root: Path, home: Path) -> str:
-    """`.claude/loop.md` (proje) → `~/.claude/loop.md` (ev) → yerleşik metin; 25.000 baytta kesilir."""
+    """`.claude/loop.md` (proje) → `~/.claude/loop.md` (ev) → yerleşik metin.
+
+    Dosya 25.000 baytta kesilir (Claude).
+    """
     for base in (root, home):
         for relative in LOOP_FILES:
             path = base / relative

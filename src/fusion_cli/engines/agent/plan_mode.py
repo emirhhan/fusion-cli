@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING
 from ...config.paths import plans_dir
 from ...core.events import PlanDrafted
 from ...ui import messages
-
 from .approval import ApprovalMode, ApprovalPolicy, PlanApproval
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
@@ -114,7 +113,7 @@ def entered_plan_policy(deps: AgentDeps) -> ApprovalPolicy | None:
     switch = getattr(deps.tool_context, "plan_mode_switch", None)
     if switch is None or not switch.entered:
         return None
-    builder = getattr(deps, "policy_for_mode", None)
+    builder = deps.policy_for_mode
     if builder is not None:
         return builder(ApprovalMode.PLAN)
     return PlanApproval()

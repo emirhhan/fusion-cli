@@ -68,6 +68,8 @@ DISABLE_SANDBOX_ARG = "dangerouslyDisableSandbox"
 def asks_unsandboxed(args: ToolArgs) -> bool:
     """Çağrı sandbox dışında yeniden deneme istiyor mu (Claude adı ya da eski ad)?"""
     return args.get(DISABLE_SANDBOX_ARG) is True or args.get(UNSANDBOXED_ARG) is True
+
+
 #: Prob planındaki sahte proxy soketi (açılmaz; yalnız "proxy gerekir" bilgisini taşır).
 _PROBE_SOCKET = Path(tempfile.gettempdir()) / "fusion-sandbox-prob" / "proxy.sock"
 OUTSIDE_REQUESTED = "istek"

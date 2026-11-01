@@ -73,12 +73,12 @@ from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
-from .unprompted import UnpromptedPrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
+from .unprompted import UnpromptedPrompter
 
 app = typer.Typer(
     add_completion=False,

@@ -8,10 +8,20 @@ politikadan önce uygulanır; buraya gelen istek sorulmadan reddedilir.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Protocol
 
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
+
+
+class _Asker(Protocol):
+    async def ask(
+        self,
+        question: str,
+        options: tuple[QuestionOption, ...] = (),
+        recommended: str | None = None,
+    ) -> str: ...
 
 
 class UnpromptedPrompter:
@@ -20,15 +30,19 @@ class UnpromptedPrompter:
     Onay sorusu değil olan `ask_user` soruları (varsa) asıl sorucuya iletilir.
     """
 
-    def __init__(self, asker: Any | None = None) -> None:
+    def __init__(self, asker: _Asker | None = None) -> None:
         self._asker = asker
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         del request
         return ApprovalAnswer.UNAVAILABLE
 
-    async def ask(self, question: str, options: Any = (), recommended: str | None = None) -> str:
+    async def ask(
+        self,
+        question: str,
+        options: tuple[QuestionOption, ...] = (),
+        recommended: str | None = None,
+    ) -> str:
         if self._asker is None:
             return messages.NO_ANSWER_AVAILABLE
-        answer: str = await self._asker.ask(question, options, recommended)
-        return answer
+        return await self._asker.ask(question, options, recommended)
