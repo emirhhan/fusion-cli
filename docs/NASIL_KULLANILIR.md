@@ -1266,8 +1266,18 @@ Claude'dan fark (henüz): TaskCreate/TaskGet/TaskList/TaskUpdate araçları yok,
 kaynak dosyaları düzenlemez. Ajan da kendini `enter_plan_mode` aracıyla (Claude
 `EnterPlanMode`) plan kipine geçirebilir. Salt okunur olmayan kabuk komutuna
 `runtime.use_auto_mode_during_plan: true` (Claude `useAutoModeDuringPlan`, varsayılan)
-iken otomatik kip denetçisi karar verir (onaylanan çalışır, reddedilen engellenir);
-`false` iken sorulur. Açık `ask` kuralı ve yıkıcı komut her durumda sorulur.
+iken plan kipi sınıflandırıcısı karar verir: salt okunur komut ve bilinen kurulum/derleme/test
+komutu (`npm install`, `pytest`, `cargo test`, `make test`…) sorulmadan çalışır; dosya yazan,
+silen ya da git çalışma ağacını değiştiren komut (`git -C . reset --hard`, `sed --in-place`,
+`sh -c 'rm …'`, `curl -o`) engellenir; geri kalanı (`python -c`, `node -e`, alt kabuk,
+bilinmeyen araç) sorulur. `false` iken salt okunur olmayan her komut sorulur. Açık `ask`
+kuralı ve yıkıcı komut her durumda sorulur.
+
+**Claude Code'dan farklar:** Claude'un sınıflandırıcısı plan kipini bilen bir modeldir; Fusion
+açık listeli bir sezgi kullanır, bu yüzden emin olamadığını sorar. Claude planı modelin
+yazdığı plan dosyasından alabilir; Fusion'da plan kipi her dosya yazımını engellediği için plan
+`exit_plan_mode(plan)` argümanıyla gelir ve dosyayı Fusion yazar (argümansız çağrı hata döner).
+Araç adları Fusion'ın snake_case adlarıdır (`exit_plan_mode`, `enter_plan_mode`).
 
 Plan hazır olunca ajan planı `exit_plan_mode(plan)` aracıyla (Claude `ExitPlanMode`) sunar;
 plan Claude Code ile aynı yerde, `~/.claude/plans/<sohbet>.md` dosyasına yazılır (`plansDirectory`
