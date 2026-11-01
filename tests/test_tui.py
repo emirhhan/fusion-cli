@@ -728,3 +728,35 @@ async def test_gercek_oturumda_option_enter_yeni_satir_enter_gonderir():
                 await task
 
     assert gonderilen == ["bir\niki"]
+
+
+async def test_secim_modali_j_k_home_end_gezer():
+    """Claude Code Select bağlamı (#202): J/K ve Home/End seçicide gezer."""
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    with create_pipe_input() as pipe:
+        tui.application.input = pipe
+        tui.application.output = DummyOutput()
+        task = asyncio.ensure_future(tui.application.run_async())
+        await asyncio.sleep(0.05)
+        choice = asyncio.ensure_future(
+            tui.await_choice("başlık", [Choice("a", "A"), Choice("b", "B"), Choice("c", "C")])
+        )
+        await asyncio.sleep(0.05)
+        pipe.send_text("j")
+        await asyncio.sleep(0.05)
+        assert tui._choice_index == 1
+        pipe.send_text("k")
+        await asyncio.sleep(0.05)
+        assert tui._choice_index == 0
+        pipe.send_text("\x1b[F")  # End
+        await asyncio.sleep(0.05)
+        assert tui._choice_index == 2
+        pipe.send_text("\r")
+        assert await asyncio.wait_for(choice, 2) == "c"
+        tui.request_exit()
+        await asyncio.wait_for(task, 2)

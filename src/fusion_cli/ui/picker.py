@@ -176,15 +176,26 @@ def _pick_interactive(
     colors = row_colors(len(choices), gradient_rows=gradient_rows)
     bindings = KeyBindings()
 
+    # Claude Code Select bağlamı (#202): Up/K/Ctrl+P, Down/J/Ctrl+N, Home/End.
     @bindings.add("up")
     @bindings.add("c-p")
+    @bindings.add("k")
     def _up(event: KeyEvent) -> None:
         state.move(-1)
 
     @bindings.add("down")
     @bindings.add("c-n")
+    @bindings.add("j")
     def _down(event: KeyEvent) -> None:
         state.move(1)
+
+    @bindings.add("home")
+    def _first(event: KeyEvent) -> None:
+        state.move(-state.index)
+
+    @bindings.add("end")
+    def _last(event: KeyEvent) -> None:
+        state.move(len(choices) - 1 - state.index)
 
     @bindings.add("enter")
     def _accept(event: KeyEvent) -> None:

@@ -687,6 +687,23 @@ class FusionTui:
         def _down(_event: object) -> None:
             self._move_choice(1) if self._mode == "choice" else self._input.buffer.auto_down()
 
+        # Claude Code Select bağlamı (#202): seçicide J/K da gezer, Home/End uçlara gider.
+        @kb.add("k", filter=modal, eager=True)
+        def _select_previous(_event: object) -> None:
+            self._move_choice(-1)
+
+        @kb.add("j", filter=modal, eager=True)
+        def _select_next(_event: object) -> None:
+            self._move_choice(1)
+
+        @kb.add("home", filter=modal, eager=True)
+        def _select_first(_event: object) -> None:
+            self._move_choice(-self._choice_index)
+
+        @kb.add("end", filter=modal, eager=True)
+        def _select_last(_event: object) -> None:
+            self._move_choice(len(self._choices) - 1 - self._choice_index)
+
         # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
         # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.
         typing = Condition(lambda: self._mode != "choice")
