@@ -156,7 +156,9 @@ def test_rpc_liste_ata_cakisma_ve_hata(tmp_path: Path):
 
 def test_rpc_terminal_uyarilarini_masaustune_tasimaz(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    path.write_text(json.dumps({"tui": {"c-x": "ucmak"}, "masaustu": {"k": "yeni_sohbet"}}), "utf-8")
+    path.write_text(
+        json.dumps({"tui": {"c-x": "ucmak"}, "masaustu": {"k": "yeni_sohbet"}}), "utf-8"
+    )
     warnings = keybindings_rpc.list_bindings(path=path)["uyarilar"]
     assert warnings and all(warning.startswith("masaustu.") for warning in warnings)
 
@@ -169,7 +171,9 @@ async def test_oturum_kisayol_isteklerini_dagitir(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(keybindings_rpc, "keybindings_path", lambda: target)
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path / "ev")
-    await session.handle(Request("k1", "kisayol.ata", {"eylem": "yeni_sohbet", "tus": "mod+shift+k"}))
+    await session.handle(
+        Request("k1", "kisayol.ata", {"eylem": "yeni_sohbet", "tus": "mod+shift+k"})
+    )
     result = next(
         json.loads(line)["veri"] for line in reversed(lines) if json.loads(line).get("id") == "k1"
     )
