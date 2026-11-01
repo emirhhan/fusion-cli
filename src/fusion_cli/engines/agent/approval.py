@@ -18,9 +18,10 @@ iznine dönüşmez: otomatik onay hız içindir, geri alınamaz bir işlemi sess
 yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alınır.
 
 İzin kuralları (P-001, `config/permission_rules.py`) kipten ÖNCE gelir ve karar sırası
-sabittir: deny (her kipte, bypass dahil; sorulmaz) → yıkıcı (sorulur) → ask (sorulur)
-→ allow (sorulmaz) → kip → hafıza → soru. Korumalı proje yolu (`.git/`, `.claude/`…)
-yıkıcı sayılır (P-002).
+sabittir (Claude gibi, #84): deny (her kipte, bypass dahil; sorulmaz) → ask (sorulur)
+→ allow (sorulmaz; yalnız korumalı yol ve kritik yol silmesini açmaz) → kip → hafıza → soru.
+Fusion'ın sezgisel yıkıcı (`danger`) sınıflandırması yalnız kuralsız çağrıda kipin önüne geçer.
+Korumalı proje yolu (`.git/`, `.claude/`…) yıkıcı sayılır (P-002).
 """
 
 from __future__ import annotations
@@ -278,6 +279,20 @@ class ApprovalRequest:
     critical: str | None = None
     #: Kabuk komutu acceptEdits kapsamında mı (#53)? Kabuk dışı çağrıda `None`.
     accept_edits_ok: bool | None = None
+    #: Korumalı yol gerekçesi (`.git/`, `.claude/`…); allow kuralı bunu açmaz (#84).
+    protected: str | None = None
+
+    @property
+    def rule_opens(self) -> bool:
+        """Allow kuralı çağrıyı açıyor mu (#84)? Claude: deny → ask → allow; allow kuralı
+        yalnız korumalı yolları ve kritik yol silmelerini açmaz, Fusion'ın sezgisel
+        `danger` sınıflandırması allow'un önüne geçmez."""
+        return (
+            self.pre_allowed
+            and self.pre_ask is None
+            and self.critical is None
+            and self.protected is None
+        )
 
     @property
     def can_remember(self) -> bool:
@@ -403,10 +418,8 @@ class _AskingApproval:
         if request.pre_denied is not None:
             # `deny` kuralı / kök-dışı engel: kimseye sorulmaz, model gerekçeyi görür.
             return Decision.BLOCKED
-        if (
-            request.danger is None
-            and request.pre_ask is None
-            and (request.pre_allowed or self._allows(request))
+        if request.rule_opens or (
+            request.danger is None and request.pre_ask is None and self._allows(request)
         ):
             return Decision.ALLOW
         if request.pre_ask is None and self._memory.is_remembered(request):
@@ -466,6 +479,8 @@ class DontAskApproval:
     """Açık izinleri ve okumayı koru; kullanıcı etkileşimi gereken çağrıyı reddet."""
 
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if request.pre_denied is None and request.rule_opens:
+            return Decision.ALLOW
         if (
             request.pre_denied is not None
             or request.pre_ask is not None
@@ -474,7 +489,7 @@ class DontAskApproval:
             or request.effect is ToolEffect.REMOTE_SESSION
         ):
             return Decision.BLOCKED
-        if request.pre_allowed or request.read_only:
+        if request.read_only:
             return Decision.ALLOW
         return Decision.BLOCKED
 
@@ -610,9 +625,9 @@ def build_request(
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
-    if danger is None:
-        # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
-        danger = protected_path_reason(tool.name, args, root)
+    # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
+    protected = protected_path_reason(tool.name, args, root)
+    danger = danger or protected
     risk = None if effect in _UNATTENDED_EFFECTS else _remote_risk(effect)
     unattended_safe = effect in _UNATTENDED_EFFECTS
     # Yerel dosya aracı proje DIŞINA yazıyorsa risklidir (modül belgesi: "proje dışı
@@ -640,6 +655,7 @@ def build_request(
         authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
         outside_dir=outside_dir,
         pre_denied=pre_denied,
+        protected=protected,
     )
     return adjust_web_request(_apply_rule(request, match))
 
@@ -723,8 +739,8 @@ def _shell_request(
     home = Path.home()
     if danger is None and root is not None:
         danger = script_danger(command, root, home)
-    if danger is None:
-        danger = protected_path_reason(tool.name, args, root, is_shell=True)
+    protected = protected_path_reason(tool.name, args, root, is_shell=True)
+    danger = danger or protected
     caution = delete_caution(command, root, home) if root is not None else None
     target = describe_delete(command, root, home) if root is not None else ""
     chain = script_chain_risk(command, root, touched)
@@ -751,6 +767,7 @@ def _shell_request(
         read_only=is_read_only_command(command),
         note=note,
         pre_denied=pre_denied,
+        protected=protected,
     )
 
 

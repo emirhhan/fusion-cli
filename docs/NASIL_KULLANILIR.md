@@ -174,7 +174,10 @@ başlangıçta ve `fusion doctor`da bildirilir.
 Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,
 `~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
 `mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
-**deny → yıkıcı komut → ask → allow → çalışma modu**. Yalın deny (`Bash`, `Bash(*)`,
+**deny → ask → allow → çalışma modu** (Claude Code ile aynı). Allow kuralı yalnız korumalı yolları
+(`.git/`, `.claude/`…) ve kritik yol silmelerini açmaz; Fusion'ın yıkıcı komut sezgisi
+(`git push --force`, `git reset --hard`, `chmod -R 777`…) yalnız kuralı olmayan çağrıda çalışma
+modunun önüne geçer ve sordurur. Yalın deny (`Bash`, `Bash(*)`,
 `Read`) aracı modele hiç sunmaz; belirteçli kural (`Bash(rm *)`) yalnız eşleşen çağrıyı engeller. `deny` "İzinleri atla" modunda da
 geçerlidir; `ask` Otomatik modda bile sordurur ve oturum hafızasıyla susturulamaz. Kurallar
 yalnız yazan araçlarda değil **okuma, arama ve web araçlarında da** uygulanır

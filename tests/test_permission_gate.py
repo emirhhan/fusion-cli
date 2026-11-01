@@ -160,12 +160,13 @@ async def test_ask_kurali_oturum_hafizasiyla_susturulamaz(tmp_path):
     assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
 
 
-async def test_yikici_komut_allow_kuraliyla_bile_sorulur(tmp_path):
+async def test_yikici_komut_allow_kuraliyla_sorulmaz_claude_gibi(tmp_path):
+    # #84: Claude'da allow kuralı yalnız korumalı yol ve kritik silmeyi açmaz.
     kurallar = _kurallar(("Bash(*)", "allow"))
     karar, prompter = await _karar(
         ApprovalMode.AUTO, _arac(), {"command": "git push --force"}, tmp_path, kurallar
     )
-    assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
+    assert karar is Decision.ALLOW and prompter.soruldu == []
 
 
 async def test_kural_yokken_eski_davranis_korunur(tmp_path):

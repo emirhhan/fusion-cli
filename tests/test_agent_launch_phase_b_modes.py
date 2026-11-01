@@ -30,8 +30,13 @@ async def test_dontask_acik_izni_korur_soruyu_tehlikeyi_ve_sorulacak_islemi_enge
     assert await policy.decide(dataclasses.replace(request, read_only=True)) is Decision.ALLOW
     assert (
         await policy.decide(dataclasses.replace(request, pre_allowed=True, danger="tehlike"))
+        is Decision.ALLOW  # #84: allow kuralı sezgisel tehlikeyi açar
+    )
+    assert (
+        await policy.decide(dataclasses.replace(request, pre_allowed=True, critical="kritik"))
         is Decision.BLOCKED
     )
+    assert await policy.decide(dataclasses.replace(request, danger="tehlike")) is Decision.BLOCKED
     assert (
         await policy.decide(dataclasses.replace(request, pre_allowed=True, pre_ask="kural"))
         is Decision.BLOCKED

@@ -53,7 +53,8 @@ class PlanApproval:
             return Decision.ALLOW
         if _edits_files(request):
             return Decision.BLOCKED
-        if not must_ask and _rule_allowed(request):
+        if _rule_allowed(request) and request.rule_opens:
+            # Allow kuralı yalnız korumalı yol/kritik silmeyi açmaz (#84).
             return Decision.ALLOW
         if self._prompter is None:
             return Decision.BLOCKED
