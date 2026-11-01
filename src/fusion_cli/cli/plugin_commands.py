@@ -305,6 +305,6 @@ for _alias, _command, _hidden in (
 ):
     market_app.command(_alias, hidden=_hidden)(_command)
 app.add_typer(market_app, name="marketplace")
-for _info in app.registered_groups:
-    if _info.name == "pazar":
-        _info.hidden = True
+for _group in app.registered_groups:
+    if _group.name == "pazar":
+        _group.hidden = True
