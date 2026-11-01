@@ -49,3 +49,23 @@ def test_ad_tam_eslesme_ve_belirsiz_ad(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(resume_launch, "_default_chooser", lambda choices, title: None)
     with pytest.raises(SessionNotFoundError):
         session_resume.resolve_launch(memory, root, resume="Auth")
+
+
+def test_mutlak_jsonl_yolu_ile_surdurme(tmp_path: Path, monkeypatch):
+    """Claude Code `--resume <transcript-path>` (#188): Fusion transcript dosyasının yolu."""
+    from fusion_cli.cli.repl import resume_launch
+    from fusion_cli.cli.repl.transcript_store import transcript_events_path
+
+    memory, other, here = tmp_path / "m", tmp_path / "o", tmp_path / "h"
+    other.mkdir(), here.mkdir()
+    _sohbet(memory, other, "tek")
+    path = transcript_events_path(memory, other)
+    target = session_resume.resolve_launch(memory, here, resume=str(path))
+    assert target is not None and target.conversation_id == "tek"
+    _sohbet(memory, other, "ikinci")
+    monkeypatch.setattr(resume_launch, "_default_chooser", lambda choices, title: "ikinci")
+    target = session_resume.resolve_launch(memory, here, resume=str(path))
+    assert target.conversation_id == "ikinci"
+    assert any("ikinci istemi" in m.content for m in target.history)
+    with pytest.raises(SessionNotFoundError):
+        session_resume.resolve_launch(memory, here, resume=str(tmp_path / "yok.jsonl"))

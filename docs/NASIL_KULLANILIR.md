@@ -319,6 +319,9 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
   harf duyarlı). `--resume <kimlik>` önce bu projede (ve çalışma ağaçlarında), sonra makinedeki
   öteki projelerde arar; kimlik yalnız tek bir projede bulunursa açılır. Fusion'ın eski büyük/küçük
   duyarsız ad ve 6+ karakterlik kimlik öneki eşleşmesi tam eşleşme yoksa yedek olarak kalır.
+  `--resume <mutlak-yol.jsonl>` o transcript dosyasındaki sohbeti açar (Fusion dosyası proje başına
+  tek `events.jsonl`'dır; içinde birden çok sohbet varsa seçici açılır). Claude Code'un kendi
+  `.jsonl` biçimi okunmaz; onun için `/import history claude`.
 - `/import history <kaynak> [oturum]` (ör. `/import history claude`) başka araçların geçmişini yalnız
   künye olarak devralır; `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
   Claude Code'da `/resume<kaynak>` komutları yok; Fusion'ın eski `/resumeclaude`, `/resumecodex` adları

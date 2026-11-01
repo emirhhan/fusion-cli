@@ -111,7 +111,8 @@ def resolve_launch(
 
             chosen = pick_among(list(resolution.ambiguous), resume.strip())
             resolution = resume_lookup.Resolution(
-                next(r for r in resolution.ambiguous if r.conversation_id == chosen)
+                next(r for r in resolution.ambiguous if r.conversation_id == chosen),
+                events_path=resolution.events_path,
             )
         if resolution.ref is None:
             raise SessionNotFoundError(messages.SESSION_NOT_FOUND.format(query=resume.strip()))
