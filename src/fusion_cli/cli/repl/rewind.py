@@ -92,8 +92,13 @@ def parse_arguments(
 
 def rewind_command(state: ReplState, argument: str) -> str:
     """`/rewind [no] [kod|konuşma|ikisi]` — seçilen turun başına dön."""
+    from . import rewind_clear
+
+    if (target := rewind_clear.resume_target(argument)) is not None:
+        return _resume_previous(state, target)
     entries = state.checkpoints.entries()
-    if not entries:
+    previous = rewind_clear.previous_session_choices(state)
+    if not entries and not previous:
         return messages.REWIND_NOTHING
     if CANCEL_VALUE in argument.split():
         return ""
@@ -101,9 +106,11 @@ def rewind_command(state: ReplState, argument: str) -> str:
     if error:
         return error
     if index is None:
-        chosen = pick(turn_choices(entries), title=messages.REWIND_PICK_TURN)
+        chosen = pick([*previous, *turn_choices(entries)], title=messages.REWIND_PICK_TURN)
         if chosen is None:
             return ""
+        if (target := rewind_clear.resume_target(chosen)) is not None:
+            return _resume_previous(state, target)
         index = int(chosen)
     if scope is None:
         picked = pick(scope_choices(entries, index), title=messages.REWIND_PICK_SCOPE)
@@ -111,6 +118,13 @@ def rewind_command(state: ReplState, argument: str) -> str:
             return ""
         scope = parse_scope(picked) or RewindScope.BOTH
     return apply_rewind(state, index, scope)
+
+
+def _resume_previous(state: ReplState, conversation_id: str) -> str:
+    """Menünün `/resume <kimlik> (önceki oturum)` satırı: `/clear` öncesine dön (#200)."""
+    from .session_resume import resume_command
+
+    return resume_command(state, conversation_id)
 
 
 def apply_rewind(state: ReplState, index: int, scope: RewindScope) -> str:

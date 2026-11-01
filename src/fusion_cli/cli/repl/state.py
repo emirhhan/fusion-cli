@@ -139,6 +139,9 @@ class ReplState:
     hook_session: HookSession | None = field(default=None, kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
+    #: Son `/clear`: (bırakılan sohbet, yeni sohbet). `/rewind` menüsü bununla önceki oturumu
+    #: önerir (#200); başka sohbete geçilince yeni kimlik eşleşmez ve öneri kaybolur.
+    cleared_session: tuple[str, str] | None = field(default=None, kw_only=True)
     #: Oturumun başladığı an (`time.monotonic`); durum satırı `cost.total_duration_ms` (#191).
     started_at: float = field(default_factory=time.monotonic, kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.

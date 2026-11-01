@@ -32,6 +32,9 @@ def clear_command(state: ReplState, argument: str) -> str:
     state.conversation_name = ""
     state.last_changes = None
     state.checkpoints.clear()
+    if had_messages:
+        # Claude Code (#200): aynı süreçte `/rewind` menüsü `/resume <kimlik>` satırı sunar.
+        state.cleared_session = (previous_id, new_id)
     persona = getattr(state, "persona", None)
     if persona is not None:
         # Oturum ajanı (`--agent`) yeni sohbette de geçerlidir; kaydı yeni kimliğe taşınır.

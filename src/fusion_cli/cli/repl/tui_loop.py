@@ -62,6 +62,7 @@ from . import (
     queue_steer,
     remote_control,
     rewind,
+    rewind_clear,
     session_resume,
     session_snapshot,
     shell_background,
@@ -910,7 +911,10 @@ class _TuiSession:
         Vazgeçilirse ya da geri sarılacak tur yoksa `None` döner.
         """
         entries = self._state.checkpoints.entries()
-        if not entries:
+        previous = rewind_clear.previous_session_choices(self._state)
+        if rewind_clear.resume_target(argument) is not None:
+            return argument
+        if not entries and not previous:
             self._echo(f"[{theme.DIM}]{messages.REWIND_NOTHING}[/{theme.DIM}]")
             return None
         index, scope, error = rewind.parse_arguments(argument, self._state.checkpoints)
@@ -919,11 +923,13 @@ class _TuiSession:
             return None
         if index is None:
             picked = await self._tui.await_choice(
-                messages.REWIND_PICK_TURN, rewind.turn_choices(entries)
+                messages.REWIND_PICK_TURN, [*previous, *rewind.turn_choices(entries)]
             )
             if picked is None:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
+            if rewind_clear.resume_target(picked) is not None:
+                return picked  # `/clear` öncesi oturum (#200)
             index = int(picked)
         if scope is None:
             chosen = await self._tui.await_choice(
