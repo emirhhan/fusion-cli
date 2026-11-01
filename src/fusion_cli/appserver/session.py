@@ -573,6 +573,10 @@ class AppSession:
         self._local_state_purged = False
         self._local_state_purge_task: asyncio.Future[Any] | None = None
         self._child_runs = self._state.child_runs
+        # Karttan auto'ya geçiş (#82) arayüzün kip rozetine bildirilir.
+        self._state.on_mode_change = lambda mode: self._writer(
+            encode_event({"olay": "IzinKipiDegisti", "mod": mode.value})
+        )
         self._state.history = load_transcript_messages(config.memory_dir, root)
         # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
         # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve

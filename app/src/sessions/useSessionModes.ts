@@ -74,10 +74,14 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
   useEffect(() => {
     if (!id || !client?.onEvent) return;
     // Otomatik kip denetçisi engel eşiğini aştı (P-011): çekirdek oturumu Manuel'e çekti.
+    // Karttan "Evet, ve auto kipine geç" (#82): çekirdek kipi değiştirdi, rozet onu izler.
     return client.onEvent((veri) => {
-      if (veri.olay !== "AutoModeFellBack") return;
+      const next = veri.olay === "AutoModeFellBack"
+        ? "security"
+        : veri.olay === "IzinKipiDegisti" ? modlariOku({ mod: veri.mod }).approval : undefined;
+      if (!next) return;
       changes.current += 1;
-      setApprovals((current) => ({ ...current, [id]: "security" }));
+      setApprovals((current) => ({ ...current, [id]: next }));
     });
   }, [id, client]);
 

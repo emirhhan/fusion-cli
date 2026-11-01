@@ -245,6 +245,9 @@ class ReplState:
     bypass_available: bool = False
     #: Auto kipi kullanılabilir mi (#85): hiçbir ayar `disableAutoMode: "disable"` demiyorsa.
     auto_available: bool = True
+    #: Çekirdek kipi kendisi değiştirince (karttan auto'ya geçiş, #82) haber verilen taraf;
+    #: masaüstü bunu `IzinKipiDegisti` olayına bağlar ki kip rozeti bayat kalmasın.
+    on_mode_change: Callable[[ApprovalMode], None] | None = None
 
     def bind_pull_request(self, link: PullRequestLink | None) -> None:
         """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
@@ -486,8 +489,12 @@ class ReplState:
         )
 
     def _switch_to_auto(self) -> None:
-        if self._auto_switch_available():
-            self.approval = ApprovalMode.AUTO
+        if not self._auto_switch_available():
+            return
+        self.approval = ApprovalMode.AUTO
+        notify = getattr(self, "on_mode_change", None)
+        if notify is not None:
+            notify(self.approval)
 
     def _fall_back_to_manual(self) -> None:
         if self.approval is ApprovalMode.AUTO:

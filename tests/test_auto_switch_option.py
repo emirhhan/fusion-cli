@@ -166,3 +166,23 @@ async def test_dongude_gecis_onaylanan_cagriyi_iptal_etmez(monkeypatch, tmp_path
     await run_agent("A1 fiyatını 10 yap", deps, verify=False, self_review=False)
     assert cagrilar and len(soran.soruldu) == 1
     assert kip[-1] is ApprovalMode.AUTO
+
+
+def test_masaustu_gecisi_kip_degisti_olayi_yayinlar(tmp_path):
+    """İnceleme (1 Kasım): karttan auto'ya geçiş masaüstüne bildirilmiyor, rozet 'Manuel'
+    kalıyordu (#82). Geçiş `IzinKipiDegisti` olayı yayınlar; arayüz kip rozetini günceller.
+    """
+    import json
+
+    from fusion_cli.appserver.session import AppSession
+
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    oturum._state.approval = ApprovalMode.SECURITY
+    gecis = oturum._state.approval_memory.auto_switch
+    assert gecis is not None
+    gecis.switch()
+    olaylar = [json.loads(s).get("veri", {}) for s in satirlar]
+    assert {"olay": "IzinKipiDegisti", "mod": "auto"} in [
+        {k: o.get(k) for k in ("olay", "mod")} for o in olaylar
+    ]
