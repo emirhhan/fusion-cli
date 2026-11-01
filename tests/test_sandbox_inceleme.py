@@ -78,7 +78,8 @@ def proje(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("kip", "karar", "soru"),
     [
-        (ApprovalMode.PLAN, Decision.BLOCKED, 0),
+        # Plan kipinde de kullanıcıya sorulur (Claude: açık ask istekleri plan kipinde sorar; #318).
+        (ApprovalMode.PLAN, Decision.ALLOW, 1),
         (ApprovalMode.SECURITY, Decision.ALLOW, 1),
         (ApprovalMode.AUTO, Decision.ALLOW, 1),
         (ApprovalMode.ACCEPT_EDITS, Decision.ALLOW, 1),
