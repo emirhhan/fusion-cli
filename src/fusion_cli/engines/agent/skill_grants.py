@@ -4,7 +4,9 @@ Claude Code (code.claude.com/docs/en/skills, Frontmatter reference): `allowed-to
 "Tools Claude can use without asking permission when this skill is active" — listedeki araç
 ya da `Bash(git *)` deseni beceri etkinken onaysız kullanılır, diğer araçlar KALDIRILMAZ ve
 izin kurallarına göre davranır. Kullanıcının sonraki mesajında kalkar. `disallowed-tools`
-ise yasaktır: `Bash(rm *)` deseni yalnız o komutları düşürür, aracın tamamını değil.
+ise yasaktır: belge yalnız "Tools removed from Claude's available pool" diyor; desenli girdi
+(`Bash(rm *)`) Fusion'da aracın TAMAMINI yasaklar (güvenli taraf; desen anlamı belgeyle
+doğrulanana kadar, #180).
 
 Fusion'da tur sahibi turun başında `begin_turn` ile kullanıcının `/beceri` çağrısının
 kurallarını `ToolContext.skill_grants`'a yazar; modelin `Skill` aracı aynı listeye ekler.

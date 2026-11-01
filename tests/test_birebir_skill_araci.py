@@ -2,7 +2,8 @@
 
 Belge: code.claude.com/docs/en/skills — model beceriyi `Skill` aracıyla çağırır, işlenmiş gövde
 konuşmaya girer; `allowed-tools` listedeki araçları beceri etkinken onaysız kullandırır (diğer
-araçlar kalır); `disallowed-tools` deseni yalnız eşleşen çağrıyı yasaklar.
+araçlar kalır); `disallowed-tools` araçları havuzdan çıkarır — desenli girdi (`Bash(rm *)`)
+aracın tamamını yasaklar (belge desen anlamını tanımlamıyor; güvenli taraf, #180).
 """
 
 from __future__ import annotations
