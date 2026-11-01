@@ -57,7 +57,7 @@ def install_in_place(
     record = PluginRecord(
         name=name,
         version=report.layout.manifest.version,
-        source=f"{name}@{resolved.marketplace}",
+        source=f"{resolved.entry or name}@{resolved.marketplace}",
         kind="pazar",
         marketplace=resolved.marketplace,
         enabled=report.layout.manifest.default_enabled,

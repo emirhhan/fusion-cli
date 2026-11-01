@@ -53,7 +53,9 @@ class UpdateResult:
 
 
 def update_source(record: PluginRecord) -> str:
-    """Kaydın yeniden çekileceği kaynak metni."""
+    """Kaydın yeniden çekileceği kaynak metni: pazar girdisinin adı (bildirim adı değil, #391)."""
+    if record.marketplace and record.source.endswith(f"@{record.marketplace}"):
+        return record.source
     return f"{record.name}@{record.marketplace}" if record.marketplace else record.source
 
 

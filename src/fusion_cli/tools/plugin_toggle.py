@@ -39,7 +39,9 @@ def find_record(state: PluginState, spec: str) -> PluginRecord:
     """`ad` ya da `ad@pazar` (Claude eklenti bağımsız değişkeni)."""
     name, _, market = spec.partition("@")
     matches = [
-        r for r in state.plugins if r.name == name and (not market or r.marketplace == market)
+        r
+        for r in state.plugins
+        if name in (r.name, entry_name(r)) and (not market or r.marketplace == market)
     ]
     if not matches:
         raise PluginError(ERR_NOT_INSTALLED.format(name=spec))
@@ -47,6 +49,13 @@ def find_record(state: PluginState, spec: str) -> PluginRecord:
         ids = ", ".join(sorted(plugin_id(r) for r in matches))
         raise PluginError(ERR_AMBIGUOUS.format(name=spec, ids=ids))
     return matches[0]
+
+
+def entry_name(record: PluginRecord) -> str:
+    """Pazar girdisinin adı (Claude kurma/açma anahtarı); bildirim adından farklı olabilir."""
+    if record.marketplace and record.source.endswith(f"@{record.marketplace}"):
+        return record.source.removesuffix(f"@{record.marketplace}")
+    return record.name
 
 
 @dataclass(frozen=True, slots=True)

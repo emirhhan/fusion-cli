@@ -217,3 +217,29 @@ def test_validate_ayrilmis_ad_hata_verir(tmp_path):
     result = runner.invoke(app, ["validate", str(root)])
     assert result.exit_code == 1, result.output
     assert "ayrılmış" in result.output
+
+
+def test_girdi_adi_bildirim_adindan_farkli_ise_kimlik_ve_guncelleme_kaynagi(tmp_path):
+    from fusion_cli.tools.plugin_update import update_source
+
+    market = tmp_path / "pazar"
+    _plugin(market / "plugins" / "rapor", "rapor")
+    (market / ".claude-plugin").mkdir(parents=True)
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "ekip",
+                "owner": {"name": "E"},
+                "plugins": [{"name": "rapor-eklentisi", "source": "./plugins/rapor"}],
+            }
+        ),
+        "utf-8",
+    )
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("rapor-eklentisi@ekip", approve=_yes)
+
+    record = plugin_store.load_state().plugin("rapor")
+    assert update_source(record) == "rapor-eklentisi@ekip"
+    result = runner.invoke(app, ["disable", "rapor-eklentisi@ekip"])
+    assert result.exit_code == 0, result.output
+    assert plugin_store.load_state().plugin("rapor").enabled is False

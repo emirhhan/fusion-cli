@@ -361,7 +361,9 @@ def install_plugin(
     record = PluginRecord(
         name=name,
         version=report.layout.manifest.version,
-        source=f"{name}@{resolved.marketplace}" if resolved.marketplace else resolved.location,
+        source=f"{resolved.entry or name}@{resolved.marketplace}"
+        if resolved.marketplace
+        else resolved.location,
         kind="pazar" if resolved.marketplace else resolved.kind,
         marketplace=resolved.marketplace,
         commit=commit,
