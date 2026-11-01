@@ -222,6 +222,8 @@ def rules_payload(root: Path, config: Config) -> dict[str, object]:
         "guvensiz_katmanlar": list(loaded.untrusted_layers),
         "hedef": str(project_rule_file(root)),
         "kullanici_dosyasi": str(user_rule_file()),
+        # Claude'un paylaşılan proje kapsamı (#83): masaüstü kapsam seçicisi "paylasilan".
+        "paylasilan_dosyasi": str(root / trust.PROJECT_SETTINGS_PATH),
         "katmanlar": [
             {"ad": layer.name, "dosya": str(layer.path), "aciklama": layer.description}
             for layer in rule_layers(root)

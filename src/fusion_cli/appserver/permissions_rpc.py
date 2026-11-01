@@ -1,7 +1,8 @@
 """Masaüstü `izin.*` ve `proje.guven_*` istekleri (P-003, P-012).
 
     izin.kurallar        tüm katmanlardaki kurallar + engeller + hedef dosya
-    izin.ekle            {kalip, karar, kapsam: "proje"|"kullanici"}  (proje: güvenilmiyorsa hata)
+    izin.ekle            {kalip, karar, kapsam: "proje"|"paylasilan"|"kullanici"}
+                         (proje: yerel dosya, güvenilmiyorsa hata; paylasilan: .claude/settings.json)
     izin.sil             {kalip, karar, dosya?}  (dosya: tablodaki satırın dosyası)
     izin.engel           {anahtar: block_reads_outside_root|block_writes_outside_root, deger: bool}
     proje.guven_durum    TrustReport: güvenildi mi, neden, düşürülen bölümler

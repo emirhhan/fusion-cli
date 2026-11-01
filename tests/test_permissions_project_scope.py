@@ -88,3 +88,9 @@ def test_rpc_paylasilan_kapsam(proje):
     sonuc = add_rule(proje, {"kalip": "Read(./.env)", "karar": "deny", "kapsam": "paylasilan"})
     assert sonuc["ok"] is True and sonuc["dosya"] == str(proje / PROJECT_SETTINGS_PATH)
     assert _oku(proje / PROJECT_SETTINGS_PATH)["permissions"]["deny"] == ["Read(./.env)"]
+
+
+def test_kural_tablosu_paylasilan_dosyayi_bildirir(proje):
+    """Masaüstü kapsam seçicisi 'Proje (paylaşılan)' hedefini gösterebilsin (#83)."""
+    payload = permission_admin.rules_payload(proje, make_config())
+    assert payload["paylasilan_dosyasi"] == str(proje / PROJECT_SETTINGS_PATH)
