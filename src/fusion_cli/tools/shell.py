@@ -54,6 +54,7 @@ from .sandbox_runtime import (
     sandbox_env,
     sandbox_notes,
 )
+from .shell_env_file import with_env_prelude
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
@@ -112,7 +113,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         started: ToolResult | None = None
         try:
             started = start_job(
-                command,
+                with_env_prelude(command, context),
                 context,
                 sandbox_env(_shell_env(context), run),
                 manifest=manifest,
@@ -145,7 +146,7 @@ def _run_foreground(
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
         process = run_foreground(
-            command,
+            with_env_prelude(command, context),
             timeout_s=SHELL_TIMEOUT_S,
             cancelled=context.cancelled,
             cwd=context.root,

@@ -402,6 +402,9 @@ class ToolContext:
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).
     #: Sırlar süreç ortamında yaşar; `run_shell` çıktısı (`env`) modele giderdi.
     hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
+    #: `CLAUDE_ENV_FILE` dosyaları: her `run_shell` komutundan önce kabuk kodu olarak
+    #: çalışır (kanca köprüsü çalıştırmadan önce doldurur; liste paylaşılır).
+    shell_env_files: list[Path] = field(default_factory=list, kw_only=True)
     #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
     shell_sandbox: str = field(default="off", kw_only=True)
     #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.

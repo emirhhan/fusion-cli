@@ -158,11 +158,21 @@ def tool_running(
     if session is None:
         return
     session.tool_started[call_id] = time.monotonic()
+    _share_env_file(deps, session)
     if tool_name == "write_file":
         shape = claude_tool_input(tool_name, args, _root(session))
         path = shape.get("file_path")
         if isinstance(path, str):
             session.tool_existed[call_id] = Path(path).exists()
+
+
+def _share_env_file(deps: AgentDeps, session: HookSession) -> None:
+    """Oturumun `CLAUDE_ENV_FILE`'ı kabuk aracına (alt ajan ana oturumunkini paylaşır)."""
+    shared = getattr(getattr(deps, "tool_context", None), "shell_env_files", None)
+    if shared is None or not records_tools(deps):
+        return
+    env_file = session.env_file()
+    shared[:] = [env_file] if env_file is not None else []
 
 
 @dataclass(frozen=True, slots=True)

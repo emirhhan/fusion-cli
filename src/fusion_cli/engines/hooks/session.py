@@ -44,6 +44,11 @@ _CLAUDE_MODES = {
 }
 
 
+#: `CLAUDE_ENV_FILE` verilen olaylar (Claude: SessionStart, Setup, CwdChanged, FileChanged;
+#: Fusion Setup/FileChanged'i tetiklemez).
+ENV_FILE_EVENTS = frozenset({HookEvent.SESSION_START, HookEvent.CWD_CHANGED})
+
+
 def claude_permission_mode(mode: str) -> str:
     return _CLAUDE_MODES.get(mode, mode)
 
@@ -192,7 +197,7 @@ class HookSession:
             return NO_VERDICT
         payload = self._payload(event, fields or {})
         hidden = self.hidden_env() if self.hidden_env is not None else frozenset()
-        environment = hook_environment(root, hidden, self._extra_env())
+        environment = hook_environment(root, hidden, self._extra_env(event))
         private = self.http_allow_private() if self.http_allow_private is not None else True
         subject = subjects[0] if subjects else ""
         timed = dispatch.with_event_timeout(commands, event)
@@ -245,10 +250,28 @@ class HookSession:
             return None
         return self.transcript_dir / f"{self.session_id}-hook-output"
 
-    def _extra_env(self) -> dict[str, str]:
-        if self.effort is None:
-            return {}
-        return {"CLAUDE_EFFORT": self.effort()}
+    def _extra_env(self, event: HookEvent | None = None) -> dict[str, str]:
+        extra = {} if self.effort is None else {"CLAUDE_EFFORT": self.effort()}
+        env_file = self.env_file() if event in ENV_FILE_EVENTS else None
+        if env_file is not None:
+            extra["CLAUDE_ENV_FILE"] = str(env_file)
+        return extra
+
+    def env_file(self) -> Path | None:
+        """`CLAUDE_ENV_FILE`: kancaların `export` yazdığı dosya (oturum başına bir tane).
+
+        Kanca `>>` ile ekler; dosya her kabuk komutundan önce çalışır (`shell_env_file`).
+        Döküm klasörü yoksa (alt sistem testleri) `None`.
+        """
+        if self.transcript_dir is None:
+            return None
+        path = self.transcript_dir / f"{self.session_id}-env.sh"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
+        except OSError:
+            return None
+        return path
 
     def defer(
         self,

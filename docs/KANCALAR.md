@@ -132,7 +132,10 @@ ve `duration_ms` (aracın çalışma süresi; onay beklemesi dahil değil);
 
 Ortam: Fusion'ınki (MCP sırları ve `OTEL_*` hariç) + `CLAUDE_PROJECT_DIR` /
 `FUSION_PROJECT_DIR` (oturumun **başladığı** proje kökü; worktree ve `/cd` ile değişmez) +
-`CLAUDE_EFFORT`.
+`CLAUDE_EFFORT`. `SessionStart` ve `CwdChanged` kancalarına ek olarak `CLAUDE_ENV_FILE`
+verilir: kanca bu dosyaya `export AD=değer` satırları ekler (`>>`), oturumdaki her kabuk
+komutu (`run_shell`, arka plan dahil) dosyayı komuttan önce kabuk kodu olarak çalıştırır
+(`export PATH="$PATH:./node_modules/.bin"` gibi satırlar değerlendirilir).
 
 ## Çıktı
 
@@ -216,7 +219,7 @@ Tanımlar her kök turun başında yeniden okunur.
   olayı tetiklemiyor").
 - Eklenti `hooks/hooks.json` ve beceri frontmatter kancaları çalıştırılmaz (ajan
   frontmatter kancaları çalışır: alt ajanda `Stop` → `SubagentStop`).
-- Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır); `CLAUDE_ENV_FILE`,
+- Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);
   `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması,
   `terminalSequence`'in terminale basılması yok (alanlar okunur).
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
