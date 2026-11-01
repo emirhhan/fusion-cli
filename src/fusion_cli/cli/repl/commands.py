@@ -56,6 +56,7 @@ from . import (
     plugin_command,
     profiles_flow,
     provider_flow,
+    recap_command,
     rewind,
     session_clear,
     session_resume,
@@ -1380,6 +1381,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     # Claude Code (#221): `/btw` geçmişe girmeyen, araçsız yan soru (help_view basar).
     SlashCommand("btw", messages.CMD_BTW, btw_command.btw_command, group="Agent", usage="[soru]"),
+    SlashCommand("recap", messages.CMD_RECAP, recap_command.recap_command, group="Agent"),
     # Claude Code (#229): `/fork [istem]` konuşmayı arka plan kopyasına verir.
     SlashCommand(
         "fork", messages.CMD_FORK, fork_command.fork_command, group="Agent", usage="[istem]"
@@ -1470,6 +1472,7 @@ RENDERED_COMMANDS = frozenset(
         "context",
         "doctor",
         "btw",
+        "recap",
     }
 )
 

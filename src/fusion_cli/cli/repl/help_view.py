@@ -61,6 +61,11 @@ async def render(
         from .btw_command import render as render_btw
 
         await render_btw(state, argument, console)
+    elif name == "recap":
+        # Claude Code `/recap` (#230): tek satırlık özet, geçmişe girmez.
+        from .recap_command import render as render_recap
+
+        await render_recap(state, console)
 
 
 async def _doctor(console: Console) -> None:
