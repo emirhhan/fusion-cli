@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from weakref import WeakKeyDictionary
 
+from ..config.mcp_project_approval import is_noninteractive
 from ..config.models import Config, McpServerConfig
 from ..config.paths import base_data_dir
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
@@ -30,7 +31,7 @@ from .late_connect import LateConnections
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
 from .references import McpCatalog
-from .timeouts import connect_wait_s, connection_nonblocking
+from .timeouts import startup_wait
 
 __all__ = [
     "McpToolPool",
@@ -195,12 +196,7 @@ class McpToolPool:
                 and config.name not in self._connecting
                 and not self._is_parked(config)
             ]
-            if connection_nonblocking():
-                await self._open_nonblocking(wanted, to_open, loop)
-            elif to_open:
-                # İptal gather'dan çocuklara geçer; her `_open` kendi gözetmenini
-                # boşaltma kümesine alır (bkz. `_open`).
-                await asyncio.gather(*(self._open(config, loop) for config in to_open))
+            await self._open_nonblocking(wanted, to_open, loop)
             return tuple(
                 entry.client
                 for config in wanted
@@ -214,7 +210,7 @@ class McpToolPool:
         to_open: list[McpServerConfig],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
-        """Claude Code bloklamayan açılışı (#239): en çok `MCP_CONNECT_TIMEOUT_MS` bekle.
+        """Claude Code açılışı (#239): kimin ne kadar bekleneceği `timeouts.startup_wait`'te.
 
         Süresinde bağlanamayan sunucu arka planda bağlanmayı sürdürür ve araçları sonraki
         turda deftere girer. Tur iptal edilse de açılış sürer; `aclose()` onu kapatır.
@@ -223,18 +219,10 @@ class McpToolPool:
             task = loop.create_task(self._open(config, loop))
             self._connecting[config.name] = task
             task.add_done_callback(functools.partial(self._connected, config.name))
-        pending = [self._connecting[c.name] for c in wanted if c.name in self._connecting]
+        names, cap = startup_wait(wanted, noninteractive=is_noninteractive())
+        pending = [self._connecting[name] for name in names if name in self._connecting]
         if pending:
-            await asyncio.wait(pending, timeout=connect_wait_s())
-        # `alwaysLoad: true` sunucusu araçları ilk istekte olsun diye sonuna kadar beklenir;
-        # açılışın kendisi başlatma sınırıyla (`MCP_TIMEOUT`) bağlıdır.
-        must = [
-            self._connecting[c.name]
-            for c in wanted
-            if getattr(c, "always_load", None) is True and c.name in self._connecting
-        ]
-        if must:
-            await asyncio.wait(must)
+            await asyncio.wait(pending, timeout=cap)
 
     def _connected(self, name: str, task: asyncio.Task[None]) -> None:
         if self._connecting.get(name) is task:

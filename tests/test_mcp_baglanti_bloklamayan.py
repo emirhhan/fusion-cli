@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fusion_cli.config.models import McpServerConfig
+from fusion_cli.config.models import McpServerConfig, McpTransport
 from fusion_cli.mcp_bridge import pool as pool_module
 from fusion_cli.mcp_bridge.pool import McpToolPool
 from fusion_cli.mcp_bridge.timeouts import connect_wait_s, connection_nonblocking
@@ -53,17 +53,54 @@ async def test_gec_kalan_sunucu_arka_planda_baglanir_sonraki_turda_gelir(monkeyp
     assert kapandi.is_set()
 
 
-async def test_bloklayan_kip_butun_sunuculari_bekler(monkeypatch):
+async def test_bloklayan_kip_butun_sunuculari_sinira_kadar_bekler(monkeypatch):
+    """Claude: `MCP_CONNECTION_NONBLOCKING=0` bütün kümeyi bekler, `MCP_CONNECT_TIMEOUT_MS`'e kadar."""
     serbest, kapandi = asyncio.Event(), asyncio.Event()
     monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
-    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "50")
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "400")
     monkeypatch.setenv("MCP_CONNECTION_NONBLOCKING", "0")
     havuz = McpToolPool()
-    asyncio.get_running_loop().call_later(0.2, serbest.set)
+    asyncio.get_running_loop().call_later(0.1, serbest.set)
 
-    clients = await havuz.clients_for((McpServerConfig(name="yavas", command="x"),))
+    clients = await havuz.clients_for((McpServerConfig(name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP),))
 
-    assert [client.name for client in clients] == ["yavas"]
+    assert [client.name for client in clients] == ["uzak"]
+    await havuz.aclose()
+
+
+async def test_bloklayan_kip_sinirda_birakir_sunucu_arka_planda_surer(monkeypatch):
+    serbest, kapandi = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "30")
+    monkeypatch.setenv("MCP_CONNECTION_NONBLOCKING", "0")
+    havuz = McpToolPool()
+
+    assert await havuz.clients_for((McpServerConfig(name="yavas", command="x"),)) == ()
+    assert "yavas" in havuz._connecting
+    serbest.set()
+    await havuz.aclose()
+
+
+async def test_etkilesimsiz_kipte_bekleyen_sunucular_ilk_turdan_once_beklenir(monkeypatch):
+    """Claude: `-p` (stream-json girişi olmadan) ilk turdan önce bekleyen sunucuları bekler."""
+    from fusion_cli.config import mcp_project_approval
+
+    serbest, kapandi = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "20")
+    monkeypatch.delenv("MCP_CONNECTION_NONBLOCKING", raising=False)
+    monkeypatch.setitem(mcp_project_approval._STATE, "noninteractive", True)
+    havuz = McpToolPool()
+    asyncio.get_running_loop().call_later(0.15, serbest.set)
+
+    clients = await havuz.clients_for(
+        (
+            McpServerConfig(name="yavas", command="x"),
+            McpServerConfig(name="uzak", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP),
+        )
+    )
+
+    assert sorted(client.name for client in clients) == ["uzak", "yavas"]
     await havuz.aclose()
 
 
@@ -171,16 +208,17 @@ async def test_wait_for_mcp_servers_baglanmayi_bekler_ve_durumu_yazar(monkeypatc
     await pool_module.close_mcp_pool()
 
 
-async def test_always_load_sunucusu_sonuna_kadar_beklenir(monkeypatch):
+async def test_always_load_uzak_sunucusu_sinira_kadar_beklenir(monkeypatch):
+    """Claude: `alwaysLoad: true` HTTP/SSE sunucusu aynı sınıra (5 sn) kadar beklenir."""
     serbest, kapandi = asyncio.Event(), asyncio.Event()
     monkeypatch.setattr(pool_module, "McpClient", _yavas_istemci(serbest, kapandi))
-    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "20")
+    monkeypatch.setenv("MCP_CONNECT_TIMEOUT_MS", "400")
     monkeypatch.delenv("MCP_CONNECTION_NONBLOCKING", raising=False)
     havuz = McpToolPool()
     asyncio.get_running_loop().call_later(0.1, serbest.set)
 
     clients = await havuz.clients_for(
-        (McpServerConfig(name="yavas", command="x", always_load=True),)
+        (McpServerConfig(name="yavas", url="https://x.test/mcp", transport=McpTransport.STREAMABLE_HTTP, always_load=True),)
     )
 
     assert [client.name for client in clients] == ["yavas"]

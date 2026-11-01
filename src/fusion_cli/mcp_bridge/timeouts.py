@@ -10,8 +10,12 @@ https://code.claude.com/docs/en/env-vars:
   <1000 → 1 sn, en çok etkin araç sınırı); sunucu `timeout`'u boşta kalmanın alt sınırıdır.
   İlerleme bildirimi boşta kalma sayacını sıfırlar.
 - Başlatma: `MCP_TIMEOUT` (ms) > 30000 ms.
-- Bloklamayan açılış (varsayılan; `MCP_CONNECTION_NONBLOCKING=0` kapatır): tur başı sunucuları
-  en çok `MCP_CONNECT_TIMEOUT_MS` (5000 ms) bekler, geç kalan arka planda bağlanmayı sürdürür.
+- Açılış: etkileşimli kipte tur başı bütün kümeyi en çok `MCP_CONNECT_TIMEOUT_MS` (5000 ms)
+  bekler; sınırda bekleyen sunucu arka planda bağlanmayı sürdürür (`alwaysLoad` ve
+  `MCP_CONNECTION_NONBLOCKING=0` de aynı sınırla beklenir). Claude varsayılanda `alwaysLoad`
+  olmayan HTTP/SSE sunucusunu hiç beklemez; Fusion onu da 5 sn bekler (araçlar ilk istekte
+  olsun diye). Etkileşimsiz kipte (`-p`, `fusion exec`) ilk turdan önce bekleyen sunucuların
+  hepsi beklenir (başlatma sınırı `MCP_TIMEOUT`), bu değişkenden bağımsız.
 
 `config.yaml`'daki eski `connect_timeout_s` / `call_timeout_s` verilmişse önceliklidir.
 """
@@ -121,3 +125,21 @@ def connect_wait_s(environ: Mapping[str, str] | None = None) -> float:
     """Bloklamayan açılışta sunucuların toplu bekleme süresi (`MCP_CONNECT_TIMEOUT_MS`)."""
     env = _env_ms(CONNECT_WAIT_ENV, environ)
     return (env if env else DEFAULT_CONNECT_WAIT_MS) / 1000
+
+
+def startup_wait(
+    configs: tuple[McpServerConfig, ...],
+    *,
+    noninteractive: bool,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[tuple[str, ...], float | None]:
+    """Tur başında beklenecek sunucu adları ve toplu bekleme sınırı (None = sonuna kadar).
+
+    Etkileşimsiz kipte sonuna kadar beklenir; bu her sunucunun başlatma sınırıyla
+    (`MCP_TIMEOUT`) bağlıdır. Etkileşimli kipte küme `MCP_CONNECT_TIMEOUT_MS`'e kadar
+    beklenir (Claude'un `MCP_CONNECTION_NONBLOCKING=0` ve `alwaysLoad` beklemesi).
+    """
+    names = tuple(config.name for config in configs)
+    if noninteractive:
+        return names, None
+    return names, connect_wait_s(environ)

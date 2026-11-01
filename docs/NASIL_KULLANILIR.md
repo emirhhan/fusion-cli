@@ -696,14 +696,18 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   ya da sunucu `timeout`), HTTP/SSE istek başına en az 60 sn, boşta kalma ağda 5 dk / stdio'da
   30 dk (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). Ana sohbetteki çağrı 2 dk sonra arka plan
   görevine taşınır (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`, `0` kapatır): model görev kimliğini
-  alıp çalışmaya devam eder, sonuç hazır olunca sıradaki isteğe bildirim olarak eklenir. Alt
-  ajanlarda çağrı beklenir.
+  alıp çalışmaya devam eder, sonuç hazır olunca sıradaki isteğe bildirim olarak eklenir;
+  model son yanıtını verdiğinde hazır sonuç yeni bir istek açar. `fusion exec` / `-p`
+  kipinde süren çağrı süreç kapanmadan beklenir. `TaskStop` görevi `mcp-…` kimliğiyle
+  durdurur. Alt ajanlarda çağrı beklenir.
 - Bloklamayan bağlantı (Claude Code gibi varsayılan): tur başı sunucuları en çok 5 sn
   (`MCP_CONNECT_TIMEOUT_MS`) bekler; geç kalan sunucu arka planda bağlanmayı sürdürür ve
   bağlantısı bitince araçları aynı turun sıradaki isteğinde sunulur. Bağlanmayı süren sunucu
   varken model `WaitForMcpServers` aracıyla onları bekleyebilir (sonuçta sunucu başına
-  durum yazılır). `"alwaysLoad": true` sunucusu başlatma sınırına kadar beklenir.
-  `MCP_CONNECTION_NONBLOCKING=0` bütün sunucuları başlatma sınırına kadar bekletir.
+  durum yazılır). `"alwaysLoad": true` sunucusu ve `MCP_CONNECTION_NONBLOCKING=0` de aynı
+  sınıra (5 sn) kadar bekler. `fusion exec` / `-p` kipinde ilk turdan önce bütün sunucular
+  başlatma sınırına (`MCP_TIMEOUT`, 30 sn) kadar beklenir. Claude varsayılanda `alwaysLoad`
+  olmayan HTTP/SSE sunucusunu hiç beklemez; Fusion onu da 5 sn bekler.
 - Çıktı: 25.000 token (`MAX_MCP_OUTPUT_TOKENS`) ya da 50.000 karakteri aşan başarılı sonuç
   dosyaya kaydedilir ve modele yolu verilir; hata metninin ilk ve son 5.000 karakteri tutulur.
 - Stdio sunucusu kabuk ortamını miras alır ve `CLAUDE_PROJECT_DIR` alır;
