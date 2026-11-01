@@ -678,7 +678,7 @@ REPL_SKILL_FORK_NOTE = (
 )
 REPL_SKILL_FORK_AGENT_NOTE = "agent: {agent} — fork bu alt ajan tanımıyla koşacak."
 REPL_SKILL_ENGINE_NOTE = (
-    "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
+    "Beceri bu tur agent motorunda çalışır; oturumun motoru değişmez."
 )
 CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"

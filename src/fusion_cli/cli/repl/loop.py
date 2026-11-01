@@ -698,7 +698,7 @@ async def _dispatch(
     background: BackgroundTasks,
     mode: Mode = Mode.NONE,
 ) -> None:
-    if state.engine is Engine.FUSION:
+    if state.take_turn_engine() is Engine.FUSION:
         await _fusion_turn(line, state, console)
     else:
         await _agent_turn(line, state, console, background, mode)

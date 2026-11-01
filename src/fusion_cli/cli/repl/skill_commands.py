@@ -107,10 +107,10 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_skill_name = skill.name if carry else ""
         lines = [messages.REPL_SKILL_STARTED.format(name=skill.name)]
         if state.engine is not Engine.AGENT:
-            # Beceri gövdesi ve araç kısıtı yalnız agent turunda tüketilir; Fusion motorunda
-            # sessizce düşüp sonraki agent turuna sızıyordu (ölçüldü 31 Ekim). `/init` gibi
-            # motor çevrilir ve kullanıcıya söylenir.
-            state.engine = Engine.AGENT
+            # Claude Code (#184): beceri aynı oturumda olağan tur olarak koşar, motor/kip
+            # değişmez. Beceri gövdesi yalnız agent turunda tüketildiği için YALNIZ bu tur
+            # agent motorunda koşar; oturumun motoru kalır.
+            state.pending_engine = Engine.AGENT
             lines.append(messages.REPL_SKILL_ENGINE_NOTE)
         if invocation.fork:
             lines.append(messages.REPL_SKILL_FORK_NOTE)

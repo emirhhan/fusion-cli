@@ -920,7 +920,7 @@ class _TuiSession:
             *((usage_log,) if usage_log is not None else ()),
         )
         try:
-            if self._state.engine is Engine.FUSION:
+            if self._state.take_turn_engine() is Engine.FUSION:
                 # Beceri ekleri bu motorda kullanılmaz; sonraki agent turuna sızmasın.
                 self._state.take_pending_extras()
                 self._state.last_fusion = await run_task(

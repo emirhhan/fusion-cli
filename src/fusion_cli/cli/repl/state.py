@@ -258,6 +258,9 @@ class ReplState:
     pending_fresh_fork: bool = False
     #: Becerinin `background` alanı (fork; varsayılan True): fork arka planda koşar (#141).
     pending_fork_background: bool = False
+    #: Yalnız sıradaki tur için motor (#184): beceri Fusion motorunda agent turu olarak koşar,
+    #: oturumun motoru değişmez.
+    pending_engine: Engine | None = None
     #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
     pending_skill_name: str = ""
     #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
@@ -375,6 +378,12 @@ class ReplState:
         """`/add-dir` sonrası beceri kataloğunu ek köklerle yeniden kur (P-052)."""
         if self.capabilities is not None:
             self.capabilities = self.capabilities.with_extra_roots(self.extra_roots)
+
+    def take_turn_engine(self) -> Engine:
+        """Bu turun motoru: bekleyen tek turluk seçim ya da oturumun motoru (bir kez)."""
+        engine = self.pending_engine or self.engine
+        self.pending_engine = None
+        return engine
 
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""

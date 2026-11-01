@@ -184,8 +184,8 @@ def test_guvenilen_projenin_becerisinde_yalniz_salt_okur_komut_calisir(
     assert "Oku: guvenli" in state.pending_context
 
 
-def test_beceri_komutu_fusion_motorunu_agent_motoruna_cevirir(state: ReplState):
-    """Ölçüldü: Fusion motorunda beceri gövdesi kullanılmıyor, sonraki agent turuna sızıyordu."""
+def test_beceri_komutu_yalniz_o_turu_agent_motorunda_kosar(state: ReplState):
+    """Claude Code (#184): beceri olağan tur; oturumun motoru değişmez, yalnız o tur agent."""
     from fusion_cli.cli.repl.state import Engine
 
     state.engine = Engine.FUSION
@@ -193,8 +193,10 @@ def test_beceri_komutu_fusion_motorunu_agent_motoruna_cevirir(state: ReplState):
 
     cikti = registry.get("rapor").handler(state, "")  # type: ignore[union-attr]
 
-    assert state.engine is Engine.AGENT
-    assert "agent" in cikti.lower()
+    assert state.engine is Engine.FUSION
+    assert "oturumun motoru değişmez" in cikti
+    assert state.take_turn_engine() is Engine.AGENT
+    assert state.take_turn_engine() is Engine.FUSION  # yalnız bir tur
 
 
 async def test_masaustu_beceri_komutu_olay_dongusunu_bloklamaz(kutuphane, monkeypatch):
