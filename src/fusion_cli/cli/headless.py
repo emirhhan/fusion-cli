@@ -47,7 +47,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReque
 from ..engines.agent.engine_tools import QuestionOption
 from ..engines.agent.team import GENERIC_PERSONA, Persona, resolve_persona
 from ..observability.cost import CostTracker
-from ..tools.capabilities import CLAUDE_TOOL_MAP, CapabilityRegistry
+from ..tools.capabilities import CLAUDE_TOOL_MAP, Capability, CapabilityRegistry
 from ..ui import messages
 
 
@@ -235,9 +235,22 @@ def structured_result(final_text: str, schema: Mapping[str, object]) -> Structur
     return StructuredResult(value, tuple(errors))
 
 
-def resolve_agent(name: str, *, home: Path, root: Path) -> Persona:
+def resolve_agent(
+    name: str,
+    *,
+    home: Path,
+    root: Path,
+    managed_roots: tuple[Path, ...] = (),
+    session_agents: tuple[Capability, ...] = (),
+) -> Persona:
     """`--agent <ad>` tanımını (.claude/agents/<ad>.md) kişiliğe çevir; yoksa `ValueError`."""
-    library = CapabilityRegistry(home, root)
+    library = CapabilityRegistry(
+        home,
+        root,
+        managed_roots=managed_roots,
+        session_agents=session_agents,
+        working_directory=root,
+    )
     persona = resolve_persona(library, name)
     if persona is GENERIC_PERSONA:
         available = (

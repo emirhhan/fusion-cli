@@ -250,11 +250,19 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
     )
     hooks = hooks_config.load_hooks(tmp_path, default_timeout_s=7)
     assert [(c.command, c.timeout_s) for c in hooks.commands] == [("uzun", 600.0)]
-    reasons = {s.detail: s.reason for s in hooks.skipped}
-    assert "desteklenmiyor: mcp_tool" in reasons["https://ornek.test/kanca"]
-    assert reasons["wt"] == hooks_config.REASON_EVENT
-    assert reasons["u"] == hooks_config.REASON_UNKNOWN_EVENT
-    assert reasons["   "] == hooks_config.REASON_EMPTY
+    assert len(hooks.skipped) == 4
+    pretool = [skip for skip in hooks.skipped if skip.event == "PreToolUse"]
+    assert len(pretool) == 2
+    assert any("desteklenmiyor: mcp_tool" in skip.reason for skip in pretool)
+    assert any(skip.reason == hooks_config.REASON_EMPTY for skip in pretool)
+    assert [skip.reason for skip in hooks.skipped if skip.event == "WorktreeCreate"] == [
+        hooks_config.REASON_EVENT
+    ]
+    assert [skip.reason for skip in hooks.skipped if skip.event == "Uydurma"] == [
+        hooks_config.REASON_UNKNOWN_EVENT
+    ]
+    assert all(skip.detail == "kanca tanımı uygulanmadı" for skip in hooks.skipped)
+    assert all(skip.definition_json for skip in hooks.skipped)
 
 
 def test_bozuk_dosya_kanca_acmaz_otekileri_dusurmez(tmp_path, _izole_ev):

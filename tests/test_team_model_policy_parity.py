@@ -82,7 +82,8 @@ def test_guncel_izin_matrisi_politika_ve_kip_okuyucusunda_aynidir(tmp_path, pare
     deps, built = _deps(tmp_path, mode=parent)
     expected = (
         requested
-        if parent is ApprovalMode.SECURITY and requested is not ApprovalMode.BYPASS
+        if parent in (ApprovalMode.SECURITY, ApprovalMode.DONT_ASK)
+        and requested is not ApprovalMode.BYPASS
         else parent
     )
     persona = dataclasses.replace(GENERIC_PERSONA, permission_mode=requested.value)
@@ -200,7 +201,13 @@ def _agent_from_source(tmp_path, monkeypatch, requested, is_plugin):
         encoding="utf-8",
     )
     inventory = SimpleNamespace(
-        layout=SimpleNamespace(agents=(agent_path,), skills=(), commands=()),
+        layout=SimpleNamespace(
+            agents=(agent_path,),
+            skills=(),
+            commands=(),
+            root=agent_path.parent.parent,
+            manifest=SimpleNamespace(agents=("agents",)),
+        ),
         record=SimpleNamespace(name="rapor"),
     )
     monkeypatch.setattr(

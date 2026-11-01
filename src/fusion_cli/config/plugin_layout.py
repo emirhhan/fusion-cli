@@ -134,7 +134,7 @@ def scan_plugin(root: Path) -> PluginLayout:
     agents = tuple(
         path
         for base in _dirs(root, manifest.agents)
-        for path in sorted(base.glob("*.md"))
+        for path in sorted(base.rglob("*.md"))
         if _inside(path, root)
     )
     styles = tuple(

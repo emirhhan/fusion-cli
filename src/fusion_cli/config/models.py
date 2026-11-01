@@ -24,6 +24,7 @@ from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
+from .agent_launch_settings import AgentLaunchConfig
 from .sandbox_config import SandboxConfig
 
 
@@ -882,6 +883,9 @@ class Config:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     #: Bilgisayar kullanımı (`desktop:`, P-006); eski yapılandırmada yoksa varsayılanlar.
     desktop: DesktopSettings = field(default_factory=DesktopSettings)
+
+    #: Ana/alt ajan başlatma politikası; eski yapılandırmalarda boş ve anahtarsız.
+    agent_launch: AgentLaunchConfig = field(default_factory=AgentLaunchConfig)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

@@ -12,7 +12,8 @@ from __future__ import annotations
 import hashlib
 import sys
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from ..core.artifacts import ArtifactStore
 from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
+from ..core.errors import ConfigError
 from ..core.event_scope import TurnPublisher, new_trace_id
 from ..core.events import (
     DesktopEscapeStopped,
@@ -96,6 +98,7 @@ from .mcp_notice import new_failure_lines
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from ..engines.agent.approval import Prompter
     from ..engines.agent.engine_tools import UserAsker
+    from ..engines.agent.team import Persona
     from ..tools.registry import ToolRegistry
 
     class AgentPrompter(Prompter, UserAsker, Protocol):
@@ -247,6 +250,8 @@ async def run_agent_task(
     worktree_switch: WorktreeSwitch | None = None,
     hooks: HookSession | None = None,
     browser: BrowserSession | None = None,
+    session_persona: Persona | None = None,
+    main_config_applied: bool = False,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -272,6 +277,17 @@ async def run_agent_task(
     `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
     ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
     """
+    home = home or Path.home()
+    if session_persona is not None and not main_config_applied:
+        from ..engines.agent.team_settings import main_agent_config, main_approval_mode
+
+        config = main_agent_config(
+            config,
+            session_persona,
+            root=tool_context.root if tool_context else root or Path.cwd(),
+            home=home,
+        )
+        mode = main_approval_mode(config, session_persona, mode)
     can_ask = sys.stdin.isatty() if interactive is None else interactive
     started_at = time.monotonic()
     attempt_id = attempt_id or new_trace_id()
@@ -426,6 +442,10 @@ async def run_agent_task(
             # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
             health=health or build_health(config),
             journal=journal,
+            session_persona=session_persona,
+            interactive=can_ask,
+            main_config_applied=main_config_applied or session_persona is not None,
+            mcp_connector=agent_mcp_scope,
         )
         # Masaüstü oturumu turun görevine bağlanır: Esc iptali bu görevi keser (P-033).
         desktop_turn.begin(tool_context)
@@ -709,3 +729,22 @@ def open_trace(trace_dir: Path | None) -> TraceWriter | None:
 def _artifact_id() -> str:
     """Oturum artifact dizininin adı — iz kimliğiyle aynı zaman damgası biçimi."""
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+
+@asynccontextmanager
+async def agent_mcp_scope(config: Config, registry: ToolRegistry) -> AsyncIterator[None]:
+    """Alt ajanın inline MCP bağlantılarını kendi mevcut havuz örneğinde sahiplen."""
+    from ..mcp_bridge.pool import McpToolPool
+
+    pool = McpToolPool()
+    try:
+        clients = await pool.clients_for(
+            config.mcp_servers, retry_delays_s=config.runtime.retry_delays_s
+        )
+        if len(clients) != len(config.mcp_servers):
+            raise ConfigError("Alt ajanın MCP bağlantısı kurulamadı.")
+        for client in clients:
+            await client.register_into(registry)
+        yield
+    finally:
+        await pool.aclose()

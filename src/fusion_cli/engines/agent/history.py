@@ -309,6 +309,9 @@ def root_anchor_length(messages: Sequence[Message]) -> int:
         return 0
     kullanici_sayisi = 0
     for index, message in enumerate(messages):
+        # Önceki özet yeni sıkıştırmaya katılır; ilk görev öncesi bağlam korunur.
+        if kullanici_sayisi and is_summary_message(message):
+            return index
         if message.role == "user" and not message.harness_note:
             kullanici_sayisi += 1
             if kullanici_sayisi == 2:

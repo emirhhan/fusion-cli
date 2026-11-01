@@ -23,12 +23,13 @@ import functools
 import hashlib
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..config.models import SkillVisibility
+from ..config.models import McpServerConfig, SkillVisibility
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from ..config.plugin_store import state_signature
+from ..core.hooks.events import HookSet
 from ..core.memory import RoutineSpec
 from ..core.proposal_invocation import (
     ProposalInvocation,
@@ -36,6 +37,7 @@ from ..core.proposal_invocation import (
     proposal_metadata,
     visible_proposal,
 )
+from .agent_catalog_metadata import apply_agent_metadata, bind_agent_source
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
@@ -74,9 +76,16 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "websearch": frozenset({"web_search"}),
     "webfetch": frozenset({"web_fetch", "read_url_content"}),
     "ls": frozenset({"list_dir"}),
-    "task": frozenset({"spawn_agent"}),
+    "task": frozenset(
+        {"Agent", "spawn_agent", "spawn_agents", "find_agent", "invoke_agent", "invoke_subagent"}
+    ),
     # Claude Code'un yeni adları (P-034): alt ajan, beceri, soru, defter, görev listesi.
-    "agent": frozenset({"spawn_agent", "spawn_agents", "find_agent", "invoke_agent"}),
+    "agent": frozenset(
+        {"Agent", "spawn_agent", "spawn_agents", "find_agent", "invoke_agent", "invoke_subagent"}
+    ),
+    "sendmessage": frozenset({"SendMessage", "send_message"}),
+    "listagents": frozenset({"ListAgents", "list_agents"}),
+    "taskstop": frozenset({"TaskStop", "stop_agent"}),
     "skill": frozenset({"find_skill", "read_skill"}),
     "askuserquestion": frozenset({"ask_user"}),
     # Fusion'da ayrı defter aracı yok; `.ipynb` de dosya düzenlemesiyle yazılır.
@@ -100,6 +109,9 @@ _UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin", "eklenti"})
 #: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
 #: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
 _HEAD_CHARS = 16_000
+
+#: Eski Fusion kimlikleri korunur; Claude uyumluluk adları aynı yerleşik kayda çözülür.
+BUILTIN_AGENT_ALIASES: Mapping[str, str] = {"Explore": "explore", "Plan": "plan"}
 
 
 @functools.lru_cache(maxsize=4096)
@@ -166,6 +178,12 @@ class Capability:
     disallowed_tools: tuple[str, ...] = ()
     #: `capabilities.overrides: {ad: name-only}` → dizinde yalnız ad (P-051).
     describe_in_index: bool = True
+    #: CLI tanımının gövdesi; None dosyadan okumayı, boş metin açık boş promptu belirtir.
+    inline_prompt: str | None = None
+    initial_prompt: str = ""
+    omit_claude_md: bool = False
+    hook_definitions: HookSet = field(default_factory=HookSet, repr=False)
+    inline_mcp_servers: tuple[McpServerConfig, ...] = field(default=(), repr=False)
 
     @property
     def qualified_name(self) -> str:
@@ -175,6 +193,8 @@ class Capability:
     @property
     def revision(self) -> str:
         """Gösterilen/yüklenen içeriğin sürümü; okunamıyorsa bilinmiyor."""
+        if self.inline_prompt is not None:
+            return hashlib.sha256(self.inline_prompt.encode()).hexdigest()
         try:
             return hashlib.sha256(self.path.read_bytes()).hexdigest()
         except OSError:
@@ -270,6 +290,13 @@ def load_agent_prompt(path: Path) -> str:
     return text if end == -1 else stripped[end + 4 :].lstrip()
 
 
+def agent_prompt(capability: Capability) -> str:
+    """CLI gövdesini veya mevcut korumalı dosya okuma yolunu kullan."""
+    if capability.inline_prompt is not None:
+        return capability.inline_prompt
+    return load_agent_prompt(capability.path)
+
+
 class CapabilityRegistry:
     """Skill ve agent keşfi.
 
@@ -290,14 +317,25 @@ class CapabilityRegistry:
         extra_roots: tuple[Path, ...] = (),
         overrides: Mapping[str, SkillVisibility] | None = None,
         proposal_policy: ProposalPolicy | None = None,
+        managed_roots: tuple[Path, ...] = (),
+        session_agents: tuple[Capability, ...] = (),
+        working_directory: Path | None = None,
     ) -> None:
         self._proposal_policy = proposal_policy or ProposalPolicy()
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
-        self._disabled_agents = disabled_agents
+        self._disabled_agents = disabled_agents | frozenset(
+            alias
+            for name, target in BUILTIN_AGENT_ALIASES.items()
+            if name in disabled_agents or target in disabled_agents
+            for alias in (name, target)
+        )
         self._extra_roots = extra_roots
         self._overrides: Mapping[str, SkillVisibility] = dict(overrides or {})
+        self._managed_roots = managed_roots
+        self._session_agents = session_agents
+        self._working_directory = working_directory
         #: Alt klasörlerde tembel keşfedilen beceri dizinleri (P-052); bkz. `add_nested_roots`.
         self._nested_roots: tuple[Path, ...] = ()
         self._skills: tuple[Capability, ...] | None = None
@@ -342,6 +380,9 @@ class CapabilityRegistry:
             extra_roots=extra_roots,
             overrides=self._overrides,
             proposal_policy=self._proposal_policy,
+            managed_roots=self._managed_roots,
+            session_agents=self._session_agents,
+            working_directory=self._working_directory,
         )
 
     def invalidate(self) -> None:
@@ -417,7 +458,12 @@ class CapabilityRegistry:
         return tuple(item.qualified_name for item in self.skills() if item.name == name)
 
     def get_agent(self, name: str) -> Capability | None:
-        return _select(self.agents(), name, bundled_override=True)
+        agents = self.agents()
+        selected = _select(agents, name, bundled_override=True)
+        alias = BUILTIN_AGENT_ALIASES.get(name)
+        if selected is not None or alias is None or any(item.name == name for item in agents):
+            return selected
+        return _select(agents, alias, bundled_override=True)
 
     # ----------------------------------------------------------------------- #
 
@@ -439,6 +485,8 @@ class CapabilityRegistry:
             self._extra_roots,
             installed=capabilities_dir(),
             bundled=bundled_roster_dir(),
+            managed_roots=self._managed_roots,
+            working_directory=self._working_directory,
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -472,24 +520,26 @@ class CapabilityRegistry:
 
     def _discover_agents(self) -> tuple[Capability, ...]:
         found: dict[str, Capability] = {}
+        for capability in self._session_agents:
+            shadow_agent(found, bind_agent_source(capability, "cli"))
         for root, source in self._agent_roots():
             if not root.exists():
                 continue
             # Kurulu repoda `agents/` klasörünün kendisi de bağ olabilir: sınır repo kökü.
             bound = root.parent if source == "kurulu" else root
-            for path in sorted(root.glob("*.md")):
+            for path in sorted(root.rglob("*.md")):
                 if not _trusted_path(path, bound, source):
                     continue
-                capability = _to_capability(path, source, fallback=path.stem)
+                capability = _to_agent_capability(path, source, fallback=path.stem)
                 shadow_agent(found, capability)
             # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
-            for path in sorted(root.glob("*.toml")):
+            for path in sorted(root.rglob("*.toml")):
                 if not _trusted_path(path, bound, source):
                     continue
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     shadow_agent(found, toml_capability)
-        for capability in plugin_agents(_to_capability):
+        for capability in plugin_agents(_to_agent_capability):
             shadow_agent(found, capability)
         return tuple(found.values())
 
@@ -543,19 +593,38 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
     return _READ_ONLY_TOOLS if data.get("sandbox_mode") == "read-only" else ()
 
 
-def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
-    raw = _read_head(path)
+def _to_agent_capability(path: Path, source: str, *, fallback: str) -> Capability:
+    """Ajan açıklaması büyükse uyarılabilsin; frontmatter kapanışını kesme."""
+    return _to_capability(path, source, fallback=fallback, limit=None)
+
+
+def _to_capability(
+    path: Path, source: str, *, fallback: str, limit: int | None = _HEAD_CHARS
+) -> Capability:
+    raw = _read_head(path, limit)
     fields = parse_frontmatter(raw)
     try:
         proposal = proposal_metadata(raw)
     except (ValueError, TypeError):
         proposal = ProposalInvocation("invalid", "", RoutineSpec("", "", "", (), ()), "")
+    return _capability_from_fields(path, source, fields, fallback=fallback, proposal=proposal)
+
+
+def _capability_from_fields(
+    path: Path,
+    source: str,
+    fields: Mapping[str, object],
+    *,
+    fallback: str,
+    proposal: ProposalInvocation | None = None,
+) -> Capability:
+    """Dosya ve dosyasız CLI tanımında aynı alan dönüşümünü uygula."""
     allowed = fields.get("allowed_tools")
     description = str(fields.get("description") or "")
     when = str(fields.get("when_to_use") or "")
     if when:  # Claude Code `when_to_use` açıklamanın devamıdır; arama ve dizin ikisini görür
         description = f"{description} {when}".strip()
-    return Capability(
+    capability = Capability(
         name=str(fields.get("name") or fallback),
         proposal=proposal,
         description=description,
@@ -583,9 +652,10 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         hooks=_tuple_field(fields, "hooks"),
         disallowed_tools=_disallowed_tools(fields),
     )
+    return apply_agent_metadata(capability, fields)
 
 
-def _disallowed_tools(fields: dict[str, object]) -> tuple[str, ...]:
+def _disallowed_tools(fields: Mapping[str, object]) -> tuple[str, ...]:
     """Frontmatter yasağı belirteç taşısa da tüm araç ailesini kaldırır.
 
     CLI izin kuralları ayrı ayrıştırılır; onların komut/yol kapsamı burada çözülmez.
@@ -598,12 +668,12 @@ def _disallowed_tools(fields: dict[str, object]) -> tuple[str, ...]:
     )
 
 
-def _tuple_field(fields: dict[str, object], key: str) -> tuple[str, ...]:
+def _tuple_field(fields: Mapping[str, object], key: str) -> tuple[str, ...]:
     value = fields.get(key)
     return tuple(str(item) for item in value) if isinstance(value, tuple) else ()
 
 
-def _read_head(path: Path, limit: int = _HEAD_CHARS) -> str:
+def _read_head(path: Path, limit: int | None = _HEAD_CHARS) -> str:
     try:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:

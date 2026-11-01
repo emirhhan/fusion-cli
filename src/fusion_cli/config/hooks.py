@@ -139,7 +139,7 @@ def load_hooks(
             continue
         if layer.is_claude and not include_claude:
             found, _ = parse_hooks_block(
-                data.get("hooks"),
+                data.get("hooks", {}),
                 source=layer.name,
                 path=layer.path,
                 default_timeout_s=default_timeout_s,
@@ -153,7 +153,7 @@ def load_hooks(
             elif disabled is None:
                 disabled = f"{DISABLE_ALL_KEY} ({layer.name}: {layer.path})"
         found, skips = parse_hooks_block(
-            data.get("hooks"),
+            data.get("hooks", {}),
             source=layer.name,
             path=layer.path,
             default_timeout_s=default_timeout_s,
@@ -190,48 +190,107 @@ def untrusted_hook_files(root: Path) -> tuple[str, ...]:
 def parse_hooks_block(
     block: object, *, source: str, path: Path, default_timeout_s: float
 ) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
-    """`hooks` nesnesini komutlara çevir; çalıştırılamayan girdiler gerekçeli atlanır."""
+    """Kanca şemasını doğrula; bozuk koruyucu girdiyi sessizce kaybetme."""
     if not isinstance(block, Mapping):
-        return (), ()
+        return (), (_invalid_shape("hooks", source, path),)
     commands: list[HookCommand] = []
     skipped: list[HookSkip] = []
     for event_name, groups in block.items():
+        name = str(event_name)
         if not isinstance(groups, list):
+            skipped.append(_invalid_shape(name, source, path))
             continue
-        event = parse_event(str(event_name))
         for group in groups:
-            if not isinstance(group, Mapping):
-                continue
-            matcher = group.get("matcher")
-            matcher_text = matcher if isinstance(matcher, str) else ""
-            handlers = group.get("hooks")
-            for handler in handlers if isinstance(handlers, list) else ():
-                if not isinstance(handler, Mapping):
-                    continue
-                kind = str(handler.get("type") or COMMAND_HANDLER)
-                target = handler.get("url" if kind == HTTP_HANDLER else "command")
-                detail = target if isinstance(target, str) else str(handler.get("url") or kind)
-                reason = _skip_reason(str(event_name), event is None, kind, target)
-                if reason is not None or event is None:
-                    skipped.append(
-                        HookSkip(
-                            str(event_name), matcher_text, detail, reason or "", source, str(path)
-                        )
-                    )
-                    continue
-                commands.append(
-                    HookCommand(
-                        event,
-                        matcher_text,
-                        str(target).strip(),
-                        _timeout(handler.get("timeout"), default_timeout_s),
-                        source,
-                        str(path),
-                        kind,
-                        *_http_options(handler),
-                    )
-                )
+            found, rejected = _parse_hook_group(
+                name, group, source=source, path=path, default_timeout_s=default_timeout_s
+            )
+            commands.extend(found)
+            skipped.extend(rejected)
     return tuple(commands), tuple(skipped)
+
+
+def _invalid_shape(event: str, source: str, path: Path) -> HookSkip:
+    """Şema hatasında ham girdiyi tanıya veya komuta dönüştürme."""
+    known = parse_event(event) is not None or event in CLAUDE_ONLY_EVENTS
+    return _rejected_hook(
+        event if known else "bilinmeyen",
+        "",
+        {},
+        "kanca şeması geçersiz; olay grupları ve hooks alanı liste, girdiler nesne olmalı",
+        source,
+        path,
+    )
+
+
+def _parse_hook_group(
+    name: str, group: object, *, source: str, path: Path, default_timeout_s: float
+) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
+    """Bir grubun biçimini ve handler kontrol alanlarını aynı sınırda doğrula."""
+    if not isinstance(group, Mapping):
+        return (), (_invalid_shape(name, source, path),)
+    matcher = group.get("matcher", "")
+    handlers = group.get("hooks")
+    if not isinstance(matcher, str) or not isinstance(handlers, list):
+        return (), (_invalid_shape(name, source, path),)
+    commands: list[HookCommand] = []
+    skipped: list[HookSkip] = []
+    event = parse_event(name)
+    for handler in handlers:
+        if not isinstance(handler, Mapping):
+            skipped.append(_invalid_shape(name, source, path))
+            continue
+        kind = str(handler.get("type") or COMMAND_HANDLER)
+        target = handler.get("url" if kind == HTTP_HANDLER else "command")
+        reason = _skip_reason(name, event is None, kind, target) or _unsupported_options(handler)
+        if reason is not None or event is None:
+            skipped.append(_rejected_hook(name, matcher, handler, reason or "", source, path))
+            continue
+        commands.append(
+            HookCommand(
+                event,
+                matcher,
+                str(target),
+                _timeout(handler.get("timeout"), default_timeout_s),
+                source,
+                str(path),
+                kind,
+                *_http_options(handler),
+                status_message=str(handler.get("statusMessage") or ""),
+            )
+        )
+    return tuple(commands), tuple(skipped)
+
+
+def _rejected_hook(
+    event: str, matcher: str, handler: Mapping[str, object], reason: str, source: str, path: Path
+) -> HookSkip:
+    """Ham komut/başlık/argüman yalnız görünmez metaveride tutulur."""
+    return HookSkip(
+        event,
+        matcher,
+        "kanca tanımı uygulanmadı",
+        reason[:160],
+        source,
+        str(path),
+        definition_json=json.dumps(dict(handler), ensure_ascii=False, sort_keys=True, default=str),
+    )
+
+
+def _unsupported_options(handler: Mapping[str, object]) -> str | None:
+    """Yürütücünün uygulamadığı kontrol alanını düşürüp komut çalıştırma."""
+    controls = ("args", "once", "async", "asyncRewake", "shell", "onFailure", "if")
+    requested = tuple(
+        key
+        for key in controls
+        if key in handler
+        and (key in {"args", "shell", "onFailure", "if"} or handler[key] not in (False, None, ""))
+    )
+    if requested:
+        return (
+            f"kanca seçenekleri henüz desteklenmiyor: {', '.join(requested)}; "
+            "komut çalıştırılmadı; desteklenen command/http tanımı kullanın"
+        )
+    return None
 
 
 def _skip_reason(event_name: str, unknown: bool, kind: str, target: object) -> str | None:

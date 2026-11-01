@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from fusion_cli.core.background_tasks import TaskStatus
 from fusion_cli.core.peers import InboundPolicy
-from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import agent_task_tools
 from fusion_cli.engines.agent.approval import ApprovalMode
 from fusion_cli.engines.agent.loop import SCOPED_TOOLS
@@ -31,6 +29,11 @@ def launches(monkeypatch):
 
 
 def _deps(tmp_path: Path, *, mode=ApprovalMode.AUTO, **runtime):
+    from dataclasses import replace
+
+    from .test_system_prompt_layers import _deps as real_deps
+
+    deps = real_deps(tmp_path, "nvidia_nim/ornek-model")
     settings = {
         "background_agents": True,
         "subagent_context_mode": "existing",
@@ -40,44 +43,44 @@ def _deps(tmp_path: Path, *, mode=ApprovalMode.AUTO, **runtime):
         "max_subagents_per_turn": 20,
         **runtime,
     }
-    return SimpleNamespace(
-        config=SimpleNamespace(runtime=SimpleNamespace(**settings), memory_dir=tmp_path / "mem"),
-        tool_context=ToolContext(root=tmp_path),
-        conversation_id="sohbet-1",
-        approval_mode=lambda: mode,
-        child_runs=None,
-        invocation_budget=None,
-        budget=None,
+    deps.config = replace(
+        deps.config, memory_dir=tmp_path / "mem", runtime=replace(deps.config.runtime, **settings)
     )
+    deps.conversation_id = "sohbet-1"
+    deps.approval_mode = lambda: mode
+    return deps
+
+
+async def _completed(task, deps, **kwargs):
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    return AgentOutcome("rapor hazır", [Message("user", task), Message("assistant", "rapor hazır")])
 
 
 async def test_spawn_agent_arka_planda_hemen_kimlik_doner(tmp_path, launches):
     deps = _deps(tmp_path, mode=ApprovalMode.BYPASS)
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
-
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)
     result = await tool.run(
         {"task": "testleri yaz", "uzman": "testci", "arka_plan": True}, deps.tool_context
     )
-
     assert result.ok, result.output
-    task = agent_tasks.task_store(deps.config.memory_dir).tasks()[0]
-    assert task.owner == "sohbet-1" and task.origin == "arac" and task.agent == "testci"
-    # bypass arka plana miras kalmaz.
-    assert task.mode == ApprovalMode.AUTO.value
-    assert launches and launches[0][-1] == task.id
-    assert task.id in result.output
+    await deps.child_runs.drain()
+    record = deps.child_runs.records()[0]
+    assert record.parent_session == "sohbet-1" and record.status == "completed"
+    assert record.agent_id in result.output and launches == []
 
 
 async def test_alt_ajan_arka_plan_gorevi_acamaz(tmp_path, launches):
     deps = _deps(tmp_path)
-    tool = spawn_agent_tool(deps, depth=1, run_agent=None)  # type: ignore[arg-type]
+    tool = spawn_agent_tool(deps, depth=1, run_agent=_completed)  # type: ignore[arg-type]
     result = await tool.run({"task": "x", "arka_plan": True}, deps.tool_context)
     assert not result.ok and launches == []
 
 
 async def test_kapali_ayarda_arka_plan_baslamaz(tmp_path, launches):
     deps = _deps(tmp_path, background_agents=False)
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)  # type: ignore[arg-type]
     result = await tool.run({"task": "x", "arka_plan": "true"}, deps.tool_context)
     assert not result.ok and "kapalı" in result.output
 
@@ -191,25 +194,23 @@ async def test_arka_plan_gorevi_ust_turun_arac_kisitlarini_ve_yazma_alanini_tasi
 ):
     deps = _deps(tmp_path)
     deps.denied_tools = frozenset({"run_shell", "write_file"})
-    deps.execution = SimpleNamespace(allowed_tool_names=frozenset({"read_file", "grep", "edit"}))
+    deps.runtime_tool_cap = frozenset({"read_file", "grep", "edit"})
     (tmp_path / "docs").mkdir()
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
-
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)
     result = await tool.run(
-        {"task": "belgeyi düzelt", "arka_plan": True, "yazma_alani": ["docs/"]},
-        deps.tool_context,
+        {"task": "belgeyi düzelt", "arka_plan": True, "yazma_alani": ["docs/"]}, deps.tool_context
     )
-
     assert result.ok, result.output
-    options = agent_tasks.task_store(deps.config.memory_dir).tasks()[0].options
-    assert set(options.denied_tools) == {"run_shell", "write_file"}
-    assert options.allowed_tools == ("edit", "grep", "read_file")
-    assert options.write_scope == (str((tmp_path / "docs").resolve()),)
+    await deps.child_runs.drain()
+    state = deps.child_runs.records()[0]
+    assert set(state.tool_names) <= {"read_file", "grep", "edit"}
+    assert not {"run_shell", "write_file"}.intersection(state.tool_names)
+    assert state.write_scope == ("docs/",) and launches == []
 
 
 async def test_arka_plan_yazma_alani_kok_disindaysa_baslamaz(tmp_path, launches):
     deps = _deps(tmp_path)
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)  # type: ignore[arg-type]
 
     result = await tool.run(
         {"task": "x", "arka_plan": True, "yazma_alani": ["/etc"]}, deps.tool_context
@@ -221,7 +222,7 @@ async def test_arka_plan_yazma_alani_kok_disindaysa_baslamaz(tmp_path, launches)
 async def test_isci_icinden_arka_plan_gorevi_acilamaz(tmp_path, launches):
     deps = _deps(tmp_path)
     deps.conversation_id = "arka-1234abcd"
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)  # type: ignore[arg-type]
 
     result = await tool.run({"task": "x", "arka_plan": True}, deps.tool_context)
 
@@ -231,7 +232,7 @@ async def test_isci_icinden_arka_plan_gorevi_acilamaz(tmp_path, launches):
 async def test_tek_atista_arac_yaniti_kendiliginden_teslim_vaat_etmez(tmp_path, launches):
     deps = _deps(tmp_path)
     deps.conversation_id = "cli"
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    tool = spawn_agent_tool(deps, depth=0, run_agent=_completed)  # type: ignore[arg-type]
 
     result = await tool.run({"task": "x", "arka_plan": True}, deps.tool_context)
 
@@ -252,16 +253,19 @@ def git_repo(tmp_path):
 
 async def test_izolasyon_istenen_arka_plan_gorevi_kendi_calisma_agacinda_kosar(git_repo, launches):
     deps = _deps(git_repo)
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+    roots = []
 
+    async def run(task, child, **kwargs):
+        roots.append(child.tool_context.root)
+        return await _completed(task, child, **kwargs)
+
+    tool = spawn_agent_tool(deps, depth=0, run_agent=run)
     result = await tool.run(
         {"task": "refactor", "arka_plan": True, "izolasyon": "worktree"}, deps.tool_context
     )
-
     assert result.ok, result.output
-    task = agent_tasks.task_store(deps.config.memory_dir).tasks()[0]
-    assert task.root != str(git_repo.resolve()) and "arka-" in task.root
-    assert task.root in result.output
+    await deps.child_runs.drain()
+    assert roots and roots[0] != git_repo and launches == []
 
 
 # ------------------------------------------------- proje sınırı ve güven (inceleme bulgusu)
@@ -307,23 +311,41 @@ def test_mesaj_ve_durdurma_araclari_degistirici_sayilir(tmp_path):
 @pytest.mark.parametrize("budget_field", ["budget", "invocation_budget"])
 async def test_arka_plan_ortak_model_butcesini_asamaz(tmp_path, launches, budget_field):
     deps = _deps(tmp_path, subagent_context_mode="evidence_bundle")
-    setattr(deps, budget_field, object())
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)
+    shared = object()
+    setattr(deps, budget_field, shared)
+    observed = []
+
+    async def run(task, child, **kwargs):
+        observed.append(getattr(child, budget_field))
+        return await _completed(task, child, **kwargs)
+
+    tool = spawn_agent_tool(deps, depth=0, run_agent=run)
+    # Gerçek bütçe nesnesinin alt ajana aynı kimlikle geçtiği ayrı çalışma zamanı testinde sınanır.
+    if budget_field == "budget":
+        from fusion_cli.engines.agent.loop import _new_budget
+
+        shared = deps.budget = _new_budget(deps.config)
     result = await tool.run({"task": "oku", "arka_plan": True}, deps.tool_context)
-    assert not result.ok and launches == []
-    assert "bütçesi" in result.output
+    assert result.ok and launches == []
+    await deps.child_runs.drain()
+    assert observed == [shared]
 
 
 async def test_arka_plan_kanit_paketi_gecmisi_dislar_kisitlari_tasir(tmp_path, launches):
     from fusion_cli.core.types import Message
 
     deps = _deps(tmp_path, subagent_context_mode="evidence_bundle")
-    deps.lesson_state = None
     deps.live_history = lambda: [Message("user", "ALAKASIZ GEÇMİŞ")]
     deps.denied_tools = frozenset({"run_shell"})
-    deps.execution = SimpleNamespace(allowed_tool_names=frozenset({"read_file"}))
+    deps.runtime_tool_cap = frozenset({"read_file"})
     (tmp_path / "docs").mkdir()
-    tool = spawn_agent_tool(deps, depth=0, run_agent=None)
+    captured = []
+
+    async def run(task, child, **kwargs):
+        captured.append(kwargs)
+        return await _completed(task, child, **kwargs)
+
+    tool = spawn_agent_tool(deps, depth=0, run_agent=run)
     result = await tool.run(
         {
             "task": "oku",
@@ -335,11 +357,9 @@ async def test_arka_plan_kanit_paketi_gecmisi_dislar_kisitlari_tasir(tmp_path, l
         deps.tool_context,
     )
     assert result.ok, result.output
-    task = agent_tasks.task_store(deps.config.memory_dir).tasks()[0]
-    assert not agent_tasks.task_store(deps.config.memory_dir).load_history(task.id)
-    assert "ALAKASIZ" not in task.options.extra_system
-    assert "yeniden oku" in task.options.extra_system
-    assert task.options.allowed_tools == ("read_file",)
-    assert task.options.denied_tools == ("run_shell",)
-    assert task.options.write_scope == (str((tmp_path / "docs").resolve()),)
-    assert task.max_turns == 0
+    await deps.child_runs.drain()
+    assert captured and not captured[0]["history"]
+    assert "ALAKASIZ" not in captured[0]["extra_system"]
+    assert "yeniden oku" in captured[0]["extra_system"]
+    assert captured[0]["allowed_tools"] == {"read_file"}
+    assert launches == []

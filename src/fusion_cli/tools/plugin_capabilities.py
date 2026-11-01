@@ -22,6 +22,7 @@ from ..core.plugins import ROOT_VARIABLES, substitute_root
 from .frontmatter import body_after_frontmatter
 
 if TYPE_CHECKING:
+    from ..config.plugin_layout import PluginLayout
     from .capabilities import Capability
 
 #: Katalogdaki kaynak etiketi.
@@ -71,7 +72,18 @@ def plugin_agents(convert: Converter) -> Iterator[Capability]:
             continue
         for path in item.layout.agents:
             capability = convert(path, PLUGIN_SOURCE, fallback=path.stem)
-            yield _prefixed(capability, item.record.name)
+            name = _agent_scoped_name(item.layout, path, capability.name)
+            yield _prefixed(capability, item.record.name, name)
+
+
+def _agent_scoped_name(layout: PluginLayout, path: Path, name: str) -> str:
+    """Ajan kökü altındaki dizinleri `eklenti:inceleme:ajan` kimliğine kat."""
+    for relative in layout.manifest.agents:
+        base = layout.root / relative
+        if path.is_relative_to(base):
+            folders = path.relative_to(base).parts[:-1]
+            return ":".join((*folders, name))
+    return name
 
 
 def plugin_output_style_dirs() -> tuple[tuple[str, Path], ...]:

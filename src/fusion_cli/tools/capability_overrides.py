@@ -62,6 +62,8 @@ def registry_from_config(
     extra_roots: tuple[Path, ...] = (),
     session_disabled_skills: frozenset[str] = frozenset(),
     session_disabled_agents: frozenset[str] = frozenset(),
+    session_agents: tuple[Capability, ...] = (),
+    working_directory: Path | None = None,
 ) -> CapabilityRegistry:
     """Kalıcı `capabilities.disabled` + `overrides` uygulanmış katalog (tüm yüzeyler aynı)."""
     from ..core.proposal_invocation import (
@@ -78,4 +80,7 @@ def registry_from_config(
         extra_roots=extra_roots,
         proposal_policy=ProposalPolicy(enabled=config.runtime.verified_skill_proposals),
         overrides=overrides_from(config),
+        managed_roots=tuple(Path(path) for path in config.agent_launch.managed_agent_roots),
+        session_agents=session_agents,
+        working_directory=working_directory if working_directory is not None else root,
     )

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
+from ..core.agent_runtime_state import AgentRunState
 from ..core.original_trace import ORIGINAL_TRACE_ROLES
 from ..core.redaction import redact, redact_value
 from ..core.types import Message, ToolCall
@@ -149,3 +151,49 @@ def _original_call_from(item: object) -> ToolCall | None:
     ):
         return None
     return ToolCall(identity, name, arguments)
+
+
+def agent_state_to(state: AgentRunState) -> dict[str, object]:
+    """Ajanın sır içermeyen devam sınırlarını mevcut günlükte sakla."""
+    return asdict(state)
+
+
+def agent_state_from(raw: object) -> AgentRunState | None:
+    """Eski günlükte ajan metadatası yoktur; eksik geçmiş tam sayılmaz."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("read_only"), bool):
+        return None
+    if (
+        not {"tool_names", "denied_tools", "write_scope", "read_only", "complete_history"}
+        <= raw.keys()
+    ):
+        return None
+    if "background" not in raw and raw.get("tool_names") is None:
+        return None
+    required = ("agent_id", "parent_session", "root", "agent_type")
+    if not all(isinstance(raw.get(key), str) and raw[key] for key in required):
+        return None
+    values: dict[str, tuple[str, ...]] = {}
+    for name in ("tool_names", "denied_tools", "write_scope"):
+        items = raw.get(name)
+        if name == "tool_names" and items is None:
+            continue
+        if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+            return None
+        values[name] = tuple(items)
+    return AgentRunState(
+        agent_id=raw["agent_id"],
+        parent_session=raw["parent_session"],
+        root=raw["root"],
+        agent_type=raw["agent_type"],
+        complete_history=raw.get("complete_history") is True,
+        name=raw.get("name", "") if isinstance(raw.get("name", ""), str) else "",
+        tool_names=values.get("tool_names"),
+        denied_tools=values["denied_tools"],
+        write_scope=values["write_scope"],
+        status=str(raw.get("status", "unknown")),
+        read_only=raw["read_only"],
+        background=raw.get("background", True) is True,
+        parent_turn=raw.get("parent_turn", "")
+        if isinstance(raw.get("parent_turn", ""), str)
+        else "",
+    )

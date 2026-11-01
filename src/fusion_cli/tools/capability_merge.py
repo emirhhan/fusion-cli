@@ -8,21 +8,54 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .capabilities import Capability
 
+#: Yalnız aynı Claude ajan kapsam ailesi gölgelenir; Codex nitelikli seçimleri ayrıdır.
+_AGENT_SCOPE_PRIORITY = {"managed": 0, "cli": 1, "proje": 2, "ek-kok": 2, "claude": 3}
+
+
+def _scope_priority(source: str) -> int | None:
+    priorities = [
+        _AGENT_SCOPE_PRIORITY[item] for item in source.split("+") if item in _AGENT_SCOPE_PRIORITY
+    ]
+    return min(priorities) if priorities else None
+
 
 def shadow_agent(found: dict[str, Capability], capability: Capability) -> None:
-    """Claude proje ajanı kullanıcı tanımını gölgeler; dış kaynak seçimi korunur."""
-    if capability.source == "claude":
-        for key, existing in found.items():
-            if existing.name != capability.name or not {"proje", "ek-kok"}.intersection(
-                existing.source.split("+")
-            ):
-                continue
-            if existing.path.resolve() == capability.path.resolve():
-                # Ev ve proje aynı kökse bu iki tanım değil, tek dosyanın kaynak takma
-                # adlarıdır. Önceki nitelikli kimliğin kaynak sırasını koru.
-                found[key] = replace(existing, source=f"claude+{existing.source}")
+    """Yönetilen > CLI > yakın proje > kullanıcı; dış kaynak seçimleri korunur."""
+    priority = _scope_priority(capability.source)
+    for key, existing in tuple(found.items()):
+        if existing.name != capability.name:
+            continue
+        if _merge_file_alias(found, key, existing, capability):
             return
+        if priority is None:
+            continue
+        existing_priority = _scope_priority(existing.source)
+        if existing_priority is None:
+            continue
+        if existing_priority <= priority:
+            return
+        del found[key]
     merge_capability(found, capability)
+
+
+def _merge_file_alias(
+    found: dict[str, Capability], key: str, existing: Capability, capability: Capability
+) -> bool:
+    """Aynı dosyanın kaynak takma adı gölgelenmez; dosyasız CLI tanımı ayrı kalır."""
+    if existing.inline_prompt is not None or capability.inline_prompt is not None:
+        return False
+    try:
+        is_same_file = existing.path.resolve() == capability.path.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if not is_same_file:
+        return False
+    sources = list(dict.fromkeys((*existing.source.split("+"), *capability.source.split("+"))))
+    if "claude" in sources and "proje" in sources:
+        # A1'in ev/proje kimliğinde kullanıcı etiketi önce gelir.
+        sources = ["claude", *(source for source in sources if source != "claude")]
+    found[key] = replace(existing, source="+".join(sources))
+    return True
 
 
 def merge_capability(found: dict[str, Capability], capability: Capability) -> None:

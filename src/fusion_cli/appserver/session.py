@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros, worktrees
+from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.loop_command import fire_prompt
@@ -64,6 +64,7 @@ from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
+from ..core.errors import ConfigError
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
@@ -571,6 +572,7 @@ class AppSession:
         #: Saklama temizliği bu süreçte çalıştı mı (bkz. `_purge_old_local_state`).
         self._local_state_purged = False
         self._local_state_purge_task: asyncio.Future[Any] | None = None
+        self._child_runs = self._state.child_runs
         self._state.history = load_transcript_messages(config.memory_dir, root)
         # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
         # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve
@@ -602,7 +604,12 @@ class AppSession:
             if getattr(sys, "frozen", False)
             else f"{executable} -m fusion_cli serve --host 127.0.0.1 --port 8787"
         )
-        self._all_capabilities = CapabilityRegistry(home, root)
+        self._all_capabilities = CapabilityRegistry(
+            home,
+            root,
+            managed_roots=tuple(Path(value) for value in config.agent_launch.managed_agent_roots),
+            working_directory=root,
+        )
         self._disabled_skills: set[str] = set()
         self._disabled_agents: set[str] = set()
         self._disabled_mcp: set[str] = set()
@@ -610,6 +617,8 @@ class AppSession:
         self._pending_capabilities: list[tuple[str, str]] = []
         self._taken_skill: SkillSelection | None = None
         self._refresh_capabilities()
+        if config.agent_launch.default_agent:
+            self._apply_persona(config.agent_launch.default_agent)
         self._usage = UsageMeter()
         #: Kalıcı kullanım günlüğü (P-056); ayar kapalıysa None. Oturum sayacı değişmez.
         self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
@@ -807,14 +816,22 @@ class AppSession:
             return await self._remote_controller().dispatch(request.name, request.data)
         if request.name == "ajan.durdur":
             identifier = request.data.get("agentId")
+            runs = self._child_runs
+            expected = (
+                runs.turn_for(identifier)
+                if runs is not None and isinstance(identifier, str)
+                else ""
+            )
+            if not expected and runs is not None and not runs.persistent:
+                expected = self._steering_turn or ""
             if (
-                self._child_runs is None
-                or self._steering_turn is None
-                or request.data.get("turnId") != self._steering_turn
+                runs is None
+                or not expected
+                or request.data.get("turnId") != expected
                 or not isinstance(identifier, str)
             ):
                 return {"ok": False, "metin": "Etkin alt ajan görevi bulunamadı."}
-            cancelled = await self._child_runs.cancel(identifier)
+            cancelled = await runs.cancel(identifier)
             return {
                 "ok": cancelled,
                 "agentId": identifier,
@@ -988,7 +1005,12 @@ class AppSession:
             await self._chrome.close()
             return {"ok": True}
         if request.name == "oturum.baslat":
-            return self._start_session(request.data)
+            previous = (self._state.root, self._state.conversation_id)
+            result = self._start_session(request.data)
+            if result.get("ok") and previous != (self._state.root, self._state.conversation_id):
+                await self._state.reset_child_runs()
+                self._child_runs = self._state.child_runs
+            return result
         if request.name == "oturum.durum":
             return self._status()
         if request.name == "oturum.gecmis":
@@ -1756,7 +1778,14 @@ class AppSession:
             self._state.home = self._home
             capability_roots_changed = True
         if capability_roots_changed:
-            self._all_capabilities = CapabilityRegistry(self._home, self._root)
+            self._all_capabilities = CapabilityRegistry(
+                self._home,
+                self._root,
+                managed_roots=tuple(
+                    Path(value) for value in self._state.config.agent_launch.managed_agent_roots
+                ),
+                working_directory=self._root,
+            )
             self._disabled_skills.clear()
             self._disabled_agents.clear()
             self._disabled_mcp.clear()
@@ -1784,12 +1813,15 @@ class AppSession:
         if not isinstance(value, str):
             return {"ok": False, "metin": "Kişilik bir ajan adı ya da boş metin olmalı."}
         if not value.strip():
-            self._state.persona = None
+            self._state.select_persona(None)
             return None
         persona = resolve_session_persona(self._all_capabilities, value)
         if persona is None:
             return {"ok": False, "metin": messages.PERSONA_UNKNOWN.format(name=value.strip())}
-        self._state.persona = persona
+        try:
+            self._state.select_persona(persona)
+        except ConfigError as error:
+            return {"ok": False, "metin": str(error)}
         return None
 
     def _validated_root(self, value: object) -> tuple[Path | None, dict[str, Any] | None]:
@@ -2387,6 +2419,7 @@ class AppSession:
         """
         previous_approval = self._state.approval
         previous_history = self._state.history
+        previous_binding = (self._state.root, self._state.conversation_id)
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
@@ -2449,6 +2482,12 @@ class AppSession:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
             )
+        if (command is not None and command.name == "reset") or previous_binding != (
+            self._state.root,
+            self._state.conversation_id,
+        ):
+            await self._state.reset_child_runs()
+            self._child_runs = self._state.child_runs
         if self._state.approval is not previous_approval:
             self._state.approval_memory.revoke()
             self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
@@ -2562,7 +2601,14 @@ class AppSession:
             self._root,
             conversation_id=self._transcript_store.session_id,
         )
-        self._all_capabilities = CapabilityRegistry(self._home, self._root)
+        self._all_capabilities = CapabilityRegistry(
+            self._home,
+            self._root,
+            managed_roots=tuple(
+                Path(value) for value in self._state.config.agent_launch.managed_agent_roots
+            ),
+            working_directory=self._root,
+        )
         self._disabled_skills.clear()
         self._disabled_agents.clear()
         self._disabled_mcp.clear()
@@ -2708,6 +2754,10 @@ class AppSession:
         from ..core.submission import SubmissionKey
         from .submission import receipt_payload
 
+        try:
+            self._state.prepare_persona_config()
+        except ConfigError as error:
+            return {"ok": False, "metin": str(error)}
         key = SubmissionKey(
             str(self._state.config.memory_dir.resolve()),
             str(self._root.resolve()),
@@ -2872,6 +2922,12 @@ class AppSession:
         değil.
         """
         self._report_voice_background_failures()
+        if not browser_only:
+            try:
+                self._state.prepare_persona_config()
+            except ConfigError as error:
+                return {"ok": False, "metin": str(error)}
+            task = self._state.take_persona_initial(task)
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
         await self._iptal_edilen_turu_bekle()
@@ -2948,7 +3004,7 @@ class AppSession:
             on_app_denied=self._deny_desktop_app,
         )
         steering = SteeringQueue()
-        child_runs = ChildRuns()
+        child_runs = self._state.child_runs
         self._child_runs = child_runs
         self._steering = steering
         self._steering_turn = receipt.attempt_id if receipt else None
@@ -3041,6 +3097,8 @@ class AppSession:
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
+                session_persona=None if browser_only else self._state.persona,
+                main_config_applied=self._state.main_config_applied and not browser_only,
                 system_prompt=(
                     persona.system_prompt
                     if browser_only or self._workspace_mode == "kod"
@@ -3131,9 +3189,7 @@ class AppSession:
             self._desktop_activity.clear()
             self._browser_panel.turn_finished()
             self._computer_activity.clear()
-            await child_runs.close()
             if self._turn is owned_turn:
-                self._child_runs = None
                 self._iptal_bekliyor = False
                 self._turn = None
                 self._turn_settled.set()
@@ -3152,7 +3208,8 @@ class AppSession:
         # Turda açılan/okunan PR sohbetin PR künyesi olur (P-057; `oturum.durum.pr`); künye
         # çıkarımı korumalıdır, tur kaydını düşürmez.
         linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
-        switched = worktrees.apply_switch_request(self._state, switch)
+        switched = await self._state.apply_worktree_switch(switch)
+        self._child_runs = self._state.child_runs
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
         #
@@ -3628,6 +3685,9 @@ class AppSession:
                 submission.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
+        await self._state.child_runs.close()
+        if self._child_runs is not None and self._child_runs is not self._state.child_runs:
+            await self._child_runs.close()
         await self._voice_background.close()
         if self._idle_watch is not None:
             from ..cli.repl import hook_events
