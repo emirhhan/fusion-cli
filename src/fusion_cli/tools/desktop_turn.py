@@ -85,6 +85,10 @@ def escape_listening() -> bool:
 
 
 def _default_hide(keep: Sequence[int]) -> tuple[int, ...]:
+    if sys.platform == "win32":
+        from .desktop_win32_screen import hide
+
+        return hide(keep)
     from .native_desktop import invoke_sync
 
     result = invoke_sync("hide", {"kind": "apps", "request": {"keep": list(keep)}})
@@ -93,6 +97,11 @@ def _default_hide(keep: Sequence[int]) -> tuple[int, ...]:
 
 
 def _default_unhide(pids: Sequence[int]) -> None:
+    if sys.platform == "win32":
+        from .desktop_win32_screen import unhide
+
+        unhide(pids)
+        return
     from .native_desktop import invoke_sync
 
     invoke_sync("unhide", {"kind": "apps", "request": {"pids": list(pids)}})
@@ -100,6 +109,11 @@ def _default_unhide(pids: Sequence[int]) -> None:
 
 def _default_escape(on_escape: Callable[[], None]) -> Callable[[], None] | None:
     """Esc dinleyicisini başlat; durdurma işlevini döndür (kurulamadıysa None)."""
+    if sys.platform == "win32":
+        # Windows (#430): alçak düzey klavye kancası; fiziksel Esc uygulamaya gitmez.
+        from .desktop_win32_screen import escape
+
+        return escape(on_escape)
     from .desktop_escape import EscapeWatch
     from .native_desktop import executable_sync
 

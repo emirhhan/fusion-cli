@@ -1,4 +1,5 @@
-"""macOS masaüstünü kullanıcı izniyle gözlemleme ve yönetme araçları."""
+"""Masaüstünü (macOS; Windows yalnız masaüstü uygulamasında, #430) kullanıcı izniyle
+gözlemleme ve yönetme araçları."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import time
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_turn
+from . import desktop_turn, desktop_win32
 from .args import require_str
 from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
 from .key_spec import (
@@ -68,6 +69,12 @@ def _mac_only() -> str | None:
     )
 
 
+def _supported() -> str | None:
+    """Çekirdek computer use araçları: macOS her yüzeyde, Windows yalnız masaüstü uygulamasında
+    (#430; Claude Code CLI'de Windows yok). Testler `_mac_only`'yi değiştirebilir."""
+    return desktop_win32.gate(_mac_only())
+
+
 def _framework() -> ctypes.CDLL:
     return ctypes.CDLL(
         "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
@@ -82,7 +89,7 @@ def _trusted(framework: ctypes.CDLL) -> bool:
 def desktop_apps(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Ön planda çalışabilen uygulamaların adlarını listele."""
     del args, context
-    error = _mac_only()
+    error = _supported()
     if error:
         return ToolResult.failure(error)
     names = running_app_names()
@@ -96,9 +103,16 @@ def running_app_names() -> tuple[str, ...] | str:
 
     Ayarlar › Bu bilgisayar "reddedilen uygulama ekle" listesi de bunu kullanır.
     """
-    error = _mac_only()
+    error = _supported()
     if error:
         return error
+    if desktop_win32.active():
+        from .desktop_win32_screen import running_apps
+
+        try:
+            return running_apps()
+        except OSError as exc:
+            return f"Uygulamalar listelenemedi: {exc}"
     try:
         result = subprocess.run(
             [
@@ -122,10 +136,12 @@ def running_app_names() -> tuple[str, ...] | str:
 def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulamayı adıyla aç ve öne getir."""
     del context
-    error = _mac_only()
+    error = _supported()
     if error:
         return ToolResult.failure(error)
     name = require_str(args, "app")
+    if desktop_win32.active():
+        return _open_windows(name)
     try:
         result = subprocess.run(
             ["open", "-a", name],
@@ -138,6 +154,17 @@ def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Uygulama açılamadı: {exc}")
     if result.returncode:
         return ToolResult.failure(f"Uygulama açılamadı: {result.stderr.strip()}")
+    return ToolResult(f"Uygulama açıldı: {name}")
+
+
+def _open_windows(name: str) -> ToolResult:
+    """Windows: ad App Paths / Başlat menüsü / PATH'ten çözülür; yol ve URL açılmaz (#430)."""
+    from .desktop_win32_screen import open_app
+
+    try:
+        open_app(name)
+    except OSError as exc:
+        return ToolResult.failure(f"Uygulama açılamadı: {exc}")
     return ToolResult(f"Uygulama açıldı: {name}")
 
 
@@ -170,7 +197,7 @@ def _post_text(framework: ctypes.CDLL, value: str) -> None:
 
 def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Odaklı alana Unicode metin gönder; içeriği sonuçta tekrar etme."""
-    error = _mac_only()
+    error = _supported()
     if error:
         return ToolResult.failure(error)
     value = require_str(args, "text")
@@ -181,10 +208,13 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
     try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        _post_text(framework, value)
+        if desktop_win32.active():
+            desktop_win32.send_text(value)
+        else:
+            framework = _framework()
+            if not _trusted(framework):
+                return permission_failure(ACCESSIBILITY)
+            _post_text(framework, value)
     except (OSError, RuntimeError) as exc:
         return ToolResult.failure(f"Metin yazılamadı: {exc}")
     return ToolResult(f"Odaklı alana {len(value)} karakter yazıldı.")
@@ -274,9 +304,27 @@ def _post_chord(framework: ctypes.CDLL, chord: KeyChord, hold_ms: int) -> None:
     _post_key(framework, code, command=chord.command, shift=chord.shift, **extra)
 
 
+class _PermissionMissingError(Exception):
+    """macOS Erişilebilirlik izni yok (Windows'ta izin adımı yoktur)."""
+
+
+def _send_chords(chords: tuple[KeyChord, ...], repeat: int, hold_ms: int) -> None:
+    if desktop_win32.active():
+        for _ in range(repeat):
+            for chord in chords:
+                desktop_win32.send_chord(chord, hold_ms)
+        return
+    framework = _framework()
+    if not _trusted(framework):
+        raise _PermissionMissingError
+    for _ in range(repeat):
+        for chord in chords:
+            _post_chord(framework, chord, hold_ms)
+
+
 def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Odaklı uygulamaya tuş dizgisi gönder: `cmd+shift+4 enter`, tekrar ve basılı tutma."""
-    error = _mac_only()
+    error = _supported()
     if error:
         return ToolResult.failure(error)
     chords = _key_chords(args)
@@ -300,13 +348,10 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
     try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        for _ in range(repeat):
-            for chord in chords:
-                _post_chord(framework, chord, hold_ms)
-    except (OSError, RuntimeError) as exc:
+        _send_chords(chords, repeat, hold_ms)
+    except _PermissionMissingError:
+        return permission_failure(ACCESSIBILITY)
+    except (OSError, RuntimeError, ValueError) as exc:
         return ToolResult.failure(f"Tuş gönderilemedi: {exc}")
     label = ", ".join(chord.label() for chord in chords)
     suffix = f" (×{repeat})" if repeat > 1 else ""

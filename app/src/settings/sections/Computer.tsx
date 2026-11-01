@@ -144,7 +144,7 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
             </li>
           ))}
         </ul>}
-        <Field label="Uygulama ekle" hint="Ad ya da paket kimliği (com.apple.Mail).">
+        <Field label="Uygulama ekle" hint="Ad ya da paket kimliği (com.apple.Mail); Windows'ta exe adı (notepad.exe).">
           {(id) => (
             <div className="computer-settings__add">
               <input id={id} list="computer-running-apps" onChange={(event) => setNewDenied(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addDenied(); }} value={newDenied} />

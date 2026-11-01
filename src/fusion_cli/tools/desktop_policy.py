@@ -87,7 +87,7 @@ def normalize_app(name: str) -> str:
 #: Sıralıdır: ilk eşleşen kazanır (Fusion ve engelliler önce).
 CATEGORIES: tuple[AppCategory, ...] = (
     AppCategory(
-        "fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop",), ("fusion",),
+        "fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop", "fusion.exe"), ("fusion",),
         exact_names=True,
     ),
     AppCategory(
@@ -95,7 +95,10 @@ CATEGORIES: tuple[AppCategory, ...] = (
         "Yatırım platformu: yalnız ekran görüntüsünde görülebilir.",
         ("com.binance", "com.coinbase", "com.krakenfx", "net.metaquotes", "com.tradingview",
          "com.robinhood", "com.interactivebrokers", "com.ledger", "com.exodus", "io.trezor",
-         "org.electrum", "com.etoro", "com.webull", "com.tdameritrade"),
+         "org.electrum", "com.etoro", "com.webull", "com.tdameritrade",
+         # Windows exe adları (#430): MetaTrader 4/5, TradingView, IBKR TWS, Ledger…
+         "terminal.exe", "terminal64.exe", "tradingview.exe", "tws.exe", "ledger live.exe",
+         "exodus.exe", "binance.exe", "thinkorswim.exe", "webull desktop.exe"),
         ("binance", "coinbase", "kraken", "metatrader 4", "metatrader 5", "tradingview",
          "robinhood", "trader workstation", "ibkr desktop", "thinkorswim", "ledger live",
          "exodus", "trezor suite", "electrum", "etoro", "webull", "midas", "btcturk", "paribu",
@@ -105,21 +108,28 @@ CATEGORIES: tuple[AppCategory, ...] = (
         "browser", "tarayıcı", DesktopLevel.OBSERVE, BROWSER_HINT,
         ("com.apple.safari", "com.google.chrome", "org.mozilla.firefox", "com.microsoft.edgemac",
          "com.brave.browser", "company.thebrowser.browser", "com.operasoftware.opera",
-         "com.vivaldi.vivaldi", "ru.yandex.desktop.yandex-browser", "org.chromium.chromium"),
+         "com.vivaldi.vivaldi", "ru.yandex.desktop.yandex-browser", "org.chromium.chromium",
+         "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe",
+         "arc.exe", "chromium.exe", "browser.exe", "iexplore.exe"),
         ("safari", "google chrome", "firefox", "microsoft edge", "brave browser", "arc", "opera",
          "vivaldi", "chromium", "yandex"),
     ),
     AppCategory(
         "terminal", "terminal", DesktopLevel.CLICK, SHELL_HINT,
         ("com.apple.terminal", "com.googlecode.iterm2", "dev.warp.warp", "net.kovidgoyal.kitty",
-         "com.github.wez.wezterm", "io.alacritty", "org.alacritty", "com.mitchellh.ghostty"),
+         "com.github.wez.wezterm", "io.alacritty", "org.alacritty", "com.mitchellh.ghostty",
+         "windowsterminal.exe", "openconsole.exe", "conhost.exe", "cmd.exe", "powershell.exe",
+         "pwsh.exe", "wezterm-gui.exe", "alacritty.exe", "mintty.exe", "wsl.exe", "bash.exe"),
         ("terminal", "iterm", "iterm2", "warp", "kitty", "wezterm", "alacritty", "ghostty"),
     ),
     AppCategory(
         "ide", "IDE", DesktopLevel.CLICK, SHELL_HINT,
         ("com.microsoft.vscode", "com.todesktop.230313mzl4w4u92", "com.jetbrains.",
          "com.apple.dt.xcode", "dev.zed.zed", "com.sublimetext.", "com.exafunction.windsurf",
-         "com.google.android.studio"),
+         "com.google.android.studio",
+         "code.exe", "cursor.exe", "devenv.exe", "windsurf.exe", "zed.exe", "sublime_text.exe",
+         "idea64.exe", "pycharm64.exe", "webstorm64.exe", "goland64.exe", "phpstorm64.exe",
+         "rider64.exe", "clion64.exe", "studio64.exe"),
         ("visual studio code", "code", "cursor", "xcode", "zed", "sublime text", "windsurf",
          "intellij idea", "pycharm", "webstorm", "android studio", "goland", "phpstorm"),
     ),
@@ -128,19 +138,23 @@ CATEGORIES: tuple[AppCategory, ...] = (
         "Enter mesajı gönderir; her gönderim ayrıca sorulur (Shift+Enter satır ekler).",
         ("com.tinyspeck.slackmacgap", "com.apple.mobilesms", "net.whatsapp.whatsapp",
          "desktop.whatsapp", "ru.keepcoder.telegram", "org.telegram.desktop", "com.hnc.discord",
-         "com.microsoft.teams", "org.whispersystems.signal-desktop", "com.facebook.archon"),
+         "com.microsoft.teams", "org.whispersystems.signal-desktop", "com.facebook.archon",
+         "slack.exe", "whatsapp.exe", "telegram.exe", "discord.exe", "ms-teams.exe",
+         "teams.exe", "signal.exe", "messenger.exe"),
         ("slack", "messages", "mesajlar", "whatsapp", "telegram", "discord", "microsoft teams",
          "signal", "messenger"),
     ),
     AppCategory(
         "system", "Sistem Ayarları", DesktopLevel.FULL,
         "Sistem ayarlarını değiştirebilir; her eylem ayrıca sorulur.",
-        ("com.apple.systempreferences", "com.apple.settings"),
-        ("system settings", "system preferences", "sistem ayarları", "sistem tercihleri"),
+        ("com.apple.systempreferences", "com.apple.settings", "systemsettings.exe", "control.exe",
+         "regedit.exe", "mmc.exe", "taskmgr.exe"),
+        ("system settings", "system preferences", "sistem ayarları", "sistem tercihleri",
+         "settings", "ayarlar", "control panel", "denetim masası"),
     ),
     AppCategory(
         "finder", "Finder", DesktopLevel.FULL, "Her dosyayı okuyup yazabilir.",
-        ("com.apple.finder",), ("finder",),
+        ("com.apple.finder", "explorer.exe"), ("finder", "file explorer", "dosya gezgini"),
     ),
 )  # fmt: skip
 
@@ -215,6 +229,18 @@ def required_level(tool_name: str, args: ToolArgs) -> DesktopLevel | None:
 
 
 async def _swift_probe(request: dict[str, object]) -> Mapping[str, object]:
+    from . import desktop_win32
+
+    if desktop_win32.active():
+        # Windows (#430): WindowFromPoint / öndeki pencere → süreç → exe; UIA ile öğe adı.
+        import asyncio
+
+        from .desktop_win32_screen import probe
+
+        try:
+            return await asyncio.to_thread(probe, request)
+        except OSError as exc:
+            return {"ok": False, "metin": str(exc)}
     return await SwiftDesktop().invoke("target", {"kind": "probe", "request": request})
 
 

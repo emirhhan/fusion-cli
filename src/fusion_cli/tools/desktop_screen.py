@@ -1,4 +1,5 @@
-"""macOS ekran görüntüsü: ekran seçimi, otomatik küçültme, koordinat çerçevesi, bölge zoom (P-030).
+"""Ekran görüntüsü (macOS; Windows GDI yakalaması, #430): ekran seçimi, otomatik küçültme,
+koordinat çerçevesi, bölge zoom (P-030).
 
 Model tıklayacağı yeri son ekran görüntüsünün PİKSELİNDE söyler; çerçeve (`DesktopFrame`)
 `ToolContext.desktop` içinde saklanır ve fare araçları noktaya çevirir. Bölge (`region`)
@@ -24,6 +25,7 @@ from ..core.desktop_frame import DesktopFrame, screenshot_target_width
 from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
+from . import desktop_win32
 from .args import optional_str
 from .desktop import DESKTOP_COMMAND_TIMEOUT_S, SCREENSHOT_MAX_BYTES, _framework, _mac_only
 from .desktop_permissions import DENIED, SCREEN_RECORDING, permission_failure, probe
@@ -102,10 +104,26 @@ def _displays(framework: ctypes.CDLL) -> tuple[Display, ...]:
 
 def list_displays() -> tuple[Display, ...]:
     """Ekranlar; okunamazsa tek ekran varsayılmaz, boş döner (çağıran açık hata verir)."""
+    if desktop_win32.active():
+        return _windows_displays()
     try:
         return _displays(_framework())
     except (OSError, AttributeError):
         return ()
+
+
+def _windows_displays() -> tuple[Display, ...]:
+    """Windows ekranları (fiziksel piksel, ana ekran önce); kimlik = 1 tabanlı sıra (#430)."""
+    from .desktop_win32_screen import displays
+
+    try:
+        rows = displays()
+    except OSError:
+        return ()
+    return tuple(
+        Display(index, float(x), float(y), float(w), float(h), main, index)
+        for index, (x, y, w, h, main) in enumerate(rows, start=1)
+    )
 
 
 def png_size(data: bytes) -> tuple[int, int] | None:
@@ -161,6 +179,10 @@ def _exclude_pids() -> list[int]:
 
 def fusion_pids() -> list[int]:
     """Fusion'ın süreçleri (bu süreç + ataları): gizlemede de görünür kalırlar (P-033)."""
+    if desktop_win32.active():
+        from . import desktop_win32_screen
+
+        return desktop_win32_screen.fusion_pids()
     return _exclude_pids()
 
 
@@ -182,6 +204,8 @@ def _native_capture(
     """
     if not display.identifier:
         return None
+    if desktop_win32.active():
+        return _windows_capture(display, max_width, settings or DesktopSettings(), rect)
     names, prefixes = capture_exclusions(settings or DesktopSettings())
     request: dict[str, object] = {
         "excludePids": _exclude_pids() if exclude_fusion else [],
@@ -207,6 +231,31 @@ def _native_capture(
         return None
 
 
+def _windows_capture(
+    display: Display,
+    max_width: int,
+    settings: DesktopSettings,
+    rect: tuple[float, float, float, float] | None,
+) -> bytes | None:
+    """Windows: GDI yakalama; Fusion ve reddedilen pencereler karartılır (#430)."""
+    from .desktop_win32_screen import capture_png
+
+    if rect is None:
+        area = (int(display.x), int(display.y), int(display.width), int(display.height))
+    else:
+        left, top, width, height = rect
+        area = (
+            int(display.x + left),
+            int(display.y + top),
+            max(1, int(width)),
+            max(1, int(height)),
+        )
+    try:
+        return capture_png(area, max_width, settings)
+    except (OSError, ValueError):
+        return None
+
+
 def _screen_recording_denied() -> bool:
     return probe().screen_recording == DENIED
 
@@ -214,7 +263,7 @@ def _screen_recording_denied() -> bool:
 def desktop_displays(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Bağlı ekranları sırası ve nokta dikdörtgeniyle listele (`desktop_screenshot display=N`)."""
     del args, context
-    error = _mac_only()
+    error = desktop_win32.gate(_mac_only())
     if error:
         return ToolResult.failure(error)
     displays = list_displays()
@@ -322,7 +371,7 @@ def _fallback_refusal(settings: DesktopSettings) -> str | None:
 
 def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Ekranı (ya da bölgesini) çalışma alanına kaydet, küçült ve çerçeveyle modele aktar."""
-    error = _mac_only()
+    error = desktop_win32.gate(_mac_only())
     if error:
         return ToolResult.failure(error)
     target = writable_path(context, optional_str(args, "path", DEFAULT_SCREENSHOT_PATH))
@@ -369,6 +418,9 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
             exclude_fusion=True,
             rect=rect,
         )
+        if native is None and desktop_win32.active():
+            # Windows'ta karartmasız geri düşüş yok: reddedilenler görüntüye girmesin.
+            return ToolResult.failure("Ekran görüntüsü alınamadı (Windows GDI yakalaması).")
         refusal = None if native is not None else _fallback_refusal(context.desktop_settings)
         if refusal is not None:
             return ToolResult.failure(refusal)

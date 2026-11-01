@@ -313,7 +313,7 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_mouse",
         description=(
-            "macOS fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
+            "Fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
             "pikselidir (görüntü yoksa önce al). action: "
             "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
             "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."
