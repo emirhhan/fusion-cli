@@ -46,6 +46,10 @@ def _karar(event, exit_code, stdout="", stderr=""):
 _PRE = HookEvent.PRE_TOOL_USE
 
 
+def _pre_karar(decision: str) -> dict:
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": decision}}
+
+
 def _ayar(path: Path, hooks: dict, **extra) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"hooks": hooks, **extra}), encoding="utf-8")
@@ -115,7 +119,8 @@ def test_cikis_2_engelleyemeyen_olayda_yalniz_hata_olur():
 def test_diger_cikis_kodu_engellemez_kullaniciya_hata_doner():
     verdict = _karar(_PRE, 1, "", "patladı")
     assert not verdict.blocked
-    assert "çıkış kodu 1" in verdict.errors[0] and "patladı" in verdict.errors[0]
+    beklenen = "PreToolUse hook error\nFailed with non-blocking status code: patladı"
+    assert verdict.errors == (beklenen,)
 
 
 def test_json_pretooluse_izin_karari_ve_girdi_degisikligi():
@@ -136,7 +141,13 @@ def test_json_pretooluse_izin_karari_ve_girdi_degisikligi():
 
 
 def test_json_deny_ve_decision_block_engeller():
-    deny = {"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "r"}}
+    deny = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "r",
+        }
+    }
     verdict = _karar(_PRE, 0, json.dumps(deny))
     assert verdict.blocked and verdict.reason == "r"
     block = _karar(HookEvent.STOP, 0, json.dumps({"decision": "block", "reason": "bitmedi"}))
@@ -163,11 +174,11 @@ def test_duz_stdout_yalniz_istem_ve_oturum_olayinda_baglam_olur():
 def test_birlesimde_en_kisitlayici_izin_ve_her_engel_kazanir():
     allow = verdict_from_run(
         HookEvent.PRE_TOOL_USE,
-        _run(HookEvent.PRE_TOOL_USE, 0, '{"hookSpecificOutput": {"permissionDecision": "allow"}}'),
+        _run(HookEvent.PRE_TOOL_USE, 0, json.dumps(_pre_karar("allow"))),
     )
     ask = verdict_from_run(
         HookEvent.PRE_TOOL_USE,
-        _run(HookEvent.PRE_TOOL_USE, 0, '{"hookSpecificOutput": {"permissionDecision": "ask"}}'),
+        _run(HookEvent.PRE_TOOL_USE, 0, json.dumps(_pre_karar("ask"))),
     )
     blocked = verdict_from_run(HookEvent.PRE_TOOL_USE, _run(HookEvent.PRE_TOOL_USE, 2, "", "hayır"))
     assert merge_verdicts((allow, ask)).permission == "ask"
@@ -249,7 +260,8 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
         },
     )
     hooks = hooks_config.load_hooks(tmp_path, default_timeout_s=7)
-    assert [(c.command, c.timeout_s) for c in hooks.commands] == [("uzun", 600.0)]
+    # Claude belgesi üst sınır koymaz: yazılan süre olduğu gibi uygulanır (#105).
+    assert [(c.command, c.timeout_s) for c in hooks.commands] == [("uzun", 99999.0)]
     assert len(hooks.skipped) == 4
     pretool = [skip for skip in hooks.skipped if skip.event == "PreToolUse"]
     assert len(pretool) == 2

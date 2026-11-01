@@ -32,6 +32,7 @@ class HookEvent(Enum):
     SESSION_END = "SessionEnd"
     NOTIFICATION = "Notification"
     PRE_COMPACT = "PreCompact"
+    POST_COMPACT = "PostCompact"
     CWD_CHANGED = "CwdChanged"
     TASK_CREATED = "TaskCreated"
     TASK_COMPLETED = "TaskCompleted"
@@ -51,6 +52,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
+    HookEvent.POST_COMPACT: "tetik (manual|auto)",
     HookEvent.CWD_CHANGED: None,
     HookEvent.TASK_CREATED: None,
     HookEvent.TASK_COMPLETED: None,
@@ -71,6 +73,8 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.TASK_CREATED,
         HookEvent.TASK_COMPLETED,
         HookEvent.TEAMMATE_IDLE,
+        # Claude: PreCompact çıkış 2 ya da `decision: block` ile özetlemeyi engeller.
+        HookEvent.PRE_COMPACT,
     }
 )
 
@@ -94,7 +98,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "FileChanged",
         "WorktreeCreate",
         "WorktreeRemove",
-        "PostCompact",
         "PreModelSwitch",
         "PostModelSwitch",
         "Elicitation",
@@ -140,6 +143,10 @@ class HookCommand:
     shell: str = ""
     on_failure: str = ""
     status_message: str = ""
+    #: `if`: izin kuralı sözdizimi (`Bash(git *)`); yalnız araç olaylarında değerlendirilir.
+    condition: str = ""
+    #: `timeout` tanımda yazılı mı? (Yazılmadıysa olayın Claude varsayılanı uygulanır.)
+    timeout_explicit: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +173,8 @@ class HookSet:
     untrusted_layers: tuple[str, ...] = ()
     #: `disableAllHooks: true` taşıyan ama güvenilmediği için yok sayılan katmanlar.
     ignored_disable_layers: tuple[str, ...] = ()
+    #: Oturumda bir kez kullanıcıya gösterilecek uyarılar (kullanımdan kalkan katman vb.).
+    notices: tuple[str, ...] = ()
 
     def for_event(self, event: HookEvent, subjects: Iterable[str] = ()) -> tuple[HookCommand, ...]:
         """Olaya ve eşleştiriciye uyan komutlar; aynı komut metni bir kez (Claude gibi)."""
@@ -221,6 +230,24 @@ class HookVerdict:
     errors: tuple[str, ...] = ()
     #: Kaç komut çalıştı.
     ran: int = 0
+    #: Çıkış 2 ile engelleyen kancanın komutu (modele `[komut]:` önekiyle gider).
+    block_source: str = ""
+    #: PreToolUse `ask` gerekçesi (onay kartında gösterilir).
+    ask_reason: str = ""
+    #: PostToolUse `classifierContext`: otomatik kip sınıflandırıcısına not.
+    classifier_context: str = ""
+    #: UserPromptSubmit/SessionStart `sessionTitle`.
+    session_title: str = ""
+    #: UserPromptSubmit `suppressOriginalPrompt`: engel mesajı istemi içermez.
+    suppress_original_prompt: bool = False
+    #: SessionStart `initialUserMessage` (yalnız `-p`).
+    initial_user_message: str = ""
+    #: SessionStart/CwdChanged/FileChanged `watchPaths`.
+    watch_paths: tuple[str, ...] = ()
+    #: SessionStart `reloadSkills`.
+    reload_skills: bool = False
+    #: Evrensel `terminalSequence` (izinli OSC/BEL dizisi; etkileşimli arayüz basar).
+    terminal_sequences: tuple[str, ...] = ()
 
     @property
     def context_text(self) -> str:
