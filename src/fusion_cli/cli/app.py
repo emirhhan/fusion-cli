@@ -374,13 +374,35 @@ def doctor(
 
 @app.command()
 def update() -> None:
-    """Fusion'ı nasıl güncelleyeceğini göster."""
-    from .maintenance import current_method, update_instructions
+    """Fusion'ı en son sürüme güncelle (Claude `claude update`, #308)."""
+    from .maintenance import current_method
+    from .self_update import run_maintenance, update_argv
 
-    console.print(messages.MAINT_METHOD.format(method=current_method().value))
-    console.print()
-    console.print(f"  {update_instructions()}")
-    console.print()
+    method = current_method()
+    console.print(messages.MAINT_METHOD.format(method=method.value))
+    _finish_maintenance(*run_maintenance(update_argv(method), method))
+
+
+@app.command(name="install")
+def install_version(
+    version: str = typer.Argument("", help="Sürüm (ör. 0.8.0) ya da stable/latest."),
+) -> None:
+    """Belirli Fusion sürümünü kur (Claude `claude install [version]`, #308)."""
+    from .maintenance import current_method
+    from .self_update import install_argv, run_maintenance
+
+    method = current_method()
+    console.print(messages.MAINT_METHOD.format(method=method.value))
+    _finish_maintenance(*run_maintenance(install_argv(method, version), method))
+
+
+def _finish_maintenance(code: int, instructions: str) -> None:
+    """Başarısız/çalıştırılamayan güncellemede elle yapılacak komutu göster."""
+    if instructions:
+        console.print()
+        console.print(f"  {instructions}")
+        console.print()
+    raise typer.Exit(code)
 
 
 @app.command()

@@ -160,7 +160,8 @@ kendisi hiçbir çıktıda gösterilmez** — en fazla "ayarlı".
 ### Güncelleme ve kaldırma
 
 ```bash
-fusion update      # kurulum yöntemini tespit edip doğru komutu gösterir
+fusion update      # kurulum yöntemine göre (uv/pipx) en son sürüme günceller
+fusion install 0.8.0   # belirli sürümü kurar (stable/latest da olur)
 fusion uninstall   # aynı şekilde; yapılandırma ve dersler KORUNUR
 fusion uninstall --purge   # anahtarlar ve bellek dahil her şeyi sil
 ```

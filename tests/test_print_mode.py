@@ -571,3 +571,43 @@ def test_kok_model_repl_yapilandirmasina_gecer(monkeypatch):
     result = runner.invoke(app_module.app, ["--model", "openrouter/a/b"])
     assert result.exit_code == 0, result.output
     assert seen["config"].agent.model == "openrouter/a/b"
+
+
+# --- fusion update / install (#308) ----------------------------------------------------- #
+
+
+def test_update_paket_yoneticisini_calistirir(monkeypatch):
+    from fusion_cli.cli import maintenance, self_update
+    from fusion_cli.install import InstallMethod
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(maintenance, "current_method", lambda: InstallMethod.UV)
+    monkeypatch.setattr(self_update, "default_runner", lambda argv: ran.append(list(argv)) or 0)
+    monkeypatch.setattr(
+        self_update,
+        "run_maintenance",
+        lambda argv, method, runner=None: (
+            self_update.default_runner(argv) if argv else 1,
+            "",
+        ),
+    )
+    result = runner.invoke(app_module.app, ["update"])
+    assert result.exit_code == 0, result.output
+    assert ran == [["uv", "tool", "upgrade", "fusion-cli"]]
+
+
+def test_install_surum_iğneler_ve_bilinmeyen_yontem_talimat_verir():
+    from fusion_cli.cli.self_update import install_argv, run_maintenance
+    from fusion_cli.install import InstallMethod
+
+    assert install_argv(InstallMethod.PIPX, "0.8.0") == [
+        "pipx",
+        "install",
+        "--force",
+        "fusion-cli==0.8.0",
+    ]
+    assert install_argv(InstallMethod.UV, "stable")[-1] == "fusion-cli"
+    code, text = run_maintenance(None, InstallMethod.VENV, runner=lambda _a: 0)
+    assert code == 1 and "git pull" in text
+    code, text = run_maintenance(["x"], InstallMethod.UV, runner=lambda _a: 3)
+    assert code == 3 and "uv tool upgrade" in text
