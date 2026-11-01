@@ -542,7 +542,6 @@ for _m_alias, _m_command, _m_hidden in (
 app.add_typer(market_app, name="marketplace")
 
 from . import plugin_configure as _configure  # noqa: E402,F401  (configure, #388)
-from . import plugin_extra_commands as _extra  # noqa: E402  (details, prune)
 
 for _group in app.registered_groups:
     if _group.name == "pazar":
