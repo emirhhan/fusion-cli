@@ -1206,7 +1206,8 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/voice` · `/voice gonder` · `/voice durum` | Terminalde yerel dikte (cihaz üstü) |
 | `/verify` | Test/lint çalıştır |
 | `/onizleme [ad]` · `/tarayici ac` | launch.json sunucuları · ajanla paylaşılan görünür tarayıcı (`devral`/`birak`) |
-| `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
+| `/code-review` (`/review`) `[low\|medium\|high\|xhigh\|max] [--fix] [--comment] [--max-findings n\|all\|default] [pr#\|dal\|yol]` | Claude Code'daki gibi dalın değişikliklerini (ya da PR/dal/yol/git aralığı) doğruluk hataları için fork alt ajanda inceler; `--fix` bulguları uygular, `--comment` PR/MR'a yazar; seviye yazılmazsa son yazılan seviye, `--max-findings` `default` verilene dek hatırlanır. `ultra` (bulut incelemesi) Fusion'da yok |
+| `/simplify` | Değişen kodu sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |

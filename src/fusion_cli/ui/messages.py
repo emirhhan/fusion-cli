@@ -1073,7 +1073,39 @@ CMD_GOAL = "turlar arası hedef: /goal <koşul> · durum · devam · clear"
 CMD_GRILL = "mülakat kipi: kod yazmadan önce gereksinimleri sor"
 CMD_BUG = "hata avı: bul, kök nedeni tespit et, düzelt, doğrula"
 CMD_COMMIT = "değişiklikleri incele ve conventional commit ile kaydet"
-CMD_REVIEW = "mevcut değişiklikleri güvenlik ve mimari açısından incele"
+CMD_REVIEW = "dalın değişikliklerini (ya da PR/dal/yol) doğruluk hataları için incele"
+CODE_REVIEW_DEFAULT_SCOPE = (
+    "dalın üst dala göre önde olan commit'leri ve commit'lenmemiş (staged ve unstaged) "
+    "değişiklikler; üst dal yoksa main'e, o da yoksa bir önceki commit'e göre"
+)
+CODE_REVIEW_TARGET = "şu hedef: {target} (PR numarası, dal, yol ya da git aralığı olabilir)"
+CODE_REVIEW_TASK = (
+    "Kod incelemesi yap. İncelenecek kapsam: {scope}. Değişiklikleri `git diff`/`git log` (PR "
+    "için `gh pr diff`/`glab mr diff`) ile oku; doğruluk hatalarını (yanlış sonuç, çökme, "
+    "veri kaybı, güvenlik açığı, yarış durumu) ara. Her bulguyu dosya:satır, tek cümlelik "
+    "özet ve somut hata senaryosuyla, en ciddiden başlayarak ver. CLAUDE.md kurallarına uy."
+)
+CODE_REVIEW_LOW = "Seviye low: yalnız en emin olduğun bulguları bildir; yanlış alarmdan kaçın."
+CODE_REVIEW_BROAD = "Kapsamı geniş tut; olası hataları da gerekçesiyle bildir."
+CODE_REVIEW_CLEANUPS = (
+    "Hatalara ek olarak yeniden kullanım, sadeleştirme ve verimlilik temizliklerini ayrı başlıkta ver."
+)
+CODE_REVIEW_MAX_FINDINGS = "En çok {count} bulgu bildir."
+CODE_REVIEW_ALL_FINDINGS = "Bulduğun her bulguyu bildir; sınır yok."
+CODE_REVIEW_REPORT_ONLY = "Yalnız rapor ver; dosya düzenleme."
+CODE_REVIEW_FIX = (
+    "Raporun ardından bulguları çalışma ağacına uygula (düzenlemeler izin kipinden geçer) "
+    "ve ilgili testleri koştur."
+)
+CODE_REVIEW_COMMENT = (
+    "Bulguları PR'a satır içi yorum olarak (`gh`), GitLab birleştirme isteğine tek not olarak "
+    "(`glab`) gönder; araç yoksa terminalde yazdır."
+)
+CODE_REVIEW_REUSING = "Son yazdığın {level} seviyesi yeniden kullanılıyor."
+CODE_REVIEW_ULTRA_UNAVAILABLE = (
+    "/code-review ultra Claude Code'un bulut incelemesidir; Fusion'da bulut oturumu yok. "
+    "Yerel inceleme için /code-review max kullanın."
+)
 CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"

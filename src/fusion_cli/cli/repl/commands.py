@@ -35,6 +35,7 @@ from . import (
     auto_mode_command,
     background_commands,
     btw_command,
+    code_review,
     config_command,
     doctor_command,
     export_commands,
@@ -949,6 +950,39 @@ def _macro(name: str) -> Handler:
     return _handler
 
 
+def _code_review(state: ReplState, argument: str) -> str:
+    """`/code-review` (takma ad `/review`, #214): seviye/bayrak/hedef ayrıştırılır, inceleme
+    ana bağlamı devralan fork alt ajanda koşar."""
+    request = code_review.parse(argument)
+    if isinstance(request, str):
+        return request
+    if request.ultra:
+        return messages.CODE_REVIEW_ULTRA_UNAVAILABLE
+    remembered = code_review.remember(state.config.memory_dir, request)
+    lines = [messages.REPL_MACRO_STARTED.format(name="code-review")]
+    level = request.level
+    if level is None:
+        level = remembered.get("level")
+        if level is not None:
+            lines.append(messages.CODE_REVIEW_REUSING.format(level=level))
+        else:
+            effort = getattr(state.config.runtime.reasoning_effort, "value", "")
+            level = effort if effort in code_review.LEVELS else "medium"
+    max_findings = request.max_findings
+    if max_findings in (None, "default"):
+        max_findings = remembered.get("max_findings")
+    task = code_review.build_task(request, level, max_findings)
+    override = macro_skill_override(state, "code-review")
+    if override is not None:
+        body, path = override
+        task = f"{body.strip()}\n\n{task}"
+        lines.append(messages.REPL_MACRO_SKILL_PREPENDED.format(name="code-review", path=path))
+    state.engine = Engine.AGENT
+    state.pending_task = task
+    state.pending_mode = Mode.SUBTASK
+    return "\n".join(lines)
+
+
 def macro_skill_override(state: ReplState, name: str) -> tuple[str, Path] | None:
     """Makroyla aynı adlı kullanıcı skill'inin gövdesi ve yolu; yoksa None.
 
@@ -1216,8 +1250,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("grill-me", messages.CMD_GRILL, ()),
             ("bug", messages.CMD_BUG, ()),
             ("commit", messages.CMD_COMMIT, ()),
-            # Claude Code'daki ad da tanınır; aynı makro, ikinci yol değil.
-            ("review", messages.CMD_REVIEW, ("code-review",)),
             ("browser", messages.CMD_BROWSER, ()),
             ("plan-yurut", messages.CMD_PLAN_RUN, ()),
             ("simplify", messages.CMD_SIMPLIFY, ()),
@@ -1227,6 +1259,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("pr", messages.CMD_PR, ()),
             ("autofix-pr", messages.CMD_AUTOFIX_PR, ()),
         )
+    ),
+    SlashCommand(
+        "code-review",
+        messages.CMD_REVIEW,
+        _code_review,
+        ("review",),
+        group="Makro",
+        usage="[low|medium|high|xhigh|max|ultra] [--fix] [--comment] "
+        "[--max-findings n|all|default] [pr#|branch|path]",
     ),
     SlashCommand(
         "cop",
