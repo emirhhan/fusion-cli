@@ -194,7 +194,8 @@ class RuntimeConfig:
     engine: str = "agent"
     #: İzin modu: "auto" | "edits" | "security" | "plan". `bypass` BİLEREK kalıcı
     #: değildir (tek tuşla yanlışlıkla açılmamalı); yalnız oturum boyunca geçerlidir.
-    approval_mode: str = "auto"
+    #: Kayıt yokken Claude Code gibi Manuel (`default`, iç ad `security`) (#423).
+    approval_mode: str = "security"
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

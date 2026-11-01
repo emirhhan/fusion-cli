@@ -263,9 +263,10 @@ class ReplState:
         try:
             approval = ApprovalMode(config.runtime.approval_mode)
         except ValueError:
-            approval = ApprovalMode.AUTO
+            approval = ApprovalMode.SECURITY
         if approval is ApprovalMode.BYPASS:
-            approval = ApprovalMode.AUTO
+            # Claude: varsayılan Manual; bypass kayıttan geri açılmaz (#423).
+            approval = ApprovalMode.SECURITY
         return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
 
     async def reset_child_runs(self) -> None:

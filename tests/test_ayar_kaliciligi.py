@@ -87,7 +87,26 @@ def test_bozuk_kayitli_deger_varsayilana_duser(tmp_path):
     yeni = ReplState.from_runtime_config(
         load_config(hedef), memory=null_memory(), root=tmp_path, home=tmp_path
     )
-    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.AUTO
+    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.SECURITY
+
+
+def test_kayit_yokken_varsayilan_kip_manuel(tmp_path):
+    """Claude Code: varsayılan izin kipi Manual (`default`), auto değil (#423)."""
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text("runtime:\n  engine: agent\n", encoding="utf-8")
+    config = load_config(hedef)
+    assert config.runtime.approval_mode == "security"
+    yeni = ReplState.from_runtime_config(config, memory=null_memory(), root=tmp_path, home=tmp_path)
+    assert yeni.approval is ApprovalMode.SECURITY
+
+
+def test_kayitli_bypass_varsayilan_manuele_duser(tmp_path):
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text("runtime:\n  approval_mode: bypass\n", encoding="utf-8")
+    yeni = ReplState.from_runtime_config(
+        load_config(hedef), memory=null_memory(), root=tmp_path, home=tmp_path
+    )
+    assert yeni.approval is ApprovalMode.SECURITY
 
 
 def test_tum_ayarlar_birlikte_kalir_ve_birbirini_ezmez(tmp_path):
