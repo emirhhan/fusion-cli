@@ -52,18 +52,7 @@ def child_tool_names(names: tuple[str, ...]) -> tuple[str, ...]:
     )
 
 
-#: Claude Code `Agent would be spawned with zero tools` hatasının karşılığı.
-ZERO_TOOLS_MESSAGE = (
-    "Agent would be spawned with zero tools: '{name}' tanımının tools listesindeki hiçbir "
-    "girdi kullanılabilir bir araçla eşleşmedi ({entries})."
-)
-
-
 def launch_denial(deps: AgentDeps, persona: Persona, requested: str) -> str:
-    if persona.tools is not None and not persona.tools and persona.unknown_tools:
-        return ZERO_TOOLS_MESSAGE.format(
-            name=persona.name, entries=", ".join(persona.unknown_tools)
-        )
     targets = {persona.name, requested}
     if persona.source == "fusion" and persona.name in {"explore", "plan"}:
         targets.add(persona.name.title())

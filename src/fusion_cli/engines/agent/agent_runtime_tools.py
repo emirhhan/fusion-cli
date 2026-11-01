@@ -13,7 +13,7 @@ from .agent_runtime_records import _one_shot, _resolve, _resume_task, _session, 
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
-    from .team import RunAgent, SubRun, SubTask
+    from .team import Persona, RunAgent, SubRun, SubTask
 
 
 def _receipt(
@@ -50,56 +50,77 @@ def _receipt(
     )
 
 
-async def launch_agent(
-    deps: AgentDeps, task: SubTask, args: ToolArgs, *, depth: int, run_agent: RunAgent
-) -> ToolResult:
+def _wants_background(deps: AgentDeps, persona: Persona, args: ToolArgs) -> bool:
+    """Claude Code: ana konuşmada fork açıkken arka plan; kapalı ayarlar ve tek atış ön plan."""
+    background = persona.background or args.get("run_in_background", True) is not False
+    if deps.interactive and deps.config.agent_launch.fork_enabled:
+        background = True
+    return (
+        background
+        and not deps.config.agent_launch.disable_background_tasks
+        and deps.config.runtime.background_agents
+        and not _one_shot(persona)
+    )
+
+
+async def _prepare_launch(
+    deps: AgentDeps, task: SubTask, args: ToolArgs, *, depth: int
+) -> tuple[SubTask, Persona, bool] | ToolResult:
+    """Tip, izin, sıfır araç, bütçe ve eşzamanlılık denetimleri; geçerse kayıtlı görev."""
+    from .agent_runtime_context import launch_denial
+    from .agent_type_check import resolve_agent_type
+    from .agent_zero_tools import zero_tools_denial
     from .team import (
-        concurrent_limit,
         concurrent_limit_reached,
         new_agent_id,
         resolve_persona,
-        run_subagent,
         subagent_budget_exhausted,
     )
 
+    if task.persona == "fork" and (depth > 0 or not deps.config.agent_launch.fork_enabled):
+        return ToolResult.failure("Modelin fork başlatması bu turda kapalı.")
+    if task.resume:
+        task = await _resume_task(deps, task)
+    else:
+        agent_type, type_error = resolve_agent_type(deps, task.persona)
+        if type_error:
+            return ToolResult.failure(type_error)
+        task = replace(task, persona=agent_type)
+    persona = resolve_persona(deps.capabilities, task.persona)
+    background = _wants_background(deps, persona, args)
+    denial = (
+        launch_denial(deps, persona, task.persona)
+        or subagent_budget_exhausted(deps)
+        or ("" if task.resume else concurrent_limit_reached(deps))
+        or (
+            ""
+            if task.resume
+            else zero_tools_denial(
+                deps, persona, depth=depth, background=background and not task.inherit_context
+            )
+        )
+    )
+    if denial:
+        return ToolResult.failure(denial)
+    task = replace(task, agent_id=task.agent_id or new_agent_id(persona.name))
+    if not task.resume:
+        task = replace(task, background=background)
+        if not _one_shot(persona):
+            deps.child_runs.remember(_state(deps, task, persona, task.agent_id), ())
+    return task, persona, background
+
+
+async def launch_agent(
+    deps: AgentDeps, task: SubTask, args: ToolArgs, *, depth: int, run_agent: RunAgent
+) -> ToolResult:
+    from .team import concurrent_limit, run_subagent
+
     try:
-        if task.persona == "fork" and (depth > 0 or not deps.config.agent_launch.fork_enabled):
-            return ToolResult.failure("Modelin fork başlatması bu turda kapalı.")
-        if task.resume:
-            task = await _resume_task(deps, task)
-        else:
-            from .agent_type_check import resolve_agent_type
-
-            agent_type, type_error = resolve_agent_type(deps, task.persona)
-            if type_error:
-                return ToolResult.failure(type_error)
-            task = replace(task, persona=agent_type)
-        persona = resolve_persona(deps.capabilities, task.persona)
-        from .agent_runtime_context import launch_denial
-
-        denial = launch_denial(deps, persona, task.persona)
-        if denial:
-            return ToolResult.failure(denial)
-        budget = subagent_budget_exhausted(deps)
-        if budget:
-            return ToolResult.failure(budget)
-        if not task.resume:
-            concurrent = concurrent_limit_reached(deps)
-            if concurrent:
-                return ToolResult.failure(concurrent)
-        identifier = task.agent_id or new_agent_id(persona.name)
-        task = replace(task, agent_id=identifier)
-        if not _one_shot(persona) and not task.resume:
-            deps.child_runs.remember(_state(deps, task, persona, identifier), ())
-        background = persona.background or args.get("run_in_background", True) is not False
-        if deps.interactive and deps.config.agent_launch.fork_enabled:
-            background = True
-        background = background and not deps.config.agent_launch.disable_background_tasks
-        background = background and deps.config.runtime.background_agents and not _one_shot(persona)
-        if not task.resume:
-            task = replace(task, background=background)
-            if not _one_shot(persona):
-                deps.child_runs.remember(_state(deps, task, persona, identifier), ())
+        prepared = await _prepare_launch(deps, task, args, depth=depth)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        task, persona, background = prepared
+        identifier = task.agent_id
         if background:
             deps.child_runs.launch(
                 identifier,

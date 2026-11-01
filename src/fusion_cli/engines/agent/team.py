@@ -163,6 +163,8 @@ class Persona:
     source: str = ""
     definition_path: Path | None = None
     allowed_agent_types: tuple[str, ...] | None = None
+    #: Tanımdaki `tools` girdileri (Claude adlarıyla); sıfır araç reddi bunları gruplar.
+    tool_entries: tuple[str, ...] = ()
 
 
 #: Adı verilmeyen ya da kütüphanede bulunmayan görevler için genel yardımcı.
@@ -286,6 +288,7 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
         source=agent.source,
         definition_path=agent.path,
         allowed_agent_types=agent_type_subset(agent.tools),
+        tool_entries=child_tool_names(agent.tools),
     )
 
 
@@ -316,8 +319,11 @@ async def run_subagent(
         # Claude Code: ajan belleği otomatik belleğin parçasıdır; kapalıyken alan etkisizdir.
         persona = dataclasses.replace(persona, memory_scope="")
     from .agent_runtime_context import launch_denial
+    from .agent_zero_tools import zero_tools_denial
 
-    denial = launch_denial(deps, persona, subtask.persona)
+    denial = launch_denial(deps, persona, subtask.persona) or zero_tools_denial(
+        deps, persona, depth=depth, background=subtask.background and not subtask.inherit_context
+    )
     if denial:
         return SubRun("", persona, denial, False, 0, status="denied")
     sub_id = subtask.agent_id or new_agent_id(persona.name)
