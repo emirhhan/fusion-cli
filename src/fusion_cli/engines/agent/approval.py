@@ -57,7 +57,7 @@ from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
-from .desktop_approval import apply_desktop, consent_description
+from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
@@ -492,7 +492,14 @@ class BypassApproval:
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
         if request.pre_denied is not None:
             return Decision.BLOCKED
-        if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
+        # Computer use uygulama onayı her kipte ilk kullanımda sorulur (#446; Claude: "The first
+        # time Claude needs a specific app in a session, a prompt appears").
+        is_app_consent = is_desktop_consent(request)
+        if self._prompter is None or (
+            request.effect is not ToolEffect.REMOTE_DESTRUCTIVE and not is_app_consent
+        ):
+            return Decision.ALLOW
+        if is_app_consent and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 

@@ -9,7 +9,8 @@ Kip tablosu (`approval.py`'nin kurallarıyla):
 
 - auto / edits / security: ilk kullanım sorulur, "Bu oturum" ile uygulama hatırlanır.
 - plan: masaüstü eylemi yapılmaz (okuma değil).
-- bypass: oturum onayı sorulmaz; riskli eylem yine sorulur, engel yine geçerlidir.
+- bypass: ilk kullanım yine sorulur (#446: Claude'da kip istisnası yok); riskli eylem yine
+  sorulur, engel yine geçerlidir.
 
 Hedef çözülemezse (Erişilebilirlik izni yok, yardımcı derlenemedi, nokta AX'te okunamadı)
 ret listesi, engelli kategori ve Fusion koruması denetlenemez: çağrı `REMOTE_DESTRUCTIVE`
@@ -47,6 +48,12 @@ DESKTOP_BLOCKED_RESULT = (
     "Masaüstü eylemi engellendi, kullanıcıya sorulmadı: {reason}. Bu uygulamada bu eylemi "
     "deneme; önerilen yolu kullan ya da kullanıcıya Ayarlar › Bu bilgisayar'ı söyle."
 )
+
+
+def is_desktop_consent(request: ApprovalRequest) -> bool:
+    """Uygulama başına oturum onayı isteği mi? (bypass dahil her kipte sorulur, #446)."""
+    key = request.consent_key
+    return request.desktop_target is not None and key is not None and key.startswith("desktop:")
 
 
 def consent_key(app_key: str) -> str:

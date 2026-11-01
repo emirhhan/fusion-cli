@@ -194,12 +194,17 @@ async def test_duzenleme_ve_manuel_kipte_de_ilk_kullanim_sorulur(tmp_path, probe
     assert decision is Decision.ALLOW and len(prompter.asked) == 1
 
 
-async def test_bypass_oturum_onayi_sormaz_plan_yapmaz(tmp_path, probe):
+async def test_bypass_da_ilk_kullanim_sorulur_sonra_hatirlanir_plan_yapmaz(tmp_path, probe):
+    """#446: İzinleri atla kipinde de uygulama başına "Bu oturum için izin ver" sorulur."""
     context = _context(tmp_path)
-    _, bypass, prompter = await _decide(
-        "desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.BYPASS
-    )
-    assert bypass is Decision.ALLOW and prompter.asked == []
+    memory = ApprovalMemory()
+    prompter = _Prompter(ApprovalAnswer.SESSION)
+    for _ in range(2):
+        _, bypass, _ = await _decide(
+            "desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.BYPASS, prompter, memory
+        )
+        assert bypass is Decision.ALLOW
+    assert len(prompter.asked) == 1
     _, plan, prompter = await _decide("desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.PLAN)
     assert plan is Decision.BLOCKED and prompter.asked == []
 
