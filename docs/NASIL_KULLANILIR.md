@@ -460,7 +460,9 @@ yerleşiği ezer. `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` yalnız yerleşik 
 ### Alt ajan aracı: `Agent` ve `SendMessage`
 
 Model alt ajanı tek bir **`Agent`** aracıyla açar (`subagent_type`, `prompt`, `description`,
-`model`, `name`, `isolation`, `run_in_background`). Ana konuşmadan açılan alt ajan, ayar yoksa
+`model`, `name`, `isolation`, `effort`, `run_in_background`); çağrıdaki `effort` tanımdaki
+`effort` alanını o koşu için ezer. Eski Türkçe alanlar (`uzman`, `salt_okunur`, `yazma_alani`,
+`baglam_miras`, `izolasyon`, `arka_plan`) şemada gösterilmez, gelen çağrıda okunmaya devam eder. Ana konuşmadan açılan alt ajan, ayar yoksa
 ARKA PLANDA başlar; sonucu bittiğinde sonraki tura bildirim olarak gelir. Biten alt ajanın
 kimliği (`agentId`) döner ve `SendMessage(to=<kimlik|ad>)` ile bilinen geçmişiyle sürdürülür;
 `Explore` ve `Plan` tek atışlıktır, kimlik dönmez. `ListAgents` ve `TaskStop` arka plan
@@ -481,7 +483,7 @@ ara işi ana bağlamı şişirmeden yürütmek için.
 - `/subtask testleri koştur ve raporla` → tur fork alt ajanda koşar (`/altgorev` eş anlamlı);
   masaüstünde de aynı komut (slash menüsü) çalışır; ayrıca yazı kutusunda bir istem varken
   gönder düğmesinin yanındaki **Alt görev** düğmesi taslağı `/subtask` ile gönderir.
-- Model kendi kararıyla: `Agent(prompt=…, baglam_miras=true)`.
+- Model kendi kararıyla: `Agent(subagent_type="fork", prompt=…)` (eski `baglam_miras=true` da okunur).
 - Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
   otomatik fork alt ajanda koşar; masaüstü katalogda seçince bildirim "tur bağlamı devralan
   alt ajanda koşacak" der (RPC `yetenek.kullan` yanıtında `fork: true`).

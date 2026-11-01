@@ -183,6 +183,8 @@ class SubTask:
     resume: str = ""
     agent_id: str = ""
     background: bool = False
+    #: Çağrıdaki `effort`; tanımdaki `effort` alanını yalnız bu koşu için ezer.
+    effort: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +290,8 @@ async def run_subagent(
     except Exception as error:
         persona = GENERIC_PERSONA
         persona_error = type(error).__name__
+    if subtask.effort:
+        persona = dataclasses.replace(persona, effort=subtask.effort)
     from .agent_runtime_context import launch_denial
 
     denial = launch_denial(deps, persona, subtask.persona)
@@ -789,31 +793,52 @@ def spawn_agent_tool(
         description="Odaklı bir ALT-GÖREVİ temiz bağlamlı bir alt ajana devret; ajan işi "
         "kendi araçlarıyla yapıp sonucunu döner. Birden çok bağımsız iş varsa aynı yanıtta "
         "birden çok Agent çağrısı yap. Basit işlerde kullanma.",
-        parameters={
-            "type": "object",
-            "properties": {
-                **_SUBTASK_PROPERTIES,
-                "arka_plan": _BACKGROUND_PROPERTY,
-                "prompt": {**_STRING, "description": "Alt görevin metni."},
-                "description": {**_STRING, "description": "Görevin kısa açıklaması."},
-                "subagent_type": {**_STRING, "description": "Ajan tanımının adı."},
-                "model": {**_STRING, "description": "Yapılandırılmış model veya aile seçimi."},
-                "run_in_background": {"type": "boolean"},
-                "name": _STRING,
-                "resume": _STRING,
-                "isolation": {"type": "string", "enum": ["worktree"]},
-            },
-            "required": ["prompt"] if canonical else ["task"],
-        },
+        parameters=_AGENT_PARAMETERS if canonical else _LEGACY_SPAWN_PARAMETERS,
         run=_run,
     )
 
 
-#: `spawn_agent(arka_plan=true)` (P-048): tur beklemeden ayrı süreçte koşan görev.
-_BACKGROUND_PROPERTY: dict[str, object] = {
-    "type": "boolean",
-    "description": "true ise üye turdan bağımsız arka planda çalışır; kimlik hemen döner, "
-    "sonuç bitince gelir (list_agents ile izle, send_message ile devam ettir)",
+#: Claude Code `Agent` aracının parametreleri; eski Türkçe alanlar (`uzman`, `salt_okunur`,
+#: `yazma_alani`, `baglam_miras`, `izolasyon`, `arka_plan`, `resume`) şemada yok ama gelen
+#: çağrıda okunmaya devam eder.
+_AGENT_PARAMETERS: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "description": {**_STRING, "description": "Görevin kısa (3-5 sözcük) açıklaması."},
+        "prompt": {**_STRING, "description": "Alt ajanın yapacağı görevin tam metni."},
+        "subagent_type": {**_STRING, "description": "Kullanılacak ajan tanımının adı."},
+        "model": {
+            **_STRING,
+            "description": "İsteğe bağlı model: sonnet, opus, haiku, inherit ya da tam kimlik.",
+        },
+        "name": {**_STRING, "description": "SendMessage ile ulaşmak için ajana verilen ad."},
+        "isolation": {
+            "type": "string",
+            "enum": ["worktree"],
+            "description": "worktree ise ajan geçici bir git çalışma ağacında koşar.",
+        },
+        "effort": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "xhigh", "max"],
+            "description": "Bu alt ajanın düşünme yoğunluğu; tanımdaki effort'u ezer.",
+        },
+        "run_in_background": {
+            "type": "boolean",
+            "description": "false ise sonuç beklenir; varsayılan arka plandır.",
+        },
+    },
+    "required": ["prompt"],
+}
+
+_LEGACY_SPAWN_PARAMETERS: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        **_SUBTASK_PROPERTIES,
+        "arka_plan": {"type": "boolean"},
+        **_AGENT_PARAMETERS["properties"],  # type: ignore[dict-item]
+        "resume": _STRING,
+    },
+    "required": ["task"],
 }
 
 
@@ -900,6 +925,7 @@ def _parse_subtask(args: ToolArgs) -> SubTask | str:
         model=str(args.get("model") or ""),
         name=str(args.get("name") or ""),
         resume=str(args.get("resume") or ""),
+        effort=str(args.get("effort") or "").strip().lower(),
         persona=persona if isinstance(persona, str) else "",
         read_only=_parse_read_only(args.get("salt_okunur")),
         write_scope=tuple(item.strip() for item in scope if item.strip()),

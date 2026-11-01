@@ -34,3 +34,33 @@ def test_agent_aciklamasi_ve_katalog_eski_araclari_ogretmez(tmp_path):
     assert agent is not None
     assert "spawn_agent" not in agent.description
     assert "Agent" in index and "spawn_agent" not in index and "invoke_agent" not in index
+
+
+def test_agent_semasi_yalniz_claude_parametrelerini_ve_effort_tasir(tmp_path):
+    deps = _deps(tmp_path, "nvidia_nim/ornek-model")
+    agent = build_agent_registry(deps, depth=0, run_agent=loop.run_agent).get("Agent")
+
+    assert agent is not None
+    properties = set(agent.parameters["properties"])  # type: ignore[index]
+    assert properties == {
+        "description",
+        "prompt",
+        "subagent_type",
+        "model",
+        "name",
+        "isolation",
+        "effort",
+        "run_in_background",
+    }
+    assert agent.parameters["required"] == ["prompt"]  # type: ignore[index]
+
+
+def test_agent_effort_cagrisi_tanimdaki_eforu_ezer():
+    from fusion_cli.engines.agent.team import _parse_subtask
+
+    task = _parse_subtask({"prompt": "Ara", "effort": "high", "salt_okunur": True})
+
+    assert not isinstance(task, str)
+    assert task.effort == "high"
+    # Eski Türkçe alanlar şemada yok ama gelen çağrıda okunmaya devam eder.
+    assert task.read_only is True
