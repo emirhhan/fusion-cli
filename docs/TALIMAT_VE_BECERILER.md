@@ -71,9 +71,12 @@ kalktığı uyarısı düşer.
   frontmatter alanı yalnız `paths` (eski `yollar` uyarıyla okunur; `globs` okunmaz).
 - Kök dışını gösteren proje kuralı sembolik bağı dış import gibidir: projede dış import onayı
   verilmişse yüklenir, yoksa atlanır; onay sorusunda bu bağların hedefleri de listelenir. `claudeMdExcludes` kural dosyalarına da uygulanır.
-- İç içe talimat: alt klasördeki `CLAUDE.md` ve `CLAUDE.local.md` birlikte, o klasörde hiç
-  Claude dosyası yoksa `AGENTS.md` okunur (dosya başı 40.000 karakter; `GEMINI.md` ve
-  `.cursorrules` okunmaz). `node_modules`/`vendor` gibi dizinler taranmaz.
+- İç içe talimat: model alt klasörde bir dosyayı okuyunca/yazınca/düzenleyince (kabukla tek
+  dosyalı `cat`/`head`/`tail` okuması dahil) o klasörün `CLAUDE.md` ve `CLAUDE.local.md`'si
+  birlikte, hiç Claude dosyası yoksa `AGENTS.md`'si ve o klasörün `.claude/rules/*.md` dosyaları
+  (`paths` deseni o klasöre göreli) yüklenir. Dosya başı sınır 200K pencerede 40.000, 1M
+  pencerede 150.000 karakter; `GEMINI.md` ve `.cursorrules` okunmaz. Nokta ile başlayan
+  klasörler (`.github`) taranır; `.git`, `node_modules`, `vendor` gibi dizinler taranmaz.
 - Masaüstü **Beceriler › Talimatlar** sekmesi kullanıcı katmanını, proje talimatlarını ve
   kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
   dosyayı okur.

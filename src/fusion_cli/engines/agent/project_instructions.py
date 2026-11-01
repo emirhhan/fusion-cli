@@ -142,7 +142,8 @@ def _nested_candidates(kok: Path, hedef: Path) -> list[tuple[str, Path]]:
         return []
     klasor = gercek if gercek.is_dir() else gercek.parent
     parcalar = klasor.relative_to(kok).parts
-    if any(p in _NESTED_SKIP_DIRS or p.startswith(".") for p in parcalar):
+    # Claude Code nokta ile başlayan dizinleri atlamaz (#150); yalnız `.git` ve gürültü ağaçları.
+    if any(p in _NESTED_SKIP_DIRS or p == ".git" for p in parcalar):
         return []
     bulunan: list[tuple[str, Path]] = []
     for derinlik in range(1, len(parcalar) + 1):
@@ -180,6 +181,7 @@ def load_nested_instructions(
     present: Callable[[str], bool],
     max_files: int = NESTED_MAX_FILES,
     rules: tuple[RuleFile, ...] = (),
+    max_chars: int = NESTED_MAX_CHARS,
 ) -> NestedLoad | None:
     """Model `target` dosyasına eriştiğinde bağlama eklenecek iç içe talimatları döndür.
 
@@ -210,18 +212,22 @@ def load_nested_instructions(
         if len(loaded - rule_labels) >= max_files:
             break
         try:
-            icerik = _read_text_limited(yol, NESTED_MAX_CHARS)
+            icerik = _read_text_limited(yol, max_chars)
         except OSError:
             continue
         loaded.add(rel)
         if not icerik:
             continue
-        kirpildi = len(icerik) > NESTED_MAX_CHARS
-        icerik = _neutralize(icerik[:NESTED_MAX_CHARS])
+        kirpildi = len(icerik) > max_chars
+        icerik = _neutralize(icerik[:max_chars])
         ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
         bloklar.append(f"{nested_marker(rel)}\n{_UNTRUSTED_NOTE}\n{icerik}{ek}\n</alt_talimat>")
         adlar.append(rel)
         toplam += len(icerik)
+    for etiket, blok, eklenen in _nested_rule_blocks(kok, target, loaded, present, max_chars):
+        bloklar.append(blok)
+        adlar.append(etiket)
+        toplam += eklenen
     kural_kalan = SCOPED_RULES_MAX_CHARS
     kural_sayisi = 0
     atlanan: list[str] = []
@@ -253,6 +259,25 @@ def load_nested_instructions(
         return None
     metin = "\n".join([NESTED_NOTE_HEADER, *bloklar])
     return NestedLoad(Message("user", metin, harness_note=True), tuple(adlar), toplam)
+
+
+def _nested_rule_blocks(
+    kok: Path, target: Path, loaded: set[str], present: Callable[[str], bool], max_chars: int
+) -> list[tuple[str, str, int]]:
+    """Alt dizinin `.claude/rules` dosyaları (#150): `paths` yoksa her erişimde, varsa eşleşince."""
+    from .nested_rules import applies, nested_rule_files
+
+    found: list[tuple[str, str, int]] = []
+    for kural in nested_rule_files(kok, target):
+        if kural.label in loaded or not applies(kural, kok, target):
+            continue
+        loaded.add(kural.label)
+        if present(kural.label):
+            continue
+        blok, eklenen = rule_block(kural, max_chars)
+        if blok:
+            found.append((kural.label, f"{nested_marker(kural.label)}\n{blok}\n</alt_talimat>", eklenen))
+    return found
 
 
 def _scoped_rules(kok: Path, target: Path, rules: tuple[RuleFile, ...]) -> tuple[RuleFile, ...]:

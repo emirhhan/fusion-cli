@@ -145,8 +145,9 @@ def test_kok_disina_cikan_hedef_ve_sembolik_baglar_okunmaz(tmp_path):
     assert _yukle(kok, "alt/k.py") is None  # talimat dosyası kök dışına sembolik bağ
 
 
-def test_bagimlilik_ve_gizli_dizinlerdeki_talimat_okunmaz(tmp_path):
-    for ad in ("node_modules", ".gizli", "vendor"):
+def test_bagimlilik_ve_git_dizinlerindeki_talimat_okunmaz(tmp_path):
+    # Claude Code nokta ile başlayan dizinleri atlamaz (#150); yalnız `.git` ve bağımlılıklar.
+    for ad in ("node_modules", ".git", "vendor"):
         (tmp_path / ad / "pkg").mkdir(parents=True)
         (tmp_path / ad / "pkg" / "AGENTS.md").write_text("ÜÇÜNCÜ TARAF\n", "utf-8")
         (tmp_path / ad / "pkg" / "i.js").write_text("", "utf-8")

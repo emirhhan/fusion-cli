@@ -3292,6 +3292,13 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
+    from .context_budget import context_budget
+    from .nested_rules import max_chars_for_window
+
+    try:
+        sinir = max_chars_for_window(context_budget(deps.config, _context_spec(deps)).window_tokens)
+    except (AttributeError, TypeError, ValueError):
+        sinir = max_chars_for_window(None)
     hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
@@ -3299,7 +3306,12 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
             continue
         hedefler.append(hedef)
         yuk = load_nested_instructions(
-            kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
+            kok,
+            hedef,
+            loaded=state.nested_loaded,
+            present=baglamda_var,
+            rules=kurallar,
+            max_chars=sinir,
         )
         if yuk is None:
             continue
@@ -4122,6 +4134,13 @@ async def _run_tools(
                 erisilen = args.get("path")
                 if isinstance(erisilen, str) and erisilen:
                     state.nested_candidates.append(erisilen)
+            elif call.name == "run_shell":
+                # Claude Code (#150): kabukla tek dosya okuma (`cat`, `head`) da tetikler.
+                from .nested_rules import shell_read_target
+
+                okunan = shell_read_target(str(args.get("command", "") or ""))
+                if okunan:
+                    state.nested_candidates.append(okunan)
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating and _acts_on_remote_state(call.name):
