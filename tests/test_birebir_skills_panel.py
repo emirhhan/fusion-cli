@@ -222,3 +222,27 @@ async def test_tui_modalinda_space_secer_ve_suzgec_imlec_korunur() -> None:
     assert tui._choices[tui._choice_index].value == "bet2"
     tui._resolve(None)
     assert await ikinci is None
+
+
+async def test_masaustu_gorunurluk_listesi_rpc_kapalilari_da_listeler(tmp_path: Path) -> None:
+    """Masaüstü `/skills` liste paneli: tüm beceriler ham görünürlük ve maliyetle, ada göre."""
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    home, root = tmp_path / "home", tmp_path / "project"
+    root.mkdir()
+    _skill(home, "zeta")
+    _skill(home, "alfa")
+    write_skill_overrides(root, {"zeta": SkillVisibility.OFF})
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    await session.handle(Request(id="l", name="yetenek.gorunurluk_listesi", data={}))
+    sonuc = json.loads(lines[-1])["veri"]
+    await session.close()
+
+    assert sonuc["ok"] is True
+    satirlar = sonuc["beceriler"]
+    assert [s["ad"] for s in satirlar] == ["alfa", "zeta"]
+    assert satirlar[1]["gorunurluk"] == "off" and satirlar[0]["gorunurluk"] == "on"
+    assert satirlar[0]["belirtec"] > 0 and satirlar[0]["aciklama"] == "alfa açıklaması"

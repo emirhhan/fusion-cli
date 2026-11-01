@@ -11,7 +11,8 @@ from settings"): `/skills` becerileri listeler; Space/Enter seçili becerinin g�
 - Terminal REPL ve masaüstü komutu: numaralı liste; `/skills t` token sıralı, `/skills <metin>`
   süzülmüş liste (numaralar tam listedekiyle aynı), `/skills <n>` döndürür ve kaydeder
   (terminalde modal yok; `/memory <n>` ile aynı desen).
-- Masaüstü RPC `yetenek.gorunurluk` aynı `save_changes`'i çağırır.
+- Masaüstü: kataloğun **Görünürlük** görünümü (`yetenek.gorunurluk_listesi` + `yetenek.gorunurluk`)
+  aynı `panel_rows`/`save_changes` işlevlerini kullanır.
 
 `off` beceri katalogdan düşer, ama panel onu da gösterir (yeniden açılabilsin). Eklenti
 becerileri `skillOverrides`'tan etkilenmez; panelde listelenmez.
@@ -93,6 +94,24 @@ def render_list(state: ReplState, query: str = "", *, by_tokens: bool = False) -
         for index, item, visibility in numbered
     ]
     return "\n".join([*lines, HINT])
+
+
+def panel_rows(state: ReplState) -> list[dict[str, object]]:
+    """Masaüstü liste paneli: ada göre sıralı satırlar (ham görünürlük, liste maliyeti)."""
+    items = panel_items(state)
+    if not items or state.capabilities is None:
+        return []
+    tokens = _tokens(state.capabilities, state)
+    return [
+        {
+            "ad": item.name,
+            "kaynak": item.source,
+            "aciklama": item.description,
+            "gorunurluk": visibility.value,
+            "belirtec": tokens.get(item.name, 0),
+        }
+        for item, visibility in sorted(items, key=lambda row: row[0].name.casefold())
+    ]
 
 
 def save_changes(state: ReplState, changes: Mapping[str, SkillVisibility]) -> str:

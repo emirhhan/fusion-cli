@@ -16,6 +16,11 @@ from ..config.models import SkillVisibility
 from ..config.skill_overrides_writer import next_visibility
 
 
+def list_skill_visibility(state: ReplState) -> dict[str, Any]:
+    """`yetenek.gorunurluk_listesi`: masaüstü `/skills` liste paneli (kapalılar dahil)."""
+    return {"ok": True, "beceriler": skills_panel.panel_rows(state)}
+
+
 def set_skill_visibility(state: ReplState, data: Mapping[str, Any]) -> dict[str, Any]:
     name = data.get("ad")
     if not isinstance(name, str) or not name.strip():

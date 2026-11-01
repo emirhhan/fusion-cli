@@ -1165,6 +1165,10 @@ class AppSession:
             return self._reload_capabilities()
         if request.name == "yetenek.teshis":
             return self._diagnose_capabilities()
+        if request.name == "yetenek.gorunurluk_listesi":
+            from .skill_visibility_rpc import list_skill_visibility
+
+            return list_skill_visibility(self._state)
         if request.name == "yetenek.gorunurluk":
             # `/skills` paneli (#176): görünürlük `skillOverrides`'a yazılır, katalog yenilenir.
             from .skill_visibility_rpc import set_skill_visibility
