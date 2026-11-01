@@ -81,3 +81,22 @@ def test_depo_yoksa_kirpilir_ve_soylenir(gecerli):
     metin, yol = shape_output("z" * 50_000, valid=gecerli, inline=30_000, window=30_000, store=None)
     assert (yol is None and "KIRPILDI" in metin) or "atıldı" in metin
     assert len(metin) < 31_000
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"),
+    [
+        ("cat f | grep x", True),
+        ("cd src && grep x f", True),
+        ("FOO=1 grep x f", True),
+        ("git -C . diff --exit-code", True),
+        ("git --no-pager diff", True),
+        ("grep x f | wc -l", False),
+        ("git -C . push", False),
+    ],
+)
+def test_cikis_kodu_bir_son_komuta_gore_degerlendirilir(komut, beklenen):
+    """Boru ve zincirde çıkış kodu son komutundur (bağımsız inceleme #7)."""
+    from fusion_cli.tools.shell_output import is_benign_exit
+
+    assert is_benign_exit(komut, 1) is beklenen

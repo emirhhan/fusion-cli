@@ -14,11 +14,11 @@ Claude Code (tools-reference, "Output limits"):
 
 from __future__ import annotations
 
-import shlex
 from pathlib import Path
 
 from ..config.claude_settings import claude_setting
 from ..core.artifacts import PREVIEW_CHARS, ArtifactStore
+from .auto_policy import command_words
 from .bash_settings import DEFAULT_OUTPUT_CHARS, output_limit
 
 FAILURE_INLINE_CHARS = 10_000
@@ -28,6 +28,7 @@ SETTING_CEILING_CHARS = 128_000
 SAVED_OUTPUT_CHARS = 64 * 1024 * 1024
 _BENIGN_EXIT_ONE = frozenset({"grep", "rg", "egrep", "fgrep", "find", "diff", "test", "["})
 _BENIGN_GIT = frozenset({"diff", "grep"})
+_GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
 
 
 def output_limits(root: Path) -> tuple[int, int]:
@@ -40,20 +41,26 @@ def output_limits(root: Path) -> tuple[int, int]:
 
 
 def is_benign_exit(command: str, code: int) -> bool:
-    """Bu çıkış kodu Bash aracı için geçerli sonuç mu?"""
+    """Bu çıkış kodu Bash aracı için geçerli sonuç mu?
+
+    Boru ve zincirde çıkış kodu son çalışan komutundur: `cat f | grep x`, `cd src && grep x`
+    son parçaya göre değerlendirilir; öndeki ortam atamaları ve git'in genel seçenekleri
+    (`-C dizin`, `--no-pager`) atlanır.
+    """
     if code == 0:
         return True
     if code != 1:
         return False
-    try:
-        words = shlex.split(command)
-    except ValueError:
+    segments = command_words(command)
+    if not segments:
         return False
-    if not words:
-        return False
+    words = segments[-1]
     head = Path(words[0]).name
     if head == "git":
-        return len(words) > 1 and words[1] in _BENIGN_GIT
+        rest = words[1:]
+        while rest and rest[0].startswith("-"):
+            rest = rest[2:] if rest[0] in _GIT_VALUE_OPTIONS else rest[1:]
+        return bool(rest) and rest[0] in _BENIGN_GIT
     return head in _BENIGN_EXIT_ONE
 
 
