@@ -168,7 +168,7 @@ async def _kaydet(config: McpServerConfig, *adlar: str) -> list[str]:
     client._sessions[config.name] = _Oturum(*adlar)
     registry = ToolRegistry()
     await client.register_into(registry)
-    return sorted(registry.names())
+    return sorted(name for name in registry.names() if name != "ToolSearch")
 
 
 async def test_izin_listesi_yalniz_secilen_araclari_kaydeder():

@@ -130,6 +130,7 @@ from ...providers.capabilities import (
     capabilities_for,
     infer_task_requirements,
 )
+from ...providers.context_window import input_window_tokens
 from ...providers.factory import build_provider
 from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
@@ -140,6 +141,7 @@ from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
+from ...tools.tool_search import visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
@@ -2857,14 +2859,19 @@ async def _call_model(
     offered_tools = (
         tuple(
             registry.schemas(
-                _permitted(
-                    allowed_tools,
+                # Araç araması (#258): ertelenmiş ve yüklenmemiş MCP şemaları gönderilmez.
+                visible_tool_names(
+                    _permitted(
+                        allowed_tools,
+                        registry,
+                        execution,
+                        deps.tool_context.task_kinds,
+                        denied=getattr(deps, "denied_tools", ()),
+                        task=_surface_task(messages),
+                        phase=deps.tool_context.tool_phase,
+                    ),
                     registry,
-                    execution,
-                    deps.tool_context.task_kinds,
-                    denied=getattr(deps, "denied_tools", ()),
-                    task=_surface_task(messages),
-                    phase=deps.tool_context.tool_phase,
+                    lambda: input_window_tokens(spec.model),
                 ),
                 edit_format=execution.edit_format,
             )

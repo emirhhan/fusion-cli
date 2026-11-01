@@ -102,7 +102,7 @@ def parse_entry(
         env_literals=_pairs(entry.get("env"), f"{here}.env"),
         headers=_pairs(entry.get("headers"), f"{here}.headers"),
         headers_helper=_text(entry.get("headersHelper"), f"{here}.headersHelper"),
-        always_load=entry.get("alwaysLoad") is True,
+        always_load=_always_load(entry.get("alwaysLoad")),
         timeout_ms=_timeout(entry.get("timeout"), f"{here}.timeout"),
         client_id=str(oauth.get("clientId") or ""),
         oauth_callback_port=_port(oauth.get("callbackPort"), f"{here}.oauth.callbackPort"),
@@ -134,8 +134,8 @@ def to_entry(server: McpServerConfig) -> dict[str, object]:
         entry["env"] = env
     if server.timeout_ms is not None:
         entry["timeout"] = server.timeout_ms
-    if server.always_load:
-        entry["alwaysLoad"] = True
+    if server.always_load is not None:
+        entry["alwaysLoad"] = server.always_load
     oauth = _oauth_entry(server)
     if oauth:
         entry["oauth"] = oauth
@@ -214,3 +214,8 @@ def _pairs(value: object, where: str) -> tuple[tuple[str, str], ...]:
             raise McpEntryError(f"{where}.{key}: metin bekleniyordu")
         pairs.append((str(key), item))
     return tuple(pairs)
+
+
+def _always_load(value: object) -> bool | None:
+    """`alwaysLoad`: yalnız gerçek bool okunur; yazılmamışsa None (#258)."""
+    return value if isinstance(value, bool) else None

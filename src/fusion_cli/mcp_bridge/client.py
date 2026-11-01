@@ -55,11 +55,12 @@ from .references import (
     resource_block,
 )
 from .resource_tools import register_resource_tools
-from .schema import clean_description, simplify_schema
+from .schema import clean_description, description_limit, simplify_schema
 from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
+from .tool_search_bridge import McpToolSearch, meta_always_load
 from .transport import open_mcp_stream
 from .trust import tools_digest, trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
@@ -155,6 +156,8 @@ class McpClient:
         self._successor: McpClient | None = None
         #: Araç başına `_meta["anthropic/maxResultSizeChars"]` sınırı (#240).
         self._result_limits: dict[tuple[str, str], int] = {}
+        #: Araç araması (#258): ertelenen araçlar `ToolSearch` ile yüklenir.
+        self._tool_search = McpToolSearch()
 
     @property
     def is_stalled(self) -> bool:
@@ -412,13 +415,17 @@ class McpClient:
                 server=server,
                 name=tool.name,
                 # Sağlayıcıya giden kopya sadeleşir/temizlenir (bkz. `schema.py`).
-                description=clean_description(tool.description or ""),
+                # Aramayla yüklenecek açıklama uzun sınırda; baştan yüklenen kayıtta kısalır.
+                description=clean_description(
+                    tool.description or "", limit=description_limit(deferred=True)
+                ),
                 schema=simplify_schema(tool.inputSchema or {}),
                 # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
                 effect=self._trusted_effect(
                     server, effect_from_annotations(getattr(tool, "annotations", None))
                 )
                 or ToolEffect.REMOTE_WRITE,
+                always_load=meta_always_load(getattr(tool, "meta", None)),
             )
             for tool in discovered
         ]
@@ -524,9 +531,11 @@ class McpClient:
             current_names = {name for name, _remote in named}
             # `tools/list_changed` (#256): sunucunun kaldırdığı araçlar defterden de çıkar;
             # başarısız yenilemede (yukarıdaki `continue`) önceki araçlar korunur.
-            for stale in self._registered.get(server, set()) - current_names:
+            previous = self._registered.get(server, set())
+            for stale in previous - current_names:
                 registry.unregister_remote(stale)
             self._registered[server] = current_names
+            server_config = next((item for item in self._configs if item.name == server), None)
             self._stale_tools.discard(server)
             for fusion_name, remote in named:
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
@@ -534,7 +543,7 @@ class McpClient:
                 registry.register_or_replace(
                     Tool(
                         name=fusion_name,
-                        description=remote.description,
+                        description=self._tool_search.description(server_config, remote),
                         parameters=remote.schema,
                         run=self._make_run(server, remote.name),
                         # Dış araç ne yaptığını söylemez: onay akışına girsin diye mutating.
@@ -544,6 +553,7 @@ class McpClient:
                     )
                 )
                 added.append(fusion_name)
+            self._tool_search.apply(registry, server, server_config, named, previous)
         added.extend(register_resource_tools(self, registry))
         return tuple(added)
 

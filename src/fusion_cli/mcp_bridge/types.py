@@ -26,6 +26,8 @@ class RemoteTool:
     description: str
     schema: dict[str, object] = field(default_factory=dict)
     effect: ToolEffect = ToolEffect.REMOTE_WRITE
+    #: Aracın `_meta["anthropic/alwaysLoad"]` işareti (#258); yoksa None.
+    always_load: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

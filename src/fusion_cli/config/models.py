@@ -712,8 +712,9 @@ class McpServerConfig:
     headers: tuple[tuple[str, str], ...] = ()
     #: Bağlantı anında JSON başlık sözlüğü basan kabuk komutu (Claude Code `headersHelper`).
     headers_helper: str = ""
-    #: Araç araması açıkken bu sunucunun araçları ertelenmez (Claude Code `alwaysLoad`).
-    always_load: bool = False
+    #: Claude Code `alwaysLoad` (#258): True araçları baştan yükler, False aracın
+    #: `anthropic/alwaysLoad` işaretine rağmen hepsini erteler, None (yazılmamış) işarete uyar.
+    always_load: bool | None = None
     #: Sunucu başına araç çağrısı sınırı, ms (Claude Code `.mcp.json` `timeout`).
     timeout_ms: int | None = None
     #: OAuth dönüş portu (Claude Code `oauth.callbackPort` / `--callback-port`).

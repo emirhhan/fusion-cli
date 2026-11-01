@@ -417,7 +417,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "max_tools": server.max_tools,
                     "headers": [list(pair) for pair in server.headers],
                     "headers_helper": server.headers_helper,
-                    "always_load": server.always_load or None,
+                    "always_load": server.always_load,
                     "timeout_ms": server.timeout_ms,
                     "oauth_callback_port": server.oauth_callback_port,
                     "oauth_metadata_url": server.oauth_metadata_url,

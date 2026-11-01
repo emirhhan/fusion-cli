@@ -730,8 +730,20 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   karakter sınırı yüzünden 65-128 karakterlik ad 64'e kısaltılıp sonuna 8 haneli özet eklenir.
   Eski öneksiz yazım (`github__get_issue`) izin kuralında, kancada ve `--allowed-tools`'ta bir
   sürüm boyunca takma addır (izin kuralında bir kez uyarılır).
-- Henüz yok (Claude Code'da var): araç araması/erteleme (`ENABLE_TOOL_SEARCH`, `alwaysLoad`
-  okunur ama etkisiz; `MCP_CONNECTION_NONBLOCKING`, `MCP_CONNECT_TIMEOUT_MS`), uzun çağrının
+- Araç araması (Claude Code gibi varsayılan açık): MCP araçlarının şeması baştan gönderilmez,
+  model `ToolSearch` (`select:<ad>` ya da anahtar sözcük; `+sözcük` adda geçmeli) ile yükler ve
+  araç aynı turun sonraki isteğinden itibaren şemasıyla sunulur. `ENABLE_TOOL_SEARCH`:
+  boş/`true` ertele, `auto`/`auto:N` tanımlar bağlam penceresinin %10'undan (%N) azsa baştan
+  yükle (eşik bir kez aşılınca açık kalır), `false` hepsi baştan;
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` aramayı kapatır. `permissions.deny: ["ToolSearch"]`
+  ya da araç listesinde `ToolSearch` olmaması araçları baştan yükler. Sunucu `"alwaysLoad": true`
+  araçlarını baştan yükler, `false` hepsini (aracın `_meta["anthropic/alwaysLoad"]` işareti
+  dahil) erteler; yazılmamışsa işaretli araç baştan yüklenir. Baştan yüklenen açıklama 4096,
+  aramayla yüklenen 16384 karakterde kesilir (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` ikisini
+  de değiştirir). Fusion çok sağlayıcılı olduğu için arama sağlayıcının `defer_loading`
+  alanıyla değil istemci tarafında yapılır; bu yüzden her modelde çalışır.
+- Henüz yok (Claude Code'da var): `MCP_CONNECTION_NONBLOCKING`, `MCP_CONNECT_TIMEOUT_MS`,
+  bağlantısı sonradan biten sunucunun araçlarının aynı turda listelenmesi, uzun çağrının
   2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
   masaüstünde proje sunucusu onay istemi,
   masaüstü panelinde araç/izin görünümü (REPL'de `/mcp tools` var), `--mcp-config` + `managed-mcp.json` birlikteyken
