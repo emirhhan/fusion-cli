@@ -10,6 +10,8 @@ https://code.claude.com/docs/en/env-vars:
   <1000 → 1 sn, en çok etkin araç sınırı); sunucu `timeout`'u boşta kalmanın alt sınırıdır.
   İlerleme bildirimi boşta kalma sayacını sıfırlar.
 - Başlatma: `MCP_TIMEOUT` (ms) > 30000 ms.
+- Bloklamayan açılış (varsayılan; `MCP_CONNECTION_NONBLOCKING=0` kapatır): tur başı sunucuları
+  en çok `MCP_CONNECT_TIMEOUT_MS` (5000 ms) bekler, geç kalan arka planda bağlanmayı sürdürür.
 
 `config.yaml`'daki eski `connect_timeout_s` / `call_timeout_s` verilmişse önceliklidir.
 """
@@ -96,3 +98,26 @@ def idle_timeout_s(
     if server is not None:
         window = max(window, server)
     return min(window, tool_timeout_ms(config, environ)) / 1000
+
+
+#: Bloklamayan açılışta tur başının sunucuları toplu bekleme süresi (Claude 5 sn).
+DEFAULT_CONNECT_WAIT_MS = 5_000
+CONNECT_WAIT_ENV = "MCP_CONNECT_TIMEOUT_MS"
+NONBLOCKING_ENV = "MCP_CONNECTION_NONBLOCKING"
+_OFF_WORDS = frozenset({"0", "false", "no", "off"})
+
+
+def connection_nonblocking(environ: Mapping[str, str] | None = None) -> bool:
+    """Varsayılan açık: bağlanmayı bitirmeyen sunucu arka planda bağlanmaya devam eder.
+
+    `MCP_CONNECTION_NONBLOCKING=0` açılışı bütün sunucuları (başlatma sınırına kadar)
+    beklemeye zorlar (#239).
+    """
+    raw = (os.environ if environ is None else environ).get(NONBLOCKING_ENV, "").strip().lower()
+    return raw not in _OFF_WORDS
+
+
+def connect_wait_s(environ: Mapping[str, str] | None = None) -> float:
+    """Bloklamayan açılışta sunucuların toplu bekleme süresi (`MCP_CONNECT_TIMEOUT_MS`)."""
+    env = _env_ms(CONNECT_WAIT_ENV, environ)
+    return (env if env else DEFAULT_CONNECT_WAIT_MS) / 1000

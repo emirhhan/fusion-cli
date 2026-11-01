@@ -9,6 +9,7 @@ Olay döngüsü de sahipliğin parçasıdır: farklı loop görevi beklenmez.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Callable, Iterable
@@ -27,6 +28,7 @@ from .identity import duplicate_of, unique_configs, unique_hosted_configs
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
 from .references import McpCatalog
+from .timeouts import connect_wait_s, connection_nonblocking
 
 __all__ = [
     "McpToolPool",
@@ -103,6 +105,8 @@ class McpToolPool:
         #: değişince (yeni istemci) yeniden çekilir, aynı bağlantıda bir kez. Çekim
         #: başarısızsa istemci `None` kalır: sonraki tur yeniden dener.
         self._catalogs: dict[str, tuple[McpClient | None, McpCatalog]] = {}
+        #: Arka planda bağlanmayı sürdüren açılışlar (#239, `MCP_CONNECTION_NONBLOCKING`).
+        self._connecting: dict[str, asyncio.Task[None]] = {}
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -178,12 +182,20 @@ class McpToolPool:
         loop = asyncio.get_running_loop()
         async with self._lock:
             await self._discard_stale(wanted, loop)
+            # Başka (kapanmış) döngünün açılışı burada beklenemez; yeniden açılır.
+            for name, task in tuple(self._connecting.items()):
+                if task.get_loop() is not loop:
+                    del self._connecting[name]
             to_open = [
                 config
                 for config in wanted
-                if config.name not in self._entries and not self._is_parked(config)
+                if config.name not in self._entries
+                and config.name not in self._connecting
+                and not self._is_parked(config)
             ]
-            if to_open:
+            if connection_nonblocking():
+                await self._open_nonblocking(wanted, to_open, loop)
+            elif to_open:
                 # İptal gather'dan çocuklara geçer; her `_open` kendi gözetmenini
                 # boşaltma kümesine alır (bkz. `_open`).
                 await asyncio.gather(*(self._open(config, loop) for config in to_open))
@@ -193,6 +205,31 @@ class McpToolPool:
                 if (entry := self._entries.get(config.name)) is not None
                 and entry.client is not None
             )
+
+    async def _open_nonblocking(
+        self,
+        wanted: tuple[McpServerConfig, ...],
+        to_open: list[McpServerConfig],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        """Claude Code bloklamayan açılışı (#239): en çok `MCP_CONNECT_TIMEOUT_MS` bekle.
+
+        Süresinde bağlanamayan sunucu arka planda bağlanmayı sürdürür ve araçları sonraki
+        turda deftere girer. Tur iptal edilse de açılış sürer; `aclose()` onu kapatır.
+        """
+        for config in to_open:
+            task = loop.create_task(self._open(config, loop))
+            self._connecting[config.name] = task
+            task.add_done_callback(functools.partial(self._connected, config.name))
+        pending = [self._connecting[c.name] for c in wanted if c.name in self._connecting]
+        if pending:
+            await asyncio.wait(pending, timeout=connect_wait_s())
+
+    def _connected(self, name: str, task: asyncio.Task[None]) -> None:
+        if self._connecting.get(name) is task:
+            del self._connecting[name]
+        if not task.cancelled() and task.exception() is not None:
+            _LOG.warning("MCP arka plan bağlantısı düştü", extra={"sunucu": name})
 
     def connected_client(self, name: str) -> McpClient | None:
         """Sunucunun bu döngüdeki canlı istemcisi; yoksa None."""
@@ -406,6 +443,16 @@ class McpToolPool:
 
     async def aclose(self) -> None:
         """Oturum biterken bağlantıları kapat; stdio alt süreçleri sahipsiz kalmasın."""
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        connecting = tuple(t for t in self._connecting.values() if t.get_loop() is current)
+        self._connecting.clear()
+        for task in connecting:
+            task.cancel()
+        if connecting:
+            await asyncio.gather(*connecting, return_exceptions=True)
         async with self._lock:
             entries = tuple(self._entries.values())
             self._entries.clear()
