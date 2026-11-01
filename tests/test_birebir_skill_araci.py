@@ -191,7 +191,10 @@ def test_cagrilan_beceri_sonraki_turlarda_baglamda_kalir() -> None:
     blok = kayit.carried_block()
     assert "A2" in blok and "A1" not in blok
     assert blok.index("A2") < blok.index("BBB")  # en yeni önce
-    assert blok.count("B") <= PER_SKILL_TOKENS * CHARS_PER_TOKEN + 5
+    # Sıkıştırmadan önce gövde TAM kalır (Claude: mesaj konuşmada durur).
+    assert blok.count("B") >= 30_000
+    sonra = kayit.compacted().carried_block()
+    assert sonra.count("B") <= PER_SKILL_TOKENS * CHARS_PER_TOKEN + 5
     assert kayit.carried_block(exclude="a").count("A2") == 0
     assert kayit.for_conversation("s2").carried_block() == ""
 

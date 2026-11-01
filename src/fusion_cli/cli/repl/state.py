@@ -389,7 +389,8 @@ class ReplState:
 
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
-        record = self.invoked_skills.for_conversation(self.conversation_id)
+        # Modelin `Skill` sonuçları ve sıkıştırma geçmişten okunur (#140).
+        record = self.invoked_skills.for_conversation(self.conversation_id).observe(self.history)
         stacked = self.pending_stacked_skills
         names = (self.pending_skill_name, *(name for name, _ in stacked))
         carried = "" if self.pending_fresh_fork else record.carried_block(names)
