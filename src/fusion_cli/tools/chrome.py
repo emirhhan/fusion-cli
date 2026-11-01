@@ -659,6 +659,7 @@ async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> 
             "upload için 'ref' (dosya alanı) ve 'value' (dosya yolları) gerekli."
         )
     from .files import resolve_path
+    from .upload_guard import upload_refusal
 
     files: list[dict[str, str]] = []
     toplam = 0
@@ -666,6 +667,9 @@ async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> 
         path = resolve_path(context, raw)
         if not path.is_file():
             return ToolResult.failure(f"Dosya yok: {raw}")
+        refusal = upload_refusal(path, context)
+        if refusal is not None:
+            return ToolResult.failure(f"Yükleme reddedildi: {refusal}.")
         icerik = path.read_bytes()
         toplam += len(icerik)
         if toplam > MAX_UPLOAD_BYTES:
