@@ -1450,6 +1450,22 @@ CONTEXT_TOTAL = "Toplam"
 CONTEXT_TOTAL_VALUE = "~{tokens} / {limit} tok · %{percent} · {count} mesaj"
 CONTEXT_WINDOW = "Model penceresi"
 CONTEXT_WINDOW_VALUE = "{window} tok · pencere doluluğu ~{tokens} tok (%{percent})"
+CONTEXT_HEADLINE = "{used} / {window} tok (%{percent}) · {source}"
+CONTEXT_MEASURED = "son API çağrısında ölçülen"
+CONTEXT_ESTIMATED = "tahmini (karakter/3)"
+CONTEXT_FREE = "Boş alan"
+CONTEXT_TOP_ITEMS = "En büyük kalemler"
+CONTEXT_EXCEEDED = (
+    "Bağlam pencereyi ~{over} token aşıyor; /compact ile özetleyin ya da /clear ile yeni "
+    "sohbet açın."
+)
+CONTEXT_NEAR_CAPACITY = "Pencere %{percent} dolu; yakında otomatik sıkıştırma çalışır (/compact)."
+CONTEXT_TOOL_HEAVY = (
+    "Araç çıktıları geçmişin %{share}'i; büyük çıktıları dosyaya yazdırın ya da /compact kullanın."
+)
+CONTEXT_MEMORY_HEAVY = (
+    "Sistem istemi ve bellek dosyaları büyük; CLAUDE.md/AGENTS.md'yi kısaltmayı düşünün (/memory)."
+)
 CONTEXT_EMPTY = (
     "Geçmiş boş: sistem istemi ve araç tanımları tahminidir; Toplam ve durum çubuğu yüzdesi "
     "yalnız konuşmayı (sıkıştırma eşiğine göre) sayar."

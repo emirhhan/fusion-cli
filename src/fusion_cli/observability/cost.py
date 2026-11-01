@@ -31,6 +31,8 @@ class CostTracker:
         self._failed_calls = 0
         self._abandoned_calls = 0
         self._unmeasured_calls = 0
+        #: Son başarılı çağrının ölçülen girdi token'ı (`/context`, #207); 0 = bilinmiyor.
+        self.last_prompt_tokens = 0
 
     def handle(self, event: Event) -> None:
         if isinstance(event, ModelCallAbandoned):
@@ -47,6 +49,8 @@ class CostTracker:
         # alınır. Ölçüldü (30 Ekim): tüm çağrılar ölçülmüş olsa da toplam "unknown" çıkıyordu.
         onceki = self._by_role.get(event.role)
         usage = event.result.usage
+        if usage.completeness == "complete" and usage.prompt_tokens > 0:
+            self.last_prompt_tokens = usage.prompt_tokens
         self._by_role[event.role] = usage if onceki is None else onceki + usage
         self._calls[event.role] += 1
 

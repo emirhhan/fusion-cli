@@ -1044,7 +1044,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 ### Durum ve bağlam
 
 - `/status` — sürüm, motor, izin kipi, model/kademe, düşünme, çıktı stili, dizin(ler), MCP sunucuları, hesap, sohbet kimliği, yapılandırma dosyası.
-- `/context` — bağlam penceresi kırılımı: sistem istemi / özet / kullanıcı / asistan / araç sonuçları (tahmini token ve yüzde), araç tanımları ve bekleyen `!`/`@` bağlamı ayrı satır, sıkıştırma eşiği ve model penceresi doluluğu. Yeni oturumda sistem istemi tahminle sayılır (`(tahmini)` etiketi); durum çubuğundaki `bağlam %N` yalnız konuşmayı sıkıştırma eşiğine göre sayar.
+- `/context [all]` — Claude Code'daki gibi bağlam kullanımını renkli ızgara olarak gösterir (her hücre model penceresinin %1'i; kategori başına renk ve boş alan). Yüzde MODEL PENCERESİNE göredir; token sayısı son API çağrısında ölçülen girdi token'ından, ölçüm yoksa tahminden (karakter/3) gelir ve hangisi olduğu yazılır. Araç çıktısı ağırlığı, büyük bellek dosyaları ve kapasite için öneriler; pencere aşılınca ne kadar aşıldığı ve `/compact`/`/clear` önerisi. Altında kalem kırılımı (sistem istemi / özet / kullanıcı / asistan / araç sonuçları, araç tanımları, bekleyen `!`/`@` bağlamı, sıkıştırma eşiği); `all` en büyük kalemleri de listeler. Durum çubuğundaki `bağlam %N` hâlâ sıkıştırma eşiğine göre sayar.
 - Durum çubuğunda `bağlam %12 · ~3k tok` sayacı her tur sonunda güncellenir (satır-içi kipte `FUSION_TOOLBAR=1` ile görünür).
 
 ### Dışa aktarma ve pano

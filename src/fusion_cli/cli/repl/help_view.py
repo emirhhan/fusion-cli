@@ -46,9 +46,10 @@ async def render(
 
         render_status(state, console)
     elif name == "context":
-        from .status_view import render_context
+        # Claude Code `/context [all]` (#207): ızgara, pencere yüzdesi, öneriler.
+        from .context_view import render as render_context
 
-        render_context(state, console)
+        render_context(state, console, argument)
     elif name == "compact":
         from .loop import compact_history
 
