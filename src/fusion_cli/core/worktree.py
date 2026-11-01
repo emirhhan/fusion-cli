@@ -24,13 +24,14 @@ import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
 from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
 from .worktree_pr import parse_pull_request
+from .worktree_reuse import refresh_to
 
 #: Depo kökü altındaki çalışma ağacı dizini (git'e `info/exclude` ile gizlenir).
 WORKTREE_DIR = Path(".claude") / "worktrees"
@@ -235,6 +236,8 @@ def enter_worktree(
         )
     existing = find_worktree(origin, name)
     if existing is not None:
+        if pull_request is None and base_mode == BASE_FRESH:
+            _refresh_reused(existing, origin)
         return existing
     if pull_request is not None:
         # PR/MR başı `origin`'den çekilir (Claude Code, #341); taban FETCH_HEAD'dir.
@@ -245,6 +248,18 @@ def enter_worktree(
         cwd, base_ref = origin, fresh  # yedek `HEAD` bulunulan checkout'ta çözülür
     base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
     return create_worktree(origin, name, base_ref=base_commit)
+
+
+def _refresh_reused(worktree: Worktree, origin: Path) -> None:
+    """Temiz, kendi dalında ve kendi commit'i olmayan ağacı varsayılan dala getir (#373)."""
+    target = fresh_base(origin)
+    if target == "HEAD":
+        return
+    resolved = quiet_git(origin, ("rev-parse", "--verify", f"{target}^{{commit}}"), timeout_s=GIT_TIMEOUT_S)
+    if resolved and refresh_to(
+        worktree.path, worktree.branch, resolved.strip(), included=worktree.included
+    ):
+        _write_meta(replace(worktree, base_commit=resolved.strip()))
 
 
 def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:

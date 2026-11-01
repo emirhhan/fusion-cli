@@ -242,3 +242,42 @@ def test_fresh_yedegi_agac_icinde_o_agacin_headi(repo):
     _git(ilk.path, "commit", "-qm", "dal")
     ikinci = core_worktree.enter_worktree(ilk.path, "ikinci", base_mode="fresh")
     assert (ikinci.path / "dal.txt").exists()
+
+
+def _uzagi_ilerlet(uzak: Path, tmp_path: Path) -> str:
+    klon = tmp_path / "klon"
+    _git(tmp_path, "clone", "-q", str(uzak), str(klon))
+    _git(klon, "config", "user.email", "fusion@test.local")
+    _git(klon, "config", "user.name", "Fusion Test")
+    (klon / "yeni.txt").write_text("uzakta yeni\n", encoding="utf-8")
+    _git(klon, "add", "yeni.txt")
+    _git(klon, "commit", "-qm", "uzak ilerledi")
+    _git(klon, "push", "-q")
+    return _git(klon, "rev-parse", "HEAD")
+
+
+def test_temiz_ve_commitsiz_agac_yeniden_acilinca_varsayilan_dala_gelir(repo, tmp_path):
+    """Claude Code 'Reuse a worktree name' (#373)."""
+    uzak = _uzakli_depo(repo, tmp_path)
+    tree = core_worktree.enter_worktree(repo, "tekrar", base_mode="fresh")
+    yeni = _uzagi_ilerlet(uzak, tmp_path)
+    _git(repo, "fetch", "-q", "origin")
+    again = core_worktree.enter_worktree(repo, "tekrar", base_mode="fresh")
+    assert again.path == tree.path
+    assert _git(tree.path, "rev-parse", "HEAD") == yeni
+
+
+def test_isi_olan_agac_eski_ucunda_acilir(repo, tmp_path):
+    uzak = _uzakli_depo(repo, tmp_path)
+    tree = core_worktree.enter_worktree(repo, "isli", base_mode="fresh")
+    (tree.path / "kendi.txt").write_text("iş\n", encoding="utf-8")
+    _git(tree.path, "add", "kendi.txt")
+    _git(tree.path, "commit", "-qm", "kendi")
+    uc = _git(tree.path, "rev-parse", "HEAD")
+    _uzagi_ilerlet(uzak, tmp_path)
+    _git(repo, "fetch", "-q", "origin")
+    core_worktree.enter_worktree(repo, "isli", base_mode="fresh")
+    assert _git(tree.path, "rev-parse", "HEAD") == uc
+    (tree.path / "kirli.txt").write_text("x", encoding="utf-8")
+    core_worktree.enter_worktree(repo, "isli", base_mode="head")
+    assert _git(tree.path, "rev-parse", "HEAD") == uc

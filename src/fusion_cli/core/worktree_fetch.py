@@ -25,6 +25,8 @@ BASE_REFS = (BASE_FRESH, BASE_HEAD)
 FRESH_FETCH_AGE_S = 24 * 60 * 60
 #: "fresh" tabanda varsayılan dal çekme üst süresi.
 FRESH_FETCH_TIMEOUT_S = 5.0
+#: Ağ gerektirmeyen yerel git komutlarının üst süresi.
+GIT_LOCAL_TIMEOUT_S = 60.0
 #: PR/MR başını çekme üst süresi.
 PR_FETCH_TIMEOUT_S = 60.0
 _ORIGIN_HEAD = "refs/remotes/origin/HEAD"

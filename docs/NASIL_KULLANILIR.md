@@ -335,6 +335,9 @@ durumunda görünmez (`.git/info/exclude`).
   çok 5 sn'de çekilir, uzak yoksa yerel `HEAD`'e düşülür. `"head"` bulunulan checkout'un
   `HEAD`'inden dallanır (gönderilmemiş commit'ler de gelir). `--worktree`, `/worktree`,
   `enter_worktree` ve alt ajan ağaçları aynı ayarı kullanır.
+- Aynı adla yeniden açılan ağaç (`"fresh"` tabanda): commit'lenmemiş/izlenmeyen dosyası yoksa,
+  kendi dalındaysa ve kendi commit'i yoksa varsayılan dala ileri sarılır; aksi hâlde (ya da
+  `"head"` tabanda, PR/MR adında) eski ucunda açılır.
 - `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
   ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz. Depo kökü dışına çıkan
   desenler (`../x`, mutlak yol) ve symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
