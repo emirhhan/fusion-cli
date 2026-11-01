@@ -159,6 +159,7 @@ from . import (
     reflexion,
     review,
     skill_grants,
+    skill_usage,
 )
 from .action_evidence import claimed_effects
 from .agent_task_tools import is_agent_task_request
@@ -1026,6 +1027,7 @@ async def _run_agent(
             deps.capabilities,
             index_budget_for(deps.config, root=deps.tool_context.root, home=deps.home),
             max_description=description_limit(deps.tool_context.root, deps.home),
+            usage=skill_usage.load_counts(getattr(deps.config, "memory_dir", None)),
         )
         if depth == 0 and not internal
         else ""

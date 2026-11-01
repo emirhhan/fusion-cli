@@ -11,15 +11,15 @@ kullanımda yüklenir):
   (`skillListingMaxDescChars`).
 - Tek düz listedir; proje becerileri ayrı etiketle ya da güvenilmezlik notuyla işaretlenmez.
 
-Fusion farkı: Claude az çağrılan becerinin açıklamasını önce düşürür; Fusion'da çağrı sayısı
-tutulmadığından açıklama keşif önceliğinin sonundan (en düşük öncelikli kaynak) başlayarak
-düşer. `disable-model-invocation` olan beceriler listeye girmez. `runtime.skill_index_chars: 0`
+- Bütçe aşılınca en az çağrılan becerinin açıklaması önce düşer (`skill_usage` sayıları); eşit
+  sayıda keşif önceliğinin sonundan (en düşük öncelikli kaynak) başlanır. `disable-model-invocation` olan beceriler listeye girmez. `runtime.skill_index_chars: 0`
 listeyi kapatır (eski Fusion ayarı).
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from ...config import claude_settings
@@ -101,8 +101,9 @@ def skill_index_block(
     budget: int = SKILL_INDEX_CHARS,
     *,
     max_description: int = DESCRIPTION_CHARS,
+    usage: Mapping[str, int] | None = None,
 ) -> str:
-    """Tek düz liste: her ad her zaman; bütçe aşılırsa sondan başlayarak açıklama düşer."""
+    """Tek düz liste: her ad her zaman; bütçe aşılırsa az çağrılanın açıklaması önce düşer."""
     if registry is None or budget <= 0:
         return ""
     skills = [item for item in registry.skills() if item.model_invocable]
@@ -114,7 +115,11 @@ def skill_index_block(
     ]
     lines = [_line(item.name, text) for item, text in zip(skills, summaries, strict=True)]
     total = len(HEADER) + sum(len(line) + 1 for line in lines)
-    for index in range(len(skills) - 1, -1, -1):
+    counts = usage or {}
+    order = sorted(
+        range(len(skills)), key=lambda i: (counts.get(skills[i].name.lower(), 0), -i)
+    )
+    for index in order:
         if total <= budget:
             break
         if summaries[index]:

@@ -135,8 +135,8 @@ işaretlenmez). Model uygun beceriyi aramadan tanır ve Claude Code'daki gibi `S
 - Listede **her beceri adı her zaman** bulunur. Bütçe model penceresinin **%1**'idir
   (`skillListingBudgetFraction`, settings.json); `SLASH_COMMAND_TOOL_CHAR_BUDGET` ortam
   değişkeni bütçeyi karakter olarak sabitler. Bütçe aşılınca açıklamalar düşer, adlar kalır.
-  Claude az çağrılan becerinin açıklamasını önce düşürür; Fusion çağrı sayısı tutmadığı için
-  en düşük öncelikli kaynaktan (listenin sonundan) başlar.
+  Claude Code'daki gibi en az çağrılan becerinin açıklaması önce düşer (çağrı sayıları
+  `/ad` ve `Skill` çağrılarından `beceri_cagrilari.json`'da tutulur; eşitlikte listenin sonundan).
 - Giriş başına açıklama (`description` + `when_to_use`) 1.536 karakterde kesilir
   (`skillListingMaxDescChars`).
 - Pencere bilinmiyorsa `runtime.skill_index_chars` (4.000) kullanılır; `0` listeyi kapatır.

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...engines.agent import skill_tool
+from ...engines.agent import skill_tool, skill_usage
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_shell import ShellPolicy
@@ -80,6 +80,7 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         )
         if not invocation.ok:
             return "\n".join(invocation.notes)
+        skill_usage.record_invocation(state.config.memory_dir, skill.name)
         state.pending_task = invocation.task
         # `context: fork`: tur fork alt ajanda koşar (`/subtask` yolu), ama geçmişsiz.
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE

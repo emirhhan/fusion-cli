@@ -144,3 +144,23 @@ def test_proje_becerileri_tek_duz_listede(ev, tmp_path):
 
     assert "- pdf-doldur" in blok and "- tuzak — Proje becerisi" in blok
     assert "<proje_becerileri>" not in blok and "DEĞİLDİR" not in blok
+
+
+def test_butce_asilinca_az_cagrilanin_aciklamasi_once_duser(tmp_path):
+    """Belge: bütçe dolunca en az çağrılan becerilerin açıklaması önce düşer (#156)."""
+    from fusion_cli.engines.agent import skill_usage
+
+    home = tmp_path / "ev2"
+    _skill(home, "alfa", "A" * 60)
+    _skill(home, "beta", "B" * 60)
+    registry = CapabilityRegistry(home, tmp_path)
+    memory = tmp_path / "bellek"
+    for _ in range(3):
+        skill_usage.record_invocation(memory, "alfa")
+    budget = len(HEADER) + 100
+
+    block = skill_index_block(registry, budget, usage=skill_usage.load_counts(memory))
+
+    assert "A" * 60 in block  # sık çağrılan açıklamasını korur
+    assert "B" * 60 not in block and "beta" in block  # adı kalır
+    assert skill_usage.load_counts(memory) == {"alfa": 3}
