@@ -205,6 +205,10 @@ def load_config(path: str | Path | None = None) -> Config:
         from .mcp_cli import apply_session_mcp
 
         yapilandirma = apply_session_mcp(yapilandirma)
+        # Kuruluş MCP denetimi: managed-mcp.json tekeli, managedMcpServers, izin/ret (#274).
+        from .mcp_policy import apply_mcp_policy
+
+        yapilandirma = apply_mcp_policy(yapilandirma, Path.cwd())
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -490,8 +494,11 @@ def refresh_plugin_mcp_servers(config: Config) -> Config:
     Ölçüldü (31 Ekim): kapatılan ya da kaldırılan eklentinin MCP sunucusu çalışan oturumun
     yapılandırmasında kalıyor, araçları oturum yeniden başlayana dek çağrılabiliyordu.
     """
+    from .mcp_policy import apply_mcp_policy
+
     others = tuple(s for s in config.mcp_servers if s.scope is not McpScope.PLUGIN)
-    return _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
+    refreshed = _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
+    return apply_mcp_policy(refreshed, Path.cwd())  # #274: eklenti sunucusu politikayı aşmaz
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

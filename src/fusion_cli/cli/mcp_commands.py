@@ -149,6 +149,12 @@ def save_server(config: Config, server: McpServerConfig, *, root: Path) -> tuple
 
 def _save_or_exit(config: Config, server: McpServerConfig) -> tuple[Path, bool]:
     """`save_server`; yazma reddi (güvenilmeyen/bozuk `.mcp.json`) Türkçe hata ve çıkış 1."""
+    from ..config.mcp_policy import add_refusal
+
+    refusal = add_refusal(server, Path.cwd())  # kuruluş politikası (#274)
+    if refusal:
+        console.print(f"[{theme.ERROR}]{escape(refusal)}[/{theme.ERROR}]")
+        raise typer.Exit(code=1)
     try:
         return save_server(config, server, root=Path.cwd())
     except ConfigError as error:
