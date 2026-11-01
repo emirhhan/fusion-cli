@@ -209,3 +209,142 @@ async def test_motor_tasinan_cagrinin_sonucunu_sonraki_istege_ekler(monkeypatch,
     ucuncu = "\n".join(str(m.content) for m in provider.seen_messages[2])
     assert "tamamlandı · mcp__s__rapor" in ucuncu
     assert "çeyrek raporu: 42" in ucuncu
+
+
+async def test_tur_sonu_bekleme_suren_cagriyi_bitirip_bildirimi_hazirlar(tmp_path):
+    calls = McpBackgroundCalls()
+    context = _context(tmp_path)
+    calls.mark_main(context)
+
+    async def execute() -> ToolResult:
+        await asyncio.sleep(0.05)
+        return ToolResult(output="geç sonuç")
+
+    await calls.run(execute, context, "mcp__s__gec", threshold_s=0.01)
+
+    assert await calls.settle(context, wait=False) is False
+    assert await calls.settle(context, wait=True) is True
+    assert "geç sonuç" in calls.take_notices(context)[0].content
+
+
+async def test_kimlikle_durdurulan_cagri_iptal_bildirimi_birakir(tmp_path):
+    calls = McpBackgroundCalls()
+    context = _context(tmp_path)
+    calls.mark_main(context)
+
+    async def hangs() -> ToolResult:
+        await asyncio.Event().wait()
+        return ToolResult(output="")
+
+    await calls.run(hangs, context, "mcp__s__uzun", threshold_s=0.01)
+    (call_id,) = calls.running
+
+    assert calls.cancel(call_id) is True
+    assert calls.cancel("mcp-yok") is False
+    await asyncio.sleep(0.01)
+    assert calls.running == ()
+    assert "iptal edildi" in calls.take_notices(context)[0].content
+
+
+async def test_etkilesimsiz_kipte_son_yanittan_sonra_tasinan_sonuc_beklenir_ve_yeni_tur_acilir(
+    monkeypatch, tmp_path
+):
+    from fusion_cli.core.tools import Tool, ToolEffect
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+    from fusion_cli.tools.mcp_background import run_mcp_call
+
+    from .fakes import (
+        AlwaysApprove,
+        RecordingSink,
+        ScriptedProvider,
+        make_config,
+        model_result,
+        tool_call,
+    )
+
+    monkeypatch.setenv("CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS", "30")
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("mcp__s__rapor")]),
+            model_result("Rapor arka planda sürüyor, sonucu bekliyorum."),
+            model_result("Rapor geldi: çeyrek raporu 42, işi tamamladım."),
+        ]
+    )
+    monkeypatch.setattr(agent_loop, "build_provider", lambda *a, **k: provider)
+    sink = RecordingSink()
+
+    class _Pub:
+        def publish(self, event):
+            sink.handle(event)
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Pub(),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+    assert not deps.child_runs.persistent
+
+    async def _rapor_isi() -> ToolResult:
+        await asyncio.sleep(0.15)
+        return ToolResult(output="çeyrek raporu: 42")
+
+    async def _rapor(args, context):
+        return await run_mcp_call(_rapor_isi, context, "mcp__s__rapor")
+
+    deps.base_registry.register_or_replace(
+        Tool(
+            name="mcp__s__rapor",
+            description="rapor",
+            parameters={"type": "object"},
+            run=_rapor,
+            effect=ToolEffect.LOCAL,
+        )
+    )
+
+    await run_agent("raporu al", deps, verify=False, self_review=False)
+
+    assert len(provider.seen_messages) == 3
+    ucuncu = "\n".join(str(m.content) for m in provider.seen_messages[2])
+    assert "tamamlandı · mcp__s__rapor" in ucuncu
+    assert "çeyrek raporu: 42" in ucuncu
+
+
+async def test_taskstop_mcp_arka_plan_gorevini_kimligiyle_durdurur(monkeypatch, tmp_path):
+    from fusion_cli.engines.agent.agent_runtime_tools import _stop_agent
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps
+    from fusion_cli.tools import mcp_background
+
+    from .fakes import AlwaysApprove, make_config
+
+    calls = McpBackgroundCalls()
+    monkeypatch.setattr(mcp_background, "_CALLS", calls)
+    context = _context(tmp_path)
+    calls.mark_main(context)
+
+    async def hangs() -> ToolResult:
+        await asyncio.Event().wait()
+        return ToolResult(output="")
+
+    await calls.run(hangs, context, "mcp__s__uzun", threshold_s=0.01)
+    (call_id,) = calls.running
+
+    class _Pub:
+        def publish(self, event):
+            return None
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Pub(),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=context,
+    )
+
+    result = await _stop_agent({"task_id": call_id}, context, deps=deps)
+
+    assert result.ok and call_id in result.output
+    await asyncio.sleep(0.01)
+    assert calls.running == ()

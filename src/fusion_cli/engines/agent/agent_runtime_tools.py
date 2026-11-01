@@ -155,7 +155,7 @@ def runtime_tools(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> tuple[
         ),
         Tool(
             name="TaskStop",
-            description="Sahipli alt ajan görevini durdur.",
+            description="Sahipli alt ajan görevini ya da arka plana taşınmış MCP çağrısını durdur.",
             parameters={
                 "type": "object",
                 "properties": {"task_id": {"type": "string"}},
@@ -322,8 +322,13 @@ async def _list_agents(args: ToolArgs, context: ToolContext, *, deps: AgentDeps)
 
 
 async def _stop_agent(args: ToolArgs, context: ToolContext, *, deps: AgentDeps) -> ToolResult:
+    from ...tools.mcp_background import cancel_mcp_background_call
+
+    target = str(args.get("task_id") or args.get("id") or "")
+    if cancel_mcp_background_call(target):  # #233: arka plana taşınmış MCP çağrısı
+        return ToolResult(f"MCP arka plan görevi {target} durduruldu.")
     try:
-        state = await _resolve(deps, str(args.get("task_id") or args.get("id") or ""))
+        state = await _resolve(deps, target)
         await deps.child_runs.cancel(state.agent_id)
         await deps.child_runs.set_status(state.agent_id, "stopped")
         return _receipt("stopped", state.agent_id, deps=deps)

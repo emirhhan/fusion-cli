@@ -33,10 +33,12 @@ __all__ = [
     "AUTO_BACKGROUND_ENV",
     "DEFAULT_AUTO_BACKGROUND_MS",
     "auto_background_s",
+    "cancel_mcp_background_call",
     "cancel_mcp_background_calls",
     "mark_main_conversation",
     "mcp_background_calls",
     "run_mcp_call",
+    "settle_mcp_background_calls",
     "take_mcp_background_notices",
 ]
 
@@ -137,6 +139,29 @@ class McpBackgroundCalls:
         text = header + ("\n" + body[:NOTICE_MAX_CHARS] if body else "")
         self._notices.setdefault(call.scope, []).append(Message("user", text, harness_note=True))
 
+    async def settle(self, context: ToolContext | None, *, wait: bool) -> bool:
+        """Tur sonu: teslim bekleyen sonuç var mı; `wait` iken süren çağrılar beklenir.
+
+        Claude Code tamamlanan arka plan görevinde modeli uyandırır; etkileşimsiz kipte
+        (`-p`, `fusion exec`) süreç kapanmadan önce çağrı beklenmezse sonuç kaybolurdu.
+        """
+        if context is None or not self.is_main(context):
+            return False
+        scope = context.job_scope
+        tasks = {call.task for call in self._calls.values() if call.scope == scope}
+        if wait and tasks:
+            await asyncio.wait(tasks)
+            await asyncio.sleep(0)
+        return bool(self._notices.get(scope))
+
+    def cancel(self, call_id: str) -> bool:
+        """`TaskStop` karşılığı: süren çağrıyı iptal et; bildirim "iptal edildi" der."""
+        call = self._calls.get(call_id)
+        if call is None:
+            return False
+        call.task.cancel()
+        return True
+
     def take_notices(self, context: ToolContext) -> list[Message]:
         """Ana sohbetin teslim bekleyen sonuçlarını ver ve kuyruktan çıkar."""
         if not self.is_main(context):
@@ -187,3 +212,11 @@ def take_mcp_background_notices(context: ToolContext) -> list[Message]:
 
 async def cancel_mcp_background_calls() -> None:
     await _CALLS.cancel_all()
+
+
+async def settle_mcp_background_calls(context: ToolContext | None, *, wait: bool) -> bool:
+    return await _CALLS.settle(context, wait=wait)
+
+
+def cancel_mcp_background_call(call_id: str) -> bool:
+    return _CALLS.cancel(call_id)

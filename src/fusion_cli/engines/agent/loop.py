@@ -139,7 +139,11 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
-from ...tools.mcp_background import mark_main_conversation, take_mcp_background_notices
+from ...tools.mcp_background import (
+    mark_main_conversation,
+    settle_mcp_background_calls,
+    take_mcp_background_notices,
+)
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
 from ...tools.tool_search import visible_tool_names
@@ -1955,6 +1959,12 @@ async def _drive(
                         harness_note=True,
                     )
                 )
+                continue
+            # Arka plana taşınmış MCP çağrısı (#233): hazır sonuç modeli uyandırır;
+            # etkileşimsiz kipte süren çağrı beklenir (yoksa süreç kapanışında kaybolurdu).
+            if await settle_mcp_background_calls(
+                deps.tool_context, wait=not deps.child_runs.persistent
+            ):
                 continue
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
