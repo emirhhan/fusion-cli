@@ -47,6 +47,7 @@ from ...core.tools import (
 )
 from ...tools import desktop_policy
 from ...tools.auto_policy import auto_risk, is_read_only_command
+from ...tools.chrome_plan import plan_prompt_call
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
@@ -254,6 +255,9 @@ class ApprovalRequest:
     consent_key: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
+    #: Plan kipinde bile sorulup onaylanırsa çalışan çağrı (#450: Chrome'da GIF kaydı, yeni
+    #: sekme, kısayol). Diğer kiplerde etkisi yoktur.
+    plan_prompt: bool = False
 
     @property
     def can_remember(self) -> bool:
@@ -462,12 +466,19 @@ class PlanApproval:
     çalışıyordu.
     """
 
+    def __init__(self, prompter: Prompter | None = None) -> None:
+        self._prompter = prompter
+
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if request.plan_prompt and request.pre_denied is None and self._prompter is not None:
+            # Claude Code: plan kipinde bu tarayıcı araçları izin istemi çıkarır (#450).
+            return await _ask_and_remember(self._prompter, request, ApprovalMemory())
         if (
             request.read_only
             and request.danger is None
             and request.pre_denied is None
             and request.pre_ask is None
+            and not request.plan_prompt
         ):
             return Decision.ALLOW
         return Decision.BLOCKED
@@ -515,7 +526,7 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval()
+        return PlanApproval(prompter)
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:
@@ -553,6 +564,8 @@ async def resolve_request(
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
+    if plan_prompt_call(tool.name, args):
+        request = replace(request, plan_prompt=True)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
