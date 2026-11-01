@@ -289,6 +289,17 @@ async def test_plan_kipi_siniflandiricisi_kaynak_duzenleyen_komutu_reddeder(
     assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is beklenen
 
 
+async def test_plan_kipi_bypass_kullanilabilirken_siniflandirici_ve_soru_yok(tmp_path):
+    """Claude: bypass kullanılabilen etkileşimli oturumda planlama komutuna ne
+    sınıflandırıcı ne soru uygulanır (#318); dosya düzenlemesi yine engelli."""
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject(), bypass_available=True)
+    for komut in ("touch yeni.txt", "npm install"):
+        istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+        assert await politika.decide(istek) is Decision.ALLOW
+    duzenleme = build_request(_arac("write_file"), {"path": "a.txt"}, root=tmp_path)
+    assert await politika.decide(duzenleme) is Decision.BLOCKED
+
+
 def test_shift_tab_dongusunde_bypass_yalniz_kullanilabilirken_plan_ile_auto_arasinda():
     """Claude (#370): default → acceptEdits → plan → [bypassPermissions] → auto."""
     from fusion_cli.engines.agent.approval import next_mode

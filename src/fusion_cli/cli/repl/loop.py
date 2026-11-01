@@ -892,6 +892,7 @@ async def _agent_turn(
                 confirm_prompter,
                 state.approval_memory,
                 use_auto_mode_during_plan=_plan_auto(state.config),
+                bypass_available=state.bypass_available,
             ),
             approval_mode=lambda: state.approval,
             policy_for_mode=lambda wanted: build_policy(
@@ -899,6 +900,7 @@ async def _agent_turn(
                 confirm_prompter,
                 state.approval_memory,
                 use_auto_mode_during_plan=_plan_auto(state.config),
+                bypass_available=state.bypass_available,
             ),
             tool_context=tool_context,
             asker=prompter,

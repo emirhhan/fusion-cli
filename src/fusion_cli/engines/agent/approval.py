@@ -463,6 +463,9 @@ class PlanApproval:
     — onaylanan çalışır, reddedilen engellenir; kapalıysa kullanıcıya sorulur. Açık `ask`
     kuralı (`pre_ask`, sandbox dışı yeniden deneme) ve yıkıcı komut her durumda sorulur.
     Soracak kimse yoksa (`prompter` verilmemiş) bunlar engellenir.
+
+    Bypass kullanılabilen etkileşimli oturumda (`bypass_available`, #318) planlama
+    komutlarına ne sınıflandırıcı ne soru uygulanır: kabuk kararı bypass politikasınındır.
     """
 
     def __init__(
@@ -471,10 +474,12 @@ class PlanApproval:
         memory: ApprovalMemory | None = None,
         *,
         use_auto_mode: bool = True,
+        bypass_available: bool = False,
     ) -> None:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
         self._use_auto_mode = use_auto_mode
+        self._bypass = BypassApproval(prompter, self._memory) if bypass_available else None
 
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
         if request.pre_denied is not None:
@@ -483,6 +488,8 @@ class PlanApproval:
             return Decision.ALLOW
         if tool_family(request.tool.name) is not ToolFamily.SHELL:
             return Decision.BLOCKED
+        if self._bypass is not None:
+            return await self._bypass.decide(request)
         asks = request.pre_ask is not None or request.danger is not None
         if self._use_auto_mode and not asks:
             return Decision.ALLOW if _plan_classifier_allows(request) else Decision.BLOCKED
@@ -533,6 +540,7 @@ def build_policy(
     memory: ApprovalMemory | None = None,
     *,
     use_auto_mode_during_plan: bool = True,
+    bypass_available: bool = False,
 ) -> ApprovalPolicy:
     """Moda karşılık gelen politikayı üret.
 
@@ -542,7 +550,12 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval(prompter, memory, use_auto_mode=use_auto_mode_during_plan)
+        return PlanApproval(
+            prompter,
+            memory,
+            use_auto_mode=use_auto_mode_during_plan,
+            bypass_available=bypass_available,
+        )
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:
