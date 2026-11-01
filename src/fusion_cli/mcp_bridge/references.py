@@ -26,7 +26,11 @@ from typing import Any
 
 from mcp import ClientSession
 from mcp.client.session import MessageHandlerFnT
-from mcp.types import PromptListChangedNotification, ResourceListChangedNotification
+from mcp.types import (
+    PromptListChangedNotification,
+    ResourceListChangedNotification,
+    ToolListChangedNotification,
+)
 from pydantic import AnyUrl
 
 from ..core.redaction import redact
@@ -167,8 +171,11 @@ async def fetch_catalog(session: ClientSession, server: str) -> McpCatalog:
     return McpCatalog(tuple(prompts), tuple(resources))
 
 
-def catalog_change_handler(on_change: Callable[[], None]) -> MessageHandlerFnT:
-    """`ClientSession(message_handler=…)`: istem/kaynak listesi değişince `on_change`.
+def catalog_change_handler(
+    on_change: Callable[[], None], on_tools_change: Callable[[], None] | None = None
+) -> MessageHandlerFnT:
+    """`ClientSession(message_handler=…)`: istem/kaynak listesi değişince `on_change`,
+    araç listesi değişince (`tools/list_changed`, #256) `on_tools_change`.
 
     Diğer bildirim ve istekler SDK'nın varsayılanı gibi yok sayılır.
     """
@@ -177,6 +184,8 @@ def catalog_change_handler(on_change: Callable[[], None]) -> MessageHandlerFnT:
         root = getattr(message, "root", None)
         if isinstance(root, PromptListChangedNotification | ResourceListChangedNotification):
             on_change()
+        elif isinstance(root, ToolListChangedNotification) and on_tools_change is not None:
+            on_tools_change()
 
     return _handle
 

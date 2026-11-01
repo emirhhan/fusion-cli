@@ -95,6 +95,15 @@ class ToolRegistry:
         self._tools[tool.name] = tool
         self._remote.add(tool.name)
 
+    def unregister_remote(self, name: str) -> bool:
+        """Uzak aracı defterden çıkar (MCP `tools/list_changed` ile kalkan araç); yerel araca
+        dokunulmaz."""
+        if name not in self._remote:
+            return False
+        self._remote.discard(name)
+        self._tools.pop(name, None)
+        return True
+
     def is_remote(self, name: str) -> bool:
         """Araç uzak (MCP/eklenti) kaynaklı mı — `register_or_replace` ile mi geldi?"""
         return name in self._remote

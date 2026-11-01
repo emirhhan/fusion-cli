@@ -8,6 +8,7 @@ geçer. Bkz. `references.py` biçim ve güven kuralları.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from ..config.models import McpServerConfig
 from .call_errors import describe_call_error
@@ -38,6 +39,37 @@ RESOURCE_TOO_MANY = "En fazla {limit} MCP kaynağı eklenir; fazlası atlandı."
 
 async def expand_mcp_references(task: str, configs: Sequence[McpServerConfig]) -> McpExpansion:
     """`/mcp__s__p argümanlar` → istem metni; `@s:uri` → bağlam bloğu. Başvuru yoksa aynen."""
+    expansion = await _expand_references(task, configs)
+    instructions = server_instructions_block(configs)
+    if not instructions:
+        return expansion
+    context = "\n\n".join(part for part in (instructions, expansion.context) if part)
+    return replace(expansion, context=context)
+
+
+#: Claude Code'un sistem bağlamına koyduğu başlık (#263).
+INSTRUCTIONS_HEADER = (
+    "# MCP Server Instructions\n\nThe following MCP servers have provided instructions "
+    "for how to use their tools and resources:"
+)
+
+
+def server_instructions_block(configs: Sequence[McpServerConfig]) -> str:
+    """Bağlı sunucuların `initialize` talimatları (Claude Code biçimi); yoksa boş."""
+    sections: list[str] = []
+    for config in configs:
+        try:
+            client = connected_mcp_client(config.name)
+        except AttributeError:  # havuz henüz kurulmadı (sahte/yarım ortam)
+            client = None
+        reader = getattr(client, "server_instructions", None)
+        text = reader(config.name) if callable(reader) else ""
+        if text:
+            sections.append(f"## {config.name}\n{text}")
+    return "\n\n".join((INSTRUCTIONS_HEADER, *sections)) if sections else ""
+
+
+async def _expand_references(task: str, configs: Sequence[McpServerConfig]) -> McpExpansion:
     call = parse_prompt_call(task)
     mentions = resource_mentions(task, [config.name for config in configs])
     if call is None and not mentions:

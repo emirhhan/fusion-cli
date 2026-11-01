@@ -138,12 +138,26 @@ class McpClient:
         self._tool_digests: dict[str, str] = {}
         #: `prompts|resources/list_changed` bildiren sunucular: katalog yeniden çekilir (P-049).
         self._stale_catalogs: set[str] = set()
+        #: `initialize` yanıtındaki sunucu talimatları (sınırlı, temizlenmiş).
+        self._instructions: dict[str, str] = {}
+        #: `tools/list_changed` bildiren sunucular: araç listesi yeniden çekilir (#256).
+        self._stale_tools: set[str] = set()
+        #: Sunucu başına deftere yazılan araç adları (kaldırılanları silmek için).
+        self._registered: dict[str, set[str]] = {}
 
     @property
     def is_stalled(self) -> bool:
         """Bir sunucu art arda zaman aşımına uğradı mı? Takılı süreç yeni çağrıları da
         düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
         return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
+
+    def server_instructions(self, server: str) -> str:
+        """Sunucunun `initialize` talimatı; yoksa boş."""
+        return self._instructions.get(server, "")
+
+    def tools_stale(self, server: str) -> bool:
+        """Sunucu son keşiften sonra `tools/list_changed` bildirdi mi?"""
+        return server in self._stale_tools
 
     def tool_digest(self, server: str) -> str:
         """Sunucudan en son keşfedilen araç tanımı özeti; keşif yoksa boş."""
@@ -262,11 +276,16 @@ class McpClient:
                         read,
                         self._tracker.wrap(config.name, write),
                         message_handler=catalog_change_handler(
-                            functools.partial(self._stale_catalogs.add, config.name)
+                            functools.partial(self._stale_catalogs.add, config.name),
+                            functools.partial(self._stale_tools.add, config.name),
                         ),
                     )
                 )
-                await session.initialize()
+                initialized = await session.initialize()
+                # Claude Code sunucu talimatlarını oturum başında modele verir (#263).
+                self._instructions[config.name] = clean_description(
+                    str(getattr(initialized, "instructions", None) or "")
+                )
                 self._sessions[config.name] = session
                 self._stacks[config.name] = stack
                 self._statuses[config.name] = McpConnectionStatus(
@@ -466,6 +485,13 @@ class McpClient:
                     tools_digest=self._tool_digests.get(server, ""),
                 )
             resolver = self._ability_resolver(server, {remote.name for remote in tools})
+            current_names = {fusion_tool_name(server, remote.name) for remote in tools}
+            # `tools/list_changed` (#256): sunucunun kaldırdığı araçlar defterden de çıkar;
+            # başarısız yenilemede (yukarıdaki `continue`) önceki araçlar korunur.
+            for stale in self._registered.get(server, set()) - current_names:
+                registry.unregister_remote(stale)
+            self._registered[server] = current_names
+            self._stale_tools.discard(server)
             for remote in tools:
                 fusion_name = fusion_tool_name(server, remote.name)
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter

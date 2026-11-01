@@ -13,6 +13,8 @@ sağlayıcıya giden kopya için değişir; uzak sunucu kendi doğrulamasını y
 
 from __future__ import annotations
 
+import os
+
 import re
 from collections.abc import Mapping, Sequence
 
@@ -24,8 +26,11 @@ __all__ = [
     "simplify_schema",
 ]
 
-#: Araç açıklamasının en çok karakteri (prompt bütçesi).
-MAX_TOOL_DESCRIPTION_CHARS = 1000
+#: Araç açıklaması ve sunucu talimatı sınırı (Claude Code 4096; #262).
+MAX_TOOL_DESCRIPTION_CHARS = 4096
+#: Araç aramasıyla yüklenen açıklamanın sınırı (Claude Code 16384).
+MAX_DEFERRED_DESCRIPTION_CHARS = 16384
+DESCRIPTION_LENGTH_ENV = "CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH"
 #: Tek alan açıklamasının en çok karakteri.
 MAX_FIELD_DESCRIPTION_CHARS = 300
 #: Bundan derin iç içe şema kesilir (`{"type": "object"}`).
@@ -72,10 +77,18 @@ _HIDDEN_BLOCK = re.compile(
 _INVISIBLE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f​-‏‪-‮⁠-⁤﻿]")
 
 
-def clean_description(text: str, *, limit: int = MAX_TOOL_DESCRIPTION_CHARS) -> str:
+def description_limit(*, deferred: bool = False, environ: Mapping[str, str] | None = None) -> int:
+    """`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` (yalın pozitif sayı) iki sınırı da değiştirir."""
+    raw = (os.environ if environ is None else environ).get(DESCRIPTION_LENGTH_ENV, "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    return MAX_DEFERRED_DESCRIPTION_CHARS if deferred else MAX_TOOL_DESCRIPTION_CHARS
+
+
+def clean_description(text: str, *, limit: int | None = None) -> str:
     """Açıklamadan gizli talimat bloklarını ve görünmez karakterleri at, sınırla."""
     cleaned = _INVISIBLE.sub("", _HIDDEN_BLOCK.sub("", text)).strip()
-    return cleaned[:limit]
+    return cleaned[: limit if limit is not None else description_limit()]
 
 
 def simplify_schema(schema: Mapping[str, object]) -> dict[str, object]:
