@@ -527,15 +527,6 @@ class _TuiSession:
             if not scheduled_turn and (shell := prefixes.shell_command(line)) is not None:
                 await run_shell_prefix_line(shell, self._state, self._out)
                 self._tui.sync_conversation()
-            elif (
-                not scheduled_turn
-                and (note := prefixes.pending_memory_note(self._state, line)) is not None
-            ):
-                # `# not` düz metin belleğe yazılır (P-036); bellek kapalıysa olağan istem.
-                self._echo(
-                    f"[{theme.DIM}]{escape(prefixes.add_memory_note(self._state, note))}"
-                    f"[/{theme.DIM}]"
-                )
             elif is_command_line(line) and not scheduled_turn:
                 await self._command(line)
             elif (

@@ -1,4 +1,4 @@
-"""REPL önekleri (P-022): `!` kabuk, `@dosya` anma, `#` bellek notu.
+"""REPL önekleri (P-022): `!` kabuk, `@dosya` anma.
 
 Claude Code'un etkileşimli kipi örnek alınmıştır:
 
@@ -11,12 +11,11 @@ Claude Code'un etkileşimli kipi örnek alınmıştır:
   bağlamına eklenir, mesaj metni olduğu gibi kalır. Yol kök/ek köklere göre çözülür;
   `restrict_to_root` açıksa kök dışı reddedilir. `@sunucu:kaynak` MCP kaynak biçimi
   tanınır ama köprüde `resources/read` olmadığı için şimdilik açık bir notla reddedilir.
-- `# not` — kalıcı bellek notu: düz metin otomatik belleğin (`BELLEK.md`, P-036) `## Notlar`
-  bölümüne yazılır; model sonraki turlarda okur, `/memory edit` ile düzenlenir. Bellek
-  kapalıyken satır yutulmaz, olağan mesaj olarak modele gider.
+- `#` öneki YOKTUR (#220): Claude Code'un Quick commands tablosunda yalnız `/`, `!`, `@` var;
+  `# ...` ile başlayan satır olağan istemdir. Not yazma `/memory` üzerindendir.
 
 Öneklerin ayrıştırılması SAFTIR (test edilebilir); yan etkiler `run_shell_prefix`,
-`expand_mentions`, `add_memory_note` içindedir ve iki REPL yüzeyi (satır-içi, tam-ekran)
+`expand_mentions` içindedir ve iki REPL yüzeyi (satır-içi, tam-ekran)
 aynı fonksiyonları çağırır.
 """
 
@@ -41,8 +40,6 @@ from .state import ReplState
 MENTION_MAX_CHARS = 20_000
 #: Tek mesajda en fazla kaç dosya anması işlenir.
 MENTION_MAX_FILES = 8
-#: `# not` tek satır ve en çok bu kadar karakterdir; ötesi düz mesajdır.
-MEMORY_NOTE_MAX_CHARS = 500
 #: Bir turda bekleyen `!`/`@` bloklarının toplam üst sınırı; aşılırsa en eskisi düşer.
 PENDING_CONTEXT_MAX_CHARS = 3 * MAX_OUTPUT_CHARS
 #: `@` anması: boşluk ya da satır başından sonra `@`, ardından boşluksuz yol.
@@ -66,34 +63,6 @@ def shell_command(line: str) -> str | None:
         return None
     command = line[1:].strip()
     return command or None
-
-
-def memory_note(line: str) -> str | None:
-    """`# not` satırının notu; önek değilse None. `#!` (shebang) ve `#1234` biçimleri mesajdır.
-
-    Ölçüldü (31 Ekim): `# Görev\\nşunu yap` gibi Markdown başlıklı yapıştırma model
-    çağrılmadan kalıcı derse yazılıyordu. Not tek satır ve `MEMORY_NOTE_MAX_CHARS` ile sınırlı.
-    """
-    if not line.startswith("#") or len(line) < 2 or line.startswith("##"):
-        return None
-    body = line[1:]
-    if not body[0].isspace():
-        return None
-    note = body.strip()
-    # `# # başlık` gibi yazımlar da Markdown'dır, not değil.
-    if not note or note.startswith("#") or "\n" in note or len(note) > MEMORY_NOTE_MAX_CHARS:
-        return None
-    return note
-
-
-def pending_memory_note(state: ReplState, line: str) -> str | None:
-    """Satır belleğe gidecek `# not` mu? Bellek KAPALIYKEN None: satır olağan istemdir.
-
-    Üç yüzey (satır-içi, tam-ekran, masaüstü) bu kapıyı ve `add_memory_note`'u paylaşır.
-    """
-    if state.plain_memory is None:
-        return None
-    return memory_note(line)
 
 
 @dataclass(frozen=True, slots=True)

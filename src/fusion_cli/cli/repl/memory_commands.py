@@ -1,6 +1,6 @@
 """`/memory` komutu: düz metin otomatik bellek (P-036).
 
-`#` not kısayolu `prefixes.pending_memory_note`/`add_memory_note`'tadır (üç yüzey ortak).
+`#` not kısayolu Claude Code'da olmadığı için kaldırıldı (#220); `add_memory_note` kalır.
 
 Claude Code'un `/memory` komutuyla aynı iş: durum, aç/kapa (kalıcı), düzenleyicide aç,
 konu listesi, Claude belleğinden içe aktarma. İşleyiciler ince kalır; bellek mantığı

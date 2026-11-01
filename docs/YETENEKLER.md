@@ -24,7 +24,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
-| Düz metin bellek (`/memory`, `# not`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
+| Düz metin bellek (`/memory`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
 | Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory`, `mcpServers` (ad ve satır içi tanım), `background`, `isolation`, `hooks`, `initialPrompt` Claude Code kurallarıyla uygulanır |
 | Oturum ajanı (`fusion --agent`, `agent` ayarı; `/persona` kullanımdan kalkıyor) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `Explore`, `Plan`...); sürdürmede geri yüklenir; masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
@@ -37,7 +37,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
 | Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
-| REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama, `#` not; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
+| REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
 | Komut paleti ve kısayollar (masaüstü) | ⌘K palet (eylem/ekran/sohbet/komut/ayar/dosya, son kullanılanlar), ⌘P dosya, ⌘N/⌘,/⌘B/⌘J/⌘1-9; Ayarlar › Kısayollar ile yeniden bağlama; `keybindings.json` `masaustu` bölümü (bkz. NASIL_KULLANILIR §17) |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`

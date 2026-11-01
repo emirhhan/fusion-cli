@@ -2566,12 +2566,6 @@ class AppSession:
                 parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
             parts.extend(result.notes)
             return {"ok": result.ok, "metin": "\n\n".join(parts), "yerel_yanit": True}
-        if (note := prefixes.pending_memory_note(self._state, task)) is not None:
-            return {
-                "ok": True,
-                "metin": prefixes.add_memory_note(self._state, note),
-                "yerel_yanit": True,
-            }
         for mention_note in apply_mentions(task, self._state):
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)

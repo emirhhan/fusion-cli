@@ -46,12 +46,10 @@ def test_kabuk_oneki_ayrisir():
     assert prefixes.shell_command("merhaba") is None
 
 
-def test_not_oneki_ayrisir():
-    assert prefixes.memory_note("# testleri her zaman çalıştır") == "testleri her zaman çalıştır"
-    assert prefixes.memory_note("#1234 nedir") is None
-    assert prefixes.memory_note("## başlık") is None
-    assert prefixes.memory_note("#!/bin/sh") is None
-    assert prefixes.memory_note("#   ") is None
+def test_diyez_oneki_yok():
+    """Claude Code Quick commands tablosunda `#` yok (#220): satır olağan istemdir."""
+    assert not hasattr(prefixes, "memory_note")
+    assert not hasattr(prefixes, "pending_memory_note")
 
 
 def test_dosya_anmalari_bulunur_eposta_ve_tekrar_elenir():
@@ -184,9 +182,6 @@ def test_tamamlayici_at_ile_ajanlari_agent_onekiyle_onerir(tmp_path):
 def test_cok_satirli_not_ve_kabuk_mesaj_sayilir():
     """Ölçüldü (31 Ekim): `# Görev\\nşunu yap` Markdown yapıştırması model çağrılmadan kalıcı derse
     yazılıyor, `!ls\\nrm x` çok satırı komut oluyordu. Çok satır ve aşırı uzun not düz mesajdır."""
-    assert prefixes.memory_note("# Görev\nşunu yap\n- a") is None
-    assert prefixes.memory_note("# " + "x" * (prefixes.MEMORY_NOTE_MAX_CHARS + 1)) is None
-    assert prefixes.memory_note("# kısa not") == "kısa not"
     assert prefixes.shell_command("!ls\nrm x") is None
 
 

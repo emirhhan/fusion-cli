@@ -1,4 +1,4 @@
-"""Masaüstünde REPL önekleri (P-022): `!`, `#` ve `@` yarım yüzey bırakmaz."""
+"""Masaüstünde REPL önekleri (P-022): `!` ve `@` yarım yüzey bırakmaz; `#` önek değildir (#220)."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from fusion_cli.cli import session as cli_session
 
 
 @pytest.mark.asyncio
-async def test_masaustu_kabuk_ve_not_onekleri_model_cagirmaz(tmp_path, monkeypatch):
-    """Ölçüldü (31 Ekim): masaüstünde `! ls` ve `# not` düz mesaj olarak modele gidiyordu."""
+async def test_masaustu_kabuk_oneki_model_cagirmaz(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): masaüstünde `! ls` düz mesaj olarak modele gidiyordu."""
     model = AsyncMock(side_effect=AssertionError("model çağrılmamalı"))
     monkeypatch.setattr(cli_session, "run_agent_task", model)
     app = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "home")
@@ -25,9 +25,9 @@ async def test_masaustu_kabuk_ve_not_onekleri_model_cagirmaz(tmp_path, monkeypat
         assert kabuk["ok"] is True and kabuk["yerel_yanit"] is True
         assert "masaustu-merhaba" in kabuk["metin"]
         assert app._state.pending_blocks and "masaustu-merhaba" in app._state.pending_blocks[0]
-        not_ = await app._dispatch(Request("p2", "tur.calistir", {"gorev": "# yalnız pytest"}))
-        assert not_["ok"] is True and not_["yerel_yanit"] is True and not_["metin"]
         model.assert_not_called()
+        # Claude Code'da `#` öneki yok (#220): satır yerel yanıt üretmez, olağan istemdir.
+        assert await app._prefix_reply("# yalnız pytest") is None
     finally:
         await app.close()
 

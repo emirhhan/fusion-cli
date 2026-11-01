@@ -1291,14 +1291,7 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
     komut = registry.get("memory")
     assert komut is not None and registry.get("bellek") is komut
 
-    # `#` kısayolu üç yüzeyde tek uygulamadır: `prefixes.pending_memory_note` + `add_memory_note`.
-    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister")
-    assert prefixes.memory_note("## başlık") is None and prefixes.memory_note("#") is None
-    # Ölçüldü (31 Ekim): `#1234 numaralı hatayı düzelt` ve yapıştırılan çok satırlı Markdown
-    # da not sayılıp modele gitmiyordu; kısayol `# ` + tek satır ister.
-    assert prefixes.memory_note("#1234 numaralı hatayı düzelt") is None
-    assert prefixes.memory_note("# Başlık\nikinci satır") is None
-    assert prefixes.memory_note("# # başlık") is None
+    # `#` öneki Claude Code'da yok (#220); not yazma `add_memory_note` ile kalır.
     sonuc = prefixes.add_memory_note(state, "kullanıcı kısa yanıt ister")
     assert "Not belleğe yazıldı" in sonuc
     assert "kısa yanıt ister" in state.plain_memory.read()
@@ -1328,8 +1321,6 @@ def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, 
     assert state.plain_memory is None and state.config.runtime.auto_memory is False
     assert komut.handler(state, "") == "Otomatik bellek kapalı. Açmak için: /memory on"
     assert "kapalı" in prefixes.add_memory_note(state, "not")
-    # Bellek kapalıyken `#` satırı yutulmaz, olağan istem olarak modele gider.
-    assert prefixes.pending_memory_note(state, "# not") is None
 
     assert "açık" in komut.handler(state, "on")
     assert state.plain_memory is not None
