@@ -147,7 +147,7 @@ bu keşfi de kapatır.
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
 | `capabilities.overrides: {ad: görünürlük}` (config.yaml; Claude Code `skillOverrides`) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
-## `/init` ve `/doctor prompt`
+## `/init` ve `/doctor prompt-audit`
 
 - `/init [agents|claude]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
   [--format agents|claude] [--mode edits]`: Fusion depodan ölçtüğü olguları (proje türü,
@@ -155,7 +155,9 @@ bu keşfi de kapatır.
   `AGENTS.md` (varsayılan) ya da `CLAUDE.md` yazar — bölümler: Proje, Kurulum ve çalıştırma,
   Doğrulama, Kod kuralları, Dikkat; 3.000 karakter sınırı, uzun kurallar `@docs/…md` ile.
   Dosya zaten varsa üzerine yazmaz; eksik bölümleri `ask_user` ile sorar.
-- `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
+- `/doctor prompt-audit [yol]` (Claude Code adı; takma adı `/checkup`; `yol` verilirse o dizin
+  ya da dosyanın dizini denetlenir; eski `/doctor prompt` bir sürüm boyunca çalışır ve bir kez
+  uyarır; argümansız `/doctor` kurulum tanısını basar):
   yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
   talimatında onay/izin kurallarını değiştirmeye ya da sır sızdırmaya çalışan şüpheli satırlar
   ("onay sorma", "bypass", "ignore previous rules", "print the API key"… — "sırları commit

@@ -1012,10 +1012,14 @@ CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · m
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_DOCTOR = (
     "kurulum denetimi: ne eksik, neden önemli, ne yapmalı · "
-    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar)"
+    "/doctor prompt-audit [yol]: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar)"
 )
+REPL_DOCTOR_PROMPT_DEPRECATED = (
+    "`/doctor prompt` kullanımdan kalktı; Claude Code adı: /doctor prompt-audit [yol]"
+)
+REPL_DOCTOR_PATH_MISSING = "Yol bulunamadı: {path}"
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
-REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
+REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt-audit"
 CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
 REPL_DOCTOR_SETUP_HINT = (

@@ -35,6 +35,7 @@ from . import (
     auto_mode_command,
     background_commands,
     config_command,
+    doctor_command,
     export_commands,
     goal_command,
     hooks_command,
@@ -780,27 +781,6 @@ def _init(state: ReplState, argument: str) -> str:
     return messages.REPL_INIT_STARTED.format(target=target)
 
 
-def _doctor(state: ReplState, argument: str) -> str:
-    """`/doctor prompt` — tur başında yüklenen talimatları denetle (uzunluk, kırpma, şüpheli satır).
-
-    Argümansız `/doctor` da aynı denetimi yapar ve kurulum tanısı için `fusion doctor`u hatırlatır.
-    """
-    from ...engines.agent.instruction_audit import audit_instructions, render_audit
-
-    runtime = state.config.runtime
-    rapor = render_audit(
-        audit_instructions(
-            state.root,
-            state.home,
-            merge=getattr(runtime, "instruction_merge", True),
-            max_chars=getattr(runtime, "instruction_max_chars", 32_000),
-        )
-    )
-    if argument.strip().lower() in ("prompt", "talimat"):
-        return rapor
-    return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
-
-
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -1147,7 +1127,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
-    SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
+    # Claude Code (#212): `/doctor [prompt-audit [path]]`, takma adı `/checkup`.
+    SlashCommand(
+        "doctor",
+        messages.CMD_DOCTOR,
+        doctor_command.doctor_command,
+        ("checkup",),
+        group="Bilgi",
+        usage="[prompt-audit [yol]]",
+    ),
     SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[agents|claude]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
@@ -1384,7 +1372,7 @@ RENDERED_COMMANDS = frozenset(
 )
 
 #: Argümansız hâli kendi basan, argümanla işleyiciye düşen komutlar: `/doctor` kurulum
-#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt` talimat denetimini döndürür.
+#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt-audit [yol]` talimat denetimini döndürür.
 RENDERED_WHEN_BARE = frozenset({"doctor"})
 
 

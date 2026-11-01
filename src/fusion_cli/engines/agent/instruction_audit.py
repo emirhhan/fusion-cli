@@ -204,5 +204,5 @@ def init_task(root: Path, home: Path | None = None, *, fmt: str = DEFAULT_INIT_F
         f"`{target}` ZATEN VARSA üzerine yazma: eksik bölümleri listele ve `ask_user` ile "
         "ekleyip eklemeyeceğini sor. Başka bir talimat dosyası varsa (ör. CLAUDE.md ↔ "
         "AGENTS.md) aynı içeriği iki kez yazma; birini diğerine `@` ile bağla. Bitince dosyayı "
-        "özetle ve `/doctor prompt` ile denetlenebileceğini söyle."
+        "özetle ve `/doctor prompt-audit` ile denetlenebileceğini söyle."
     )
