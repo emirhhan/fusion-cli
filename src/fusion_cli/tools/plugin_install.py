@@ -124,6 +124,9 @@ class _Resolved:
     #: Pazar girdisinin `version`'ı ve git pazarının klonu (göreli eklentinin commit'i, #393).
     entry_version: str = ""
     commit_dir: str = ""
+    #: Girdinin plugin.json alanları ve strict modu (#398).
+    entry_fields: str = ""
+    strict: bool = True
 
     @property
     def fallback_name(self) -> str:
@@ -204,6 +207,8 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
             entry=entry.name,
             entry_version=entry.version,
             commit_dir=commit_dir,
+            entry_fields=entry.fields,
+            strict=entry.strict,
         )
     return _Resolved(
         "git",
@@ -214,6 +219,8 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         entry.name,
         source.subdir,
         entry_version=entry.version,
+        entry_fields=entry.fields,
+        strict=entry.strict,
     )
 
 
@@ -308,7 +315,16 @@ def _check_local_size(folder: Path) -> None:
 
 
 def _fetch(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
-    """Kaynağı `workspace/eklenti` altına al; (klasör, commit)."""
+    """Kaynağı `workspace/eklenti` altına al, girdi alanlarını uygula (#398); (klasör, commit)."""
+    folder, commit = _fetch_raw(resolved, workspace)
+    if resolved.entry_fields:
+        from .plugin_entry import apply_entry
+
+        apply_entry(folder, resolved.entry_fields, resolved.strict, resolved.fallback_name)
+    return folder, commit
+
+
+def _fetch_raw(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
     target = workspace / "eklenti"
     if resolved.kind == "yerel":
         _check_local_size(Path(resolved.location))

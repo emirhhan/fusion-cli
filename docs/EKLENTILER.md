@@ -149,6 +149,15 @@ Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url` ve `g
 adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur) olabilir; `npm`,
 `archive` ve `command` kaynakları henüz yok.
 
+Girdi her `plugin.json` alanını taşıyabilir (Claude "Strict mode"): eklentide `plugin.json` yoksa girdi
+bildirimdir; varsa o otoritedir ve `strict: true` (varsayılan) iken girdinin `commands`, `agents`,
+`skills`, `hooks`, `outputStyles`, `themes` alanları ona eklenir (`hooks` eşleyicileri olay başına yer
+değiştirir), `strict: false` iken bileşen alanı taşıyan girdi `has conflicting manifests` hatasıyla
+kurulmaz. Girdinin `defaultEnabled` ve görünen alanları (`displayName`, `description`, …) önce gelir,
+`version`'da plugin.json kazanır. Girdide dosya yolu/dizi `hooks` desteklenmez. Fusion bunu önbellek
+kopyasının `plugin.json`'ına yazar; yerinde yüklenen (yerel pazar) eklentide girdi alanları henüz
+uygulanmaz.
+
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.

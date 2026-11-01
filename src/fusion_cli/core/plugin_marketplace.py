@@ -12,6 +12,7 @@ Belge (https://code.claude.com/docs/en/plugins/marketplace-reference.md):
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections.abc import Mapping
@@ -82,6 +83,21 @@ class MarketplaceEntry:
     description: str = ""
     version: str = ""
     category: str = ""
+    #: Girdinin taşıdığı plugin.json alanları (JSON metni; boş = yok) ve strict modu (#398).
+    fields: str = ""
+    strict: bool = True
+
+
+#: Girdinin kendi alanları: bildirime aktarılmaz (Claude marketplace-reference "Plugin entries").
+_ENTRY_ONLY_KEYS = frozenset(
+    {"name", "source", "strict", "category", "tags", "relevance", "metadata", "headers"}
+    | {"headersHelper"}
+)
+
+
+def _entry_fields(raw: Mapping[str, object]) -> str:
+    fields = {str(k): v for k, v in raw.items() if str(k) not in _ENTRY_ONLY_KEYS}
+    return json.dumps(fields, ensure_ascii=False, sort_keys=True) if fields else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +192,8 @@ def _entry(raw: object, plugin_root: str) -> tuple[MarketplaceEntry, tuple[str, 
         description=str(raw.get("description") or ""),
         version=str(raw.get("version") or ""),
         category=str(raw.get("category") or ""),
+        fields=_entry_fields(raw),
+        strict=raw.get("strict") is not False,
     )
     return entry, notes
 
