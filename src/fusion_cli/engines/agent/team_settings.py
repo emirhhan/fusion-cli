@@ -52,9 +52,18 @@ CLAUDE_MODEL_ALIASES = CLAUDE_ALIASES
 
 
 def _child_mode(
-    parent: ApprovalMode, requested: ApprovalMode, *, auto_available: bool = True
+    parent: ApprovalMode,
+    requested: ApprovalMode,
+    *,
+    auto_available: bool = True,
+    trusted: bool = True,
 ) -> ApprovalMode:
-    """Güncel Claude matrisi: varsayılan üst seçebilir; bypass'a yükseltemez."""
+    """Güncel Claude matrisi: varsayılan üst seçebilir; bypass'a yükseltemez.
+
+    Güvenilmeyen klasördeki tanım yalnız sıkılaştırır (plan/dontAsk), gevşetemez.
+    """
+    if not trusted:
+        return strictest_mode(parent, requested)
     if requested is ApprovalMode.AUTO and not auto_available:
         return parent
     if (
@@ -101,6 +110,31 @@ def requested_mode(persona: Persona) -> ApprovalMode | None:
         return None
 
 
+#: Klasörden gelen tanımlar: kancalar ve satır içi MCP gibi izin kipi de klasör güvenine bağlı.
+_FOLDER_SOURCES = frozenset({"proje", "ek-kok"})
+
+
+def mode_definition_trusted(
+    config: Config, persona: Persona, *, root: Path | None, home: Path | None
+) -> bool:
+    """Güvenilmeyen proje klasöründeki `permissionMode` kipi yalnız sıkılaştırabilir."""
+    if not persona.permission_mode or not set(persona.source.split("+")) & _FOLDER_SOURCES:
+        return True
+    if root is not None and is_trusted_agent_definition(config, persona, root=root, home=home):
+        return True
+    _LOG.warning(
+        "güvenilmeyen klasördeki ajan dosyası izin kipini gevşetemez",
+        extra={"ajan": persona.name, "kip": persona.permission_mode},
+    )
+    return False
+
+
+def _deps_mode_trusted(deps: AgentDeps, persona: Persona) -> bool:
+    return mode_definition_trusted(
+        deps.config, persona, root=deps.tool_context.root, home=getattr(deps, "home", None)
+    )
+
+
 def child_policies(
     deps: AgentDeps, persona: Persona, label: str
 ) -> tuple[ApprovalPolicy, Callable[[], ApprovalPolicy] | None]:
@@ -115,10 +149,11 @@ def child_policies(
             (lambda: LabeledPolicy(factory(), label)) if factory is not None else None,
         )
 
+    trusted = _deps_mode_trusted(deps, persona)
+
     def _build() -> ApprovalPolicy:
-        return LabeledPolicy(
-            builder(_child_mode(current(), wanted, auto_available=can_use_auto(deps))), label
-        )
+        mode = _child_mode(current(), wanted, auto_available=can_use_auto(deps), trusted=trusted)
+        return LabeledPolicy(builder(mode), label)
 
     return _build(), _build
 
@@ -129,7 +164,10 @@ def child_approval_mode(deps: AgentDeps, persona: Persona) -> Callable[[], Appro
     wanted = requested_mode(persona)
     if current is None or wanted is None:
         return current
-    return lambda: _child_mode(current(), wanted, auto_available=can_use_auto(deps))
+    trusted = _deps_mode_trusted(deps, persona)
+    return lambda: _child_mode(
+        current(), wanted, auto_available=can_use_auto(deps), trusted=trusted
+    )
 
 
 def child_model(
@@ -171,7 +209,14 @@ def can_use_auto(deps: AgentDeps) -> bool:
     )
 
 
-def main_approval_mode(config: Config, persona: Persona, parent: ApprovalMode) -> ApprovalMode:
+def main_approval_mode(
+    config: Config,
+    persona: Persona,
+    parent: ApprovalMode,
+    *,
+    root: Path | None = None,
+    home: Path | None = None,
+) -> ApprovalMode:
     """Kişilik seçilirken istenen kipi bir kez çöz; sonraki kullanıcı seçimi üstündür."""
     wanted = requested_mode(persona)
     if wanted is None:
@@ -180,7 +225,8 @@ def main_approval_mode(config: Config, persona: Persona, parent: ApprovalMode) -
     available = not settings.disable_auto_mode and (
         not settings.auto_supported_models or config.agent.model in settings.auto_supported_models
     )
-    return _child_mode(parent, wanted, auto_available=available)
+    trusted = mode_definition_trusted(config, persona, root=root, home=home)
+    return _child_mode(parent, wanted, auto_available=available, trusted=trusted)
 
 
 def child_config(config: Config, persona: Persona) -> Config:

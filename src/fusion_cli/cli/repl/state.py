@@ -316,7 +316,9 @@ class ReplState:
             else base
         )
         if self.persona is not None:
-            self.approval = main_approval_mode(updated, self.persona, self.approval)
+            self.approval = main_approval_mode(
+                updated, self.persona, self.approval, root=self.root, home=self.home
+            )
         self._persona_base_config, self._persona_applied_config = base, updated
         self.config = updated
         self._configured_persona = self.persona

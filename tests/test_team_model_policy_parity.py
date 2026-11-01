@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.config import trust
 from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.turn_deadline import TurnDeadline
 from fusion_cli.core.types import ModelSpec
@@ -224,6 +225,10 @@ async def test_eklenti_izin_istegi_ust_politikayi_asamaz_proje_istegi_korunur(
 ):
     name = _agent_from_source(tmp_path, monkeypatch, requested, is_plugin)
     deps, _ = _deps(tmp_path, mode=ApprovalMode.SECURITY)
+    # Proje ajanının izin kipi yalnız güvenilen klasörde gevşetir (inceleme #1).
+    monkeypatch.setattr(trust, "trust_store_file", lambda: tmp_path / "trust.json")
+    trust.trust_project(tmp_path)
+    deps.home = tmp_path / "home"
     prompts = []
 
     class DenyPrompter:

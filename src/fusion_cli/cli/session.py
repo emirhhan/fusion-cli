@@ -281,13 +281,9 @@ async def run_agent_task(
     if session_persona is not None and not main_config_applied:
         from ..engines.agent.team_settings import main_agent_config, main_approval_mode
 
-        config = main_agent_config(
-            config,
-            session_persona,
-            root=tool_context.root if tool_context else root or Path.cwd(),
-            home=home,
-        )
-        mode = main_approval_mode(config, session_persona, mode)
+        persona_root = tool_context.root if tool_context else root or Path.cwd()
+        config = main_agent_config(config, session_persona, root=persona_root, home=home)
+        mode = main_approval_mode(config, session_persona, mode, root=persona_root, home=home)
     can_ask = sys.stdin.isatty() if interactive is None else interactive
     started_at = time.monotonic()
     attempt_id = attempt_id or new_trace_id()
