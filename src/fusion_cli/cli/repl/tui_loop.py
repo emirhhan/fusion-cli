@@ -88,6 +88,33 @@ from .tui import FusionTui
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
+#: Çok adımlı seçici akışında sorulabilecek en çok modal (döngü güvencesi).
+_MAX_FLOW_STEPS = 24
+_PendingPick = tuple[Sequence[Choice], str, dict[str, str]]
+
+
+def _replay_picker(
+    answers: Sequence[str | None], pending: list[_PendingPick]
+) -> Callable[..., str | None]:
+    """Önceki cevapları sırayla veren, ilk cevapsız çağrıyı `pending`'e yazan seçici."""
+    calls = iter(answers)
+
+    def picker(
+        choices: Sequence[Choice],
+        *,
+        title: str = "",
+        hotkeys: dict[str, str] | None = None,
+        **_: object,
+    ) -> str | None:
+        try:
+            return next(calls)
+        except StopIteration:
+            if not pending:
+                pending.append((choices, title, dict(hotkeys or {})))
+            return None
+
+    return picker
+
 
 #: Argümansız çağrıldığında uygulama-İÇİ seçim modalıyla çözülen komutlar (nested picker YOK):
 #: seçenek üreticisi + başlık. Seçilen değer handler'a ARGÜMAN olarak verilir (handler
@@ -813,17 +840,18 @@ class _TuiSession:
         değer hazır bir seçici olarak verilir. Seçici hiç çağrılmazsa (zaten kurulu,
         bulunamadı…) ilk geçişin sonucu doğrudan kullanılır.
         """
-        captured: list[tuple[Sequence[Choice], str]] = []
-
-        def probe(choices: Sequence[Choice], *, title: str = "", **_: object) -> str | None:
-            captured.append((choices, title))
-            return None
-
-        result = flow(probe)
-        if captured:
-            choices, title = captured[0]
-            selected = await self._tui.await_choice(title, list(choices))
-            result = flow(lambda *_a, **_k: selected)
+        answers: list[str | None] = []
+        pending: list[_PendingPick] = []
+        result = flow(_replay_picker(answers, pending))
+        # Çok adımlı akış (ör. /sandbox sekmeleri, #352): her yeni seçici çağrısı modalda
+        # sorulur, akış o ana kadarki cevaplarla baştan yeniden sürülür.
+        for _ in range(_MAX_FLOW_STEPS):
+            if not pending:
+                break
+            choices, title, hotkeys = pending[0]
+            answers.append(await self._tui.await_choice(title, list(choices), hotkeys=hotkeys))
+            pending = []
+            result = flow(_replay_picker(answers, pending))
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()

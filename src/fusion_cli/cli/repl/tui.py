@@ -575,6 +575,16 @@ class FusionTui:
         self._unread_lines = 0
         self._refresh_status()
 
+    def _bind_choice_hotkey(self, kb: KeyBindings, key: str, choice: Condition) -> None:
+        """Seçim kipinde `key` basılınca seçicinin `hotkeys` değerini döndür (#326, #352)."""
+        active = Condition(lambda: self._mode == "choice" and key in self._choice_hotkeys)
+
+        @kb.add(key, filter=choice & active, eager=True)
+        def _hotkey(_event: object) -> None:
+            value = self._choice_hotkeys.get(key)
+            if value is not None:
+                self._resolve(value)
+
     def _bindings(self) -> KeyBindings:
         """Tuş bağları: yapısal olanlar sabit, eylemler tablodan (P-067)."""
         from prompt_toolkit.keys import Keys
@@ -607,11 +617,9 @@ class FusionTui:
         def _pick(_event: object) -> None:
             self._pick_current()
 
-        @kb.add("c-g", filter=choice, eager=True)
-        def _choice_hotkey(_event: object) -> None:
-            value = self._choice_hotkeys.get("c-g")
-            if value is not None:
-                self._resolve(value)
+        # Seçicinin istediği kısayollar (plan kartı Ctrl+G, /sandbox sekmeleri ←/→/Tab).
+        for key in ("c-g", "left", "right", "tab"):
+            self._bind_choice_hotkey(kb, key, choice)
 
         # Onay/seçim açıkken BAŞKA hiçbir tuş girdi kutusuna ulaşmaz.
         #

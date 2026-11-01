@@ -214,14 +214,17 @@ def test_sandbox_paneli_kip_ve_gecersiz_kilma_yerel_ayara_yazar(tmp_path):
 
         return _pick
 
-    sonuc = panel.sandbox_panel(state.config, tmp_path, picker=picker(panel.MODE_REGULAR))
+    sonuc = panel.sandbox_panel(
+        state.config, tmp_path, picker=picker(panel.MODE_REGULAR), platform="darwin"
+    )
     yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
     assert yerel["sandbox"]["enabled"] is True
     assert yerel["sandbox"]["autoAllowBashIfSandboxed"] is False
     assert sonuc.config.runtime.shell_sandbox == "write_root"
     assert not sonuc.config.sandbox.auto_allow
-    bolumler = {label.split(" › ")[0] for label in seen[0]}
-    assert bolumler == {"Kip", "Geçersiz kılma", "Yapılandırma", "Bağımlılıklar"}
+    # Claude: ilk sekme Kip; diğer sekmelere geçiş satırı; macOS'ta Bağımlılıklar yok.
+    gecisler = [label for label in seen[0] if label.startswith("Sekme › ")]
+    assert gecisler == ["Sekme › Geçersiz kılmalar", "Sekme › Yapılandırma"]
 
     kati = panel.sandbox_panel(sonuc.config, tmp_path, picker=picker(panel.OVERRIDE_STRICT))
     yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())

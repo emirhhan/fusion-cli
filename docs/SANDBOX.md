@@ -14,18 +14,21 @@ izin kuralları neyin sorulacağına karar verir.
 ## Açma ve durum
 
 ```text
-/sandbox                  # panel: Kip · Geçersiz kılmalar · Yapılandırma · Bağımlılıklar
+/sandbox                  # sekmeli panel: Kip · Geçersiz kılmalar · Yapılandırma (Linux: Bağımlılıklar)
 /sandbox on | off         # sandbox.enabled = true | false
 fusion sandbox durum      # aynı durum, terminalden
 fusion doctor             # "Kabuk sandbox'ı" satırı
 ```
 
-Argümansız `/sandbox` (terminal ve TUI) Claude Code'daki paneli açar: **Kip** (sandbox otomatik
-izinle / normal izinlerle / kapalı), **Geçersiz kılmalar** (sandbox dışı yeniden denemeye izin ya
-da "Katı sandbox kipi" = `allowUnsandboxedCommands: false`), **Yapılandırma** (etkin ayarlar) ve
-**Bağımlılıklar** (Linux'ta `bwrap`/`socat`, macOS'ta `sandbox-exec`). Fusion'ın seçicisi tek
-liste olduğu için sekmeler listede başlıklı bölümlerdir; etkin seçim ● ile işaretlidir.
-Etkileşimsiz ortamda durum metni basılır.
+Argümansız `/sandbox` (terminal ve TUI) Claude Code'daki sekmeli paneli açar: **Kip** (sandbox
+otomatik izinle / normal izinlerle / kapalı), **Geçersiz kılmalar** (sandbox dışı yeniden
+denemeye izin ya da "Katı sandbox kipi" = `allowUnsandboxedCommands: false`) ve **Yapılandırma**
+(etkin ayarlar). Başlıkta sekme çubuğu vardır; ←/→ ya da Tab sekme değiştirir, listedeki
+"Sekme ›" satırları da aynı işi görür. Etkin seçim ● ile işaretlidir. **Bağımlılıklar** sekmesi
+Claude'daki gibi yalnız Linux'ta ve bir araç eksikken görünür; zorunlu araç (`bwrap`, `socat`)
+eksikse yalnız bu sekme gösterilir. `rg` Fusion'da isteğe bağlıdır (yoksa yalnız kök düzeyindeki
+korumalı yollar bağlanır), eksikse sekme diğerlerinin yanında çıkar. Etkileşimsiz ortamda durum
+metni basılır.
 
 Masaüstünde: **Ayarlar › İzinler › Kabuk sandbox'ı**. Değişiklik bir sonraki görevde geçerli olur.
 
