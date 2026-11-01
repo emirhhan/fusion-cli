@@ -146,7 +146,7 @@ def main_callback(
         str | None,
         typer.Option(
             "--agent",
-            help="Oturumu bu ajan tanımıyla aç (ör. explore, plan, kodcu ya da "
+            help="Oturumu bu ajan tanımıyla aç (ör. Explore, Plan ya da "
             ".claude/agents'taki bir ad); oturumda /persona ile değiştirilir.",
         ),
     ] = None,

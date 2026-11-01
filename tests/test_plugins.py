@@ -293,7 +293,8 @@ def test_yerel_pazardan_kesfet_ve_ad_at_pazar_kurulumu(tmp_path):
 
     record = plugin_install.add_marketplace(str(folder))
     assert record.name == "ekip"
-    (entry,) = plugin_install.browse()
+    # Pakete gömülü `fusion` pazarı (#25) da listelenir; burada yalnız eklenen pazar.
+    (entry,) = plugin_install.browse("ekip")
     assert (entry.entry.name, entry.installed) == ("rapor-araclari", False)
 
     item = plugin_install.install_plugin("rapor-araclari@ekip", approve=_yes)

@@ -123,7 +123,8 @@ def test_ek_ajan_kaynaklari_ayarla_tumden_kapatilir(tmp_path: Path) -> None:
     kapali_registry = CapabilityRegistry(home, tmp_path, extra_agent_sources=False)
     kapali = {item.name for item in kapali_registry.agents()}
 
-    assert "codexci" in acik and "kodcu" in acik
+    # Türkçe ekip rolleri artık hiçbir kipte yerleşik değil (#25: fusion-ekip eklentisi).
+    assert "codexci" in acik and "kodcu" not in acik
     assert "codexci" not in kapali and "kodcu" not in kapali
     assert {"explore", "plan", "general-purpose"} <= kapali
     assert kapali_registry.with_extra_roots(()).get_agent("codexci") is None

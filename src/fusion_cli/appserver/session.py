@@ -94,6 +94,7 @@ from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
+from ..tools.bundled_plugins import team_role_hint
 from ..tools.capabilities import Capability, CapabilityRegistry, load_agent_prompt
 from ..tools.capability_overrides import registry_from_config
 from ..tools.safe_delete import is_container_root, project_folders
@@ -1843,7 +1844,8 @@ class AppSession:
             return None
         persona = resolve_session_persona(self._all_capabilities, value)
         if persona is None:
-            return {"ok": False, "metin": messages.PERSONA_UNKNOWN.format(name=value.strip())}
+            unknown = messages.PERSONA_UNKNOWN.format(name=value.strip())
+            return {"ok": False, "metin": unknown + team_role_hint(value.strip())}
         try:
             self._state.select_persona(persona)
         except ConfigError as error:

@@ -133,7 +133,8 @@ def test_aciklama_dizini_govdeyi_yuklemez_ve_buyuk_dizinde_ajan_dusurmez(
     assert "GİZLİ AJAN GÖVDESİ" not in index
     assert "Agent aracıyla" in index and "spawn_agent" not in index
     assert "description" not in index
-    assert len(registry.agents()) >= 11
+    # Claude Code'un 6 yerleşiği + özel ajan; hiçbiri dizinden düşmez (#25).
+    assert len(registry.agents()) >= 7
     assert any(getattr(record, "token_sayisi", 0) == 15_001 for record in caplog.records)
 
 

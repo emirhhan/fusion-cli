@@ -119,14 +119,19 @@ birbirine, lidere ya da herkese mesaj atar.
 ```json
 {"ad": "site", "hedef": "Açılış sayfasını yap",
  "uyeler": [
-   {"ad": "tasarim", "uzman": "tasarimci", "yazma_alani": ["site/css"]},
-   {"ad": "kod", "uzman": "kodcu", "yazma_alani": ["site/js"]},
-   {"ad": "denetci", "uzman": "testci", "salt_okunur": true}],
+   {"ad": "tasarim", "uzman": "fusion-ekip:tasarimci", "yazma_alani": ["site/css"]},
+   {"ad": "kod", "uzman": "general-purpose", "yazma_alani": ["site/js"]},
+   {"ad": "denetci", "uzman": "Explore", "salt_okunur": true}],
  "gorevler": [
    {"baslik": "Renk paleti", "atanan": "tasarim"},
    {"baslik": "Etkileşim", "atanan": "kod"},
    {"baslik": "Son kontrol", "bagimli": ["Renk paleti", "g2"]}]}
 ```
+
+`uzman` herhangi bir ajan türüdür (Claude Code'un yerleşikleri `general-purpose`, `Explore`,
+`Plan`... ya da `.claude/agents` tanımların). Fusion'ın Türkçe ekip rolleri (`tasarimci`,
+`kodcu`...) yerleşik değildir; `fusion eklenti kur fusion-ekip` ile `fusion-ekip:<ad>` olarak
+gelir.
 
 - Görevler sırayla `g1`, `g2`… kimliği alır; `bagimli` kimlik ya da aynı çağrıdaki görevin
   başlığıdır. Bağımlılığı bitmemiş görev alınamaz, başarısız bağımlılık raporda

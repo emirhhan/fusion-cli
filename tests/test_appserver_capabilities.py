@@ -115,6 +115,9 @@ async def test_katalog_alt_ajan_ayarlarini_gosterir(tmp_path: Path):
         "disallowedTools: Bash\n---\nAjan",
         encoding="utf-8",
     )
+    (agent_dir / "yalin.md").write_text(
+        "---\nname: yalin\ndescription: Alansız\n---\nAjan", encoding="utf-8"
+    )
     lines: list[str] = []
     session = AppSession(lines.append, root=root, home=home)
 
@@ -130,9 +133,9 @@ async def test_katalog_alt_ajan_ayarlarini_gosterir(tmp_path: Path):
         "bellek": "project",
         "yasak_araclar": ["Bash"],
     }
-    # Alanı olmayan (yerleşik) ajan boş sözlük taşır; eski istemci bozulmaz.
-    yerlesik = next(item for item in result["ajanlar"] if item["kaynak"] == "fusion")
-    assert yerlesik["ayarlar"] == {}
+    # Alanı olmayan ajan boş sözlük taşır; eski istemci bozulmaz.
+    yalin = next(item for item in result["ajanlar"] if item["ad"] == "yalin")
+    assert yalin["ayarlar"] == {}
 
 
 async def test_ajan_ayrintisi_bellegi_gosterir_ve_siler(tmp_path: Path):

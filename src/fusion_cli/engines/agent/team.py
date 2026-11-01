@@ -771,9 +771,9 @@ _SUBTASK_PROPERTIES: dict[str, object] = {
     "task": {**_STRING, "description": "alt ajana verilecek net, bağımsız görev"},
     "uzman": {
         **_STRING,
-        "description": "ekip üyesinin adı: keşif/arama için explore (salt-okur), plan "
-        "çıkarmak için plan, ayrıca mimar, kodcu, tasarimci, testci, arastirmaci, tarayici, "
-        "gorselci, yonetmen; find_agent ile başkaları aranabilir",
+        "description": "ajan türü: keşif/arama için Explore (salt-okur), plan çıkarmak "
+        "için Plan, genel işler için general-purpose; tanımlı diğer ajanlar find_agent ile "
+        "aranabilir",
     },
     "salt_okunur": {"type": "boolean", "description": "görev dosya değiştirmeyecekse true"},
     "baglam_miras": {

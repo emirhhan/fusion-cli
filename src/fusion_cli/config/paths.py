@@ -210,8 +210,13 @@ def loop_dir() -> Path:
 
 
 def bundled_roster_dir() -> Path:
-    """Pakete gömülü yerleşik ajan ekibi (kişilik dosyaları)."""
+    """Pakete gömülü yerleşik ajanlar (yalnız Claude Code'un yerleşikleri, #25)."""
     return Path(__file__).resolve().parent / "roster"
+
+
+def bundled_marketplace_dir() -> Path:
+    """Pakete gömülü `fusion` eklenti pazarı (isteğe bağlı `fusion-ekip` ajanları, #25)."""
+    return Path(__file__).resolve().parent / "eklentiler"
 
 
 def bundled_skills_dir() -> Path:

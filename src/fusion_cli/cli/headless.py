@@ -47,6 +47,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReque
 from ..engines.agent.engine_tools import QuestionOption
 from ..engines.agent.team import GENERIC_PERSONA, Persona, resolve_persona
 from ..observability.cost import CostTracker
+from ..tools.bundled_plugins import team_role_hint
 from ..tools.capabilities import CLAUDE_TOOL_MAP, Capability, CapabilityRegistry
 from ..ui import messages
 
@@ -258,7 +259,10 @@ def resolve_agent(
         available = (
             ", ".join(item.name for item in library.agents()) or messages.HEADLESS_AGENT_NONE
         )
-        raise ValueError(messages.HEADLESS_AGENT_NOT_FOUND.format(name=name, available=available))
+        raise ValueError(
+            messages.HEADLESS_AGENT_NOT_FOUND.format(name=name, available=available)
+            + team_role_hint(name)
+        )
     return persona
 
 

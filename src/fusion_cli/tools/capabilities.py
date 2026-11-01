@@ -40,6 +40,7 @@ from ..core.proposal_invocation import (
 from .agent_catalog_metadata import apply_agent_metadata, bind_agent_source
 from .agent_colors import normalize_agent_color
 from .agent_file_rules import agent_file_problem, log_skipped
+from .bundled_plugins import legacy_team_agent
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
@@ -49,7 +50,13 @@ from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
 from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
-from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills, with_plugin_root
+from .plugin_capabilities import (
+    PLUGIN_SOURCE,
+    plugin_agents,
+    plugin_commands,
+    plugin_skills,
+    with_plugin_root,
+)
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -118,7 +125,7 @@ BUILTIN_AGENT_ALIASES: Mapping[str, str] = {"Explore": "explore", "Plan": "plan"
 #: Claude Code'un belgeli yerleşik ajanları; `extra_agent_sources=False` iken yerleşik
 #: rosterdan yalnız bunlar kalır (Claude'da olmayan Türkçe ekip rolleri düşer, #38).
 CLAUDE_BUILTIN_AGENTS = frozenset(
-    {"general-purpose", "explore", "plan", "statusline-setup", "claude-code-guide"}
+    {"general-purpose", "explore", "plan", "claude", "statusline-setup", "claude-code-guide"}
 )
 
 
@@ -488,9 +495,21 @@ class CapabilityRegistry:
         agents = self.agents()
         selected = _select(agents, name, bundled_override=True)
         alias = BUILTIN_AGENT_ALIASES.get(name)
-        if selected is not None or alias is None or any(item.name == name for item in agents):
+        if selected is None and alias is not None and all(item.name != name for item in agents):
+            selected = _select(agents, alias, bundled_override=True)
+        if selected is not None or ":" in name:
             return selected
-        return _select(agents, alias, bundled_override=True)
+        # Claude Code: tek eklentide bulunan ajan yalın adla da seçilir (`--agent kodcu`).
+        scoped = [
+            item
+            for item in agents
+            if PLUGIN_SOURCE in item.source.split("+") and item.name.rsplit(":", 1)[-1] == name
+        ]
+        if len(scoped) == 1:
+            return scoped[0]
+        if scoped or not self._extra_agent_sources or name in self._disabled_agents:
+            return None
+        return legacy_team_agent(name, _to_agent_capability)
 
     # ----------------------------------------------------------------------- #
 

@@ -464,8 +464,14 @@ Yerleşik ajanlar Claude Code'daki adlarla: **`Explore`** (salt okur hızlı ke�
 yok, Bash izin kurallarına tabi; görevde derinlik `quick`, `medium` ya da `very thorough`
 yazılır), **`Plan`** (salt okur plan araştırması), **`general-purpose`** ve **`claude`** (alt
 ajanlara açık tüm araçlar), **`statusline-setup`** (Sonnet) ve **`claude-code-guide`** (Haiku).
-Claude ailesi yapılandırılmamış sağlayıcıda son ikisi ana modelle koşar. Eski küçük harfli `explore`/`plan` ve Türkçe
-roller (`kodcu`, `mimar`...) takma ad olarak çalışmaya devam eder. Kendi
+Claude ailesi yapılandırılmamış sağlayıcıda son ikisi ana modelle koşar. Eski küçük harfli `explore`/`plan` takma ad olarak çalışmaya devam eder.
+Fusion'ın Türkçe ekibi (`mimar`, `kodcu`, `tasarimci`, `testci`, `arastirmaci`, `tarayici`,
+`gorselci`, `yonetmen`) Claude Code'da olmadığı için artık yerleşik değildir: pakete gömülü
+`fusion` pazarındaki isteğe bağlı `fusion-ekip` eklentisidir (`fusion eklenti kur fusion-ekip`)
+ve Claude'daki gibi `fusion-ekip:<ad>` kimliğiyle gelir; tek eklentide bulunan ajan yalın adla
+da seçilir (`--agent kodcu`). Eklenti kurulu değilken eski yalın rol adı (`--agent kodcu`,
+`{"agent": "kodcu"}`, kayıtlı oturum ajanı) bu sürüm boyunca kullanımdan kalkmış takma ad
+olarak çözülür ve bir kez uyarır; bu roller ajan listesine ve modelin ajan dizinine girmez. Kendi
 `.claude/agents/<ad>.md` tanımların da kullanılabilir; aynı adlı (ör. `Explore`) tanım
 yerleşiği ezer. `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` yalnız yerleşik `Explore` ve
 `Plan`'ı kaldırır. Etkileşimsiz kipte (`fusion agent "…"`) `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1`

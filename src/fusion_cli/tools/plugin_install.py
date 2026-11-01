@@ -50,6 +50,7 @@ from ..core.plugins import (
     parse_marketplace,
 )
 from . import capability_install
+from .bundled_plugins import bundled_marketplace_record
 from .safe_delete import DeleteRefusedError, move_to_trash
 
 #: Resmi Claude Code pazarı için kısa ad (`fusion eklenti pazar ekle resmi`).
@@ -493,8 +494,14 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> None:
     plugin_store.update_state(lambda current: current.without_marketplace(name), root)
 
 
+def _markets(state: PluginState) -> tuple[MarketplaceRecord, ...]:
+    """Kayıtlı pazarlar + pakete gömülü `fusion` pazarı (#25; eklemeye gerek yok)."""
+    bundled = bundled_marketplace_record(state)
+    return (*state.marketplaces, bundled) if bundled is not None else state.marketplaces
+
+
 def _entries(state: PluginState) -> Iterator[tuple[MarketplaceRecord, MarketplaceEntry]]:
-    for record in state.marketplaces:
+    for record in _markets(state):
         try:
             market = read_marketplace(Path(record.path))
         except PluginError:
@@ -516,7 +523,7 @@ def browse(marketplace: str = "", *, base: Path | None = None) -> tuple[CatalogE
     """Kayıtlı pazarlardaki eklentiler (ağ YOK: git pazarları kayıt anındaki klondan okunur)."""
     root = base or plugins_dir()
     state = load_state(root)
-    if marketplace and state.marketplace(marketplace) is None:
+    if marketplace and all(record.name != marketplace for record in _markets(state)):
         raise PluginError(ERR_NO_MARKET.format(name=marketplace))
     installed = {record.name for record in state.plugins}
     return tuple(

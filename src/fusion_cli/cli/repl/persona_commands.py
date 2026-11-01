@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from ...core.errors import ConfigError
 from ...engines.agent.team import GENERIC_PERSONA, Persona, resolve_persona
+from ...tools.bundled_plugins import team_role_hint
 from ...tools.capabilities import CapabilityRegistry
 from ...ui import messages
 from .state import ReplState
@@ -77,7 +78,7 @@ def persona(state: ReplState, argument: str) -> str:
         return messages.PERSONA_CLEARED
     found = resolve_session_persona(state.capabilities, word)
     if found is None:
-        return messages.PERSONA_UNKNOWN.format(name=word)
+        return messages.PERSONA_UNKNOWN.format(name=word) + team_role_hint(word)
     try:
         state.select_persona(found)
     except ConfigError as error:
