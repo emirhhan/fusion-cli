@@ -173,6 +173,7 @@ class FusionTui:
         self._choice_hotkeys: dict[str, str] = {}
         self._choice_filterable = False
         self._choice_filter = ""
+        self._choice_space = False
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
@@ -434,21 +435,29 @@ class FusionTui:
         *,
         hotkeys: Mapping[str, str] | None = None,
         filterable: bool = False,
+        space_selects: bool = False,
+        initial: str | None = None,
+        keep_filter: bool = False,
     ) -> str | None:
         """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
 
         `hotkeys`: tek harf → döndürülecek değer (`/skills`'te `t`). `filterable`: yazılan
         harfler listeyi süzer, silme tuşu geri alır (Claude Code `/skills`, #176).
+        `space_selects`: Space de Enter gibi seçer (`/skills` görünürlük döngüsü).
+        `initial`: imleç bu değerde açılır; `keep_filter`: önceki modalın süzgeci kalır.
         """
         if not choices:
             return None
         self._choice_all = list(choices)
-        self._choices = list(choices)
-        self._choice_index = 0
         self._choice_title = title
         self._choice_hotkeys = dict(hotkeys or {})
         self._choice_filterable = filterable
-        self._choice_filter = ""
+        self._choice_space = space_selects
+        if not (keep_filter and filterable):
+            self._choice_filter = ""
+        self._choices = self._filtered_choices()
+        values = [choice.value for choice in self._choices]
+        self._choice_index = values.index(initial) if initial in values else 0
         result = await self._await_answer("choice")
         return None if result is None else str(result)
 
@@ -482,10 +491,17 @@ class FusionTui:
     def _rule_fragments(self) -> StyleAndTextTuples:
         return gradient_rule(_term_width())
 
+    def _filtered_choices(self) -> list[Choice]:
+        needle = self._choice_filter.casefold()
+        return [c for c in self._choice_all if needle in f"{c.label} {c.description}".casefold()]
+
     def _choice_key(self, data: str) -> bool:
         """Modalda harf tuşu: kısayolsa değeri döndür, süzülebilir listede filtreyi düzenle."""
         if data in self._choice_hotkeys:
             self._resolve(self._choice_hotkeys[data])
+            return True
+        if data == " " and self._choice_space:
+            self._pick_current()
             return True
         if not self._choice_filterable:
             return False
@@ -495,10 +511,7 @@ class FusionTui:
             self._choice_filter += data
         else:
             return False
-        needle = self._choice_filter.casefold()
-        self._choices = [
-            c for c in self._choice_all if needle in f"{c.label} {c.description}".casefold()
-        ]
+        self._choices = self._filtered_choices()
         self._choice_index = min(self._choice_index, max(0, len(self._choices) - 1))
         self._invalidate()
         return True

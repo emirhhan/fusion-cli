@@ -175,3 +175,50 @@ def test_guvenilen_izin_dosyasina_yazinca_guven_karmasi_tazelenir(tmp_path: Path
     (other / ".claude" / "settings.local.json").write_text('{"permissions": {}}', "utf-8")
     write_skill_overrides(other, {"x": SkillVisibility.OFF})
     assert not trust.is_permissions_trusted(other)
+
+
+async def test_tui_paneli_space_ile_doner_imleci_ve_suzgeci_korur(state: ReplState) -> None:
+    """Belge (/skills): Space görünürlüğü döndürür; döngüden sonra imleç aynı beceride kalır."""
+    gorulen: list[dict[str, object]] = []
+    secimler = iter(["beta", None])
+
+    async def await_choice(title: str, choices: list, **options: object) -> str | None:
+        gorulen.append(options)
+        return next(secimler)
+
+    await skills_panel.run_tui_panel(state, await_choice)
+
+    assert gorulen[0].get("space_selects") is True
+    assert gorulen[0].get("initial") is None and gorulen[0].get("keep_filter") is False
+    assert gorulen[1].get("initial") == "beta" and gorulen[1].get("keep_filter") is True
+
+
+async def test_tui_modalinda_space_secer_ve_suzgec_imlec_korunur() -> None:
+    import asyncio
+
+    from fusion_cli.ui.picker import Choice
+
+    from .test_tui import _tui
+
+    tui, _ = _tui()
+    secenekler = [Choice("alfa", "alfa"), Choice("beta", "beta"), Choice("bet2", "bet2")]
+    ilk = asyncio.ensure_future(
+        tui.await_choice("b", secenekler, filterable=True, space_selects=True)
+    )
+    await asyncio.sleep(0)
+    for harf in "bet":
+        tui._choice_key(harf)
+    tui._move_choice(1)
+    tui._choice_key(" ")
+    assert await ilk == "bet2"
+
+    ikinci = asyncio.ensure_future(
+        tui.await_choice(
+            "b", secenekler, filterable=True, space_selects=True, initial="bet2", keep_filter=True
+        )
+    )
+    await asyncio.sleep(0)
+    assert [c.value for c in tui._choices] == ["beta", "bet2"]
+    assert tui._choices[tui._choice_index].value == "bet2"
+    tui._resolve(None)
+    assert await ikinci is None

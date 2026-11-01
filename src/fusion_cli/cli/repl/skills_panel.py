@@ -6,7 +6,8 @@ from settings"): `/skills` becerileri listeler; Space/Enter seçili becerinin g�
 `skillOverrides`'a yazılır. Fusion yüzeyleri:
 
 - TUI: `/skills` uygulama-içi modal; yazılan harfler listeyi süzer, `t` liste maliyetine
-  (token) göre sıralar/geri alır, Enter döndürür, Esc kaydeder (`run_tui_panel`).
+  (token) göre sıralar/geri alır, Space ya da Enter döndürür (imleç ve süzgeç korunur), Esc
+  kaydeder (`run_tui_panel`).
 - Terminal REPL ve masaüstü komutu: numaralı liste; `/skills t` token sıralı, `/skills <metin>`
   süzülmüş liste (numaralar tam listedekiyle aynı), `/skills <n>` döndürür ve kaydeder
   (terminalde modal yok; `/memory <n>` ile aynı desen).
@@ -33,7 +34,7 @@ from ...tools.capability_overrides import (
 from ...ui.picker import Choice
 from .state import ReplState
 
-PANEL_TITLE = "Beceriler — yaz: süz · t: token sırası · Enter: görünürlük · Esc: kaydet"
+PANEL_TITLE = "Beceriler — yaz: süz · t: token sırası · Space/Enter: görünürlük · Esc: kaydet"
 HINT = (
     "/skills <n> görünürlüğü döndürür (on → name-only → user-invocable-only → off) ve kaydeder; "
     "/skills t token sırası, /skills <metin> süzer."
@@ -139,24 +140,31 @@ def panel_choices(
 async def run_tui_panel(
     state: ReplState, await_choice: Callable[..., Awaitable[str | None]]
 ) -> str:
-    """TUI modal döngüsü: Enter görünürlüğü döndürür, `t` token sırası, Esc kaydeder."""
+    """TUI modal döngüsü: Space/Enter görünürlüğü döndürür, `t` token sırası, Esc kaydeder."""
     current = {item.name: visibility for item, visibility in panel_items(state)}
     if not current:
         return ""
     pending: dict[str, SkillVisibility] = {}
     by_tokens = False
+    cursor: str | None = None
+    reopened = False
     while True:
         selected = await await_choice(
             PANEL_TITLE,
             panel_choices(state, pending, by_tokens=by_tokens),
             hotkeys={"t": SORT_TOKENS},
             filterable=True,
+            space_selects=True,
+            initial=cursor,
+            keep_filter=reopened,
         )
         if selected is None:
             break
+        reopened = True
         if selected == SORT_TOKENS:
             by_tokens = not by_tokens
             continue
+        cursor = selected
         pending = {
             **pending,
             selected: next_visibility(pending.get(selected, current[selected])),
