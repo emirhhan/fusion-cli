@@ -149,6 +149,7 @@ from ..hooks.session import HookSession
 from . import (
     denial,
     desktop_approval,
+    extra_dir_rules,
     gate_escalation,
     instructions_hook,
     learning_steps,
@@ -3322,6 +3323,18 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         if hedef is None:
             continue
         hedefler.append(hedef)
+        # `--add-dir` dizininin `paths` alanlı kuralları (#170; ortam değişkeni açıkken).
+        ek_kurallar = extra_dir_rules.hits_for(
+            tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),
+            hedef,
+            loaded=state.nested_loaded,
+            present=baglamda_var,
+        )
+        if (ek_notu := extra_dir_rules.note_for(ek_kurallar)) is not None:
+            messages.append(ek_notu)
+            instructions_hook.notify(
+                getattr(deps, "hooks", None), [hit.event for hit in ek_kurallar]
+            )
         yuk = load_nested_instructions(
             kok,
             hedef,
