@@ -345,7 +345,9 @@ def copy_conversation(
 
 def transcript_events_path(base_dir: Path, root: Path) -> Path:
     """Bu çalışma alanının transcript dosyası (durum satırı `transcript_path`, #191)."""
-    return base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    return (
+        base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    )
 
 
 def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...]:

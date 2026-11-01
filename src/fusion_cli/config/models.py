@@ -448,7 +448,8 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
-    #: Çıktı stili (P-068, #193): `default` | `proactive` | `concise` | `explanatory` | `learning` ya da
+    #: Çıktı stili (P-068, #193): `default` | `proactive` | `concise` | `explanatory` |
+    #: `learning` ya da
     #: `~/.fusion/cikti-stilleri/<ad>.md` / `.claude/output-styles/<ad>.md` dosyasının adı.
     #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `default` hiçbir
     #: şey eklemez. `/output-style` ile değişir.

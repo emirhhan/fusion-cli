@@ -78,12 +78,12 @@ from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_pre
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
-from .status_line_runner import StatusLineRunner
-from .tui_input_keys import DirectoryHistory, history_path
-from .status_line_settings import resolve_status_line
 from .state import Engine, Reminder, ReplState
+from .status_line_runner import StatusLineRunner
+from .status_line_settings import resolve_status_line
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
+from .tui_input_keys import DirectoryHistory, history_path
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
@@ -594,9 +594,7 @@ class _TuiSession:
             )
             return
         if renders_itself(command.name, argument):
-            await help_view.render(
-                command.name, self._state, self._registry, self._out, argument
-            )
+            await help_view.render(command.name, self._state, self._registry, self._out, argument)
             self._tui.sync_conversation()
             if command.name == "compact":
                 self._request_status_line()

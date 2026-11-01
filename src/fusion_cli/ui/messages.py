@@ -1131,7 +1131,9 @@ SESSION_NAMED_NEW = "Yeni sohbet: {name}"
 SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
 SESSION_RENAMED = "Sohbet adı: {name}"
 SESSION_CLEARED = "Yeni sohbet başladı ({count} mesaj bırakıldı; /resume ile geri açılır)"
-SESSION_CLEARED_NAMED = "Yeni sohbet başladı; bırakılan sohbet '{name}' adıyla kayıtlı ({count} mesaj)"
+SESSION_CLEARED_NAMED = (
+    "Yeni sohbet başladı; bırakılan sohbet '{name}' adıyla kayıtlı ({count} mesaj)"
+)
 SESSION_CLEARED_EMPTY = "Yeni sohbet başladı"
 SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder."
 SESSION_BRANCHED = (
@@ -1457,7 +1459,9 @@ CONFIG_OVERRIDE_APPLIED = "Oturumluk ayar: {path} = {value}"
 CONFIG_PROFILE_APPLIED = "Oturumluk kademe: {tier}"
 
 # --- /output-style (P-068) ------------------------------------------------- #
-CMD_OUTPUT_STYLE = "çıktı stili: default · Proactive · Concise · Explanatory · Learning · özel (.md)"
+CMD_OUTPUT_STYLE = (
+    "çıktı stili: default · Proactive · Concise · Explanatory · Learning · özel (.md)"
+)
 OUTPUT_STYLE_TITLE = "Çıktı stili"
 OUTPUT_STYLE_HEADER = "Çıktı stilleri (etkin: {current}):"
 OUTPUT_STYLE_HINT = (

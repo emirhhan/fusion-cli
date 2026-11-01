@@ -26,8 +26,8 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, Filter
-from prompt_toolkit.history import History
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
+from prompt_toolkit.history import History
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
@@ -37,6 +37,10 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
 from rich.console import Console
 
+from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
+from ...ui import messages, theme
+from ...ui.picker import Choice
+from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 from .status_line_runner import ansi_for_tui
 from .tui_input_keys import (
     DOUBLE_PRESS_SECONDS,
@@ -45,10 +49,6 @@ from .tui_input_keys import (
     register_shift_enter,
     submit_or_newline,
 )
-from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
-from ...ui import messages, theme
-from ...ui.picker import Choice
-from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 
 _logger = logging.getLogger(__name__)
 
@@ -97,7 +97,9 @@ def format_status(
     color = theme.MODE_COLORS.get(mode, theme.DIM)
     # Çok satırlı/ANSI betik çıktısı (#192) TUI'de kendi satırlarında gösterilir
     # (`custom_status_window`); burada yalnız tek satır olanı yerine geçer.
-    shown = html_escape(custom) if custom and "\n" not in custom and "\x1b" not in custom else context
+    shown = (
+        html_escape(custom) if custom and "\n" not in custom and "\x1b" not in custom else context
+    )
     extra = f" · {shown}" if shown else ""
     if vim:
         extra += " · vim"

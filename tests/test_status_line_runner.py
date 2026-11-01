@@ -27,8 +27,13 @@ from .fakes import make_config
 
 def test_statusline_nesnesi_okunur():
     spec = parse_status_line(
-        {"type": "command", "command": "~/s.sh", "padding": 2, "refreshInterval": 0.2,
-         "hideVimModeIndicator": True},
+        {
+            "type": "command",
+            "command": "~/s.sh",
+            "padding": 2,
+            "refreshInterval": 0.2,
+            "hideVimModeIndicator": True,
+        },
         "user",
     )
     assert spec == StatusLineSpec("~/s.sh", 2, 1, True, "user")
@@ -67,9 +72,11 @@ def test_cok_satirli_cikti_yerlesik_cubugun_yerine_gecmez():
 
 @pytest.mark.asyncio
 async def test_betik_columns_lines_ve_stdin_alir(tmp_path: Path):
-    spec = StatusLineSpec('python3 -c "import json,os,sys; d=json.load(sys.stdin); '
-                          "print(d['a'], os.environ['COLUMNS'].isdigit(), "
-                          "os.environ['LINES'].isdigit())\"")
+    spec = StatusLineSpec(
+        'python3 -c "import json,os,sys; d=json.load(sys.stdin); '
+        "print(d['a'], os.environ['COLUMNS'].isdigit(), "
+        "os.environ['LINES'].isdigit())\""
+    )
     assert await run_script(spec, {"a": "x"}, cwd=str(tmp_path)) == "x True True"
 
 

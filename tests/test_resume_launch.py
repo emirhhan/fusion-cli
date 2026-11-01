@@ -15,7 +15,12 @@ from .fakes import make_config
 def test_degersiz_resume_secici_isareti_alir():
     picker = resume_launch.RESUME_PICKER
     assert resume_launch.normalize_resume_argv(["--resume"]) == ["--resume", picker]
-    assert resume_launch.normalize_resume_argv(["-r", "--name", "x"]) == ["-r", picker, "--name", "x"]
+    assert resume_launch.normalize_resume_argv(["-r", "--name", "x"]) == [
+        "-r",
+        picker,
+        "--name",
+        "x",
+    ]
     assert resume_launch.normalize_resume_argv(["-r", "abc"]) == ["-r", "abc"]
     assert resume_launch.normalize_resume_argv(["run", "selam"]) == ["run", "selam"]
 

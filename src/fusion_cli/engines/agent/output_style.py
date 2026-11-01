@@ -57,6 +57,8 @@ def canonical_style_name(name: str) -> str:
         _WARNED_ALIASES.add(wanted)
         _LOG.warning("çıktı stili '%s' kullanımdan kalktı; '%s' kullanın", wanted, canonical)
     return canonical
+
+
 #: Kullanıcı/proje köküne göre özel stil dizinleri (öncelik sırası: sonraki öncekini ezer).
 CUSTOM_DIRS = (".fusion/cikti-stilleri", ".claude/output-styles")
 #: Bir stil gövdesinin sistem istemine alınacak en fazla karakteri.
@@ -124,7 +126,8 @@ def _scan(directory: Path, source: str) -> list[OutputStyle]:
 def discover_styles(home: Path | None, root: Path | None) -> tuple[OutputStyle, ...]:
     """Yerleşik + özel stiller; aynı ad varsa güvenilen projede proje > kullanıcı > yerleşik.
 
-    Ölçüldü (31 Ekim): proje `.claude/output-styles/ozlu.md` yerleşik `ozlu`yu (artık `concise`) eziyordu;
+    Ölçüldü (31 Ekim): proje `.claude/output-styles/ozlu.md` yerleşik `ozlu`yu (artık
+    `concise`) eziyordu;
     kötü niyetli depo kullanıcının seçtiği zararsız stilin yerine kendi talimatını sistem
     istemine sokabiliyordu. Güven kaydı olmayan projenin stili yerleşik/kullanıcı adını
     GÖLGELEYEMEZ (yeni adlar yine listelenir); `fusion trust` sonrası Claude Code sırası.
