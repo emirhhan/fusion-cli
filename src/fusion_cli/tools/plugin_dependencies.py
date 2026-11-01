@@ -142,7 +142,8 @@ def _ensure(
         try:
             versions.check_pinned(item.record, ranges, dependents)
         except versions.DependencyVersionError:
-            plugin_install.uninstall_plugin(item.record.name, base=store, everywhere=True)
+            ident_of = plugin_store.plugin_id(item.record)  # #391: aynı adlı öteki kurulum
+            plugin_install.uninstall_plugin(ident_of, base=store, everywhere=True)
             raise
     marked = replace(item.record, dependency=True, enabled=True)
     plugin_store.update_state(lambda state: state.with_plugin(marked), store)
@@ -172,16 +173,35 @@ def _pin_for(ident: str, wanted: str, store: Path) -> tuple[str, str] | None:
     return found.tag, found.sha
 
 
-def prunable(base: Path | None = None) -> tuple[str, ...]:
-    """Kendiliğinden kurulmuş ve artık hiçbir kurulu eklentinin gerektirmediği eklentiler."""
-    store = base or plugins_dir()
+def _prunable_records(store: Path) -> tuple[PluginRecord, ...]:
+    """Kendiliğinden kurulmuş ve artık hiçbir kurulu eklentinin gerektirmediği kayıtlar.
+
+    Kayıtlar `ad@pazar` kimliğiyle eşlenir (#391): başka pazardan aynı adlı kurulum ne budamayı
+    belirsiz yapar ne de bağımlılığı yanlışlıkla tutar.
+    """
     records = load_state(store).plugins
     keep: set[str] = set()
     for record in records:
         if record.dependency:
             continue
         keep.update(_closure(record, records, store))
-    return tuple(sorted(r.name for r in records if r.dependency and r.name not in keep))
+    found = (r for r in records if r.dependency and plugin_store.plugin_id(r) not in keep)
+    return tuple(sorted(found, key=plugin_store.plugin_id))
+
+
+def prunable(base: Path | None = None) -> tuple[str, ...]:
+    """Budanacak eklentilerin adları (gösterim için)."""
+    return tuple(r.name for r in _prunable_records(base or plugins_dir()))
+
+
+def _match(dep: str, owner: PluginRecord, records: tuple[PluginRecord, ...]) -> PluginRecord | None:
+    """Bağımlılık girdisinin kaydı: `ad@pazar`, yoksa bağımlının pazarındaki `ad`."""
+    name, _, market = dep.partition("@")
+    market = market or owner.marketplace
+    if market:
+        wanted = f"{name}@{market}"
+        return next((r for r in records if plugin_store.plugin_id(r) == wanted), None)
+    return next((r for r in records if r.name == name and not r.marketplace), None)
 
 
 def _closure(record: PluginRecord, records: tuple[PluginRecord, ...], store: Path) -> set[str]:
@@ -190,10 +210,10 @@ def _closure(record: PluginRecord, records: tuple[PluginRecord, ...], store: Pat
     while queue:
         current = queue.pop()
         for dep in _dependencies(current, store):
-            name = dep.partition("@")[0]
-            match = next((r for r in records if r.name == name), None)
-            if match is not None and match.name not in seen:
-                seen.add(match.name)
+            match = _match(dep, current, records)
+            ident = plugin_store.plugin_id(match) if match is not None else ""
+            if match is not None and ident not in seen:
+                seen.add(ident)
                 queue.append(match)
     return seen
 
@@ -202,11 +222,13 @@ def prune(*, dry_run: bool = False, base: Path | None = None) -> str:
     """`plugin prune`: budanacakları kaldır (ya da listele); Claude metni."""
     from .plugin_listing import prune_text
 
-    names = prunable(base)
-    if not names:
+    found = _prunable_records(base or plugins_dir())
+    names = ", ".join(r.name for r in found)
+    if not found:
         return prune_text(dry_run=dry_run)
     if dry_run:
-        return WOULD_PRUNE.format(names=", ".join(names))
-    for name in names:
-        plugin_install.uninstall_plugin(name, base=base, everywhere=True)
-    return PRUNED.format(names=", ".join(names))
+        return WOULD_PRUNE.format(names=names)
+    for record in found:
+        ident = plugin_store.plugin_id(record)
+        plugin_install.uninstall_plugin(ident, base=base, everywhere=True)
+    return PRUNED.format(names=names)

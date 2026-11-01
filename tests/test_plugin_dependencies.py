@@ -98,3 +98,24 @@ def test_baska_pazardaki_bagimlilik_izin_listesi_ister(tmp_path):
     plugin_install.add_marketplace(str(opened))
     allowed = runner.invoke(app, ["install", "rapor@ekip"])
     assert "Bağımlılık kuruldu: ortak@diger" in allowed.output, allowed.output
+
+
+def test_ayni_adli_bagimlilik_baska_pazarda_kuruluyken_prune_yalniz_kendininkini_budar(tmp_path):
+    """#389/#391: budama ve kapanış ad@pazar kimliğiyle; çıplak ad belirsizliği hata vermez."""
+    other = _market(tmp_path / "diger", "diger", {"yardimci": []})
+    market = _market(tmp_path / "pazar", "ekip", {"rapor": ["yardimci"], "yardimci": []})
+    plugin_install.add_marketplace(str(other))
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("yardimci@diger", approve=lambda _p: True)
+    done = runner.invoke(app, ["install", "rapor@ekip"])
+    assert done.exit_code == 0, done.output
+    assert plugin_store.load_state().plugin("yardimci@ekip").dependency is True
+
+    kept = runner.invoke(app, ["prune", "--dry-run"])
+    assert "Nothing to prune" in kept.output, kept.output
+    runner.invoke(app, ["uninstall", "rapor@ekip"])
+    pruned = runner.invoke(app, ["prune", "-y"])
+
+    assert pruned.exit_code == 0, pruned.output
+    left = [plugin_store.plugin_id(r) for r in plugin_store.load_state().plugins]
+    assert left == ["yardimci@diger"]

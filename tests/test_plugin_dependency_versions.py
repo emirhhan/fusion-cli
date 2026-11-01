@@ -179,3 +179,24 @@ def test_surumlu_bagimlilik_bildirimden_okunur():
     )
     assert manifest.dependencies == ("b", "c@m")
     assert manifest.dependency_versions == (("c@m", "~1"),)
+
+
+def test_ayni_adli_kurulum_varken_surum_uyusmazligi_geri_alinir(tmp_path):
+    """#389/#391: geri alma `ad@pazar` ile kaldırır; belirsiz ad hatası uyuşmazlığı maskelemez."""
+    other = _market(tmp_path / "diger", "diger", {"yardimci": []})
+    market = _market(
+        tmp_path / "pazar",
+        "ekip",
+        {"rapor": [{"name": "yardimci", "version": "^2.0"}], "yardimci": []},
+    )
+    plugin_install.add_marketplace(str(other))
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("yardimci@diger", approve=lambda _p: True)
+
+    done = runner.invoke(app, ["install", "rapor@ekip", "--json"])
+
+    assert done.exit_code == 1
+    line = json.loads(done.output.strip().splitlines()[-1])
+    assert line["failureCode"] == "dependency_version_conflict", line
+    left = [plugin_store.plugin_id(r) for r in plugin_store.load_state().plugins]
+    assert left == ["yardimci@diger"]
