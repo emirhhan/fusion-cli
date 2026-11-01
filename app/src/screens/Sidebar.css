@@ -463,6 +463,22 @@
 
 .sidebar__storage-error { color: var(--text-secondary); font-size: var(--text-xs); padding: 0 8px; }
 
+/* Arşiv görünümü anahtarı (#443): listenin başında sessiz bir metin düğmesi. */
+.sidebar__archive-toggle {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  margin: 0 4px 4px;
+  padding: 4px 6px;
+}
+.sidebar__archive-toggle:hover { color: var(--text-primary); }
+.sidebar__archive-toggle:focus-visible { outline: 2px solid var(--focus-ring, currentColor); outline-offset: 1px; }
+.sidebar__archive-toggle[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; }
+
 /* Güncelleme şeridi — profilin hemen üstünde, ince ve sessiz.
    Nokta TEK işaret değildir: yanında sürüm numarası yazar, böylece renk körü
    kullanıcı da ne olduğunu okur. */

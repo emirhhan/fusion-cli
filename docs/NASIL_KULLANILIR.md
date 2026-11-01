@@ -993,6 +993,13 @@ eylemler duruyor ve istenen tuşa bağlanabilir, `keybindings.json`'daki kişise
 **Henüz yok**: ⌘⇧]/⌘⇧[ (Türkçe Q'da ⌥ gerektiren noktalama tuşu), ⌘⇧S öğe seç, ⌘⌃W bölünmüş
 görünümden çıkar, ⌘; yan sohbet, Ctrl+O görünüm kipleri, ⌘⇧I/⌘⇧E model/efor menüsü, ⌘⌥1-9 ortam seç.
 
+Kenar çubuğunda sohbetin `···` menüsünün ilk eylemi **Arşivle**dir (Claude Desktop'taki Archive):
+arşivlenen sohbet silinmez, ana listeden kalkar ve listenin başındaki **Arşivlenenler (N)**
+görünümünde durur; oradan **Arşivden çıkar** ile geri gelir. Kalıcı silme menünün son eylemidir ve
+onay ister. Tercih bu bilgisayarda saklanır. **Henüz yok** (#443): PR birleşince/kapanınca otomatik
+arşiv, başlık çubuğundan yeniden adlandırma, Group and sort menüsü, Option-tık ile yan yana ve
+Cmd-tık ile yeni pencerede açma.
+
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı
 `~/.fusion/keybindings.json` dosyasının `masaustu` bölümündedir; elle de yazılabilir ve pencereye

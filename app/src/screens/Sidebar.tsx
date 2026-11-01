@@ -7,6 +7,7 @@ import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
 import { useModalFocus } from "../ui/useModalFocus";
+import { useArchivedSessions } from "./useArchivedSessions";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -132,9 +133,11 @@ function hataMetni(error: unknown): string {
 
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
-function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
+function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveFromProject, moveTargets, pinned, onPin, archived, onArchive }: {
   pinned: boolean;
   onPin: () => void;
+  archived: boolean;
+  onArchive: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
@@ -210,6 +213,7 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
       <div className="sidebar__move-wrap" ref={menuRef}>
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
         {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
+          <button onClick={() => { onArchive(); setMenuOpen(false); }} role="menuitem" type="button">{archived ? "Arşivden çıkar" : "Arşivle"}</button>
           <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
           {onSplit && !active && <button onClick={() => {
             setMenuOpen(false);
@@ -373,15 +377,20 @@ export function Sidebar({
     return next;
   });
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const archive = useArchivedSessions();
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = oturumlar.filter((session) => archive.isArchived(pinKey(session))).length;
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
-    if (!normalized) return oturumlar;
-    return oturumlar.filter((session) =>
+    // Arşiv görünümü yalnız arşivlenenleri, ana liste yalnız arşivlenmemişleri gösterir (#443).
+    const visible = oturumlar.filter((session) => archive.isArchived(pinKey(session)) === showArchived);
+    if (!normalized) return visible;
+    return visible.filter((session) =>
       `${session.title} ${session.source} ${session.project ?? ""}`
         .toLocaleLowerCase("tr")
         .includes(normalized),
     );
-  }, [oturumlar, query]);
+  }, [oturumlar, query, archive.archived, showArchived]);
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     const roots = [...projeler];
@@ -453,9 +462,10 @@ export function Sidebar({
   const renderSession = (session: OturumSatiri, group: { root?: string; id?: string } = {}) => (
     <SessionButton key={pinKey(session)} session={session} active={session.session_id === etkin}
       pinned={pinnedSessions.includes(pinKey(session))} onPin={() => togglePin(session)}
+      archived={archive.isArchived(pinKey(session))} onArchive={() => archive.toggle(pinKey(session))}
       onSelect={() => onSec(session.session_id)}
       onSplit={onSplit ? () => onSplit(session.session_id) : undefined}
-      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); } : undefined}
+      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); archive.forget(pinKey(session)); } : undefined}
       onRemoveFromProject={onAssign && session.projectId ? () => onAssign(session.session_id, null) : undefined}
       moveTargets={[
         ...(onAssign ? filteredProjects.filter((project) => project.id && project.id !== (group.id ?? session.projectId)).map((project) => ({ key: `kayit:${project.id}`, name: project.name, run: () => onAssign(session.session_id, project.id!) })) : []),
@@ -575,6 +585,12 @@ export function Sidebar({
 
       <div className="sidebar__scroll">
         {pinError && <p role="alert" className="sidebar__storage-error">{pinError}</p>}
+        {archive.error && <p role="alert" className="sidebar__storage-error">{archive.error}</p>}
+        {(archivedCount > 0 || showArchived) && (
+          <button aria-pressed={showArchived} className="sidebar__archive-toggle" onClick={() => setShowArchived((open) => !open)} type="button">
+            {showArchived ? "Tüm sohbetler" : `Arşivlenenler (${archivedCount})`}
+          </button>
+        )}
         <section aria-label="Sabitlenenler" className="sidebar__pinned">
           <h2 className="sidebar__section-title">Sabitlenenler</h2>
           {filteredSessions.filter((session) => pinnedSessions.includes(pinKey(session))).map((session) => renderSession(session))}
