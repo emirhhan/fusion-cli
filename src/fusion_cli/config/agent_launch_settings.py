@@ -21,6 +21,8 @@ class AgentLaunchConfig:
     disable_background_tasks: bool = False
     #: `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS`: yalnız yerleşik Explore/Plan kaldırılır.
     disable_explore_plan_agents: bool = False
+    #: `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS`: etkileşimsiz kipte bütün yerleşikler kalkar.
+    disable_builtin_agents: bool = False
     fork_enabled: bool = True
     auto_supported_models: tuple[str, ...] = ()
     managed_agent_roots: tuple[str, ...] = ()

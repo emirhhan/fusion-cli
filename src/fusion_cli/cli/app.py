@@ -622,6 +622,7 @@ def agent(
                     root,
                     session_agents=options.session_agents,
                     extra_roots=tuple(add_dir or ()),
+                    headless=options.channel is None,
                 ),
                 allowed_tools=options.allowed_tools,
                 denied_tools=options.denied_tools,

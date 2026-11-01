@@ -93,6 +93,8 @@ def test_agent_kisiligi_baslik_kesisim_ve_yasak_birlesimi_uygular(tmp_path, monk
         disallowed_tools=["WebFetch"],
     )
 
-    assert "# Oturum kişiliği:" in secenek.extra_system and "Yalnız oku." in secenek.extra_system
+    # #1: dolu gövde Claude Code'daki gibi varsayılan sistem isteminin yerine geçer.
+    assert "# Oturum kişiliği:" in secenek.extra_system
+    assert secenek.system_prompt is not None and "Yalnız oku." in secenek.system_prompt
     assert secenek.allowed_tools is None
     assert "run_shell" in secenek.denied_tools and "web_fetch" in secenek.denied_tools

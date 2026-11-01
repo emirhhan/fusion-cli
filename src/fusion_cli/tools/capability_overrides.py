@@ -54,6 +54,10 @@ def overrides_from(config: Config) -> dict[str, SkillVisibility]:
     return dict(getattr(capabilities, "overrides", None) or {})
 
 
+#: `disabled_builtin_agents` içinde bütün yerleşik (`fusion`) ajanları kaldıran işaret.
+ALL_BUILTIN_AGENTS = frozenset({"*"})
+
+
 def registry_from_config(
     config: Config,
     home: Path,
@@ -64,6 +68,7 @@ def registry_from_config(
     session_disabled_agents: frozenset[str] = frozenset(),
     session_agents: tuple[Capability, ...] = (),
     working_directory: Path | None = None,
+    headless: bool = False,
 ) -> CapabilityRegistry:
     """Kalıcı `capabilities.disabled` + `overrides` uygulanmış katalog (tüm yüzeyler aynı)."""
     from ..core.proposal_invocation import (
@@ -78,6 +83,9 @@ def registry_from_config(
         if getattr(launch, "disable_explore_plan_agents", False)
         else frozenset()
     )
+    # Claude Code: SDK değişkeni yalnız etkileşimsiz kipte ve SDK'da okunur; hepsi kalkar.
+    if headless and getattr(launch, "disable_builtin_agents", False):
+        builtin_off = ALL_BUILTIN_AGENTS
     return CapabilityRegistry(
         home,
         root,

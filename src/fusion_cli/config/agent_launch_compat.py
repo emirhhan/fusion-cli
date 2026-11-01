@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Mapping
 from dataclasses import fields, replace
 from pathlib import Path
@@ -12,19 +11,15 @@ from ..core.errors import ConfigError
 from .agent_launch_settings import AgentLaunchConfig
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
-_LOG = logging.getLogger(__name__)
 SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
 SUBAGENT_FORCE_ENV = "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"
 BACKGROUND_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 FORK_ENV = "CLAUDE_CODE_FORK_SUBAGENT"
 EXPLORE_PLAN_ENV = "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"
+SDK_BUILTIN_ENV = "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"
 DEFAULT_MODEL_ENV = "ANTHROPIC_DEFAULT_{alias}_MODEL"
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off", ""})
-LEGACY_WARNING = (
-    "Claude ajan ayarları geriye uyumluluk için okunuyor: %s; "
-    "kalıcı Fusion ayarları agent_launch bölümündedir."
-)
 
 
 def read_agent_launch(
@@ -82,6 +77,9 @@ def read_agent_launch(
         disable_explore_plan_agents=_environment_bool(
             merged_env, EXPLORE_PLAN_ENV, loaded.disable_explore_plan_agents
         ),
+        disable_builtin_agents=_environment_bool(
+            merged_env, SDK_BUILTIN_ENV, loaded.disable_builtin_agents
+        ),
         model_aliases=tuple(aliases.items()),
     )
 
@@ -120,16 +118,6 @@ def _legacy(current: AgentLaunchConfig, raw: Mapping[str, object], path: Path) -
         if value not in (True, False, "disable", "enable"):
             raise ConfigError(f"Claude disableAutoMode ayarı disable/enable olmalı: {path}")
         disable_auto = value in (True, "disable")
-    if (
-        agent != current.default_agent
-        or allowed != current.available_models
-        or disable_auto != current.disable_auto_mode
-        or any(
-            key in str(raw.get("env", {}))
-            for key in (SUBAGENT_MODEL_ENV, SUBAGENT_FORCE_ENV, "ANTHROPIC_DEFAULT_")
-        )
-    ):
-        _LOG.warning(LEGACY_WARNING, path)
     return replace(
         current, default_agent=agent, available_models=allowed, disable_auto_mode=disable_auto
     )

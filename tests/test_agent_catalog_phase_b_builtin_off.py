@@ -37,3 +37,47 @@ def test_yerlesik_explore_plan_kalkar_ozel_tanim_ve_digerleri_kalir(tmp_path):
     assert explore is not None and explore.source != "fusion"
     assert registry.get_agent("Plan") is None and registry.get_agent("plan") is None
     assert registry.get_agent("general-purpose") is not None
+
+
+def test_sdk_ortam_degiskeni_etkilesimsiz_kipte_tum_yerlesikleri_kaldirir(tmp_path):
+    loaded = read_agent_launch(
+        AgentLaunchConfig(),
+        home=tmp_path / "ev",
+        root=tmp_path,
+        environ={"CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS": "1"},
+    )
+    assert loaded.disable_builtin_agents is True
+    config = replace(make_config(memory_dir=tmp_path / "bellek"), agent_launch=loaded)
+    folder = tmp_path / ".claude" / "agents"
+    folder.mkdir(parents=True)
+    (folder / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: inceler\n---\nİncele.", encoding="utf-8"
+    )
+
+    headless = registry_from_config(config, tmp_path / "ev", tmp_path, headless=True)
+    interactive = registry_from_config(config, tmp_path / "ev", tmp_path)
+
+    assert {item.source for item in headless.agents()} == {"proje"} or all(
+        item.source != "fusion" for item in headless.agents()
+    )
+    assert headless.get_agent("denetci") is not None
+    assert headless.get_agent("general-purpose") is None
+    # Claude Code'da etkileşimli oturum bu değişkeni okumaz.
+    assert interactive.get_agent("general-purpose") is not None
+
+
+def test_claude_agent_ayari_uyari_basmadan_okunur(tmp_path, caplog):
+    import json
+    import logging
+
+    settings = tmp_path / "ev" / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"agent": "denetci"}), encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        loaded = read_agent_launch(
+            AgentLaunchConfig(), home=tmp_path / "ev", root=tmp_path, environ={}
+        )
+
+    assert loaded.default_agent == "denetci"
+    assert "geriye uyumluluk" not in caplog.text

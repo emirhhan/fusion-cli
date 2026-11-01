@@ -446,7 +446,13 @@ class CapabilityRegistry:
                 for item in self._discover_agents()
                 if item.name not in self._disabled_agents
                 and item.qualified_name not in self._disabled_agents
-                and not (item.source == "fusion" and item.name in self._disabled_builtin_agents)
+                and not (
+                    item.source == "fusion"
+                    and (
+                        item.name in self._disabled_builtin_agents
+                        or "*" in self._disabled_builtin_agents
+                    )
+                )
             )
             self._agents = agents
         return agents

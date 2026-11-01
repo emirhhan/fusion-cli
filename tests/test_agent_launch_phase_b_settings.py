@@ -52,7 +52,7 @@ def test_claude_ortam_ayarlari_yalniz_config_yuklenirken_okunur(tmp_path, monkey
     assert config.agent_launch.disable_auto_mode
 
 
-def test_eski_claude_ayar_dosyasi_uyariyla_okunur_sessiz_yok_sayilmaz(tmp_path, caplog):
+def test_claude_ayar_dosyasi_birincil_ad_olarak_uyarisiz_okunur(tmp_path, caplog):
     from fusion_cli.config.agent_launch_compat import read_agent_launch
     from fusion_cli.config.agent_launch_settings import AgentLaunchConfig
 
@@ -67,7 +67,8 @@ def test_eski_claude_ayar_dosyasi_uyariyla_okunur_sessiz_yok_sayilmaz(tmp_path, 
     assert loaded.default_agent == "denetci"
     assert loaded.available_models == ("haiku",)
     assert loaded.subagent_model == "haiku"
-    assert any("Claude" in record.message for record in caplog.records)
+    # Claude ayar adları birincildir; okunmaları kullanımdan kalkma uyarısı üretmez (#15).
+    assert not any("uyumluluk" in record.message for record in caplog.records)
 
 
 def test_bilinmeyen_ajan_ayari_acik_hata_verir():

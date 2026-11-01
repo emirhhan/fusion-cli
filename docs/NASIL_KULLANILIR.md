@@ -443,7 +443,9 @@ Claude ailesi yapılandırılmamış sağlayıcıda son ikisi ana modelle koşar
 roller (`kodcu`, `mimar`...) takma ad olarak çalışmaya devam eder. Kendi
 `.claude/agents/<ad>.md` tanımların da kullanılabilir; aynı adlı (ör. `Explore`) tanım
 yerleşiği ezer. `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` yalnız yerleşik `Explore` ve
-`Plan`'ı kaldırır.
+`Plan`'ı kaldırır. Etkileşimsiz kipte (`fusion agent "…"`) `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1`
+bütün yerleşik ajanları kaldırır, yalnız kendi tanımların kalır; etkileşimli oturum bu
+değişkeni Claude Code'daki gibi okumaz.
 
 - `fusion --agent Explore` → REPL o ajanla açılır (ad yoksa açılmaz, hata verir) ·
   `fusion agent "şunu bul" --agent Explore` → tek atış.
