@@ -1073,6 +1073,34 @@ async def test_denied_tools_defterden_dusurulur_desen_acilir(monkeypatch, tmp_pa
     assert not adlar & {"write_file", "run_shell"}
 
 
+async def test_yalin_deny_kurali_araci_baglamdan_cikarir(monkeypatch, tmp_path, sink):
+    """Claude (#63): `Bash` ya da `Read` yalın deny kuralı aracı modele hiç sunmaz;
+    belirteçli `Bash(rm *)` aracı bırakır."""
+    from dataclasses import replace
+
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRuleSet,
+        parse_rule,
+    )
+
+    def _kume(*metinler):
+        return PermissionRuleSet(
+            rules=tuple(parse_rule(m, PermissionDecision.DENY, source="t") for m in metinler)
+        )
+
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)] * 2))
+    deps = replace(_deps(tmp_path, sink), permission_rules=_kume("Bash", "WebFetch(*)"))
+    await run_agent("gorev", deps)
+    adlar = {s["function"]["name"] for s in provider.seen_requests[0]}
+    assert "read_file" in adlar
+    assert not adlar & {"run_shell", "web_fetch"}
+
+    deps = replace(_deps(tmp_path, sink), permission_rules=_kume("Bash(rm *)"))
+    await run_agent("gorev", deps)
+    assert "run_shell" in {s["function"]["name"] for s in provider.seen_requests[1]}
+
+
 async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_path, sink):
     """Plan modunda kimseye sorulmaz; model bunu "kullanıcı reddetti" sanmamalı."""
     _kur(

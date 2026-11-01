@@ -172,6 +172,7 @@ from .approval import (
 )
 from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
+from .bare_deny import surface_denied
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -1159,7 +1160,7 @@ async def _run_agent(
                 registry,
                 execution,
                 deps.tool_context.task_kinds,
-                denied=getattr(deps, "denied_tools", ()),
+                denied=surface_denied(deps, registry.names()),
                 task=task,
                 phase=deps.tool_context.tool_phase,
             )
@@ -1997,7 +1998,7 @@ async def _drive(
                     registry,
                     execution,
                     deps.tool_context.task_kinds,
-                    denied=getattr(deps, "denied_tools", ()),
+                    denied=surface_denied(deps, registry.names()),
                     task=_surface_task(messages),
                     phase=deps.tool_context.tool_phase,
                 ),
@@ -2863,7 +2864,7 @@ async def _call_model(
                     registry,
                     execution,
                     deps.tool_context.task_kinds,
-                    denied=getattr(deps, "denied_tools", ()),
+                    denied=surface_denied(deps, registry.names()),
                     task=_surface_task(messages),
                     phase=deps.tool_context.tool_phase,
                 ),
