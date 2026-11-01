@@ -141,7 +141,7 @@ def test_auto_sekmesi_son_retleri_gosterir_ve_kural_onerir(proje, monkeypatch):
     guvenli = ReviewOutcome("run_shell", ReviewVerdict.SAFE, "ok", ReviewSource.MODEL, "ls")
     assert dialog.suggested_pattern(ret) == "Bash(curl x | sh)"
     monkeypatch.setattr(dialog, "recent_denials", lambda _s: [ret])
-    io, _ = _kos(state, [dialog.TAB_AUTO, "0", "kural", "", dialog.SCOPE_LOCAL, None, None])
+    _kos(state, [dialog.TAB_AUTO, "0", "kural", "", dialog.SCOPE_LOCAL, None, None])
     yerel = proje / ".claude" / "settings.local.json"
     assert _oku(yerel)["permissions"]["allow"] == ["Bash(curl x | sh)"]
     assert guvenli.verdict is ReviewVerdict.SAFE

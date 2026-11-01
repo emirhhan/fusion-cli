@@ -12,6 +12,7 @@ ok tuşlu seçiciyle (`ui.picker.pick`) sürer. Yazma işi `/permissions add|rem
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,7 +88,7 @@ class PlainIO:
 
     async def ask(self, prompt: str) -> str | None:
         try:
-            return input(f"{prompt} ")
+            return await asyncio.to_thread(input, f"{prompt} ")
         except (EOFError, KeyboardInterrupt):
             return None
 
