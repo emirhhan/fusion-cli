@@ -22,7 +22,8 @@ describe("ApprovalModeMenu — Claude kapsamı ve disableAutoMode (#53, #85)", (
     render(<ApprovalModeMenu mode="security" onChange={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Manuel/ }));
     expect(screen.queryByRole("menuitemradio", { name: /Otomatik/ })).toBeNull();
-    expect(screen.getAllByRole("menuitemradio").length).toBe(APPROVAL_MODES.length - 1);
+    // auto gizli; bypass da Ayarlar anahtarı kapalıyken listelenmez (#442).
+    expect(screen.getAllByRole("menuitemradio").length).toBe(APPROVAL_MODES.length - 2);
     for (const mode of ["security", "edits", "plan"] as const) {
       expect(nextApprovalMode(mode)).not.toBe("auto");
     }

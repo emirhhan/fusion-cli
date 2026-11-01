@@ -210,8 +210,9 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.model === "nvidia_nim/nemotron")).toBe(true));
     expect(calls.find((c) => c.body.model === "nvidia_nim/nemotron")?.body).toEqual({ kaynak: "nim-free", model: "nvidia_nim/nemotron" });
     const kip = $("mode") as HTMLSelectElement;
-    expect(kip.selectedOptions[0].textContent).toBe("Otomatik");
-    expect([...kip.options].map((o) => o.value)).toEqual(["auto", "security", "edits", "plan", "bypass"]);
+    // Claude in Chrome'un üç modu (#434): Manuel onay / Otomatik onay / Tüm onayları atla.
+    expect(kip.selectedOptions[0].textContent).toBe("Otomatik onay");
+    expect([...kip.options].map((o) => o.value)).toEqual(["security", "auto", "bypass"]);
     kip.value = "security";
     fireEvent.change(kip);
     await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.mod === "security")).toBe(true));

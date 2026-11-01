@@ -50,12 +50,12 @@ export function useSessionWindows(
       // Olay veriyolu yoksa (kabuk kapanıyor) pencere eşlemesi sessizce devre dışı kalır.
       .catch(() => undefined);
     return () => { active = false; stop?.(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [enabled, events]);
 
   useEffect(() => {
     if (!enabled) return;
     for (const id of open.current) publish(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [enabled, sessions]);
 }
