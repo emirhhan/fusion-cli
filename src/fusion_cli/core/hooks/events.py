@@ -237,6 +237,11 @@ class HookSet:
     ignored_disable_layers: tuple[str, ...] = ()
     #: Oturumda bir kez kullanıcıya gösterilecek uyarılar (kullanımdan kalkan katman vb.).
     notices: tuple[str, ...] = ()
+    #: Ayar politikası (oturum boyu eklenen beceri kancalarına da uygulanır, Claude gibi):
+    #: `allowedHttpHookUrls`, `httpHookAllowedEnvVars` (`None` = tanımsız), `allowManagedHooksOnly`.
+    http_urls: tuple[str, ...] | None = None
+    http_env: tuple[str, ...] | None = None
+    managed_only: bool = False
 
     def for_event(self, event: HookEvent, subjects: Iterable[str] = ()) -> tuple[HookCommand, ...]:
         """Olaya ve eşleştiriciye uyan komutlar; aynı işleyici bir kez (`handler_key`)."""

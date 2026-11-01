@@ -27,12 +27,11 @@ Fusion'a özgü kapatma anahtarları: `runtime.hooks_enabled: false`, `FUSION_HO
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
 import sys
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.hooks.events import HTTP_HANDLER, HookCommand, HookSet, HookSkip
@@ -46,6 +45,14 @@ from .hook_parse import (
     REASON_UNKNOWN_EVENT,
     REASON_URL,
     parse_hooks_block,
+)
+from .hook_policy import (
+    REASON_HTTP_URL,
+    REASON_MANAGED_ONLY,
+    as_skip,
+    http_rejection,
+    narrow_env,
+    policy_filter,
 )
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
@@ -63,10 +70,13 @@ __all__ = [
     "REASON_EMPTY",
     "REASON_EVENT",
     "REASON_HANDLER",
+    "REASON_HTTP_URL",
+    "REASON_MANAGED_ONLY",
     "REASON_MCP",
     "REASON_UNKNOWN_EVENT",
     "REASON_URL",
     "parse_hooks_block",
+    "policy_filter",
 ]
 
 #: Fusion'ın eski kanca dosyası (kullanımdan kalktı; `~/.claude/settings.json` kullanın).
@@ -95,8 +105,6 @@ SESSIONEND_MAX_S = 60.0
 
 REASON_UNTRUSTED = "proje güvenilmiyor (fusion trust)"
 REASON_CLAUDE_OFF = "Claude kullanıcı kancaları kapalı (runtime.claude_hooks: false)"
-REASON_MANAGED_ONLY = "allowManagedHooksOnly: yalnız yönetilen kancalar çalışır"
-REASON_HTTP_URL = "adres allowedHttpHookUrls listesinde değil"
 NOTICE_FUSION_FILE = (
     "{path} kullanımdan kalktı; kancaları ~/.claude/settings.json `hooks` bloğuna taşıyın "
     "(bu sürümde hâlâ okunuyor)."
@@ -245,7 +253,7 @@ def _read_layer(
         default_timeout_s=default_timeout_s,
     )
     if layer.is_claude and not include_claude:
-        found.skipped.extend(_as_skip(command, REASON_CLAUDE_OFF) for command in commands)
+        found.skipped.extend(as_skip(command, REASON_CLAUDE_OFF) for command in commands)
         return
     trusted = not layer.requires_trust or not interactive or _is_trusted(layer, root)
     disable = data.get(DISABLE_ALL_KEY)
@@ -260,7 +268,7 @@ def _read_layer(
     if not trusted:
         if commands:
             found.untrusted.append(layer.name)
-        found.skipped.extend(_as_skip(command, REASON_UNTRUSTED) for command in commands)
+        found.skipped.extend(as_skip(command, REASON_UNTRUSTED) for command in commands)
         return
     _read_http_policy(found, data)
     if layer.is_managed:
@@ -288,17 +296,17 @@ def _finish(found: _Collected) -> HookSet:
     for command in found.commands:
         managed = command.source == LAYER_MANAGED
         if found.managed_only and not managed:
-            skipped.append(_as_skip(command, REASON_MANAGED_ONLY))
+            skipped.append(as_skip(command, REASON_MANAGED_ONLY))
             continue
         if user_disabled and has_managed and not managed:
             # Yönetilen kancaları kullanıcı/proje düzeyindeki disableAllHooks kapatamaz.
-            skipped.append(_as_skip(command, DISABLE_ALL_KEY))
+            skipped.append(as_skip(command, DISABLE_ALL_KEY))
             continue
-        reason = _http_rejection(command, found.http_urls)
+        reason = http_rejection(command, found.http_urls)
         if reason is not None:
-            skipped.append(_as_skip(command, reason))
+            skipped.append(as_skip(command, reason))
             continue
-        commands.append(_narrow_env(command, found.http_env))
+        commands.append(narrow_env(command, found.http_env))
     disabled = None
     if found.managed_disable:
         disabled = f"{DISABLE_ALL_KEY} ({LAYER_MANAGED})"
@@ -311,22 +319,10 @@ def _finish(found: _Collected) -> HookSet:
         tuple(found.untrusted),
         tuple(found.ignored_disable),
         tuple(found.notices),
+        http_urls=None if found.http_urls is None else tuple(found.http_urls),
+        http_env=None if found.http_env is None else tuple(found.http_env),
+        managed_only=found.managed_only,
     )
-
-
-def _http_rejection(command: HookCommand, allowed: list[str] | None) -> str | None:
-    if command.handler != HTTP_HANDLER or allowed is None:
-        return None
-    if any(fnmatch.fnmatchcase(command.command, pattern) for pattern in allowed):
-        return None
-    return REASON_HTTP_URL
-
-
-def _narrow_env(command: HookCommand, allowed: list[str] | None) -> HookCommand:
-    if command.handler != HTTP_HANDLER or allowed is None:
-        return command
-    names = tuple(name for name in command.allowed_env_vars if name in allowed)
-    return replace(command, allowed_env_vars=names)
 
 
 def untrusted_hook_files(root: Path) -> tuple[str, ...]:
@@ -344,12 +340,6 @@ def untrusted_hook_files(root: Path) -> tuple[str, ...]:
         if isinstance(block, Mapping) and any(block.values()):
             found.append(layer.path.relative_to(root).as_posix())
     return tuple(found)
-
-
-def _as_skip(command: HookCommand, reason: str) -> HookSkip:
-    return HookSkip(
-        command.event.value, command.matcher, command.command, reason, command.source, command.path
-    )
 
 
 def _is_trusted(layer: HookLayer, root: Path) -> bool:

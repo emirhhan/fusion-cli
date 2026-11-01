@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 
+from ...config.hook_policy import policy_filter
 from ...core.hooks.decision import is_failure
 from ...core.hooks.events import HookCommand, HookRun, HookSet, HookVerdict
 
@@ -20,10 +21,11 @@ def identity(command: HookCommand) -> tuple[str, str, str, str]:
 
 
 def merged(base: HookSet, extra: Sequence[HookCommand]) -> HookSet:
-    """Dosya katmanları + oturum boyu kancalar (kapatma kuralı ortaktır)."""
+    """Dosya katmanları + oturum boyu kancalar (kapatma kuralı ve ayar politikası ortaktır)."""
     if not extra:
         return base
-    return replace(base, commands=(*base.commands, *extra))
+    kept, skipped = policy_filter(base, extra)
+    return replace(base, commands=(*base.commands, *kept), skipped=(*base.skipped, *skipped))
 
 
 def added(current: Sequence[HookCommand], new: Iterable[HookCommand]) -> tuple[HookCommand, ...]:
