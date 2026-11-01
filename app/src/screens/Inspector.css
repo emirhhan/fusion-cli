@@ -262,3 +262,8 @@
 .inspector__state--error {
   color: var(--text-danger);
 }
+
+/* Tarayıcı sekmesinin iç kipi (#439): Önizleme / Canlı. */
+.inspector__modes { display: inline-flex; gap: 2px; margin: 0 0 6px; }
+.inspector__modes button { background: none; border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.12)); border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; }
+.inspector__modes button[aria-pressed="true"] { background: var(--surface-muted, rgba(0, 0, 0, 0.06)); font-weight: 600; }

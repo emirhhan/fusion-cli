@@ -902,7 +902,7 @@ Gereksinim: günlük ve ekran görüntüsü için `pip install 'fusion-cli[web]'
 
 ## 15b) Tarayıcı paneli: ajanın tarayıcısını canlı izle, devral, öğe seç
 
-Masaüstünde sağ paneldeki **Tarayıcı** sekmesi, ajanın `browser_*` araçlarıyla **aynı**
+Masaüstünde sağ paneldeki **Tarayıcı** sekmesinin **Canlı** kipi, ajanın `browser_*` araçlarıyla **aynı**
 tarayıcıyı gösterir (Claude Code masaüstündeki Browser pane karşılığı). Ajan bir site açınca
 sekme kendiliğinden öne gelir; tıkladığı, yazdığı her şey canlı görüntüde görünür. Tarayıcı
 turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
@@ -962,9 +962,10 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 - **Yerel adres izinleri:** panelde açtığın ya da bir turda yazdığın `localhost:port` paylaşılan
   tarayıcının izin kümesine girer ve tarayıcı kapanana kadar sonraki turlarda da izinli kalır
   (tur başına tarayıcıda her tur boş başlardı). Kümeyi sıfırlamak için **Tarayıcıyı kapat**.
-- **Henüz yok (#439):** Önizleme ve Tarayıcı Claude'daki gibi tek "Browser" sekmesinde
-  birleşmedi (iki sekme ayrı: Önizleme yerel sayfayı gömer, Tarayıcı ajanla paylaşılan Chromium'u
-  gösterir); "Always allow" kalıcı değil, oturumluktur.
+- **Tek bölme (#439):** Önizleme ve canlı tarayıcı Claude'daki tek "Browser" bölmesi gibi aynı
+  **Tarayıcı** sekmesindedir; sekmenin üstündeki **Önizleme / Canlı** seçimi kipi değiştirir
+  (⌘⇧B Önizleme kipini açar). Önizleme yerel sayfayı gömer, Canlı ajanla paylaşılan Chromium'u
+  gösterir. Fark: "Always allow" kalıcı değil, oturumluktur.
 - **Sınırlar:** panel tarayıcısı her zaman başsız çalışır (görüntü panelde; `browser.headless`
   tur başına tarayıcı içindir). Plan adımları ve alt ajanlar kendi ayrı tarayıcılarını kullanır,
   panelde görünmez. Açık panel oturumunda ajan başka profil yükleyemez; profili panelden seç.

@@ -9,8 +9,8 @@ describe("Inspector", () => {
   it("bağlamsal araçları erişilebilir sekmeler olarak sunar", () => {
     render(<Inspector />);
     expect(screen.getByRole("tablist", { name: "Denetçi araçları" })).toBeTruthy();
-    // Dosyalar, Değişiklikler, Terminal, Önizleme, Tarayıcı (P-045), Ajanlar.
-    expect(screen.getAllByRole("tab")).toHaveLength(6);
+    // Dosyalar, Değişiklikler, Terminal, Tarayıcı (Önizleme + canlı, #439), Ajanlar.
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByRole("tabpanel")).toBeTruthy();
   });
 
@@ -92,8 +92,23 @@ describe("Inspector", () => {
     const onActiveTabChange = vi.fn();
     render(<Inspector activeTab="terminal" onActiveTabChange={onActiveTabChange} />);
     expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("tab", { name: "Önizleme" }));
-    expect(onActiveTabChange).toHaveBeenCalledWith("preview");
+    fireEvent.click(screen.getByRole("tab", { name: "Tarayıcı" }));
+    expect(onActiveTabChange).toHaveBeenCalledWith("browser");
+  });
+
+  it("Önizleme ve canlı Tarayıcı tek sekmede, iç kip seçimiyle (#439)", () => {
+    const onActiveTabChange = vi.fn();
+    render(
+      <Inspector
+        activeTab="preview"
+        content={{ preview: <p>önizleme içeriği</p>, browser: <p>canlı içerik</p> }}
+        onActiveTabChange={onActiveTabChange}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Tarayıcı" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("önizleme içeriği")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Canlı" }));
+    expect(onActiveTabChange).toHaveBeenCalledWith("browser");
   });
 
 

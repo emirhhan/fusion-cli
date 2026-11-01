@@ -29,9 +29,16 @@ const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "files", label: "Dosyalar", icon: "files" },
   { id: "changes", label: "Değişiklikler", icon: "changes" },
   { id: "terminal", label: "Terminal", icon: "terminal" },
-  { id: "preview", label: "Önizleme", icon: "preview" },
+  // Claude Desktop'taki tek "Browser" bölmesi (#439): Önizleme ve canlı Tarayıcı aynı sekmede,
+  // içte "Önizleme / Canlı" seçimiyle. `preview` kimliği iç kip olarak yaşar (⌘⇧B onu açar).
   { id: "browser", label: "Tarayıcı", icon: "globe" },
 ];
+/** Tarayıcı sekmesinin iç kipleri. */
+const BROWSER_MODES: { id: InspectorTabId; label: string }[] = [
+  { id: "preview", label: "Önizleme" },
+  { id: "browser", label: "Canlı" },
+];
+const tabOf = (id: InspectorTabId): InspectorTabId => (id === "preview" ? "browser" : id);
 
 interface InspectorProps {
   activeTab?: InspectorTabId;
@@ -73,7 +80,7 @@ export function Inspector({
   useEffect(() => {
     if (collapsed) resizeCleanup.current();
   }, [collapsed]);
-  const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const activeIndex = tabs.findIndex((tab) => tab.id === tabOf(activeTab));
   const selectAt = (index: number) => {
     const tab = tabs[(index + tabs.length) % tabs.length];
     setActiveTab(tab.id);
@@ -97,6 +104,8 @@ export function Inspector({
   };
   // Saklı/eski bir sekme kimliği (kaldırılmış sekme) gelirse panel düşmez, ilk sekmeye döner (U1-62).
   const active = tabs[activeIndex] ?? tabs[0];
+  /** Çizilecek içerik: Tarayıcı sekmesinde iç kip (önizleme ya da canlı). */
+  const paneId: InspectorTabId = active.id === "browser" && activeTab === "preview" ? "preview" : active.id;
   const safeWidth = clampInspectorWidth(width);
   const safeHeight = clampInspectorHeight(height);
   const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -202,8 +211,17 @@ export function Inspector({
             <p className="inspector__state">Yükleniyor…</p>
           ) : status === "error" ? (
             <p className="inspector__state inspector__state--error" role="alert">{errorMessage}</p>
-          ) : active.id === "terminal" && content.terminal ? null : content[active.id] ? (
-            content[active.id]
+          ) : active.id === "terminal" && content.terminal ? null : content[paneId] ? (
+            <>
+              {active.id === "browser" && content.preview && content.browser && (
+                <div aria-label="Tarayıcı kipi" className="inspector__modes" role="group">
+                  {BROWSER_MODES.map((mode) => (
+                    <button aria-pressed={paneId === mode.id} key={mode.id} onClick={() => setActiveTab(mode.id)} type="button">{mode.label}</button>
+                  ))}
+                </div>
+              )}
+              {content[paneId]}
+            </>
           ) : (
             <div className="inspector__empty">
               <p>Henüz bir proje seçilmedi.</p>
