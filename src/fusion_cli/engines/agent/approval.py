@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Protocol
 
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
-from ...config.permissions import is_allowed
 from ...core.desktop_settings import DesktopTarget
 from ...core.errors import ConfigError
 from ...core.tools import (
@@ -49,18 +48,33 @@ from ...core.tools import (
 )
 from ...tools import desktop_policy
 from ...tools.accept_edits_scope import accept_edits_allows
-from ...tools.auto_policy import auto_risk, is_read_only_command
-from ...tools.command_paths import escapes_project
-from ...tools.command_policy import is_unattended_safe
 from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
-from ...tools.delete_preview import delete_caution, describe_delete, script_danger
 from ...tools.outside_reads import read_roots
-from ...tools.permission_match import RuleMatch, evaluate, writes_files
+from ...tools.permission_match import RuleMatch, evaluate
 from ...tools.protected_paths import protected_path_reason
-from ...tools.safe_delete import simple_rm_targets
-from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
-from ...tools.script_chain import script_chain_risk
+from ...tools.safety import danger_reason
 from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
+from .approval_modes import (
+    CYCLE_MODES as CYCLE_MODES,
+)
+from .approval_modes import (
+    MODE_STRICTNESS as MODE_STRICTNESS,
+)
+from .approval_modes import (
+    ApprovalMode as ApprovalMode,
+)
+from .approval_modes import (
+    may_run_unasked_commands as may_run_unasked_commands,
+)
+from .approval_modes import (
+    next_mode as next_mode,
+)
+from .approval_modes import (
+    parse_mode as parse_mode,
+)
+from .approval_modes import (
+    strictest_mode as strictest_mode,
+)
 from .auto_guard import AutoReviewState
 from .auto_switch import AutoSwitch, apply_auto_switch, with_auto_offer
 from .claude_dir_session import claude_dir_key, claude_dir_label
@@ -68,6 +82,18 @@ from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
 from .read_approval import mark_outside_read
 from .sandbox_approval import apply_sandbox_policy
+from .shell_approval import (
+    OUTSIDE_WRITE_BLOCKED as OUTSIDE_WRITE_BLOCKED,
+)
+from .shell_approval import (
+    _outside_write_dir as _outside_write_dir,
+)
+from .shell_approval import (
+    _outside_write_targets as _outside_write_targets,
+)
+from .shell_approval import (
+    _shell_request as _shell_request,
+)
 from .web_approval import adjust_web_request, web_scope
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
@@ -89,95 +115,6 @@ REMOTE_SESSION_REASON = (
 _UNATTENDED_EFFECTS = frozenset(
     {ToolEffect.LOCAL, ToolEffect.REMOTE_READ, ToolEffect.REMOTE_INTERACT}
 )
-
-
-class ApprovalMode(Enum):
-    """Kullanıcının seçtiği onay politikası (Claude'un izin kipleri)."""
-
-    AUTO = "auto"
-    ACCEPT_EDITS = "edits"
-    SECURITY = "security"
-    PLAN = "plan"
-    BYPASS = "bypass"
-    DONT_ASK = "dontAsk"
-
-
-#: Shift+Tab döngüsü (Claude'daki sıra). "İzinleri atla" BİLEREK yok: tek tuşla
-#: yanlışlıkla açılmamalı; `/bypass` ile açıkça seçilir.
-CYCLE_MODES = (
-    ApprovalMode.AUTO,
-    ApprovalMode.SECURITY,
-    ApprovalMode.ACCEPT_EDITS,
-    ApprovalMode.PLAN,
-)
-
-
-def next_mode(
-    mode: ApprovalMode, *, bypass_available: bool = False, auto_available: bool = True
-) -> ApprovalMode:
-    """Shift+Tab döngüsünde sıradaki kip (Claude, #73/#85).
-
-    Sıra: default → acceptEdits → plan → [bypassPermissions] → [auto] → default. Bypass
-    yalnız oturum onunla (ya da `--allow-dangerously-skip-permissions`/kullanıcı ayarı
-    `defaultMode: bypassPermissions` ile) başladıysa, auto yalnız `disableAutoMode` yoksa
-    döngüdedir. dontAsk hiçbir zaman döngüde değildir.
-    """
-    cycle = [ApprovalMode.SECURITY, ApprovalMode.ACCEPT_EDITS, ApprovalMode.PLAN]
-    if bypass_available:
-        cycle.append(ApprovalMode.BYPASS)
-    if auto_available:
-        cycle.append(ApprovalMode.AUTO)
-    if mode not in cycle:
-        return cycle[0] if mode is ApprovalMode.AUTO or not auto_available else ApprovalMode.AUTO
-    return cycle[(cycle.index(mode) + 1) % len(cycle)]
-
-
-def may_run_unasked_commands(mode: ApprovalMode) -> bool:
-    """Kip, onay sorusu olmadan arka plan komutu (dev sunucusu) çalıştırmaya izin verir mi?
-
-    SECURITY ("okuma dışı her şey sorulur") ve PLAN (hiçbir değişiklik yok) vermez.
-    """
-    return mode not in (ApprovalMode.SECURITY, ApprovalMode.PLAN, ApprovalMode.DONT_ASK)
-
-
-#: Kipin elle yazılabilen öteki adları (Claude'daki adlar dahil).
-_MODE_ALIASES = {
-    "dontask": ApprovalMode.DONT_ASK,
-    "dont-ask": ApprovalMode.DONT_ASK,
-    "manual": ApprovalMode.SECURITY,
-    "manuel": ApprovalMode.SECURITY,
-    "default": ApprovalMode.SECURITY,
-    "accept-edits": ApprovalMode.ACCEPT_EDITS,
-    "acceptedits": ApprovalMode.ACCEPT_EDITS,
-    "bypass-permissions": ApprovalMode.BYPASS,
-    "bypasspermissions": ApprovalMode.BYPASS,
-}
-
-
-def parse_mode(raw: str) -> ApprovalMode:
-    """Kip adını çöz; bilinmiyorsa `ValueError`."""
-    value = raw.strip().lower()
-    return _MODE_ALIASES.get(value) or ApprovalMode(value)
-
-
-#: Kiplerin sıkılık sırası (küçük = gevşek). Alt ajanın `permissionMode` alanı üst ajanın
-#: kipini yalnız bu sırada YUKARI taşıyabilir (P-034): `bypass` miras alınmaz, `plan`
-#: isteyen alt ajan auto kipteki üstten daha gevşek olamaz.
-MODE_STRICTNESS: dict[ApprovalMode, int] = {
-    ApprovalMode.BYPASS: 0,
-    ApprovalMode.AUTO: 1,
-    ApprovalMode.ACCEPT_EDITS: 2,
-    ApprovalMode.SECURITY: 3,
-    ApprovalMode.DONT_ASK: 3,
-    ApprovalMode.PLAN: 4,
-}
-
-
-def strictest_mode(parent: ApprovalMode, requested: ApprovalMode | None) -> ApprovalMode:
-    """Üst kip ile istenen kipten SIKI olanı döndür; istek yoksa üst kip."""
-    if requested is None:
-        return parent
-    return requested if MODE_STRICTNESS[requested] > MODE_STRICTNESS[parent] else parent
 
 
 class Decision(Enum):
@@ -705,13 +642,6 @@ def build_request(
     return adjust_web_request(_apply_rule(request, match))
 
 
-#: Kök-dışı yazma engeli açıkken (P-002) modele dönen gerekçe.
-OUTSIDE_WRITE_BLOCKED = (
-    "proje kökü dışına yazma kapalı (ayar: runtime.block_writes_outside_root): {yol}. "
-    "Gerekiyorsa kullanıcı `--add-dir <dizin>` ile ya da Ayarlar › İzinler'den açar"
-)
-
-
 def _apply_rule(request: ApprovalRequest, match: RuleMatch | None) -> ApprovalRequest:
     """Kural kararını isteğe işle: deny → pre_denied, ask → pre_ask, allow → pre_allowed."""
     if match is None:
@@ -731,103 +661,6 @@ def _remote_risk(effect: ToolEffect) -> str:
     if effect is ToolEffect.REMOTE_SESSION:
         return REMOTE_SESSION_REASON
     return REMOTE_WRITE_REASON
-
-
-def _outside_write_dir(
-    tool: Tool, args: ToolArgs, root: Path | None, extra_roots: tuple[Path, ...]
-) -> str | None:
-    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini.
-
-    Yazan araç listesi `write_targets` ile ortaktır (A1-06, P-002): `download_file`,
-    `extract_archive` ve görsel araçları da proje dışına yazıyorsa sorulur.
-    """
-    if root is None:
-        return None
-    targets = write_targets(tool.name, args)
-    if not targets:
-        return None
-    raw = targets[0]
-    try:
-        path = Path(raw).expanduser()
-        target = (path if path.is_absolute() else root / path).resolve()
-        allowed = (root.resolve(), *(extra.resolve() for extra in extra_roots))
-    except (OSError, RuntimeError, ValueError):
-        # Çözümlenemeyen yol güvenli tarafta DIŞARIDA sayılır.
-        return str(raw)
-    if any(target == base or base in target.parents for base in allowed):
-        return None
-    return str(target.parent)
-
-
-def _shell_request(
-    tool: Tool,
-    args: ToolArgs,
-    command: str,
-    allowed_commands: frozenset[str],
-    effect: ToolEffect,
-    root: Path | None,
-    touched: Collection[Path] = (),
-    *,
-    rules: PermissionRuleSet | None = None,
-) -> ApprovalRequest:
-    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli.
-
-    Kök-dışı yazma engeli (P-002) kabuk yönlendirmesini de kapatır: `echo x > ~/.zshrc`,
-    `| tee /etc/hosts`. Ölçüldü (31 Ekim): engel yalnız dosya araçlarında uygulanıyordu;
-    Ayarlar'daki "onay bile sorulmadan engellenir" sözü kabukta tutmuyordu.
-    """
-    danger = danger_reason(tool.name, args)
-    trashed = simple_rm_targets(command) is not None
-    if trashed and danger in TRASHABLE_DELETE_REASONS:
-        # Sade `rm` kalıcı silmez, Fusion çöpüne taşır (`shell._guarded_delete`).
-        danger = None
-    home = Path.home()
-    if danger is None and root is not None:
-        danger = script_danger(command, root, home)
-    protected = protected_path_reason(tool.name, args, root, is_shell=True)
-    danger = danger or protected
-    caution = delete_caution(command, root, home) if root is not None else None
-    target = describe_delete(command, root, home) if root is not None else ""
-    chain = script_chain_risk(command, root, touched)
-    risk = caution or auto_risk(command, root) or chain
-    if danger is not None and target:
-        danger = f"{danger}. {target}"
-    note = ". ".join(part for part in (risk, target) if part) or None
-    pre_denied = None
-    if rules is not None and rules.block_writes_outside_root and root is not None:
-        disari = _outside_write_targets(command, root)
-        if disari:
-            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=disari[0])
-    return ApprovalRequest(
-        tool=tool,
-        args=args,
-        danger=danger,
-        # Tek kural motoru (#86): kural kümesi varsa Bash allow kararını yalnız
-        # `permission_match.evaluate` verir; eski birebir liste yalnız kuralsız çağıranda.
-        pre_allowed=rules is None and is_allowed(command, allowed_commands),
-        unattended_safe=(trashed and caution is None)
-        or (chain is None and is_unattended_safe(command, root)),
-        effect=effect,
-        risk=risk,
-        read_only=is_read_only_command(command),
-        note=note,
-        pre_denied=pre_denied,
-        protected=protected,
-    )
-
-
-def _outside_write_targets(command: str, root: Path) -> tuple[str, ...]:
-    """Komutun yönlendirme/`tee` ile proje kökü DIŞINA yazdığı hedefler.
-
-    Bilinmeyen değişken (`> $OUT`) dışarı sayılmaz (`auto_policy._outside` ile aynı kural);
-    `$HOME`/`~` ve mutlak/`..` yollar sayılır.
-    """
-    return tuple(
-        target
-        for target in writes_files(command)
-        if ("$" not in target or "$HOME" in target or "${HOME" in target)
-        and escapes_project("tee", [target], root)
-    )
 
 
 async def _ask_and_remember(
