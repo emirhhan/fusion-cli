@@ -217,6 +217,12 @@ class ReplState:
     vim_state: str = field(default="", kw_only=True)
     #: `fusion "query"` ile verilen ilk istem (#204); yüzey açılınca bir kez gönderilir.
     initial_prompt: str = field(default="", kw_only=True)
+    #: Etkin yüzey (`inline`/`fullscreen`); boşsa görünüm oturum içinde değişemez (borulu, #232).
+    surface: str = field(default="", kw_only=True)
+    #: `/tui <kip>` isteği (#232): yüzey kapanınca konuşma korunarak bu kipte yeniden açılır.
+    surface_switch: str = field(default="", kw_only=True)
+    #: Görünüm değişiminden sonra tam ekranın açılışta basacağı not (#232).
+    surface_notice: str = field(default="", kw_only=True)
     #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
     side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
@@ -356,6 +362,11 @@ class ReplState:
         """`fusion "query"` istemini bir kez döndür ve temizle (#204)."""
         text, self.initial_prompt = self.initial_prompt, ""
         return text
+
+    def take_surface_switch(self) -> str:
+        """`/tui` ile istenen yeni yüzeyi bir kez döndür ve temizle (#232)."""
+        wanted, self.surface_switch = self.surface_switch, ""
+        return wanted
 
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""

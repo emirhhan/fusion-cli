@@ -1246,6 +1246,12 @@ def _print_startup(
         session.tui.console.print(bildirim)
     if has_untrusted_permissions(state.root):
         session.tui.console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    if notice := getattr(state, "surface_notice", ""):
+        # `/tui fullscreen` (#232): konuşma sürüyor; son oturum listesi yeniden basılmaz.
+        state.surface_notice = ""
+        session.tui.console.print(f"[{theme.DIM}]{escape(notice)}[/{theme.DIM}]")
+        session.tui.sync_conversation()
+        return
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)
@@ -1285,7 +1291,9 @@ async def run_tui_repl(
         await session.tui.application.run_async()
     finally:
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
-        await state.child_runs.close()
+        if not getattr(state, "surface_switch", ""):
+            # `/tui default` (#232): alt ajanlar öteki yüzeyde sürer; kapanış run_repl'de.
+            await state.child_runs.close()
         await session.close_status_line()
         session.tui.restore_wheel_modes()
         cron_watcher.cancel()

@@ -238,13 +238,47 @@ async def _run_surface(
     console: Console,
     resume: session_resume.ResumeTarget | None,
 ) -> int:
-    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
+    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır.
+
+    `/tui <kip>` (#232) yüzeyi kapatıp `state.surface_switch` bırakırsa aynı durum
+    (konuşma, izin kipi, alt ajanlar) öteki yüzeyde hemen yeniden açılır.
+    """
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
     inline_requested = (
         os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
     )
-    if not inline_requested and is_interactive_terminal():
+    interactive = is_interactive_terminal()
+    mode = "fullscreen" if not inline_requested and interactive else "inline"
+    switched = False
+    while True:
+        state.surface = mode if interactive else ""
+        code = await _run_one_surface(state, config, console, resume, mode, switched=switched)
+        wanted = state.take_surface_switch()
+        if not wanted or code != 0:
+            return code
+        mode, resume, switched = wanted, None, True
+        state.running = True
+        notice = messages.TUI_MODE_SWITCHED.format(
+            mode=view_commands.TUI_DISPLAY.get(mode, mode), count=len(state.history)
+        )
+        if mode == "inline":
+            console.print(f"[{theme.DIM}]{escape(notice)}[/{theme.DIM}]")
+        else:
+            state.surface_notice = notice
+
+
+async def _run_one_surface(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+    mode: str,
+    *,
+    switched: bool = False,
+) -> int:
+    """Tek bir yüzeyi çalıştır; `switched` görünüm değişiminden sonraki açılıştır (#232)."""
+    if mode == "fullscreen":
         from .tui_loop import run_tui_repl
 
         # Sürdürme bilgisi yalnız varsa geçirilir: TUI giriş noktasının eski çağrı
@@ -252,7 +286,18 @@ async def _run_surface(
         if resume is None:
             return await run_tui_repl(state, console)
         return await run_tui_repl(state, console, resume=resume)
+    return await _run_inline(state, config, console, resume, switched=switched)
 
+
+async def _run_inline(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+    *,
+    switched: bool = False,
+) -> int:
+    """Satır içi (default) yüzey."""
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
     registry = build_registry(state.home, skills=lambda: state.capabilities)
@@ -275,19 +320,8 @@ async def _run_surface(
         background.spawn(_warm_up(state))
 
     reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
-    banner.print_welcome(console, session_info(state))
-    if resume is not None:
-        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
-    bildirim = apprentice_switch_notice(state.config)
-    if bildirim:
-        console.print(bildirim)
-        console.print()
-    if has_untrusted_permissions(state.root):
-        console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
-    recent = history_view.render_recent(state.home, state.root)
-    if recent:
-        console.print(recent, highlight=False)
-        console.print()
+    if not switched:
+        _print_inline_welcome(state, console, resume)
     _sync_status_bar(reader, state, background)
     # Claude Code (#192): durum satırı betiği oturum başında da çalışır.
     await _show_status_line(reader, state, console)
@@ -339,6 +373,25 @@ async def _run_surface(
         await browser_command.shutdown(state)
         await _shutdown(background, console)
     return 0
+
+
+def _print_inline_welcome(
+    state: ReplState, console: Console, resume: session_resume.ResumeTarget | None
+) -> None:
+    """Satır içi açılış kutusu, sürdürme notu, uyarılar ve son oturumlar."""
+    banner.print_welcome(console, session_info(state))
+    if resume is not None:
+        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
+    bildirim = apprentice_switch_notice(state.config)
+    if bildirim:
+        console.print(bildirim)
+        console.print()
+    if has_untrusted_permissions(state.root):
+        console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    recent = history_view.render_recent(state.home, state.root)
+    if recent:
+        console.print(recent, highlight=False)
+        console.print()
 
 
 #: Zamanlayıcı vadesi bu sıklıkla yoklanır; görev en az 1 dakikalık olduğundan yeter.
