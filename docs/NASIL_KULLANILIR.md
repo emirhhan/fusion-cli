@@ -1249,9 +1249,9 @@ iken otomatik kip denetçisi karar verir (onaylanan çalışır, reddedilen enge
 
 Plan hazır olunca ajan planı `exit_plan_mode(plan)` aracıyla (Claude `ExitPlanMode`) sunar;
 plan Claude Code ile aynı yerde, `~/.claude/plans/<sohbet>.md` dosyasına yazılır (`plansDirectory`
-ayarıyla değişir; göreli yol proje köküne göre; eski `~/.config/fusion-cli/plans` okunmaya devam eder) (`runtime.plan_files: false`
-ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
-ve "Plan hazır — uygulansın mı?" kartı çıkar:
+ayarıyla değişir; göreli yol proje köküne göre; eski `~/.config/fusion-cli/plans` okunmaya devam eder; dosya yazılamazsa kart çıkmaz, plan
+sohbette durur; eski `runtime.plan_files: false` Claude'da olmadığından yok sayılır ve bir kez
+uyarılır) ve "Plan hazır — uygulansın mı?" kartı çıkar:
 
 - **Evet, ve otomatik kipi kullan** (Claude "Yes, and use auto mode") → `auto` kipine geçer ve
   planı uygulamaya başlar. Otomatik kip kapalıysa (`disableAutoMode`) bu seçenek **Evet,
@@ -1261,8 +1261,8 @@ ve "Plan hazır — uygulansın mı?" kartı çıkar:
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
 
 Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
-başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
-yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum izinleri korunur;
+başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan Claude'daki gibi eskisinin
+üzerine yazılır (eski `.onceki.md` yedeği kalktı). Kabulde oturum izinleri korunur;
 adsız oturuma plandan başlık verilir; uygulama görevi plan dosyasının yolunu taşır. Kart açıkken **Ctrl+G** (Claude Code ile aynı) planı `VISUAL`/`EDITOR` ile açar; editör
 kapanınca kart düzenlenmiş planla yeniden gelir. Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,

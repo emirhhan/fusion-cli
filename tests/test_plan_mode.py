@@ -141,7 +141,8 @@ def test_basarisiz_tur_sunulan_plani_yazmaz(tmp_path: Path) -> None:
     assert not any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
-def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
+def test_yeni_plan_eskisinin_uzerine_yazilir_yedek_yok(tmp_path: Path) -> None:
+    """Claude (#354): plan dosyası üzerine yazılır; `.onceki.md` yedeği yok."""
     deps = _deps(tmp_path, RecordingSink())
     _sun(deps, "# Plan v1\n1. a")
     plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
@@ -149,16 +150,16 @@ def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
     yol = plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
 
     assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan v2\n1. b"
-    yedek = plan_mode.previous_plan_path(deps.conversation_id)
-    assert yedek.read_text(encoding="utf-8") == "# Plan v1\n1. a"
+    assert sorted(item.name for item in yol.parent.iterdir()) == [yol.name]
 
 
-def test_plan_dosyasi_ayarla_kapatilabilir(tmp_path: Path) -> None:
+def test_plan_files_kapali_ayari_yok_sayilir(tmp_path: Path) -> None:
+    """`runtime.plan_files` Claude'da yok (#354): kullanımdan kalkan ayar, plan yine yazılır."""
     sink = RecordingSink()
     deps = _deps(tmp_path, sink, runtime={"plan_files": False})
     _sun(deps, "# Plan")
-    assert plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True) is None
-    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
+    assert plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True) is not None
+    assert any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
 def _plan_sunan_saglayici(plan: str) -> ScriptedProvider:
@@ -195,19 +196,6 @@ async def test_run_agent_basliklı_cevap_araçsız_kart_acmaz(monkeypatch, tmp_p
     )
 
     assert sonuc.plan_path is None and plan_mode.read_plan("s-13") is None
-
-
-async def test_run_agent_dosya_kapaliyken_plan_yolu_tasimaz(monkeypatch, tmp_path: Path) -> None:
-    from fusion_cli.engines.agent import loop as agent_loop
-
-    provider = _plan_sunan_saglayici("# Plan\n1. a")
-    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
-    kapali = await run_agent(
-        "planla",
-        _deps(tmp_path, RecordingSink(), conversation_id="s-12", runtime={"plan_files": False}),
-        plan_mode=True,
-    )
-    assert kapali.ok and kapali.plan_path is None
 
 
 async def test_exit_plan_mode_plan_kipi_disinda_hata_verir(tmp_path: Path) -> None:

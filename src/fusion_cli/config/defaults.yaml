@@ -483,7 +483,7 @@ runtime:
   # Eski "auto" değeri off olarak okunur.
   workflow_mode: "off"
   workflow_max_model_calls: 12
-  # Plan kipinde biten turun planı plans/<sohbet>.md dosyasına yazılır (/plan goster, /plan ac).
+  # Kullanımdan kalktı (Claude Code'da yok): plan her zaman plansDirectory altına yazılır; false yok sayılır.
   plan_files: true
   # Claude useAutoModeDuringPlan: plan kipinde salt okunur olmayan kabuk komutuna otomatik
   # kip sınıflandırıcısı karar verir (onaylanan çalışır, reddedilen engellenir); false = sorulur.

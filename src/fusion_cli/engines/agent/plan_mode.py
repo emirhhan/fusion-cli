@@ -11,11 +11,14 @@ planı ancak sohbet geçmişinden geri kaydırarak bulabiliyordu.
 
 Claude Code'daki gibi plan `exit_plan_mode` aracıyla açıkça sunulur (#317); araç
 çağrılmayan tur (soru, sohbet) plan dosyasına dokunmaz ve kart açılmaz. Yeni plan
-eskisinin üzerine yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır.
+Claude'daki gibi eskisinin üzerine yazılır (#354). Eski Fusion davranışı (1 Kasım öncesi):
+eski plan `<sohbet>.onceki.md` olarak saklanıyordu ve `runtime.plan_files: false` dosyayı
+kapatıyordu; Claude'da ikisi de yok — ayar kullanımdan kalktı, okunur ve bir kez uyarılır.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,10 +35,8 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 #: Sohbet kimliği boşsa (tek atışlık `fusion agent`) kullanılan dosya adı.
 _DEFAULT_STEM = "oturum"
-#: Üzerine yazılan önceki planın saklandığı dosya eki.
-_PREVIOUS_SUFFIX = ".onceki.md"
-
-
+_LOG = logging.getLogger(__name__)
+_PLAN_FILES_WARNED = False
 def _stem(conversation_id: str) -> str:
     return _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
 
@@ -45,24 +46,24 @@ def plan_path(conversation_id: str, root: Path | None = None) -> Path:
     return plans_directory(root) / f"{_stem(conversation_id)}.md"
 
 
-def previous_plan_path(conversation_id: str, root: Path | None = None) -> Path:
-    """Üzerine yazılan önceki planın yedeği (`<sohbet>.onceki.md`)."""
-    path = plan_path(conversation_id, root)
-    return path.with_name(path.stem + _PREVIOUS_SUFFIX)
-
-
 def save_plan(conversation_id: str, markdown: str, root: Path | None = None) -> Path:
-    """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır, eskisi `.onceki.md`ye alınır."""
+    """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır ve üzerine yazılır (Claude)."""
     path = plan_path(conversation_id, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        previous = path.read_text(encoding="utf-8")
-    except OSError:
-        previous = None
-    if previous is not None and previous != markdown:
-        previous_plan_path(conversation_id, root).write_text(previous, encoding="utf-8")
     path.write_text(markdown, encoding="utf-8")
     return path
+
+
+def _warn_plan_files_once(deps: AgentDeps) -> None:
+    """`runtime.plan_files: false` Claude'da yok (#354): yok sayılır, süreçte bir kez uyarılır."""
+    global _PLAN_FILES_WARNED
+    if deps.config.runtime.plan_files or _PLAN_FILES_WARNED:
+        return
+    _PLAN_FILES_WARNED = True
+    _LOG.warning(
+        "runtime.plan_files kullanımdan kalktı ve yok sayılıyor: Claude Code planı her zaman "
+        "plansDirectory altına yazar."
+    )
 
 
 def read_plan(conversation_id: str, root: Path | None = None) -> str | None:
@@ -96,8 +97,8 @@ def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> P
     """`exit_plan_mode` ile onaya sunulan planı plan dosyasına yaz ve olayını yayınla.
 
     Claude Code'daki gibi plan YALNIZ araçla sunulur (#317): araç çağrılmadıysa (soru,
-    sohbet, yarım keşif) dosyaya dokunulmaz ve kart açılmaz. `runtime.plan_files`
-    kapalıyken ya da başarısız turda da yazılmaz. Yazma hatası turu düşürmez.
+    sohbet, yarım keşif) dosyaya dokunulmaz ve kart açılmaz. Başarısız turda da yazılmaz.
+    Yazma hatası turu düşürmez.
     """
     switch = getattr(deps.tool_context, "plan_mode_switch", None)
     if switch is None:
@@ -105,8 +106,9 @@ def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> P
     submitted = switch.take_plan()
     if submitted is None or not submitted.strip():
         return None
-    if not (plan_mode or switch.entered) or not outcome.ok or not deps.config.runtime.plan_files:
+    if not (plan_mode or switch.entered) or not outcome.ok:
         return None
+    _warn_plan_files_once(deps)
     try:
         path = save_plan(deps.conversation_id, submitted, deps.tool_context.root)
     except OSError:
