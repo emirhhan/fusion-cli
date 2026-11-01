@@ -167,18 +167,13 @@ def test_deny_kurali_sarmalayici_ve_mutlak_yolla_asilamaz(tmp_path, komut):
     assert sonuc is not None and sonuc.decision is PermissionDecision.DENY, komut
 
 
-def test_sarmalayici_icindeki_komut_allow_icin_de_sayilir(tmp_path):
+def test_sarmalayici_allow_tarafinda_soyulur_mutlak_yol_acilmaz(tmp_path):
+    """Claude (#58): `timeout`/`nice`… soyulur; `/bin/ls` `Bash(ls *)` ile eşleşmez."""
     kume = _kume(("Bash(ls *)", "allow"))
-    # Dış sarmalayıcı kurala uymuyor: izin verilmez (yasak da değil).
-    assert evaluate(kume, "run_shell", {"command": "timeout 5 ls -la"}, tmp_path) is None
-    kume = _kume(("Bash(ls *)", "allow"), ("Bash(timeout *)", "allow"))
     assert evaluate(kume, "run_shell", {"command": "timeout 5 ls -la"}, tmp_path).decision is (
         PermissionDecision.ALLOW
     )
-    # Mutlak yol taban adıyla eşlenir.
-    assert evaluate(kume, "run_shell", {"command": "/bin/ls -la"}, tmp_path).decision is (
-        PermissionDecision.ALLOW
-    )
+    assert evaluate(kume, "run_shell", {"command": "/bin/ls -la"}, tmp_path) is None
 
 
 # --- Dosya kalıpları ------------------------------------------------------------ #

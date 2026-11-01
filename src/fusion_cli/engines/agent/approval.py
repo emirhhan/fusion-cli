@@ -750,7 +750,9 @@ def _shell_request(
         tool=tool,
         args=args,
         danger=danger,
-        pre_allowed=is_allowed(command, allowed_commands),
+        # Tek kural motoru (#86): kural kümesi varsa Bash allow kararını yalnız
+        # `permission_match.evaluate` verir; eski birebir liste yalnız kuralsız çağıranda.
+        pre_allowed=rules is None and is_allowed(command, allowed_commands),
         unattended_safe=(trashed and caution is None)
         or (chain is None and is_unattended_safe(command, root)),
         effect=effect,

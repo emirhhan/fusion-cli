@@ -44,6 +44,7 @@ from ..config.permission_rules import (
 )
 from ..core.tools import ToolFamily, tool_family
 from .auto_policy import command_words, nested_command, written_files
+from .bash_allow import allowing_rule
 from .permission_params import param_rule_verdict
 from .permission_paths import (
     absolute,
@@ -187,20 +188,9 @@ def _evaluate_shell(
         return None
     if _SUBSTITUTION.search(command) or not _writes_allowed(rules, command, root):
         return None
-    allowed: RuleMatch | None = None
-    for segment in segments:
-        hit = next(
-            (
-                r
-                for r in shell_rules
-                if r.decision is PermissionDecision.ALLOW and _spec_prefix(r, segment)
-            ),
-            None,
-        )
-        if hit is None:
-            return None
-        allowed = allowed or RuleMatch(hit, PermissionDecision.ALLOW)
-    return allowed
+    # Allow: Claude'un soyma/zincir kuralı (#58, #72) — `tools.bash_allow`.
+    hit = allowing_rule(shell_rules, command)
+    return None if hit is None else RuleMatch(hit, PermissionDecision.ALLOW)
 
 
 def _shell_file_rules(
