@@ -67,3 +67,11 @@ PRINT_SUBAGENT_APPEND_CONFLICT = (
     "Error: --append-subagent-system-prompt and --append-subagent-system-prompt-file "
     "cannot be used together."
 )
+PRINT_MODEL_CURRENT = "Geçerli model: {model}"
+PRINT_MODEL_SET = "Model ayarlandı: {model}"
+PRINT_EFFORT_CURRENT = "Geçerli effort: {effort}"
+PRINT_EFFORT_SET = "Effort ayarlandı: {effort}"
+PRINT_MCP_ROW = "{name} ({transport}): {status}"
+PRINT_MCP_CONFIGURED = "yapılandırıldı"
+PRINT_MCP_FAILED = "yüklenemedi — {message}"
+PRINT_MCP_NONE = "Yapılandırılmış MCP sunucusu yok."

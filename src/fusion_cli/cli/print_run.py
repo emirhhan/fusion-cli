@@ -55,6 +55,7 @@ from .print_session import (
     resolve_print_session,
     snapshot_plan,
 )
+from .print_builtins import apply_builtin
 from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
@@ -180,6 +181,8 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
         _warn(texts.PRINT_NO_PROMPT)
         return 1
     run.capabilities = _catalog(run)
+    if not request.disable_slash and (reply := apply_builtin(run, task)) is not None:
+        return _finish(run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ())
     if not request.disable_slash:
         run.slash = expand_slash(
             task,

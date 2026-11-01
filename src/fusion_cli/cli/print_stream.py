@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from ..engines.agent.loop import AgentOutcome
 from ..ui import print_messages as texts
 from . import sdk_messages as sdk
+from .print_builtins import apply_builtin
 from .print_control import ControlChannel
 
 if TYPE_CHECKING:
@@ -35,6 +36,10 @@ def stream_turns(run: _Run) -> int:
         _apply_controls(run, channel)
         if run.plan.request.replay_user:
             stream.write(sdk.user_message(run.session.session_id, raw))
+        reply = None if run.plan.request.disable_slash else apply_builtin(run, task)
+        if reply is not None:
+            code = _finish(run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ())
+            continue
         try:
             code = _finish(run, task, *_turn(run, task))
         except asyncio.CancelledError:

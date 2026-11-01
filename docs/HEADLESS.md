@@ -146,6 +146,13 @@ bağlamına, argüman göreve; `allowed-tools`/`disallowed-tools` turu daraltır
 arayüze özgü komutlar (`/clear`, `/resume`…) Claude'daki gibi `/<ad> isn't available in this
 environment.` cevabını verir. `--disable-slash-commands` genişletmeyi kapatır.
 
+Değer alan yerleşik komutlar modele gitmeden cevaplanır: `/model <takma ad|kimlik>` ve
+`/effort <seviye>` bu koşunun (stream-json'da sonraki turların) ayarıdır, argümansız biçimleri
+geçerli değeri yazar; `/config yol=değer` Fusion'ın nokta yollu ayarını kullanıcı
+yapılandırmasına kalıcı yazar (REPL'deki `/config yol=değer` ile aynı; argümansız `/config`
+menüsü `-p`'de yok); `/output-style <stil>` stili seçer, `/output-style` listeler; `/mcp`
+argümansız sunucuların metin özetini basar.
+
 Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`,
 `--no-memory` (belleği kapatır; Claude'da bellek `--bare` ya da ayarla kapanır).
 
