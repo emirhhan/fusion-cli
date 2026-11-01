@@ -64,7 +64,6 @@ from ...engines.agent.hook_text import context_reminder
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...engines.hooks.notify import notifying
 from ...memory.factory import Memory
-from .hook_open import open_hooks
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
 from ...observability.usage_log import open_usage_log
@@ -111,6 +110,7 @@ from .commands import (
     renders_itself,
 )
 from .completion import agent_names
+from .hook_open import open_hooks
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
