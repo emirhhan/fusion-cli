@@ -106,6 +106,8 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "chrome_navigate": ToolFamily.BROWSER,
     "chrome_screenshot": ToolFamily.BROWSER,
     "chrome_action": ToolFamily.BROWSER,
+    "chrome_javascript": ToolFamily.BROWSER,
+    "chrome_batch": ToolFamily.BROWSER,
     "desktop_apps": ToolFamily.DESKTOP,
     "desktop_windows": ToolFamily.DESKTOP,
     "desktop_background_windows": ToolFamily.DESKTOP,

@@ -59,6 +59,7 @@ from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
+from .chrome_batch_approval import BATCH_TOOL, apply_batch
 from .desktop_access import ACCESS_TOOL, apply_access
 from .sandbox_approval import apply_sandbox_policy
 
@@ -575,6 +576,14 @@ async def resolve_request(
     request = apply_sandbox_policy(request, context)
     if plan_prompt_call(tool.name, args):
         request = replace(request, plan_prompt=True)
+    if tool.name == BATCH_TOOL:
+        # Toplu Chrome çağrısı (#432): her öğenin kendi izin denetimi birleştirilir.
+        async def _item(item_tool: Tool, item_args: ToolArgs) -> ApprovalRequest:
+            return await resolve_request(
+                item_tool, item_args, allowed_commands, root=root, context=context, rules=rules
+            )
+
+        return await apply_batch(request, args, _item)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
     if tool.name == ACCESS_TOOL:

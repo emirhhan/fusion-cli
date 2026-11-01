@@ -3036,6 +3036,9 @@ SCOPED_TOOLS: dict[str, str] = {
     "desktop_background_action": "masaustu",
     # Toplu uygulama onayı (#426) yalnız masaüstü işinde sunulur (istem bütçesi).
     "desktop_request_access": "masaustu",
+    # Chrome betik ve toplu eylem (#432) yalnız Chrome/tarayıcı işinde (istem bütçesi).
+    "chrome_javascript": "masaustu",
+    "chrome_batch": "masaustu",
     # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
     "enter_worktree": "worktree",
     "exit_worktree": "worktree",

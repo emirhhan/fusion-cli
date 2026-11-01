@@ -23,13 +23,14 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 | `tabs_context`, `tabs_create`, `tabs_close` | `chrome_action tabs / open / tab / close` | Var; e2e |
 | `resize_window` | `chrome_action resize` | Var; e2e |
 | `file_upload`, `upload_image` | `chrome_action upload` (proje dosyaları) | Var; e2e (içerik gönderilmez, yalnız alana konur) |
-| `javascript_tool` | — | **Henüz yok** (birebir hedefi, #432): izin kapısıyla eklenecek |
+| `javascript_tool` | `chrome_javascript` (`text`) | Var (#432): bağlı sekmenin ana dünyasında çalışır, son ifadenin değeri (söz verilmişse beklenerek) JSON metni olarak döner; sayfa CSP'si `unsafe-eval`e izin vermiyorsa tarayıcı reddeder. Betik satın alma yasağını aşabileceği için İzinleri atla dahil her seferinde sorulur. Yalnız Chrome/tarayıcı işinde sunulur. Claude adına geçiş #431 |
 | `read_console_messages`, `read_network_requests` | `chrome_action console` (`errors`, `errors:desen`, desen) ve `network` (url deseni, `id:N` ile gövde) — `pageMonitor.js` izinli sitelere kayıtlı içerik betiği (ANA dünya, `document_start`), `console.*`/hata/`fetch`/XHR sarmalar | Var (P-042) **`debugger` izni olmadan**; başlıklar kaydedilmez, çıktı sır maskesinden geçer; panelden kapatılabilir |
 | `shortcuts_list/execute` | `chrome_action shortcuts` / `shortcut=ad`; panelde Bağlantı ayarları → Kısayollar, yazarken `/ad`; Chrome `commands`: Ctrl/⌘+Shift+F panel, Ctrl/⌘+Shift+. durdur | Var (P-073) |
 | `gif_creator` | `chrome_action record start|stop` → `.fusion/kayitlar/chrome-<zaman>.gif` (ardışık `captureVisibleTab`, en çok 120 kare / 60 sn, Pillow ile GIF) | Var (P-044); `tabCapture` izni yok; Kit bilgisayarı canlı akışı ayrı iş |
 | `tabs_create` pencere, sekme grubu | `chrome_action window=URL`, `group=id,id:başlık` (`tabGroups` izni) | Var (P-073) |
 | Kit'ten (Kits) tarayıcıya erişim | `fusion_browser` (Kit aracı) → `chrome.kit_komut` RPC; okuma bir kez, etkileşim her seferinde onaylı; yalnız metin | Var (P-063); bkz. `docs/KITS_KOPRUSU.md` |
-| `list/select/switch_browser`, `browser_batch` | — | **Henüz yok** (birebir hedefi, #432); yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
+| `browser_batch` | `chrome_batch` (`actions=[{name, input}]`) | Var (#432): en çok 20 Chrome eylemi sırayla, ilk hatada durur; her öğenin izin denetimi (deny/ask kuralı, yasak eylem, yükleme `Read(...)` kuralı) ayrı uygulanır, en sıkı öğe sorulur; yalnız okuyan öğelerden oluşan toplu çağrı okuma sayılır |
+| `list/select/switch_browser` | — | **Henüz yok** (birebir hedefi, #432); yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
 
 ## Konsol, ağ, ağaç, kayıt ve kısayollar (31 Ekim, parite turu)
 

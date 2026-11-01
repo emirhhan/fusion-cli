@@ -14,6 +14,7 @@ from . import (
     archive,
     browser,
     chrome,
+    chrome_script,
     desktop,
     desktop_access,
     desktop_background,
@@ -192,6 +193,30 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
         effect_resolver=chrome.chrome_action_effect,
+    ),
+    Tool(
+        name="chrome_javascript",
+        description=(
+            "Bağlı Chrome sekmesinde JavaScript çalıştır; son ifadenin değeri döner "
+            "(her seferinde sorulur)."
+        ),
+        parameters=_schema({"text": _STRING}, ["text"]),
+        run=chrome_script.chrome_javascript,
+        mutating=True,
+        effect=ToolEffect.REMOTE_DESTRUCTIVE,
+    ),
+    Tool(
+        name="chrome_batch",
+        description=(
+            "Chrome araçlarını tek çağrıda sırayla çalıştır; ilk hatada durur. "
+            "actions=[{name, input}]."
+        ),
+        parameters=_schema(
+            {"actions": {"type": "array", "items": {"type": "object"}}}, ["actions"]
+        ),
+        run=chrome_script.chrome_batch,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
     ),
     Tool(
         name="chrome_click",

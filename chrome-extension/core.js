@@ -1298,6 +1298,27 @@ export function monitorState() {
   };
 }
 
+/** javascript_tool (#432) sınırı: betik ve sonuç metni en çok bu kadar karakter. */
+export const SCRIPT_LIMIT = 20000;
+
+/**
+ * Sayfanın ANA dünyasında betiği çalıştır; son ifadenin değeri (söz verilmişse beklenir) JSON
+ * metni olarak döner. Kapsamsızdır (executeScript serileştirir). Sayfanın CSP'si `unsafe-eval`e
+ * izin vermiyorsa tarayıcı EvalError fırlatır ve hata olarak döner.
+ */
+export async function evaluateInPage(code, limit) {
+  try {
+    let value = (0, eval)(code);
+    if (value && typeof value.then === "function") value = await value;
+    let text;
+    try { text = JSON.stringify(value); } catch { text = undefined; }
+    if (text === undefined) text = String(value);
+    return { result: text.slice(0, limit), truncated: text.length > limit };
+  } catch (error) {
+    return { error: `${error?.name || "Error"}: ${error?.message || String(error)}` };
+  }
+}
+
 /** Sayfanın ANA dünyasında kapsamsız bir işlevi çalıştır (izleyici tamponu orada yaşar). */
 async function runInMain(tab, func, args) {
   const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func, args });
@@ -1564,6 +1585,12 @@ export async function execute(command) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return { found: false, waited_ms: limit };
+  }
+  if (command.islem === "javascript") {
+    const code = String(veri.code || "");
+    if (!code.trim()) throw new Error("Çalıştırılacak betik boş.");
+    if (code.length > SCRIPT_LIMIT) throw new Error(`Betik en çok ${SCRIPT_LIMIT} karakter olabilir.`);
+    return runInMain(tab, evaluateInPage, [code, SCRIPT_LIMIT]);
   }
   const acts = ["click", "click_at", "key", "drag"].includes(command.islem);
   // Eylemden ÖNCE ve SONRA imza: eylem sayfada iz bırakmadıysa model bunu bilmeli.
