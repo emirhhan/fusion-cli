@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -24,34 +25,50 @@ from .jobs import JOBS_DIR
 
 _LOG = logging.getLogger(__name__)
 _POLL_S = 0.2
+#: Proje günlük dizini yazılamazsa sistem geçici dizinindeki alt dizin.
+TEMP_DIR = "fusion-devir"
 
 
-def _log_path(context: ToolContext, job_id: str) -> Path:
-    folder = context.root / JOBS_DIR
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / f"devir-{job_id}-{int(time.time())}.log"
+def _log_path(context: ToolContext, job_id: str) -> Path | None:
+    """Proje `.fusion/is`; açılamazsa sistem geçici dizini; o da olmazsa None."""
+    name = f"devir-{job_id}-{int(time.time())}.log"
+    for folder in (context.root / JOBS_DIR, Path(tempfile.gettempdir()) / TEMP_DIR):
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / name
+            path.touch()
+        except OSError as error:
+            _LOG.warning("devir günlüğü açılamadı (%s): %s", folder, error)
+            continue
+        return path
+    return None
+
+
+def _result_text(job: HandedOffShell) -> str:
+    head = f"Komut kullanıcı isteğiyle (Ctrl+B) arka plana alındı ve sürüyor: {job.id}.\n"
+    if job.log_path is None:
+        return head + (
+            "Çıktı dosyası açılamadı (proje ve geçici dizin yazılamıyor); komut sürüyor ama "
+            "çıktısı kaydedilmiyor. Komutu yeniden çalıştırma; işine devam et."
+        )
+    return head + (
+        f"Çıktı dosyası: {job.log_path} — sonucu görmek için bu dosyayı oku; bitince son "
+        f"satırı `{EXIT_CODE_PREFIX}N)` olur. Komutu yeniden çalıştırma; işine devam et."
+    )
 
 
 def hand_off(
     command: str, detached: ProcessDetachedError, context: ToolContext, handoff: ShellHandoff
 ) -> ToolResult:
     """Süreci devral: izleyici iş parçacığı bitişi bekler, çıktıyı günlüğe yazar."""
-    placeholder = Path("-")
-    job = handoff.add(command, detached.process.pid, placeholder)
-    try:
-        job.log_path = _log_path(context, job.id)
+    job = handoff.add(command, detached.process.pid)
+    job.log_path = _log_path(context, job.id)
+    with contextlib.suppress(OSError):
         _write_snapshot(job, detached.captures, final=False)
-    except OSError as error:
-        _LOG.warning("devir günlüğü açılamadı: %s", error)
     threading.Thread(
         target=_watch, args=(job, detached), name=f"fusion-devir-{job.id}", daemon=True
     ).start()
-    return ToolResult(
-        f"Komut kullanıcı isteğiyle (Ctrl+B) arka plana alındı ve sürüyor: {job.id}.\n"
-        f"Çıktı dosyası: {job.log_path} — sonucu görmek için bu dosyayı oku; bitince son "
-        f"satırı `{EXIT_CODE_PREFIX}N)` olur. Komutu yeniden çalıştırma; işine devam et.",
-        ok=True,
-    )
+    return ToolResult(_result_text(job), ok=True)
 
 
 def _watch(job: HandedOffShell, detached: ProcessDetachedError) -> None:
@@ -75,6 +92,8 @@ def _watch(job: HandedOffShell, detached: ProcessDetachedError) -> None:
 def _write_snapshot(
     job: HandedOffShell, captures: tuple[BoundedCapture, ...], *, final: bool
 ) -> None:
+    if job.log_path is None:
+        return
     body = "\n".join(text for capture in captures if (text := capture.text().strip()))
     tail = f"\n{EXIT_CODE_PREFIX}{job.returncode})\n" if final else "\n"
     job.log_path.write_text(f"$ {job.command}\n{body}{tail}", encoding="utf-8")

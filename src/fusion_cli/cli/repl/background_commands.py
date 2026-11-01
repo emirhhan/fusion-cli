@@ -134,7 +134,7 @@ def _shell_job_lines(state: ReplState) -> str:
             id=job.id,
             status=_shell_status(job),
             command=job.command,
-            path=job.log_path,
+            path=job.log_path or NO_LOG,
         )
         for job in listed
     ]
@@ -161,6 +161,8 @@ def _shell_job_action(state: ReplState, action: str, query: str) -> str | None:
             stop_handed_off(state.shell_handoff, job.id)
         return messages.SHELL_JOB_STOPPED.format(id=job.id, command=job.command)
     if action in {"show", "goster", "göster", "attach"}:
+        if job.log_path is None:
+            return f"{_shell_status(job)} · {NO_LOG}"
         try:
             text = job.log_path.read_text(encoding="utf-8", errors="replace")
         except OSError as error:
@@ -170,6 +172,8 @@ def _shell_job_action(state: ReplState, action: str, query: str) -> str | None:
     return None
 
 
+#: Devir günlüğü hiçbir dizinde açılamadıysa (#218) günlük yolunun yerine.
+NO_LOG = "çıktı kaydedilmiyor (günlük açılamadı)"
 #: `/tasks show bN` için günlüğün son kesiti.
 SHOW_TAIL_CHARS = 4000
 

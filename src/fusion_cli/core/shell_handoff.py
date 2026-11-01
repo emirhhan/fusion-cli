@@ -24,7 +24,8 @@ class HandedOffShell:
     id: str
     command: str
     pid: int
-    log_path: Path
+    #: Çıktı günlüğü; proje ve geçici dizinde açılamadıysa None (çıktı kaydedilmez).
+    log_path: Path | None
     returncode: int | None = None
     stopped: bool = False
 
@@ -62,7 +63,7 @@ class ShellHandoff:
             self._event.set()
             return True
 
-    def add(self, command: str, pid: int, log_path: Path) -> HandedOffShell:
+    def add(self, command: str, pid: int, log_path: Path | None = None) -> HandedOffShell:
         job = HandedOffShell(f"a{next(_IDS)}", command, pid, log_path)
         with self._lock:
             self.jobs.append(job)

@@ -48,6 +48,52 @@ def test_devredilen_komut_surer_ve_ciktisi_gunluge_yazilir(tmp_path):
     assert "once" in metin and "sonra" in metin and f"{EXIT_CODE_PREFIX}0)" in metin
 
 
+def test_proje_gunlugu_acilamazsa_gecici_dizine_yazilir_kokte_tire_dosyasi_kalmaz(
+    tmp_path, monkeypatch
+):
+    import tempfile
+
+    gecici = tmp_path / "gecici"
+    gecici.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(gecici))
+    root = tmp_path / "proje"
+    root.mkdir()
+    (root / ".fusion").write_text("dizin değil", encoding="utf-8")  # .fusion/is açılamaz
+    monkeypatch.chdir(root)
+    handoff = ShellHandoff()
+    context = ToolContext(root=root, shell_handoff=handoff, shell_fingerprint=False)
+    _istek_gonder(handoff)
+    result = run_shell({"command": "echo once; sleep 1; echo sonra"}, context)
+    job = handoff.jobs[0]
+    assert result.ok and job.log_path is not None and job.log_path.is_relative_to(gecici)
+    assert f"Çıktı dosyası: {job.log_path}" in result.output
+    assert _bekle(lambda: job.returncode is not None)
+    assert _bekle(lambda: f"{EXIT_CODE_PREFIX}0)" in job.log_path.read_text(encoding="utf-8"))
+    assert "sonra" in job.log_path.read_text(encoding="utf-8")
+    assert not (root / "-").exists()
+
+
+def test_hicbir_gunluk_acilamazsa_model_dosya_yok_bilgisini_alir(tmp_path, monkeypatch):
+    import tempfile
+
+    engel = tmp_path / "engel"
+    engel.write_text("dosya", encoding="utf-8")
+    monkeypatch.setattr(tempfile, "tempdir", str(engel))  # geçici dizin de açılamaz
+    root = tmp_path / "proje"
+    root.mkdir()
+    (root / ".fusion").write_text("dizin değil", encoding="utf-8")
+    monkeypatch.chdir(root)
+    handoff = ShellHandoff()
+    context = ToolContext(root=root, shell_handoff=handoff, shell_fingerprint=False)
+    _istek_gonder(handoff)
+    result = run_shell({"command": "sleep 1"}, context)
+    job = handoff.jobs[0]
+    assert result.ok and job.log_path is None
+    assert "Çıktı dosyası: -" not in result.output and "açılamadı" in result.output
+    assert _bekle(lambda: job.returncode is not None)
+    assert not (root / "-").exists()
+
+
 def test_devir_istegi_yokken_komut_olagan_biter(tmp_path):
     handoff = ShellHandoff()
     context = ToolContext(root=tmp_path, shell_handoff=handoff, shell_fingerprint=False)
