@@ -96,8 +96,6 @@ def print_command(
         "--include-hook-events": include_hooks,
         "--prompt-suggestions": prompt_suggestions,
         "--plugin-dir": bool(plugin_dir),
-        "--betas": bool(betas),
-        "--exclude-dynamic-system-prompt-sections": exclude_dynamic,
         "--setting-sources": setting_sources is not None,
     }
     request = PrintRequest(
@@ -153,6 +151,8 @@ def print_command(
         from_pr=from_pr or "",
         debug=debug,
         debug_file=debug_file,
+        exclude_dynamic=exclude_dynamic,
+        betas=tuple(betas or ()),
     )
     del allow_skip  # Claude: bypass'ı yalnız seçilebilir yapar; -p'de etkisi yok
     raise typer.Exit(run_print(request))

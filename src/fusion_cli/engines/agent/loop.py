@@ -1066,6 +1066,11 @@ async def _run_agent(
         if depth == 0 and not chat_mode and not internal
         else ()
     )
+    # `--exclude-dynamic-system-prompt-sections` (#301): kişiye özgü bölümler kullanıcı mesajına.
+    from . import dynamic_sections
+
+    dinamik_disari = dynamic_sections.applies(depth=depth, system_prompt=system_prompt)
+    bellek_blogu = memory_prompt_block(deps)
     messages = _initial_messages(
         task,
         history,
@@ -1073,9 +1078,9 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                proje_ve_dis_bellek if system_prompt is None else "",
-                memory_prompt_block(deps),
-                harita,
+                proje_ve_dis_bellek if system_prompt is None and not dinamik_disari else "",
+                "" if dinamik_disari else bellek_blogu,
+                "" if dinamik_disari else harita,
                 beceri_dizini,
                 ajan_baslangici,
                 teacher_hint,
@@ -1095,7 +1100,13 @@ async def _run_agent(
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
         system_prompt=system_prompt,
-        project_context=proje_ve_dis_bellek if system_prompt is not None else "",
+        project_context=(
+            dynamic_sections.user_context(proje_ve_dis_bellek, bellek_blogu, harita)
+            if dinamik_disari
+            else proje_ve_dis_bellek
+            if system_prompt is not None
+            else ""
+        ),
         images=images,
     )
     if deps.agent_transcript is not None:

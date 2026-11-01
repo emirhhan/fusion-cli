@@ -132,9 +132,17 @@ ana konuşmanın doğrudan çocukları iletilir. `--forward-subagent-text` ya da
 `CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1` metin bloklarını da ekler ve her derinlikteki alt ajanı
 iletir.
 
+`--exclude-dynamic-system-prompt-sections` kişiye/makineye özgü bölümleri (proje
+talimatları, bellek bloğu ve konumu, depo haritası) sistem isteminden ilk kullanıcı mesajına
+taşır; böylece aynı görevi koşan farklı kullanıcı ve makinelerde sistem istemi aynı kalır.
+Yalnız varsayılan sistem isteminde geçerlidir; `--system-prompt(-file)` verilince yok sayılır.
+
+`--betas <ad...>` verilen beta adlarını Anthropic API isteklerine `anthropic-beta`
+başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız Anthropic API'sine
+giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
+
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--prompt-suggestions`, `--plugin-dir`,
-`--betas`, `--exclude-dynamic-system-prompt-sections`, `--setting-sources`)
+`--prompt-suggestions`, `--plugin-dir`, `--setting-sources` kaynak süzmesi)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına

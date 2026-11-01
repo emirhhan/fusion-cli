@@ -82,6 +82,10 @@ class PrintRequest:
     from_pr: str = ""
     debug: str | None = None
     debug_file: str | None = None
+    #: `--exclude-dynamic-system-prompt-sections` (#301).
+    exclude_dynamic: bool = False
+    #: `--betas` (#301): Anthropic API `anthropic-beta` başlıkları.
+    betas: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

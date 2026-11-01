@@ -34,6 +34,7 @@ from ..core.types import (
     TokenUsage,
     ToolCall,
 )
+from . import beta_headers
 from .context_window import ollama_num_ctx
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
@@ -189,6 +190,9 @@ class LiteLlmProvider:
                 kwargs.setdefault("repeat_penalty", 1.1)
         if request.prompt_cache_ttl and "claude" in self._model.lower():
             kwargs["messages"] = _cache_system_prompt(kwargs["messages"], request.prompt_cache_ttl)
+        if betas := beta_headers.headers_for(self._model):
+            # `--betas` (#301): yalnız Anthropic API'sine `anthropic-beta` başlığı.
+            kwargs["extra_headers"] = betas
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}

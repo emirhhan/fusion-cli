@@ -26,7 +26,8 @@ from rich.markup import escape
 from ..core.errors import FusionError
 from ..core.events import EventSink
 from ..core.types import Message
-from ..engines.agent import subagent_prompt
+from ..engines.agent import dynamic_sections, subagent_prompt
+from ..providers import beta_headers
 from ..engines.agent.approval import ApprovalMemory
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentOutcome
@@ -104,7 +105,12 @@ def run_print(request: PrintRequest) -> int:
     for warning in plan.warnings:
         _warn(warning)
     enable_debug_logging(request.debug, request.debug_file)
-    with sigterm_as_exception(), subagent_prompt.appended(plan.subagent_append):
+    with (
+        sigterm_as_exception(),
+        subagent_prompt.appended(plan.subagent_append),
+        dynamic_sections.excluded(request.exclude_dynamic),
+        beta_headers.enabled(beta_headers.parse(request.betas)),
+    ):
         try:
             return _start(plan, root)
         except TerminatedError:
