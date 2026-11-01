@@ -73,3 +73,25 @@ def test_onceki_turdan_kalan_bekleyen_madde_otomatik_devami_tetiklemez(tmp_path,
     assert birinci.todos.has_pending
     ikinci = _turn_tool_context(state)
     assert ikinci.todos.items and not ikinci.todos.has_pending
+
+
+def test_active_form_claude_todowrite_gibi_tasinir_ve_saklanir(tmp_path, monkeypatch):
+    """Claude TodoWrite maddesi `activeForm` taşır: sürmekte olan madde o biçimle görünür
+    (bağımsız inceleme #8); oturum listesiyle diske yazılıp geri okunur."""
+    from fusion_cli.tools import build_registry
+
+    monkeypatch.delenv(task_list.TASK_LIST_ID_ENV, raising=False)
+    state = _state(tmp_path)
+    liste = {
+        "todos": [
+            {"content": "Testi yaz", "status": "in_progress", "activeForm": "Test yazılıyor"},
+            {"content": "Belgele", "status": "pending", "activeForm": "Belgeleniyor"},
+        ]
+    }
+    sonuc = todo_write(liste, _turn_tool_context(state))
+    assert "Test yazılıyor" in sonuc.output and "Belgele" in sonuc.output
+    yeni = _state(tmp_path)
+    maddeler = _turn_tool_context(yeni).todos.items
+    assert [m.active_form for m in maddeler] == ["Test yazılıyor", "Belgeleniyor"]
+    sema = build_registry().get("todo_write").parameters
+    assert "activeForm" in sema["properties"]["todos"]["items"]["properties"]

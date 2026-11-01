@@ -262,6 +262,15 @@ class TodoItem:
 
     content: str
     status: TodoStatus
+    #: Claude TodoWrite `activeForm`: madde sürerken gösterilen biçim ("Test yazılıyor").
+    active_form: str = ""
+
+    @property
+    def label(self) -> str:
+        """Gösterilecek metin: sürmekte olan madde `activeForm` ile görünür (Claude gibi)."""
+        if self.status is TodoStatus.IN_PROGRESS and self.active_form:
+            return self.active_form
+        return self.content
 
 
 class TodoList:
@@ -291,7 +300,7 @@ class TodoList:
         return sum(1 for item in self._items if item.status is not TodoStatus.COMPLETED)
 
     def render(self) -> str:
-        return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)
+        return "\n".join(f"{item.status.icon} {item.label}" for item in self._items)
 
 
 class PendingWrite:

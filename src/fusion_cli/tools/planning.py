@@ -23,7 +23,7 @@ VALID_STATUSES = tuple(status.value for status in TodoStatus)
 
 
 def parse_todos(raw: object) -> tuple[TodoItem, ...]:
-    """Ham liste → doğrulanmış görev maddeleri (Claude şeması: `content` + `status`).
+    """Ham liste → doğrulanmış görev maddeleri (Claude şeması: `content`, `status`, `activeForm`).
 
     Eski Fusion davranışı (1 Kasım öncesi): `done`/`doing`/`tamamlandı` gibi durum eş
     anlamlıları ve `task`/`title`/`text`/`step`/`description` alan adları kabul ediliyordu.
@@ -38,8 +38,13 @@ def parse_todos(raw: object) -> tuple[TodoItem, ...]:
         content = entry.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ArgumentError(f"{position}. madde: 'content' boş olamaz.")
+        active = entry.get("activeForm")
         items.append(
-            TodoItem(content=content.strip(), status=_status(entry.get("status"), position))
+            TodoItem(
+                content=content.strip(),
+                status=_status(entry.get("status"), position),
+                active_form=active.strip() if isinstance(active, str) else "",
+            )
         )
     return tuple(items)
 

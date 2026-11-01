@@ -605,8 +605,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="todo_write",
-        description="Görev listesini TAMAMEN güncelle; çok adımlı işte plan çıkar, "
-        "ilerledikçe durumları güncelle. Tek adımlı işte kullanma.",
+        description="Çok adımlı işte görev listesini TAMAMEN yaz, ilerledikçe güncelle. "
+        "Tek adımlı işte kullanma.",
         parameters=_schema(
             {
                 "todos": {
@@ -618,6 +618,7 @@ _TOOLS: tuple[Tool, ...] = (
                                 **_STRING,
                                 "enum": ["pending", "in_progress", "completed"],
                             },
+                            "activeForm": _STRING,
                         },
                         ["content", "status"],
                     ),

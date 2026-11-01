@@ -22,7 +22,7 @@ def turn_stopped_summary(reason: str | None, todos: Sequence[TodoItem]) -> str:
     if todos:
         tamam = sum(1 for item in todos if item.status is TodoStatus.COMPLETED)
         satirlar.append(messages.APP_TURN_STOPPED_TODOS.format(done=tamam, total=len(todos)))
-        satirlar.extend(f"{item.status.icon} {item.content}" for item in todos[:_TODOS_LISTED])
+        satirlar.extend(f"{item.status.icon} {item.label}" for item in todos[:_TODOS_LISTED])
         if len(todos) > _TODOS_LISTED:
             satirlar.append(messages.APP_TURN_STOPPED_MORE.format(count=len(todos) - _TODOS_LISTED))
     satirlar.append(messages.APP_TURN_STOPPED_HINT)

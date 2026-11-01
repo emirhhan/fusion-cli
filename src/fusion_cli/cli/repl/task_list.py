@@ -60,7 +60,10 @@ class StoredTodoList(TodoList):
         super().replace(items)
         self._written_this_turn = True
         path = self._locate()
-        payload = [{"content": item.content, "status": item.status.value} for item in items]
+        payload = [
+            {"content": item.content, "status": item.status.value, "activeForm": item.active_form}
+            for item in items
+        ]
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_suffix(".tmp")
@@ -101,7 +104,7 @@ class StoredTodoList(TodoList):
         return self.pending_count > 0
 
     def render(self) -> str:
-        return "\n".join(f"{item.status.icon} {item.content}" for item in self.items)
+        return "\n".join(f"{item.status.icon} {item.label}" for item in self.items)
 
 
 def _read(path: Path) -> tuple[TodoItem, ...]:
@@ -115,7 +118,14 @@ def _read(path: Path) -> tuple[TodoItem, ...]:
         if not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
             continue
         try:
-            items.append(TodoItem(entry["content"], TodoStatus(entry.get("status"))))
+            active = entry.get("activeForm")
+            items.append(
+                TodoItem(
+                    entry["content"],
+                    TodoStatus(entry.get("status")),
+                    active if isinstance(active, str) else "",
+                )
+            )
         except ValueError:
             continue
     return tuple(items)
