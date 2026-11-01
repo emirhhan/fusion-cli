@@ -346,7 +346,8 @@ artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`)
 **Claude Code'dan farklar (Hâlâ eksik):** kurulum kayıtları ve kopyalar Fusion'ın kendi deposundadır
 (`<veri>/eklentiler/kayit.json`); Claude'un `~/.claude/plugins/installed_plugins.json`'ı yalnız
 okunur (#377). `--settings` bayrağı kapsamı ve `managed-settings.d` parçaları okunmaz. Bağımlılık sürüm aralıkları
-(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels` ve `plugin eval` yok. Kriptografik imza yok: bütünlük sha256 karma + commit
+(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`.lsp.json` (Fusion'da LSP istemcisi yok), `monitors`, `themes`,
+`workflows`, `channels` ve `subagentStatusLine` yok; `plugin eval` rapor yayımlamaz. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 
 ## Sürüm ve güncelleme
