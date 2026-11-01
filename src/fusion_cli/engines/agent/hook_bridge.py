@@ -269,6 +269,13 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     started = await session.start()
     _publish(deps, started)
     session.new_prompt()
+    from .hook_expansion import prompt_expansion
+
+    expansion = await prompt_expansion(session)
+    if expansion.verdict is not None:
+        _publish(deps, expansion.verdict)
+    if expansion.blocked is not None:
+        return PromptGate(blocked=expansion.blocked)
     verdict = await session.emit(HookEvent.USER_PROMPT_SUBMIT, fields={"prompt": prompt})
     _publish(deps, verdict)
     if verdict.session_title or started.session_title:
@@ -285,6 +292,7 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     after = "\n\n".join(
         part
         for part in (
+            hook_text.context_reminder(HookEvent.USER_PROMPT_EXPANSION, expansion.context),
             hook_text.context_reminder(HookEvent.USER_PROMPT_SUBMIT, verdict.context_text),
             *rewake,
         )

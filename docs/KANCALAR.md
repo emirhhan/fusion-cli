@@ -56,6 +56,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
+| `UserPromptExpansion` | kullanıcının yazdığı `/beceri`, `/komut` ya da `/mcp__sunucu__istem` açılırken, `UserPromptSubmit`'ten önce (girdi `expansion_type` `slash_command`/`mcp_prompt`, `command_name`, `command_args`, `command_source`, `prompt`); modelin `Skill` çağrısı tetiklemez | `command_name` | komut açılmaz, gerekçe kullanıcıya; `additionalContext` ve düz stdout açılan istemin yanına |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (art arda en çok 8) |
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
@@ -242,11 +243,13 @@ Tanımlar her kök turun başında yeniden okunur.
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
-- Olaylar: `Setup`, `UserPromptExpansion`, `PermissionDenied`,
+- Olaylar: `Setup`, `PermissionDenied`,
   `MessageDisplay`, `ConfigChange`,
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
   `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").
+- `UserPromptExpansion` engellese de becerinin `!`komut`` bağlam satırları komut yazıldığı anda
+  çalışmış olur (engel modele gitmeyi durdurur).
 - Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);
   `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması yok
   (alanlar okunur).

@@ -112,6 +112,8 @@ class HookSession:
     #: `InstructionsLoaded` bildirilmiş talimat dosyaları ve sıradaki yükleme nedeni.
     instructions_seen: set[str] = field(default_factory=set)
     instructions_reason: str = "session_start"
+    #: `/komut` açılımı: sıradaki kök turda `UserPromptExpansion` girdisi (bir kez).
+    pending_expansion: dict[str, object] | None = None
     _loaded: bool = False
     #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
     _start_context: str = ""

@@ -41,6 +41,7 @@ class HookEvent(Enum):
     STOP_FAILURE = "StopFailure"
     POST_TOOL_BATCH = "PostToolBatch"
     INSTRUCTIONS_LOADED = "InstructionsLoaded"
+    USER_PROMPT_EXPANSION = "UserPromptExpansion"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -63,6 +64,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.TEAMMATE_IDLE: None,
     HookEvent.PERMISSION_REQUEST: "araç adı",
     HookEvent.POST_TOOL_BATCH: None,
+    HookEvent.USER_PROMPT_EXPANSION: "komut adı (command_name)",
     HookEvent.INSTRUCTIONS_LOADED: (
         "yükleme nedeni (session_start|nested_traversal|path_glob_match|include|compact)"
     ),
@@ -87,18 +89,21 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.PRE_COMPACT,
         # PostToolBatch: döngü sonraki model çağrısından önce durur.
         HookEvent.POST_TOOL_BATCH,
+        # UserPromptExpansion: komut açılmaz, gerekçe kullanıcıya.
+        HookEvent.USER_PROMPT_EXPANSION,
     }
 )
 
 #: Düz (JSON olmayan) stdout'u modele bağlam olarak ekleyen olaylar (Claude ile aynı).
-STDOUT_CONTEXT_EVENTS = frozenset({HookEvent.USER_PROMPT_SUBMIT, HookEvent.SESSION_START})
+STDOUT_CONTEXT_EVENTS = frozenset(
+    {HookEvent.USER_PROMPT_SUBMIT, HookEvent.SESSION_START, HookEvent.USER_PROMPT_EXPANSION}
+)
 
 #: Claude Code'un tanıdığı ama Fusion'ın (henüz) tetiklemediği olaylar: listede
 #: "tetiklenmiyor" diye görünür, hata sayılmaz.
 CLAUDE_ONLY_EVENTS = frozenset(
     {
         "Setup",
-        "UserPromptExpansion",
         "PermissionDenied",
         "MessageDisplay",
         "ConfigChange",
