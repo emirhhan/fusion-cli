@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +26,6 @@ __all__ = [
     "SandboxPolicy",
     "domain_allowed",
     "domain_denied",
-    "is_excluded_command",
     "normalize_domain",
     "protected_anchors",
     "protected_write_paths",
@@ -64,8 +62,6 @@ PROTECTED_WRITE_PATHS: tuple[str, ...] = (
 )
 #: Korumalı yolları içeren dizinler: taşınamaz/silinemez (`mv .git x`, düzenle, geri taşı).
 PROTECTED_ANCHORS: tuple[str, ...] = (".git", ".claude", ".fusion")
-#: Bu işaretlerden biri olan komut bileşiktir; sandbox dışı listesiyle eşleşmez.
-_COMPOUND_MARKERS = (";", "&", "|", "`", "$(", "\n", ">", "<")
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,26 +155,6 @@ def domain_allowed(host: str, policy: SandboxPolicy) -> bool:
     if any(_matches(normalized, entry) for entry in policy.denied_domains):
         return False
     return any(_matches(normalized, entry) for entry in policy.allowed_domains)
-
-
-def is_excluded_command(command: str, patterns: tuple[str, ...]) -> bool:
-    """Komut sandbox dışı listesindeki bir önekle mi başlıyor?
-
-    Yalnız TEK ve sade komut eşleşir: `docker ps && curl …` gibi bileşik bir komut
-    listede `docker` olsa bile sandbox içinde kalır; aksi hâlde önek, zincirin geri
-    kalanını da sandbox dışına taşırdı.
-    """
-    if not patterns or any(marker in command for marker in _COMPOUND_MARKERS):
-        return False
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return False
-    for pattern in patterns:
-        wanted = [word for word in pattern.split() if word != "*"]
-        if wanted and words[: len(wanted)] == wanted:
-            return True
-    return False
 
 
 def _under(path: Path, parent: Path) -> bool:

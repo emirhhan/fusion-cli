@@ -153,8 +153,12 @@ geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
   ayrıca sorulur (Otomatik kipte de; "bu oturumda sorma" sunulmaz). Yalnız "İzinleri atla"
   kipi sormaz; plan kipi soru soramadığı için isteği **engeller** (salt okunur komutta da).
   `sandbox.allowUnsandboxedCommands: false` ise istek yok sayılır, komut sandbox içinde kalır.
-- `sandbox.excluded_commands: ["docker", "git push"]` önekleri her zaman sandbox dışında, normal
-  onayla çalışır. Yalnız tek ve sade komut eşleşir: `docker ps && curl …` sandbox içinde kalır.
+- `sandbox.excludedCommands: ["docker *", "Bash(git push *)"]` desenleri Claude'un `Bash(...)`
+  kural söz dizimindedir; sondaki ` *` argümanlı ve argümansız biçimi birlikte eşler. Eşleşen
+  komut sandbox dışında, normal onayla çalışır. Zincirde (`&&`, `|`, `;`) **her** komut bir
+  desene uyarsa çağrı dışarıda çalışır, biri uymazsa sandbox'ta kalır (`docker ps && curl …`).
+  `unshare` ile başlayan komut her zaman sandbox'ta kalır. Eski yıldızsız önek yazımı
+  (`docker`) bir sürüm boyunca `docker *` gibi okunur ve bir kez uyarılır.
 
 ## Diğer ayarlar
 

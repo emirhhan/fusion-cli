@@ -29,10 +29,10 @@ from ..core.redaction import is_secret_env_name
 from ..core.sandbox_policy import (
     PROTECTED_ANCHORS,
     SandboxPolicy,
-    is_excluded_command,
     normalize_domain,
 )
 from ..core.sandbox_proxy import DomainProxy, HostDecider
+from .sandbox_excluded import is_excluded
 from ..core.shell_sandbox import (
     SHELL_SANDBOX_WRITE_ROOT,
     ProxyEndpoint,
@@ -120,7 +120,7 @@ def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | 
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
     if asks_unsandboxed(args) and policy.allow_unsandboxed:
         return OUTSIDE_REQUESTED
-    if is_excluded_command(command, policy.excluded_commands):
+    if is_excluded(command, policy.excluded_commands, context.root):
         return OUTSIDE_EXCLUDED
     return None
 

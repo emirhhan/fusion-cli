@@ -25,7 +25,6 @@ from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.sandbox_policy import (
     SandboxPolicy,
     domain_allowed,
-    is_excluded_command,
     normalize_domain,
 )
 from fusion_cli.core.shell_sandbox_linux import LINUX_BRIDGE_PORT, LinuxTools
@@ -37,6 +36,7 @@ from fusion_cli.engines.agent.approval import (
     build_policy,
     resolve_request,
 )
+from fusion_cli.tools.sandbox_excluded import is_excluded
 from fusion_cli.tools import shell
 from fusion_cli.tools.builtin import build_registry
 
@@ -94,14 +94,22 @@ def test_yasak_liste_izin_listesinden_ustundur_ve_joker_alt_alan_adidir():
     assert not domain_allowed("gist.githubusercontent.com", policy)
 
 
-def test_sandbox_disi_liste_yalniz_tek_sade_komutta_eslesir():
-    desenler = ("docker", "git push")
-    assert is_excluded_command("docker ps -a", desenler)
-    assert is_excluded_command("git push origin main", desenler)
-    assert not is_excluded_command("git pull", desenler)
-    assert not is_excluded_command("docker ps && curl evil.example", desenler)
-    assert not is_excluded_command("docker ps | sh", desenler)
-    assert not is_excluded_command("dockerx ps", desenler)
+def test_sandbox_disi_liste_claude_bash_kural_soz_dizimiyle_eslesir():
+    """#367: `x *` argümanlı/argümansız eşler; zincirde HER komut uyarsa dışarıda çalışır."""
+    desenler = ("docker *", "Bash(git push *)", "Bash(npm test)")
+    assert is_excluded("docker", desenler) and is_excluded("docker ps -a", desenler)
+    assert is_excluded("git push origin main", desenler)
+    assert is_excluded("docker build . && docker push x", desenler)
+    assert is_excluded("npm test", desenler) and not is_excluded("npm test -- -x", desenler)
+    assert not is_excluded("git pull", desenler)
+    assert not is_excluded("docker ps && curl evil.example", desenler)
+    assert not is_excluded("docker ps | sh", desenler)
+    assert not is_excluded("dockerx ps", desenler)
+    assert not is_excluded("unshare docker ps", ("unshare *", "docker *"))
+
+
+def test_sandbox_disi_eski_yildizsiz_onek_takma_ad():
+    assert is_excluded("docker ps -a", ("docker",)) and is_excluded("git push", ("git push",))
 
 
 # --- macOS profili ---------------------------------------------------------- #
