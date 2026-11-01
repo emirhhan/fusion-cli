@@ -212,19 +212,19 @@ runtime:
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []
   # Genel kancalar (P-009): PreToolUse/PostToolUse/Stop/SessionStart… olaylarına komut bağlar.
-  # Tanımlar <yapılandırma>/hooks.json, ~/.claude/settings.json ve (güvenilen projede)
-  # .claude/settings(.local).json `hooks` bloğundan okunur. false = hiçbiri çalışmaz.
+  # Tanımlar ~/.claude/settings.json, (güvenilen projede) .claude/settings(.local).json ve
+  # yönetilen ayarın `hooks` bloğundan okunur (Claude Code ile aynı). false = hiçbiri çalışmaz.
   hooks_enabled: true
-  # ~/.claude/settings.json kancaları da çalışsın mı? Kapalıyken `fusion hooks list` onları
-  # "atlandı" diye gösterir. Proje .claude/ dosyaları bu anahtardan bağımsızdır (fusion trust).
-  claude_hooks: false
-  # Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
-  hook_timeout_s: 60
+  # ~/.claude/settings.json kancaları (Claude gibi varsayılan açık). false = atla (Fusion'a özgü).
+  claude_hooks: true
+  # Kullanımdan kalktı: süre Claude varsayılanıdır (command/http 600 sn, UserPromptSubmit 30 sn,
+  # SessionEnd ortak 1,5 sn bütçe); kanca başına `timeout` yazın. Bu değer artık okunmaz.
+  hook_timeout_s: 600
   # Girdi bekleyen oturum bu kadar sn boşta kalınca Notification(idle_prompt) kancası; 0 = kapalı.
   hook_idle_prompt_s: 60
-  # `type: http` kancası iç ağ adresine (localhost, 192.168.x, 10.x…) gidebilsin mi?
-  # Güvenilmeyen proje config.yaml'ı bunu açamaz.
-  hook_http_allow_private: false
+  # Kullanımdan kalktı: http kancası Claude gibi yerel adrese de gider; kısıt için ayar
+  # dosyasında `allowedHttpHookUrls` kullanın. Bu değer artık okunmaz.
+  hook_http_allow_private: true
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |

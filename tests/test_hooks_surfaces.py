@@ -134,7 +134,7 @@ def test_masaustu_kanca_listele_rpc(proje):
     state = _repl_durumu(proje)
     payload = dispatch_hooks("kanca.listele", state)
     assert payload["ok"] is True and payload["guvensiz_katmanlar"] == ["proje"]
-    assert payload["etkin"] is True and payload["claude_kancalari"] is False
+    assert payload["etkin"] is True and payload["claude_kancalari"] is True
     olaylar = {(row["olay"], row["atlandi"]) for row in payload["kancalar"]}
     assert ("PreToolUse", "") in olaylar
     assert ("Stop", hooks_config.REASON_UNTRUSTED) in olaylar
@@ -162,9 +162,9 @@ def test_masaustu_kanca_ayar_rpc_yazar_ve_acik_oturumda_etkili(proje):
 
 def test_yapilandirma_varsayilanlari_tutarli():
     runtime = make_config().runtime
-    # Claude kullanıcı dosyası (ECC vb. betikler) varsayılan kapalı; açıkça seçilir.
-    assert runtime.hooks_enabled is True and runtime.claude_hooks is False
-    assert runtime.hook_timeout_s == 60.0
+    # Claude gibi kullanıcı kancaları varsayılan açık (#95); süre Claude varsayılanı (#105).
+    assert runtime.hooks_enabled is True and runtime.claude_hooks is True
+    assert runtime.hook_timeout_s == 600.0
 
 
 # --- Oturum yaşam döngüsü ve canlı ayar (inceleme düzeltmeleri, 31 Ekim) ------------ #
@@ -255,7 +255,7 @@ async def test_sohbet_degisince_eski_oturum_kapanir_yenisi_resume_ile_acilir(tmp
     await state.hooks().start()
     assert _olaylar(kayit) == [
         ("SessionStart", "startup", "ilk"),
-        ("SessionEnd", "other", "ilk"),
+        ("SessionEnd", "resume", "ilk"),  # Claude: /resume geçişi (#124)
         ("SessionStart", "resume", "ikinci"),
     ]
 
