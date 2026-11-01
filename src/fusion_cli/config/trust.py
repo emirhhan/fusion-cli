@@ -26,6 +26,7 @@ from typing import Any
 import yaml
 
 from ..core.errors import ConfigError
+from .local_settings_location import local_settings_path
 from .paths import user_config_dir
 
 #: Proje kökünde yürütme ayarı taşıyabilen yapılandırma dosyası.
@@ -109,7 +110,7 @@ def is_permissions_trusted(root: Path) -> bool:
     """
     from .workspace_trust import is_config_home, is_folder_trusted
 
-    if not (root / PROJECT_PERMISSIONS_PATH).is_file() or is_config_home(root):
+    if not (local_settings_path(root)).is_file() or is_config_home(root):
         return True
     # Fusion'ın kendi yazdığı ("bir daha sorma") dosya, karması tutuyorsa güven sorusu
     # olmadan da geçerlidir (güven iletişim kutusu henüz yok, #71).
@@ -118,7 +119,7 @@ def is_permissions_trusted(root: Path) -> bool:
 
 def _written_by_fusion(root: Path) -> bool:
     try:
-        current = _digest(root / PROJECT_PERMISSIONS_PATH)
+        current = _digest(local_settings_path(root))
     except ConfigError:
         return False
     record = _load().get(_key(root))
@@ -149,7 +150,7 @@ def record_permissions_digest(root: Path) -> None:
         root,
         config_sha256=record.get("config_sha256") if record is not None else _NEVER_TRUSTED,
         files=dict(record.get("files", {})) if record is not None else {},
-        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        settings_sha256=_digest(local_settings_path(root)),
         project_settings_sha256=record.get("project_settings_sha256") if record else None,
     )
 
@@ -243,7 +244,7 @@ def trust_project(root: Path) -> None:
         root,
         config_sha256=_digest(root / PROJECT_CONFIG_NAME),
         files=files,
-        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        settings_sha256=_digest(local_settings_path(root)),
         project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
 

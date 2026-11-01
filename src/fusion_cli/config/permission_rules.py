@@ -35,6 +35,7 @@ from enum import Enum
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from .local_settings_location import local_settings_path
 from .managed_settings import (
     managed_permission_rules_only,
     managed_settings_files,
@@ -42,7 +43,6 @@ from .managed_settings import (
 )
 from .paths import user_config_dir
 from .trust import (
-    PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
     is_permissions_trusted,
     is_project_settings_trusted,
@@ -178,7 +178,7 @@ def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
         ),
         RuleLayer(
             LAYER_LOCAL,
-            root / PROJECT_PERMISSIONS_PATH,
+            local_settings_path(root),
             requires_trust=True,
             description="Proje yerel ayarı",
         ),

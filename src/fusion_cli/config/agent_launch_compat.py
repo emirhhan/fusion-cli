@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from .agent_launch_settings import AgentLaunchConfig
+from .local_settings_location import local_settings_path
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
@@ -32,7 +33,7 @@ def read_agent_launch(
     if is_project_settings_trusted(root):
         paths.append(root / ".claude" / "settings.json")
     if is_permissions_trusted(root):
-        paths.append(root / ".claude" / "settings.local.json")
+        paths.append(local_settings_path(root))
     legacy = AgentLaunchConfig()
     merged_env: dict[str, str] = {}
     for path in paths:

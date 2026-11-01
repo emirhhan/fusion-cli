@@ -22,10 +22,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from .local_settings_location import local_settings_path
 from .managed_settings import MANAGED_SETTINGS_NAME, managed_dir, managed_settings_data
 from .permission_rules import CLAUDE_USER_SETTINGS
 from .trust import (
-    PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
     is_permissions_trusted,
     is_project_settings_trusted,
@@ -64,7 +64,7 @@ def settings_layers(root: Path, home: Path | None = None) -> tuple[SettingsLayer
     sources = (
         ("kullanici", home / CLAUDE_USER_SETTINGS, True),
         ("proje", root / PROJECT_SETTINGS_PATH, is_project_settings_trusted(root)),
-        ("yerel", root / PROJECT_PERMISSIONS_PATH, is_permissions_trusted(root)),
+        ("yerel", local_settings_path(root), is_permissions_trusted(root)),
     )
     for name, path, trusted in sources:
         data = _read(path)

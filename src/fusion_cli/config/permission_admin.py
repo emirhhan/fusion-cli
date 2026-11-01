@@ -15,6 +15,7 @@ from pathlib import Path
 from ..core.errors import ConfigError
 from ..ui import messages
 from . import trust
+from .local_settings_location import local_settings_path
 from .models import Config
 from .permission_rules import (
     LAYER_FUSION,
@@ -43,7 +44,7 @@ OUTSIDE_ROOT_FLAGS = ("block_reads_outside_root", "block_writes_outside_root")
 def project_rule_file(root: Path) -> Path:
     """Varsayılan hedef: güvenilen (ya da izin dosyasız) projede yerel ayar, yoksa kullanıcı."""
     if trust.is_permissions_trusted(root):
-        return root / trust.PROJECT_PERMISSIONS_PATH
+        return local_settings_path(root)
     return user_rule_file()
 
 
@@ -89,7 +90,7 @@ def add_permission_rule(
     (ölçüldü, 31 Ekim: masaüstünde "Bu proje" seçilirken kural sessizce tüm projelere
     yazılıyordu). `strict_project` ile bu düşüş `ConfigError` olur (masaüstü "Bu proje" kapsamı).
     """
-    project_target = root / trust.PROJECT_PERMISSIONS_PATH
+    project_target = local_settings_path(root)
     target = user_rule_file() if user_level else project_rule_file(root)
     fell_back = not user_level and target != project_target
     if fell_back and strict_project:
