@@ -79,7 +79,7 @@ async def start_recording(context: ToolContext) -> ToolResult:
     interval = result.get("interval_ms")
     return ToolResult(
         f"Ekran kaydı başladı (her {interval} ms bir kare, en çok {result.get('max_frames')} "
-        "kare). Sayfada işlemleri yap; bitince chrome_action record 'stop' ile GIF'e çevir."
+        "kare). Sayfada işlemleri yap; bitince gif_creator stop_recording ve export ile GIF'e çevir."
     )
 
 
@@ -139,7 +139,7 @@ async def stop_recording(context: ToolContext, filename: str | None = None) -> T
     if not frames:
         return ToolResult.failure("Kareler çözülemedi; GIF yazılmadı.")
     # Kareler eklentide `release`e dek durur: GIF yazılamazsa (yazma alanı dışı, Pillow hatası)
-    # `record stop` yeniden denenebilir. Ölçüldü (31 Ekim): eski eklenti son parçada oturumu
+    # `gif_creator export` yeniden denenebilir. Ölçüldü (31 Ekim): eski eklenti son parçada oturumu
     # siliyor, hata durumunda kayıt kayboluyordu.
     try:
         data = await asyncio.to_thread(build_gif, frames)
@@ -150,7 +150,7 @@ async def stop_recording(context: ToolContext, filename: str | None = None) -> T
     except (OSError, ValueError, PathAccessError) as exc:
         return ToolResult.failure(
             f"GIF yazılamadı: {exc} Kareler eklentide tutuldu; sorunu giderip "
-            "chrome_action record 'stop' ile yeniden deneyebilirsin."
+            "gif_creator export ile yeniden deneyebilirsin."
         )
     await _release(context)
     relative = _relative(target, context.root)

@@ -91,7 +91,8 @@ async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
 NO_CHANGE_NOTE = (
     "NOT: Tıklamadan sonra sayfada görünür bir değişiklik olmadı (adres, metin, açılır "
     "pencere, seçim aynı). Öğe doğru mu? read_page ile yeniden oku; gerekirse farklı "
-    "öğeyi ya da screenshot + click_at dene. Aynı tıklamayı körlemesine tekrarlama."
+    "öğeyi ya da computer screenshot + coordinate ile left_click dene. Aynı tıklamayı "
+    "körlemesine tekrarlama."
 )
 
 
