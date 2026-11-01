@@ -50,6 +50,9 @@ class HookEvent(Enum):
     WORKTREE_CREATE = "WorktreeCreate"
     WORKTREE_REMOVE = "WorktreeRemove"
     SETUP = "Setup"
+    PERMISSION_DENIED = "PermissionDenied"
+    ELICITATION = "Elicitation"
+    ELICITATION_RESULT = "ElicitationResult"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -63,7 +66,10 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.SUBAGENT_START: "ajan türü",
     HookEvent.SESSION_START: "kaynak (startup|resume|clear|compact)",
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
-    HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt|auth_success)",
+    HookEvent.NOTIFICATION: (
+        "bildirim türü (permission_prompt|idle_prompt|auth_success|elicitation_dialog|"
+        "elicitation_response)"
+    ),
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
     HookEvent.POST_COMPACT: "tetik (manual|auto)",
     HookEvent.CWD_CHANGED: None,
@@ -87,6 +93,9 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.WORKTREE_CREATE: None,
     HookEvent.WORKTREE_REMOVE: None,
     HookEvent.SETUP: "tetik (init|maintenance)",
+    HookEvent.PERMISSION_DENIED: "araç adı",
+    HookEvent.ELICITATION: "MCP sunucusunun adı",
+    HookEvent.ELICITATION_RESULT: "MCP sunucusunun adı",
 }
 
 #: Çıkış 2 ile engelleyebilen (ya da modele geri bildirim veren) olaylar. Ötekilerde
@@ -113,6 +122,9 @@ BLOCKING_EVENTS = frozenset(
         HookEvent.PRE_MODEL_SWITCH,
         # ConfigChange: yeni ayar çalışan oturuma uygulanmaz (policy_settings hariç).
         HookEvent.CONFIG_CHANGE,
+        # Elicitation/ElicitationResult: çıkış 2 isteği reddeder (`decline`).
+        HookEvent.ELICITATION,
+        HookEvent.ELICITATION_RESULT,
     }
 )
 
@@ -132,10 +144,7 @@ STDOUT_CONTEXT_EVENTS = frozenset(
 #: "tetiklenmiyor" diye görünür, hata sayılmaz.
 CLAUDE_ONLY_EVENTS = frozenset(
     {
-        "PermissionDenied",
         "MessageDisplay",
-        "Elicitation",
-        "ElicitationResult",
     }
 )
 
@@ -331,6 +340,11 @@ class HookVerdict:
     #: WorktreeCreate: oluşturulan ağacın yolu (komut stdout'u ya da
     #: `hookSpecificOutput.worktreePath`).
     worktree_path: str = ""
+    #: PermissionDenied `retry: true`: model reddedilen çağrıyı yeniden deneyebilir.
+    retry: bool = False
+    #: Elicitation/ElicitationResult `action` (accept|decline|cancel) ve `content`.
+    elicitation_action: str = ""
+    elicitation_content: Mapping[str, object] | None = None
 
     @property
     def context_text(self) -> str:

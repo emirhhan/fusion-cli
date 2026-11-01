@@ -52,6 +52,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 |---|---|---|---|
 | `PreToolUse` | araç çalışmadan, onaydan önce | `tool_name` | araç çalışmaz, gerekçe modele |
 | `PermissionRequest` | izin sorusu gösterilmeden önce (etkileşimsiz oturumda da) | `tool_name` | — (`decision.behavior`: `allow` sormadan izin; `deny` + `message` gerekçe, `interrupt` turu durdurur; `updatedInput`/`updatedPermissions` henüz uygulanmaz) |
+| `PermissionDenied` | otomatik kip denetçisi çağrıyı reddedince: denetçi modeli "riskli" dedi ve soru sorulamayan koşuda (`fusion agent`, `-p`) çağrı sorulmadan reddedildi. Etkileşimli oturumda riskli çağrı kullanıcıya sorulur; elle ret, `deny` kuralı ve PreToolUse engeli tetiklemez (girdi `tool_name`, `tool_input`, `tool_use_id`, `reason`) | `tool_name` | — (ret verilmiştir; çıkış kodu/stderr yok sayılır, `hookSpecificOutput.retry: true` modele çağrıyı yeniden deneyebileceğini söyler) |
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
@@ -63,7 +64,9 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
 | `SessionStart` | oturum açılırken: REPL/TUI'de açılışta, masaüstünde `oturum.baslat` sonrası arka planda (ilk tur bekler), `-p`'de ilk turda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
-| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme; masaüstünde MCP OAuth girişi bağlanarak bitince (girdi `notification_type`, `message`, `title`; kanca beklenmez, çıkış kodu/stderr yok sayılır) | `permission_prompt`, `idle_prompt`, `auth_success` | — |
+| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme; masaüstünde MCP OAuth girişi bağlanarak bitince; MCP elicitation sorusu kullanıcıya açılırken ve kullanıcı yanıtlayınca (girdi `notification_type`, `message`, `title`; kanca beklenmez, çıkış kodu/stderr yok sayılır) | `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`, `elicitation_response` | — |
+| `Elicitation` | MCP sunucusu araç çalışırken kullanıcıdan girdi isteyince, soru gösterilmeden önce (girdi `mcp_server_name`, `message`, `mode` `form`/`url`, formda `requested_schema`, url kipinde `url`, `elicitation_id`) | MCP sunucusunun adı | istek reddedilir (`decline`); `hookSpecificOutput.action` (`accept`/`decline`/`cancel`, accept'te `content`) soruyu sormadan yanıtlar, `action`'sız çıktı yok sayılır |
+| `ElicitationResult` | kullanıcı elicitation sorusunu yanıtlayınca (reddetse/vazgeçse de), yanıt sunucuya gitmeden (girdi ek olarak `action`, `content`) | MCP sunucusunun adı | yanıt `decline` olur; `action`/`content` kullanıcının yanıtının yerine geçer |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
@@ -281,10 +284,12 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `SessionStart` üstündeki `mcp_tool` kancası açılışta (ilk turdan önce) MCP bağlantısı
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
-- Olaylar: `PermissionDenied`, `MessageDisplay`, `Elicitation`, `ElicitationResult`
-  tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
-- `Notification` türlerinden `elicitation_dialog`, `elicitation_complete`,
-  `elicitation_response` gönderilmez: Fusion'ın MCP istemcisi elicitation desteklemiyor.
+- `MessageDisplay` tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
+- Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) yoksa `Elicitation`
+  kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz.
+  `Notification(elicitation_complete)` (url kipinde sunucunun tamamlandı bildirimi)
+  gönderilmez. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
+  kancaları kullanılır.
 - `defer` ile ertelenen çağrı sürdürülen oturumda yeniden değerlendirilmez (`fusion agent`
   sohbet sürdürmez; `-p --resume` geldiğinde bağlanacak).
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli

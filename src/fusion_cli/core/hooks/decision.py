@@ -40,6 +40,7 @@ NON_BLOCKING_STATUS = "Failed with non-blocking status code"
 
 _T = TypeVar("_T")
 _PERMISSIONS = ("allow", "ask", "defer")
+_ELICITATION_ACTIONS = ("accept", "decline", "cancel")
 _STRICTNESS = {"deny": 0, "defer": 1, "ask": 2, "allow": 3}
 #: `watchPaths` okuyan olaylar (FileChanged izleme listesini değiştirir).
 WATCH_PATH_EVENTS = frozenset(
@@ -164,10 +165,27 @@ def _from_json(event: HookEvent, payload: Mapping[str, object]) -> HookVerdict:
         return _model_switch_fields(verdict, specific)
     if event is HookEvent.WORKTREE_CREATE:
         return replace(verdict, worktree_path=_text(specific.get("worktreePath")))
+    if event is HookEvent.PERMISSION_DENIED:
+        return replace(verdict, retry=specific.get("retry") is True)
+    if event in (HookEvent.ELICITATION, HookEvent.ELICITATION_RESULT):
+        return _elicitation_fields(verdict, specific)
     context = _text(specific.get("additionalContext"))
     if context and verdict.permission != "defer":
         verdict = replace(verdict, additional_context=(context,))
     return _session_fields(event, verdict, specific)
+
+
+def _elicitation_fields(verdict: HookVerdict, specific: Mapping[str, object]) -> HookVerdict:
+    """`action` accept|decline|cancel ve `content`; `action`'sız çıktı yok sayılır (Claude)."""
+    action = specific.get("action")
+    if action not in _ELICITATION_ACTIONS:
+        return verdict
+    content = specific.get("content")
+    return replace(
+        verdict,
+        elicitation_action=str(action),
+        elicitation_content=dict(content) if isinstance(content, Mapping) else None,
+    )
 
 
 def _model_switch_fields(verdict: HookVerdict, specific: Mapping[str, object]) -> HookVerdict:
@@ -297,6 +315,11 @@ def merge_verdicts(verdicts: Iterable[HookVerdict]) -> HookVerdict:
             reload_skills=merged.reload_skills or item.reload_skills,
             terminal_sequences=merged.terminal_sequences + item.terminal_sequences,
             worktree_path=merged.worktree_path or item.worktree_path,
+            retry=merged.retry or item.retry,
+            elicitation_action=item.elicitation_action or merged.elicitation_action,
+            elicitation_content=item.elicitation_content
+            if item.elicitation_action
+            else merged.elicitation_content,
         )
     return merged
 

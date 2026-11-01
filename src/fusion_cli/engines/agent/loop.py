@@ -207,6 +207,7 @@ from .hook_bridge import (
     user_prompt_submit,
     with_system_note,
 )
+from .hook_permission_denied import classifier_reason, permission_denied, review_mark
 from .hook_services import bind_hook_services
 from .hook_stop import continue_until_stop_allowed
 from .instruction_layers import InstructionLoad
@@ -4337,6 +4338,7 @@ async def _execute(
         # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
         guard = getattr(deps, "auto_review", None)
         trips = guard.trips if guard is not None else 0
+        mark = review_mark(guard)  # PermissionDenied: denetçi bu çağrıyı riskli buldu mu?
         request = await review_auto_request(request, deps)
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
@@ -4361,6 +4363,10 @@ async def _execute(
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
             # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
             message = _decision_message(decision, plan_mode=plan_mode, request=request)
+            if (reason := classifier_reason(guard, mark)) is not None:
+                message = await permission_denied(
+                    deps, call.name, args, call.id, reason=reason, message=message
+                )
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;

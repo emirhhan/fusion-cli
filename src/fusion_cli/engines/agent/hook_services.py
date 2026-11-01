@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from ...core.errors import FusionError
 from ...core.events import NarrationPublished
 from ...core.types import CompletionRequest, Message, ModelSpec
+from ...mcp_bridge.elicitation_hooks import register_elicitation_hooks
 from ...mcp_bridge.tool_name import fusion_tool_name
 from ..hooks.handlers import EVALUATOR_SYSTEM, HookServices
 from .skill_hooks import activate_selected_skill
@@ -68,6 +69,10 @@ def bind_hook_services(deps: AgentDeps, run_agent: Callable[..., Awaitable[Any]]
         agent_call=_agent_call(deps, run_agent),
         mcp_call=_mcp_call(deps),
     )
+    # MCP elicitation isteği bu oturumun Elicitation/ElicitationResult kancalarından geçer.
+    from ..hooks.elicitation import SessionElicitationHooks  # döngüsel içe aktarma: notify
+
+    register_elicitation_hooks(SessionElicitationHooks(hooks))
 
 
 def _model_call(deps: AgentDeps) -> Callable[[str, str, float], Awaitable[str]]:

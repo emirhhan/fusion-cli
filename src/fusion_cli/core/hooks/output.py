@@ -37,8 +37,14 @@ DISCARDS_ALL_JSON = frozenset(
 )
 #: Çıkış kodu ve stderr'i yok sayılan olaylar (Notification hataları kullanıcıya basılmaz).
 #: WorktreeRemove: karar denetimi yok, hatası yalnız hata ayıklama günlüğünde (Claude).
+#: PermissionDenied: ret zaten verildi; kanca yalnız `retry` ile not düşebilir.
 IGNORES_EXIT_CODE = frozenset(
-    {HookEvent.NOTIFICATION, HookEvent.STOP_FAILURE, HookEvent.WORKTREE_REMOVE}
+    {
+        HookEvent.NOTIFICATION,
+        HookEvent.STOP_FAILURE,
+        HookEvent.WORKTREE_REMOVE,
+        HookEvent.PERMISSION_DENIED,
+    }
 )
 
 #: İzinli terminal dizileri: OSC 0/1/2/9/99/777 (BEL ya da ST ile biten) ve yalın BEL.
