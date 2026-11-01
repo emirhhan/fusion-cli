@@ -248,7 +248,7 @@ def load_hooks(
         if data is not None:
             _read_layer(found, layer, data, root, include_claude, default_timeout_s, interactive)
     if include_plugins:
-        plugin_commands, plugin_skips = plugin_hooks(default_timeout_s)
+        plugin_commands, plugin_skips = plugin_hooks(default_timeout_s=default_timeout_s, root=root)
         if found.workspace_ok:
             found.commands.extend(plugin_commands)
         else:

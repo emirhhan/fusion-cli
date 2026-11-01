@@ -20,6 +20,7 @@ from ...config import trust
 from ...core.proposal_invocation import ProposalPolicy
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools.capabilities import Capability, CapabilityRegistry
+from ...tools.plugin_capabilities import is_repository_plugin_file
 from ...tools.skill_commands import SkillInvocation, TemplateEnv, build_invocation
 from ...tools.skill_shell import ShellPolicy
 from . import skill_grants, skill_hooks, skill_usage
@@ -47,6 +48,10 @@ _USER_ONLY = (
     "'{name}' yalnız kullanıcı /{name} ile çağırır; model yükleyemez. Gerekiyorsa kullanıcıya "
     "/{name} yazmasını öner."
 )
+
+
+#: Kurulu eklenti becerileri (#386); projeden açılan eklenti depo içeriği sayılır.
+PLUGIN_SOURCES = frozenset({"eklenti", "claude-plugin"})
 
 
 def _sources(skill: Capability) -> set[str]:
@@ -80,7 +85,14 @@ def shell_mode_policy(skill: Capability, mode: ApprovalMode, root: Path) -> tupl
     sources = _sources(skill)
     if sources & TRUSTED_SOURCES:
         return True, False
-    project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(root).trusted
+    repository = bool(sources & PROJECT_SOURCES)
+    if sources & PLUGIN_SOURCES:
+        # Kurulu eklenti becerisi (#386): Claude Code'daki gibi kullanıcı becerisiyle aynı kipte
+        # koşar (güvenlik davranışı değişti). Depodan açılan eklenti proje kısıtını aşamaz.
+        repository = is_repository_plugin_file(skill.path, root)
+        if not repository:
+            return True, False
+    project = repository and trust.resolve_project_trust(root).trusted
     return project, True
 
 

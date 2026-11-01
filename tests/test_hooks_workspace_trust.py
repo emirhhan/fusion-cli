@@ -25,7 +25,7 @@ def ev(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(ev / ".config"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: ev))
     monkeypatch.setattr(trust, "trust_store_file", lambda: ev / "guven.json")
-    monkeypatch.setattr(hooks_config, "plugin_hooks", lambda timeout: ((), ()))
+    monkeypatch.setattr(hooks_config, "plugin_hooks", lambda *_args, **_kwargs: ((), ()))
     monkeypatch.delenv("FUSION_HOOKS", raising=False)
     return ev
 

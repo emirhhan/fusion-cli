@@ -23,20 +23,32 @@ Bu modül YALNIZ ayrıştırır ve doğrular (stdlib); disk ve ağ işi üst kat
 
 from __future__ import annotations
 
-import json
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from typing import TYPE_CHECKING
 
 from .errors import FusionError
+from .plugin_paths import (
+    PluginPathError,
+    check_plugin_name,
+    command_map,
+    mixed_component,
+    path_list,
+)
+from .plugin_paths import safe_relative as _safe_relative
 
-#: Bildirim dosyası adayları (ilk bulunan okunur).
+_LOG = logging.getLogger(__name__)
+
+#: Bildirim dosyası adayları (ilk bulunan okunur). `.fusion-plugin/` Fusion'ın eski adıdır:
+#: bir sürüm boyunca kullanımdan kalkmış takma ad olarak okunur ve uyarı verir (#413).
 MANIFEST_PATHS: tuple[str, ...] = (".claude-plugin/plugin.json", ".fusion-plugin/plugin.json")
 MARKETPLACE_PATHS: tuple[str, ...] = (
     ".claude-plugin/marketplace.json",
     ".fusion-plugin/marketplace.json",
 )
+LEGACY_MANIFEST_DIR = ".fusion-plugin"
 #: Varsayılan bileşen yerleri (eklenti köküne göreli).
 DEFAULT_COMMANDS = "commands"
 DEFAULT_AGENTS = "agents"
@@ -44,40 +56,30 @@ DEFAULT_SKILLS = "skills"
 DEFAULT_OUTPUT_STYLES = "output-styles"
 DEFAULT_HOOKS = "hooks/hooks.json"
 DEFAULT_MCP = ".mcp.json"
-#: Kanca/MCP komutlarında eklenti kökü değişkenleri (Claude Code adı + Fusion adı).
+#: Eklenti kökü değişkeni. `${FUSION_PLUGIN_ROOT}` eski Fusion adıdır (takma ad, uyarılı).
 ROOT_VARIABLES: tuple[str, ...] = ("${CLAUDE_PLUGIN_ROOT}", "${FUSION_PLUGIN_ROOT}")
-#: Ad kuralı (Claude Code: kebab-case). Ad komut önekidir (`/ad:komut`).
-NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-#: Fusion'ın tanıdığı `plugin.json` alanları; ötekiler uyarı olur, kurulumu engellemez.
+DATA_VARIABLE = "${CLAUDE_PLUGIN_DATA}"
+PROJECT_VARIABLE = "${CLAUDE_PROJECT_DIR}"
+#: Eski kayıt ve klasör adları için güvenli ad kalıbı (yol bileşeni olarak kullanılır).
+NAME_PATTERN = re.compile(r"^(?!\.\.?$)[^\s@:/\\\x00-\x1f\x7f]{1,128}$")
+#: Claude Code'un tanıdığı üst düzey `plugin.json` alanları (plugins-reference "Fields").
 KNOWN_FIELDS = frozenset(
     {
-        "name",
-        "version",
-        "description",
-        "author",
-        "homepage",
-        "repository",
-        "license",
-        "keywords",
-        "commands",
-        "agents",
-        "skills",
-        "outputStyles",
-        "output-styles",
-        "hooks",
-        "mcpServers",
-        "$schema",
+        "$schema", "name", "displayName", "version", "description", "author", "homepage",
+        "repository", "license", "keywords", "metadata", "icon", "documentationUrl",
+        "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl", "defaultEnabled",
+        "dependencies", "settings", "userConfig", "types", "channels", "skills", "commands",
+        "agents", "hooks", "mcpServers", "lspServers", "outputStyles", "workflows",
+        "experimental", "themes", "monitors",
     }
-)
+)  # fmt: skip
+#: Fusion'ın eski `output-styles` anahtarı (takma ad, uyarılı).
+LEGACY_STYLES_KEY = "output-styles"
 
 ERR_NOT_OBJECT = "{where}: JSON nesnesi bekleniyordu"
-ERR_NAME = "{where}: 'name' küçük harf, rakam, '-', '.', '_' olmalı (en çok 64): {value!r}"
 ERR_TEXT = "{where}: '{key}' metin olmalı"
-ERR_PATHS = "{where}: '{key}' göreli yol ya da yol listesi olmalı"
-ERR_UNSAFE_PATH = "{where}: '{key}' eklenti kökü dışına çıkamaz: {value!r}"
-ERR_PLUGINS = "{where}: 'plugins' liste olmalı"
-ERR_SOURCE = "{where}: '{name}' için kaynak anlaşılamadı (göreli yol, github ya da url)"
 WARN_UNKNOWN = "plugin.json: tanınmayan alan(lar) yok sayıldı: {names}"
+WARN_LEGACY = "{old} kullanımdan kalktı; Claude Code adı {new}"
 
 
 class PluginError(FusionError):
@@ -102,55 +104,36 @@ class PluginManifest:
     output_styles: tuple[str, ...] = (DEFAULT_OUTPUT_STYLES,)
     hooks: tuple[str, ...] = (DEFAULT_HOOKS,)
     mcp_servers: tuple[str, ...] = (DEFAULT_MCP,)
-    #: Satır içi `hooks`/`mcpServers` nesnesi (JSON metni; boş = yok).
+    #: Satır içi `hooks`/`mcpServers` nesnelerinin JSON listesi (boş = yok).
     inline_hooks: str = ""
     inline_mcp: str = ""
     warnings: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class MarketplaceSource:
-    """Pazar yerindeki bir eklentinin nereden alınacağı."""
-
-    #: `path` (pazar köküne göreli) | `git` (klonlanır).
-    kind: str
-    location: str
-    ref: str = ""
-    #: Beklenen commit (kurulumda doğrulanır; uyuşmazsa kurulmaz).
-    sha: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class MarketplaceEntry:
-    name: str
-    source: MarketplaceSource
-    description: str = ""
-    version: str = ""
-    category: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class Marketplace:
-    name: str
-    owner: str
-    entries: tuple[MarketplaceEntry, ...]
-    description: str = ""
+    #: `commands` nesne haritası (JSON listesi; bkz. `plugin_paths.command_map`).
+    inline_commands: str = ""
+    #: Varsayılan klasörün YERİNE geçen, bildirimde ayarlanmış anahtarlar (#384).
+    replaced_defaults: tuple[str, ...] = ()
+    #: `skills` anahtarı bildirimde var mı? (Kökteki tek SKILL.md kuralı için, #385.)
+    sets_skills: bool = False
+    display_name: str = ""
+    default_enabled: bool = True
+    dependencies: tuple[str, ...] = ()
+    #: `{name, version}` bağımlılıklarının npm semver aralığı: (`ad[@pazar]`, aralık) (#389).
+    dependency_versions: tuple[tuple[str, str], ...] = ()
 
 
 def check_name(value: object, where: str) -> str:
-    text = value.strip() if isinstance(value, str) else ""
-    if not NAME_PATTERN.match(text):
-        raise PluginError(ERR_NAME.format(where=where, value=value))
-    return text
+    try:
+        return check_plugin_name(value, where)
+    except PluginPathError as error:
+        raise PluginError(str(error)) from error
 
 
 def safe_relative(value: str, *, where: str, key: str) -> str:
-    """`./x/y` → `x/y`; mutlak yol ya da `..` reddedilir."""
-    text = value.strip().replace("\\", "/")
-    path = PurePosixPath(text)
-    if not text or path.is_absolute() or ".." in path.parts or ":" in path.parts[0]:
-        raise PluginError(ERR_UNSAFE_PATH.format(where=where, key=key, value=value))
-    return str(path)
+    """`./x/y` → `x/y`, `.`/`./` → `.`; mutlak yol ya da `..` reddedilir."""
+    try:
+        return _safe_relative(value, where=where, key=key)
+    except PluginPathError as error:
+        raise PluginError(str(error)) from error
 
 
 def _text(raw: Mapping[str, object], key: str, where: str) -> str:
@@ -163,28 +146,6 @@ def _text(raw: Mapping[str, object], key: str, where: str) -> str:
     return value.strip()
 
 
-def _paths(raw: Mapping[str, object], key: str, default: str, where: str) -> tuple[str, ...]:
-    """Yol ya da yol listesi. Claude Code'daki gibi özel yollar varsayılanı TAMAMLAR."""
-    value = raw.get(key)
-    if value is None:
-        return (default,)
-    items = [value] if isinstance(value, str) else value
-    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
-        raise PluginError(ERR_PATHS.format(where=where, key=key))
-    custom = tuple(safe_relative(item, where=where, key=key) for item in items)
-    return tuple(dict.fromkeys((default, *custom)))
-
-
-def _component(
-    raw: Mapping[str, object], key: str, default: str, where: str
-) -> tuple[tuple[str, ...], str]:
-    """`hooks`/`mcpServers`: yol(lar) ya da satır içi nesne → (yollar, satır içi JSON)."""
-    value = raw.get(key)
-    if isinstance(value, Mapping):
-        return (default,), json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return _paths(raw, key, default, where), ""
-
-
 def parse_manifest(
     raw: object, *, fallback_name: str = "", where: str = "plugin.json"
 ) -> PluginManifest:
@@ -193,11 +154,38 @@ def parse_manifest(
         return PluginManifest(name=check_name(fallback_name, where))
     if not isinstance(raw, Mapping):
         raise PluginError(ERR_NOT_OBJECT.format(where=where))
+    try:
+        return _parse_manifest(raw, fallback_name, where)
+    except PluginPathError as error:
+        raise PluginError(str(error)) from error
+
+
+def _parse_manifest(raw: Mapping[str, object], fallback_name: str, where: str) -> PluginManifest:
     keywords = raw.get("keywords", [])
-    unknown = sorted(set(raw) - KNOWN_FIELDS)
-    hooks, inline_hooks = _component(raw, "hooks", DEFAULT_HOOKS, where)
-    mcp, inline_mcp = _component(raw, "mcpServers", DEFAULT_MCP, where)
-    styles_key = "outputStyles" if "outputStyles" in raw else "output-styles"
+    warnings = [WARN_UNKNOWN.format(names=", ".join(sorted(set(raw) - KNOWN_FIELDS)))]
+    if set(raw) <= KNOWN_FIELDS:
+        warnings.clear()
+    styles_key = "outputStyles"
+    if styles_key not in raw and LEGACY_STYLES_KEY in raw:
+        styles_key = LEGACY_STYLES_KEY
+        warnings.append(WARN_LEGACY.format(old=f"'{LEGACY_STYLES_KEY}'", new="'outputStyles'"))
+    commands_raw = raw.get("commands")
+    inline_commands = ""
+    if isinstance(commands_raw, Mapping):
+        inline_commands = command_map(commands_raw, where=where)
+        commands: tuple[str, ...] | None = ()
+    else:
+        commands = path_list(commands_raw, key="commands", where=where)
+    agents = path_list(raw.get("agents"), key="agents", where=where)
+    styles = path_list(raw.get(styles_key), key="outputStyles", where=where)
+    skills = path_list(raw.get("skills"), key="skills", where=where, allow_root=True)
+    hooks, inline_hooks = mixed_component(raw.get("hooks"), key="hooks", where=where)
+    mcp, inline_mcp = mixed_component(raw.get("mcpServers"), key="mcpServers", where=where)
+    replaced = tuple(
+        key
+        for key, value in (("commands", commands), ("agents", agents), ("outputStyles", styles))
+        if value is not None
+    )
     return PluginManifest(
         name=check_name(raw.get("name", fallback_name), where),
         version=_text(raw, "version", where),
@@ -207,74 +195,101 @@ def parse_manifest(
         repository=_text(raw, "repository", where),
         license=_text(raw, "license", where),
         keywords=tuple(str(k) for k in keywords) if isinstance(keywords, list) else (),
-        commands=_paths(raw, "commands", DEFAULT_COMMANDS, where),
-        agents=_paths(raw, "agents", DEFAULT_AGENTS, where),
-        skills=_paths(raw, "skills", DEFAULT_SKILLS, where),
-        output_styles=_paths(raw, styles_key, DEFAULT_OUTPUT_STYLES, where),
-        hooks=hooks,
-        mcp_servers=mcp,
+        commands=(DEFAULT_COMMANDS,) if commands is None else commands,
+        agents=(DEFAULT_AGENTS,) if agents is None else agents,
+        skills=tuple(dict.fromkeys((DEFAULT_SKILLS, *(skills or ())))),
+        output_styles=(DEFAULT_OUTPUT_STYLES,) if styles is None else styles,
+        hooks=tuple(dict.fromkeys((DEFAULT_HOOKS, *hooks))),
+        mcp_servers=tuple(dict.fromkeys((DEFAULT_MCP, *mcp))),
         inline_hooks=inline_hooks,
         inline_mcp=inline_mcp,
-        warnings=(WARN_UNKNOWN.format(names=", ".join(unknown)),) if unknown else (),
+        warnings=tuple(warnings),
+        inline_commands=inline_commands,
+        replaced_defaults=replaced,
+        sets_skills=skills is not None,
+        display_name=_text(raw, "displayName", where),
+        default_enabled=raw.get("defaultEnabled") is not False,
+        dependencies=_dependencies(raw.get("dependencies")),
+        dependency_versions=_dependency_versions(raw.get("dependencies")),
     )
 
 
-def parse_marketplace(raw: object, *, where: str = "marketplace.json") -> Marketplace:
-    """`marketplace.json` içeriğini doğrula; bozuk tek girdi bütün pazarı düşürür (açık hata)."""
-    if not isinstance(raw, Mapping):
-        raise PluginError(ERR_NOT_OBJECT.format(where=where))
-    name = check_name(raw.get("name"), where)
-    owner = raw.get("owner", "")
-    owner_name = owner.get("name", "") if isinstance(owner, Mapping) else owner
-    plugins = raw.get("plugins", [])
-    if not isinstance(plugins, list):
-        raise PluginError(ERR_PLUGINS.format(where=where))
-    root = ""
-    metadata = raw.get("metadata")
-    if isinstance(metadata, Mapping) and isinstance(metadata.get("pluginRoot"), str):
-        root = safe_relative(str(metadata["pluginRoot"]), where=where, key="pluginRoot")
-    entries = tuple(_entry(item, where, root) for item in plugins)
-    description = raw.get("description", "")
-    return Marketplace(
-        name,
-        str(owner_name or ""),
-        entries,
-        description if isinstance(description, str) else "",
-    )
+def _dependencies(raw: object) -> tuple[str, ...]:
+    """`"ad"`, `"ad@pazar"` ya da `{name, marketplace}` → `ad[@pazar]` metinleri."""
+    found: list[str] = []
+    for item in raw if isinstance(raw, list) else ():
+        if isinstance(item, str) and item.strip():
+            found.append(item.strip())
+        elif isinstance(item, Mapping) and isinstance(item.get("name"), str):
+            market = item.get("marketplace")
+            found.append(f"{item['name']}@{market}" if isinstance(market, str) else item["name"])
+    return tuple(found)
 
 
-def _entry(raw: object, where: str, plugin_root: str) -> MarketplaceEntry:
-    if not isinstance(raw, Mapping):
-        raise PluginError(ERR_NOT_OBJECT.format(where=f"{where}: plugins[]"))
-    name = check_name(raw.get("name"), f"{where}: plugins[]")
-    return MarketplaceEntry(
-        name=name,
-        source=_source(raw.get("source"), where, name, plugin_root),
-        description=str(raw.get("description") or ""),
-        version=str(raw.get("version") or ""),
-        category=str(raw.get("category") or ""),
-    )
+def _dependency_versions(raw: object) -> tuple[tuple[str, str], ...]:
+    """`{name, marketplace?, version}` → (`ad[@pazar]`, aralık); sürümsüz girdiler atlanır."""
+    found: list[tuple[str, str]] = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, Mapping) or not isinstance(item.get("name"), str):
+            continue
+        version = item.get("version")
+        if not isinstance(version, str) or not version.strip():
+            continue
+        market = item.get("marketplace")
+        ident = f"{item['name']}@{market}" if isinstance(market, str) else item["name"]
+        found.append((ident, version.strip()))
+    return tuple(found)
 
 
-def _source(raw: object, where: str, name: str, plugin_root: str) -> MarketplaceSource:
-    if isinstance(raw, str) and raw.strip():
-        text = raw.strip()
-        if not text.startswith((".", "/")) and plugin_root:
-            text = f"{plugin_root}/{text}"
-        return MarketplaceSource("path", safe_relative(text, where=where, key=f"{name}.source"))
-    if isinstance(raw, Mapping):
-        kind = str(raw.get("source") or "")
-        ref = str(raw.get("ref") or "")
-        sha = str(raw.get("sha") or "")
-        if kind == "github" and isinstance(raw.get("repo"), str):
-            return MarketplaceSource("git", f"https://github.com/{raw['repo']}", ref, sha)
-        if kind in {"url", "git"} and isinstance(raw.get("url"), str):
-            return MarketplaceSource("git", str(raw["url"]), ref, sha)
-    raise PluginError(ERR_SOURCE.format(where=where, name=name))
+_LEGACY_WARNED: set[str] = set()
 
 
-def substitute_root(text: str, root: str) -> str:
-    """`${CLAUDE_PLUGIN_ROOT}` / `${FUSION_PLUGIN_ROOT}` → eklenti klasörü."""
+def substitute_root(text: str, root: str, data: str = "", project: str = "") -> str:
+    """`${CLAUDE_PLUGIN_ROOT}` (ve eski `${FUSION_PLUGIN_ROOT}`), `${CLAUDE_PLUGIN_DATA}`,
+    `${CLAUDE_PROJECT_DIR}` → klasörler. Boş verilen değişkene dokunulmaz."""
+    if ROOT_VARIABLES[1] in text and ROOT_VARIABLES[1] not in _LEGACY_WARNED:
+        _LEGACY_WARNED.add(ROOT_VARIABLES[1])
+        _LOG.warning(WARN_LEGACY.format(old=ROOT_VARIABLES[1], new=ROOT_VARIABLES[0]))
     for variable in ROOT_VARIABLES:
         text = text.replace(variable, root)
+    if data:
+        text = text.replace(DATA_VARIABLE, data)
+    if project:
+        text = text.replace(PROJECT_VARIABLE, project)
     return text
+
+
+#: `plugin_marketplace` bu modüle (PluginError, safe_relative) bağlıdır; adları tembel yeniden
+#: dışa aktarılır. Modül başında içe aktarmak, pazar modülü ilk içe aktarılan olunca döngü verirdi.
+_MARKETPLACE_NAMES = frozenset({"Marketplace", "MarketplaceEntry", "MarketplaceSource"})
+_MARKETPLACE_NAMES |= {"parse_marketplace"}
+
+if TYPE_CHECKING:
+    from .plugin_marketplace import (
+        Marketplace,
+        MarketplaceEntry,
+        MarketplaceSource,
+        parse_marketplace,
+    )
+
+
+def __getattr__(name: str) -> object:
+    if name in _MARKETPLACE_NAMES:
+        from . import plugin_marketplace
+
+        return getattr(plugin_marketplace, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "Marketplace",
+    "MarketplaceEntry",
+    "MarketplaceSource",
+    "PluginError",
+    "PluginManifest",
+    "check_name",
+    "parse_manifest",
+    "parse_marketplace",
+    "safe_relative",
+    "substitute_root",
+]

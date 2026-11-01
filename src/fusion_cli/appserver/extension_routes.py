@@ -37,13 +37,15 @@ from ..config.plugin_store import (
     inspect_plugin,
     installed_plugins,
     load_state,
-    plugins_dir,
+    plugin_folder,
+    plugin_id,
 )
 from ..config.release_notes import changelog_path, load_sections, release_notes_text
 from ..core.errors import ConfigError
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
+from ..tools.plugin_source_fetch import CommandConsent, CommandRefusedError, accept_by_sha
 
 EXTENSION_ROUTES = frozenset(
     {
@@ -59,6 +61,7 @@ EXTENSION_ROUTES = frozenset(
         "eklenti.pazar_ekle",
         "eklenti.pazar_kaldir",
         "eklenti.pazar_guncelle",
+        "eklenti.pazar_otomatik",
         "ice_aktar.onizle",
         "ice_aktar.uygula",
         "surum.notlari",
@@ -107,6 +110,8 @@ def _installed(item: InstalledPlugin) -> dict[str, Any]:
     record, layout = item.record, item.layout
     return {
         "ad": record.name,
+        "kimlik": plugin_id(record),
+        "kapsamlar": list(record.scopes),
         "surum": record.version,
         "aciklama": layout.manifest.description if layout else "",
         "durum": item.status,
@@ -145,12 +150,17 @@ def _preview(preview: plugins.PluginPreview) -> dict[str, Any]:
 
 
 def _list() -> dict[str, Any]:
+    from . import plugin_extras as extras
+
     state = load_state()
     return {
         "ok": True,
         "hepsi_kapali": state.all_disabled,
         "eklentiler": [_installed(item) for item in installed_plugins()],
-        "pazarlar": [{"ad": m.name, "kaynak": m.source, "tur": m.kind} for m in state.marketplaces],
+        "pazarlar": extras.market_rows(),
+        "oturumluk": extras.session_rows(),  # #401: --plugin-dir/--plugin-url ve skills-dir
+        "isaretli": extras.flagged_rows(),  # #397: Flagged
+        "bildirimler": extras.notices(),  # #394: otomatik güncelleme bildirimleri
     }
 
 
@@ -165,10 +175,19 @@ def _install(data: Mapping[str, object]) -> dict[str, Any]:
         seen.append(_preview(preview))
         return approved or not preview.is_executable
 
+    from ..tools.plugin_install_scope import install_scoped
+
     try:
-        item = plugins.install_plugin(
-            source, approve=approve, expected_digest=_text(data, "beklenen_karma")
-        )
+        item = install_scoped(
+            source,
+            approve=approve,
+            scope=_text(data, "kapsam"),  # #382: user | project | local
+            expected_digest=_text(data, "beklenen_karma"),
+            accept_command=_command_consent(data),
+            allow_direct=True,  # masaüstü önizleme akışı doğrudan kaynağı bir sürüm daha alır
+        ).item
+    except CommandRefusedError as error:
+        return _command_needed(error)
     except PluginError as error:
         if seen and seen[0]["calistirilabilir"] and not approved:
             return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}
@@ -176,21 +195,40 @@ def _install(data: Mapping[str, object]) -> dict[str, Any]:
     return {"ok": True, "yenile": True, "eklenti": _installed(item)}
 
 
+def _command_consent(data: Mapping[str, object]) -> CommandConsent | None:
+    """`komut_onayi`: arayüzde gösterilen `komut.sha256` (Claude `--accept-command`, #399)."""
+    sha = _text(data, "komut_onayi")
+    return accept_by_sha(sha) if sha else None
+
+
+def _command_needed(error: CommandRefusedError) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "komut_onayi_gerekli": True,
+        "komut": error.shown.to_json(),
+        "metin": str(error),
+    }
+
+
 def _plugin_action(name: str, data: Mapping[str, object]) -> dict[str, Any]:
     plugin = _text(data, "ad")
     if name == "eklenti.etkinlik":
         enabled = data.get("etkin") is True
         if data.get("hepsi") is True:
-            plugins.set_all_disabled(not enabled)
+            # Claude `disable --all` her eklentiyi ayrı kapatır (#409).
+            if enabled:
+                plugins.set_all_disabled(False)
+            else:
+                plugins.disable_all_plugins()
         elif plugin:
-            plugins.set_plugin_enabled(plugin, enabled)
+            plugins.set_plugin_enabled(plugin, enabled, scope=_text(data, "kapsam"))
         else:
             return {"ok": False, "metin": NEEDS_NAME}
         return {**_list(), "yenile": True}
     if not plugin:
         return {"ok": False, "metin": NEEDS_NAME}
     if name == "eklenti.kaldir":
-        plugins.uninstall_plugin(plugin)
+        plugins.uninstall_plugin(plugin, keep_data=data.get("veriyi_koru") is True)
         return {**_list(), "yenile": True}
     return _trust(plugin, data)
 
@@ -233,8 +271,13 @@ def _update(data: Mapping[str, object]) -> dict[str, Any]:
 
     try:
         result = plugin_update.update_plugin(
-            plugin, approve=approve, expected_digest=_text(data, "beklenen_karma")
+            plugin,
+            approve=approve,
+            expected_digest=_text(data, "beklenen_karma"),
+            accept_command=_command_consent(data),
         )
+    except CommandRefusedError as error:
+        return _command_needed(error)
     except PluginError as error:
         if seen and seen[0]["calistirilabilir"] and not approved:
             return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}
@@ -247,7 +290,7 @@ def _validate(data: Mapping[str, object]) -> dict[str, Any]:
     record = load_state().plugin(_text(data, "ad"))
     if record is None:
         return {"ok": False, "metin": plugins.ERR_NOT_INSTALLED.format(name=_text(data, "ad"))}
-    report = validate_plugin(plugins_dir() / record.name)
+    report = validate_plugin(plugin_folder(record))
     item = inspect_plugin(record)
     return {
         "ok": True,
@@ -276,15 +319,32 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
                 for e in entries
             ],
         }
+    if name == "eklenti.pazar_otomatik":
+        from .plugin_extras import set_auto_update
+
+        set_auto_update(data)
+        return _list()
     if name == "eklenti.pazar_ekle":
         source = _text(data, "kaynak")
         if not source:
             return {"ok": False, "metin": NEEDS_SOURCE}
-        plugins.add_marketplace(source)
+        from ..tools.plugin_market_declare import declare
+
+        declare("user", plugins.add_marketplace(source))  # Claude: user ayarlarında (#376)
     elif name == "eklenti.pazar_guncelle":
+        from ..tools.plugin_market_sync import sync_by_name
+
         plugin_update.update_marketplace(_text(data, "ad"))
+        notes = sync_by_name(_text(data, "ad"))  # #397: renames / forceRemoveDeletedPlugins
+        return {**_list(), "notlar": list(notes)}
     else:
-        plugins.remove_marketplace(_text(data, "ad"))
+        # Claude gibi pazar, ondan kurulan eklentiler ve verileri birlikte gider (#396);
+        # arayüz onay ister ve kaldırılanları bildirir.
+        from ..tools.plugin_market_declare import undeclare
+
+        removed = plugins.remove_marketplace(_text(data, "ad"))
+        undeclare(_text(data, "ad"))  # bildirim user/project/local'den de silinir (#376)
+        return {**_list(), "yenile": bool(removed), "kaldirilan": list(removed)}
     return _list()
 
 

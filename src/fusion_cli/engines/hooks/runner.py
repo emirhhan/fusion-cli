@@ -22,7 +22,6 @@ import signal
 from collections.abc import Mapping
 from pathlib import Path
 
-from ...config.plugin_hooks import plugin_environment
 from ...core.hooks.events import (
     HTTP_HANDLER,
     MCP_TOOL_HANDLER,
@@ -64,8 +63,9 @@ async def run_hook(
         return await run_http_hook(
             command, payload, environment=environment, allow_private=allow_private
         )
-    if command.plugin_root:
-        environment = {**environment, **plugin_environment(command)}
+    if command.env:
+        # Eklenti kancası: `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_OPTION_*`.
+        environment = {**environment, **dict(command.env)}
     posix = os.name == "posix"
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     try:

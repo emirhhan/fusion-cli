@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Mapping
@@ -28,6 +29,8 @@ import yaml
 from ..core.errors import ConfigError
 from .local_settings_location import local_settings_path
 from .paths import user_config_dir
+
+_LOG = logging.getLogger(__name__)
 
 #: Proje kökünde yürütme ayarı taşıyabilen yapılandırma dosyası.
 PROJECT_CONFIG_NAME = "config.yaml"
@@ -165,12 +168,34 @@ def record_permissions_digest(root: Path) -> None:
     )
 
 
+def record_project_settings_digest(root: Path) -> None:
+    """Fusion'ın BİZZAT yazdığı `.claude/settings.json`'ın karmasını tazele (#376).
+
+    `record_permissions_digest` ile aynı ilke: yalnız bu alan değişir; çağıran, dosya
+    yazılmadan ÖNCE güvenilir olduğunu denetler (güvensiz içerik bununla güvenilir olmaz).
+    """
+    record = _load().get(_key(root))
+    _update(
+        root,
+        config_sha256=record.get("config_sha256") if record is not None else _NEVER_TRUSTED,
+        files=dict(record.get("files", {})) if record is not None else {},
+        settings_sha256=record.get("settings_sha256") if record else None,
+        project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
+    )
+
+
 def untrust_project(root: Path) -> bool:
     """Projenin güven kaydını sil; kayıt yoksa `False` (P-012)."""
     store = _load()
     if store.pop(_key(root), None) is None:
         return False
     _save(store)
+    from .plugin_project_mcp import forget_project
+
+    try:
+        forget_project(root)
+    except (OSError, ConfigError) as error:
+        _LOG.warning("proje eklentisi MCP onayı silinemedi: %s", error)
     return True
 
 
@@ -257,6 +282,18 @@ def trust_project(root: Path) -> None:
         settings_sha256=_digest(local_settings_path(root)),
         project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
+    _approve_plugin_mcp(root)
+
+
+def _approve_plugin_mcp(root: Path) -> None:
+    """Proje kapsamlı eklentilerin MCP sunucuları da `.mcp.json` gibi onaylanır (#419)."""
+    from ..core.plugins import PluginError
+    from .plugin_project_mcp import approve_project
+
+    try:
+        approve_project(root)
+    except (OSError, PluginError, ConfigError) as error:
+        _LOG.warning("proje eklentisi MCP onayı kaydedilemedi: %s", error)
 
 
 #: Keşifte desteklenen proje ajanı biçimleri; güven yalnız bu belirli kökü kapsar.

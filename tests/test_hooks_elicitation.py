@@ -213,7 +213,12 @@ def test_sunucunun_tamamlandi_bildirimi_elicitation_complete_bildirimi_olur(tmp_
         try:
             with elicitation_scope("db"):
                 await with_completion_notice("db", inner)(message)
-            await asyncio.sleep(0.5)
+            # Bildirim kancası beklenmez (arka planda koşar): dosya yazılana dek bekle; sabit
+            # bekleme paralel test yükünde yetmiyordu.
+            for _ in range(200):
+                if (tmp_path / "bildirim.json").is_file():
+                    break
+                await asyncio.sleep(0.05)
         finally:
             register_elicitation_hooks(None)
 

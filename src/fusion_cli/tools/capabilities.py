@@ -442,6 +442,11 @@ class CapabilityRegistry:
             extra_agent_sources=self._extra_agent_sources,
         )
 
+    @property
+    def home(self) -> Path:
+        """Kataloğun okuduğu ev dizini (Claude eklenti kurulumları buradan okunur)."""
+        return self._home
+
     def invalidate(self) -> None:
         """Önbelleği boşalt; bir sonraki erişim diski yeniden tarar."""
         self._skills = None
@@ -458,7 +463,7 @@ class CapabilityRegistry:
 
     def _current_signature(self) -> tuple[tuple[str, int], ...]:
         # Eklenti kaydı (P-059) değişince (kur/kapat/kaldır) katalog da yenilenir.
-        plugins = state_signature()
+        plugins = state_signature(root=self._root)
         signature = roots_signature(
             self._skill_roots(), self._agent_roots(), self._home, self._root
         )
@@ -585,6 +590,8 @@ class CapabilityRegistry:
             for path in sorted(root.rglob("SKILL.md")):
                 if not _trusted_path(path, root, source):
                     continue
+                if source == "claude" and _in_skills_dir_plugin(path, root):
+                    continue  # `<ad>@skills-dir` eklentisi: önekli eklenti becerisi (#401)
                 capability = _to_capability(path, source, fallback=path.parent.name)
                 if root in self._nested_roots and any(
                     item.name == capability.name for item in found.values()
@@ -603,7 +610,11 @@ class CapabilityRegistry:
             if isinstance(command, Capability) and command.name not in found:
                 found[command.name] = command
         # Etkin eklentiler (P-059): adlar `eklenti:ad` önekli, kimseyi gölgelemez.
-        for capability in (*plugin_skills(_to_capability), *plugin_commands(_to_capability)):
+        home = self._home
+        for capability in (
+            *plugin_skills(_to_capability, home, self._root),
+            *plugin_commands(_to_capability, home, self._root),
+        ):
             _merge(found, capability)
         return tuple(found.values())
 
@@ -631,9 +642,15 @@ class CapabilityRegistry:
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     shadow_agent(found, toml_capability)
-        for capability in plugin_agents(_to_agent_capability):
+        for capability in plugin_agents(_to_agent_capability, self._home, self._root):
             shadow_agent(found, capability)
         return tuple(found.values())
+
+
+def _in_skills_dir_plugin(path: Path, root: Path) -> bool:
+    from ..config.plugin_skills_dir import skills_dir_plugin_of
+
+    return skills_dir_plugin_of(path, root)
 
 
 def _trusted_path(path: Path, bound: Path, source: str) -> bool:

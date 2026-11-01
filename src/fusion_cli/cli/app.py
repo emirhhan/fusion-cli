@@ -328,8 +328,26 @@ def main_callback(
             "varsayılan /chrome › Enabled by default.",
         ),
     ] = None,
+    plugin_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--plugin-dir",
+            help="Eklentiyi kurmadan yalnız bu oturum için yükle (<ad>@inline). Tekrarlanabilir.",
+        ),
+    ] = None,
+    plugin_url: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--plugin-url",
+            help="Eklenti .zip'ini adresten indirip yalnız bu oturum için yükle. Tekrarlanabilir.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
+    from ..config.plugin_session import add_session_dirs, add_session_urls
+
+    add_session_dirs(plugin_dir or ())
+    add_session_urls(plugin_url or ())
     _SESSION.agents_json = agents_json
     try:
         # Claude `claude --setting-sources` (#296): yükleyiciler okumadan önce ayarlanır.

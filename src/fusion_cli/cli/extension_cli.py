@@ -13,5 +13,7 @@ from . import import_commands, plugin_commands
 def register_extension_commands(app: typer.Typer) -> None:
     app.command(name="import")(import_commands.import_config)
     app.command(name="release-notes")(import_commands.release_notes)
-    app.add_typer(plugin_commands.app, name="eklenti")
-    app.add_typer(plugin_commands.app, name="plugin", hidden=True)
+    # Claude Code: `claude plugin` (takma ad `claude plugins`); `eklenti` eski Fusion adı (#380).
+    app.add_typer(plugin_commands.app, name="plugin")
+    app.add_typer(plugin_commands.app, name="plugins", hidden=True)
+    app.add_typer(plugin_commands.app, name="eklenti", hidden=True)

@@ -53,6 +53,8 @@ def skill_roots(
         # taraması yok, eklenti becerileri yalnız etkin eklentilerden `eklenti:ad` olarak gelir.
         *((folder, "managed") for folder in managed),
         (home / ".claude" / "skills", "claude"),
+        # `~/.claude/plugins` ham kök DEĞİL: Claude eklentileri yalnız etkinse ve önekle
+        # `config/claude_plugins.py` üzerinden yüklenir (#377).
         (root / ".claude" / "skills", "proje"),
         (root / ".fusion" / "skills", "proje"),
         # Codex/ChatGPT "Agent Skills" açık standardı: ~/.agents/skills ve depo .agents/skills.

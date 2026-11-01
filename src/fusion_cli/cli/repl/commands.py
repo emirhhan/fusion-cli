@@ -52,6 +52,7 @@ from . import (
     plugin_command,
     profiles_flow,
     provider_flow,
+    reload_plugins,
     rewind,
     session_resume,
     status_line,
@@ -1377,7 +1378,22 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         plugin_command.plugin_command,
         ("plugins", "eklenti"),
         group="Bilgi",
-        usage="[liste|kur|dogrula|ac|kapat|kaldir|kesfet|pazar] …",
+        usage="[help|list|manage|install|enable|disable|uninstall|configure|validate|details|"
+        "update|tag|marketplace] …",
+    ),
+    SlashCommand(
+        "marketplace",
+        messages.EKLENTI_CMD_PLUGIN,
+        plugin_command.marketplace_command,
+        group="Bilgi",
+        usage="add|list|update|remove <…>",
+    ),
+    SlashCommand(
+        "reload-plugins",
+        messages.EKLENTI_CMD_RELOAD,
+        reload_plugins.reload_plugins_command,
+        group="Bilgi",
+        usage="[--force]",
     ),
     SlashCommand(
         "import",

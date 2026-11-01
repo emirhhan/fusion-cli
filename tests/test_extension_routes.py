@@ -106,7 +106,7 @@ def test_guven_onaysiz_onizleme_doner_karmayla_onaylanir_ve_kur_karmayi_denetler
     assert asked["ok"] is False and asked["onay_gerekli"] is True
     assert asked["onizleme"]["kancalar"] == ["Stop: kotu"]  # type: ignore[index]
     yeni = asked["onizleme"]["karma"]  # type: ignore[index]
-    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_TAMPERED
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE  # #392
     done = _call("eklenti.guven", {"ad": "bicimci", "onay": True, "beklenen_karma": yeni}, context)
     assert done["ok"] is True
     assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
@@ -140,20 +140,22 @@ async def test_masaustunde_eklenti_kapatma_ve_kaldirma_oturumdaki_mcp_yi_dusurur
     installed = await session._extension_rpc("eklenti.kur", {"kaynak": source, "onay": True})
     assert installed["ok"] is True
     names = {s.name for s in session._state.config.mcp_servers}
-    assert "plugin_veri_db" in names  # kurulumda aynı oturuma girer
+    assert "plugin:veri:db" in names  # kurulumda aynı oturuma girer
 
     await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": False})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
-    assert dropped == ["plugin_veri_db"]
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin:veri:db"]
 
     await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
-    assert "plugin_veri_db" in {s.name for s in session._state.config.mcp_servers}
+    assert "plugin:veri:db" in {s.name for s in session._state.config.mcp_servers}
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": False})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": True})
+    # Claude `disable --all` her eklentiyi ayrı kapatır; `enable --all` yoktur (#409).
+    await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
     await session._extension_rpc("eklenti.kaldir", {"ad": "veri"})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
-    assert dropped == ["plugin_veri_db"] * 3
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin:veri:db"] * 3
 
 
 def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
@@ -168,9 +170,9 @@ def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
     command = build_registry(context.home, skills=lambda: state.capabilities).get("plugin")
     assert command is not None
     command.handler(state, f"kur {_mcp_plugin(tmp_path / 'kaynak')} --yes")
-    assert "plugin_veri_db" in {s.name for s in state.config.mcp_servers}
+    assert "plugin:veri:db" in {s.name for s in state.config.mcp_servers}
     command.handler(state, "kapat veri")
-    assert "plugin_veri_db" not in {s.name for s in state.config.mcp_servers}
+    assert "plugin:veri:db" not in {s.name for s in state.config.mcp_servers}
 
 
 def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
@@ -184,6 +186,11 @@ def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
     (source / "hooks" / "hooks.json").write_text(
         json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "yeni"}]}]}}),
         encoding="utf-8",
+    )
+    # Claude: sürüm aynıysa update hiçbir şey değiştirmez (#393).
+    assert _call("eklenti.guncelle", {"ad": "bicimci"}, context)["guncel"] is True
+    (source / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "bicimci", "version": "0.2.0"}), encoding="utf-8"
     )
     asked = _call("eklenti.guncelle", {"ad": "bicimci"}, context)
     assert asked["onay_gerekli"] is True
@@ -209,7 +216,11 @@ def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
     (market / ".claude-plugin").mkdir(parents=True)
     (market / ".claude-plugin" / "marketplace.json").write_text(
         json.dumps(
-            {"name": "ekip", "plugins": [{"name": "bicimci", "source": "./plugins/bicimci"}]}
+            {
+                "name": "ekip",
+                "owner": {"name": "Ekip"},
+                "plugins": [{"name": "bicimci", "source": "./plugins/bicimci"}],
+            }
         ),
         encoding="utf-8",
     )
@@ -217,9 +228,41 @@ def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
     added = _call("eklenti.pazar_ekle", {"kaynak": str(market)}, context)
     assert added["ok"] is True and added["pazarlar"][0]["ad"] == "ekip"  # type: ignore[index]
     found = _call("eklenti.kesfet", {}, context)
-    assert found["eklentiler"] == [  # type: ignore[comparison-overlap]
+    # Pakete gömülü `fusion` pazarı (fusion-ekip, #25) her listede vardır; burada sayılmaz.
+    disari = [e for e in found["eklentiler"] if e["pazar"] != "fusion"]  # type: ignore[index]
+    assert disari == [  # type: ignore[comparison-overlap]
         {"ad": "bicimci", "pazar": "ekip", "surum": "", "aciklama": "", "kurulu": False}
     ]
     assert _call("eklenti.pazar_guncelle", {"ad": "ekip"}, context)["ok"] is True
-    assert _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)["pazarlar"] == []
+    removed = _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)
+    assert removed["pazarlar"] == [] and removed["kaldirilan"] == []
     assert _call("eklenti.kesfet", {"pazar": "ekip"}, context)["ok"] is False
+
+
+def test_eklenti_listesi_oturumluk_isaretli_bildirim_ve_otomatik_guncelleme(tmp_path, monkeypatch):
+    """#382/#394/#401/#397: masaüstü paneli Claude /plugin alanlarını alır."""
+    import json as _json
+
+    from fusion_cli.appserver import extension_routes, plugin_extras
+    from fusion_cli.tools import plugin_auto_update, plugin_flagged
+    from fusion_cli.tools import plugin_install as kur
+
+    market = tmp_path / "pazar"
+    (market / ".claude-plugin").mkdir(parents=True)
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        _json.dumps({"name": "ekip", "owner": {"name": "E"}, "plugins": []}), "utf-8"
+    )
+    kur.add_marketplace(str(market))
+    plugin_flagged.flag_plugin("eski@ekip")
+    plugin_auto_update.push_notice("Plugin updated: x · Run /reload-plugins to apply")
+    monkeypatch.setattr(plugin_extras, "session_rows", lambda root=None: [{"kimlik": "a@inline"}])
+
+    listed = extension_routes._list()
+
+    assert listed["oturumluk"] == [{"kimlik": "a@inline"}]
+    assert listed["isaretli"][0]["kimlik"] == "eski@ekip"
+    assert listed["bildirimler"] == ["Plugin updated: x · Run /reload-plugins to apply"]
+    assert listed["pazarlar"][0]["otomatik_guncelle"] is False
+    toggled = extension_routes._market("eklenti.pazar_otomatik", {"ad": "ekip", "acik": True})
+    assert toggled["pazarlar"][0]["otomatik_guncelle"] is True
+    assert extension_routes._list()["bildirimler"] == []

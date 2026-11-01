@@ -49,6 +49,18 @@ def _on_request_task_done(
         writer(encode_error(f"{messages.APP_BACKGROUND_TASK_FAILED}: {error}"))
 
 
+def _start_plugin_background(root: Path) -> None:
+    """Masaüstü oturumu da REPL gibi: bildirilen pazarlar (#376), renames eşlemesi (#397) ve
+    auto-update'i açık pazarların gecikmeli arka plan güncellemesi (#394)."""
+    from ..tools.plugin_auto_update import start_auto_update
+    from ..tools.plugin_declared import start_background_sync
+    from ..tools.plugin_market_sync import start_session_sync
+
+    start_background_sync(root)
+    start_session_sync()
+    start_auto_update(root)
+
+
 async def serve(
     lines: AsyncIterator[str],
     writer: Writer,
@@ -79,6 +91,7 @@ async def serve(
             or require_remotion_kit
             else AppSession(writer, root=root, home=home)
         )
+        _start_plugin_background(root)
         tasks: set[asyncio.Task[None]] = set()
         try:
             async for line in lines:

@@ -39,36 +39,31 @@ _BLOCK = {
 
 
 def _fake_blocks(monkeypatch, tmp_path: Path) -> Path:
-    base = tmp_path / "eklentiler"
-    monkeypatch.setattr(plugin_store, "plugins_dir", lambda: base)
-    monkeypatch.setattr(
-        plugin_store,
-        "plugin_hook_blocks",
-        lambda base=None: (("eklenti:denetim", base_path / "hooks" / "hooks.json", _BLOCK),),
-    )
-    base_path = base / "denetim"
-    return base_path
+    """Tek etkin eklenti `denetim`: `hooks/hooks.json` içinde bir PreToolUse kancası."""
+    from fusion_cli.config import plugin_hooks as plugin_hooks_module
+
+    root = tmp_path / "eklentiler" / "denetim"
+
+    def _blocks(base=None, project=None):
+        yield "eklenti:denetim", "denetim@yerel", root / "hooks" / "hooks.json", _BLOCK, root
+
+    monkeypatch.setattr(plugin_hooks_module, "_blocks", _blocks)
+    monkeypatch.setattr(plugin_hooks_module, "plugin_values", lambda _root, _key: ({}, {}))
+    return root
 
 
 def test_eklenti_kancalari_yukleyicide_kok_ve_veri_yoluyla(monkeypatch, tmp_path):
     root = _fake_blocks(monkeypatch, tmp_path)
-    commands, skipped = plugin_hooks(600.0)
+    commands, skipped = plugin_hooks(default_timeout_s=600.0)
     assert not skipped
     (command,) = commands
     assert command.source == "eklenti:denetim"
-    assert command.plugin_root == str(root)
-    assert command.plugin_data.endswith("eklenti-verisi/denetim")
+    env = plugin_environment(command)
+    assert env["CLAUDE_PLUGIN_ROOT"] == str(root)
+    assert Path(env["CLAUDE_PLUGIN_DATA"]).is_dir()
     loaded = hooks_config.load_hooks(tmp_path / "proje", home=tmp_path / "ev")
     assert [c.command for c in loaded.for_event(HookEvent.PRE_TOOL_USE, ("Bash",))] == ["kontrol"]
     assert plugin_store.PLUGIN_HOOKS_ACTIVE is True
-
-
-def test_eklenti_ortami_veri_klasorunu_olusturur(monkeypatch, tmp_path):
-    _fake_blocks(monkeypatch, tmp_path)
-    (command,) = plugin_hooks(600.0)[0]
-    env = plugin_environment(command)
-    assert env["CLAUDE_PLUGIN_ROOT"] == command.plugin_root
-    assert Path(env["CLAUDE_PLUGIN_DATA"]).is_dir()
 
 
 def test_yalniz_yonetilen_kancalar_eklentiyi_de_atlar(monkeypatch, tmp_path):
@@ -151,5 +146,6 @@ def test_read_skill_basarili_olunca_kancalar_baglanir(tmp_path):
 def test_eklenti_mcp_sunucusu_claude_adiyla_cagrilir():
     from fusion_cli.engines.agent.hook_services import fusion_server_name
 
-    assert fusion_server_name("plugin:rapor-araclari:veri") == "plugin_rapor_araclari_veri"
+    # Claude adı `plugin:<eklenti>:<sunucu>` (#400); araç adındaki `:` kayıtta `_` olur.
+    assert fusion_server_name("plugin:rapor-araclari:veri") == "plugin:rapor-araclari:veri"
     assert fusion_server_name("tara") == "tara"

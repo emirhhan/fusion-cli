@@ -206,15 +206,19 @@ def _agent_from_source(tmp_path, monkeypatch, requested, is_plugin):
             agents=(agent_path,),
             skills=(),
             commands=(),
+            command_meta=(),
+            inline_commands=(),
+            output_styles=(),
+            name="rapor",
             root=agent_path.parent.parent,
             manifest=SimpleNamespace(agents=("agents",)),
         ),
         record=SimpleNamespace(name="rapor"),
     )
     monkeypatch.setattr(
-        plugin_capabilities, "active_plugins", lambda: (inventory,) if is_plugin else ()
+        plugin_capabilities, "active_plugins", lambda **_: (inventory,) if is_plugin else ()
     )
-    monkeypatch.setattr(capabilities, "state_signature", lambda: ())
+    monkeypatch.setattr(capabilities, "state_signature", lambda **_: ())
     return "rapor:denetci" if is_plugin else "denetci"
 
 

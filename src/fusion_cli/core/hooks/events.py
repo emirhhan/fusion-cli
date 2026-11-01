@@ -203,9 +203,9 @@ class HookCommand:
     #: `prompt`/`agent`: `model` (boş = arka plan modeli) ve `continueOnBlock` (yalnız prompt).
     model: str = ""
     continue_on_block: bool = False
-    #: Eklenti kancası: `CLAUDE_PLUGIN_ROOT` ve `CLAUDE_PLUGIN_DATA` (boş = eklenti değil).
-    plugin_root: str = ""
-    plugin_data: str = ""
+    #: Bu komuta özgü ek ortam (eklenti kancası: `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`,
+    #: `CLAUDE_PLUGIN_OPTION_<KEY>`; #375, #388). Boş = eklenti kancası değil.
+    env: tuple[tuple[str, str], ...] = ()
 
 
 #: Dar düz liste kuralını kullanan olaylar (`matcher.matcher_matches(narrow=True)`).

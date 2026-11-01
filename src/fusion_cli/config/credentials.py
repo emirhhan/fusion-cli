@@ -190,6 +190,10 @@ class FernetSecretStore:
         """Sırrı çöz; yoksa None."""
         return self._load().get(env_name)
 
+    def names(self) -> tuple[str, ...]:
+        """Saklanan sırların adları (değerleri çözülmüş olarak döndürülmez)."""
+        return tuple(self._load())
+
     def delete(self, env_name: str) -> bool:
         """Sırrı sil. Vardıysa True."""
         with config_lock(self._path):

@@ -330,7 +330,7 @@ def build_invocation(
     body = body_after_frontmatter(raw)
     deprecated = deprecated_template_notes(body)
     body = body.replace("{SKILL_DIR}", str(capability.path.parent))
-    body = with_plugin_root(body, capability.path)
+    body = with_plugin_root(body, capability.path, env.project_dir)
     rendered = render_template(body, argument, env, names=capability.arguments)
     policy = shell_policy or ShellPolicy(mode_allows=shell_allowed, read_only=shell_read_only)
     policy = ShellPolicy(

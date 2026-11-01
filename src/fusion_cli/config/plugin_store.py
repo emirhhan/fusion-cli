@@ -7,12 +7,13 @@ Yerleşim: `<veri>/eklentiler/<ad>/` (eklentinin kopyası) ve `<veri>/eklentiler
                             "etkin", "calistirma_onayi", "kurulum"}},
      "pazarlar": {"<ad>": {"kaynak", "tur", "yol", "eklendi"}}}
 
-Güven sözleşmesi:
-- Kurulumda içerik karması (`tree_digest`) kaydedilir. Yüklemede yeniden hesaplanır; dosyalar
-  kurulumdan sonra değiştiyse eklentinin HİÇBİR bileşeni yüklenmez ("değişmiş") — yeniden
-  onay `fusion eklenti guven <ad>` ya da yeniden kurulum ister.
-- Kanca ve MCP (Fusion dışında süreç başlatan bileşenler) yalnız kurulumda açıkça onaylandıysa
-  (`calistirma_onayi`) yüklenir; MCP kayıtları `unreviewed` güvenle girer.
+Güven sözleşmesi (Claude Code, loading.md "Trust check …", #392/#419; güvenlik davranışı
+değişti):
+- Kurulumda içerik karması (`tree_digest`) yalnız bilgi olarak kaydedilir; Claude'daki gibi
+  kopyanın sonradan değişmesi yüklemeyi durdurmaz (karma kilidi ve `guven` onayı kalktı).
+- Kullanıcı kapsamlı etkin eklentinin kanca ve MCP sunucuları ek onay istemeden yüklenir
+  (`calistirma_onayi` artık kapı değil). Yalnız proje kapsamında açılan eklenti çalışma alanı
+  güveni ister (`plugin_scopes.resolve_enabled`); MCP kayıtları `unreviewed` güvenle girer.
 - Kapatma: eklenti başına `etkin: false`, hepsi için `hepsi_kapali: true`
   (`fusion eklenti kapat --hepsi`) ya da `FUSION_PLUGINS=off` ortam değişkeni.
 """
@@ -30,25 +31,28 @@ from ..core.atomic_file import atomic_replace_text
 from ..core.plugins import NAME_PATTERN, PluginError
 from .models import McpServerConfig
 from .paths import user_data_dir
-from .plugin_layout import PluginLayout, hook_blocks, mcp_servers, scan_plugin, tree_digest
+from .plugin_layout import PluginLayout, hook_blocks, mcp_servers, scan_plugin
+from .plugin_scan import entry_overlay
 
 _LOG = logging.getLogger(__name__)
 
 PLUGINS_DIRNAME = "eklentiler"
 STATE_NAME = "kayit.json"
-STATE_VERSION = 1
+#: 2: karma kilidi kalktı (#392); sürüm 1 kaydı bir kez geçirilir (`plugin_state_migrate`).
+STATE_VERSION = 3
 #: Bütün eklentileri kapatan ortam değişkeni ve kapalı sayılan değerler.
 PLUGINS_ENV = "FUSION_PLUGINS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
 
-#: Eklenti kancaları çalıştırılıyor mu? Kanca yükleyicisi (P-009, `config/hooks.py`)
-#: `plugin_hook_blocks()`'u tükettiğinde True olur. O zamana dek önizleme ve liste kancanın
-#: TETİKLENMEDİĞİNİ açıkça söyler: "etkin" görünen kancanın çalıştığı sanılmasın.
+#: Eklenti kancaları çalıştırılıyor mu? Kanca yükleyicisi (`config/hooks.py` →
+#: `config/plugin_hooks.py`) `plugin_hook_blocks()`'u tüketir (#375). Ad, önizleme/liste
+#: yüzeylerinin geri uyumu için korunur.
 PLUGIN_HOOKS_ACTIVE = True
 
 #: Kayıt durumları (kullanıcıya bu adlarla görünür).
 STATUS_ACTIVE = "etkin"
 STATUS_DISABLED = "kapalı"
+#: Kullanımdan kalktı (#392): artık hiçbir kayıt bu durumu almaz; içe aktaranlar için duruyor.
 STATUS_TAMPERED = "değişmiş"
 STATUS_BROKEN = "bozuk"
 
@@ -67,6 +71,26 @@ class PluginRecord:
     #: Kanca/MCP çalıştırma onayı kurulumda verildi mi?
     exec_approved: bool = False
     installed_at: float = 0.0
+    #: Yerel pazarın göreli eklentisi yerinde yüklenir (#403): kaynak klasör; boşsa kopya.
+    folder: str = ""
+    #: Yerinde yüklenen eklentide pazar girdisinin plugin.json alanları ve strict modu (#398).
+    entry_fields: str = ""
+    entry_strict: bool = True
+    #: Kurulu olduğu kapsamlar (#408): `user`, `project:<kök>`, `local:<kök>`. Son kapsamdan
+    #: kaldırılınca kopya, veri ve userConfig değerleri silinir (Claude `plugin uninstall`).
+    scopes: tuple[str, ...] = ("user",)
+    #: Başka bir eklentinin `dependencies`'i için kendiliğinden kuruldu (#389; `prune` budar).
+    dependency: bool = False
+    #: Kayıt/klasör anahtarı (#391): boşsa `name`. Başka pazardan aynı adlı eklenti zaten
+    #: kuruluysa yenisi `ad@pazar` anahtarı ve `<eklentiler>/ad@pazar/` klasörüyle kurulur.
+    key: str = ""
+    #: Onaylanan pazar komutu (command kaynağı/headersHelper, #399); güncellemede aynıysa
+    #: yeniden sorulmaz.
+    accepted_command: str = ""
+
+    @property
+    def store_key(self) -> str:
+        return self.key or self.name
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +102,10 @@ class MarketplaceRecord:
     #: Pazarın diskteki kökü (yerel klasör ya da klon).
     path: str
     added_at: float = 0.0
+    #: `marketplace add --sparse` klasörleri (git sparse-checkout, #381); güncellemede korunur.
+    sparse: tuple[str, ...] = ()
+    #: `/plugin` Marketplaces "Enable/Disable auto-update" (Claude known_marketplaces autoUpdate).
+    auto_update: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,19 +113,34 @@ class PluginState:
     plugins: tuple[PluginRecord, ...] = ()
     marketplaces: tuple[MarketplaceRecord, ...] = ()
     all_disabled: bool = False
+    #: Diskteki kaydın `surum` alanı (yeni/boş kayıt güncel sürümdedir).
+    schema: int = STATE_VERSION
 
     def plugin(self, name: str) -> PluginRecord | None:
-        return next((item for item in self.plugins if item.name == name), None)
+        """Anahtarla (`ad` ya da `ad@pazar`), yoksa adla ilk kayıt (#391)."""
+        exact = next((item for item in self.plugins if item.store_key == name), None)
+        if exact is not None:
+            return exact
+        bare, _, market = name.partition("@")
+        return next(
+            (
+                item
+                for item in self.plugins
+                if item.name == bare and (not market or item.marketplace == market)
+            ),
+            None,
+        )
 
     def marketplace(self, name: str) -> MarketplaceRecord | None:
         return next((item for item in self.marketplaces if item.name == name), None)
 
     def with_plugin(self, record: PluginRecord) -> PluginState:
-        others = tuple(item for item in self.plugins if item.name != record.name)
+        others = tuple(item for item in self.plugins if item.store_key != record.store_key)
         return replace(self, plugins=(*others, record))
 
-    def without_plugin(self, name: str) -> PluginState:
-        return replace(self, plugins=tuple(i for i in self.plugins if i.name != name))
+    def without_plugin(self, key: str) -> PluginState:
+        """`key` kaydın `store_key`'i (#391: aynı adlı başka pazar kaydı yerinde kalır)."""
+        return replace(self, plugins=tuple(i for i in self.plugins if i.store_key != key))
 
     def with_marketplace(self, record: MarketplaceRecord) -> PluginState:
         others = tuple(item for item in self.marketplaces if item.name != record.name)
@@ -129,8 +172,20 @@ def state_file(base: Path | None = None) -> Path:
     return (base or plugins_dir()) / STATE_NAME
 
 
+_ENV_WARNED: list[bool] = []
+WARN_PLUGINS_ENV = (
+    "FUSION_PLUGINS kullanımdan kalktı (Claude Code'da yok); eklentileri kapatmak için: "
+    "fusion plugin disable --all"
+)
+
+
 def plugins_disabled_by_environment() -> bool:
-    return os.environ.get(PLUGINS_ENV, "").strip().lower() in _OFF_VALUES
+    """Eski `FUSION_PLUGINS=off` (#409): bir sürüm boyunca okunur, süreç başına bir kez uyarır."""
+    off = os.environ.get(PLUGINS_ENV, "").strip().lower() in _OFF_VALUES
+    if off and not _ENV_WARNED:
+        _ENV_WARNED.append(True)
+        _LOG.warning(WARN_PLUGINS_ENV)
+    return off
 
 
 def load_state(base: Path | None = None) -> PluginState:
@@ -148,9 +203,9 @@ def load_state(base: Path | None = None) -> PluginState:
     return PluginState(
         # Elle bozulmuş kayıttaki `../x` gibi ad klasör yoluna dönüşmesin: geçersiz ad atlanır.
         tuple(
-            _plugin(name, item)
-            for name, item in _items(raw.get("eklentiler"))
-            if NAME_PATTERN.match(name)
+            _plugin(key, item)
+            for key, item in _items(raw.get("eklentiler"))
+            if valid_store_key(key)
         ),
         tuple(
             _marketplace(name, item)
@@ -158,7 +213,31 @@ def load_state(base: Path | None = None) -> PluginState:
             if NAME_PATTERN.match(name)
         ),
         raw.get("hepsi_kapali") is True,
+        _schema(raw.get("surum")),
     )
+
+
+def valid_store_key(key: str) -> bool:
+    """`ad` ya da `ad@pazar`; her parça geçerli ad (klasör yoluna dönüşür, `../x` olmaz)."""
+    name, sep, market = key.partition("@")
+    return bool(NAME_PATTERN.match(name)) and (not sep or bool(NAME_PATTERN.match(market)))
+
+
+def same_name_key(state: PluginState, name: str, marketplace: str) -> str | None:
+    """Kurulacak eklentinin kayıt anahtarı; aynı kimlik zaten kuruluysa None (#391).
+
+    Claude: kimlik `ad@pazar`; farklı pazarlardan aynı adlı eklentiler birlikte kurulur.
+    """
+    same = [r for r in state.plugins if r.name == name]
+    if any(r.marketplace == marketplace for r in same):
+        return None
+    if not same:
+        return name
+    return f"{name}@{marketplace}" if marketplace else None
+
+
+def _schema(raw: object) -> int:
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else 0
 
 
 def _items(raw: object) -> tuple[tuple[str, Mapping[str, object]], ...]:
@@ -167,8 +246,12 @@ def _items(raw: object) -> tuple[tuple[str, Mapping[str, object]], ...]:
     return tuple((str(k), v) for k, v in raw.items() if isinstance(v, Mapping))
 
 
-def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
+def _plugin(key: str, raw: Mapping[str, object]) -> PluginRecord:
+    stored = raw.get("ad")
+    valid = isinstance(stored, str) and NAME_PATTERN.match(stored)
+    name = str(stored) if valid else key.partition("@")[0]
     return PluginRecord(
+        key=key if key != name else "",
         name=name,
         version=str(raw.get("surum") or ""),
         source=str(raw.get("kaynak") or ""),
@@ -179,7 +262,19 @@ def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
         enabled=raw.get("etkin") is not False,
         exec_approved=raw.get("calistirma_onayi") is True,
         installed_at=_number(raw.get("kurulum")),
+        folder=str(raw.get("klasor") or ""),
+        entry_fields=str(raw.get("girdi_alanlari") or ""),
+        entry_strict=raw.get("girdi_strict") is not False,
+        scopes=_scopes(raw.get("kapsamlar")),
+        dependency=raw.get("bagimlilik") is True,
+        accepted_command=str(raw.get("onayli_komut") or ""),
     )
+
+
+def _scopes(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ("user",)
+    return tuple(str(item) for item in raw if isinstance(item, str) and item)
 
 
 def _marketplace(name: str, raw: Mapping[str, object]) -> MarketplaceRecord:
@@ -189,6 +284,18 @@ def _marketplace(name: str, raw: Mapping[str, object]) -> MarketplaceRecord:
         str(raw.get("tur") or "yerel"),
         str(raw.get("yol") or ""),
         _number(raw.get("eklendi")),
+        _strings(raw.get("seyrek")),
+        _optional_bool(raw.get("otomatik_guncelle")),
+    )
+
+
+def _optional_bool(raw: object) -> bool | None:
+    return raw if isinstance(raw, bool) else None
+
+
+def _strings(raw: object) -> tuple[str, ...]:
+    return (
+        tuple(str(item) for item in raw if isinstance(item, str)) if isinstance(raw, list) else ()
     )
 
 
@@ -202,7 +309,8 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
         "surum": STATE_VERSION,
         "hepsi_kapali": state.all_disabled,
         "eklentiler": {
-            p.name: {
+            p.store_key: {
+                **({"ad": p.name} if p.store_key != p.name else {}),
                 "surum": p.version,
                 "kaynak": p.source,
                 "tur": p.kind,
@@ -212,11 +320,24 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 "etkin": p.enabled,
                 "calistirma_onayi": p.exec_approved,
                 "kurulum": p.installed_at,
+                **({"klasor": p.folder} if p.folder else {}),
+                **({"girdi_alanlari": p.entry_fields} if p.entry_fields else {}),
+                **({"girdi_strict": False} if not p.entry_strict else {}),
+                **({"kapsamlar": list(p.scopes)} if p.scopes != ("user",) else {}),
+                **({"bagimlilik": True} if p.dependency else {}),
+                **({"onayli_komut": p.accepted_command} if p.accepted_command else {}),
             }
-            for p in sorted(state.plugins, key=lambda item: item.name)
+            for p in sorted(state.plugins, key=lambda item: item.store_key)
         },
         "pazarlar": {
-            m.name: {"kaynak": m.source, "tur": m.kind, "yol": m.path, "eklendi": m.added_at}
+            m.name: {
+                "kaynak": m.source,
+                "tur": m.kind,
+                "yol": m.path,
+                "eklendi": m.added_at,
+                **({"seyrek": list(m.sparse)} if m.sparse else {}),
+                **({"otomatik_guncelle": m.auto_update} if m.auto_update is not None else {}),
+            }
             for m in sorted(state.marketplaces, key=lambda item: item.name)
         },
     }
@@ -232,46 +353,98 @@ def update_state(
     Ölçüldü (31 Ekim): masaüstü ve CLI aynı anda kur/aç/kapat yaptığında `kayit.json` son
     yazanın değerine düşüyordu (kimlik deposu `config_lock` kullanıyor, burada kilit yoktu).
     """
+    from .plugin_state_migrate import migrated
     from .writer import config_lock
 
     path = state_file(base)
     with config_lock(path):
-        updated = change(load_state(base))
+        updated = change(migrated(load_state(base), base))
         save_state(updated, base)
     return updated
 
 
 def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledPlugin:
-    """Kaydı diskle karşılaştır: etkin / kapalı / değişmiş / bozuk."""
-    folder = (base or plugins_dir()) / record.name
+    """Kaydı diskle karşılaştır: etkin / kapalı / değişmiş / bozuk.
+
+    Yerinde yüklenen eklentide (#403) karma kilidi yok: kaynaktaki düzenleme Claude'daki gibi
+    sonraki oturumda ya da /reload-plugins'te geçerli olur. Kopyada da karma kilidi yok (#392).
+    """
+    folder = plugin_folder(record, base)
     try:
-        layout = scan_plugin(folder)
-        digest = tree_digest(folder)
+        overlay = entry_overlay(record.entry_fields, record.entry_strict)
+        layout = scan_plugin(folder, entry=overlay)
     except (PluginError, OSError) as error:
         return InstalledPlugin(record, None, STATUS_BROKEN, str(error))
-    if record.digest and digest != record.digest:
-        return InstalledPlugin(record, layout, STATUS_TAMPERED, "dosyalar kurulumdan sonra değişti")
     return InstalledPlugin(record, layout, STATUS_ACTIVE if record.enabled else STATUS_DISABLED)
 
 
-def installed_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
-    state = load_state(base)
-    return tuple(inspect_plugin(record, base) for record in sorted(state.plugins, key=_by_name))
+def plugin_folder(record: PluginRecord, base: Path | None = None) -> Path:
+    """Eklentinin yüklendiği klasör: yerinde kaynak, oturumluk yol ya da depodaki kopya."""
+    if record.folder:
+        return Path(record.folder)
+    if record.kind == "inline":
+        return Path(record.source)
+    return (base or plugins_dir()) / record.store_key
+
+
+def plugin_id(record: PluginRecord) -> str:
+    """Claude kimliği `ad@pazar`; pazarsız (yerel/git) kurulumda yalnız ad (#376)."""
+    return f"{record.name}@{record.marketplace}" if record.marketplace else record.name
+
+
+def effective_record(record: PluginRecord, root: Path | None = None) -> PluginRecord:
+    """`enabledPlugins` project/local katmanları uygulanmış kayıt (#376)."""
+    from .plugin_scopes import resolve_enabled
+
+    project = root or Path.cwd()
+    decision = resolve_enabled(plugin_id(record), record.name, record.enabled, project)
+    if decision.enabled == record.enabled:
+        return record
+    return replace(record, enabled=decision.enabled)
+
+
+def installed_plugins(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[InstalledPlugin, ...]:
+    from .plugin_state_migrate import ensure_migrated
+
+    state = ensure_migrated(load_state(base), base)
+    return tuple(
+        inspect_plugin(effective_record(record, root), base)
+        for record in sorted(state.plugins, key=_by_name)
+    )
 
 
 def _by_name(record: PluginRecord) -> str:
     return record.name
 
 
-def active_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
-    """Bileşenleri yüklenecek eklentiler (genel kapatma ve bütünlük denetimi sonrası)."""
+def active_plugins(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[InstalledPlugin, ...]:
+    """Bileşenleri yüklenecek eklentiler (genel kapatma, kapsamlar ve bütünlük denetimi sonrası).
+
+    `--plugin-dir` oturumluk eklentileri (#401) önce gelir; aynı adlı kurulu eklenti atlanır.
+    """
     if plugins_disabled_by_environment():
         return ()
-    state = load_state(base)
+    from .plugin_session import session_enabled, session_plugins
+
+    project = root or Path.cwd()
+    session = (
+        tuple(item for item in session_plugins() if session_enabled(item, project))
+        if base is None
+        else ()
+    )
+    from .plugin_state_migrate import ensure_migrated
+
+    state = ensure_migrated(load_state(base), base)
     if state.all_disabled:
-        return ()
-    found = (inspect_plugin(r, base) for r in sorted(state.plugins, key=_by_name) if r.enabled)
-    active: list[InstalledPlugin] = []
+        return session
+    taken = {item.record.name for item in session} | _eval_excluded()
+    records = (effective_record(r, root) for r in sorted(state.plugins, key=_by_name))
+    found = (inspect_plugin(r, base) for r in records if r.enabled and r.name not in taken)
+    active: list[InstalledPlugin] = list(session)
     for item in found:
         if item.is_active:
             active.append(item)
@@ -279,29 +452,62 @@ def active_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
             _LOG.warning(
                 "eklenti '%s' yüklenmedi: %s %s", item.record.name, item.status, item.detail
             )
+    from .plugin_project_enabled import project_enabled_plugins
+
+    names = {item.record.name for item in active}  # #376: projede açılan göreli eklentiler
+    active.extend(project_enabled_plugins(state, project, names, base))
+    if base is None:
+        taken_now = {item.record.name for item in active} | _eval_excluded()
+        active.extend(_skills_dir_active(project, taken_now))
     return tuple(active)
 
 
-def plugin_mcp_servers(base: Path | None = None) -> tuple[McpServerConfig, ...]:
-    """Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları.
+def _eval_excluded() -> set[str]:
+    """`plugin eval` eklentisiz kolu (#380): bu süreçte yüklenmeyecek eklenti adları."""
+    raw = os.environ.get("FUSION_EVAL_EXCLUDE_PLUGINS", "")
+    return {name.strip() for name in raw.split(",") if name.strip()}
+
+
+def _skills_dir_active(project: Path, taken: set[str]) -> tuple[InstalledPlugin, ...]:
+    """`~/.claude/skills/<ad>/.claude-plugin` eklentileri (#401); aynı adlı yüklü olan kazanır."""
+    from .plugin_skills_dir import skills_dir_enabled, skills_dir_plugins
+
+    return tuple(
+        item
+        for item in skills_dir_plugins()
+        if item.record.name not in taken and skills_dir_enabled(item, project)
+    )
+
+
+def plugin_mcp_servers(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[McpServerConfig, ...]:
+    """Etkin eklentilerin MCP sunucuları (Claude: kullanıcı kapsamında ek onay yok, #419).
+
+    Proje kapsamlı (depodan açılan) eklentinin sunucusu projenin `.mcp.json`'ı gibi onay ister:
+    `fusion trust` tanımı kaydeder, tanım değişince yeniden onaylanana dek yüklenmez.
 
     Ölçüldü (31 Ekim): ad slug'ı (`plugin_<eklenti>_<sunucu>`) iki eklentide çakışabiliyordu
     (`foo`/`bar-baz` ile `foo-bar`/`baz`); ikisi de yükleniyor, araç adları birbirini eziyordu.
     Ada göre ilk eklenti kazanır, sonraki atlanır ve günlüğe yazılır.
     """
+    from .plugin_project_mcp import approved_servers
+
     servers: list[McpServerConfig] = []
     owners: dict[str, str] = {}
-    for item in active_plugins(base):
-        if item.layout is None or not item.record.exec_approved:
+    project = root or Path.cwd()
+    state = load_state(base)
+    for item in active_plugins(base, root):
+        if item.layout is None:
             continue
         try:
-            found = mcp_servers(item.layout)
+            found = approved_servers(item, mcp_servers(item.layout), state, project)
         except PluginError as error:
             _LOG.warning("eklenti '%s' MCP tanımı yüklenmedi: %s", item.record.name, error)
             continue
         for server in found:
-            owner = owners.setdefault(server.name, item.record.name)
-            if owner != item.record.name:
+            owner = owners.setdefault(server.name, item.record.store_key)
+            if owner != item.record.store_key:
                 _LOG.warning(
                     "eklenti '%s' MCP sunucusu '%s' atlandı: '%s' eklentisiyle ad çakışması",
                     item.record.name,
@@ -318,11 +524,11 @@ def plugin_hook_blocks(
 ) -> tuple[tuple[str, Path, Mapping[str, object]], ...]:
     """`(kaynak adı, dosya, {"hooks": …})`: kanca yükleyicisinin (P-009) okuyacağı katmanlar.
 
-    Kaynak adı `eklenti:<ad>`; yalnız çalıştırma onaylı etkin eklentiler.
+    Kaynak adı `eklenti:<ad>`; bütün etkin eklentiler (#419).
     """
     blocks: list[tuple[str, Path, Mapping[str, object]]] = []
     for item in active_plugins(base):
-        if item.layout is None or not item.record.exec_approved:
+        if item.layout is None:
             continue
         try:
             blocks.extend(
@@ -333,8 +539,31 @@ def plugin_hook_blocks(
     return tuple(blocks)
 
 
-def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
-    """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil)."""
+def plugin_root_of(
+    path: Path, base: Path | None = None, project: Path | None = None
+) -> Path | None:
+    """`path` kurulu bir eklentinin içindeyse o eklentinin kökü (geçici/pazar klasörü değil).
+
+    Kurulmadan projede açılan göreli eklenti (#376) de tanınır: kaydı yok, kökü kaynağıdır.
+    """
+    if base is None:
+        from .plugin_session import session_root_of
+
+        session = session_root_of(path)
+        if session is not None:
+            return session
+        from .plugin_skills_dir import skills_dir_plugin_of, skills_root
+
+        home_skills = skills_root()
+        if skills_dir_plugin_of(path, home_skills):
+            return home_skills / path.relative_to(home_skills).parts[0]
+    state = load_state(base)
+    for record in state.plugins:
+        if record.folder and _inside(path, Path(record.folder)):
+            return Path(record.folder)
+    found = _project_root_of(path, state, project or Path.cwd(), base)
+    if found is not None:
+        return found
     try:
         root = (base or plugins_dir()).resolve()
         relative = path.resolve().relative_to(root)
@@ -344,10 +573,34 @@ def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
     return root / first if first and not first.startswith(".") else None
 
 
-def state_signature(base: Path | None = None) -> tuple[str, int] | None:
-    """Kayıt dosyasının (yol, mtime_ns) imzası: kur/kapat/kaldır katalog önbelleğini yeniler."""
+def _project_root_of(
+    path: Path, state: PluginState, project: Path, base: Path | None
+) -> Path | None:
+    from .plugin_project_enabled import project_enabled_plugins
+
+    for item in project_enabled_plugins(state, project, set(), base):
+        if item.record.folder and _inside(path, Path(item.record.folder)):
+            return Path(item.record.folder)
+    return None
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    try:
+        return path.resolve().is_relative_to(folder.resolve())
+    except OSError:
+        return False
+
+
+def state_signature(base: Path | None = None, root: Path | None = None) -> tuple[str, int] | None:
+    """Kayıt dosyasının (yol, mtime_ns) imzası: kur/kapat/kaldır katalog önbelleğini yeniler.
+
+    project/local `enabledPlugins` dosyalarının mtime'ları da karışır (#376).
+    """
+    from .plugin_scopes import settings_signature
+
     path = state_file(base)
     try:
-        return str(path), path.stat().st_mtime_ns
+        mtime = path.stat().st_mtime_ns
     except OSError:
         return None
+    return str(path), hash((mtime, *settings_signature(root or Path.cwd())))

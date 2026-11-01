@@ -1,69 +1,80 @@
-"""Eklenti kancaları (`hooks/hooks.json`, `plugin.json` `hooks`) — Claude Code eklenti katmanı.
+"""Etkin eklentilerin kancalarını kanca kümesine katma (#375).
 
-Yalnız etkin ve çalıştırma onaylı eklentilerin kancaları okunur (`plugin_hook_blocks`).
-`${CLAUDE_PLUGIN_ROOT}` tanımda zaten çözülür; kanca sürecine ayrıca
-`CLAUDE_PLUGIN_ROOT` ve kalıcı veri klasörü `CLAUDE_PLUGIN_DATA` verilir (Claude:
-eklenti güncellemelerinde korunan klasör, ilk kullanımda oluşturulur).
+Claude Code (https://code.claude.com/docs/en/plugins/components.md "Hooks"): eklenti
+açıkken `hooks/hooks.json` ve `plugin.json` `hooks` girdileri kaydedilir ve olaylarında
+tetiklenir; süreçlere `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR` ve
+`CLAUDE_PLUGIN_OPTION_<KEY>` verilir. `CLAUDE_PROJECT_DIR` bütün kancaların ortak ortamından
+(`hook_environment`) gelir; kök ve veri klasörü burada komut başına eklenir.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 
 from ..core.hooks.events import HookCommand, HookSkip
-from .hook_parse import parse_hooks_block
+from ..core.plugins import PluginError
+from .plugin_data import plugin_data_dir
+from .plugin_layout import hook_blocks
+from .plugin_store import active_plugins, plugin_root_of
+from .plugin_user_config import option_env, plugin_values
 
-_LOG = logging.getLogger(__name__)
-#: Eklenti kaynak adının öneki (`eklenti:<ad>`).
 PLUGIN_SOURCE_PREFIX = "eklenti:"
-#: Kalıcı eklenti verisinin klasörü (eklenti kökünün kardeşi).
-PLUGIN_DATA_DIRNAME = "eklenti-verisi"
+_LOG = logging.getLogger(__name__)
 
 
-def plugin_data_dir(name: str, base: Path | None = None) -> Path:
-    """Eklentinin güncellemelerde korunan veri klasörü (`CLAUDE_PLUGIN_DATA`)."""
-    from .plugin_store import plugins_dir
+def _blocks(
+    base: Path | None, project: Path | None
+) -> Iterator[tuple[str, str, Path, Mapping[str, object], Path]]:
+    """`(kaynak, depolama anahtarı, dosya, blok, eklenti kökü)`.
 
-    return (base or plugins_dir()).parent / PLUGIN_DATA_DIRNAME / name
+    Kök kayıt yazılmayan proje eklentisinde de doğru; anahtar `ad@pazar` kimliğidir (#391).
+    """
+    from .plugin_storage import storage_key
+
+    for item in active_plugins(base, project):
+        if item.layout is None:
+            continue
+        try:
+            found = hook_blocks(item.layout)
+        except PluginError as error:
+            _LOG.warning("eklenti '%s' kancaları yüklenmedi: %s", item.record.name, error)
+            continue
+        source = f"{PLUGIN_SOURCE_PREFIX}{item.record.name}"
+        key = storage_key(item.record)
+        for path, block in found:
+            yield source, key, path, block, plugin_root_of(path, base) or item.layout.root
 
 
 def plugin_hooks(
-    default_timeout_s: float, base: Path | None = None
+    *, default_timeout_s: float, base: Path | None = None, root: Path | None = None
 ) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:
-    """Etkin eklentilerin kancaları; kaynak `eklenti:<ad>`, kök ve veri yolu komutta."""
-    from .plugin_store import plugin_hook_blocks, plugins_dir
+    """Etkin eklentilerin kanca komutları ve atlananlar.
+
+    `root`: oturumun proje kökü; project/local `enabledPlugins` ve güven ona göre çözülür
+    (verilmezse süreç cwd'si). Masaüstü oturumunda süreç cwd'si oturum kökü olmayabilir.
+    """
+    from .hooks import parse_hooks_block
 
     commands: list[HookCommand] = []
     skipped: list[HookSkip] = []
-    try:
-        blocks = plugin_hook_blocks(base)
-    except OSError as error:
-        _LOG.warning("eklenti kancaları okunamadı: %s", error)
-        return (), ()
-    root_dir = base or plugins_dir()
-    for source, path, block in blocks:
-        name = source.removeprefix(PLUGIN_SOURCE_PREFIX)
-        found, rejected = parse_hooks_block(
+    for source, key, path, block, plugin_root in _blocks(base, root):
+        _schema, values = plugin_values(plugin_root, key)
+        env = (
+            ("CLAUDE_PLUGIN_ROOT", str(plugin_root)),
+            ("CLAUDE_PLUGIN_DATA", str(plugin_data_dir(key, create=True))),
+            *option_env(values),  # #388: CLAUDE_PLUGIN_OPTION_<KEY>
+        )
+        found, skips = parse_hooks_block(
             block.get("hooks", {}), source=source, path=path, default_timeout_s=default_timeout_s
         )
-        root = str(root_dir / name)
-        data = str(plugin_data_dir(name, base))
-        commands.extend(replace(c, plugin_root=root, plugin_data=data) for c in found)
-        skipped.extend(rejected)
+        commands.extend(replace(command, env=env) for command in found)
+        skipped.extend(skips)
     return tuple(commands), tuple(skipped)
 
 
 def plugin_environment(command: HookCommand) -> dict[str, str]:
-    """Eklenti kancasının sürecine eklenen değişkenler (veri klasörü oluşturulur)."""
-    if not command.plugin_root:
-        return {}
-    extra = {"CLAUDE_PLUGIN_ROOT": command.plugin_root, "FUSION_PLUGIN_ROOT": command.plugin_root}
-    if command.plugin_data:
-        try:
-            Path(command.plugin_data).mkdir(parents=True, exist_ok=True)
-        except OSError as error:
-            _LOG.warning("eklenti veri klasörü oluşturulamadı: %s", error)
-        extra["CLAUDE_PLUGIN_DATA"] = command.plugin_data
-    return extra
+    """Eklenti kancasının sürecine eklenen değişkenler (boş = eklenti kancası değil)."""
+    return dict(command.env)

@@ -279,3 +279,16 @@ def guvenilir_klasor(monkeypatch):
     from fusion_cli.config import hook_trust
 
     monkeypatch.setattr(hook_trust, "is_workspace_trusted", lambda root: True)
+
+
+@pytest.fixture(autouse=True)
+def _eklenti_ayar_dosyalari_yalitilir(monkeypatch, tmp_path):
+    """Eklenti `enabledPlugins`/`extraKnownMarketplaces` user ve managed katmanları (#376)
+    gerçek `~/.claude/settings.json` ve kuruluş `managed-settings.json`'ına dokunmasın."""
+    from fusion_cli.config import plugin_scopes
+
+    ayar = tmp_path.parent / f".{tmp_path.name}-claude-ayar"
+    monkeypatch.setattr(plugin_scopes, "user_settings_file", lambda: ayar / "settings.json")
+    monkeypatch.setattr(
+        plugin_scopes, "managed_settings_file", lambda: ayar / "managed-settings.json"
+    )
