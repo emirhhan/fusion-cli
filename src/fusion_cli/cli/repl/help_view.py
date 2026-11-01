@@ -11,7 +11,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from ...core.types import ModelSpec
-from ...ui import banner, messages, theme
+from ...ui import messages, theme
 from ...ui.tables import cost_summary, cost_table
 from ..memory_commands import lessons_table, stats_table
 from .commands import CommandRegistry
@@ -21,16 +21,18 @@ from .state import ReplState
 HELP_COMMAND_MAX_WIDTH = 18
 
 
-async def render(name: str, state: ReplState, registry: CommandRegistry, console: Console) -> None:
-    """Kendi çıktısını basan komutu çalıştır."""
+async def render(
+    name: str,
+    state: ReplState,
+    registry: CommandRegistry,
+    console: Console,
+    argument: str = "",
+) -> None:
+    """Kendi çıktısını basan komutu çalıştır; `argument` yalnız `/compact` odağıdır."""
     if name == "help":
         _help(registry, console)
     elif name == "tips":
         _tips(console)
-    elif name == "clear":
-        from .loop import session_info
-
-        banner.print_welcome(console, session_info(state))
     elif name == "stats":
         _stats(state, console)
     elif name == "lessons":
@@ -52,7 +54,8 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
     elif name == "compact":
         from .loop import compact_history
 
-        console.print(f"[{theme.DIM}]{await compact_history(state)}[/{theme.DIM}]")
+        note = await compact_history(state, argument)
+        console.print(f"[{theme.DIM}]{note}[/{theme.DIM}]")
     elif name == "doctor":
         await _doctor(console)
 

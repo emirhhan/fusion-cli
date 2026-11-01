@@ -557,7 +557,7 @@ async def _run_command(
         return
 
     if renders_itself(command.name, argument):
-        await help_view.render(command.name, state, registry, console)
+        await help_view.render(command.name, state, registry, console, argument)
         return
     if command.name in ASYNC_COMMANDS:
         # Ctrl-C uzun süren işi (dikte) keser, REPL'i değil.
@@ -1030,11 +1030,13 @@ def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
     return tuple(display_path(tool_context, path) for path in tool_context.changes.paths)
 
 
-async def compact_history(state: ReplState) -> str:
-    """`/compact`: uzun geçmişi özetleyerek kısalt."""
+async def compact_history(state: ReplState, instructions: str = "") -> str:
+    """`/compact [talimat]`: geçmişi eşikten bağımsız özetle; talimat özetin odağıdır (#186)."""
     before = len(state.history)
     await state.hooks().pre_compact("manual")
-    state.history = await compress(state.history, config=state.config)
+    state.history = await compress(
+        state.history, config=state.config, manual=True, focus=instructions
+    )
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT

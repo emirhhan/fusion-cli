@@ -137,7 +137,9 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
 RENDER_WIDTH = 100
 
 
-async def render_command_text(registry: CommandRegistry, state: ReplState, name: str) -> str:
+async def render_command_text(
+    registry: CommandRegistry, state: ReplState, name: str, argument: str = ""
+) -> str:
     """Kendi çıktısını basan komutu METİN olarak üret.
 
     `RENDERED_COMMANDS` kümesindeki komutlar (tips, help, models, cost, …)
@@ -158,7 +160,7 @@ async def render_command_text(registry: CommandRegistry, state: ReplState, name:
         record=True,
         width=RENDER_WIDTH,
     )
-    await help_view.render(name, state, registry, console)
+    await help_view.render(name, state, registry, console, argument)
     return _bounded(console.export_text().strip())
 
 

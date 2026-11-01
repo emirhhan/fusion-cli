@@ -82,12 +82,18 @@ async def compress(
     original_source: OriginalTraceReader | None = None,
     original_scope: OriginalTraceScope | None = None,
     pinned_call_ids: frozenset[str] = frozenset(),
+    manual: bool = False,
+    focus: str = "",
 ) -> list[Message]:
-    """Geçmiş eşiği aştıysa eski kısmı özetle. Aksi halde aynen döndür."""
-    if not history.needs_compression(messages, threshold_chars=threshold_chars):
+    """Geçmiş eşiği aştıysa eski kısmı özetle. Aksi halde aynen döndür.
+
+    `manual` (elle `/compact`, #186): Claude Code gibi eşik denetimi atlanır ve kök tur
+    dışındaki bütün konuşma özetlenir. `focus` özet istemine odak talimatı olarak eklenir.
+    """
+    if not manual and not history.needs_compression(messages, threshold_chars=threshold_chars):
         return messages
 
-    cut = history.safe_cut(messages)
+    cut = len(messages) if manual else history.safe_cut(messages)
     if cut == 0:
         return messages
 
@@ -111,7 +117,7 @@ async def compress(
     if not trace.strip():
         return messages
 
-    summary = await _summarize(trace, config, publisher)
+    summary = await _summarize(trace, config, publisher, focus=focus)
     if not summary:
         return messages
     summary = _with_user_rules(summary, old)
@@ -299,9 +305,24 @@ def summary_timeout_s(config: Config) -> float:
     return min(config.runtime.request_timeout_s, SUMMARY_TIMEOUT_S)
 
 
-async def _summarize(trace: str, config: Config, publisher: EventPublisher | None) -> str:
+#: Elle `/compact <talimat>` odağının özet istemine eklenen başlığı (#186).
+FOCUS_HEADER = "Odak talimatı (kullanıcı /compact ile verdi; özeti buna göre kur):"
+
+
+def summary_prompt(trace: str, focus: str = "") -> str:
+    """Özet istemi; `focus` doluysa izden önce odak talimatı eklenir."""
+    prompt = _PROMPT.replace("{trace}", trace)
+    cleaned = focus.strip()
+    if not cleaned:
+        return prompt
+    return f"{FOCUS_HEADER}\n{cleaned}\n\n{prompt}"
+
+
+async def _summarize(
+    trace: str, config: Config, publisher: EventPublisher | None, *, focus: str = ""
+) -> str:
     request = CompletionRequest(
-        messages=(Message("user", _PROMPT.replace("{trace}", trace)),),
+        messages=(Message("user", summary_prompt(trace, focus)),),
         temperature=config.runtime.utility_temperature,
         max_tokens=SUMMARY_MAX_TOKENS,
         timeout_s=config.runtime.request_timeout_s,

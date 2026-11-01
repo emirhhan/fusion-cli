@@ -562,7 +562,9 @@ class _TuiSession:
             )
             return
         if renders_itself(command.name, argument):
-            await help_view.render(command.name, self._state, self._registry, self._out)
+            await help_view.render(
+                command.name, self._state, self._registry, self._out, argument
+            )
             self._tui.sync_conversation()
             return
         if command.name in ASYNC_COMMANDS:

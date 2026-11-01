@@ -656,7 +656,7 @@ REPL_FORGET_OUT_OF_RANGE = "{value} aralık dışı — tabloda 1..{total} aras�
 REPL_FORGET_DONE = "{count} ders silindi"
 REPL_LEARN_TASK_LABEL = "kullanıcının koyduğu kural"
 REPL_COMPACTED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
-REPL_NOTHING_TO_COMPACT = "sıkıştırılacak kadar uzun bir geçmiş yok"
+REPL_NOTHING_TO_COMPACT = "özetlenecek geçmiş yok ya da özet üretilemedi; geçmiş değişmedi"
 REPL_BACKGROUND_WAIT = "arka plandaki öğrenme tamamlanıyor…"
 REPL_HELP_TITLE = "Komutlar"
 #: Grubu olmayan komutların `/help`'te toplandığı başlık.
@@ -946,7 +946,7 @@ PERMISSIONS_UNTRUSTED_LAYERS = (
     "(deny/ask geçerli; fusion trust)"
 )
 CMD_RESET = "agent sohbet geçmişini temizle"
-CMD_COMPACT = "uzun geçmişi özetleyerek kısalt"
+CMD_COMPACT = "konuşmayı özetleyerek bağlam aç; isteğe bağlı odak talimatı"
 CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"
 CMD_SHOW_ALL = "tüm aday cevaplarını göster/gizle"
 CMD_SHOW_THINKING = "model düşünmesini göster/gizle (Claude Code stili)"

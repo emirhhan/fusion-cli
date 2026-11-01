@@ -2464,7 +2464,9 @@ class AppSession:
         if command is not None and renders_itself(command.name, argument):
             return {
                 "ok": True,
-                "metin": await render_command_text(self._registry, self._state, command.name),
+                "metin": await render_command_text(
+                    self._registry, self._state, command.name, argument
+                ),
             }
         if command is not None and command.name in {
             "development",
