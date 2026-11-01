@@ -29,6 +29,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,7 +48,9 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger(__name__)
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 STORE_DIR = "oturum-durum"
-FORMAT_VERSION = 1
+#: 2: mesajlar tek havuzda, geçmiş ve checkpoint'ler havuz sıra numaraları (#187).
+FORMAT_VERSION = 2
+_READABLE_VERSIONS = frozenset({1, FORMAT_VERSION})
 #: Claude Code `cleanupPeriodDays` varsayılanı.
 DEFAULT_CLEANUP_DAYS = 30
 _DAY_S = 86_400
@@ -143,23 +146,56 @@ def _dict(raw: object) -> dict[object, object]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
-def _checkpoint_to(entry: TurnCheckpoint) -> dict[str, Any]:
+class _MessagePool:
+    """Mesajları bir kez kodla; tekrarlayan mesajlar aynı sıra numarasını paylaşır.
+
+    Ölçüldü (1 Kasım): her checkpoint tam geçmiş kopyası yazınca kayıt tur sayısının
+    karesiyle büyüyordu (100 tur, 300 mesaj: 29,8 MB, 0,5 sn). Checkpoint'lerin geçmişi
+    çoğunlukla aynı mesaj nesneleridir; önce kimlikle, sonra kodlanmış metinle eşlenir.
+    """
+
+    def __init__(self) -> None:
+        self.items: list[dict[str, object]] = []
+        self._by_object: dict[int, int] = {}
+        self._by_text: dict[str, int] = {}
+        self._alive: list[Message] = []
+
+    def refs(self, history: Sequence[Message]) -> list[int]:
+        return [self._ref(message) for message in history]
+
+    def _ref(self, message: Message) -> int:
+        known = self._by_object.get(id(message))
+        if known is not None:
+            return known
+        encoded = message_to(message)
+        key = json.dumps(encoded, ensure_ascii=False, sort_keys=True)
+        index = self._by_text.get(key)
+        if index is None:
+            index = len(self.items)
+            self.items.append(encoded)
+            self._by_text[key] = index
+        self._alive.append(message)  # `id()` kayıt boyunca tekil kalsın
+        self._by_object[id(message)] = index
+        return index
+
+
+def _checkpoint_to(entry: TurnCheckpoint, pool: _MessagePool) -> dict[str, Any]:
     return {
         "no": entry.index,
         "gorev": entry.task,
         "zaman": entry.created_at,
-        "gecmis": [message_to(message) for message in entry.history_before],
+        "gecmis": pool.refs(entry.history_before),
         "degisiklik": _changes_to(entry.changes),
     }
 
 
-def _checkpoint_from(raw: object) -> TurnCheckpoint | None:
+def _checkpoint_from(raw: object, pool: Sequence[Message | None] | None) -> TurnCheckpoint | None:
     if not isinstance(raw, dict):
         return None
     index, task, created = raw.get("no"), raw.get("gorev"), raw.get("zaman")
     if isinstance(index, bool) or not isinstance(index, int) or not isinstance(task, str):
         return None
-    history = _messages_from(raw.get("gecmis"))
+    history = _messages_from(raw.get("gecmis"), pool)
     return TurnCheckpoint(
         index=index,
         task=task,
@@ -169,10 +205,19 @@ def _checkpoint_from(raw: object) -> TurnCheckpoint | None:
     )
 
 
-def _messages_from(raw: object) -> tuple[Message, ...]:
+def _messages_from(raw: object, pool: Sequence[Message | None] | None) -> tuple[Message, ...]:
+    """Sürüm 2: havuz sıra numaraları; sürüm 1 (`pool` yok): kodlanmış mesajlar."""
     if not isinstance(raw, list):
         return ()
-    decoded = (message_from(item) for item in raw)
+    if pool is None:
+        decoded = (message_from(item) for item in raw)
+    else:
+        decoded = (
+            pool[item]
+            if isinstance(item, int) and not isinstance(item, bool) and 0 <= item < len(pool)
+            else None
+            for item in raw
+        )
     return tuple(message for message in decoded if message is not None)
 
 
@@ -188,14 +233,18 @@ def save(state: ReplState, *, now: float | None = None) -> None:
     if not conversation_id or memory_dir is None:
         return
     stamp = time.time() if now is None else now
+    pool = _MessagePool()
+    history = pool.refs(state.history)
+    checkpoints = [_checkpoint_to(entry, pool) for entry in state.checkpoints.entries()]
     payload = {
         "surum": FORMAT_VERSION,
         "sohbet": conversation_id,
         "zaman": stamp,
-        "gecmis": [message_to(message) for message in state.history],
+        "mesajlar": pool.items,
+        "gecmis": history,
         "model": state.config.agent.model,
         "izin": state.approval.value,
-        "checkpointler": [_checkpoint_to(entry) for entry in state.checkpoints.entries()],
+        "checkpointler": checkpoints,
     }
     path = store_path(Path(memory_dir), conversation_id)
     try:
@@ -247,15 +296,21 @@ def load(memory_dir: Path, conversation_id: str) -> SessionSnapshot | None:
         return None
     if not isinstance(raw, dict) or raw.get("sohbet") != conversation_id:
         return None
-    if raw.get("surum") != FORMAT_VERSION:
+    version = raw.get("surum")
+    if isinstance(version, bool) or version not in _READABLE_VERSIONS:
         return None
+    pool = (
+        [message_from(item) for item in _list(raw.get("mesajlar"))]
+        if version == FORMAT_VERSION
+        else None
+    )
     stamp = raw.get("zaman")
     entries = _list(raw.get("checkpointler"))
-    decoded = (_checkpoint_from(item) for item in entries)
+    decoded = (_checkpoint_from(item, pool) for item in entries)
     return SessionSnapshot(
         conversation_id=conversation_id,
         saved_at=float(stamp) if isinstance(stamp, int | float) else 0.0,
-        history=_messages_from(raw.get("gecmis")),
+        history=_messages_from(raw.get("gecmis"), pool),
         model=raw["model"] if isinstance(raw.get("model"), str) else "",
         approval=raw["izin"] if isinstance(raw.get("izin"), str) else "",
         checkpoints=tuple(entry for entry in decoded if entry is not None),

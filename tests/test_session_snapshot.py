@@ -134,3 +134,51 @@ def test_bozuk_kayit_yok_sayilir(tmp_path, raw):
     path.parent.mkdir(parents=True)
     path.write_text(raw)
     assert session_snapshot.load(tmp_path, "session-abc") is None
+
+
+def test_kayit_boyutu_tur_sayisiyla_karesel_buyumez(tmp_path):
+    """Ölçüldü (1 Kasım): 100 checkpoint × tam geçmiş kopyası tek kayıtta 29,8 MB'tı (#187)."""
+    state = _state(tmp_path)
+    for tur in range(100):
+        state.checkpoints.begin(f"tur{tur}", state.history)
+        state.history.extend(
+            [
+                Message("user", f"istek {tur}"),
+                Message("tool", "x" * 4000, tool_call_id="c", name="read_file", ok=True),
+                Message("assistant", "y" * 1500),
+            ]
+        )
+    session_snapshot.save(state)
+    path = session_snapshot.store_path(state.config.memory_dir, "session-abc")
+    assert path.stat().st_size < 1_500_000
+    yeni = _state(tmp_path)
+    snapshot = session_snapshot.load(yeni.config.memory_dir, "session-abc")
+    assert snapshot is not None
+    assert snapshot.history == tuple(state.history)
+    assert [c.history_before for c in snapshot.checkpoints] == [
+        c.history_before for c in state.checkpoints.entries()
+    ]
+
+
+def test_eski_surum_1_kaydi_okunur(tmp_path):
+    from fusion_cli.memory.turn_journal_codec import message_to
+
+    state = _state(tmp_path)
+    path = session_snapshot.store_path(state.config.memory_dir, "session-abc")
+    path.parent.mkdir(parents=True)
+    eski = {
+        "surum": 1,
+        "sohbet": "session-abc",
+        "zaman": time.time(),
+        "gecmis": [message_to(Message("user", "merhaba"))],
+        "model": "",
+        "izin": "auto",
+        "checkpointler": [
+            {"no": 1, "gorev": "merhaba", "zaman": 1.0, "gecmis": [], "degisiklik": {}}
+        ],
+    }
+    path.write_text(json.dumps(eski), encoding="utf-8")
+    snapshot = session_snapshot.load(state.config.memory_dir, "session-abc")
+    assert snapshot is not None
+    assert snapshot.history[0].content == "merhaba"
+    assert snapshot.checkpoints[0].task == "merhaba"
