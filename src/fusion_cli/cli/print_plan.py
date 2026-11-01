@@ -71,6 +71,8 @@ class PrintRequest:
     profile: str | None = None
     ignored_flags: tuple[str, ...] = ()
     from_pr: str = ""
+    debug: str | None = None
+    debug_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

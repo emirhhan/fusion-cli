@@ -105,11 +105,13 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--agent <ad>` / `--agents '<json>'` | Baş ajan ve oturumluk ajan tanımları. |
 | `-w/--worktree [ad]` | Çalışma ağacında koş; ad verilmezse üretilir. |
 | `--verbose` | `text` kipinde ilerleme satırları (stderr); `stream-json` için zorunlu. |
+| `--debug [kategoriler]` / `--debug-file <yol>` | Ayrıntılı günlük stderr'e ya da dosyaya; `"api,hooks"`, `"!statsig"` süzgeci `fusion_cli.*` günlükçü adlarına uygulanır. |
+| `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |
 | `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
 | `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
 
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--forward-subagent-text`, `--prompt-suggestions`, `--debug`, `--debug-file`, `--plugin-dir`,
+`--forward-subagent-text`, `--prompt-suggestions`, `--plugin-dir`,
 `--betas`, `--exclude-dynamic-system-prompt-sections`, `--setting-sources`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 

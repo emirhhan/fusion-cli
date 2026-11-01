@@ -42,6 +42,7 @@ from .print_runtime import (
     SIGTERM_EXIT_CODE,
     PrintPrompter,
     TerminatedError,
+    enable_debug_logging,
     sigterm_as_exception,
     wait_background,
 )
@@ -91,6 +92,7 @@ def run_print(request: PrintRequest) -> int:
         return 1
     for warning in plan.warnings:
         _warn(warning)
+    enable_debug_logging(request.debug, request.debug_file)
     with sigterm_as_exception():
         try:
             return _start(plan, root)

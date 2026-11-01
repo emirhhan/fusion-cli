@@ -92,13 +92,15 @@ def _has_value(args: Sequence[str], index: int) -> bool:
     return index + 1 < len(args) and not args[index + 1].startswith("-")
 
 
-def fill_worktree_names(args: Sequence[str]) -> list[str]:
-    """Değersiz `-w/--worktree` arkasına üretilmiş ad koy (#314)."""
+def fill_worktree_names(args: Sequence[str], *, print_mode: bool = False) -> list[str]:
+    """Değersiz `-w/--worktree` arkasına üretilmiş ad (#314), `--debug`a `all` koy (#305)."""
     out: list[str] = []
     for index, token in enumerate(args):
         out.append(token)
         if token in _WORKTREE_FLAGS and not _has_value(args, index):
             out.append(generated_worktree_name())
+        elif print_mode and token == "--debug" and not _has_value(args, index):
+            out.append("all")
     return out
 
 
@@ -132,7 +134,7 @@ def rewrite_root_args(args: Sequence[str], group: TyperGroup) -> list[str]:
         return tokens
     if any(token in _PRINT_FLAGS for token in tokens):
         rest = [token for token in tokens if token not in _PRINT_FLAGS]
-        return [PRINT_COMMAND, *expand_variadic(fill_worktree_names(rest))]
+        return [PRINT_COMMAND, *expand_variadic(fill_worktree_names(rest, print_mode=True))]
     if "--bg" in tokens:
         # `fusion --bg "görev"` (Claude kök bayrağı, #311): arka plan görevi başlatılır.
         return [BACKGROUND_COMMAND, *fill_worktree_names(tokens)]

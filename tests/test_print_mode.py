@@ -663,3 +663,21 @@ def test_arka_plan_isi_beklenir_ve_bildirilir(monkeypatch):
     slow = _Runs(5)
     asyncio.run(print_runtime.wait_background(slow, notes.append, delay_s=0.01))
     assert slow.closed
+
+
+def test_debug_file_ayrintili_gunluk_yazar(monkeypatch, tmp_path):
+    import logging
+
+    log = tmp_path / "debug.log"
+    _calls, result = _print(monkeypatch, ["-p", "x", "--debug-file", str(log)])
+    assert result.exit_code == 0, result.output
+    logging.getLogger("fusion_cli.deneme").debug("merhaba")
+    for handler in list(logging.getLogger("fusion_cli").handlers):
+        handler.flush()
+        if getattr(handler, "baseFilename", "") == str(log):
+            logging.getLogger("fusion_cli").removeHandler(handler)
+    assert "merhaba" in log.read_text(encoding="utf-8")
+
+
+def test_degersiz_debug_hepsi_sayilir():
+    assert rewrite_root_args(["-p", "x", "--debug"], _group()) == ["print", "x", "--debug", "all"]

@@ -10,6 +10,7 @@ kapatır ve araç kümesini Bash + dosya okuma/düzenleme ile sınırlar.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 from collections.abc import Callable, Iterator
@@ -139,3 +140,32 @@ async def wait_background(
         return
     if not drain.cancelled() and drain.exception() is not None:
         notify(str(drain.exception()))
+
+
+def enable_debug_logging(categories: str | None, path: str | None) -> logging.Handler | None:
+    """`--debug [kategoriler]` stderr'e, `--debug-file <yol>` dosyaya ayrıntılı günlük (#305).
+
+    Kategori süzgeci (`"api,hooks"`, `"!statsig"`) Fusion günlükçü adlarına (`fusion_cli.*`)
+    alt dize olarak uygulanır; `all` ya da boş hepsi demektir.
+    """
+    if categories is None and not path:
+        return None
+    handler: logging.Handler = (
+        logging.FileHandler(path, encoding="utf-8") if path else logging.StreamHandler()
+    )
+    handler.setFormatter(logging.Formatter("[DEBUG] %(name)s: %(message)s"))
+    wanted = [item.strip() for item in (categories or "").split(",") if item.strip()]
+    if wanted and wanted != ["all"]:
+        handler.addFilter(lambda record: _category_match(record.name, wanted))
+    logger = logging.getLogger("fusion_cli")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    return handler
+
+
+def _category_match(name: str, wanted: list[str]) -> bool:
+    excluded = [item[1:] for item in wanted if item.startswith("!")]
+    included = [item for item in wanted if not item.startswith("!")]
+    if any(item in name for item in excluded):
+        return False
+    return not included or any(item in name for item in included)

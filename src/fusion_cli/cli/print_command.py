@@ -90,8 +90,6 @@ def print_command(
         "--include-hook-events": include_hooks,
         "--forward-subagent-text": forward_subagent,
         "--prompt-suggestions": prompt_suggestions,
-        "--debug": debug is not None,
-        "--debug-file": debug_file is not None,
         "--plugin-dir": bool(plugin_dir),
         "--betas": bool(betas),
         "--exclude-dynamic-system-prompt-sections": exclude_dynamic,
@@ -142,6 +140,8 @@ def print_command(
         profile=profile,
         ignored_flags=tuple(flag for flag, given in ignored.items() if given),
         from_pr=from_pr or "",
+        debug=debug,
+        debug_file=debug_file,
     )
     del allow_skip  # Claude: bypass'ı yalnız seçilebilir yapar; -p'de etkisi yok
     raise typer.Exit(run_print(request))
