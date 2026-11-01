@@ -207,7 +207,15 @@ sürümde tutar). `ad@pazar` kurulum ve güncellemesinden önce git pazarı yeni
 saniyede yenilenen pazar ve `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` atlanır; yenileme başarısızsa
 önbellekteki katalogla sürer). Güncellenen ya da kaldırılan eklentinin önceki kopyası
 `<eklentiler>/.orphaned/` altına `.orphaned_at` işaretiyle taşınır ve 14 gün sonra silinir.
-Henüz yok: otomatik güncelleme (#394).
+**Otomatik güncelleme:** REPL açıldıktan sonra rastgele en çok 10 dakikalık gecikmeyle auto-update'i
+açık pazarlar arka planda yenilenir ve onlardan kurulan eklentiler güncellenir (açık oturum yüklediği
+sürümle sürer; günlüğe `Plugin updated: <ad> · Run /reload-plugins to apply` yazılır). Açık mı:
+önce `extraKnownMarketplaces` girdisindeki `autoUpdate`, yoksa varsayılan (Anthropic'in resmî
+pazarlarında açık, `knowledge-work-plugins`/`first-party-plugins` ve diğerlerinde kapalı).
+`DISABLE_UPDATES`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` kapatır,
+`FORCE_AUTOUPDATE_PLUGINS=1` yeniden açar. Güvenlik notu: Claude'daki gibi otomatik güncelleme onay
+sormaz. Henüz yok: `/plugin` Marketplaces'teki Enable auto-update anahtarı, resmî pazarın ilk
+oturumda kendiliğinden eklenmesi, bildirimin TUI'de gösterilmesi (#394).
 
 ## Güven ve bütünlük
 

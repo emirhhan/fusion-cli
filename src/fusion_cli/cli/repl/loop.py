@@ -190,6 +190,9 @@ async def run_repl(
     from ...tools.plugin_declared import start_background_sync
 
     start_background_sync(root)  # #376: depoda bildirilen pazarlar arka planda kaydedilir
+    from ...tools.plugin_auto_update import start_auto_update
+
+    start_auto_update(root)  # #394: auto-update'i açık pazarlar ≤10 dk sonra arka planda
     restored_note = ""
     if resume is not None:
         session_resume.apply_target(state, resume)
