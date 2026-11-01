@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -44,9 +45,6 @@ if TYPE_CHECKING:
 
 _LOG = logging.getLogger(__name__)
 
-#: Başlangıçta yüklenecek beceri sayısı ve toplam metin bütçesi (Claude Code: ≤32 beceri).
-SKILL_PRELOAD_LIMIT = 32
-SKILL_PRELOAD_CHARS = 24_000
 #: Beceri çözümleyicisinin eski miras sözleşmesi; alt ajan ailesi ayrıca çözülür.
 INHERIT_MODELS = frozenset({"inherit", "sonnet", "opus", "haiku", "fable"})
 CLAUDE_MODEL_ALIASES = CLAUDE_ALIASES
@@ -265,7 +263,7 @@ def child_memory(deps: AgentDeps, persona: Persona) -> PlainMemory | None:
     Alt ajan projenin otomatik belleğini (P-036) devralmaz: Claude Code'da da ajan belleği
     ajana özeldir ve ana oturumun MEMORY.md'si alt ajana gitmez.
     """
-    if not persona.memory_scope:
+    if not persona.memory_scope or not getattr(deps.config.runtime, "auto_memory", True):
         return None
     return open_agent_memory(
         deps.config, deps.tool_context.root, persona.name, persona.memory_scope
@@ -273,24 +271,20 @@ def child_memory(deps: AgentDeps, persona: Persona) -> PlainMemory | None:
 
 
 def preloaded_skills(deps: AgentDeps, persona: Persona) -> str:
-    """`skills` listesindeki becerilerin metni; bulunamayan ad atlanır, bütçe aşılmaz."""
+    """`skills` listesindeki becerilerin tam metni; bulunamayan ad atlanır."""
     library = deps.capabilities
     if library is None or not persona.skills:
         return ""
     parts: list[str] = []
-    used = 0
-    for name in persona.skills[:SKILL_PRELOAD_LIMIT]:
+    for name in persona.skills:
         item: Capability | None = library.get_skill(name)
         if item is None:
             _LOG.warning(
                 "ön yüklenecek beceri bulunamadı", extra={"ajan": persona.name, "beceri": name}
             )
             continue
-        remaining = SKILL_PRELOAD_CHARS - used
-        if remaining <= 0:
-            break
-        text = load_skill_text(item.path, budget=remaining)
-        used += len(text)
+        # Claude Code becerinin TAM içeriğini yükler (#35); kırpma ve adet sınırı yok.
+        text = load_skill_text(item.path, budget=sys.maxsize)
         parts.append(f"# Ön yüklenen beceri: {name}\n{text}")
     return "\n\n".join(parts)
 

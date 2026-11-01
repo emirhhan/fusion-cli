@@ -339,3 +339,30 @@ async def test_bellek_alanli_alt_ajan_kendi_bellegini_ve_araclarini_alir(tmp_pat
     )
     # Bellek alanı olmayan üye ne bellek ne aracı alır.
     assert gorulen["b"][0] is None and "remember" not in (gorulen["b"][1] or ())
+
+
+def test_on_yuklenen_beceriler_tam_icerikle_kirpilmadan_girer(tmp_path):
+    """Claude Code: `skills` alanındaki becerilerin TAM içeriği bağlama girer (#35)."""
+    names = []
+    for index in range(3):
+        name = f"buyuk-{index}"
+        folder = tmp_path / "ev" / ".claude" / "skills" / name
+        folder.mkdir(parents=True)
+        body = f"{name} " + "x" * 30_000 + " SON"
+        (folder / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: d\n---\n{body}", encoding="utf-8"
+        )
+        names.append(name)
+    deps, _ = _deps(tmp_path)
+
+    metin = team_settings.preloaded_skills(deps, _persona(skills=tuple(names)))
+
+    assert "KIRPILDI" not in metin
+    assert metin.count(" SON") == 3
+
+
+def test_ajan_bellegi_otomatik_bellek_kapaliyken_etkisizdir(tmp_path):
+    """Claude Code: `memory` alanı otomatik belleğin parçasıdır; kapalıyken açılmaz (#39)."""
+    deps, _ = _deps(tmp_path, auto_memory=False)
+
+    assert team_settings.child_memory(deps, _persona(memory_scope="project")) is None
