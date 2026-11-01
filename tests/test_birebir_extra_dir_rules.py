@@ -52,3 +52,31 @@ def test_eslesen_erisimde_bir_kez_gelir_olay_path_glob_match(tmp_path: Path, mon
         )
         == []
     )
+
+
+def test_ortam_degiskeni_tek_yerde_ayristirilir(monkeypatch) -> None:
+    """#170: talimat katmanları ve koşullu kurallar aynı ayrıştırıcıyı kullanır."""
+    from fusion_cli.engines.agent import instruction_layers
+
+    for value, expected in (("1", True), ("true", True), ("TRUE", True), ("0", False), ("", False)):
+        monkeypatch.setenv("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", value)
+        assert instruction_layers.additional_dirs_enabled() is expected
+        assert extra_dir_rules.enabled() is expected
+
+
+def test_kural_agaci_her_dosya_erisiminde_yeniden_taranmaz(tmp_path: Path, monkeypatch) -> None:
+    """#170: aynı ek dizin için ardışık erişimler kural ağacını bir kez tarar."""
+    monkeypatch.setenv("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "1")
+    ek = _ek(tmp_path)
+    calls: list[Path] = []
+    real_scan = extra_dir_rules._scan
+
+    def counting(path, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(path)
+        return real_scan(path, **kwargs)
+
+    monkeypatch.setattr(extra_dir_rules, "_scan", counting)
+    for name in ("a.py", "b.py", "c.py"):
+        extra_dir_rules.hits_for((ek,), ek / name, loaded=set(), present=lambda _: False)
+
+    assert len(calls) == 1

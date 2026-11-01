@@ -11,13 +11,13 @@ kuralları ve onların `InstructionsLoaded(path_glob_match)` olayını üretir.
 
 from __future__ import annotations
 
-import os
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from ...core.types import Message
-from .instruction_layers import ADDITIONAL_DIRS_ENV
+from .instruction_layers import additional_dirs_enabled
 from .instruction_rules import RuleFile, _scan, rule_block, scoped_rules_for
 from .instructions_hook import payload
 from .project_instructions import NESTED_NOTE_HEADER, nested_marker
@@ -32,13 +32,33 @@ class ExtraRuleHit:
     event: dict[str, object]
 
 
+#: Ek dizin kural ağacı önbelleğinin ömrü (sn): her dosya erişiminde `rglob` yapılmasın.
+SCAN_TTL_S = 5.0
+_CACHE: dict[str, tuple[float, int, tuple[RuleFile, ...]]] = {}
+_CACHE_LIMIT = 32
+
+
 def enabled() -> bool:
-    return os.environ.get(ADDITIONAL_DIRS_ENV, "").strip() in ("1", "true")
+    return additional_dirs_enabled()
 
 
 def _scoped(extra: Path) -> tuple[RuleFile, ...]:
-    rules = _scan(extra / ".claude" / "rules", base=extra, prefix="", trusted=False)
-    return tuple(rule for rule in rules if rule.is_scoped)
+    """Ek dizinin `paths` alanlı kuralları; kısa ömürlü ve dizin değişince tazelenen önbellek."""
+    folder = extra / ".claude" / "rules"
+    try:
+        stamp = folder.stat().st_mtime_ns
+    except OSError:
+        stamp = -1
+    key, now = str(extra), time.monotonic()
+    cached = _CACHE.get(key)
+    if cached is not None and cached[0] > now and cached[1] == stamp:
+        return cached[2]
+    rules = _scan(folder, base=extra, prefix="", trusted=False)
+    scoped = tuple(rule for rule in rules if rule.is_scoped)
+    if len(_CACHE) >= _CACHE_LIMIT:
+        _CACHE.pop(next(iter(_CACHE)))
+    _CACHE[key] = (now + SCAN_TTL_S, stamp, scoped)
+    return scoped
 
 
 def _relative(target: Path, extra: Path) -> str | None:

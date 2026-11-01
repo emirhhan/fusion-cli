@@ -52,6 +52,11 @@ ADVISED_MAX_LINES = 200
 MAX_LINKED_CHARS = 0
 
 ADDITIONAL_DIRS_ENV = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"
+
+
+def additional_dirs_enabled() -> bool:
+    """`--add-dir` dizinlerinin talimatları yüklensin mi (#170; tek ayrıştırıcı)."""
+    return os.environ.get(ADDITIONAL_DIRS_ENV, "").strip().lower() in ("1", "true")
 #: `pluginConfigs` altındaki AGENTS.md eklenti kimlikleri (yeni ve eski).
 _AGENTS_PLUGIN_IDS = ("cc-plugin-agents-md@builtin", "agents-md@builtin")
 INSTRUCTION_FILE_MODES = frozenset(
@@ -238,7 +243,7 @@ def load_instruction_layers(
     if mode != "managed-only":
         _load_user(loader)
         _load_project(loader, mode)
-        if os.environ.get(ADDITIONAL_DIRS_ENV, "").strip() in ("1", "true"):
+        if additional_dirs_enabled():
             for extra in extra_roots:
                 for name in (*CLAUDE_NAMES, LOCAL_NAME):
                     _load_file(loader, Path(extra) / name, layer="ek-dizin")
