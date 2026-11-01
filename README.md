@@ -398,10 +398,14 @@ Kütüphanede içerik yoksa bu araçlar modele hiç sunulmaz.
 ### Agent modu
 
 ```bash
-.venv/bin/fusion agent "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir"
-.venv/bin/fusion agent "..." --mode plan       # yalnız planla, hiçbir şeyi değiştirme
-.venv/bin/fusion agent "..." --mode security   # her değişikliği tek tek sor
+.venv/bin/fusion agent "hesap.py'daki hatayi bul ve duzelt" --permission-mode acceptEdits
+.venv/bin/fusion agent "..." --permission-mode plan   # yalnız planla, hiçbir şeyi değiştirme
+.venv/bin/fusion agent "..." --permission-mode auto   # yalnız riskli işlemde sorar
 ```
+
+Claude Code'daki `claude -p` gibi kip verilmezse `fusion agent` **Manual** (`default`) başlar:
+onay gerektiren çağrı sorulmadan reddedilir; izin kuralı (`allow`) ya da kanca onaylarsa
+çalışır, `--permission-prompt-tool stdin` verilirse sorulur. `--mode` eski addır.
 
 Agent dosya okur/yazar, komut çalıştırır, web'de arar, görev listesi tutar, zor
 kararlarda çoklu modele danışır (`council`) ve büyük işleri alt-ajana devreder.

@@ -233,7 +233,7 @@ def test_stream_json_ilk_satir_system_init(monkeypatch):
 
     ilk = json.loads(result.output.splitlines()[0])
     assert ilk["event"] == "SystemInit"
-    assert ilk["kip"] == "auto"
+    assert ilk["kip"] == "security"  # Claude -p varsayılanı Manual (#353)
     assert "model" in ilk
 
 

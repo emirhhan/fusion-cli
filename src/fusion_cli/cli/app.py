@@ -73,6 +73,7 @@ from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
+from .unprompted import UnpromptedPrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
@@ -396,6 +397,10 @@ def uninstall(
         raise typer.Exit(1)
 
 
+#: `fusion agent` varsayılan izin kipi: Claude -p'deki Manual (`default`; #353).
+HEADLESS_DEFAULT_MODE = "default"
+
+
 @app.command()
 def agent(
     task: str = typer.Argument(
@@ -403,12 +408,14 @@ def agent(
         help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
     ),
     mode: str = typer.Option(
-        "auto",
+        HEADLESS_DEFAULT_MODE,
+        "--permission-mode",
         "--mode",
         "-m",
-        help="Onay modu: auto (yalnız riskli işlemde sorar) | edits (düzenlemeler "
-        "sorulmaz) | security/manual (her değişikliği sor) | plan (yalnız planla) | "
-        "bypass (hiçbir şey sorma)",
+        help="İzin kipi (Claude --permission-mode): default/manual (varsayılan; onay "
+        "gerektiren çağrı sorulmadan reddedilir, allow kuralı ya da kanca onaylamadıkça) | "
+        "acceptEdits/edits | auto | plan | dontAsk | bypassPermissions/bypass. "
+        "--mode eski addır.",
     ),
     no_memory: bool = typer.Option(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
@@ -582,7 +589,7 @@ def agent(
 
     def _prompter(
         flush: Callable[[], Awaitable[None]],
-    ) -> ConsolePrompter | headless.JsonLinesPrompter:
+    ) -> ConsolePrompter | headless.JsonLinesPrompter | UnpromptedPrompter:
         if options.channel is headless.PermissionChannel.STDIN:
             # Olay satırları yalnız stream-json'da stdout'a gider; json/text'te stdout
             # sonuç içindir, istekler stderr'e yazılır (cevaplar yine stdin'den okunur).
@@ -592,7 +599,10 @@ def agent(
             )
         # "Her zaman reddet" (`r`, P-007) tek atışta da ret listesine yazar.
         denials = AppDenials(config_persist(lambda: config))
-        return ConsolePrompter(console, tool_context, flush=flush, denials=denials)
+        console_prompter = ConsolePrompter(console, tool_context, flush=flush, denials=denials)
+        if options.deny_unprompted:
+            return UnpromptedPrompter(console_prompter)
+        return console_prompter
 
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
@@ -701,6 +711,8 @@ class _HeadlessOptions:
     channel: headless.PermissionChannel | None
     session_persona: Persona | None = None
     session_agents: tuple[Capability, ...] = ()
+    #: Onay gerektiren çağrı kimseye sorulmadan reddedilir (Claude -p varsayılanı; #353).
+    deny_unprompted: bool = False
 
     @property
     def channel_name(self) -> str | None:
@@ -791,6 +803,9 @@ def _headless_options(
     return _HeadlessOptions(
         task=task,
         approval=_parse_mode(mode),
+        # Claude -p (v2.1.302+): kip verilmezse Manual; onay gerektiren çağrı sorulmaz,
+        # reddedilir (#353). Açık izin kanalı (`--permission-prompt-tool stdin`) yine sorar.
+        deny_unprompted=mode == HEADLESS_DEFAULT_MODE and channel is None,
         output_format=fmt,
         schema=schema,
         extra_system="\n\n".join(parts),
