@@ -202,9 +202,10 @@ def test_repl_ayari_kalici_yazar_ve_gecersizde_kullanim_doner(tmp_path):
 def test_masaustu_rpc_durum_ayar_ve_devam(tmp_path):
     state = _state(tmp_path)
     durum = auto_review_rpc.handle(state, Request("1", "oto.durum", {}))
-    assert durum["ok"] and durum["ayar"] == "off" and durum["esik_ardisik"] == 3
+    # Varsayılan açık (#54, Claude auto mode): verinin gittiği model baştan yazar.
+    assert durum["ok"] and durum["ayar"] == "on" and durum["esik_ardisik"] == 3
     assert durum["dustu"] is False and durum["son_kararlar"] == []
-    assert durum["veri_notu"] == ""
+    assert "hakem (" in durum["veri_notu"]
 
     ayar = auto_review_rpc.handle(state, Request("2", "oto.ayar", {"deger": "on"}))
     assert ayar["ayar"] == "on" and state.config.runtime.auto_classifier is AutoClassifierMode.ON
@@ -246,10 +247,10 @@ def _yaz(tmp_path, runtime):
     return path
 
 
-def test_ayar_varsayilani_tirnaksiz_off_ve_gecersiz_model(tmp_path):
-    # Varsayılan kapalı (31 Ekim): Otomatik kip zaten varsayılan; denetçi açılınca kullanıcı
-    # mesajları hakem sağlayıcısına gider ve ücretsiz kotayı paylaşır — açık seçimle açılır.
-    assert load_config(_yaz(tmp_path, {})).runtime.auto_classifier is AutoClassifierMode.OFF
+def test_ayar_varsayilani_acik_tirnaksiz_off_ve_gecersiz_model(tmp_path):
+    # Varsayılan açık (#54): Claude Code auto kipte eylemi sınıflandırıcı inceler. Anahtar
+    # yoksa ağa çıkılmaz, kurallar geçerli; `off` ile kapatılır.
+    assert load_config(_yaz(tmp_path, {})).runtime.auto_classifier is AutoClassifierMode.ON
     tirnaksiz = tmp_path / "c2.yaml"
     tirnaksiz.write_text("runtime:\n  auto_classifier: off\n", encoding="utf-8")
     assert load_config(tirnaksiz).runtime.auto_classifier is AutoClassifierMode.OFF
@@ -311,7 +312,8 @@ def test_repl_durumu_acikken_verinin_gittigi_modeli_yazar(tmp_path):
     state = _state(tmp_path, auto_classifier=AutoClassifierMode.ASK_ONLY)
     metin = auto_mode_command(state, "")
     assert "modeline" in metin and "son 3 mesajın" in metin
-    assert "modeline" not in auto_mode_command(_state(tmp_path), "")
+    kapali = _state(tmp_path, auto_classifier=AutoClassifierMode.OFF)
+    assert "modeline" not in auto_mode_command(kapali, "")
 
 
 def test_akis_satiri_kural_kaynagini_model_karari_gibi_gostermez():
@@ -350,7 +352,7 @@ def test_fusion_auto_mode_durum_ve_ayar_kalici_yazar(monkeypatch, tmp_path):
     dosya.write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("FUSION_CONFIG", str(dosya))
     sonuc = _cli("durum")
-    assert sonuc.exit_code == 0 and "Denetçi: off" in sonuc.output
+    assert sonuc.exit_code == 0 and "Denetçi: on" in sonuc.output
     assert _cli("ayar", "ac").exit_code == 0
     sonra = _cli("durum")
     assert "ask_only" in sonra.output and "modeline" in sonra.output
@@ -384,7 +386,7 @@ def test_oto_rpc_bilinmeyen_istek_ve_bos_deger_hata_doner(tmp_path):
     assert auto_review_rpc.handle(state, Request("1", "oto.yok", {}))["ok"] is False
     bos = auto_review_rpc.handle(state, Request("2", "oto.ayar", {}))
     assert bos["ok"] is False and bos["metin"].startswith("Kullanım")
-    assert state.config.runtime.auto_classifier is AutoClassifierMode.OFF
+    assert state.config.runtime.auto_classifier is AutoClassifierMode.ON
 
 
 async def test_alt_ajan_denetciye_girmez_kurallarla_sorulur(monkeypatch, tmp_path):

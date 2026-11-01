@@ -9,6 +9,9 @@ Claude Code belgesiyle birebir (code.claude.com/docs/en/permission-modes, settin
     permissions.disableBypassPermissionsMode: "disable"  bypass kipini kapatır (#51)
     permissions.blockReadsOutsideWorkingDirectories      `true` her kapsamdan geçerli (#76)
     permissions.additionalDirectories       ek çalışma dizinleri; proje/yerel güven ister (#57)
+    useAutoModeDuringPlan                   varsayılan `true`: plan kipinde auto sınıflandırıcısı
+                                            komutu inceler; `false` kullanıcı/yerel/yönetilen
+                                            dosyada geçerli, proje dosyasında yok sayılır (#52)
 
 Öncelik (yüksekten alçağa): yönetilen (managed) > yerel > proje > kullanıcı (#65). Managed
 dosyada `auto`/`bypassPermissions` başlangıç kipi geçerlidir; managed `disable` hiçbir
@@ -40,6 +43,8 @@ _PROJECT_IGNORED_MODES = frozenset({"auto", "bypassPermissions"})
 _DISABLE = "disable"
 #: `defaultMode` değerinde kısıtsız katmanlar.
 _UNRESTRICTED_MODE_LAYERS = frozenset({"kullanici", "yonetilen"})
+#: Depoyla gelen paylaşılan dosya: kullanıcının güvenlik tercihini kapatamaz.
+_PROJECT_LAYER = "proje"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +111,15 @@ def bypass_mode_disabled(root: Path, home: Path | None = None) -> bool:
     return any(
         layer.permissions.get("disableBypassPermissionsMode") == _DISABLE
         for layer in settings_layers(root, home)
+    )
+
+
+def use_auto_mode_during_plan(root: Path, home: Path | None = None) -> bool:
+    """`useAutoModeDuringPlan` açık mı? Proje dosyası dışındaki herhangi bir `false` kapatır."""
+    return not any(
+        layer.data.get("useAutoModeDuringPlan") is False
+        for layer in settings_layers(root, home)
+        if layer.name != _PROJECT_LAYER
     )
 
 

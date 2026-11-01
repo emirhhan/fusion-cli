@@ -6,13 +6,11 @@ kaynağı düzenlemez. Kabuk komutu için ilk uyan durum geçerlidir:
 
     bypass kullanılabilir oturum   ne sınıflandırıcı ne soru: bypass kipinin kuralları
                                    (açık `ask` kuralı ve kritik yol silmesi yine sorulur)
+    auto kullanılabilir ve         sınıflandırıcı (denetçi modeli) inceler: güvenli → sorulmaz,
+    `useAutoModeDuringPlan` açık   riskli → sorulur; kritik yol silmesi hep sorulur
+                                   (`plan_review.review_plan_request`)
     öteki durumlar                 yerleşik salt okunur küme dışındaki komut sorulur (sandbox
-                                   auto-allow açık olsa da)
-
-Claude'un "auto kullanılabilir ve `useAutoModeDuringPlan` açık: sınıflandırıcı inceler" dalı
-Fusion'da henüz yok: Fusion'ın model sınıflandırıcısı yalnız auto kipinde çalışır (#54). Sezgisel
-risk tablosu kaynağı değiştiren komutu (`ruff format`) tanımadığından yerine geçirilmedi; bu
-dalda komut sorulur (belgedeki "auto kullanılamıyor" dalı).
+                                   auto-allow açık olsa da); denetçi modeli yoksa da bu dal
 
 Dosya düzenlemeleri (yerel yazma araçları) plan onaylanana dek engellenir. Açık `ask`
 kuralı ve Fusion'ın yıkıcı/korumalı yol gerekçesi her durumda sorar. Uzak sistemde değişiklik
@@ -53,6 +51,9 @@ class PlanApproval:
             return Decision.ALLOW
         if _edits_files(request):
             return Decision.BLOCKED
+        if request.classifier_allowed and not must_ask:
+            # Auto sınıflandırıcısı planlama komutunu güvenli buldu (#52).
+            return Decision.ALLOW
         if _rule_allowed(request) and request.rule_opens:
             # Allow kuralı yalnız korumalı yol/kritik silmeyi açmaz (#84).
             return Decision.ALLOW

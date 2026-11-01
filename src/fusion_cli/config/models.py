@@ -488,8 +488,8 @@ class RuntimeConfig:
     usage_log: bool = True
     #: Otomatik kip denetçisi (P-011): `off` | `ask_only` | `on` (bkz. `core.auto_review`).
     #: Sorulacak çağrıyı küçük/hızlı rol modeli sınıflandırır; güvenliyse sorulmaz. Varsayılan
-    #: kapalı: açılınca kullanıcı mesajları hakem sağlayıcısına gider (açık seçimle açılır).
-    auto_classifier: AutoClassifierMode = AutoClassifierMode.OFF
+    #: `on` (#54, Claude auto mode: eylemi sınıflandırıcı inceler); model yoksa kurallar.
+    auto_classifier: AutoClassifierMode = AutoClassifierMode.ON
     #: Denetçi modeli: boş = hakem (`judge`) rolü ve yedekleri; dolu = `<sağlayıcı>/<model>`.
     auto_classifier_model: str = ""
     #: Tek sınıflandırma çağrısının süre sınırı (saniye). Aşılırsa kurallar geçerli olur.

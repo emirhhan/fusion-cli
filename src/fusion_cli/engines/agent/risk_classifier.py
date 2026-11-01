@@ -115,6 +115,11 @@ async def review_auto_request(request: ApprovalRequest, deps: ReviewDeps) -> App
     mode = getattr(deps, "approval_mode", None)
     if setting is AutoClassifierMode.OFF:
         return request
+    if mode is not None and mode() is ApprovalMode.PLAN:
+        # Plan kipinde `useAutoModeDuringPlan` (#52): auto kullanılabiliyorsa denetçi inceler.
+        from .plan_review import review_plan_request
+
+        return await review_plan_request(request, deps, state)
     if mode is None or mode() is not ApprovalMode.AUTO:
         return request
     root = deps.tool_context.root
@@ -122,7 +127,7 @@ async def review_auto_request(request: ApprovalRequest, deps: ReviewDeps) -> App
     if kind is None or (state.remembered is not None and state.remembered(request)):
         return request
     intent = user_intent(getattr(deps, "live_history", None))
-    key = _cache_key(request, intent)
+    key = cache_key(request, intent)
     cached = state.cached(key)
     if cached is not None:
         outcome = replace(cached, source=ReviewSource.CACHE)
@@ -379,7 +384,7 @@ def _rule_outcome(request: ApprovalRequest, summary: str, kind: ReviewKind) -> R
     )
 
 
-def _cache_key(request: ApprovalRequest, intent: Sequence[str]) -> str:
+def cache_key(request: ApprovalRequest, intent: Sequence[str]) -> str:
     identity = [request.tool.name, dict(request.args), request.risk, list(intent)]
     return hashlib.sha256(
         json.dumps(identity, ensure_ascii=False, sort_keys=True, default=str).encode()

@@ -54,6 +54,8 @@ class AutoReviewState:
         self._cache: OrderedDict[str, ReviewOutcome] = OrderedDict()
         #: Kip düşünce oturum kipini Manuel'e çeken geri çağrı (sahip bağlar).
         self.on_fallback: Callable[[], None] | None = None
+        #: Bypass kullanılabilir oturum mu (#52; sahip bağlar): plan kipinde sınıflandırıcı yok.
+        self.plan_bypass: Callable[[], bool] | None = None
 
     @property
     def model_unavailable(self) -> bool:

@@ -285,6 +285,9 @@ class ApprovalRequest:
     #: Dosya aracı yalnız `.claude/` klasörüne yazıyor (#82): kart Claude gibi o klasör için
     #: oturumluk izin sunar (`claude_dir_session.PROJECT_KEY` / `USER_KEY`).
     claude_dir: str | None = None
+    #: Plan kipinde auto sınıflandırıcısı komutu güvenli buldu (#52, `useAutoModeDuringPlan`):
+    #: `PlanApproval` sormadan geçirir. Yalnız `plan_review` doldurur.
+    classifier_allowed: bool = False
 
     @property
     def rule_opens(self) -> bool:
@@ -398,6 +401,7 @@ class ApprovalMemory:
         self.auto_review = AutoReviewState(remembered=self.is_remembered)
         #: Bypass kullanılabilir oturum: plan kipinde de soru/sınıflandırıcı yok (#52).
         self.plan_bypass = False
+        self.auto_review.plan_bypass = lambda: self.plan_bypass
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
