@@ -175,6 +175,7 @@ from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
+from .computer_use_hint import computer_use_off_hint
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
@@ -1062,6 +1063,9 @@ async def _run_agent(
             expertise_hint(task, registry=deps.capabilities, publisher=deps.publisher)
             if deps.selected_skill is None
             else None,
+            computer_use_off_hint(
+                task, enabled=deps.config.desktop.enabled, tool_names=registry.names()
+            ),
         )
         if depth == 0 and not chat_mode and not internal
         else ()

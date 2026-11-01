@@ -128,9 +128,12 @@ Claude Code'da computer use etkileşimli oturum ister. `fusion mcp` (Fusion'ın 
 MCP istemcilerine açan sunucu) `desktop_*` araçlarını `desktop.enabled` ne olursa olsun sunmaz;
 `fusion -p`/headless ve arka plan işlerinde de masaüstü ailesi kapalıdır.
 
+Kapalıyken masaüstü işine benzeyen bir istekte model, bunu yapamayacağını söyler ve açmayı
+önerir (`/mcp enable computer-use` ya da Ayarlar › Bu bilgisayar). Not sabit sistem istemine
+girmez; yalnız o turun isteğine eklenir (`engines/agent/computer_use_hint.py`).
+
 ## Claude Code'dan hâlâ farklı (Henüz yok)
 
 - Windows'ta computer use (Claude Desktop'ta var; Fusion yalnız macOS) — #430.
 - Onay isteminde istenen ek izinler (pano) ve gizlenecek uygulama sayısı; aynı anda istenen
   uygulamaların tek kartta toplu onayı — #426.
-- Kapalıyken modelin "Ayarlar'dan açabilirsin" önermesi — #420.
