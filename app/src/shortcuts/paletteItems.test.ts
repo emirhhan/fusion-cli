@@ -54,7 +54,7 @@ describe("palet kaynakları ve eylemler", () => {
     rememberRecent("ekran:video-create");
     expect(rankItems(items, "", readRecent()).some((entry) => entry.id === "ekran:video-create")).toBe(false);
     const terminal = items.find((x) => x.id === "eylem:terminal");
-    expect(terminal?.shortcut).toBe("⌘J");
+    expect(terminal?.shortcut).toBe("⌃`");
     terminal?.run();
     expect(runAction).toHaveBeenCalledWith("terminal");
     expect(items.some((x) => x.id === "eylem:palet")).toBe(false);
@@ -66,7 +66,7 @@ describe("palet kaynakları ve eylemler", () => {
 
   it("eylem adlarını uygulama işlerine eşler", () => {
     const deps = Object.fromEntries(
-      ["openPalette", "newChat", "openSettings", "toggleSidebar", "toggleTerminal", "openPreview", "toggleInspector", "back", "forward", "openHistory", "share", "help", "closeSplit", "runCommand"]
+      ["openPalette", "newChat", "openSettings", "toggleSidebar", "toggleTerminal", "openPreview", "toggleInspector", "back", "forward", "openHistory", "share", "help", "closeSplit", "toggleDiff", "closePane", "runCommand"]
         .map((name) => [name, vi.fn()]),
     ) as unknown as AppActionDeps;
     deps.selectChat = vi.fn(() => true);
@@ -76,6 +76,15 @@ describe("palet kaynakları ve eylemler", () => {
     expect(deps.openSettings).toHaveBeenCalledWith("kisayollar");
     expect(runAppAction("sohbet_3", deps)).toBe(true);
     expect(deps.selectChat).toHaveBeenCalledWith(2);
+    deps.cycleChat = vi.fn(() => true);
+    deps.closeActiveSession = vi.fn(() => false);
+    expect(runAppAction("sonraki_oturum", deps)).toBe(true);
+    expect(deps.cycleChat).toHaveBeenCalledWith(1);
+    expect(runAppAction("onceki_oturum", deps)).toBe(true);
+    expect(deps.cycleChat).toHaveBeenCalledWith(-1);
+    expect(runAppAction("oturumu_kapat", deps)).toBe(false);
+    expect(runAppAction("fark_paneli", deps)).toBe(true);
+    expect(deps.toggleDiff).toHaveBeenCalled();
     expect(runAppAction("komut:status", deps)).toBe(true);
     expect(deps.runCommand).toHaveBeenCalledWith("/status");
     expect(runAppAction("ucmak", deps)).toBe(false);

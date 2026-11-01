@@ -21,6 +21,12 @@ export interface AppActionDeps {
   share: () => void;
   help: () => void;
   closeSplit: () => void;
+  /** Açık oturumlar arasında ileri (+1) ya da geri (-1); tek oturumda `false` (#444). */
+  cycleChat: (step: 1 | -1) => boolean;
+  /** Etkin oturumu kapat (Claude Desktop ⌘W); oturum yoksa `false`. */
+  closeActiveSession: () => boolean;
+  toggleDiff: () => void;
+  closePane: () => void;
   /** `komut:<ad>` bağı: slash komutunu çalıştır. */
   runCommand: (command: string) => void;
 }
@@ -54,7 +60,12 @@ export function runAppAction(action: string, deps: AppActionDeps): boolean {
     paylas: deps.share,
     yardim: deps.help,
     bolmeyi_kapat: deps.closeSplit,
+    fark_paneli: deps.toggleDiff,
+    paneli_kapat: deps.closePane,
   };
+  if (action === "sonraki_oturum") return deps.cycleChat(1);
+  if (action === "onceki_oturum") return deps.cycleChat(-1);
+  if (action === "oturumu_kapat") return deps.closeActiveSession();
   const run = simple[action];
   if (!run) return false;
   run();

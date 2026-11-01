@@ -961,6 +961,26 @@ export function SessionUygulama({
       share: () => { if (active) { setSurfaceSection(null); setPage("chat"); setShareOpen(true); } },
       help: () => void navigateSidebar("help"),
       closeSplit: split.close,
+      // Claude Desktop kısayolları (#444): Ctrl+Tab oturum değiştir, ⌘W kapat, ⌘⇧D fark, ⌘\ panel.
+      cycleChat: (step) => {
+        const list = controller.sessions;
+        if (list.length < 2) return false;
+        const index = list.findIndex((item) => item.id === active?.id);
+        const hedef = list[(Math.max(index, 0) + step + list.length) % list.length];
+        setSurfaceSection(null); setPage("chat"); controller.select(hedef.id);
+        return true;
+      },
+      closeActiveSession: () => {
+        if (!active) return false;
+        void controller.close(active.id).catch(() => undefined);
+        return true;
+      },
+      toggleDiff: () => {
+        const acik = page === "chat" && surfaceSection === null && layout.inspectorOpen && inspectorLayout.activeTab === "changes";
+        if (acik) { layout.closeInspector(); return; }
+        setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("changes"); inspectorLayout.setCollapsed(false); layout.openInspector();
+      },
+      closePane: () => { if (layout.inspectorOpen) layout.closeInspector(); else split.close(); },
       runCommand: (input) => commandRunner.current(input),
     },
     chats: [

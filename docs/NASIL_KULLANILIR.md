@@ -970,22 +970,28 @@ kurulumu ve Linux paketleri `tauri.conf.json` › `plugins.deep-link.desktop.sch
 
 ## 17) Komut paleti ve uygulama kısayolları (masaüstü)
 
-**⌘K** (Windows/Linux: Ctrl+K) her yerden komut paletini açar: eylemler, ekranlar, sohbetler,
+Komut paleti (eylem `palet`; varsayılan tuşu yok, Claude Desktop'ta karşılığı olmadığı için) her yerden açılır: eylemler, ekranlar, sohbetler,
 slash komutları, ayarlar ve proje dosyaları tek listede aranır. Önekle daralt: `>` eylem/ekran,
-`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. **⌘P**
+`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. `dosya_ara`
 paleti doğrudan dosya aramasıyla açar; dosya seçilince önizleme panelinde görünür. Komut seçmek
 görev kutusuna `/ad ` yazar.
 
 | Tuş (varsayılan) | Ne yapar |
 |---|---|
-| ⌘K · ⌘P | Komut paleti · dosyaya git |
-| ⌘N | Yeni sohbet |
+| ⌘/ | Kısayolları göster (Ayarlar › Kısayollar) |
+| ⌘N · ⌘W | Yeni oturum · oturumu kapat |
+| Ctrl+Tab · Ctrl+Shift+Tab | Sonraki · önceki oturum |
+| ⌘⇧D · ⌘⇧B | Fark paneli · önizleme |
+| Ctrl+` · ⌘\\ | Terminal · odaktaki paneli kapat |
+| ⌘⇧M | İzin modu menüsü |
 | ⌘, | Ayarlar |
-| ⌘B · ⌘⌥B | Kenar çubuğu · çalışma paneli |
-| ⌘J · ⌘⇧B | Terminal · önizleme |
-| ⌘1 … ⌘9 | Açık sohbetler arasında geç |
 | ⌘[ · ⌘] | Geri · ileri |
-| ⌘/ | Ayarlar › Kısayollar |
+
+Varsayılan tablo Claude Desktop'unkiyle aynıdır (#444). Claude'da karşılığı olmayan eski varsayılanlar
+(⌘K palet, ⌘P dosya, ⌘B kenar çubuğu, ⌘J terminal, ⌘⌥B çalışma paneli, ⌘1-9 sohbet) kaldırıldı;
+eylemler duruyor ve istenen tuşa bağlanabilir, `keybindings.json`'daki kişisel bağlar aynen geçerlidir.
+**Henüz yok**: ⌘⇧]/⌘⇧[ (Türkçe Q'da ⌥ gerektiren noktalama tuşu), ⌘⇧S öğe seç, ⌘⌃W bölünmüş
+görünümden çıkar, ⌘; yan sohbet, Ctrl+O görünüm kipleri, ⌘⇧I/⌘⇧E model/efor menüsü, ⌘⌥1-9 ortam seç.
 
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı
@@ -993,14 +999,15 @@ devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminall
 dönünce uygulanır:
 
 ```json
-{ "masaustu": { "mod+j": null, "mod+shift+t": "terminal", "f5": "komut:status" } }
+{ "masaustu": { "ctrl+`": null, "mod+shift+t": "terminal", "mod+k": "palet", "f5": "komut:status" } }
 ```
 
 Yazım: `mod` macOS'ta ⌘, diğerlerinde Ctrl; değiştiriciler `mod+ctrl+alt+shift` sırasıyla.
-En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘W/⌘H/⌘M
+En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘H/⌘M
 gibi sistem kısayolları bağlanamaz. `komut:<ad>` bir slash komutunu çalıştırır. Eylem adları:
 `palet`, `dosya_ara`, `yeni_sohbet`, `ayarlar`, `kenar_cubugu`, `terminal`, `onizleme`, `denetci`,
-`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `sohbet_1`…`sohbet_9`.
+`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `oturumu_kapat`,
+`sonraki_oturum`, `onceki_oturum`, `fark_paneli`, `paneli_kapat`, `sohbet_1`…`sohbet_9`.
 Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 - **Varsayılana döndür**: eylemin varsayılan tuşunu başka bir eylem devraldıysa Fusion sorar;
@@ -1011,7 +1018,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
   ve palet bunun dışındadır.
 - **Terminal odaktayken** macOS'ta ⌘ tuşları uygulamanındır (⌘K terminali temizler). Windows/Linux'ta
   Ctrl+harf kabuğa gider (Ctrl+K satır sonunu siler, Ctrl+P geçmiş); yalnız terminali aç/kapat tuşu
-  (Ctrl+J) ve Ctrl+Shift bağları uygulamaya geçer.
+  (Ctrl+`) ve Ctrl+Shift bağları uygulamaya geçer.
 - Terminalde `/keybindings` yalnız terminal bağlamlarını (`giris`, `tui`) gösterir ve örnek dosyaya
   yalnız onları yazar; masaüstü bölümü Ayarlar › Kısayollar'dan yönetilir.
 - Kısayol uçları (`kisayol.*`) yalnız masaüstü oturumuna açıktır; uzaktan kontrol (telefon/PWA)

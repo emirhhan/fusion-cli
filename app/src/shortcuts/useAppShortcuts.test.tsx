@@ -72,7 +72,7 @@ describe("tuş tablosu", () => {
     let terminalKey = "mod+t";
     const client = { request: vi.fn(async () => ({ ok: true, baglar: { [terminalKey]: "terminal" } })) };
     const { result } = renderHook(() => useKeymap(client));
-    expect(result.current.baglar["mod+k"]).toBe("palet");
+    expect(result.current.baglar["mod+n"]).toBe("yeni_sohbet");
     await waitFor(() => expect(result.current.baglar).toEqual({ "mod+t": "terminal" }));
     terminalKey = "mod+y";
     act(() => { window.dispatchEvent(new Event("focus")); });
@@ -94,7 +94,7 @@ describe("tuş tablosu", () => {
     act(() => { window.dispatchEvent(new CustomEvent(KEYMAP_CHANGED_EVENT, { detail: { ok: true, baglar: { "mod+u": "palet" } } })); });
     expect(renderHook(() => useKeymap(null)).result.current.baglar).toEqual({ "mod+u": "palet" });
     localStorage.setItem(KEYMAP_CACHE_KEY, "{bozuk");
-    expect(renderHook(() => useKeymap(null)).result.current.baglar["mod+k"]).toBe("palet");
+    expect(renderHook(() => useKeymap(null)).result.current.baglar["mod+n"]).toBe("yeni_sohbet");
     localStorage.clear();
   });
 
@@ -102,6 +102,6 @@ describe("tuş tablosu", () => {
     const client = { request: vi.fn(async () => ({ ok: false, metin: "Bilinmeyen istek" })) };
     const { result } = renderHook(() => useKeymap(client));
     await waitFor(() => expect(client.request).toHaveBeenCalled());
-    expect(result.current.baglar["mod+j"]).toBe("terminal");
+    expect(result.current.baglar["ctrl+`"]).toBe("terminal");
   });
 });
