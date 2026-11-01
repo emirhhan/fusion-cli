@@ -5,7 +5,7 @@ proje dizinlerinden okunur (`~/.fusion/cikti-stilleri`, `~/.claude/output-styles
 `.fusion/cikti-stilleri`, `.claude/output-styles`). Dosya biçimi Claude Code ile aynıdır:
 frontmatter `name`/`description`, gövde stil talimatı. Seçilen stilin gövdesi sistem
 istemine kodlama talimatlarından SONRA eklenir (`loop._run_agent` extra_system zinciri);
-`varsayilan` hiçbir şey eklemez. Bağlam sıkıştırma özeti stilden bağımsızdır (kendi istemi).
+`default` hiçbir şey eklemez. Bağlam sıkıştırma özeti stilden bağımsızdır (kendi istemi).
 
 `keep-coding-instructions: false` Claude Code'da kodlama talimatını çıkarır; Fusion'ın
 kimlik/araç sözleşmesi çıkarılamaz, bu yüzden alan OKUNUR ama yalnız listede işaretlenir.
@@ -27,8 +27,36 @@ _LOG = logging.getLogger(__name__)
 
 #: Yerleşik stil dosyalarının dizini.
 BUILTIN_DIR = Path(__file__).parent / "prompts" / "cikti_stilleri"
-#: Hiçbir talimat eklemeyen stil.
-DEFAULT_STYLE = "varsayilan"
+#: Hiçbir talimat eklemeyen stil (Claude Code `default`).
+DEFAULT_STYLE = "default"
+#: Claude Code yerleşik adları: default, Proactive, Concise, Explanatory, Learning (#193).
+#: Fusion'ın eski Türkçe adları bir sürüm boyunca kullanımdan kalkmış takma addır.
+LEGACY_STYLE_ALIASES = {
+    "varsayilan": "default",
+    "varsayılan": "default",
+    "ozlu": "concise",
+    "özlü": "concise",
+    "aciklayici": "explanatory",
+    "açıklayıcı": "explanatory",
+    "ogretici": "learning",
+    "öğretici": "learning",
+}
+_WARNED_ALIASES: set[str] = set()
+
+
+def canonical_style_name(name: str) -> str:
+    """Stil adını küçük harfe indir; eski Türkçe adı Claude adına çevir (bir kez uyarır).
+
+    Claude Code'da `/output-style` büyük/küçük harf duyarsızdır; Fusion ayarı da öyle okunur.
+    """
+    wanted = name.strip().lower()
+    canonical = LEGACY_STYLE_ALIASES.get(wanted)
+    if canonical is None:
+        return wanted
+    if wanted not in _WARNED_ALIASES:
+        _WARNED_ALIASES.add(wanted)
+        _LOG.warning("çıktı stili '%s' kullanımdan kalktı; '%s' kullanın", wanted, canonical)
+    return canonical
 #: Kullanıcı/proje köküne göre özel stil dizinleri (öncelik sırası: sonraki öncekini ezer).
 CUSTOM_DIRS = (".fusion/cikti-stilleri", ".claude/output-styles")
 #: Bir stil gövdesinin sistem istemine alınacak en fazla karakteri.
@@ -96,7 +124,7 @@ def _scan(directory: Path, source: str) -> list[OutputStyle]:
 def discover_styles(home: Path | None, root: Path | None) -> tuple[OutputStyle, ...]:
     """Yerleşik + özel stiller; aynı ad varsa güvenilen projede proje > kullanıcı > yerleşik.
 
-    Ölçüldü (31 Ekim): proje `.claude/output-styles/ozlu.md` yerleşik `ozlu`yu eziyordu;
+    Ölçüldü (31 Ekim): proje `.claude/output-styles/ozlu.md` yerleşik `ozlu`yu (artık `concise`) eziyordu;
     kötü niyetli depo kullanıcının seçtiği zararsız stilin yerine kendi talimatını sistem
     istemine sokabiliyordu. Güven kaydı olmayan projenin stili yerleşik/kullanıcı adını
     GÖLGELEYEMEZ (yeni adlar yine listelenir); `fusion trust` sonrası Claude Code sırası.
@@ -136,14 +164,14 @@ def _project_trusted(root: Path) -> bool:
 
 
 def find_style(name: str, home: Path | None, root: Path | None) -> OutputStyle | None:
-    wanted = name.strip().lower()
+    wanted = canonical_style_name(name)
     return next((style for style in discover_styles(home, root) if style.name == wanted), None)
 
 
 def style_prompt(config: Config, *, home: Path | None, root: Path | None) -> str:
     """Seçili stilin sistem istemine eklenecek metni; varsayılan ya da bulunamayan stilde boş."""
     name = str(getattr(config.runtime, "output_style", DEFAULT_STYLE) or DEFAULT_STYLE)
-    if name.strip().lower() == DEFAULT_STYLE:
+    if canonical_style_name(name) == DEFAULT_STYLE:
         return ""
     style = find_style(name, home, root)
     if style is None:

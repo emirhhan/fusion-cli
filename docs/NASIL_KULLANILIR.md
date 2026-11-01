@@ -1060,7 +1060,7 @@ Erişilebilen bölümler `runtime.*`, `embedding.*` ve `capabilities.*`; tip dat
 
 Proje dizinindeki stil (`.claude/output-styles`, `.fusion/cikti-stilleri`) yerleşik ya da kullanıcı stiliyle aynı adı taşıyorsa `fusion trust` verilmeden onu GÖLGELEYEMEZ (yeni adlar yine listelenir).
 
-`varsayilan` · `ozlu` · `aciklayici` · `ogretici`. Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine kodlama talimatlarından sonra eklenir; `runtime.output_style` ile kalıcı.
+`default` · `Proactive` (sıradan kararlarda sormadan uygular) · `Concise` (sonuçla başlar) · `Explanatory` (`★ Insight` blokları) · `Learning` (Insight + `TODO(human)` ve "Learn by Doing" isteği, kullanıcıyı bekler); ad büyük/küçük harf duyarsız. Eski `varsayilan`/`ozlu`/`aciklayici`/`ogretici` adları kullanımdan kalkmış takma addır (bir kez uyarılır). Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine kodlama talimatlarından sonra eklenir; `runtime.output_style` ile kalıcı.
 
 ### Durum satırı betiği: `/statusline`
 

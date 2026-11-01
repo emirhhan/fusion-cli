@@ -1457,7 +1457,7 @@ CONFIG_OVERRIDE_APPLIED = "Oturumluk ayar: {path} = {value}"
 CONFIG_PROFILE_APPLIED = "Oturumluk kademe: {tier}"
 
 # --- /output-style (P-068) ------------------------------------------------- #
-CMD_OUTPUT_STYLE = "çıktı stili: varsayilan · ozlu · aciklayici · ogretici · özel (.md)"
+CMD_OUTPUT_STYLE = "çıktı stili: default · Proactive · Concise · Explanatory · Learning · özel (.md)"
 OUTPUT_STYLE_TITLE = "Çıktı stili"
 OUTPUT_STYLE_HEADER = "Çıktı stilleri (etkin: {current}):"
 OUTPUT_STYLE_HINT = (

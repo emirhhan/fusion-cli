@@ -6,7 +6,12 @@ from dataclasses import replace
 
 from ...config.settings_access import write_setting
 from ...core.errors import ConfigError
-from ...engines.agent.output_style import DEFAULT_STYLE, discover_styles, find_style
+from ...engines.agent.output_style import (
+    DEFAULT_STYLE,
+    canonical_style_name,
+    discover_styles,
+    find_style,
+)
 from ...ui import messages
 from ...ui.picker import Choice
 from .state import ReplState
@@ -17,7 +22,7 @@ SETTING_PATH = "runtime.output_style"
 
 def style_choices(state: ReplState) -> list[Choice]:
     """Uygulama-içi seçici (TUI) ve masaüstü seçici için stil listesi."""
-    current = state.config.runtime.output_style
+    current = canonical_style_name(state.config.runtime.output_style)
     return [
         Choice(
             style.name,
@@ -37,7 +42,8 @@ def format_styles(state: ReplState) -> str:
 
 
 def output_style_command(state: ReplState, argument: str) -> str:
-    wanted = argument.strip().lower()
+    # Claude Code: `/output-style` büyük/küçük harf duyarsız; eski Türkçe adlar takma addır.
+    wanted = canonical_style_name(argument)
     if not wanted:
         return format_styles(state)
     if wanted != DEFAULT_STYLE and find_style(wanted, state.home, state.root) is None:

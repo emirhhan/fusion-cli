@@ -406,9 +406,9 @@ runtime:
   auto_classifier_model: ""
   # Tek sınıflandırma çağrısının süre sınırı (saniye); aşılırsa kurallar geçerli olur.
   auto_classifier_timeout_s: 12.0
-  # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
+  # Çıktı stili (P-068, #193): default | Proactive | Concise | Explanatory | Learning | <özel>.
   # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
-  output_style: varsayilan
+  output_style: default
   # Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Komut stdin'den JSON alır.
   status_line_command: ""
   # Terminal renk teması (P-070): koyu | acik | ansi | daltonizm. Masaüstü `theme`'den ayrı.

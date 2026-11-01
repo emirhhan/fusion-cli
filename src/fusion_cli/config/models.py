@@ -448,11 +448,11 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
-    #: Çıktı stili (P-068): `varsayilan` | `ozlu` | `aciklayici` | `ogretici` ya da
+    #: Çıktı stili (P-068, #193): `default` | `proactive` | `concise` | `explanatory` | `learning` ya da
     #: `~/.fusion/cikti-stilleri/<ad>.md` / `.claude/output-styles/<ad>.md` dosyasının adı.
-    #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `varsayilan` hiçbir
+    #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `default` hiçbir
     #: şey eklemez. `/output-style` ile değişir.
-    output_style: str = "varsayilan"
+    output_style: str = "default"
     #: Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Doluysa her tur sonunda
     #: komut stdin'den JSON (model, workspace, cost, context_window, session…) alıp tek
     #: satır basar; 1 sn zaman aşımı, hata olursa yerleşik satıra dönülür. `/statusline`.

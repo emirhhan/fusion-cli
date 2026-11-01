@@ -193,7 +193,7 @@ def status_rows(state: ReplState) -> list[tuple[str, str]]:
         (messages.STATUS_APPROVAL, state.approval.value),
         (messages.STATUS_MODEL, model),
         (messages.STATUS_EFFORT, config.runtime.reasoning_effort.value),
-        (messages.STATUS_OUTPUT_STYLE, getattr(config.runtime, "output_style", "varsayilan")),
+        (messages.STATUS_OUTPUT_STYLE, getattr(config.runtime, "output_style", "default")),
         (messages.STATUS_DIR, dirs),
         (messages.STATUS_MCP, mcp),
         (messages.STATUS_ACCOUNT, active_account()),
