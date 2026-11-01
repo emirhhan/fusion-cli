@@ -135,9 +135,7 @@ class McpBackgroundCalls:
             body = result.output
         header = NOTICE_HEADER.format(call_id=call_id, state=state, label=call.label)
         text = header + ("\n" + body[:NOTICE_MAX_CHARS] if body else "")
-        self._notices.setdefault(call.scope, []).append(
-            Message("user", text, harness_note=True)
-        )
+        self._notices.setdefault(call.scope, []).append(Message("user", text, harness_note=True))
 
     def take_notices(self, context: ToolContext) -> list[Message]:
         """Ana sohbetin teslim bekleyen sonuçlarını ver ve kuyruktan çıkar."""

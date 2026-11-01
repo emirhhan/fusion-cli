@@ -193,8 +193,13 @@ async def test_motor_tasinan_cagrinin_sonucunu_sonraki_istege_ekler(monkeypatch,
 
     for name, run in (("mcp__s__rapor", _rapor), ("mcp__s__bekle", _bekle)):
         deps.base_registry.register_or_replace(
-            Tool(name=name, description=name, parameters={"type": "object"}, run=run,
-                 effect=ToolEffect.LOCAL)
+            Tool(
+                name=name,
+                description=name,
+                parameters={"type": "object"},
+                run=run,
+                effect=ToolEffect.LOCAL,
+            )
         )
 
     await run_agent("raporu al", deps, verify=False, self_review=False)

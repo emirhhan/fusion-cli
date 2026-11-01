@@ -139,9 +139,9 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
+from ...tools.mcp_background import mark_main_conversation, take_mcp_background_notices
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
-from ...tools.mcp_background import mark_main_conversation, take_mcp_background_notices
 from ...tools.tool_search import visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking

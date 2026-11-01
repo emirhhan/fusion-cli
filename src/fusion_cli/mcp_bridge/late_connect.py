@@ -14,6 +14,7 @@ bağlanmayı süren sunucu varken defterdedir; hepsi bitince kaldırılır.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from collections.abc import Iterable
 from typing import Protocol
@@ -74,7 +75,7 @@ class LateConnections:
                 continue
             job = loop.create_task(self._register_when_ready(pool, config.name, task, registry))
             self._jobs[key] = job
-            job.add_done_callback(lambda done, key=key: self._forget(key, done))
+            job.add_done_callback(functools.partial(self._forget, key))
         self.refresh_wait_tool(pool, registry, configs)
 
     def _forget(self, key: tuple[str, int], job: asyncio.Task[None]) -> None:
