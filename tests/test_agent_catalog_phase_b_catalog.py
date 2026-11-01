@@ -39,12 +39,12 @@ def test_uyumluluk_rolleri_gercek_kisilik_ve_miras_modelle_cozulur(
     if name in {"Explore", "Plan"}:
         assert persona.tools is not None and "write_file" not in persona.tools
         assert "edit_file" not in persona.tools
-    if name == "Explore":
-        # Claude Code Explore: salt okur araçlar; Write/Edit yasak, Bash var (izin kurallarıyla).
+    if name in {"Explore", "Plan"}:
+        # Claude Code Explore ve Plan: salt okur araçlar; Write/Edit yasak, Bash var (izin
+        # kurallarıyla; Plan plan kipinde yalnız okuyan komutları çalıştırır).
         assert "run_shell" in persona.tools
+    if name == "Explore":
         assert "quick" in agent.description and "very thorough" in agent.description
-    if name == "Plan":
-        assert "run_shell" not in persona.tools
 
 
 def test_eski_turkce_roller_ve_kucuk_harf_takma_adlari_korunur(tmp_path: Path) -> None:

@@ -462,7 +462,7 @@ bir kez uygulanır: sonradan `/model` ile yaptığın seçim ezilmez.
 
 Yerleşik ajanlar Claude Code'daki adlarla: **`Explore`** (salt okur hızlı keşif; Write/Edit
 yok, Bash izin kurallarına tabi; görevde derinlik `quick`, `medium` ya da `very thorough`
-yazılır), **`Plan`** (salt okur plan araştırması), **`general-purpose`** ve **`claude`** (alt
+yazılır), **`Plan`** (salt okur plan araştırması; Explore gibi Write/Edit yok, Bash plan kipinde yalnız okuyan komutlar), **`general-purpose`** ve **`claude`** (alt
 ajanlara açık tüm araçlar), **`statusline-setup`** (Sonnet) ve **`claude-code-guide`** (Haiku).
 Claude ailesi yapılandırılmamış sağlayıcıda son ikisi ana modelle koşar. Eski küçük harfli `explore`/`plan` takma ad olarak çalışmaya devam eder.
 Fusion'ın Türkçe ekibi (`mimar`, `kodcu`, `tasarimci`, `testci`, `arastirmaci`, `tarayici`,
