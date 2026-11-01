@@ -46,17 +46,17 @@ def _trace(spec: run.RunSpec, cost: float = 0.0) -> RunTrace:
 def test_eszamanli_kosular_vaka_sirasini_korur(tmp_path):
     root = _plugin(tmp_path, runs=1)
     cases = load_cases(root / "evals")
-    active = []
-    peak = []
-    lock = threading.Lock()
+    # a ile b buluşmadan dönmez: eşzamanlılık yoksa engel zaman aşımına düşer (zamanlamaya bağlı
+    # `sleep` sınaması iş parçacıkları geç başlayınca ara sıra düşüyordu).
+    meet = threading.Barrier(2, timeout=5)
+    order = []
 
     def runner(spec):
-        with lock:
-            active.append(1)
-            peak.append(len(active))
-        time.sleep(0.05 if spec.case.name == "a" else 0.0)
-        with lock:
-            active.pop()
+        if spec.case.name in ("a", "b"):
+            meet.wait()
+        if spec.case.name == "b":
+            time.sleep(0.01)
+        order.append(spec.case.name)
         return _trace(spec)
 
     result = run.run_suite(
@@ -64,7 +64,7 @@ def test_eszamanli_kosular_vaka_sirasini_korur(tmp_path):
     )
 
     assert [row["name"] for row in result["cases"]] == ["a", "b", "c"]
-    assert max(peak) > 1
+    assert sorted(order) == ["a", "b", "c"] and not meet.broken
 
 
 def test_maliyet_tavani_kalan_kosulari_baslatmaz_ve_cikis_2(tmp_path, monkeypatch):
