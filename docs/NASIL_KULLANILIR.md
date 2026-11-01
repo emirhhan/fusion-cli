@@ -739,7 +739,10 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   `managed-settings.json` içinde `managedMcpServers` (yalnız https http/sse), `allowedMcpServers`
   / `deniedMcpServers` (`serverName`, `serverCommand`, `serverUrl` jokerli) ve
   `allowManagedMcpServersOnly`. Ret listesi kullanıcı/proje ayarlarından da birleşir ve her şeyi
-  geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir.
+  geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir;
+  `managed-mcp.json` varken `--mcp-config` açılışta Claude'un iletisiyle çıkar (kod 1);
+  kuruluşun sağladığı sunucuyu `fusion mcp remove` "provided by your organization" diyerek
+  reddeder. Henüz yok: `/mcp` ekranında ayrı "Managed MCPs" grubu ve `allowAllClaudeAiMcps`.
 - Araç adları Claude Code ile aynı: `mcp__<sunucu>__<araç>` (eklentide
   `mcp__plugin_<eklenti>_<sunucu>__<araç>`); `A-Z a-z 0-9 _ -` dışındaki karakterler `_` olur,
   tam adı 128 karakteri aşan araç modele gönderilmez ve günlüğe yazılır. OpenAI/Gemini 64
@@ -762,10 +765,9 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   değişken boşken araçları baştan alır; `ENABLE_TOOL_SEARCH=true`/`auto` açıkça verilirse
   onlarda da ertelenir (Fusion aramayı sağlayıcının `defer_loading` alanıyla değil istemci
   tarafında yaptığı için).
-- Henüz yok (Claude Code'da var): Elicitation kancası,
-  `--mcp-config` + `managed-mcp.json` birlikteyken
-  açılışta çıkış.
-- Araç şeması: Anthropic/Claude modellerine sunucunun `inputSchema`'sı olduğu gibi gider
+- Henüz yok (Claude Code'da var): Elicitation kancası.
+- Araç şeması: Anthropic yolundaki (önek yok, `anthropic/`, `bedrock/`, `vertex_ai/`,
+  `openrouter/anthropic/`) Claude modellerine sunucunun `inputSchema`'sı olduğu gibi gider
   (yalnız açıklamalardaki gizli talimat blokları temizlenir). JSON Schema'yı eksik destekleyen
   sağlayıcılara (Gemini, Mistral, bazı OpenRouter modelleri) `$ref`/`anyOf`/derinlik
   sadeleştirilmiş kopya gönderilir; Fusion çok sağlayıcılı olduğu için bu bir uyum katmanıdır.

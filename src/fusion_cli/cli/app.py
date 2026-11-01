@@ -209,6 +209,13 @@ def main_callback(
     from ..config.mcp_cli import set_session_mcp
 
     set_session_mcp(mcp_config, strict=strict_mcp_config)
+    if mcp_config:
+        from ..config.mcp_policy import mcp_config_refusal
+
+        refusal = mcp_config_refusal(Path.cwd())  # #274: managed-mcp.json tekeli
+        if refusal is not None:
+            typer.echo(refusal, err=True)
+            raise typer.Exit(1)
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı

@@ -224,6 +224,11 @@ def remove_named(config: Config, root: Path, name: str, scope: str | None) -> tu
         scopes = ", ".join(item.scope.value for item in matches)
         raise ConfigError(mcp_messages.AMBIGUOUS_SCOPE.format(name=name, scopes=scopes))
     target = matches[0]
+    from ..config.mcp_policy import remove_refusal
+
+    refusal = remove_refusal(target, root)  # #274: kuruluşun sağladığı sunucu
+    if refusal is not None:
+        raise ConfigError(refusal)
     message = _remove_from_scope(config, root, target)
     if target.is_remote and not any(item.url == target.url for item in load_config().mcp_servers):
         run_coroutine(_clear_credentials(target))

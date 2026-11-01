@@ -275,6 +275,33 @@ def apply_mcp_policy(config: Config, root: Path, *, policy: McpPolicy | None = N
     return replace(config, mcp_servers=servers)
 
 
+#: Claude Code: managed-mcp.json varken `--mcp-config` açılışta bu iletiyle çıkar.
+DYNAMIC_CONFIG_REFUSAL = (
+    "You cannot dynamically configure MCP servers when an enterprise MCP config is present."
+)
+
+
+def mcp_config_refusal(
+    root: Path, *, policy: McpPolicy | None = None, directory: Path | None = None
+) -> str | None:
+    """`--mcp-config` verilmişken managed-mcp.json tekeli varsa çıkış iletisi."""
+    active = policy if policy is not None else load_policy(root, directory=directory)
+    return DYNAMIC_CONFIG_REFUSAL if active.exclusive is not None else None
+
+
+def remove_refusal(
+    server: McpServerConfig, root: Path, *, policy: McpPolicy | None = None
+) -> str | None:
+    """`mcp remove`: kuruluşun sağladığı sunucu kaldırılamaz (Claude Code iletisi)."""
+    active = policy if policy is not None else load_policy(root)
+    if not _org_owned(server, active):
+        return None
+    return (
+        f'Cannot remove MCP server "{server.name}": it is provided by your organization '
+        "(kuruluşunuzun sağladığı sunucu düzenlenemez ya da kaldırılamaz)."
+    )
+
+
 def add_refusal(server: McpServerConfig, root: Path, *, policy: McpPolicy | None = None) -> str:
     """`fusion mcp add` reddi (Claude Code iletileri); izinliyse boş."""
     active = policy if policy is not None else load_policy(root)

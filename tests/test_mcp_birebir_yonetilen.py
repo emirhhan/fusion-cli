@@ -147,3 +147,75 @@ def test_load_config_ret_listesini_uygular(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert _names(load_config(config_file).mcp_servers) == ["serbest"]
+
+
+# --- Kalan alt yüzeyler (#274): --mcp-config çıkışı, mcp remove iletisi ----------------------
+
+
+def test_managed_mcp_json_varken_mcp_config_acilista_reddedilir(tmp_path: Path):
+    from fusion_cli.config.mcp_policy import DYNAMIC_CONFIG_REFUSAL, mcp_config_refusal
+
+    managed = tmp_path / "yonetim"
+    managed.mkdir()
+    assert mcp_config_refusal(tmp_path, directory=managed) is None
+    (managed / "managed-mcp.json").write_text(json.dumps({"mcpServers": {}}))
+
+    assert mcp_config_refusal(tmp_path, directory=managed) == DYNAMIC_CONFIG_REFUSAL
+    assert "enterprise MCP config is present" in DYNAMIC_CONFIG_REFUSAL
+
+
+def test_cli_mcp_config_ve_managed_mcp_json_birlikte_cikis_verir(tmp_path: Path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.app import app
+    from fusion_cli.config import mcp_cli, mcp_policy
+
+    managed = tmp_path / "yonetim"
+    managed.mkdir()
+    (managed / "managed-mcp.json").write_text(json.dumps({"mcpServers": {}}))
+    monkeypatch.setattr(mcp_policy, "managed_dir", lambda: managed)
+    for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+        monkeypatch.setenv(name, str(tmp_path / name.lower()))
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
+    monkeypatch.setattr(mcp_cli, "_STATE", [mcp_cli._STATE[0]])  # oturum bayrağı sızmasın
+    monkeypatch.chdir(tmp_path)
+    config = json.dumps({"mcpServers": {"x": {"type": "http", "url": "https://x.example/mcp"}}})
+
+    result = CliRunner().invoke(app, ["--mcp-config", config, "mcp", "list"])
+
+    assert result.exit_code == 1
+    assert "enterprise MCP config is present" in result.output
+
+
+def test_kurulusun_sagladigi_sunucu_kaldirilamaz(tmp_path: Path):
+    from fusion_cli.config.mcp_policy import remove_refusal
+
+    policy = McpPolicy(provided=(_http("kurum", "https://mcp.kurum.example"),))
+
+    mesaj = remove_refusal(_http("kurum", "https://mcp.kurum.example"), tmp_path, policy=policy)
+
+    assert mesaj is not None and "provided by your organization" in mesaj
+    assert remove_refusal(_http("benim", "https://x.example"), tmp_path, policy=policy) is None
+
+
+def test_mcp_remove_kurulus_sunucusunda_iletiyle_reddeder(tmp_path: Path, monkeypatch):
+    import pytest
+
+    from fusion_cli.cli.mcp_manage import remove_named
+    from fusion_cli.config import mcp_policy
+    from fusion_cli.core.errors import ConfigError
+
+    from .fakes import make_config
+
+    managed = tmp_path / "yonetim"
+    managed.mkdir()
+    settings = {
+        "managedMcpServers": {"kurum": {"type": "http", "url": "https://mcp.kurum.example"}}
+    }
+    (managed / "managed-settings.json").write_text(json.dumps(settings))
+    monkeypatch.setattr(mcp_policy, "managed_dir", lambda: managed)
+    monkeypatch.setenv("HOME", str(tmp_path / "ev"))
+    config = make_config(mcp_servers=(_http("kurum", "https://mcp.kurum.example"),))
+
+    with pytest.raises(ConfigError, match="provided by your organization"):
+        remove_named(config, tmp_path, "kurum", None)
