@@ -189,9 +189,9 @@ def test_fresh_taban_24_saatten_eski_depoyu_ceker(repo, tmp_path, monkeypatch):
     cagrilar: list[tuple[str, ...]] = []
     gercek = worktree_fetch.quiet_git
 
-    def _izle(cwd, args, *, timeout_s):
+    def _izle(cwd, args, *, timeout_s, network=False):
         cagrilar.append(tuple(args))
-        return gercek(cwd, args, timeout_s=timeout_s)
+        return gercek(cwd, args, timeout_s=timeout_s, network=network)
 
     monkeypatch.setattr(worktree_fetch, "quiet_git", _izle)
     worktree_fetch.fresh_base(repo, now=10**12)
@@ -284,3 +284,51 @@ def test_isi_olan_agac_eski_ucunda_acilir(repo, tmp_path):
     (tree.path / "kirli.txt").write_text("x", encoding="utf-8")
     core_worktree.enter_worktree(repo, "isli", base_mode="head")
     assert _git(tree.path, "rev-parse", "HEAD") == uc
+
+
+def test_sessiz_git_kullanicinin_core_sshcommand_ayarini_ezmez(repo, monkeypatch):
+    """Ortamdaki GIT_SSH_COMMAND core.sshCommand'ı ezerdi: kullanıcının anahtarı kaybolurdu
+    (bağımsız inceleme #4). Ayar varsa ona BatchMode eklenir, ortam değişkeni konmaz."""
+    from fusion_cli.core import worktree_fetch
+
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    _git(repo, "config", "core.sshCommand", "ssh -i /anahtar/is")
+    yakalanan: list[tuple[list[str], dict[str, str]]] = []
+    gercek = subprocess.run
+
+    def _kaydet(args, **kwargs):
+        if args[:2] == ["git", "-c"] or "fetch" in args:
+            yakalanan.append((list(args), dict(kwargs["env"])))
+        return gercek(args, **kwargs)
+
+    monkeypatch.setattr(worktree_fetch.subprocess, "run", _kaydet)
+    worktree_fetch.quiet_git(repo, ("fetch", "--quiet", "origin"), timeout_s=5, network=True)
+    args, env = yakalanan[-1]
+    assert "GIT_SSH_COMMAND" not in env
+    assert "core.sshCommand=ssh -i /anahtar/is -o BatchMode=yes" in args
+
+
+def test_sessiz_git_ayar_yoksa_batchmode_ortamdan(repo, monkeypatch):
+    from fusion_cli.core import worktree_fetch
+
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    yakalanan: list[dict[str, str]] = []
+    gercek = subprocess.run
+
+    def _kaydet(args, **kwargs):
+        if "fetch" in args:
+            yakalanan.append(dict(kwargs["env"]))
+        return gercek(args, **kwargs)
+
+    monkeypatch.setattr(worktree_fetch.subprocess, "run", _kaydet)
+    worktree_fetch.quiet_git(repo, ("fetch", "--quiet", "origin"), timeout_s=5, network=True)
+    assert "BatchMode=yes" in yakalanan[-1]["GIT_SSH_COMMAND"]
+
+
+def test_pr_cekme_hatasi_git_nedenini_soyler(repo):
+    from fusion_cli.core.errors import WorktreeError
+    from fusion_cli.core.worktree_fetch import fetch_pull_request
+
+    with pytest.raises(WorktreeError) as hata:
+        fetch_pull_request(repo, ("pull/7/head",), 7)
+    assert "#7" in str(hata.value) and "origin" in str(hata.value)

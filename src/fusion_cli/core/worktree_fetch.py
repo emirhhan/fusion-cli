@@ -32,41 +32,83 @@ PR_FETCH_TIMEOUT_S = 60.0
 _ORIGIN_HEAD = "refs/remotes/origin/HEAD"
 
 
-def quiet_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Terminal sorusu açmayan git ortamı."""
+def quiet_env(
+    environ: Mapping[str, str] | None = None, *, batch_ssh: bool = True
+) -> dict[str, str]:
+    """Terminal sorusu açmayan git ortamı.
+
+    `batch_ssh=False`: kullanıcının `core.sshCommand` ayarı var; ortam değişkeni onu ezerdi
+    (git'te `GIT_SSH_COMMAND` > `core.sshCommand`), BatchMode o ayara eklenir (`_ssh_options`).
+    """
     env = dict(os.environ if environ is None else environ)
     env["GIT_TERMINAL_PROMPT"] = "0"
-    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
+    if batch_ssh:
+        env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
     return env
 
 
-def quiet_git(cwd: Path, args: Sequence[str], *, timeout_s: float) -> str | None:
-    """`git` çalıştır; başarısızlık, zaman aşımı ya da soru gereksinimi `None`."""
+def _ssh_options(cwd: Path) -> tuple[list[str], bool]:
+    """(git `-c` seçenekleri, ortamda BatchMode kullanılsın mı) — `core.sshCommand`'a göre."""
+    if os.environ.get("GIT_SSH_COMMAND") or os.environ.get("GIT_SSH"):
+        return [], True
+    configured = _run(cwd, ("config", "--get", "core.sshCommand"), GIT_LOCAL_TIMEOUT_S) or ""
+    command = configured.strip()
+    if not command:
+        return [], True
+    first = command.split(maxsplit=1)[0].rsplit("/", 1)[-1]
+    if first == "ssh" and "BatchMode" not in command:
+        return ["-c", f"core.sshCommand={command} -o BatchMode=yes"], False
+    return [], False
+
+
+def _run(cwd: Path, args: Sequence[str], timeout_s: float, *, network: bool = False) -> str | None:
+    completed = _completed(cwd, args, timeout_s, network=network)
+    return completed.stdout if completed is not None and completed.returncode == 0 else None
+
+
+def _completed(
+    cwd: Path, args: Sequence[str], timeout_s: float, *, network: bool = False
+) -> subprocess.CompletedProcess[str] | None:
+    options, batch_ssh = _ssh_options(cwd) if network else ([], True)
     try:
-        completed = subprocess.run(
-            ["git", *args],
+        return subprocess.run(
+            ["git", *options, *args],
             cwd=cwd,
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
-            env=quiet_env(),
+            env=quiet_env(batch_ssh=batch_ssh),
             timeout=timeout_s,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return completed.stdout if completed.returncode == 0 else None
+
+
+def quiet_git(
+    cwd: Path, args: Sequence[str], *, timeout_s: float, network: bool = False
+) -> str | None:
+    """`git` çalıştır; başarısızlık, zaman aşımı ya da soru gereksinimi `None`.
+
+    `network=True` (fetch, set-head): kullanıcının `core.sshCommand` ayarı korunur.
+    """
+    return _run(cwd, args, timeout_s, network=network)
 
 
 def fetch_pull_request(origin: Path, refspecs: Sequence[str], number: int) -> None:
-    """PR/MR başını `origin`'den `FETCH_HEAD`'e çek; hiçbiri olmazsa `WorktreeError`."""
+    """PR/MR başını `origin`'den `FETCH_HEAD`'e çek; hiçbiri olmazsa nedeniyle `WorktreeError`."""
+    reason = ""
     for refspec in refspecs:
-        if (
-            quiet_git(origin, ("fetch", "--quiet", "origin", refspec), timeout_s=PR_FETCH_TIMEOUT_S)
-            is not None
-        ):
+        completed = _completed(
+            origin, ("fetch", "--quiet", "origin", refspec), PR_FETCH_TIMEOUT_S, network=True
+        )
+        if completed is not None and completed.returncode == 0:
             return
-    raise WorktreeError(f"Çalışma ağacı oluşturulamadı: PR/MR #{number} çekilemedi.")
+        reason = "zaman aşımı" if completed is None else completed.stderr.strip()
+    lines = reason.splitlines()
+    first = next((line for line in lines if line.startswith(("fatal:", "error:"))), "")
+    detail = f" ({first or lines[0]})" if lines else ""
+    raise WorktreeError(f"Çalışma ağacı oluşturulamadı: PR/MR #{number} çekilemedi{detail}.")
 
 
 def fresh_base(origin: Path, *, now: float | None = None) -> str:
@@ -76,13 +118,21 @@ def fresh_base(origin: Path, *, now: float | None = None) -> str:
     branch = _origin_head_branch(origin)
     if branch is None:
         quiet_git(
-            origin, ("remote", "set-head", "origin", "--auto"), timeout_s=FRESH_FETCH_TIMEOUT_S
+            origin,
+            ("remote", "set-head", "origin", "--auto"),
+            timeout_s=FRESH_FETCH_TIMEOUT_S,
+            network=True,
         )
         branch = _origin_head_branch(origin)
         if branch is None:
             return "HEAD"
     elif _fetch_is_stale(origin, time.time() if now is None else now):
-        quiet_git(origin, ("fetch", "--quiet", "origin", branch), timeout_s=FRESH_FETCH_TIMEOUT_S)
+        quiet_git(
+            origin,
+            ("fetch", "--quiet", "origin", branch),
+            timeout_s=FRESH_FETCH_TIMEOUT_S,
+            network=True,
+        )
     resolved = quiet_git(
         origin,
         ("rev-parse", "--verify", "--quiet", f"{_ORIGIN_HEAD}^{{commit}}"),
