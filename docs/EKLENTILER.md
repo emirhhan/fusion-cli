@@ -29,7 +29,7 @@ benim-eklentim/
 - Aynı eklentide aynı adlı MCP sunucusu birden çok kez tanımlanırsa sonraki öncekinin yerine geçer.
 - `mcpServers` `./sunucu.mcpb` (ya da `.dxt`) paketini veya `.mcpb`/`.dxt` ile biten https adresini
   gösterebilir: paket `${CLAUDE_PLUGIN_DATA}/.mcpb-cache/` altına güvenle açılır (adres bir kez
-  indirilir), `manifest.json` `server.mcp_config` sunucu tanımıdır, ad paketin `name`'idir;
+  indirilir; yönlendirme archive gibi her adımda denetlenir), `manifest.json` `server.mcp_config` sunucu tanımıdır, ad paketin `name`'idir;
   `${__dirname}`, `${HOME}`, `${DESKTOP}`, `${DOCUMENTS}`, `${DOWNLOADS}`, `${/}`, `${pathSeparator}`
   ve `${user_config.KEY}` çözülür. Paket seçenekleri `plugin install --config <sunucu>.<anahtar>=<değer>`
   ile (tek paket bildiriyorsa çıplak anahtarla) verilir; zorunlu değeri eksik sunucu Claude'un
@@ -302,7 +302,8 @@ adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör 
   her adımda yeniden denetlenir), isteğe bağlı `sha256` (64 hex; her indirmede doğrulanır, uyuşmazsa
   kurulmaz; plugin.json/girdi sürümü yoksa ilk 12 karakteri sürümdür). Arşivin tepesindeki ya da tek
   sarmalayıcı klasördeki eklenti kökü alınır; güvenli açma sınırları `--plugin-dir .zip` ile aynıdır.
-  Girdinin `headers`'ı indirmeye eklenir; `headersHelper` (stdout'a JSON başlık nesnesi basan komut)
+  Girdinin `headers`'ı indirmeye eklenir (başka ana makineye yönlendirmede bu başlıklar, Authorization
+  dahil, taşınmaz); `headersHelper` (stdout'a JSON başlık nesnesi basan komut)
   girdinin `strict: false` olmasını ister ve çalışmadan önce gösterilip onaylanır. `headers` /
   `headersHelper` archive dışı girdide uyarı verir.
 - `npm`: `package` (ad, adres ya da yerel yol), `version` (sürüm/aralık), `registry`. Paket

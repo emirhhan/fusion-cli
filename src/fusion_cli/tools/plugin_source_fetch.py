@@ -26,12 +26,10 @@ import tarfile
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from http.client import HTTPMessage
 from pathlib import Path
-from typing import IO
 
 from ..config.keys import environ_snapshot
-from ..config.plugin_archive import MAX_BYTES, extract_zip_into
+from ..config.plugin_archive import MAX_BYTES, checked_opener, extract_zip_into
 from ..core.plugin_marketplace import MarketplaceSource
 from ..core.plugin_source_kinds import (
     COMMAND_DEFAULT_TIMEOUT_S,
@@ -52,7 +50,6 @@ ERR_REFUSED = (
 ERR_DECLINED = "Aborted."
 ERR_DIGEST = "Arşiv özeti uyuşmuyor ({url}): beklenen {expected}, gelen {actual}"
 ERR_DOWNLOAD = "Arşiv indirilemedi ({url}): {error}"
-ERR_REDIRECT = "Arşiv yönlendirmesi izin verilmeyen adrese gidiyor: {url}"
 ERR_COMMAND_RUN = "Kaynak komutu başarısız ({command}): {error}"
 ERR_COMMAND_OUTPUT = (
     "Kaynak komutu stdout'a tek satır mutlak klasör yolu basmalı; gelen: {output!r}"
@@ -123,21 +120,6 @@ def require_consent(shown: ShownCommand, consent: CommandConsent | None) -> None
 # --- archive ------------------------------------------------------------------ #
 
 
-class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(
-        self,
-        req: urllib.request.Request,
-        fp: IO[bytes],
-        code: int,
-        msg: str,
-        headers: HTTPMessage,
-        newurl: str,
-    ) -> urllib.request.Request | None:
-        if not archive_url_allowed(newurl):
-            raise PluginError(ERR_REDIRECT.format(url=newurl))
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _helper_headers(command: str) -> dict[str, str]:
     output = _run_shell(command, COMMAND_DEFAULT_TIMEOUT_S)
     try:
@@ -151,7 +133,7 @@ def _helper_headers(command: str) -> dict[str, str]:
 
 def _download(url: str, headers: Mapping[str, str], target: Path) -> str:
     """İndir, boyutu sınırla; sha256 özeti döner."""
-    opener = urllib.request.build_opener(_CheckedRedirect)
+    opener = checked_opener()
     request = urllib.request.Request(url, headers={"User-Agent": "fusion-cli", **headers})
     sha = hashlib.sha256()
     read = 0

@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from ..core.plugins import PluginError
 from .paths import user_data_dir
 
+ERR_REDIRECT = "Arşiv yönlendirmesi izin verilmeyen adrese gidiyor: {url}"
 MAX_MEMBERS = 20_000
 MAX_BYTES = 256 * 1024 * 1024
 FETCH_TIMEOUT_S = 60.0
@@ -113,6 +114,44 @@ def _download(url: str, target: Path) -> None:
                 if read > MAX_BYTES:
                     raise PluginError(ERR_LIMIT.format(path=url, members="?", size=read))
                 handle.write(block)
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parts = urlsplit(url)
+    return parts.scheme, (parts.hostname or "").lower(), parts.port
+
+
+class CheckedRedirect(urllib.request.HTTPRedirectHandler):
+    """Eklenti archive / `.mcpb` indirmesinde yönlendirme denetimi (#399, #400).
+
+    Her adım `archive_url_allowed` ile yeniden denetlenir (loopback, link-local, meta veri,
+    https dışı reddedilir). urllib yönlendirmede bütün başlıkları yeni adrese taşır: başka ana
+    makineye giden adımda girdinin `headers`/`headersHelper` başlıkları (Authorization dahil)
+    düşürülür, yalnız `User-Agent` kalır.
+    """
+
+    def redirect_request(  # type: ignore[override]
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        from ..core.plugin_source_kinds import archive_url_allowed
+
+        if not archive_url_allowed(newurl):
+            raise PluginError(ERR_REDIRECT.format(url=newurl))
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)  # type: ignore[arg-type]
+        if new is not None and _origin(newurl) != _origin(req.full_url):
+            for name in [key for key, _ in new.header_items() if key.lower() != "user-agent"]:
+                new.remove_header(name)
+        return new
+
+
+def checked_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(CheckedRedirect)
 
 
 def fetch_plugin_url(url: str) -> Path:

@@ -67,7 +67,9 @@ def _download(ref: str, plugin: str) -> Path:
     partial = target.with_suffix(".part")
     try:
         request = urllib.request.Request(ref, headers={"User-Agent": "fusion-cli"})
-        with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_S) as response:
+        from .plugin_archive import checked_opener
+
+        with checked_opener().open(request, timeout=FETCH_TIMEOUT_S) as response:
             data = response.read(MAX_BYTES + 1)
         if len(data) > MAX_BYTES:
             raise PluginError(ERR_FETCH.format(ref=ref, error="256 MiB sınırı"))
