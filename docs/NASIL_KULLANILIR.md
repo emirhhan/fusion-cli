@@ -1167,10 +1167,12 @@ Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `k
 
 ---
 
-## 16) Bilgisayarı kullanma (computer use, yalnız macOS)
+## 16) Bilgisayarı kullanma (computer use; macOS, Windows'ta masaüstü uygulaması)
 
 Fusion ekranını görüp fare ve klavyeyle uygulamaları yönetebilir. Her eylem yine onay
-kartından geçer; Claude Code / Codex'teki gibi iki macOS izni gerekir.
+kartından geçer; Claude Code / Codex'teki gibi macOS'ta iki izin gerekir. Windows'ta computer use
+Claude Code gibi yalnız masaüstü uygulamasında çalışır ve izin adımı yoktur (anahtar hemen
+etkin); ayrıntı `docs/BILGISAYAR_KULLANIMI.md` › Windows.
 
 **İzinler (Ayarlar › İzinler › Bu bilgisayar).** Erişilebilirlik (tıklama/yazma/kaydırma) ve
 Ekran Kaydı (ekran görüntüsü). Kart durumu çekirdekten okur (`izin.masaustu_durum`), **İzin iste**

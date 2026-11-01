@@ -1,6 +1,6 @@
 # Bilgisayar kullanımı (computer use)
 
-Fusion macOS'ta ekranı görebilir (`desktop_screenshot`), fareyi ve klavyeyi kullanabilir
+Fusion macOS'ta ve Windows'ta (yalnız masaüstü uygulamasında; bkz. [Windows](#windows)) ekranı görebilir (`desktop_screenshot`), fareyi ve klavyeyi kullanabilir
 (`desktop_mouse`, `desktop_click`, `desktop_scroll`, `desktop_type`, `desktop_key`) ve arka
 plandaki pencerelerle işaretçiyi almadan çalışabilir (`desktop_background_*`). İki macOS izni
 gerekir: **Erişilebilirlik** (tıklama/yazma) ve **Ekran Kaydı** (ekranı görme); durumları
@@ -128,6 +128,33 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
   `desktop_accessibility` ağacı vermez. Ad eşleşmesi pencere sahibinin adıyla yapılır; ret
   listesine paket kimliği yazıldıysa (`com.…`) listelerde ad da eklenmeli.
 
+## Windows
+
+Claude Code'daki gibi computer use Windows'ta **yalnız masaüstü uygulamasında** çalışır; CLI,
+REPL ve TUI'de Windows'ta `desktop_*` araçları "yalnız Fusion masaüstü uygulamasında" hatası
+verir (Claude: "Computer use in the CLI is not available on Linux or Windows. On Windows, use
+Desktop instead."). Windows'ta **izin adımı yoktur**: Ayarlar › Bu bilgisayar anahtarı açılınca
+hemen etkindir (Erişilebilirlik/Ekran Kaydı "verilmiş" görünür).
+
+| Parça | Windows'ta |
+|---|---|
+| Fare, kaydırma, klavye, metin | `SendInput` (mutlak sanal masaüstü koordinatı, Unicode metin); `cmd`/`win` = Windows tuşu, `alt`/`option` = Alt |
+| Ekran görüntüsü | GDI yakalama, çoklu ekran (ana ekran 1), fiziksel piksel (DPI farkında), aynı sabit hedef boyut |
+| Hedef uygulama | tıklama noktasındaki/öndeki üst düzey pencerenin süreci → exe (`chrome` / `chrome.exe`); öğe adı UI Automation ile (riskli düğme denetimi) |
+| Kademe ve ret listesi | aynı sabit tablo; Windows exe adları eklendi (Chrome/Edge/Firefox = Yalnız bak, Windows Terminal/PowerShell/cmd/VS Code = Tıkla, Dosya Gezgini, Ayarlar/Denetim Masası ayrıca sorulur). Ret listesine exe kökü ya da adı yazılır (`1Password`, `notepad.exe`) |
+| Fusion'ın penceresi | Fusion.exe ve çocukları her zaman engelli (kendi onay kartına tıklayamaz); görüntüde karartılır (macOS'taki gibi arkası gösterilmez; pencere WDA_EXCLUDEFROMCAPTURE taşırsa karartılmaz) |
+| Reddedilen uygulamalar | pencereleri görüntüde karartılır; yakalama olmazsa karartmasız geri düşüş yapılmaz |
+| Diğer uygulamaları gizle | etkinleştirmeden simge durumuna küçültme; tur sonunda yalnız Fusion'ın küçülttükleri geri açılır |
+| Esc ile durdur | alçak düzey klavye kancası; fiziksel Esc uygulamaya gitmez, Fusion'ın gönderdiği Esc turu durdurmaz |
+| `desktop_open` | ad Kayıt Defteri App Paths, Başlat menüsü kısayolu ya da PATH'teki mutlak klasörlerden çözülür; yol, URL ve kabuk karakteri kabul edilmez, çalışma klasörü aranmaz |
+
+Windows'ta olmayanlar: `desktop_background_*` (arka plan pencere araçları; hedef doğrulanamadığı
+için kapalı kalır), `desktop_accessibility` / `desktop_windows` / `desktop_window_focus`
+(AppleScript tabanlı) ve işletim sistemi bildirimi (uygulama içi şerit gösterilir). Karartma
+pencere dikdörtgenidir: reddedilen pencerenin önünde başka pencere olsa da o alan gösterilmez.
+Windows yolu bu sürümde gerçek bir Windows makinesinde elle denenmedi; davranış sahte Win32
+katmanıyla sınandı (`tests/test_desktop_win32.py`).
+
 ## `fusion mcp` sunucusunda ve etkileşimsiz kipte
 
 Claude Code'da computer use etkileşimli oturum ister. `fusion mcp` (Fusion'ın araçlarını başka
@@ -140,6 +167,5 @@ girmez; yalnız o turun isteğine eklenir (`engines/agent/computer_use_hint.py`)
 
 ## Claude Code'dan hâlâ farklı (Henüz yok)
 
-- Windows'ta computer use (Claude Desktop'ta var; Fusion yalnız macOS) — #430.
 - Pano okuma/yazma izni: Claude'un pano araçları olduğu için istemde ek izin satırı var;
   Fusion'da pano aracı yok, istemde ek izin satırı çıkmaz — #426.
