@@ -148,7 +148,7 @@ async def test_bozuk_kitte_bagimlilik_onarim_komutu_calisir(tmp_path, monkeypatc
     result = shell.run_shell({"command": command}, context)
 
     # Komut kalıcı kabuk dizinini okuyan işaretle sarılır (#126); çalışan komut aynıdır.
-    assert len(calls) == 1 and calls[0].startswith(f"{{ {command}\n}}")
+    assert len(calls) == 1 and f"{{ {command}\n}}" in calls[0]
     # Kit komuttan ÖNCE de bozuktu ve bozuk kaldı: komutun çıkışı başarıyı belirler,
     # ama çıktıda kitin hâlâ bozuk olduğu açıkça yazar.
     assert result.ok

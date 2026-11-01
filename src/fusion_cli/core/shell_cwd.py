@@ -7,7 +7,7 @@ Dizin değişince ana konuşmada `CwdChanged` kancası tetiklenir (kanca köprü
 
 Komutun bitişteki dizini, komuttan sonra eklenen tek satırlık bir işaretle okunur
 (`wrap` / `split_marker`); işaret her çağrıda rastgeledir, komut çıktısı onu taklit
-edemez. Yalnız stdlib (core katmanı).
+edemez ve komutun göremediği ayrı bir tanımlayıcıdan (asıl stdout'un kopyası) yazılır. Yalnız stdlib (core katmanı).
 """
 
 from __future__ import annotations
@@ -68,11 +68,18 @@ def new_marker() -> str:
     return f"{_MARK_PREFIX}{uuid.uuid4().hex}__"
 
 
+#: İşaretin yazıldığı tanımlayıcı: asıl stdout'un kopyası. Komut onu görmez (`9>&-`), yani
+#: `exec > dosya` gibi kalıcı yönlendirme işareti kullanıcının dosyasına karıştıramaz ve
+#: arka plan işi boruyu açık tutmaz.
+_MARK_FD = 9
+
+
 def wrap(command: str, marker: str) -> str:
     """Komutu çalıştır, çıkış kodunu koru, sonra bitişteki dizini işaretle yaz."""
+    fd = _MARK_FD
     return (
-        f"{{ {command}\n}}\n__fusion_rc=$?\n"
-        f"printf '\\n%s%s\\n' {shlex.quote(marker)} \"$PWD\"\nexit $__fusion_rc"
+        f"exec {fd}>&1\n{{ {command}\n}} {fd}>&-\n__fusion_rc=$?\n"
+        f"printf '\\n%s%s\\n' {shlex.quote(marker)} \"$PWD\" >&{fd}\nexit $__fusion_rc"
     )
 
 

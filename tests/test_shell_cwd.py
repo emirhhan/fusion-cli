@@ -91,7 +91,28 @@ def test_isaret_ayristirma_komut_ciktisini_korur():
     assert metin == "merhaba\n"
     assert dizin == Path("/tmp/a")
     assert split_marker("sahte __M__/x", "__N__") == ("sahte __M__/x", None)
-    assert wrap("echo 1", "__M__").startswith("{ echo 1\n}")
+    assert "{ echo 1\n}" in wrap("echo 1", "__M__")
+
+
+def test_stdout_yonlendiren_komutta_isaret_dosyaya_karismaz_cd_korunur(tmp_path, monkeypatch):
+    # `exec > dosya` kabuğun stdout'unu kalıcı değiştirir; işaret ayrı tanımlayıcıdan yazılır.
+    monkeypatch.delenv(MAINTAIN_ENV, raising=False)
+    root = _proje(tmp_path)
+    context = ToolContext(root=root)
+    sonuc = run_shell({"command": "cd alt; exec > out.txt; echo hi"}, context)
+    assert sonuc.ok, sonuc.output
+    assert (root / "alt" / "out.txt").read_text(encoding="utf-8") == "hi\n"
+    assert "__FUSION_CWD_" not in sonuc.output
+    assert context.shell_cwd.path == root / "alt"
+
+
+def test_arka_plan_isi_isaret_tanimlayicisini_tutmaz(tmp_path, monkeypatch):
+    monkeypatch.delenv(MAINTAIN_ENV, raising=False)
+    root = _proje(tmp_path)
+    context = ToolContext(root=root)
+    sonuc = run_shell({"command": "ls -l /dev/fd/ 2>/dev/null | awk '{print $9}'"}, context)
+    assert sonuc.ok, sonuc.output
+    assert "9" not in sonuc.output.split()
 
 
 def test_denetim_komutu_kalici_dizini_hesaba_katar(tmp_path):
