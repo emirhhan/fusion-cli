@@ -5,6 +5,8 @@ sürecinin stdin'ine kullanıcı mesajlarının yanında denetim istekleri de ya
 
 - `{"type":"control_request","request_id":..,"request":{"subtype":"interrupt"}}` süren turu
   keser; `initialize`, `set_permission_mode` (`mode`), `set_model` (`model`) de desteklenir.
+  `bypassPermissions`'a geçiş yalnız koşu `--dangerously-skip-permissions` /
+  `--allow-dangerously-skip-permissions` ile başladıysa kabul edilir; `--restricted`'da hiç.
   Her isteğe `{"type":"control_response","response":{"subtype":"success"|"error",...}}`
   ile cevap verilir; bilinmeyen alt tür `error` döner.
 - `--permission-prompt-tool stdio` verilince onay gereken çağrı için stdout'a
@@ -26,7 +28,7 @@ import uuid
 from collections.abc import Callable, Coroutine, Iterator, Mapping
 from typing import Any, TextIO, TypeVar
 
-from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
 from ..ui import print_messages as texts
 from .print_runtime import PrintPrompter
 from .sdk_messages import claude_tool_name
@@ -55,8 +57,18 @@ def content_text(content: object) -> str:
 class ControlChannel:
     """stdin'i okuyup kullanıcı turlarını ve denetim iletilerini ayıran kanal."""
 
-    def __init__(self, stdin: TextIO, write: Writer) -> None:
+    def __init__(
+        self,
+        stdin: TextIO,
+        write: Writer,
+        *,
+        bypass_allowed: bool = False,
+        restricted: bool = False,
+    ) -> None:
         self._stdin = stdin
+        #: `set_permission_mode bypassPermissions` yalnız koşu buna izin verdiyse kabul edilir.
+        self._bypass_allowed = bypass_allowed and not restricted
+        self._restricted = restricted
         self._write = write
         self._users: queue.Queue[object] = queue.Queue()
         self._lock = threading.Lock()
@@ -146,9 +158,19 @@ class ControlChannel:
         from .print_options import parse_permission_mode
 
         try:
-            parse_permission_mode(str(mode or ""), skip_permissions=False)
+            parsed = parse_permission_mode(str(mode or ""), skip_permissions=False)
         except ValueError as error:
             self._fail(request_id, str(error))
+            return
+        if parsed is ApprovalMode.BYPASS and not self._bypass_allowed:
+            # Claude: bypass'a oturum içinden geçmek başlangıçta izin bayrağı ister;
+            # `--restricted` koşuda hiç geçilemez.
+            denied = (
+                texts.PRINT_RESTRICTED_BYPASS
+                if self._restricted
+                else texts.PRINT_BYPASS_NOT_ALLOWED
+            )
+            self._fail(request_id, denied)
             return
         self.mode = str(mode)
         self._reply(request_id, {})

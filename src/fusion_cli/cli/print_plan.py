@@ -48,6 +48,8 @@ class PrintRequest:
     tools: str | None = None
     permission_mode: str | None = None
     skip_permissions: bool = False
+    #: `--allow-dangerously-skip-permissions`: bypass'a sonradan geçilebilir (#280).
+    allow_skip: bool = False
     permission_prompts: str | None = None
     permission_prompt_tool: str | None = None
     system_prompt: str | None = None

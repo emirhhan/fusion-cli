@@ -115,6 +115,7 @@ def print_command(
         tools=tools,
         permission_mode=permission_mode,
         skip_permissions=skip_permissions,
+        allow_skip=allow_skip,
         permission_prompts=permission_prompts,
         permission_prompt_tool=permission_prompt_tool,
         system_prompt=system_prompt,
@@ -163,7 +164,6 @@ def print_command(
         exclude_dynamic=exclude_dynamic,
         betas=tuple(betas or ()),
     )
-    del allow_skip  # Claude: bypass'ı yalnız seçilebilir yapar; -p'de etkisi yok
     if init_only:
         # Claude: kancaları çalıştırıp konuşma başlatmadan çıkar; sohbet açılmaz.
         typer.echo(texts.PRINT_UNSUPPORTED_FLAG.format(flag="--init-only"), err=True)

@@ -64,6 +64,10 @@ PRINT_INTERRUPTED = "[Request interrupted by user]"
 PRINT_SETTING_SOURCES_INVALID = (
     "Hata: --setting-sources geçersiz kaynak: {given}. Geçerli: user, project, local"
 )
+PRINT_BYPASS_NOT_ALLOWED = (
+    "bypassPermissions kipine geçilemez: koşu --dangerously-skip-permissions ya da "
+    "--allow-dangerously-skip-permissions ile başlatılmadı."
+)
 PRINT_RESTRICTED_BYPASS = (
     "Hata: --restricted kipinde bypassPermissions kullanılamaz "
     "(--permission-mode bypassPermissions, --dangerously-skip-permissions ya da "

@@ -30,7 +30,10 @@ Aynı akışta Agent SDK'nın denetim istekleri de işlenir (stdin ayrı iş par
 tur sürerken de cevap verilir): `{"type":"control_request","request_id":"…","request":
 {"subtype":"interrupt"}}` süren turu keser (tur `error_during_execution` sonucu ve
 `[Request interrupted by user]` hatasıyla biter); `initialize`, `set_permission_mode`
-(`mode`, Claude kip adları) ve `set_model` (`model`) sonraki turdan geçerlidir. Her isteğe
+(`mode`, Claude kip adları) ve `set_model` (`model`) sonraki turdan geçerlidir.
+`bypassPermissions`'a geçiş Claude'daki gibi yalnız koşu `--dangerously-skip-permissions` ya
+da `--allow-dangerously-skip-permissions` ile başladıysa kabul edilir, `--restricted` koşuda
+hiç kabul edilmez (ikisinde de `error` döner). Her isteğe
 `{"type":"control_response","response":{"subtype":"success"|"error","request_id":"…"}}`
 yazılır; bilinmeyen alt tür `error` döner. `--permission-prompt-tool stdio` ile onay
 gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name`, `input`,

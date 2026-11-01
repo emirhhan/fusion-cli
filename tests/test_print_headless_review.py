@@ -74,3 +74,48 @@ def test_config_degeri_yalniz_bu_kosuya_uygulanir(monkeypatch):
     assert calls[0]["config"].runtime.max_tokens == 4321
     for path in _config_files():
         assert "4321" not in path.read_text(encoding="utf-8")
+
+
+# --- bulgu 2: set_permission_mode bypassPermissions denetimi (#280) ------------------- #
+
+
+def _control(subtype: str, rid: str, **fields: object) -> dict[str, object]:
+    return {"type": "control_request", "request_id": rid, "request": {"subtype": subtype, **fields}}
+
+
+def _responses(out) -> dict[str, dict]:
+    return {
+        m["response"]["request_id"]: m["response"] for m in out if m["type"] == "control_response"
+    }
+
+
+def _bypass_lines():
+    return [_control("set_permission_mode", "b1", mode="bypassPermissions"), _user("bir")]
+
+
+def test_izin_bayragi_olmadan_bypass_istegi_reddedilir(monkeypatch):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    calls, result, out = _stream(monkeypatch, _bypass_lines())
+    assert result.exit_code == 0, result.output
+    assert _responses(out)["b1"]["subtype"] == "error"
+    assert "--allow-dangerously-skip-permissions" in _responses(out)["b1"]["error"]
+    assert calls[0]["mode"] is not ApprovalMode.BYPASS
+
+
+def test_restricted_kosuda_bypass_istegi_reddedilir(monkeypatch):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    extra = ["--restricted", "--allow-dangerously-skip-permissions"]
+    calls, _result, out = _stream(monkeypatch, _bypass_lines(), extra)
+    assert _responses(out)["b1"]["subtype"] == "error"
+    assert calls[0]["mode"] is not ApprovalMode.BYPASS
+
+
+def test_allow_dangerously_skip_ile_bypass_istegi_kabul_edilir(monkeypatch):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    extra = ["--allow-dangerously-skip-permissions"]
+    calls, _result, out = _stream(monkeypatch, _bypass_lines(), extra)
+    assert _responses(out)["b1"]["subtype"] == "success"
+    assert calls[0]["mode"] is ApprovalMode.BYPASS

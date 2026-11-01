@@ -13,6 +13,7 @@ import sys
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.loop import AgentOutcome
 from ..ui import print_messages as texts
 from . import sdk_messages as sdk
@@ -29,7 +30,15 @@ def stream_turns(run: _Run) -> int:
 
     stream = run.stream
     assert stream is not None
-    channel = ControlChannel(sys.stdin, stream.write).start()
+    request = run.plan.request
+    channel = ControlChannel(
+        sys.stdin,
+        stream.write,
+        bypass_allowed=bool(
+            request.skip_permissions or request.allow_skip or run.plan.mode is ApprovalMode.BYPASS
+        ),
+        restricted=request.restricted,
+    ).start()
     run.control = channel
     code = 0
     for task, raw in channel.users():
