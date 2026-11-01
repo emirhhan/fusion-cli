@@ -365,6 +365,8 @@ async def _run_inline(
         lambda text: console.print(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
     )
 
+    # Tur sürerken yazılan anlık komut (#209: /status, /model …) kuyruğa girmez, hemen çalışır.
+    state.inline_immediate = lambda line: _run_immediate(line, state, registry, reader, console)
     try:
         if first := state.take_initial_prompt():
             # `fusion "query"` (#204): ilk satır kullanıcı yazmış gibi işlenir.
@@ -1042,6 +1044,7 @@ async def _agent_turn(
                 f"[{theme.DIM}]{escape(messages.INLINE_QUEUED.format(text=text))}[/{theme.DIM}]"
             ),
             on_background=lambda: _inline_background(state, console),
+            on_immediate=state.inline_immediate,
         )
         steering = keys.begin()
         prompter = ConsolePrompter(
@@ -1208,6 +1211,20 @@ def _both(
 ) -> Iterator[None]:
     with first, second:
         yield
+
+
+def _run_immediate(
+    line: str, state: ReplState, registry: CommandRegistry, reader: ReplInput, console: Console
+) -> bool:
+    """Satır içi tur sürerken belgelenen anlık komutu hemen çalıştır (#209); değilse False."""
+    from .busy_commands import runs_while_busy
+
+    if not runs_while_busy(registry, line):
+        return False
+    future = asyncio.ensure_future(_run_command(line, state, registry, reader, console))
+    state.immediate_tasks.add(future)
+    future.add_done_callback(state.immediate_tasks.discard)
+    return True
 
 
 def _queue_leftovers(state: ReplState, keys: inline_turn_keys.InlineTurnKeys) -> None:

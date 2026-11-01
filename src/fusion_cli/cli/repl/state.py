@@ -6,6 +6,7 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import time
 from collections.abc import Callable
@@ -205,6 +206,11 @@ class ReplState:
     shell_handoff: ShellHandoff = field(default_factory=ShellHandoff, kw_only=True, repr=False)
     #: Satır içi REPL: tur sürerken yazılıp modele gitmeyen satırlar, sıradaki turlar (#190).
     queued_lines: list[str] = field(default_factory=list, kw_only=True, repr=False)
+    #: Satır içi REPL: tur sürerken anlık komut çalıştırıcı (#209) ve süren işleri.
+    inline_immediate: Callable[[str], bool] | None = field(default=None, kw_only=True, repr=False)
+    immediate_tasks: set[asyncio.Future[None]] = field(
+        default_factory=set, kw_only=True, repr=False
+    )
 
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None

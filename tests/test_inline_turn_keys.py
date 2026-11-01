@@ -113,3 +113,17 @@ def test_satir_ici_ctrl_b_suren_kabugu_devreder(tmp_path):
     event = state.shell_handoff.begin()
     _inline_background(state, console)
     assert event.is_set() and "arka plana alındı" in out.getvalue()
+
+
+def test_anlik_komut_kuyruga_girmeden_calisir():
+    calisan: list[str] = []
+    keys = InlineTurnKeys(
+        on_draft=lambda _t: None,
+        on_queued=lambda _t: None,
+        on_background=lambda: None,
+        on_immediate=lambda line: line.startswith("/status") and not calisan.append(line),
+    )
+    keys.begin()
+    keys.feed("/status\r/compact\r")
+    assert calisan == ["/status"]
+    assert keys.end() == (["/compact"], "")

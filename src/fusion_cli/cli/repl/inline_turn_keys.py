@@ -44,8 +44,10 @@ class InlineTurnKeys:
         on_draft: Callable[[str], None],
         on_queued: Callable[[str], None],
         on_background: Callable[[], None],
+        on_immediate: Callable[[str], bool] | None = None,
     ) -> None:
         self._bridge = SteerBridge()
+        self._on_immediate = on_immediate
         self._on_draft = on_draft
         self._on_queued = on_queued
         self._on_background = on_background
@@ -87,6 +89,8 @@ class InlineTurnKeys:
         line, self._draft = self._draft.strip(), ""
         if not line:
             return
+        if self._on_immediate is not None and self._on_immediate(line):
+            return  # anlık komut (#209): kuyruğa girmeden çalıştı
         if not self._bridge.offer(line):
             self._waiting.append(line)  # komut / `!` / `@`: tur sonunu bekler
         self._on_queued(line)
