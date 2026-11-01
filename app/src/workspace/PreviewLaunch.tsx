@@ -26,7 +26,7 @@ export interface PreviewLaunchProps {
   disabled?: boolean;
 }
 
-function decodeRows(payload: Record<string, unknown>): LaunchConfigRow[] {
+export function decodeRows(payload: Record<string, unknown>): LaunchConfigRow[] {
   const raw = Array.isArray(payload.yapilandirmalar) ? payload.yapilandirmalar : [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];

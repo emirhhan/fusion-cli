@@ -96,10 +96,16 @@ export function pageAction(operation, args) {
   const MouseKind = (type) => (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent);
   // Tıklama türleri: tek (varsayılan), çift ve sağ. Sağ tık yalnız bağlam menüsü olayını
   // gönderir; `click()` ÇAĞRILMAZ (sağ tık bağlantıya/düğmeye basmış olmamalı).
-  const pressAt = (element, x, y, kind) => {
+  // Claude computer `modifiers` (cmd+shift…): Python tarafı ["meta", "shift"] gönderir.
+  const modFlags = (mods) => {
+    const list = Array.isArray(mods) ? mods : [];
+    return { ctrlKey: list.includes("ctrl"), shiftKey: list.includes("shift"),
+      altKey: list.includes("alt"), metaKey: list.includes("meta") };
+  };
+  const pressAt = (element, x, y, kind, mods) => {
     const right = kind === "right";
     const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
-      button: right ? 2 : 0, buttons: right ? 2 : 1 };
+      button: right ? 2 : 0, buttons: right ? 2 : 1, ...modFlags(mods) };
     const rounds = kind === "triple" ? 3 : kind === "double" ? 2 : 1;
     for (let detail = 1; detail <= rounds; detail += 1) {
       for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
@@ -384,14 +390,19 @@ export function pageAction(operation, args) {
     return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
   }
   if (operation === "hover") {
-    const element = target();
-    element.scrollIntoView({ block: "center" });
+    // ref ya da ekran görüntüsü koordinatı (Claude computer hover coordinate).
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? document.elementFromPoint(Number(args.x), Number(args.y)) : target();
+    if (!element || !safe(element)) throw new Error("Bu noktada öğe yok ya da hassas alan.");
+    if (!atPoint) element.scrollIntoView({ block: "center" });
     const rect = element.getBoundingClientRect();
-    const point = { bubbles: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+    const point = { bubbles: true, composed: true,
+      clientX: atPoint ? Number(args.x) : rect.left + rect.width / 2,
+      clientY: atPoint ? Number(args.y) : rect.top + rect.height / 2 };
     for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"]) {
       element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
     }
-    return { hovered: args.ref, name: nameOf(element) };
+    return { hovered: args.ref || [point.clientX, point.clientY], name: nameOf(element) };
   }
   if (operation === "describe_at" || operation === "click_at") {
     // Ekran görüntüsündeki koordinat (CSS piksel): Claude'un computer tıklaması gibi.
@@ -409,14 +420,14 @@ export function pageAction(operation, args) {
         link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
       };
     }
-    pressAt(element, x, y, args.kind);
+    pressAt(element, x, y, args.kind, args.mods);
     return { clicked_at: [x, y], kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "click") {
     const element = target();
     element.scrollIntoView({ block: "center", inline: "center" });
     const rect = element.getBoundingClientRect();
-    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind);
+    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind, args.mods);
     return { clicked: args.ref, kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "type") {
@@ -526,12 +537,15 @@ export function pageAction(operation, args) {
     return { checked: after, name: nameOf(element) };
   }
   if (operation === "drag") {
-    // Kaynak ref'ten hedef ref'e ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
-    const source = target();
-    source.scrollIntoView({ block: "center", inline: "center" });
+    // Kaynak ref'ten ya da (from_x,from_y) noktasından (Claude start_coordinate) hedef ref'e
+    // ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
+    const fromPoint = !args.ref && Number.isFinite(Number(args.from_x)) && Number.isFinite(Number(args.from_y));
+    const source = fromPoint ? document.elementFromPoint(Number(args.from_x), Number(args.from_y)) : target();
+    if (!source || !safe(source)) throw new Error("Sürüklenecek noktada öğe yok ya da hassas alan.");
+    if (!fromPoint) source.scrollIntoView({ block: "center", inline: "center" });
     const from = source.getBoundingClientRect();
-    const sx = from.left + from.width / 2;
-    const sy = from.top + from.height / 2;
+    const sx = fromPoint ? Number(args.from_x) : from.left + from.width / 2;
+    const sy = fromPoint ? Number(args.from_y) : from.top + from.height / 2;
     let destination;
     let dx;
     let dy;
@@ -609,13 +623,28 @@ export function pageAction(operation, args) {
     };
   }
   if (operation === "upload") {
-    const element = target();
-    if (!element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? null : target();
+    if (element && !element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
     const files = (args.files || []).map((file) => {
       const bytes = Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0));
       return new File([bytes], file.name, { type: file.mime || "application/octet-stream" });
     });
     if (!files.length) throw new Error("Yüklenecek dosya yok.");
+    if (atPoint) {
+      // Claude upload_image coordinate: dosyayı noktadaki bırakma hedefine sürükle-bırak.
+      const x = Number(args.x);
+      const y = Number(args.y);
+      const zone = document.elementFromPoint(x, y);
+      if (!zone || !safe(zone)) throw new Error("Bu noktada bırakma hedefi yok ya da hassas alan.");
+      const transfer = new DataTransfer();
+      files.forEach((file) => transfer.items.add(file));
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, composed: true,
+          clientX: x, clientY: y, dataTransfer: transfer }));
+      }
+      return { dropped: files.map((file) => file.name), name: nameOf(zone) };
+    }
     if (files.length > 1 && !element.multiple) throw new Error("Bu alan tek dosya kabul ediyor.");
     const transfer = new DataTransfer();
     files.forEach((file) => transfer.items.add(file));
@@ -1076,6 +1105,47 @@ export async function clearSelected() {
   await chrome.storage.session.remove(TAB_KEY);
 }
 
+/**
+ * Oturum sekme grubu (#436, Claude in Chrome): Fusion'ın açtığı sekmeler pencere başına tek bir
+ * "Fusion" grubunda toplanır. Kapanış kuralı köprüden gelir (`group_close`): `/clear` grubu
+ * sayfalarıyla kapatır; oturum değişince ya da çıkışta grup yalnız boş yeni sekmelerden
+ * oluşuyorsa kapanır.
+ */
+const GROUP_KEY = "fusionGroups";
+const GROUP_TITLE = "Fusion";
+const EMPTY_TAB = /^(chrome:\/\/newtab\/?|about:blank|edge:\/\/newtab\/?)?$/;
+
+async function sessionGroups() {
+  return (await chrome.storage.session.get(GROUP_KEY))[GROUP_KEY] || {};
+}
+
+async function addToSessionGroup(tab) {
+  if (!tab?.id || !chrome.tabs.group) return null;
+  const groups = await sessionGroups();
+  const known = groups[tab.windowId];
+  const alive = known !== undefined && await chrome.tabGroups?.get(known).then(() => true, () => false);
+  const groupId = alive
+    ? await chrome.tabs.group({ groupId: known, tabIds: [tab.id] })
+    : await chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: tab.windowId } });
+  if (!alive && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title: GROUP_TITLE });
+  await chrome.storage.session.set({ [GROUP_KEY]: { ...groups, [tab.windowId]: groupId } });
+  return groupId;
+}
+
+async function closeSessionGroups(onlyEmpty) {
+  const groups = await sessionGroups();
+  let closed = 0;
+  for (const groupId of Object.values(groups)) {
+    const tabs = await chrome.tabs.query({ groupId }).catch(() => []);
+    if (!tabs.length) continue;
+    if (onlyEmpty && !tabs.every((tab) => EMPTY_TAB.test(tab.pendingUrl || tab.url || ""))) continue;
+    await chrome.tabs.remove(tabs.map((tab) => tab.id));
+    closed += 1;
+  }
+  await chrome.storage.session.remove(GROUP_KEY);
+  return closed;
+}
+
 /** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
 export const PERMISSION_KEY = "fusionPermission";
 
@@ -1257,6 +1327,27 @@ export function monitorState() {
   };
 }
 
+/** javascript_tool (#432) sınırı: betik ve sonuç metni en çok bu kadar karakter. */
+export const SCRIPT_LIMIT = 20000;
+
+/**
+ * Sayfanın ANA dünyasında betiği çalıştır; son ifadenin değeri (söz verilmişse beklenir) JSON
+ * metni olarak döner. Kapsamsızdır (executeScript serileştirir). Sayfanın CSP'si `unsafe-eval`e
+ * izin vermiyorsa tarayıcı EvalError fırlatır ve hata olarak döner.
+ */
+export async function evaluateInPage(code, limit) {
+  try {
+    let value = (0, eval)(code);
+    if (value && typeof value.then === "function") value = await value;
+    let text;
+    try { text = JSON.stringify(value); } catch { text = undefined; }
+    if (text === undefined) text = String(value);
+    return { result: text.slice(0, limit), truncated: text.length > limit };
+  } catch (error) {
+    return { error: `${error?.name || "Error"}: ${error?.message || String(error)}` };
+  }
+}
+
 /** Sayfanın ANA dünyasında kapsamsız bir işlevi çalıştır (izleyici tamponu orada yaşar). */
 async function runInMain(tab, func, args) {
   const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func, args });
@@ -1382,11 +1473,15 @@ export async function execute(command) {
     if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.");
     const created = await chrome.windows.create({ url: url ? url.href : undefined, focused: true, state: "normal" });
     const tab = created.tabs?.[0];
+    await addToSessionGroup(tab).catch(() => null);
     if (tab?.id && url) {
       await waitForLoad(tab.id);
       await setSelected(await chrome.tabs.get(tab.id));
     }
     return { window: created.id, opened: tab?.id ?? null, url: url ? url.href : null };
+  }
+  if (command.islem === "group_close") {
+    return { closed: await closeSessionGroups(veri.mode !== "all") };
   }
   if (command.islem === "tab_group") {
     const ids = (Array.isArray(veri.ids) ? veri.ids : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
@@ -1418,12 +1513,32 @@ export async function execute(command) {
     }
     return { ok: true, url };
   }
+  if (command.islem === "tab_open" && veri.blank === true) {
+    // Claude `tabs_create_mcp` (#431): oturum grubuna boş sekme; adres sonra navigate ile.
+    const tab = await chrome.tabs.create({ active: true });
+    await addToSessionGroup(tab).catch(() => null);
+    return { opened: tab.id, url: "" };
+  }
+  if (command.islem === "navigate" && Number.isSafeInteger(veri.tabId) && veri.tabId > 0) {
+    // Claude `navigate` tabId'si: o sekmede git (boş sekme dahil); sekme sonra bağlı olur.
+    const target = await chrome.tabs.get(veri.tabId);
+    const destination = new URL(veri.url);
+    if (!await permitted(destination.origin)) {
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
+    }
+    await chrome.tabs.update(target.id, { url: destination.href });
+    await waitForLoad(target.id);
+    await setSelected(await chrome.tabs.get(target.id));
+    return { url: destination.href };
+  }
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
       await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.");
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
+    // Oturum grubuna koy (#436); gruplama başarısızsa sekme yine açılır.
+    await addToSessionGroup(tab).catch(() => null);
     await waitForLoad(tab.id);
     const bound = await setSelected(await chrome.tabs.get(tab.id));
     return { opened: bound.id, url: destination.href };
@@ -1517,6 +1632,12 @@ export async function execute(command) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return { found: false, waited_ms: limit };
+  }
+  if (command.islem === "javascript") {
+    const code = String(veri.code || "");
+    if (!code.trim()) throw new Error("Çalıştırılacak betik boş.");
+    if (code.length > SCRIPT_LIMIT) throw new Error(`Betik en çok ${SCRIPT_LIMIT} karakter olabilir.`);
+    return runInMain(tab, evaluateInPage, [code, SCRIPT_LIMIT]);
   }
   const acts = ["click", "click_at", "key", "drag"].includes(command.islem);
   // Eylemden ÖNCE ve SONRA imza: eylem sayfada iz bırakmadıysa model bunu bilmeli.

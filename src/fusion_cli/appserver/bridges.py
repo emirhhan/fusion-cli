@@ -25,6 +25,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequ
 from ..engines.agent.engine_tools import QuestionOption
 from ..engines.agent.permission_persist import always_description
 from ..ui import messages
+from ..ui.chrome_site_labels import site_options
 from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
 from .protocol import encode_error, encode_event, encode_question
@@ -380,8 +381,22 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
     `can_persist` istekte "bir daha sorma" (kalıcı kural, P-003) de sunulur; açıklama
     yazılacak kuralı gösterir ki kullanıcı neye izin verdiğini görsün.
     """
-    options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     target = request.desktop_target
+    if target is not None and request.consent_key is not None:
+        # Uygulama onayı (#426): Claude'daki gibi yalnız "Allow for this session / Deny";
+        # tek çağrılık "Evet" ve "Her zaman reddet" yok (ret listesi Ayarlar'dan yönetilir).
+        session = {
+            "deger": "session",
+            "etiket": messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app),
+        }
+        if request.remembered_scope_description:
+            session["aciklama"] = request.remembered_scope_description
+        return [session, {"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY}]
+    site = site_options(request)
+    if site is not None:
+        # Chrome site izni (#435): Allow this action / Always allow… / Decline.
+        return site
+    options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     if request.offers_session:
         label = (
             messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
@@ -411,14 +426,6 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
             }
         )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
-    if target is not None and request.consent_key is not None:
-        options.append(
-            {
-                "deger": "never",
-                "etiket": messages.BILGISAYAR_APPROVAL_NEVER,
-                "aciklama": messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
-            }
-        )
     return options
 
 

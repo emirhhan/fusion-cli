@@ -41,6 +41,12 @@ CHAT_NEWLINE_REASON = "{app} içine satır sonu içeren metin yazmak mesajı gö
 MOD_ENTER_REASON = "{app} içinde {chord} genellikle mesajı gönderir"
 DELETE_REASON = "{app} içinde {chord} seçili öğeyi siler ya da çöpe taşır"
 FOCUSED_ENTER_REASON = "{app} içinde Enter odaktaki {element} düğmesine basar"
+#: Öğe okunamadı (Windows UI Automation zaman aşımı/engeli): riskli düğme denetimi yapılamaz.
+UNVERIFIED_ELEMENT = "(öğe doğrulanamadı)"
+UNVERIFIED_CLICK_REASON = (
+    "{app} içinde tıklanan öğe doğrulanamadı (UI Automation yanıt vermedi); gönder/sil/öde "
+    "düğmesi olabileceği için her tıklama sorulur"
+)
 
 #: Basılı tutma ve bırakma da öğeye basar (`down` + `up` = tık).
 _CLICK_ACTIONS = frozenset({"click", "double_click", "triple_click", "middle_click", "down", "up"})
@@ -58,6 +64,8 @@ def risky_reason(
     app = target.app
     if category == "system":
         return SYSTEM_REASON.format(app=app)
+    if _is_click(tool_name, args) and target.element == UNVERIFIED_ELEMENT:
+        return UNVERIFIED_CLICK_REASON.format(app=app)
     if _is_click(tool_name, args) and _risky_element(target.element, clicking=True):
         return CLICK_REASON.format(app=app, element=target.element)
     if tool_name == "desktop_background_action" and args.get("action") == "press":

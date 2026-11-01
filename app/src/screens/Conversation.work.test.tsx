@@ -69,3 +69,14 @@ it("başarısız araç kanıtı kompakt geçmişte açılabilir kalır",()=>{
  fireEvent.click(step.querySelector("summary")!);expect(step.open).toBe(true);
  expect(screen.getByText("Başarısız test")).toBeTruthy();
 });
+it("görünüm kipi: Ayrıntılı biten çalışmayı açık, Özet gizli gösterir (#444, Ctrl+O)", () => {
+ const finished: Mesaj[] = [...messages, { id: "a", rol: "asistan", metin: "Sonuç hazır" }];
+ const verbose = render(<Conversation running={false} mesajlar={finished} viewMode="verbose" />);
+ expect(verbose.container.querySelector<HTMLDetailsElement>(".conversation__work-details")!.open).toBe(true);
+ expect(screen.getByText(/Görünüm: Ayrıntılı/)).toBeTruthy();
+ verbose.unmount();
+ const summary = render(<Conversation running={false} mesajlar={finished} viewMode="summary" />);
+ expect(summary.container.querySelector(".conversation__work-details")).toBeNull();
+ expect(screen.getByText("Sonuç hazır")).toBeTruthy();
+ expect(screen.queryByText("Dosyaları okuyorum")).toBeNull();
+});

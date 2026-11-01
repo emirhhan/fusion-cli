@@ -45,6 +45,45 @@
   white-space: nowrap;
 }
 
+.app-header__title-button {
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: text;
+  font: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header__title-button:hover,
+.app-header__title-button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.app-header__title-edit {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.app-header__title-input {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  min-width: 12ch;
+  padding: 2px 4px;
+}
+
+.app-header__title-error {
+  color: var(--text-danger);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .app-header__project,
 .app-header__status {
   color: var(--text-secondary);

@@ -43,7 +43,7 @@ from .tool_profiles import WIDENED_KIND, hidden_tools
 COMPACT_TAG = "compact"
 
 #: Sıkı yüzeyde gizlenen araç ad önekleri (masaüstü ve Chrome ailesi).
-COMPACT_HIDDEN_PREFIXES = ("desktop_", "chrome_")
+COMPACT_HIDDEN_PREFIXES = ("desktop_", "chrome_", "claude-in-chrome__")
 
 #: Sıkı yüzeyde gizliliği kaldıran istek türü (`loop.run_agent` `task_kinds`).
 DESKTOP_TASK_KIND = "masaustu"

@@ -211,6 +211,10 @@ fn platform_status(kind: PermissionKind) -> PermissionCapability {
 #[cfg(any(test, not(target_os = "macos")))]
 fn platform_status_for(kind: PermissionKind, platform: &str) -> PermissionCapability {
     match (platform, kind) {
+        // #430: Windows'ta computer use için izin adımı yok; anahtar hemen etkindir.
+        ("windows", PermissionKind::Accessibility | PermissionKind::ScreenRecording) => {
+            PermissionCapability::supported(PermissionState::Granted)
+        }
         ("windows", PermissionKind::Workspace | PermissionKind::Keychain) => {
             // supported bir TCC istemi var demek değil, özelliğin bu hedefte
             // mevcut olduğu demektir (folder picker / Credential Manager).
@@ -319,15 +323,27 @@ pub async fn izin_iste(kind: PermissionKind) -> PermissionCapability {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        match kind {
-            PermissionKind::Workspace | PermissionKind::Keychain => {
-                PermissionCapability::supported(PermissionState::Granted)
-            }
-            PermissionKind::Microphone
-            | PermissionKind::Speech
-            | PermissionKind::Accessibility
-            | PermissionKind::ScreenRecording => unsupported_capability(),
+        request_without_tcc(kind, std::env::consts::OS)
+    }
+}
+
+/// TCC olmayan platformlarda izin isteği: istenecek sistem penceresi yoktur.
+#[cfg(any(test, not(target_os = "macos")))]
+fn request_without_tcc(kind: PermissionKind, platform: &str) -> PermissionCapability {
+    match kind {
+        PermissionKind::Workspace | PermissionKind::Keychain => {
+            PermissionCapability::supported(PermissionState::Granted)
         }
+        // #430: Windows computer use izinsiz çalışır (girdi ve ekran yakalama).
+        PermissionKind::Accessibility | PermissionKind::ScreenRecording
+            if platform == "windows" =>
+        {
+            PermissionCapability::supported(PermissionState::Granted)
+        }
+        PermissionKind::Microphone
+        | PermissionKind::Speech
+        | PermissionKind::Accessibility
+        | PermissionKind::ScreenRecording => unsupported_capability(),
     }
 }
 
@@ -422,12 +438,30 @@ mod tests {
             settings_url(PermissionKind::ScreenRecording, "macos"),
             Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
         );
-        assert_eq!(
-            platform_status_for(PermissionKind::Accessibility, "windows"),
-            unsupported_capability()
-        );
         let kind: PermissionKind = serde_json::from_str("\"screenRecording\"").unwrap();
         assert_eq!(kind, PermissionKind::ScreenRecording);
+    }
+
+    /// #430: Windows'ta computer use için izin adımı yoktur ("the toggle takes effect
+    /// immediately"); Erişilebilirlik ve Ekran Kaydı verilmiş sayılır, Linux'ta desteklenmez.
+    #[test]
+    fn windows_computer_use_needs_no_permission_step() {
+        for kind in [
+            PermissionKind::Accessibility,
+            PermissionKind::ScreenRecording,
+        ] {
+            assert_eq!(
+                platform_status_for(kind, "windows"),
+                PermissionCapability::supported(PermissionState::Granted)
+            );
+            assert_eq!(
+                request_without_tcc(kind, "windows"),
+                PermissionCapability::supported(PermissionState::Granted)
+            );
+            assert_eq!(platform_status_for(kind, "linux"), unsupported_capability());
+            assert_eq!(request_without_tcc(kind, "linux"), unsupported_capability());
+            assert_eq!(settings_url(kind, "windows"), None);
+        }
     }
 
     #[test]

@@ -69,6 +69,7 @@ from .permission_patterns import (
     tool_glob_matches,
 )
 from .shell_file_targets import shell_file_targets
+from .upload_rules import upload_read_rule_matches
 from .write_targets import WRITE_TOOLS, write_targets
 
 _LOG = logging.getLogger(__name__)
@@ -302,6 +303,13 @@ def matches(
     rule: PermissionRule, tool_name: str, args: Mapping[str, object], root: Path | None
 ) -> bool:
     """Kural bu çağrıya uyuyor mu? (Kabuk zinciri için `evaluate` kullanılır.)"""
+
+    # Yükleme yolu da `Read` kuralı gibi kaynağına göre dayanaklanır (#45, #437).
+    def _upload_path(_spec: str, raw: object, base: Path | None) -> bool:
+        return path_rule_matches(rule, raw, base)
+
+    if upload_read_rule_matches(rule, tool_name, args, _upload_path, root):
+        return True  # Chrome yüklemesi `Read` kuralına da tabidir (#437).
     if not _tool_matches(rule, tool_name):
         return False
     if rule.specifier is None:

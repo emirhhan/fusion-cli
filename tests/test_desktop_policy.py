@@ -101,31 +101,33 @@ def test_kategori_kademeleri(app, bundle, level):
 
 
 @pytest.mark.parametrize(
-    ("app", "bundle"),
-    [("Binance", "com.binance.BinanceDesktop"), ("1Password", "com.1password.1password"),
-     ("Fusion", "com.fusion.desktop"), ("MetaTrader 5", "")],
+    ("app", "bundle", "level"),
+    [("Binance", "com.binance.BinanceDesktop", DesktopLevel.OBSERVE),
+     ("MetaTrader 5", "", DesktopLevel.OBSERVE),
+     ("1Password", "com.1password.1password", DesktopLevel.FULL),
+     ("Keychain Access", "com.apple.keychainaccess", DesktopLevel.FULL)],
 )  # fmt: skip
-def test_engelli_kategoriler(app, bundle):
-    level, _category, reason = app_level(DesktopSettings(), app, bundle)
+def test_yatirim_platformu_yalniz_bak_parola_yoneticisi_tam_kontrol(app, bundle, level):
+    """#425: Claude'da trading platformları View only, geri kalan her şey Full control;
+    engelli kategori yok (yalnız Fusion'ın kendi penceresi)."""
+    assert app_level(DesktopSettings(), app, bundle)[0] is level
+    level, _category, reason = app_level(DesktopSettings(), "Fusion", "com.fusion.desktop")
     assert level is None and reason
 
 
-def test_uygulama_kademesi_kategoriyi_ezer_tavan_ve_ret_ezilmez():
-    settings = DesktopSettings(app_levels=("Terminal=full", "Binance=observe", "Fusion=full"))
-    assert app_level(settings, "Terminal", "com.apple.Terminal")[0] is DesktopLevel.FULL
-    assert app_level(settings, "Binance", "")[0] is DesktopLevel.OBSERVE
-    # Fusion kendi penceresini hiçbir ayarla yönetemez.
+def test_kademeler_sabit_eski_ayarlar_yok_sayilir():
+    """#424: "These tiers are fixed by app category and can't be changed"."""
+    settings = DesktopSettings(
+        app_levels=("Terminal=full", "Safari=full", "Fusion=full"),
+        control_level=DesktopLevel.OBSERVE,
+        category_defaults=False,
+    )
+    assert app_level(settings, "Terminal", "com.apple.Terminal")[0] is DesktopLevel.CLICK
+    assert app_level(settings, "Safari", "com.apple.Safari")[0] is DesktopLevel.OBSERVE
+    assert app_level(settings, "Mail", "com.apple.mail")[0] is DesktopLevel.FULL
     assert app_level(settings, "Fusion", "com.fusion.desktop")[0] is None
-    capped = DesktopSettings(control_level=DesktopLevel.CLICK, app_levels=("Terminal=full",))
-    assert app_level(capped, "Terminal", "com.apple.Terminal")[0] is DesktopLevel.CLICK
-    denied = DesktopSettings(denied_apps=("com.apple.mail",), app_levels=("Mail=full",))
+    denied = DesktopSettings(denied_apps=("com.apple.mail",))
     assert app_level(denied, "Mail", "com.apple.mail")[0] is None
-
-
-def test_kategori_kapali_ise_her_uygulama_tavani_alir():
-    settings = DesktopSettings(category_defaults=False)
-    assert app_level(settings, "Safari", "com.apple.Safari")[0] is DesktopLevel.FULL
-    assert app_level(settings, "Binance", "")[0] is DesktopLevel.FULL
 
 
 def test_eylemin_istedigi_kademe():
@@ -192,21 +194,27 @@ async def test_duzenleme_ve_manuel_kipte_de_ilk_kullanim_sorulur(tmp_path, probe
     assert decision is Decision.ALLOW and len(prompter.asked) == 1
 
 
-async def test_bypass_oturum_onayi_sormaz_plan_yapmaz(tmp_path, probe):
+async def test_bypass_da_ilk_kullanim_sorulur_sonra_hatirlanir_plan_yapmaz(tmp_path, probe):
+    """#446: İzinleri atla kipinde de uygulama başına "Bu oturum için izin ver" sorulur."""
     context = _context(tmp_path)
-    _, bypass, prompter = await _decide(
-        "desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.BYPASS
-    )
-    assert bypass is Decision.ALLOW and prompter.asked == []
+    memory = ApprovalMemory()
+    prompter = _Prompter(ApprovalAnswer.SESSION)
+    for _ in range(2):
+        _, bypass, _ = await _decide(
+            "desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.BYPASS, prompter, memory
+        )
+        assert bypass is Decision.ALLOW
+    assert len(prompter.asked) == 1
     _, plan, prompter = await _decide("desktop_click", {"x": 5, "y": 5}, context, ApprovalMode.PLAN)
     assert plan is Decision.BLOCKED and prompter.asked == []
 
 
-async def test_onay_kapaliyken_otomatik_kip_sormaz(tmp_path, probe):
+async def test_eski_app_consent_kapali_olsa_da_sorulur(tmp_path, probe):
+    """#426: uygulama onayını kapatan ayar yok; eski `app_consent: false` yok sayılır."""
     _, decision, prompter = await _decide(
         "desktop_click", {"x": 5, "y": 5}, _context(tmp_path, app_consent=False)
     )
-    assert decision is Decision.ALLOW and prompter.asked == []
+    assert decision is Decision.ALLOW and len(prompter.asked) == 1
 
 
 @pytest.mark.parametrize("mode", list(ApprovalMode))
@@ -249,7 +257,10 @@ async def test_reddedilen_uygulama_arka_plan_goruntusunde_de_kapanir(tmp_path, p
 
 async def test_desktop_open_ada_gore_engellenir(tmp_path, probe):
     _request, decision, _ = await _decide(
-        "desktop_open", {"app": "Binance"}, _context(tmp_path), ApprovalMode.BYPASS
+        "desktop_open",
+        {"app": "Binance"},
+        _context(tmp_path, denied_apps=("binance",)),
+        ApprovalMode.BYPASS,
     )
     assert decision is Decision.BLOCKED and probe.requests == []
 
@@ -269,7 +280,8 @@ async def test_hedef_okunamazsa_her_seferinde_sorulur(tmp_path, probe):
 # --------------------------------------------------------------------------- yüzeyler
 
 
-async def test_kart_uygulamayi_gosterir_her_zaman_reddet_listeye_yazar(tmp_path, probe):
+async def test_kart_uygulamayi_gosterir_yalniz_oturum_ve_reddet_sunar(tmp_path, probe):
+    """#426: "Allow for this session / Deny"; eski istemcinin "never" cevabı yine reddeder."""
     request = await resolve_request(
         _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, root=tmp_path, context=_context(tmp_path)
     )
@@ -289,7 +301,7 @@ async def test_kart_uygulamayi_gosterir_her_zaman_reddet_listeye_yazar(tmp_path,
     assert payload["masaustu"]["kademe"] == "full"
     values = {option["deger"]: option["etiket"] for option in payload["secenekler"]}
     assert values["session"] == "Bu oturumda Mail için izin ver"
-    assert "never" in values
+    assert list(values) == ["session", "deny"]
 
     pending.resolve(question["id"], {"secim": "never"})
     assert await task is ApprovalAnswer.DENY
@@ -301,7 +313,8 @@ async def test_terminalde_o_oturum_izni_verir(tmp_path, probe):
         _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, root=tmp_path, context=_context(tmp_path)
     )
     assert parse_console_answer("o", request) is ApprovalAnswer.SESSION
-    assert parse_console_answer("e", request) is True
+    # #426: tek çağrılık "evet" yok; onay oturum iznidir.
+    assert parse_console_answer("e", request) is ApprovalAnswer.SESSION
 
 
 async def test_her_zaman_reddet_ayni_turdaki_sonraki_cagriyi_sormadan_reddeder(tmp_path, probe):

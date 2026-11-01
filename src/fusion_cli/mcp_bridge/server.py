@@ -11,12 +11,10 @@ açmak `--write` ile bilinçli bir adımdır.
 
 `mcp` paketi opsiyoneldir (`fusion-cli[mcp]`); yoksa `fusion mcp` anlaşılır hata verir.
 
-Bilgisayar kullanımı (P-006/P-007): `desktop.enabled: false` ise `desktop_*` ailesi hiç
-sunulmaz; açıkken her masaüstü çağrısı Fusion'ın politikasından geçer (ret listesi, engelli
-kategori, kademe). MCP'de kullanıcıya soramadığımız için hedef okunamayan, ilk kez kullanılan
-uygulama onayı dış istemciye bırakılır ama riskli eylem (gönder/sil, Terminal'de Enter) ve
-hedefi doğrulanamayan eylem çalıştırılmaz. Ölçüldü (31 Ekim): sunucu boş `ToolContext` ile
-kuruluyor, bu kuralların hiçbiri uygulanmıyordu.
+Bilgisayar kullanımı (#445): Claude Code'da computer use etkileşimli oturum ister ve uygulama
+başına onay kullanıcıya sorulur; MCP sunucusunda kullanıcıya soramadığımız için `desktop_*`
+ailesi `desktop.enabled` ne olursa olsun HİÇ sunulmaz. `_desktop_refusal` savunma katmanı olarak
+kalır (ad listesi dışarıdan değişirse politika yine uygulanır).
 """
 
 from __future__ import annotations
@@ -89,7 +87,7 @@ def build_server(
         name
         for name in registry.names()
         if (expose_mutating or not _is_mutating(registry, name))
-        and (settings.enabled or tool_family(name) is not ToolFamily.DESKTOP)
+        and tool_family(name) is not ToolFamily.DESKTOP
     }
     server: Server = Server("fusion")
 

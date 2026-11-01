@@ -26,11 +26,11 @@ from typing import Any, Literal, TypeVar, Union, get_args, get_origin, get_type_
 import yaml
 from dotenv import dotenv_values
 
-from ..core.desktop_settings import DesktopSettings, parse_app_level
+from ..core.desktop_settings import DesktopSettings
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
-from . import trust
+from . import computer_use_projects, trust
 from .agent_launch_compat import read_agent_launch
 from .agent_launch_settings import AgentLaunchConfig
 from .keys import ProviderPreference, apply_preference, detect, prune_config
@@ -202,6 +202,11 @@ def load_config(path: str | Path | None = None) -> Config:
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
         # Claude ayarındaki `permissions.blockReadsOutsideWorkingDirectories: true` (#76).
         yapilandirma = _with_claude_read_block(yapilandirma, Path.cwd())
+        # Computer use proje başına açılabilir (`/mcp enable computer-use`, #420).
+        yapilandirma = dataclasses.replace(
+            yapilandirma,
+            desktop=computer_use_projects.effective(yapilandirma.desktop, Path.cwd()),
+        )
         # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
         yapilandirma = _with_plugin_mcp_servers(yapilandirma)
         # `--mcp-config` / `--strict-mcp-config` (Claude Code; #253).
@@ -311,14 +316,11 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
 
 
 def _build_desktop(raw: object) -> DesktopSettings:
-    """`desktop:` bölümü; `app_levels` girdileri yüklemede doğrulanır (çalışma anında değil)."""
-    desktop = _build(DesktopSettings, raw, "desktop")
-    for entry in desktop.app_levels:
-        try:
-            parse_app_level(entry)
-        except ValueError as error:
-            raise ConfigError(f"desktop.app_levels: {error}") from None
-    return desktop
+    """`desktop:` bölümü; kullanımdan kalkan kademe anahtarları okunur, bir kez uyarılır (#424)."""
+    from .desktop_deprecation import warn_deprecated_desktop_keys
+
+    warn_deprecated_desktop_keys(raw)
+    return _build(DesktopSettings, raw, "desktop")
 
 
 def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:
@@ -340,6 +342,9 @@ def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec |
 
 
 def _build_runtime(raw: object) -> RuntimeConfig:
+    from .desktop_deprecation import warn_deprecated_runtime_keys
+
+    warn_deprecated_runtime_keys(raw)
     # YAML 1.1: tırnaksız `off` mantıksal false okunur; kullanıcı niyeti "off"tur.
     if isinstance(raw, dict) and raw.get("shell_sandbox") is False:
         raw = {**raw, "shell_sandbox": "off"}

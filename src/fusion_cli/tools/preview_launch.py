@@ -1,4 +1,8 @@
-"""`.fusion/launch.json`: kullanıcının tanımladığı geliştirme sunucusu yapılandırmaları.
+"""`.claude/launch.json`: kullanıcının tanımladığı geliştirme sunucusu yapılandırmaları.
+
+#440: Claude Code'un dosyası birincildir (yazılan da odur); `.fusion/launch.json` eski ad olarak
+okunur. `program`/`args`, `port` varsayılanı 3000, `${workspaceFolder}`, `--port`/`-p` yeniden
+yazımı, yorumlu JSON ve üst düzey `autoVerify` (varsayılan açık) `tools/launch_json.py`'dedir.
 
 Ölçüldü (31 Ekim, P-041): önizleme sunucusu yalnız dosyalardan ANLAŞILAN türleri
 (WordPress, PHP, Node `dev`/`start`, statik) başlatabiliyordu; monorepo, özel port, Vite
@@ -40,13 +44,13 @@ from urllib.parse import urljoin, urlparse
 from ..config import trust
 from ..core.errors import FusionError
 from ..core.redaction import SECRET_ENV_NAME
-from . import preview_ports, preview_server
+from . import launch_json, preview_ports, preview_server
 from .preview_server import LOCAL_HOSTS, PreviewError, PreviewKind, RunningPreview
 from .wordpress_setup import php_env
 
-#: Okunma sırası: Fusion'ın kendi dosyası önce, Claude Code'unki uyumluluk için.
+#: Okunma sırası: Claude Code'un dosyası önce, Fusion'ın eski adı uyumluluk için.
 LAUNCH_FILES: tuple[str, ...] = tuple(path.as_posix() for path in trust.PROJECT_LAUNCH_FILES)
-#: Yazılan/örneklenen dosya (uyumluluk dosyasına yazılmaz).
+#: Yazılan/örneklenen dosya (`.claude/launch.json`).
 LAUNCH_FILE = LAUNCH_FILES[0]
 #: Yapılandırma adı: menüde ve `start_preview name=` içinde kullanılır; kabuğa gitmez.
 #: İç boşluğa izin verilir ("Web Server" Claude Code'da olağan); baş/son boşluk kırpılır.
@@ -67,6 +71,8 @@ KNOWN_FIELDS = frozenset(
         "type",
         "request",
         "autoPort",
+        "program",
+        "args",
     }
 )
 #: Alt sürece GEÇMEYEN ortam değişkenleri: sağlayıcı anahtarları ve sırlar. Dev sunucu
@@ -152,6 +158,8 @@ class LaunchConfigs:
     warnings: tuple[str, ...] = ()
     #: Okunan dosya güven kaydında mı (komutlu yapılandırmalar için gerekir).
     trusted: bool = False
+    #: Üst düzey `autoVerify` (Claude Code: varsayılan açık; `false` projede kapatır).
+    auto_verify: bool = True
 
     def get(self, name: str) -> LaunchConfig | None:
         return next((config for config in self.configs if config.name == name), None)
@@ -187,18 +195,27 @@ def load_launch_configs(root: Path) -> LaunchConfigs:
             ilk_hata = ilk_hata or error
             continue
         if ilk_hata is not None:
-            return LaunchConfigs(
-                loaded.configs, loaded.source, (str(ilk_hata), *loaded.warnings), loaded.trusted
-            )
+            return replace(loaded, warnings=(str(ilk_hata), *loaded.warnings))
         return loaded
     if ilk_hata is not None:
         raise ilk_hata
     return LaunchConfigs((), None)
 
 
+def auto_verify_enabled(root: Path) -> bool:
+    """Projenin launch.json'ı `autoVerify: false` demiyorsa True (Claude: varsayılan açık, #440).
+
+    Dosya yoksa ya da bozuksa açık kalır: doğrulamayı kapatmak açık bir karar ister.
+    """
+    try:
+        return load_launch_configs(root).auto_verify
+    except (LaunchConfigError, OSError):
+        return True
+
+
 def _load_file(root: Path, path: Path, source: str) -> LaunchConfigs:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(launch_json.strip_json_comments(path.read_text(encoding="utf-8")))
     except OSError as error:
         raise LaunchConfigError(f"{source} okunamadı: {error}") from error
     except ValueError as error:
@@ -221,7 +238,11 @@ def _load_file(root: Path, path: Path, source: str) -> LaunchConfigs:
             warnings.append(f"{source}: '{config.name}' adı tekrar ediyor; ikinci kayıt atlandı.")
             continue
         configs.append(config)
-    return LaunchConfigs(tuple(configs), source, tuple(warnings), trusted)
+    auto_verify = raw.get("autoVerify", True)
+    if not isinstance(auto_verify, bool):
+        warnings.append(f"{source}: `autoVerify` true ya da false olmalı; varsayılan (true).")
+        auto_verify = True
+    return LaunchConfigs(tuple(configs), source, tuple(warnings), trusted, auto_verify)
 
 
 def find_launch_config(root: Path, name: str) -> LaunchConfig:
@@ -292,6 +313,14 @@ def _parse(
     if executable is not None and (not isinstance(executable, str) or not executable.strip()):
         raise LaunchConfigError(f"{source} [{name}]: `runtimeExecutable` boş olmayan metin olmalı.")
     raw_args = item.get("runtimeArgs", [])
+    program = item.get("program")
+    if executable is None and isinstance(program, str) and program.strip():
+        # `program` + `args`: doğrudan `node` ile çalışan betik (#440).
+        script_args = item.get("args", [])
+        if not isinstance(script_args, list):
+            raise LaunchConfigError(f"{source} [{name}]: `args` metin listesi olmalı.")
+        executable, raw_args = launch_json.program_command(program.strip(), script_args)
+        raw_args = list(raw_args)
     if (
         not isinstance(raw_args, list)
         or len(raw_args) > MAX_ARGS
@@ -314,8 +343,10 @@ def _parse(
     if executable is None and url is None:
         raise LaunchConfigError(f"{source} [{name}]: `runtimeExecutable` ya da `url` gerekir.")
     if executable is not None and port is None and url is None:
-        raise LaunchConfigError(f"{source} [{name}]: komutla birlikte `port` ya da `url` gerekir.")
+        port = launch_json.DEFAULT_PORT  # Claude Code: "Defaults to 3000" (#440)
     cwd = item.get("cwd", "")
+    if isinstance(cwd, str):
+        cwd = launch_json.workspace_relative(cwd)
     if (
         not isinstance(cwd, str)
         or PurePosixPath(cwd).is_absolute()
@@ -498,7 +529,11 @@ def _with_free_port(config: LaunchConfig) -> LaunchConfig:
         config,
         port=choice.port,
         url=preview_ports.with_port(config.url, choice.port) if config.url else None,
-        args=preview_ports.expand_port(config.args, choice.port),
+        args=launch_json.rewrite_port_flags(
+            preview_ports.expand_port(config.args, choice.port), choice.port
+        )
+        if choice.port != requested
+        else preview_ports.expand_port(config.args, choice.port),
     )
 
 

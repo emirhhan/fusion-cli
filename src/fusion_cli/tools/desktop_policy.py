@@ -1,14 +1,17 @@
 """Masaüstü eylem politikası: hedef uygulama, kademe tablosu ve engeller (P-007).
 
 Claude Desktop computer use uygulama başına çalışır: ilk kullanımda "Allow for this session /
-Deny" sorar, erişim kademesi kategoriye göre sabittir (tarayıcı = View only, terminal/IDE =
-Click only, diğerleri = Full control), yatırım/kripto uygulamaları engellidir, Terminal /
-Finder / System Settings ek uyarı taşır. Bu modül aynı kararı Fusion'ın araçları için verir:
+Deny" sorar, erişim kademesi kategoriye göre SABİTTİR ve değiştirilemez ("These tiers are fixed
+by app category and can't be changed", #424): tarayıcılar ve yatırım platformları = View only,
+terminal/IDE = Click only, diğer her şey = Full control (#425; engelli kategori yok). Terminal /
+Finder / System Settings ek uyarı taşır. Kullanıcı yalnız reddedilen uygulamalar listesi tutar.
+Bu modül aynı kararı Fusion'ın araçları için verir:
 
 1. Eylemin HEDEF uygulamasını çöz: tıklama noktasındaki pencerenin sahibi (AX), klavyede
    öndeki uygulama, arka plan araçlarında `pid`, `desktop_open`'da verilen ad.
-2. Uygulamanın kademesini bul: ret listesi → Fusion'ın kendisi → `desktop.app_levels` →
-   kategori tablosu → `desktop.control_level` tavanı.
+2. Uygulamanın kademesini bul: ret listesi → Fusion'ın kendisi → sabit kategori tablosu.
+   Kullanımdan kalkan `desktop.app_levels`, `control_level`, `category_defaults` okunur ama
+   uygulanmaz (yükleyici bir kez uyarır).
 3. Eylemin istediği kademeyle karşılaştır; yetmiyorsa ya da uygulama engelliyse çağrı
    sorulmadan kapanır (her kipte, `bypass` dahil). Oturum onayı ve riskli eylem kararı
    onay katmanındadır (`engines/agent/desktop_approval.py`).
@@ -24,10 +27,10 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
-from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget, parse_app_level
+from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget
 from ..core.tools import ToolArgs, ToolContext, ToolEffect
 from .args import coerce_int
-from .desktop_risk import risky_reason
+from .desktop_risk import UNVERIFIED_ELEMENT, risky_reason
 from .native_desktop import SwiftDesktop
 
 #: Hedef sorgusu: yardımcıya giden istek gövdesi → yanıt (testte sahte verilir).
@@ -35,13 +38,11 @@ TargetProbe = Callable[[dict[str, object]], Awaitable[Mapping[str, object]]]
 
 BROWSER_HINT = "Web işi için chrome_* ya da browser_* araçlarını kullan."
 SHELL_HINT = "Kabuk erişimine eşdeğer: komut için run_shell kullan."
-LEVEL_SETTING_HINT = "Kademeyi Ayarlar › Bu bilgisayar'dan (desktop.app_levels) değiştirebilirsin."
+LEVEL_SETTING_HINT = (
+    "Kademeler uygulama kategorisine göre sabittir; bu eylemi başka bir yoldan yap."
+)
 DENIED_REASON = "{app} reddedilen uygulamalar listesinde (desktop.denied_apps)"
 FUSION_REASON = "Fusion kendi penceresini yönetemez (kendi onay kartını onaylayamaz)"
-CATEGORY_BLOCKED_REASON = (
-    "{app} {label} uygulaması; varsayılan olarak engelli. Gerekirse kullanıcı "
-    "desktop.app_levels ile açar"
-)
 LEVEL_REASON = "{app} için kademe '{level}', bu eylem '{required}' ister. {hint}"
 #: Arka plan aracının hedefi (pid) doğrulanamadı: ret listesi denetlenemez, çağrı kapanır.
 UNVERIFIED_REASON = (
@@ -86,45 +87,49 @@ def normalize_app(name: str) -> str:
 #: Sıralıdır: ilk eşleşen kazanır (Fusion ve engelliler önce).
 CATEGORIES: tuple[AppCategory, ...] = (
     AppCategory(
-        "fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop",), ("fusion",),
+        "fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop", "fusion.exe"), ("fusion",),
         exact_names=True,
     ),
     AppCategory(
-        "finance", "yatırım/kripto", None, "Yatırım ve kripto uygulamaları engelli.",
+        "finance", "yatırım platformu", DesktopLevel.OBSERVE,
+        "Yatırım platformu: yalnız ekran görüntüsünde görülebilir.",
         ("com.binance", "com.coinbase", "com.krakenfx", "net.metaquotes", "com.tradingview",
          "com.robinhood", "com.interactivebrokers", "com.ledger", "com.exodus", "io.trezor",
-         "org.electrum", "com.etoro", "com.webull", "com.tdameritrade"),
+         "org.electrum", "com.etoro", "com.webull", "com.tdameritrade",
+         # Windows exe adları (#430): MetaTrader 4/5, TradingView, IBKR TWS, Ledger…
+         "terminal.exe", "terminal64.exe", "tradingview.exe", "tws.exe", "ledger live.exe",
+         "exodus.exe", "binance.exe", "thinkorswim.exe", "webull desktop.exe"),
         ("binance", "coinbase", "kraken", "metatrader 4", "metatrader 5", "tradingview",
          "robinhood", "trader workstation", "ibkr desktop", "thinkorswim", "ledger live",
          "exodus", "trezor suite", "electrum", "etoro", "webull", "midas", "btcturk", "paribu",
          "matriks", "bitlo", "icrypex"),
     ),
     AppCategory(
-        "secrets", "parola yöneticisi", None, "Parola yöneticileri engelli.",
-        ("com.apple.keychainaccess", "com.apple.passwords", "com.1password", "com.agilebits",
-         "com.bitwarden", "com.lastpass", "com.dashlane", "org.keepassxc"),
-        ("keychain access", "anahtar zinciri erişimi", "passwords", "parolalar", "1password",
-         "bitwarden", "lastpass", "dashlane", "keepassxc"),
-    ),
-    AppCategory(
         "browser", "tarayıcı", DesktopLevel.OBSERVE, BROWSER_HINT,
         ("com.apple.safari", "com.google.chrome", "org.mozilla.firefox", "com.microsoft.edgemac",
          "com.brave.browser", "company.thebrowser.browser", "com.operasoftware.opera",
-         "com.vivaldi.vivaldi", "ru.yandex.desktop.yandex-browser", "org.chromium.chromium"),
+         "com.vivaldi.vivaldi", "ru.yandex.desktop.yandex-browser", "org.chromium.chromium",
+         "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe",
+         "arc.exe", "chromium.exe", "browser.exe", "iexplore.exe"),
         ("safari", "google chrome", "firefox", "microsoft edge", "brave browser", "arc", "opera",
          "vivaldi", "chromium", "yandex"),
     ),
     AppCategory(
         "terminal", "terminal", DesktopLevel.CLICK, SHELL_HINT,
         ("com.apple.terminal", "com.googlecode.iterm2", "dev.warp.warp", "net.kovidgoyal.kitty",
-         "com.github.wez.wezterm", "io.alacritty", "org.alacritty", "com.mitchellh.ghostty"),
+         "com.github.wez.wezterm", "io.alacritty", "org.alacritty", "com.mitchellh.ghostty",
+         "windowsterminal.exe", "openconsole.exe", "conhost.exe", "cmd.exe", "powershell.exe",
+         "pwsh.exe", "wezterm-gui.exe", "alacritty.exe", "mintty.exe", "wsl.exe", "bash.exe"),
         ("terminal", "iterm", "iterm2", "warp", "kitty", "wezterm", "alacritty", "ghostty"),
     ),
     AppCategory(
         "ide", "IDE", DesktopLevel.CLICK, SHELL_HINT,
         ("com.microsoft.vscode", "com.todesktop.230313mzl4w4u92", "com.jetbrains.",
          "com.apple.dt.xcode", "dev.zed.zed", "com.sublimetext.", "com.exafunction.windsurf",
-         "com.google.android.studio"),
+         "com.google.android.studio",
+         "code.exe", "cursor.exe", "devenv.exe", "windsurf.exe", "zed.exe", "sublime_text.exe",
+         "idea64.exe", "pycharm64.exe", "webstorm64.exe", "goland64.exe", "phpstorm64.exe",
+         "rider64.exe", "clion64.exe", "studio64.exe"),
         ("visual studio code", "code", "cursor", "xcode", "zed", "sublime text", "windsurf",
          "intellij idea", "pycharm", "webstorm", "android studio", "goland", "phpstorm"),
     ),
@@ -133,19 +138,23 @@ CATEGORIES: tuple[AppCategory, ...] = (
         "Enter mesajı gönderir; her gönderim ayrıca sorulur (Shift+Enter satır ekler).",
         ("com.tinyspeck.slackmacgap", "com.apple.mobilesms", "net.whatsapp.whatsapp",
          "desktop.whatsapp", "ru.keepcoder.telegram", "org.telegram.desktop", "com.hnc.discord",
-         "com.microsoft.teams", "org.whispersystems.signal-desktop", "com.facebook.archon"),
+         "com.microsoft.teams", "org.whispersystems.signal-desktop", "com.facebook.archon",
+         "slack.exe", "whatsapp.exe", "telegram.exe", "discord.exe", "ms-teams.exe",
+         "teams.exe", "signal.exe", "messenger.exe"),
         ("slack", "messages", "mesajlar", "whatsapp", "telegram", "discord", "microsoft teams",
          "signal", "messenger"),
     ),
     AppCategory(
         "system", "Sistem Ayarları", DesktopLevel.FULL,
         "Sistem ayarlarını değiştirebilir; her eylem ayrıca sorulur.",
-        ("com.apple.systempreferences", "com.apple.settings"),
-        ("system settings", "system preferences", "sistem ayarları", "sistem tercihleri"),
+        ("com.apple.systempreferences", "com.apple.settings", "systemsettings.exe", "control.exe",
+         "regedit.exe", "mmc.exe", "taskmgr.exe"),
+        ("system settings", "system preferences", "sistem ayarları", "sistem tercihleri",
+         "settings", "ayarlar", "control panel", "denetim masası"),
     ),
     AppCategory(
         "finder", "Finder", DesktopLevel.FULL, "Her dosyayı okuyup yazabilir.",
-        ("com.apple.finder",), ("finder",),
+        ("com.apple.finder", "explorer.exe"), ("finder", "file explorer", "dosya gezgini"),
     ),
 )  # fmt: skip
 
@@ -175,27 +184,20 @@ def _app_keys(app: str, bundle: str) -> frozenset[str]:
 def app_level(
     settings: DesktopSettings, app: str, bundle: str = ""
 ) -> tuple[DesktopLevel | None, AppCategory | None, str]:
-    """Uygulamanın kademesi (None = engelli), kategorisi ve engel gerekçesi."""
+    """Uygulamanın kademesi (None = engelli), kategorisi ve engel gerekçesi.
+
+    Kademe yalnız sabit kategori tablosundan gelir (#424); ret listesi ve Fusion'ın kendi
+    penceresi dışında engelli uygulama yoktur (#425).
+    """
     keys = _app_keys(app, bundle)
     category = category_for(app, bundle)
     if any(normalize_app(item) in keys for item in settings.denied_apps):
         return None, category, DENIED_REASON.format(app=app or bundle)
     if category is not None and category.key == "fusion":
         return None, category, FUSION_REASON
-    override = next(
-        (level for name, level in map(parse_app_level, settings.app_levels) if name in keys),
-        None,
-    )
-    level = DesktopLevel.FULL
-    if override is not None:
-        level = override
-    elif settings.category_defaults and category is not None:
-        if category.level is None:
-            reason = CATEGORY_BLOCKED_REASON.format(app=app or bundle, label=category.label)
-            return None, category, reason
-        level = category.level
-    cap = settings.control_level
-    return (level if level.rank <= cap.rank else cap), category, ""
+    if category is None or category.level is None:
+        return DesktopLevel.FULL, category, ""
+    return category.level, category, ""
 
 
 #: Kademe gerektiren araçlar; listede olmayan masaüstü aracı (tam ekran görüntüsü, listeler)
@@ -227,6 +229,18 @@ def required_level(tool_name: str, args: ToolArgs) -> DesktopLevel | None:
 
 
 async def _swift_probe(request: dict[str, object]) -> Mapping[str, object]:
+    from . import desktop_win32
+
+    if desktop_win32.active():
+        # Windows (#430): WindowFromPoint / öndeki pencere → süreç → exe; UIA ile öğe adı.
+        import asyncio
+
+        from .desktop_win32_screen import probe
+
+        try:
+            return await asyncio.to_thread(probe, request)
+        except OSError as exc:
+            return {"ok": False, "metin": str(exc)}
     return await SwiftDesktop().invoke("target", {"kind": "probe", "request": request})
 
 
@@ -267,6 +281,8 @@ def _number(value: object) -> float | None:
 def _element_label(raw: object) -> str:
     if not isinstance(raw, Mapping):
         return ""
+    if raw.get("unverified"):
+        return UNVERIFIED_ELEMENT
     role = str(raw.get("role") or "").removeprefix("AX")
     name = next(
         (str(raw[key]).strip() for key in ("title", "description", "help") if raw.get(key)), ""
@@ -337,7 +353,7 @@ async def assess(
     if level.rank < required.rank:
         hint = (
             category.warning
-            if category is not None and category.key in {"browser", "terminal", "ide"}
+            if category is not None and category.key in {"browser", "finance", "terminal", "ide"}
             else LEVEL_SETTING_HINT
         )
         blocked = LEVEL_REASON.format(
@@ -363,17 +379,9 @@ async def observe_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolE
 def capture_exclusions(settings: DesktopSettings) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Ekran görüntüsünden çıkarılacak uygulamalar: (adlar, paket önekleri), küçük harf.
 
-    Reddedilen uygulamalar ve (kategori tablosu açıksa) engelli kategoriler; `app_levels` ile
-    açıkça açılan uygulama hariç. Claude'da denied app'e "dokunulmaz"; Fusion ayrıca penceresini
-    modele göstermez (P-007, P-033).
+    Yalnız reddedilen uygulamalar. Claude'da View only kademesi "See the app in screenshots"
+    demektir (#425): yatırım platformları görüntüde kalır. Fusion penceresi (ve CLI'de terminal)
+    ayrıca her zaman çıkarılır (`desktop_screen`).
     """
-    opened = {name for name, _level in map(parse_app_level, settings.app_levels)}
     names = {item.strip().casefold() for item in settings.denied_apps if item.strip()}
-    prefixes = set(names)
-    if settings.category_defaults:
-        for category in CATEGORIES:
-            if category.level is not None or category.key == "fusion":
-                continue
-            names.update(name for name in category.names if name not in opened)
-            prefixes.update(category.bundles)
-    return tuple(sorted(names - opened)), tuple(sorted(prefixes - opened))
+    return tuple(sorted(names)), tuple(sorted(names))

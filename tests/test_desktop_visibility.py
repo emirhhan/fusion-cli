@@ -82,7 +82,9 @@ def test_bolge_yakalama_da_dislamali_yerel_yoldan_gider(tmp_path, monkeypatch, s
     assert "1password" in request["excludeNames"]  # type: ignore[index]
 
 
-def test_fusion_dislamasi_kapali_olsa_da_ret_listesi_dislanir(tmp_path, monkeypatch, screen):
+def test_eski_dislama_ayari_kapali_olsa_da_fusion_ve_ret_listesi_dislanir(
+    tmp_path, monkeypatch, screen
+):
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         desktop_screen, "invoke_sync", lambda operation, target: calls.append(target) or {}
@@ -96,7 +98,8 @@ def test_fusion_dislamasi_kapali_olsa_da_ret_listesi_dislanir(tmp_path, monkeypa
 
     assert desktop_screen.desktop_screenshot({"path": "s.png"}, context).ok
     request = calls[0]["request"]
-    assert request["excludePids"] == [] and "notes" in request["excludeNames"]  # type: ignore[index]
+    assert request["excludePids"] == desktop_screen._exclude_pids()  # type: ignore[index]
+    assert "notes" in request["excludeNames"]  # type: ignore[index]
 
 
 def test_geri_dususte_engelli_uygulama_gorunurse_yakalanmaz(tmp_path, monkeypatch, screen):
@@ -108,7 +111,7 @@ def test_geri_dususte_engelli_uygulama_gorunurse_yakalanmaz(tmp_path, monkeypatc
             settings, ("Finder", "1Password 7", "Fusion")
         ),
     )
-    context = _context(tmp_path, denied_apps=("Mail",))
+    context = _context(tmp_path, denied_apps=("Mail", "1Password 7"))
     for args in ({"path": "s.png"}, {"path": "s.png", "region": "0,0,10,10"}):
         result = desktop_screen.desktop_screenshot(args, context)
         assert not result.ok and "1Password 7" in result.output
@@ -119,7 +122,8 @@ def test_geri_dususte_pencereler_okunamazsa_yakalanmaz(tmp_path, monkeypatch, sc
     monkeypatch.setattr(desktop_screen, "_native_capture", lambda *_, **__: None)
     monkeypatch.setattr(desktop_screen, "_hidden_apps_on_screen", lambda settings: None)
 
-    result = desktop_screen.desktop_screenshot({"path": "s.png"}, _context(tmp_path))
+    context = _context(tmp_path, denied_apps=("1Password",))
+    result = desktop_screen.desktop_screenshot({"path": "s.png"}, context)
 
     assert not result.ok and "okunamadı" in result.output and screen == []
 
@@ -130,15 +134,16 @@ def test_geri_dususte_engelli_uygulama_yoksa_ya_da_liste_bossa_yakalanir(
     monkeypatch.setattr(desktop_screen, "_native_capture", lambda *_, **__: None)
     monkeypatch.setattr(desktop_screen, "_hidden_apps_on_screen", lambda settings: ())
     assert desktop_screen.desktop_screenshot({"path": "a.png"}, _context(tmp_path)).ok
-    # Kategori kapalı ve ret listesi boş: denetlenecek bir şey yok, pencereler okunmaz.
+    # Ret listesi boş: denetlenecek bir şey yok, pencereler okunmaz (#425: engelli kategori yok).
     monkeypatch.setattr(desktop_screen, "_hidden_apps_on_screen", lambda settings: None)
-    context = _context(tmp_path, category_defaults=False)
+    context = _context(tmp_path)
     assert desktop_screen.desktop_screenshot({"path": "b.png"}, context).ok
     assert [command[0] for command in screen] == ["screencapture", "screencapture"]
 
 
 def test_gorunen_engelli_uygulamalar_fusion_ve_acilanlar_haric():
-    settings = DesktopSettings(denied_apps=("Mail",), app_levels=("Binance=observe",))
+    # #425: yatırım platformu ve parola yöneticisi engelli değil; yalnız ret listesi gizlenir.
+    settings = DesktopSettings(denied_apps=("Mail", "1Password"))
     owners = ("Mail", "Binance", "Fusion", "Notes", "1Password", "")
     assert desktop_visibility.visible_hidden_apps(settings, owners) == ("1Password", "Mail")
     assert desktop_visibility.visible_hidden_apps(settings, None) is None
@@ -161,7 +166,7 @@ def _osascript(monkeypatch, stdout: str) -> None:
 def test_desktop_windows_engelli_uygulamalari_listelemez(tmp_path, monkeypatch):
     """Ölçüldü (31 Ekim): kasa kaydı başlıkları (1Password penceresi) listede dönüyordu."""
     _osascript(monkeypatch, "Mail\tGelen\n1Password 7\tBanka hesabı\nNotes\tListe\n")
-    context = _context(tmp_path, denied_apps=("Notes",))
+    context = _context(tmp_path, denied_apps=("Notes", "1Password 7"))
 
     result = desktop_inspect.desktop_windows({}, context)
 
@@ -173,7 +178,8 @@ def test_desktop_accessibility_engelli_on_uygulamada_agac_vermez(tmp_path, monke
         monkeypatch,
         "Uygulama: 1Password\nPaket: com.1password.1password\nPencere: Kasa\nAXRow\tBanka\n",
     )
-    result = desktop_inspect.desktop_accessibility({}, _context(tmp_path))
+    context = _context(tmp_path, denied_apps=("1Password",))
+    result = desktop_inspect.desktop_accessibility({}, context)
     assert not result.ok and "Banka" not in result.output and "1Password" in result.output
 
     _osascript(monkeypatch, "Uygulama: Notlar\nPaket: com.apple.Notes\nPencere: A\nAXButton\tB\n")
@@ -197,7 +203,7 @@ async def test_arka_plan_pencere_listesi_engellileri_gizler(tmp_path, monkeypatc
     monkeypatch.setattr(desktop_background, "SwiftDesktop", _Host)
 
     result = await desktop_background.desktop_background_windows(
-        {}, _context(tmp_path, denied_apps=("notes",))
+        {}, _context(tmp_path, denied_apps=("notes", "Bitwarden"))
     )
 
     assert [row["app"] for row in json.loads(result.output)["windows"]] == ["Mail"]

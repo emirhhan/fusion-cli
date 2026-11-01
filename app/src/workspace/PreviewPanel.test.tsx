@@ -133,6 +133,10 @@ describe("PreviewPanel", () => {
     await waitFor(() => expect(sec.hasAttribute("disabled")).toBe(false));
     fireEvent.click(sec);
     expect(onOpenInBrowser).toHaveBeenLastCalledWith("http://localhost:3001/", true);
+    // Cmd/Ctrl+Shift+S aynı öğe seçiciyi açar (Claude Desktop, #444).
+    onOpenInBrowser.mockClear();
+    fireEvent.keyDown(document, { key: "S", code: "KeyS", metaKey: true, shiftKey: true });
+    expect(onOpenInBrowser).toHaveBeenCalledExactlyOnceWith("http://localhost:3001/", true);
   });
 
   it("kendinden imzalı yerel https'te önizleme açılır ve Tarayıcı paneli önerilir", async () => {

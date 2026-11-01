@@ -84,6 +84,7 @@ from . import (
     agent_link,
     async_commands,
     browser_command,
+    chrome_cli,
     cron_store,
     goal_flow,
     goal_store,
@@ -174,6 +175,7 @@ async def run_repl(
     initial_prompt: str = "",
     launch_prompts: object = None,
     setup_trigger: str = "",
+    chrome: bool | None = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -214,6 +216,14 @@ async def run_repl(
             if restored_note:
                 console.print(f"[{theme.WARN}]{escape(restored_note)}[/{theme.WARN}]")
     try:
+        # `--chrome`/`--no-chrome`/Enabled by default (#421): köprü oturum boyu yaşar.
+        state.chrome = await chrome_cli.open_for_session(
+            console,
+            root=root,
+            home=state.home,
+            flag=chrome,
+            interactive=is_interactive_terminal(),
+        )
         requested_persona = persona.strip() or (
             ""
             if resume is not None and (state.persona or restored_note)
@@ -236,6 +246,7 @@ async def run_repl(
         state.launch_prompts = launch_prompts_mod.bind(state, launch_prompts, resumed=resume)
         return await _run_surface(state, config, console, resume, setup_trigger)
     finally:
+        await chrome_cli.close_session(state.chrome)
         await state.child_runs.close()
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
@@ -1093,6 +1104,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
+            chrome=chrome_cli.bridge_of(state.chrome),
         ),
         state.config,
     )

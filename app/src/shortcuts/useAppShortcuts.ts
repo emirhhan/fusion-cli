@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import { DEFAULT_KEYMAP, effectiveBindings, eventToKey, isMacPlatform, keymapFromPayload, type Keymap } from "./keys";
+import { DEFAULT_KEYMAP, LEGACY_BINDINGS, effectiveBindings, eventToKey, isMacPlatform, keymapFromPayload, type Keymap } from "./keys";
 
 /** Ayarlar › Kısayollar bir bağı değiştirince yayınlanan pencere olayı (yük: `kisayol.*` yanıtı). */
 export const KEYMAP_CHANGED_EVENT = "fusion:kisayollar-degisti";
 /** Son okunan tablo (çekirdek yokken geçerli olan); yalnız bu cihazın kolaylığı, kaynak dosyadır. */
 export const KEYMAP_CACHE_KEY = "fusion.kisayollar.son";
+/** Eski varsayılan uyarısı verilmiş tuşlar (#444): her tuş bir kez uyarılır. */
+export const LEGACY_WARNED_KEY = "fusion.kisayollar.eskiUyarildi";
 /** Bu özniteliği taşıyan öğenin içinde (tuş kaydı alanı) global kısayollar çalışmaz. */
 export const SHORTCUT_CAPTURE_ATTRIBUTE = "data-kisayol-kaydi";
 
@@ -60,6 +62,18 @@ export function useKeymap(client: KeymapClient | null): Keymap {
   return keymap;
 }
 
+function firstLegacyUse(key: string): boolean {
+  try {
+    const warned = JSON.parse(localStorage.getItem(LEGACY_WARNED_KEY) ?? "[]") as unknown;
+    const list = Array.isArray(warned) ? warned.filter((item): item is string => typeof item === "string") : [];
+    if (list.includes(key)) return false;
+    localStorage.setItem(LEGACY_WARNED_KEY, JSON.stringify([...list, key]));
+    return true;
+  } catch {
+    return false; // Depo kapalı: uyarı her basışta yinelenmesin.
+  }
+}
+
 /** xterm'in odak öğesi bu seçicinin içindedir. */
 const TERMINAL_SELECTOR = ".xterm";
 
@@ -85,30 +99,35 @@ export function useGlobalShortcuts(
   baglar: Record<string, string>,
   handlerRef: MutableRefObject<(action: string) => boolean>,
   mac: boolean = isMacPlatform(),
+  onLegacy?: (key: string, action: string) => void,
 ): void {
+  const legacyRef = useRef(onLegacy);
+  legacyRef.current = onLegacy;
   useEffect(() => {
     const table = effectiveBindings(baglar, mac);
+    const legacy = effectiveBindings(LEGACY_BINDINGS, mac);
     const resolve = (event: KeyboardEvent): [string, string] | null => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return null;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest(`[${SHORTCUT_CAPTURE_ATTRIBUTE}]`)) return null;
       const key = eventToKey(event, mac);
-      const action = key ? table.get(key) : undefined;
+      const action = key ? table.get(key) ?? legacy.get(key) : undefined;
       return key && action ? [key, action] : null;
     };
-    const run = (event: KeyboardEvent, action: string) => {
+    const run = (event: KeyboardEvent, action: string, key?: string) => {
       if (!handlerRef.current(action)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (key && !table.has(key) && legacy.has(key) && firstLegacyUse(key)) legacyRef.current?.(key, action);
     };
     const onKey = (event: KeyboardEvent) => {
       const found = resolve(event);
-      if (found) run(event, found[1]);
+      if (found) run(event, found[1], found[0]);
     };
     const onTerminalKey = (event: KeyboardEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest(TERMINAL_SELECTOR)) return;
       const found = resolve(event);
-      if (found && passesTerminal(...found)) run(event, found[1]);
+      if (found && passesTerminal(...found)) run(event, found[1], found[0]);
     };
     window.addEventListener("keydown", onKey);
     if (!mac) window.addEventListener("keydown", onTerminalKey, true);

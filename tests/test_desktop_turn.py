@@ -36,6 +36,7 @@ class _FakeIo:
         self.unhidden: list[tuple[int, ...]] = []
         self.escape_handlers: list[object] = []
         self.stopped = 0
+        self.notes: list[str] = []
 
     def io(self) -> DesktopTurnIo:
         def hide(keep):
@@ -50,7 +51,11 @@ class _FakeIo:
             return self._stop
 
         return DesktopTurnIo(
-            hide=hide, unhide=unhide, start_escape=start_escape, keep_pids=lambda: (1, 2)
+            hide=hide,
+            unhide=unhide,
+            start_escape=start_escape,
+            keep_pids=lambda: (1, 2),
+            notify=self.notes.append,
         )
 
     def _stop(self) -> None:
@@ -92,11 +97,13 @@ def test_esc_kapaliysa_dinleyici_kurulmaz():
     assert fake.escape_handlers == []
 
 
-async def test_esc_tur_gorevini_iptal_eder_ve_kilit_birakilir(tmp_path, monkeypatch):
+async def test_esc_tur_gorevini_iptal_eder_kilit_tur_sonunda_kalir(tmp_path, monkeypatch):
     fake = _FakeIo()
     released: list[str] = []
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
-    context = ToolContext(root=tmp_path, job_scope="tur-1")
+    context = ToolContext(
+        root=tmp_path, job_scope="tur-1", desktop_settings=DesktopSettings(enabled=True)
+    )
     started = asyncio.Event()
 
     async def turn_body() -> None:
@@ -115,7 +122,8 @@ async def test_esc_tur_gorevini_iptal_eder_ve_kilit_birakilir(tmp_path, monkeypa
     threading.Thread(target=handler).start()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert fake.stopped == 1 and released == ["tur-1"]
+    # #429: kilit tur bitince değil, oturum çıkınca bırakılır.
+    assert fake.stopped == 1 and released == []
     assert context.desktop.turn is None
 
 
@@ -219,7 +227,7 @@ async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(
 ):
     monkeypatch.setattr(desktop_lock, "release", lambda **kw: None)
     fake = _FakeIo()
-    context = ToolContext(root=tmp_path)
+    context = ToolContext(root=tmp_path, desktop_settings=DesktopSettings(enabled=True))
     turn = desktop_turn.begin(context, fake.io())
     assert turn is not None and not desktop_turn.escape_listening()
     desktop_turn.foreground_action(context)
@@ -232,12 +240,11 @@ async def test_finish_esc_ile_durduysa_true_dondurur_dinleyici_durumu_izlenir(
 
 
 def test_reddedilen_ve_engelli_uygulamalar_goruntuden_dislanir(monkeypatch):
-    names, prefixes = capture_exclusions(
-        DesktopSettings(denied_apps=("Mail",), app_levels=("Binance=observe",))
-    )
-    assert "mail" in names and "1password" in names and "binance" not in names
-    assert "com.binance" in prefixes and "com.fusion.desktop" not in prefixes
-    assert capture_exclusions(DesktopSettings(category_defaults=False)) == ((), ())
+    # #425: yalnız ret listesi görüntüden çıkar; View only "See the app in screenshots".
+    names, prefixes = capture_exclusions(DesktopSettings(denied_apps=("Mail",)))
+    assert names == ("mail",) and "binance" not in names and "1password" not in names
+    assert "com.binance" not in prefixes and "com.fusion.desktop" not in prefixes
+    assert capture_exclusions(DesktopSettings()) == ((), ())
 
     requests: list[dict[str, object]] = []
 
@@ -267,7 +274,9 @@ async def test_gizlemede_degerlendirilen_hedef_uygulama_korunur(tmp_path, monkey
 
     monkeypatch.setattr(desktop_policy, "_swift_probe", mail)
     fake = _FakeIo()
-    context = ToolContext(root=tmp_path, desktop_settings=DesktopSettings(background=False))
+    context = ToolContext(
+        root=tmp_path, desktop_settings=DesktopSettings(enabled=True, background=False)
+    )
     context.desktop.frame = DesktopFrame(100, 100, 0.0, 0.0, 100.0, 100.0)
     turn = desktop_turn.begin(context, fake.io())
     assert turn is not None
@@ -278,3 +287,47 @@ async def test_gizlemede_degerlendirilen_hedef_uygulama_korunur(tmp_path, monkey
 
     assert fake.hidden_calls == [(1, 2, 41)]
     desktop_turn.finish(context)
+
+
+def test_cli_de_gizleme_ve_geri_gosterme_her_zaman_acik():
+    """#428: CLI'de diğer uygulamalar gizlenir, tur sonunda geri gelir ("Always on")."""
+    eski = DesktopSettings(enabled=True, background=True, unhide_on_finish=False)
+    assert desktop_turn.turn_settings(eski).background is False
+    assert desktop_turn.turn_settings(eski).unhide_on_finish is True
+    desktop_turn.use_app_surface(True)
+    try:
+        assert desktop_turn.turn_settings(eski) == eski
+    finally:
+        desktop_turn.use_app_surface(False)
+
+
+def test_kilit_belirteci_cli_de_surec_masaustunde_sohbet(tmp_path, monkeypatch):
+    claimed: list[dict[str, object]] = []
+    monkeypatch.setattr(desktop_lock, "claim", lambda **kw: claimed.append(kw))
+    context = ToolContext(root=tmp_path, job_scope="sohbet-1")
+    desktop_turn.claim_lock(context)
+    desktop_turn.use_app_surface(True)
+    try:
+        desktop_turn.claim_lock(context)
+    finally:
+        desktop_turn.use_app_surface(False)
+    assert [item["token"] for item in claimed] == ["", "sohbet-1"]
+    assert "Fusion CLI" in str(claimed[0]["label"]) and "masaüstü" in str(claimed[1]["label"])
+    released: list[str] = []
+    monkeypatch.setattr(desktop_lock, "release", lambda **kw: released.append(kw["token"]))
+    desktop_turn.end_session("sohbet-1")
+    assert released == ["sohbet-1"]
+
+
+def test_ilk_eylemde_ve_tur_sonunda_isletim_sistemi_bildirimi(monkeypatch):
+    """#447: "Claude is using your computer · press Esc to stop", bitince ikinci bildirim."""
+    fake = _FakeIo()
+    turn = DesktopTurn(DesktopSettings(), lambda: None, fake.io())
+    turn.foreground_action()
+    turn.foreground_action()
+    turn.close()
+    turn.close()
+    assert fake.notes == [desktop_turn.NOTIFY_START, desktop_turn.NOTIFY_DONE]
+    eylemsiz = _FakeIo()
+    DesktopTurn(DesktopSettings(), lambda: None, eylemsiz.io()).close()
+    assert eylemsiz.notes == []

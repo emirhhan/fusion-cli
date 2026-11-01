@@ -189,6 +189,23 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
     if (eylem === "screenshot") return "chrome ile ekran görüntüsü alınıyor";
     return "chrome ile sayfa etkileşimi yapılıyor";
   },
+  // Claude in Chrome adları (#431).
+  "claude-in-chrome__navigate": (args) => `chrome ile ${sunucuAdi(metinAl(args, "url"))} açılıyor`,
+  "claude-in-chrome__read_page": () => "chrome ile sayfa okunuyor",
+  "claude-in-chrome__find": () => "chrome ile sayfada öğe aranıyor",
+  "claude-in-chrome__get_page_text": () => "chrome ile sayfa metni okunuyor",
+  "claude-in-chrome__form_input": () => "chrome ile forma değer giriliyor",
+  "claude-in-chrome__tabs_context_mcp": () => "chrome sekmeleri listeleniyor",
+  "claude-in-chrome__computer": (args) => {
+    const eylem = args.action;
+    if (eylem === "scroll") return "chrome ile sayfa kaydırılıyor";
+    if (eylem === "wait") return "chrome ile bekleniyor";
+    if (eylem === "key") return "chrome ile tuşa basılıyor";
+    if (eylem === "type") return "chrome ile yazı yazılıyor";
+    if (eylem === "screenshot" || eylem === "zoom") return "chrome ile ekran görüntüsü alınıyor";
+    if (typeof eylem === "string" && eylem.includes("click")) return "chrome ile bir öğeye tıklanıyor";
+    return "chrome ile sayfa etkileşimi yapılıyor";
+  },
   browser_open: (args) => {
     const url = metinAl(args, "url");
     return url ? `tarayıcı ile ${sunucuAdi(url)} açılıyor` : "tarayıcı açılıyor";

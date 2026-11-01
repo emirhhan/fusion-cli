@@ -100,3 +100,13 @@ test("klavye hedefi seçili modelden ayrı görünür ve combobox etkin seçene�
   expect(last.getAttribute("aria-selected")).toBe("false");
   expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
 });
+
+test("Cmd/Ctrl+Shift+I model menüsünü açar (Claude Desktop, #444)", () => {
+  const onOpen = vi.fn();
+  render(<ModelPicker active="ilk" options={options} onOpen={onOpen} onSelect={vi.fn()} />);
+  fireEvent.keyDown(document, { key: "I", code: "KeyI", metaKey: true, shiftKey: true });
+  expect(screen.getByRole("listbox")).toBeTruthy();
+  expect(onOpen).toHaveBeenCalledOnce();
+  fireEvent.keyDown(document, { key: "i", code: "KeyI", ctrlKey: true, shiftKey: true });
+  expect(screen.queryByRole("listbox")).toBeNull();
+});

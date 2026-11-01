@@ -7,6 +7,7 @@ import { setGlow } from "./pageGlow.js";
 import { MONITOR_KEY, PERMISSION_KEY, SHORTCUTS_KEY, monitorEnabled } from "./core.js";
 import { controlSummary, renderAsk, renderMessage, renderShortcuts, renderSites } from "./panelView.js";
 import { handleRecord } from "./recorder.js";
+import { deviceIdentity } from "./device.js";
 import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -91,12 +92,15 @@ function renderThread() {
 }
 
 /** Mod seçimine göre "güvenli mi" satırı: kullanıcı hangi işlemin sorulduğunu görür. */
+/** Panelin Claude in Chrome modları (#434): Manually approve, Automatically approve, Skip all approvals. */
+const PANEL_MODES = ["security", "auto", "bypass"];
+
 const GUARD_TEXT = {
-  auto: "Gönderme, silme ve satın alma sana sorulur.",
+  auto: "Gönderme ve silme sana sorulur; satın alma ve hesap oluşturma hiç yapılmaz.",
   security: "Her tıklama ve yazma önce sana sorulur.",
   edits: "Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.",
   plan: "Yalnız okur; tıklamaz, yazmaz.",
-  bypass: "Dikkat: hiçbir şey sorulmaz.",
+  bypass: "Dikkat: neredeyse hiçbir şey sorulmaz (yetki verme ve hassas bilgi hariç).",
 };
 
 function renderControl() {
@@ -179,6 +183,7 @@ async function applyItem(item) {
     return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: step.metin || "Çalışıyor…" }));
   }
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
+  if (item.tur === "tarayici_sec") return { ...thread, soru: BROWSER_CHOICE };
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
   if (item.tur === "bitti" && !inflight) {
     void setGlow(false);
@@ -249,7 +254,8 @@ async function autoUpdate(version) {
 
 function renderSettings(settings) {
   if (!settings?.ok) return;
-  const mode = settings.mod || "auto";
+  // Eski kayıtlı kipler (edits/plan) üç moddan birine gösterilir; Manuel en sıkı karşılıktır (#434).
+  const mode = PANEL_MODES.includes(settings.mod) ? settings.mod : settings.mod ? "security" : "auto";
   const chip = $("mode");
   chip.value = mode;
   chip.dataset.mode = mode;
@@ -317,11 +323,25 @@ async function cancel() {
   }
 }
 
+/** switch_browser (#432): Fusion bütün panellere sorar; kullanıcı istediği tarayıcıda seçer. */
+const BROWSER_CHOICE = {
+  id: "tarayici-sec",
+  veri: {
+    tur: "soru",
+    soru: "Fusion bu tarayıcıyı kullansın mı?",
+    secenekler: [{ etiket: "Bu tarayıcıyı kullan", aciklama: "Komutlar bundan sonra bu tarayıcıya gider" }],
+  },
+};
+
 async function answer(veri) {
   const soru = thread.soru;
   if (!soru) return;
   await saveThread({ ...thread, soru: null });
   try {
+    if (soru.id === BROWSER_CHOICE.id) {
+      if (veri?.metin) await request("/select", { cihaz: await deviceIdentity() });
+      return;
+    }
     await request("/answer", { id: soru.id, veri });
   } catch (cause) {
     // Cevap gitmediyse kart geri gelir; kullanıcı yeniden seçebilir.
@@ -432,7 +452,8 @@ document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
 const BYPASS_CONFIRM_TEXT =
-  "\"İzinleri atla\" kipinde Fusion gönderme, silme ve satın alma dahil hiçbir şey sormaz. " +
+  "\"İzinleri atla\" kipinde Fusion gönderme ve silmeyi sormaz. Satın alma, hesap " +
+  "oluşturma ve CAPTCHA her kipte yasaktır; yetki verme ve hassas bilgi girme yine sorulur. " +
   "Açılsın mı?";
 $("mode").addEventListener("change", guard(async () => {
   const mod = $("mode").value;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { OPEN_IN_BROWSER_EVENT } from "./openLinks";
 import type { ProtocolClient } from "../protocol/client";
 import type { BrowserRequest } from "./BrowserPanel";
 import { BROWSER_RPC } from "./browserPanelProtocol";
@@ -44,6 +45,16 @@ export function useBrowserInspector(
     setRequest((current) => ({ url, pick, seq: (current?.seq ?? 0) + 1 }));
     showBrowser();
   }, [showBrowser]);
+
+  // Sohbetteki bağlantı "Open links in built-in browser" açıkken buraya gelir (#439).
+  useEffect(() => {
+    const open = (event: Event) => {
+      const url = (event as CustomEvent<{ url?: unknown }>).detail?.url;
+      if (typeof url === "string" && /^https?:\/\//i.test(url)) openInBrowser(url);
+    };
+    window.addEventListener(OPEN_IN_BROWSER_EVENT, open);
+    return () => window.removeEventListener(OPEN_IN_BROWSER_EVENT, open);
+  }, [openInBrowser]);
 
   return { request, openInBrowser };
 }

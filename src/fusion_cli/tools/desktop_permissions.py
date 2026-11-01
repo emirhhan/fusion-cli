@@ -53,7 +53,7 @@ _APPLICATION_SERVICES = (
 
 @dataclass(frozen=True, slots=True)
 class DesktopPermissionStatus:
-    """İki iznin anlık durumu; `platform` macOS dışında `unsupported`."""
+    """İki iznin anlık durumu; Windows'ta ikisi de `granted`, diğerlerinde `unsupported`."""
 
     accessibility: str
     screen_recording: str
@@ -61,11 +61,16 @@ class DesktopPermissionStatus:
     def as_dict(self) -> dict[str, object]:
         return {
             "ok": True,
-            "platform": "macos" if sys.platform == "darwin" else sys.platform,
+            "platform": platform_name(),
             ACCESSIBILITY: self.accessibility,
             SCREEN_RECORDING: self.screen_recording,
             "ayarlar": dict(SETTINGS_URLS),
         }
+
+
+def platform_name() -> str:
+    """Arayüze giden platform adı: macos, windows ya da `sys.platform`."""
+    return {"darwin": "macos", "win32": "windows"}.get(sys.platform, sys.platform)
 
 
 def permission_failure(kind: str) -> ToolResult:
@@ -100,7 +105,13 @@ def _screen_capture_allowed(framework: ctypes.CDLL) -> bool:
 
 
 def probe() -> DesktopPermissionStatus:
-    """İstem AÇMADAN iki iznin durumunu oku."""
+    """İstem AÇMADAN iki iznin durumunu oku.
+
+    Windows'ta (#430) izin adımı yoktur: Claude Code "On Windows there is no permission step;
+    the toggle takes effect immediately." Girdi ve yakalama izinsiz çalışır → ikisi de verilmiş.
+    """
+    if sys.platform == "win32":
+        return DesktopPermissionStatus(GRANTED, GRANTED)
     if sys.platform != "darwin":
         return DesktopPermissionStatus(UNSUPPORTED, UNSUPPORTED)
     try:

@@ -209,7 +209,7 @@ def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> 
 
 
 #: `browser:` bölümünde kalıcı yazılabilen anahtarlar (bkz. `BrowserConfig`, P-023).
-BROWSER_SETTING_KEYS = ("default_profile", "headless", "profiles_enabled", "panel_agent")
+BROWSER_SETTING_KEYS = ("default_profile", "headless", "profiles_enabled", "panel_agent", "tools")
 
 
 def write_browser_setting(

@@ -166,6 +166,16 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   masaüstü çekirdeği auto isteğini reddeder. Masaüstünde değer sohbet başınadır: ayarı farklı
   projelerdeki sohbetler arasında geçince menü etkin sohbetin ayarını izler.
 
+### İzin modu — varsayılan Manuel (Claude Code gibi)
+
+Kayıtlı seçim ve `permissions.defaultMode` yoksa oturum **Manuel** (`default`) kipinde açılır
+(eskiden Otomatik'ti). Seçtiğin kip kalıcıdır; İzinleri atla bilerek kaydedilmez, kayıttan
+açılış yine Manuel'dir. Masaüstünde İzinleri atla ancak Ayarlar › İzinler › **İzinleri atla
+modunu etkinleştir** açıkken menüde görünür. Bir Claude ayar dosyası (kullanıcı, proje, yerel
+ya da yönetilen `managed-settings.json`) `"permissions": {"disableBypassPermissionsMode":
+"disable"}` içeriyorsa (kurum politikası) anahtar kilitlenir, menüde İzinleri atla görünmez ve
+çekirdek `oturum.baslat {mod: bypass}` ile `/bypass` isteğini reddeder.
+
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 
 Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek liste:
@@ -1039,8 +1049,12 @@ Masaüstünde sağ paneldeki **Önizleme › Web** sekmesi yerel (localhost) sit
 Ajan `start_preview` ile projeyi çalıştırınca panel kendiliğinden açılır; aşağıdakiler
 onun üstüne gelir.
 
-**Dev sunucuyu uygulamadan başlatma** — proje köküne `.fusion/launch.json` koyun
-(Claude Code'un `.claude/launch.json` dosyası da aynı alanlarla okunur, yazılmaz):
+**Dev sunucuyu uygulamadan başlatma** — proje köküne Claude Code'daki gibi `.claude/launch.json`
+koyun (eski `.fusion/launch.json` de okunur). Yorumlu JSON, `program`/`args` (doğrudan `node`
+betiği), `port` (varsayılan 3000), `cwd` içinde `${workspaceFolder}` ve üst düzey `autoVerify`
+desteklenir; port değişirse `runtimeArgs` içindeki `--port`/`-p` değeri yeniden yazılır.
+`autoVerify` varsayılan açıktır: düzenlemeden sonra tur sonunda sayfa ya da dev sunucu açılıp ölçülür
+(konsol hatası, yüklenemeyen kaynak, taşma); `"autoVerify": false` bu projede otomatik doğrulamayı kapatır:
 
 ```json
 {
@@ -1110,7 +1124,7 @@ Gereksinim: günlük ve ekran görüntüsü için `pip install 'fusion-cli[web]'
 
 ## 15b) Tarayıcı paneli: ajanın tarayıcısını canlı izle, devral, öğe seç
 
-Masaüstünde sağ paneldeki **Tarayıcı** sekmesi, ajanın `browser_*` araçlarıyla **aynı**
+Masaüstünde sağ paneldeki **Tarayıcı** sekmesinin **Canlı** kipi, ajanın `browser_*` araçlarıyla **aynı**
 tarayıcıyı gösterir (Claude Code masaüstündeki Browser pane karşılığı). Ajan bir site açınca
 sekme kendiliğinden öne gelir; tıkladığı, yazdığı her şey canlı görüntüde görünür. Tarayıcı
 turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
@@ -1135,13 +1149,32 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
   Form alanlarının **değeri** (parola, kart, kimlik) sohbete gitmez; alan `placeholder` ya da
   `aria-label` ile tanıtılır. `◧` görünür sayfanın görüntüsünü sohbete ekler, `≡` konsol ve ağ
   isteklerini gösterir (son 200 konsol mesajı ve 300 istek; `⌫` biriktirileni temizler).
-- **Oturum:** **Temiz** (varsayılan; çıkınca silinir), **Panel oturumu** (Claude Code'daki
+- **Oturum:** **Temiz** (varsayılan; çıkınca silinir) ya da **Panel oturumu** (Claude Code'daki
   "Keep cookies": çerezler `tarayici-paneli` profiline şifreli saklanır, sonraki açılışta
-  girişli kalırsın) ya da `fusion browser` ile kurulan bir profil. Girişli bir oturumu sen
-  seçtiysen ajan onu **yalnız "Ajan girişli oturumu kullanabilir" işaretliyken** görür; aksi
-  hâlde tur kendi temiz tarayıcısını açar. Girişli oturumda tıklama/form gönderme yine onay ister.
-  **Tarayıcıyı kapat** seçtiğin profili de bırakır: sonraki tur yapılandırmadaki varsayılan
-  profille (onay sorarak) başlar.
+  girişli kalırsın). Bölme Claude'daki gibi temiz profildir: `fusion browser` ile kurulan kayıtlı
+  giriş profilleri burada sunulmaz (girişli iş için Chrome eklentisi; ajanın `browser_open
+  profile=` argümanı CLI'de çalışmaya devam eder). Girişli panel oturumunu ajan **yalnız "Ajan
+  girişli oturumu kullanabilir" işaretliyken** görür; aksi hâlde tur kendi temiz tarayıcısını
+  açar. Girişli oturumda tıklama/form gönderme yine onay ister.
+- **⋮ menüsü** (Claude Desktop Browser ⋮): **Keep cookies** (Panel oturumunu aç/kapat),
+  **Clear browsing data** (tarayıcıyı kapatır, saklanan panel çerezlerini siler),
+  **Auto-verify changes** (projenin `.claude/launch.json` dosyasındaki üst düzey `autoVerify`;
+  yorumlu dosyaya yazılmaz, elle değiştir) ve **Open links in built-in browser** (sohbetteki
+  http(s) bağlantıları sistem tarayıcısı yerine bu bölmede açılır; tercih bu bilgisayarda).
+- **Dev servers menüsü (▶︎):** `.claude/launch.json` sunucularını listeler; **Başlat** (güven
+  gerekiyorsa "Güven ve başlat"), **Durdur**, **Hepsini durdur**. Başlayan sunucu bölmede açılır.
+- **Dış siteler:** ajan bu bölmede bir dış siteyi (localhost dışı) ilk kez açmak isteyince
+  **Allow once / Always allow / Deny** sorulur; "Always allow" o siteyi kalıcı izinli yapar
+  (kullanıcı yapılandırma dizinindeki `browser-sites.json`; satırı silmek izni geri alır).
+  Soru her kipte (İzinleri atla dahil) çıkar; CLI'nin tur tarayıcısı sormaz.
+- **Ayarlar › Web oturumları › Browser tools** (`browser.tools`): kapalıyken ajan `browser_*`
+  araçlarını görmez; bölme senin için çalışır. Chrome eklentisi araçları etkilenmez.
+- **Yönetici ayarları** (yalnız `managed-settings.json`, Claude Code ile aynı konum):
+  `disableBrowserExternalNavigation: true` dış sitelere gezinmeyi hem sana hem ajana kapatır
+  (localhost ve yerel dosya açılır; tıklama/yönlendirme ile gezinme de engellenir);
+  `browserExternalPageTools: false` dış sitelere gitmene izin verir ama ajan o sayfaları okuyamaz,
+  tıklayamaz, yazamaz, görüntüsünü alamaz (sonuç yalnız adresi söyler; sekme listesinde dış
+  sekmenin başlığı da gizlenir).
 - **Kapatmak:** **Ajan bu tarayıcıyı kullanır** kutusu kaldırılınca ajan eski davranışa döner
   (her tur ayrı tarayıcı; Tarayıcı sekmesi de kendiliğinden öne gelmez). Seçim kalıcıdır
   (`browser.panel_agent`); aynı ayar **Ayarlar → Web oturumları**'nda ve terminalde
@@ -1153,13 +1186,17 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
 - **Yerel adres izinleri:** panelde açtığın ya da bir turda yazdığın `localhost:port` paylaşılan
   tarayıcının izin kümesine girer ve tarayıcı kapanana kadar sonraki turlarda da izinli kalır
   (tur başına tarayıcıda her tur boş başlardı). Kümeyi sıfırlamak için **Tarayıcıyı kapat**.
+- **Tek bölme (#439):** Önizleme ve canlı tarayıcı Claude'daki tek "Browser" bölmesi gibi aynı
+  **Tarayıcı** sekmesindedir; sekmenin üstündeki **Önizleme / Canlı** seçimi kipi değiştirir
+  (⌘⇧B Önizleme kipini açar). Önizleme yerel sayfayı gömer, Canlı ajanla paylaşılan Chromium'u
+  gösterir.
 - **Sınırlar:** panel tarayıcısı her zaman başsız çalışır (görüntü panelde; `browser.headless`
   tur başına tarayıcı içindir). Plan adımları ve alt ajanlar kendi ayrı tarayıcılarını kullanır,
   panelde görünmez. Açık panel oturumunda ajan başka profil yükleyemez; profili panelden seç.
 
 RPC'ler `tarayici_panel.*` (`durum`, `ac`, `kare`, `git`, `geri`, `ileri`, `yenile`,
 `sekme_ac/sec/kapat`, `tikla`, `kaydir`, `yaz`, `tus`, `boyut`, `devral`, `birak`, `oge`,
-`oge_sec`, `ekran`, `konsol`, `ayar`, `profil`, `kapat`). Görüntü Chromium'un ekran yayınıdır;
+`oge_sec`, `ekran`, `konsol`, `ayar`, `profil`, `veri_temizle`, `kapat`). Görüntü Chromium'un ekran yayınıdır;
 panel kapalıyken kare üretilmez. Gereksinim: `pip install 'fusion-cli[web]'` ve
 `playwright install chromium`.
 
@@ -1188,22 +1225,59 @@ kurulumu ve Linux paketleri `tauri.conf.json` › `plugins.deep-link.desktop.sch
 
 ## 17) Komut paleti ve uygulama kısayolları (masaüstü)
 
-**⌘K** (Windows/Linux: Ctrl+K) her yerden komut paletini açar: eylemler, ekranlar, sohbetler,
+Komut paleti (eylem `palet`; varsayılan tuşu yok, Claude Desktop'ta karşılığı olmadığı için) her yerden açılır: eylemler, ekranlar, sohbetler,
 slash komutları, ayarlar ve proje dosyaları tek listede aranır. Önekle daralt: `>` eylem/ekran,
-`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. **⌘P**
+`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. `dosya_ara`
 paleti doğrudan dosya aramasıyla açar; dosya seçilince önizleme panelinde görünür. Komut seçmek
 görev kutusuna `/ad ` yazar.
 
 | Tuş (varsayılan) | Ne yapar |
 |---|---|
-| ⌘K · ⌘P | Komut paleti · dosyaya git |
-| ⌘N | Yeni sohbet |
+| ⌘/ | Kısayolları göster (Ayarlar › Kısayollar) |
+| ⌘N · ⌘W | Yeni oturum · oturumu kapat |
+| Ctrl+Tab · Ctrl+Shift+Tab | Sonraki · önceki oturum |
+| ⌘⇧] · ⌘⇧[ | Sonraki · önceki oturum (dosyada `mod+}` / `mod+{`) |
+| ⌘⇧D · ⌘⇧B | Fark paneli · önizleme |
+| Ctrl+` · ⌘\\ | Terminal · odaktaki paneli kapat |
+| ⌘⇧M · ⌘⇧I · ⌘⇧E | İzin modu · model · efor (düşünme yoğunluğu, `/effort`) menüsü |
+| ⌘⇧S | Öğe seç (Tarayıcı panelinde; önizlemedeki sayfayı seçiciyle açar) |
 | ⌘, | Ayarlar |
-| ⌘B · ⌘⌥B | Kenar çubuğu · çalışma paneli |
-| ⌘J · ⌘⇧B | Terminal · önizleme |
-| ⌘1 … ⌘9 | Açık sohbetler arasında geç |
 | ⌘[ · ⌘] | Geri · ileri |
-| ⌘/ | Ayarlar › Kısayollar |
+| ⌘⌃W | Yan bölmeden (split) çık; Windows/Linux'ta Ctrl+W oturumu kapatmaya devam eder, eylem (`bolmeyi_kapat`) elle başka tuşa bağlanabilir |
+| ⌘; | Yan sohbet: ana sohbetin bağlamını okur, ona hiçbir şey eklemez; araçsız, dosyaya dokunmaz |
+| Ctrl+O | Görünüm kipi: Normal → Ayrıntılı (Verbose, bütün adımlar açık) → Özet (Summary, biten çalışma gizli) |
+
+Varsayılan tablo Claude Desktop'unkiyle aynıdır (#444). Claude'da karşılığı olmayan eski varsayılanlar
+(⌘K palet, ⌘P dosya, ⌘B kenar çubuğu, ⌘J terminal, ⌘⌥B çalışma paneli, ⌘1-9 sohbet) varsayılan
+tablodan kalktı; bu sürüm boyunca, tuş kişisel tablonda başka bir işe bağlı değilse eski işi yapmaya
+devam eder ve ilk kullanımda bir kez uyarılır. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata;
+`keybindings.json`'daki kişisel bağlar aynen geçerlidir. Tur çalışırken ⌘W ilk basışta yalnız uyarır,
+3 sn içinde ikinci basış oturumu kapatır.
+⌘⇧]/⌘⇧[ ABD düzenindeki tuştur; Türkçe Q'da köşeli parantez ⌥ gerektirdiği için oradan tetiklenmez
+(Ctrl+Tab kullan ya da Ayarlar › Kısayollar'dan başka tuşa bağla).
+**Henüz yok**: ⌘⌥1-9 ortam seç. Claude Desktop'ta ortamlar Local, Cloud (Anthropic bulutu), SSH ve
+Remote Control'dür; Cloud ortamı Anthropic sunucusu gerektirdiği için Fusion'da yoktur, SSH ortamı ve
+kayıtlı yerel ortamlar da henüz yok (Fusion oturumları her zaman bu bilgisayarda çalışır).
+Efor menüsü tur sürerken kapalıdır (komut sıraya mesaj olarak girerdi).
+
+Kenar çubuğunda sohbetin `···` menüsünün ilk eylemi **Arşivle**dir (Claude Desktop'taki Archive):
+arşivlenen sohbet silinmez, ana listeden kalkar ve listenin başındaki **Arşivlenenler (N)**
+görünümünde durur; oradan **Arşivden çıkar** ile geri gelir. Kalıcı silme menünün son eylemidir ve
+onay ister. Tercih bu bilgisayarda saklanır. Başlık çubuğundaki sohbet adına tıklayınca ad
+düzenlenir (Enter kaydeder, Esc vazgeçer); ad CLI `/rename` ile aynı kayda yazılır ve
+`fusion --resume <ad>` onu görür. Kenar çubuğunda bir sohbete **Option (⌥) ile tıklamak** onu
+etkin sohbetin yanında ikinci bölmede açar (menüdeki "Yan yana aç"). Ayarlar › Genel › **PR
+birleşince ya da kapanınca sohbeti otomatik arşivle** (Claude'daki Auto-archive after PR merge or
+close; varsayılan kapalı) açıkken kenar çubuğu, sohbete bağlı PR'ın durumunu `gh pr view --json
+state` ile sorar (açılışta, pencereye dönünce en çok dakikada bir, ayrıca 5 dakikada bir);
+birleşen ya da kapanan PR'ın sohbeti arşive gider. Tur süren sohbet atlanır; `gh` yoksa ya da
+hata verirse hiçbir şey arşivlenmez; arşivden geri çıkardığın sohbet bir daha otomatik
+arşivlenmez. Projeler başlığındaki **⇅ Grupla ve sırala** menüsü: Projeye göre (varsayılan) ya da
+Gruplama yok (tek liste); sıralama son etkinliğe göredir. Bir sohbete **Cmd (⌘) ile tıklamak** (Windows/Linux'ta Ctrl) ya da
+menüdeki **Yeni pencerede aç** onu ayrı bir pencerede açar (Claude'daki Open in > New window). Çekirdek
+ve oturum ana pencerede kalır: sohbet penceresi aynı sohbeti canlı gösterir, oradan yazılan mesaj ve
+onay cevabı ana penceredeki oturuma gider; "Bu sohbete geç" ana pencereyi öne getirir. Sohbet
+penceresini kapatmak hiçbir oturumu durdurmaz; ana pencere kapanınca uygulama kapanır.
 
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı
@@ -1211,14 +1285,15 @@ devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminall
 dönünce uygulanır:
 
 ```json
-{ "masaustu": { "mod+j": null, "mod+shift+t": "terminal", "f5": "komut:status" } }
+{ "masaustu": { "ctrl+`": null, "mod+shift+t": "terminal", "mod+k": "palet", "f5": "komut:status" } }
 ```
 
 Yazım: `mod` macOS'ta ⌘, diğerlerinde Ctrl; değiştiriciler `mod+ctrl+alt+shift` sırasıyla.
-En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘W/⌘H/⌘M
+En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘H/⌘M
 gibi sistem kısayolları bağlanamaz. `komut:<ad>` bir slash komutunu çalıştırır. Eylem adları:
 `palet`, `dosya_ara`, `yeni_sohbet`, `ayarlar`, `kenar_cubugu`, `terminal`, `onizleme`, `denetci`,
-`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `sohbet_1`…`sohbet_9`.
+`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `oturumu_kapat`,
+`sonraki_oturum`, `onceki_oturum`, `fark_paneli`, `paneli_kapat`, `sohbet_1`…`sohbet_9`.
 Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 - **Varsayılana döndür**: eylemin varsayılan tuşunu başka bir eylem devraldıysa Fusion sorar;
@@ -1229,7 +1304,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
   ve palet bunun dışındadır.
 - **Terminal odaktayken** macOS'ta ⌘ tuşları uygulamanındır (⌘K terminali temizler). Windows/Linux'ta
   Ctrl+harf kabuğa gider (Ctrl+K satır sonunu siler, Ctrl+P geçmiş); yalnız terminali aç/kapat tuşu
-  (Ctrl+J) ve Ctrl+Shift bağları uygulamaya geçer.
+  (Ctrl+`) ve Ctrl+Shift bağları uygulamaya geçer.
 - Terminalde `/keybindings` yalnız terminal bağlamlarını (`giris`, `tui`) gösterir ve örnek dosyaya
   yalnız onları yazar; masaüstü bölümü Ayarlar › Kısayollar'dan yönetilir.
 - Kısayol uçları (`kisayol.*`) yalnız masaüstü oturumuna açıktır; uzaktan kontrol (telefon/PWA)
@@ -1315,10 +1390,12 @@ Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `k
 
 ---
 
-## 16) Bilgisayarı kullanma (computer use, yalnız macOS)
+## 16) Bilgisayarı kullanma (computer use; macOS, Windows'ta masaüstü uygulaması)
 
 Fusion ekranını görüp fare ve klavyeyle uygulamaları yönetebilir. Her eylem yine onay
-kartından geçer; Claude Code / Codex'teki gibi iki macOS izni gerekir.
+kartından geçer; Claude Code / Codex'teki gibi macOS'ta iki izin gerekir. Windows'ta computer use
+Claude Code gibi yalnız masaüstü uygulamasında çalışır ve izin adımı yoktur (anahtar hemen
+etkin); ayrıntı `docs/BILGISAYAR_KULLANIMI.md` › Windows.
 
 **İzinler (Ayarlar › İzinler › Bu bilgisayar).** Erişilebilirlik (tıklama/yazma/kaydırma) ve
 Ekran Kaydı (ekran görüntüsü). Kart durumu çekirdekten okur (`izin.masaustu_durum`), **İzin iste**

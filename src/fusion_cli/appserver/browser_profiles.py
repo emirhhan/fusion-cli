@@ -35,7 +35,7 @@ _CHROME_NEED_DOMAIN = (
 )
 #: `tarayici.ayar` ile yazılabilen boolean ayarlar (varsayılan profil ayrı RPC'dir).
 #: `panel_agent` (P-045): masaüstünde ajan uygulama içi Tarayıcı panelini paylaşır.
-_BOOL_SETTINGS = ("headless", "profiles_enabled", "panel_agent")
+_BOOL_SETTINGS = ("headless", "profiles_enabled", "panel_agent", "tools")
 _KEY_MISSING = (
     "Şifreleme anahtarı yok: tarayıcı profilleri kaydedilemez. Sistem anahtarlığını aç ya da "
     "FUSION_SECRET_KEY tanımla."
@@ -79,6 +79,7 @@ def list_profiles(store: BrowserProfileStore, config: Config) -> dict[str, Any]:
         "headless": config.browser.headless,
         "etkin": config.browser.profiles_enabled,
         "panel_ajan": config.browser.panel_agent,
+        "araclar": getattr(config.browser, "tools", True),
         "anahtar_var": store.available,
         "metin": "" if store.available else _KEY_MISSING,
     }

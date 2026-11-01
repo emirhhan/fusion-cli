@@ -15,10 +15,13 @@ from typing import Any
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
-from . import chrome_inspect, chrome_record
+from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
+from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
+from .chrome_site_policy import navigation_block_reason
 from .key_spec import key_base
+from .preview_origins import allowed_local
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
 from .web import browser_block_reason
 
@@ -50,7 +53,7 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         return ToolResult.failure(
             f"{UNKNOWN_OUTCOME_PREFIX} '{name}' komutu tarayıcıya gönderildi ama sonucu "
             "gelmedi; sayfada etkisi olmuş olabilir. Aynı işlemi tekrar etmeden önce "
-            "chrome_page ile sayfayı yeniden oku ve işlemin olup olmadığını kontrol et."
+            "read_page ile sayfayı yeniden oku ve işlemin olup olmadığını kontrol et."
         )
     except ConnectionError as exc:
         return ToolResult.failure(str(exc))
@@ -72,10 +75,11 @@ async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
     if isinstance(query, str) and query.strip():
         return await _call(context, "find", {"query": query.strip()})
     if args.get("tree"):
-        return chrome_inspect.format_tree(
+        tree = chrome_inspect.format_tree(
             await _call(context, "tree", chrome_inspect.tree_args(args))
         )
-    return await _call(context, "snapshot", {})
+        return limit_output(tree, args.get("max_chars"))
+    return limit_output(await _call(context, "snapshot", {}), args.get("max_chars"))
 
 
 async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -87,8 +91,9 @@ async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
 #: YAPILMAZ: "sepete ekle", "gönder" gibi işlemler iki kez çalışabilir.
 NO_CHANGE_NOTE = (
     "NOT: Tıklamadan sonra sayfada görünür bir değişiklik olmadı (adres, metin, açılır "
-    "pencere, seçim aynı). Öğe doğru mu? chrome_page ile yeniden oku; gerekirse farklı "
-    "öğeyi ya da screenshot + click_at dene. Aynı tıklamayı körlemesine tekrarlama."
+    "pencere, seçim aynı). Öğe doğru mu? read_page ile yeniden oku; gerekirse farklı "
+    "öğeyi ya da computer screenshot + coordinate ile left_click dene. Aynı tıklamayı "
+    "körlemesine tekrarlama."
 )
 
 
@@ -105,8 +110,22 @@ def with_action_check(result: ToolResult) -> ToolResult:
     return result
 
 
+async def _prohibited(
+    context: ToolContext, operation: str, data: dict[str, Any]
+) -> ToolResult | None:
+    """Her kipte yasak eylem (#422): öğe satın alma/hesap oluşturma/CAPTCHA ise çalıştırma."""
+    reason = chrome_guard.prohibited_reason(
+        chrome_guard.described(await _describe(context, operation, data))
+    )
+    return None if reason is None else ToolResult.failure(reason)
+
+
 async def chrome_click(args: ToolArgs, context: ToolContext) -> ToolResult:
-    return with_action_check(await _call(context, "click", {"ref": require_str(args, "ref")}))
+    ref = require_str(args, "ref")
+    refused = await _prohibited(context, "describe", {"ref": ref})
+    if refused is not None:
+        return refused
+    return with_action_check(await _call(context, "click", {"ref": ref}))
 
 
 async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -120,7 +139,7 @@ async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(veri, dict) and veri.get("verified") is False:
             return ToolResult.failure(
                 "Yazılan metin alana oturmadı (iki yöntem denendi). Alandaki değer: "
-                f"{veri.get('value', '')!r}. Alanı chrome_page ile yeniden oku; maskeli ya da "
+                f"{veri.get('value', '')!r}. Alanı read_page ile yeniden oku; maskeli ya da "
                 "özel bir editörse önce tıklayıp odakla, sonra tekrar yaz."
             )
     return result
@@ -134,7 +153,7 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 #: `window` yeni pencere açar ve `open` gibi yalnız gezinir; `record` BURADA DEĞİL.
 _READ_ACTIONS = frozenset(
     {
-        "scroll", "wait", "tabs", "open", "tab", "screenshot",
+        "scroll", "wait", "tabs", "open", "new_tab", "tab", "screenshot",
         "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
         "console", "network", "shortcuts", "shortcut", "window",
     }
@@ -178,16 +197,18 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
         ref = args.get("ref")
         if context is None or context.chrome is None:
             return None
-        if action in _CLICK_KINDS and isinstance(ref, str) and ref:
-            result = await _describe(context, "describe", {"ref": ref})
-            return None if result is None else _click_effect(result)
+        if isinstance(ref, str) and ref:
+            return _verified_click(await _describe(context, "describe", {"ref": ref}))
         point = _point(args.get("value"), context)
         if point is None:
             return None
-        result = await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
-        return None if result is None else _click_effect(result)
+        return _verified_click(
+            await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
+        )
     if action == "key":
         return await _key_effect(args, context)
+    if action == "type_focused":
+        return await chrome_type_effect({}, context)
     if action in _INTERACT_ACTIONS:
         return ToolEffect.REMOTE_INTERACT
     return ToolEffect.REMOTE_READ if action in _READ_ACTIONS else None
@@ -198,8 +219,22 @@ async def chrome_read_effect(_args: ToolArgs, _context: ToolContext | None) -> T
     return ToolEffect.REMOTE_READ
 
 
-async def chrome_type_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
-    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir."""
+async def chrome_type_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect:
+    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir.
+
+    Hassas alan (parola, kart, kimlik numarası) her kipte sorulur (#422: "Inputting
+    potentially sensitive information into websites" izin kipinden bağımsız onay ister).
+    """
+    ref = args.get("ref")
+    if context is None or context.chrome is None:
+        return ToolEffect.REMOTE_INTERACT
+    data = {"ref": ref} if isinstance(ref, str) and ref else {}
+    veri = chrome_guard.described(
+        await _describe(context, "describe" if data else "describe_key", data)
+    )
+    if veri is None or chrome_guard.sensitive_field_reason(veri) is not None:
+        # Alan okunamadıysa hassas olup olmadığı bilinmez: açık kapı yok, her kipte sorulur.
+        return ToolEffect.REMOTE_DESTRUCTIVE
     return ToolEffect.REMOTE_INTERACT
 
 
@@ -262,21 +297,35 @@ async def _describe(
 async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
     """Tıklanacak öğenin adına bak: gönder/sil/satın al gibi ise sor, değilse sorma.
 
-    Ad okunamazsa `None` döner ve aracın kendi (sorulan) etkisi geçerli olur.
+    Ad okunamazsa `REMOTE_DESTRUCTIVE` döner: bypass dahil her kipte sorulur (#422).
     """
     ref = args.get("ref")
     if context is None or context.chrome is None or not isinstance(ref, str):
         return None
-    result = await _describe(context, "describe", {"ref": ref})
-    return None if result is None else _click_effect(result)
+    return _verified_click(await _describe(context, "describe", {"ref": ref}))
+
+
+def _verified_click(result: dict[str, Any] | None) -> ToolEffect | None:
+    """Tarif okunamadıysa (zaman aşımı, bağlantı, `ok: false`) tıklama her kipte sorulur (#422).
+
+    Ölçüldü (1 Kasım, bağımsız inceleme): describe zaman aşımında etki `None`a düşüyor,
+    İzinleri atla kipinde "Siparişi tamamla" tıklaması yasak denetimi yapılamadan
+    sorulmadan gidiyordu (açık kapı).
+    """
+    if result is None or chrome_guard.described(result) is None:
+        return ToolEffect.REMOTE_DESTRUCTIVE
+    return _click_effect(result)
 
 
 def click_is_risky(result: dict[str, Any]) -> bool:
     """`describe` sonucuna göre tıklama gönder/sil/satın al gibi mi (ya da okunamadı mı).
 
     Kit → Chrome yolu (`appserver/kits_browser_routes.py`) onay penceresini bununla
-    uyarır; Fusion'ın kendi araçlarıyla aynı sınıflandırma, ikinci bir liste yok.
+    uyarır; Fusion'ın kendi araçlarıyla aynı sınıflandırma, ikinci bir liste yok. Her kipte
+    yasak öğe (#422: satın alma, hesap oluşturma, CAPTCHA) de riskli sayılır.
     """
+    if chrome_guard.prohibited_reason(chrome_guard.described(result)) is not None:
+        return True
     return _click_effect(result) is None
 
 
@@ -311,6 +360,12 @@ def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
     veri = result.get("veri") if result.get("ok") else None
     if not isinstance(veri, dict):
         return None
+    if chrome_guard.prohibited_reason(veri) is not None:
+        # Araç çalışmayı reddeder (her kipte); sormanın anlamı yok (#422).
+        return ToolEffect.REMOTE_INTERACT
+    if chrome_guard.always_ask_reason(veri) is not None:
+        # Yetki verme: İzinleri atla dahil her kipte sorulur (#422).
+        return ToolEffect.REMOTE_DESTRUCTIVE
     ad = f"{veri.get('name', '')} {veri.get('type', '')}"
     if veri.get("link") and not veri.get("submit"):
         # Gerçek adrese giden bağlantı yalnız gezinir; iş yapan şey sonraki sayfadaki
@@ -371,7 +426,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     if action == "network":
         return await chrome_inspect.read_network(value, context, _call)
     if action == "record":
-        return await _record(value, context)
+        return await _record(value, context, args.get("filename"))
     if action == "shortcuts":
         return await _call(context, "shortcuts", {})
     if action == "shortcut":
@@ -382,19 +437,29 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await chrome_inspect.group_tabs(value, context, _call)
     if action == "key":
         data["key"] = value if isinstance(value, str) and value else "Enter"
+        if _key_base(data["key"]) in _ENTER_KEYS:
+            ref_data = {"ref": data["ref"]} if "ref" in data else {}
+            refused = await _prohibited(context, "describe_key", ref_data)
+            if refused is not None:
+                return refused
         return with_action_check(await _call(context, "key", data))
     if action == "screenshot":
         return await chrome_screenshot(args, context)
     if action == "tabs":
+        if value == "create_if_empty":
+            return await tabs_create_if_empty(context, _call)
         return await _call(context, "tabs", {})
     if action == "open":
         if not isinstance(value, str) or not value.strip():
             return ToolResult.failure("open için 'value' alanına adresi yaz.")
         url = value if value.startswith(("https://", "http://")) else f"https://{value}"
-        reason = browser_block_reason(url, context.local_origins)
+        reason = browser_block_reason(url, allowed_local(context)) or navigation_block_reason(url)
         if reason is not None:
             return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
         return await _call(context, "tab_open", {"url": url})
+    if action == "new_tab":
+        # Claude `tabs_create_mcp`: oturum grubuna boş sekme (#431).
+        return await _call(context, "tab_open", {"blank": True})
     if action == "tab":
         if not isinstance(value, str) or not value.strip().isdigit():
             return ToolResult.failure(
@@ -412,27 +477,41 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
             return ToolResult.failure("close için 'value' alanına sekme id'sini yaz.")
         return await _call(context, "tab_close", {"id": int(value)})
     if action == "hover":
-        if "ref" not in data:
-            return ToolResult.failure("hover için 'ref' gerekli.")
-        return await _call(context, "hover", data)
+        if "ref" in data:
+            return await _call(context, "hover", data)
+        spot = _point(value, context)
+        if spot is None:
+            return ToolResult.failure("hover için 'ref' ya da 'value' alanına 'x,y' gerekli.")
+        return await _call(context, "hover", {"x": spot[0], "y": spot[1]})
     if action == "text":
         page = int(value) if isinstance(value, str) and value.strip().isdigit() else 1
         return await _call(context, "text_page", {"page": max(1, page)})
     if action in {"click_at", *_CLICK_KINDS}:
         kind = _CLICK_KINDS.get(action)
-        extra = {"kind": kind} if kind else {}
-        if action in _CLICK_KINDS and "ref" in data:
+        mods = parse_modifiers(args.get("modifiers"))
+        if isinstance(mods, str):
+            return ToolResult.failure(mods)
+        extra: dict[str, Any] = {"kind": kind} if kind else {}
+        if mods:
+            extra["mods"] = mods
+        if "ref" in data:
+            refused = await _prohibited(context, "describe", {"ref": data["ref"]})
+            if refused is not None:
+                return refused
             return with_action_check(await _call(context, "click", {**data, **extra}))
         point = _point(value, context)
         if point is None:
             return ToolResult.failure(
                 f"{action} için 'ref' ya da 'value' alanına ekran görüntüsündeki 'x,y' yaz."
             )
+        refused = await _prohibited(context, "describe_at", {"x": point[0], "y": point[1]})
+        if refused is not None:
+            return refused
         return with_action_check(
             await _call(context, "click_at", {"x": point[0], "y": point[1], **extra})
         )
     if action == "drag":
-        return await _drag(data, value, context)
+        return await _drag(data, value, context, args.get("start"))
     if action == "wheel":
         delta = _delta(value)
         if delta is None:
@@ -440,6 +519,8 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await _call(context, "wheel", {**data, "dx": delta[0], "dy": delta[1]})
     if action == "upload":
         return await _upload(data, value, context)
+    if action == "upload_image":
+        return await chrome_images.upload_image(dict(args), context, _call, _point)
     if action == "assets":
         return await chrome_assets(args, context)
     return ToolResult.failure(
@@ -454,14 +535,22 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
 _CLICK_KINDS = {"double_click": "double", "right_click": "right", "triple_click": "triple"}
 
 
-async def _record(value: object, context: ToolContext) -> ToolResult:
-    """`record start|stop`: kareler eklentide toplanır, GIF `chrome_record` ile yazılır."""
+async def _record(value: object, context: ToolContext, filename: object = None) -> ToolResult:
+    """`record start|halt|stop|clear`: kareler eklentide toplanır, GIF `chrome_record` yazar.
+
+    Claude `gif_creator`: halt = stop_recording (kareler tutulur), stop = export, clear.
+    """
     op = value.strip().lower() if isinstance(value, str) else ""
     if op == "start":
         return await chrome_record.start_recording(context)
+    if op == "halt":
+        return await chrome_record.halt_recording(context)
+    if op == "clear":
+        return await chrome_record.clear_recording(context)
     if op == "stop":
-        return await chrome_record.stop_recording(context)
-    return ToolResult.failure("record için 'value' alanına start ya da stop yaz.")
+        name = filename if isinstance(filename, str) else None
+        return await chrome_record.stop_recording(context, name)
+    return ToolResult.failure("record için 'value' alanına start, halt, stop ya da clear yaz.")
 
 
 def _delta(value: object) -> tuple[float, float] | None:
@@ -516,11 +605,16 @@ async def _zoom(value: object, context: ToolContext) -> ToolResult:
     )
 
 
-async def _drag(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
-    """Kaynak `ref` → hedef `value` (öğe ref'i ya da ekran görüntüsünde 'x,y')."""
-    if "ref" not in data or not isinstance(value, str) or not value.strip():
+async def _drag(
+    data: dict[str, Any], value: object, context: ToolContext, start: object = None
+) -> ToolResult:
+    """Kaynak `ref` ya da `start` ('x,y') → hedef `value` (öğe ref'i ya da 'x,y')."""
+    origin = None if "ref" in data else _point(start, context)
+    if origin is not None:
+        data = {"from_x": origin[0], "from_y": origin[1]}
+    if ("ref" not in data and origin is None) or not isinstance(value, str) or not value.strip():
         return ToolResult.failure(
-            "drag için 'ref' (kaynak) ve 'value' (hedef ref ya da x,y) gerekli."
+            "drag için 'ref' ya da 'start' (kaynak x,y) ve 'value' (hedef ref ya da x,y) gerekli."
         )
     if re.fullmatch(r"e\d+", value.strip()):
         return await _call(context, "drag", {**data, "to_ref": value.strip()})
@@ -553,10 +647,12 @@ async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = require_str(args, "url")
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context)) or navigation_block_reason(url)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
-    return await _call(context, "navigate", {"url": url})
+    tab = args.get("tabId")
+    extra = {"tabId": tab} if isinstance(tab, int) and not isinstance(tab, bool) else {}
+    return await _call(context, "navigate", {"url": url, **extra})
 
 
 async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -586,7 +682,12 @@ async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult
         # click_at görüntü koordinatı alır; köprü onu sayfa ölçeğine çevirir.
         with contextlib.suppress(TypeError):
             _SCREENSHOT_SCALES[context.chrome] = css_width / size[0]
-        note += f" Görüntü {size[0]}x{size[1]} px; tıklamak için chrome_action click_at 'x,y'."
+        note += (
+            f" Görüntü {size[0]}x{size[1]} px; tıklamak için computer left_click coordinate [x,y]."
+        )
+    image_id = chrome_images.remember(context.chrome, encoded)
+    if image_id is not None:
+        note += f" (imageId: {image_id}; upload_image ile yüklenebilir)"
     return ToolResult(note, content=(ToolContent.image("image/jpeg", encoded),))
 
 
@@ -613,6 +714,7 @@ async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> 
             "upload için 'ref' (dosya alanı) ve 'value' (dosya yolları) gerekli."
         )
     from .files import resolve_path
+    from .upload_guard import upload_refusal
 
     files: list[dict[str, str]] = []
     toplam = 0
@@ -620,6 +722,9 @@ async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> 
         path = resolve_path(context, raw)
         if not path.is_file():
             return ToolResult.failure(f"Dosya yok: {raw}")
+        refusal = upload_refusal(path, context)
+        if refusal is not None:
+            return ToolResult.failure(f"Yükleme reddedildi: {refusal}.")
         icerik = path.read_bytes()
         toplam += len(icerik)
         if toplam > MAX_UPLOAD_BYTES:

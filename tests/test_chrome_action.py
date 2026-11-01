@@ -196,7 +196,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     kopru = _EkranKopru("Kampanyalar")
     baglam = SimpleNamespace(chrome=kopru)
     goruntu = await chrome.chrome_action({"action": "screenshot"}, baglam)
-    assert "click_at" in goruntu.output
+    assert "left_click coordinate" in goruntu.output
 
     # Görüntü 2880 px, sayfa 1440 CSS px: (400, 300) → (200, 150).
     assert (
@@ -207,7 +207,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     assert ("describe_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar
     assert ("click_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar
 
-    riskli = SimpleNamespace(chrome=_EkranKopru("Satın al"))
+    riskli = SimpleNamespace(chrome=_EkranKopru("Gönder"))
     assert await chrome.chrome_action_effect({"action": "click_at", "value": "1,1"}, riskli) is None
     assert not (await chrome.chrome_action({"action": "click_at", "value": "abc"}, baglam)).ok
 

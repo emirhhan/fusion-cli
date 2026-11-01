@@ -60,7 +60,7 @@
         <section id="empty" class="empty">
           <img src="icons/fusion.svg" alt="" width="44" height="44" />
           <h1>Bu sekmede ne yapayım?</h1>
-          <p>Fusion sayfayı okur, kaydırır, tıklar ve yazar. Gönderme, silme ya da satın alma gibi adımlardan önce sana sorar.</p>
+          <p>Fusion sayfayı okur, kaydırır, tıklar ve yazar. Gönderme ya da silme gibi adımlardan önce sana sorar; satın alma, hesap oluşturma ve CAPTCHA'yı hiç yapmaz.</p>
           <div class="suggestions">
             <button type="button" class="suggestion" data-prompt="Bu sayfayı kısaca özetle.">Bu sayfayı özetle</button>
             <button type="button" class="suggestion" data-prompt="Sayfayı sonuna kadar kaydır ve önemli bilgileri madde madde çıkar.">Kaydır ve önemli bilgileri çıkar</button>
@@ -76,12 +76,11 @@
         <form id="composer" class="composer">
           <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
           <div class="composer__bar">
-            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik: Fusion karar verir, yalnız riskli işlemde sorar.">
-              <option value="auto" title="Fusion karar verir; yalnız gönder/sil/satın al gibi riskli işlemde sorar.">Otomatik</option>
-              <option value="security" title="Okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel</option>
-              <option value="edits" title="Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.">Düzenlemeleri kabul et</option>
-              <option value="plan" title="Sayfayı yalnız okur, plan çıkarır; tıklamaz, yazmaz.">Plan</option>
-              <option value="bypass" title="Hiçbir şey sormaz. Dikkat: gönderme ve satın alma da sorulmaz.">İzinleri atla</option>
+            <!-- Claude in Chrome'un üç modu (#434): Manually approve / Automatically approve / Skip all approvals. -->
+            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik onay (Automatically approve): her eylem güvenlik için denetlenir, yalnız riskli işlem sorulur.">
+              <option value="security" title="Manually approve: okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel onay</option>
+              <option value="auto" title="Automatically approve: her eylem güvenlik için denetlenir; yalnız gönder/sil gibi riskli işlem sorulur.">Otomatik onay</option>
+              <option value="bypass" title="Skip all approvals: gönderme ve silmeyi sormaz. Satın alma her kipte yasak; yetki verme ve hassas bilgi yine sorulur.">Tüm onayları atla</option>
             </select>
             <select id="model" class="model-chip" aria-label="Model" title="Model"></select>
             <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
@@ -115,7 +114,8 @@
         <button id="grant-capture" class="secondary" type="button">Chrome iznini iste</button>
       </div>
       <div class="sheet__group">
-        <h3>İzinli siteler</h3>
+        <h3>Your approved sites</h3>
+        <p class="sheet__text">Chrome erişimi verdiğin siteler; Kaldır erişimi geri alır. Eylem başına site izni (Allow this action / Always allow actions on this site / Decline) Fusion oturumunda tutulur; terminalde /chrome permissions ile listelenir ve geri alınır.</p>
         <ul id="sites" class="sites"></ul>
         <p id="sites-empty" class="sheet__text">Henüz izin verdiğin site yok.</p>
       </div>

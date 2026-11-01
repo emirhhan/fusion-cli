@@ -24,10 +24,29 @@ describe("masaüstü tuş yazımı (Python normalize_desktop_key ile aynı)", ()
     expect(keyProblem("mod+k")).toBeNull();
   });
 
-  it("varsayılanlar paylaşılan veri dosyasından gelir", () => {
-    expect(DEFAULT_BINDINGS["mod+k"]).toBe("palet");
-    expect(DEFAULT_BINDINGS["mod+j"]).toBe("terminal");
-    expect(DEFAULT_BINDINGS["mod+9"]).toBe("sohbet_9");
+  it("varsayılanlar paylaşılan veri dosyasından gelir ve Claude Desktop tablosudur (#444)", () => {
+    expect(DEFAULT_BINDINGS["mod+/"]).toBe("kisayollar");
+    expect(DEFAULT_BINDINGS["mod+w"]).toBe("oturumu_kapat");
+    expect(DEFAULT_BINDINGS["ctrl+tab"]).toBe("sonraki_oturum");
+    expect(DEFAULT_BINDINGS["ctrl+shift+tab"]).toBe("onceki_oturum");
+    expect(DEFAULT_BINDINGS["mod+shift+d"]).toBe("fark_paneli");
+    expect(DEFAULT_BINDINGS["ctrl+`"]).toBe("terminal");
+    expect(DEFAULT_BINDINGS["mod+\\"]).toBe("paneli_kapat");
+    for (const removed of ["mod+k", "mod+p", "mod+b", "mod+j", "mod+alt+b", "mod+1", "mod+9"]) {
+      expect(DEFAULT_BINDINGS[removed]).toBeUndefined();
+    }
+    expect(keyProblem("mod+w")).toBeNull();
+  });
+
+  it("⌘⇧] / ⌘⇧[ oturum değiştirir; düzen ] tuşunu kaydırılmamış bildirse de eşleşir (#444)", () => {
+    expect(DEFAULT_BINDINGS["mod+}"]).toBe("sonraki_oturum");
+    expect(DEFAULT_BINDINGS["mod+{"]).toBe("onceki_oturum");
+    expect(eventToKey(press("}", "BracketRight", { metaKey: true, shiftKey: true }), true)).toBe("mod+}");
+    expect(eventToKey(press("]", "BracketRight", { metaKey: true, shiftKey: true }), true)).toBe("mod+}");
+    expect(eventToKey(press("[", "BracketLeft", { ctrlKey: true, shiftKey: true }), false)).toBe("mod+{");
+    expect(eventToKey(press("]", "BracketRight", { metaKey: true }), true)).toBe("mod+]");
+    expect(formatKey("mod+}", true)).toBe("⌘⇧]");
+    expect(formatKey("mod+{", false)).toBe("Ctrl+Shift+[");
   });
 });
 

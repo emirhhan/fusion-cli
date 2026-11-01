@@ -26,6 +26,7 @@ from uuid import uuid4
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
@@ -107,6 +108,9 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "chrome_navigate": ToolFamily.BROWSER,
     "chrome_screenshot": ToolFamily.BROWSER,
     "chrome_action": ToolFamily.BROWSER,
+    "chrome_javascript": ToolFamily.BROWSER,
+    "chrome_batch": ToolFamily.BROWSER,
+    **dict.fromkeys(CLAUDE_CHROME_TOOL_NAMES, ToolFamily.BROWSER),
     "desktop_apps": ToolFamily.DESKTOP,
     "desktop_windows": ToolFamily.DESKTOP,
     "desktop_background_windows": ToolFamily.DESKTOP,
@@ -116,6 +120,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "desktop_window_focus": ToolFamily.DESKTOP,
     "desktop_accessibility": ToolFamily.DESKTOP,
     "desktop_open": ToolFamily.DESKTOP,
+    "desktop_request_access": ToolFamily.DESKTOP,
     "desktop_displays": ToolFamily.DESKTOP,
     "desktop_screenshot": ToolFamily.DESKTOP,
     "desktop_mouse": ToolFamily.DESKTOP,
@@ -332,6 +337,8 @@ class ToolContext:
     #: Tarayıcı araçlarının gidebileceği YEREL adresler (`host:port`). Yalnız kullanıcının
     #: kendi mesajında yazdığı adresler girer; sayfa içeriği ya da model buraya ekleyemez.
     local_origins: set[str] = field(default_factory=set)
+    #: `local_origins`e önizleme sunucusundan eklenenler (#438): önizleme kapanınca çıkarılır.
+    preview_origins: set[str] = field(default_factory=set)
     #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
     requested_outputs: set[str] = field(default_factory=set)
     #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).

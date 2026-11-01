@@ -179,7 +179,10 @@ def resume_command(state: ReplState, argument: str) -> str:
         state.config.memory_dir, state.root, conversation_id=ref.conversation_id
     )
     apply_target(state, ResumeTarget(ref.conversation_id, tuple(history), ref.title, name=ref.name))
-    from . import session_agent
+    from . import chrome_cli, session_agent
+
+    # Claude in Chrome: oturum değişince grup yalnız boş yeni sekmelerden oluşuyorsa kapanır (#436).
+    chrome_cli.schedule_close_group(state.chrome, only_empty=True)
 
     if session_agent.load(state.config.memory_dir, state.conversation_id):
         note = session_agent.restore(state)

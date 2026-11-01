@@ -127,7 +127,9 @@ describe("BrowserPanel (uygulama içi tarayıcı, P-045)", () => {
     render(<BrowserPanel client={client} />);
 
     const secici = await screen.findByRole("combobox", { name: "Tarayıcı oturumu" });
-    await waitFor(() => expect((secici as HTMLSelectElement).options).toHaveLength(3));
+    // Kayıtlı giriş profilleri bölmede sunulmaz (#439): Temiz ve Panel oturumu.
+    await waitFor(() => expect((secici as HTMLSelectElement).options).toHaveLength(2));
+    expect(screen.queryByRole("option", { name: "Profil: is" })).toBeNull();
     fireEvent.change(secici, { target: { value: "tarayici-paneli" } });
 
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("tarayici_panel.profil", { ad: "tarayici-paneli" }));

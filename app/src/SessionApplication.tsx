@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
+import { closeDecision } from "./shortcuts/closeGuard";
+import { actionLabel, formatKey, isMacPlatform } from "./shortcuts/keys";
 import { useCommandCenter } from "./shortcuts/useCommandCenter";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
@@ -87,6 +89,10 @@ import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { HelpScreen } from "./help/HelpScreen";
 import { Notification, insanDogrulamasiGerekiyor } from "./notify/Notification";
 import { Settings } from "./settings/Settings";
+import { useViewMode } from "./settings/viewMode";
+import { SideChat } from "./sidechat/SideChat";
+import { inTauriShell, openSessionWindow } from "./windowing/sessionWindowBridge";
+import { useSessionWindows } from "./windowing/useSessionWindows";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
@@ -593,6 +599,18 @@ export function SessionUygulama({
   // Ajanın çalıştırdığı site (`PreviewReady`): önizleme panelinde açılır.
   const [requestedPreview, setRequestedPreview] = useState<{ url: string; seq: number } | null>(null);
   const showSteps = useShowSteps();
+  const viewMode = useViewMode();
+  // Sohbet pencereleri (#443): durum buradan yayılır, eylemler buraya gelir.
+  useSessionWindows(controller.sessions, {
+    send: (id, task) => { void controller.send(id, task); },
+    answer: (id, data) => { void controller.answer(id, data); },
+    focus: (id) => {
+      setSurfaceSection(null); setPage("chat"); controller.select(id);
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFocus()).catch(() => undefined);
+    },
+  }, { enabled: inTauriShell() });
+  // Yan sohbet (#444, ⌘;): ana sohbete eklemeden soru sorma bölmesi.
+  const [sideChatOpen, setSideChatOpen] = useState(false);
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
@@ -682,9 +700,16 @@ export function SessionUygulama({
   }, [activeSessionId]);
   // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
   const { approval, workspaceMode, persona, changeApproval, adoptApproval, changeWorkspace, changePersona } = useSessionModes(
-    active ? { id: active.id, client: active.client } : null,
+    active ? { id: active.id, client: active.client, root: active.root } : null,
     setCommandError,
   );
+  // Kenar çubuğunun PR'a bağlı otomatik arşivi (#443): etkin çekirdeğe sorulur; kimlik sabit kalır.
+  const prDurumlari = useCallback(async (ids: string[]): Promise<Record<string, string>> => {
+    if (!activeClient) return {};
+    const result = await activeClient.request("sohbet.pr_durumlari", { sohbetler: ids });
+    const states = result?.ok === false ? null : result?.durumlar;
+    return states && typeof states === "object" ? states as Record<string, string> : {};
+  }, [activeClient]);
   // `/voice gonder` (P-072): kesin metin gelince taslak gönderilir; gönderim taslak güncellendikten
   // SONRA (efektte) yapılır ki composer temizlensin.
   const dictationAutoSend = useRef<string | null>(null);
@@ -933,9 +958,15 @@ export function SessionUygulama({
       destekleniyor: true,
     })),
   ], [commands, history.sources]);
-  // Global kısayollar (⌘K/⌘N/⌘B/⌘J/⌘1-9…) ve komut paleti (P-046); gövde `shortcuts/` altında.
+  // Global kısayollar (Claude Desktop tablosu, #444; eski ⌘K/⌘B/⌘J/⌘1-9 bir sürüm takma ad) ve komut paleti (P-046); gövde `shortcuts/` altında.
   const commandRunner = useRef<(input: string) => void>(() => undefined);
+  const closeArmedAt = useRef<number | null>(null);
   const komutPaleti = useCommandCenter({
+    onLegacyShortcut: (key, action) => setScheduleNotice({
+      sessionId: null,
+      baslik: "Kısayol tablosu değişti",
+      metin: `${formatKey(key, isMacPlatform())} (${actionLabel(action)}) artık varsayılan değil; bu sürümde çalışmaya devam ediyor. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata.`,
+    }),
     client: active?.client ?? null,
     blocked: showOnboarding || Boolean(active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)),
     actions: {
@@ -961,7 +992,35 @@ export function SessionUygulama({
       share: () => { if (active) { setSurfaceSection(null); setPage("chat"); setShareOpen(true); } },
       help: () => void navigateSidebar("help"),
       closeSplit: split.close,
+      // Claude Desktop kısayolları (#444): Ctrl+Tab oturum değiştir, ⌘W kapat, ⌘⇧D fark, ⌘\ panel.
+      cycleChat: (step) => {
+        const list = controller.sessions;
+        if (list.length < 2) return false;
+        const index = list.findIndex((item) => item.id === active?.id);
+        const hedef = list[(Math.max(index, 0) + step + list.length) % list.length];
+        setSurfaceSection(null); setPage("chat"); controller.select(hedef.id);
+        return true;
+      },
+      closeActiveSession: () => {
+        if (!active) return false;
+        const now = Date.now();
+        if (closeDecision(Boolean(active.running), now, closeArmedAt.current) === "arm") {
+          closeArmedAt.current = now;
+          setScheduleNotice({ sessionId: null, baslik: "Tur çalışıyor", metin: "Oturumu kapatırsan tur yarım kalır. Kapatmak için 3 sn içinde yeniden bas." });
+          return true;
+        }
+        closeArmedAt.current = null;
+        void controller.close(active.id).catch(() => undefined);
+        return true;
+      },
+      toggleDiff: () => {
+        const acik = page === "chat" && surfaceSection === null && layout.inspectorOpen && inspectorLayout.activeTab === "changes";
+        if (acik) { layout.closeInspector(); return; }
+        setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("changes"); inspectorLayout.setCollapsed(false); layout.openInspector();
+      },
+      closePane: () => { if (layout.inspectorOpen) layout.closeInspector(); else split.close(); },
       runCommand: (input) => commandRunner.current(input),
+      toggleSideChat: active?.status === "ready" ? () => setSideChatOpen((open) => !open) : undefined,
     },
     chats: [
       ...controller.sessions.map((session) => ({ id: session.id, title: session.title, project: projectName(session.root) })),
@@ -1666,6 +1725,7 @@ export function SessionUygulama({
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
+      viewMode={viewMode}
       onReadAloud={async (text) => {
         const generation = ++manualVoiceGeneration.current;
         await manualVoiceTurn.current?.cancel();
@@ -2017,6 +2077,9 @@ export function SessionUygulama({
               request={requestKitsHost}
             />
           )}
+          {sideChatOpen && active.status === "ready" && (
+            <SideChat client={active.client} key={active.id} onClose={() => setSideChatOpen(false)} />
+          )}
           {shareOpen && (
             <ShareDialog
               messages={active.messages}
@@ -2137,6 +2200,7 @@ export function SessionUygulama({
           onNavigateBack={pageHistory.back}
           onNavigateForward={pageHistory.forward}
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
+          onRename={page === "chat" && active.status === "ready" ? (name) => controller.rename(active.id, name) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
           remote={page === "chat" && surfaceSection === null ? {
@@ -2224,6 +2288,17 @@ export function SessionUygulama({
             }
             split.open(id);
           }}
+          onNewWindow={inTauriShell() ? async (id) => {
+            // Cmd-tık / Yeni pencerede aç (#443): sohbet açık değilse önce açılır; çekirdek burada kalır.
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            const title = controller.sessions.find((item) => item.id === id)?.title
+              ?? controller.storedConversations.find((item) => item.id === id)?.title ?? "Fusion";
+            await openSessionWindow(id, title);
+          } : undefined}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,
@@ -2234,6 +2309,7 @@ export function SessionUygulama({
               projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
               okunmamis: okunmamisSohbetler.has(session.id),
+              calisiyor: Boolean(session.running),
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
@@ -2250,6 +2326,7 @@ export function SessionUygulama({
               })),
           ]}
           guncellemeSurumu={guncellemeSurumu}
+          prDurumlari={prDurumlari}
           onGuncellemeAc={() => setPage("settings")}
           hesap={etkinHesap}
           onCikis={() => {

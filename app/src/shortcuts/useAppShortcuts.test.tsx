@@ -72,7 +72,7 @@ describe("tuş tablosu", () => {
     let terminalKey = "mod+t";
     const client = { request: vi.fn(async () => ({ ok: true, baglar: { [terminalKey]: "terminal" } })) };
     const { result } = renderHook(() => useKeymap(client));
-    expect(result.current.baglar["mod+k"]).toBe("palet");
+    expect(result.current.baglar["mod+n"]).toBe("yeni_sohbet");
     await waitFor(() => expect(result.current.baglar).toEqual({ "mod+t": "terminal" }));
     terminalKey = "mod+y";
     act(() => { window.dispatchEvent(new Event("focus")); });
@@ -94,7 +94,7 @@ describe("tuş tablosu", () => {
     act(() => { window.dispatchEvent(new CustomEvent(KEYMAP_CHANGED_EVENT, { detail: { ok: true, baglar: { "mod+u": "palet" } } })); });
     expect(renderHook(() => useKeymap(null)).result.current.baglar).toEqual({ "mod+u": "palet" });
     localStorage.setItem(KEYMAP_CACHE_KEY, "{bozuk");
-    expect(renderHook(() => useKeymap(null)).result.current.baglar["mod+k"]).toBe("palet");
+    expect(renderHook(() => useKeymap(null)).result.current.baglar["mod+n"]).toBe("yeni_sohbet");
     localStorage.clear();
   });
 
@@ -102,6 +102,33 @@ describe("tuş tablosu", () => {
     const client = { request: vi.fn(async () => ({ ok: false, metin: "Bilinmeyen istek" })) };
     const { result } = renderHook(() => useKeymap(client));
     await waitFor(() => expect(client.request).toHaveBeenCalled());
-    expect(result.current.baglar["mod+j"]).toBe("terminal");
+    expect(result.current.baglar["ctrl+`"]).toBe("terminal");
+  });
+});
+
+function LegacyHarness({ handler, onLegacy }: { handler: (action: string) => boolean; onLegacy: (key: string, action: string) => void }) {
+  const ref = useRef(handler);
+  ref.current = handler;
+  useGlobalShortcuts({ "mod+w": "oturumu_kapat", "mod+b": "yeni_sohbet" }, ref, true, onLegacy);
+  return <input aria-label="yaz" />;
+}
+
+describe("kaldırılan eski varsayılanlar (#444)", () => {
+  it("bir sürüm boyunca çalışır, bir kez uyarır; kullanıcının bağı önce gelir", () => {
+    localStorage.removeItem("fusion.kisayollar.eskiUyarildi");
+    const handler = vi.fn(() => true);
+    const onLegacy = vi.fn();
+    const view = render(<LegacyHarness handler={handler} onLegacy={onLegacy} />);
+    const input = view.getByLabelText("yaz");
+    keydown(input, { key: "k", code: "KeyK", metaKey: true });
+    keydown(input, { key: "k", code: "KeyK", metaKey: true });
+    expect(handler).toHaveBeenCalledWith("palet");
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(onLegacy).toHaveBeenCalledTimes(1);
+    expect(onLegacy).toHaveBeenCalledWith("mod+k", "palet");
+    // ⌘B kullanıcı tablosunda başka eyleme bağlı: eski anlamı (kenar çubuğu) çalışmaz.
+    keydown(input, { key: "b", code: "KeyB", metaKey: true });
+    expect(handler).toHaveBeenLastCalledWith("yeni_sohbet");
+    localStorage.removeItem("fusion.kisayollar.eskiUyarildi");
   });
 });

@@ -219,3 +219,29 @@
 .browser-session select { border-radius: var(--radius-sm); padding: 0 var(--space-2); }
 .browser-session__check--warn { color: var(--text-warning); }
 .browser-session button { margin-left: auto; padding: 0 var(--space-3); }
+
+/* Araç çubuğu + Dev servers + ⋮ menüleri (#439) tek satır. */
+.browser-panel__bar { align-items: center; display: flex; gap: 4px; }
+.browser-panel__bar > .browser-toolbar { flex: 1; min-width: 0; }
+.browser-menu { position: relative; }
+.browser-menu > button { background: none; border: 0; cursor: pointer; font-size: 14px; padding: 4px 6px; }
+.browser-menu__popup {
+  background: var(--surface-elevated, var(--fusion-surface, #fff));
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+}
+.browser-menu__item { align-items: center; background: none; border: 0; cursor: pointer; display: flex; font: inherit; gap: 6px; padding: 6px; text-align: left; }
+.browser-menu__item small, .browser-menu__item span small { color: var(--text-secondary); display: block; font-size: var(--text-2xs, 11px); }
+.browser-menu__server { align-items: center; display: flex; gap: 6px; justify-content: space-between; padding: 4px 6px; }
+.browser-menu__empty, .browser-menu__error { font-size: 12px; margin: 4px 6px; }
+.browser-menu__error { color: var(--danger, #c0392b); }

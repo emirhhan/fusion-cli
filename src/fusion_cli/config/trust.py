@@ -40,8 +40,9 @@ PROJECT_MCP_PATH = Path(".mcp.json")
 #: Önizleme sunucusu komutu taşıyan dosyalar (`tools/preview_launch` okur; Fusion'ınki önce).
 #: Komutlu yapılandırma yalnız dosya karması güven kaydındaysa çalışır; `url` ile bağlanma serbest.
 PROJECT_LAUNCH_FILES: tuple[Path, ...] = (
-    Path(".fusion") / "launch.json",
+    # Claude Code'un dosyası birincil (#440); `.fusion/launch.json` eski ad olarak okunur.
     Path(".claude") / "launch.json",
+    Path(".fusion") / "launch.json",
 )
 #: Claude Code'un paylaşılan proje ayarı (P-001): izin kuralları yalnız güvenilince okunur.
 PROJECT_SETTINGS_PATH = Path(".claude") / "settings.json"

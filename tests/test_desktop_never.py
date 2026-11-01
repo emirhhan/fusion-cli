@@ -19,7 +19,7 @@ from fusion_cli.config.desktop_denied import with_denied_app
 from fusion_cli.core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget
 from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
+from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 
 from .fakes import make_config
 
@@ -77,7 +77,9 @@ def test_tui_onizlemesi_hedef_uygulamayi_ve_kademeyi_gosterir():
     assert "Uygulama: Mail · kademe: tam kontrol" in _preview(_request())
 
 
-async def test_tui_her_zaman_reddet_yazar_ve_ayni_turda_sormaz():
+async def test_tui_uygulama_onayi_yalniz_oturum_ve_reddet_sunar():
+    """#426: Claude'da uygulama onayı "Allow for this session / Deny"; tek çağrılık "Evet" ve
+    "Her zaman reddet" yok."""
     tui = _tui()
     denials, written = _recording()
     prompter = TuiPrompter(tui, None, denials=denials)
@@ -91,19 +93,20 @@ async def test_tui_her_zaman_reddet_yazar_ve_ayni_turda_sormaz():
     tui.await_choice = capture  # type: ignore[method-assign]
     task = asyncio.ensure_future(prompter.confirm(_request()))
     await asyncio.sleep(0)
-    assert "never" in shown[0]
-    tui._resolve("never")
-
-    assert await task is ApprovalAnswer.DENY and written == ["Mail"]
-    second = await prompter.confirm(_request())
-    assert isinstance(second, ApprovalReply) and "Mail" in second.note and len(shown) == 1
+    assert shown[0] == ["session", "deny"]
+    tui._resolve("session")
+    assert await task is ApprovalAnswer.SESSION and written == []
 
 
 # --------------------------------------------------------------------------- düz terminal
 
 
-@pytest.mark.parametrize(("line", "noted"), [("r", False), ("r bu uygulamaya dokunma", True)])
-async def test_terminalde_r_her_zaman_reddet(tmp_path, monkeypatch, line, noted):
+@pytest.mark.parametrize(
+    ("line", "expected"), [("", ApprovalAnswer.SESSION), ("e", ApprovalAnswer.SESSION),
+                           ("o", ApprovalAnswer.SESSION), ("h", False), ("r", False)],
+)  # fmt: skip
+async def test_terminalde_uygulama_onayi_oturum_ya_da_red(tmp_path, monkeypatch, line, expected):
+    """#426, #452: CLI'de ret listesi yönetilmez; `r` artık sıradan "hayır"dır."""
     from rich.console import Console
 
     denials, written = _recording()
@@ -113,17 +116,7 @@ async def test_terminalde_r_her_zaman_reddet(tmp_path, monkeypatch, line, noted)
     monkeypatch.setattr(prompter, "_interactive", True)
     monkeypatch.setattr(prompter, "_ask", lambda _question: line)
 
-    answer = await prompter.confirm(_request())
-
-    assert written == ["Mail"]
-    if noted:
-        assert isinstance(answer, ApprovalReply) and answer.note == "bu uygulamaya dokunma"
-    else:
-        assert answer is False
-    # Aynı turda ikinci istek sorulmadan gerekçeli retle kapanır.
-    monkeypatch.setattr(prompter, "_ask", lambda _question: pytest.fail("sorulmamalı"))
-    again = await prompter.confirm(_request())
-    assert isinstance(again, ApprovalReply)
+    assert await prompter.confirm(_request()) == expected and written == []
 
 
 async def test_terminalde_r_uygulama_onayi_degilse_hayir_sayilir(tmp_path, monkeypatch):

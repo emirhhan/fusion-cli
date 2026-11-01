@@ -17,18 +17,19 @@ def test_bos_kilit_alinir_ve_ayni_tur_tazeler(tmp_path) -> None:
 
     assert desktop_lock.claim(pid=100, token="t1", now=10.0, path=yol) is None
     assert desktop_lock.claim(pid=100, token="t1", now=20.0, path=yol) is None
-    assert desktop_lock._read(yol) == LockOwner(100, "t1", 20.0)
+    assert desktop_lock._read(yol) == LockOwner(100, "t1", 20.0, "süreç 100")
 
 
 def test_canli_baska_surec_tutuyorsa_reddedilir(tmp_path, monkeypatch) -> None:
     yol = tmp_path / "oturum.lock"
     monkeypatch.setattr(desktop_lock, "_is_alive", lambda pid: True)
-    desktop_lock.claim(pid=100, token="a", now=10.0, path=yol)
+    desktop_lock.claim(pid=100, token="a", now=10.0, path=yol, label="Fusion CLI · proje")
 
     hata = desktop_lock.claim(pid=200, token="b", now=11.0, path=yol)
 
-    assert hata is not None and "süreç 100" in hata
-    assert desktop_lock._read(yol) == LockOwner(100, "a", 10.0)
+    # #429: hata kilidi tutan oturumu adıyla anar.
+    assert hata is not None and "Fusion CLI · proje" in hata and "oturumdan çık" in hata
+    assert desktop_lock._read(yol) == LockOwner(100, "a", 10.0, "Fusion CLI · proje")
 
 
 def test_ayni_surecte_baska_sohbet_de_bekler(tmp_path, monkeypatch) -> None:
@@ -43,16 +44,16 @@ def test_ayni_surecte_baska_sohbet_de_bekler(tmp_path, monkeypatch) -> None:
     assert desktop_lock.claim(pid=100, token="sohbet-b", now=12.0, path=yol) is None
 
 
-def test_olu_ya_da_bayat_sahip_devralinir(tmp_path, monkeypatch) -> None:
+def test_olu_sahip_devralinir_canli_sahip_sureyle_devralinmaz(tmp_path, monkeypatch) -> None:
+    """#429: kilit oturum çıkana kadar kalır; süreye bağlı devralma yok, ölü süreç devredilir."""
     yol = tmp_path / "oturum.lock"
     desktop_lock.claim(pid=100, token="a", now=10.0, path=yol)
 
     monkeypatch.setattr(desktop_lock, "_is_alive", lambda pid: False)
     assert desktop_lock.claim(pid=200, token="b", now=11.0, path=yol) is None
     monkeypatch.setattr(desktop_lock, "_is_alive", lambda pid: True)
-    bayat = 11.0 + desktop_lock.LOCK_STALE_S + 1
-    assert desktop_lock.claim(pid=300, token="c", now=bayat, path=yol) is None
-    assert desktop_lock._read(yol) == LockOwner(300, "c", bayat)
+    assert desktop_lock.claim(pid=300, token="c", now=11.0 + 86_400, path=yol) is not None
+    assert desktop_lock._read(yol) == LockOwner(200, "b", 11.0, "süreç 200")
 
 
 def test_bozuk_kilit_dosyasi_engel_degil_ve_birakma_yalniz_sahibe(tmp_path) -> None:
@@ -119,14 +120,15 @@ def test_fare_ve_klavye_araclari_kilidi_kontrol_eder(tmp_path, monkeypatch) -> N
     metin = desktop.desktop_type({"text": "a"}, context)
 
     assert not fare.ok and not metin.ok and "Başka bir Fusion" in fare.output
-    assert gonderilen == [] and belirtecler == [context.job_scope, context.job_scope]
+    # CLI'de süreç = oturum (#429): belirteç boştur.
+    assert gonderilen == [] and belirtecler == ["", ""]
 
 
-async def test_tur_bitince_kilit_birakilir(tmp_path, monkeypatch) -> None:
-    """Ölçüldü (31 Ekim): `release` hiçbir yerden çağrılmıyordu; tur bitse de kilit 300 sn
-    kalıyordu."""
+async def test_tur_bitince_kilit_kalir_oturum_cikinca_kalkar(tmp_path, monkeypatch) -> None:
+    """#429: "releases it when the session exits, not when the task finishes"."""
     from fusion_cli.cli import session
     from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.tools import desktop_turn
 
     from .fakes import AlwaysApprove, make_config
 
@@ -136,7 +138,7 @@ async def test_tur_bitince_kilit_birakilir(tmp_path, monkeypatch) -> None:
     kalan: list[object] = []
 
     async def run(task, deps, **kwargs):
-        assert desktop_lock.claim(token=deps.tool_context.job_scope) is None
+        assert desktop_turn.claim_lock(deps.tool_context) is None
         kalan.append(desktop_lock._read(yol))
         if task == "patla":
             raise RuntimeError("tur çöktü")
@@ -147,7 +149,9 @@ async def test_tur_bitince_kilit_birakilir(tmp_path, monkeypatch) -> None:
     ortak = {"sinks": (), "prompter_factory": lambda drain: AlwaysApprove(), "root": tmp_path}
 
     await session.run_agent_task("merhaba", config, interactive=False, **ortak)
-    assert kalan[0] is not None and not yol.exists()
+    assert kalan[0] is not None and yol.exists()
     with pytest.raises(RuntimeError):
         await session.run_agent_task("patla", config, interactive=False, **ortak)
-    assert len(kalan) == 2 and not yol.exists()
+    assert len(kalan) == 2 and yol.exists()
+    desktop_turn.end_session("")
+    assert not yol.exists()

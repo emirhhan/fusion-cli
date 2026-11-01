@@ -320,6 +320,14 @@ def main_callback(
             "--maintenance", help="Setup kancalarını (trigger maintenance) çalıştır, sonra aç."
         ),
     ] = False,
+    chrome: Annotated[
+        bool | None,
+        typer.Option(
+            "--chrome/--no-chrome",
+            help="Oturumu Chrome'daki Fusion Browser eklentisine bağla (ya da bağlama); "
+            "varsayılan /chrome › Enabled by default.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
@@ -436,6 +444,7 @@ def main_callback(
                 initial_prompt=initial_prompt,
                 launch_prompts=launch,
                 setup_trigger=setup_trigger,
+                chrome=chrome,
             )
         )
     )

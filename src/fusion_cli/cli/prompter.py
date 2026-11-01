@@ -26,8 +26,9 @@ from ..engines.agent.auto_switch import AUTO_SWITCH_WORDS
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
+from ..ui.chrome_site_labels import SITE_SESSION_HINT, site_host
 from ..ui.diff import diff_lines
-from .desktop_never import NEVER_WORDS, AppDenials, offers_never
+from .desktop_never import AppDenials
 
 #: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
 #: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
@@ -109,8 +110,10 @@ class ConsolePrompter:
                 if target is not None and request.consent_key is not None:
                     session_hint = messages.BILGISAYAR_CONFIRM_SESSION_HINT.format(app=target.app)
                     self._console.print(f"[{theme.DIM}]{escape(session_hint)}[/{theme.DIM}]")
-                    never_hint = messages.BILGISAYAR_CONFIRM_NEVER_HINT.format(app=target.app)
-                    self._console.print(f"[{theme.DIM}]{escape(never_hint)}[/{theme.DIM}]")
+                host = site_host(request)
+                if host is not None and request.can_remember:
+                    site_hint = SITE_SESSION_HINT.format(host=host)
+                    self._console.print(f"[{theme.DIM}]{escape(site_hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )
@@ -120,11 +123,6 @@ class ConsolePrompter:
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
-        head, _, note = answer.strip().partition(" ")
-        if head.lower() in NEVER_WORDS and offers_never(request):
-            notice = self._denials.deny(request)
-            self._console.print(f"[{theme.WARN}]{escape(notice)}[/{theme.WARN}]")
-            return ApprovalReply(ApprovalAnswer.DENY, note.strip()) if note.strip() else False
         return parse_console_answer(answer, request, enter_approves=not is_dangerous)
 
     async def ask(
@@ -238,6 +236,11 @@ def parse_console_answer(
     """
     head, _, note = answer.strip().partition(" ")
     word = head.lower()
+    if request.desktop_target is not None and request.consent_key is not None:
+        # Uygulama onayı (#426, #452): yalnız "bu oturum için izin ver" ya da "reddet".
+        if word in _SESSION or _is_affirmative(word, enter_approves=enter_approves):
+            return ApprovalAnswer.SESSION
+        return ApprovalReply(False, note.strip()) if note.strip() else False
     if word in _ALWAYS:
         return ApprovalAnswer.ALWAYS if request.can_persist else True
     if word in _SESSION and request.can_remember:

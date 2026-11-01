@@ -42,6 +42,7 @@ from ...core.active_context import ActiveContext
 from ...core.agent_runtime_state import AgentTranscriptCapture
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
+from ...core.claude_chrome_names import CLAUDE_CHROME_SCOPED
 from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
 from ...core.constants import (
@@ -191,6 +192,8 @@ from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
+from .claude_chrome_call import claude_chrome_call
+from .computer_use_hint import computer_use_off_hint
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
 from .deferred_resume import take_deferred
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
@@ -1124,6 +1127,9 @@ async def _run_agent(
             expertise_hint(task, registry=deps.capabilities, publisher=deps.publisher)
             if deps.selected_skill is None
             else None,
+            computer_use_off_hint(
+                task, enabled=deps.config.desktop.enabled, tool_names=registry.names()
+            ),
         )
         if depth == 0 and not chat_mode and not internal
         else ()
@@ -3111,7 +3117,7 @@ def _observe_stream_item(item: object, state: _State) -> None:
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
 #: ya da belirsizliği gideremez.
 #: Denetlenecek dosya bırakmayan, uzak sayfada çalışan araçların ad önekleri.
-_BROWSER_TOOL_PREFIXES = ("chrome_", "browser_")
+_BROWSER_TOOL_PREFIXES = ("chrome_", "claude-in-chrome__", "browser_")
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
@@ -3130,6 +3136,13 @@ SCOPED_TOOLS: dict[str, str] = {
     "desktop_background_inspect": "masaustu",
     "desktop_background_screenshot": "masaustu",
     "desktop_background_action": "masaustu",
+    # Toplu uygulama onayı (#426) yalnız masaüstü işinde sunulur (istem bütçesi).
+    "desktop_request_access": "masaustu",
+    # Chrome betik ve toplu eylem (#432) yalnız Chrome/tarayıcı işinde (istem bütçesi).
+    "chrome_javascript": "masaustu",
+    "chrome_batch": "masaustu",
+    # Claude in Chrome'un çekirdek dışı araçları (#431) yalnız Chrome/tarayıcı işinde.
+    **dict.fromkeys(sorted(CLAUDE_CHROME_SCOPED), "masaustu"),
     # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
     "enter_worktree": "worktree",
     "exit_worktree": "worktree",
@@ -4459,6 +4472,13 @@ async def _execute(
     rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
     # Etkin becerinin `allowed-tools` ön onayı ve `disallowed-tools` deseni (#142, #180).
     rules = skill_grants.with_grants(rules, deps.tool_context)
+    # Claude in Chrome adı (#431) onaydan önce iç `chrome_*` çağrısına çevrilir.
+    chrome_call = await claude_chrome_call(call, args, rules, deps.tool_context)
+    if isinstance(chrome_call, ToolResult):
+        return chrome_call, ToolOutcome.FAILED
+    if chrome_call is not None:
+        call, args, rules = chrome_call
+        tool = registry.get(call.name)
     if tool is not None and (
         tool.mutating
         or tool.effect_resolver is not None

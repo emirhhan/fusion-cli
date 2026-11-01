@@ -13,6 +13,11 @@ import data from "../../../src/fusion_cli/config/data/masaustu-kisayollari.json"
 export const COMMAND_PREFIX = "komut:";
 export const DEFAULT_BINDINGS: Readonly<Record<string, string>> = data.varsayilan;
 export const ACTION_LABELS: Readonly<Record<string, string>> = data.eylemler;
+/**
+ * Claude Desktop tablosuna geçişte (#444) varsayılandan kalkan bağlar: bir sürüm boyunca, tuş
+ * kullanıcının tablosunda başka işe bağlı değilse eski eylemi çalıştırır ve bir kez uyarılır.
+ */
+export const LEGACY_BINDINGS: Readonly<Record<string, string>> = data.eski_varsayilan;
 const RESERVED = new Set<string>(data.ayrilmis);
 const NAMED_KEYS = new Set<string>(data.adli_tuslar);
 const MODIFIERS = ["mod", "ctrl", "alt", "shift"] as const;
@@ -82,6 +87,14 @@ export function keyProblem(key: string): string | null {
   return null;
 }
 
+/**
+ * ⌘⇧] / ⌘⇧[ (Claude Desktop oturum değiştirme, #444): ABD düzeninde karakter `}` / `{`'dir ve
+ * noktalama kuralıyla `mod+}` olur. Bazı motorlar ⌘ basılıyken kaydırılmamış `]` bildirir;
+ * Shift varsa aynı tuşa çevrilir.
+ */
+const SHIFTED_BRACKETS: Record<string, string> = { "]": "}", "[": "{" };
+const UNSHIFTED_BRACKETS: Record<string, string> = { "}": "]", "{": "[" };
+
 interface KeyLike {
   key: string;
   code: string;
@@ -112,6 +125,7 @@ export function eventToKey(event: KeyLike, mac: boolean): string | null {
   if (digit && (event.altKey || /^\d$/.test(event.key))) key = digit;
   else if (letter && (event.altKey || !/^[\p{L}]$/u.test(event.key))) key = letter;
   else if (event.key === " ") key = "space";
+  else if (event.shiftKey && event.key in SHIFTED_BRACKETS) key = SHIFTED_BRACKETS[event.key];
   else key = lower(event.key);
   if (key.length > 1 && !NAMED_KEYS.has(key)) return null;
   return compose(parts, key);
@@ -120,13 +134,20 @@ export function eventToKey(event: KeyLike, mac: boolean): string | null {
 /** Dosyadaki bağları bu platformda eşleşecek biçime getir (Windows/Linux'ta `ctrl` = `mod`). */
 export function effectiveBindings(baglar: Record<string, string>, mac: boolean): Map<string, string> {
   const table = new Map<string, string>();
+  /** Windows/Linux'ta `ctrl`→`mod` eşlemesiyle düşen bağlar; aynı tuşun doğrudan bağı önce gelir. */
+  const mappedOnly = new Map<string, string>();
   for (const [spec, action] of Object.entries(baglar)) {
     const canonical = normalizeKey(spec);
     if (!canonical) continue;
     if (mac) { table.set(canonical, action); continue; }
     const mapped = withoutCtrl(canonical);
-    if (!RESERVED.has(mapped)) table.set(mapped, action);
+    if (RESERVED.has(mapped)) continue;
+    // ⌘⌃W (bölmeden çık) Windows'ta Ctrl+W'ye düşer; Ctrl+W oturumu kapatır ve öyle kalır (#444).
+    const [parts] = split(canonical);
+    if (parts.includes("mod") && parts.includes("ctrl")) mappedOnly.set(mapped, action);
+    else table.set(mapped, action);
   }
+  for (const [key, action] of mappedOnly) if (!table.has(key)) table.set(key, action);
   return table;
 }
 
@@ -145,7 +166,10 @@ const KEY_NAMES: Record<string, string> = {
 
 /** Kullanıcıya göster: macOS'ta `⌘⇧P`, diğerlerinde `Ctrl+Shift+P`. */
 export function formatKey(key: string, mac: boolean): string {
-  const [parts, final] = split(key);
+  const [rawParts, rawFinal] = split(key);
+  // `mod+}` kullanıcıya Claude'daki gibi ⌘⇧] olarak gösterilir.
+  const final = UNSHIFTED_BRACKETS[rawFinal] ?? rawFinal;
+  const parts = final === rawFinal ? rawParts : [...rawParts, "shift"];
   const name = KEY_NAMES[final] ?? final.toLocaleUpperCase("tr");
   const symbols = mac ? MAC_SYMBOLS : OTHER_SYMBOLS;
   const labels = [...new Set(parts.map((part) => symbols[part] ?? part))];

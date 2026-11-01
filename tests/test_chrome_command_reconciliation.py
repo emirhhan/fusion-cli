@@ -40,8 +40,11 @@ async def test_eylemde_zaman_asimi_sonuc_bilinmiyor_der(tmp_path):
 
     assert not sonuc.ok
     assert sonuc.output.startswith(UNKNOWN_OUTCOME_PREFIX)
-    assert "chrome_page" in sonuc.output and "tekrar" in sonuc.output
-    assert chrome.calls == ["click"]
+    # Model Claude adlarını görür (chrome_* adları reklam edilmez): yönlendirme read_page'e.
+    assert "read_page" in sonuc.output and "tekrar" in sonuc.output
+    assert "chrome_page" not in sonuc.output
+    # Önce öğe tarifi okunur (#422 yasak eylem kapısı); okunamazsa tıklama yine denenir.
+    assert chrome.calls == ["describe", "click"]
 
 
 async def test_okumada_zaman_asimi_duz_hatadir(tmp_path):
@@ -56,3 +59,12 @@ def test_alana_yazilan_sir_adim_gunlugunde_gorunmez(gizli):
     metin = step_text("chrome_type", {"ref": "e3", "text": gizli})
 
     assert gizli not in metin
+
+
+def test_hata_mesajlari_gizli_chrome_adlarina_yonlendirmez():
+    """Model chrome_action/click_at adlarını görmez; mesajlar Claude adlarını söyler (#431)."""
+    from fusion_cli.tools import chrome, chrome_record
+
+    kaynak = Path(chrome.__file__).read_text() + Path(chrome_record.__file__).read_text()
+    assert "chrome_action record" not in kaynak
+    assert "screenshot + click_at" not in kaynak

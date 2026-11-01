@@ -48,19 +48,19 @@ _LABELS = {
 class DesktopSettings:
     """`desktop:` bölümü: computer use anahtarı, kademe tavanı, uygulama listeleri."""
 
-    #: Kapalıysa `desktop_*` araçları modele hiç sunulmaz (kayıt defterinden çıkar).
-    enabled: bool = True
-    #: Bütün uygulamalar için tavan; kategori ya da uygulama kademesi bunu aşamaz.
+    #: Kapalıysa `desktop_*` araçları modele hiç sunulmaz (kayıt defterinden çıkar). Claude
+    #: Code gibi varsayılan KAPALI (#420); CLI'de proje başına `/mcp enable computer-use`.
+    enabled: bool = False
+    #: KULLANIMDAN KALKTI (#424): kademeler kategoriye göre sabittir; okunur, uygulanmaz.
     control_level: DesktopLevel = DesktopLevel.FULL
-    #: Kategori tablosu (tarayıcı = yalnız bak, terminal/IDE = tıkla, yatırım/kripto/parola
-    #: yöneticisi = engelli) uygulansın mı? Kapalıysa her uygulama `control_level` alır.
+    #: KULLANIMDAN KALKTI (#424): kategori tablosu her zaman uygulanır.
     category_defaults: bool = True
     #: Hiç dokunulmayan uygulamalar (ad ya da paket kimliği, büyük/küçük harf duyarsız).
     denied_apps: tuple[str, ...] = ()
-    #: Uygulama başına kademe: "Terminal=full", "com.apple.Safari=click". Kategoriyi ezer,
-    #: `control_level` tavanını ve `denied_apps`'i ezmez.
+    #: KULLANIMDAN KALKTI (#424): uygulama başına kademe değiştirilemez.
     app_levels: tuple[str, ...] = ()
-    #: Bir uygulama oturumda ilk kez kullanılacakken sorulsun mu ("Bu oturum / Reddet").
+    #: KULLANIMDAN KALKTI (#426): uygulama onayı her zaman sorulur ("Bu oturum için izin ver /
+    #: Reddet"); istemi kapatan ayar yok.
     app_consent: bool = True
     #: Arka planda çalış: diğer uygulamalar gizlenmez, kullanıcı çalışmaya devam eder.
     #: Kapalıysa ilk ön plan eyleminde hedef uygulama ve Fusion dışındakiler gizlenir.
@@ -69,6 +69,15 @@ class DesktopSettings:
     unhide_on_finish: bool = True
     #: Ön plan eylemi süren turda fiziksel Esc tuşu turu durdurur (tuş uygulamaya gitmez).
     escape_stops: bool = True
+
+
+#: Okunup uygulanmayan eski `desktop:` anahtarları (kullanıcı dosyası bozulmaz, bir kez uyarılır).
+DEPRECATED_KEYS: tuple[str, ...] = (
+    "control_level",
+    "category_defaults",
+    "app_levels",
+    "app_consent",
+)
 
 
 @dataclass(frozen=True, slots=True)

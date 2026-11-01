@@ -52,7 +52,10 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert result == {"ok": True, "metin": "bitti"}
     assert kwargs_seen["chat_mode"] is False
     assert kwargs_seen["system_prompt"] is None
+    from fusion_cli.core.claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
+
     assert kwargs_seen["allowed_tools"] == {
+        *CLAUDE_CHROME_TOOL_NAMES,
         "chrome_page",
         "chrome_action",
         "chrome_click",
@@ -932,9 +935,10 @@ async def test_c4_security_komutu_calisan_tura_gecer(tmp_path, monkeypatch):
 
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
-    # Yerleşik varsayılan Manuel (#54); geçişin tura yansıdığını sınamak için auto'dan başla.
+    # Yerleşik varsayılan Manuel (#423); önce auto'ya geçilir, sonra /security.
     assert oturum._state.approval is ApprovalMode.SECURITY
-    oturum._state.approval = ApprovalMode.AUTO
+    await oturum.handle(Request(id="0", name="komut.calistir", data={"ad": "auto", "arguman": ""}))
+    assert oturum._state.approval is ApprovalMode.AUTO
 
     await oturum.handle(
         Request(id="1", name="komut.calistir", data={"ad": "security", "arguman": ""})
@@ -1051,6 +1055,10 @@ async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdur
     # Kod kipi: sohbet kipi mutasyonu hiç sormadan (BLOCKED) reddeder; masaüstü
     # uygulamasındaki "değişiklikleri sıfırla" senaryosu kod kipinde geçer.
     oturum._workspace_mode = "kod"
+    # Test Otomatik kipin tel akışını kilitler; yerleşik varsayılan artık Manuel (#423).
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    oturum._state.approval = ApprovalMode.AUTO
 
     gorev = asyncio.ensure_future(
         oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "sıfırla"}))

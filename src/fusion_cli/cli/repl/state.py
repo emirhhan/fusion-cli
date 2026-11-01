@@ -49,6 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
     from ...tools.browser_shared import SharedBrowser
     from .agent_link import AgentLink
+    from .chrome_cli import ChromeSession
     from .inline_keys import InlineKeys
 
 
@@ -261,6 +262,8 @@ class ReplState:
     agent_link: AgentLink | None = field(default=None, kw_only=True)
     #: `/tarayici ac` ile açılan, ajanla paylaşılan görünür tarayıcı (P-045); kapalıyken None.
     shared_browser: SharedBrowser | None = field(default=None, kw_only=True)
+    #: `--chrome`/Enabled by default ile açılan Chrome köprüsü (#421); kapalıyken None.
+    chrome: ChromeSession | None = field(default=None, kw_only=True)
     #: `/tarayici kapat` sonrası kapanışı süren paylaşımlar; REPL çıkışında beklenir.
     closing_browsers: list[SharedBrowser] = field(default_factory=list, kw_only=True)
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.

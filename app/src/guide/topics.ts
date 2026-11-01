@@ -162,9 +162,9 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
   {
     id: "gorsel", group: "calisma", title: "Görsel oluştur",
     summary: "Tarif et, Fusion görseli üretsin.",
-    where: "Komut paleti (⌘K) → Görsel oluştur.",
+    where: "Komut paleti → Görsel oluştur.",
     steps: [
-      "⌘K ile komut paletini açıp \"Görsel oluştur\" eylemini seç.",
+      "Komut paletini açıp \"Görsel oluştur\" eylemini seç.",
       "Ne istediğini yaz, boyutu ve sağlayıcıyı seç, üret; sonuçlar listede toplanır.",
     ],
     inOnboarding: false,
@@ -262,10 +262,11 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
   },
   {
     id: "kisayollar", group: "kisisel", title: "Kısayollar ve komut paleti",
-    summary: "Her eylem, sohbet, dosya ve ayar ⌘K'dan bulunur.",
-    where: "⌘K; tuşları değiştirmek için Ayarlar → Kısayollar.",
+    summary: "Varsayılan kısayollar Claude Desktop ile aynı; komut paleti istenen tuşa bağlanır.",
+    where: "⌘/ kısayol listesi; tuşları değiştirmek için Ayarlar → Kısayollar.",
     steps: [
-      "⌘K paleti açar; ⌘P dosyaya gider, ⌘N yeni sohbet, ⌘, Ayarlar, ⌘J terminal, ⌘1-9 sohbetler arasında geçer.",
+      "⌘N yeni oturum, ⌘W oturumu kapat, Ctrl+Tab oturum değiştir, ⌘⇧D fark, ⌘⇧B önizleme, Ctrl+` terminal, ⌘\\ paneli kapat.",
+      "Komut paleti ve dosyaya git varsayılan tuşsuzdur; Ayarlar → Kısayollar'da istediğin tuşa bağla (ör. ⌘K).",
       "Ayarlar → Kısayollar'da bir eylemin tuşunu değiştir; bağlar keybindings.json'a yazılır.",
     ],
     settingsSection: "kisayollar", inOnboarding: false,

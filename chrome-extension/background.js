@@ -1,4 +1,5 @@
 import { execute, MONITOR_KEY, registerMonitor } from "./core.js";
+import { deviceIdentity } from "./device.js";
 
 const HOST = "com.fusion.browser";
 
@@ -58,6 +59,11 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     chrome.runtime.sendNativeMessage(HOST, { type: "pair" })
       .then((answer) => reply(answer || { ok: false }))
       .catch((cause) => reply({ ok: false, hata: String(cause?.message || cause) }));
+    return true;
+  }
+  if (message?.type === "fusion.device") {
+    // Offscreen belgesi chrome.storage'a erişemez; kimliği buradan alır (#432).
+    deviceIdentity().then(reply).catch(() => reply(null));
     return true;
   }
   if (message?.type === "fusion.ping") {

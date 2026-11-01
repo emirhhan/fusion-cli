@@ -30,6 +30,7 @@ from ..core.errors import BrowserProfileError
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
+from .browser_policy import navigation_blocked, page_tools_blocked
 from .browser_shared import control_gate
 from .browser_target import TargetError, fill_or_select, resolve
 from .files import writable_path
@@ -42,6 +43,7 @@ from .mirror import (
     mirror_summary,
     rewrite_links,
 )
+from .preview_origins import allowed_local
 from .web import access_wall_notice, browser_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
@@ -94,7 +96,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context)) or navigation_blocked(url)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
 
@@ -171,6 +173,8 @@ async def browser_type(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(hata)
     if not page.url or page.url == "about:blank":
         return ToolResult.failure("Önce browser_open ile bir sayfa aç.")
+    if engel := page_tools_blocked(page.url):
+        return ToolResult.failure(engel)
     try:
         hedef = await resolve(page, selector, SELECTOR_TIMEOUT_MS)
         ne_oldu = await fill_or_select(hedef, text)
@@ -193,6 +197,8 @@ async def browser_click(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(hata)
     if not page.url or page.url == "about:blank":
         return ToolResult.failure("Önce browser_open ile bir sayfa aç.")
+    if engel := page_tools_blocked(page.url):
+        return ToolResult.failure(engel)
     try:
         hedef = await resolve(page, selector, SELECTOR_TIMEOUT_MS)
         await hedef.locator.click(timeout=SELECTOR_TIMEOUT_MS)
@@ -223,7 +229,9 @@ async def browser_tabs_list(args: ToolArgs, context: ToolContext) -> ToolResult:
     pages = await context.browser.pages()
     rows: list[str] = []
     for index, page in enumerate(pages, start=1):
-        title = await page.title()
+        # Başlık sayfa içeriğidir: yönetici dış sayfa okumayı kapattıysa gösterilmez (#439).
+        hidden = page_tools_blocked(page.url)
+        title = "(başlık gizli: browserExternalPageTools)" if hidden else await page.title()
         marker = "*" if page is context.browser.page else " "
         rows.append(f"{marker} {index}. {title} — {page.url}")
     return ToolResult("\n".join(rows) if rows else "Açık sekme yok.")
@@ -248,7 +256,7 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
 async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Aynı oturumda yeni sekme aç ve izin verilen adrese git."""
     url = normalize_url(require_str(args, "url"))
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context)) or navigation_blocked(url)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     page, error = await _sayfa(context)
@@ -277,6 +285,8 @@ async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult
     page, hata = await _sayfa(context, baslatma=False)
     if page is None:
         return ToolResult.failure(hata)
+    if engel := page_tools_blocked(page.url):
+        return ToolResult.failure(engel)
 
     hedef = writable_path(context, optional_str(args, "path", "ekran-goruntusu.png"))
     hedef.parent.mkdir(parents=True, exist_ok=True)
@@ -303,6 +313,8 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(hata)
 
     url = optional_str(args, "url", "")
+    if engel := page_tools_blocked(url or page.url) or (navigation_blocked(url) if url else None):
+        return ToolResult.failure(engel)
     yakalanan: dict[str, bytes] = {}
     kesildi = False
 
@@ -327,7 +339,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         if url:
             url = normalize_url(url)
-            reason = browser_block_reason(url, context.local_origins)
+            reason = browser_block_reason(url, allowed_local(context))
             if reason is not None:
                 return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
             await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
@@ -441,7 +453,7 @@ async def _sayfa(
     async with start_lock(oturum):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
-        return await start_session(oturum, context.local_origins, profile=profile, headed=headed)
+        return await start_session(oturum, allowed_local(context), profile=profile, headed=headed)
 
 
 def _is_open(oturum: BrowserSession) -> bool:
@@ -544,6 +556,9 @@ async def _sayfa_ozeti(page: Any, eylem: str) -> ToolResult:
     oluşabilir: yükleme beklenip BİR KEZ yeniden denenir. Yine okunamazsa eylemin
     YAPILDIĞI söylenir; yoksa model "olmadı" sanıp tekrar tıklar (çift gönderim).
     """
+    if engel := page_tools_blocked(page.url):
+        # Eylem yapıldı ama dış sayfanın içeriği yönetici ayarıyla ajana kapalı (#439).
+        return ToolResult(f"{eylem}: {page.url}\n{engel}")
     for deneme in range(2):
         try:
             url = page.url

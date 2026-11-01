@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { olayAdimi } from "./olayMetni";
+import { aracVarsayilanMetni, olayAdimi } from "./olayMetni";
 
 it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunur", () => {
   const receipt = olayAdimi({ olay: "ModelCallFinished", requested_model: "model-A", result: { ok: true, model: "model-A", served_by: "observed", requested_effort: "high", applied_effort: "high", effort_reason: "" } });
@@ -263,5 +263,14 @@ describe("olayAdimi (30 Ekim)", () => {
     expect(olayAdimi({ olay: "ModelFallbackActivated" })?.ayrinti).not.toBe(" → ");
     expect(olayAdimi({ olay: "TeacherLimitationFound", topic: "Ses" })?.ayrinti).toBeUndefined();
     expect(olayAdimi({ olay: "ExecutionStepVerified", ok: true, evidence: [{ a: 1 }, "test geçti"] })?.ayrinti).toBe("test geçti");
+  });
+});
+
+describe("Claude in Chrome adları (#431)", () => {
+  it("claude-in-chrome araçlarını Türkçe adım metniyle anlatır", () => {
+    expect(aracVarsayilanMetni("claude-in-chrome__navigate", { url: "https://ornek.com/a" })).toContain("ornek.com");
+    expect(aracVarsayilanMetni("claude-in-chrome__computer", { action: "left_click" })).toBe(
+      "chrome ile bir öğeye tıklanıyor",
+    );
   });
 });

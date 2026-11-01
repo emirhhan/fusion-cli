@@ -16,6 +16,14 @@ interface ChromeStatus {
   yol?: string;
   adimlar?: string[];
   asama?: "yuklendi" | "izin_gerekli" | "elle" | "desteklenmiyor" | "hata";
+  tarayicilar?: ConnectedBrowser[];
+}
+
+/** Köprüye bağlı tarayıcı (Claude `list_connected_browsers` biçimi, #432). */
+export interface ConnectedBrowser {
+  deviceId: string;
+  name: string;
+  inUse: boolean;
 }
 
 type Check = "ok" | "wait" | "off";
@@ -103,7 +111,20 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
     }
   };
 
+  const selectBrowser = async (deviceId: string) => {
+    setError("");
+    try {
+      const result = await client.request("chrome.tarayici_sec", { deviceId }) as unknown as { ok: boolean; metin?: string };
+      if (!result.ok) throw new Error(result.metin || "Tarayıcı seçilemedi.");
+      const browsers = (state?.tarayicilar ?? []).map((item) => ({ ...item, inUse: item.deviceId === deviceId }));
+      setState((previous) => (previous ? { ...previous, tarayicilar: browsers } : previous));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Tarayıcı seçilemedi.");
+    }
+  };
+
   const checks = installChecks(state);
+  const browsers = state?.tarayicilar ?? [];
   const complete = checks.loaded === "ok" && checks.paired === "ok";
 
   return (
@@ -147,6 +168,24 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
         <li>Ekran kaydı GIF olarak projenin <code>.fusion/kayitlar</code> klasörüne yazılır (plan kipinde yapılmaz, Manuel kipte sorulur).</li>
         <li>Kısayollar: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> görevi durdurur; kayıtlı görevler <code>/ad</code> ile çağrılır.</li>
       </ul>
+      {browsers.length > 1 && (
+        <section aria-label="Bağlı tarayıcılar">
+          <h4>Bağlı tarayıcılar</h4>
+          {!browsers.some((item) => item.inUse) && (
+            <p className="settings__hint">Birden çok tarayıcı bağlı; Fusion'ın kullanacağını seç. Seçmezsen ilk tarayıcı eyleminde sana sorulur.</p>
+          )}
+          <ul className="settings__checks">
+            {browsers.map((item) => (
+              <li data-state={item.inUse ? "ok" : "off"} key={item.deviceId}>
+                <span>{item.name} <small>{item.deviceId}</small></span>
+                {item.inUse
+                  ? <b>Kullanılıyor</b>
+                  : <button onClick={() => void selectBrowser(item.deviceId)} type="button">Bunu kullan</button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {state?.bagli && <ChromeExtensionSettings client={client} />}
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
       {(error || pollError) && <p className="settings__inline-error" role="alert">{error || pollError}</p>}

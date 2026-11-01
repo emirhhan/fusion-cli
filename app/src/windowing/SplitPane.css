@@ -86,3 +86,7 @@
   .split-view { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .split-pane { border-left: 0; border-top: 1px solid var(--border-subtle); }
 }
+
+/* Sohbet penceresi (#443): bölme pencerenin tamamını kaplar. */
+.session-window { background: var(--surface, transparent); display: flex; height: 100vh; }
+.session-window .split-pane { border: 0; flex: 1; max-width: none; }

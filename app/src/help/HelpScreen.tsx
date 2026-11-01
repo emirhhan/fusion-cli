@@ -30,14 +30,13 @@ const KISAYOLLAR: Kisayol[] = [
 ];
 
 /** Uygulama kısayolları varsayılan tablodan gelir (P-046); kişisel bağlar Ayarlar › Kısayollar'dadır. */
-const UYGULAMA_EYLEMLERI = ["palet", "dosya_ara", "yeni_sohbet", "ayarlar", "kenar_cubugu", "terminal", "kisayollar"];
+const UYGULAMA_EYLEMLERI = ["kisayollar", "yeni_sohbet", "oturumu_kapat", "sonraki_oturum", "onceki_oturum", "fark_paneli", "onizleme", "terminal", "paneli_kapat", "ayarlar"];
 
 function uygulamaKisayollari(mac: boolean): Kisayol[] {
-  const satirlar = UYGULAMA_EYLEMLERI.flatMap((eylem) => {
+  return UYGULAMA_EYLEMLERI.flatMap((eylem) => {
     const tus = keysForAction({ ...DEFAULT_BINDINGS }, eylem)[0];
     return tus ? [{ tus: formatKey(tus, mac), ne: ACTION_LABELS[eylem] ?? eylem }] : [];
   });
-  return [...satirlar, { tus: `${formatKey("mod+1", mac)} … ${formatKey("mod+9", mac)}`, ne: "Açık sohbetler arasında geç" }];
 }
 
 interface Soru {

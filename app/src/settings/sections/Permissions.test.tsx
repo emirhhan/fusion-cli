@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../../protocol/client";
+import { setBypassPolicyDisabled } from "../../sessions/bypassGate";
 import { Permissions, type PermissionRuleRow } from "./Permissions";
 
 function client(kurallar: PermissionRuleRow[] = [], ekstra: Record<string, unknown> = {}) {
@@ -101,5 +102,24 @@ describe("Permissions — izin kuralı tablosu (P-003)", () => {
     render(<Permissions kok="/proje" kokleSinirli={true} mod="auto" />);
     expect(screen.queryByText("İzin kuralları")).toBeNull();
     expect(screen.getByText("Fusion yalnız bu klasörün içinde çalışır.")).toBeTruthy();
+  });
+});
+
+describe("Permissions — İzinleri atla politikası (#442)", () => {
+  it("politika kapattıysa anahtar kilitli, değişmez ve nedeni yazılı", () => {
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "false");
+    setBypassPolicyDisabled(true);
+    try {
+      render(<Permissions kok="/proje" kokleSinirli={false} mod="auto" onSelectMode={vi.fn()} />);
+      const anahtar = screen.getByRole("switch", { name: "İzinleri atla modunu etkinleştir" }) as HTMLInputElement;
+      expect(anahtar.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(anahtar);
+      expect(window.localStorage.getItem("fusion.allowBypassPermissionsMode")).toBe("false");
+      expect(screen.getByText("Politikayla kapalı")).toBeTruthy();
+      expect(screen.queryByText("İzinleri atla")).toBeNull();
+    } finally {
+      setBypassPolicyDisabled(false);
+      window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
+    }
   });
 });

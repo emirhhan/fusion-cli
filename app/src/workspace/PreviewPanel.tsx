@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { isPickShortcut } from "../browser/BrowserToolbar";
 import { kabukVar } from "../voice/bridge";
 import { ayriKokenliOnizlemeAdresi } from "./htmlPreviewSource";
 import { PreviewLaunch } from "./PreviewLaunch";
@@ -125,6 +126,18 @@ export function PreviewPanel({
   const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
   const validationRun = useRef(0);
   const localUrl = historyIndex >= 0 ? history[historyIndex] ?? null : null;
+  // Cmd/Ctrl+Shift+S: önizlenen sayfayı öğe seçiciyle Tarayıcı paneline aç (#444). Tarayıcı
+  // paneli de dinliyorsa önce işleyen `preventDefault` ile ötekini susturur.
+  useEffect(() => {
+    if (!localUrl || !onOpenInBrowser) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isPickShortcut(event)) return;
+      event.preventDefault();
+      onOpenInBrowser(localUrl, true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [localUrl, onOpenInBrowser]);
   // Büyük metin/HTML varlığı her render'da (adres kutusundaki her tuşta) yeniden çözülmesin.
   const assetText = useMemo(
     () => (asset && (asset.tur === "html" || asset.tur === "text") ? textFromBase64(asset.base64) : null),
@@ -348,7 +361,7 @@ export function PreviewPanel({
                     aria-label="Öğe seç (Tarayıcı panelinde)"
                     disabled={!localUrl}
                     onClick={() => { if (localUrl) onOpenInBrowser(localUrl, true); }}
-                    title="Öğe seç: sayfayı Tarayıcı panelinde açar, tıkladığın öğe sohbete eklenir"
+                    title="Öğe seç (⌘⇧S): sayfayı Tarayıcı panelinde açar, tıkladığın öğe sohbete eklenir"
                     type="button"
                   >⌖</button>
                 )}

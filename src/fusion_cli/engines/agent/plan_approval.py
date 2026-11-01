@@ -46,8 +46,11 @@ class PlanApproval:
             return Decision.BLOCKED
         if self._memory.plan_bypass:
             return await BypassApproval(self._prompter, self._memory).decide(request)
+        if request.plan_prompt and self._prompter is not None:
+            # Claude Code: plan kipinde bu tarayıcı araçları izin istemi çıkarır (#450).
+            return await _ask_and_remember(self._prompter, request, self._memory)
         must_ask = request.danger is not None or request.pre_ask is not None
-        if not must_ask and request.read_only:
+        if not must_ask and request.read_only and not request.plan_prompt:
             return Decision.ALLOW
         if _edits_files(request):
             return Decision.BLOCKED

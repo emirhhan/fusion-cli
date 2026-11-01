@@ -26,6 +26,7 @@ from typing import Any
 from ..core.browser_session import BrowserSession
 from .browser import PAGE_TIMEOUT_MS, normalize_url
 from .browser_guard import PlaywrightObject
+from .browser_policy import navigation_blocked
 from .preview_log import PageEventCollector, PageLog
 from .web import browser_block_reason, loopback_origins_in
 
@@ -290,6 +291,7 @@ class LiveView:
         if origins is not None:
             origins.update(loopback_origins_in(url))
         reason = await asyncio.to_thread(browser_block_reason, url, set(origins or ()))
+        reason = reason or navigation_blocked(url)
         if reason is not None:
             raise LiveInputError(BLOCKED.format(reason=reason))
         return url

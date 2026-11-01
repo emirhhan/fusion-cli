@@ -54,10 +54,15 @@ def test_varsayilan_tablo_gecerli_ve_eylemleri_etiketli():
     for key, action in data.defaults.items():
         assert normalize_desktop_key(key) == key and desktop_key_problem(key) is None, key
         assert action in data.labels, action
-    assert {"palet", "yeni_sohbet", "ayarlar", "kenar_cubugu", "terminal"} <= set(
-        data.defaults.values()
-    )
-    assert data.defaults["mod+1"] == "sohbet_1" and data.defaults["mod+9"] == "sohbet_9"
+    # Claude Desktop tablosu (#444); Claude'da olmayan varsayılanlar kaldırıldı.
+    assert {
+        "kisayollar", "yeni_sohbet", "oturumu_kapat", "sonraki_oturum", "onceki_oturum",
+        "fark_paneli", "onizleme", "terminal", "paneli_kapat",
+    } <= set(data.defaults.values())  # fmt: skip
+    assert data.defaults["ctrl+`"] == "terminal" and data.defaults["ctrl+tab"] == "sonraki_oturum"
+    for removed in ("mod+k", "mod+p", "mod+b", "mod+j", "mod+alt+b", "mod+1", "mod+9"):
+        assert removed not in data.defaults, removed
+    assert "palet" in data.labels and "sohbet_1" in data.labels  # kullanıcı bağı olarak kalır
 
 
 def test_arayuz_ayni_veri_dosyasini_ice_aktarir():
@@ -75,7 +80,7 @@ def test_masaustu_baglami_terminal_yukleyicisinde_uyari_uretmez(tmp_path: Path):
     )
     keymap = keybindings.load_keymap(path)
     table = keymap.bindings(CONTEXT_DESKTOP)
-    assert table["mod+t"] == "terminal" and "mod+j" not in table and table["mod+k"] == "palet"
+    assert table["mod+t"] == "terminal" and "mod+j" not in table and table["mod+n"] == "yeni_sohbet"
     assert not any("bilinmeyen bağlam" in warning for warning in keymap.warnings)
     assert any("masaustu.k:" in warning for warning in keymap.warnings)
     assert any("'u'" in warning for warning in keymap.warnings)
@@ -89,27 +94,27 @@ def test_eylemi_tusa_bagla_eski_tusu_kaldirir_ve_dosyada_fark_tutar(tmp_path: Pa
     path.write_text(json.dumps({"tui": {"c-q": None}}), encoding="utf-8")
     assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+shift+t", force=False).ok
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["masaustu"] == {"mod+j": None, "mod+shift+t": "terminal"}
+    assert raw["masaustu"] == {"ctrl+`": None, "mod+shift+t": "terminal"}
     assert raw["tui"] == {"c-q": None}  # diğer bağlam korunur
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
-    assert table["mod+shift+t"] == "terminal" and "mod+j" not in table
+    assert table["mod+shift+t"] == "terminal" and "ctrl+`" not in table
 
 
 def test_dolu_tus_cakisma_doner_zorla_devralir(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    result = bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+k", force=False)
-    assert not result.ok and result.conflict == "palet" and not path.exists()
-    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+k", force=True).ok
+    result = bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+n", force=False)
+    assert not result.ok and result.conflict == "yeni_sohbet" and not path.exists()
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+n", force=True).ok
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
-    assert table["mod+k"] == "terminal" and "palet" not in table.values()
+    assert table["mod+n"] == "terminal" and "yeni_sohbet" not in table.values()
 
 
 def test_kaldir_ve_varsayilana_don(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    assert unbind_action(path, CONTEXT_DESKTOP, "kenar_cubugu").ok
-    assert "kenar_cubugu" not in keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP).values()
-    assert reset_action(path, CONTEXT_DESKTOP, "kenar_cubugu").ok
-    assert keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)["mod+b"] == "kenar_cubugu"
+    assert unbind_action(path, CONTEXT_DESKTOP, "fark_paneli").ok
+    assert "fark_paneli" not in keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP).values()
+    assert reset_action(path, CONTEXT_DESKTOP, "fark_paneli").ok
+    assert keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)["mod+shift+d"] == "fark_paneli"
     bind_action(path, CONTEXT_DESKTOP, "palet", "mod+shift+k", force=False)
     assert reset_action(path, CONTEXT_DESKTOP, None).ok
     assert "masaustu" not in json.loads(path.read_text(encoding="utf-8"))
@@ -133,15 +138,15 @@ def test_bozuk_dosyanin_ustune_yazilmaz(tmp_path: Path):
 def test_rpc_liste_ata_cakisma_ve_hata(tmp_path: Path):
     path = tmp_path / "keybindings.json"
     listing = keybindings_rpc.list_bindings(path=path)
-    assert listing["ok"] and listing["baglar"]["mod+k"] == "palet"
+    assert listing["ok"] and listing["baglar"]["mod+n"] == "yeni_sohbet"
     assert {"ad": "palet", "etiket": "Komut paletini aç"} in listing["eylemler"]
-    conflict = keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+k"}, path=path)
-    assert conflict["ok"] is False and conflict["cakisma"] == "palet"
-    assert "Komut paletini aç" in conflict["metin"]
-    done = keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+k", "zorla": True}, path=path)
-    assert done["ok"] and done["baglar"]["mod+k"] == "terminal"
+    conflict = keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+n"}, path=path)
+    assert conflict["ok"] is False and conflict["cakisma"] == "yeni_sohbet"
+    assert "Yeni sohbet" in conflict["metin"]
+    done = keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+n", "zorla": True}, path=path)
+    assert done["ok"] and done["baglar"]["mod+n"] == "terminal"
     assert keybindings_rpc.remove({"eylem": "terminal"}, path=path)["ok"]
-    assert keybindings_rpc.reset({}, path=path)["baglar"]["mod+j"] == "terminal"
+    assert keybindings_rpc.reset({}, path=path)["baglar"]["ctrl+`"] == "terminal"
     assert keybindings_rpc.assign({"eylem": "terminal"}, path=path)["ok"] is False
     assert keybindings_rpc.reset({"eylem": 3}, path=path)["ok"] is False
     path.write_text("[]", encoding="utf-8")
@@ -151,7 +156,9 @@ def test_rpc_liste_ata_cakisma_ve_hata(tmp_path: Path):
 
 def test_rpc_terminal_uyarilarini_masaustune_tasimaz(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    path.write_text(json.dumps({"tui": {"c-x": "ucmak"}, "masaustu": {"k": "palet"}}), "utf-8")
+    path.write_text(
+        json.dumps({"tui": {"c-x": "ucmak"}, "masaustu": {"k": "yeni_sohbet"}}), "utf-8"
+    )
     warnings = keybindings_rpc.list_bindings(path=path)["uyarilar"]
     assert warnings and all(warning.startswith("masaustu.") for warning in warnings)
 
@@ -164,38 +171,40 @@ async def test_oturum_kisayol_isteklerini_dagitir(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(keybindings_rpc, "keybindings_path", lambda: target)
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path / "ev")
-    await session.handle(Request("k1", "kisayol.ata", {"eylem": "palet", "tus": "mod+shift+k"}))
+    await session.handle(
+        Request("k1", "kisayol.ata", {"eylem": "yeni_sohbet", "tus": "mod+shift+k"})
+    )
     result = next(
         json.loads(line)["veri"] for line in reversed(lines) if json.loads(line).get("id") == "k1"
     )
-    assert result["ok"] and result["baglar"]["mod+shift+k"] == "palet"
-    assert json.loads(target.read_text(encoding="utf-8"))["masaustu"]["mod+k"] is None
+    assert result["ok"] and result["baglar"]["mod+shift+k"] == "yeni_sohbet"
+    assert json.loads(target.read_text(encoding="utf-8"))["masaustu"]["mod+n"] is None
 
 
 def test_devredilen_tusu_varsayilana_donmek_cakisma_sorar_zorla_geri_alir(tmp_path: Path):
     """Ölçüldü (31 Ekim): Terminal mod+k'yı devralınca paletin `sifirla`sı ok:true dönüp hiçbir
     şey yapmıyordu (dosya {mod+j: null, mod+k: terminal} kalıyordu)."""
     path = tmp_path / "keybindings.json"
-    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+k", force=True).ok
-    result = reset_action(path, CONTEXT_DESKTOP, "palet")
-    assert not result.ok and result.conflict == "terminal" and result.key == "mod+k"
-    assert keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)["mod+k"] == "terminal"
-    assert reset_action(path, CONTEXT_DESKTOP, "palet", force=True).ok
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+n", force=True).ok
+    result = reset_action(path, CONTEXT_DESKTOP, "yeni_sohbet")
+    assert not result.ok and result.conflict == "terminal" and result.key == "mod+n"
+    assert keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)["mod+n"] == "terminal"
+    assert reset_action(path, CONTEXT_DESKTOP, "yeni_sohbet", force=True).ok
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
-    assert table["mod+k"] == "palet" and "terminal" not in table.values()
+    assert table["mod+n"] == "yeni_sohbet" and "terminal" not in table.values()
 
 
 def test_rpc_sifirla_cakismayi_tusla_doner(tmp_path: Path):
     path = tmp_path / "keybindings.json"
-    keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+k", "zorla": True}, path=path)
-    conflict = keybindings_rpc.reset({"eylem": "palet"}, path=path)
+    keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+n", "zorla": True}, path=path)
+    conflict = keybindings_rpc.reset({"eylem": "yeni_sohbet"}, path=path)
     assert conflict["ok"] is False and conflict["cakisma"] == "terminal"
-    assert conflict["tus"] == "mod+k" and "mod+k" in conflict["metin"]
-    done = keybindings_rpc.reset({"eylem": "palet", "zorla": True}, path=path)
-    assert done["ok"] and done["baglar"]["mod+k"] == "palet"
+    assert conflict["tus"] == "mod+n" and "mod+n" in conflict["metin"]
+    done = keybindings_rpc.reset({"eylem": "yeni_sohbet", "zorla": True}, path=path)
+    assert done["ok"] and done["baglar"]["mod+n"] == "yeni_sohbet"
 
 
-@pytest.mark.parametrize("key", ["ctrl+c", "ctrl+v", "ctrl+x", "ctrl+z", "ctrl+a", "ctrl+w"])
+@pytest.mark.parametrize("key", ["ctrl+c", "ctrl+v", "ctrl+x", "ctrl+z", "ctrl+a"])
 def test_ctrl_yazimi_ayrilmis_tus_korumasini_asamaz(tmp_path: Path, key: str):
     """Ölçüldü (31 Ekim): Windows/Linux'ta `ctrl` = `mod` olduğu hâlde `ctrl+c` kabul ediliyordu;
     global dinleyici Ctrl+C'yi yutup kopyalamayı bozuyordu."""
@@ -218,19 +227,19 @@ def test_elle_yazilan_ctrl_sistem_tusu_yuklenmez(tmp_path: Path):
 def test_windowsta_ctrl_ve_mod_ayni_tus_sayilir(tmp_path: Path):
     """Ölçüldü (31 Ekim): Windows'ta `ctrl+k`, `mod+k` ile aynı tuşken çakışma sorulmuyordu."""
     path = tmp_path / "keybindings.json"
-    other = bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=False, mac=False)
-    assert not other.ok and other.conflict == "palet"
-    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=False, mac=True).ok
+    other = bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+n", force=False, mac=False)
+    assert not other.ok and other.conflict == "yeni_sohbet"
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+n", force=False, mac=True).ok
     path.unlink()
-    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+k", force=True, mac=False).ok
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "ctrl+n", force=True, mac=False).ok
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
-    assert table["ctrl+k"] == "terminal" and "mod+k" not in table
+    assert table["ctrl+n"] == "terminal" and "mod+n" not in table
     # Paletin varsayılana dönüşü de aynı fiziksel tuşu tutan bağı çakışma sayar.
-    reset = reset_action(path, CONTEXT_DESKTOP, "palet", mac=False)
-    assert not reset.ok and reset.conflict == "terminal" and reset.key == "ctrl+k"
-    assert reset_action(path, CONTEXT_DESKTOP, "palet", force=True, mac=False).ok
+    reset = reset_action(path, CONTEXT_DESKTOP, "yeni_sohbet", mac=False)
+    assert not reset.ok and reset.conflict == "terminal" and reset.key == "ctrl+n"
+    assert reset_action(path, CONTEXT_DESKTOP, "yeni_sohbet", force=True, mac=False).ok
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
-    assert table["mod+k"] == "palet" and "ctrl+k" not in table
+    assert table["mod+n"] == "yeni_sohbet" and "ctrl+n" not in table
 
 
 def test_turkce_buyuk_i_tek_harfe_kanoniklesir(tmp_path: Path):

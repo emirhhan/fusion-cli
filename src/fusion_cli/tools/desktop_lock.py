@@ -1,16 +1,14 @@
-"""Tek oturum kilidi: aynı anda yalnız bir Fusion turu masaüstünü yönetir (P-033).
+"""Tek oturum kilidi: aynı anda yalnız bir Fusion oturumu masaüstünü yönetir (P-033, #429).
 
-İki tur aynı anda fare/klavye gönderirse olaylar birbirine karışır (Claude CLI "one session
-at a time" kilidiyle aynı gerekçe). Kilit, yerel yardımcı önbelleğiyle aynı özel dizinde
-(`$TMPDIR/fusion-desktop-<uid>/oturum.lock`) tutulur; sahibi süreç kimliği + tur belirteci
-(`ToolContext.job_scope`) ikilisidir: aynı appserver sürecindeki iki sohbet de birbirini
-bekler. Tur bitince `release` çağrılır (`cli/session.py`, REPL); sahip süreç ölmüşse ya da
-`LOCK_STALE_S` boyunca eylem yapmamışsa kilit devralınır.
+Claude Code: "A session takes a lock at its first computer use action and releases it when the
+session exits, not when the task finishes. A second session's computer use fails with an error
+naming the session that holds the lock." Çöken oturumun kilidi süreç ölünce kalkar.
 
-Ölçüldü (31 Ekim): oku-sonra-yaz atomik değildi (iki süreç boş kilidi aynı anda görüp ikisi de
-alıyordu), `release` hiçbir yerden çağrılmıyordu (tur bitse de 300 sn 'o tur bitince yeniden
-dene' hatası) ve aynı süreçteki sohbetler aynı pid olduğu için hiç korunmuyordu. Artık dosya
-`flock` altında okunup yazılır.
+Kilit, yerel yardımcı önbelleğiyle aynı özel dizinde (`$TMPDIR/fusion-desktop-<uid>/oturum.lock`)
+tutulur; sahibi süreç kimliği + oturum belirteci ikilisidir (`desktop_turn.lock_token`: CLI'de
+süreç = oturum, masaüstü uygulamasında sohbet). Tur sonunda BIRAKILMAZ; süreç çıkınca (sahip
+ölü) ya da masaüstünde sohbetten çıkılınca (`release`) kalkar. Süreye bağlı devralma yoktur.
+Dosya `flock` altında okunup yazılır (oku-sonra-yaz atomik).
 """
 
 from __future__ import annotations
@@ -27,18 +25,17 @@ from pathlib import Path
 
 LOCK_DIRECTORY_TEMPLATE = "fusion-desktop-{uid}"
 LOCK_FILE_NAME = "oturum.lock"
-#: Bu kadar süre eylem yapmayan sahip "bitmiş" sayılır (tur sonu bırakması kaçmış olsa bile).
-LOCK_STALE_S = 300.0
 _READ_CHUNK = 4096
 
 
 @dataclass(frozen=True, slots=True)
 class LockOwner:
-    """Kilidi tutan tur: süreç + tur belirteci + son dokunma zamanı."""
+    """Kilidi tutan oturum: süreç + oturum belirteci + son dokunma zamanı + görünen ad."""
 
     pid: int
     token: str
     touched: float
+    label: str = ""
 
 
 def lock_path() -> Path:
@@ -69,7 +66,8 @@ def _parse(raw: bytes) -> LockOwner | None:
     pid, touched, token = payload.get("pid"), payload.get("touched"), payload.get("token", "")
     if type(pid) is not int or not isinstance(touched, (int, float)) or not isinstance(token, str):
         return None
-    return LockOwner(pid, token, float(touched))
+    label = payload.get("label")
+    return LockOwner(pid, token, float(touched), label if isinstance(label, str) else "")
 
 
 def _read(path: Path) -> LockOwner | None:
@@ -105,7 +103,14 @@ def _write_fd(descriptor: int, owner: LockOwner) -> None:
 def _is_held_by_other(current: LockOwner | None, owner: LockOwner) -> bool:
     if current is None or (current.pid, current.token) == (owner.pid, owner.token):
         return False
-    return _is_alive(current.pid) and owner.touched - current.touched < LOCK_STALE_S
+    return _is_alive(current.pid)
+
+
+#: İkinci oturumun hatası (Claude: "Computer use is in use by another Claude session").
+BUSY_MESSAGE = (
+    "Computer use başka bir Fusion oturumunda kullanılıyor: {label}. Kilit o oturum çıkana "
+    "kadar tutulur; önce o oturumdan çık."
+)
 
 
 def claim(
@@ -114,10 +119,12 @@ def claim(
     token: str = "",
     now: float | None = None,
     path: Path | None = None,
+    label: str = "",
 ) -> str | None:
-    """Kilidi al ya da tazele; başka canlı tur tutuyorsa Türkçe hata metni döner."""
+    """Kilidi al ya da tazele; başka canlı oturum tutuyorsa Türkçe hata metni döner."""
+    owner_pid = os.getpid() if pid is None else pid
     owner = LockOwner(
-        os.getpid() if pid is None else pid, token, time.time() if now is None else now
+        owner_pid, token, time.time() if now is None else now, label or f"süreç {owner_pid}"
     )
     target = lock_path() if path is None else path
     try:
@@ -125,11 +132,7 @@ def claim(
             current = _read_fd(descriptor)
             if _is_held_by_other(current, owner):
                 assert current is not None
-                return (
-                    f"Başka bir Fusion oturumu (süreç {current.pid}) şu an bilgisayarı "
-                    "kullanıyor. Aynı anda tek oturum masaüstünü yönetebilir; o tur bitince "
-                    "yeniden dene."
-                )
+                return BUSY_MESSAGE.format(label=current.label or f"süreç {current.pid}")
             _write_fd(descriptor, owner)
     except OSError as exc:
         return f"Masaüstü kilidi yazılamadı: {exc}"
@@ -137,7 +140,7 @@ def claim(
 
 
 def release(*, pid: int | None = None, token: str = "", path: Path | None = None) -> None:
-    """Kilit bu turunsa kaldır (tur sonu temizliği). Kilit dosyası yoksa dizin bile açılmaz."""
+    """Kilit bu oturumunsa kaldır (oturumdan çıkış). Kilit dosyası yoksa dizin bile açılmaz."""
     owner_pid = os.getpid() if pid is None else pid
     target = _existing_lock_path() if path is None else path
     if target is None or not target.exists():

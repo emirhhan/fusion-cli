@@ -9,12 +9,17 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect
 from . import (
     archive,
     browser,
     chrome,
+    chrome_script,
+    claude_chrome,
     desktop,
+    desktop_access,
     desktop_background,
     desktop_inspect,
     desktop_mouse,
@@ -54,10 +59,19 @@ def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> Schem
 
 #: `chrome_action` eylem adları (şemadaki `enum`).
 _CHROME_ACTIONS = (
-    "scroll", "wait", "key", "select", "tabs", "open", "tab", "close", "screenshot",
+    "scroll", "wait", "key", "select", "tabs", "open", "new_tab", "tab", "close", "screenshot",
     "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
     "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
     "upload", "assets", "console", "network", "record", "shortcuts", "shortcut", "window", "group",
+    "upload_image",
+)  # fmt: skip
+
+#: Claude adlı araçların (#431) arkasındaki iç araçlar: modele sunulmaz, çağrılırsa çalışır.
+_LEGACY_CHROME = frozenset(
+    {
+        "chrome_page", "chrome_action", "chrome_javascript", "chrome_batch",
+        "chrome_click", "chrome_type", "chrome_navigate",
+    }
 )  # fmt: skip
 
 _STRING: SchemaFragment = {"type": "string"}
@@ -71,6 +85,9 @@ def build_registry(
     """Yerleşik araçların tamamını içeren yeni bir kayıt defteri üret."""
     registry = ToolRegistry()
     for tool in _TOOLS:
+        # Eski `chrome_*` adları gizli kalır ve çalışır; model Claude adlarını görür (#431).
+        registry.register(replace(tool, advertised=False) if tool.name in _LEGACY_CHROME else tool)
+    for tool in claude_chrome.claude_chrome_tools():
         registry.register(tool)
     for alias, target in _ALIASES.items():
         registry.register_alias(alias, target)
@@ -198,6 +215,30 @@ _TOOLS: tuple[Tool, ...] = (
         effect_resolver=chrome.chrome_action_effect,
     ),
     Tool(
+        name="chrome_javascript",
+        description=(
+            "Bağlı Chrome sekmesinde JavaScript çalıştır; son ifadenin değeri döner "
+            "(her seferinde sorulur)."
+        ),
+        parameters=_schema({"text": _STRING}, ["text"]),
+        run=chrome_script.chrome_javascript,
+        mutating=True,
+        effect=ToolEffect.REMOTE_DESTRUCTIVE,
+    ),
+    Tool(
+        name="chrome_batch",
+        description=(
+            "Chrome araçlarını tek çağrıda sırayla çalıştır; ilk hatada durur. "
+            "actions=[{name, input}]."
+        ),
+        parameters=_schema(
+            {"actions": {"type": "array", "items": {"type": "object"}}}, ["actions"]
+        ),
+        run=chrome_script.chrome_batch,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
         name="chrome_click",
         description="Chrome öğesine ref ile tıkla.",
         parameters=_schema({"ref": _STRING}, ["ref"]),
@@ -229,6 +270,19 @@ _TOOLS: tuple[Tool, ...] = (
         description="Çalışan macOS uygulamalarını listele.",
         parameters=_schema({}, []),
         run=desktop.desktop_apps,
+    ),
+    Tool(
+        name="desktop_request_access",
+        description=(
+            "Kullanacağın macOS uygulamalarını tek istemde iste (apps listesi); onaylananlar "
+            "oturum boyu izinli olur."
+        ),
+        parameters=_schema(
+            {"apps": {"type": "array", "items": _STRING}, "reason": _STRING}, ["apps"]
+        ),
+        run=desktop_access.desktop_request_access,
+        mutating=True,
+        effect=ToolEffect.REMOTE_INTERACT,
     ),
     Tool(
         name="desktop_open",
@@ -264,7 +318,7 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_mouse",
         description=(
-            "macOS fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
+            "Fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
             "pikselidir (görüntü yoksa önce al). action: "
             "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
             "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."

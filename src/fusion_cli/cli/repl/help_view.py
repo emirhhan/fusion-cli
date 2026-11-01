@@ -28,8 +28,11 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
     elif name == "tips":
         _tips(console)
     elif name == "clear":
+        from . import chrome_cli
         from .loop import session_info
 
+        # Claude in Chrome: `/clear` oturumun sekme grubunu sayfalarıyla kapatır (#436).
+        await chrome_cli.close_group(state.chrome, only_empty=False)
         banner.print_welcome(console, session_info(state))
     elif name == "stats":
         _stats(state, console)

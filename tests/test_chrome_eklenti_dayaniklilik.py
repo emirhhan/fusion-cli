@@ -20,3 +20,18 @@ def test_panel_dinleme_ustel_bekler_ve_hatayi_tekrarlamaz() -> None:
     panel = (EXTENSION / "panel.js").read_text(encoding="utf-8")
     assert "MAX_RETRY_MS" in panel and "2 ** listenFailures" in panel
     assert "if (listenFailures === 0) error(" in panel
+
+
+def test_panel_uc_izin_modu_sunar_varsayilan_otomatik() -> None:
+    """#434: Claude in Chrome modları: Manually / Automatically approve, Skip all approvals."""
+    html = (EXTENSION / "panel.html").read_text(encoding="utf-8")
+    secici = html[
+        html.index('<select id="mode"') : html.index("</select>", html.index('<select id="mode"'))
+    ]
+    assert secici.count("<option") == 3
+    for name in ("Manually approve", "Automatically approve", "Skip all approvals"):
+        assert name in secici
+    assert 'value="edits"' not in secici and 'value="plan"' not in secici
+    panel = (EXTENSION / "panel.js").read_text(encoding="utf-8")
+    assert 'const PANEL_MODES = ["security", "auto", "bypass"]' in panel
+    assert ': settings.mod ? "security" : "auto"' in panel

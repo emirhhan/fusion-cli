@@ -32,6 +32,7 @@ from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
 from ...history import source_by_name
 from ...ui import banner, messages, theme
+from ...ui.chrome_site_labels import relabel_choices
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
@@ -44,6 +45,7 @@ from . import (
     async_commands,
     background_commands,
     browser_command,
+    chrome_cli,
     cron_store,
     goal_flow,
     goal_store,
@@ -196,19 +198,11 @@ class TuiPrompter:
             if not request.danger:
                 choices.append(deny)
             if target is not None and offers_never(request):
-                choices.append(
-                    Choice(
-                        "never",
-                        messages.BILGISAYAR_APPROVAL_NEVER,
-                        messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
-                    )
-                )
+                # Uygulama onayı (#426): yalnız "Bu oturum için izin ver / Reddet".
+                choices = [choice for choice in choices if choice.value in {"session", "deny"}]
+            # Chrome site izni (#435): Allow this action / Always allow… / Decline.
+            choices = relabel_choices(request, choices)
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
-            if answer == "never" and offers_never(request):
-                self._tui.console.print(
-                    f"[{theme.WARN}]{escape(self._denials.deny(request))}[/{theme.WARN}]"
-                )
-                return ApprovalAnswer.DENY
             if answer == "once":
                 return ApprovalAnswer.ONCE
             if answer == "session" and request.can_remember:
@@ -334,6 +328,8 @@ class _TuiSession:
             self._tui, drain, self._state.root, AppDenials(self._deny_persist())
         )
         self._custom_status = ""
+        # Chrome kurulum sorusu (#421) tam ekranda uygulama-içi seçiciyle sorulur.
+        chrome_cli.bind_chooser(state.chrome, self._tui.await_choice)
         self._sync_status()
 
     @property
@@ -997,6 +993,7 @@ class _TuiSession:
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
+                    chrome=chrome_cli.bridge_of(self._state.chrome),
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

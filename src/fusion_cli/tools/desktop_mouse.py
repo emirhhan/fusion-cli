@@ -1,4 +1,5 @@
-"""macOS fare eylem seti: tık türleri, sürükle, hover, basılı tut, koordinatlı kaydırma (P-031).
+"""Fare eylem seti (macOS Quartz; Windows SendInput, #430): tık türleri, sürükle, hover,
+basılı tut, koordinatlı kaydırma (P-031).
 
 Koordinatlar son `desktop_screenshot` görüntüsünün PİKSELİDİR; `ToolContext.desktop` çerçevesi
 ekran noktasına çevirir (bkz. `core.desktop_frame`). Olaylar önce saf bir plan
@@ -15,7 +16,7 @@ import time
 from dataclasses import dataclass
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from . import desktop_lock, desktop_turn
+from . import desktop_turn, desktop_win32
 from .desktop import DESKTOP_SCROLL_MAX_LINES, _framework, _mac_only, _trusted, modifier_flags
 from .desktop_permissions import ACCESSIBILITY, permission_failure
 from .key_spec import MODIFIER_ALIASES
@@ -198,7 +199,7 @@ def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, 
 
 def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Fare eylemi (son ekran görüntüsünün pikseliyle): tık türleri, sürükle, hover, down/up."""
-    error = _mac_only()
+    error = desktop_win32.gate(_mac_only())
     if error:
         return ToolResult.failure(error)
     action = args.get("action", "click")
@@ -225,17 +226,19 @@ def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(converted, str):
             return ToolResult.failure(converted)
         end_point = converted
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
+    plan = mouse_plan(action, start_point, end_point, button=button, flags=flags)
     try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        _post_mouse(
-            framework, mouse_plan(action, start_point, end_point, button=button, flags=flags)
-        )
+        if desktop_win32.active():
+            desktop_win32.send_mouse(plan)
+        else:
+            framework = _framework()
+            if not _trusted(framework):
+                return permission_failure(ACCESSIBILITY)
+            _post_mouse(framework, plan)
     except (OSError, RuntimeError, ValueError) as exc:
         return ToolResult.failure(f"Fare eylemi gönderilemedi: {exc}")
     where = f"({start[0]:g}, {start[1]:g})"
@@ -302,7 +305,7 @@ def _scroll_amount(args: ToolArgs, name: str) -> int | None:
 
 def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Kaydır: `lines` dikey (pozitif yukarı), `delta_x` yatay (pozitif sola), x,y imleç konumu."""
-    error = _mac_only()
+    error = desktop_win32.gate(_mac_only())
     if error:
         return ToolResult.failure(error)
     lines, delta_x = _scroll_amount(args, "lines"), _scroll_amount(args, "delta_x")
@@ -314,20 +317,25 @@ def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     pixel = _coordinate(args, "x", "y") if "x" in args or "y" in args else None
     if ("x" in args or "y" in args) and pixel is None:
         return ToolResult.failure("x ve y birlikte, sıfırdan büyük veya eşit sayı olmalı.")
-    busy = desktop_lock.claim(token=context.job_scope)
+    busy = desktop_turn.claim_lock(context)
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
+    point = _to_point(context, pixel) if pixel is not None else None
+    if isinstance(point, str):
+        return ToolResult.failure(point)
     try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        if pixel is not None:
-            point = _to_point(context, pixel)
-            if isinstance(point, str):
-                return ToolResult.failure(point)
-            _post_mouse(framework, mouse_plan("hover", point))
-        _post_scroll(framework, lines, delta_x) if delta_x else _post_scroll(framework, lines)
+        if desktop_win32.active():
+            if point is not None:
+                desktop_win32.send_mouse(mouse_plan("hover", point))
+            desktop_win32.send_scroll(lines, delta_x)
+        else:
+            framework = _framework()
+            if not _trusted(framework):
+                return permission_failure(ACCESSIBILITY)
+            if point is not None:
+                _post_mouse(framework, mouse_plan("hover", point))
+            _post_scroll(framework, lines, delta_x) if delta_x else _post_scroll(framework, lines)
     except (OSError, RuntimeError) as exc:
         return ToolResult.failure(f"Kaydırma gönderilemedi: {exc}")
     parts = []

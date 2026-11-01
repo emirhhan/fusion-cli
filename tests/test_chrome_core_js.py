@@ -40,3 +40,16 @@ def test_panel_kisayol_genisletmesi_kisayol_yoksa_metni_oldugu_gibi_gonderir() -
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "chrome-shortcuts ✓" in done.stdout
+
+
+def test_eklenti_cihaz_kimligi_kalici_ve_tarayici_adli() -> None:
+    """#432: birden çok tarayıcı köprüye kendi kimliğiyle bağlanır."""
+    done = subprocess.run(
+        [NODE, str(ROOT / "tests/e2e/chrome_device_unit.mjs")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "chrome-device ✓" in done.stdout

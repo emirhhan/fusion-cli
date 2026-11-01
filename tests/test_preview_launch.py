@@ -116,13 +116,15 @@ def test_fusion_dosyasi_okunur_ve_alanlar_eslenir(tmp_path):
     assert api.is_attach and api.address == "http://localhost:8000/health" and api.cwd == "backend"
 
 
-def test_claude_code_dosyasi_uyumluluk_icin_okunur_fusion_dosyasi_oncelikli(tmp_path):
-    _yaz(tmp_path, [{"name": "claude", "url": "http://localhost:3000"}], ".claude/launch.json")
-    assert load_launch_configs(tmp_path).source == ".claude/launch.json"
-
+def test_claude_code_dosyasi_birincil_fusion_dosyasi_eski_ad(tmp_path):
+    """#440: `.claude/launch.json` birincil; `.fusion/launch.json` eski ad olarak okunur."""
     _yaz(tmp_path, [{"name": "fusion", "url": "http://localhost:3001"}])
+    assert load_launch_configs(tmp_path).source == ".fusion/launch.json"
+
+    _yaz(tmp_path, [{"name": "claude", "url": "http://localhost:3000"}], ".claude/launch.json")
     loaded = load_launch_configs(tmp_path)
-    assert loaded.source == ".fusion/launch.json" and [c.name for c in loaded.configs] == ["fusion"]
+    assert loaded.source == ".claude/launch.json" and [c.name for c in loaded.configs] == ["claude"]
+    assert preview_launch.LAUNCH_FILE == ".claude/launch.json"
 
 
 @pytest.mark.parametrize(
@@ -130,7 +132,6 @@ def test_claude_code_dosyasi_uyumluluk_icin_okunur_fusion_dosyasi_oncelikli(tmp_
     [
         ({"name": "x", "url": "https://example.com"}, "yerel bir http(s) adresi"),
         ({"name": "x"}, "`runtimeExecutable` ya da `url`"),
-        ({"name": "x", "runtimeExecutable": "npm"}, "`port` ya da `url`"),
         ({"name": "x", "runtimeExecutable": "npm", "port": 70000}, "1-65535"),
         ({"name": "x", "runtimeExecutable": "npm", "port": True}, "1-65535"),
         ({"name": "kötü ad!", "url": "http://localhost:1"}, "`name`"),
@@ -158,25 +159,60 @@ def test_bozuk_json_hata_tekrarli_ad_ve_bilinmeyen_alan_uyari(tmp_path):
     _yaz(
         tmp_path,
         [
-            # `autoPort` artık tanınır (test_preview_autoport); bilinmeyen alan örneği `program`.
-            {"name": "a", "url": "http://localhost:1", "program": "x.js"},
+            # `program` artık tanınır (#440); bilinmeyen alan örneği `preLaunchTask`.
+            {"name": "a", "url": "http://localhost:1", "preLaunchTask": "x"},
             {"name": "a", "url": "http://localhost:2"},
         ],
     )
     loaded = load_launch_configs(tmp_path)
     assert [c.url for c in loaded.configs] == ["http://localhost:1"]
-    assert any("program" in w and "yok sayıldı" in w for w in loaded.warnings)
+    assert any("preLaunchTask" in w and "yok sayıldı" in w for w in loaded.warnings)
     assert any("tekrar" in w for w in loaded.warnings)
 
 
-def test_bozuk_fusion_dosyasinda_claude_dosyasina_dusulur(tmp_path):
-    (tmp_path / ".fusion").mkdir()
-    (tmp_path / ".fusion" / "launch.json").write_text("[", encoding="utf-8")
-    _yaz(tmp_path, [{"name": "Web Server", "url": "http://localhost:3000"}], ".claude/launch.json")
+def test_bozuk_claude_dosyasinda_eski_fusion_dosyasina_dusulur(tmp_path):
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "launch.json").write_text("[", encoding="utf-8")
+    _yaz(tmp_path, [{"name": "Web Server", "url": "http://localhost:3000"}])
     loaded = load_launch_configs(tmp_path)
-    # Adda iç boşluk serbesttir (kabuğa gitmez); bozuk Fusion dosyası uyarı olur.
-    assert loaded.source == ".claude/launch.json" and loaded.configs[0].name == "Web Server"
-    assert loaded.warnings and ".fusion/launch.json" in loaded.warnings[0]
+    # Adda iç boşluk serbesttir (kabuğa gitmez); bozuk birincil dosya uyarı olur.
+    assert loaded.source == ".fusion/launch.json" and loaded.configs[0].name == "Web Server"
+    assert loaded.warnings and ".claude/launch.json" in loaded.warnings[0]
+
+
+def test_claude_launch_json_alanlari(tmp_path):
+    """#440: yorumlu JSON, program/args, port=3000 varsayılanı, ${workspaceFolder}, autoVerify."""
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "launch.json").write_text(
+        """{
+  // yorum satırı
+  "version": "0.0.1", "autoVerify": false, /* blok yorum */
+  "configurations": [
+    {"name": "srv", "program": "server.js", "args": ["--x"], "cwd": "${workspaceFolder}/web"},
+    {"name": "url", "url": "http://localhost:4000/a//b"}
+  ]
+}""",
+        encoding="utf-8",
+    )
+    loaded = load_launch_configs(tmp_path)
+    srv = loaded.get("srv")
+    assert srv is not None and srv.command == ("node", "server.js", "--x")
+    assert srv.port == 3000 and srv.cwd == "web" and loaded.auto_verify is False
+    assert loaded.get("url").url == "http://localhost:4000/a//b"  # dize içi // korunur
+    assert loaded.warnings == ()
+
+
+def test_port_degisince_port_bayragi_yeniden_yazilir():
+    from fusion_cli.tools.launch_json import rewrite_port_flags
+
+    assert rewrite_port_flags(("dev", "--port", "3000", "-p", "3000", "--port=3000"), 3001) == (
+        "dev",
+        "--port",
+        "3001",
+        "-p",
+        "3001",
+        "--port=3001",
+    )
 
 
 def test_env_alani_okunur_ve_gecersizse_kayit_atlanir(tmp_path):
@@ -729,7 +765,7 @@ def test_onizleme_komutu_listeler_ve_adla_ajana_gorev_verir(tmp_path):
         config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path / "ev"
     )
 
-    assert ".fusion/launch.json" in _komut(state, "/onizleme") and "Tanımlı sunucu yok" in _komut(
+    assert ".claude/launch.json" in _komut(state, "/onizleme") and "Tanımlı sunucu yok" in _komut(
         state, "/preview"
     )
 

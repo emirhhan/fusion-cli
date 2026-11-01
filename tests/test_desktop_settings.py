@@ -54,14 +54,40 @@ def test_varsayilanlar_kod_ve_yaml_ile_ayni(tmp_path: Path):
 
 
 def test_eski_dosya_desktop_bolumu_olmadan_yuklenir(tmp_path: Path):
-    assert load_config(_config_file(tmp_path)).desktop.enabled is True
+    # #420: Claude Code gibi computer use varsayılan kapalı.
+    assert load_config(_config_file(tmp_path)).desktop.enabled is False
 
 
-def test_bozuk_app_levels_yuklemede_hata_verir(tmp_path: Path):
-    source = _config_file(tmp_path, "desktop:\n  app_levels: ['Terminal=hepsi']\n")
+def test_eski_kademe_ayarlari_yuklemeyi_bozmaz_ve_uyarir(tmp_path: Path, caplog):
+    """#424: kullanımdan kalkan anahtarlar okunur, yok sayılır, bir kez uyarılır."""
+    from fusion_cli.config import desktop_deprecation
 
-    with pytest.raises(ConfigError, match=r"desktop\.app_levels"):
+    desktop_deprecation._WARNED.clear()
+    source = _config_file(
+        tmp_path, "desktop:\n  app_levels: ['Terminal=hepsi']\n  app_consent: false\n"
+    )
+    with caplog.at_level("WARNING"):
         load_config(source)
+        load_config(source)
+    warned = [record.message for record in caplog.records if "kullanımdan kalktı" in record.message]
+    assert len(warned) == 2 and any("app_levels" in item for item in warned)
+
+
+def test_kisitlayici_eski_kademe_ayari_ayrica_belirgin_uyarilir(tmp_path: Path, caplog):
+    """#424: kısıtlayıcı eski ayar yok sayılınca yetki genişler; bu açıkça söylenir."""
+    from fusion_cli.config import desktop_deprecation
+
+    desktop_deprecation._WARNED.clear()
+    source = _config_file(
+        tmp_path, "desktop:\n  control_level: click\n  app_levels: ['Terminal=observe']\n"
+    )
+    with caplog.at_level("WARNING"):
+        load_config(source)
+        load_config(source)
+    widened = [record.message for record in caplog.records if "genişledi" in record.message]
+    assert len(widened) == 1
+    assert "Terminal=observe" in widened[0] and "control_level=click" in widened[0]
+    assert "ret listesi" in widened[0]
 
 
 def test_app_level_ayristirici():
@@ -99,8 +125,8 @@ def test_config_set_kademe_ve_liste_dogrulanir(tmp_path: Path):
 
 
 def test_kapaliyken_masaustu_ailesi_kayit_defterinde_yok(tmp_path: Path):
-    acik = _registry(tmp_path, DesktopSettings())
-    kapali = _registry(tmp_path, DesktopSettings(enabled=False))
+    acik = _registry(tmp_path, DesktopSettings(enabled=True))
+    kapali = _registry(tmp_path, DesktopSettings())
 
     assert {"desktop_mouse", "desktop_screenshot", "desktop_key"} <= _desktop_names(acik)
     assert _desktop_names(kapali) == set()
@@ -121,7 +147,7 @@ def test_rpc_ayarlar_ve_yazma(tmp_path: Path):
 
     view, same = computer_routes.dispatch(config, "bilgisayar.ayarlar", {})
     assert view["ok"] is True and same is config
-    assert view["ayarlar"]["control_level"] == "full"
+    assert "control_level" not in view["ayarlar"] and "app_consent" not in view["ayarlar"]
     assert {item["deger"] for item in view["kademeler"]} == {"observe", "click", "full"}
 
     result, updated = computer_routes.dispatch(

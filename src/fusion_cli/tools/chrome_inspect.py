@@ -14,6 +14,7 @@ from typing import Any
 
 from ..core.redaction import redact
 from ..core.tools import ToolArgs, ToolContext, ToolResult
+from .preview_origins import allowed_local
 from .web import browser_block_reason
 
 #: Konsol/ağ okumasında tek seferde dönen en çok kayıt.
@@ -132,7 +133,7 @@ async def open_window(value: object, context: ToolContext, call: Invoke) -> Tool
     url = value.strip()
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
-    reason = browser_block_reason(url, context.local_origins)
+    reason = browser_block_reason(url, allowed_local(context))
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     return await call(context, "window_new", {"url": url})

@@ -174,6 +174,8 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setenv(
         "FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-managed")
     )
+    # Computer use bildirimi (#447) testte gerçek macOS bildirimi göstermesin.
+    monkeypatch.setenv("FUSION_NO_OS_NOTIFY", "1")
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")

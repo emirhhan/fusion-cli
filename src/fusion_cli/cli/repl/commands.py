@@ -28,11 +28,12 @@ from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capabilities import search as search_capabilities
 from ...ui import background_messages as bg_texts
-from ...ui import messages
+from ...ui import chrome_messages, messages
 from ...ui.picker import Choice, pick
 from . import (
     auto_mode_command,
     background_commands,
+    chrome_command,
     config_command,
     export_commands,
     goal_command,
@@ -577,10 +578,15 @@ def _mcp(state: ReplState, argument: str) -> str:
     kalan = parcalar[1] if len(parcalar) > 1 else ""
 
     from . import mcp_panel
+    from .computer_use_command import handle as computer_use
+    from .computer_use_command import status_row
 
+    yerlesik = computer_use(state, alt_komut, kalan)
+    if yerlesik is not None:
+        return yerlesik
     if alt_komut in ("", "list"):
         # Claude Code `/mcp`: sunucular, kapsam ve durum; argümanlardaki token maskeli (L2-28).
-        return mcp_panel.panel(state.config.mcp_servers)
+        return f"{status_row(state)}\n{mcp_panel.panel(state.config.mcp_servers)}"
 
     panel_cevabi = mcp_panel.handle(state, alt_komut, kalan.strip())
     if panel_cevabi is not None:
@@ -1075,6 +1081,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[ad]",
     ),
+    # REPL'de asenkron (`async_commands`, #421); bu eşzamanlı işleyici masaüstü/uzak yoludur.
+    SlashCommand(
+        "chrome",
+        chrome_messages.CMD_CHROME,
+        chrome_command.desktop_handler,
+        group="Agent",
+        usage=chrome_messages.CHROME_USAGE,
+    ),
     SlashCommand(
         "tarayici",
         messages.CMD_TARAYICI,
@@ -1385,7 +1399,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
 
 #: Asenkron çalışan ve konsola kendi yazan komutlar: `/rc` (uzaktan kontrol), `/voice` (dikte),
 #: `/oturum-aktar` (web model oturumundan profil kopyası).
-ASYNC_COMMANDS = frozenset({"rc", "voice", "oturum-aktar"})
+ASYNC_COMMANDS = frozenset({"rc", "voice", "oturum-aktar", "chrome"})
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.

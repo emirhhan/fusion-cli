@@ -124,6 +124,8 @@ class BrowserPanel:
             "konsol": self._console,
             "ayar": self._setting,
             "profil": self._profile,
+            # Browser ⋮ › Clear browsing data (#439): kalıcı panel oturumunun çerezleri silinir.
+            "veri_temizle": self._clear_data,
         }
 
     # ------------------------------------------------------------------ oturum
@@ -398,6 +400,19 @@ class BrowserPanel:
         else:
             return _error(f"Bilinmeyen panel ayarı: {key}")
         return _ok(**self._state())
+
+    async def _clear_data(self, _data: dict[str, Any]) -> dict[str, Any]:
+        """Tarayıcıyı kapat, kalıcı panel oturumunu (Keep cookies) sil; sonraki açılış temiz."""
+        if self._agent_busy():
+            return _error(_PROFILE_BUSY)
+        await self._close_browser({})
+        store = self._store()
+        if store.available:
+            await asyncio.to_thread(store.delete, PANEL_PROFILE)
+        current = self._shared.current
+        if current is not None:
+            current.profile_name = ""
+        return _ok(**self._state(), metin="Tarama verileri temizlendi.")
 
     async def _profile(self, data: dict[str, Any]) -> dict[str, Any]:
         """Panelin oturumunu başka profille yeniden aç ("" = temiz, panel profili = kalıcı)."""

@@ -6,7 +6,11 @@ import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
+import { isMacOS } from "../platform/os";
 import { useModalFocus } from "../ui/useModalFocus";
+import { useArchivedSessions } from "./useArchivedSessions";
+import { usePrAutoArchive, type PrStateQuery } from "./usePrAutoArchive";
+import { GroupSortMenu, useSidebarGrouping } from "./SidebarGroupSort";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -20,6 +24,8 @@ export interface OturumSatiri {
   title: string;
   /** Bakılmadan tur bitti ya da onay geldi: satırda nokta, erişilebilir adda "okunmamış" (P-047). */
   okunmamis?: boolean;
+  /** Tur sürüyor: PR'a bağlı otomatik arşiv bu sohbeti atlar (#443). */
+  calisiyor?: boolean;
 }
 
 export interface ProjeSatiri {
@@ -91,6 +97,8 @@ interface SidebarProps {
   onYeni: () => void;
   /** Sohbeti aktif sohbetin yanında ikinci bölmede aç (P-064). Verilmezse menüde görünmez. */
   onSplit?: (id: string) => void | Promise<void>;
+  /** Sohbeti yeni pencerede aç (#443; Cmd-tık / Open in > New window). Verilmezse görünmez. */
+  onNewWindow?: (id: string) => void | Promise<void>;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
   /** Sol alttaki satır: giriş yapmış YEREL HESAP.
@@ -103,6 +111,8 @@ interface SidebarProps {
   /** Yeni sürüm varsa numarası; yoksa şerit hiç çizilmez. */
   guncellemeSurumu?: string | null;
   onGuncellemeAc?: () => void;
+  /** Sohbet kimliği → bağlı PR durumu (`sohbet.pr_durumlari`); otomatik arşiv için (#443). */
+  prDurumlari?: PrStateQuery;
 }
 
 interface NavItemProps {
@@ -132,13 +142,16 @@ function hataMetni(error: unknown): string {
 
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
-function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
+function SessionButton({ session, active, onSelect, onSplit, onNewWindow, onDelete, onRemoveFromProject, moveTargets, pinned, onPin, archived, onArchive }: {
   pinned: boolean;
   onPin: () => void;
+  archived: boolean;
+  onArchive: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
   onSplit?: () => void | Promise<void>;
+  onNewWindow?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onRemoveFromProject?: () => void | Promise<void>;
   moveTargets: MoveTarget[];
@@ -190,7 +203,13 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
         className="sidebar__session"
         data-etkin={active}
         data-okunmamis={session.okunmamis || undefined}
-        onClick={onSelect}
+        // Claude Desktop: Option-tık sohbeti yan bölmede (split view) açar (#443).
+        // Cmd-tık (Windows/Linux'ta Ctrl-tık) sohbeti yeni pencerede açar (#443).
+        onClick={(event) => {
+          if ((isMacOS() ? event.metaKey : event.ctrlKey) && onNewWindow) { void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error))); return; }
+          if (event.altKey && onSplit && !active) { void onSplit(); return; }
+          onSelect();
+        }}
         type="button"
       >
         {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
@@ -210,11 +229,16 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
       <div className="sidebar__move-wrap" ref={menuRef}>
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
         {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
+          <button onClick={() => { onArchive(); setMenuOpen(false); }} role="menuitem" type="button">{archived ? "Arşivden çıkar" : "Arşivle"}</button>
           <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
           {onSplit && !active && <button onClick={() => {
             setMenuOpen(false);
             void Promise.resolve().then(onSplit).catch((error: unknown) => setDeleteError(hataMetni(error)));
           }} role="menuitem" type="button">Yan yana aç</button>}
+          {onNewWindow && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error)));
+          }} role="menuitem" type="button">Yeni pencerede aç</button>}
           {moveTargets.length > 0 && <>
             <strong>Projeye taşı</strong>
             {moveTargets.map((target) => <button key={target.key} onClick={() => {
@@ -266,12 +290,14 @@ export function Sidebar({
   onPickFolder,
   onYeni,
   onSplit,
+  onNewWindow,
   oturumlar,
   projeler = [],
   hesap = null,
   onCikis,
   guncellemeSurumu = null,
   onGuncellemeAc,
+  prDurumlari,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { language, t } = useLanguage();
@@ -373,15 +399,31 @@ export function Sidebar({
     return next;
   });
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const archive = useArchivedSessions();
+  // Claude Desktop "Auto-archive after PR merge or close" (#443): yalnız Fusion sohbetleri.
+  usePrAutoArchive(
+    oturumlar.filter((session) => session.source === "fusion").map((session) => ({
+      id: session.session_id,
+      key: pinKey(session),
+      running: Boolean(session.calisiyor),
+      archived: archive.isArchived(pinKey(session)),
+    })),
+    prDurumlari,
+    archive.archiveMany,
+  );
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = oturumlar.filter((session) => archive.isArchived(pinKey(session))).length;
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
-    if (!normalized) return oturumlar;
-    return oturumlar.filter((session) =>
+    // Arşiv görünümü yalnız arşivlenenleri, ana liste yalnız arşivlenmemişleri gösterir (#443).
+    const visible = oturumlar.filter((session) => archive.isArchived(pinKey(session)) === showArchived);
+    if (!normalized) return visible;
+    return visible.filter((session) =>
       `${session.title} ${session.source} ${session.project ?? ""}`
         .toLocaleLowerCase("tr")
         .includes(normalized),
     );
-  }, [oturumlar, query]);
+  }, [oturumlar, query, archive.archived, showArchived]);
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     const roots = [...projeler];
@@ -408,7 +450,13 @@ export function Sidebar({
       return right.updated_at - left.updated_at;
     });
   }, [projectPreferences, projeler, query, oturumlar]);
+  const [grouping, setGrouping] = useSidebarGrouping();
   const sessionGroups = useMemo(() => {
+    if (grouping === "none") {
+      // "Group and sort" › gruplama yok: tek liste, son etkinliğe göre (#443).
+      const flat = [...filteredSessions].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+      return [["hepsi", { name: "Tüm sohbetler", sessions: flat }]] as [string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }][];
+    }
     const groups = new Map<string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }>();
     for (const project of filteredProjects) {
       groups.set(project.id ? `kayit:${project.id}` : project.root, { name: project.name, root: project.root, id: project.id, sessions: [] });
@@ -427,7 +475,7 @@ export function Sidebar({
       return pinOrder || (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
     return [...groups.entries()];
-  }, [filteredProjects, filteredSessions, pinnedSessions]);
+  }, [filteredProjects, filteredSessions, pinnedSessions, grouping]);
   const hiddenProjects = projeler.filter((project) => !project.id && projectPreferences[project.root]?.hidden);
   const [projectInfo, setProjectInfo] = useState<{ key: string; name: string; root?: string; id?: string; count: number; top: number; left: number } | null>(null);
   const infoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -453,9 +501,11 @@ export function Sidebar({
   const renderSession = (session: OturumSatiri, group: { root?: string; id?: string } = {}) => (
     <SessionButton key={pinKey(session)} session={session} active={session.session_id === etkin}
       pinned={pinnedSessions.includes(pinKey(session))} onPin={() => togglePin(session)}
+      archived={archive.isArchived(pinKey(session))} onArchive={() => archive.toggle(pinKey(session))}
       onSelect={() => onSec(session.session_id)}
       onSplit={onSplit ? () => onSplit(session.session_id) : undefined}
-      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); } : undefined}
+      onNewWindow={onNewWindow ? () => onNewWindow(session.session_id) : undefined}
+      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); archive.forget(pinKey(session)); } : undefined}
       onRemoveFromProject={onAssign && session.projectId ? () => onAssign(session.session_id, null) : undefined}
       moveTargets={[
         ...(onAssign ? filteredProjects.filter((project) => project.id && project.id !== (group.id ?? session.projectId)).map((project) => ({ key: `kayit:${project.id}`, name: project.name, run: () => onAssign(session.session_id, project.id!) })) : []),
@@ -575,6 +625,12 @@ export function Sidebar({
 
       <div className="sidebar__scroll">
         {pinError && <p role="alert" className="sidebar__storage-error">{pinError}</p>}
+        {archive.error && <p role="alert" className="sidebar__storage-error">{archive.error}</p>}
+        {(archivedCount > 0 || showArchived) && (
+          <button aria-pressed={showArchived} className="sidebar__archive-toggle" onClick={() => setShowArchived((open) => !open)} type="button">
+            {showArchived ? "Tüm sohbetler" : `Arşivlenenler (${archivedCount})`}
+          </button>
+        )}
         <section aria-label="Sabitlenenler" className="sidebar__pinned">
           <h2 className="sidebar__section-title">Sabitlenenler</h2>
           {filteredSessions.filter((session) => pinnedSessions.includes(pinKey(session))).map((session) => renderSession(session))}
@@ -584,6 +640,7 @@ export function Sidebar({
                 <div className="sidebar__projects-heading" ref={projectsMenuRef}>
                   <span>Projeler</span>
                   <span className="sidebar__projects-heading-actions">
+                    <GroupSortMenu grouping={grouping} onChange={setGrouping} />
                     <button
                       aria-expanded={projectsMenuOpen}
                       aria-haspopup="menu"

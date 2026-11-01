@@ -50,6 +50,9 @@ from ...core.tools import (
 from ...tools import desktop_policy
 from ...tools.accept_edits_scope import accept_edits_allows
 from ...tools.auto_policy import is_read_only_command
+from ...tools.chrome_plan import plan_prompt_call
+from ...tools.chrome_site_policy import ChromeSite
+from ...tools.claude_chrome import legacy_view
 from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
 from ...tools.outside_reads import read_roots
 from ...tools.permission_match import RuleMatch, evaluate
@@ -80,8 +83,16 @@ from .approval_modes import (
 )
 from .auto_guard import AutoReviewState
 from .auto_switch import AutoSwitch, apply_auto_switch, with_auto_offer
+from .chrome_batch_approval import BATCH_TOOL, apply_batch
+from .chrome_site_approval import (
+    apply_site,
+    is_site_consent,
+    remember_builtin_site,
+    site_description,
+)
 from .claude_dir_session import claude_dir_key, claude_dir_label
-from .desktop_approval import apply_desktop, consent_description
+from .desktop_access import ACCESS_TOOL, apply_access
+from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .plan_approval import PlanApproval
 from .read_approval import mark_outside_read
 from .sandbox_approval import apply_sandbox_policy
@@ -234,6 +245,12 @@ class ApprovalRequest:
     desktop_target: DesktopTarget | None = None
     #: Araçtan bağımsız oturum izni anahtarı (uygulama başına masaüstü onayı, P-007).
     consent_key: str | None = None
+    #: Toplu uygulama onayının diğer anahtarları (#426): onay hepsini birlikte hatırlar.
+    extra_consent_keys: tuple[str, ...] = ()
+    #: Paket kimliğiyle çözülen hedefin ad anahtarı (#426): `desktop_request_access` uygulamayı
+    #: adla ister ("Mail" → `desktop:mail`), eylemde hedef `desktop:com.apple.mail` çıkar.
+    #: Yalnız hatırlama denetiminde okunur; yeni izin her zaman `consent_key`e yazılır.
+    consent_alias: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
     #: Modelin araç çağrısı kimliği (`tool_use_id`); döngü onaydan önce doldurur.
@@ -267,6 +284,12 @@ class ApprovalRequest:
 
     #: Kabuk komutunun kalıcı kabuk dizinine göre denetlenen eşdeğeri (#126); `None` = aynı.
     checked_command: str | None = None
+    #: Plan kipinde bile sorulup onaylanırsa çalışan çağrı (#450: Chrome'da GIF kaydı, yeni
+    #: sekme, kısayol). Diğer kiplerde etkisi yoktur.
+    plan_prompt: bool = False
+    #: Chrome eyleminin hedef sitesi (#435): kart "Chrome'da Fusion x.com sitesinde…" der,
+    #: "bu sitede hep izin ver" `consent_key` (`chrome-site:<host>`) ile hatırlanır.
+    chrome_site: ChromeSite | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -316,6 +339,9 @@ class ApprovalRequest:
         desktop = consent_description(self)
         if desktop is not None and self.can_remember:
             return desktop
+        site = site_description(self)
+        if site is not None and self.can_remember:
+            return site
         scope = self.authorization_scope
         if (
             not self.can_remember
@@ -381,16 +407,37 @@ class ApprovalMemory:
         self._scopes.clear()
         self.revision += 1
 
+    def scopes_with_prefix(self, prefix: str) -> list[str]:
+        """Önekle başlayan oturum izinleri (ör. `chrome-site:` izinli siteler, #435)."""
+        return sorted(scope for scope in self._scopes if scope.startswith(prefix))
+
+    def forget(self, scope: str) -> bool:
+        """Tek oturum iznini geri al; yoksa `False`."""
+        if scope not in self._scopes:
+            return False
+        self._scopes.discard(scope)
+        self.revision += 1
+        return True
+
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
         scope = _scope(request)
-        return _rememberable(request) and scope is not None and scope in self._scopes
+        alias = request.consent_alias
+        return (
+            _rememberable(request)
+            and scope is not None
+            and (scope in self._scopes or (alias is not None and alias in self._scopes))
+            and all(key in self._scopes for key in request.extra_consent_keys)
+        )
 
     def remember(self, request: ApprovalRequest) -> None:
         """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
         scope = _scope(request)
         if _rememberable(request) and scope is not None:
             self._scopes.add(scope)
+            self._scopes.update(request.extra_consent_keys)
+            # Yerleşik Browser "Always allow" (#439) kalıcıdır.
+            remember_builtin_site(scope)
 
 
 class _AskingApproval:
@@ -524,9 +571,18 @@ class BypassApproval:
             request.pre_ask is not None and request.rule is not None and not request.pre_allowed
         )
         must_ask = explicit_ask or (request.critical is not None and not skip_critical_prompt())
+        # Computer use uygulama onayı her kipte ilk kullanımda sorulur (#446; Claude: "The first
+        # time Claude needs a specific app in a session, a prompt appears").
+        is_app_consent = is_desktop_consent(request) or is_site_consent(request)
         if self._prompter is None:
             return Decision.BLOCKED if must_ask else Decision.ALLOW
-        if not must_ask and request.effect is not ToolEffect.REMOTE_DESTRUCTIVE:
+        if (
+            not must_ask
+            and not is_app_consent
+            and request.effect is not ToolEffect.REMOTE_DESTRUCTIVE
+        ):
+            return Decision.ALLOW
+        if is_app_consent and not must_ask and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
@@ -588,11 +644,29 @@ async def resolve_request(
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
+    # Model Claude adlı Chrome araçlarını görür (#431); Chrome katmanları iç adla çalışır (#435).
+    chrome_name, chrome_args = legacy_view(tool.name, args)
+    if plan_prompt_call(chrome_name, chrome_args):
+        request = replace(request, plan_prompt=True)
+    if chrome_name == BATCH_TOOL:
+        # Toplu Chrome çağrısı (#432): her öğenin kendi izin denetimi birleştirilir.
+        async def _item(item_tool: Tool, item_args: ToolArgs) -> ApprovalRequest:
+            return await resolve_request(
+                item_tool, item_args, allowed_commands, root=root, context=context, rules=rules
+            )
+
+        return await apply_batch(request, chrome_args, _item)
+    if context is not None and tool_family(chrome_name) is ToolFamily.BROWSER:
+        # Chrome site izni (#435): ilk eylemde site sorusu, engelli/finansal site.
+        return await apply_site(request, chrome_name, chrome_args, context)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
+    if tool.name == ACCESS_TOOL:
+        # Toplu uygulama onayı (#426): tek kart, onaylanan her uygulama oturum boyu izinli.
+        return apply_access(request, args, context)
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
     assessment = await desktop_policy.assess(tool.name, args, context)
-    return apply_desktop(request, assessment, consent=context.desktop_settings.app_consent)
+    return apply_desktop(request, assessment)
 
 
 def build_request(

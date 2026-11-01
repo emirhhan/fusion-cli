@@ -17,7 +17,7 @@ GUIDE = (Path(__file__).parent / "prompts" / "fusion_bilgi.md").read_text(encodi
 #: Araç ailesi etiketi → o ailenin araç adı önekleri/adları.
 _FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("kod ve dosya", ("read_file", "edit_file", "write_file", "run_shell", "search_code")),
-    ("Chrome eklentisi (gerçek Chrome)", ("chrome_",)),
+    ("Chrome eklentisi (gerçek Chrome)", ("chrome_", "claude-in-chrome__")),
     ("Fusion Browser", ("browser_",)),
     ("masaüstü kontrolü", ("desktop_",)),
     ("öğretmen", ("ask_teacher",)),

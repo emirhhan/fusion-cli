@@ -9,7 +9,8 @@ Kip tablosu (`approval.py`'nin kurallarıyla):
 
 - auto / edits / security: ilk kullanım sorulur, "Bu oturum" ile uygulama hatırlanır.
 - plan: masaüstü eylemi yapılmaz (okuma değil).
-- bypass: oturum onayı sorulmaz; riskli eylem yine sorulur, engel yine geçerlidir.
+- bypass: ilk kullanım yine sorulur (#446: Claude'da kip istisnası yok); riskli eylem yine
+  sorulur, engel yine geçerlidir.
 
 Hedef çözülemezse (Erişilebilirlik izni yok, yardımcı derlenemedi, nokta AX'te okunamadı)
 ret listesi, engelli kategori ve Fusion koruması denetlenemez: çağrı `REMOTE_DESTRUCTIVE`
@@ -23,7 +24,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from ...core.desktop_settings import DesktopLevel
+from ...core.desktop_settings import DesktopLevel, DesktopTarget
 from ...core.tools import ToolEffect
 from ...tools.desktop_policy import DesktopAssessment
 
@@ -49,18 +50,24 @@ DESKTOP_BLOCKED_RESULT = (
 )
 
 
+def is_desktop_consent(request: ApprovalRequest) -> bool:
+    """Uygulama başına oturum onayı isteği mi? (bypass dahil her kipte sorulur, #446)."""
+    key = request.consent_key
+    return request.desktop_target is not None and key is not None and key.startswith("desktop:")
+
+
 def consent_key(app_key: str) -> str:
     """Oturum izninin araçtan bağımsız anahtarı: aynı uygulamada tıklama ve yazma tek izin."""
     return f"desktop:{app_key}"
 
 
 def apply_desktop(
-    request: ApprovalRequest, assessment: DesktopAssessment | None, *, consent: bool = True
+    request: ApprovalRequest, assessment: DesktopAssessment | None
 ) -> ApprovalRequest:
     """İsteği masaüstü kararıyla güncelle; karar yoksa olduğu gibi döndür.
 
-    `consent` = `desktop.app_consent`: kapalıysa sıradan eylem gözetimsiz çalışabilir
-    (`REMOTE_INTERACT`, otomatik kipte sorulmaz); riskli eylem ve engel yine geçerlidir.
+    Uygulama onayı her zaman sorulur (#426: Claude'da istemi kapatan ayar yok; eski
+    `desktop.app_consent` okunur ama uygulanmaz).
     """
     if assessment is None:
         return request
@@ -99,16 +106,6 @@ def apply_desktop(
             desktop_target=target,
         )
     level = target.level.label
-    if not consent:
-        return replace(
-            request,
-            effect=ToolEffect.REMOTE_INTERACT,
-            risk=None,
-            unattended_safe=True,
-            read_only=False,
-            note=target.warning or None,
-            desktop_target=target,
-        )
     reason = CONSENT_REASON.format(app=target.app, level=level)
     note = f"{reason} {target.warning}".strip()
     return replace(
@@ -119,8 +116,16 @@ def apply_desktop(
         read_only=False,
         note=note,
         consent_key=consent_key(target.key),
+        consent_alias=_name_alias(target),
         desktop_target=target,
     )
+
+
+def _name_alias(target: DesktopTarget) -> str | None:
+    """Paketli hedefin ad anahtarı: toplu onay (#426) uygulamayı adla kaydeder."""
+    if not target.bundle or not target.app:
+        return None
+    return consent_key(target.app.casefold())
 
 
 def consent_description(request: ApprovalRequest) -> str | None:

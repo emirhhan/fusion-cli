@@ -529,13 +529,8 @@ runtime:
   # değiştirmediyse mutasyon sayılmaz ve önceki testin kanıtı bayatlamaz. Proje kökü dışına
   # yazma görünmez. false = tanınmayan komut her zaman "dosya değiştirmiş olabilir" sayılır.
   shell_workspace_fingerprint: true
-  # Masaüstü ekran görüntüsü modele gitmeden bu genişliğe (piksel) küçültülür; sonuçta
-  # "1 görüntü pikseli = N nokta" çerçevesi bildirilir, desktop_mouse x,y görüntü pikselidir.
-  # 1568: vision modellerinin kayıpsız kenarı. Daha küçük = daha az token, daha az ayrıntı.
-  desktop_screenshot_max_width: 1568
-  # Ekran görüntüsünde Fusion'ın kendi penceresi (CLI'de terminal) hariç tutulur; model kendi
-  # sohbetini görüp kendini tekrar etmez. macOS 14+ ScreenCaptureKit; yoksa tam ekran alınır.
-  desktop_exclude_fusion_window: true
+  # Masaüstü ekran görüntüsü Claude Code gibi sabit hedefe küçültülür (3456x2234 → ~1372x887);
+  # Fusion penceresi ve CLI'de terminal her zaman görüntüden çıkarılır. Ayarı yoktur.
   # Kapı iki düzeltme turundan sonra hâlâ kırmızıysa TEK ek düzeltme turu, yapılandırmada
   # tanımlı bir ÜST modelle koşar (sinyal yalnız gerçek kapı sonucu; kullanıcıya durum
   # satırı + GateEscalated/GateEscalationFinished olayı gider). Üst model yoksa etkisizdir.
@@ -1011,19 +1006,15 @@ mcp_servers: []
 # Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
 # Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
 desktop:
-  # false: desktop_* araçları modele hiç sunulmaz.
-  enabled: true
-  # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
-  control_level: full
-  # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
-  # yöneticisi = engelli. false: her uygulama control_level alır.
-  category_defaults: true
-  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği).
+  # Computer use (Claude Code ile aynı: varsayılan KAPALI). Masaüstü uygulamasında Ayarlar ›
+  # Bu bilgisayar › "Computer use'u etkinleştir"; CLI'de proje başına `/mcp enable computer-use`.
+  # Etkileşimsiz yolda (-p, arka plan işi, `fusion mcp`) her zaman kapalıdır.
+  enabled: false
+  # Kademeler Claude Code gibi uygulama kategorisine göre SABİT: tarayıcı ve yatırım platformu =
+  # yalnız bak, terminal/IDE = tıkla, diğer her şey = tam kontrol. Uygulama ilk kez
+  # kullanılırken her kipte "Bu oturum için izin ver / Reddet" sorulur.
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği); sorulmadan reddedilir.
   denied_apps: []
-  # Uygulama başına kademe, kategoriyi ezer: ["Terminal=full", "com.apple.Safari=click"].
-  app_levels: []
-  # Bir uygulama oturumda ilk kez kullanılırken sor ("Bu oturum / Reddet / Her zaman reddet").
-  app_consent: true
   # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
   # hedef uygulama ve Fusion dışındakiler gizlenir.
   background: true
@@ -1075,6 +1066,9 @@ browser:
   # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
   # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
   panel_agent: true
+  # Ayarlar › Browser tools (Claude Desktop): false ise ajan `browser_*` araçlarını görmez;
+  # Tarayıcı paneli kullanıcı için çalışmaya devam eder.
+  tools: true
 
 # run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
 # runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,

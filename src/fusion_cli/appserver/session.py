@@ -64,6 +64,7 @@ from ..config.permission_rules import PermissionRuleSet
 from ..config.permission_settings import auto_mode_disabled
 from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
+from ..core.claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
@@ -107,14 +108,16 @@ from ..ui import messages
 from ..ui.permission_dialog_messages import AUTO_MODE_SETTING_DISABLED
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import auto_memory, computer_routes, intelligence, ui_prefs
+from . import auto_memory, computer_routes, intelligence, pr_archive, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
 from .browser_panel import BrowserPanel
+from .bypass_policy import bypass_policy_disabled
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
+from .chrome_group import schedule_group_close
 from .chrome_install import install_status
 from .chrome_settings import CHROME_SETTINGS_ROUTES, dispatch_chrome_settings
 from .commands import (
@@ -209,6 +212,7 @@ from .protocol import Reply, Request, encode_event, encode_result
 from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
+from .side_chat import SIDE_CHAT_ROUTE, ask_side
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
@@ -237,27 +241,30 @@ from .workspace import (
 #: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
 CHROME_NOTE = (
     "Bu bir tarayıcı ajanı görevidir: 'siteye gir', 'kayıt ol', 'formu doldur', 'sayfadan çıkar', "
-    "'hesabımı incele' gibi isteklerde HEMEN chrome_navigate (ya da chrome_action open) ile "
-    "siteyi kullanıcının Chrome'unda aç, chrome_page ile oku, tıkla, yaz, kaydır. Sunucu "
+    "'hesabımı incele' gibi isteklerde HEMEN navigate ile siteyi kullanıcının "
+    "Chrome'unda aç, read_page/find ile oku, computer ile tıkla, yaz, kaydır. Sunucu "
     "tarafında sayfa getirme ya da arama aracı YOKTUR ve kullanıcının girişli oturumunu "
     "görmez; adres bilinmiyorsa Chrome'da arama sitesini aç. Çift tıklama, sağ tıklama, "
-    "sürükleme ve fare tekerleği chrome_action'ın double_click, right_click, drag ve wheel "
-    "işlemleridir. İzin kartı açıldıysa kullanıcıya söyle ve onay gelene kadar bekle. "
+    "sürükleme ve kaydırma computer'ın double_click, right_click, left_click_drag ve scroll "
+    "eylemleridir. İzin kartı açıldıysa kullanıcıya söyle ve onay gelene kadar bekle. "
     "Kullanıcı AÇIKÇA dosya, kod ya da proje isterse çalışma alanı araçlarını kullan; "
     "aksi halde iş tarayıcıdadır. "
     "İnternet sitelerindeki işler (Google Ads, Instagram, Meta, mağaza paneli, herhangi bir "
-    "site) kullanıcının kendi Chrome'unda chrome_* araçlarıyla yapılır; Chrome kapalıysa Fusion "
+    "site) kullanıcının kendi Chrome'unda claude-in-chrome araçlarıyla yapılır; "
+    "Chrome kapalıysa Fusion "
     "onu kendisi açar. browser_* ayrı ve oturumsuz bir tarayıcıdır, yalnız yerel projeyi "
     "(localhost) denemek içindir; orada giriş sayfası görmen oturumun kapalı olduğu anlamına "
     "gelmez. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
     "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
     "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "
-    "chrome_page'i query olmadan çağırıp sayfayı oku; adresi biliyorsan menüde arama yerine "
-    "doğrudan git. Uzun sayfanın tamamı için chrome_action text (value: sayfa no); ref'i olmayan "
-    "öğede screenshot alıp click_at 'x,y' kullan. Tanıtım ya da giriş sayfasına düşersen "
+    "read_page ile sayfayı oku; adresi biliyorsan menüde arama yerine "
+    "doğrudan git. Uzun sayfanın metni için get_page_text; ref'i olmayan "
+    "öğede computer screenshot alıp left_click coordinate [x,y] kullan. "
+    "Tanıtım ya da giriş sayfasına düşersen "
     "hemen 'oturum kapalı' deme: önce "
-    "'tabs' ile açık sekmelere bak, sonra sitenin uygulama adresini dene (ör. Google Ads: "
+    "tabs_context_mcp ile açık sekmelere bak, sonra sitenin uygulama adresini dene "
+    "(ör. Google Ads: "
     "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle. "
     "Kullanıcı bir siteden component alıp projeye uygulamanı isterse önce sayfayı Chrome "
     "eklentisiyle incele, sonra çalışma alanındaki dosyaları okuyup düzenle ve sonucu "
@@ -265,13 +272,15 @@ CHROME_NOTE = (
     "ask_teacher ile tek net soru sor; yanıtı değerlendirip işe devam et. "
     # P-042/P-043/P-044: geliştirici araçları. Model bunları bilmezse hata ayıklama
     # isteğinde ekran görüntüsüyle tahmin yürütür.
-    "Sayfa hatası ya da istek sorunu araştırırken chrome_action console (errors) ve network "
-    "(url deseni; id:N ile gövde) kullan; sayfanın yapısı için chrome_page tree=interactive, "
-    "yükleme bitmesi için chrome_action wait 'network_idle'. Kullanıcı kayıt/GIF isterse "
-    "chrome_action record start … stop."
+    "Sayfa hatası ya da istek sorunu araştırırken read_console_messages (onlyErrors) ve "
+    "read_network_requests (urlPattern) kullan; sayfanın yapısı için read_page "
+    "filter=interactive. Kullanıcı kayıt/GIF isterse gif_creator start_recording … "
+    "stop_recording."
 )
 
 CHROME_TURN_TOOLS = {
+    # Claude in Chrome adları (#431); eski `chrome_*` adları gizli takma ad olarak çalışır.
+    *CLAUDE_CHROME_TOOL_NAMES,
     "chrome_page",
     "chrome_action",
     "chrome_click",
@@ -1016,6 +1025,9 @@ class AppSession:
             return await dispatch_desktop(
                 self._desktop_dock, self._desktop_activity, request.name, request.data
             )
+        if request.name == SIDE_CHAT_ROUTE:
+            # Yan sohbet (#444): ana geçmişi okur, değiştirmez; araç yok.
+            return await ask_side(self._state.config, list(self._state.history), request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name in CHROME_SETTINGS_ROUTES:
@@ -1040,6 +1052,12 @@ class AppSession:
             previous = (self._state.root, self._state.conversation_id)
             result = self._start_session(request.data)
             if result.get("ok") and previous != (self._state.root, self._state.conversation_id):
+                # Sohbetten çıkış: computer use kilidi o sohbetinse kalkar (#429).
+                from ..cli.session import conversation_job_scope
+                from ..tools.desktop_turn import end_session
+
+                if previous[1]:
+                    end_session(conversation_job_scope(self._state.config.memory_dir, previous[1]))
                 await self._state.reset_child_runs()
                 self._child_runs = self._state.child_runs
             if result.get("ok"):
@@ -1082,6 +1100,15 @@ class AppSession:
             return self._list_conversations()
         if request.name == "sohbet.adlandir":
             return await self._rename_conversation(request.data)
+        if request.name == "sohbet.pr_durumlari":
+            # Claude Desktop "Auto-archive after PR merge or close" (#443): kenar çubuğu sorar.
+            ids = request.data.get("sohbetler")
+            states = await asyncio.to_thread(
+                pr_archive.pr_states,
+                self._state.config.memory_dir,
+                ids if isinstance(ids, list) else [],
+            )
+            return {"ok": True, "durumlar": states}
         if request.name == "sohbet.baslik":
             return _title_payload(request.data.get("metin"))
         if request.name == "sohbet.disa_aktar":
@@ -1841,6 +1868,9 @@ class AppSession:
         transcript_rebound = capability_roots_changed or conversation_changed
         if transcript_rebound:
             self._rebind_transcript()
+        if conversation_changed:
+            # Oturum değişti (Claude: /resume): grup yalnız boş yeni sekmelerdense kapanır (#436).
+            schedule_group_close(self._chrome, only_empty=True)
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)
@@ -1936,6 +1966,13 @@ class AppSession:
                 "ok": False,
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
+        if (
+            mode is ApprovalMode.BYPASS
+            and self._state.approval is not ApprovalMode.BYPASS
+            and bypass_policy_disabled(self._state.root, self._state.home)
+        ):
+            # Claude: `disableBypassPermissionsMode: "disable"` (kurum politikası) kapatır (#442).
+            return {"ok": False, "metin": messages.BYPASS_POLICY_DISABLED}
         if mode is not self._state.approval:
             self._state.approval_memory.revoke()
         self._state.approval = mode
@@ -2050,13 +2087,9 @@ class AppSession:
                 tarayici = self._state.config.browser
                 deger = bool(sonuc["deger"])
                 anahtar = sonuc["anahtar"]
-                yeni_tarayici = (
-                    replace(tarayici, headless=deger)
-                    if anahtar == "headless"
-                    else replace(tarayici, panel_agent=deger)
-                    if anahtar == "panel_agent"
-                    else replace(tarayici, profiles_enabled=deger)
-                )
+                # Anahtar `browser_profiles._BOOL_SETTINGS` içindedir (headless, profiles_enabled,
+                # panel_agent, tools #439).
+                yeni_tarayici = replace(tarayici, **{str(anahtar): deger})  # type: ignore[arg-type]
                 self._state.config = replace(self._state.config, browser=yeni_tarayici)
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
@@ -2389,6 +2422,8 @@ class AppSession:
             "model": self._state.config.agent.model,
             "kip": self._workspace_mode,
             "mod": self._state.approval.value,
+            # Ayar/kurum politikası İzinleri atla'yı kapattıysa arayüz anahtarı kilitler (#442).
+            "bypass_kapali": bypass_policy_disabled(self._state.root, self._state.home),
             "motor": self._state.engine.value,
             # Oturum kişiliği (P-053); yoksa None. Composer'daki seçici bunu gösterir.
             "kisilik": (
@@ -2545,12 +2580,21 @@ class AppSession:
         if command is not None and command.name == "cd" and turn_running:
             # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
+        if (
+            command is not None
+            and command.name == "bypass"
+            and bypass_policy_disabled(self._state.root, self._state.home)
+        ):
+            return {"ok": False, "metin": messages.BYPASS_POLICY_DISABLED}
         if command is not None and command.name == "clear":
             # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             self._state.history.clear()
             linked_pr.forget(self._state)
+            # Claude in Chrome: /clear oturum sekme grubunu kapatır (#436); tur sürüyorsa
+            # yalnız boş grup kapanır, süren işin sekmesi elinden alınmaz.
+            schedule_group_close(self._chrome, only_empty=turn_running)
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
             return {
@@ -3862,6 +3906,8 @@ class AppSession:
         steps += [
             close_mcp_pool,
             self._mcp_connections.close,
+            # Claude in Chrome: çıkışta sekme grubu yalnız boş yeni sekmelerdense kapanır (#436).
+            lambda: self._chrome.close_tab_group(only_empty=True),
             self._chrome.close,
             self._processes.close,
             self._browser_panel.close,
