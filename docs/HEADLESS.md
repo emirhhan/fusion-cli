@@ -128,6 +128,13 @@ Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`
 Kök komut (etkileşimli oturum) da `--model`, `--fallback-model`, `-c/-r/--fork-session`,
 `-n`, `-w`, `--add-dir`, `--agent`, `--agents` ve konumsal istemi (`fusion "istem"`) alır.
 
+## Arka plan işi
+
+Tur bittikten sonra `-p`, turun başlattığı arka plan alt ajanlarını bekler; 5 sn sonra
+stderr'e `Waiting for background work to finish` yazar. Tavan
+`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (varsayılan 600000 ms); dolunca kalan iş durdurulur.
+Arka plan kabuk süreçleri (`run_shell` arka planı) henüz beklenmez.
+
 ## Çıkış kodları
 
 - `0` — `success`.

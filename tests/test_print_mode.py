@@ -631,3 +631,35 @@ def test_doctor_bozuk_ayar_dosyasini_raporlar(monkeypatch, tmp_path):
     text = " ".join(c.value for c in bad)
     assert "Bash((" in text and "bir liste olmalı" in text and "okunamadı" in text
     assert remote_control_check().name == "Remote Control"
+
+
+# --- arka plan işini bekleme (#316) ----------------------------------------------------- #
+
+
+def test_arka_plan_isi_beklenir_ve_bildirilir(monkeypatch):
+    import asyncio
+
+    from fusion_cli.cli import print_runtime
+
+    class _Runs:
+        def __init__(self, seconds):
+            self.seconds = seconds
+            self.closed = False
+
+        @property
+        def active_count(self):
+            return 1
+
+        async def drain(self):
+            await asyncio.sleep(self.seconds)
+
+        async def close(self):
+            self.closed = True
+
+    notes: list[str] = []
+    asyncio.run(print_runtime.wait_background(_Runs(0.05), notes.append, delay_s=0.01))
+    assert notes == ["Waiting for background work to finish"]
+    monkeypatch.setenv("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "20")
+    slow = _Runs(5)
+    asyncio.run(print_runtime.wait_background(slow, notes.append, delay_s=0.01))
+    assert slow.closed

@@ -14,7 +14,7 @@ import json
 import re
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Coroutine, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -26,6 +26,7 @@ from ..core.errors import FusionError
 from ..core.events import EventSink
 from ..core.types import Message
 from ..engines.agent.approval import ApprovalMemory
+from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentOutcome
 from ..observability.usage_log import open_usage_log
 from ..tools.capabilities import CapabilityRegistry
@@ -37,7 +38,13 @@ from .cleanup import with_web_cleanup
 from .headless import OutputFormat
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan
-from .print_runtime import SIGTERM_EXIT_CODE, PrintPrompter, TerminatedError, sigterm_as_exception
+from .print_runtime import (
+    SIGTERM_EXIT_CODE,
+    PrintPrompter,
+    TerminatedError,
+    sigterm_as_exception,
+    wait_background,
+)
 from .print_session import PrintSession, find_pr_session, record_turn, resolve_print_session
 from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
@@ -255,6 +262,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
     )
     run.cost = observers.cost
     prompter = _prompter(run)
+    child_runs = ChildRuns()
     allowed, denied, slash_system = _turn_tools(run)
     coro = run_agent_task(
         task,
@@ -277,12 +285,20 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         approval_memory=run.approval,
         conversation_id=run.session.session_id,
         extra_permission_rules=plan.rules,
+        child_runs=child_runs,
     )
     try:
-        outcome = asyncio.run(with_web_cleanup(coro))
+        outcome = asyncio.run(with_web_cleanup(_and_wait(coro, child_runs)))
     finally:
         observers.finish()
     run.history = list(getattr(outcome, "messages", None) or run.history)
+    return outcome
+
+
+async def _and_wait(coro: Coroutine[Any, Any, AgentOutcome], child_runs: ChildRuns) -> AgentOutcome:
+    """Turu koş; sonra başlattığı arka plan alt ajanlarını Claude tavanıyla bekle (#316)."""
+    outcome = await coro
+    await wait_background(child_runs, _warn)
     return outcome
 
 
