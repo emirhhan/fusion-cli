@@ -154,7 +154,10 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
     run.memory = open_memory(plan.config, root=root, enabled=not request.no_memory)
     if plan.fmt is OutputFormat.STREAM_JSON:
         run.stream = sdk.SdkStream(
-            session.session_id, lambda: plan.config.agent.model, partial=request.include_partial
+            session.session_id,
+            lambda: plan.config.agent.model,
+            partial=request.include_partial,
+            forward_subagent_text=request.forward_subagent,
         )
         run.stream.write(_init(run))
     if plan.stream_input:

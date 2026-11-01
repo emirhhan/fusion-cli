@@ -236,7 +236,7 @@ def init_message(
 
 
 def assistant_message(
-    session_id: str, model: str, content: list[dict[str, object]]
+    session_id: str, model: str, content: list[dict[str, object]], parent: str | None = None
 ) -> dict[str, object]:
     return {
         "type": "assistant",
@@ -250,17 +250,17 @@ def assistant_message(
             "stop_sequence": None,
             "usage": {"input_tokens": 0, "output_tokens": 0},
         },
-        "parent_tool_use_id": None,
+        "parent_tool_use_id": parent,
         "session_id": session_id,
         "uuid": _uuid(),
     }
 
 
-def user_message(session_id: str, content: object) -> dict[str, object]:
+def user_message(session_id: str, content: object, parent: str | None = None) -> dict[str, object]:
     return {
         "type": "user",
         "message": {"role": "user", "content": content},
-        "parent_tool_use_id": None,
+        "parent_tool_use_id": parent,
         "session_id": session_id,
         "uuid": _uuid(),
     }
@@ -276,12 +276,24 @@ class SdkStream:
         *,
         stdout: TextIO | None = None,
         partial: bool = False,
+        forward_subagent_text: bool = False,
     ) -> None:
+        from .sdk_subagents import SubagentForwarder, forward_text_enabled
+
         self.session_id = session_id
         self._model = model
         self._stdout = stdout or sys.stdout
         self._partial = partial
         self._pending_text = ""
+        self._subagents = SubagentForwarder(
+            assistant=lambda content, parent: self.write(
+                assistant_message(self.session_id, self._model(), content, parent)
+            ),
+            user=lambda content, parent: self.write(
+                user_message(self.session_id, content, parent)
+            ),
+            forward_text=forward_text_enabled(forward_subagent_text),
+        )
 
     def write(self, message: Mapping[str, object]) -> None:
         line = json.dumps(redacted(message), ensure_ascii=False, default=str)
@@ -289,7 +301,7 @@ class SdkStream:
         self._stdout.flush()
 
     def handle(self, event: Event) -> None:
-        if event.agent_id:
+        if self._subagents.observe(event):
             return
         if isinstance(event, TokenReceived):
             self._token(event)

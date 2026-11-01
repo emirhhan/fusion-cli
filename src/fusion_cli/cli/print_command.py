@@ -88,7 +88,6 @@ def print_command(
     """Claude Code `-p`: istemi etkileşimsiz çalıştır, cevabı yaz ve çık."""
     ignored = {
         "--include-hook-events": include_hooks,
-        "--forward-subagent-text": forward_subagent,
         "--prompt-suggestions": prompt_suggestions,
         "--plugin-dir": bool(plugin_dir),
         "--betas": bool(betas),
@@ -134,6 +133,7 @@ def print_command(
         worktree=worktree,
         include_partial=include_partial,
         replay_user=replay_user,
+        forward_subagent=forward_subagent,
         background=background,
         disable_slash=disable_slash,
         config_set=tuple(config_set or ()),

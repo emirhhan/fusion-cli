@@ -65,6 +65,7 @@ class PrintRequest:
     worktree: str = ""
     include_partial: bool = False
     replay_user: bool = False
+    forward_subagent: bool = False
     background: bool = False
     disable_slash: bool = False
     config_set: tuple[str, ...] = ()

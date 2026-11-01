@@ -121,8 +121,15 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
 | `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
 
+Alt ajan mesajları akışa `assistant`/`user` olarak düşer; `parent_tool_use_id` mesajın ait
+olduğu Agent çağrısının kimliğidir (ana konuşmada `null`). İlk mesaj alt ajanı süren istemi
+taşıyan `user` mesajıdır; varsayılanda yalnız `tool_use`/`tool_result` blokları ve yalnız
+ana konuşmanın doğrudan çocukları iletilir. `--forward-subagent-text` ya da
+`CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1` metin bloklarını da ekler ve her derinlikteki alt ajanı
+iletir.
+
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--forward-subagent-text`, `--prompt-suggestions`, `--plugin-dir`,
+`--prompt-suggestions`, `--plugin-dir`,
 `--betas`, `--exclude-dynamic-system-prompt-sections`, `--setting-sources`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
