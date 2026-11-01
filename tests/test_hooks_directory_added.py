@@ -59,7 +59,11 @@ def _satirlar(path: Path) -> list[dict]:
 def test_directoryadded_tanimi_artik_atlanmaz() -> None:
     assert "DirectoryAdded" not in CLAUDE_ONLY_EVENTS
     commands, skipped = parse_hooks_block(
-        {"DirectoryAdded": [{"matcher": "slash_command", "hooks": [{"type": "command", "command": "x"}]}]},
+        {
+            "DirectoryAdded": [
+                {"matcher": "slash_command", "hooks": [{"type": "command", "command": "x"}]}
+            ]
+        },
         source="fusion",
         path=Path("hooks.json"),
         default_timeout_s=60.0,

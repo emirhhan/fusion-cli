@@ -12,12 +12,11 @@ altyapı); proje bir git deposuysa görev kendi çalışma ağacında (`fork-<k�
 from __future__ import annotations
 
 import logging
-
 from pathlib import Path
 
 from ...core.background_tasks import BackgroundTaskError
-from ...core.errors import FusionError
-from ...core.worktree import WorktreeError, enter_worktree, repository_root
+from ...core.errors import FusionError, WorktreeError
+from ...core.worktree import enter_worktree, repository_root
 from ...ui import messages
 from .background_commands import start_background
 from .state import ReplState
@@ -69,6 +68,3 @@ def _isolated_root(state: ReplState) -> tuple[Path, str]:
         _LOG.warning("fork çalışma ağacı açılamadı: %s", type(error).__name__)
         return state.root, messages.FORK_IN_PLACE
     return tree.path, messages.FORK_WORKTREE.format(path=tree.path)
-
-
-

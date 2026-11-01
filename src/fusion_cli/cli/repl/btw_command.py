@@ -9,10 +9,12 @@ transcript'e ve motor geçmişine yazılmaz. Üç yüzey `help_view.render` üze
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from rich.console import Console
 from rich.markup import escape
 
-from ...core.types import CompletionRequest, Message
+from ...core.types import CompletionRequest, Message, ModelResult
 from ...ui import messages, theme
 from .state import ReplState
 
@@ -22,7 +24,12 @@ SIDE_QUESTION_LIMIT = 20
 CONTEXT_MESSAGES = 40
 
 
-def _provider(state: ReplState):  # type: ignore[no-untyped-def]  # testte sahte verilir
+class _Completer(Protocol):
+    async def complete(self, request: CompletionRequest) -> ModelResult: ...
+
+
+def _provider(state: ReplState) -> _Completer:
+    """Agent modelinin sağlayıcısı; testte sahte verilir."""
     from ...providers.factory import build_provider
     from ...providers.web_registry import web_registry_for
 
@@ -54,8 +61,10 @@ def build_request(state: ReplState, question: str) -> CompletionRequest:
 async def ask(state: ReplState, question: str) -> str:
     """Yan soruyu yanıtla; soru/cevap yalnız `state.side_questions`'a yazılır."""
     result = await _provider(state).complete(build_request(state, question))
-    answer = result.text.strip() if result.ok else messages.BTW_FAILED.format(
-        error=result.error or messages.BTW_EMPTY
+    answer = (
+        result.text.strip()
+        if result.ok
+        else messages.BTW_FAILED.format(error=result.error or messages.BTW_EMPTY)
     )
     state.side_questions = [*state.side_questions, (question, answer)][-SIDE_QUESTION_LIMIT:]
     return answer

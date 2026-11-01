@@ -356,8 +356,8 @@ def _forget(state: ReplState, argument: str) -> str:
 def _model(state: ReplState, argument: str) -> str:
     """`/model` — `/model <ad>` agent modelini değiştirip kaydeder (#211, Claude Code).
 
-    Fusion alt komutları (yalnız oturum): agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
-    | rm <ad>. Argümansız çağrı etkin modelleri listeler.
+    Fusion alt komutları (yalnız oturum): agent <id> | judge <id> | cand <ad|no> <id>
+    | add <ad> <id> [etiket…] | rm <ad>. Argümansız çağrı etkin modelleri listeler.
     """
     parts = argument.split()
     if not parts:
@@ -1090,7 +1090,11 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
     SlashCommand(
-        "model", messages.CMD_MODEL, _model, group="Model", usage="[model|agent|judge|cand|add|rm …]"
+        "model",
+        messages.CMD_MODEL,
+        _model,
+        group="Model",
+        usage="[model|agent|judge|cand|add|rm …]",
     ),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand(
@@ -1386,7 +1390,8 @@ RENDERED_COMMANDS = frozenset(
 )
 
 #: Argümansız hâli kendi basan, argümanla işleyiciye düşen komutlar: `/doctor` kurulum
-#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt-audit [yol]` talimat denetimini döndürür.
+#: tanısını basar (`fusion doctor` ile aynı); `/doctor prompt-audit [yol]` talimat
+#: denetimini döndürür.
 RENDERED_WHEN_BARE = frozenset({"doctor"})
 
 

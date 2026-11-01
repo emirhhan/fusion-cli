@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 
 from ...config.model_select import set_agent_model
+from ...config.models import Config
 from ...config.writer import write_model_section
 from ...core.errors import ConfigError, FusionError
-from ...config.models import Config
 from ...engines.agent.agent_launch_model import CLAUDE_ALIASES, claude_family
 from ...ui import messages
 

@@ -1428,7 +1428,9 @@ SESSION_ID_NEEDS_FORK = (
 )
 CMD_FORK = "konuşmayı yeni bir arka plan oturumuna kopyala, burada devam et"
 FORK_EMPTY = "Kopyalanacak konuşma yok: önce bir mesaj gönder."
-FORK_STARTED = "↗ kopya arka planda çalışıyor: {id} ({name}) · /tasks ile izle; bu sohbet değişmedi."
+FORK_STARTED = (
+    "↗ kopya arka planda çalışıyor: {id} ({name}) · /tasks ile izle; bu sohbet değişmedi."
+)
 FORK_WAITING = (
     "Kopya hazır, ilk istemini bekliyor: {id} · /resume {id} ya da fusion -r {id}; "
     "bu sohbet değişmedi."
