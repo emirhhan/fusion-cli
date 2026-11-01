@@ -217,6 +217,9 @@ def main_callback(
         _SESSION.overrides = (tuple(config_set or ()), profile_name)
         return
     persona = str(agent_persona or "")
+    from .mcp_approval_prompt import prompt_project_mcp_approvals
+
+    prompt_project_mcp_approvals(console)  # .mcp.json sunucu onayı (Claude gibi, #246)
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
@@ -512,6 +515,9 @@ def agent(
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if background:
         _reject_background_flags(output_format, as_json, json_schema, permission_channel)
+    from ..config.mcp_project_approval import set_noninteractive
+
+    set_noninteractive()  # Claude `-p` gibi: .mcp.json sunucuları sorulmadan yüklenir (#246)
     base_config = _session_config()
     options = _headless_options(
         task,

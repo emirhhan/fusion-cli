@@ -147,3 +147,30 @@ def set_mcp_server_enabled(root: Path, name: str, *, enabled: bool) -> Path:
         projects[_project_key(root)] = project
         _atomic_write(path, {**data, _PROJECTS: projects})
     return path
+
+
+def local_project_entry(root: Path) -> dict[str, object]:
+    """Bu projenin `mcp-local.json` girdisi (yoksa boş); okunamazsa uyarı ve boş."""
+    try:
+        projects = _read(local_mcp_path()).get(_PROJECTS, {})
+    except ConfigError as error:
+        _LOG.warning("%s", error)
+        return {}
+    entry = projects.get(_project_key(root)) if isinstance(projects, dict) else None
+    return dict(entry) if isinstance(entry, dict) else {}
+
+
+def update_local_project(
+    root: Path, change: Callable[[dict[str, object]], dict[str, object]]
+) -> Path:
+    """Bu projenin `mcp-local.json` girdisini kilit altında `change` ile yenile."""
+    path = local_mcp_path()
+    with config_lock(path):
+        data = _read(path)
+        projects = data.get(_PROJECTS)
+        projects = dict(projects) if isinstance(projects, dict) else {}
+        project = projects.get(_project_key(root))
+        project = dict(project) if isinstance(project, dict) else {}
+        projects[_project_key(root)] = change(project)
+        _atomic_write(path, {**data, _PROJECTS: projects})
+    return path

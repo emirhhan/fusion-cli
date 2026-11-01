@@ -106,19 +106,10 @@ def _entries(raw: object, where: str) -> dict[object, object]:
 
 
 def trusted_project_mcp_servers(root: Path) -> tuple[McpServerConfig, ...]:
-    """Güvenilen projenin `.mcp.json` sunucuları; güven yoksa boş ve tek satır uyarı."""
-    path = project_mcp_path(root)
-    if not path.is_file():
-        return ()
-    # Güvenilmeyen dosya HİÇ ayrıştırılmaz: indirilen deponun bozuk `.mcp.json`'ı
-    # Fusion'ın açılışını engellemesin.
-    if not trust.is_file_trusted(root, path):
-        _LOG.warning(
-            "%s güvenilir değil; içindeki MCP sunucuları yüklenmedi. Güveniyorsan: fusion trust",
-            path,
-        )
-        return ()
-    return read_project_mcp_servers(root)
+    """Onaylanan `.mcp.json` sunucuları (#246: sunucu başına onay, `mcp_project_approval`)."""
+    from .mcp_project_approval import approved_project_servers
+
+    return approved_project_servers(root)
 
 
 def merge_mcp_servers(

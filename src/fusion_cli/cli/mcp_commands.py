@@ -364,6 +364,15 @@ def list_servers() -> None:
     mcp_manage.list_servers()
 
 
+@mcp_app.command("reset-project-choices")
+def reset_project_choices() -> None:
+    """Bu projedeki .mcp.json sunucuları için verilen onay/ret seçimlerini sıfırla."""
+    from ..config.mcp_project_approval import reset_project_choices as reset
+
+    done = reset(Path.cwd())
+    console.print(mcp_messages.PROJECT_CHOICES_RESET if done else mcp_messages.NO_PROJECT_CHOICES)
+
+
 @mcp_app.command("add-from-claude-desktop")
 def add_from_claude_desktop(
     scope: str = typer.Option("local", "--scope", "-s", help="local | project | user"),

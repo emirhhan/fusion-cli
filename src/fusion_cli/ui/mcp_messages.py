@@ -52,3 +52,19 @@ DEPRECATED_BARE_MCP = (
     "Uyarı: alt komutsuz `fusion mcp` ile sunucu açmak kullanımdan kalkıyor; "
     "MCP istemcisi yapılandırmasında `fusion mcp serve` kullan."
 )
+PROJECT_CHOICES_RESET = (
+    "Bu projedeki .mcp.json sunucuları için verilen bütün onay ve ret seçimleri sıfırlandı."
+)
+NO_PROJECT_CHOICES = "Bu projede sıfırlanacak .mcp.json onay seçimi yok."
+APPROVAL_TITLE = "Yeni MCP sunucusu bulundu (.mcp.json): {name}"
+APPROVAL_TARGET = "  {target}"
+APPROVAL_NOTE = (
+    "MCP sunucuları kod çalıştırabilir ya da dış hizmetlere erişebilir; yalnız güvendiğin "
+    "sunucuları kullan."
+)
+APPROVAL_OPTIONS = (
+    "  1. Bunu ve bu projedeki gelecek bütün MCP sunucularını kullan\n"
+    "  2. Bu MCP sunucusunu kullan\n"
+    "  3. Bu MCP sunucusunu kullanmadan devam et"
+)
+APPROVAL_ASK = "Seçim [1/2/3]"

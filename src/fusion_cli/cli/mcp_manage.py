@@ -22,9 +22,8 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from ..config import trust
 from ..config.loader import load_config
-from ..config.mcp_json import project_mcp_path, read_project_mcp_report, remove_project_mcp_server
+from ..config.mcp_json import read_project_mcp_report, remove_project_mcp_server
 from ..config.mcp_local import read_local_mcp_report, remove_local_mcp_server
 from ..config.models import Config, McpScope, McpServerConfig
 from ..config.writer import read_user_mcp_entries, remove_user_mcp_server
@@ -111,17 +110,11 @@ def _print_row(server: McpServerConfig, status: str) -> None:
 
 
 def _pending_project_servers(config: Config) -> tuple[McpServerConfig, ...]:
-    """Güven onayı bekleyen `.mcp.json` sunucuları (Claude: ⏸ Pending approval)."""
-    root = Path.cwd()
-    path = project_mcp_path(root)
-    if not path.is_file() or trust.is_file_trusted(root, path):
-        return ()
-    try:
-        servers, _ = read_project_mcp_report(root)
-    except ConfigError:
-        return ()
+    """Onay bekleyen `.mcp.json` sunucuları (Claude: ⏸ Pending approval, #246)."""
+    from ..config.mcp_project_approval import pending_project_servers
+
     taken = {server.name for server in config.mcp_servers}
-    return tuple(server for server in servers if server.name not in taken)
+    return tuple(s for s in pending_project_servers(Path.cwd()) if s.name not in taken)
 
 
 def _print_problems() -> None:

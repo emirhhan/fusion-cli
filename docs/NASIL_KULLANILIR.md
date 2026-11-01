@@ -672,8 +672,16 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   kullanıcı dizinindeki `mcp-local.json` içinde proje yolu altında), `project` kökteki
   `.mcp.json`, `user` bütün projeler (`config.yaml`). Aynı adda öncelik local > project > user
   > eklenti; alanlar kapsamlar arasında birleştirilmez. Proje dosyası süreç başlatabildiği için
-  yalnız `fusion trust` ile güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir;
-  güvenilmeyen dosyanın sunucuları `fusion mcp list`'te "⏸ Onay bekliyor" görünür.
+  `.mcp.json` sunucuları Claude Code gibi onaya bağlıdır: etkileşimli açılışta onaylanmamış her
+  sunucu için sorulur (1 bunu ve gelecekteki bütün proje sunucularını kullan, 2 bu sunucuyu
+  kullan, 3 kullanmadan devam et); seçimler `mcp-local.json`'da proje altında
+  `enabledMcpjsonServers` / `disabledMcpjsonServers` / `enableAllProjectMcpServers` olarak
+  tutulur, `fusion mcp reset-project-choices` sıfırlar. Aynı anahtarlar `~/.claude/settings.json`
+  ve yönetilen ayardan her zaman, projenin `.claude/settings*.json` dosyalarından yalnız klasöre
+  `fusion trust` ile güvenilmişse okunur; `disabledMcpjsonServers` her yerden ve her kipte
+  reddeder. `fusion exec` (Claude `-p` gibi) sormadan yükler, ama klasöre hiç güvenilmemişse
+  yüklemez. `fusion trust` ile güvenilen (ya da Fusion'ın kendi yazdığı) dosya onaylı sayılır.
+  Onay bekleyenler `fusion mcp list`'te "⏸ Onay bekliyor" görünür; masaüstünde istem yoktur.
 - `.mcp.json` / `add-json` alanları: `type` (stdio|http|sse|ws), `command`, `args`, `env`,
   `url`, `headers`, `headersHelper`, `timeout` (ms), `alwaysLoad`, `oauth` {`clientId`,
   `callbackPort`, `authServerMetadataUrl`, `scopes`}. Hatalı tek girdi (ör. `type`'sız `url`,
@@ -717,7 +725,7 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
 - Henüz yok (Claude Code'da var): araç araması/erteleme (`ENABLE_TOOL_SEARCH`, `alwaysLoad`
   okunur ama etkisiz; `MCP_CONNECTION_NONBLOCKING`, `MCP_CONNECT_TIMEOUT_MS`), uzun çağrının
   2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
-  `reset-project-choices` ve sunucu başına proje onayı, `mcp__sunucu__araç` araç adları,
+  masaüstünde proje sunucusu onay istemi, `mcp__sunucu__araç` araç adları,
   masaüstü panelinde araç/izin görünümü, `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
