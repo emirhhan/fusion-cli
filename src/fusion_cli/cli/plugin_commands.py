@@ -20,7 +20,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from ..config.plugin_store import inspect_plugin, installed_plugins, load_state, plugins_dir
+from ..config.plugin_store import inspect_plugin, installed_plugins, load_state, plugin_folder
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
@@ -182,7 +182,7 @@ def validate(
     path = Path(target).expanduser()
     record = load_state().plugin(target)
     if record is not None and not path.exists():
-        path = plugins_dir() / record.name
+        path = plugin_folder(record)
     try:
         run = validate_target(path, strict=strict)
     except ValidationCrashError as error:
@@ -192,7 +192,7 @@ def validate(
         typer.echo(json.dumps(run.payload(), ensure_ascii=False))
     else:
         console.print(escape(run.text()))
-        if record is not None and path == plugins_dir() / record.name:
+        if record is not None and path == plugin_folder(record):
             item = inspect_plugin(record)
             console.print(escape(f"  bütünlük: {item.status} {item.detail}".rstrip()))
     raise typer.Exit(run.exit_code)

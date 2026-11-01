@@ -337,6 +337,10 @@ def install_plugin(
     root = base or plugins_dir()
     state = load_state(root)
     resolved = _resolve(spec, state)
+    if _loads_in_place(resolved, state):
+        from .plugin_in_place import install_in_place
+
+        return install_in_place(resolved, spec, state, root, approve, expected_digest)
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
         report = validate_plugin(folder, resolved.fallback_name)
@@ -375,6 +379,12 @@ def install_plugin(
     return inspect_plugin(record, root)
 
 
+def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
+    """Yerel klasörden eklenmiş pazarın göreli (path) eklentisi mi? (Claude: yerinde yüklenir)"""
+    market = state.marketplace(resolved.marketplace) if resolved.marketplace else None
+    return market is not None and market.kind == "yerel" and resolved.kind == "yerel"
+
+
 def uninstall_plugin(
     name: str, *, base: Path | None = None, keep_data: bool = False, scope: str = ""
 ) -> Path:
@@ -386,9 +396,11 @@ def uninstall_plugin(
 
     check_uninstall_scope(name, scope)
     root = base or plugins_dir()
-    name = find_record(load_state(root), name).name
-    folder = root / name
-    if folder.is_dir():
+    found = find_record(load_state(root), name)
+    name = found.name
+    folder = plugin_store.plugin_folder(found, root)
+    # Yerinde yüklenen eklentinin klasörü kullanıcının pazar kaynağıdır: asla taşınmaz (#403).
+    if not found.folder and folder.is_dir():
         try:
             move_to_trash((name,), cwd=root, root=root, home=Path.home(), trash_root=trash_dir())
         except DeleteRefusedError as error:
@@ -453,13 +465,14 @@ def trust_plugin(
     record = state.plugin(name)
     if record is None:
         raise PluginError(ERR_NOT_INSTALLED.format(name=name))
-    report = validate_plugin(root / name)
+    folder = plugin_store.plugin_folder(record, root)
+    report = validate_plugin(folder)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
     if report.layout.name != record.name:
         # Önekler ve MCP adları kayıt adına bağlıdır; ad değişimi gölgeleme kapısı olurdu.
         raise PluginError(ERR_RENAMED.format(old=record.name, new=report.layout.name))
-    digest = tree_digest(root / name)
+    digest = "" if record.folder else tree_digest(folder)
     _check_expected(expected_digest, digest)
     preview = PluginPreview(
         report, record.source, context_cost(report.layout), digest, record.commit

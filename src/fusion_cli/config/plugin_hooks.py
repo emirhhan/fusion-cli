@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..core.hooks.events import HookCommand, HookSkip
 from .plugin_data import plugin_data_dir
-from .plugin_store import plugin_hook_blocks, plugins_dir
+from .plugin_store import plugin_hook_blocks, plugin_root_of, plugins_dir
 
 PLUGIN_SOURCE_PREFIX = "eklenti:"
 
@@ -29,8 +29,9 @@ def plugin_hooks(
     skipped: list[HookSkip] = []
     for source, path, block in plugin_hook_blocks(base):
         name = source.removeprefix(PLUGIN_SOURCE_PREFIX)
+        root = plugin_root_of(path, base) or (base or plugins_dir()) / name
         env = (
-            ("CLAUDE_PLUGIN_ROOT", str((base or plugins_dir()) / name)),
+            ("CLAUDE_PLUGIN_ROOT", str(root)),
             ("CLAUDE_PLUGIN_DATA", str(plugin_data_dir(name, create=True))),
         )
         found, skips = parse_hooks_block(

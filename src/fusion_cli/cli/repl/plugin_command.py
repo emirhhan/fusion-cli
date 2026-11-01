@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ...config.loader import refresh_plugin_mcp_servers
-from ...config.plugin_store import installed_plugins, load_state, plugins_dir
+from ...config.plugin_store import installed_plugins, load_state, plugin_folder
 from ...config.plugin_validate import ValidationCrashError, validate_target
 from ...core.plugins import PluginError
 from ...tools import plugin_install as plugins
@@ -154,7 +154,7 @@ def _validate(rest: list[str], confirmed: bool) -> str:
     path = Path(names[0]).expanduser()
     record = load_state().plugin(names[0])
     if record is not None and not path.exists():
-        path = plugins_dir() / record.name
+        path = plugin_folder(record)
     try:
         return validate_target(path, strict="--strict" in rest).text()
     except ValidationCrashError as error:

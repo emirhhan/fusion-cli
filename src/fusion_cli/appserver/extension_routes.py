@@ -37,7 +37,7 @@ from ..config.plugin_store import (
     inspect_plugin,
     installed_plugins,
     load_state,
-    plugins_dir,
+    plugin_folder,
 )
 from ..config.release_notes import changelog_path, load_sections, release_notes_text
 from ..core.errors import ConfigError
@@ -251,7 +251,7 @@ def _validate(data: Mapping[str, object]) -> dict[str, Any]:
     record = load_state().plugin(_text(data, "ad"))
     if record is None:
         return {"ok": False, "metin": plugins.ERR_NOT_INSTALLED.format(name=_text(data, "ad"))}
-    report = validate_plugin(plugins_dir() / record.name)
+    report = validate_plugin(plugin_folder(record))
     item = inspect_plugin(record)
     return {
         "ok": True,

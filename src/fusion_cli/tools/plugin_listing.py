@@ -11,16 +11,17 @@ from pathlib import Path
 
 from ..config.plugin_layout import PluginLayout, context_cost, validate_plugin
 from ..config.plugin_scopes import SCOPE_PROJECT, scope_values
+from ..config.plugin_session import SESSION_HEADING, SESSION_SCOPE, session_plugins
 from ..config.plugin_store import (
     STATUS_BROKEN,
     STATUS_TAMPERED,
     InstalledPlugin,
     installed_plugins,
     load_state,
+    plugin_folder,
     plugin_id,
     plugins_dir,
 )
-from ..config.plugin_session import SESSION_HEADING, SESSION_SCOPE, session_plugins
 from ..core.plugin_marketplace import MarketplaceSource
 from ..core.plugins import PluginError
 from .plugin_install import browse
@@ -57,8 +58,12 @@ def _installed_entry(item: InstalledPlugin, base: Path, root: Path) -> dict[str,
         "version": record.version or UNKNOWN_VERSION,
         "scope": "user",
         "enabled": record.enabled and item.status not in (STATUS_BROKEN, STATUS_TAMPERED),
-        "installPath": str(base / record.name),
+        "installPath": str(plugin_folder(record, base)),
     }
+    if record.folder:
+        entry["readFromFolder"] = record.folder
+        if item.layout is not None and item.layout.manifest.version:
+            entry["folderVersion"] = item.layout.manifest.version
     if record.installed_at:
         entry["installedAt"] = _iso(record.installed_at)
         entry["lastUpdated"] = _iso(record.installed_at)
@@ -163,7 +168,7 @@ def details_text(name: str, *, base: Path | None = None) -> str:
             record = find_record(load_state(store), name)
         except PluginError as error:
             raise PluginError(ERR_DETAILS_MISSING.format(name=name)) from error
-        folder = store / record.name
+        folder = plugin_folder(record, store)
     report = validate_plugin(folder, record.name)
     layout = report.layout
     if layout is None:

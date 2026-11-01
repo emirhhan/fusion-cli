@@ -68,6 +68,8 @@ def update_plugin(
     record = state.plugin(name)
     if record is None:
         raise PluginError(ERR_NOT_INSTALLED.format(name=name))
+    if record.folder:
+        return _refresh_in_place(record, root)
     resolved = _resolve(update_source(record), state)
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
@@ -93,6 +95,19 @@ def update_plugin(
             installed_at=time.time(),
         )
         _swap(root / name, folder, updated, root)
+    return UpdateResult(updated, changed=True)
+
+
+def _refresh_in_place(record: PluginRecord, root: Path) -> UpdateResult:
+    """Yerinde yüklenen eklenti kaynağından okunur (#403): yalnız sürüm kaydı tazelenir."""
+    report = validate_plugin(Path(record.folder), record.name)
+    if not report.ok or report.layout is None:
+        raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
+    version = report.layout.manifest.version
+    if version == record.version:
+        return UpdateResult(record, changed=False)
+    updated = replace(record, version=version)
+    plugin_store.update_state(lambda current: current.with_plugin(updated), root)
     return UpdateResult(updated, changed=True)
 
 

@@ -131,6 +131,12 @@ değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler*
 Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula, değişmiş eklentide "İncele ve yeniden
 onayla" (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`).
 
+Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentileri Claude Code gibi
+kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki
+oturumda ya da `/reload-plugins`'te geçerli olur, `CLAUDE_PLUGIN_ROOT` kaynak klasörü gösterir,
+`plugin list --json` `readFromFolder`/`folderVersion` verir; kaldırma kaynak klasöre dokunmaz.
+Güvenlik notu: bu eklentilere karma ("değişmiş") kilidi uygulanmaz; kanca/MCP onayı kurulumda alınır.
+
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.

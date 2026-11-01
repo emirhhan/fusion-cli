@@ -158,3 +158,28 @@ def test_dogrudan_kaynak_kurulumu_uyari_verir_kesfet_kalkti(tmp_path, caplog):
     assert "Doğrudan kaynaktan kurulum kullanımdan kalktı" in caplog.text
     discover = runner.invoke(app, ["discover"])
     assert "kullanımdan kalktı" in discover.output
+
+
+# --- #403: yerel pazarın göreli eklentileri yerinde yüklenir --------------------- #
+
+
+def test_yerel_pazar_eklentisi_yerinde_yuklenir_duzenleme_gorunur(tmp_path):
+    market = _market(tmp_path)
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("rapor@ekip", approve=_yes)
+    source = market / "plugins" / "rapor"
+
+    assert not (plugin_store.plugins_dir() / "rapor").exists()  # kopyalanmadı
+    record = plugin_store.load_state().plugin("rapor")
+    assert record.folder == str(source.resolve())
+    extra = source / "skills" / "yeni"
+    extra.mkdir()
+    (extra / "SKILL.md").write_text("---\nname: yeni\ndescription: Yeni\n---\nY\n", "utf-8")
+    (item,) = plugin_store.active_plugins()
+    assert item.status == plugin_store.STATUS_ACTIVE  # düzenleme "değişmiş" kilidi DEĞİL
+    assert len(item.layout.skills) == 2
+    row = json.loads(runner.invoke(app, ["list", "--json"]).output)[0]
+    assert row["readFromFolder"] == str(source.resolve())
+
+    plugin_install.uninstall_plugin("rapor")
+    assert source.is_dir()  # kaynak klasör çöpe taşınmaz

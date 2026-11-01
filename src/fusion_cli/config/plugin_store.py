@@ -67,6 +67,8 @@ class PluginRecord:
     #: Kanca/MCP çalıştırma onayı kurulumda verildi mi?
     exec_approved: bool = False
     installed_at: float = 0.0
+    #: Yerel pazarın göreli eklentisi yerinde yüklenir (#403): kaynak klasör; boşsa kopya.
+    folder: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +181,7 @@ def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
         enabled=raw.get("etkin") is not False,
         exec_approved=raw.get("calistirma_onayi") is True,
         installed_at=_number(raw.get("kurulum")),
+        folder=str(raw.get("klasor") or ""),
     )
 
 
@@ -212,6 +215,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 "etkin": p.enabled,
                 "calistirma_onayi": p.exec_approved,
                 "kurulum": p.installed_at,
+                **({"klasor": p.folder} if p.folder else {}),
             }
             for p in sorted(state.plugins, key=lambda item: item.name)
         },
@@ -242,16 +246,29 @@ def update_state(
 
 
 def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledPlugin:
-    """Kaydı diskle karşılaştır: etkin / kapalı / değişmiş / bozuk."""
-    folder = (base or plugins_dir()) / record.name
+    """Kaydı diskle karşılaştır: etkin / kapalı / değişmiş / bozuk.
+
+    Yerinde yüklenen eklentide (#403) karma kilidi yok: kaynaktaki düzenleme Claude'daki gibi
+    sonraki oturumda ya da /reload-plugins'te geçerli olur.
+    """
+    folder = plugin_folder(record, base)
     try:
         layout = scan_plugin(folder)
-        digest = tree_digest(folder)
+        digest = "" if record.folder else tree_digest(folder)
     except (PluginError, OSError) as error:
         return InstalledPlugin(record, None, STATUS_BROKEN, str(error))
-    if record.digest and digest != record.digest:
+    if record.digest and not record.folder and digest != record.digest:
         return InstalledPlugin(record, layout, STATUS_TAMPERED, "dosyalar kurulumdan sonra değişti")
     return InstalledPlugin(record, layout, STATUS_ACTIVE if record.enabled else STATUS_DISABLED)
+
+
+def plugin_folder(record: PluginRecord, base: Path | None = None) -> Path:
+    """Eklentinin yüklendiği klasör: yerinde kaynak, oturumluk yol ya da depodaki kopya."""
+    if record.folder:
+        return Path(record.folder)
+    if record.kind == "inline":
+        return Path(record.source)
+    return (base or plugins_dir()) / record.name
 
 
 def plugin_id(record: PluginRecord) -> str:
@@ -372,6 +389,9 @@ def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
         session = session_root_of(path)
         if session is not None:
             return session
+    for record in load_state(base).plugins:
+        if record.folder and _inside(path, Path(record.folder)):
+            return Path(record.folder)
     try:
         root = (base or plugins_dir()).resolve()
         relative = path.resolve().relative_to(root)
@@ -379,6 +399,13 @@ def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
         return None
     first = relative.parts[0] if len(relative.parts) > 1 else ""
     return root / first if first and not first.startswith(".") else None
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    try:
+        return path.resolve().is_relative_to(folder.resolve())
+    except OSError:
+        return False
 
 
 def state_signature(base: Path | None = None, root: Path | None = None) -> tuple[str, int] | None:
