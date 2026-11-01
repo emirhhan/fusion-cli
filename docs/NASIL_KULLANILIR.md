@@ -1092,8 +1092,9 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 - **Geçmiş:** Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son satırda geçmişi gezer. Geçmiş çalışma dizini başınadır (`<bellek>/girdi-gecmisi/`, 0600), art arda aynı satır bir kez yazılır. **Ctrl+R** satır içi tersine arama (Ctrl+R sonraki, Enter kabul, Ctrl+C/Esc iptal).
 - **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler, boş girdide ikinci basış (800 ms) çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
 - Konuşma kaydırma: PageUp/PageDown, Home/End, Ctrl+Home/Ctrl+End, Shift+Up/Down.
+- **Kuyruk:** tur sürerken Enter mesajı kuyruğa alır; tur bitince sırayla gider. Esc turu keser, kuyruktakiler korunur ve hemen gönderilir.
 
-Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+L ekran temizleme yok.
+Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+L ekran temizleme yok; kuyruğa alınan mesaj araç çağrıları arasında aynı tura verilmez (tur sonunu bekler), Ctrl+Enter / Ctrl+X Ctrl+S ve Up ile geri alma yok.
 
 ### Tuş bağları ve vim: `/keybindings`, `/vim`
 

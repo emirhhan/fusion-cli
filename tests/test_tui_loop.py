@@ -524,20 +524,26 @@ async def test_yolla_baslayan_mesaj_tura_gider_komuta_degil(tmp_path, monkeypatc
     assert "bilinmeyen komut" not in session.tui.transcript.lower()
 
 
-async def test_tur_durdurulunca_kuyruktaki_mesaj_baslamaz(tmp_path, monkeypatch):
+async def test_tur_durdurulunca_kuyruktaki_mesaj_hemen_gonderilir(tmp_path, monkeypatch):
+    """Claude Code (#190): Esc turu keser, kuyruktakiler korunur ve hemen gönderilir."""
     session = _TuiSession(_state(tmp_path))
     session._queue = ["sıradaki iş"]
+    gelen: list[str] = []
 
-    async def _iptal(line, **kwargs):
-        raise asyncio.CancelledError
+    async def _tur(line, **kwargs):
+        gelen.append(line)
+        if line == "uzun iş":
+            raise asyncio.CancelledError
 
-    monkeypatch.setattr(session, "_turn", _iptal)
+    monkeypatch.setattr(session, "_turn", _tur)
 
     await session._handle("uzun iş")
+    assert session._task is not None
+    await session._task
 
+    assert gelen == ["uzun iş", "sıradaki iş"]
     assert session._queue == []
-    assert session._task is None
-    assert "düşürüldü" in session.tui.transcript
+    assert "şimdi gönderiliyor" in session.tui.transcript
 
 
 async def test_beklenmeyen_hata_sebebini_kullaniciya_gosterir(tmp_path, monkeypatch):

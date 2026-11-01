@@ -558,14 +558,13 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{escape(moved)}[/{theme.DIM}]")
                 return
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
-            # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
-            # Ölçüldü (30 Ekim): `finally` kuyruğu çalıştırıyor, Esc'e basan kullanıcının
-            # durdurmak istediği yerde bir sonraki mesaj başlıyordu. Düşen satırlar söylenir.
-            if self._queue:
-                dusen = len(self._queue)
-                self._queue.clear()
+            # Claude Code (#190): "Esc ile tur kesilir; kuyruğa alınanlar korunur ve hemen
+            # gönderilir." Kuyruk silinmez; `finally` sıradakini başlatır. Çıkışta (`_exit`)
+            # kuyruk yine temizlenir.
+            if self._queue and self._state.running:
                 self._echo(
-                    f"[{theme.DIM}]{messages.TUI_QUEUE_DROPPED.format(count=dusen)}[/{theme.DIM}]"
+                    f"[{theme.DIM}]{messages.TUI_QUEUE_SENT_NOW.format(count=len(self._queue))}"
+                    f"[/{theme.DIM}]"
                 )
         except Exception as error:
             _logger.exception("TUI turu beklenmeyen hatayla bitti")

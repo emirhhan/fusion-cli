@@ -1502,6 +1502,7 @@ STATUSLINE_CURRENT = (
 STATUSLINE_SET = "Durum satırı betiği kaydedildi: {command} — bir sonraki turdan itibaren."
 STATUSLINE_SET_UNSAVED = "Durum satırı betiği dosyaya yazılamadı: {error}"
 STATUSLINE_CLEARED = "Durum satırı betiği kaldırıldı; yerleşik çubuk kullanılıyor."
+TUI_QUEUE_SENT_NOW = "tur kesildi; kuyruktaki {count} mesaj şimdi gönderiliyor"
 TUI_PRESS_AGAIN_TO_EXIT = "çıkmak için tekrar {key}"
 STATUSLINE_FROM_PROMPT = "durum satırını kabuk istemimden (PS1) kur"
 STATUSLINE_DELEGATED = "Durum satırı isteği statusline-setup ajanına gönderiliyor."
