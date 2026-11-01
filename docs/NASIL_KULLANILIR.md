@@ -988,8 +988,11 @@ görev kutusuna `/ad ` yazar.
 | ⌘[ · ⌘] | Geri · ileri |
 
 Varsayılan tablo Claude Desktop'unkiyle aynıdır (#444). Claude'da karşılığı olmayan eski varsayılanlar
-(⌘K palet, ⌘P dosya, ⌘B kenar çubuğu, ⌘J terminal, ⌘⌥B çalışma paneli, ⌘1-9 sohbet) kaldırıldı;
-eylemler duruyor ve istenen tuşa bağlanabilir, `keybindings.json`'daki kişisel bağlar aynen geçerlidir.
+(⌘K palet, ⌘P dosya, ⌘B kenar çubuğu, ⌘J terminal, ⌘⌥B çalışma paneli, ⌘1-9 sohbet) varsayılan
+tablodan kalktı; bu sürüm boyunca, tuş kişisel tablonda başka bir işe bağlı değilse eski işi yapmaya
+devam eder ve ilk kullanımda bir kez uyarılır. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata;
+`keybindings.json`'daki kişisel bağlar aynen geçerlidir. Tur çalışırken ⌘W ilk basışta yalnız uyarır,
+3 sn içinde ikinci basış oturumu kapatır.
 **Henüz yok**: ⌘⇧]/⌘⇧[ (Türkçe Q'da ⌥ gerektiren noktalama tuşu), ⌘⇧S öğe seç, ⌘⌃W bölünmüş
 görünümden çıkar, ⌘; yan sohbet, Ctrl+O görünüm kipleri, ⌘⇧I/⌘⇧E model/efor menüsü, ⌘⌥1-9 ortam seç.
 
