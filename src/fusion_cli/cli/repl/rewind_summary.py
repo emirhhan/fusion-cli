@@ -110,14 +110,10 @@ def _boundary_holds(history: Sequence[Message], split: int, before: Sequence[Mes
     return _conversational(history[:split]) == _conversational(before)
 
 
-def _rebase_later(
-    state: ReplState, index: int, split: int, compressed: Sequence[Message]
-) -> None:
+def _rebase_later(state: ReplState, index: int, split: int, compressed: Sequence[Message]) -> None:
     """Hedef ve sonraki turların sınırını özetlenmiş başın üzerine taşı."""
     state.checkpoints.replace_entries(
-        dataclasses.replace(
-            entry, history_before=(*compressed, *entry.history_before[split:])
-        )
+        dataclasses.replace(entry, history_before=(*compressed, *entry.history_before[split:]))
         if entry.index >= index and len(entry.history_before) >= split
         else entry
         for entry in state.checkpoints.entries()

@@ -849,10 +849,10 @@ async def test_ctrl_c_ile_silinen_taslak_up_ile_geri_gelir_dosyaya_yazilmaz(tmp_
 
 
 def test_oturumluk_taslaklar_en_cok_on_tane():
-    from fusion_cli.cli.repl.tui_input_keys import MAX_CLEARED_DRAFTS, DirectoryHistory
-
     import tempfile
     from pathlib import Path
+
+    from fusion_cli.cli.repl.tui_input_keys import MAX_CLEARED_DRAFTS, DirectoryHistory
 
     gecmis = DirectoryHistory(Path(tempfile.mkdtemp()) / "g")
     for no in range(MAX_CLEARED_DRAFTS + 3):
