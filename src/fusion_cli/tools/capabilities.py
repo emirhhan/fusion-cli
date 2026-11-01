@@ -183,6 +183,10 @@ class Capability:
     inline_prompt: str | None = None
     initial_prompt: str = ""
     omit_claude_md: bool = False
+    #: `autoCompactWindow` (belirteç); 0 = oturumun eşiği.
+    auto_compact_window: int = 0
+    #: `experimental.cacheTtl`: `5m` | `1h`; boş = varsayılan.
+    cache_ttl: str = ""
     hook_definitions: HookSet = field(default_factory=HookSet, repr=False)
     inline_mcp_servers: tuple[McpServerConfig, ...] = field(default=(), repr=False)
 

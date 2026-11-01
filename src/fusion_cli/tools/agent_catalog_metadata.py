@@ -33,6 +33,10 @@ def _bound_hooks(hook_set: HookSet, capability: Capability) -> HookSet:
     )
 
 
+def _int_field(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def apply_agent_metadata(capability: Capability, fields: Mapping[str, object]) -> Capability:
     """Ayrıştırılmış kancayı bağla; eklenti ajanının desteklenmeyen alanlarını çıkar."""
     hooks = fields.get("hook_definitions")
@@ -47,6 +51,8 @@ def apply_agent_metadata(capability: Capability, fields: Mapping[str, object]) -
         capability,
         initial_prompt=str(fields.get("initial_prompt") or ""),
         omit_claude_md=fields.get("omit_claude_md") is True,
+        auto_compact_window=_int_field(fields.get("auto_compact_window")),
+        cache_ttl=str(fields.get("cache_ttl") or ""),
         hook_definitions=_bound_hooks(hook_set, capability),
         inline_mcp_servers=inline_servers,
     )

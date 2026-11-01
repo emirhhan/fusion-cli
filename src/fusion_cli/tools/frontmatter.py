@@ -295,6 +295,7 @@ def _agent_metadata_fields(raw: Mapping[str, object]) -> dict[str, object]:
     if isinstance(initial, str):
         fields["initial_prompt"] = initial
     fields["omit_claude_md"] = raw.get("omitClaudeMd", False) is True
+    fields.update(_compact_and_cache_fields(raw))
     block = raw.get("hooks")
     if "hooks" in raw:
         commands, skipped = parse_hooks_block(
@@ -307,6 +308,29 @@ def _agent_metadata_fields(raw: Mapping[str, object]) -> dict[str, object]:
         fields.update(_inline_mcp_fields(servers))
     elif isinstance(servers, str):
         fields["mcp_servers"] = parse_tools(servers)
+    return fields
+
+
+#: Claude Code `autoCompactWindow` aralığı (belirteç) ve `experimental.cacheTtl` değerleri.
+AUTO_COMPACT_WINDOW_RANGE = (100_000, 1_000_000)
+CACHE_TTL_VALUES = frozenset({"5m", "1h"})
+
+
+def _compact_and_cache_fields(raw: Mapping[str, object]) -> dict[str, object]:
+    """`autoCompactWindow` ve `experimental.cacheTtl` (#23); geçersiz değer uyarıyla düşer."""
+    fields: dict[str, object] = {}
+    window = raw.get("autoCompactWindow")
+    low, high = AUTO_COMPACT_WINDOW_RANGE
+    if isinstance(window, int) and not isinstance(window, bool) and low <= window <= high:
+        fields["auto_compact_window"] = window
+    elif window is not None:
+        _LOG.warning("autoCompactWindow 100000-1000000 arası tam sayı olmalı; uygulanmadı.")
+    experimental = raw.get("experimental")
+    ttl = experimental.get("cacheTtl") if isinstance(experimental, Mapping) else None
+    if isinstance(ttl, str) and ttl in CACHE_TTL_VALUES:
+        fields["cache_ttl"] = ttl
+    elif ttl is not None:
+        _LOG.warning("experimental.cacheTtl 5m ya da 1h olmalı; uygulanmadı.")
     return fields
 
 

@@ -400,6 +400,9 @@ ya da eklenen dosya yeniden başlatmadan bir sonraki turda etkin olur.
 | `isolation` | `worktree`: ajan geçici bir git çalışma ağacında koşar |
 | `hooks` | `PreToolUse`, `PostToolUse`, `Stop` (alt ajanda `SubagentStop` olur) yalnız o ajan etkinken çalışır; proje ajanında klasör güveni gerekir, eklenti ajanında yok sayılır. Desteklenmeyen kanca alanı varsa ajan başlatılmaz (sessizce atlanmaz) |
 | `initialPrompt` | Ajan `--agent` ya da `agent` ayarıyla ana oturum ajanıysa ilk kullanıcı turu olarak kendiliğinden gönderilir |
+| `omitClaudeMd` | `true` ise alt ajan CLAUDE.md / proje talimatı olmadan başlar |
+| `autoCompactWindow` | `100000`-`1000000` belirteç: yalnız bu alt ajanın otomatik özetleme penceresini düşürür; aralık dışı değer uyarıyla yok sayılır |
+| `experimental.cacheTtl` | `5m` ya da `1h` okunur ve doğrulanır. **Henüz yok:** Fusion istem önbelleği süresini sağlayıcıya iletmez, değer şimdilik etkisizdir |
 
 Alt ajan bir izin isterse terminal, masaüstü kartı ve Telegram bildirimi
 "Alt ajan izin istiyor: Denetçi (denetci-3f9a1c)" diye kimin istediğini söyler. Masaüstü:

@@ -151,6 +151,10 @@ class Persona:
     #: Yerleşik keşif/plan ajanında ilk proje talimatları yüklenmez.
     omit_initial_instructions: bool = False
     initial_prompt: str = ""
+    #: `autoCompactWindow` (belirteç): alt ajanın özetleme eşiğini düşürür; 0 = oturumunki.
+    auto_compact_window: int = 0
+    #: `experimental.cacheTtl` (`5m` | `1h`).
+    cache_ttl: str = ""
     hook_definitions: HookSet = field(default_factory=HookSet, repr=False)
     inline_mcp_servers: tuple[McpServerConfig, ...] = field(default=(), repr=False)
     background: bool = False
@@ -273,6 +277,8 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
             agent.omit_claude_md or (agent.source == "fusion" and agent.name in {"explore", "plan"})
         ),
         initial_prompt=agent.initial_prompt,
+        auto_compact_window=agent.auto_compact_window,
+        cache_ttl=agent.cache_ttl,
         hook_definitions=agent.hook_definitions,
         inline_mcp_servers=agent.inline_mcp_servers,
         background=agent.background,
@@ -560,6 +566,16 @@ async def _run_child(
         subtask = dataclasses.replace(
             subtask, tool_cap=frozenset(effective_tools) if effective_tools is not None else None
         )
+        if persona.auto_compact_window:
+            from .context_budget import CHARS_PER_TOKEN_ESTIMATE, HISTORY_SHARE
+
+            window_chars = round(
+                persona.auto_compact_window * HISTORY_SHARE * CHARS_PER_TOKEN_ESTIMATE
+            )
+            learned = sub_deps.learned_compression_chars
+            sub_deps.learned_compression_chars = (
+                window_chars if learned is None else min(learned, window_chars)
+            )
         sub_deps.journal = await child_journal(deps, subtask, persona, sub_id)
         if sub_deps.journal is not None:
             from ...memory.subagent_journal import AgentTranscript, agent_lease
