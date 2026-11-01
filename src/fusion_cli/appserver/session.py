@@ -50,12 +50,12 @@ from ..cli.repl.transcript_store import (
     move_conversation,
     validate_conversation_move,
 )
+from ..config.agent_launch_compat import reload_agent_launch
 from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ..config.browser_profiles import default_browser_profile_store
 from ..config.credentials import FernetSecretStore
 from ..config.eligibility import capability_from_spec
 from ..config.keys import secret_key
-from ..config.agent_launch_compat import reload_agent_launch
 from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
