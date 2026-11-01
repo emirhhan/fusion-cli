@@ -21,7 +21,10 @@ OUTPUT_RESERVE_TOKENS = 8_192
 # yerleşik payı karşılar; küçük pencerede `smallest // 2` sınırı yine geçerlidir.
 # 31 Ekim 2026: parite araçlarıyla 56 yerleşik aracın şeması 23.086 karakter (~7.700 token)
 # oldu; 3.000 tokenlık sistem istemi payıyla 10.000 aşıldı, pay 12.000'e çıkarıldı.
-SYSTEM_AND_TOOLS_RESERVE_TOKENS = 12_000
+# 2 Kasım 2026: Claude Code birebir uyumu (10 alan) ile ölçülen şema ~10.100 token; 3.000
+# tokenlık sistem istemi payıyla 13.100 eder, pay 13.500'e çıkarıldı (karakter bütçeleri
+# `tests/test_tool_emulation_diet.py` değişmedi: tam 14.600, kompakt 10.000).
+SYSTEM_AND_TOOLS_RESERVE_TOKENS = 13_500
 CHARS_PER_TOKEN_ESTIMATE = 3
 HISTORY_SHARE = 0.5
 #: Pencere bilinmeyen zayıf model için başvuru penceresi: `COMPRESS_THRESHOLD_CHARS`'ın

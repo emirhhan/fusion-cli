@@ -248,6 +248,20 @@ def godot_kesfi_makineden_bagimsiz(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _mcp_etkilesimsiz_kip_sizmaz():
+    """`fusion agent` (Claude `-p`) süreç genelinde etkileşimsiz MCP kipini açar ve kapatmaz.
+
+    Ölçüldü (2 Kasım): CliRunner ile `agent` çağıran bir test bu işareti açık bırakınca aynı
+    xdist işçisindeki MCP havuzu testi sunucuyu sonsuza dek bekliyor, tam paket asılıyordu.
+    """
+    from fusion_cli.config import mcp_project_approval
+
+    mcp_project_approval.set_noninteractive(False)
+    yield
+    mcp_project_approval.set_noninteractive(False)
+
+
+@pytest.fixture(autouse=True)
 def _fusion_gunluk_isleyicisi_sizmaz():
     """`main()` çağıran testin bağladığı `logs/fusion.log` işleyicisi sonraki teste kalmasın.
 
