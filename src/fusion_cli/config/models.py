@@ -214,6 +214,9 @@ class RuntimeConfig:
     #: Plan kipinde biten turun planı `plans/<sohbet>.md` dosyasına yazılır ve
     #: `PlanDrafted` yayınlanır (P-025). Kapalıyken plan yalnız sohbette kalır.
     plan_files: bool = True
+    #: Claude `useAutoModeDuringPlan` (varsayılan açık): plan kipinde salt okunur olmayan
+    #: kabuk komutuna otomatik kip sınıflandırıcısı karar verir; kapalıyken sorulur.
+    use_auto_mode_during_plan: bool = True
     #: `/goal` (P-058): uzun koşu kaç dakikada bir durup kullanıcıya danışır; her
     #: `/goal devam` ile aralık ikiye katlanır. 0 = danışma yok (yalnız tur tavanı).
     goal_checkin_minutes: int = 30

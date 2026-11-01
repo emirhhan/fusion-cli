@@ -104,7 +104,10 @@ def test_salt_okuma_tespiti():
         (ApprovalMode.SECURITY, "git status", Decision.ALLOW),
         (ApprovalMode.SECURITY, "pytest -q", Decision.DENIED),
         (ApprovalMode.PLAN, "git log", Decision.ALLOW),
-        (ApprovalMode.PLAN, "npm install", Decision.BLOCKED),
+        # Claude useAutoModeDuringPlan (varsayılan açık): sınıflandırıcı onaylarsa çalışır,
+        # reddederse engellenir (#318).
+        (ApprovalMode.PLAN, "npm install", Decision.ALLOW),
+        (ApprovalMode.PLAN, "git push", Decision.BLOCKED),
         (ApprovalMode.BYPASS, "git push", Decision.ALLOW),
         (ApprovalMode.BYPASS, "git reset --hard", Decision.ALLOW),
     ],
@@ -218,3 +221,48 @@ def test_oturum_yukleme_isteginin_karti_gerekceyi_soyler(tmp_path):
     assert istek.risk == REMOTE_SESSION_REASON
     assert istek.note == REMOTE_SESSION_REASON
     assert istek.read_only is False and istek.unattended_safe is False
+
+
+# --- Plan kipi: useAutoModeDuringPlan (#318) ------------------------------- #
+
+
+async def test_plan_kipi_otomatik_kapaliyken_salt_okunur_olmayan_komutu_sorar(tmp_path):
+    from .fakes import AlwaysApprove
+
+    sorulan: list[str] = []
+
+    class _Kayit(AlwaysApprove):
+        async def confirm(self, request):
+            sorulan.append(str(request.args.get("command")))
+            return await super().confirm(request)
+
+    politika = build_policy(ApprovalMode.PLAN, _Kayit(), use_auto_mode_during_plan=False)
+    istek = build_request(_arac(), {"command": "npm install"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert sorulan == ["npm install"]
+
+
+async def test_plan_kipi_otomatik_kapaliyken_reddedilen_soru_engel(tmp_path):
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject(), use_auto_mode_during_plan=False)
+    istek = build_request(_arac(), {"command": "npm install"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.DENIED
+
+
+async def test_plan_kipi_dosya_duzenlemesini_her_durumda_engeller(tmp_path):
+    from .fakes import AlwaysApprove
+
+    for otomatik in (True, False):
+        politika = build_policy(
+            ApprovalMode.PLAN, AlwaysApprove(), use_auto_mode_during_plan=otomatik
+        )
+        istek = build_request(_arac("write_file"), {"path": "a.txt"}, root=tmp_path)
+        assert await politika.decide(istek) is Decision.BLOCKED
+
+
+async def test_plan_kipi_yikici_komutu_siniflandiriciya_birakmaz_sorar(tmp_path):
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject())
+    istek = build_request(_arac(), {"command": "git push --force"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.DENIED

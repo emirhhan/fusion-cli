@@ -485,6 +485,9 @@ runtime:
   workflow_max_model_calls: 12
   # Plan kipinde biten turun planı plans/<sohbet>.md dosyasına yazılır (/plan goster, /plan ac).
   plan_files: true
+  # Claude useAutoModeDuringPlan: plan kipinde salt okunur olmayan kabuk komutuna otomatik
+  # kip sınıflandırıcısı karar verir (onaylanan çalışır, reddedilen engellenir); false = sorulur.
+  use_auto_mode_during_plan: true
   # /goal <koşul>: her tur sonunda hakem modeli koşulu değerlendirir; "henüz değil" ise
   # tur kendiliğinden sürer. Uzun koşu bu kadar dakikada bir durup danışır (/goal devam;
   # aralık her seferinde ikiye katlanır; 0 = danışma yok). Otomatik tur tavanı ayrıca var.

@@ -866,10 +866,18 @@ async def _agent_turn(
             child_runs=state.child_runs,
             interactive=True,
             publisher=bus,
-            policy=build_policy(state.approval, confirm_prompter, state.approval_memory),
+            policy=build_policy(
+                state.approval,
+                confirm_prompter,
+                state.approval_memory,
+                use_auto_mode_during_plan=_plan_auto(state.config),
+            ),
             approval_mode=lambda: state.approval,
             policy_for_mode=lambda wanted: build_policy(
-                wanted, confirm_prompter, state.approval_memory
+                wanted,
+                confirm_prompter,
+                state.approval_memory,
+                use_auto_mode_during_plan=_plan_auto(state.config),
             ),
             tool_context=tool_context,
             asker=prompter,
@@ -1146,3 +1154,8 @@ def _print_status(console: Console, state: ReplState) -> None:
         task_type=state.task_type,
         model=state.config.agent.name,
     )
+
+
+def _plan_auto(config: object) -> bool:
+    """Claude `useAutoModeDuringPlan` karşılığı; eski yapılandırmada alan yoksa açık."""
+    return bool(getattr(getattr(config, "runtime", None), "use_auto_mode_during_plan", True))

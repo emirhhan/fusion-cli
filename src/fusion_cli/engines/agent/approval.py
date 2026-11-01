@@ -449,28 +449,44 @@ class DontAskApproval:
 
 
 class PlanApproval:
-    """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
+    """Plan modu: düzenleme yok; salt okunur olmayan kabuk komutu sınıflandırıcıya ya da soruya.
 
     Okumaya izin verilir — `ls`, `grep`, `git log` gibi salt okuyan kabuk komutu ve
-    uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
-    kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
-    tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
+    uzak sistemi YALNIZ okuyan çağrı. Dosya düzenlemesi ve uzak yazma engellenir.
 
-    "Her seferinde sorulur" diyen istek (`pre_ask`: `ask` kuralı, sandbox dışı
-    çalıştırma) plan kipinde sorulamayacağı için ENGELLENİR. Ölçüldü (31 Ekim):
-    `cat ~/.kube/config` + `unsandboxed=true` plan kipinde sorulmadan sandbox dışında
-    çalışıyordu.
+    Claude Code (permission-modes, "What Claude can do"): salt okunur küme dışındaki
+    kabuk komutunda `useAutoModeDuringPlan` açıksa (varsayılan) sınıflandırıcı karar verir
+    — onaylanan çalışır, reddedilen engellenir; kapalıysa kullanıcıya sorulur. Açık `ask`
+    kuralı (`pre_ask`, sandbox dışı yeniden deneme) ve yıkıcı komut her durumda sorulur.
+    Soracak kimse yoksa (`prompter` verilmemiş) bunlar engellenir.
     """
 
+    def __init__(
+        self,
+        prompter: Prompter | None = None,
+        memory: ApprovalMemory | None = None,
+        *,
+        use_auto_mode: bool = True,
+    ) -> None:
+        self._prompter = prompter
+        self._memory = memory if memory is not None else ApprovalMemory()
+        self._use_auto_mode = use_auto_mode
+
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
-        if (
-            request.read_only
-            and request.danger is None
-            and request.pre_denied is None
-            and request.pre_ask is None
-        ):
+        if request.pre_denied is not None:
+            return Decision.BLOCKED
+        if request.read_only and request.danger is None and request.pre_ask is None:
             return Decision.ALLOW
-        return Decision.BLOCKED
+        if tool_family(request.tool.name) is not ToolFamily.SHELL:
+            return Decision.BLOCKED
+        asks = request.pre_ask is not None or request.danger is not None
+        if self._use_auto_mode and not asks:
+            return Decision.ALLOW if request.risk is None else Decision.BLOCKED
+        if self._prompter is None:
+            return Decision.BLOCKED
+        if not asks and self._memory.is_remembered(request):
+            return Decision.ALLOW
+        return await _ask_and_remember(self._prompter, request, self._memory)
 
 
 class BypassApproval:
@@ -498,7 +514,11 @@ class BypassApproval:
 
 
 def build_policy(
-    mode: ApprovalMode, prompter: Prompter, memory: ApprovalMemory | None = None
+    mode: ApprovalMode,
+    prompter: Prompter,
+    memory: ApprovalMemory | None = None,
+    *,
+    use_auto_mode_during_plan: bool = True,
 ) -> ApprovalPolicy:
     """Moda karşılık gelen politikayı üret.
 
@@ -508,7 +528,7 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval()
+        return PlanApproval(prompter, memory, use_auto_mode=use_auto_mode_during_plan)
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:

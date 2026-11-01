@@ -364,7 +364,14 @@ async def run_agent_task(
         confirm_prompter = notifying(prompter, hook_session)
 
         def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
-            policy: ApprovalPolicy = build_policy(active_mode, confirm_prompter, approval_memory)
+            policy: ApprovalPolicy = build_policy(
+                active_mode,
+                confirm_prompter,
+                approval_memory,
+                use_auto_mode_during_plan=getattr(
+                    config.runtime, "use_auto_mode_during_plan", True
+                ),
+            )
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
         deps = AgentDeps(
