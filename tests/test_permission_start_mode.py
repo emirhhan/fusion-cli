@@ -122,3 +122,13 @@ def test_repl_ve_masaustu_defaultmode_okur(proje):
     _yaz(proje / ".claude" / "settings.json", {"permissions": {"disableAutoMode": "disable"}})
     _yaz(Path.home() / ".claude" / "settings.json", {})
     assert _initial_approval(config, proje) is ApprovalMode.SECURITY
+
+
+def test_atlanan_mcp_kurali_uyari_uretir(proje):
+    """Claude (#87): ayar dosyasındaki parantezli mcp__ kuralı atlanır ve bildirilir."""
+    from fusion_cli.config.permission_warnings import skipped_rule_warnings
+
+    assert skipped_rule_warnings(proje) == ()
+    _yaz(proje / ".claude" / "settings.json", {"permissions": {"deny": ["mcp__s__x(y)"]}})
+    uyarilar = skipped_rule_warnings(proje)
+    assert len(uyarilar) == 1 and "mcp__s__x(y)" in uyarilar[0]

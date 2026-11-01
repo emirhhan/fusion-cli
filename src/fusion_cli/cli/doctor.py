@@ -102,6 +102,7 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     checks.append(_path_check())
     checks.extend(_optional())
     checks.append(sandbox_check(config))
+    checks.extend(_permission_rule_checks())
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
@@ -267,6 +268,16 @@ def _path_check() -> Check:
         ok=False,
         remedy=ipucu or "Kurulum dizinindeki bin/Scripts klasörünü PATH'e ekle.",
     )
+
+
+def _permission_rule_checks() -> list[Check]:
+    """Ayar dosyalarında atlanan izin kuralları (#87)."""
+    from ..config.permission_warnings import skipped_rule_warnings
+
+    return [
+        Check("İzin kuralları", line, ok=False, remedy="Kuralı belirteçsiz MCP adıyla yaz.")
+        for line in skipped_rule_warnings(Path.cwd())
+    ]
 
 
 def sandbox_check(config: Config) -> Check:

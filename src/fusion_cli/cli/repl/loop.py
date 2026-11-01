@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
+from ...config.permission_warnings import skipped_rule_warnings
 from ...config.permissions import has_untrusted_permissions
 from ...core.changeset import ChangeSet
 from ...core.concurrency import BackgroundTasks
@@ -277,6 +278,8 @@ async def _run_surface(
         console.print()
     if has_untrusted_permissions(state.root):
         console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    for uyari in skipped_rule_warnings(state.root):
+        console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)

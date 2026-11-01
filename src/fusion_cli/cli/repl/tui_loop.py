@@ -21,6 +21,7 @@ from rich.markup import escape
 
 from ...config import keybindings
 from ...config.models import Config
+from ...config.permission_warnings import skipped_rule_warnings
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
@@ -1060,6 +1061,8 @@ def _print_startup(
         session.tui.console.print(bildirim)
     if has_untrusted_permissions(state.root):
         session.tui.console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    for uyari in skipped_rule_warnings(state.root):
+        session.tui.console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)
