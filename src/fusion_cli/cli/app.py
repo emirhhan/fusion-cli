@@ -73,7 +73,7 @@ from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
-from .repl import run_repl, session_resume, worktrees
+from .repl import pr_sessions, run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
@@ -205,6 +205,14 @@ def main_callback(
             help="Sohbete bu UUID'yi kimlik olarak ver (yeni sohbet ya da --fork-session).",
         ),
     ] = "",
+    from_pr: Annotated[
+        str,
+        typer.Option(
+            "--from-pr",
+            help="Bu PR'a (numara ya da GitHub/GitLab/Bitbucket adresi) bağlı sohbetlerden "
+            "seçip sürdür.",
+        ),
+    ] = "",
     prompt_arg: Annotated[
         str,
         # `fusion "query"` (#204): giriş noktası konum argümanını bu gizli seçeneğe çevirir.
@@ -232,6 +240,9 @@ def main_callback(
         raise typer.Exit(1)
     try:
         root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        if from_pr.strip():
+            # Claude Code `--from-pr` (#205): PR'a bağlı oturumlarla süzülmüş seçici.
+            resume = pr_sessions.pick_for_pr(config.memory_dir, root, from_pr)
         target = session_resume.resolve_launch(
             config.memory_dir,
             root,

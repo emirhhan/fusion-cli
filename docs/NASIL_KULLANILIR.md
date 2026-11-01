@@ -745,8 +745,10 @@ GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış
   PR yorumları için komut yoktur (Claude Code v2.1.91'de `/pr-comments` kaldırıldı):
   "42 numaralı PR'ın yorumlarını özetle" diye doğrudan sorulur;
   `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
-- Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
-  (başlık, dallar, açıklama, adres) ekler.
+- Terminalde: `fusion --from-pr 42` (ya da GitHub/GitLab/Bitbucket PR adresi) Claude Code'daki
+  gibi oturum seçicisini o PR'a bağlı sohbetlerle süzerek açar; sohbet, PR açtığında ya da PR
+  adresi geçtiğinde PR'a bağlanır. `fusion agent --from-pr 42 "yorumları uygula"` (Fusion eki,
+  headless alt komut) görevin başına PR özetini (başlık, dallar, açıklama, adres) ekler.
 - CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
   PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
   tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
