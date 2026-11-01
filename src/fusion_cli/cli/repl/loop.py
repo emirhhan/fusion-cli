@@ -468,7 +468,7 @@ async def _handle(
     # Ajanın zamanladığı satır komut ya da önek DEĞİL turdur (bkz. `_cron_watcher`).
     scheduled_turn = state.take_scheduled_turn_only()
     if not scheduled_turn:
-        # Önekler (P-022): `!` kabuk model çağırmaz; `@dosya` bağlama eklenir (`#` önek değil, #220).
+        # Önekler (P-022): `!` kabuk model çağırmaz, `@dosya` bağlama eklenir (#220: `#` yok).
         if (shell := prefixes.shell_command(line)) is not None:
             await run_shell_prefix_line(shell, state, console)
             _sync_status_bar(reader, state, background)
