@@ -1028,8 +1028,11 @@ state` ile sorar (açılışta, pencereye dönünce en çok dakikada bir, ayrıc
 birleşen ya da kapanan PR'ın sohbeti arşive gider. Tur süren sohbet atlanır; `gh` yoksa ya da
 hata verirse hiçbir şey arşivlenmez; arşivden geri çıkardığın sohbet bir daha otomatik
 arşivlenmez. Projeler başlığındaki **⇅ Grupla ve sırala** menüsü: Projeye göre (varsayılan) ya da
-Gruplama yok (tek liste); sıralama son etkinliğe göredir. **Henüz yok** (#443): Cmd-tık ile yeni
-pencerede açma (masaüstü uygulaması tek pencerelidir).
+Gruplama yok (tek liste); sıralama son etkinliğe göredir. Bir sohbete **Cmd (⌘) ile tıklamak** (Windows/Linux'ta Ctrl) ya da
+menüdeki **Yeni pencerede aç** onu ayrı bir pencerede açar (Claude'daki Open in > New window). Çekirdek
+ve oturum ana pencerede kalır: sohbet penceresi aynı sohbeti canlı gösterir, oradan yazılan mesaj ve
+onay cevabı ana penceredeki oturuma gider; "Bu sohbete geç" ana pencereyi öne getirir. Sohbet
+penceresini kapatmak hiçbir oturumu durdurmaz; ana pencere kapanınca uygulama kapanır.
 
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı

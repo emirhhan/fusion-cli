@@ -14,7 +14,7 @@ import "./SplitPane.css";
  */
 
 export interface SplitPaneProps {
-  session: SessionModel;
+  session: Pick<SessionModel, "title" | "running" | "messages" | "question" | "status">;
   showSteps: boolean;
   onSend: (task: string) => void;
   onAnswer: (data: Record<string, unknown>) => void | Promise<void>;

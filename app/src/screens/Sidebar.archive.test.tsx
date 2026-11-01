@@ -52,6 +52,21 @@ describe("Sidebar Option-tık (#443)", () => {
   });
 });
 
+describe("Sidebar Cmd-tık yeni pencere (#443)", () => {
+  it("Cmd (Windows'ta Ctrl) ile tıklanan sohbet yeni pencerede açılır; menüde Yeni pencerede aç var", async () => {
+    const onSec = vi.fn();
+    const onNewWindow = vi.fn();
+    render(<Sidebar oturumlar={sessions} etkin="1" onSec={onSec} onNewWindow={onNewWindow} onYeni={vi.fn()} />);
+    const mac = /mac/i.test(navigator.platform || navigator.userAgent);
+    fireEvent.click(screen.getByRole("button", { name: "İkinci iş" }), mac ? { metaKey: true } : { ctrlKey: true });
+    await waitFor(() => expect(onNewWindow).toHaveBeenCalledWith("2"));
+    expect(onSec).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Yeni pencerede aç" }));
+    await waitFor(() => expect(onNewWindow).toHaveBeenCalledWith("1"));
+  });
+});
+
 describe("Sidebar PR'a bağlı otomatik arşiv (#443)", () => {
   it("ayar açıkken birleşen/kapanan PR'lı sohbet arşivlenir; çalışan sohbet atlanır", async () => {
     localStorage.setItem(AUTO_ARCHIVE_PR_KEY, "true");

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
+import { isMacOS } from "../platform/os";
 import { useModalFocus } from "../ui/useModalFocus";
 import { useArchivedSessions } from "./useArchivedSessions";
 import { usePrAutoArchive, type PrStateQuery } from "./usePrAutoArchive";
@@ -96,6 +97,8 @@ interface SidebarProps {
   onYeni: () => void;
   /** Sohbeti aktif sohbetin yanında ikinci bölmede aç (P-064). Verilmezse menüde görünmez. */
   onSplit?: (id: string) => void | Promise<void>;
+  /** Sohbeti yeni pencerede aç (#443; Cmd-tık / Open in > New window). Verilmezse görünmez. */
+  onNewWindow?: (id: string) => void | Promise<void>;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
   /** Sol alttaki satır: giriş yapmış YEREL HESAP.
@@ -139,7 +142,7 @@ function hataMetni(error: unknown): string {
 
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
-function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveFromProject, moveTargets, pinned, onPin, archived, onArchive }: {
+function SessionButton({ session, active, onSelect, onSplit, onNewWindow, onDelete, onRemoveFromProject, moveTargets, pinned, onPin, archived, onArchive }: {
   pinned: boolean;
   onPin: () => void;
   archived: boolean;
@@ -148,6 +151,7 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
   active: boolean;
   onSelect: () => void;
   onSplit?: () => void | Promise<void>;
+  onNewWindow?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onRemoveFromProject?: () => void | Promise<void>;
   moveTargets: MoveTarget[];
@@ -200,7 +204,12 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
         data-etkin={active}
         data-okunmamis={session.okunmamis || undefined}
         // Claude Desktop: Option-tık sohbeti yan bölmede (split view) açar (#443).
-        onClick={(event) => (event.altKey && onSplit && !active ? void onSplit() : onSelect())}
+        // Cmd-tık (Windows/Linux'ta Ctrl-tık) sohbeti yeni pencerede açar (#443).
+        onClick={(event) => {
+          if ((isMacOS() ? event.metaKey : event.ctrlKey) && onNewWindow) { void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error))); return; }
+          if (event.altKey && onSplit && !active) { void onSplit(); return; }
+          onSelect();
+        }}
         type="button"
       >
         {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
@@ -226,6 +235,10 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
             setMenuOpen(false);
             void Promise.resolve().then(onSplit).catch((error: unknown) => setDeleteError(hataMetni(error)));
           }} role="menuitem" type="button">Yan yana aç</button>}
+          {onNewWindow && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error)));
+          }} role="menuitem" type="button">Yeni pencerede aç</button>}
           {moveTargets.length > 0 && <>
             <strong>Projeye taşı</strong>
             {moveTargets.map((target) => <button key={target.key} onClick={() => {
@@ -277,6 +290,7 @@ export function Sidebar({
   onPickFolder,
   onYeni,
   onSplit,
+  onNewWindow,
   oturumlar,
   projeler = [],
   hesap = null,
@@ -490,6 +504,7 @@ export function Sidebar({
       archived={archive.isArchived(pinKey(session))} onArchive={() => archive.toggle(pinKey(session))}
       onSelect={() => onSec(session.session_id)}
       onSplit={onSplit ? () => onSplit(session.session_id) : undefined}
+      onNewWindow={onNewWindow ? () => onNewWindow(session.session_id) : undefined}
       onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); archive.forget(pinKey(session)); } : undefined}
       onRemoveFromProject={onAssign && session.projectId ? () => onAssign(session.session_id, null) : undefined}
       moveTargets={[

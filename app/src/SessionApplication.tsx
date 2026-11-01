@@ -91,6 +91,8 @@ import { Notification, insanDogrulamasiGerekiyor } from "./notify/Notification";
 import { Settings } from "./settings/Settings";
 import { useViewMode } from "./settings/viewMode";
 import { SideChat } from "./sidechat/SideChat";
+import { inTauriShell, openSessionWindow } from "./windowing/sessionWindowBridge";
+import { useSessionWindows } from "./windowing/useSessionWindows";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
@@ -598,6 +600,15 @@ export function SessionUygulama({
   const [requestedPreview, setRequestedPreview] = useState<{ url: string; seq: number } | null>(null);
   const showSteps = useShowSteps();
   const viewMode = useViewMode();
+  // Sohbet pencereleri (#443): durum buradan yayılır, eylemler buraya gelir.
+  useSessionWindows(controller.sessions, {
+    send: (id, task) => { void controller.send(id, task); },
+    answer: (id, data) => { void controller.answer(id, data); },
+    focus: (id) => {
+      setSurfaceSection(null); setPage("chat"); controller.select(id);
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFocus()).catch(() => undefined);
+    },
+  }, { enabled: inTauriShell() });
   // Yan sohbet (#444, ⌘;): ana sohbete eklemeden soru sorma bölmesi.
   const [sideChatOpen, setSideChatOpen] = useState(false);
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
@@ -2277,6 +2288,17 @@ export function SessionUygulama({
             }
             split.open(id);
           }}
+          onNewWindow={inTauriShell() ? async (id) => {
+            // Cmd-tık / Yeni pencerede aç (#443): sohbet açık değilse önce açılır; çekirdek burada kalır.
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            const title = controller.sessions.find((item) => item.id === id)?.title
+              ?? controller.storedConversations.find((item) => item.id === id)?.title ?? "Fusion";
+            await openSessionWindow(id, title);
+          } : undefined}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,

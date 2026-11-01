@@ -162,6 +162,50 @@ fn ana_pencereyi_one_getir<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 
 /// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
 const SES_PENCERESI: &str = "ses";
+/// Sohbeti kendi penceresinde açma (#443, Claude Desktop Cmd-tık / Open in > New window).
+const OTURUM_PENCERESI_ONEKI: &str = "oturum-";
+
+/// Oturum kimliğinden pencere etiketi; geçersiz kimlikte `None` (etiket yalnız güvenli karakter).
+fn oturum_penceresi_etiketi(oturum_id: &str) -> Option<String> {
+    let gecerli = !oturum_id.is_empty()
+        && oturum_id.len() <= 128
+        && oturum_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    gecerli.then(|| format!("{OTURUM_PENCERESI_ONEKI}{oturum_id}"))
+}
+
+/// Oturum penceresi: ana pencerenin sohbet durumunu gösterir, eylemleri ana pencereye iletir.
+/// Çekirdek süreci ana pencerede kalır; bu pencere kapanınca hiçbir oturum durmaz.
+#[tauri::command]
+async fn oturum_penceresi_ac(
+    app: tauri::AppHandle,
+    oturum_id: String,
+    baslik: Option<String>,
+) -> Result<(), String> {
+    let etiket = oturum_penceresi_etiketi(&oturum_id).ok_or("geçersiz oturum kimliği")?;
+    if let Some(mevcut) = app.get_webview_window(&etiket) {
+        mevcut.unminimize().map_err(|e| e.to_string())?;
+        mevcut.show().map_err(|e| e.to_string())?;
+        return mevcut.set_focus().map_err(|e| e.to_string());
+    }
+    let baslik: String = baslik
+        .unwrap_or_else(|| "Fusion".into())
+        .chars()
+        .take(120)
+        .collect();
+    WebviewWindowBuilder::new(
+        &app,
+        &etiket,
+        WebviewUrl::App(format!("index.html?pencere=oturum&oturum={oturum_id}").into()),
+    )
+    .title(baslik)
+    .inner_size(880.0, 720.0)
+    .min_inner_size(420.0, 360.0)
+    .build()
+    .map_err(|error| format!("sohbet penceresi açılamadı: {error}"))?;
+    Ok(())
+}
 const SES_NORMAL_BOYUT: (f64, f64) = (380.0, 460.0);
 const SES_NORMAL_MIN_BOYUT: (f64, f64) = (360.0, 420.0);
 const SES_NORMAL_MAX_BOYUT: (f64, f64) = (520.0, 720.0);
@@ -997,6 +1041,7 @@ pub fn run() {
             terminal_boyutla,
             terminal_kapat,
             ses_penceresi_ac,
+            oturum_penceresi_ac,
             ses_penceresi_simge_durumu,
             ses_penceresi_kapat,
             ses_penceresi_boyut,
@@ -1033,6 +1078,10 @@ pub fn run() {
                 }
                 if window.label() == SES_PENCERESI {
                     cleanup_route_from_app(ShutdownRoute::TalkClose, window.app_handle());
+                    return;
+                }
+                if window.label().starts_with(OTURUM_PENCERESI_ONEKI) {
+                    // Sohbet penceresi yalnız bir görünümdür (#443): oturumlar ana pencerede sürer.
                     return;
                 }
                 let sessions = window.state::<SessionManager>();
@@ -1363,5 +1412,22 @@ mod shutdown_tests {
         worker_done_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("detached worker kalıcı olmamalı");
+    }
+}
+
+#[cfg(test)]
+mod oturum_penceresi_tests {
+    use super::*;
+
+    #[test]
+    fn oturum_penceresi_etiketi_yalniz_guvenli_kimligi_kabul_eder() {
+        assert_eq!(
+            oturum_penceresi_etiketi("abc-1_X").as_deref(),
+            Some("oturum-abc-1_X")
+        );
+        assert!(oturum_penceresi_etiketi("").is_none());
+        assert!(oturum_penceresi_etiketi("../x").is_none());
+        assert!(oturum_penceresi_etiketi("a&pencere=ses").is_none());
+        assert!(oturum_penceresi_etiketi(&"a".repeat(129)).is_none());
     }
 }

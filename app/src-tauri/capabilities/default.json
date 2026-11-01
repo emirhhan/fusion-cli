@@ -4,7 +4,8 @@
   "description": "Ana pencere ve konuşma penceresi yetkileri. opener:default yalnız URL açar ve dosyayı klasörde gösterir; plan dosyasını editörde açmak için open_path izni Fusion yapılandırma kökü (plans/) kapsamıyla ayrıca verilir.",
   "windows": [
     "main",
-    "ses"
+    "ses",
+    "oturum-*"
   ],
   "permissions": [
     "core:default",
