@@ -329,12 +329,16 @@ def _market(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) ->
     if action in {"ekle", "add"} and len(rest) == 2:
         record = plugins.add_marketplace(rest[1])
         return DONE.format(name=record.name, state=f"pazar eklendi ({record.kind})")
+    from ...tools.plugin_market_sync import sync_by_name
+
     if action in {"guncelle", "update"} and len(rest) == 1:
-        count = len(plugin_update.update_all_marketplaces())
-        return f"{count} pazar güncellendi"
+        updated = plugin_update.update_all_marketplaces()
+        notes = [n for record in updated for n in sync_by_name(record.name)]
+        return "\n".join([f"{len(updated)} pazar güncellendi", *notes])
     if action in {"guncelle", "update"} and len(rest) == 2:
         plugin_update.update_marketplace(rest[1])
-        return DONE.format(name=rest[1], state="pazar güncellendi")
+        notes = list(sync_by_name(rest[1]))  # renames / forceRemoveDeletedPlugins (#397)
+        return "\n".join([DONE.format(name=rest[1], state="pazar güncellendi"), *notes])
     if action in {"kaldir", "remove", "rm"} and len(rest) == 2:
         from ...tools.plugin_market_declare import undeclare
 

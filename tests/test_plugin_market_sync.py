@@ -69,3 +69,43 @@ def test_force_remove_silinen_girdinin_kurulumunu_kaldirir(tmp_path):
     assert '"rapor": Removed from marketplace' in out.output
     assert plugin_store.load_state().plugin("rapor") is None
     assert plugin_store.load_state().plugin("cizim") is not None
+
+
+def test_oturum_basinda_esleme_ve_yerinde_klasor_yeni_girdiye_tasinir(tmp_path):
+    """#397: Claude renames'i her oturum başında uygular; yerinde eklentinin yolu da taşınır."""
+    from fusion_cli.tools.plugin_market_sync import sync_all
+
+    entry = {"name": "rapor", "source": "./plugins/rapor"}
+    market = _market(tmp_path, [entry])
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+    (market / "plugins" / "rapor").rename(market / "plugins" / "rapor-yeni")
+    renamed = {"name": "rapor-yeni", "source": "./plugins/rapor-yeni"}
+    _market(tmp_path, [renamed], renames={"rapor": "rapor-yeni"})
+
+    notes = sync_all()
+
+    assert notes == ('rapor: Renamed to "rapor-yeni" in the "ekip" marketplace',)
+    record = plugin_store.load_state().plugin("rapor")
+    assert record.source == "rapor-yeni@ekip"
+    assert record.folder == str((market / "plugins" / "rapor-yeni").resolve())
+    assert sync_all() == ()
+
+
+def test_repl_marketplace_update_esleme_bildirimlerini_gosterir(tmp_path):
+    from fusion_cli.cli.repl.plugin_command import plugin_command
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.memory.factory import null_memory
+
+    entry = {"name": "rapor", "source": "./plugins/rapor"}
+    plugin_install.add_marketplace(str(_market(tmp_path, [entry])))
+    plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+    _market(tmp_path, [{"name": "cizim", "source": "./plugins/cizim"}], renames={"rapor": None})
+    config = tmp_path / "c.yaml"
+    config.write_text("runtime:\n  max_tokens: 4096\n", "utf-8")
+    state = ReplState(
+        config=load_config(config), memory=null_memory(), root=tmp_path, home=tmp_path
+    )
+    out = plugin_command(state, "marketplace update ekip")
+    assert 'rapor: Removed from the "ekip" marketplace' in out

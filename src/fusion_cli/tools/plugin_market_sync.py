@@ -8,7 +8,9 @@ Belge (code.claude.com/docs/en/plugins/host-marketplace.md, "Rename or remove a 
 - `forceRemoveDeletedPlugins: true` iken girdilerde de `renames`'te de olmayan kurulum
   kaldırılır ("Removed from marketplace"); alan yoksa kurulum kalır.
 
-Fusion bunu `plugin marketplace update` sonrasında çalıştırır (Claude her oturum başında).
+Fusion bunu Claude gibi her oturum başında (REPL açılışında arka planda, `sync_all`) ve her
+`marketplace update` sonrasında (CLI, REPL, masaüstü) çalıştırır. Yerinde yüklenen (#403)
+eklentinin klasörü yeni girdinin kaynağına taşınır.
 """
 
 from __future__ import annotations
@@ -40,7 +42,11 @@ def resolve_rename(name: str, renames: Mapping[str, str], current: set[str]) -> 
 
 
 def sync_marketplace(
-    market: Marketplace, *, base: Path | None = None, project: Path | None = None
+    market: Marketplace,
+    *,
+    base: Path | None = None,
+    project: Path | None = None,
+    record_root: Path | None = None,
 ) -> tuple[str, ...]:
     """Bu pazardan kurulu eklentileri girdiler ve `renames` ile eşle; bildirimleri döndür."""
     from .plugin_install import uninstall_plugin
@@ -57,7 +63,8 @@ def sync_marketplace(
         old = entry_name(record)
         target = resolve_rename(old, renames, current)
         if target:
-            _rename(record, old, target, root, folder)
+            moved = _moved_folder(record, market, target, record_root)
+            _rename(replace(record, folder=moved), old, target, root, folder)
             notices.append(f"{old}: " + RENAMED.format(new=target, market=market.name))
         elif target == "":
             _drop_scope_keys(f"{old}@{market.name}", old, folder)
@@ -82,6 +89,20 @@ def _rename(record: PluginRecord, old: str, new: str, root: Path, project: Path)
             write_enabled(scope, f"{new}@{record.marketplace}", new, values[key], project)
 
 
+def _moved_folder(
+    record: PluginRecord, market: Marketplace, new: str, record_root: Path | None
+) -> str:
+    """Yerinde yüklenen eklenti: yeni girdinin göreli kaynağı (yoksa eski klasör)."""
+    if not record.folder or record_root is None:
+        return record.folder
+    entry = next((e for e in market.entries if e.name == new), None)
+    if entry is None or entry.source.kind != "path":
+        return record.folder
+    candidate = (record_root / entry.source.location).resolve()
+    inside = candidate.is_relative_to(record_root.resolve())
+    return str(candidate) if inside and candidate.is_dir() else record.folder
+
+
 def _drop_scope_keys(key: str, name: str, project: Path) -> None:
     for scope in (SCOPE_PROJECT, SCOPE_LOCAL):
         if key in scope_values(scope, project):
@@ -91,8 +112,39 @@ def _drop_scope_keys(key: str, name: str, project: Path) -> None:
 def sync_by_name(name: str, *, base: Path | None = None) -> tuple[str, ...]:
     """Kayıtlı pazarı diskten oku ve eşle (`plugin marketplace update` sonrası)."""
     from .plugin_install import read_marketplace
+    from .plugin_market_source import market_root
 
     record = load_state(base or plugins_dir()).marketplace(name)
     if record is None:
         return ()
-    return sync_marketplace(read_marketplace(Path(record.path), source=record.source), base=base)
+    market = read_marketplace(Path(record.path), source=record.source)
+    root = market_root(record.kind, Path(record.path))
+    return sync_marketplace(market, base=base, record_root=root)
+
+
+def sync_all(*, base: Path | None = None) -> tuple[str, ...]:
+    """Bütün kayıtlı pazarları eşle (Claude: her oturum başında); bozuk pazar ötekini durdurmaz."""
+    import logging
+
+    from ..core.plugins import PluginError
+
+    notices: list[str] = []
+    for record in load_state(base or plugins_dir()).marketplaces:
+        try:
+            notices.extend(sync_by_name(record.name, base=base))
+        except (OSError, PluginError) as error:
+            logging.getLogger(__name__).warning("pazar '%s' eşlenemedi: %s", record.name, error)
+    return tuple(notices)
+
+
+def start_session_sync() -> None:
+    """REPL açılışında arka planda `sync_all`; bildirimler sonraki turda basılır."""
+    import threading
+
+    from .plugin_auto_update import push_notice
+
+    def run() -> None:
+        for notice in sync_all():
+            push_notice(notice)
+
+    threading.Thread(target=run, name="fusion-market-sync", daemon=True).start()

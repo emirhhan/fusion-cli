@@ -286,7 +286,11 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
             return {"ok": False, "metin": NEEDS_SOURCE}
         plugins.add_marketplace(source)
     elif name == "eklenti.pazar_guncelle":
+        from ..tools.plugin_market_sync import sync_by_name
+
         plugin_update.update_marketplace(_text(data, "ad"))
+        notes = sync_by_name(_text(data, "ad"))  # #397: renames / forceRemoveDeletedPlugins
+        return {**_list(), "notlar": list(notes)}
     else:
         # Claude gibi pazar, ondan kurulan eklentiler ve verileri birlikte gider (#396);
         # arayüz onay ister ve kaldırılanları bildirir.
