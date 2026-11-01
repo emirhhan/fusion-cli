@@ -23,6 +23,7 @@ from ...config.plugin_validate import ValidationCrashError, validate_target
 from ...core.plugins import PluginError
 from ...tools import plugin_install as plugins
 from ...tools import plugin_update
+from ...tools.plugin_source_fetch import ShownCommand
 from ..plugin_view import format_catalog, format_installed, format_marketplaces, format_preview
 from .state import ReplState
 
@@ -150,6 +151,11 @@ def _approval(
     return approve
 
 
+def _command_consent(confirmed: bool) -> Callable[[ShownCommand], bool] | None:
+    """`--yes` pazarın bildirdiği komutu onaylar; yoksa komut gösterilip reddedilir (#399)."""
+    return (lambda _shown: True) if confirmed else None
+
+
 def _install(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -> str:
     from ...tools.plugin_install_scope import install_scoped
 
@@ -168,6 +174,7 @@ def _install(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) -
             scope=scope,
             expected_digest=_SHOWN.pop((verb, target), "") if confirmed else "",
             allow_direct=legacy,
+            accept_command=_command_consent(confirmed),  # #399: command/headersHelper
         )
     except plugins.PluginAlreadyInstalledError as error:
         return str(error)
@@ -203,6 +210,7 @@ def _update(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) ->
             rest[0],
             approve=_approval("guncelle", rest[0], confirmed, notes),
             expected_digest=_SHOWN.pop(("guncelle", rest[0]), "") if confirmed else "",
+            accept_command=_command_consent(confirmed),
         )
     except PluginError as error:
         return "\n".join([*notes, str(error)])

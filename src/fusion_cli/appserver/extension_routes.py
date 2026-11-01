@@ -44,6 +44,7 @@ from ..core.errors import ConfigError
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
+from ..tools.plugin_source_fetch import CommandConsent, CommandRefusedError, accept_by_sha
 
 EXTENSION_ROUTES = frozenset(
     {
@@ -167,13 +168,33 @@ def _install(data: Mapping[str, object]) -> dict[str, Any]:
 
     try:
         item = plugins.install_plugin(
-            source, approve=approve, expected_digest=_text(data, "beklenen_karma")
+            source,
+            approve=approve,
+            expected_digest=_text(data, "beklenen_karma"),
+            accept_command=_command_consent(data),
         )
+    except CommandRefusedError as error:
+        return _command_needed(error)
     except PluginError as error:
         if seen and seen[0]["calistirilabilir"] and not approved:
             return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}
         return {"ok": False, "metin": str(error)}
     return {"ok": True, "yenile": True, "eklenti": _installed(item)}
+
+
+def _command_consent(data: Mapping[str, object]) -> CommandConsent | None:
+    """`komut_onayi`: arayüzde gösterilen `komut.sha256` (Claude `--accept-command`, #399)."""
+    sha = _text(data, "komut_onayi")
+    return accept_by_sha(sha) if sha else None
+
+
+def _command_needed(error: CommandRefusedError) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "komut_onayi_gerekli": True,
+        "komut": error.shown.to_json(),
+        "metin": str(error),
+    }
 
 
 def _plugin_action(name: str, data: Mapping[str, object]) -> dict[str, Any]:
@@ -237,8 +258,13 @@ def _update(data: Mapping[str, object]) -> dict[str, Any]:
 
     try:
         result = plugin_update.update_plugin(
-            plugin, approve=approve, expected_digest=_text(data, "beklenen_karma")
+            plugin,
+            approve=approve,
+            expected_digest=_text(data, "beklenen_karma"),
+            accept_command=_command_consent(data),
         )
+    except CommandRefusedError as error:
+        return _command_needed(error)
     except PluginError as error:
         if seen and seen[0]["calistirilabilir"] and not approved:
             return {"ok": False, "onay_gerekli": True, "metin": NEEDS_APPROVAL, "onizleme": seen[0]}

@@ -242,3 +242,27 @@ def test_json_hata_failure_code_not_installed():
 
     payload = json.loads(out.output.strip().splitlines()[-1])
     assert payload["failureCode"] == "not_installed"
+
+
+def test_masaustu_rpc_komut_onayi_ister_ve_ozetle_kurar(tmp_path):
+    from fusion_cli.appserver import extension_routes
+
+    _command_market(tmp_path, _plugin(tmp_path / "cikti"))
+
+    first = extension_routes._install({"kaynak": "uret@ekip"})
+
+    assert first["komut_onayi_gerekli"] is True
+    sha = first["komut"]["sha256"]
+    second = extension_routes._install({"kaynak": "uret@ekip", "komut_onayi": sha})
+    assert second["ok"] is True
+
+
+def test_repl_install_yes_komutu_onaylar(tmp_path):
+    from fusion_cli.cli.repl import plugin_command
+
+    _command_market(tmp_path, _plugin(tmp_path / "cikti"))
+
+    refused = plugin_command._install(None, ["uret@ekip", "--scope", "user"], False, False)
+    assert "--accept-command" in refused
+    done = plugin_command._install(None, ["uret@ekip", "--scope", "user"], True, False)
+    assert "uret@ekip" in done and plugin_store.load_state().plugin("uret") is not None
