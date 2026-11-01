@@ -122,7 +122,10 @@ def install(
         return
 
     def act() -> tuple[str, dict[str, object]]:
+        from ..tools.plugin_declared import sync_quietly
         from ..tools.plugin_install_scope import install_scoped
+
+        sync_quietly()  # #376: depoda bildirilen pazarlar (extraKnownMarketplaces)
 
         done = install_scoped(
             source,
@@ -145,6 +148,9 @@ def list_plugins(
     ),
 ) -> None:
     """Kurulu eklentiler: sürüm, kapsam, durum (Claude `plugin list`)."""
+    from ..tools.plugin_declared import sync_quietly
+
+    sync_quietly()  # #376
     if as_json:
         from ..tools.plugin_listing import list_payload
 
@@ -336,6 +342,9 @@ def market_add(
 @market_app.command("liste")
 def market_list() -> None:
     """Kayıtlı pazar yerleri."""
+    from ..tools.plugin_declared import sync_quietly
+
+    sync_quietly()  # #376: depoda bildirilen pazarlar önce kaydedilir
     _run(lambda: format_marketplaces(load_state()))
 
 

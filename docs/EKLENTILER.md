@@ -114,6 +114,15 @@ o kapsamın dosyasına `enabledPlugins["ad@pazar"] = true` yazar. `install`, `un
 Yerel klasör/https/sahip-repo kaynağından doğrudan kurulum bir sürüm boyunca çalışır ama
 kullanımdan kalktı uyarısı verir (Claude `install` yalnız pazardan kurar; `--marketplace` kullan).
 
+**Bildirilen pazarlar (`extraKnownMarketplaces`):** depo `.claude/settings.json` ya da
+`.claude/settings.local.json` içinde `{"extraKnownMarketplaces": {"ad": {"source": {...}}}}`
+(takma ad `additionalMarketplaces`; ikisi birden varsa asıl anahtar) ile bildirilen ve henüz
+bilinmeyen pazar, klasöre güvenildiyse Claude Code gibi kaydedilir: REPL açılışında arka planda,
+`plugin install`/`plugin list`/`plugin marketplace list` öncesinde. Güvenilmeyen klasörde girdiler
+sessizce yok sayılır; aynı adlı girdide local, project'in girdisini bütünüyle ezer. Kaynak türleri:
+`github` (`repo`, isteğe bağlı `ref`), `git` (`url`), `directory`/`file` (`path`, göreli ise depo
+köküne göre). `url` ve `settings` türleri Fusion'da yok, uyarıyla atlanır.
+
 Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
 eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;
 `ac --hepsi` (Claude'da `enable --all` yok) yalnız eski genel kapatmayı kaldırır ve kullanımdan
@@ -174,8 +183,9 @@ yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
-yalnız o kapsamın `enabledPlugins` girdisini siler, paylaşılan kopyaya dokunmaz. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. `extraKnownMarketplaces` ve managed
-kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
+yalnız o kapsamın `enabledPlugins` girdisini siler, paylaşılan kopyaya dokunmaz. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. Managed
+kapsam okunmaz; `extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` user
+ayarına yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez, `autoUpdate` uygulanmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 
 ## Sürüm ve güncelleme

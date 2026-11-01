@@ -74,6 +74,16 @@ def _read(path: Path) -> dict[str, object]:
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
+def is_scope_trusted(scope: str, root: Path) -> bool:
+    """project/local dosyası güvenilir mi (local izin, project ayar karmasıyla)."""
+    return _is_trusted(scope, root)
+
+
+def read_settings(path: Path) -> dict[str, object]:
+    """Ayar dosyası nesnesi; yoksa ya da bozuksa boş (uyarı günlüğe)."""
+    return _read(path)
+
+
 def scope_values(scope: str, root: Path) -> dict[str, bool]:
     """Kapsam dosyasındaki `enabledPlugins` (yalnız bool değerler)."""
     raw = _read(settings_path(scope, root)).get(ENABLED_KEY)

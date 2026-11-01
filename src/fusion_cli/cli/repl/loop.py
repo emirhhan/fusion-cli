@@ -187,6 +187,9 @@ async def run_repl(
     )
     # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
     state.usage_log = open_usage_log(config)
+    from ...tools.plugin_declared import start_background_sync
+
+    start_background_sync(root)  # #376: depoda bildirilen pazarlar arka planda kaydedilir
     restored_note = ""
     if resume is not None:
         session_resume.apply_target(state, resume)
