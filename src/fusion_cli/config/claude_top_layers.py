@@ -18,6 +18,7 @@ tabanıdır (`FUSION_FLAG_SETTINGS_DIR`), satır içi JSON'da proje kökü.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -84,10 +85,8 @@ def managed_layers() -> list[SettingsLayer]:
     if base is None:
         return []
     files = [base / "managed-settings.json"]
-    try:
+    with contextlib.suppress(OSError):
         files.extend(sorted((base / "managed-settings.d").glob("*.json")))
-    except OSError:
-        pass
     layers = []
     for path in files:
         data = _read(path) if path.is_file() else None

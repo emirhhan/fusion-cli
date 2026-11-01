@@ -76,11 +76,11 @@ from .commands import (
 )
 from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
-from .task_list import session_todos
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
+from .task_list import session_todos
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
 from .work_line import WorkLineSink

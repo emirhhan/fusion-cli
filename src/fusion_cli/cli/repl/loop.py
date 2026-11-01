@@ -101,7 +101,6 @@ from . import (
     task_list,
     view_commands,
     worktree_exit,
-    worktrees,
 )
 from .background_commands import route_at_message
 from .commands import (

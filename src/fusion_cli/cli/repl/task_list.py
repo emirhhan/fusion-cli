@@ -13,6 +13,7 @@ oturumlar arasında paylaşılır. Fusion'da liste her turda boş başlıyordu (
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -131,12 +132,10 @@ def session_todos(state: object, *, new_turn: bool = True) -> TodoList:
         return existing
     todos = StoredTodoList(
         lambda: task_list_path(
-            getattr(getattr(state, "config", None), "memory_dir", Path(".")),
+            getattr(getattr(state, "config", None), "memory_dir", Path()),
             str(getattr(state, "conversation_id", "")),
         )
     )
-    try:
+    with contextlib.suppress(AttributeError):
         state.todos = todos  # type: ignore[attr-defined]
-    except AttributeError:
-        pass
     return todos

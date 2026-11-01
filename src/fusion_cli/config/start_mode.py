@@ -3,9 +3,9 @@
 Claude Code (permission-modes, "Start in a different permission mode") sırası:
 1. `--permission-mode <kip>` bayrağı;
 2. `permissions.defaultMode` (managed > `--settings` > `.claude/settings.local.json` >
-   `.claude/settings.json` > `~/.claude/settings.json`). Proje ve yerel dosyada `"auto"` yok sayılır ve kullanıcı
-   dosyasına düşülmez (yerleşik varsayılan kullanılır); `"bypassPermissions"` yok sayılır ve
-   oturum Manual açılır;
+   `.claude/settings.json` > `~/.claude/settings.json`). Proje ve yerel dosyada `"auto"` yok
+   sayılır ve kullanıcı dosyasına düşülmez (yerleşik varsayılan kullanılır);
+   `"bypassPermissions"` yok sayılır ve oturum Manual açılır;
 3. yerleşik varsayılan (`auto`). Fusion'ın eski `runtime.approval_mode` ayarı bu adımda okunur.
 Bypass kipine yalnız bununla başlatılan oturumda girilebilir; root olarak reddedilir (Fusion
 Manual açar). Otomatik kip kullanılamıyorsa (`disableAutoMode`, desteklenmeyen model) Manual.

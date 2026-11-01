@@ -20,9 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ["OUTSIDE_WORKTREES", "apply_worktree_path_policy"]
 
-OUTSIDE_WORKTREES = (
-    "çalışma ağacı .claude/worktrees dışında ({path}); girmeden önce onay gerekir"
-)
+OUTSIDE_WORKTREES = "çalışma ağacı .claude/worktrees dışında ({path}); girmeden önce onay gerekir"
 
 
 def apply_worktree_path_policy(
