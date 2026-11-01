@@ -48,7 +48,7 @@ def list_sources(home: Path) -> dict[str, Any]:
     return {
         "ok": True,
         "kaynaklar": [
-            {"ad": source.name, "komut": f"/resume{source.name}"}
+            {"ad": source.name, "komut": f"/import history {source.name}"}
             for source in available_sources(home)
         ],
     }

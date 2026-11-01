@@ -315,8 +315,10 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
   sohbet sonradan başka yüzeyde (masaüstü) sürdüyse transcript'in SON 100 kullanıcı/cevap
   mesajı yüklenir; `--fork-session` ve `/branch` kopyası da metin geçmişiyle başlar. Aynı adı iki sohbete
   verdiysen `--resume <ad>` "bulunamadı" der; kimlik (ya da 6+ karakterlik öneki) kullan.
-- `/resumeclaude`, `/resumecodex` başka araçların geçmişini yalnız künye olarak devralır;
-  `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
+- `/import history <kaynak> [oturum]` (ör. `/import history claude`) başka araçların geçmişini yalnız
+  künye olarak devralır; `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
+  Claude Code'da `/resume<kaynak>` komutları yok; Fusion'ın eski `/resumeclaude`, `/resumecodex` adları
+  bir sürüm boyunca listede görünmeyen, kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır.
 - Masaüstü: sohbet listesi (`sohbet.listele`) ve "buradan devam et" (`sohbet.dallan`) aynı
   depoyu kullanır; `sohbet.adlandir` ile verilen ad terminalde de görünür.
 

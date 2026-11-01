@@ -719,3 +719,12 @@ async def test_mesgulken_duz_mesaj_ayni_tura_verilir_up_geri_alir_sendnow_keser(
     session._send_now("taslak")
     await asyncio.sleep(0)
     assert session._task.cancelled()
+
+
+def test_import_history_oturumsuz_kaynagi_ayiklar():
+    """`/import history claude` oturumsuzsa TUI modal seçici açar (#223)."""
+    from fusion_cli.cli.repl.tui_loop import _history_source
+
+    assert _history_source("history claude") == "claude"
+    assert _history_source("history claude s1") is None
+    assert _history_source("claude --yes") is None

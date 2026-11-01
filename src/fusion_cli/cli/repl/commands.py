@@ -181,19 +181,55 @@ def build_registry(
     registry = CommandRegistry()
     for command in _COMMANDS:
         registry.register(command)
-    if home is not None:
-        for source in available_sources(home):
-            registry.register(
-                SlashCommand(
-                    f"resume{source.name}",
-                    messages.CMD_RESUME.format(source=source.name),
-                    _resume(source.name),
-                    group="Geçmiş",
-                )
-            )
     if skills is not None:
         attach_skill_commands(registry, skills)
+    if home is not None:
+        # Claude Code'da `/resume<kaynak>` yok (#223): dış araç geçmişi `/import history
+        # <kaynak>` ile devralınır. Eski adlar bir sürüm boyunca listede görünmeyen,
+        # kullanımdan kalkmış takma ad olarak çözülür.
+        registry.set_fallback(_with_legacy_resume(home, registry._fallback))
     return registry
+
+
+def _with_legacy_resume(home: Path, previous: FallbackCommand | None) -> FallbackCommand:
+    def _resolve(name: str) -> SlashCommand | None:
+        source_name = name.removeprefix("resume")
+        if name.startswith("resume") and source_name:
+            if any(source.name == source_name for source in available_sources(home)):
+                return SlashCommand(
+                    name,
+                    messages.CMD_RESUME.format(source=source_name),
+                    _legacy_resume(source_name),
+                    group="Geçmiş",
+                )
+        return previous(name) if previous is not None else None
+
+    return _resolve
+
+
+def _legacy_resume(source_name: str) -> Handler:
+    handler = _resume(source_name)
+
+    def _handler(state: ReplState, argument: str) -> str:
+        result = handler(state, argument)
+        if getattr(state, "legacy_resume_warned", False):
+            return result
+        state.legacy_resume_warned = True
+        note = messages.HISTORY_LEGACY_RESUME.format(source=source_name)
+        return f"{note}\n{result}" if result else note
+
+    return _handler
+
+
+def _import_or_history(state: ReplState, argument: str) -> str:
+    """`/import <araç>` ayar içe aktarır; `/import history <kaynak> [oturum]` geçmiş devralır."""
+    words = argument.split()
+    if not words or words[0] not in ("history", "gecmis"):
+        return import_command.import_command(state, argument)
+    names = [source.name for source in available_sources(state.home)]
+    if len(words) < 2 or words[1] not in names:
+        return messages.HISTORY_IMPORT_USAGE.format(sources="|".join(names) or "-")
+    return _resume(words[1])(state, " ".join(words[2:]))
 
 
 def attach_skill_commands(
@@ -1352,10 +1388,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "import",
         messages.EKLENTI_CMD_IMPORT,
-        import_command.import_command,
+        _import_or_history,
         ("ice-aktar",),
         group="Bilgi",
-        usage="<claude|codex|gemini|cursor> [--dry-run|--yes]",
+        usage="<claude|codex|gemini|cursor> [--dry-run|--yes] | history <kaynak> [oturum]",
     ),
     SlashCommand(
         "release-notes",

@@ -716,6 +716,12 @@ class _TuiSession:
             if resolved is None:
                 return
             argument = resolved
+        elif command.name == "import" and (source := _history_source(argument)) is not None:
+            # `/import history <kaynak>` oturumsuz (#223): seçim uygulama-içi modalla.
+            resolved = await self._resolve_resume_argument(f"resume{source}")
+            if resolved is None:
+                return
+            argument = f"history {source} {resolved}"
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -1211,3 +1217,11 @@ async def run_tui_repl(
     sys.stdout.write(session.tui.transcript)
     sys.stdout.flush()
     return 0
+
+
+def _history_source(argument: str) -> str | None:
+    """`history <kaynak>` oturum kimliği olmadan verildiyse kaynak adı (#223)."""
+    words = argument.split()
+    if len(words) == 2 and words[0] in ("history", "gecmis"):
+        return words[1]
+    return None

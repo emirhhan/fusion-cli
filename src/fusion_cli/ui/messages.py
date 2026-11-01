@@ -1129,6 +1129,10 @@ CMD_BATCH = "talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygu
 REPL_MACRO_SKILL_PREPENDED = "{name} için kullanıcı skill'i öne alındı: {path}"
 CMD_RC = "uzaktan kontrol: telefondan/Telegram'dan sür · /rc [kod|onayla|durum|telegram|durdur]"
 CMD_RESUME = "{source} oturum geçmişinden devral"
+HISTORY_LEGACY_RESUME = (
+    "/resume{source} kullanımdan kalktı (Claude Code'da yok); /import history {source} kullanın."
+)
+HISTORY_IMPORT_USAGE = "Kullanım: /import history <{sources}> [oturum-kimliği]"
 HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."
 HISTORY_PICK_TITLE = "Hangi oturumdan devam edilsin?"
 HISTORY_RESUMED = "Devralındı: {title}"

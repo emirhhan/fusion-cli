@@ -205,6 +205,8 @@ class ReplState:
     doctor_prompt_warned: bool = field(default=False, kw_only=True)
     #: `/vim` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#217).
     vim_command_warned: bool = field(default=False, kw_only=True)
+    #: `/resume<kaynak>` kullanımdan kalkmış takma ad uyarısı verildi mi (#223)?
+    legacy_resume_warned: bool = field(default=False, kw_only=True)
     #: `fusion "query"` ile verilen ilk istem (#204); yüzey açılınca bir kez gönderilir.
     initial_prompt: str = field(default="", kw_only=True)
     #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.

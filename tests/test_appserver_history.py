@@ -64,7 +64,7 @@ async def test_gecmis_kaynaklar_yalniz_kurulu_kaynaklari_dondurur(tmp_path, monk
 
     assert _result(lines, "1") == {
         "ok": True,
-        "kaynaklar": [{"ad": "claude", "komut": "/resumeclaude"}],
+        "kaynaklar": [{"ad": "claude", "komut": "/import history claude"}],
     }
 
 
