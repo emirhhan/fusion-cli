@@ -54,7 +54,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (art arda en çok 8) |
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
-| `SessionStart` | oturumun ilk turunda (yüzey açılışta tetikleyebilir); bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
+| `SessionStart` | REPL/TUI oturumu açılırken (masaüstü ve `-p`'de ilk turda); bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
 | `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |

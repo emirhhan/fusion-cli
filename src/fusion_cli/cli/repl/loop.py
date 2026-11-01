@@ -64,6 +64,7 @@ from ...engines.agent.hook_text import context_reminder
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...engines.hooks.notify import notifying
 from ...memory.factory import Memory
+from .hook_open import open_hooks
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
 from ...observability.usage_log import open_usage_log
@@ -236,6 +237,8 @@ async def _run_surface(
     """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
+    # Claude: SessionStart oturum açılırken çalışır (ilk istem beklenmez, #111).
+    await open_hooks(state, console)
     inline_requested = (
         os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
     )
