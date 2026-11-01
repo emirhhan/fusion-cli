@@ -237,6 +237,23 @@ describe("SessionUygulama", () => {
     )).toBe(true));
   });
 
+  it("/rewind konuşmayı sarınca dönen istem giriş kutusuna konur (#200)", async () => {
+    const fake = composerTransport({
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      "komut.calistir": { ok: true, metin: "Geri sarıldı.", girdi: "ikinci görev" },
+    });
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/rewind 2 konusma" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "komut.calistir" && request.veri.ad === "rewind",
+    )).toBe(true));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Mesaj" })).toHaveProperty("value", "ikinci görev"));
+  });
+
   it("ataç seçicisinin keyfi proje dosyasını ve görseli chip olarak gönderir", async () => {
     const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
     const selectFiles = vi.fn().mockResolvedValue([

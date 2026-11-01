@@ -2547,6 +2547,9 @@ class AppSession:
         # Görev arayüze döner, arayüz onu normal tur olarak gönderir; kip ise o
         # tura burada taşınır.
         self._cron_save()
+        if text := self._state.take_pending_input():
+            # `/rewind` konuşmayı sardıysa hedef istem giriş kutusuna döner (#200).
+            result = {**result, "girdi": text}
         task, mode = self._state.take_pending()
         if not task:
             return result

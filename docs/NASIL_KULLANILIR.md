@@ -135,7 +135,7 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
                          (kod seçenekleri yalnız o turdan beri dosya değiştiyse görünür)
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
-  Konuşma geri sarılınca (konuşma ya da ikisi) seçilen turun istemi giriş kutusuna geri konur (terminal ve TUI).
+  Konuşma geri sarılınca (konuşma ya da ikisi) seçilen turun istemi giriş kutusuna geri konur (terminal, TUI ve masaüstü).
   Kapsam menüsünde Claude Code'daki gibi **Buradan itibaren özetle** (seçilen turdan sonrası
   `/compact` sıkıştırıcısıyla özetlenir, turun istemi giriş kutusuna döner) ve **Buraya kadar özetle**
   (öncesi özetlenir, sonrası kalır) da var; Enter ile seçilince isteğe bağlı talimat sorulur
