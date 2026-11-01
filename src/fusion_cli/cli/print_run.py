@@ -33,14 +33,12 @@ from ..engines.hooks import lifecycle as hook_lifecycle
 from ..observability.usage_log import open_usage_log
 from ..providers import beta_headers
 from ..tools.capabilities import CapabilityRegistry
-from ..tools.capability_overrides import registry_from_config
 from ..ui import print_messages as texts
 from ..ui.renderer import ConsoleRenderer
 from . import sdk_messages as sdk
 from .cleanup import with_web_cleanup
 from .headless import OutputFormat
 from .print_background import ActivityClock, budget_check, run_then_wait
-from .print_builtins import apply_builtin
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan, plan_extra_system
 from .print_runtime import (
@@ -57,7 +55,8 @@ from .print_session import (
     resolve_print_session,
     snapshot_plan,
 )
-from .print_slash import SlashExpansion, expand_slash
+from .print_slash import SlashExpansion
+from .print_turn import catalog, prepare_turn, turn_tools
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
 
@@ -189,53 +188,15 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
     if not task:
         _warn(texts.PRINT_NO_PROMPT)
         return 1
-    run.capabilities = _catalog(run)
-    if not request.disable_slash and (reply := apply_builtin(run, task)) is not None:
-        return _finish(run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ())
-    if not request.disable_slash:
-        run.slash = expand_slash(
-            task,
-            run.capabilities,
-            config=plan.config,
-            mode=plan.mode,
-            root=run.root,
-            session_id=run.session.session_id,
-        )
-        if run.slash.error:
-            failed = AgentOutcome(final_text=run.slash.error, messages=[], ok=True)
-            return _finish(run, task, failed, None, ())
-        task_to_run = run.slash.task
-    else:
-        task_to_run = task
-    return _finish(run, task, *_turn(run, initial_persona_task(plan.persona, task_to_run)))
+    prepared = prepare_turn(run, task)
+    if prepared.reply is not None:
+        return _finish(run, task, replied(prepared.reply), None, ())
+    return _finish(run, task, *_turn(run, initial_persona_task(plan.persona, prepared.task)))
 
 
-def _catalog(run: _Run) -> CapabilityRegistry:
-    plan = run.plan
-    if plan.request.bare or plan.request.safe_mode:
-        from .print_runtime import bare_catalog
-
-        extra = plan.request.add_dir if plan.request.bare else ()
-        return bare_catalog(plan.config, extra, plan.session_agents)
-    return registry_from_config(
-        plan.config,
-        Path.home(),
-        run.root,
-        session_agents=plan.session_agents,
-        extra_roots=plan.request.add_dir,
-        headless=True,
-    )
-
-
-def _turn_tools(run: _Run) -> tuple[set[str] | None, frozenset[str], str]:
-    """Planın araç kümesi + `/beceri` daraltması: (izinli, yasak, ek sistem)."""
-    selection, slash = run.plan.selection, run.slash
-    allowed = set(selection.allowed) if selection.allowed is not None else None
-    if slash is None:
-        return allowed, selection.denied, ""
-    if slash.allowed_tools is not None:
-        allowed = set(slash.allowed_tools) if allowed is None else allowed & slash.allowed_tools
-    return allowed, selection.denied | slash.denied_tools, slash.extra_system
+def replied(text: str) -> AgentOutcome:
+    """Modele gitmeden cevaplanan tur (yerleşik komut, kullanılamayan komut)."""
+    return AgentOutcome(final_text=text, messages=[], ok=True)
 
 
 def _init(run: _Run) -> dict[str, object]:
@@ -299,7 +260,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
     prompter = _prompter(run)
     child_runs = ChildRuns()
     activity = ActivityClock()
-    allowed, denied, slash_system = _turn_tools(run)
+    allowed, denied, slash_system = turn_tools(run)
     coro = run_agent_task(
         task,
         plan.config,
@@ -314,7 +275,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         extra_system="\n\n".join(p for p in (plan_extra_system(plan), slash_system) if p),
         system_prompt=plan.system_prompt,
         session_persona=plan.persona,
-        capabilities=run.capabilities or _catalog(run),
+        capabilities=run.capabilities or catalog(run),
         allowed_tools=allowed,
         denied_tools=denied,
         interactive=False,

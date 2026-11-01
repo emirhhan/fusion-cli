@@ -168,7 +168,9 @@ stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 İstem `/ad` ile başlıyorsa beceri/özel komut koşudan önce genişletilir (gövde sistem
 bağlamına, argüman göreve; `allowed-tools`/`disallowed-tools` turu daraltır). Etkileşimli
 arayüze özgü komutlar (`/clear`, `/resume`…) Claude'daki gibi `/<ad> isn't available in this
-environment.` cevabını verir. `--disable-slash-commands` genişletmeyi kapatır.
+environment.` cevabını verir. `--input-format stream-json`'da her kullanıcı satırı aynı yoldan
+geçer (yerleşik komut, beceri genişletmesi; daraltma yalnız o tura). `--disable-slash-commands`
+genişletmeyi kapatır.
 
 Değer alan yerleşik komutlar modele gitmeden cevaplanır: `/model <takma ad|kimlik>` ve
 `/effort <seviye>` bu koşunun (stream-json'da sonraki turların) ayarıdır, argümansız biçimleri

@@ -18,8 +18,8 @@ from ..engines.agent.loop import AgentOutcome
 from ..ui import print_messages as texts
 from . import print_options
 from . import sdk_messages as sdk
-from .print_builtins import apply_builtin
 from .print_control import ControlChannel
+from .print_turn import prepare_turn
 
 if TYPE_CHECKING:
     from .print_run import _Run
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 def stream_turns(run: _Run) -> int:
     """Kullanıcı satırlarını sırayla tur olarak koş; son turun çıkış kodunu döndür."""
-    from .print_run import _finish, _turn
+    from .print_run import _finish, _turn, replied
 
     stream = run.stream
     assert stream is not None
@@ -47,14 +47,12 @@ def stream_turns(run: _Run) -> int:
         _apply_controls(run, channel)
         if run.plan.request.replay_user:
             stream.write(sdk.user_message(run.session.session_id, raw))
-        reply = None if run.plan.request.disable_slash else apply_builtin(run, task)
-        if reply is not None:
-            code = _finish(
-                run, task, AgentOutcome(final_text=reply, messages=[], ok=True), None, ()
-            )
+        prepared = prepare_turn(run, task)
+        if prepared.reply is not None:
+            code = _finish(run, task, replied(prepared.reply), None, ())
             continue
         try:
-            code = _finish(run, task, *_turn(run, task))
+            code = _finish(run, task, *_turn(run, prepared.task))
         except asyncio.CancelledError:
             if not channel.interrupted:
                 raise
@@ -80,5 +78,7 @@ def _apply_controls(run: _Run, channel: ControlChannel) -> None:
         try:
             plan = replace(plan, config=print_options.apply_model(plan.config, model, None))
         except ValueError as error:  # istekte doğrulandı; ayar arada değiştiyse tur sürer
-            print(str(error), file=sys.stderr)
+            from .print_run import _warn
+
+            _warn(str(error))
     run.plan = plan

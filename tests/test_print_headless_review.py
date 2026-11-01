@@ -142,3 +142,29 @@ def test_gecersiz_set_model_hata_doner_ve_oturum_surer(monkeypatch):
     assert "bozuk-model" in _responses(out)["s1"]["error"]
     assert result.exit_code == 0, result.output
     assert [c["task"] for c in calls] == ["bir"]
+
+
+# --- bulgu 4: stream-json turlarında /beceri genişletmesi (#303, #280) ---------------- #
+
+
+def _skill(root: Path) -> None:
+    folder = root / ".claude" / "commands"
+    folder.mkdir(parents=True)
+    (folder / "foo.md").write_text(
+        "---\nallowed-tools: Read\n---\nEXPANDED $ARGUMENTS\n", encoding="utf-8"
+    )
+
+
+def test_stream_json_turunda_ozel_komut_genisletilir(monkeypatch, tmp_path):
+    _skill(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    calls, result, out = _stream(monkeypatch, [_user("/foo bar"), _user("düz"), _user("/clear")])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 2
+    first, second = calls
+    assert "EXPANDED bar" in first["task"] + first["extra_system"]
+    assert first["allowed_tools"] is not None and "read_file" in first["allowed_tools"]
+    assert second["task"] == "düz" and "EXPANDED" not in second["extra_system"]
+    assert second["allowed_tools"] is None
+    final = [m for m in out if m["type"] == "result"][-1]
+    assert final["result"] == "/clear isn't available in this environment."
