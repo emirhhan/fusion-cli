@@ -128,6 +128,8 @@ class HookSession:
     opening: object | None = None
     #: SessionStart `reloadSkills`: beceri/komut kataloğunu yeniden taratan geri çağırım.
     skills_reloader: Callable[[], None] | None = None
+    #: Sürdürülen konuşmanın karakter boyu (SessionStart `resume` maliyet alanları).
+    context_chars: Callable[[], int] | None = None
     _loaded: bool = False
     #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
     _start_context: str = ""
@@ -447,6 +449,12 @@ class HookSession:
             fields["agent_type"] = self.agent_type
         if self.session_title:
             fields["session_title"] = self.session_title
+        if source in ("resume", "fork") and self.context_chars is not None:
+            from .resume_cost import resume_fields
+
+            transcript = self.transcript()
+            path = transcript.path if transcript is not None else None
+            fields.update(resume_fields(path, self.context_chars(), model or ""))
         return fields
 
     async def open(self) -> HookVerdict:

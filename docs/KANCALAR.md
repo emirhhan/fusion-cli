@@ -160,7 +160,9 @@ ve `duration_ms` (aracın çalışma süresi; onay beklemesi dahil değil);
 `last_assistant_message`, `background_tasks`, `session_crons`; `SubagentStop` ek olarak
 `agent_id`, `agent_type`, `agent_transcript_path`. `SessionStart`: `source`,
 `model` (`/clear` sonrası yok), `agent_type` (`--agent` ile), `session_title` (biliniyorsa);
-resume/fork maliyet alanları (`seconds_since_last_response`, `context_tokens`…) yok. `SessionEnd`: `reason`. `Notification`:
+`resume`/`fork`'ta döküm en az bir cevap içeriyorsa `seconds_since_last_response`,
+`context_tokens` (geçmişin karakter boyundan tahmin), `prompt_cache_likely_expired` (5 dk),
+`estimated_cache_write_usd` (litellm fiyat tablosu; model bilinmiyorsa 0). `SessionEnd`: `reason`. `Notification`:
 `notification_type`, `message`, `title`. `PreCompact`: `trigger`, `custom_instructions`
 (elle `/compact`'ta metin, yoksa ve `auto`'da `null`). `PostCompact`: `trigger`,
 `compact_summary`. `CwdChanged`: `old_cwd`, `new_cwd`. Ekip olayları: `team_name`,

@@ -465,6 +465,7 @@ class ReplState:
                 source=source,
             )
             session.skills_reloader = self._reload_skills
+            session.context_chars = lambda: sum(len(m.content or "") for m in self.history)
             self.hook_session = session
         session.root = self.root
         if session.conversation_id != self.conversation_id:
