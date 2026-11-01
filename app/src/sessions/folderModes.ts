@@ -1,4 +1,5 @@
 import type { ApprovalMode } from "../screens/ApprovalModeMenu";
+import { bypassAllowed } from "./bypassGate";
 
 /**
  * Seçilen izin modu klasör başına hatırlanır (#451).
@@ -7,6 +8,10 @@ import type { ApprovalMode } from "../screens/ApprovalModeMenu";
  * precedence over `defaultMode` for that folder, except Plan, which applies to the current
  * session only." Kayıt bu bilgisayarın tarayıcı deposundadır; okunamazsa (gizli pencere, kapalı
  * depo) hatırlama yapılmaz, uygulama yine çalışır.
+ *
+ * Hatırlanan "İzinleri atla" yalnız Ayarlar'daki anahtar (#442) açıkken geçerlidir: anahtar
+ * kapatılınca o klasör hatırlanan modla değil `defaultMode` ile açılır. Ölçüldü (1 Kasım,
+ * bağımsız inceleme): anahtar kapalıyken hatırlanan bypass oturuma sessizce uygulanıyordu.
  */
 const KEY = "fusion.folderApprovalModes";
 const MODES: readonly ApprovalMode[] = ["security", "edits", "plan", "auto", "bypass"];
@@ -27,11 +32,13 @@ function readAll(): Record<string, ApprovalMode> {
 
 export function folderMode(root: string | undefined): ApprovalMode | undefined {
   if (!root) return undefined;
-  return readAll()[root];
+  const mode = readAll()[root];
+  return mode === "bypass" && !bypassAllowed() ? undefined : mode;
 }
 
 export function rememberFolderMode(root: string | undefined, mode: ApprovalMode): void {
   if (!root || mode === "plan") return; // Plan yalnız bu oturum içindir.
+  if (mode === "bypass" && !bypassAllowed()) return;
   try {
     window.localStorage.setItem(KEY, JSON.stringify({ ...readAll(), [root]: mode }));
   } catch {

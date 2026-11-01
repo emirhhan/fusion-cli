@@ -149,4 +149,23 @@ describe("useSessionModes — klasör başına mod (#451)", () => {
     expect(JSON.parse(window.localStorage.getItem("fusion.folderApprovalModes") ?? "{}")).toEqual({ "/p": "edits" });
     window.localStorage.removeItem("fusion.folderApprovalModes");
   });
+
+  it("anahtar kapalıyken hatırlanan İzinleri atla uygulanmaz, Manuel'e düşer (#442)", async () => {
+    window.localStorage.setItem("fusion.folderApprovalModes", JSON.stringify({ "/x": "bypass" }));
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "false");
+    const c = istemci({ "oturum.durum": { ok: true, mod: "auto", kip: "kod" } });
+    const { result } = renderHook(() => useSessionModes({ id: "x", client: c, root: "/x" }, vi.fn()));
+    await waitFor(() => expect(result.current.approval).toBe("auto"));
+    expect(c.request).not.toHaveBeenCalledWith("oturum.baslat", { mod: "bypass" });
+
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "true");
+    const acik = istemci({
+      "oturum.durum": { ok: true, mod: "auto", kip: "kod" },
+      "oturum.baslat": { ok: true, mod: "bypass", kip: "kod" },
+    });
+    renderHook(() => useSessionModes({ id: "y", client: acik, root: "/x" }, vi.fn()));
+    await waitFor(() => expect(acik.request).toHaveBeenCalledWith("oturum.baslat", { mod: "bypass" }));
+    window.localStorage.removeItem("fusion.folderApprovalModes");
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
+  });
 });
