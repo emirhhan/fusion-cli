@@ -1238,6 +1238,9 @@ REWIND_SUMMARIZE_UP_TO = "Buraya kadar özetle"
 REWIND_SUMMARIZE_UP_TO_HINT = "öncesi sıkıştırılır, sonrası kalır"
 REWIND_SUMMARY_PROMPT = "Özet için talimat (isteğe bağlı, Enter ile geç): "
 REWIND_SUMMARY_NOTHING = "Özetlenecek mesaj yok."
+REWIND_SUMMARY_STALE = (
+    "Tur {index} daha önceki bir özetin ya da /compact'ın içinde kaldı; oradan özetlenemez."
+)
 REWIND_SUMMARIZED = "Konuşma özetlendi: {before} → {after} mesaj (dosyalar değişmedi)."
 CMD_DIFF = "çalışma ağacındaki değişiklikler ve bu oturumun düzenlemeleri tur tur"
 DIFF_WORKTREE_HEADING = "Çalışma ağacı (git diff HEAD):"

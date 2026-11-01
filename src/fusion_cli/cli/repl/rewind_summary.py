@@ -8,12 +8,19 @@ Claude Code (Rewind and summarize, Guide a summary):
 - İsteğe bağlı talimat ("add context") özeti yönlendirir. Diskteki dosyalar değişmez; özgün
   mesajlar transcript'te kalır. `DISABLE_COMPACT` açıkken seçenekler gösterilmez.
 Fusion: özet `/compact` ile aynı sıkıştırıcıyla (`engines.agent.compaction.compress`) yapılır.
+
+Sınır, checkpoint'in `history_before`'u geçerli geçmişin başıyla BİREBİR örtüşüyorsa
+kullanılır. Ölçüldü (1 Kasım): yalnız uzunluk kullanılıyordu; önceki bir özet ya da
+`/compact` geçmişi kısalttıktan sonra eski checkpoint'ler yanlış aralığı özetliyor, istem
+yanlış turdan geri konuyordu. Artık "Buraya kadar özetle" sonraki turların sınırını özetin
+üzerine taşır; özetin içinde kalan tur için özetleme açık bir iletiyle reddedilir.
 """
 
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import dataclasses
 import os
 from collections.abc import Sequence
 
@@ -69,7 +76,10 @@ async def summarize(state: ReplState, index: int, kind: str, instructions: str =
     target = state.checkpoints.find(index)
     if target is None:
         return messages.REWIND_UNKNOWN_TURN.format(index=index)
-    split = min(len(target.history_before), len(state.history))
+    split = len(target.history_before)
+    if not _boundary_holds(state.history, split, target.history_before):
+        # Tur önceki bir özetin ya da `/compact`ın içinde kaldı: sınır artık geçmişte yok.
+        return messages.REWIND_SUMMARY_STALE.format(index=index)
     prefix, tail = state.history[:split], state.history[split:]
     if kind == FROM_HERE:
         if not tail:
@@ -81,9 +91,37 @@ async def summarize(state: ReplState, index: int, kind: str, instructions: str =
     else:
         if not prefix:
             return messages.REWIND_SUMMARY_NOTHING
-        state.history = [*(await _compress(state, prefix, instructions)), *tail]
+        compressed = await _compress(state, prefix, instructions)
+        state.history = [*compressed, *tail]
+        _rebase_later(state, index, split, compressed)
     session_snapshot.save(state)
     return messages.REWIND_SUMMARIZED.format(before=split + len(tail), after=len(state.history))
+
+
+def _conversational(history: Sequence[Message]) -> tuple[Message, ...]:
+    """Her turda yeniden kurulan sistem istemi ve harness notları dışındaki mesajlar."""
+    return tuple(m for m in history if m.role != "system" and not m.harness_note)
+
+
+def _boundary_holds(history: Sequence[Message], split: int, before: Sequence[Message]) -> bool:
+    """Geçerli geçmişin başı checkpoint'in öncesiyle örtüşüyor mu (sistem/not hariç)?"""
+    if split > len(history):
+        return False
+    return _conversational(history[:split]) == _conversational(before)
+
+
+def _rebase_later(
+    state: ReplState, index: int, split: int, compressed: Sequence[Message]
+) -> None:
+    """Hedef ve sonraki turların sınırını özetlenmiş başın üzerine taşı."""
+    state.checkpoints.replace_entries(
+        dataclasses.replace(
+            entry, history_before=(*compressed, *entry.history_before[split:])
+        )
+        if entry.index >= index and len(entry.history_before) >= split
+        else entry
+        for entry in state.checkpoints.entries()
+    )
 
 
 def summarize_blocking(state: ReplState, index: int, kind: str, instructions: str = "") -> str:

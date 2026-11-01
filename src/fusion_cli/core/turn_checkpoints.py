@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -157,6 +157,10 @@ class TurnCheckpointLedger:
         """Diskten okunan kayıtları yükle; numaralandırma son kaydın ardından sürer (#187)."""
         self._entries = list(entries)[-self._limit :]
         self._next_index = max((entry.index for entry in self._entries), default=0) + 1
+
+    def replace_entries(self, entries: Iterable[TurnCheckpoint]) -> None:
+        """Kayıtları (ör. özet sonrası yeni sınırlarla) değiştir; numaralandırma sürer."""
+        self._entries = list(entries)[-self._limit :]
 
     def clear(self) -> None:
         """Sohbet değişince (`/resume`, `/branch`) eski turların kaydı anlamını yitirir."""

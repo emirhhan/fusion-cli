@@ -796,3 +796,27 @@ def test_duz_secicide_w_on_eki():
         assert _pick_plain(secenekler, title="t", stream=io.StringIO(), alt_keys=("w",)) == "w:1"
     finally:
         builtins.input = eski
+
+
+async def test_await_choice_numara_tusu_hemen_secer_ve_isaretler():
+    """Claude Code Select: numara tuşu seçeneği hemen seçer (#199: talimatsız özet)."""
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    task = asyncio.ensure_future(
+        tui.await_choice("t", [Choice("a", "A"), Choice("b", "B"), Choice("c", "C")])
+    )
+    await asyncio.sleep(0)
+    assert "2. B" in "".join(text for _style, text in tui._choice_fragments())
+    for binding in tui.application.key_bindings.bindings:
+        adlar = tuple(str(getattr(k, "value", k)) for k in binding.keys)
+        if adlar == ("<any>",) and binding.filter():
+            binding.handler(type("Olay", (), {"data": "2"})())
+            break
+    assert await task == "b"
+    assert tui.picked_by_number is True
+    task = asyncio.ensure_future(tui.await_choice("t", [Choice("a", "A")]))
+    await asyncio.sleep(0)
+    tui._accept(type("B", (), {"text": ""})())
+    assert await task == "a"
+    assert tui.picked_by_number is False

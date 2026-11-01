@@ -138,9 +138,12 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   Konuşma geri sarılınca (konuşma ya da ikisi) seçilen turun istemi giriş kutusuna geri konur (terminal ve TUI).
   Kapsam menüsünde Claude Code'daki gibi **Buradan itibaren özetle** (seçilen turdan sonrası
   `/compact` sıkıştırıcısıyla özetlenir, turun istemi giriş kutusuna döner) ve **Buraya kadar özetle**
-  (öncesi özetlenir, sonrası kalır) da var; ardından isteğe bağlı talimat sorulur
-  (`/rewind 3 ozet-buradan <talimat>`). Dosyalar değişmez, özgün mesajlar transcript'te kalır;
-  `DISABLE_COMPACT=1` bu seçenekleri gizler.
+  (öncesi özetlenir, sonrası kalır) da var; Enter ile seçilince isteğe bağlı talimat sorulur
+  (`/rewind 3 ozet-buradan <talimat>`), TUI'de numara tuşuyla seçilince talimatsız hemen özetlenir
+  (seçicilerde 1-9 tuşları satırı doğrudan seçer). Dosyalar değişmez, özgün mesajlar transcript'te
+  kalır; `DISABLE_COMPACT=1` bu seçenekleri gizler. Daha önceki bir özetin ya da `/compact`ın
+  içinde kalan tur oradan özetlenemez (açık ileti verilir); "Buraya kadar özetle" sonrasındaki
+  turlar yeniden özetlenebilir.
   Aynı oturumda daha önce `/clear` çalıştıysa menünün başında `/resume <kimlik> (önceki oturum)` satırı
   durur (terminal ve TUI; masaüstü sohbetleri sekmelerle sürdürür); seçilince `/clear` öncesi konuşma sürdürülür. Başka bir sohbete
   geçince satır kaybolur.

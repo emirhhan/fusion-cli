@@ -62,6 +62,8 @@ PROMPT = "> "
 #: Ok/PageUp ile bir seferde kaç satır kaydırılacağı.
 _SCROLL_STEP = 3
 _SCROLL_PAGE = 12
+#: Seçicide numara tuşuyla seçilebilen ilk seçenekler (Claude Code Select, 1-9).
+_NUMBERED_CHOICES = 9
 #: Çalışma satırının dönen karesi. Braille noktaları tek hücre genişliğindedir;
 #: monospace hizayı bozmaz ve kare değişince satır kaymaz.
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -202,6 +204,8 @@ class FusionTui:
         self._choice_title = ""
         # Enter yerine `<tuş>:<değer>` döndüren seçim tuşları (#231 `/copy` seçicisinde `w`).
         self._choice_alt_keys: tuple[str, ...] = ()
+        #: Son seçim numara tuşuyla mı yapıldı (Claude Code: özet seçeneği talimatsız, #199).
+        self.picked_by_number = False
         # Yazarak arama (#202): yalnız `searchable=True` seçicilerde (oturum seçicisi).
         self._choice_search: ChoiceSearch | None = None
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
@@ -523,6 +527,7 @@ class FusionTui:
         self._choice_title = title
         self._choice_alt_keys = alt_keys
         self._choice_search = ChoiceSearch(choices) if searchable else None
+        self.picked_by_number = False
         try:
             result = await self._await_answer("choice")
         finally:
@@ -545,6 +550,15 @@ class FusionTui:
 
     def _searching(self) -> bool:
         return self._choice_search is not None and self._choice_search.active
+
+    def _pick_number(self, char: str) -> None:
+        """Claude Code Select: 1-9 numaralı seçeneği hemen seç (aranabilir seçicide değil)."""
+        if self._choice_search is not None or not char.isdigit() or char == "0":
+            return
+        position = int(char) - 1
+        if position < len(self._choices):
+            self.picked_by_number = True
+            self._resolve(self._choices[position].value)
 
     def _pick_alt(self, key: str) -> None:
         """Seçim kipinde ek tuş: imlecin üzerindeki seçeneği `<tuş>:<değer>` olarak döndür."""
@@ -591,7 +605,8 @@ class FusionTui:
             selected = index == self._choice_index
             marker = theme.ICON_STATUS if selected else " "
             style = "class:choice-selected" if selected else "class:choice"
-            fragments.append((style, f" {marker} {choice.label}"))
+            number = f"{index + 1}. " if index < _NUMBERED_CHOICES else "   "
+            fragments.append((style, f" {marker} {number}{choice.label}"))
             if choice.description:
                 fragments.append(("class:choice-hint", f"   {choice.description}"))
             fragments.append(("", "\n"))
@@ -713,7 +728,9 @@ class FusionTui:
         @kb.add(Keys.Any, filter=modal, eager=True)
         def _yut(event: object) -> None:
             """Cevap olmayan tuşu kutuya yazma; aranabilir seçicide sorguya işle (#202)."""
-            self._choice_type(str(getattr(event, "data", "") or ""))
+            char = str(getattr(event, "data", "") or "")
+            if not self._choice_type(char):
+                self._pick_number(char)
 
         @kb.add("backspace", filter=modal & Condition(self._searching), eager=True)
         def _search_back(_event: object) -> None:

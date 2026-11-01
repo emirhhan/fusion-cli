@@ -947,6 +947,9 @@ class _TuiSession:
             if chosen is None or chosen == rewind.CANCEL_VALUE:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
+            if chosen in rewind_summary.KINDS and getattr(self._tui, "picked_by_number", False):
+                # Claude Code: numara tuşuyla seçilen özet seçeneği talimatsız hemen çalışır.
+                return f"{index} {chosen}"
             if chosen in rewind_summary.KINDS:
                 # Claude Code "add context": özeti yönlendiren isteğe bağlı talimat (#199).
                 self._echo(f"[{theme.DIM}]{messages.REWIND_SUMMARY_PROMPT}[/{theme.DIM}]")
