@@ -73,6 +73,23 @@ def test_eski_kademe_ayarlari_yuklemeyi_bozmaz_ve_uyarir(tmp_path: Path, caplog)
     assert len(warned) == 2 and any("app_levels" in item for item in warned)
 
 
+def test_kisitlayici_eski_kademe_ayari_ayrica_belirgin_uyarilir(tmp_path: Path, caplog):
+    """#424: kısıtlayıcı eski ayar (observe/click) yok sayılınca yetki genişler; bu açıkça söylenir."""
+    from fusion_cli.config import desktop_deprecation
+
+    desktop_deprecation._WARNED.clear()
+    source = _config_file(
+        tmp_path, "desktop:\n  control_level: click\n  app_levels: ['Terminal=observe']\n"
+    )
+    with caplog.at_level("WARNING"):
+        load_config(source)
+        load_config(source)
+    widened = [record.message for record in caplog.records if "genişledi" in record.message]
+    assert len(widened) == 1
+    assert "Terminal=observe" in widened[0] and "control_level=click" in widened[0]
+    assert "ret listesi" in widened[0]
+
+
 def test_app_level_ayristirici():
     assert parse_app_level(" Terminal = FULL ") == ("terminal", DesktopLevel.FULL)
     with pytest.raises(ValueError):

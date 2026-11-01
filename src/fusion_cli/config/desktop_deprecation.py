@@ -20,6 +20,40 @@ DEPRECATED_DESKTOP_WARNING = (
 )
 
 
+#: Yok sayılan eski ayar bir uygulamayı kısıtlıyordu: yetki genişledi, ayrıca söylenir.
+WIDENED_DESKTOP_WARNING = (
+    "DİKKAT: computer use yetkisi genişledi. Eski ayarın şunları kısıtlıyordu: {items}. Artık "
+    "kategori kademesi geçerli (çoğu uygulamada tam kontrol). Bir uygulamayı tümüyle kapatmak "
+    "için masaüstünde Ayarlar › Bu bilgisayar › ret listesi'ne ekle."
+)
+#: Kısıtlayıcı (tam kontrolden düşük) kademeler.
+_RESTRICTIVE = frozenset({"observe", "click"})
+
+
+def _restrictive_items(raw: dict[object, object]) -> list[str]:
+    """Eski ayarlardaki tam kontrolden düşük kademeler (`control_level=click`, `Terminal=observe`)."""
+    items: list[str] = []
+    level = raw.get("control_level")
+    if isinstance(level, str) and level.strip().lower() in _RESTRICTIVE:
+        items.append(f"control_level={level.strip().lower()}")
+    for key in ("app_levels", "category_defaults"):
+        for name, value in _entries(raw.get(key)):
+            if value in _RESTRICTIVE:
+                items.append(f"{name}={value}")
+    return items
+
+
+def _entries(values: object) -> list[tuple[str, str]]:
+    """`{ad: kademe}` ya da `['Ad=kademe']` biçimini (ad, küçük harfli kademe) çiftlerine çevir."""
+    if isinstance(values, dict):
+        pairs = [(str(name), str(value)) for name, value in values.items()]
+    elif isinstance(values, list):
+        pairs = [item.partition("=")[::2] for item in values if isinstance(item, str)]
+    else:
+        pairs = []
+    return [(name.strip(), value.strip().lower()) for name, value in pairs]
+
+
 def warn_deprecated_desktop_keys(raw: object) -> tuple[str, ...]:
     """Bölümde kullanımdan kalkan anahtar varsa ilk görüşte uyar; görülen anahtarları döndür."""
     if not isinstance(raw, dict):
@@ -29,6 +63,10 @@ def warn_deprecated_desktop_keys(raw: object) -> tuple[str, ...]:
         if key not in _WARNED:
             _WARNED.add(key)
             _logger.warning(DEPRECATED_DESKTOP_WARNING.format(key=key))
+    restrictive = _restrictive_items(raw)
+    if restrictive and "widened" not in _WARNED:
+        _WARNED.add("widened")
+        _logger.warning(WIDENED_DESKTOP_WARNING.format(items=", ".join(restrictive)))
     return found
 
 
