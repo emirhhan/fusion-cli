@@ -251,3 +251,23 @@ def izole_yonetilen_ayarlar(monkeypatch):
     from fusion_cli.config import claude_top_layers
 
     monkeypatch.setattr(claude_top_layers, "MANAGED_DIRS", {})
+
+
+@pytest.fixture(autouse=True)
+def git_ortamini_temizle(monkeypatch):
+    """Test depoları (`git init` + `git config user.name "Fusion Test"`) gerçek depoya yazmasın.
+
+    Ölçüldü (1 Kasım): `GIT_DIR`/`GIT_WORK_TREE` ortamdan miras kalınca (git kancası, başka
+    çalışma ağacından başlatılan koşu) geçici dizindeki `git init` ve `git config` ana deponun
+    `.git/config`'ine `user.name = Fusion Test` ve `core.worktree` yazmıştı.
+    """
+    for degisken in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+    ):
+        monkeypatch.delenv(degisken, raising=False)
