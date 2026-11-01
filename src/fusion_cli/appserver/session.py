@@ -106,11 +106,11 @@ from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
-from .chrome_group import schedule_group_close
 from .browser_panel import BrowserPanel
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
+from .chrome_group import schedule_group_close
 from .chrome_install import install_status
 from .chrome_settings import CHROME_SETTINGS_ROUTES, dispatch_chrome_settings
 from .commands import (

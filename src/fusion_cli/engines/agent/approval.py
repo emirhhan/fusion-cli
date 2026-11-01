@@ -58,9 +58,9 @@ from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
-from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .chrome_batch_approval import BATCH_TOOL, apply_batch
 from .desktop_access import ACCESS_TOOL, apply_access
+from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.

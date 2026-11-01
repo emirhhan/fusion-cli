@@ -21,7 +21,8 @@ from collections.abc import Mapping
 from functools import cache
 from typing import TYPE_CHECKING
 
-from ..core.tools import Tool, ToolArgs, ToolContent, ToolContext, ToolResult
+from ..core.tool_content import ToolContent
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .chrome import _call
 
 if TYPE_CHECKING:

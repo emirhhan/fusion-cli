@@ -44,11 +44,11 @@ def apply_access(
     plan = plan_access(context.desktop_settings, apps, owners)
     if not plan.allowed:
         reasons = "; ".join(reason for _, reason in plan.blocked)
-        first = plan.blocked[0][0]
+        blocked_app = plan.blocked[0][0]
         return replace(
             request,
             pre_denied=request.pre_denied or reasons,
-            desktop_target=DesktopTarget(first),
+            desktop_target=DesktopTarget(blocked_app),
             desktop_blocked=request.pre_denied is None,
         )
     first, *rest = plan.allowed

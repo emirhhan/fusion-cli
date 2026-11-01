@@ -37,4 +37,3 @@ def schedule_group_close(bridge: GroupCloser | None, *, only_empty: bool) -> Non
 
 async def _close(bridge: GroupCloser, *, only_empty: bool) -> int:
     return await bridge.close_tab_group(only_empty=only_empty)
-

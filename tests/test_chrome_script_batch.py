@@ -87,7 +87,9 @@ async def test_toplu_cagri_sirayla_calisir_ilk_hatada_durur(tmp_path):
         {"name": "chrome_click", "input": {"ref": "e1"}},
     ]
     result = await chrome_script.chrome_batch({"actions": actions}, _ctx(tmp_path, kopru))
-    assert not result.ok and "[1] chrome_page" in result.output and "2. öğede durdu" in result.output
+    assert (
+        not result.ok and "[1] chrome_page" in result.output and "2. öğede durdu" in result.output
+    )
     assert [name for name, _ in kopru.calls] == ["snapshot", "javascript"]
 
 
@@ -103,9 +105,15 @@ def test_gecersiz_toplu_cagri(actions):
 async def test_toplu_cagrida_oge_deny_kurali_butun_cagriyi_kapatir(tmp_path):
     context = _ctx(tmp_path, _Kopru())
     rules = _rules(("chrome_click", PermissionDecision.DENY))
-    actions = [{"name": "chrome_page", "input": {}}, {"name": "chrome_click", "input": {"ref": "e"}}]
+    actions = [
+        {"name": "chrome_page", "input": {}},
+        {"name": "chrome_click", "input": {"ref": "e"}},
+    ]
     request = await resolve_request(
-        _REGISTRY.get("chrome_batch"), {"actions": actions}, root=tmp_path, context=context,
+        _REGISTRY.get("chrome_batch"),
+        {"actions": actions},
+        root=tmp_path,
+        context=context,
         rules=rules,
     )
     assert request.pre_denied is not None and "2. öğe (chrome_click)" in request.pre_denied
@@ -115,10 +123,16 @@ async def test_toplu_yukleme_read_kuralina_tabidir(tmp_path):
     context = _ctx(tmp_path, _Kopru())
     rules = _rules(("Read(./gizli/**)", PermissionDecision.DENY))
     actions = [
-        {"name": "chrome_action", "input": {"action": "upload", "ref": "e3", "value": "gizli/a.txt"}}
+        {
+            "name": "chrome_action",
+            "input": {"action": "upload", "ref": "e3", "value": "gizli/a.txt"},
+        }
     ]
     request = await resolve_request(
-        _REGISTRY.get("chrome_batch"), {"actions": actions}, root=tmp_path, context=context,
+        _REGISTRY.get("chrome_batch"),
+        {"actions": actions},
+        root=tmp_path,
+        context=context,
         rules=rules,
     )
     assert request.pre_denied is not None
