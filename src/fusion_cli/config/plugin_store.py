@@ -38,7 +38,8 @@ _LOG = logging.getLogger(__name__)
 
 PLUGINS_DIRNAME = "eklentiler"
 STATE_NAME = "kayit.json"
-STATE_VERSION = 1
+#: 2: karma kilidi kalktı (#392); sürüm 1 kaydı bir kez geçirilir (`plugin_state_migrate`).
+STATE_VERSION = 2
 #: Bütün eklentileri kapatan ortam değişkeni ve kapalı sayılan değerler.
 PLUGINS_ENV = "FUSION_PLUGINS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
@@ -93,6 +94,8 @@ class PluginState:
     plugins: tuple[PluginRecord, ...] = ()
     marketplaces: tuple[MarketplaceRecord, ...] = ()
     all_disabled: bool = False
+    #: Diskteki kaydın `surum` alanı (yeni/boş kayıt güncel sürümdedir).
+    schema: int = STATE_VERSION
 
     def plugin(self, name: str) -> PluginRecord | None:
         return next((item for item in self.plugins if item.name == name), None)
@@ -178,7 +181,12 @@ def load_state(base: Path | None = None) -> PluginState:
             if NAME_PATTERN.match(name)
         ),
         raw.get("hepsi_kapali") is True,
+        _schema(raw.get("surum")),
     )
+
+
+def _schema(raw: object) -> int:
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else 0
 
 
 def _items(raw: object) -> tuple[tuple[str, Mapping[str, object]], ...]:
@@ -260,9 +268,11 @@ def update_state(
     """
     from .writer import config_lock
 
+    from .plugin_state_migrate import migrated
+
     path = state_file(base)
     with config_lock(path):
-        updated = change(load_state(base))
+        updated = change(migrated(load_state(base), base))
         save_state(updated, base)
     return updated
 
@@ -310,7 +320,9 @@ def effective_record(record: PluginRecord, root: Path | None = None) -> PluginRe
 def installed_plugins(
     base: Path | None = None, root: Path | None = None
 ) -> tuple[InstalledPlugin, ...]:
-    state = load_state(base)
+    from .plugin_state_migrate import ensure_migrated
+
+    state = ensure_migrated(load_state(base), base)
     return tuple(
         inspect_plugin(effective_record(record, root), base)
         for record in sorted(state.plugins, key=_by_name)
@@ -338,7 +350,9 @@ def active_plugins(
         if base is None
         else ()
     )
-    state = load_state(base)
+    from .plugin_state_migrate import ensure_migrated
+
+    state = ensure_migrated(load_state(base), base)
     if state.all_disabled:
         return session
     taken = {item.record.name for item in session}
@@ -359,20 +373,29 @@ def active_plugins(
     return tuple(active)
 
 
-def plugin_mcp_servers(base: Path | None = None) -> tuple[McpServerConfig, ...]:
+def plugin_mcp_servers(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[McpServerConfig, ...]:
     """Etkin eklentilerin MCP sunucuları (Claude: kullanıcı kapsamında ek onay yok, #419).
+
+    Proje kapsamlı (depodan açılan) eklentinin sunucusu projenin `.mcp.json`'ı gibi onay ister:
+    `fusion trust` tanımı kaydeder, tanım değişince yeniden onaylanana dek yüklenmez.
 
     Ölçüldü (31 Ekim): ad slug'ı (`plugin_<eklenti>_<sunucu>`) iki eklentide çakışabiliyordu
     (`foo`/`bar-baz` ile `foo-bar`/`baz`); ikisi de yükleniyor, araç adları birbirini eziyordu.
     Ada göre ilk eklenti kazanır, sonraki atlanır ve günlüğe yazılır.
     """
+    from .plugin_project_mcp import approved_servers
+
     servers: list[McpServerConfig] = []
     owners: dict[str, str] = {}
-    for item in active_plugins(base):
+    project = root or Path.cwd()
+    state = load_state(base)
+    for item in active_plugins(base, root):
         if item.layout is None:
             continue
         try:
-            found = mcp_servers(item.layout)
+            found = approved_servers(item, mcp_servers(item.layout), state, project)
         except PluginError as error:
             _LOG.warning("eklenti '%s' MCP tanımı yüklenmedi: %s", item.record.name, error)
             continue

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Mapping
@@ -27,6 +28,8 @@ import yaml
 
 from ..core.errors import ConfigError
 from .paths import user_config_dir
+
+_LOG = logging.getLogger(__name__)
 
 #: Proje kökünde yürütme ayarı taşıyabilen yapılandırma dosyası.
 PROJECT_CONFIG_NAME = "config.yaml"
@@ -168,6 +171,12 @@ def untrust_project(root: Path) -> bool:
     if store.pop(_key(root), None) is None:
         return False
     _save(store)
+    from .plugin_project_mcp import forget_project
+
+    try:
+        forget_project(root)
+    except (OSError, ConfigError) as error:
+        _LOG.warning("proje eklentisi MCP onayı silinemedi: %s", error)
     return True
 
 
@@ -254,6 +263,18 @@ def trust_project(root: Path) -> None:
         settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
         project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
+    _approve_plugin_mcp(root)
+
+
+def _approve_plugin_mcp(root: Path) -> None:
+    """Proje kapsamlı eklentilerin MCP sunucuları da `.mcp.json` gibi onaylanır (#419)."""
+    from ..core.plugins import PluginError
+    from .plugin_project_mcp import approve_project
+
+    try:
+        approve_project(root)
+    except (OSError, PluginError, ConfigError) as error:
+        _LOG.warning("proje eklentisi MCP onayı kaydedilemedi: %s", error)
 
 
 #: Keşifte desteklenen proje ajanı biçimleri; güven yalnız bu belirli kökü kapsar.
