@@ -65,8 +65,9 @@ class PlanApproval:
 def _edits_files(request: ApprovalRequest) -> bool:
     """Plan kipinde sorulmadan engellenen değişiklik mi?
 
-    Yalnız kabuk, web (#55), çalışma dizini dışı okuma (#56) ve MCP (uzak araç ailesi) çağrısı soruya gider; yerel dosya yazımı, masaüstü
-    ve tarayıcı eylemi plan onaylanana dek engellenir.
+    Yalnız kabuk, web (#55), çalışma dizini dışı okuma (#56) ve MCP (uzak araç ailesi)
+    çağrısı soruya gider; yerel dosya yazımı, masaüstü ve tarayıcı eylemi plan onaylanana
+    dek engellenir.
     """
     family = tool_family(request.tool.name)
     if family in {ToolFamily.SHELL, ToolFamily.WEB} or is_read_tool(request.tool.name):

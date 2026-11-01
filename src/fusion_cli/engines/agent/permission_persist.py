@@ -31,7 +31,6 @@ from ...ui import messages
 from .approval import ApprovalRequest
 from .web_approval import web_rule
 
-
 #: Zincirli komutta kaydedilen en çok kural (Claude, #68).
 MAX_COMPOUND_RULES = 5
 
@@ -125,9 +124,7 @@ def always_description(request: ApprovalRequest, root: Path | None) -> str:
     """
     rule = ", ".join(r.pattern for r in rules_for_request(request, root))
     if root is not None and persist_target(root) == user_rule_file():
-        return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(
-            rule=rule, path=user_rule_file()
-        )
+        return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(rule=rule, path=user_rule_file())
     return messages.TUI_APPROVAL_ALWAYS_DESC.format(rule=rule)
 
 

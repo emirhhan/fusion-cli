@@ -10,8 +10,7 @@ import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter, ProtocolSink
 from fusion_cli.core.events import Event, TurnOutcome
-from fusion_cli.core.tools import AuthorizationScope, ToolEffect
-from fusion_cli.core.tools import Tool
+from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 
 

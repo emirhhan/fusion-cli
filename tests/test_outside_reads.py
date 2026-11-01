@@ -5,8 +5,6 @@ Kaynak: https://code.claude.com/docs/en/permissions#permission-system (Read-only
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from fusion_cli.core.artifacts import ArtifactStore
@@ -89,8 +87,9 @@ async def test_kok_disi_okuma_kapaliyken_sorulmadan_engellenir(alan):
 
 async def test_oturum_izni_dizine_baglanir(alan):
     kok, disari = alan
+    beklenen = str(disari.resolve())
     istek = await resolve_request(
         _REG.get("read_file"), {"path": str(disari / "b.txt")}, root=kok,
         context=ToolContext(root=kok),
     )  # fmt: skip
-    assert istek.outside_dir == str(Path(disari).resolve())
+    assert istek.outside_dir == beklenen

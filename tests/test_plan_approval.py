@@ -6,10 +6,7 @@ mode; Protected paths).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from fusion_cli.config import trust
 from fusion_cli.config.permission_rules import PermissionDecision, PermissionRuleSet, parse_rule

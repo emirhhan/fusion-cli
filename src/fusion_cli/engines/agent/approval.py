@@ -64,8 +64,8 @@ from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
 from .read_approval import mark_outside_read
-from .web_approval import adjust_web_request, web_scope
 from .sandbox_approval import apply_sandbox_policy
+from .web_approval import adjust_web_request, web_scope
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (

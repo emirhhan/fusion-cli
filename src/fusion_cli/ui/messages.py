@@ -895,9 +895,7 @@ CMD_AUTO = "otomatik: Fusion karar verir, yalnız riskli işlemde sorar"
 CMD_EDITS = "düzenlemeleri kabul et: dosya düzenlemeleri sorulmaz, komutlar sorulur"
 CMD_PLAN = "plan: değişiklik yapma, yalnız oku ve planla"
 #: `/plan` alt komutları ve kabul kartı (P-025).
-PLAN_USAGE = (
-    "Kullanım: /plan [açıklama] (kipe geç, açıklamayı görev yap) · /plan goster · /plan ac"
-)
+PLAN_USAGE = "Kullanım: /plan [açıklama] (kipe geç, açıklamayı görev yap) · /plan goster · /plan ac"
 PLAN_NONE = (
     "Bu sohbette kayıtlı plan yok. Plan kipinde bir görev ver; biten tur plan dosyasını yazar."
 )
