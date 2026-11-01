@@ -93,7 +93,9 @@ kurmadan yalnız o oturum için `<ad>@inline` olarak yükler; eklenti klasörler
 verilirse her `.claude-plugin/plugin.json` içeren çocuk yüklenir. Aynı adlı kurulu eklenti o oturumda
 atlanır. `plugin list` bunları `Session-only plugins (--plugin-dir / --plugin-url):` başlığında,
 `--json`'da `scope: "session"` ile gösterir. Güvenlik notu: yolu kullanıcı açıkça verdiği için
-Claude Code'daki gibi kanca/MCP ayrıca onay istemez.
+Claude Code'daki gibi kanca/MCP ayrıca onay istemez. Manifestte `defaultEnabled: false` ya da bir
+ayar dosyasında `"enabledPlugins": {"<ad>@inline": false}` oturumluk eklentiyi kapatır; kapalı
+kopya gölgelemez, aynı adlı kurulu eklenti yüklenir.
 
 REPL'de `/reload-plugins [--force]` bekleyen eklenti değişikliklerini oturumu yeniden başlatmadan
 uygular ve `Yeniden yüklendi: N eklenti · N beceri · N ajan · N kanca · N eklenti MCP sunucusu · 0

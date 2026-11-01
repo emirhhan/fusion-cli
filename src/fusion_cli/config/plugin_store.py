@@ -321,9 +321,14 @@ def active_plugins(
     """
     if plugins_disabled_by_environment():
         return ()
-    from .plugin_session import session_plugins
+    from .plugin_session import session_enabled, session_plugins
 
-    session = session_plugins() if base is None else ()
+    project = root or Path.cwd()
+    session = (
+        tuple(item for item in session_plugins() if session_enabled(item, project))
+        if base is None
+        else ()
+    )
     state = load_state(base)
     if state.all_disabled:
         return session
@@ -341,7 +346,7 @@ def active_plugins(
     from .plugin_project_enabled import project_enabled_plugins
 
     names = {item.record.name for item in active}  # #376: projede açılan göreli eklentiler
-    active.extend(project_enabled_plugins(state, root or Path.cwd(), names, base))
+    active.extend(project_enabled_plugins(state, project, names, base))
     return tuple(active)
 
 

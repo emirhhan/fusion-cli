@@ -4,7 +4,8 @@ Claude: `--plugin-dir` eklentiyi kurmadan yalnız o oturum için `<ad>@inline` o
 `.claude-plugin/plugin.json` içeren klasörü, ya da böyle çocuk klasörleri olan bir eklenti
 klasörünü kabul eder. Aynı adlı kurulu eklenti o oturumda atlanır, oturumluk kopya yüklenir.
 Kullanıcı yolu açıkça verdiği için kanca/MCP onayı verilmiş sayılır (Claude'daki gibi; güvenlik
-davranışı değişti). `.zip` arşivi ve `--plugin-url` desteklenmez (uyarı).
+davranışı değişti). `.zip` arşivi ve `--plugin-url` desteklenmez (uyarı). `defaultEnabled: false`
+ya da ayarlardaki `"<ad>@inline": false` oturumluk eklentiyi kapatır.
 """
 
 from __future__ import annotations
@@ -83,6 +84,19 @@ def session_plugins() -> tuple[InstalledPlugin, ...]:
             )
             found.append(InstalledPlugin(record, layout, STATUS_ACTIVE))
     return tuple(found)
+
+
+def session_enabled(item: InstalledPlugin, root: Path) -> bool:
+    """Claude: oturumluk eklenti açıktır; manifest `defaultEnabled: false` ya da bir ayar
+    dosyasındaki `"<ad>@inline": false` kapatır (kapalı kopya gölgelemez)."""
+    from .claude_plugins import enabled_map
+    from .plugin_scopes import resolve_enabled
+
+    if item.layout is None:
+        return False
+    ident = f"{item.record.name}@{INLINE_MARKETPLACE}"
+    user = enabled_map(Path.home()).get(ident, item.layout.manifest.default_enabled)
+    return resolve_enabled(ident, ident, user, root).enabled
 
 
 def session_root_of(path: Path) -> Path | None:

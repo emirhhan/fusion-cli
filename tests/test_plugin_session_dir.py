@@ -85,3 +85,29 @@ def test_zip_ve_olmayan_yol_atlanir(tmp_path, monkeypatch, caplog):
     )
     assert plugin_store.active_plugins() == ()
     assert ".zip arşivleri" in caplog.text and "klasör bulunamadı" in caplog.text
+
+
+def test_ayarda_inline_false_oturumluk_eklentiyi_kapatir_kurulu_kopya_yuklenir(
+    tmp_path, monkeypatch
+):
+    """Claude: `"<ad>@inline": false` oturumluk eklentiyi kapatır; gölgelemez (#401)."""
+    plugin_install.install_plugin(
+        str(_plugin(tmp_path / "kurulu", "rapor", "1.0.0")), approve=lambda _p: True
+    )
+    monkeypatch.setenv(SESSION_ENV, str(_plugin(tmp_path / "gelistirme", "rapor")))
+    project = tmp_path / "proje"
+    local = project / ".claude" / "settings.local.json"
+    local.parent.mkdir(parents=True)
+    local.write_text(json.dumps({"enabledPlugins": {"rapor@inline": False}}), encoding="utf-8")
+
+    active = plugin_store.active_plugins(root=project)
+
+    assert [(i.record.name, i.record.marketplace) for i in active] == [("rapor", "")]
+
+
+def test_defaultenabled_false_oturumluk_eklenti_yuklenmez(tmp_path, monkeypatch):
+    folder = _plugin(tmp_path / "gelistirme", "rapor")
+    manifest = folder / ".claude-plugin" / "plugin.json"
+    manifest.write_text(json.dumps({"name": "rapor", "defaultEnabled": False}), "utf-8")
+    monkeypatch.setenv(SESSION_ENV, str(folder))
+    assert plugin_store.active_plugins(root=tmp_path / "proje") == ()
