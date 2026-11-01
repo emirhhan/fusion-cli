@@ -58,9 +58,7 @@ def prepare_restricted_sources() -> None:
 
 def apply_restricted_config(config: Config) -> Config:
     """Dosya araçlarını çalışma dizinlerine sınırla; yapılandırma MCP'si bağlanmaz."""
-    runtime = replace(
-        config.runtime, block_reads_outside_root=True, block_writes_outside_root=True
-    )
+    runtime = replace(config.runtime, block_reads_outside_root=True, block_writes_outside_root=True)
     return replace(config, runtime=runtime, mcp_servers=(), hosted_connectors=())
 
 
