@@ -38,6 +38,7 @@ from ..core.proposal_invocation import (
     visible_proposal,
 )
 from .agent_catalog_metadata import apply_agent_metadata, bind_agent_source
+from .agent_file_rules import agent_file_problem, log_skipped
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
@@ -163,7 +164,7 @@ class Capability:
     permission_mode: str = ""
     #: `maxTurns`: alt ajanın model çağrısı tavanı; 0 = derinliğe göre varsayılan.
     max_turns: int = 0
-    #: `skills`: başlangıçta yüklenecek beceri adları (en fazla `SKILL_PRELOAD_LIMIT`).
+    #: `skills`: başlangıçta tam içeriğiyle yüklenecek beceri adları.
     skills: tuple[str, ...] = ()
     #: `mcpServers`: bu ajana açılacak MCP sunucuları; boş = hepsi.
     mcp_servers: tuple[str, ...] = ()
@@ -541,8 +542,9 @@ class CapabilityRegistry:
             for path in sorted(root.rglob("*.md")):
                 if not _trusted_path(path, bound, source):
                     continue
-                capability = _to_agent_capability(path, source, fallback=path.stem)
-                shadow_agent(found, capability)
+                agent_file = _agent_file(path, source)
+                if agent_file is not None:
+                    shadow_agent(found, agent_file)
             # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
             for path in sorted(root.rglob("*.toml")):
                 if not _trusted_path(path, bound, source):
@@ -602,6 +604,16 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
     if isinstance(tools, str):
         return _parse_tools(tools.strip()) or NO_TOOLS
     return _READ_ONLY_TOOLS if data.get("sandbox_mode") == "read-only" else ()
+
+
+def _agent_file(path: Path, source: str) -> Capability | None:
+    """Kapsam dizinindeki ajan dosyası; Claude Code'un atladığı dosyada `None` (#19, #41)."""
+    raw = _read_head(path, None)
+    problem = agent_file_problem(raw, parse_frontmatter(raw))
+    if problem:
+        log_skipped(path, problem)
+        return None
+    return _to_agent_capability(path, source, fallback=path.stem)
 
 
 def _to_agent_capability(path: Path, source: str, *, fallback: str) -> Capability:

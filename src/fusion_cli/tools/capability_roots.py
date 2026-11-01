@@ -121,11 +121,20 @@ def roots_signature(
 
     Dizin mtime'ı yalnız doğrudan çocuk değişince güncellenir; bir SKILL.md'nin İÇERİĞİ
     değişince değişmez — onun için `CapabilityRegistry.invalidate()` (`/skills reload`).
+    Ajan dosyaları ise tek tek imzaya girer.
     """
     from .skill_commands import COMMAND_ROOTS
 
     candidates = [path for path, _source in (*skill_roots_found, *agent_roots_found)]
     candidates.extend((home if in_home else root) / rel for rel, _s, in_home in COMMAND_ROOTS)
+    # Claude Code ajan dizinlerini izler: düzenlenen dosya yeniden başlatmadan etkin olur
+    # (#20). Dizin mtime'ı içerik değişince değişmediği için dosyaların kendisi de imzaya girer.
+    candidates.extend(
+        path
+        for folder, source in agent_roots_found
+        if source in _WATCHED_AGENT_SOURCES and folder.is_dir()
+        for path in sorted(folder.rglob("*.md"))
+    )
     found: list[tuple[str, int]] = []
     for path in candidates:
         try:
@@ -133,3 +142,7 @@ def roots_signature(
         except OSError:
             continue
     return tuple(found)
+
+
+#: İçeriği izlenen ajan kapsamları: kullanıcı, proje, yönetilen ve `--add-dir` kökleri.
+_WATCHED_AGENT_SOURCES = frozenset({"claude", "proje", "managed", "ek-kok"})
