@@ -24,7 +24,7 @@ def review_identity(config: McpServerConfig) -> str | None:
     source: tuple[object, ...]
     if contains_sensitive(config.client_id):
         return None
-    if config.transport is McpTransport.STREAMABLE_HTTP:
+    if config.is_remote:
         try:
             url = urlsplit(config.url)
             if url.username or url.password or url.query or url.fragment or not url.hostname:

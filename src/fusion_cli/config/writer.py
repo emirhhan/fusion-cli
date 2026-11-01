@@ -415,6 +415,12 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     else None,
                     "allowed_tools": list(server.allowed_tools),
                     "max_tools": server.max_tools,
+                    "headers": [list(pair) for pair in server.headers],
+                    "headers_helper": server.headers_helper,
+                    "always_load": server.always_load or None,
+                    "timeout_ms": server.timeout_ms,
+                    "oauth_callback_port": server.oauth_callback_port,
+                    "oauth_metadata_url": server.oauth_metadata_url,
                 }.items()
                 if value is not None
                 and (value != [] or key == "retry_delays_s")
@@ -442,7 +448,9 @@ def _shadowed_user_entries(raw: object, config: Config) -> list[dict[str, object
     """
     if not isinstance(raw, list):
         return []
-    project_names = {s.name for s in config.mcp_servers if s.scope is McpScope.PROJECT}
+    project_names = {
+        s.name for s in config.mcp_servers if s.scope in (McpScope.PROJECT, McpScope.LOCAL)
+    }
     user_names = {s.name for s in config.mcp_servers if s.scope is McpScope.USER}
     return [
         entry

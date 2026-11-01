@@ -623,6 +623,10 @@ class McpTransport(StrEnum):
 
     STDIO = "stdio"
     STREAMABLE_HTTP = "streamable_http"
+    #: Eski HTTP+SSE taşıması (Claude Code `--transport sse`).
+    SSE = "sse"
+    #: WebSocket; Claude Code'da yalnız JSON (`.mcp.json`/`add-json`) ile verilir.
+    WS = "ws"
 
 
 class McpScope(StrEnum):
@@ -635,6 +639,9 @@ class McpScope(StrEnum):
 
     USER = "user"
     PROJECT = "project"
+    #: Claude Code varsayılanı: yalnız bu projede, paylaşılmayan kullanıcı kaydı
+    #: (`config/mcp_local.py`; Claude'daki `~/.claude.json` → `projects.<yol>`).
+    LOCAL = "local"
     #: Etkin bir eklentinin `.mcp.json`'ı (P-059); hiçbir ayar dosyasına yazılmaz.
     PLUGIN = "plugin"
 
@@ -700,6 +707,24 @@ class McpServerConfig:
     #: `${VAR:-varsayılan}` başvurusu taşıyabilir ve bağlantı anında çözülür. Sırlar buraya
     #: yazılmaz, `env_names` ile şifreli depodan gelir. `.mcp.json` `env` alanı buraya iner.
     env_literals: tuple[tuple[str, str], ...] = ()
+    #: Uzak sunucuya gidecek sabit başlıklar `(ad, değer)`; değer `${VAR}` taşıyabilir
+    #: (Claude Code `headers` / `--header`).
+    headers: tuple[tuple[str, str], ...] = ()
+    #: Bağlantı anında JSON başlık sözlüğü basan kabuk komutu (Claude Code `headersHelper`).
+    headers_helper: str = ""
+    #: Araç araması açıkken bu sunucunun araçları ertelenmez (Claude Code `alwaysLoad`).
+    always_load: bool = False
+    #: Sunucu başına araç çağrısı sınırı, ms (Claude Code `.mcp.json` `timeout`).
+    timeout_ms: int | None = None
+    #: OAuth dönüş portu (Claude Code `oauth.callbackPort` / `--callback-port`).
+    oauth_callback_port: int | None = None
+    #: OAuth yetkilendirme sunucusu metadata adresi (Claude Code `oauth.authServerMetadataUrl`).
+    oauth_metadata_url: str = ""
+
+    @property
+    def is_remote(self) -> bool:
+        """Ağ üzerinden (http/sse/ws) bağlanılan sunucu mu?"""
+        return self.transport is not McpTransport.STDIO
 
     @property
     def secret_env_names(self) -> tuple[str, ...]:

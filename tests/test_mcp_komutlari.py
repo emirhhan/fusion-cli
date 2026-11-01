@@ -121,11 +121,14 @@ def test_mcp_json_claude_code_bicimini_proje_kapsamli_kayitlara_cevirir():
     assert linear.url == "https://mcp.linear.app/mcp"
 
 
-def test_mcp_json_sse_ve_bilinmeyen_alan_acik_hata():
-    with pytest.raises(ConfigError, match="sse"):
-        parse_project_mcp({"mcpServers": {"x": {"type": "sse", "url": "https://a/b"}}})
-    with pytest.raises(ConfigError, match="bilinmeyen"):
-        parse_project_mcp({"mcpServers": {"x": {"command": "c", "foo": 1}}})
+def test_mcp_json_sse_gecerli_bilinmeyen_alan_girdiyi_dusurmez():
+    # Claude Code: sse geçerli taşıma, belgede olmayan alan yok sayılır (#234, #241).
+    (sse,) = parse_project_mcp({"mcpServers": {"x": {"type": "sse", "url": "https://a/b"}}})
+    assert sse.transport is McpTransport.SSE
+    (stdio,) = parse_project_mcp({"mcpServers": {"x": {"command": "c", "foo": 1}}})
+    assert stdio.command == "c"
+    with pytest.raises(ConfigError, match="type"):
+        parse_project_mcp({"mcpServers": {"x": {"url": "https://a/b"}}})
 
 
 def test_mcp_json_yazilir_okunur_ve_guven_kaydina_islenir(izole):

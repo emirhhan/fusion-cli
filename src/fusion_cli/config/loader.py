@@ -453,12 +453,15 @@ def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
 def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     """Güvenilen projenin `.mcp.json` sunucularını kullanıcı kayıtlarına ekle."""
     from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
+    from .mcp_local import read_local_mcp_servers
 
     project_servers = trusted_project_mcp_servers(root)
-    if not project_servers:
+    local_servers = read_local_mcp_servers(root)
+    if not project_servers and not local_servers:
         return config
     return dataclasses.replace(
-        config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
+        config,
+        mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers, local_servers),
     )
 
 
