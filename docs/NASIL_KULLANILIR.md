@@ -154,6 +154,7 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 
 | Katman | Dosya | Ne zaman okunur |
 |---|---|---|
+| Yönetilen (managed) | macOS `/Library/Application Support/ClaudeCode/managed-settings.json` (Linux `/etc/claude-code/`, Windows `C:\Program Files\ClaudeCode\`) ve yanındaki `managed-settings.d/*.json` | her zaman, en yüksek öncelik; Fusion bu dosyalara yazmaz, satırları silinemez |
 | Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` ve "bir daha sorma" düşüşü buraya yazar |
 | Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`) |
 | Proje (yerel) | `<proje>/.claude/settings.local.json` | allow kuralları klasör güveninden sonra; ev dizininde ve Fusion'ın kendi yazdığı dosyada güven gerekmez |
@@ -163,7 +164,11 @@ Güven Claude Code'daki gibi **klasöre** bağlıdır: depoda git köküne (alt 
 içe depo hariç), depo dışında başlatılan dizine ve alt dizinlerine. Dosya sonradan değişse de
 güven düşmez. Ayar dosyalarındaki `permissions.additionalDirectories` ek çalışma dizini olur
 (proje/yerel dosyada güven ister); `permissions.blockReadsOutsideWorkingDirectories: true`
-herhangi bir dosyada kök dışı okumayı kapatır. Parantezli `mcp__…(…)` kuralı yüklenmez;
+herhangi bir dosyada kök dışı okumayı kapatır. Yönetilen dosyadaki
+`allowManagedPermissionRulesOnly: true` kullanıcı/proje/yerel dosyaların ve `--allowedTools`'un
+kurallarını devre dışı bırakır; yalnız yönetilen kurallar uygulanır (`--disallowedTools` deny'ı
+kısıtlayıcı olduğu için korunur). Yönetilen `defaultMode` ve `disable…Mode` anahtarları her
+katmanı ezer. Parantezli `mcp__…(…)` kuralı yüklenmez;
 başlangıçta ve `fusion doctor`da bildirilir.
 
 Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,

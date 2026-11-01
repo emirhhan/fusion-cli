@@ -35,6 +35,7 @@ from enum import Enum
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from .managed_settings import managed_permission_rules_only, managed_settings_files
 from .paths import user_config_dir
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
@@ -53,6 +54,8 @@ LAYER_FUSION = "fusion"
 LAYER_USER = "kullanici"
 LAYER_PROJECT = "proje"
 LAYER_LOCAL = "yerel"
+#: Claude yönetilen ayarları (#65): salt okunur, hiçbir katman aşamaz.
+LAYER_MANAGED = "yonetilen"
 #: Komut satırı bayrakları (`--allowedTools`, `--disallowedTools`) ve oturum kuralları.
 LAYER_CLI = "cli"
 
@@ -152,8 +155,12 @@ class RuleLayer:
 
 
 def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
-    """Okuma sırasıyla katmanlar: fusion → kullanıcı → proje → yerel."""
-    return (
+    """Okuma sırasıyla katmanlar: yönetilen → fusion → kullanıcı → proje → yerel."""
+    managed = tuple(
+        RuleLayer(LAYER_MANAGED, path, description="Claude yönetilen ayarı")
+        for path in managed_settings_files()
+    )
+    return managed + (
         RuleLayer(LAYER_FUSION, user_permissions_file(), description="Fusion kullanıcı dosyası"),
         RuleLayer(
             LAYER_USER, Path.home() / CLAUDE_USER_SETTINGS, description="Claude kullanıcı ayarı"
@@ -211,9 +218,19 @@ def load_permission_rules(
             found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
         rules.extend(found)
     rules.extend(_SESSION_RULES)
+    if managed_permission_rules_only():
+        rules = [rule for rule in rules if _kept_when_managed_only(rule)]
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )
+
+
+def _kept_when_managed_only(rule: PermissionRule) -> bool:
+    """`allowManagedPermissionRulesOnly` (#65): yalnız managed kurallar; komut satırının
+    kısıtlayıcı (deny/ask) kuralları belge dışı olduğu için gevşetilmez, korunur."""
+    if rule.source == LAYER_MANAGED:
+        return True
+    return rule.source == LAYER_CLI and rule.decision is not PermissionDecision.ALLOW
 
 
 def set_session_rules(rules: Iterable[PermissionRule]) -> None:

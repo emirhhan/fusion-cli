@@ -10,8 +10,9 @@ Claude Code belgesiyle birebir (code.claude.com/docs/en/permission-modes, settin
     permissions.blockReadsOutsideWorkingDirectories      `true` her kapsamdan geçerli (#76)
     permissions.additionalDirectories       ek çalışma dizinleri; proje/yerel güven ister (#57)
 
-Öncelik (yüksekten alçağa): yerel > proje > kullanıcı. Managed ve `--settings` katmanı henüz
-yok (#65).
+Öncelik (yüksekten alçağa): yönetilen (managed) > yerel > proje > kullanıcı (#65). Managed
+dosyada `auto`/`bypassPermissions` başlangıç kipi geçerlidir; managed `disable` hiçbir
+katmanca geri açılamaz.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from .managed_settings import MANAGED_SETTINGS_NAME, managed_dir, managed_settings_data
 from .permission_rules import CLAUDE_USER_SETTINGS
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
@@ -36,6 +38,8 @@ CLAUDE_MODE_NAMES = frozenset(
 #: Proje ve yerel dosyada etkisiz `defaultMode` değerleri.
 _PROJECT_IGNORED_MODES = frozenset({"auto", "bypassPermissions"})
 _DISABLE = "disable"
+#: `defaultMode` değerinde kısıtsız katmanlar.
+_UNRESTRICTED_MODE_LAYERS = frozenset({"kullanici", "yonetilen"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +58,7 @@ class SettingsLayer:
 
 
 def settings_layers(root: Path, home: Path | None = None) -> tuple[SettingsLayer, ...]:
-    """Okuma sırasıyla (alçaktan yükseğe): kullanıcı → proje → yerel."""
+    """Okuma sırasıyla (alçaktan yükseğe): kullanıcı → proje → yerel → yönetilen."""
     home = home or Path.home()
     found: list[SettingsLayer] = []
     sources = (
@@ -66,7 +70,14 @@ def settings_layers(root: Path, home: Path | None = None) -> tuple[SettingsLayer
         data = _read(path)
         if data is not None:
             found.append(SettingsLayer(name, path, data, trusted))
+    managed = managed_settings_data()
+    if managed:
+        found.append(SettingsLayer("yonetilen", _managed_path(), managed, True))
     return tuple(found)
+
+
+def _managed_path() -> Path:
+    return (managed_dir() or Path()) / MANAGED_SETTINGS_NAME
 
 
 def default_mode_setting(root: Path, home: Path | None = None) -> str | None:
@@ -75,7 +86,7 @@ def default_mode_setting(root: Path, home: Path | None = None) -> str | None:
         value = layer.permissions.get("defaultMode")
         if not isinstance(value, str) or value not in CLAUDE_MODE_NAMES:
             continue
-        if layer.name != "kullanici" and value in _PROJECT_IGNORED_MODES:
+        if layer.name not in _UNRESTRICTED_MODE_LAYERS and value in _PROJECT_IGNORED_MODES:
             continue
         return value
     return None
