@@ -51,7 +51,8 @@ def split_entries(raw: Iterable[str] | None) -> tuple[str, ...]:
     """Bayrak değerleri: virgülle ya da tekrarla; parantez içindeki virgül bölünmez."""
     found: list[str] = []
     for chunk in raw or ():
-        depth, current = 0, []
+        depth = 0
+        current: list[str] = []
         for char in chunk:
             depth += {"(": 1, ")": -1}.get(char, 0)
             if char == "," and depth <= 0:
