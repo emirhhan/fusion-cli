@@ -527,9 +527,9 @@ adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulma
   çağrı `Concurrent subagent limit reached` döner. Derinlik adım bütçesini yarılamaz, turda
   toplam alt ajan sınırı yoktur (`runtime.max_subagents_per_turn: 0`; iş akışları kendi
   tavanını kullanır).
-- Ön planda beklenen bir alt ajan varken tam ekranda **Ctrl+B** Claude Code'daki gibi o alt
-  ajanı kesmeden arka plana alır: tur beklemeden sürer, sonuç bitince bildirim olarak gelir.
-  Bekleyen alt ajan yoksa Ctrl+B eskisi gibi süren turu arka plan görevine taşır.
+- Ön planda beklenen bir alt ajan varken **Ctrl+B** (tam ekran ve satır içi REPL) Claude
+  Code'daki gibi o alt ajanı kesmeden arka plana alır: tur beklemeden sürer, sonuç bitince
+  bildirim olarak gelir. Bekleyen alt ajan yoksa Ctrl+B süren turu arka plan görevine taşır.
 - `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` arka planı kapatır (Ctrl+B de hiçbir şeyi taşımaz); `CLAUDE_CODE_FORK_SUBAGENT=0`
   fork kipini kapatır (varsayılan açık).
 
@@ -1374,7 +1374,8 @@ Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gi
 @backend-oturumu API şeması değişti, testleri koştur
 ```
 
-Tam ekranda tur sürerken **Ctrl+B** turu keser ve görevi arka planda baştan başlatır
-(değişen dosyalar devredilir). Terminalden: `fusion agent --bg
+Tur sürerken **Ctrl+B** (tam ekran ve satır içi REPL) bekleyen ön plan alt ajanı varsa onu
+arka plana alır; yoksa turu keser ve görevi arka planda baştan başlatır (değişen dosyalar
+devredilir). Terminalden: `fusion agent --bg
 "görev"`, izlemek için `fusion agents --izle`. Ayrıntı ve ayarlar:
 [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md).

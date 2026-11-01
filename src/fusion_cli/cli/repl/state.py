@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
     from ...tools.browser_shared import SharedBrowser
     from .agent_link import AgentLink
+    from .inline_keys import InlineKeys
 
 
 def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
@@ -224,6 +225,8 @@ class ReplState:
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
     #: `/voice` dikte metni: bir sonraki istem bununla dolu açılır (P-072); alınınca temizlenir.
     pending_input: str = ""
+    #: Satır içi REPL'in tur boyu tuş gözcüsü (Ctrl+B + tur sürerken yazılanlar, #12).
+    inline_keys: InlineKeys | None = field(default=None, kw_only=True)
     #: Arka plan görevleri + oturumlar arası mesaj bağlantısı (P-048/P-060); `agent_link.start`.
     agent_link: AgentLink | None = field(default=None, kw_only=True)
     #: `/tarayici ac` ile açılan, ajanla paylaşılan görünür tarayıcı (P-045); kapalıyken None.

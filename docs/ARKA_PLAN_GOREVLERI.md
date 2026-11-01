@@ -34,7 +34,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 |---|---|
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
-| Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| REPL (tam ekran ve satır içi) | Tur sürerken **Ctrl+B**: beklenen ön plan alt ajanı kesilmeden arka plana geçer; alt ajan yoksa tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -44,7 +44,9 @@ REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan 
 açık seçimidir ve korunur. Alt ajanlar ve arka plan görevinin kendisi yeni arka plan görevi
 açamaz.
 
-**Ctrl+B Claude Code'dan farklıdır:** süren araç çağrısı devredilemez; tur iptal edilir ve
+**Ctrl+B:** ön planda beklenen bir `Agent` alt ajanı varsa Claude Code'daki gibi o alt ajan
+kesilmeden arka plana alınır, tur sürer ve sonuç bitince bildirim olur. Bekleyen alt ajan
+yoksa süren ana tur (ör. uzun bir araç çağrısı) devredilemez; tur iptal edilir ve
 görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
 ("yeniden yapma, önce oku" notuyla) devredilir; yarım kalan komut (ör. `npm test`) işçide
 gerekirse yeniden koşar.
@@ -138,8 +140,12 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
 Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırılabilir ya da
-başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
-okunmadığı için orada `/bg` kullanılır.
+başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır içi REPL (`FUSION_INLINE=1`,
+`runtime.tui: inline`) aynı bağı okur; orada yalnız `c-<harf>` biçimli tuşlar çalışır
+(`c-c`, `c-d`, `c-h`, `c-i`, `c-j`, `c-m`, `c-q`, `c-s`, `c-z` terminale ayrılmış). Satır
+içinde tur sürerken terminal kanonik olmayan kipe geçer (Ctrl+C yine turu keser); yazılan
+metin kaybolmaz: Enter'la biten satır sıradaki mesaj olur, yarım satır istemi doldurur.
+Onay sorusu sorulurken terminal eski kipine döner.
 
 ## Bilinen sınırlar
 
@@ -150,6 +156,7 @@ okunmadığı için orada `/bg` kullanılır.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u
   yokladıkça) nabız verir ve teslimat toplar; panel kapalıyken masaüstü oturumu eş
   listesinde görünmez ve araçla başlatılan görevin sonucu panel açılınca teslim edilir.
-- Satır-içi REPL'de Ctrl+B yok (tur sürerken tuş okunmaz); orada `/bg` kullanılır.
+- Satır içi REPL'de Ctrl+B yalnız POSIX terminalde (termios) çalışır; Windows'ta ve
+  stdin terminal değilken `/bg` kullanılır.
 - Kişilik (`--agent`) işçide `.claude/agents` / `~/.fusion` tanımlarından yeniden çözülür;
   `spawn_agent`'ın yerleşik ekip üyesi adı aynı adla bir tanım yoksa genel ajana düşer.

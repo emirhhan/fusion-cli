@@ -98,7 +98,7 @@ from . import (
     view_commands,
     worktrees,
 )
-from .background_commands import route_at_message
+from .background_commands import interrupted_to_background, route_at_message
 from .commands import (
     ASYNC_COMMANDS,
     CommandRegistry,
@@ -108,6 +108,14 @@ from .commands import (
     renders_itself,
 )
 from .completion import agent_names
+from .inline_keys import (
+    BackgroundKey,
+    background_key_action,
+    prompt_pause,
+    session_keys,
+    take_typed_line,
+    take_typed_partial,
+)
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
@@ -407,8 +415,13 @@ async def _warm_up(state: ReplState) -> None:
 
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
+    typed = take_typed_line(state)
+    if typed is not None:
+        # Tur sürerken yazılıp Enter'lanan satır sıradaki mesajdır (Claude Code kuyruğu, #12).
+        return typed
     try:
-        line = await reader.prompt(default=state.take_pending_input())
+        default = state.take_pending_input() + take_typed_partial(state)
+        line = await reader.prompt(default=default)
     except (EOFError, KeyboardInterrupt):
         return None
     # shift-tab girişte modu değiştirmiş olabilir; durumu senkronla.
@@ -642,12 +655,24 @@ async def _run_turn(
     apply_auto_profile(line, state, console)
     task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
     completed = True
-    with _cancel_on_interrupt(task):
+    moved: list[bool] = []
+
+    def background_key() -> None:
+        # Ctrl+B (#12): TUI ile aynı kural; bekleyen alt ajan yoksa tur arka plana taşınır.
+        if background_key_action(state) is BackgroundKey.TURN and not task.done():
+            moved.append(True)
+            task.cancel()
+
+    with _cancel_on_interrupt(task), session_keys(state).watching(background_key):
         try:
             await task
         except asyncio.CancelledError:
             completed = False
-            console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
+            if moved:
+                note = interrupted_to_background(state, line)
+                console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+            else:
+                console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
     console.print()
     return completed
 
@@ -849,7 +874,8 @@ async def _agent_turn(
             flush=bus.drain,
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
-            suspend=renderer.suspended,
+            # Satır içi REPL'de tur boyu tuş gözcüsü de durur: onay istemi kanonik kipte okunur.
+            suspend=lambda: prompt_pause(renderer.suspended, state),
             # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
             denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
