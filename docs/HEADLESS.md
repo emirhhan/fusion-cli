@@ -38,8 +38,8 @@ model `error` döner ve oturum mevcut modelle sürer. Her isteğe
 `{"type":"control_response","response":{"subtype":"success"|"error","request_id":"…"}}`
 yazılır; bilinmeyen alt tür `error` döner. `--permission-prompt-tool stdio` ile onay
 gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name`, `input`,
-`tool_use_id`) olarak sorulur; yalnız `{"behavior":"allow"}` cevabı onaydır, stdin kapanırsa
-bekleyen onay reddedilir.
+`tool_use_id`) olarak sorulur; cevap MCP onay aracıyla aynı kuralla işlenir (`allow` +
+`updatedInput`, `deny` + `message`/`interrupt`), stdin kapanırsa bekleyen onay reddedilir.
 
 ## Çıktı — `--output-format text|json|stream-json`
 
@@ -162,8 +162,12 @@ için `--init`, `--maintenance` ve konuşma başlatmadan çıkan `--init-only`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına
-`{tool_name, input, tool_use_id}` ile sorar; araç `{"behavior":"allow"}` dönerse çağrı
-çalışır, `deny`, hata ya da bulunamayan araçta reddedilir (`updatedInput` uygulanmaz).
+`{tool_name, input, tool_use_id}` ile sorar (`input` Claude alan adlarıyla, `tool_use_id`
+modelin araç çağrısı kimliği); araç `{"behavior":"allow"}` dönerse çağrı çalışır,
+`updatedInput` verildiyse Claude'daki gibi argümanın tamamı olur (yeni argüman izin kuralları ve kök-dışı
+engelinden yeniden geçer). `{"behavior":"deny","message":"…"}` mesajı modele araç sonucu olarak
+gider ve tur sürer; `interrupt: true` turu durdurur. Araç hatası ya da bulunamayan araç
+isteği reddeder ve nedeni stderr'e yazılır.
 
 İstem `/ad` ile başlıyorsa beceri/özel komut koşudan önce genişletilir (gövde sistem
 bağlamına, argüman göreve; `allowed-tools`/`disallowed-tools` turu daraltır). Etkileşimli

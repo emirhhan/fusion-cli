@@ -162,6 +162,7 @@ from .action_evidence import claimed_effects
 from .agent_task_tools import is_agent_task_request
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import (
+    Allowance,
     ApprovalMode,
     ApprovalPolicy,
     ApprovalRequest,
@@ -4321,6 +4322,7 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
+        request = replace(request, call_id=call.id)
         # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır. Eşik bu
         # çağrıda aşılıp kip Manuel'e düştüyse yeni kip bu çağrının kapsamıdır (riskli karar
         # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
@@ -4337,6 +4339,21 @@ async def _execute(
             return ToolResult.failure(
                 "Onay kapsamı değişti; eski işlem başlatılmadı."
             ), ToolOutcome.BLOCKED
+        if isinstance(verdict, Allowance):
+            # Onaylayan argümanı değiştirdi (`-p` onay aracı `updatedInput`): yeni argüman
+            # kural/kök-dışı engelinden yeniden geçer, sonra çalışır.
+            args = dict(verdict.arguments)
+            request = await resolve_request(
+                tool,
+                deepcopy(args),
+                deps.allowed_commands,
+                root=deps.tool_context.root,
+                context=deps.tool_context,
+                rules=rules,
+            )
+            if request.pre_denied is not None:
+                return ToolResult.failure(request.pre_denied), ToolOutcome.BLOCKED
+            verdict = Decision.ALLOW
         if isinstance(verdict, Denial):
             # Gerekçeli ret (P-013): tur DURMAZ; model gerekçeyi okur ve yolunu değiştirir.
             # Sonuç BLOCKED sınıfındadır: refleksiyon tetiklenmez, bütçe durdurulmaz.

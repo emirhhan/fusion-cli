@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 from fusion_cli.cli import app as app_module
 from fusion_cli.cli import print_run, print_stream
 from fusion_cli.cli.print_control import ControlChannel, StdioPrompter
-from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalMode
+from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReply
 
 runner = CliRunner()
 _STREAM = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
@@ -95,7 +95,7 @@ def test_bilinmeyen_denetim_istegi_hata_doner():
 
 @pytest.mark.parametrize(
     ("behavior", "expected"),
-    [("allow", ApprovalAnswer.ONCE), ("deny", ApprovalAnswer.UNAVAILABLE)],
+    [("allow", ApprovalAnswer.ONCE), ("deny", ApprovalReply(ApprovalAnswer.DENY, note="hayır"))],
 )
 def test_stdio_onayi_can_use_tool_istegiyle_sorulur(behavior, expected):
     channel, feed, out = _channel()
@@ -124,7 +124,7 @@ def test_stdio_onayi_can_use_tool_istegiyle_sorulur(behavior, expected):
         )
         return await pending
 
-    assert asyncio.run(scenario()) is expected
+    assert asyncio.run(scenario()) == expected
     feed.put(None)
 
 

@@ -64,6 +64,8 @@ PRINT_INTERRUPTED = "[Request interrupted by user]"
 PRINT_SETTING_SOURCES_INVALID = (
     "Hata: --setting-sources geçersiz kaynak: {given}. Geçerli: user, project, local"
 )
+PRINT_PROMPT_TOOL_ERROR = "--permission-prompt-tool {tool}: {error} (istek reddedildi)"
+PRINT_PROMPT_TOOL_MISSING = "onay aracı bulunamadı"
 PRINT_DEBUG_FILE_FAILED = "Hata: --debug-file açılamadı ({path}): {error}"
 PRINT_BYPASS_NOT_ALLOWED = (
     "bypassPermissions kipine geçilemez: koşu --dangerously-skip-permissions ya da "

@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Collection
 
 from ...core.tools import ToolFamily, tool_family
-from .approval import ApprovalPolicy, ApprovalRequest, Decision, Denial
+from .approval import ApprovalPolicy, ApprovalRequest, Decision, Verdict
 
 
 class DeniedToolsPolicy:
@@ -36,7 +36,7 @@ class DeniedToolsPolicy:
     def denied(self) -> frozenset[str]:
         return self._denied
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if self.is_denied(request.tool.name):
             return Decision.BLOCKED
         return await self._inner.decide(request)

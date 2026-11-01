@@ -28,10 +28,9 @@ import uuid
 from collections.abc import Callable, Coroutine, Iterator, Mapping
 from typing import Any, TextIO, TypeVar
 
-from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalReply, ApprovalRequest
 from ..ui import print_messages as texts
 from .print_runtime import PrintPrompter
-from .sdk_messages import claude_tool_name
 
 T = TypeVar("T")
 Writer = Callable[[Mapping[str, object]], None]
@@ -281,13 +280,9 @@ class StdioPrompter(PrintPrompter):
         super().__init__()
         self._channel = channel
 
-    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
+        from .print_prompt_tool import answer_from, claude_request
+
         self.requests.append(request)
-        body = await self._channel.can_use_tool(
-            claude_tool_name(request.tool.name),
-            dict(request.args),
-            str(getattr(request, "call_id", "") or ""),
-        )
-        if isinstance(body, Mapping) and str(body.get("behavior", "")).lower() == "allow":
-            return ApprovalAnswer.ONCE
-        return ApprovalAnswer.UNAVAILABLE
+        body = await self._channel.can_use_tool(*claude_request(request))
+        return answer_from(body, request)

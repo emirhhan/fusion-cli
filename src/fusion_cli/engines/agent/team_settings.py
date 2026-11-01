@@ -32,8 +32,7 @@ from .approval import (
     ApprovalMode,
     ApprovalPolicy,
     ApprovalRequest,
-    Decision,
-    Denial,
+    Verdict,
     parse_mode,
 )
 from .approval import strictest_mode as strictest_mode
@@ -72,7 +71,7 @@ class LabeledPolicy:
         self._inner = inner
         self._label = label
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if request.agent_label:
             return await self._inner.decide(request)
         return await self._inner.decide(dataclasses.replace(request, agent_label=self._label))

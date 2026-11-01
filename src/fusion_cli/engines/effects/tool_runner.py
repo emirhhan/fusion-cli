@@ -57,6 +57,7 @@ class EffectToolRunner:
                 )
             )
             # Gerekçeli ret (P-013) burada da red sayılır; not bu akışta gösterilmez.
+            # Argümanı değiştiren onay (`Allowance`) bu akışta desteklenmez: engellenir.
             decision = verdict.decision if isinstance(verdict, Denial) else verdict
             if decision is not Decision.ALLOW:
                 message = (

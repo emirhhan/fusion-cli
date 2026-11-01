@@ -20,7 +20,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 from ..config.models import Config
-from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
 
@@ -41,7 +41,7 @@ class PrintPrompter:
     def __init__(self) -> None:
         self.requests: list[ApprovalRequest] = []
 
-    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
         self.requests.append(request)
         return ApprovalAnswer.UNAVAILABLE
 

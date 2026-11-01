@@ -194,3 +194,131 @@ def test_ulasilamayan_debug_file_hata_ve_cikis_1(monkeypatch, tmp_path):
     assert isinstance(result.exception, SystemExit)
     assert "--debug-file" in result.output
     assert not calls
+
+
+# --- bulgu 3: onay aracı — tool_use_id, updatedInput, deny.message (#284) ------------- #
+
+
+class _Publisher:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def publish(self, event):
+        self._sink.handle(event)
+
+
+def _prompt_tool(answer: dict, seen: list[dict]):
+    from fusion_cli.core.tools import ToolResult
+
+    def _run(args, _ctx):
+        seen.append(args)
+        return ToolResult(json.dumps(answer))
+
+    async def _loader(_name):
+        return SimpleNamespace(run=_run)
+
+    return _loader
+
+
+async def _loop_with(monkeypatch, tmp_path, prompter, results):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+
+    from .fakes import RecordingSink, ScriptedProvider, make_config
+
+    provider = ScriptedProvider(results)
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.SECURITY, prompter),
+        tool_context=ToolContext(root=tmp_path),
+    )
+    return await run_agent("iş", deps)
+
+
+def _write_then_done(path: str):
+    from .fakes import model_result, tool_call
+
+    return [
+        model_result(tool_calls=[tool_call("write_file", path=path, content="x")]),
+        model_result("bitti"),
+    ]
+
+
+async def test_onay_aracina_gercek_cagri_kimligi_ve_claude_girdisi_gider(monkeypatch, tmp_path):
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+
+    seen: list[dict] = []
+    loader = _prompt_tool({"behavior": "allow"}, seen)
+    prompter = PromptToolPrompter("mcp__onay__sor", loader, root=tmp_path)
+    await _loop_with(monkeypatch, tmp_path, prompter, _write_then_done("a.txt"))
+    assert seen[0]["tool_use_id"] == "call_write_file"
+    assert seen[0]["tool_name"] == "Write"
+    assert seen[0]["input"]["file_path"] == "a.txt"
+    assert (tmp_path / "a.txt").exists()
+
+
+async def test_onay_aracinin_updated_input_u_uygulanir(monkeypatch, tmp_path):
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+
+    seen: list[dict] = []
+    answer = {"behavior": "allow", "updatedInput": {"file_path": "b.txt", "content": "y"}}
+    prompter = PromptToolPrompter("mcp__onay__sor", _prompt_tool(answer, seen), root=tmp_path)
+    await _loop_with(monkeypatch, tmp_path, prompter, _write_then_done("a.txt"))
+    assert not (tmp_path / "a.txt").exists()
+    assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "y"
+
+
+async def test_updated_input_kok_disi_engeli_asamaz(monkeypatch, tmp_path):
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+    from fusion_cli.config.permission_rules import PermissionRuleSet
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+
+    from .fakes import RecordingSink, ScriptedProvider, make_config
+
+    outside = tmp_path.parent / f"{tmp_path.name}-disari.txt"
+    answer = {"behavior": "allow", "updatedInput": {"file_path": str(outside), "content": "y"}}
+    prompter = PromptToolPrompter("mcp__onay__sor", _prompt_tool(answer, []), root=tmp_path)
+    provider = ScriptedProvider(_write_then_done("a.txt"))
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.SECURITY, prompter),
+        tool_context=ToolContext(root=tmp_path),
+        permission_rules=PermissionRuleSet(block_writes_outside_root=True),
+    )
+    await run_agent("iş", deps)
+    assert not outside.exists()
+    assert not (tmp_path / "a.txt").exists()
+
+
+async def test_deny_mesaji_modele_gider_ve_tur_surer(monkeypatch, tmp_path):
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+
+    answer = {"behavior": "deny", "message": "bu dosyaya yazma"}
+    prompter = PromptToolPrompter("mcp__onay__sor", _prompt_tool(answer, []), root=tmp_path)
+    outcome = await _loop_with(monkeypatch, tmp_path, prompter, _write_then_done("a.txt"))
+    tool_texts = [m.content for m in outcome.messages if m.role == "tool"]
+    assert any("bu dosyaya yazma" in text for text in tool_texts)
+    assert outcome.final_text == "bitti"
+
+
+def test_onay_araci_hatasi_stderr_e_yazilir(capsys, tmp_path):
+    import asyncio
+
+    from fusion_cli.cli.print_prompt_tool import PromptToolPrompter
+
+    async def _loader(_name):
+        raise RuntimeError("sunucu bağlanamadı")
+
+    prompter = PromptToolPrompter("mcp__yok__arac", _loader, root=tmp_path)
+    request = SimpleNamespace(tool=SimpleNamespace(name="run_shell"), args={}, call_id="c1")
+    asyncio.run(prompter.confirm(request))  # type: ignore[arg-type]
+    assert "sunucu bağlanamadı" in capsys.readouterr().err
