@@ -38,7 +38,7 @@ from ..ui.renderer import ConsoleRenderer
 from . import sdk_messages as sdk
 from .cleanup import with_web_cleanup
 from .headless import OutputFormat
-from .print_background import ActivityClock, run_then_wait
+from .print_background import ActivityClock, budget_check, run_then_wait
 from .print_builtins import apply_builtin
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan, plan_extra_system
@@ -320,7 +320,8 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         child_runs=child_runs,
     )
     try:
-        main = with_web_cleanup(run_then_wait(coro, child_runs, _warn, activity))
+        over = budget_check(observers.cost, request.max_budget_usd)
+        main = with_web_cleanup(run_then_wait(coro, child_runs, _warn, activity, over))
         outcome: AgentOutcome = asyncio.run(
             run.control.guard(main) if run.control is not None else main
         )

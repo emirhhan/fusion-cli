@@ -173,7 +173,8 @@ Tur bittikten sonra `-p`, turun başlattığı arka plan alt ajanlarını bekler
 stderr'e `Waiting for background work to finish` yazar. Tavan toplam süre değil,
 kesintisiz boşta bekleme süresidir: alt ajanlardan olay (model/araç adımı) geldikçe sayaç
 sıfırlanır. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (varsayılan 600000 ms, `0` tavansız);
-dolunca kalan iş durdurulur ve kısmi sonucu düşer. `--bare` kipinde arka plan alt ajanı
+dolunca kalan iş durdurulur ve kısmi sonucu düşer. `--max-budget-usd` tavanına ulaşılınca
+(turun sonunda ya da bekleme sırasında) arka plan işi beklenmez, durdurulur. `--bare` kipinde arka plan alt ajanı
 başlatılamaz. Fusion'da arka plan kabuk komutu ve Monitor aracı olmadığından beklenecek
 başka iş türü yoktur; arka plan işi bitince ayrı bir ek tur açılmaz (sonuç, ajanın tur
 içinde beklediği alt ajan çıktısıyla gelir).
