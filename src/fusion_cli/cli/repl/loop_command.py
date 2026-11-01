@@ -18,6 +18,7 @@ zamanlanamaz: `BLOCKED_COMMANDS`.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -86,6 +87,8 @@ def maintenance_prompt(root: Path, home: Path) -> str:
 
 
 def command(state: ReplState, argument: str) -> str:
+    if os.environ.get("CLAUDE_CODE_DISABLE_CRON", "").strip().lower() in {"1", "true", "yes"}:
+        return messages.LOOP_DISABLED
     sub = argument.strip()
     now = time.time()
     head = sub.split(None, 1)[0].casefold() if sub else ""

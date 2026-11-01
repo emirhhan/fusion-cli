@@ -15,6 +15,7 @@ from __future__ import annotations
 from ..core.protocols import Clock
 from ..core.session_cron import SessionCron, SessionCronError, Source, parse_interval
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ..ui import messages
 
 _STRING = {"type": "string"}
 _NO_CRON = (
@@ -39,17 +40,21 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         if cron is None:
             return ToolResult.failure(_NO_CRON)
         prompt = _text(args, "prompt")
+        # Claude CronCreate: cron (5 alan) + prompt + recurring. Eski `every`/`in` alanları
+        # takma ad olarak okunur (şemada yok; #366).
         every, expression, delay = _text(args, "every"), _text(args, "cron"), _text(args, "in")
         given = [value for value in (every, expression, delay) if value]
         if len(given) != 1:
             return ToolResult.failure(
-                "Tam olarak BİR zamanlama ver: 'every' (ör. 5m), 'cron' (ör. '*/15 * * * *') "
-                "ya da 'in' (tek seferlik gecikme, ör. 30m)."
+                "Tam olarak BİR zamanlama ver: 'cron' (5 alanlı ifade, ör. '*/15 * * * *'); "
+                "tek seferlik için recurring=false."
             )
         try:
             now = clock.now()
             if every:
                 task = cron.create_interval(prompt, every, now=now, source=Source.AGENT)
+            elif expression and args.get("recurring") is False:
+                task = cron.create_cron_once(prompt, expression, now=now, source=Source.AGENT)
             elif expression:
                 task = cron.create_cron(prompt, expression, now=now, source=Source.AGENT)
             else:
@@ -87,49 +92,48 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         cron = _registry(context)
         if cron is None:
             return ToolResult.failure(_NO_CRON)
-        delay, note = _text(args, "in"), _text(args, "note")
+        delay = _text(args, "in")
         loop_id = _text(args, "loop_id")
-        if loop_id:
-            # Kendi tempolu `/loop` (P-038): yeni görev değil, döngünün sıradaki çalışması.
-            try:
-                seconds = parse_interval(delay or "10m")
-                task = cron.reschedule_self_paced(loop_id, seconds, now=clock.now())
-            except SessionCronError as error:
-                return ToolResult.failure(str(error))
-            return ToolResult(
-                f"Döngü {task.id} sıradaki çalışması "
-                f"{int(task.next_due - clock.now()) // 60} dk sonra. Turu kısa özetle bitir."
-            )
-        prompt = note or "Zamanlanmış uyanma: bıraktığın işi kontrol et ve gerekirse sürdür."
+        if not loop_id:
+            # Claude ScheduleWakeup yalnız kendi tempolu `/loop` içindir (#362).
+            return ToolResult.failure(messages.WAKEUP_NEEDS_LOOP)
+        if args.get("stop") is True:
+            if not cron.delete(loop_id):
+                return ToolResult.failure(f"Döngü bulunamadı: {loop_id}")
+            return ToolResult(messages.WAKEUP_CANCELLED)
+        # Kendi tempolu `/loop` (P-038): yeni görev değil, döngünün sıradaki çalışması.
         try:
-            task = cron.create_once(prompt, delay or "1m", now=clock.now(), source=Source.AGENT)
+            seconds = parse_interval(delay or "10m")
+            task = cron.reschedule_self_paced(loop_id, seconds, now=clock.now())
         except SessionCronError as error:
             return ToolResult.failure(str(error))
         return ToolResult(
-            f"Uyanma kuruldu ({task.id}); oturum boşta kalınca not yeni tur olarak gelir. "
-            "Bu turu kısa bir özetle bitir, bekleme."
+            f"Döngü {task.id} sıradaki çalışması "
+            f"{int(task.next_due - clock.now()) // 60} dk sonra. Turu kısa özetle bitir."
         )
 
     return (
         Tool(
             name="cron_create",
             description=(
-                "Bu OTURUMDA yineleyen ya da tek seferlik görev zamanla. Oturum boşta kalınca "
-                "görev metni yeni bir tur olarak çalışır. Yalnız biri: every (5m/2h), "
-                "cron (5 alan) ya da in (tek seferlik gecikme). En az 1 dakika, 7 günde düşer."
+                "Bu OTURUMDA görev zamanla: 5 alanlı cron ifadesi ve görev metni; tek seferlik "
+                "için recurring=false. Oturum boşta kalınca görev yeni bir tur olarak çalışır; "
+                "yineleyen görev 7 gün sonra son kez çalışıp düşer."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "prompt": {**_STRING, "description": "Vadesi gelince çalışacak görev metni."},
-                    "every": {**_STRING, "description": "Sabit aralık: 5m, 2h, 1d."},
                     "cron": {
                         **_STRING,
                         "description": "Cron ifadesi: dakika saat gün ay hafta-günü.",
                     },
-                    "in": {**_STRING, "description": "Tek seferlik gecikme: 30m, 2h."},
+                    "prompt": {**_STRING, "description": "Vadesi gelince çalışacak görev metni."},
+                    "recurring": {
+                        "type": "boolean",
+                        "description": "true (varsayılan) yineler; false bir kez çalışır.",
+                    },
                 },
-                "required": ["prompt"],
+                "required": ["cron", "prompt"],
             },
             run=_create,
         ),
@@ -152,18 +156,17 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         Tool(
             name="schedule_wakeup",
             description=(
-                "Uzun süren dış bir iş (dağıtım, CI, indirme) için kendini belirli bir süre "
-                "sonra uyandır: oturum boşta kalınca 'note' yeni tur olarak gelir. Beklemek "
-                "yerine turu bitir."
+                "Kendi tempolu /loop döngüsünün sıradaki çalışmasını zamanla (loop_id ile); "
+                "döngüyü bitirmek için stop=true. Beklemek yerine turu bitir."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "in": {**_STRING, "description": "Gecikme: 1m-1h arası önerilir (ör. 10m)."},
-                    "note": {**_STRING, "description": "Uyanınca ne kontrol edileceği."},
+                    "in": {**_STRING, "description": "Gecikme: 1m-1h arası (ör. 10m)."},
                     "loop_id": {**_STRING, "description": "Kendi tempolu döngünün kimliği."},
+                    "stop": {"type": "boolean", "description": "true: döngüyü bitir."},
                 },
-                "required": ["in"],
+                "required": ["loop_id"],
             },
             run=_wakeup,
         ),

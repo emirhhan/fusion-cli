@@ -167,18 +167,49 @@ async def test_cron_create_tek_zamanlama_ister_ve_cron_ifadesi_kabul_eder(tmp_pa
     assert not (await _run(create, {"prompt": "x", "cron": "bozuk"}, context)).ok
 
 
-async def test_schedule_wakeup_tek_seferlik_not_kurar(tmp_path: Path) -> None:
-    clock = _Clock(1_000_000.0)
+async def test_schedule_wakeup_loop_id_siz_kullanilamaz(tmp_path: Path) -> None:
+    """Claude ScheduleWakeup yalnız kendi tempolu /loop içindir (#362)."""
     cron = SessionCron()
     sonuc = await _run(
-        _tool("schedule_wakeup", clock),
+        _tool("schedule_wakeup", _Clock(1_000_000.0)),
         {"in": "10m", "note": "CI bitti mi bak"},
         _context(tmp_path, cron),
     )
-    assert sonuc.ok
-    (task,) = cron.list()
-    assert task.prompt == "CI bitti mi bak" and task.next_due == 1_000_000.0 + 600
-    assert cron.due(1_000_000.0 + 600) == (task,)
+    assert not sonuc.ok and "loop_id" in sonuc.output and cron.list() == ()
+
+
+async def test_schedule_wakeup_stop_dongu_bitirir(tmp_path: Path) -> None:
+    from fusion_cli.ui import messages
+
+    cron = SessionCron()
+    dongu = cron.create_self_paced("bak", now=1_000_000.0)
+    sonuc = await _run(
+        _tool("schedule_wakeup", _Clock(1_000_000.0)),
+        {"loop_id": dongu.id, "stop": True},
+        _context(tmp_path, cron),
+    )
+    assert sonuc.ok and sonuc.output == messages.WAKEUP_CANCELLED and cron.list() == ()
+
+
+async def test_cron_create_claude_semasi_cron_prompt_recurring(tmp_path: Path) -> None:
+    """Claude CronCreate (#366): cron + prompt + recurring; recurring=false bir kez çalışır."""
+    from fusion_cli.core.session_cron import Kind
+
+    cron = SessionCron()
+    arac = _tool("cron_create", _Clock(1_000_000.0))
+    assert arac.parameters["required"] == ["cron", "prompt"]
+    await _run(arac, {"cron": "*/15 * * * *", "prompt": "a"}, _context(tmp_path, cron))
+    await _run(
+        arac, {"cron": "0 9 * * *", "prompt": "b", "recurring": False}, _context(tmp_path, cron)
+    )
+    assert sorted(t.kind.value for t in cron.list()) == sorted([Kind.CRON.value, Kind.ONCE.value])
+
+
+def test_claude_code_disable_cron_loop_u_kapatir(state: ReplState, monkeypatch) -> None:
+    from fusion_cli.ui import messages
+
+    monkeypatch.setenv("CLAUDE_CODE_DISABLE_CRON", "1")
+    assert _loop(state, "5m a") == messages.LOOP_DISABLED and state.cron.list() == ()
 
 
 async def test_zamanlayici_yoksa_araclar_aciklayici_hata_verir(tmp_path: Path) -> None:
@@ -376,9 +407,8 @@ async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) ->
     cron = SessionCron()
     context = _context(tmp_path, cron)
     create = _tool("cron_create", _Clock(0.0))
-    wakeup = _tool("schedule_wakeup", _Clock(0.0))
     create.run({"prompt": "/bypass", "in": "1m"}, context)
-    wakeup.run({"in": "2m", "note": "/auto"}, context)
+    create.run({"prompt": "/auto", "cron": "*/5 * * * *"}, context)
     assert [task.source for task in cron.list()] == [Source.AGENT, Source.AGENT]
     # Kullanıcının `/loop`u ise kullanıcı kaynaklıdır.
     assert cron.create_interval("a", "5m", now=0.0).source is Source.USER

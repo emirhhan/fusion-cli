@@ -175,7 +175,7 @@ def build_agent_registry(
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:
         extended.register(recent_actions_tool(memory_dir, conversation))
-    if getattr(deps.tool_context, "cron", None) is not None:
+    if getattr(deps.tool_context, "cron", None) is not None and not _cron_disabled():
         from ...core.clock import SystemClock
         from ...tools.cron_tools import cron_tools
 
@@ -1316,3 +1316,10 @@ def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
             continue
         kesitler.append((display_path(context, yol), redact(icerik)))
     return kesitler
+
+
+def _cron_disabled() -> bool:
+    """Claude `CLAUDE_CODE_DISABLE_CRON=1`: zamanlayıcı araçları sunulmaz (#366)."""
+    import os
+
+    return os.environ.get("CLAUDE_CODE_DISABLE_CRON", "").strip().lower() in {"1", "true", "yes"}

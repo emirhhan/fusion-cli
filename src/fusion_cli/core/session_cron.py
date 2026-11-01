@@ -335,6 +335,13 @@ class SessionCron:
             prompt, Kind.CRON, now, due, cron=" ".join(expression.split()), source=source
         )
 
+    def create_cron_once(
+        self, prompt: str, expression: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
+        """Cron ifadesinin bir sonraki eşleşmesinde BİR kez çalışan görev (CronCreate recurring=false)."""
+        due = cron_next_local(parse_cron(expression), now)
+        return self._add(prompt, Kind.ONCE, now, due, source=source)
+
     def create_once(
         self, prompt: str, delay: str, *, now: float, source: Source = Source.USER
     ) -> CronTask:

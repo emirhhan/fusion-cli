@@ -1085,6 +1085,12 @@ LOOP_USAGE = "Kullanım: /loop [aralık] <görev|/komut> · /loop list · /loop 
 LOOP_SET = (
     "döngü kuruldu ({id}): her {every} → {prompt}  (en az {min} dk; /loop stop {id} ile durur)"
 )
+WAKEUP_NEEDS_LOOP = (
+    "schedule_wakeup yalnız kendi tempolu /loop döngüsü içindir (loop_id gerekli). "
+    "Tek seferlik görev için cron_create(cron=..., recurring=false) kullan."
+)
+LOOP_DISABLED = "/loop kapalı (CLAUDE_CODE_DISABLE_CRON=1)."
+WAKEUP_CANCELLED = "Bekleyen uyanma iptal edildi; döngü bitti."
 LOOP_ROUNDED = "Aralık {raw} temiz bir cron adımına denk gelmiyor; {every} olarak ayarlandı."
 LOOP_MD_LABEL = "loop.md (her çalışmada yeniden okunur)"
 LOOP_SET_SELF_PACED = (
