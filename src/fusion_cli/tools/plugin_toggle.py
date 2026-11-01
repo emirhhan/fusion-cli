@@ -18,10 +18,12 @@ from ..config import plugin_store
 from ..config.plugin_data import plugin_data_dir
 from ..config.plugin_scopes import (
     SCOPE_USER,
+    check_managed,
     check_scope,
     resolve_enabled,
     target_scope,
     write_enabled,
+    write_user_enabled,
 )
 from ..config.plugin_store import PluginRecord, PluginState, load_state, plugin_id, plugins_dir
 from ..core.plugins import PluginError
@@ -77,6 +79,7 @@ def toggle_plugin(
         return _toggle_skills_dir(spec, enabled, scope, project)
     record = find_record(load_state(store), spec)
     ident = plugin_id(record)
+    check_managed(ident, record.name, enabled)  # #376: managed değiştirilemez
     target = target_scope(ident, record.name, project, scope)
     current = resolve_enabled(ident, record.name, record.enabled, project, upto=target)
     if current.enabled == enabled:
@@ -85,6 +88,7 @@ def toggle_plugin(
     if target == SCOPE_USER:
         updated = replace(record, enabled=enabled)
         plugin_store.update_state(lambda state: state.with_plugin(updated), store)
+        write_user_enabled(ident, enabled)  # Claude: `~/.claude/settings.json` (#376)
     else:
         write_enabled(target, ident, record.name, enabled, project)
     return ToggleResult(record.name, target, enabled)

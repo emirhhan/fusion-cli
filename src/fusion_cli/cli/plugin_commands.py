@@ -433,8 +433,7 @@ def market_add(
         record = plugins.add_marketplace(source, sparse=tuple(paths))
         written = declare(scope, record)
         text = MARKET_ADDED.format(name=record.name, kind=record.kind)
-        if written != "user":
-            text += " " + MARKET_DECLARED.format(scope=written)
+        text += " " + MARKET_DECLARED.format(scope=written)  # Claude: user dahil (#376)
         return text, {"marketplace": record.name}
 
     run_result("marketplace-add", as_json, act)

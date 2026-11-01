@@ -12,7 +12,8 @@ Fusion'da: kaynak türleri github/git/url/directory/file `marketplace add` kayna
 `settings` türü (Fusion'da yok) uyarıyla atlanır. Claude bildirilen pazarı oturum
 başladıktan sonra arka planda kaydeder; Fusion bunu REPL açılışında arka planda ve
 `plugin install`/`plugin marketplace list`/`plugin list` öncesinde yapar. Kullanıcı kapsamı
-(Fusion'ın kendi kaydı) ve managed kapsam bu modülde okunmaz.
+`~/.claude/settings.json`'dan (en düşük öncelik) okunur. Kayıtlı pazarın bildirilen kaynağı
+değişirse pazar yeni kaynaktan yeniden çekilir (kurulu eklentiler kalır).
 """
 
 from __future__ import annotations
@@ -31,8 +32,8 @@ _LOG = logging.getLogger(__name__)
 
 DECLARED_KEY = "extraKnownMarketplaces"
 ALIAS_KEY = "additionalMarketplaces"
-#: Düşükten yükseğe: sonraki dosya aynı adlı girdiyi bütünüyle ezer.
-_SCOPES = (plugin_scopes.SCOPE_PROJECT, plugin_scopes.SCOPE_LOCAL)
+#: Düşükten yükseğe: sonraki dosya aynı adlı girdiyi bütünüyle ezer (user `~/.claude`, #376).
+_SCOPES = (plugin_scopes.SCOPE_USER, plugin_scopes.SCOPE_PROJECT, plugin_scopes.SCOPE_LOCAL)
 _GIT_KINDS = frozenset({"github", "git"})
 _PATH_KINDS = frozenset({"directory", "file"})
 
@@ -99,9 +100,12 @@ def declared_marketplaces(root: Path) -> dict[str, DeclaredMarket]:
     """Güvenilen project/local dosyalarındaki bildirimler (aynı ad: üst kapsam bütünüyle)."""
     found: dict[str, DeclaredMarket] = {}
     for scope in _SCOPES:
-        path = plugin_scopes.settings_path(scope, root)
-        if not path.is_file() or not plugin_scopes.is_scope_trusted(scope, root):
-            continue
+        user = scope == plugin_scopes.SCOPE_USER
+        path = (
+            plugin_scopes.user_settings_file() if user else plugin_scopes.settings_path(scope, root)
+        )
+        if not path.is_file() or (not user and not plugin_scopes.is_scope_trusted(scope, root)):
+            continue  # kullanıcının kendi dosyası güven onayı istemez
         for name, value in _block(plugin_scopes.read_settings(path)).items():
             item = _entry(str(name), value, scope, root)
             if item is not None:
@@ -121,8 +125,13 @@ def sync_declared(root: Path | None = None, *, base: Path | None = None) -> tupl
     # yoksa her açılışta (git'te yeniden klonla) aynı pazar yeniden eklenmeye çalışılırdı.
     sources = {record.source for record in records}
     added: list[str] = []
+    by_name = {record.name: record for record in records}
     for name, item in declared_marketplaces(project).items():
-        if name in known or _spec_source(item.spec) in sources:
+        declared_source = _spec_source(item.spec)
+        if name in by_name and declared_source and by_name[name].source != declared_source:
+            _refetch(name, item.spec, store, added)  # bildirilen kaynak değişti (Claude)
+            continue
+        if name in known or declared_source in sources:
             continue
         try:
             record = add_marketplace(item.spec, base=store)
@@ -134,6 +143,17 @@ def sync_declared(root: Path | None = None, *, base: Path | None = None) -> tupl
         known.add(record.name)
         added.append(record.name)
     return tuple(added)
+
+
+def _refetch(name: str, spec: str, store: Path, added: list[str]) -> None:
+    from .plugin_market_resource import resource_marketplace
+
+    try:
+        resource_marketplace(name, spec, base=store)
+    except PluginError as error:
+        _LOG.warning("bildirilen pazar '%s' yeni kaynaktan çekilemedi: %s", name, error)
+        return
+    added.append(name)
 
 
 def _spec_source(spec: str) -> str:

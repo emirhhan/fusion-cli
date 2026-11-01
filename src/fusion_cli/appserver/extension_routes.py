@@ -310,7 +310,9 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
         source = _text(data, "kaynak")
         if not source:
             return {"ok": False, "metin": NEEDS_SOURCE}
-        plugins.add_marketplace(source)
+        from ..tools.plugin_market_declare import declare
+
+        declare("user", plugins.add_marketplace(source))  # Claude: user ayarlarında (#376)
     elif name == "eklenti.pazar_guncelle":
         from ..tools.plugin_market_sync import sync_by_name
 
@@ -320,7 +322,10 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
     else:
         # Claude gibi pazar, ondan kurulan eklentiler ve verileri birlikte gider (#396);
         # arayüz onay ister ve kaldırılanları bildirir.
+        from ..tools.plugin_market_declare import undeclare
+
         removed = plugins.remove_marketplace(_text(data, "ad"))
+        undeclare(_text(data, "ad"))  # bildirim user/project/local'den de silinir (#376)
         return {**_list(), "yenile": bool(removed), "kaldirilan": list(removed)}
     return _list()
 

@@ -335,7 +335,10 @@ def _market(state: ReplState, rest: list[str], confirmed: bool, legacy: bool) ->
     if action in {"liste", "list"}:
         return format_marketplaces(load_state())
     if action in {"ekle", "add"} and len(rest) == 2:
+        from ...tools.plugin_market_declare import declare
+
         record = plugins.add_marketplace(rest[1])
+        declare("user", record)  # Claude: user ayarlarında bildirilir (#376)
         return DONE.format(name=record.name, state=f"pazar eklendi ({record.kind})")
     from ...tools.plugin_market_sync import sync_by_name
 

@@ -12,7 +12,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..config import plugin_store
-from ..config.plugin_scopes import SCOPE_USER, check_scope, scope_values, write_enabled
+from ..config.plugin_scopes import (
+    SCOPE_USER,
+    check_scope,
+    scope_values,
+    write_enabled,
+    write_user_enabled,
+)
 from ..config.plugin_store import (
     InstalledPlugin,
     PluginRecord,
@@ -117,6 +123,8 @@ def install_scoped(
 
     notes = install_dependencies(item.record, approve, base=store)  # #389
     if target == SCOPE_USER:
+        # Claude: user kurulumu `~/.claude/settings.json` `enabledPlugins`'e yazar (#376).
+        write_user_enabled(plugin_id(item.record), item.record.enabled)
         return ScopedInstall(item, SCOPE_USER, notes)
     done = _add_scope(plugin_id(item.record), target, store, project, fresh=True)
     return replace(done, notes=notes)
@@ -136,6 +144,7 @@ def _add_user_scope(spec: str, store: Path) -> ScopedInstall:
         )
     opened = replace(record, enabled=True, scopes=(SCOPE_USER, *record.scopes))
     plugin_store.update_state(lambda state: state.with_plugin(opened), store)
+    write_user_enabled(plugin_id(opened), True)
     return ScopedInstall(inspect_plugin(opened, store), SCOPE_USER)
 
 
@@ -196,6 +205,7 @@ def drop_scope(
             raise PluginError(ERR_UNINSTALL_SCOPE.format(name=record.name, scope=scope))
         left = tuple(item for item in record.scopes if item != SCOPE_USER)
         updated = replace(record, scopes=left, enabled=False)
+        write_user_enabled(plugin_id(record), None)
     else:
         ident = plugin_id(record)
         values = scope_values(scope, root)

@@ -6,7 +6,8 @@ project settings"); `marketplace remove` bildirimi kapsam dosyalarından da sile
 klasör `directory`/`path`, `.json` `file`/`path`, GitHub kısaltması `github`/`repo`(+`ref`),
 başka git `git`/`url`(+`ref`), marketplace.json adresi `url`/`url`.
 
-Fusion'da `user` kapsamı Fusion'ın kendi pazar kaydıdır (`~/.claude/settings.json`'a yazılmaz).
+`user` kapsamı (varsayılan) Claude gibi `~/.claude/settings.json`'a yazılır ("declared in user
+settings", Claude 2.1.287'de ölçüldü); pazarın kendisi ayrıca Fusion kaydında tutulur.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import logging
 from collections.abc import Mapping
 from pathlib import Path
 
+from ..config import plugin_scopes
 from ..config.plugin_scopes import (
     SCOPE_LOCAL,
     SCOPE_PROJECT,
@@ -23,6 +25,7 @@ from ..config.plugin_scopes import (
     read_settings,
     settings_path,
     update_settings,
+    update_user_settings,
 )
 from ..config.plugin_store import MarketplaceRecord
 from ..core.plugins import PluginError
@@ -51,10 +54,8 @@ def claude_source(record: MarketplaceRecord) -> dict[str, str]:
 
 
 def declare(scope: str, record: MarketplaceRecord, root: Path | None = None) -> str:
-    """Kapsam dosyasına bildir; yazılan kapsam (`user` Fusion kaydıdır, dosya yazılmaz)."""
+    """Kapsam dosyasına bildir; yazılan kapsam (user: `~/.claude/settings.json`)."""
     target = check_scope(scope) if scope else SCOPE_USER
-    if target == SCOPE_USER:
-        return target
     value = {"source": claude_source(record)}
 
     def change(raw: dict[str, object]) -> dict[str, object]:
@@ -62,16 +63,20 @@ def declare(scope: str, record: MarketplaceRecord, root: Path | None = None) -> 
         block = dict(current) if isinstance(current, dict) else {}
         return {**raw, DECLARED_KEY: {**block, record.name: value}}
 
-    update_settings(target, root or Path.cwd(), change)
+    if target == SCOPE_USER:
+        update_user_settings(change)
+    else:
+        update_settings(target, root or Path.cwd(), change)
     return target
 
 
 def undeclare(name: str, root: Path | None = None) -> tuple[str, ...]:
-    """Pazarın bildirimini project/local dosyalarından sil; silinen kapsamlar."""
+    """Pazarın bildirimini user/project/local dosyalarından sil; silinen kapsamlar."""
     project = root or Path.cwd()
     removed: list[str] = []
-    for scope in (SCOPE_PROJECT, SCOPE_LOCAL):
-        path = settings_path(scope, project)
+    for scope in (SCOPE_USER, SCOPE_PROJECT, SCOPE_LOCAL):
+        user = scope == SCOPE_USER
+        path = plugin_scopes.user_settings_file() if user else settings_path(scope, project)
         raw = read_settings(path) if path.is_file() else {}
         keys = [k for k in (DECLARED_KEY, ALIAS_KEY) if _has(raw.get(k), name)]
         if not keys:
@@ -86,7 +91,10 @@ def undeclare(name: str, root: Path | None = None) -> tuple[str, ...]:
             return updated
 
         try:
-            update_settings(scope, project, change)
+            if scope == SCOPE_USER:
+                update_user_settings(change)
+            else:
+                update_settings(scope, project, change)
         except PluginError as error:  # bozuk ayar dosyası pazar kaldırmayı durdurmaz
             _LOG.warning("pazar bildirimi silinemedi (%s): %s", path, error)
             continue

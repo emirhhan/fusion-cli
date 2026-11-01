@@ -134,7 +134,15 @@ bozulur) `--force` ister.
 
 **Kapsamlar (`enabledPlugins`):** Claude Code gibi açık/kapalı bilgisi settings dosyalarındaki
 `enabledPlugins` (`{"ad@pazar": true|false}`; pazarsız kurulumda yalnız ad) anahtarında durur,
-öncelik local (`.claude/settings.local.json`) > project (`.claude/settings.json`) > user. `--scope`
+öncelik managed (kuruluşun `managed-settings.json`'ı: macOS `/Library/Application
+Support/ClaudeCode`, Linux `/etc/claude-code`, Windows `C:\Program Files\ClaudeCode`) > local
+(`.claude/settings.local.json`) > project (`.claude/settings.json`) > user (`~/.claude/settings.json`,
+Claude Code ile ortak). Managed değer başka kapsamda değiştirilemez (`managed_settings_override` /
+`plugin_policy_blocked`). user kapsamında `install`, `enable`, `disable` (ve `disable --all`),
+`uninstall` Claude gibi `~/.claude/settings.json` `enabledPlugins`'e yazar; anahtar yoksa Fusion
+kaydının eski `etkin` değeri geçerlidir. `marketplace add` (user) pazarı `~/.claude/settings.json`
+`extraKnownMarketplaces`'e bildirir ("user ayarlarında bildirildi"; CLI, REPL ve masaüstü),
+`marketplace remove` bildirimi user/project/local'den siler. `--scope`
 verilmezse local, project, user sırasıyla eklentiyi anan ilk kapsam kullanılır; ilan edilenden düşük
 öncelikli kapsam "… kapsamında kurulu, … değil" hatası verir, yüksek öncelikli kapsama geçersiz
 kılma yazılır. Güvenlik: `fusion trust` sonrası değişmiş (güvenilmeyen) proje dosyasındaki `true`
@@ -158,7 +166,9 @@ bilinmeyen pazar, klasöre güvenildiyse Claude Code gibi kaydedilir: REPL açı
 `plugin install`/`plugin list`/`plugin marketplace list` öncesinde. Güvenilmeyen klasörde girdiler
 sessizce yok sayılır; aynı adlı girdide local, project'in girdisini bütünüyle ezer. Kaynak türleri:
 `github` (`repo`, isteğe bağlı `ref`), `git` (`url`), `directory`/`file` (`path`, göreli ise depo
-köküne göre), `url` (`url`: marketplace.json adresi). `settings` türü Fusion'da yok, uyarıyla atlanır.
+köküne göre), `url` (`url`: marketplace.json adresi). `settings` türü Fusion'da yok, uyarıyla atlanır. `~/.claude/settings.json`'daki bildirimler de
+(en düşük öncelik, güven onayı istemez) okunur. Kayıtlı pazarın bildirilen kaynağı değişirse pazar
+Claude gibi yeni kaynaktan yeniden çekilir; kurulu eklentiler kalır.
 `marketplace add --scope project|local` pazarı o kapsamın dosyasına
 `extraKnownMarketplaces[<ad>] = {"source": {...}}` olarak bildirir ("project ayarlarında
 bildirildi"); `marketplace remove` bildirimi project/local dosyalarından da siler.
@@ -298,10 +308,9 @@ artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`)
 `uninstall --prune` ile kaldırılır; elle kurulan eklenti budanmaz. `version` aralığı yok sayılır
 (güncel sürüm kurulur).
 
-**Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
-`~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır. Managed kapsam okunmaz;
-`extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` (user) user ayarına
-yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez. Bağımlılık sürüm aralıkları
+**Claude Code'dan farklar (Hâlâ eksik):** kurulum kayıtları ve kopyalar Fusion'ın kendi deposundadır
+(`<veri>/eklentiler/kayit.json`); Claude'un `~/.claude/plugins/installed_plugins.json`'ı yalnız
+okunur (#377). `--settings` bayrağı kapsamı ve `managed-settings.d` parçaları okunmaz. Bağımlılık sürüm aralıkları
 (`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels`, `plugin eval` ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 

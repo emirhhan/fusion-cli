@@ -612,6 +612,9 @@ def remove_installation(record: PluginRecord, root: Path, *, keep_data: bool) ->
     if not record.folder and folder.is_dir() and record.kind != "inline":
         orphan(folder, root)
     plugin_store.update_state(lambda current: current.without_plugin(record.store_key), root)
+    from ..config.plugin_scopes import write_user_enabled
+
+    write_user_enabled(plugin_store.plugin_id(record), None)  # #376
     sweep_orphans(root)
     forget_values(record.name, root)
     if not keep_data:
@@ -651,6 +654,11 @@ def disable_all_plugins(*, base: Path | None = None) -> tuple[str, ...]:
         return replace(updated, all_disabled=False)
 
     plugin_store.update_state(change, root)
+    from ..config.plugin_scopes import write_user_enabled
+
+    for record in load_state(root).plugins:  # Claude: her eklenti user ayarında false (#376)
+        if record.name in closed:
+            write_user_enabled(plugin_store.plugin_id(record), False)
     return tuple(closed)
 
 
