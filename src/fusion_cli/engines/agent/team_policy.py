@@ -79,7 +79,12 @@ def allowed_tools(
     team_tools = TEAM_MEMBER_TOOLS & set(available)
     if allowed is not None and team_tools:
         allowed = allowed | team_tools
-    scope = derive_sub_context(deps.tool_context, subtask).write_scope
+    # Gerçek çağıran alt ajanın kendi bağımlılığını verir: bağlamı bu görevden ZATEN
+    # türetildi. Yeniden türetmek salt-okur alt bağlamın boş alanına karşı `yazma_alani`nı
+    # doğrulayıp başlatmayı reddediyordu (ölçüldü, 1 Kasım: test_evidence_handoff).
+    scope = deps.tool_context.write_scope
+    if scope is None:
+        scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed
     safe = {

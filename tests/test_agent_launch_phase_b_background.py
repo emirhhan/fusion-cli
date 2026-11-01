@@ -8,6 +8,11 @@ from fusion_cli.appserver import session as app_session
 from fusion_cli.engines.agent import loop
 from tests.fakes import ScriptedProvider, make_config, model_result, tool_call
 
+#: İlk tur soğuk içe aktarmalar (litellm vb.) yüzünden paralel koşuda (-n 6) 2 sn'yi aşabiliyor;
+#: zaman aşımı tur İPTALİNE dönüşüp "Tur iptal edildi." döndürüyordu. Davranış sınanıyor, hız değil.
+TURN_TIMEOUT = 30.0
+EVENT_TIMEOUT = 10.0
+
 
 class _DelayedProvider(ScriptedProvider):
     def __init__(self):
@@ -69,14 +74,16 @@ def _scripted_session(tmp_path, monkeypatch):
 async def test_rpc_iki_tur_arasinda_arka_plan_ajanini_ve_sonucunu_korur(tmp_path, monkeypatch):
     session, parent, child, packets = _scripted_session(tmp_path, monkeypatch)
     try:
-        first = await asyncio.wait_for(session._run_turn("İlk turda bilgi ver."), timeout=2.0)
+        first = await asyncio.wait_for(
+            session._run_turn("İlk turda bilgi ver."), timeout=TURN_TIMEOUT
+        )
         assert "MAIN_FIRST" in first["metin"]
-        await asyncio.wait_for(child.started.wait(), timeout=1.0)
+        await asyncio.wait_for(child.started.wait(), timeout=EVENT_TIMEOUT)
         assert not child.cancelled and not child.finished.is_set()
         owner = session._child_runs
         child.release.set()
-        await asyncio.wait_for(child.finished.wait(), timeout=1.0)
-        await asyncio.wait_for(owner.drain(), timeout=1.0)
+        await asyncio.wait_for(child.finished.wait(), timeout=EVENT_TIMEOUT)
+        await asyncio.wait_for(owner.drain(), timeout=EVENT_TIMEOUT)
         await session._run_turn("İkinci turda devam et.")
         assert session._child_runs is owner
         assert any(
@@ -90,8 +97,8 @@ async def test_rpc_iki_tur_arasinda_arka_plan_ajanini_ve_sonucunu_korur(tmp_path
 async def test_rpc_kapanis_tur_sonrasinda_yasayan_ajanin_temizligini_bekler(tmp_path, monkeypatch):
     session, _parent, child, _packets = _scripted_session(tmp_path, monkeypatch)
     try:
-        await asyncio.wait_for(session._run_turn("İlk turda bilgi ver."), timeout=2.0)
-        await asyncio.wait_for(child.started.wait(), timeout=1.0)
+        await asyncio.wait_for(session._run_turn("İlk turda bilgi ver."), timeout=TURN_TIMEOUT)
+        await asyncio.wait_for(child.started.wait(), timeout=EVENT_TIMEOUT)
         assert not child.finished.is_set()
     finally:
         await session.close()
@@ -101,7 +108,7 @@ async def test_rpc_kapanis_tur_sonrasinda_yasayan_ajanin_temizligini_bekler(tmp_
 async def test_rpc_reset_tur_sonrasindaki_ajanlari_kapatir_ve_sahibi_yeniler(tmp_path, monkeypatch):
     session, _parent, child, _packets = _scripted_session(tmp_path, monkeypatch)
     try:
-        await asyncio.wait_for(session._run_turn("İlk tur."), timeout=2.0)
+        await asyncio.wait_for(session._run_turn("İlk tur."), timeout=TURN_TIMEOUT)
         await child.started.wait()
         previous = session._state.child_runs
         result = await session._run_command({"ad": "reset", "arguman": ""})
@@ -168,7 +175,7 @@ async def test_rpc_ajan_iptali_yalniz_gercek_ana_tur_kimligiyle_calısir(tmp_pat
 
     session, _parent, child, _packets = _scripted_session(tmp_path, monkeypatch)
     try:
-        await asyncio.wait_for(session._run_turn("İlk tur."), timeout=2.0)
+        await asyncio.wait_for(session._run_turn("İlk tur."), timeout=TURN_TIMEOUT)
         await child.started.wait()
         owner = session._state.child_runs
         record = owner.records()[0]

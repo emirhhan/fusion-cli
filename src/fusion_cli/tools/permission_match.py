@@ -235,6 +235,9 @@ def matches(
                 bool(hits) and all(hits) if rule.decision is PermissionDecision.ALLOW else any(hits)
             )
         target = args.get("subagent_type", args.get("uzman", args.get("agent", "")))
+        if tool_name == "invoke_agent":
+            # Eski `invoke_agent` tipi `name` ile alır; `Agent`taki `name` ekip üyesi adıdır.
+            target = args.get("name", target)
         return isinstance(target, str) and _spec_prefix(rule, target)
     if tool_family(tool_name) is ToolFamily.SHELL:
         command = args.get("command")

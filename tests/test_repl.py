@@ -147,14 +147,17 @@ def test_onay_modu_komutla_degisir(registry, state):
 
 
 def test_onay_modu_dongusel_ilerler(state):
-    """Shift+Tab dört kipi döner; "İzinleri atla" tek tuşla yanlışlıkla açılmaz."""
+    """Shift+Tab dört kipi döner; "İzinleri atla" tek tuşla yanlışlıkla açılmaz.
+
+    `dontAsk` Claude Code'da da Shift+Tab döngüsünde yoktur; yalnız ayar/bayrakla seçilir.
+    """
     baslangic = state.approval
     goruilen = {baslangic}
 
-    for _ in range(len(ApprovalMode) - 1):
+    for _ in range(len(ApprovalMode) - 2):
         goruilen.add(state.cycle_approval())
 
-    assert goruilen == set(ApprovalMode) - {ApprovalMode.BYPASS}
+    assert goruilen == set(ApprovalMode) - {ApprovalMode.BYPASS, ApprovalMode.DONT_ASK}
     assert state.approval is baslangic  # tam tur
     state.approval = ApprovalMode.BYPASS
     assert state.cycle_approval() is ApprovalMode.AUTO
