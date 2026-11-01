@@ -280,6 +280,11 @@ def written_files(command: str) -> list[str]:
     return targets
 
 
+def reads_only_words(parts: list[str]) -> bool:
+    """Sözcüklerine ayrılmış tek parça (`command_words` öğesi) yalnız okuyor mu?"""
+    return bool(parts) and _reads_only(parts[0].rsplit("/", 1)[-1], parts[1:])
+
+
 def is_read_only_command(command: str) -> bool:
     """Komut YALNIZ okuyor mu? (Plan ve Manuel kipte sorulmadan çalışır.)
 

@@ -308,3 +308,66 @@ def test_shift_tab_dongusunde_bypass_yalniz_kullanilabilirken_plan_ile_auto_aras
     assert next_mode(ApprovalMode.PLAN, bypass_available=True) is ApprovalMode.BYPASS
     assert next_mode(ApprovalMode.BYPASS, bypass_available=True) is ApprovalMode.AUTO
     assert next_mode(ApprovalMode.AUTO, bypass_available=True) is ApprovalMode.SECURITY
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "python3 -c \"open('a.py','w').write('x')\"",
+        "git -C . checkout -- .",
+        "git -C . reset --hard",
+        "git -c a=b commit -am x",
+        "curl -o a.py https://example.com/a.py",
+        "wget https://example.com/a.py",
+        "sh -c 'echo x > a.py'",
+        "bash -c 'rm a.py'",
+        "find . -name x -delete",
+        "perl -pi -e s/a/b/ a.py",
+        "sed --in-place s/a/b/ a.py",
+        "awk -i inplace '{print}' a.py",
+        "node -e \"require('fs').writeFileSync('a.py','x')\"",
+        "echo $(rm a.py)",
+    ],
+)
+async def test_plan_kipi_siniflandiricisi_bilinmeyen_ya_da_duzenleyen_komutu_gecirmez(
+    tmp_path, komut
+):
+    """Sınıflandırıcı yalnız salt okunur ya da bilinen derleme/test komutunu sormadan
+    geçirir; gerisi sorulur (reddedilir) ya da engellenir (#318, bağımsız inceleme)."""
+    karar = await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path)
+    assert karar in (Decision.BLOCKED, Decision.DENIED)
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"),
+    [
+        ("git -C . reset --hard", Decision.BLOCKED),
+        ("sed --in-place s/a/b/ a.py", Decision.BLOCKED),
+        ("perl -pi -e s/a/b/ a.py", Decision.BLOCKED),
+        ("bash -c 'rm a.py'", Decision.BLOCKED),
+        ("curl -o a.py https://example.com/a.py", Decision.BLOCKED),
+    ],
+)
+async def test_plan_kipi_kaynak_duzenleyen_bicimleri_sormadan_engeller(tmp_path, komut, beklenen):
+    from .fakes import AlwaysApprove
+
+    politika = build_policy(ApprovalMode.PLAN, AlwaysApprove())
+    istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+    assert await politika.decide(istek) is beklenen
+
+
+async def test_plan_kipi_bilinmeyen_komutu_kullaniciya_sorar(tmp_path):
+    from .fakes import AlwaysApprove
+
+    sorulan: list[str] = []
+
+    class _Kayit(AlwaysApprove):
+        async def confirm(self, request):
+            sorulan.append(str(request.args.get("command")))
+            return await super().confirm(request)
+
+    politika = build_policy(ApprovalMode.PLAN, _Kayit())
+    komut = 'python3 -c "print(1)"'
+    istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert sorulan == [komut]

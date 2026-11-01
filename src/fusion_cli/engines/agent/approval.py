@@ -507,7 +507,9 @@ class PlanApproval:
             return await self._bypass.decide(request)
         asks = request.pre_ask is not None or request.danger is not None
         if self._use_auto_mode and not asks:
-            return Decision.ALLOW if _plan_classifier_allows(request) else Decision.BLOCKED
+            verdict = _plan_classifier_verdict(request)
+            if verdict is not None:
+                return verdict
         if self._prompter is None:
             return Decision.BLOCKED
         if not asks and self._memory.is_remembered(request):
@@ -515,14 +517,18 @@ class PlanApproval:
         return await _ask_and_remember(self._prompter, request, self._memory)
 
 
-def _plan_classifier_allows(request: ApprovalRequest) -> bool:
-    """Plan kipinde sınıflandırıcı: risksiz VE kaynağı düzenlemeyen komut çalışır (#318)."""
-    from .plan_shell_guard import edits_source
+def _plan_classifier_verdict(request: ApprovalRequest) -> Decision | None:
+    """Plan kipinde sınıflandırıcı (#318): salt okunur ya da bilinen derleme/test komutu
+    çalışır, kaynağı düzenleyen ya da riskli komut engellenir; geri kalanı (`None`) sorulur."""
+    from .plan_shell_guard import PlanVerdict, plan_verdict
 
     command = request.args.get("command")
     if request.risk is not None or not isinstance(command, str):
-        return False
-    return not edits_source(command)
+        return Decision.BLOCKED
+    verdict = plan_verdict(command)
+    if verdict is PlanVerdict.ALLOW:
+        return Decision.ALLOW
+    return Decision.BLOCKED if verdict is PlanVerdict.BLOCK else None
 
 
 class BypassApproval:
