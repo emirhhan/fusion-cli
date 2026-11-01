@@ -232,6 +232,14 @@ def main_callback(
             "--system-prompt-snapshot", help="on (varsayılan) ya da off: her istekte kur."
         ),
     ] = None,
+    bare: Annotated[
+        bool,
+        typer.Option(
+            "--bare",
+            help="Kanca, beceri, komut, ajan, eklenti, MCP, bellek ve proje talimatı "
+            "keşfetmeden aç; araçlar Bash + dosya okuma/düzenleme.",
+        ),
+    ] = False,
     _version: Annotated[
         bool,
         typer.Option(
@@ -260,6 +268,9 @@ def main_callback(
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
+    if bare:
+        # Claude `claude --bare` (#298): özelleştirme keşfi kapalı etkileşimli oturum.
+        config = _bare_config(config)
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -289,12 +300,13 @@ def main_callback(
         append_system_prompt,
         append_system_prompt_file,
         system_prompt_snapshot,
+        bare=bare,
     )
     exit_code = asyncio.run(
         with_web_cleanup(
             run_repl(
                 config,
-                memory=open_memory(config, root=root),
+                memory=open_memory(config, root=root, enabled=not bare),
                 root=root,
                 console=console,
                 extra_roots=tuple(add_dir or ()),
@@ -310,12 +322,21 @@ def main_callback(
     raise typer.Exit(exit_code)
 
 
+def _bare_config(config: Config) -> Config:
+    """Kök `--bare`: `-p --bare` ile aynı yapılandırma daraltması (`print_runtime.apply_bare`)."""
+    from .print_runtime import apply_bare
+
+    return apply_bare(config)
+
+
 def _launch_prompts_or_exit(
     replace_text: str | None,
     replace_file: str | None,
     append_text: str | None,
     append_file: str | None,
     snapshot: str | None,
+    *,
+    bare: bool = False,
 ) -> object:
     """Kök komutun `--system-prompt*` bayrakları (#295); hatalı değer 1 ile çıkar."""
     from . import launch_prompts
@@ -327,11 +348,11 @@ def _launch_prompts_or_exit(
             append=append_text,
             append_file=append_file,
         )
-        enabled = launch_prompts.snapshot_enabled(snapshot, bare=False)
+        enabled = launch_prompts.snapshot_enabled(snapshot, bare=bare)
     except ValueError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
-    return launch_prompts.LaunchSpec(prompts, enabled)
+    return launch_prompts.LaunchSpec(prompts, enabled, bare=bare)
 
 
 def _print_version_and_exit(value: bool) -> None:

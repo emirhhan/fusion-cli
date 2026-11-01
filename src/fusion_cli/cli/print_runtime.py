@@ -69,10 +69,21 @@ def apply_print_limits(
     )
     if max_budget_usd is not None:
         runtime = replace(runtime, agent_max_cost_usd=max_budget_usd)
-    if bare:
-        runtime = replace(runtime, project_instructions=False, hooks_enabled=False)
-        config = replace(config, mcp_servers=(), hosted_connectors=())
-    return replace(config, runtime=runtime)
+    config = replace(config, runtime=runtime)
+    return apply_bare(config) if bare else config
+
+
+#: `--bare` ortam değişkeni (Claude: `--bare` bunu ayarlar).
+BARE_ENV = "CLAUDE_CODE_SIMPLE"
+
+
+def apply_bare(config: Config) -> Config:
+    """`--bare` (#298): kanca, otomatik bellek, MCP/bağlayıcı ve proje talimatı kapalı."""
+    os.environ[BARE_ENV] = "1"
+    runtime = replace(
+        config.runtime, project_instructions=False, hooks_enabled=False, auto_memory=False
+    )
+    return replace(config, runtime=runtime, mcp_servers=(), hosted_connectors=())
 
 
 #: `--safe-mode` ortam değişkeni (Claude ile aynı ad).

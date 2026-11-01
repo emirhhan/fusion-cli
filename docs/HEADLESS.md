@@ -113,7 +113,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `permissions.defaultMode` (`--permission-mode` öncelikli), `permissions.additionalDirectories`, `model`, `env`, `disableAllHooks`. |
 | `--setting-sources user,project,local` | Değerler doğrulanır (geçersiz kaynak hata); kaynak süzme henüz etkisiz (uyarı). |
 | `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
-| `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. Yalnız `-p`'de. |
+| `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. `CLAUDE_CODE_SIMPLE=1` ayarlanır. Kök komutta (etkileşimli `fusion --bare`) da geçerlidir. |
 | `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |
 | `--agent <ad>` / `--agents '<json>'` | Baş ajan ve oturumluk ajan tanımları. |
 | `-w/--worktree [ad\|#N\|PR/MR adresi]` | Çalışma ağacında koş; ad verilmezse üretilir. `#123`, GitHub PR ya da GitLab MR adresi verilince PR/MR `origin`'den çekilir ve `pr-<n>` ağacı ondan dallanır (kök komutta da). |
@@ -291,8 +291,12 @@ onunla kesişir (`--allowed-tools` da verildiyse ikisinin kesişimi).
 
 Bellek, MCP sunucuları, barındırılan bağlayıcılar ve proje talimatı (AGENTS.md/CLAUDE.md,
 dış araç bellekleri) yüklenmez; tur yalnız yerleşik araçlarla çalışır
-(`runtime.project_instructions: false` + boş `mcp_servers`). CI'da tekrarlanabilir
-koşular için.
+(`runtime.project_instructions: false`, `runtime.auto_memory: false`, kancalar kapalı,
+boş `mcp_servers`). Kullanıcı/proje becerileri, komutları, ajanları ve eklentileri
+keşfedilmez; yalnız `--add-dir` becerileri ve `--agents` tanımları yüklenir. Bayrak
+`CLAUDE_CODE_SIMPLE=1` ayarlar. Etkileşimli `fusion --bare` aynı daraltmayla açılır ve her
+turda araç kümesi Bash + dosya okuma/düzenlemeyle kesişir; `/add-dir`, `/cd` ya da yeniden
+yükleme kataloğu yeniden keşfedebilir. CI'da tekrarlanabilir koşular için.
 
 ### Yapısal çıktı — `--json-schema`
 

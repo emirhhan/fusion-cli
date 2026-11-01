@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..ui import print_messages as texts
 
@@ -34,10 +34,12 @@ class LaunchPrompts:
 
     system_prompt: str | None = None
     extra_system: str = ""
+    #: `--bare` (#298): turda sunulan araç kümesi (Bash + dosya okuma/düzenleme); None = kısıt yok.
+    tools: frozenset[str] | None = None
 
     @property
     def empty(self) -> bool:
-        return self.system_prompt is None and not self.extra_system
+        return self.system_prompt is None and not self.extra_system and self.tools is None
 
 
 def from_flags(
@@ -126,21 +128,39 @@ def bind(state: object, prompts: object, *, resumed: object) -> LaunchPrompts | 
     """REPL açılışı: sürdürülen sohbette kayıtlı istemi, yenisinde bayrak metnini bağla."""
     if not isinstance(prompts, LaunchSpec):
         return None
-    return recorded(
+    bound = recorded(
         Path(getattr(getattr(state, "config", None), "memory_dir", ".")),
         str(getattr(state, "conversation_id", "") or ""),
         prompts.prompts,
         resuming=resumed is not None,
         enabled=prompts.snapshot,
     )
+    if not prompts.bare:
+        return bound
+    _bind_bare_catalog(state)
+    from .print_runtime import BARE_TOOLS
+
+    return replace(bound, tools=BARE_TOOLS)
+
+
+def _bind_bare_catalog(state: Any) -> None:
+    """`--bare`: oturum kataloğu yalnız `--add-dir` becerileri ve `--agents` tanımlarıdır."""
+    from .print_runtime import bare_catalog
+
+    state.capabilities = bare_catalog(
+        state.config,
+        tuple(getattr(state, "extra_roots", ()) or ()),
+        tuple(getattr(state, "session_agents", ()) or ()),
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class LaunchSpec:
-    """Kök komuttan REPL'e geçen açılış istemi ve kayıt tercihi."""
+    """Kök komuttan REPL'e geçen açılış istemi, kayıt tercihi ve `--bare`."""
 
     prompts: LaunchPrompts
     snapshot: bool = True
+    bare: bool = False
 
 
 def apply_to_turn(turn: PersonaTurn, state: object) -> PersonaTurn:
@@ -149,6 +169,12 @@ def apply_to_turn(turn: PersonaTurn, state: object) -> PersonaTurn:
     if not isinstance(prompts, LaunchPrompts) or prompts.empty:
         return turn
     extra = "\n\n".join(part for part in (turn.extra_system, prompts.extra_system) if part)
+    tools = turn.allowed_tools
+    if prompts.tools is not None:
+        tools = set(prompts.tools) if tools is None else set(tools) & prompts.tools
     return replace(
-        turn, system_prompt=prompts.system_prompt or turn.system_prompt, extra_system=extra
+        turn,
+        system_prompt=prompts.system_prompt or turn.system_prompt,
+        extra_system=extra,
+        allowed_tools=tools,
     )
