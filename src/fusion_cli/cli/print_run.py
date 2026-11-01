@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import re
 import sys
@@ -56,9 +55,9 @@ from .print_session import (
     resolve_print_session,
     snapshot_plan,
 )
-from .print_setup import run_setup_hooks
+from .print_setup import run_init_only, run_setup_hooks
 from .print_slash import SlashExpansion
-from .print_turn import catalog, prepare_turn, turn_tools
+from .print_turn import catalog, fork_runner, prepare_turn, turn_tools
 from .repl.persona_commands import initial_persona_task
 from .sdk_init import CatalogSummary, active_plugin_paths, catalog_summary, init_message
 from .sdk_suggestions import model_suggestion
@@ -123,15 +122,7 @@ def run_print(request: PrintRequest) -> int:
     ):
         try:
             if request.init_only:
-                # Claude `--init-only`: Setup + SessionStart(startup), konuşma yok, çıktı yok.
-                run_setup_hooks(
-                    plan.config,
-                    root,
-                    request.setup_triggers,
-                    session_id=plan.session_id or "",
-                    session_start=True,
-                )
-                return 0
+                return run_init_only(plan.config, root, request.setup_triggers, plan.session_id)
             return _start(plan, root)
         except TerminatedError:
             return SIGTERM_EXIT_CODE
@@ -313,7 +304,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         conversation_id=run.session.session_id,
         extra_permission_rules=plan.rules,
         child_runs=child_runs,
-        turn_runner=_fork_runner(run),
+        turn_runner=fork_runner(run),
     )
     try:
         over = budget_check(observers.cost, request.max_budget_usd)
@@ -327,20 +318,6 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
             run.stream.clear_forked_command()
     run.history = list(getattr(outcome, "messages", None) or run.history)
     return outcome
-
-
-def _fork_runner(run: _Run) -> Any:  # noqa: ANN401
-    """`/<beceri>` `context: fork` ise tur fork alt ajanda koşar (REPL `/subtask` yolu, #289)."""
-    slash = run.slash
-    if slash is None or not slash.fork:
-        return None
-    from ..engines.agent.team_fork import run_forked_turn
-
-    if run.stream is not None:
-        run.stream.expect_forked_command(slash.skill_name)
-    if slash.fork_agent:
-        return functools.partial(run_forked_turn, persona=slash.fork_agent)
-    return run_forked_turn
 
 
 def _prompter(run: _Run) -> PrintPrompter:

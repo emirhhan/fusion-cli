@@ -8,6 +8,8 @@ daraltması ve ek sistem metni YALNIZ o tura uygulanır (`run.slash` her turda y
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +20,7 @@ from .print_builtins import apply_builtin
 from .print_slash import expand_slash
 
 if TYPE_CHECKING:
+    from ..engines.agent.loop import AgentOutcome
     from .print_run import _Run
 
 
@@ -80,3 +83,17 @@ def turn_tools(run: _Run) -> tuple[set[str] | None, frozenset[str], str]:
     if slash.allowed_tools is not None:
         allowed = set(slash.allowed_tools) if allowed is None else allowed & slash.allowed_tools
     return allowed, selection.denied | slash.denied_tools, slash.extra_system
+
+
+def fork_runner(run: _Run) -> Callable[..., Awaitable[AgentOutcome]] | None:
+    """`/<beceri>` `context: fork` ise tur fork alt ajanda koşar (REPL `/subtask` yolu, #289)."""
+    slash = run.slash
+    if slash is None or not slash.fork:
+        return None
+    from ..engines.agent.team_fork import run_forked_turn
+
+    if run.stream is not None:
+        run.stream.expect_forked_command(slash.skill_name)
+    if slash.fork_agent:
+        return functools.partial(run_forked_turn, persona=slash.fork_agent)
+    return run_forked_turn

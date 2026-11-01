@@ -63,3 +63,11 @@ def run_setup_hooks(
     if not triggers and not session_start:
         return
     asyncio.run(_emit(config, root, triggers, session_id, session_start=session_start))
+
+
+def run_init_only(
+    config: Config, root: Path, triggers: tuple[str, ...], session_id: str | None
+) -> int:
+    """Claude `--init-only`: Setup + SessionStart(startup); konuşma ve çıktı yok, çıkış 0."""
+    run_setup_hooks(config, root, triggers, session_id=session_id or "", session_start=True)
+    return 0
