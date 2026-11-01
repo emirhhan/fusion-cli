@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from .claude_home import claude_user_dir
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 _LOG = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def _default_mode(path: Path) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _from_settings(root: Path, home: Path) -> tuple[str | None, bool]:
+def _from_settings(root: Path, home: Path | None) -> tuple[str | None, bool]:
     """(kip, kullanıcı dosyasından mı) — dosyalarda yoksa (None, False)."""
     project_files = []
     if is_permissions_trusted(root):
@@ -95,7 +96,7 @@ def _from_settings(root: Path, home: Path) -> tuple[str | None, bool]:
         if value in _MODES:
             return _MODES[value], False
         _LOG.warning("Geçersiz permissions.defaultMode yok sayıldı: %s", path)
-    value = _default_mode(home / ".claude" / "settings.json")
+    value = _default_mode(claude_user_dir(home) / "settings.json")
     if value in _MODES:
         return _MODES[value], True
     return None, False
@@ -114,7 +115,7 @@ def resolve_start_mode(
     if flag.strip():
         mode = parse_mode(flag)
     else:
-        mode, _ = _from_settings(root, home or Path.home())
+        mode, _ = _from_settings(root, home)
         if mode is None:
             legacy_mode = _MODES.get(legacy.strip(), BUILT_IN_DEFAULT)
             if legacy_mode == "bypass":

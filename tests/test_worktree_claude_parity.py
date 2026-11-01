@@ -229,7 +229,7 @@ def test_baseref_ayari_claude_settings_jsondan_okunur(repo, tmp_path, monkeypatc
 def test_ayarli_giris_varsayilan_fresh_tabani_kullanir(repo, tmp_path, monkeypatch):
     from fusion_cli.config import worktree_settings
 
-    monkeypatch.setenv("HOME", str(tmp_path / "ev"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ev" / ".claude"))
     _uzakli_depo(repo, tmp_path)
     tree = worktree_settings.enter_configured_worktree(repo, "ayarli")
     assert not (tree.path / "yerel.txt").exists()

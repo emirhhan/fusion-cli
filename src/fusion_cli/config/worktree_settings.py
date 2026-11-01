@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..core.worktree import Worktree, enter_worktree, project_root_of, repository_root
 from ..core.worktree_fetch import BASE_FRESH, BASE_REFS
+from .claude_home import claude_user_dir
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 _LOG = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ _LOG = logging.getLogger(__name__)
 
 def worktree_base_mode(root: Path, *, home: Path | None = None) -> str:
     """Geçerli `worktree.baseRef`: `"fresh"` ya da `"head"`."""
-    paths = [(home or Path.home()) / ".claude" / "settings.json"]
+    paths = [claude_user_dir(home) / "settings.json"]
     if is_project_settings_trusted(root):
         paths.append(root / ".claude" / "settings.json")
     if is_permissions_trusted(root):

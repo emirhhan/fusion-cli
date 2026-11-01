@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 
+from .claude_home import claude_user_dir
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 _LOG = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ _LOG = logging.getLogger(__name__)
 
 def claude_setting(root: Path, key: str, *, home: Path | None = None) -> object | None:
     """`key` için en son tanımlanan değer; hiçbir dosyada yoksa `None`."""
-    paths = [(home or Path.home()) / ".claude" / "settings.json"]
+    paths = [claude_user_dir(home) / "settings.json"]
     if is_project_settings_trusted(root):
         paths.append(root / ".claude" / "settings.json")
     if is_permissions_trusted(root):

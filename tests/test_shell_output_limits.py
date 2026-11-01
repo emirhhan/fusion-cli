@@ -62,7 +62,7 @@ def test_grep_cikis_1_gecerli_sayilir():
 
 
 def test_sinirlar_ortamdan_ve_ayardan(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path / "ev"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ev" / ".claude"))
     monkeypatch.delenv("BASH_MAX_OUTPUT_LENGTH", raising=False)
     assert output_limits(tmp_path) == (30_000, 30_000)
     monkeypatch.setenv("BASH_MAX_OUTPUT_LENGTH", "999999")
