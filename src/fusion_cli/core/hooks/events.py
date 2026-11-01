@@ -33,6 +33,8 @@ class HookEvent(Enum):
     NOTIFICATION = "Notification"
     PRE_COMPACT = "PreCompact"
     CWD_CHANGED = "CwdChanged"
+    #: `/add-dir` oturum ortasında çalışma dizini ekledi (#213); engelleyemez.
+    DIRECTORY_ADDED = "DirectoryAdded"
     TASK_CREATED = "TaskCreated"
     TASK_COMPLETED = "TaskCompleted"
     TEAMMATE_IDLE = "TeammateIdle"
@@ -52,6 +54,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
     HookEvent.CWD_CHANGED: None,
+    HookEvent.DIRECTORY_ADDED: "kaynak (slash_command|register_repo_root)",
     HookEvent.TASK_CREATED: None,
     HookEvent.TASK_COMPLETED: None,
     HookEvent.TEAMMATE_IDLE: None,
@@ -90,7 +93,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "StopFailure",
         "InstructionsLoaded",
         "ConfigChange",
-        "DirectoryAdded",
         "FileChanged",
         "WorktreeCreate",
         "WorktreeRemove",

@@ -160,6 +160,14 @@ class HookSession:
         """`CwdChanged` (Claude Code ile aynı yük): `/cd` oturum kökünü değiştirdi."""
         self.defer(HookEvent.CWD_CHANGED, fields={"old_cwd": str(old), "new_cwd": str(new)})
 
+    def defer_directory_added(self, directory: Path, source: str = "slash_command") -> None:
+        """`DirectoryAdded` (Claude Code ile aynı yük, #213): eşleştirici kaynağa bakar."""
+        self.defer(
+            HookEvent.DIRECTORY_ADDED,
+            subjects=(source,),
+            fields={"directory": str(directory), "source": source},
+        )
+
     def drop_deferred(self) -> None:
         """Kuyruktaki olayları gönderilmeden at (değişiklik geri alındı)."""
         self._deferred.clear()

@@ -88,6 +88,9 @@ def add_dir(state: ReplState, argument: str) -> str:
     state.extra_roots = (*state.extra_roots, hedef)
     # Ek kökün .claude/skills ve .agents/skills becerileri de kataloğa girer (P-052).
     state.refresh_capability_roots()
+    # Claude Code (#213): başarılı eklemeden sonra DirectoryAdded kancaları (kaynak
+    # `slash_command`); yüzey komuttan hemen sonra `hook_events.flush` ile gönderir.
+    state.hooks().defer_directory_added(hedef)
     return f"Erişim açıldı (bu oturum için): {hedef}"
 
 
