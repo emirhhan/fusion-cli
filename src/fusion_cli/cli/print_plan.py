@@ -132,14 +132,15 @@ def _build_config(
     config = opts.apply_model(config, model, request.fallback_model)
     if request.effort:
         config = _with_effort(config, request.effort)
-    config, mcp_errors = opts.load_mcp_configs(
-        config, request.mcp_config, strict=request.strict_mcp_config
-    )
+    # `--bare` yapılandırmadaki MCP'yi kapatır; komut satırındaki `--mcp-config` yine bağlanır.
     config = apply_print_limits(
         config,
         max_turns=request.max_turns,
         max_budget_usd=request.max_budget_usd,
         bare=request.bare,
+    )
+    config, mcp_errors = opts.load_mcp_configs(
+        config, request.mcp_config, strict=request.strict_mcp_config
     )
     return config, mcp_errors, settings
 
@@ -185,6 +186,8 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     if request.bare:
         allowed = selection.allowed
         bare = allowed & BARE_TOOLS if allowed is not None else BARE_TOOLS
+        # `--mcp-config` sunucuları `--bare`'de de kullanılabilir (Claude: komut satırı MCP'si).
+        bare = bare | {f"{server.name}__*" for server in config.mcp_servers}
         selection = replace(selection, allowed=bare)
     replacement, extra = opts.system_prompts(
         system_prompt=request.system_prompt,
