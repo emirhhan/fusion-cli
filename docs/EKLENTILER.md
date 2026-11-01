@@ -122,6 +122,10 @@ bilinmeyen pazar, klasöre güvenildiyse Claude Code gibi kaydedilir: REPL açı
 sessizce yok sayılır; aynı adlı girdide local, project'in girdisini bütünüyle ezer. Kaynak türleri:
 `github` (`repo`, isteğe bağlı `ref`), `git` (`url`), `directory`/`file` (`path`, göreli ise depo
 köküne göre). `url` ve `settings` türleri Fusion'da yok, uyarıyla atlanır.
+Projenin güvenilen `.claude/settings.json`/`.claude/settings.local.json` dosyasında
+`enabledPlugins["ad@pazar"] = true` olan ama bu makinede kurulmamış eklenti, pazar girdisi göreli
+yollu ise kurulum kaydı yazılmadan pazarın kendisinden yüklenir; dış kaynaklı girdi yüklenmez ve
+`Plugin "<ad>" is enabled in project settings but isn't installed here` günlüğe yazılır.
 
 Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
 eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;

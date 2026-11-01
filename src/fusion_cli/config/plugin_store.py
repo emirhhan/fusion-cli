@@ -338,6 +338,10 @@ def active_plugins(
             _LOG.warning(
                 "eklenti '%s' yüklenmedi: %s %s", item.record.name, item.status, item.detail
             )
+    from .plugin_project_enabled import project_enabled_plugins
+
+    names = {item.record.name for item in active}  # #376: projede açılan göreli eklentiler
+    active.extend(project_enabled_plugins(state, root or Path.cwd(), names, base))
     return tuple(active)
 
 
