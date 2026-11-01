@@ -39,6 +39,8 @@ class ChildRuns:
         self._notifications: dict[str, list[str]] = {}
         self._writers: dict[str, Callable[[AgentRunState], Awaitable[None]]] = {}
         self._failures: list[BaseException] = []
+        #: Ctrl+B ile arka plana alınabilecek, sonucu beklenen ön plan koşuları (#12).
+        self._foreground: dict[str, asyncio.Event] = {}
 
     def start(
         self,
@@ -66,6 +68,20 @@ class ChildRuns:
         if self._tasks.get(identifier) is task:
             self._tasks.pop(identifier)
             self._task_turns.pop(identifier, None)
+
+    def watch_foreground(self, identifier: str) -> asyncio.Event:
+        """Beklenen ön plan koşusu için Ctrl+B işareti."""
+        return self._foreground.setdefault(identifier, asyncio.Event())
+
+    def unwatch_foreground(self, identifier: str) -> None:
+        self._foreground.pop(identifier, None)
+
+    def request_background(self) -> bool:
+        """Ctrl+B: beklenen ön plan alt ajanlarını arka plana al; yoksa False."""
+        pending = [event for event in self._foreground.values() if not event.is_set()]
+        for event in pending:
+            event.set()
+        return bool(pending)
 
     def message_queue(self, identifier: str) -> AgentMessageQueue:
         return self._inputs.setdefault(identifier, AgentMessageQueue())

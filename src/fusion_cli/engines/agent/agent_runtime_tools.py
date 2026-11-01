@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .agent_runtime_records import _one_shot, _resolve, _resume_task, _session, _state
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
-    from .team import RunAgent, SubTask
+    from .team import RunAgent, SubRun, SubTask
 
 
 def _receipt(
@@ -99,7 +100,24 @@ async def launch_agent(
                 max_parallel=concurrent_limit(deps),
             )
             return _receipt("async_launched", identifier, deps=deps)
-        result = await run_subagent(deps, task, depth=depth, run_agent=run_agent)
+        movable = (
+            not deps.config.agent_launch.disable_background_tasks
+            and deps.config.runtime.background_agents
+            and not _one_shot(persona)
+        )
+        run = asyncio.ensure_future(run_subagent(deps, task, depth=depth, run_agent=run_agent))
+        if movable and await _moved_to_background(deps, identifier, run):
+            # Ctrl+B (#12): ön plan alt ajanı kesilmeden arka plana geçti; tur beklemeden sürer.
+            deps.child_runs.remember(
+                _state(deps, replace(task, background=True), persona, identifier), ()
+            )
+            deps.child_runs.launch(
+                identifier,
+                _adopted_background(deps, task, run),
+                max_parallel=concurrent_limit(deps),
+            )
+            return _receipt("async_launched", identifier, deps=deps)
+        result = await run
         state = deps.child_runs.record(identifier)
         if not result.ok:
             return ToolResult.failure(result.text)
@@ -179,6 +197,40 @@ async def legacy_background(
     return ToolResult(
         f"Arka plan ajanı: {receipt['agentId']}. Durumu list_agents ile izleyebilirsin. {delivery}"
     )
+
+
+async def _moved_to_background(
+    deps: AgentDeps, identifier: str, run: asyncio.Future[SubRun]
+) -> bool:
+    """Ön plan koşusu biterse False, kullanıcı Ctrl+B'ye basarsa True; iptal koşuya geçer."""
+    detach = deps.child_runs.watch_foreground(identifier)
+    waiter = asyncio.ensure_future(detach.wait())
+    try:
+        futures: set[asyncio.Future[Any]] = {run, waiter}
+        done, _ = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        run.cancel()
+        raise
+    finally:
+        waiter.cancel()
+        deps.child_runs.unwatch_foreground(identifier)
+    return run not in done
+
+
+async def _adopted_background(
+    deps: AgentDeps, task: SubTask, run: asyncio.Future[SubRun]
+) -> object:
+    """Arka plana alınan koşuyu sahiplen; bitince durum ve bildirim `_owned_background` gibi."""
+    try:
+        result = await run
+    except asyncio.CancelledError:
+        run.cancel()
+        raise
+    await deps.child_runs.set_status(
+        task.agent_id, result.status or ("completed" if result.ok else "failed")
+    )
+    deps.child_runs.completed(task.agent_id, result.text)
+    return result
 
 
 async def _owned_background(
