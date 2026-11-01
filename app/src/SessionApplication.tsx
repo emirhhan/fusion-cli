@@ -687,6 +687,13 @@ export function SessionUygulama({
     active ? { id: active.id, client: active.client, root: active.root } : null,
     setCommandError,
   );
+  // Kenar çubuğunun PR'a bağlı otomatik arşivi (#443): etkin çekirdeğe sorulur; kimlik sabit kalır.
+  const prDurumlari = useCallback(async (ids: string[]): Promise<Record<string, string>> => {
+    if (!activeClient) return {};
+    const result = await activeClient.request("sohbet.pr_durumlari", { sohbetler: ids });
+    const states = result?.ok === false ? null : result?.durumlar;
+    return states && typeof states === "object" ? states as Record<string, string> : {};
+  }, [activeClient]);
   // `/voice gonder` (P-072): kesin metin gelince taslak gönderilir; gönderim taslak güncellendikten
   // SONRA (efektte) yapılır ki composer temizlensin.
   const dictationAutoSend = useRef<string | null>(null);
@@ -2270,6 +2277,7 @@ export function SessionUygulama({
               projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
               okunmamis: okunmamisSohbetler.has(session.id),
+              calisiyor: Boolean(session.running),
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
@@ -2286,6 +2294,7 @@ export function SessionUygulama({
               })),
           ]}
           guncellemeSurumu={guncellemeSurumu}
+          prDurumlari={prDurumlari}
           onGuncellemeAc={() => setPage("settings")}
           hesap={etkinHesap}
           onCikis={() => {

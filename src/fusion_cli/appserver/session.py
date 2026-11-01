@@ -103,7 +103,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import auto_memory, computer_routes, intelligence, ui_prefs
+from . import auto_memory, computer_routes, intelligence, pr_archive, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
@@ -1061,6 +1061,15 @@ class AppSession:
             return self._list_conversations()
         if request.name == "sohbet.adlandir":
             return await self._rename_conversation(request.data)
+        if request.name == "sohbet.pr_durumlari":
+            # Claude Desktop "Auto-archive after PR merge or close" (#443): kenar çubuğu sorar.
+            ids = request.data.get("sohbetler")
+            states = await asyncio.to_thread(
+                pr_archive.pr_states,
+                self._state.config.memory_dir,
+                ids if isinstance(ids, list) else [],
+            )
+            return {"ok": True, "durumlar": states}
         if request.name == "sohbet.baslik":
             return _title_payload(request.data.get("metin"))
         if request.name == "sohbet.disa_aktar":

@@ -1018,8 +1018,15 @@ görünümünde durur; oradan **Arşivden çıkar** ile geri gelir. Kalıcı sil
 onay ister. Tercih bu bilgisayarda saklanır. Başlık çubuğundaki sohbet adına tıklayınca ad
 düzenlenir (Enter kaydeder, Esc vazgeçer); ad CLI `/rename` ile aynı kayda yazılır ve
 `fusion --resume <ad>` onu görür. Kenar çubuğunda bir sohbete **Option (⌥) ile tıklamak** onu
-etkin sohbetin yanında ikinci bölmede açar (menüdeki "Yan yana aç"). **Henüz yok** (#443): PR
-birleşince/kapanınca otomatik arşiv, Group and sort menüsü ve Cmd-tık ile yeni pencerede açma.
+etkin sohbetin yanında ikinci bölmede açar (menüdeki "Yan yana aç"). Ayarlar › Genel › **PR
+birleşince ya da kapanınca sohbeti otomatik arşivle** (Claude'daki Auto-archive after PR merge or
+close; varsayılan kapalı) açıkken kenar çubuğu, sohbete bağlı PR'ın durumunu `gh pr view --json
+state` ile sorar (açılışta, pencereye dönünce en çok dakikada bir, ayrıca 5 dakikada bir);
+birleşen ya da kapanan PR'ın sohbeti arşive gider. Tur süren sohbet atlanır; `gh` yoksa ya da
+hata verirse hiçbir şey arşivlenmez; arşivden geri çıkardığın sohbet bir daha otomatik
+arşivlenmez. Projeler başlığındaki **⇅ Grupla ve sırala** menüsü: Projeye göre (varsayılan) ya da
+Gruplama yok (tek liste); sıralama son etkinliğe göredir. **Henüz yok** (#443): Cmd-tık ile yeni
+pencerede açma (masaüstü uygulaması tek pencerelidir).
 
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı

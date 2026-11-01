@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Arşivlenen sohbetlerin kalıcı anahtarı (sabitlemeyle aynı kaynak:kimlik biçimi). */
 export const ARCHIVED_SESSIONS_KEY = "fusion.sidebar.archived-sessions.v1";
@@ -34,5 +34,10 @@ export function useArchivedSessions() {
     current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
   ));
   const forget = (key: string) => setArchived((current) => current.filter((item) => item !== key));
-  return { archived, isArchived: (key: string) => archived.includes(key), toggle, forget, error };
+  /** Otomatik arşiv (#443): verilen sohbetleri arşive ekle (zaten arşivde olan değişmez). */
+  const archiveMany = useCallback((keys: string[]) => setArchived((current) => {
+    const added = keys.filter((key) => !current.includes(key));
+    return added.length ? [...current, ...added] : current;
+  }), []);
+  return { archived, isArchived: (key: string) => archived.includes(key), toggle, forget, archiveMany, error };
 }

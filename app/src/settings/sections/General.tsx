@@ -14,6 +14,7 @@ import {
 } from "../../theme/accessibility";
 import { useAccessibility } from "../../theme/useAccessibility";
 import { setTrayEnabled, useTrayEnabled } from "../../windowing/tray";
+import { setAutoArchivePr, useAutoArchivePr } from "../../screens/usePrAutoArchive";
 
 /**
  * Genel — kullanıcının günlük tercihleri.
@@ -57,6 +58,7 @@ export function General({
   const { language, t } = useLanguage();
   const erisilebilirlik = useAccessibility();
   const trayEnabled = useTrayEnabled();
+  const autoArchivePr = useAutoArchivePr();
   return (
     <>
       {/* Çevrilen kartlar kendi dilini taşır; belge dili çeviri tamamlanana dek "tr" (bkz. i18n/language.ts). */}
@@ -180,6 +182,16 @@ export function General({
             type="checkbox"
           />
           <span>Menü çubuğunda Fusion simgesi</span>
+        </label>
+        {/* Claude Desktop "Auto-archive after PR merge or close" (#443); çalışan sohbet atlanır. */}
+        <label className="settings__row settings__row--check">
+          <input
+            checked={autoArchivePr}
+            id="settings-auto-archive-pr"
+            onChange={(event) => setAutoArchivePr(event.target.checked)}
+            type="checkbox"
+          />
+          <span>PR birleşince ya da kapanınca sohbeti otomatik arşivle</span>
         </label>
         <label className="settings__row" htmlFor="settings-placement">
           <span>Çalışma paneli</span>

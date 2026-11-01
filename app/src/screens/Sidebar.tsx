@@ -8,6 +8,8 @@ import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
 import { useModalFocus } from "../ui/useModalFocus";
 import { useArchivedSessions } from "./useArchivedSessions";
+import { usePrAutoArchive, type PrStateQuery } from "./usePrAutoArchive";
+import { GroupSortMenu, useSidebarGrouping } from "./SidebarGroupSort";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -21,6 +23,8 @@ export interface OturumSatiri {
   title: string;
   /** Bakılmadan tur bitti ya da onay geldi: satırda nokta, erişilebilir adda "okunmamış" (P-047). */
   okunmamis?: boolean;
+  /** Tur sürüyor: PR'a bağlı otomatik arşiv bu sohbeti atlar (#443). */
+  calisiyor?: boolean;
 }
 
 export interface ProjeSatiri {
@@ -104,6 +108,8 @@ interface SidebarProps {
   /** Yeni sürüm varsa numarası; yoksa şerit hiç çizilmez. */
   guncellemeSurumu?: string | null;
   onGuncellemeAc?: () => void;
+  /** Sohbet kimliği → bağlı PR durumu (`sohbet.pr_durumlari`); otomatik arşiv için (#443). */
+  prDurumlari?: PrStateQuery;
 }
 
 interface NavItemProps {
@@ -277,6 +283,7 @@ export function Sidebar({
   onCikis,
   guncellemeSurumu = null,
   onGuncellemeAc,
+  prDurumlari,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const { language, t } = useLanguage();
@@ -379,6 +386,17 @@ export function Sidebar({
   });
   const [agentsOpen, setAgentsOpen] = useState(false);
   const archive = useArchivedSessions();
+  // Claude Desktop "Auto-archive after PR merge or close" (#443): yalnız Fusion sohbetleri.
+  usePrAutoArchive(
+    oturumlar.filter((session) => session.source === "fusion").map((session) => ({
+      id: session.session_id,
+      key: pinKey(session),
+      running: Boolean(session.calisiyor),
+      archived: archive.isArchived(pinKey(session)),
+    })),
+    prDurumlari,
+    archive.archiveMany,
+  );
   const [showArchived, setShowArchived] = useState(false);
   const archivedCount = oturumlar.filter((session) => archive.isArchived(pinKey(session))).length;
   const filteredSessions = useMemo(() => {
@@ -418,7 +436,13 @@ export function Sidebar({
       return right.updated_at - left.updated_at;
     });
   }, [projectPreferences, projeler, query, oturumlar]);
+  const [grouping, setGrouping] = useSidebarGrouping();
   const sessionGroups = useMemo(() => {
+    if (grouping === "none") {
+      // "Group and sort" › gruplama yok: tek liste, son etkinliğe göre (#443).
+      const flat = [...filteredSessions].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+      return [["hepsi", { name: "Tüm sohbetler", sessions: flat }]] as [string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }][];
+    }
     const groups = new Map<string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }>();
     for (const project of filteredProjects) {
       groups.set(project.id ? `kayit:${project.id}` : project.root, { name: project.name, root: project.root, id: project.id, sessions: [] });
@@ -437,7 +461,7 @@ export function Sidebar({
       return pinOrder || (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
     return [...groups.entries()];
-  }, [filteredProjects, filteredSessions, pinnedSessions]);
+  }, [filteredProjects, filteredSessions, pinnedSessions, grouping]);
   const hiddenProjects = projeler.filter((project) => !project.id && projectPreferences[project.root]?.hidden);
   const [projectInfo, setProjectInfo] = useState<{ key: string; name: string; root?: string; id?: string; count: number; top: number; left: number } | null>(null);
   const infoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -601,6 +625,7 @@ export function Sidebar({
                 <div className="sidebar__projects-heading" ref={projectsMenuRef}>
                   <span>Projeler</span>
                   <span className="sidebar__projects-heading-actions">
+                    <GroupSortMenu grouping={grouping} onChange={setGrouping} />
                     <button
                       aria-expanded={projectsMenuOpen}
                       aria-haspopup="menu"
