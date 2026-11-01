@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -30,36 +31,55 @@ MEMORY_TYPES = {
     "ek-dizin": "Project",
 }
 
-#: Oturum (kanca nesnesi) başına bildirilmiş dosyalar; sınırsız büyümesin.
-_FIRED: dict[int, set[str]] = {}
-_MAX_SESSIONS = 64
+#: Durumu kendi alanında taşımayan kanca nesneleri (testlerin sahteleri) için yedek kayıt;
+#: nesne toplanınca kaydı da düşer (`id()` yeniden kullanımı yeni oturumu bastırmaz).
+_FALLBACK: weakref.WeakKeyDictionary[object, dict[str, Any]] = weakref.WeakKeyDictionary()
 _TASKS: set[asyncio.Task[Any]] = set()
+#: Özetlemeden sonra yeniden bildirilen nedenler.
+_RELOADED_REASONS = ("session_start", "include", "compact")
+
+
+def _fallback(hooks: object) -> dict[str, Any]:
+    try:
+        return _FALLBACK.setdefault(hooks, {"seen": set(), "compacted": False})
+    except TypeError:  # zayıf başvuru almayan nesne: tekilleştirme yok, olay kaybolmaz
+        return {"seen": set(), "compacted": False}
+
+
+def _seen(hooks: object) -> set[str]:
+    own = getattr(hooks, "instructions_seen", None)
+    return own if isinstance(own, set) else _fallback(hooks)["seen"]
+
+
+def _is_compacted(hooks: object) -> bool:
+    if hasattr(hooks, "instructions_compacted"):
+        return bool(hooks.instructions_compacted)
+    return bool(_fallback(hooks)["compacted"])
+
+
+def _set_compacted(hooks: object, value: bool) -> None:
+    if hasattr(hooks, "instructions_compacted"):
+        hooks.instructions_compacted = value  # type: ignore[attr-defined]
+    else:
+        _fallback(hooks)["compacted"] = value
 
 
 def _first_time(hooks: object, key: str) -> bool:
-    seen = _FIRED.setdefault(id(hooks), set())
-    if len(_FIRED) > _MAX_SESSIONS:
-        _FIRED.pop(next(iter(_FIRED)))
+    seen = _seen(hooks)
     if key in seen:
         return False
     seen.add(key)
     return True
 
 
-#: Bağlamı özetlenmiş oturumlar: sonraki yüklemenin nedeni `compact` (#169).
-_COMPACTED: set[int] = set()
-#: Özetlemeden sonra yeniden bildirilen nedenler.
-_RELOADED_REASONS = ("session_start", "include", "compact")
-
-
 def mark_compacted(hooks: object | None) -> None:
     """Bağlam özetlendi: talimatlar yeniden yüklenince olay `compact` nedeniyle tekrar gider."""
     if hooks is None:
         return
-    seen = _FIRED.get(id(hooks))
-    if seen is not None:
-        _FIRED[id(hooks)] = {key for key in seen if not key.startswith("startup:")}
-    _COMPACTED.add(id(hooks))
+    seen = _seen(hooks)
+    for key in [key for key in seen if key.startswith("startup:")]:
+        seen.discard(key)
+    _set_compacted(hooks, True)
 
 
 def after_compact(
@@ -67,9 +87,9 @@ def after_compact(
 ) -> list[Mapping[str, object]]:
     """Özetlemeden sonraki ilk yüklemede `session_start`/`include` → `compact` (bir kez)."""
     items = list(events)
-    if hooks is None or id(hooks) not in _COMPACTED:
+    if hooks is None or not _is_compacted(hooks):
         return items
-    _COMPACTED.discard(id(hooks))
+    _set_compacted(hooks, False)
     return [
         {**fields, "load_reason": "compact"}
         if fields.get("load_reason") in _RELOADED_REASONS
@@ -101,13 +121,11 @@ def notify(hooks: object | None, events: Iterable[Mapping[str, object]]) -> None
     emit = getattr(hooks, "emit", None) if hooks is not None else None
     if emit is None:
         return
-    fresh = [fields for fields in events if _first_time(hooks, _key(fields))]
-    if not fresh:
-        return
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        return
+        return  # olay "görüldü" sayılmaz; döngülü sonraki yüklemede gider
+    fresh = [fields for fields in events if _first_time(hooks, _key(fields))]
     for fields in fresh:
         task = loop.create_task(
             emit(
@@ -128,20 +146,38 @@ def _done(task: asyncio.Task[Any]) -> None:
 
 def startup_events(files: Iterable[object]) -> list[dict[str, object]]:
     """Tur başı yüklenen katman dosyaları → olay yükleri (`import` katmanı `include`)."""
+    items = list(files)
+    layers = {
+        str(getattr(item, "path", "")): (str(getattr(item, "layer", "")), getattr(item, "parent", None))
+        for item in items
+    }
     result = []
-    for item in files:
+    for item in items:
         layer = str(getattr(item, "layer", ""))
         reason = "include" if layer == "import" else "session_start"
         parent = getattr(item, "parent", None) if reason == "include" else None
         result.append(
             payload(
                 str(getattr(item, "path", "")),
-                layer,
+                _import_layer(parent, layers) if reason == "include" else layer,
                 reason,
                 parent_file_path=str(parent) if parent is not None else "",
             )
         )
     return result
+
+
+def _import_layer(parent: object, layers: Mapping[str, tuple[str, object]]) -> str:
+    """`@import` dosyasının `memory_type`'ı zincirin kökündeki dosyanınkidir (#169)."""
+    seen: set[str] = set()
+    key = str(parent) if parent is not None else ""
+    while key and key not in seen:
+        seen.add(key)
+        layer, upper = layers.get(key, ("import", None))
+        if layer != "import":
+            return layer
+        key = str(upper) if upper is not None else ""
+    return "import"
 
 
 def rule_startup_events(rules: Iterable[object]) -> list[dict[str, object]]:
