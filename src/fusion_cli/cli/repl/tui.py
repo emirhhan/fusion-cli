@@ -172,6 +172,8 @@ class FusionTui:
         self._ctrl_d = DoublePress()
         self._kill_press = DoublePress(KILL_AGENTS_WINDOW_S)
         self._kill_agents: Callable[[], None] | None = None
+        self._todos: Callable[[], str] | None = None
+        self._todos_visible = False
         #: Durum satırında geçici ipucu ("çıkmak için tekrar Ctrl+C").
         self._flash = ""
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
@@ -256,6 +258,14 @@ class FusionTui:
             Window(FormattedTextControl(self._work_fragments), height=1, style="class:work"),
             filter=Condition(lambda: bool(self._work_now())),
         )
+        # Ctrl+T (#216): görev listesi çalışma satırının altında, girdinin üstünde.
+        todos_window = ConditionalContainer(
+            Window(
+                FormattedTextControl(lambda: [("class:work", self.todos_text())]),
+                height=lambda: Dimension.exact(self.todos_text().count("\n") + 1),
+            ),
+            filter=Condition(lambda: bool(self.todos_text())),
+        )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
         # Claude Code: betik çıktısı yerleşik çubuğun ÜSTÜNDE kendi satır(lar)ında, ANSI renk
@@ -277,6 +287,7 @@ class FusionTui:
             [
                 conversation,
                 work_window,
+                todos_window,
                 choice_window,
                 rule,
                 Frame(self._input),
@@ -874,6 +885,7 @@ class FusionTui:
             "kaydir_asagi": (lambda: self._scroll_by(-_SCROLL_STEP), scrollable),
             "simdi_gonder": (self._send_queue_now, typing),
             "ajanlari_durdur": (self._kill_agents_pressed, None),
+            "gorevler": (self._toggle_todos, None),
             "kisayollar": (
                 self._show_shortcuts,
                 typing & Condition(lambda: not self._input.buffer.text),
@@ -937,9 +949,24 @@ class FusionTui:
         else:
             kb.add(*keys, filter=condition, eager=True)(_run)
 
-    def set_agent_hooks(self, kill_agents: Callable[[], None]) -> None:
-        """Ctrl+X Ctrl+K (#216): arka plan alt ajanlarını durduran kanca."""
+    def set_agent_hooks(
+        self, kill_agents: Callable[[], None], todos: Callable[[], str] | None = None
+    ) -> None:
+        """Ctrl+X Ctrl+K ve Ctrl+T (#216) kancaları."""
         self._kill_agents = kill_agents
+        self._todos = todos
+
+    def _toggle_todos(self) -> None:
+        """Ctrl+T (Claude Code app:toggleTodos): görev listesini çalışma satırının üstünde
+        göster/gizle; liste yoksa kısa not."""
+        self._todos_visible = not self._todos_visible
+        self.application.invalidate()
+
+    def todos_text(self) -> str:
+        """Görünürse güncel görev listesi (yerleşimdeki panel bunu okur)."""
+        if not self._todos_visible or self._todos is None:
+            return ""
+        return self._todos() or messages.TODOS_EMPTY
 
     def _kill_agents_pressed(self) -> None:
         """İlk basış uyarır, 3 sn içindeki ikinci basış arka plan ajanlarını durdurur."""

@@ -353,7 +353,7 @@ class _TuiSession:
             on_background=self._background_turn,
         )
         self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
-        self._tui.set_agent_hooks(self._kill_agents)
+        self._tui.set_agent_hooks(self._kill_agents, self._todo_lines)
         self._tui.set_vim_remaps(vim_remaps.load_remaps(state.home))
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
@@ -498,6 +498,13 @@ class _TuiSession:
         taken.extend(line for line in self._queue if not line.lstrip().startswith("!"))
         self._queue[:] = shell
         return taken
+
+    def _todo_lines(self) -> str:
+        """Son turun görev listesi (Ctrl+T, #216)."""
+        todos = getattr(self._state.last_tool_context, "todos", None)
+        items = todos.items if todos is not None else ()
+        marks = {"pending": "☐", "in_progress": "◐", "completed": "☑"}
+        return "\n".join(f"  {marks.get(item.status.value, '☐')} {item.content}" for item in items)
 
     def _kill_agents(self) -> None:
         """Ctrl+X Ctrl+K (#216): bu oturumun arka plan alt ajanlarını durdur."""
@@ -1283,6 +1290,7 @@ class _TuiSession:
                     changes=checkpoint.changes,
                     shell_handoff=self._state.shell_handoff,
                 )
+                self._state.last_tool_context = tool_context
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
                 self._state.last_changes = tool_context.changes

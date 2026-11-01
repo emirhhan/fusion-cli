@@ -1650,6 +1650,7 @@ KILL_AGENTS_CONFIRM = (
     "Arka plan ajanlarını durdurmak için 3 sn içinde Ctrl+X Ctrl+K'ya yeniden bas."
 )
 KILL_AGENTS_DONE = "{count} arka plan alt ajanı durduruldu."
+TODOS_EMPTY = "  (görev listesi boş · Ctrl+T gizler)"
 SHORTCUTS_PANEL = (
     "Kısayollar\n"
     "  ! kabuk kipi · / komutlar · @ dosya/kaynak/oturum anması\n"

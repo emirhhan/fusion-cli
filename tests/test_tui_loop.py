@@ -792,3 +792,21 @@ def test_bos_girdide_soru_isareti_kisayol_panelini_basar(tmp_path):
     assert keymap.contexts["tui"]["?"] == "kisayollar"
     assert keymap.contexts["tui"]["c-x c-k"] == "ajanlari_durdur"
     assert translate_action("chat:killAgents") == "ajanlari_durdur"
+
+
+def test_ctrl_t_gorev_listesini_gosterir_gizler(tmp_path):
+    """Claude Code app:toggleTodos (#216)."""
+    from fusion_cli.core.tools import TodoItem, TodoStatus, ToolContext
+
+    session = _TuiSession(_state(tmp_path))
+    context = ToolContext(root=tmp_path)
+    context.todos.replace(
+        (TodoItem("testleri yaz", TodoStatus.COMPLETED), TodoItem("düzelt", TodoStatus.PENDING))
+    )
+    session._state.last_tool_context = context
+    assert session._tui.todos_text() == ""
+    session._tui._toggle_todos()
+    assert "☑ testleri yaz" in session._tui.todos_text()
+    assert "☐ düzelt" in session._tui.todos_text()
+    session._tui._toggle_todos()
+    assert session._tui.todos_text() == ""

@@ -206,6 +206,8 @@ class ReplState:
     shell_handoff: ShellHandoff = field(default_factory=ShellHandoff, kw_only=True, repr=False)
     #: Satır içi REPL: tur sürerken yazılıp modele gitmeyen satırlar, sıradaki turlar (#190).
     queued_lines: list[str] = field(default_factory=list, kw_only=True, repr=False)
+    #: Son agent turunun araç bağlamı (Ctrl+T görev listesi, #216).
+    last_tool_context: object | None = field(default=None, kw_only=True, repr=False)
     #: Satır içi REPL: tur sürerken anlık komut çalıştırıcı (#209) ve süren işleri.
     inline_immediate: Callable[[str], bool] | None = field(default=None, kw_only=True, repr=False)
     immediate_tasks: set[asyncio.Future[None]] = field(

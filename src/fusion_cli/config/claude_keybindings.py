@@ -68,6 +68,7 @@ ACTION_MAP: dict[str, str] = {
     "task:background": "arka_plana_al",
     "chat:sendNow": "simdi_gonder",
     "chat:killAgents": "ajanlari_durdur",
+    "app:toggleTodos": "gorevler",
     "chat:externalEditor": "dis_editor",
     "chat:undo": "geri_al",
     "chat:clearInput": "yeniden_ciz",

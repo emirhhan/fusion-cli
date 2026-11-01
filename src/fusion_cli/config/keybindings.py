@@ -75,6 +75,8 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "f24": "simdi_gonder",
         # Claude Code chat:killAgents (#216): arka plan alt ajanlarını durdur (çift basış).
         "c-x c-k": "ajanlari_durdur",
+        # Claude Code app:toggleTodos (#216): görev listesini göster/gizle.
+        "c-t": "gorevler",
         # Boş girdide `?` kısayol paneli (#216).
         "?": "kisayollar",
         "c-g": "dis_editor",
@@ -106,6 +108,7 @@ ACTIONS: dict[str, frozenset[str]] = {
             "simdi_gonder",
             "ajanlari_durdur",
             "kisayollar",
+            "gorevler",
             *_EDIT_ACTIONS,
         }
     ),
