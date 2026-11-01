@@ -55,6 +55,7 @@ from .print_session import (
     resolve_print_session,
     snapshot_plan,
 )
+from .print_setup import run_setup_hooks
 from .print_slash import SlashExpansion
 from .print_turn import catalog, prepare_turn, turn_tools
 from .repl.persona_commands import initial_persona_task
@@ -119,6 +120,16 @@ def run_print(request: PrintRequest) -> int:
         hook_lifecycle.observer_scope(),
     ):
         try:
+            if request.init_only:
+                # Claude `--init-only`: Setup + SessionStart(startup), konuşma yok, çıktı yok.
+                run_setup_hooks(
+                    plan.config,
+                    root,
+                    request.setup_triggers,
+                    session_id=plan.session_id or "",
+                    session_start=True,
+                )
+                return 0
             return _start(plan, root)
         except TerminatedError:
             return SIGTERM_EXIT_CODE
@@ -187,6 +198,8 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
             prompt_suggestions=request.prompt_suggestions,
         )
         run.stream.write(_init(run))
+    # `-p --init` / `--maintenance` (#301): konuşmadan önce Setup kancaları (akışta görünür).
+    run_setup_hooks(plan.config, root, request.setup_triggers, session_id=session.session_id)
     if plan.stream_input:
         from .print_stream import stream_turns
 

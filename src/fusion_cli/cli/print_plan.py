@@ -96,6 +96,10 @@ class PrintRequest:
     config_set: tuple[str, ...] = ()
     profile: str | None = None
     ignored_flags: tuple[str, ...] = ()
+    #: `--init`/`--init-only`/`--maintenance` (#301): Setup kanca tetikleri.
+    setup_triggers: tuple[str, ...] = ()
+    #: `--init-only`: Setup + SessionStart kancaları, konuşma yok.
+    init_only: bool = False
     from_pr: str = ""
     debug: str | None = None
     debug_file: str | None = None

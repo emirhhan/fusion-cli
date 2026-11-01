@@ -14,9 +14,9 @@ from typing import Annotated
 
 import typer
 
-from ..ui import print_messages as texts
 from .print_plan import PrintRequest
 from .print_run import run_print
+from .print_setup import setup_triggers
 
 
 def print_command(
@@ -97,12 +97,6 @@ def print_command(
     profile: Annotated[str | None, typer.Option("--profile")] = None,
 ) -> None:
     """Claude Code `-p`: istemi etkileşimsiz çalıştır, cevabı yaz ve çık."""
-    ignored = {
-        # Setup kanca olayı henüz tetiklenmiyor (kancalar alanı); bayrak düşmez, uyarır.
-        "--init": init,
-        "--init-only": init_only,
-        "--maintenance": maintenance,
-    }
     request = PrintRequest(
         prompt=prompt,
         output_format=output_format,
@@ -157,15 +151,12 @@ def print_command(
         disable_slash=disable_slash,
         config_set=tuple(config_set or ()),
         profile=profile,
-        ignored_flags=tuple(flag for flag, given in ignored.items() if given),
+        setup_triggers=setup_triggers(init=init, init_only=init_only, maintenance=maintenance),
+        init_only=init_only,
         from_pr=from_pr or "",
         debug=debug,
         debug_file=debug_file,
         exclude_dynamic=exclude_dynamic,
         betas=tuple(betas or ()),
     )
-    if init_only:
-        # Claude: kancaları çalıştırıp konuşma başlatmadan çıkar; sohbet açılmaz.
-        typer.echo(texts.PRINT_UNSUPPORTED_FLAG.format(flag="--init-only"), err=True)
-        raise typer.Exit(0)
     raise typer.Exit(run_print(request))

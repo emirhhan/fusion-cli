@@ -28,6 +28,8 @@ class HookEvent(Enum):
     STOP = "Stop"
     SUBAGENT_STOP = "SubagentStop"
     SUBAGENT_START = "SubagentStart"
+    #: `--init-only`, `-p --init` (`init`) ve `-p --maintenance` (`maintenance`); engelleyemez.
+    SETUP = "Setup"
     SESSION_START = "SessionStart"
     SESSION_END = "SessionEnd"
     NOTIFICATION = "Notification"
@@ -47,6 +49,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.STOP: None,
     HookEvent.SUBAGENT_STOP: "ajan türü",
     HookEvent.SUBAGENT_START: "ajan türü",
+    HookEvent.SETUP: "tetik (init|maintenance)",
     HookEvent.SESSION_START: "kaynak (startup|resume|clear|compact)",
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
@@ -81,7 +84,6 @@ STDOUT_CONTEXT_EVENTS = frozenset({HookEvent.USER_PROMPT_SUBMIT, HookEvent.SESSI
 #: "tetiklenmiyor" diye görünür, hata sayılmaz.
 CLAUDE_ONLY_EVENTS = frozenset(
     {
-        "Setup",
         "UserPromptExpansion",
         "PermissionRequest",
         "PermissionDenied",

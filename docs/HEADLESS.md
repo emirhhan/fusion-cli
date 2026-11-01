@@ -162,9 +162,12 @@ aynı `hook_id` ile `system/hook_response` (`output`, `stdout`, `stderr`, `exit_
 kanıtından (değişen dosyalar, düşen araç/doğrulama, adım sınırı) üretilen ilk takip
 önerisidir; ek model çağrısı açılmaz, kanıt yoksa mesaj yazılmaz.
 
-Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (Setup kanca olayı tetiklenmediği
-için `--init`, `--maintenance` ve konuşma başlatmadan çıkan `--init-only`)
-stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
+`-p --init` ve `-p --maintenance` konuşmadan önce `Setup` kanca olayını tetikler
+(eşleştirici ve girdideki `trigger` sırasıyla `init` / `maintenance`); `fusion --init-only`
+(ya da `-p --init-only`) Setup(`init`) ve `SessionStart(startup)` kancalarını koşup konuşma
+açmadan, başarıda çıktısız çıkar. Setup olağan açılışta çalışmaz ve engelleyemez: çıkış kodu
+ve JSON çıktısı yok sayılır (Claude ile aynı). Çalıştığını görmek için
+`fusion --debug-file <yol> --init-only` günlüğünde `Setup:` ve `SessionStart:` satırlarına bak.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına
 `{tool_name, input, tool_use_id}` ile sorar (`input` Claude alan adlarıyla, `tool_use_id`

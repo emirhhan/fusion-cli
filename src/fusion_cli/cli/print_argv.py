@@ -32,6 +32,7 @@ BACKGROUND_COMMAND = "agent"
 #: Kök konumsal istemi taşıyan gizli kök seçeneği.
 INITIAL_PROMPT_OPTION = "--initial-prompt"
 _PRINT_FLAGS = frozenset({"-p", "--print"})
+INIT_ONLY_FLAG = "--init-only"
 _WORKTREE_FLAGS = frozenset({"-w", "--worktree"})
 #: Claude'da boşlukla birden çok değer alan bayraklar (commander `<values...>`).
 #: `--plugin-dir` burada DEĞİL: Claude'da her bayrak tek yol alır (`-p --plugin-dir A "sorgu"`).
@@ -132,6 +133,9 @@ def rewrite_root_args(args: Sequence[str], group: TyperGroup) -> list[str]:
     position = _first_positional(tokens, _value_options(group))
     if position is not None and tokens[position] in group.commands:
         return tokens
+    if INIT_ONLY_FLAG in tokens and not any(token in _PRINT_FLAGS for token in tokens):
+        # `claude --init-only` (#301): Setup + SessionStart kancaları, konuşma açılmaz.
+        return [PRINT_COMMAND, *tokens]
     if any(token in _PRINT_FLAGS for token in tokens):
         rest = [token for token in tokens if token not in _PRINT_FLAGS]
         return [PRINT_COMMAND, *expand_variadic(fill_worktree_names(rest, print_mode=True))]
