@@ -243,3 +243,11 @@ def test_girdi_adi_bildirim_adindan_farkli_ise_kimlik_ve_guncelleme_kaynagi(tmp_
     result = runner.invoke(app, ["disable", "rapor-eklentisi@ekip"])
     assert result.exit_code == 0, result.output
     assert plugin_store.load_state().plugin("rapor").enabled is False
+
+
+def test_uninstall_prune_bagimlilik_yok(tmp_path):
+    plugin_install.add_marketplace(str(_market(tmp_path)))
+    plugin_install.install_plugin("rapor@ekip", approve=_yes)
+    result = runner.invoke(app, ["uninstall", "rapor", "--prune"])
+    assert result.exit_code == 0, result.output
+    assert "Nothing to prune" in result.output

@@ -24,6 +24,7 @@ from ..config.plugin_store import inspect_plugin, installed_plugins, load_state,
 from ..core.plugins import PluginError
 from ..tools import plugin_install as plugins
 from ..tools import plugin_update
+from ..tools.plugin_listing import prune_text
 from .plugin_result import run_result
 from .plugin_view import (
     DIGEST_HINT,
@@ -242,6 +243,9 @@ def disable(
         False, "--hepsi", "--all", "-a", help="Bütün eklentileri kapat."
     ),
     scope: str = typer.Option("", "--scope", "-s", help=SCOPE_HELP),
+    prune: bool = typer.Option(
+        False, "--prune", help="Artık gerekmeyen otomatik bağımlılıkları da kaldır (Fusion: yok)."
+    ),
     as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Eklentiyi kaldırmadan kapat; bileşenleri yüklenmez."""
@@ -255,6 +259,9 @@ def uninstall(
     keep_data: bool = typer.Option(
         False, "--keep-data", help="Eklentinin kalıcı veri klasörünü (CLAUDE_PLUGIN_DATA) koru."
     ),
+    prune: bool = typer.Option(
+        False, "--prune", help="Artık gerekmeyen otomatik bağımlılıkları da kaldır (Fusion: yok)."
+    ),
     as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
     """Eklentiyi kaldır (klasör Fusion çöpüne taşınır; veri klasörü --keep-data yoksa silinir)."""
@@ -263,6 +270,8 @@ def uninstall(
         plugins.uninstall_plugin(name, keep_data=keep_data, scope=scope)
         data = DATA_KEPT if keep_data else ""
         text = REMOVED.format(name=name.split("@", 1)[0], data=data)
+        if prune:  # Fusion bağımlılıkları otomatik kurmaz: budanacak bağımlılık olmaz.
+            text += "\n" + prune_text()
         return text, {"pluginId": name, "scope": "user"}
 
     run_result("uninstall", as_json, act)
