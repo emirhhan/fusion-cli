@@ -44,7 +44,9 @@ def repo(tmp_path: Path) -> Path:
     (root / "app.txt").write_text("taban\n", encoding="utf-8")
     (root / ".env").write_text("GIZLI=1\n", encoding="utf-8")
     (root / ".worktreeinclude").write_text("# izlenmeyen ayarlar\n.env\n", encoding="utf-8")
-    _git(root, "add", "app.txt", ".worktreeinclude")
+    # Claude: yalnız gitignored dosyalar kopyalanır (#359).
+    (root / ".gitignore").write_text(".env\n*.local\n", encoding="utf-8")
+    _git(root, "add", "app.txt", ".worktreeinclude", ".gitignore")
     _git(root, "commit", "-qm", "taban")
     return root
 
@@ -67,6 +69,23 @@ def test_create_worktree_dizin_dal_kunye_ve_include(repo):
     assert core_worktree.list_worktrees(repo) == (tree,)
     assert core_worktree.worktree_for_path(tree.path / "alt").name == "deneme"
     assert core_worktree.enter_worktree(tree.path, "deneme") == tree, "içinden tekrar girilir"
+
+
+def test_worktreeinclude_gitignore_soz_dizimi_ve_yalniz_yok_sayilan_dosyalar(repo):
+    """#359: `.env` her derinlikte eşler, `!` dışarıda bırakır; gitignored olmayan kopyalanmaz."""
+    (repo / "alt").mkdir()
+    (repo / "alt" / ".env").write_text("ALT=1", encoding="utf-8")
+    (repo / "notlar.local").write_text("N", encoding="utf-8")
+    (repo / "izlenmeyen.txt").write_text("I", encoding="utf-8")
+    (repo / ".worktreeinclude").write_text(
+        ".env\n*.local\n!notlar.local\nizlenmeyen.txt\n", encoding="utf-8"
+    )
+
+    tree = core_worktree.enter_worktree(repo, "desen")
+
+    assert set(tree.included) == {".env", "alt/.env"}, tree.included
+    assert not (tree.path / "izlenmeyen.txt").exists(), "gitignored değil, kopyalanmaz"
+    assert not (tree.path / "notlar.local").exists(), "! ile dışarıda"
 
 
 def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):

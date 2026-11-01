@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
+from .worktree_include import included_files
 from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
 from .worktree_pr import parse_pull_request
 from .worktree_reuse import refresh_to
@@ -296,51 +297,33 @@ def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Workt
 
 
 def copy_includes(origin: Path, target: Path) -> tuple[Path, ...]:
-    """`.worktreeinclude` desenlerine uyan, hedefte OLMAYAN dosyaları kopyala (`.env` gibi).
+    """`.worktreeinclude`'a uyan VE gitignored olan, hedefte OLMAYAN dosyaları kopyala (#359).
 
-    Desenler depo köküne göre glob'dur; `.git` ve `.fusion` altı asla kopyalanmaz.
-    Kopyalanan yolları (hedefe göreli) döndürür.
+    Eşleme `.gitignore` söz dizimiyle git'e bırakılır (`core.worktree_include`); `.git`,
+    `.fusion` ve `.claude/worktrees` altı asla kopyalanmaz. Kopyalanan yolları (hedefe
+    göreli) döndürür.
 
-    Dosya depoyla gelir, yani güvenilmez. Ölçüldü (31 Ekim): `../x` deseni ve depo dışına
-    işaret eden symlink depo DIŞINDAN okunup ağaca (ya da ağacın dışına) yazılıyordu;
-    `restrict_to_root`'un koruduğu sırlar böylece ajanın köküne taşınırdı. Bu yüzden `..`
-    ve mutlak desen reddedilir, symlink'ler atlanır, kaynak da hedef de kendi kökünün içinde
-    kalmak zorundadır.
+    Dosya depoyla gelir, yani güvenilmez. Ölçüldü (31 Ekim): depo dışına işaret eden symlink
+    depo DIŞINDAN okunup ağaca yazılıyordu; `restrict_to_root`'un koruduğu sırlar böylece
+    ajanın köküne taşınırdı. Bu yüzden kaynak da hedef de kendi kökünün içinde kalmak
+    zorundadır (git zaten depo dışını listelemez).
     """
-    include = origin / INCLUDE_FILE
-    try:
-        patterns = [
-            line.strip()
-            for line in include.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-    except OSError:
-        return ()
     origin_real = origin.resolve()
     target_real = target.resolve()
     copied: list[Path] = []
-    for pattern in patterns:
-        if not _is_safe_include_pattern(pattern):
+    for relative in included_files(origin, INCLUDE_FILE):
+        source = origin / relative
+        if relative.parts[0] in {".git", ".fusion"} or relative.parts[:2] == WORKTREE_DIR.parts:
             continue
-        for source in sorted(origin.glob(pattern)):
-            relative = source.relative_to(origin)
-            if relative.parts[0] in {".git", ".fusion"} or relative.parts[:2] == WORKTREE_DIR.parts:
-                continue
-            if not _is_inside(source, origin_real) or not source.is_file():
-                continue
-            destination = target / relative
-            if not _is_inside(destination, target_real, must_exist=False) or destination.exists():
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            copied.append(relative)
+        if not _is_inside(source, origin_real) or not source.is_file():
+            continue
+        destination = target / relative
+        if not _is_inside(destination, target_real, must_exist=False) or destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        copied.append(relative)
     return tuple(copied)
-
-
-def _is_safe_include_pattern(pattern: str) -> bool:
-    """Desen depo kökünün içinde kalır mı? `..` parçası ve mutlak yol dışarı çıkabilir."""
-    parts = Path(pattern).parts
-    return bool(parts) and not Path(pattern).is_absolute() and ".." not in parts
 
 
 def _is_inside(path: Path, root_real: Path, *, must_exist: bool = True) -> bool:

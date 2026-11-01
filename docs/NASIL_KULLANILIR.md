@@ -348,9 +348,10 @@ durumunda görünmez (`.git/info/exclude`).
 - Aynı adla yeniden açılan ağaç (`"fresh"` tabanda): commit'lenmemiş/izlenmeyen dosyası yoksa,
   kendi dalındaysa ve kendi commit'i yoksa varsayılan dala ileri sarılır; aksi hâlde (ya da
   `"head"` tabanda, PR/MR adında) eski ucunda açılır.
-- `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
-  ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz. Depo kökü dışına çıkan
-  desenler (`../x`, mutlak yol) ve symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
+- `.worktreeinclude` (depo kökünde, Claude Code gibi `.gitignore` söz dizimi): desene uyan VE
+  gitignored olan dosyalar (`.env` her derinlikte, `!` dışarıda bırakır) yeni ağaca kopyalanır;
+  izlenmeyen ama yok sayılmayan dosya kopyalanmaz. Bunlar "iş" sayılmaz, temizlik ölçümünü
+  bozmaz. Depo dışına işaret eden symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
 - Ağaç, bulunduğun kökün son commit'inden açılır: commit edilmemiş değişiklikler ağaçta görünmez.
   Bir ağacın içinden açılan ağaç o ağacın dalından dallanır.
 - Sohbet projeye aittir: ağaca geçmek konuşmayı bölmez; `fusion -w <ad> --continue` de projenin
