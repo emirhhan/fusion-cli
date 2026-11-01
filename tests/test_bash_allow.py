@@ -132,3 +132,18 @@ def test_kural_kumesi_varken_eski_birebir_liste_karar_vermez(tmp_path):
     assert istek.pre_allowed is False
     istek = build_request(kabuk, {"command": "git status && rm -rf x"}, eski, root=tmp_path)
     assert istek.pre_allowed is True
+
+
+def test_zincir_onayi_alt_komut_basina_en_cok_bes_kural(tmp_path):
+    """Claude (#68): onay gereken her alt komut için ayrı kalıcı kural, en çok 5."""
+    from fusion_cli.core.tools import Tool
+    from fusion_cli.engines.agent.approval import ApprovalRequest
+    from fusion_cli.engines.agent.permission_persist import rules_for_request
+
+    kabuk = Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None)
+    komut = "git status && npm test && make a && make b && cargo build && go vet && tsc"
+    istek = ApprovalRequest(tool=kabuk, args={"command": komut}, danger=None)
+    kurallar = [k.pattern for k in rules_for_request(istek, tmp_path)]
+    assert len(kurallar) == 5
+    assert kurallar[0] == "Bash(npm test *)"
+    assert not any("git status" in k for k in kurallar)

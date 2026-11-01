@@ -24,11 +24,35 @@ from ...config.permission_rules import (
     user_permissions_file,
 )
 from ...core.tools import ToolFamily, tool_family
-from ...tools.auto_policy import command_words
+from ...tools.auto_policy import command_words, is_read_only_command
+from ...tools.bash_allow import allow_segments
 from ...tools.write_targets import FILE_WRITE_TOOLS
 from ...ui import messages
 from .approval import ApprovalRequest
 from .web_approval import web_rule
+
+
+#: Zincirli komutta kaydedilen en çok kural (Claude, #68).
+MAX_COMPOUND_RULES = 5
+
+
+def rules_for_request(request: ApprovalRequest, root: Path | None) -> tuple[PermissionRule, ...]:
+    """Kalıcı kurallar: zincirli kabuk komutunda onay gereken her alt komut için ayrı (en çok 5).
+
+    Claude (#68): `git status && npm test` onaylanınca yalnız `npm test` için kural yazılır;
+    salt okunur alt komut zaten sorulmaz.
+    """
+    if tool_family(request.tool.name) is not ToolFamily.SHELL:
+        return (rule_for_request(request, root),)
+    command = str(request.args.get("command", "")).strip()
+    segments = allow_segments(command) or [command]
+    if len(segments) < 2:
+        return (rule_for_request(request, root),)
+    needing = [seg for seg in segments if not is_read_only_command(seg)] or segments[:1]
+    rules = [
+        PermissionRule("Bash", _shell_prefix(seg), PermissionDecision.ALLOW) for seg in needing
+    ]
+    return tuple(dict.fromkeys(rules))[:MAX_COMPOUND_RULES]
 
 
 def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionRule:
@@ -99,7 +123,7 @@ def always_description(request: ApprovalRequest, root: Path | None) -> str:
     `permissions.json`'ına düşüyor, kart yalnız 'her oturumda geçerli olur' diyordu; kullanıcı
     'bu proje' sanıp tüm projelere izin yazıyordu. Hedef kullanıcı dosyasıysa açıkça söylenir.
     """
-    rule = rule_for_request(request, root).pattern
+    rule = ", ".join(r.pattern for r in rules_for_request(request, root))
     if root is not None and persist_target(root) == user_permissions_file():
         return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(
             rule=rule, path=user_permissions_file()
@@ -113,5 +137,6 @@ def remember_always(root: Path, request: ApprovalRequest) -> str:
     Proje dosyasına yazıldığında güven karması tazelenir (`permission_admin`); yazma
     hatası `ConfigError` olarak yükselir (çağıran kullanıcıya söyler, tur düşmez).
     """
-    change = add_permission_rule(root, rule_for_request(request, root))
-    return f"{format_rule(change.rule)} → {change.path}"
+    changes = [add_permission_rule(root, rule) for rule in rules_for_request(request, root)]
+    rules = ", ".join(format_rule(change.rule) for change in changes)
+    return f"{rules} → {changes[0].path}"

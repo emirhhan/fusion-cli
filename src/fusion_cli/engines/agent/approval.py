@@ -59,7 +59,7 @@ from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
-from ...tools.write_targets import write_targets
+from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
@@ -301,6 +301,8 @@ class ApprovalRequest:
             and self.pre_ask is None
             and self.effect is ToolEffect.LOCAL
             and tool_family(self.tool.name) is not ToolFamily.EXTERNAL
+            # Claude (#68): dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir.
+            and self.tool.name not in FILE_WRITE_TOOLS
         )
 
     @property
