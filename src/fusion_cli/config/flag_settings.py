@@ -28,8 +28,7 @@ def set_flag_permissions(permissions: Mapping[str, object] | None) -> None:
     lists = {
         decision.value: [e for e in entries if isinstance(e, str)]
         for decision in PermissionDecision
-        if permissions is not None
-        and isinstance(entries := permissions.get(decision.value), list)
+        if permissions is not None and isinstance(entries := permissions.get(decision.value), list)
     }
     if not any(lists.values()):
         os.environ.pop(FLAG_PERMISSIONS_ENV, None)

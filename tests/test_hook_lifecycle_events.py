@@ -32,9 +32,7 @@ def _fake_run_hook(exit_code: int | None = 0, *, stdout: str = "çıktı\n", std
 def test_gozlemci_yokken_kayit_yok(monkeypatch):
     monkeypatch.setattr(lifecycle, "run_hook", _fake_run_hook())
     run = asyncio.run(
-        lifecycle.run_observed(
-            _command(), {}, subjects=("Bash",), cwd=Path.cwd(), environment={}
-        )
+        lifecycle.run_observed(_command(), {}, subjects=("Bash",), cwd=Path.cwd(), environment={})
     )
     assert run.exit_code == 0
 

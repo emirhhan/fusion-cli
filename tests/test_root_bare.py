@@ -129,9 +129,7 @@ def test_kok_restricted_bypass_reddeder_ve_tur_basinda_indirir(monkeypatch):
     assert bad.exit_code == 1 and "bypassPermissions" in bad.output
     seen, result = _root(monkeypatch, ["--restricted"])
     assert result.exit_code == 0, result.output
-    state = SimpleNamespace(
-        config=seen["config"], conversation_id="", approval=ApprovalMode.BYPASS
-    )
+    state = SimpleNamespace(config=seen["config"], conversation_id="", approval=ApprovalMode.BYPASS)
     state.launch_prompts = lp.bind(state, seen["launch_prompts"], resumed=None)
     lp.apply_to_turn(PersonaTurn(), state)
     assert state.approval is ApprovalMode.AUTO

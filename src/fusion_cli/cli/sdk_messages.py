@@ -331,9 +331,7 @@ class SdkStream:
 
     def hook_event(self, message: Mapping[str, object]) -> None:
         """`--include-hook-events` (#289): `system/hook_started` / `system/hook_response`."""
-        self.write(
-            {"type": "system", **message, "session_id": self.session_id, "uuid": _uuid()}
-        )
+        self.write({"type": "system", **message, "session_id": self.session_id, "uuid": _uuid()})
 
     def after_result(self) -> None:
         """Sonuç mesajından sonra: `--prompt-suggestions` önerisi (#289)."""
