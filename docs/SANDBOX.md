@@ -15,15 +15,45 @@ izin kuralları neyin sorulacağına karar verir.
 
 ```text
 /sandbox                  # durum: platform, kurulabilirlik, yazma/okuma/ağ kuralları
-/sandbox on | off         # runtime.shell_sandbox = write_root | off
+/sandbox on | off         # sandbox.enabled = true | false
 fusion sandbox durum      # aynı durum, terminalden
 fusion doctor             # "Kabuk sandbox'ı" satırı
 ```
 
 Masaüstünde: **Ayarlar › İzinler › Kabuk sandbox'ı**. Değişiklik bir sonraki görevde geçerli olur.
 
-Varsayılan `runtime.shell_sandbox: off`: davranış değişmez. Eski `write_root` yapılandırması
-olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar uygulanır.
+Varsayılan kapalıdır (Claude Code'daki gibi `sandbox.enabled: false`). `sandbox:` bölümü yoksa
+aşağıdaki varsayılanlar uygulanır.
+
+### Ayar adları (Claude Code ile aynı)
+
+Ayarlar Claude Code'daki iç içe camelCase adlarla yazılır; `/sandbox` ve `fusion sandbox` de
+dosyaya bu adlarla yazar:
+
+```yaml
+sandbox:
+  enabled: true
+  autoAllowBashIfSandboxed: false
+  excludedCommands: []
+  allowUnsandboxedCommands: true
+  failIfUnavailable: false
+  filesystem:
+    allowWrite: ["~/.npm"]
+    denyRead: []
+    allowRead: []
+  network:
+    allowedDomains: ["github.com"]
+    deniedDomains: []
+```
+
+`network` nesnesi yazıldığında ağ Claude'daki gibi proxy'den geçer (allowlist). Geçiş süresince
+Fusion'a özgü `network.mode: open` kısıtsız ağı korur. Eski adlar (`runtime.shell_sandbox`,
+düz `allow_write`, `deny_read`, `allow_read`, `allowed_domains`, `denied_domains`, `auto_allow`,
+`excluded_commands`, `allow_unsandboxed`, `fail_if_unavailable`, `network: open|allowlist`)
+bir sürüm boyunca okunur ve bir kez uyarılır; ikisi birden yazılmışsa Claude adı kazanır.
+`/sandbox` bir ayarı yazınca dosyadaki eski adlar Claude adlarına taşınır. Henüz desteklenmeyen
+Claude anahtarları (`filesystem.denyWrite`, `network.allowUnixSockets`, `allowLocalBinding`…)
+yok sayılır ve uyarılır.
 
 ## Ne sınırlanır?
 

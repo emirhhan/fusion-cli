@@ -182,7 +182,7 @@ def load_config(path: str | Path | None = None) -> Config:
         _reject_removed(user)
         if path is None:
             user = _restrict_untrusted_project(user, source, owned)
-        merged = _deep_merge(defaults, _apply_renames(user))
+        merged = _deep_merge(defaults, _claude_sandbox(_apply_renames(user)))
     else:
         merged = defaults
 
@@ -623,6 +623,31 @@ REMOVED_KEYS = {
         ),
     },
 }
+
+
+def _claude_sandbox(data: YamlMapping) -> YamlMapping:
+    """Claude `sandbox.*` adlarını iç adlara çevir; `sandbox.enabled` → `runtime.shell_sandbox`.
+
+    Bkz. `sandbox_claude_keys` (#321, #322). `sandbox.enabled` yazılmışsa Claude adı kazanır;
+    yalnız eski `runtime.shell_sandbox` yazılmışsa kullanımdan kalkma uyarısı verilir.
+    """
+    from .sandbox_claude_keys import normalize_claude_sandbox, warn_legacy_switch
+
+    result = dict(data)
+    if "sandbox" in result:
+        section, enabled = normalize_claude_sandbox(result["sandbox"])
+        result["sandbox"] = section
+    else:
+        enabled = None
+    runtime = result.get("runtime")
+    runtime_data = dict(runtime) if isinstance(runtime, dict) else None
+    if enabled is not None:
+        merged_runtime = runtime_data or {}
+        merged_runtime["shell_sandbox"] = "write_root" if enabled else "off"
+        result["runtime"] = merged_runtime
+    elif runtime_data is not None and "shell_sandbox" in runtime_data:
+        warn_legacy_switch()
+    return result
 
 
 def _apply_renames(data: YamlMapping) -> YamlMapping:

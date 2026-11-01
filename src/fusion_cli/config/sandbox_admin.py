@@ -9,6 +9,7 @@ doğrulaması ve kanonik biçim oradan gelir.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -21,7 +22,12 @@ from ..core.shell_sandbox import (
     plan_shell_sandbox,
 )
 from .models import Config
-from .sandbox_config import effective_deny_read, fusion_secret_paths, sandbox_policy
+from .sandbox_config import (
+    effective_deny_read,
+    fusion_secret_paths,
+    sandbox_policy,
+    validate_sandbox,
+)
 from .settings_access import write_setting
 
 __all__ = [
@@ -197,8 +203,45 @@ def _domain(value: str) -> str:
 
 
 def _write(config: Config, path: str, raw: str, file: Path | None) -> SandboxChange:
+    if path == "sandbox.network":
+        return _write_network_mode(config, raw, file)
     updated, target = write_setting(config, path, raw, file)
+    _migrate_file(target)
     return SandboxChange(updated, path, raw, target)
+
+
+def _write_network_mode(config: Config, mode: str, file: Path | None) -> SandboxChange:
+    """Ağ kipi `sandbox.network.mode`'a yazılır; Claude `network` nesnesi ezilmez (#322)."""
+    from .sandbox_claude_keys import NETWORK_MODE_KEY
+    from .writer import _target_path
+
+    updated = replace(config, sandbox=validate_sandbox(replace(config.sandbox, network=mode)))
+    target = file or _target_path(config)
+
+    def _set(data: dict[str, object]) -> dict[str, object]:
+        section = data.get("sandbox")
+        sandbox = dict(section) if isinstance(section, dict) else {}
+        network = sandbox.get("network")
+        nested = dict(network) if isinstance(network, dict) else {}
+        nested[NETWORK_MODE_KEY] = mode
+        return {**data, "sandbox": {**sandbox, "network": nested}}
+
+    _migrate_file(target, _set)
+    return SandboxChange(updated, "sandbox.network.mode", mode, target)
+
+
+def _migrate_file(
+    target: Path, before: Callable[[dict[str, object]], dict[str, object]] | None = None
+) -> None:
+    """Yazılan dosyada sandbox ayarlarını Claude adlarına taşı (#321, #322)."""
+    from .sandbox_claude_keys import migrate_to_claude_names
+    from .writer import _atomic_write, _read_existing, config_lock
+
+    with config_lock(target):
+        existing = _read_existing(target)
+        migrated = migrate_to_claude_names(before(existing) if before else existing)
+        if migrated != existing:
+            _atomic_write(target, migrated)
 
 
 def _domain_lists(config: Config, action: str, domain: str, file: Path | None) -> SandboxChange:
@@ -248,6 +291,8 @@ def apply_sandbox_action(
     if action in ("ac", "kapat"):
         mode = SHELL_SANDBOX_WRITE_ROOT if action == "ac" else SHELL_SANDBOX_OFF
         change = _write(config, "runtime.shell_sandbox", mode, file)
+        # Dosyaya Claude adıyla yazılır (`_migrate_file`); kullanıcıya da o ad gösterilir.
+        change = replace(change, setting="sandbox.enabled", value=str(action == "ac").lower())
         if action == "kapat":
             return change
         status = sandbox_status(change.config, root or Path.cwd())

@@ -58,7 +58,8 @@ def test_izin_eylemi_yasaktan_cikarir_ve_agi_allowlist_e_alir(tmp_path):
     assert degisim.config.sandbox.allowed_domains == ("github.com",)
     assert degisim.config.sandbox.denied_domains == ()
     assert degisim.config.sandbox.network == "allowlist"
-    assert _yaml(yol)["sandbox"]["allowed_domains"] == ["github.com"]
+    # Dosyaya Claude adıyla yazılır (#322).
+    assert _yaml(yol)["sandbox"]["network"]["allowedDomains"] == ["github.com"]
 
 
 def test_gecersiz_eylem_ve_alan_adi_reddedilir(tmp_path):
@@ -95,12 +96,14 @@ def test_repl_sandbox_on_oturuma_ve_dosyaya_yazar(tmp_path):
     izin = sandbox_command(state, "izin pypi.org")
     hatali = sandbox_command(state, "izin")
 
-    assert "runtime.shell_sandbox = write_root" in sonuc
+    assert "sandbox.enabled = true" in sonuc
     assert state.config.runtime.shell_sandbox == "write_root"
     assert state.config.sandbox.allowed_domains == ("pypi.org",)
     assert "pypi.org" in izin
     assert "Kullanım: /sandbox" in hatali
-    assert _yaml(yol)["runtime"]["shell_sandbox"] == "write_root"
+    # Claude açma anahtarı (#321): dosyada sandbox.enabled, eski anahtar taşınır.
+    assert _yaml(yol)["sandbox"]["enabled"] is True
+    assert "shell_sandbox" not in (_yaml(yol).get("runtime") or {})
 
 
 # --- CLI -------------------------------------------------------------------- #
@@ -116,7 +119,7 @@ def test_cli_durum_ve_izin(tmp_path, monkeypatch):
     izin = runner.invoke(sandbox_commands.app, ["izin", "registry.npmjs.org"])
 
     assert durum.exit_code == 0 and "AÇIK" in durum.output
-    assert izin.exit_code == 0 and _yaml(yol)["sandbox"]["allowed_domains"] == [
+    assert izin.exit_code == 0 and _yaml(yol)["sandbox"]["network"]["allowedDomains"] == [
         "registry.npmjs.org"
     ]
     assert runner.invoke(sandbox_commands.app, ["izin", "a b"]).exit_code == 1

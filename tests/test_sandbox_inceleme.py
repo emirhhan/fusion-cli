@@ -360,9 +360,10 @@ def test_oto_ag_acikken_etkisiz_oldugunu_soyler(tmp_path):
 @pytest.mark.parametrize(
     ("komut", "anahtar", "deger"),
     [
-        ("oto", "auto_allow", True),
-        ("zorunlu", "fail_if_unavailable", True),
-        ("disari", "allow_unsandboxed", False),
+        # Dosyaya Claude adlarıyla yazılır (#322).
+        ("oto", "autoAllowBashIfSandboxed", True),
+        ("zorunlu", "failIfUnavailable", True),
+        ("disari", "allowUnsandboxedCommands", False),
         ("sir", "hide_secret_env", False),
         ("localhost", "allow_localhost", False),
     ],

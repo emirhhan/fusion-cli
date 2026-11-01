@@ -1714,7 +1714,7 @@ SANDBOX_USAGE = (
     "/sandbox oto|zorunlu|disari|sir|localhost on|off"
 )
 SANDBOX_STATE_ON = "AÇIK (write_root)"
-SANDBOX_STATE_OFF = "kapalı (runtime.shell_sandbox=off)"
+SANDBOX_STATE_OFF = "kapalı (sandbox.enabled=false)"
 SANDBOX_TITLE = "Kabuk sandbox'ı: {state}"
 SANDBOX_PLATFORM = "  Platform     : {platform} — {availability}"
 SANDBOX_AVAILABLE = "kurulabilir"
