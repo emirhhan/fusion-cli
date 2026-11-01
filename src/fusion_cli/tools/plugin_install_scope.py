@@ -112,3 +112,21 @@ def _add_scope(
         record = closed
     write_enabled(scope, ident, record.name, True, project)
     return ScopedInstall(inspect_plugin(replace(record, enabled=True), store), scope)
+
+
+def uninstall_from_scope(spec: str, scope: str, project: Path | None = None) -> str:
+    """`uninstall --scope project|local` (#408): yalnız o kapsamın `enabledPlugins` girdisini sil.
+
+    Claude gibi kapsamda kayıt yoksa "kurulu değil" hatası. Paylaşılan kopya ve user kaydı kalır
+    (başka kapsamlar kullanıyor olabilir); kaldırılan kimliği döndürür.
+    """
+    from .plugin_toggle import ERR_UNINSTALL_SCOPE
+
+    root = project or Path.cwd()
+    record = find_record(load_state(), spec)
+    ident = plugin_id(record)
+    values = scope_values(scope, root)
+    if ident not in values and record.name not in values:
+        raise PluginError(ERR_UNINSTALL_SCOPE.format(name=spec, scope=scope))
+    write_enabled(scope, ident, record.name, None, root)
+    return ident

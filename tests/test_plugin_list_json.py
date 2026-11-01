@@ -251,3 +251,23 @@ def test_uninstall_prune_bagimlilik_yok(tmp_path):
     result = runner.invoke(app, ["uninstall", "rapor", "--prune"])
     assert result.exit_code == 0, result.output
     assert "Nothing to prune" in result.output
+
+
+def test_uninstall_scope_project_yalniz_o_kapsamdan_kaldirir(tmp_path, monkeypatch):
+    plugin_install.add_marketplace(str(_market(tmp_path)))
+    project = tmp_path / "proje"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    trust.trust_project(project)
+    assert runner.invoke(app, ["install", "rapor@ekip", "--scope", "project"]).exit_code == 0
+
+    done = runner.invoke(app, ["uninstall", "rapor@ekip", "--scope", "project", "--json"])
+
+    assert done.exit_code == 0, done.output
+    assert "Eklenti kaldırıldı: rapor (kapsam: project" in done.output
+    assert json.loads(done.output.strip().splitlines()[-1])["scope"] == "project"
+    settings = json.loads((project / ".claude" / "settings.json").read_text("utf-8"))
+    assert settings["enabledPlugins"] == {}
+    assert plugin_store.active_plugins(root=project) == ()
+    again = runner.invoke(app, ["uninstall", "rapor@ekip", "--scope", "project"])
+    assert again.exit_code == 1 and "project kapsamında kurulu değil" in again.output

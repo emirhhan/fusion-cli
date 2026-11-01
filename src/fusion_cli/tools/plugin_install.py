@@ -450,6 +450,11 @@ def uninstall_plugin(
 
     check_uninstall_scope(name, scope)
     root = base or plugins_dir()
+    if scope and scope != "user":
+        from .plugin_install_scope import uninstall_from_scope
+
+        uninstall_from_scope(name, scope)
+        return plugin_store.plugin_folder(find_record(load_state(root), name), root)
     found = find_record(load_state(root), name)
     name = found.name
     folder = plugin_store.plugin_folder(found, root)

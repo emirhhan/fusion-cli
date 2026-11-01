@@ -80,7 +80,7 @@ fusion plugin details <ad|ad@pazar>            # bileşen envanteri + öngörül
 fusion plugin prune [--dry-run] [-y]           # (autoremove) Fusion bağımlılık kurmaz: "Nothing to prune"
 fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
 fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
-fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # kopya .orphaned_at ile 14 gün kalır; veri silinir
+fusion plugin uninstall <ad|ad@pazar> [--keep-data] [--scope user|project|local]  # kopya .orphaned_at ile 14 gün kalır
 fusion plugin update <ad|ad@pazar>             # önce pazar yenilenir; sürüm aynıysa değişmez
 fusion eklenti kesfet [pazar]                  # kullanımdan kalktı → plugin list --json --available
 fusion plugin marketplace add <./klasör|./pazar.json|sahip/repo[#ref|@ref]|https://….git[#ref]|resmi>
@@ -158,7 +158,7 @@ yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
-"kurulu değil" der. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. `extraKnownMarketplaces` ve managed
+yalnız o kapsamın `enabledPlugins` girdisini siler, paylaşılan kopyaya dokunmaz. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. `extraKnownMarketplaces` ve managed
 kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 

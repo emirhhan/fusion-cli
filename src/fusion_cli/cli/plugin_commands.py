@@ -47,7 +47,7 @@ INSTALLED = (
     "Kuruldu: {name} (kapsam: {scope} · {status}). "
     "Açık oturuma uygulamak için /reload-plugins çalıştır."
 )
-REMOVED = "Eklenti kaldırıldı: {name} (kapsam: user{data})"
+REMOVED = "Eklenti kaldırıldı: {name} (kapsam: {scope}{data})"
 DATA_KEPT = ", veri korundu"
 TOGGLED = "Eklenti {verb}: {name} (kapsam: {scope})"
 ALL_TOGGLED = "Bütün eklentiler: {state}"
@@ -260,15 +260,16 @@ def uninstall(
     ),
     as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
 ) -> None:
-    """Eklentiyi kaldır (klasör Fusion çöpüne taşınır; veri klasörü --keep-data yoksa silinir)."""
+    """Eklentiyi kaldır (--scope project|local yalnız o kapsamdan; user'da kopya .orphaned_at ile
+    14 gün kalır, veri klasörü --keep-data yoksa silinir)."""
 
     def act() -> tuple[str, dict[str, object]]:
         plugins.uninstall_plugin(name, keep_data=keep_data, scope=scope)
         data = DATA_KEPT if keep_data else ""
-        text = REMOVED.format(name=name.split("@", 1)[0], data=data)
+        text = REMOVED.format(name=name.split("@", 1)[0], scope=scope or "user", data=data)
         if prune:  # Fusion bağımlılıkları otomatik kurmaz: budanacak bağımlılık olmaz.
             text += "\n" + prune_text()
-        return text, {"pluginId": name, "scope": "user"}
+        return text, {"pluginId": name, "scope": scope or "user"}
 
     run_result("uninstall", as_json, act)
 

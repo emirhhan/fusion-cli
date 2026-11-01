@@ -30,8 +30,7 @@ ERR_NOT_INSTALLED = "Kurulu değil: {name}"
 ERR_ALREADY = 'Eklenti "{name}" zaten {state}'
 ERR_AMBIGUOUS = "'{name}' birden çok pazardan kurulu: {ids}. ad@pazar biçimini kullan."
 ERR_UNINSTALL_SCOPE = (
-    'Eklenti kaldırılamadı "{name}": {scope} kapsamında kurulu değil '
-    "(Fusion kurulumları user kapsamındadır)."
+    'Eklenti kaldırılamadı "{name}": {scope} kapsamında kurulu değil'
 )
 
 
@@ -92,9 +91,9 @@ def toggle_plugin(
 
 
 def check_uninstall_scope(spec: str, scope: str) -> None:
-    """Fusion kurulumları yalnız user kapsamında: başka kapsam Claude gibi 'kurulu değil' der."""
-    if scope and check_scope(scope) != SCOPE_USER:
-        raise PluginError(ERR_UNINSTALL_SCOPE.format(name=spec, scope=scope))
+    """Kapsam adını doğrula; project/local kaldırma `uninstall_from_scope`'a gider (#408)."""
+    if scope:
+        check_scope(scope)
 
 
 def remove_plugin_data(name: str) -> bool:

@@ -138,8 +138,11 @@ def target_scope(plugin_id: str, name: str, root: Path, requested: str) -> str:
     return requested
 
 
-def write_enabled(scope: str, plugin_id: str, name: str, value: bool, root: Path) -> Path:
-    """project/local dosyasına `enabledPlugins[ad@pazar] = value` yaz (diğer anahtarlar korunur).
+def write_enabled(
+    scope: str, plugin_id: str, name: str, value: bool | None, root: Path
+) -> Path:
+    """project/local dosyasına `enabledPlugins[ad@pazar] = value` yaz (diğer anahtarlar korunur);
+    `value=None` anahtarı siler.
 
     Dosya yazılmadan önce güvenilirse (ya da yoksa) yeni içeriğin karması tazelenir; güvensiz
     dosya bu yazımla güvenilir OLMAZ.
@@ -158,7 +161,11 @@ def write_enabled(scope: str, plugin_id: str, name: str, value: bool, root: Path
         current = raw.get(ENABLED_KEY)
         enabled = dict(current) if isinstance(current, Mapping) else {}
         key = plugin_id if plugin_id in enabled or name not in enabled else name
-        updated = {**raw, ENABLED_KEY: {**enabled, key: value}}
+        if value is None:  # `uninstall --scope` (#408): anahtar kapsamdan silinir
+            changed = {k: v for k, v in enabled.items() if k not in (plugin_id, name)}
+        else:
+            changed = {**enabled, key: value}
+        updated = {**raw, ENABLED_KEY: changed}
         atomic_replace_text(path, json.dumps(updated, ensure_ascii=False, indent=2) + "\n")
         if trusted_before:
             _refresh_digest(scope, root)
