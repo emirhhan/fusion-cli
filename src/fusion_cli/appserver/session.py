@@ -55,6 +55,7 @@ from ..config.browser_profiles import default_browser_profile_store
 from ..config.credentials import FernetSecretStore
 from ..config.eligibility import capability_from_spec
 from ..config.keys import secret_key
+from ..config.agent_launch_compat import reload_agent_launch
 from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
@@ -520,7 +521,8 @@ class AppSession:
         self._require_remotion_kit = require_remotion_kit
         self._root = root
         self._home = home
-        config = load_config()
+        # Süreç cwd'si proje kökü olmayabilir: ajan ayarları verilen kökten okunur.
+        config = reload_agent_launch(load_config(), home=home, root=root, environ=os.environ)
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
         # Ajan tarayıcısı profilleri (P-023/P-024); sır deposuyla aynı ana anahtar.
         self._browser_profiles = default_browser_profile_store()
@@ -1799,6 +1801,10 @@ class AppSession:
             self._state.home = self._home
             capability_roots_changed = True
         if capability_roots_changed:
+            # Yeni projenin `.claude/settings.json` ajan ayarları (agent, env.CLAUDE_CODE_*).
+            self._state.config = reload_agent_launch(
+                self._state.config, home=self._home, root=self._root, environ=os.environ
+            )
             self._all_capabilities = CapabilityRegistry(
                 self._home,
                 self._root,

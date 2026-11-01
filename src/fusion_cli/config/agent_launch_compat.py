@@ -6,10 +6,14 @@ import json
 from collections.abc import Mapping
 from dataclasses import fields, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.errors import ConfigError
 from .agent_launch_settings import AgentLaunchConfig
 from .trust import is_permissions_trusted, is_project_settings_trusted
+
+if TYPE_CHECKING:
+    from .models import Config
 
 SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
 SUBAGENT_FORCE_ENV = "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"
@@ -87,6 +91,18 @@ def read_agent_launch(
             merged_env, CONCURRENT_ENV, loaded.max_concurrent_subagents
         ),
         model_aliases=tuple(aliases.items()),
+    )
+
+
+def reload_agent_launch(
+    config: Config, *, home: Path, root: Path, environ: Mapping[str, str]
+) -> Config:
+    """Kök/ev değişince Claude ajan ayarlarını YAML tabanından yeniden oku (masaüstü)."""
+    base = getattr(config, "agent_launch_configured", None)
+    if base is None:
+        return config
+    return replace(
+        config, agent_launch=read_agent_launch(base, home=home, root=root, environ=environ)
     )
 
 

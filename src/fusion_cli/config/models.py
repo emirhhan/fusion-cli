@@ -885,6 +885,9 @@ class Config:
 
     #: Ana/alt ajan başlatma politikası; eski yapılandırmalarda boş ve anahtarsız.
     agent_launch: AgentLaunchConfig = field(default_factory=AgentLaunchConfig)
+    #: YAML'daki `agent_launch` (settings.json/ortam birleşmeden önce); kök değişince
+    #: `.claude/settings.json` yeniden okunurken taban olur. Eski nesnede None.
+    agent_launch_configured: AgentLaunchConfig | None = None
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

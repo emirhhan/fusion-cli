@@ -195,6 +195,7 @@ def load_config(path: str | Path | None = None) -> Config:
             agent_launch=read_agent_launch(
                 yapilandirma.agent_launch, home=Path.home(), root=Path.cwd(), environ=os.environ
             ),
+            agent_launch_configured=yapilandirma.agent_launch,
         )
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
