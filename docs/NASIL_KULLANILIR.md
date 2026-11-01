@@ -204,7 +204,8 @@ kalmaz (deny/ask yine uygulanır). "Bir daha sorma" zincirde onay gereken her al
 kural yazar (en çok 5); dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir.
 
 Manuel, acceptEdits ve plan kipinde `web_fetch` (önceden onaylı belge alanları hariç),
-`web_search` ve çalışma dizinleri dışından okuma sorulur; dontAsk reddeder, auto ve bypass
+`web_search` ve çalışma dizinleri dışından okuma (salt okunur kabuk komutu `cat ~/x`, `ls /etc`
+dahil) sorulur; dontAsk reddeder, auto ve bypass
 sormaz. Hiçbir kip (bypass dahil) şunları sormadan geçirmez: açık `ask` kuralı ve kritik yol
 `rm`/`rmdir` silmesi (disk kökü ve doğrudan alt dizinleri, ev dizini, çalışma dizini ve üstleri,
 bağlı sürücü kökleri `/Volumes/<ad>`, `/mnt/<ad>`, `/media/…`, `C:\`); bypass'taki kritik yol

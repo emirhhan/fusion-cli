@@ -90,7 +90,7 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
     onayci = _Onayci()
     istek = await resolve_request(
         build_registry().get("run_shell"),
-        {"command": "cat ~/.kube/config", "unsandboxed": True},
+        {"command": "cat ayar/config", "unsandboxed": True},
         root=proje,
         context=_context(proje),
     )
