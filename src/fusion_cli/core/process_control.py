@@ -22,8 +22,22 @@ from .constants import (
     PROCESS_TERMINATE_GRACE_S,
     SHELL_CAPTURE_CHARS,
 )
-from .errors import CleanupFailedError, ProcessCancelledError
+from .errors import CleanupFailedError, FusionError, ProcessCancelledError
 from .protocols import Clock
+
+
+class ProcessDetachedError(FusionError):
+    """Ön plan komutu kesilmeden arka plana devredildi (Ctrl+B, #218).
+
+    Süreç ve okuyucular yaşar; çağıran onları devralır (`tools.shell` günlüğe yazar).
+    """
+
+    def __init__(
+        self, process: subprocess.Popen[bytes], captures: tuple[BoundedCapture, ...]
+    ) -> None:
+        super().__init__("Komut arka plana devredildi.")
+        self.process = process
+        self.captures = captures
 
 
 def process_group_options() -> dict[str, Any]:
@@ -224,6 +238,7 @@ def run_foreground(
     timeout_s: float,
     clock: Clock | None = None,
     argv_prefix: Sequence[str] = (),
+    detach: Event | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
 
@@ -234,6 +249,7 @@ def run_foreground(
     Kabuk normal çıkınca borular `PROCESS_TERMINATE_GRACE_S` içinde kapanmazsa (boruyu tutan
     `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
     çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür.
+    `detach` kurulursa süreç öldürülmez: `ProcessDetachedError` süreci ve okuyucuları taşır.
     """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
@@ -260,13 +276,18 @@ def run_foreground(
                 cleanup_started = True
                 _drain(process, captures, force=False)
                 raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
+            if detach is not None and detach.is_set():
+                cleanup_started = True  # süreç yaşar; sahiplik çağırana geçer
+                raise ProcessDetachedError(process, captures)
             remaining = deadline - timing.monotonic()
             if remaining <= 0:
                 cleanup_started = True
                 stdout, stderr = _drain(process, captures, force=True)
                 raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
+            # Devir kanalı varsa Ctrl+B bir saniye beklemesin (#218).
+            poll = PROCESS_POLL_S if detach is None else PROCESS_POLL_S / 10
             try:
-                process.wait(timeout=min(PROCESS_POLL_S, remaining))
+                process.wait(timeout=min(poll, remaining))
             except subprocess.TimeoutExpired:
                 continue
             for capture in captures:

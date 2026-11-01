@@ -35,6 +35,7 @@ from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .sandbox_policy import SandboxPolicy
 from .session_cron import SessionCron
+from .shell_handoff import ShellHandoff
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
 from .worktree import WorktreeSwitch
@@ -404,6 +405,9 @@ class ToolContext:
     hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
     #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
     shell_sandbox: str = field(default="off", kw_only=True)
+    #: Ctrl+B devir kanalı (#218): süren ön plan `run_shell` komutu kesilmeden arka plana
+    #: alınır. None = devir yok (alt ajan, headless).
+    shell_handoff: ShellHandoff | None = field(default=None, kw_only=True)
     #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.
     sandbox_policy: SandboxPolicy | None = field(default=None, kw_only=True)
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden

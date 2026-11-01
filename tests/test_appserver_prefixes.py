@@ -71,3 +71,23 @@ async def test_masaustu_respond_to_bash_commands_false_yalniz_baglam(tmp_path, m
         assert "gorev" not in kabuk and "sessiz" in kabuk["metin"]
     finally:
         await app.close()
+
+
+@pytest.mark.asyncio
+async def test_masaustu_kabuk_ciktisi_komut_surerken_olayla_akar(tmp_path):
+    import json
+
+    lines: list[str] = []
+    app = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    try:
+        kabuk = await app._dispatch(
+            Request("p4", "tur.calistir", {"gorev": "! echo akan-1; echo akan-2"})
+        )
+        assert kabuk["ok"] is True
+        events = [json.loads(line)["veri"] for line in lines if "KabukCiktisi" in line]
+        parts = "".join(event.get("parca", "") for event in events)
+        assert "akan-1" in parts and "akan-2" in parts
+        assert events[-1].get("bitti") is True
+        assert all(event["komut"] == "echo akan-1; echo akan-2" for event in events)
+    finally:
+        await app.close()

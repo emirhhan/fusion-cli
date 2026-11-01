@@ -26,6 +26,7 @@ from ...core.pull_request import PullRequestLink
 from ...core.remotion_browser import RemotionBrowser
 from ...core.session_cron import SessionCron
 from ...core.session_goal import SessionGoal
+from ...core.shell_handoff import ShellHandoff
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree, WorktreeSwitch
@@ -43,6 +44,7 @@ from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capability_overrides import registry_from_config
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
+from .shell_live import ShellJobs
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
@@ -197,6 +199,10 @@ class ReplState:
     child_runs: ChildRuns = field(
         default_factory=lambda: ChildRuns(persistent=True), kw_only=True, repr=False
     )
+    #: `!` komutları (#218): Ctrl+B ile arka plana alınanlar `/tasks`'ta, kapanışta öldürülür.
+    shell_jobs: ShellJobs = field(default_factory=ShellJobs, kw_only=True, repr=False)
+    #: Ajanın süren `run_shell` komutu için Ctrl+B devir kanalı (#218, tam ekran TUI).
+    shell_handoff: ShellHandoff = field(default_factory=ShellHandoff, kw_only=True, repr=False)
 
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None

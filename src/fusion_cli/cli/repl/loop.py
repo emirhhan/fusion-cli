@@ -228,6 +228,14 @@ async def run_repl(
         return await _run_surface(state, config, console, resume)
     finally:
         await state.child_runs.close()
+        # Claude Code: arka plan Bash görevleri oturum kapanınca temizlenir (#218).
+        from ...tools.shell_detach import kill_handed_off
+
+        killed = state.shell_jobs.kill_all() + kill_handed_off(state.shell_handoff)
+        if killed:
+            console.print(
+                f"[{theme.DIM}]{messages.SHELL_JOBS_KILLED.format(count=killed)}[/{theme.DIM}]"
+            )
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
         # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
@@ -628,27 +636,37 @@ async def run_shell_prefix_line(
     *,
     detach: shell_background.ShellDetach | None = None,
     on_detached: Callable[[prefixes.ShellPrefixResult], None] | None = None,
+    on_chunk: Callable[[str], None] | None = None,
 ) -> None:
     """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır.
 
-    `detach` verilirse Ctrl+B komutu kesmeden arka plana alır (#218): istem serbest kalır,
-    komut bitince `on_detached` (yoksa `show_shell_result`) sonucu gösterir.
+    Çıktı canlı akar (#219; `on_chunk` yoksa konsola basılır). `detach` verilirse Ctrl+B
+    komutu kesmeden arka plana alır (#218): istem serbest kalır, komut `/tasks`'ta görünür,
+    bitince `on_detached` (yoksa `show_shell_result`) sonucu gösterir.
     """
     console.print(
         f"[{theme.ACCENT}]{escape(messages.SHELL_PREFIX_RUNNING.format(command=command))}"
         f"[/{theme.ACCENT}]",
         highlight=False,
     )
-    job = prefixes.run_shell_prefix(state, command)
-    if detach is None:
-        show_shell_result(command, await job, state, console)
-        return
+    # Satır içi REPL'de (detach verilmez) Ctrl+B terminalden ham kipte okunur; tam ekran
+    # TUI tuşu kendi bağıyla iletir.
+    inline = detach is None
+    detach = detach or shell_background.ShellDetach()
+    chunk = on_chunk or (lambda text: _print_chunk(console, text))
+    job = prefixes.run_shell_prefix(state, command, on_chunk=chunk, detach=detach.event)
     done = on_detached or (lambda finished: show_shell_result(command, finished, state, console))
-    result = await shell_background.run_detachable(job, detach, done)
+    with shell_background.watch_ctrl_b(detach, enabled=inline):
+        result = await shell_background.run_detachable(job, detach, done)
     if result is None:
         console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_BACKGROUNDED}[/{theme.DIM}]")
         return
     show_shell_result(command, result, state, console)
+
+
+def _print_chunk(console: Console, text: str) -> None:
+    console.file.write(text)
+    console.file.flush()
 
 
 def show_shell_result(
@@ -657,9 +675,13 @@ def show_shell_result(
     """`!` sonucunu bas; çıktı bağlama girdiyse modelin yanıt turunu hazırla (#219)."""
     for note in result.notes:
         console.print(f"[{theme.WARN}]{escape(note)}[/{theme.WARN}]")
-    if result.output:
+    if result.output and not result.streamed:
         color = theme.DIM if result.ok else theme.ERROR
         console.print(f"[{color}]{escape(result.output)}[/{color}]", highlight=False)
+    elif result.streamed and not result.ok:
+        # Çıktı canlı basıldı; yalnız çıkış kodu satırı ve ekler (zaman aşımı) kalır.
+        status = result.output.splitlines()[0] if result.output else ""
+        console.print(f"[{theme.ERROR}]{escape(status)}[/{theme.ERROR}]", highlight=False)
     if not result.context_block:
         return
     if shell_mode.responds_to_bash_commands(state.root, state.home):

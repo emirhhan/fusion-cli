@@ -444,6 +444,10 @@ class _TuiSession:
             return
         if self._busy and self._state.child_runs.request_background():
             return
+        if self._busy and self._state.shell_handoff.request():
+            # Ajanın süren `run_shell` komutu kesilmeden arka plana geçer, tur sürer (#218).
+            self._echo(f"[{theme.DIM}]{messages.SHELL_HANDOFF_DONE}[/{theme.DIM}]")
+            return
         if self._busy and self._task is not None and self._current_line:
             self._to_background = True
             self._task.cancel()
@@ -1169,11 +1173,17 @@ class _TuiSession:
                 self._out,
                 detach=detach,
                 on_detached=lambda result: self._shell_finished(command, result),
+                on_chunk=self._shell_chunk,
             )
         finally:
             self._shell_detach = None
             self._tui.clear_work()
         return not detach.event.is_set()
+
+    def _shell_chunk(self, text: str) -> None:
+        """`!` çıktısı canlı akar (#219): parça konuşma alanına yazılır, ekran tazelenir."""
+        self._out.file.write(text)
+        self._tui.sync_conversation()
 
     def _shell_finished(self, command: str, result: prefixes.ShellPrefixResult) -> None:
         """Arka plana alınan `!` komutu bitti: çıktıyı bas, yanıt turunu sıraya koy."""
@@ -1246,6 +1256,7 @@ class _TuiSession:
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
+                    shell_handoff=self._state.shell_handoff,
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

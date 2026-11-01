@@ -11,10 +11,14 @@ from pathlib import Path
 
 from ...core.background_tasks import BackgroundTask, BackgroundTaskError
 from ...core.peers import inbound_turn_text
+from ...core.shell_handoff import HandedOffShell
 from ...engines.agent.approval import ApprovalMode
 from ...tools import agent_tasks
+from ...tools.shell_detach import stop_handed_off
 from ...ui import background_messages as texts
+from ...ui import messages
 from ...ui.background_view import peer_lines, task_detail, task_lines
+from .shell_live import ShellJob
 from .state import ReplState
 
 
@@ -97,7 +101,7 @@ def tasks_command(state: ReplState, argument: str) -> str:
     action = word.casefold()
     try:
         if action in {"", "list", "liste"}:
-            return task_lines(store.tasks(root=_root(state, rest)))
+            return task_lines(store.tasks(root=_root(state, rest))) + _shell_job_lines(state)
         if action in {"clean", "temizle"}:
             removed, failed = agent_tasks.clean_finished(store, _root(state, rest))
             text = texts.BG_CLEANED.format(count=removed)
@@ -105,10 +109,69 @@ def tasks_command(state: ReplState, argument: str) -> str:
                 text += "\n" + texts.BG_CLEAN_FAILED.format(names=", ".join(failed))
             return text
         query, _, value = rest.strip().partition(" ")
+        if (shell := _shell_job_action(state, action, query)) is not None:
+            return shell
         task = store.resolve(query)
         return _task_action(state, action, task, value.strip())
     except BackgroundTaskError as error:
         return str(error)
+
+
+def _listed_shells(state: ReplState) -> tuple[ShellJob | HandedOffShell, ...]:
+    """Ctrl+B ile arka plana alınmış `!` ve ajan `run_shell` komutları (#218)."""
+    jobs = getattr(state, "shell_jobs", None)
+    handoff = getattr(state, "shell_handoff", None)
+    own = jobs.background() if jobs is not None else ()
+    return (*own, *(handoff.jobs if handoff is not None else ()))
+
+
+def _shell_job_lines(state: ReplState) -> str:
+    listed = _listed_shells(state)
+    if not listed:
+        return ""
+    rows = [
+        messages.SHELL_JOB_LINE.format(
+            id=job.id,
+            status=_shell_status(job),
+            command=job.command,
+            path=job.log_path,
+        )
+        for job in listed
+    ]
+    return "\n\n" + "\n".join((messages.SHELL_JOBS_TITLE, *rows))
+
+
+def _shell_status(job: ShellJob | HandedOffShell) -> str:
+    if job.running:
+        return "çalışıyor"
+    if job.stopped:
+        return "durduruldu"
+    return f"bitti ({job.returncode})"
+
+
+def _shell_job_action(state: ReplState, action: str, query: str) -> str | None:
+    """`/tasks show|stop <bN>`: kabuk görevi; kimlik eşleşmezse None (ajan görevine düşer)."""
+    job = next((item for item in _listed_shells(state) if item.id == query.strip()), None)
+    if job is None:
+        return None
+    if action in {"stop", "durdur"}:
+        if isinstance(job, ShellJob):
+            state.shell_jobs.stop(job.id)
+        else:
+            stop_handed_off(state.shell_handoff, job.id)
+        return messages.SHELL_JOB_STOPPED.format(id=job.id, command=job.command)
+    if action in {"show", "goster", "göster", "attach"}:
+        try:
+            text = job.log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            return str(error)
+        tail = text[-SHOW_TAIL_CHARS:]
+        return f"{_shell_status(job)} · {job.log_path}\n{tail}"
+    return None
+
+
+#: `/tasks show bN` için günlüğün son kesiti.
+SHOW_TAIL_CHARS = 4000
 
 
 def _root(state: ReplState, rest: str) -> Path | None:

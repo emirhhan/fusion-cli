@@ -35,8 +35,8 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
 | REPL | `/fork [istem]` (Claude Code): konuşmayı arka plan kopyasına verir, bu sohbette çalışmaya devam edilir. İstemle kopya hemen başlar; git deposunda kendi çalışma ağacında (`fork-<kısa kimlik>`) çalışır. İstemsiz `/fork` yeni kimlikli kayıtlı kopya açar; ilk istemi `/resume <kimlik>` ya da `fusion -r <kimlik>` ile verilir |
-| Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
-| Tam ekran REPL | `!` kabuk komutu sürerken **Ctrl+B** (Claude Code gibi): komut **kesilmeden** arka planda sürer, istem hemen serbest kalır; bitince çıktısı konuşmaya basılır, bağlama girer ve (`respondToBashCommands` açıksa) model yanıt verir |
+| Tam ekran REPL | Tur sürerken **Ctrl+B** (Claude Code gibi): ajanın süren `run_shell` komutu ya da beklenen ön plan alt ajanı **kesilmeden** arka plana geçer, tur sürer; ikisi de yoksa tur kesilir ve görev arka planda baştan başlar (aşağıya bkz.) |
+| Satır içi ve tam ekran REPL | `!` kabuk komutu sürerken **Ctrl+B** (Claude Code gibi): komut **kesilmeden** arka planda sürer (süre sınırı kalkar), istem hemen serbest kalır; `/tasks` listeler (`/tasks show bN`, `/tasks stop bN`); bitince çıktısı konuşmaya basılır, bağlama girer ve (`respondToBashCommands` açıksa) model yanıt verir |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -46,8 +46,11 @@ REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan 
 açık seçimidir ve korunur. Alt ajanlar ve arka plan görevinin kendisi yeni arka plan görevi
 açamaz.
 
-**Ctrl+B ajan turunda Claude Code'dan farklıdır** (`!` komutunda aynıdır): modelin süren araç çağrısı devredilemez; tur iptal edilir ve
-görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
+**Ctrl+B ajan turunda:** süren ön plan `run_shell` komutu durdurulmaz; araç sonucu modele
+"arka planda sürüyor, çıktı `.fusion/is/devir-<kimlik>.log` dosyasında" der, tur devam eder,
+komut `/tasks`'ta `aN` kimliğiyle görünür ve oturum kapanınca öldürülür. Ön planda beklenen alt
+ajan da aynı biçimde arka plana geçer. Süren komut ya da alt ajan yoksa (model düşünürken)
+tur iptal edilir ve görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
 ("yeniden yapma, önce oku" notuyla) devredilir; yarım kalan komut (ör. `npm test`) işçide
 gerekirse yeniden koşar.
 
@@ -140,18 +143,18 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
 Ctrl+B (ve Ctrl+X Ctrl+B) `~/.claude/keybindings.json` içinde `Task` bağlamında
-`"ctrl+b": null` ile kaldırılabilir ya da başka tuşa (`"task:background"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
-okunmadığı için orada `/bg` kullanılır.
+`"ctrl+b": null` ile kaldırılabilir ya da başka tuşa (`"task:background"` eylemi) bağlanabilir. Satır-içi REPL'de
+Ctrl+B yalnız `!` komutu sürerken ham terminal kipinde okunur; ajan turu sürerken orada `/bg` kullanılır.
 
 ## Bilinen sınırlar
 
 - Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
-- `/tasks` kabuk arka plan işlerini (`run_shell(background=true)`, `job_status`) listelemez.
+- `/tasks` modelin kendi başlattığı kabuk arka plan işlerini (`run_shell(background=true)`, `job_status`) listelemez; Ctrl+B ile devredilen `!` (`bN`) ve ajan komutlarını (`aN`) listeler.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u
   yokladıkça) nabız verir ve teslimat toplar; panel kapalıyken masaüstü oturumu eş
   listesinde görünmez ve araçla başlatılan görevin sonucu panel açılınca teslim edilir.
-- Satır-içi REPL'de Ctrl+B yok (tur sürerken tuş okunmaz); orada `/bg` kullanılır.
+- Satır-içi REPL'de ajan turu sürerken Ctrl+B yok (izin istemleriyle stdin paylaşılır); orada `/bg` kullanılır. `!` komutunda vardır.
 - Kişilik (`--agent`) işçide `.claude/agents` / `~/.fusion` tanımlarından yeniden çözülür;
   `spawn_agent`'ın yerleşik ekip üyesi adı aynı adla bir tanım yoksa genel ajana düşer.

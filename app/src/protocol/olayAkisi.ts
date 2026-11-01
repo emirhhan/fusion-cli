@@ -177,8 +177,21 @@ function baslayanGorevAdiminiBitir(messages: Mesaj[]): Mesaj[] {
  * Akan balon GEÇİCİDİR: tur bitince kalkar, nihai cevabı uygulama ekler. Böylece
  * motorun kabul etmediği ara metin kalıcı cevap gibi durmaz.
  */
+/** `! komut` çıktısı komut sürerken akar (#219, Claude Code shell mode); `bitti` balonu kaldırır. */
+function kabukAkisi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+  const son = messages[messages.length - 1];
+  const surer = son?.rol === "asistan" && son.akan && son.kabuk ? son.kabuk : undefined;
+  if (event.bitti === true) return messages.filter((mesaj) => !(mesaj.akan && mesaj.kabuk));
+  const parca = typeof event.parca === "string" ? event.parca : "";
+  const komut = typeof event.komut === "string" ? event.komut : surer?.komut ?? "";
+  const kabuk = { komut, cikti: (surer?.cikti ?? "") + parca };
+  const balon: Mesaj = { rol: "asistan", akan: true, kabuk, metin: "```text\n$ " + komut + "\n" + kabuk.cikti.replace(/\n$/, "") + "\n```" };
+  return surer ? [...messages.slice(0, -1), balon] : [...messages, balon];
+}
+
 function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
   const olay = String(event.olay ?? "");
+  if (olay === "KabukCiktisi") return kabukAkisi(messages, event);
   if (olay === "TokenReceived") {
     // Arka plan çağrıları (ders çıkarımı, özet) kullanıcının cevabı değildir.
     if (event.channel !== undefined && event.channel !== "main") return messages;

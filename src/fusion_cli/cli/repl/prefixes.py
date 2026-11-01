@@ -4,8 +4,8 @@ Claude Code'un etkileşimli kipi örnek alınmıştır:
 
 - `! komut` — komut DOĞRUDAN çalışır (model çağrılmaz); çıktı ekrana basılır ve bir
   sonraki turun sistem bağlamına "kullanıcının çalıştırdığı kabuk çıktısı" olarak girer.
-  Çalıştırma `tools.shell.run_shell` üzerinden yapılır: silme çöpe gider, ezilen dosya
-  geri alma kaydına girer, uydurma yol reddedilir — modelin kullandığı güvencelerin aynısı.
+  Çıktı canlı akar ve Ctrl+B komutu kesmeden arka plana alır (`shell_live`, #218/#219);
+  sade `rm` `tools.shell.run_shell` çöp yolundan geçer, ezilen dosya geri alma kaydına girer.
   Plan kipinde komut çalışmaz (plan = hiçbir değişiklik yok).
 - `@yol` — mesajın içindeki dosya anmaları: dosya içeriği (sınırlı) bir sonraki turun
   bağlamına eklenir, mesaj metni olduğu gibi kalır. Yol kök/ek köklere göre çözülür;
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -193,44 +194,118 @@ def push_pending_context(state: ReplState, block: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ShellPrefixResult:
-    """`!` komutunun sonucu: ekrana basılacak çıktı + bağlama girecek blok."""
+    """`!` komutunun sonucu: ekrana basılacak çıktı + bağlama girecek blok.
+
+    `streamed`: çıktı zaten canlı basıldı (#219); yüzey bir daha basmaz.
+    """
 
     output: str
     ok: bool
     context_block: str = ""
     notes: tuple[str, ...] = field(default=())
+    streamed: bool = False
 
 
-async def run_shell_prefix(state: ReplState, command: str) -> ShellPrefixResult:
-    """`! komut` — `run_shell` aracıyla çalıştır; çıktıyı sonraki tura bağlam yap."""
+async def run_shell_prefix(
+    state: ReplState,
+    command: str,
+    *,
+    on_chunk: Callable[[str], None] | None = None,
+    detach: asyncio.Event | None = None,
+) -> ShellPrefixResult:
+    """`! komut` — komutu çalıştır; çıktıyı sonraki tura bağlam yap.
+
+    `on_chunk` verilirse çıktı canlı akar (#219); `detach` kurulunca komut kesilmeden
+    arka plan görevi olur, süre sınırı kalkar ve `/tasks` içinde görünür (#218).
+    Sade `rm` yine `run_shell`'in çöp yolundan geçer.
+    """
     if state.approval is ApprovalMode.PLAN:
         return ShellPrefixResult("", False, notes=(messages.SHELL_PREFIX_PLAN,))
-    from ...tools.shell import run_shell
+    from ...tools.safe_delete import simple_rm_targets
 
     # Ezilen/silinen dosyalar SON turun `/undo` kaydına EKLENİR (ayrı küme açılıp önceki
     # ajan turunun kaydı ezilmez): `/undo` hem ajanın düzenlemesini hem kabuğunkini geri alır.
     changes = state.last_changes if state.last_changes is not None else ChangeSet()
+    if simple_rm_targets(command) is not None or getattr(state, "shell_jobs", None) is None:
+        output, ok = await _run_tool_shell(state, command, changes)
+        streamed = False
+    else:
+        output, ok, streamed = await _run_live_shell(state, command, changes, on_chunk, detach)
+    if changes:
+        state.last_changes = changes
+    if len(output) > MAX_OUTPUT_CHARS:
+        output = output[:MAX_OUTPUT_CHARS]
+    # Bağlama giden kopya maskeli; ekrana basılan çıktı kullanıcının kendi terminalidir.
+    block = messages.SHELL_PREFIX_BLOCK.format(
+        command=redact(command), status="tamam" if ok else "hata", output=redact(output)
+    )
+    push_pending_context(state, block)
+    return ShellPrefixResult(output, ok, context_block=block, streamed=streamed)
+
+
+async def _run_tool_shell(state: ReplState, command: str, changes: ChangeSet) -> tuple[str, bool]:
+    """Eski yol: `run_shell` aracı (sade `rm` çöpe gider)."""
+    from ...tools.shell import run_shell
+
     context = ToolContext(
         root=state.root,
         extra_roots=state.extra_roots,
         restrict_to_root=state.config.runtime.restrict_to_root,
         changes=changes,
     )
-    # Komut senkron çalışır (zaman aşımı aracın kendi sınırı); olay döngüsü bloklanmaz.
     result = await asyncio.to_thread(run_shell, {"command": command}, context)
-    if changes:
-        state.last_changes = changes
-    output = (
-        result.output
-        if len(result.output) <= MAX_OUTPUT_CHARS
-        else result.output[:MAX_OUTPUT_CHARS]
+    return result.output, result.ok
+
+
+async def _run_live_shell(
+    state: ReplState,
+    command: str,
+    changes: ChangeSet,
+    on_chunk: Callable[[str], None] | None,
+    detach: asyncio.Event | None,
+) -> tuple[str, bool, bool]:
+    """Canlı yol (`shell_live`): çıktı akar, Ctrl+B arka plana alır."""
+    from ...core.constants import EXIT_CODE_PREFIX, SHELL_TIMEOUT_S
+    from ...core.workspace_fingerprint import (
+        launches_background_process,
+        measure_effect,
+        take_fingerprint,
     )
-    # Bağlama giden kopya maskeli; ekrana basılan çıktı kullanıcının kendi terminalidir.
-    block = messages.SHELL_PREFIX_BLOCK.format(
-        command=redact(command), status="tamam" if result.ok else "hata", output=redact(output)
-    )
-    push_pending_context(state, block)
-    return ShellPrefixResult(output, result.ok, context_block=block)
+    from ...tools.shell_overwrite import backup_paths
+    from ...tools.wordpress_setup import php_env
+    from . import shell_live
+
+    for path in backup_paths(command, state.root):
+        changes.record(path)
+    measure = bool(changes.paths) and not launches_background_process(command)
+    before = await asyncio.to_thread(take_fingerprint, state.root) if measure else None
+    try:
+        run = await shell_live.run_live(
+            command,
+            cwd=state.root,
+            env=php_env(),
+            log_dir=state.config.memory_dir / shell_live.JOBS_DIRNAME,
+            timeout_s=SHELL_TIMEOUT_S,
+            jobs=state.shell_jobs,
+            detach=detach,
+            on_chunk=on_chunk,
+        )
+    except OSError as error:
+        return f"Komut çalıştırılamadı: {error}", False, False
+    if before is not None:
+        effect = await asyncio.to_thread(measure_effect, before, state.root)
+        # Kullanıcının kabuğu ajanın yazdığı dosyayı değiştirdiyse otomatik geri alma yetkisi
+        # düşer (`run_shell` ile aynı kural).
+        for relative in effect.changed or ():
+            changes.invalidate_applied(state.root / relative)
+    body = run.output.strip()
+    if run.timed_out:
+        body += messages.SHELL_PREFIX_TIMEOUT.format(seconds=int(SHELL_TIMEOUT_S))
+    if run.truncated and run.log_path is not None:
+        body += messages.SHELL_PREFIX_TRUNCATED.format(path=run.log_path)
+    text = f"{EXIT_CODE_PREFIX}{run.returncode})\n{body}".strip()
+    streamed = on_chunk is not None and not (detach is not None and detach.is_set())
+    return text, run.returncode == 0 and not run.timed_out, streamed
 
 
 def add_memory_note(state: ReplState, note: str) -> str:

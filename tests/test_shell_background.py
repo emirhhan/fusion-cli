@@ -74,7 +74,7 @@ async def test_tam_ekranda_ctrl_b_suren_unlem_komutunu_kesmeden_arka_plana_alir(
     session = _TuiSession(state)
     basladi, bitir = asyncio.Event(), asyncio.Event()
 
-    async def _yavas(_state, command):
+    async def _yavas(_state, command, **_kwargs):
         basladi.set()
         await bitir.wait()
         prefixes.push_pending_context(_state, f"$ {command}\nbitti")

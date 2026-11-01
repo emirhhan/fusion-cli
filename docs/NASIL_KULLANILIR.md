@@ -1065,7 +1065,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 
 ### Önekler: `!`, `@`
 
-Önekler TEK satırlıdır: çok satırlı `! …` yapıştırması düz mesaj sayılır. `#` öneki Claude Code'da olmadığı için yoktur; `# …` satırı olağan istemdir. `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer). Terminal, TUI ve masaüstünde `! komut` çıktısı bağlama girince model Claude Code'daki gibi ikinci istem beklemeden yanıt verir; `settings.json` (`~/.claude/`, `.claude/`, `.claude/settings.local.json`) içinde `"respondToBashCommands": false` yalnız bağlama ekler. `!` kipinde Tab geçmişteki `!` komutlarını ve son sözcük için yolları önerir. Plan kipinde `!` hâlâ reddedilir.
+Önekler TEK satırlıdır: çok satırlı `! …` yapıştırması düz mesaj sayılır. `#` öneki Claude Code'da olmadığı için yoktur; `# …` satırı olağan istemdir. `!` çıktısı ve `@dosya` içeriği sonraki turun bağlamına "kullanıcı talimatı değildir" etiketiyle ve sırlar maskelenerek girer; `@dataclass` gibi var olmayan sözcükler sessizce geçilir. Masaüstünde de çalışır: `! komut` çıktısı sohbete yazılır, `@dosya` bağlama eklenir (okunamayan anma yalnız günlüğe düşer). Terminal, TUI ve masaüstünde `! komut` çıktısı bağlama girince model Claude Code'daki gibi ikinci istem beklemeden yanıt verir; `settings.json` (`~/.claude/`, `.claude/`, `.claude/settings.local.json`) içinde `"respondToBashCommands": false` yalnız bağlama ekler. `!` kipinde Tab geçmişteki `!` komutlarını ve son sözcük için yolları önerir. Çıktı terminal ve TUI'de komut sürerken canlı akar; Ctrl+B komutu kesmeden arka plana alır (süre sınırı kalkar, çıktı `memory_dir/kabuk-gorevleri/` günlüğüne yazılır, `/tasks` listeler/durdurur, oturum kapanınca öldürülür). Ön planda komut 120 sn içinde bitmezse durdurulur. Masaüstünde de çıktı komut sürerken akar (`KabukCiktisi` olayı), bitince sonuç bloğu yerini alır. Plan kipinde `!` hâlâ reddedilir.
 
 | Yaz | Ne olur |
 |-----|---------|
@@ -1452,7 +1452,8 @@ Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gi
 @backend-oturumu API şeması değişti, testleri koştur
 ```
 
-Tam ekranda tur sürerken **Ctrl+B** turu keser ve görevi arka planda baştan başlatır
-(değişen dosyalar devredilir). Terminalden: `fusion agent --bg
+Tam ekranda tur sürerken **Ctrl+B** ajanın süren kabuk komutunu ya da beklenen alt ajanı
+kesmeden arka plana alır ve tur sürer; ikisi de yoksa turu keser ve görevi arka planda baştan
+başlatır (değişen dosyalar devredilir). Terminalden: `fusion agent --bg
 "görev"`, izlemek için `fusion agents --izle`. Ayrıntı ve ayarlar:
 [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md).

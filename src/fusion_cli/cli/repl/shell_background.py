@@ -9,8 +9,11 @@ bırakmaktır: komut sürer, bitince çıktısı ekrana basılır ve bağlama gi
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Awaitable, Callable
+import os
+import sys
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -62,3 +65,53 @@ def _finish(task: asyncio.Future[T], on_done: Callable[[T], None]) -> None:
         on_done(task.result())
     except Exception:  # bildirim geri çağrısı arka plan işini düşürmesin
         _LOG.exception("arka plandaki ! komutunun sonucu gösterilemedi")
+
+
+#: Ctrl+B'nin terminal baytı.
+_CTRL_B = b"\x02"
+
+
+@contextlib.contextmanager
+def watch_ctrl_b(detach: ShellDetach, *, enabled: bool = True) -> Iterator[None]:
+    """Satır içi REPL: süren `!` sırasında stdin'i ham kipte izle, Ctrl+B arka plana alır.
+
+    Yalnız gerçek terminalde (TTY, POSIX) etkindir; tam ekran TUI'de prompt_toolkit tuşu
+    kendisi okur (`enabled=False`). Çıkışta terminal kipi geri yüklenir.
+    """
+    if not enabled or not _stdin_is_tty():
+        yield
+        return
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    try:
+        saved = termios.tcgetattr(fd)
+        loop = asyncio.get_running_loop()
+    except (termios.error, OSError, RuntimeError):
+        yield
+        return
+    tty.setcbreak(fd)
+    loop.add_reader(fd, lambda: _on_key(fd, detach))
+    try:
+        yield
+    finally:
+        loop.remove_reader(fd)
+        with contextlib.suppress(termios.error, OSError):
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _stdin_is_tty() -> bool:
+    try:
+        return os.name == "posix" and sys.stdin.isatty()
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+def _on_key(fd: int, detach: ShellDetach) -> None:
+    try:
+        data = os.read(fd, 64)
+    except OSError:
+        return
+    if _CTRL_B in data:
+        detach.request()

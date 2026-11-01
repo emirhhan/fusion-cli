@@ -69,6 +69,8 @@ export interface Mesaj {
   diff?: string;
   /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
   akan?: boolean;
+  /** `! komut` canlı çıktısı (#219): ham metin; komut bitince balon kalkar, sonuç gelir. */
+  kabuk?: { komut: string; cikti: string };
   /** Araç adımlarının arasındaki kısa ara anlatım; nihai cevap değildir. */
   ara?: boolean;
   /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */

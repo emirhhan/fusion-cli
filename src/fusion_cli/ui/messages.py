@@ -1640,6 +1640,15 @@ SHELL_PREFIX_BACKGROUNDED = (
     "↗ komut arka planda sürüyor; bitince çıktısı burada görünür ve bağlama eklenir."
 )
 SHELL_PREFIX_BG_DONE = "Arka plandaki `! {command}` bitti."
+SHELL_PREFIX_TIMEOUT = (
+    "\n[{seconds} sn içinde bitmedi, durduruldu. Uzun komutu Ctrl+B ile arka plana al.]"
+)
+SHELL_PREFIX_TRUNCATED = "\n[çıktı kısaltıldı; tamamı: {path}]"
+SHELL_JOBS_TITLE = "Kabuk komutları (! · Ctrl+B):"
+SHELL_HANDOFF_DONE = "↗ süren kabuk komutu kesilmeden arka plana alındı; ajan çalışmayı sürdürüyor."
+SHELL_JOB_LINE = "  {id}  {status}  {command}  · {path}"
+SHELL_JOB_STOPPED = "Kabuk görevi durduruldu: {id} ({command})"
+SHELL_JOBS_KILLED = "{count} arka plan kabuk komutu oturum kapanırken durduruldu."
 SHELL_PREFIX_WORK = "! {command} · ctrl+b arka plana al · esc kes"
 SHELL_PREFIX_RESPOND = (
     "Kullanıcı `! {command}` kabuk komutunu kendisi çalıştırdı; komut ve çıktısı bağlamda. "

@@ -32,7 +32,7 @@ from dataclasses import replace
 from functools import partial
 from itertools import count
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
@@ -195,6 +195,9 @@ from .personal_memory import PersonalMemory
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+
+if TYPE_CHECKING:
+    from ..cli.repl.prefixes import ShellPrefixResult
 from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
@@ -2567,7 +2570,7 @@ class AppSession:
         from ..cli.repl.loop import apply_mentions
 
         if (command := prefixes.shell_command(task)) is not None:
-            result = await prefixes.run_shell_prefix(self._state, command)
+            result = await self._live_shell(command)
             parts: list[str] = []
             if result.output:
                 parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
@@ -2592,6 +2595,23 @@ class AppSession:
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
+
+    async def _live_shell(self, command: str) -> ShellPrefixResult:
+        """`! komut` çıktısı komut sürerken `KabukCiktisi` olayıyla akar (#219)."""
+        from ..cli.repl import prefixes
+
+        def _emit(payload: dict[str, Any]) -> None:
+            try:
+                self._writer(encode_event({"olay": "KabukCiktisi", "komut": command, **payload}))
+            except (OSError, ValueError):
+                logging.getLogger(__name__).debug("kabuk çıktısı iletilemedi")
+
+        try:
+            return await prefixes.run_shell_prefix(
+                self._state, command, on_chunk=lambda text: _emit({"parca": text})
+            )
+        finally:
+            _emit({"bitti": True})
 
     def _ensure_idle_watch(self) -> None:
         """Girdi bekleyen sekme boşta kalınca `Notification(idle_prompt)` (P-009)."""
@@ -3734,6 +3754,11 @@ class AppSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
         await self._state.child_runs.close()
+        # Arka plana alınmış `!` komutları oturumla kapanır (#218).
+        self._state.shell_jobs.kill_all()
+        from ..tools.shell_detach import kill_handed_off
+
+        kill_handed_off(self._state.shell_handoff)
         if self._child_runs is not None and self._child_runs is not self._state.child_runs:
             await self._child_runs.close()
         await self._voice_background.close()

@@ -22,7 +22,7 @@ from ..core.constants import (
     truncate_notice,
 )
 from ..core.errors import ProcessCancelledError
-from ..core.process_control import run_foreground
+from ..core.process_control import ProcessDetachedError, run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
@@ -54,6 +54,7 @@ from .sandbox_runtime import (
     sandbox_env,
     sandbox_notes,
 )
+from .shell_detach import hand_off
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
@@ -141,6 +142,8 @@ def _run_foreground(
     if run.plan.refused:
         return ToolResult.failure(run.plan.refused)
     before, skipped = _fingerprint_before(command, context)
+    handoff = getattr(context, "shell_handoff", None)
+    detach = handoff.begin() if handoff is not None else None
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -151,13 +154,21 @@ def _run_foreground(
             cwd=context.root,
             env=sandbox_env(_shell_env(context), run),
             argv_prefix=run.plan.prefix,
+            detach=detach,
         )
+    except ProcessDetachedError as detached:
+        # Ctrl+B (#218): komut kesilmeden arka planda sürer; tur devam eder.
+        assert handoff is not None
+        return hand_off(command, detached, context, handoff)
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
     except subprocess.TimeoutExpired as timeout:
         return ToolResult.failure(_timeout_message(timeout))
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
+    finally:
+        if handoff is not None:
+            handoff.end()
 
     body = _combine(process.stdout, process.stderr)
     text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
