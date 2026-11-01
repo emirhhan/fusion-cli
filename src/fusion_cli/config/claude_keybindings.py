@@ -88,6 +88,9 @@ ACTION_MAP: dict[str, str] = {
 #: Ayrılmış kısayollar (Claude Code "Reserved shortcuts").
 RESERVED = frozenset({"c-c", "c-d", "c-m", "c-[", "c-i", "c-h"})
 
+#: Ctrl+Enter'ın Fusion tuşu (CSI-u dizisi F24'e eşlenir; `cli/repl/tui_input_keys`).
+CTRL_ENTER_KEY = "f24"
+
 _MODIFIERS = {
     "ctrl": "c",
     "control": "c",
@@ -171,6 +174,8 @@ def _modified(base: str, mods: set[str]) -> str | None:
     if mods == {"c"}:
         if base == "space":
             return "c-space"
+        if base == "enter":
+            return CTRL_ENTER_KEY
         if len(base) == 1 or base in _CTRL_SHIFTABLE or _is_function_key(base):
             return f"c-{base}"
         return None

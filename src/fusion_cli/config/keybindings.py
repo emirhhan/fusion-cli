@@ -71,6 +71,8 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "c-x c-b": "arka_plana_al",
         # Claude Code chat:sendNow (#190), chat:externalEditor/undo/stash/clearInput (#216).
         "c-x c-s": "simdi_gonder",
+        # Ctrl+Enter (CSI-u / modifyOtherKeys açık terminallerde; bkz. tui_input_keys).
+        "f24": "simdi_gonder",
         "c-g": "dis_editor",
         "c-x c-e": "dis_editor",
         "c-_": "geri_al",

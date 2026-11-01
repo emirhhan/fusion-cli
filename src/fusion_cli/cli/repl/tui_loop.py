@@ -501,12 +501,19 @@ class _TuiSession:
     def _send_now(self, draft: str) -> None:
         """chat:sendNow (Ctrl+X Ctrl+S, #190): kuyruğu hemen yolla, taslak arkasına girer.
 
-        Kuyrukta tur sonunu bekleyen satır (komut, `!`) ya da modele henüz gitmemiş mesaj
-        varsa tur kesilir; kesme yolu kuyruğu korur ve sıradakini hemen başlatır.
+        Ajanın süren kabuk komutu varsa ve kuyrukta yalnız mesaj varsa komut kesilmeden arka
+        plana geçer, mesaj aynı tura verilir. Kuyrukta tur sonunu bekleyen satır (komut, `!`)
+        ya da beklenen kabuk yokken modele gitmemiş mesaj varsa tur kesilir; kesme yolu kuyruğu
+        korur ve sıradakini hemen başlatır. Ctrl+Enter da bu eylemdir (CSI-u terminallerde).
         """
         if draft.strip():
             self._submit(draft)
         if not self._busy or self._task is None:
+            return
+        if not self._queue and self._steer.pending and self._state.shell_handoff.request():
+            # Claude Code: süren kabuk komutu arka plana geçer, kuyruk araç sonucu döner
+            # dönmez aynı tura verilir; tur kesilmez (#190, #218).
+            self._echo(f"[{theme.DIM}]{messages.SHELL_HANDOFF_DONE}[/{theme.DIM}]")
             return
         if self._queue or self._steer.pending:
             self._task.cancel()

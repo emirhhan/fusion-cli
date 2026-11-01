@@ -33,12 +33,26 @@ SHIFT_ENTER_SEQUENCES = ("\x1b[13;2u", "\x1b[27;2;13~")
 #: Option+Enter (Meta+Enter) terminalde ESC CR olarak gelir; Esc'in tek tuş bağı eager
 #: olduğundan ayrı bir dizi olarak tanımlanmazsa Esc+Enter'a hiç ulaşılmazdı.
 META_ENTER_SEQUENCES = ("\x1b\r",)
+#: Ctrl+Enter'ı ayrı dizi olarak gönderen terminaller (kitty/CSI-u, xterm modifyOtherKeys).
+#: Claude Code chat:sendNow (#190); prompt_toolkit'te Ctrl+Enter tuşu olmadığı için boş F24'e
+#: eşlenir, Claude yazımı `ctrl+enter` de buna çevrilir (`claude_keybindings`).
+CTRL_ENTER_SEQUENCES = ("\x1b[13;5u", "\x1b[27;5;13~")
+CTRL_ENTER_KEY = "f24"
 
 
 def register_shift_enter() -> None:
     """Shift+Enter ve Option+Enter dizilerini Ctrl+J'ye (yeni satır) eşle."""
+    # prompt_toolkit xterm `27;<mod>;13~` dizilerini düz Enter'a (Ctrl+M) eşler; değiştirici
+    # kaybolur. Boş ya da Enter'a eşli diziler yeniden bağlanır, başka bağa dokunulmaz.
     for sequence in (*SHIFT_ENTER_SEQUENCES, *META_ENTER_SEQUENCES):
-        ANSI_SEQUENCES.setdefault(sequence, Keys.ControlJ)
+        _bind(sequence, Keys.ControlJ)
+    for sequence in CTRL_ENTER_SEQUENCES:
+        _bind(sequence, Keys.F24)
+
+
+def _bind(sequence: str, key: Keys) -> None:
+    if ANSI_SEQUENCES.get(sequence) in (None, Keys.ControlM):
+        ANSI_SEQUENCES[sequence] = key
 
 
 #: Claude Code: oturumda tutulan en son silinmiş taslak sayısı (Ctrl+C / Esc Esc, #195).

@@ -726,6 +726,35 @@ async def test_mesgulken_duz_mesaj_ayni_tura_verilir_up_geri_alir_sendnow_keser(
     assert session._task.cancelled()
 
 
+async def test_sendnow_suren_kabuk_komutunu_arka_plana_alir_turu_kesmez(tmp_path):
+    """Claude Code (#190, #218): ajanın kabuk komutu sürerken sendNow komutu arka plana
+    alır, kuyruktaki mesaj araç sonucu döner dönmez aynı tura verilir."""
+    session = _TuiSession(_state(tmp_path))
+    session._task = asyncio.ensure_future(asyncio.sleep(10))
+    session._steer.begin()
+    event = session._state.shell_handoff.begin()
+    session._submit("testler bitince şunu da yap")
+    session._send_now("")
+    await asyncio.sleep(0)
+    assert event.is_set() and not session._task.cancelled()
+    session._task.cancel()
+
+
+def test_ctrl_enter_dizileri_sendnow_tusuna_eslenir(tmp_path):
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+    from prompt_toolkit.keys import Keys
+
+    from fusion_cli.cli.repl.tui_input_keys import CTRL_ENTER_SEQUENCES, register_shift_enter
+    from fusion_cli.config.claude_keybindings import keystroke_to_key
+    from fusion_cli.config.keybindings import load_keymap
+
+    register_shift_enter()
+    assert all(ANSI_SEQUENCES[seq] is Keys.F24 for seq in CTRL_ENTER_SEQUENCES)
+    assert keystroke_to_key("ctrl+enter") == "f24"
+    keymap = load_keymap(tmp_path / "yok.json", tmp_path / "yok-claude.json")
+    assert keymap.contexts["tui"]["f24"] == "simdi_gonder"
+
+
 def test_import_history_oturumsuz_kaynagi_ayiklar():
     """`/import history claude` oturumsuzsa TUI modal seçici açar (#223)."""
     from fusion_cli.cli.repl.tui_loop import _history_source
