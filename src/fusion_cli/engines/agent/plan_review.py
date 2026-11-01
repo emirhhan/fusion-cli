@@ -69,7 +69,12 @@ async def review_plan_request(
         outcome = replace(cached, source=ReviewSource.CACHE)
     else:
         outcome = await classify(
-            reviewed, intent, deps.config, deps.publisher, root=root, kind=ReviewKind.RELAX,
+            reviewed,
+            intent,
+            deps.config,
+            deps.publisher,
+            root=root,
+            kind=ReviewKind.RELAX,
             state=state,
         )
         state.remember(key, outcome)
