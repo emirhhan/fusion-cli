@@ -86,6 +86,19 @@ def agent_names(state: object) -> list[str]:
     return [item.name for item in library.agents()]
 
 
+def live_session_names(state: object) -> list[str]:
+    """`@` önerisi için canlı öteki oturumlar (Claude Code typeahead, #228); kendisi hariç."""
+    link = getattr(state, "agent_link", None)
+    if link is None:
+        return []
+    own = getattr(getattr(link, "peer", None), "id", None)
+    try:
+        peers = link.registry.peers()
+    except OSError:
+        return []
+    return [peer.name or peer.id for peer in peers if peer.id != own]
+
+
 class ReplCompleter(Completer):
     """Komut adı ve `@yol` tamamlayıcısı."""
 
@@ -96,6 +109,8 @@ class ReplCompleter(Completer):
         *,
         agents: Callable[[], list[str]] | None = None,
         shell_history: Callable[[], Iterable[str]] | None = None,
+        mcp_resources: Callable[[], Iterable[tuple[str, str]]] | None = None,
+        sessions: Callable[[], list[str]] | None = None,
     ) -> None:
         #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
@@ -106,6 +121,10 @@ class ReplCompleter(Completer):
         self._agents = agents
         #: `!` kabuk kipinde Tab geçmişteki `!` satırlarını önerir (Claude Code, #219).
         self._shell_history = shell_history
+        #: `@sunucu:uri` MCP kaynakları dosyalarla birlikte önerilir (Claude Code, #228).
+        self._mcp_resources = mcp_resources
+        #: Canlı öteki oturumlar: `@ad mesaj` o oturuma gönderilir (#228).
+        self._sessions = sessions
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
@@ -119,9 +138,19 @@ class ReplCompleter(Completer):
             partial = word[1:]
             for name in agent_suggestions(partial, self._agents() if self._agents else []):
                 yield Completion(f"@{name}", start_position=-len(word), display=name)
+            for name in self._sessions() if self._sessions else []:
+                if fuzzy_match(name, partial):
+                    yield Completion(
+                        f"@{name}", start_position=-len(word), display=name, display_meta="oturum"
+                    )
             roots = self._roots() if callable(self._roots) else self._roots
             for suggestion in path_suggestions(partial, roots):
                 yield Completion(f"@{suggestion}", start_position=-len(word), display=suggestion)
+            for mention, name in self._mcp_resources() if self._mcp_resources else ():
+                if fuzzy_match(mention, partial) or fuzzy_match(name, partial):
+                    yield Completion(
+                        f"@{mention}", start_position=-len(word), display=mention, display_meta=name
+                    )
             return
         if word.startswith("/") and document.text_before_cursor.lstrip() == word:
             words = self._words() if callable(self._words) else self._words

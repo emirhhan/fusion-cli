@@ -56,6 +56,7 @@ from . import (
     linked_pr,
     loop_command,
     macros,
+    mcp_prompt_commands,
     model_flows,
     model_picker,
     output_style_command,
@@ -89,7 +90,7 @@ from .commands import (
     renders_itself,
     resume_choices,
 )
-from .completion import ReplCompleter, agent_names
+from .completion import ReplCompleter, agent_names, live_session_names
 from .loop import (
     CRON_POLL_S,
     apply_auto_profile,
@@ -340,6 +341,8 @@ class _TuiSession:
                 lambda: (state.root, *state.extra_roots),
                 agents=lambda: agent_names(state),
                 shell_history=lambda: self._tui.history_strings(),
+                mcp_resources=mcp_prompt_commands.resource_mentions,
+                sessions=lambda: live_session_names(state),
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),

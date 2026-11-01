@@ -67,6 +67,7 @@ class ReplInput:
         mode: ApprovalMode,
         roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
         agents: Callable[[], list[str]] | None = None,
+        sessions: Callable[[], list[str]] | None = None,
     ) -> None:
         """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
 
@@ -97,7 +98,7 @@ class ReplInput:
         #: İstem açık mı? `inject` yalnız bu sırada satır verebilir.
         self._waiting = False
         if sys.stdin.isatty():
-            self._session = _build_session(self, history_path, words, roots, agents)
+            self._session = _build_session(self, history_path, words, roots, agents, sessions)
 
     @property
     def interactive(self) -> bool:
@@ -289,6 +290,7 @@ def _build_session(
     words: list[str] | Callable[[], list[str]],
     roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
     agents: Callable[[], list[str]] | None = None,
+    sessions: Callable[[], list[str]] | None = None,
 ) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
@@ -313,6 +315,8 @@ def _build_session(
                 roots,
                 agents=agents,
                 shell_history=lambda: owner.history_strings(),
+                mcp_resources=_mcp_resources,
+                sessions=sessions,
             ),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
@@ -334,6 +338,12 @@ def _build_session(
         # prompt_toolkit kurulamadı (terminal desteklemiyor, ortam kısıtlı…).
         # Düz girişe düşmek kabul edilebilir; REPL çalışmaya devam etmelidir.
         return None
+
+
+def _mcp_resources() -> list[tuple[str, str]]:
+    from .mcp_prompt_commands import resource_mentions
+
+    return resource_mentions()
 
 
 def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:

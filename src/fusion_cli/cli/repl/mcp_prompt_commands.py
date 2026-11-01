@@ -34,6 +34,17 @@ def _catalogs() -> dict[str, object]:
     return dict(mcp_catalogs())
 
 
+def resource_mentions() -> list[tuple[str, str]]:
+    """Bağlı sunucuların kaynakları: (`sunucu:uri`, ad) — `@` tamamlaması (#228)."""
+    rows: list[tuple[str, str]] = []
+    for server, catalog in _catalogs().items():
+        for resource in getattr(catalog, "resources", ()):
+            uri = str(getattr(resource, "uri", ""))
+            if uri:
+                rows.append((f"{server}:{uri}", str(getattr(resource, "name", "") or uri)))
+    return rows
+
+
 def prompt_handler(name: str) -> Callable[[ReplState, str], str]:
     def _handler(state: ReplState, argument: str) -> str:
         state.pending_task = f"/{name} {argument}".strip()

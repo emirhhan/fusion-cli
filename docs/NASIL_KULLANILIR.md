@@ -1073,7 +1073,7 @@ Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
 | `@src/app.py şu fonksiyonu incele` | Anılan dosya (ya da dizin listesi) bağlama eklenir; mesaj olduğu gibi gider. En çok 8 dosya, dosya başına 20 bin karakter. Tab ile yol tamamlama: `@src/mo<Tab>`. |
 | `# testleri her zaman pytest ile çalıştır` | Kalıcı bellek notu (`/learn` ile aynı depo). `/lessons` ile gör, `/forget` ile sil. |
 
-`@sunucu:kaynak` (MCP kaynağı) anması tur başında sunucudan okunup bağlama eklenir (bkz. "MCP istemleri ve kaynakları").
+`@sunucu:kaynak` (MCP kaynağı) anması tur başında sunucudan okunup bağlama eklenir (bkz. "MCP istemleri ve kaynakları"). Tab ile `@` tamamlaması dosyalarla birlikte bağlı sunucuların MCP kaynaklarını (`@sunucu:uri`) ve canlı öteki oturumları önerir.
 
 ### Durum ve bağlam
 

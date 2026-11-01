@@ -292,3 +292,40 @@ def test_kabuk_kipinde_tab_gecmis_ve_yol_onerir(tmp_path):
         "!git status",
         "!git log --oneline",
     ]
+
+
+def test_at_tamamlamasi_mcp_kaynaklarini_da_onerir(tmp_path):
+    """Claude Code (#228): `@` dosyalarla birlikte `@sunucu:uri` MCP kaynaklarını önerir."""
+    (tmp_path / "notlar.md").write_text("", encoding="utf-8")
+    kaynaklar = [("github:repo://acme/issues/1", "Issue 1"), ("db:pg://tablo", "tablo")]
+    completer = ReplCompleter([], (tmp_path,), mcp_resources=lambda: kaynaklar)
+    oneriler = [c.text for c in completer.get_completions(Document("bak @git"), None)]
+    assert oneriler == ["@github:repo://acme/issues/1"]
+    hepsi = [c.text for c in completer.get_completions(Document("@"), None)]
+    assert "@notlar.md" in hepsi and "@db:pg://tablo" in hepsi
+
+
+def test_mcp_katalogundan_kaynak_anmalari(monkeypatch):
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl import mcp_prompt_commands
+
+    katalog = SimpleNamespace(resources=(SimpleNamespace(uri="file:///a.txt", name="a"),))
+    monkeypatch.setattr(mcp_prompt_commands, "_catalogs", lambda: {"dosya": katalog})
+    assert mcp_prompt_commands.resource_mentions() == [("dosya:file:///a.txt", "a")]
+
+
+def test_at_tamamlamasi_canli_oturumlari_onerir(tmp_path):
+    """Claude Code (#228): `@` canlı öteki oturumları önerir; kendisi listelenmez."""
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl.completion import live_session_names
+
+    peers = (SimpleNamespace(id="p1", name="ben"), SimpleNamespace(id="p2", name="derleyici"))
+    link = SimpleNamespace(
+        peer=SimpleNamespace(id="p1"), registry=SimpleNamespace(peers=lambda: peers)
+    )
+    assert live_session_names(SimpleNamespace(agent_link=link)) == ["derleyici"]
+    assert live_session_names(SimpleNamespace(agent_link=None)) == []
+    completer = ReplCompleter([], (tmp_path,), sessions=lambda: ["derleyici"])
+    assert [c.text for c in completer.get_completions(Document("@der"), None)] == ["@derleyici"]

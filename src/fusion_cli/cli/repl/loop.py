@@ -114,7 +114,7 @@ from .commands import (
     renders_itself,
     status_panel,
 )
-from .completion import agent_names
+from .completion import agent_names, live_session_names
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
@@ -314,6 +314,7 @@ async def _run_inline(
         mode=state.approval,
         roots=lambda: (state.root, *state.extra_roots),
         agents=lambda: agent_names(state),
+        sessions=lambda: live_session_names(state),
     )
     background = BackgroundTasks()
 
