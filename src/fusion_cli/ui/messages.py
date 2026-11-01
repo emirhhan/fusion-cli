@@ -1017,7 +1017,8 @@ CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · m
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_DOCTOR = (
     "kurulum denetimi: ne eksik, neden önemli, ne yapmalı · "
-    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar)"
+    "/doctor prompt: talimat denetimi (yüklenen dosyalar, kırpma, şüpheli satırlar) · "
+    "/doctor prompt-audit [yol]: talimat, beceri, komut ve alt ajan dosyalarının model denetimi"
 )
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
 REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
@@ -1029,6 +1030,11 @@ MEMORY_PICKER_AUTO = (
 MEMORY_PICKER_RANGE = "Geçersiz seçim; 1 ile {count} arasında bir numara yaz."
 CMD_INIT = "proje talimat dosyası üret: CLAUDE.md (varsayılan) ya da AGENTS.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
+REPL_PROMPT_AUDIT_STARTED = (
+    "Talimat denetimi (prompt-audit) hazırlandı; model dosyaları inceleyip düzenleme önerecek, "
+    "onayın olmadan değiştirmeyecek."
+)
+REPL_PROMPT_AUDIT_EMPTY = "Denetlenecek talimat dosyası bulunamadı: {target}"
 REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
 )

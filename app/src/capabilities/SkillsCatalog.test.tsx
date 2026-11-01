@@ -179,4 +179,20 @@ describe("SkillsCatalog yenile ve teşhis (P-051)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Teşhis" }));
     expect((await screen.findByLabelText("Beceri teşhisi")).textContent).toContain("Sorun bulunmadı");
   });
+
+  it("görünürlük düğmesi skillOverrides RPC'sini çağırır ve sonucu gösterir (#176)", async () => {
+    const c = {
+      request: vi.fn(async (name: string) => {
+        if (name === "yetenek.katalog") return { ok: true, beceriler: [{ ad: "pdf", aciklama: "PDF", kaynak: "claude", tur: "beceri", etkin: true, izinler: [] }] };
+        if (name === "yetenek.gorunurluk") return { ok: true, gorunurluk: "name-only", metin: "skillOverrides kaydedildi: pdf: name-only" };
+        if (name === "yetenek.detay") return { ok: true, icerik: "gövde" };
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    render(<SkillsCatalog client={c} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByText("pdf"));
+    fireEvent.click(await screen.findByRole("button", { name: "Görünürlüğü değiştir" }));
+    expect(await screen.findByText("skillOverrides kaydedildi: pdf: name-only")).toBeTruthy();
+    expect(c.request).toHaveBeenCalledWith("yetenek.gorunurluk", { ad: "pdf" });
+  });
 });

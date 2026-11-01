@@ -18,7 +18,7 @@ ayarlarla (`permissions`, kancalar) zorlanır.
 | 1 | Kurumsal | macOS `/Library/Application Support/ClaudeCode/CLAUDE.md`, Linux/WSL `/etc/claude-code/CLAUDE.md` ve `managed-settings.json` içindeki `claudeMd`. Dışlanamaz |
 | 2 | Kullanıcı | `~/.claude/CLAUDE.md` (eski `~/.fusion/TALIMAT.md` bu sürüm boyunca okunur, kullanımdan kalktığı notu düşer; `~/.codex/AGENTS.md` okunmaz) |
 | 3 | Proje | Dosya sistemi kökünden çalışma dizinine kadar **her dizinde** `CLAUDE.md`, `.claude/CLAUDE.md`, ardından `CLAUDE.local.md`. `monorepo/packages/web` içinde açınca `monorepo/CLAUDE.md` de yüklenir |
-| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` ve `.claude/rules/*.md` (`paths`'siz) dosyaları |
+| 4 | Ek dizin | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` iken `--add-dir` dizinlerinin `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` ve `.claude/rules/*.md` (`paths`'siz) dosyaları; `paths` alanlı kurallar o ek dizine göre eşleşen bir dosyaya erişilince bağlama girer (`InstructionsLoaded` `path_glob_match`) |
 | — | İç içe | Alt klasördeki talimat, o klasördeki dosyaya erişince (`runtime.nested_instructions`) |
 
 - **AGENTS.md**: varsayılan (`claude-md-or-agents-md`) — çalışma dizininde ya da üstünde hiç
@@ -193,12 +193,13 @@ bu keşfi de kapatır.
 |---|---|
 | `/reload-skills` · `/skills reload` · masaüstü **Yenile** · `yetenek.yenile` | Beceri ve komut dizinlerini yeniden tarar; `/reload-skills` eklenen/çıkarılan sayısını söyler. Claude Code gibi var olan bir SKILL.md'nin ya da komut dosyasının düzenlenmesi, klasör ekleme/silme de bir sonraki sorguda **kendiliğinden** algılanır. |
 | `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Claude Code'daki gibi önce beceri başına bağlam maliyeti (her tur giden liste satırı ve çağrılınca giren gövde, belirteç tahmini) ve kullanım sıklığı (çağrı sayısı); hiç çağrılmamış ama listede yer kaplayanlar için `skillOverrides` önerisi (masaüstünde `maliyet` alanı). Ardından yapısal teşhis: eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
+| `/skills` paneli · TUI modal · terminalde `/skills <n>` · masaüstü `yetenek.gorunurluk` | Claude Code'daki gibi becerileri görünürlük ve liste maliyetiyle listeler (kapalılar dahil, eklenti becerileri hariç). TUI'de Enter seçili becerinin görünürlüğünü `on → name-only → user-invocable-only → off` döngüsünde değiştirir, Esc kaydeder; terminal REPL ve masaüstü komutunda numaralı liste, `/skills <n>` döndürür ve hemen kaydeder. Kayıt projenin `.claude/settings.local.json`'ındaki `skillOverrides`'a yazılır (öteki anahtarlar korunur; dosya güvenilir idiyse güven karması tazelenir) ve katalog hemen yeniden kurulur. `/skills <arama>` aramayı sürdürür. |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `/agents` | Güncel Claude Code gibi yalnız hatırlatma basar: Fusion'a sor ya da `.claude/agents/` ve `~/.claude/agents/` dosyalarını düzenle. Eski `/agents <arama>` ve `/agents new <ad>` biçimleri bir sürüm boyunca çalışır. |
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
 | `skillOverrides: {ad: görünürlük}` (`settings.json` katmanları, Claude Code ile aynı; eklenti becerilerini etkilemez) ve eski `capabilities.overrides` (config.yaml; ikisi birden varsa `skillOverrides` kazanır) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
-## `/init` ve `/doctor prompt`
+## `/init`, `/doctor prompt` ve `/doctor prompt-audit`
 
 - `/init [claude|agents]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
   [--format claude|agents] [--mode edits]`: Claude Code `/init` ile aynı — model kod tabanını
@@ -216,6 +217,13 @@ bu keşfi de kapatır.
   etme" gibi zararsız güvenlik kuralları işaretlenmez; Fusion şüpheli satırları uygulamaz,
   dosyanın kaynağını gözden geçir), öneriler (talimat yoksa `/init`, bütçenin %70'i dolduysa
   kısalt, doğrulama komutu yoksa `## Doğrulama` bölümü).
+- `/doctor prompt-audit [yol]`: Claude Code'daki gibi model denetimi. Kapsam yolsuzken
+  `~/.claude` ve projedeki CLAUDE.md, `.claude/CLAUDE.md`, CLAUDE.local.md, AGENTS.md, alt
+  dizinlerin CLAUDE.md/AGENTS.md'si, `.claude/rules`, beceriler, komutlar, alt ajanlar ve çıktı
+  stilleri; yol verilirse yalnız o dosya ya da dizin. Görev dosya listesi ve `/doctor prompt`
+  ön bulgularıyla sıradaki agent turunda koşar (oturumun motoru değişmez): model eskimiş
+  talimatları, olmayan dosya/komut göndermelerini ve çelişkileri bulur, dosya/satır ve önerilen
+  düzenlemeyi verir; onayın olmadan dosya değiştirmez.
 - Masaüstü **Ayarlar › Kişiselleştirme › Kalıcı talimat**: öneriler listelenir; **Talimat
   oluştur (/init)** ve **Talimatı denetle** düğmeleri aynı komutları çalıştırır
   (`ayar.talimat` → `oneriler`, `supheli`).

@@ -684,13 +684,24 @@ def _skills(state: ReplState, argument: str) -> str:
 
         # `/skill-doctor` (#177): bağlam maliyeti + kullanım sıklığı, ardından yapısal teşhis.
         maliyet = render_cost_report(skill_costs(state.capabilities, state.config.memory_dir))
-        return maliyet + "\n\n" + render_report(
-            diagnose(state.capabilities),
-            skills=len(state.capabilities.skills()),
-            agents=len(state.capabilities.agents()),
+        return (
+            maliyet
+            + "\n\n"
+            + render_report(
+                diagnose(state.capabilities),
+                skills=len(state.capabilities.skills()),
+                agents=len(state.capabilities.agents()),
+            )
         )
     if eylem in ("new", "yeni"):
         return _prepare_authoring(state, macros.SKILL_NEW_TASK, kalan)
+    # Görünürlük paneli (#176): numaralı liste; `/skills <n>` döndürür ve skillOverrides'a yazar.
+    from . import skills_panel
+
+    if not argument.strip():
+        return skills_panel.render_list(state) or messages.SKILLS_EMPTY
+    if eylem.isdigit() and not kalan:
+        return skills_panel.cycle_index(state, eylem)
     items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
 
@@ -815,6 +826,9 @@ def _doctor(state: ReplState, argument: str) -> str:
     """
     from ...engines.agent.instruction_audit import audit_instructions, render_audit
 
+    alt, _, yol = argument.strip().partition(" ")
+    if alt.lower() == "prompt-audit":
+        return _prompt_audit(state, yol)
     runtime = state.config.runtime
     rapor = render_audit(
         audit_instructions(
@@ -827,6 +841,21 @@ def _doctor(state: ReplState, argument: str) -> str:
     if argument.strip().lower() in ("prompt", "talimat"):
         return rapor
     return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
+
+
+def _prompt_audit(state: ReplState, target: str) -> str:
+    """`/doctor prompt-audit [yol]` (#168): model denetimi sıradaki agent turunda koşar."""
+    from ...engines.agent.instruction_audit import audit_instructions, render_audit
+    from ...engines.agent.prompt_audit import prompt_audit_task
+
+    findings = render_audit(audit_instructions(state.root, state.home)) if not target else ""
+    task = prompt_audit_task(state.root, state.home, target, findings=findings)
+    if not task:
+        return messages.REPL_PROMPT_AUDIT_EMPTY.format(target=target or state.root)
+    state.pending_engine = Engine.AGENT
+    state.pending_task = task
+    state.pending_mode = Mode.NONE
+    return messages.REPL_PROMPT_AUDIT_STARTED
 
 
 def _health(state: ReplState, argument: str) -> str:
@@ -1151,7 +1180,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
-    SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
+    SlashCommand(
+        "doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt|prompt-audit [yol]]"
+    ),
     SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[claude|agents]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),

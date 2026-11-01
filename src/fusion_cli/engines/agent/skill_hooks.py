@@ -54,7 +54,7 @@ def registered_names(session: HookSession | None) -> tuple[str, ...]:
 
 
 def register(session: HookSession | None, skill: Capability, *, trusted: bool) -> bool:
-    """Becerinin kancalarını oturuma ekle; eklendiyse True (yoksa, güvenilmezse, kayıtlıysa False)."""
+    """Becerinin kancalarını oturuma ekle; eklenmediyse (yok, güvenilmez, kayıtlı) False."""
     hooks = getattr(skill, "hook_definitions", None)
     if session is None or not isinstance(hooks, HookSet) or not trusted:
         return False

@@ -220,6 +220,18 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     }).catch((reason) => setError(String(reason)));
   };
 
+  // `/skills` paneli (#176): görünürlük on → name-only → user-invocable-only → off döner, skillOverrides'a yazılır.
+  const cycleVisibility = (item: CatalogItem) => {
+    const requestId = openRequest.current;
+    void client.request("yetenek.gorunurluk", { ad: item.ad }).then((payload) => {
+      if (payload.ok !== true) throw new Error(String(payload.hata ?? payload.metin ?? "Görünürlük değiştirilemedi."));
+      if (requestId !== openRequest.current) return;
+      const value = String(payload.gorunurluk ?? "");
+      setSelected((current) => current?.kimlik === item.kimlik ? { ...current, ayarlar: { ...current.ayarlar, gorunurluk: value } } : current);
+      setNotice(String(payload.metin ?? `${item.ad}: ${value}`));
+    }).catch((reason) => setError(String(reason)));
+  };
+
   const clearMemory = (item: CatalogItem) => {
     const requestId = openRequest.current;
     void client.request("yetenek.bellek_sil", { ad: item.kimlik }).then((payload) => {
@@ -312,7 +324,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
           {!selected && diagnosis && <pre aria-label="Beceri teşhisi">{diagnosis}</pre>}
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : !diagnosis && <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur === "beceri" && !selected.kaynak.includes("eklenti") && <button onClick={() => cycleVisibility(selected)} type="button">Görünürlüğü değiştir</button>}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : !diagnosis && <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>}
     </main>

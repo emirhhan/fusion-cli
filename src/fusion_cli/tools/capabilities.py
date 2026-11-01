@@ -399,6 +399,13 @@ class CapabilityRegistry:
         clone._nested_roots = self._nested_roots
         return clone
 
+    def with_overrides(self, overrides: Mapping[str, SkillVisibility]) -> CapabilityRegistry:
+        """Aynı kökler, farklı görünürlük (`/skills` paneli: `off` olanlar da listelenir; #176)."""
+        clone = self._with_extra_roots(self._extra_roots)
+        clone._overrides = dict(overrides)
+        clone._nested_roots = self._nested_roots
+        return clone
+
     def _with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         return CapabilityRegistry(
             self._home,

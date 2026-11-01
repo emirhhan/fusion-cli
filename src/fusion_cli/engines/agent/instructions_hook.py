@@ -101,11 +101,7 @@ def notify(hooks: object | None, events: Iterable[Mapping[str, object]]) -> None
     emit = getattr(hooks, "emit", None) if hooks is not None else None
     if emit is None:
         return
-    fresh = [
-        fields
-        for fields in events
-        if _first_time(hooks, _key(fields))
-    ]
+    fresh = [fields for fields in events if _first_time(hooks, _key(fields))]
     if not fresh:
         return
     try:

@@ -1163,6 +1163,14 @@ class AppSession:
             return self._reload_capabilities()
         if request.name == "yetenek.teshis":
             return self._diagnose_capabilities()
+        if request.name == "yetenek.gorunurluk":
+            # `/skills` paneli (#176): görünürlük `skillOverrides`'a yazılır, katalog yenilenir.
+            from .skill_visibility_rpc import set_skill_visibility
+
+            sonuc = set_skill_visibility(self._state, request.data)
+            if sonuc.get("ok"):
+                self._refresh_capabilities()
+            return sonuc
         if request.name == "kontrol.durum":
             return self._control_status()
         if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):

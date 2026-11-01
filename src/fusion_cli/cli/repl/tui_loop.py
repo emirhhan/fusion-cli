@@ -592,6 +592,13 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "skills" and not argument.strip():
+            # Görünürlük paneli (#176): Enter döndürür, Esc skillOverrides'a kaydeder.
+            from . import skills_panel
+
+            sonuc = await skills_panel.run_tui_panel(self._state, self._tui.await_choice)
+            self._echo(f"[{theme.DIM}]{escape(sonuc or messages.SKILLS_EMPTY)}[/{theme.DIM}]")
+            return
         elif command.name == "search":
             # Arama yalnız tam ekranda anlamlı (P-070): konuşma tamponu buradadır.
             needle = argument.strip()

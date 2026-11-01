@@ -1,0 +1,117 @@
+"""`/skills` paneli görünürlüğü döndürür ve `skillOverrides`'a yazar (Claude Code #176)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from fusion_cli.cli.repl import skills_panel
+from fusion_cli.cli.repl.commands import build_registry
+from fusion_cli.cli.repl.state import ReplState
+from fusion_cli.config.loader import load_config
+from fusion_cli.config.models import SkillVisibility
+from fusion_cli.config.skill_overrides_writer import next_visibility, write_skill_overrides
+from fusion_cli.memory.factory import null_memory
+from fusion_cli.tools.capabilities import CapabilityRegistry
+
+
+def _skill(home: Path, name: str) -> None:
+    folder = home / ".claude" / "skills" / name
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name} açıklaması\n---\ngövde", encoding="utf-8"
+    )
+
+
+@pytest.fixture
+def state(tmp_path: Path) -> ReplState:
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    root.mkdir()
+    _skill(home, "alfa")
+    _skill(home, "beta")
+    source = tmp_path / "config.yaml"
+    source.write_text("", encoding="utf-8")
+    repl = ReplState(config=load_config(source), memory=null_memory(), root=root, home=home)
+    repl.capabilities = CapabilityRegistry(home, root)
+    return repl
+
+
+def _local(state: ReplState) -> dict[str, object]:
+    return json.loads((state.root / ".claude" / "settings.local.json").read_text("utf-8"))
+
+
+def test_dongu_sirasi() -> None:
+    assert next_visibility(SkillVisibility.ON) is SkillVisibility.NAME_ONLY
+    assert next_visibility(SkillVisibility.OFF) is SkillVisibility.ON
+
+
+def test_yazici_diger_anahtarlari_korur(tmp_path: Path) -> None:
+    root = tmp_path / "proje"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "settings.local.json").write_text(
+        '{"permissions": {"allow": ["Bash(ls)"]}, "skillOverrides": {"x": "off"}}', "utf-8"
+    )
+
+    write_skill_overrides(root, {"y": SkillVisibility.NAME_ONLY})
+
+    data = json.loads((root / ".claude" / "settings.local.json").read_text("utf-8"))
+    assert data["permissions"] == {"allow": ["Bash(ls)"]}
+    assert data["skillOverrides"] == {"x": "off", "y": "name-only"}
+
+
+def test_terminal_numarali_liste_ve_n_ile_dongu(state: ReplState) -> None:
+    skills = build_registry(state.home).get("skills")
+    assert skills is not None
+
+    liste = skills.handler(state, "")
+    assert "1. alfa" in liste and "· on ·" in liste and "/skills <n>" in liste
+
+    cikti = skills.handler(state, "1")
+    assert "alfa: name-only" in cikti
+    assert _local(state)["skillOverrides"] == {"alfa": "name-only"}
+    # Katalog yeni görünürlükle kuruldu: dizinde yalnız ad.
+    alfa = next(s for s in state.capabilities.skills() if s.name == "alfa")  # type: ignore[union-attr]
+    assert alfa.describe_in_index is False
+    assert "Geçersiz" in skills.handler(state, "9")
+
+
+async def test_tui_paneli_enter_dondurur_esc_kaydeder_off_listede_kalir(state: ReplState) -> None:
+    secimler = iter(["beta", "beta", "beta", None])
+
+    async def await_choice(title: str, choices: list) -> str | None:
+        assert "Esc" in title and {c.value for c in choices} == {"alfa", "beta"}
+        return next(secimler)
+
+    cikti = await skills_panel.run_tui_panel(state, await_choice)
+
+    assert "beta: off" in cikti
+    assert _local(state)["skillOverrides"] == {"beta": "off"}
+    assert "beta" not in {s.name for s in state.capabilities.skills()}  # type: ignore[union-attr]
+    # Kapalı beceri panelde yine görünür (yeniden açılabilsin).
+    assert {item.name for item, _ in skills_panel.panel_items(state)} == {"alfa", "beta"}
+
+
+async def test_masaustu_gorunurluk_rpc(tmp_path: Path) -> None:
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    home, root = tmp_path / "home", tmp_path / "project"
+    root.mkdir()
+    _skill(home, "review")
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    await session.handle(
+        Request(id="g", name="yetenek.gorunurluk", data={"ad": "review", "gorunurluk": "off"})
+    )
+    sonuc = json.loads(lines[-1])["veri"]
+    await session.handle(Request(id="h", name="yetenek.gorunurluk", data={"ad": "yok"}))
+    hata = json.loads(lines[-1])["veri"]
+    await session.close()
+
+    assert sonuc["ok"] is True and sonuc["gorunurluk"] == "off"
+    data = json.loads((root / ".claude" / "settings.local.json").read_text("utf-8"))
+    assert data["skillOverrides"] == {"review": "off"}
+    assert hata["ok"] is False
