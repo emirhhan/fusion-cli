@@ -80,7 +80,9 @@ kalktığı uyarısı düşer.
 
 Keşfedilen her `SKILL.md` becerisi ve `.claude/commands/**/*.md` komut dosyası terminalde,
 TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
-(`/help` ve `komut.listele` listeler; yerleşik bir komutla ad çakışırsa yerleşik kazanır).
+(`/help` ve `komut.listele` listeler). Claude Code gibi aynı adlı beceri yerleşik komutun
+yerine geçer, takma adlarının yerine geçmez (`dev` adlı beceri `/development`'ın takma adı
+`/dev`'i gölgelemez).
 
 - `/rapor ekim` → `SKILL.md` gövdesi `$ARGUMENTS` ile şablonlanıp `<beceri>` bloğu olarak
   sıradaki turun sistem bağlamına girer; kullanıcı mesajı `ekim` (argüman yoksa

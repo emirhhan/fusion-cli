@@ -72,12 +72,19 @@ def test_beceri_ve_komut_dosyalari_slash_komutu_olur(state: ReplState):
     assert registry.is_dynamic("rapor") and not registry.is_dynamic("help")
 
 
-def test_yerlesik_komut_ayni_adli_beceriyi_golgeler(state: ReplState):
+def test_beceri_ayni_adli_yerlesik_komutu_gecersiz_kilar_takma_adi_degil(state: ReplState):
+    """Claude Code (#167): beceri yerleşik komutun yerine geçer; takma ad yerleşikte kalır."""
+    dev = state.home / ".claude" / "skills" / "dev"
+    dev.mkdir(parents=True)
+    (dev / "SKILL.md").write_text("---\nname: dev\n---\nx", encoding="utf-8")
+    state.capabilities = CapabilityRegistry(state.home, state.root)
     registry = build_registry(state.home, skills=lambda: state.capabilities)
 
-    assert registry.get("model") is not None
-    assert registry.get("model").group == "Model"  # type: ignore[union-attr]
-    assert not registry.is_dynamic("model")
+    assert registry.get("model").group == "Beceri"  # type: ignore[union-attr]
+    assert registry.is_dynamic("model")
+    assert [c.group for c in registry.all() if c.name == "model"] == ["Beceri"]
+    # `dev`, yerleşik `development` komutunun takma adıdır: beceri onu gölgelemez.
+    assert registry.get("dev").name == "development"  # type: ignore[union-attr]
 
 
 def test_user_invocable_false_beceri_sunulmaz(state: ReplState):

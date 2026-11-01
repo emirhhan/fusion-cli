@@ -111,7 +111,7 @@ class CommandRegistry:
 
     `dynamic` sağlayıcı (bkz. `skill_commands.skill_slash_commands`) her sorguda yeniden
     üretilir: beceri kataloğu yenilenince (`/skills reload`) defter de yenilenmiş olur.
-    Yerleşik komut dinamik olanı her zaman gölgeler.
+    Claude Code gibi beceri aynı adlı yerleşik komutu gölgeler, takma adlarını gölgelemez.
     """
 
     _commands: dict[str, SlashCommand] = field(default_factory=dict)
@@ -130,27 +130,38 @@ class CommandRegistry:
     def set_fallback(self, resolver: FallbackCommand | None) -> None:
         self._fallback = resolver
 
+    def _alias_keys(self) -> set[str]:
+        primary = {name.lower() for name in self._by_name}
+        return {key.lower() for key in self._commands if key.lower() not in primary}
+
     def _dynamic_commands(self) -> tuple[SlashCommand, ...]:
+        """Beceri komutları. Claude Code (#167): beceri yerleşik komutu geçersiz kılar, takma
+        adını değil — yalnız takma adla çakışan beceri gizlenir."""
         if self._dynamic is None:
             return ()
-        return tuple(c for c in self._dynamic() if c.name.lower() not in self._commands)
+        aliases = self._alias_keys()
+        return tuple(c for c in self._dynamic() if c.name.lower() not in aliases)
 
     def get(self, name: str) -> SlashCommand | None:
         wanted = name.lower()
+        found = next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+        if found is not None:
+            return found
         builtin = self._commands.get(wanted)
         if builtin is not None:
             return builtin
-        found = next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
-        if found is None and self._fallback is not None:
-            return self._fallback(wanted)
-        return found
+        return self._fallback(wanted) if self._fallback is not None else None
 
     def is_dynamic(self, name: str) -> bool:
-        """Ad bir beceri/komut dosyasına mı çözülüyor (yerleşik değil)?"""
-        return name.lower() not in self._commands and self.get(name) is not None
+        """Ad bir beceri/komut dosyasına mı çözülüyor?"""
+        wanted = name.lower()
+        return any(c.name.lower() == wanted for c in self._dynamic_commands())
 
     def all(self) -> tuple[SlashCommand, ...]:
-        return (*self._by_name.values(), *self._dynamic_commands())
+        dynamic = self._dynamic_commands()
+        shadowed = {c.name.lower() for c in dynamic}
+        builtins = tuple(c for c in self._by_name.values() if c.name.lower() not in shadowed)
+        return (*builtins, *dynamic)
 
     def completion_words(self) -> list[str]:
         """Tamamlama için tüm komut ve takma adlar."""

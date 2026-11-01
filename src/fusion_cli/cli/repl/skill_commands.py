@@ -3,7 +3,7 @@
 `/<beceri> argüman` yazımı Claude Code'da `.claude/skills/x/SKILL.md` ya da
 `.claude/commands/x.md` dosyasını çalıştırır. Beceri yalnız mesaj başındaki `/` ile çağrılır
 (Codex `$beceri` yazımı Claude'da yok; #174): `build_registry(..., skills=…)` bu modülün ürettiği komutları "Beceri" grubunda
-dinamik olarak defterin arkasına ekler; yerleşik bir komutla ad çakışırsa yerleşik kazanır.
+dinamik olarak defterin arkasına ekler; aynı adlı yerleşik komutu gölgeler (takma adı değil).
 
 İşleyici turu ÇALIŞTIRMAZ (makrolarla aynı sözleşme): görevi `pending_task`, beceri gövdesini
 `pending_context`, `allowed-tools` kısıtını `pending_tools` olarak durumda bekletir; terminal,
