@@ -14,7 +14,6 @@ from pathlib import Path
 from ..config.loader import load_config
 from ..config.models import Config
 from ..config.permission_rules import PermissionRule
-from ..config.setting_sources import set_setting_sources
 from ..core.errors import ConfigError
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.team import Persona
@@ -24,7 +23,7 @@ from . import print_options as opts
 from .headless import OutputFormat, parse_output_format
 from .launch_prompts import check_snapshot
 from .print_runtime import BARE_TOOLS, apply_print_limits, apply_safe_mode, apply_session_flags
-from .print_settings import apply_settings, check_setting_sources, read_settings
+from .print_settings import apply_setting_sources, apply_settings, read_settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,10 +188,8 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     fmt, stream_input = _check_formats(request)
     schema = opts.parse_json_schema(request.json_schema)
     check_snapshot(request.system_prompt_snapshot)
-    sources = check_setting_sources(request.setting_sources)
-    if sources is not None:
-        # Yükleyiciler (`load_config` dahil) okumadan önce ayarlanmalı (#296).
-        set_setting_sources(sources)
+    # Yükleyiciler (`load_config` dahil) okumadan önce ayarlanmalı (#296).
+    apply_setting_sources(request.setting_sources)
     session_id = opts.checked_session_id(request.session_id)
     config, mcp_errors, settings = _build_config(request)
     session = read_settings(settings)

@@ -62,6 +62,7 @@ from . import (
     memory_commands,
     paperclip_command,
     print_options,
+    print_settings,
     prompt_opt_commands,
     sandbox_commands,
     team_cli,
@@ -240,6 +241,13 @@ def main_callback(
             "keşfetmeden aç; araçlar Bash + dosya okuma/düzenleme.",
         ),
     ] = False,
+    setting_sources: Annotated[
+        str | None,
+        typer.Option(
+            "--setting-sources",
+            help="Yüklenecek ayar kaynakları (virgülle): user, project, local.",
+        ),
+    ] = None,
     _version: Annotated[
         bool,
         typer.Option(
@@ -253,6 +261,12 @@ def main_callback(
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
+    try:
+        # Claude `claude --setting-sources` (#296): yükleyiciler okumadan önce ayarlanır.
+        print_settings.apply_setting_sources(setting_sources)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı

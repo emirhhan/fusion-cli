@@ -107,3 +107,12 @@ def test_print_setting_sources_etkisiz_uyarisi_vermez_ve_listeyi_ayarlar(home, m
     assert result.exit_code == 0, result.output
     assert "etkisiz" not in result.output
     assert seen == ["user,project"]
+
+
+def test_kok_komut_setting_sources_dogrular_ve_alt_komuta_uygular(home, monkeypatch, tmp_path):
+    bad = runner.invoke(app_module.app, ["--setting-sources", "user,herkes", "permissions"])
+    assert bad.exit_code == 1 and "herkes" in bad.output
+    monkeypatch.chdir(tmp_path)
+    good = runner.invoke(app_module.app, ["--setting-sources", "local", "permissions"])
+    assert good.exit_code == 0, good.output
+    assert os.environ.get(ENV) == "local"

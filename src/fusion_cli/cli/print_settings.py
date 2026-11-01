@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..config.models import Config
+from ..config.setting_sources import set_setting_sources
 from ..ui import print_messages as texts
 
 SETTING_SOURCES = ("user", "project", "local")
@@ -74,3 +75,10 @@ def check_setting_sources(raw: str | None) -> tuple[str, ...] | None:
     if unknown:
         raise ValueError(texts.PRINT_SETTING_SOURCES_INVALID.format(given=", ".join(unknown)))
     return items
+
+
+def apply_setting_sources(raw: str | None) -> None:
+    """`--setting-sources` doğrula ve bu süreç için uygula (verilmezse dokunma)."""
+    sources = check_setting_sources(raw)
+    if sources is not None:
+        set_setting_sources(sources)
