@@ -184,9 +184,12 @@ async def _vi_prompt(
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     reader = ReplInput(tmp_path / "h", [], mode=ApprovalMode.AUTO)
     calls: list[str] = []
+
+    def _recorder(name: str):
+        return lambda _event: calls.append(name)
+
     reader.extra_actions = {
-        name: (lambda name: lambda _event: calls.append(name))(name)
-        for name in ("model_sec", "dusunme", "hizli_kip", "kisayollar")
+        name: _recorder(name) for name in ("model_sec", "dusunme", "hizli_kip", "kisayollar")
     }
     kb = build_input_bindings(reader, keybindings.load_keymap(tmp_path / "yok.json"))
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):

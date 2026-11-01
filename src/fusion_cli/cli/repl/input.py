@@ -415,10 +415,8 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         # Vim kipiyle çakışan bağlar (Esc dizileri, NORMAL kipte tek harf) vim'e bırakılır.
         vim = option_keys.vim_filter(key)
         try:
-            bindings.add(
-                *(key.split(" ") if key != " " else [key]),
-                **({"filter": vim} if vim is not None else {}),
-            )(handler)
+            keys = key.split(" ") if key != " " else [key]
+            bindings.add(*keys, filter=vim if vim is not None else True)(handler)
         except ValueError:
             # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
             continue

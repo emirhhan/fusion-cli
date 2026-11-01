@@ -18,7 +18,11 @@ bağları kapanır (`vim_filter`), Option+harf TUI'deki tek okuma sezgisiyle tan
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prompt_toolkit.filters import Filter
+    from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 #: Varsayılan Meta bağları (her iki bağlam).
 DEFAULTS: dict[str, str] = {
@@ -57,7 +61,7 @@ def _queued_meta_action(app: object, bindings: Mapping[str, str]) -> str | None:
     return bindings.get(f"escape {key.lower()}")
 
 
-def vim_filter(key: str) -> Any:
+def vim_filter(key: str) -> Filter | None:
     """Satır içi bağın vim kipiyle çakışmayan süzgeci; çakışma yoksa None."""
     from prompt_toolkit.filters import vi_mode, vi_navigation_mode, vi_selection_mode
 
@@ -69,7 +73,9 @@ def vim_filter(key: str) -> Any:
 
 
 def add_vi_meta_binding(
-    bindings: Any, table: Mapping[str, str], resolve: Callable[[str], Callable[[Any], None] | None]
+    bindings: KeyBindings,
+    table: Mapping[str, str],
+    resolve: Callable[[str], Callable[[KeyPressEvent], None] | None],
 ) -> None:
     """Vim kipinde Option+harf: Esc işlenirken harf aynı okumadan kuyruktaysa o eylem çalışır."""
     from prompt_toolkit.application import get_app
@@ -83,7 +89,7 @@ def add_vi_meta_binding(
     def _meta_in_same_read() -> bool:
         return _queued_meta_action(get_app(), meta) is not None
 
-    def _option(event: Any) -> None:
+    def _option(event: KeyPressEvent) -> None:
         action = take_meta_action(event.app, meta)
         handler = resolve(action) if action is not None else None
         if handler is not None:
