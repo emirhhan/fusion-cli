@@ -691,6 +691,7 @@ def agent(
             model_calls=int(getattr(outcome, "model_calls_made", 0)),
             cost=observers.cost,
             structured=structured,
+            deferred_tool_use=getattr(outcome, "deferred_tool_use", None),
         )
         sys.stdout.write(json.dumps(sonuc, ensure_ascii=False) + "\n")
         sys.stdout.flush()

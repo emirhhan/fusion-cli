@@ -119,6 +119,8 @@ class HookSession:
     rewake_notes: list[str] = field(default_factory=list)
     #: `asyncRewake` çıkış 2 ile bitti: boştaki oturum yeni tur başlatır (yüzey gözcüsü).
     wake_requested: bool = False
+    #: PreToolUse `defer` (`-p`) ile turu bitiren çağrı `{id, name, input}` (sonuç nesnesine).
+    deferred_tool_use: dict[str, object] | None = None
     #: `InstructionsLoaded` bildirilmiş talimat dosyaları ve sıradaki yükleme nedeni.
     instructions_seen: set[str] = field(default_factory=set)
     instructions_reason: str = "session_start"

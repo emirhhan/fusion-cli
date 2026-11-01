@@ -206,8 +206,10 @@ sayılır), `decision: "block"` +
 `PreToolUse`: `permissionDecision` (`allow` | `deny` | `ask` | `defer`; öncelik deny > defer >
 ask > allow), `permissionDecisionReason` (`ask`'ta onay kartında, `deny`'de modele),
 `updatedInput` (girdinin **tamamını** değiştirir; değişmeyen alanlar da yazılır),
-`additionalContext` (araç sonucunun yanına). `defer` `fusion -p`'de turu `tool_deferred`
-ile bitirir. `PostToolUse`: `updatedToolOutput` / `updatedMCPToolOutput` (metin ya da araç
+`additionalContext` (araç sonucunun yanına). `defer` `fusion agent`'ta (etkileşimsiz) turu
+`tool_deferred` ile bitirir: araç çalışmaz, model yeniden çağrılmaz, `--output-format json`
+sonucunda `durma_nedeni: "tool_deferred"` ve `deferred_tool_use` (`id`, `name`, `input`), kanca
+dökümünde (`transcript_path`) sonuçsuz `tool_use` kalır. `PostToolUse`: `updatedToolOutput` / `updatedMCPToolOutput` (metin ya da araç
 şeklinde nesne), `classifierContext`. `UserPromptSubmit`: `sessionTitle`,
 `suppressOriginalPrompt` (engel mesajı varsayılan olarak `Original prompt: <metin>` ile
 biter). `SessionStart`: `sessionTitle`, `initialUserMessage`, `watchPaths`, `reloadSkills`.
@@ -282,6 +284,8 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
 - `Notification` türlerinden `elicitation_dialog`, `elicitation_complete`,
   `elicitation_response` gönderilmez: Fusion'ın MCP istemcisi elicitation desteklemiyor.
+- `defer` ile ertelenen çağrı sürdürülen oturumda yeniden değerlendirilmez (`fusion agent`
+  sohbet sürdürmez; `-p --resume` geldiğinde bağlanacak).
 - Masaüstünde biten arka plan görevi ve `asyncRewake` boştaki sohbeti uyandırmaz; metin
   bir sonraki turun bağlamına girer.
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli

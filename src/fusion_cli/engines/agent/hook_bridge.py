@@ -37,7 +37,7 @@ from .hook_input import claude_tool_input, claude_tool_response, fusion_tool_arg
 from .skill_hooks import after_skill_tool
 
 if TYPE_CHECKING:
-    from .loop import AgentDeps
+    from .loop import AgentDeps, AgentOutcome
 
 #: Araç çıktısından kancaya gönderilen en fazla karakter.
 HOOK_TOOL_OUTPUT_CHARS = 20_000
@@ -115,6 +115,15 @@ async def pre_tool_use(
     )
     _publish(deps, verdict)
     gate = _blocking_gate(deps, args, claude_name, verdict)
+    if gate is not None and gate.blocked == TOOL_DEFERRED and gate.halt:
+        # Claude: ertelenen çağrı dökümde sonuçsuz `tool_use` olarak kalır (sürdürülünce
+        # yeniden değerlendirilir); sonuç nesnesi çağrıyı `deferred_tool_use` ile verir.
+        session.deferred_tool_use = {
+            "id": call_id,
+            "name": claude_name,
+            "input": fields["tool_input"],
+        }
+        return gate
     if gate is not None:
         if records_tools(deps):
             session.record_tool_result(call_id, gate.blocked or "", is_error=True)
@@ -146,6 +155,16 @@ def _blocking_gate(
     if verdict.permission == "defer" and not getattr(deps, "interactive", False):
         return ToolGate(args, TOOL_DEFERRED, True)
     return None
+
+
+def deferred_outcome(deps: AgentDeps, outcome: AgentOutcome) -> AgentOutcome:
+    """`defer` turu bitirdiyse sonuç `stop_reason: tool_deferred` ve çağrıyı taşır (#114)."""
+    session = session_of(deps)
+    deferred = getattr(session, "deferred_tool_use", None) if session is not None else None
+    if deferred is None:
+        return outcome
+    session.deferred_tool_use = None  # type: ignore[union-attr]
+    return replace(outcome, stop_reason=TOOL_DEFERRED, deferred_tool_use=dict(deferred))
 
 
 def tool_running(

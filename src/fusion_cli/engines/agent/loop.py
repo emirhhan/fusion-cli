@@ -198,6 +198,7 @@ from .hook_batch import batch_hook
 from .hook_bridge import (
     ToolNote,
     compacted_context,
+    deferred_outcome,
     hook_halt_text,
     post_tool_use,
     pre_compact,
@@ -460,6 +461,8 @@ class AgentOutcome:
     budget_stopped: bool = False
     #: Bütçe durdurduysa sebebi (`BudgetStop` değeri); arayüz özet metnini kurar.
     stop_reason: str | None = None
+    #: PreToolUse `defer` (`-p`) turu bitirdiyse ertelenen çağrı `{id, name, input}`.
+    deferred_tool_use: dict[str, object] | None = None
     #: Tur bittiğindeki görev listesi; yarım kalan işin özetinde gösterilir.
     todos: tuple[TodoItem, ...] = ()
     #: Turda modele "ilerleme yok" uyarısı verildi mi? Ders çıkarımı bu turu atlar.
@@ -1771,11 +1774,14 @@ async def _drive(
             # bir hata yapmadı, kullanıcı bir karar verdi. Model bir DAHA
             # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
             # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
-            return _outcome(
-                state.hook_halt
-                or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
-                messages,
-                state,
+            return deferred_outcome(
+                deps,
+                _outcome(
+                    state.hook_halt
+                    or denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                    messages,
+                    state,
+                ),
             )
         if budget.stop is BudgetStop.NO_PROGRESS:
             return _halt(
