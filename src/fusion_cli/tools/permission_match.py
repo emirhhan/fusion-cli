@@ -29,15 +29,12 @@ Eşleme kuralları (Claude Code belgesiyle aynı):
 
 from __future__ import annotations
 
-import contextlib
-import os
 import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import reduce
-from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+from pathlib import Path
 
 from ..config.permission_rules import (
     PermissionDecision,
@@ -47,6 +44,22 @@ from ..config.permission_rules import (
 )
 from ..core.tools import ToolFamily, tool_family
 from .auto_policy import command_words, nested_command, written_files
+from .permission_params import param_rule_verdict
+from .permission_paths import (
+    absolute,
+    glob_base,
+    negated,
+    path_rule_matches,
+    plain_path_matches,
+    variants,
+)
+from .permission_patterns import (
+    bash_pattern_matches,
+    domain_matches,
+    is_tool_glob,
+    tool_glob_matches,
+)
+from .shell_file_targets import shell_file_targets
 from .write_targets import WRITE_TOOLS, write_targets
 
 #: Claude'un `Read` kuralının kapsadığı Fusion araçları (okuma, listeleme, arama).
@@ -125,8 +138,14 @@ def evaluate(
     if not rules.rules:
         return None
     if tool_family(tool_name) is ToolFamily.SHELL and isinstance(args.get("command"), str):
-        return _evaluate_shell(rules, tool_name, str(args["command"]), root)
-    hits = [rule for rule in rules.rules if matches(rule, tool_name, args, root)]
+        return _evaluate_shell(rules, tool_name, args, root)
+    ordered = rules.rules
+    hits = [
+        rule
+        for index, rule in enumerate(ordered)
+        if matches(rule, tool_name, args, root)
+        and not _carved_out(rule, ordered[index + 1 :], tool_name, args, root)
+    ]
     if not hits:
         return None
     decision = reduce(stricter, (rule.decision for rule in hits))
@@ -134,7 +153,7 @@ def evaluate(
 
 
 def _evaluate_shell(
-    rules: PermissionRuleSet, tool_name: str, command: str, root: Path | None
+    rules: PermissionRuleSet, tool_name: str, args: Mapping[str, object], root: Path | None
 ) -> RuleMatch | None:
     """Zincirin her parçası ayrı bakılır: bir DENY bütünü düşürür; ALLOW hepsini ister.
 
@@ -143,17 +162,30 @@ def _evaluate_shell(
     çalışıyordu. `allow: Bash(ls *)` ise `ls >> ~/.ssh/authorized_keys` komutunu da
     `pre_allowed` yapıp kip/risk denetimini atlatıyordu.
     """
+    command = str(args["command"])
     segments = shell_segments(command)
-    shell_rules = [rule for rule in rules.rules if _tool_matches(rule, tool_name)]
-    if not shell_rules:
-        return None
+    shell_rules: list[PermissionRule] = []
+    for rule in rules.rules:
+        if not _tool_matches(rule, tool_name):
+            continue
+        verdict = param_rule_verdict(rule, args)
+        if verdict is None:
+            shell_rules.append(rule)
+        elif verdict:
+            # `Bash(run_in_background:true)` (#80): deny/ask parametre kuralı.
+            shell_rules.append(PermissionRule(rule.tool, None, rule.decision, rule.source))
+    file_hit = _shell_file_rules(rules, command, root)
+    if file_hit is not None and file_hit.decision is PermissionDecision.DENY:
+        return file_hit
     denied = _first_shell_match(shell_rules, segments, PermissionDecision.DENY)
     if denied is not None:
         return denied
-    asked = _first_shell_match(shell_rules, segments, PermissionDecision.ASK)
+    asked = file_hit or _first_shell_match(shell_rules, segments, PermissionDecision.ASK)
     if asked is not None:
         return asked
-    if _SUBSTITUTION.search(command) or writes_files(command):
+    if not shell_rules:
+        return None
+    if _SUBSTITUTION.search(command) or not _writes_allowed(rules, command, root):
         return None
     allowed: RuleMatch | None = None
     for segment in segments:
@@ -169,6 +201,40 @@ def _evaluate_shell(
             return None
         allowed = allowed or RuleMatch(hit, PermissionDecision.ALLOW)
     return allowed
+
+
+def _shell_file_rules(
+    rules: PermissionRuleSet, command: str, root: Path | None
+) -> RuleMatch | None:
+    """Kabuğun adıyla andığı dosyalar Read/Edit deny ve ask kurallarına karşı (#44, #59)."""
+    targets = shell_file_targets(command)
+    calls = [("read_file", {"path": raw}) for raw in targets.reads]
+    calls += [("edit_file", {"path": raw}) for raw in targets.writes]
+    found: RuleMatch | None = None
+    for name, call in calls:
+        restricted = rules.with_rules(
+            r for r in rules.rules if r.decision is not PermissionDecision.ALLOW
+        )
+        hit = evaluate(restricted, name, call, root)
+        if hit is not None and (found is None or hit.decision is PermissionDecision.DENY):
+            found = hit
+    return found
+
+
+def _writes_allowed(rules: PermissionRuleSet, command: str, root: Path | None) -> bool:
+    """Yönlendirme/`tee` hedefi varsa her biri bir Edit allow kuralıyla açık mı (#59)?
+
+    Bash allow kuralı komutu onaylar, hedefi değil. `~` ya da glob içeren hedef her zaman
+    onaya gider.
+    """
+    for target in writes_files(command):
+        raw = target.strip("'\"")
+        if raw.startswith("~") or any(c in raw for c in "*?["):
+            return False
+        hit = evaluate(rules, "edit_file", {"path": raw}, root)
+        if hit is None or hit.decision is not PermissionDecision.ALLOW:
+            return False
+    return True
 
 
 def shell_segments(command: str, depth: int = 0) -> list[str]:
@@ -226,33 +292,64 @@ def matches(
         return False
     if rule.specifier is None:
         return True
+    verdict = param_rule_verdict(rule, args)
+    if verdict is not None:
+        return verdict
+    if rule.tool in _PATHLESS_RULE_TOOLS:
+        # `Write(yol)`, `Glob(yol)`, `MultiEdit(yol)` kabul edilir ama hiç eşleşmez (#78).
+        return False
     if rule.tool in {"Agent", "Task"}:
-        tasks = args.get("gorevler")
-        if isinstance(tasks, list):
-            targets = [item for item in tasks if isinstance(item, Mapping)]
-            hits = [matches(rule, "Agent", item, root) for item in targets]
-            return (
-                bool(hits) and all(hits) if rule.decision is PermissionDecision.ALLOW else any(hits)
-            )
-        target = args.get("subagent_type", args.get("uzman", args.get("agent", "")))
-        if tool_name == "invoke_agent":
-            # Eski `invoke_agent` tipi `name` ile alır; `Agent`taki `name` ekip üyesi adıdır.
-            target = args.get("name", target)
-        return isinstance(target, str) and _spec_prefix(rule, target)
+        return _agent_matches(rule, tool_name, args, root)
     if tool_family(tool_name) is ToolFamily.SHELL:
         command = args.get("command")
         return isinstance(command, str) and _spec_prefix(rule, command.strip())
     if tool_name in WRITE_TOOLS:
-        return any(
-            _path_matches(rule.specifier, raw, root) for raw in write_targets(tool_name, args)
-        )
+        return any(path_rule_matches(rule, raw, root) for raw in write_targets(tool_name, args))
     if tool_name in READ_TOOLS:
         return _read_matches(rule, tool_name, args, root)
     if tool_name == CD_RULE_TOOL:
-        return _path_matches(rule.specifier, args.get("path"), root)
+        return plain_path_matches(rule.specifier, args.get("path"), root)
     if rule.specifier.startswith("domain:"):
-        return _domain_matches(rule.specifier[len("domain:") :].strip(), args.get("url"))
+        return domain_matches(rule.specifier[len("domain:") :].strip(), args.get("url"))
     return _spec_prefix(rule, _primary_text(args))
+
+
+#: Yol belirteci kabul edilen ama hiçbir zaman eşleşmeyen Claude araç adları (#78).
+_PATHLESS_RULE_TOOLS = frozenset({"Write", "MultiEdit", "NotebookEdit", "Glob"})
+
+
+def _agent_matches(
+    rule: PermissionRule, tool_name: str, args: Mapping[str, object], root: Path | None
+) -> bool:
+    tasks = args.get("gorevler")
+    if isinstance(tasks, list):
+        targets = [item for item in tasks if isinstance(item, Mapping)]
+        hits = [matches(rule, "Agent", item, root) for item in targets]
+        return bool(hits) and all(hits) if rule.decision is PermissionDecision.ALLOW else any(hits)
+    target = args.get("subagent_type", args.get("uzman", args.get("agent", "")))
+    if tool_name == "invoke_agent":
+        # Eski `invoke_agent` tipi `name` ile alır; `Agent`taki `name` ekip üyesi adıdır.
+        target = args.get("name", target)
+    return isinstance(target, str) and _spec_prefix(rule, target)
+
+
+def _carved_out(
+    rule: PermissionRule,
+    later: tuple[PermissionRule, ...],
+    tool_name: str,
+    args: Mapping[str, object],
+    root: Path | None,
+) -> bool:
+    """`!kalıp` olumsuzlaması (#79): yalnız deny/ask yol kurallarında."""
+    if rule.decision is PermissionDecision.ALLOW or not rule.specifier:
+        return False
+    if tool_name in WRITE_TOOLS:
+        raws: tuple[object, ...] = write_targets(tool_name, args)
+    elif tool_name in READ_TOOLS:
+        raws = (args.get("path"),)
+    else:
+        return False
+    return bool(raws) and all(negated(rule, later, raw, root) for raw in raws)
 
 
 def _read_matches(
@@ -271,7 +368,7 @@ def _read_matches(
     if scope is None and tool_name not in _SCOPE_READ_TOOLS:
         return False
     target = scope if scope is not None else "."
-    if _path_matches(spec, target, root):
+    if path_rule_matches(rule, target, root):
         return True
     if tool_name not in _SCOPE_READ_TOOLS or rule.decision is PermissionDecision.ALLOW:
         return False
@@ -280,11 +377,11 @@ def _read_matches(
 
 def _scope_covers(spec: str, scope: str, root: Path | None) -> bool:
     """Kalıbın glob'suz tabanı (`/sec/**` → `<kök>/sec`) arama dizininin altında mı?"""
-    scope_dirs = _variants(_absolute(scope, root))
-    for base, rest in _glob_base(spec, root):
+    scope_dirs = variants(absolute(scope, root))
+    for base, rest in glob_base(spec, root):
         literal = rest.split("*", 1)[0].split("?", 1)[0]
         literal = literal.rsplit("/", 1)[0] if "/" in literal else literal
-        for pattern_dir in _variants(base, literal):
+        for pattern_dir in variants(base, literal):
             if any(
                 pattern_dir == scope_dir or pattern_dir.startswith(scope_dir.rstrip("/") + "/")
                 for scope_dir in scope_dirs
@@ -296,21 +393,20 @@ def _scope_covers(spec: str, scope: str, root: Path | None) -> bool:
 def _tool_matches(rule: PermissionRule, tool_name: str) -> bool:
     if rule.tool == tool_name:
         return True
+    if is_tool_glob(rule.tool):
+        # `*`, `mcp__*`, `mcp__s__get_*` (#46): tam ad globu; allow sabit MCP öneki ister.
+        return tool_glob_matches(rule.tool, claude_tool_names(tool_name), rule.decision)
     if rule.tool == "Bash":
         return tool_family(tool_name) is ToolFamily.SHELL
     if rule.tool.startswith(_MCP_PREFIX):
         target = rule.tool[len(_MCP_PREFIX) :]
         if "__" in target:
-            return _glob_name(target, tool_name)
+            return tool_name == target
         return tool_name.startswith(f"{target}__")
+    if rule.tool == "Read" and rule.specifier and rule.decision is PermissionDecision.DENY:
+        # Read deny aynı yolda Edit/Write'ı da engeller, yeni dosya dahil (#60).
+        return tool_name in READ_TOOLS or tool_name in WRITE_TOOLS
     return tool_name in _CLAUDE_TOOLS.get(rule.tool, frozenset())
-
-
-def _glob_name(pattern: str, name: str) -> bool:
-    """`mcp__meta__ads_create_*` gibi araç adında sondaki `*` ön ektir."""
-    if pattern.endswith("*"):
-        return name.startswith(pattern[:-1])
-    return name == pattern
 
 
 def _spec_prefix(rule: PermissionRule, text: str) -> bool:
@@ -322,18 +418,7 @@ def _spec_prefix(rule: PermissionRule, text: str) -> bool:
     """
     if rule.specifier is None:
         return True
-    spec = rule.specifier
-    if not spec.endswith("*"):
-        return text == spec
-    body = spec[:-1]
-    if body.endswith(":"):  # eski `npm run test:*` yazımı
-        body = body[:-1] + " "
-    prefix = body.rstrip()
-    if body and not body[-1].isspace():
-        return text.startswith(prefix)
-    if not prefix:
-        return True
-    return text == prefix or text.startswith(prefix + " ")
+    return bash_pattern_matches(rule.specifier, text)
 
 
 def _primary_text(args: Mapping[str, object]) -> str:
@@ -342,81 +427,6 @@ def _primary_text(args: Mapping[str, object]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return " ".join(str(v) for v in args.values() if isinstance(v, str))
-
-
-def _domain_matches(domain: str, url: object) -> bool:
-    if not domain or not isinstance(url, str):
-        return False
-    host = (urlsplit(url if "://" in url else f"//{url}").hostname or "").lower().rstrip(".")
-    domain = domain.lower().strip(".")
-    return host == domain or host.endswith(f".{domain}")
-
-
-def _path_matches(spec: str, raw: object, root: Path | None) -> bool:
-    """Hedef yol kalıba uyuyor mu?
-
-    Hem sözcüksel (verildiği gibi) hem çözülmüş (symlink'ler açılmış) yol denenir; biri
-    uyarsa uyar. Sözcüksel yol `/tmp` → `/private/tmp` gibi farkları görmezden gelir,
-    çözülmüş yol ise `proje/bag -> ~/.ssh` gibi bir bağla yasağı aşmayı önler.
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        return False
-    targets = _variants(_absolute(raw, root))
-    patterns = {
-        _glob_regex(pattern)
-        for base, rest in _glob_base(spec, root)
-        for pattern in _variants(base, rest)
-    }
-    return any(regex.fullmatch(target) is not None for regex in patterns for target in targets)
-
-
-def _absolute(raw: str, root: Path | None) -> Path:
-    path = Path(raw).expanduser()
-    return path if path.is_absolute() else (root or Path.cwd()) / path
-
-
-def _variants(base: Path, rest: str = "") -> set[str]:
-    """Sözcüksel ve symlink'leri çözülmüş biçimleri (posix); çözülemeyen atlanır."""
-    found = {PurePosixPath(os.path.normpath(base)).as_posix()}
-    with contextlib.suppress(OSError, RuntimeError, ValueError):
-        found.add(PurePosixPath(base.resolve()).as_posix())
-    return {(PurePosixPath(item) / rest).as_posix() if rest else item for item in found}
-
-
-def _glob_base(spec: str, root: Path | None) -> tuple[tuple[Path, str], ...]:
-    """Belirteci (taban, kalan glob) çiftine çevir: `//x` kök, `~/x` ev, `/x` ve `x` proje kökü."""
-    if spec.startswith("//"):
-        return ((Path("/"), spec[2:]),)
-    if spec.startswith("~"):
-        return ((Path.home(), spec[1:].lstrip("/")),)
-    return (((root or Path.cwd()), spec.lstrip("/")),)
-
-
-def _glob_regex(pattern: str) -> re.Pattern[str]:
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        char = pattern[index]
-        if pattern.startswith("**", index):
-            # `**/` ve `/**` sıfır ya da daha çok dizini kapsar; sondaki `dizin/**`
-            # dizinin KENDİSİNİ de kapsar (listelemek içini okumaktır).
-            index += 2
-            if index < len(pattern) and pattern[index] == "/":
-                index += 1
-                parts.append("(?:.*/)?")
-            elif index == len(pattern) and parts and parts[-1] == "/":
-                parts[-1] = "(?:/.*)?"
-            else:
-                parts.append(".*")
-            continue
-        if char == "*":
-            parts.append("[^/]*")
-        elif char == "?":
-            parts.append("[^/]")
-        else:
-            parts.append(re.escape(char))
-        index += 1
-    return re.compile("".join(parts))
 
 
 #: Kanca yükünde (`tool_name`) gösterilen birincil Claude adı (P-009); listede olmayan

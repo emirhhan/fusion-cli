@@ -186,7 +186,7 @@ def test_sarmalayici_icindeki_komut_allow_icin_de_sayilir(tmp_path):
 
 def test_read_ve_edit_glob_kaliplari(tmp_path):
     kume = _kume(
-        ("Read(~/.ssh/**)", "deny"), ("Edit(/src/**)", "allow"), ("Write(//tmp/*.log)", "allow")
+        ("Read(~/.ssh/**)", "deny"), ("Edit(/src/**)", "allow"), ("Edit(//tmp/*.log)", "allow")
     )
     ev = Path.home()
     assert evaluate(
@@ -222,7 +222,9 @@ def test_tek_yildiz_dizin_sinirini_asmaz(tmp_path):
 
 def test_webfetch_alan_adi_ve_alt_alan(tmp_path):
     kume = _kume(("WebFetch(domain:example.com)", "allow"), ("WebFetch(domain:evil.test)", "deny"))
-    assert evaluate(kume, "web_fetch", {"url": "https://api.example.com/x"}, tmp_path).decision is (
+    # Claude (#62): `domain:example.com` yalnız example.com; alt alan `*.example.com` ister.
+    assert evaluate(kume, "web_fetch", {"url": "https://api.example.com/x"}, tmp_path) is None
+    assert evaluate(kume, "web_fetch", {"url": "https://example.com/x"}, tmp_path).decision is (
         PermissionDecision.ALLOW
     )
     assert (
