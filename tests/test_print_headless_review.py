@@ -119,3 +119,26 @@ def test_allow_dangerously_skip_ile_bypass_istegi_kabul_edilir(monkeypatch):
     calls, _result, out = _stream(monkeypatch, _bypass_lines(), extra)
     assert _responses(out)["b1"]["subtype"] == "success"
     assert calls[0]["mode"] is ApprovalMode.BYPASS
+
+
+# --- bulgu 5: set_model istek anında doğrulanır (#280) -------------------------------- #
+
+
+def test_gecersiz_set_model_hata_doner_ve_oturum_surer(monkeypatch):
+    from fusion_cli.cli import print_options
+
+    real = print_options.apply_model
+
+    def _apply(config, model, fallback):
+        if model == "bozuk-model":
+            raise ValueError("model çözülemedi: bozuk-model")
+        return real(config, model, fallback)
+
+    monkeypatch.setattr(print_options, "apply_model", _apply)
+    calls, result, out = _stream(
+        monkeypatch, [_control("set_model", "s1", model="bozuk-model"), _user("bir")]
+    )
+    assert _responses(out)["s1"]["subtype"] == "error"
+    assert "bozuk-model" in _responses(out)["s1"]["error"]
+    assert result.exit_code == 0, result.output
+    assert [c["task"] for c in calls] == ["bir"]

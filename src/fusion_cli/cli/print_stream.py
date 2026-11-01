@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.loop import AgentOutcome
 from ..ui import print_messages as texts
+from . import print_options
 from . import sdk_messages as sdk
 from .print_builtins import apply_builtin
 from .print_control import ControlChannel
@@ -38,6 +39,7 @@ def stream_turns(run: _Run) -> int:
             request.skip_permissions or request.allow_skip or run.plan.mode is ApprovalMode.BYPASS
         ),
         restricted=request.restricted,
+        check_model=lambda model: print_options.apply_model(run.plan.config, model, None),
     ).start()
     run.control = channel
     code = 0
@@ -67,13 +69,16 @@ def _interrupted() -> tuple[AgentOutcome, None, tuple[str, ...]]:
 
 def _apply_controls(run: _Run, channel: ControlChannel) -> None:
     """`set_permission_mode` / `set_model` isteklerini sonraki tura uygula."""
-    from .print_options import apply_model, parse_permission_mode
+    from .print_options import parse_permission_mode
 
     plan = run.plan
     if channel.mode is not None:
         plan = replace(plan, mode=parse_permission_mode(channel.mode, skip_permissions=False))
         channel.mode = None
     if channel.model is not None:
-        plan = replace(plan, config=apply_model(plan.config, channel.model, None))
-        channel.model = None
+        model, channel.model = channel.model, None
+        try:
+            plan = replace(plan, config=print_options.apply_model(plan.config, model, None))
+        except ValueError as error:  # istekte doğrulandı; ayar arada değiştiyse tur sürer
+            print(str(error), file=sys.stderr)
     run.plan = plan

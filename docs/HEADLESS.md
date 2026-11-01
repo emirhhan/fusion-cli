@@ -33,7 +33,8 @@ tur sürerken de cevap verilir): `{"type":"control_request","request_id":"…","
 (`mode`, Claude kip adları) ve `set_model` (`model`) sonraki turdan geçerlidir.
 `bypassPermissions`'a geçiş Claude'daki gibi yalnız koşu `--dangerously-skip-permissions` ya
 da `--allow-dangerously-skip-permissions` ile başladıysa kabul edilir, `--restricted` koşuda
-hiç kabul edilmez (ikisinde de `error` döner). Her isteğe
+hiç kabul edilmez (ikisinde de `error` döner). `set_model` istek anında çözülür; çözülemeyen
+model `error` döner ve oturum mevcut modelle sürer. Her isteğe
 `{"type":"control_response","response":{"subtype":"success"|"error","request_id":"…"}}`
 yazılır; bilinmeyen alt tür `error` döner. `--permission-prompt-tool stdio` ile onay
 gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name`, `input`,

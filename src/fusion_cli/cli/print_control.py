@@ -64,8 +64,11 @@ class ControlChannel:
         *,
         bypass_allowed: bool = False,
         restricted: bool = False,
+        check_model: Callable[[str], object] | None = None,
     ) -> None:
         self._stdin = stdin
+        #: `set_model` değerini istek anında doğrulayan işlev (`ValueError` atar).
+        self._check_model = check_model
         #: `set_permission_mode bypassPermissions` yalnız koşu buna izin verdiyse kabul edilir.
         self._bypass_allowed = bypass_allowed and not restricted
         self._restricted = restricted
@@ -148,9 +151,7 @@ class ControlChannel:
         elif subtype == "set_permission_mode":
             self._set_mode(request_id, body.get("mode"))
         elif subtype == "set_model":
-            model = body.get("model")
-            self.model = str(model) if isinstance(model, str) and model.strip() else None
-            self._reply(request_id, {})
+            self._set_model(request_id, body.get("model"))
         else:
             self._fail(request_id, texts.PRINT_CONTROL_UNSUPPORTED.format(subtype=subtype))
 
@@ -173,6 +174,18 @@ class ControlChannel:
             self._fail(request_id, denied)
             return
         self.mode = str(mode)
+        self._reply(request_id, {})
+
+    def _set_model(self, request_id: str, model: object) -> None:
+        """Model çözülemiyorsa hemen `error`; aksi hâlde sonraki turdan geçerli."""
+        value = model.strip() if isinstance(model, str) else ""
+        if value and self._check_model is not None:
+            try:
+                self._check_model(value)
+            except ValueError as error:
+                self._fail(request_id, str(error))
+                return
+        self.model = value or None
         self._reply(request_id, {})
 
     def _reply(self, request_id: str, response: dict[str, object]) -> None:
