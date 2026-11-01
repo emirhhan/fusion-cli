@@ -140,17 +140,19 @@ class MentionResult:
 def expand_mentions(line: str, state: ReplState) -> MentionResult:
     """`@yol` anmalarını oku ve bağlam bloklarına çevir. Mesaj metni DEĞİŞMEZ."""
     from ...tools.files import display_path, resolve_path
+    from .agent_mentions import resolve_agent_mentions, without_agent_mentions
 
-    found = mentions(line)
+    agent_blocks, agent_notes = resolve_agent_mentions(line, state)
+    found = mentions(without_agent_mentions(line))
     if not found:
-        return MentionResult()
+        return MentionResult(tuple(agent_blocks), tuple(agent_notes))
     context = ToolContext(
         root=state.root,
         extra_roots=state.extra_roots,
         restrict_to_root=state.config.runtime.restrict_to_root,
     )
-    blocks: list[str] = []
-    notes: list[str] = []
+    blocks: list[str] = agent_blocks
+    notes: list[str] = agent_notes
     for mention in found[:MENTION_MAX_FILES]:
         if mention.is_resource:
             # Okuma turda, MCP bağlandıktan sonra yapılır (`mcp_bridge.reference_service`; P-049).

@@ -246,3 +246,28 @@ def test_iptal_edilen_turun_baglami_geri_konur(state):
     state.pending_digest = "yeni"
     state.restore_pending_digest("eski")
     assert state.take_pending_digest() == "eski\n\nyeni"
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["@agent-denetci auth değişikliklerine bak", '@"denetci (agent)" auth değişikliklerine bak'],
+)
+def test_agent_anmasi_o_alt_ajanin_cagrilmasini_zorunlu_kilar(state, tmp_path, line):
+    """Claude Code: `@agent-<ad>` ve `@"<ad> (agent)"` o alt ajanı kesin çalıştırır (#26)."""
+    folder = tmp_path / ".claude" / "agents"
+    folder.mkdir(parents=True)
+    (folder / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: inceler\n---\nİncele.", encoding="utf-8"
+    )
+    state.capabilities.invalidate()
+
+    result = prefixes.expand_mentions(line, state)
+
+    assert any('subagent_type="denetci"' in block for block in result.blocks)
+    assert not any("okunamadı" in note for note in result.notes)
+
+
+def test_bilinmeyen_agent_anmasi_not_dusurur(state):
+    result = prefixes.expand_mentions("@agent-yok bak", state)
+
+    assert not result.blocks and any("yok" in note for note in result.notes)

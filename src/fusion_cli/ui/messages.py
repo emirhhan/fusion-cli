@@ -1417,6 +1417,13 @@ MENTION_FILE_BLOCK = (
 MENTION_DIR_BLOCK = PREFIX_UNTRUSTED_NOTE + "\n[Kullanıcının andığı dizin: {path}]\n{listing}"
 MENTION_TRUNCATED = " (ilk {limit} karakter)"
 MENTION_ADDED = "@{path} bağlama eklendi"
+AGENT_MENTION_ADDED = "@agent-{name}: bu tur {name} alt ajanını çalıştırır"
+AGENT_MENTION_UNKNOWN = "@agent-{name}: böyle bir alt ajan yok"
+AGENT_MENTION_BLOCK = (
+    "<system-reminder>Kullanıcı bu mesajda '{name}' alt ajanını açıkça çağırdı. Bu turda "
+    'Agent aracını subagent_type="{name}" ile MUTLAKA çağır; görev metnini (prompt) '
+    "kullanıcının isteğinden sen yaz.</system-reminder>"
+)
 MENTION_UNREADABLE = "@{raw} okunamadı: {error}"
 MENTION_NOT_FILE = "dosya ya da dizin değil"
 MENTION_TOO_MANY = "Tek mesajda en fazla {limit} dosya anması işlenir; fazlası atlandı."
