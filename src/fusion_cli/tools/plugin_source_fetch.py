@@ -26,7 +26,7 @@ import tarfile
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from email.message import Message
+from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO
 
@@ -130,7 +130,7 @@ class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
         fp: IO[bytes],
         code: int,
         msg: str,
-        headers: Message,
+        headers: HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
         if not archive_url_allowed(newurl):

@@ -29,6 +29,7 @@ from ..config.plugin_store import (
 )
 from ..core.plugins import PluginError
 from . import plugin_install
+from .plugin_source_fetch import CommandConsent
 from .plugin_toggle import find_record
 
 _LOG = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ def install_scoped(
     base: Path | None = None,
     root: Path | None = None,
     allow_direct: bool = False,
-    accept_command: plugin_install.CommandConsent | None = None,
+    accept_command: CommandConsent | None = None,
 ) -> ScopedInstall:
     """Kur ve kapsama yaz. Zaten kuruluysa `PluginAlreadyInstalledError` (Claude: çıkış 0).
 

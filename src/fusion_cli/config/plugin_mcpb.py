@@ -98,7 +98,7 @@ def _manifest(folder: Path, ref: str) -> Mapping[str, object]:
     config = server.get("mcp_config") if isinstance(server, Mapping) else None
     if not isinstance(config, Mapping) or not isinstance(raw.get("name"), str):
         raise PluginError(ERR_MANIFEST.format(ref=ref))
-    return raw
+    return {str(key): value for key, value in raw.items()}
 
 
 def _builtins(text: str, folder: Path) -> str:
@@ -146,5 +146,5 @@ def bundle_server(ref: str, plugin: str, root: Path, base: Path) -> tuple[str, d
         raise PluginError(ERR_NEEDS_CONFIG.format(server=name, keys=keys))
     server = raw["server"]
     assert isinstance(server, Mapping)
-    entry = _tree(dict(server["mcp_config"]), folder)
-    return name, dict(substitute_tree(entry, schema, values))  # type: ignore[arg-type]
+    entry = substitute_tree(_tree(server["mcp_config"], folder), schema, values)
+    return name, {str(k): v for k, v in entry.items()} if isinstance(entry, Mapping) else {}

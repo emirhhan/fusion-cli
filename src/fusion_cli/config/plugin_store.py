@@ -441,7 +441,7 @@ def active_plugins(
     state = ensure_migrated(load_state(base), base)
     if state.all_disabled:
         return session
-    taken = {item.record.name for item in session}
+    taken = {item.record.name for item in session} | _eval_excluded()
     records = (effective_record(r, root) for r in sorted(state.plugins, key=_by_name))
     found = (inspect_plugin(r, base) for r in records if r.enabled and r.name not in taken)
     active: list[InstalledPlugin] = list(session)
@@ -457,8 +457,15 @@ def active_plugins(
     names = {item.record.name for item in active}  # #376: projede açılan göreli eklentiler
     active.extend(project_enabled_plugins(state, project, names, base))
     if base is None:
-        active.extend(_skills_dir_active(project, {item.record.name for item in active}))
+        taken_now = {item.record.name for item in active} | _eval_excluded()
+        active.extend(_skills_dir_active(project, taken_now))
     return tuple(active)
+
+
+def _eval_excluded() -> set[str]:
+    """`plugin eval` eklentisiz kolu (#380): bu süreçte yüklenmeyecek eklenti adları."""
+    raw = os.environ.get("FUSION_EVAL_EXCLUDE_PLUGINS", "")
+    return {name.strip() for name in raw.split(",") if name.strip()}
 
 
 def _skills_dir_active(project: Path, taken: set[str]) -> tuple[InstalledPlugin, ...]:

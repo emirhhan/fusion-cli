@@ -209,7 +209,21 @@ uyarı basılır. `marketplace add|remove|update --json` aynı sonuç nesnesini 
 `marketplace-add|remove|update`, `marketplace`) basar. Eski `FUSION_PLUGINS=off` ortam değişkeni bir
 sürüm boyunca okunur ve süreç başına bir kez uyarır (Claude karşılığı `disable --all`). `details`, `prune`
 (`autoremove`), `configure`, `init` (`new`), `tag` var. `test` Claude Code modları içindir (Fusion'da mod
-sistemi yok; açık hata). Henüz yok: `eval`.
+sistemi yok; açık hata).
+
+`plugin eval [hedef]` (Claude Code biçimi): vakalar `<eval klasörü>/**/case.yaml` ya da `prompt.md` +
+`graders/*.md` (klasör `--eval-dir`, yoksa manifestin `experimental.evals`'ı, yoksa `evals/`);
+değerlendiriciler `regex`, `tool_order`, `tool_used`, `file_exists`, `llm`, `baseline`. Her vaka
+`runs` kez (varsayılan 3, `--runs`) geçici klasörde ayrı bir `fusion agent` alt sürecinde
+`allowed_tools`/`max_turns`/`timeout_seconds` ile koşar; eklenti çözülünce varsayılan
+`--ablation with-without` eklentisiz kolu da koşar ve farkı raporlar (`tool_used: Skill` ve
+`arm: with-only` gösterge olur). `llm`/`baseline` yargıç alt süreciyle puanlanır. Sonuç
+`<eval>/results/<zaman>/aggregate-result.json` (`--output-dir`), `--json` tam sonucu basar,
+`--json-file <yol>` yazar; vaka `--threshold`'un (varsayılan 1.0) altındaysa çıkış 1. Güvenilmeyen
+eklenti klasöründe ilk koşu onay ister (`--trust-plugin`). Claude'dan farklar: claude.ai'de rapor
+yayımlama (`--publish-report`) claude.ai hesabı gerektirir ve hata verir; `--mocks`, `--scaffold`,
+`--allow-tools`, `--judge-model`, `--max-cost-usd`, `-j` ve `eval init` sohbet sihirbazı yok; Claude'un
+`--json [yol]` biçimi Fusion'da `--json` + `--json-file`.
 
 `plugin init <ad>` Claude Code gibi `~/.claude/skills/<ad>/` altına `.claude-plugin/plugin.json`
 (`$schema`, `version: 0.1.0`, `author`, `skills: ["./"]`) ve kök `SKILL.md` yazar; `--with` ek iskelet
