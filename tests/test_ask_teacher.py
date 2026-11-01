@@ -218,7 +218,7 @@ class _SahteDersBellegi:
         self.eklenenler.append(lesson)
         return True
 
-    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
+    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=(), policy=None):
         return self._recall_sonucu
 
     def reinforce(self, texts, *, success):
@@ -270,7 +270,7 @@ async def test_lessons_yoksa_defter_yine_yazilir_cokme_olmaz(tmp_path, monkeypat
     assert (tmp_path / ".fusion" / "ogretmen.md").exists()
 
 
-async def test_lesson_sync_acikken_derse_yazilir(tmp_path, monkeypatch):
+async def test_lesson_sync_acikken_tavsiye_dogrulama_bekler(tmp_path, monkeypatch):
     saglayici = _OgretmenSaglayici(text="wc -l ile satır say")
     _ogretmen(monkeypatch, saglayici)
     bellek = _SahteDersBellegi()
@@ -283,9 +283,10 @@ async def test_lesson_sync_acikken_derse_yazilir(tmp_path, monkeypatch):
 
     await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
-    assert len(bellek.eklenenler) == 1
+    assert len(bellek.eklenenler) == 0
+    assert len(deps.pending_advice) == 1
     icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
-    assert "Ders belleğe kaydedildi" in icerik
+    assert "henüz doğrulanmadı" in icerik
 
 
 async def test_lesson_sync_kapaliyken_derse_yazilmaz(tmp_path, monkeypatch):
@@ -321,8 +322,8 @@ async def test_catisma_bulununca_kullaniciya_gorunur_not_eklenir(tmp_path, monke
     sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
     assert bellek.eklenenler == []
-    assert "çelişebilir" in sonuc.output
-    assert "teacher-lesson-sync" in sonuc.output
+    assert "çelişebilir" not in sonuc.output
+    assert deps.pending_advice
     icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
     assert "kaydedilmedi" in icerik
 

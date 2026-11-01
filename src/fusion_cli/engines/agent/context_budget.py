@@ -58,10 +58,24 @@ class ContextBudget:
     model: str
     #: Zayıf/küçük model için eşik pencere oranıyla düşürüldü mü? (gözlem için)
     weak: bool = False
+    profile: str | None = None
+    estimated: bool = True
 
 
 def context_budget(config: Config, spec: ModelSpec) -> ContextBudget:
     """Yedek zincirin en dar bilinen penceresini kullan; bilinmeyeni gizleme."""
+    profile = spec.context_profile
+    if (
+        profile is not None
+        and profile.model == spec.model
+        and spec.model.startswith(profile.provider + "/")
+    ):
+        return ContextBudget(
+            profile.compression_chars,
+            input_window_tokens(spec.model),
+            spec.model,
+            profile=profile.name,
+        )
     base = _base_budget(config, spec)
     ratio = config.runtime.weak_model_compaction_ratio
     if ratio <= 0 or uses_web_context(config, spec):

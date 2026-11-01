@@ -307,6 +307,8 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # bounded display segments so reading one cannot offload itself again.
         lines = [line[i : i + 6_000] for line in lines for i in range(0, len(line), 6_000)]
     if not lines:
+        context.fully_read.add(path)
+        _remember_revision(context, path)
         return ToolResult("(boş dosya)")
 
     offset = require_positive_int(args, "offset", default=1)
@@ -454,6 +456,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         atomic_write(path, content)
     except OSError as exc:
         return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
+    context.changes.record_applied(path)
     _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)
@@ -652,6 +655,7 @@ def _apply_edit(
         return engel
     context.changes.record(path)
     atomic_write(path, updated)
+    context.changes.record_applied(path)
     _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)

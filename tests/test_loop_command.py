@@ -482,10 +482,13 @@ async def _gercek_istem(tmp_path: Path, monkeypatch):
     from fusion_cli.engines.agent.approval import ApprovalMode
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setenv("TERM", "xterm-256color")
     reader = ReplInput(tmp_path / "history", ["/help"], mode=ApprovalMode.AUTO)
     assert reader.interactive
+    ready = asyncio.Event()
+    reader._session.app.pre_run_callables.append(ready.set)
     prompt = asyncio.ensure_future(reader.prompt())
-    await asyncio.sleep(0.2)
+    await asyncio.wait_for(ready.wait(), 2)
     return reader, prompt
 
 
@@ -509,8 +512,15 @@ async def test_gercek_istem_doluyken_inject_yazilani_silmez(tmp_path: Path, monk
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         reader, prompt = await _gercek_istem(tmp_path, monkeypatch)
+        received = asyncio.Event()
+
+        def text_changed(buffer) -> None:
+            if buffer.text == "yarım mesaj":
+                received.set()
+
+        reader._session.default_buffer.on_text_changed += text_changed
         pipe.send_text("yarım mesaj")
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(received.wait(), 2)
         assert reader.inject("testleri koştur") is False
         assert not prompt.done()
         pipe.send_text(" bitti\r")

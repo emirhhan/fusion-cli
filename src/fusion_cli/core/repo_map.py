@@ -44,11 +44,12 @@ import re
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import islice
 from pathlib import Path
 
 from .project_files import project_files
+from .redaction import redact
 from .repo_imports import (
     GRAPH_SUFFIXES,
     ImportGraph,
@@ -316,9 +317,17 @@ def build_repo_map(
     *,
     budget_chars: int = DEFAULT_BUDGET_CHARS,
     time_limit_s: float = TIME_LIMIT_S,
+    focus_paths: tuple[str, ...] = (),
+    focus_symbols: tuple[str, ...] = (),
 ) -> str:
     """Bütçeye sığan depo haritasını üret; proje boşsa boş metin."""
-    return build_repo_map_report(root, budget_chars=budget_chars, time_limit_s=time_limit_s).text
+    return build_repo_map_report(
+        root,
+        budget_chars=budget_chars,
+        time_limit_s=time_limit_s,
+        focus_paths=focus_paths,
+        focus_symbols=focus_symbols,
+    ).text
 
 
 def build_repo_map_report(
@@ -326,6 +335,8 @@ def build_repo_map_report(
     *,
     budget_chars: int = DEFAULT_BUDGET_CHARS,
     time_limit_s: float = TIME_LIMIT_S,
+    focus_paths: tuple[str, ...] = (),
+    focus_symbols: tuple[str, ...] = (),
 ) -> RepoMapResult:
     """Haritayı ve ölçüm izini birlikte üret (aynı depo → bayt-aynı metin)."""
     _load_plugins()
@@ -348,7 +359,9 @@ def build_repo_map_report(
             _CACHE[anahtar] = (imza, analiz)
     if not analiz.ranked:
         return RepoMapResult("", _stats(0, budget_chars, analiz, 0, basla, cached=cached))
-    metin, gosterilen = _render(analiz, budget_chars)
+    # Önbellek yalnız genel çözümlemedir: bir görevin odağı başka göreve sızmaz.
+    focused = replace(analiz, ranked=_focus_ranked(analiz.ranked, root, focus_paths, focus_symbols))
+    metin, gosterilen = _render(focused, budget_chars)
     return RepoMapResult(metin, _stats(len(metin), budget_chars, analiz, gosterilen, basla, cached))
 
 
@@ -502,7 +515,7 @@ def _render(analiz: _Analysis, budget: int) -> tuple[str, int]:
     for dosya, ad in analiz.ranked:
         if gorulen[ad] >= _MAX_PER_SYMBOL or dosya_sayisi[dosya] >= _MAX_PER_FILE:
             continue
-        satir = f"{dosya}: {ad}"
+        satir = redact(f"{dosya}: {ad}")
         if uzunluk + len(satir) + 1 > budget:
             break
         satirlar.append(satir)
@@ -511,3 +524,39 @@ def _render(analiz: _Analysis, budget: int) -> tuple[str, int]:
         dosya_sayisi[dosya] += 1
         gosterilen += 1
     return "\n".join(satirlar), gosterilen
+
+
+def _focus_ranked(
+    ranked: tuple[tuple[str, str], ...],
+    root: Path,
+    focus_paths: tuple[str, ...],
+    focus_symbols: tuple[str, ...],
+) -> tuple[tuple[str, str], ...]:
+    """Görev odağı ile genel keşfi sırayla göster; genel analiz önbelleği değişmez."""
+    paths: set[str] = set()
+    for value in focus_paths:
+        path = Path(value)
+        if path.is_absolute():
+            try:
+                path = path.relative_to(root.resolve())
+            except ValueError:
+                continue
+        paths.add(path.as_posix().rstrip("/"))
+    symbols = set(focus_symbols)
+    if not paths and not symbols:
+        return ranked
+    focused: list[tuple[str, str]] = []
+    discovery: list[tuple[str, str]] = []
+    for entry in ranked:
+        relative, symbol = entry
+        is_focused = symbol in symbols or any(
+            relative == focus or relative.startswith(focus + "/") for focus in paths
+        )
+        (focused if is_focused else discovery).append(entry)
+    combined: list[tuple[str, str]] = []
+    for index, entry in enumerate(focused):
+        combined.append(entry)
+        if index < len(discovery):
+            combined.append(discovery[index])
+    combined.extend(discovery[len(focused) :])
+    return tuple(combined)

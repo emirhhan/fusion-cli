@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from uuid import uuid4
 
 from ..core.events import (
@@ -54,6 +55,7 @@ class EventingProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         call_id = self._call_id_factory()
+        request = self._correlate_request(request, call_id)
         self._publisher.publish(self._started(call_id))
         try:
             result = await self._inner.complete(request)
@@ -67,6 +69,7 @@ class EventingProvider:
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         call_id = self._call_id_factory()
+        request = self._correlate_request(request, call_id)
         self._publisher.publish(self._started(call_id))
         finished = False
         try:
@@ -87,6 +90,15 @@ class EventingProvider:
             if not finished:
                 self._publish_abandoned(call_id)
             raise
+
+    @staticmethod
+    def _correlate_request(request: CompletionRequest, call_id: str) -> CompletionRequest:
+        """Tek lifecycle çağrı kimliğini mevcut uygulama turuna bağla."""
+        if request.web_call_context is None:
+            return request
+        return replace(
+            request, web_call_context=replace(request.web_call_context, model_call_id=call_id)
+        )
 
     def _publish_abandoned(self, call_id: str) -> None:
         self._publisher.publish(

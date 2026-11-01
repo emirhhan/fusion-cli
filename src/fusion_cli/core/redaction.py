@@ -16,7 +16,10 @@ Amaç sıfır yanlış-negatif değil (bu imkânsız) — sık ve yüksek riskli
 
 from __future__ import annotations
 
+import dataclasses
 import re
+from collections.abc import Mapping
+from enum import Enum
 
 #: Sır taşıdığı ADINDAN anlaşılan ortam değişkenleri (sağlayıcı anahtarları, belirteçler).
 #: Önizleme sunucusu ve sandbox içindeki `run_shell` bu adları çocuk sürece geçirmez.
@@ -233,3 +236,38 @@ def strip_driver_log(text: str, *, limit: int = BRIEF_ERROR_CHARS) -> str:
     if len(flat) > limit:
         flat = flat[: limit - 1].rstrip() + "…"
     return flat or " ".join(text.split())[:limit]
+
+
+def redact_value(value: object) -> object:
+    """JSON öncesi decoded yaprakları ve hassas anahtarları merkezi politikayla temizle."""
+    if isinstance(value, Enum):
+        return redact_value(value.value)
+    if isinstance(value, str):
+        return redact(value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return redact_value(
+            {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
+        )
+    if isinstance(value, Mapping):
+        return {
+            redact(str(key)): REDACTED_MARK if _is_secret_field(str(key)) else redact_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [redact_value(item) for item in value]
+    return value
+
+
+def _is_secret_field(key: str) -> bool:
+    """Alan adından açık sır olan kısa değerleri de gizle; usage sayaçları korunur."""
+    return is_secret_env_name(key) or key.casefold() in {
+        "passwd",
+        "api-key",
+        "access-token",
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "auth",
+        "private_key",
+    }

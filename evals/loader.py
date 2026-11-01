@@ -7,12 +7,21 @@ anlaşılır biçimde reddedilir (RULES.md "Yapılandırma").
 
 from __future__ import annotations
 
+import json
+import shlex
 from pathlib import Path
 from typing import cast
 
 import yaml
 
-from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+from evals.tasks import (
+    CriterionKind,
+    EvalSuite,
+    EvalTask,
+    SuccessCriterion,
+    SuiteMetadata,
+    TaskBudget,
+)
 from fusion_cli.core.errors import EvalError
 
 #: Her ölçüt türünün gerektirdiği alan ve o alanı okuyan dönüştürücü.
@@ -25,6 +34,11 @@ _CRITERION_FIELDS: dict[CriterionKind, tuple[str, str]] = {
 
 
 def load_tasks(path: Path) -> tuple[EvalTask, ...]:
+    """Mevcut çağıranlar için tek set yükleme yolundan görevleri döndür."""
+    return load_suite(path).tasks
+
+
+def load_suite(path: Path, *, allowed_splits: frozenset[str] | None = None) -> EvalSuite:
     """Görev setini dosyadan okur ve doğrular.
 
     YAML üst kümesi JSON'u da kapsar; tek çözümleyici ikisini de okur.
@@ -41,9 +55,26 @@ def load_tasks(path: Path) -> tuple[EvalTask, ...]:
     if not isinstance(raw_tasks, list) or not raw_tasks:
         raise EvalError(f"'tasks' boş olmayan bir liste olmalı: {path}")
 
+    namespace = raw.get("namespace")
+    if namespace is not None and not isinstance(namespace, str):
+        raise EvalError("namespace metin olmalı")
+    split = raw.get("split")
+    if split is not None and split not in {"development", "validation", "blind"}:
+        raise EvalError(f"bilinmeyen split: {split!r}")
+    if allowed_splits is not None and split is not None and split not in allowed_splits:
+        raise EvalError(f"split bu işlem için izinli değil: {split!r}")
+    if split is not None:
+        _guard_research_ids(raw_tasks, frozenset({split}), namespace)
+    if allowed_splits is not None:
+        _guard_research_ids(raw_tasks, allowed_splits, namespace)
     tasks = tuple(parse_task(item) for item in raw_tasks)
     _ensure_unique_ids(tasks)
-    return tasks
+    complete = raw.get("task6_complete")
+    if complete is not None and not isinstance(complete, bool):
+        raise EvalError("task6_complete boolean olmalı")
+    return EvalSuite(
+        tasks, SuiteMetadata(split=split, task6_complete=complete, namespace=namespace)
+    )
 
 
 def _ensure_unique_ids(tasks: tuple[EvalTask, ...]) -> None:
@@ -67,7 +98,30 @@ def parse_task(item: object) -> EvalTask:
         criterion=parse_criterion(item["criterion"]),
         setup=_parse_setup(item.get("setup")),
         approval=_parse_approval(item.get("approval")),
+        budget=_parse_budget(item.get("budget")),
+        runtime_scenario=_parse_scenario(item.get("runtime_scenario")),
     )
+
+
+def _parse_budget(raw: object) -> TaskBudget | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"max_model_calls", "timeout_s"}:
+        raise EvalError("budget yalnız max_model_calls ve timeout_s içermeli")
+    calls, timeout = raw["max_model_calls"], raw["timeout_s"]
+    if type(calls) is not int or calls <= 0:
+        raise EvalError("max_model_calls pozitif tam sayı olmalı")
+    if type(timeout) not in (int, float) or not 0 < timeout < float("inf"):
+        raise EvalError("timeout_s pozitif sonlu sayı olmalı")
+    return TaskBudget(calls, float(timeout))
+
+
+def _parse_scenario(raw: object) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.isidentifier():
+        raise EvalError("runtime_scenario geçerli bir kimlik olmalı")
+    return raw
 
 
 def _parse_approval(raw: object) -> str:
@@ -147,6 +201,13 @@ def task_to_mapping(task: EvalTask) -> dict[str, object]:
         mapping["approval"] = task.approval
     if task.setup:
         mapping["setup"] = dict(task.setup)
+    if task.budget is not None:
+        mapping["budget"] = {
+            "max_model_calls": task.budget.max_model_calls,
+            "timeout_s": task.budget.timeout_s,
+        }
+    if task.runtime_scenario is not None:
+        mapping["runtime_scenario"] = task.runtime_scenario
     return mapping
 
 
@@ -165,3 +226,38 @@ def criterion_to_mapping(criterion: SuccessCriterion) -> dict[str, object]:
             else criterion.keyword
         )
     return mapping
+
+
+def _guard_research_ids(
+    items: list[object], allowed: frozenset[str], namespace: str | None
+) -> None:
+    """Kısa genel kimlik değil, araştırma ad alanı veya kabul bağlantısı korunur."""
+    manifest = Path(__file__).parent / "fixtures/fusion_research/manifest.json"
+    records = json.loads(manifest.read_text(encoding="utf-8"))["tasks"]
+    canonical = {record["id"]: record["split"] for record in records}
+    for item in items:
+        for identity in _research_identities(item, namespace):
+            if identity in canonical and canonical[identity] not in allowed:
+                raise EvalError(f"Görev split kimliği bu işlem için izinli değil: {identity}")
+
+
+def _research_identities(item: object, namespace: str | None) -> tuple[str, ...]:
+    if not isinstance(item, dict):
+        return ()
+    identities = []
+    if namespace == "fusion_research" or item.get("runtime_scenario") is not None:
+        identities.append(str(item.get("id")))
+    criterion = item.get("criterion")
+    if isinstance(criterion, dict) and isinstance(criterion.get("command"), str):
+        try:
+            lexer = shlex.shlex(criterion["command"], posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            tokens = list(lexer)
+        except ValueError as error:
+            raise EvalError("Kabul komutunun sözdizimi geçersiz") from error
+        module = "evals.fixtures.fusion_research.acceptance"
+        for position, token in enumerate(tokens[:-1]):
+            if token == module:
+                identities.append(tokens[position + 1])
+    return tuple(identities)

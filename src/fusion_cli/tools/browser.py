@@ -283,6 +283,7 @@ async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult
     try:
         context.changes.record(hedef)
         await page.screenshot(path=str(hedef), full_page=_full_page(args))
+        context.changes.record_applied(hedef)
     except Exception as exc:
         return ToolResult.failure(f"Ekran görüntüsü alınamadı ({type(exc).__name__}: {exc})")
     context.touched.add(hedef)
@@ -365,6 +366,7 @@ def _aynayi_yaz(
             dosya.parent.mkdir(parents=True, exist_ok=True)
             context.changes.record(dosya)
             dosya.write_bytes(govde)
+            context.changes.record_applied(dosya)
         except OSError:
             atlanan += 1
             continue
@@ -374,6 +376,7 @@ def _aynayi_yaz(
     sayfa = hedef / "index.html"
     context.changes.record(sayfa)
     sayfa.write_text(rewrite_links(html, tuple(yazilan)), encoding="utf-8")
+    context.changes.record_applied(sayfa)
     context.touched.add(sayfa)
     return ToolResult(mirror_summary(hedef, tuple(yazilan), atlanan, kesildi))
 

@@ -61,6 +61,10 @@ __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 #: Süreç başına bir kez gösterilen sandbox uyarıları (her komutta tekrarlanmaz).
 _SHOWN_SANDBOX_NOTICES: set[str] = set()
+_UNPROVEN_WRITE_NOTE = (
+    "\nFUSION_NOT: Değişen dosyaların yazarı doğrulanamadı; otomatik dosya geri alma "
+    "uygulanmaz, ilk kayıtları korunur."
+)
 
 
 def _once_notice(run: SandboxRun) -> str:
@@ -90,7 +94,8 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     if deleted is not None:
         return check_shell_result(context, deleted, baseline=integrity_error)
     # Ezilecek/taşınacak mevcut proje dosyaları çalışmadan ÖNCE geri alma kaydına
-    # girer (T1-18); `write_file` ile aynı güvence, soru sormadan.
+    # girer (T1-18). Kabukta yazarı kanıtlayan dosya makbuzu yoktur; bu kayıt
+    # önceki içeriği korur ama shell farkından otomatik geri alma yetkisi doğmaz.
     for path in backup_paths(command, context.root):
         context.changes.record(path)
     if args.get("background") is True:
@@ -166,6 +171,15 @@ def _run_foreground(
     effect = skipped
     if effect is None and _measures(command, context):
         effect = measure_effect(before, context.root)
+    if effect is not None and effect.changed is not None:
+        changed = {context.root / relative for relative in effect.changed}
+        unproven = changed.intersection(context.changes.paths)
+        # Parmak izi ve çıkış kodu yazarı kanıtlamaz; kullanıcı da yazmış olabilir.
+        # Değişmeyen yolun önceki doğrulanmış araç kimliği ise korunur.
+        for path in unproven:
+            context.changes.invalidate_applied(path)
+        if unproven:
+            text += _UNPROVEN_WRITE_NOTE
     return check_shell_result(
         context,
         ToolResult(text, ok=process.returncode == 0, workspace_effect=effect),

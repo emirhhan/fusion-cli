@@ -80,3 +80,30 @@ class EvalTask:
     #: onları en zayıf model bile geçiyordu — ölçüm modelleri ayırt etmiyordu.
     #: Bozuk kodu hazır koyabilmek bug fix, regresyon ve test-okuma ölçmenin ön koşulu.
     setup: Mapping[str, str] = field(default_factory=dict)
+    budget: TaskBudget | None = None
+    runtime_scenario: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskBudget:
+    """Görev başına gerçek çağrı ve duvar saati sınırı."""
+
+    max_model_calls: int
+    timeout_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class SuiteMetadata:
+    """Yüklenen setin doğrulanmış bölüm kimliği."""
+
+    split: str | None = None
+    task6_complete: bool | None = None
+    namespace: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EvalSuite:
+    """Görevler ve aynı kaynaktan okunan üstveri."""
+
+    tasks: tuple[EvalTask, ...]
+    metadata: SuiteMetadata

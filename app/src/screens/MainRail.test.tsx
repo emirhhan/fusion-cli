@@ -15,7 +15,7 @@ describe("MainRail", () => {
   it("bölümleri kullanıcının belirlediği sırayla gösterir", () => {
     render(<MainRail active="home" onSelect={vi.fn()} />);
     const labels = screen.getAllByRole("button").map((button) => button.textContent);
-    expect(labels).toEqual(["Home", "Zamanlananlar", "Kitaplık", "Görsel ve video üretimi", "Kits"]);
+    expect(labels).toEqual(["Home", "Zamanlananlar", "Kitaplık", "Görsel oluştur", "Kits"]);
     expect(MAIN_SECTIONS.map((item) => item.id)).toEqual(["home", "scheduled", "library", "media", "kits"]);
   });
 

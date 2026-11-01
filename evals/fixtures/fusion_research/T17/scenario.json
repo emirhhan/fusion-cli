@@ -1,0 +1,17 @@
+{
+  "kind": "open_criteria",
+  "split": "development",
+  "request": "Birinci ve ikinci açık koşulu birlikte tamamla; iki dosyada da TAM yazmalı.",
+  "checks": [
+    {
+      "id": "bir.txt",
+      "path": "bir.txt",
+      "text": "TAM"
+    },
+    {
+      "id": "iki.txt",
+      "path": "iki.txt",
+      "text": "TAM"
+    }
+  ]
+}

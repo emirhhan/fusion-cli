@@ -775,6 +775,7 @@ def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
     kayit = ChangeSet()
     kayit.record(dosya)
     dosya.write_text("agent yazdi\n", encoding="utf-8")
+    kayit.record_applied(dosya)
 
     state.last_changes = kayit
     komut = build_registry().get("undo")
@@ -1208,7 +1209,9 @@ def test_undo_kismi_basarisizlikta_geri_alinamayan_dosyalari_adlandirir(state, t
     kayit.record(iyi)
     kayit.record(kotu)
     iyi.write_text("agent\n", encoding="utf-8")
+    kayit.record_applied(iyi)
     kotu.write_text("agent\n", encoding="utf-8")
+    kayit.record_applied(kotu)
     shutil.rmtree(kotu_dizin)
     kotu_dizin.write_text("artık dizin değil", encoding="utf-8")
     state.last_changes = kayit
@@ -1219,6 +1222,10 @@ def test_undo_kismi_basarisizlikta_geri_alinamayan_dosyalari_adlandirir(state, t
 
     assert "1 dosya geri alınamadı" in mesaj
     assert "kotu.py" in mesaj
+    assert iyi.read_text(encoding="utf-8") == "eski\n"
+    assert kotu_dizin.read_text(encoding="utf-8") == "artık dizin değil"
+    assert state.last_changes is kayit
+    assert kayit.restorable_paths == (kotu,)
 
 
 def test_mcp_listesi_arguman_icindeki_tokeni_gostermez(state):

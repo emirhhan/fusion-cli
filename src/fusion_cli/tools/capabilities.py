@@ -29,6 +29,13 @@ from pathlib import Path
 from ..config.models import SkillVisibility
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from ..config.plugin_store import state_signature
+from ..core.memory import RoutineSpec
+from ..core.proposal_invocation import (
+    ProposalInvocation,
+    ProposalPolicy,
+    proposal_metadata,
+    visible_proposal,
+)
 from .capability_merge import merge_capability as _merge
 from .capability_overrides import apply_overrides
 from .capability_roots import agent_roots, roots_signature, skill_roots
@@ -111,6 +118,7 @@ class Capability:
     #: Aynı ad birden çok kaynakta varsa etiketler birleşir: "claude+codex".
     source: str
     #: Agent'lar için bildirilen Claude araç adları. Boş ya da ("*",) → tam yetki.
+    proposal: ProposalInvocation | None = None
     tools: tuple[str, ...] = ()
     #: Kişilik: arayüzde ajan kartında görünen ünvan, avatar kimliği ve renk adı.
     #: Claude/Codex agent biçiminde olmayan alanlardır; o araçlar yok sayar.
@@ -280,7 +288,9 @@ class CapabilityRegistry:
         disabled_agents: frozenset[str] = frozenset(),
         extra_roots: tuple[Path, ...] = (),
         overrides: Mapping[str, SkillVisibility] | None = None,
+        proposal_policy: ProposalPolicy | None = None,
     ) -> None:
+        self._proposal_policy = proposal_policy or ProposalPolicy()
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
@@ -330,6 +340,7 @@ class CapabilityRegistry:
             disabled_agents=self._disabled_agents,
             extra_roots=extra_roots,
             overrides=self._overrides,
+            proposal_policy=self._proposal_policy,
         )
 
     def invalidate(self) -> None:
@@ -370,7 +381,15 @@ class CapabilityRegistry:
                 self._overrides,
             )
             self._skills = skills
-        return skills
+        return tuple(
+            item for item in skills if visible_proposal(item.proposal, self._proposal_policy)
+        )
+
+    def with_proposal_policy(self, policy: ProposalPolicy) -> CapabilityRegistry:
+        """Önbellek ve ek kökleri koruyan değişmez tüketim görünümü."""
+        clone = self.with_extra_roots(self._extra_roots)
+        clone._proposal_policy = policy
+        return clone
 
     def agents(self) -> tuple[Capability, ...]:
         self._refresh_if_changed()
@@ -524,7 +543,12 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
 
 
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
-    fields = parse_frontmatter(_read_head(path))
+    raw = _read_head(path)
+    fields = parse_frontmatter(raw)
+    try:
+        proposal = proposal_metadata(raw)
+    except (ValueError, TypeError):
+        proposal = ProposalInvocation("invalid", "", RoutineSpec("", "", "", (), ()), "")
     allowed = fields.get("allowed_tools")
     description = str(fields.get("description") or "")
     when = str(fields.get("when_to_use") or "")
@@ -532,6 +556,7 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         description = f"{description} {when}".strip()
     return Capability(
         name=str(fields.get("name") or fallback),
+        proposal=proposal,
         description=description,
         path=path,
         source=source,

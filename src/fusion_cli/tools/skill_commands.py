@@ -19,12 +19,21 @@ kaynaklı beceride yalnız salt-okur komutlar (`is_read_only_command`) çalış�
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.proposal_invocation import (
+    INVOCATION_PREFIX,
+    ProposalPolicy,
+    ProposalValidator,
+    body_revision,
+    proposal_metadata,
+    visible_proposal,
+)
 from ..core.redaction import redact
 from .auto_policy import auto_risk, is_read_only_command
 from .frontmatter import NO_TOOLS, body_after_frontmatter, parse_frontmatter
@@ -71,6 +80,7 @@ class SkillInvocation:
 
     #: Kullanıcı mesajı olarak gidecek görev.
     task: str
+    ok: bool = True
     #: Sistem bağlamına eklenecek beceri gövdesi (komut dosyasında boş: gövde görevdir).
     context: str = ""
     #: `allowed-tools` → Fusion araç adları; `None` = kısıt yok.
@@ -260,15 +270,42 @@ def build_invocation(
     *,
     shell_allowed: bool,
     shell_read_only: bool = False,
+    proposal_policy: ProposalPolicy | None = None,
+    proposal_validator: ProposalValidator | None = None,
 ) -> SkillInvocation:
     """`Capability` + argümanı tura çevir (komut: görev; beceri: bağlam + görev)."""
     from .capabilities import Capability, map_tools
 
     assert isinstance(capability, Capability)
+    proposal_policy = proposal_policy or ProposalPolicy()
     try:
         raw = capability.path.read_text(encoding="utf-8")
     except OSError as error:
         return SkillInvocation(task=argument, notes=(f"beceri okunamadı: {error}",))
+    try:
+        proposal = proposal_metadata(raw)
+        if capability.proposal is not None or proposal is not None:
+            if (
+                proposal != capability.proposal
+                or proposal is None
+                or proposal.revision != body_revision(raw)
+                or not visible_proposal(proposal, proposal_policy)
+                or proposal_validator is None
+                or "!`" in argument
+            ):
+                raise ValueError("Öneri kaynağı, sürümü veya çağrı politikası geçersiz.")
+            proposal_validator(proposal, argument, env.project_dir)
+            context = INVOCATION_PREFIX + json.dumps(
+                {
+                    "path": str(capability.path.resolve()),
+                    "arguments": argument,
+                    "revision": proposal.revision,
+                },
+                ensure_ascii=False,
+            )
+            return SkillInvocation(task=argument, context=context)
+    except (ValueError, OSError) as error:
+        return SkillInvocation(task="", ok=False, notes=(str(error),))
     body = body_after_frontmatter(raw).replace("{SKILL_DIR}", str(capability.path.parent))
     body = with_plugin_root(body, capability.path)
     rendered = render_template(body, argument, env)

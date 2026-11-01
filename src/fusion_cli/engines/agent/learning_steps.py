@@ -12,15 +12,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable
+from dataclasses import replace
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
 from typing import TYPE_CHECKING
 
 from ...core.events import LessonsLearned, LessonsRecalled
-from ...core.memory import Lesson, agent_lesson_tag
+from ...core.lesson_runtime import HINT_LIMIT, LessonDelivery
+from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult
-from . import learning
+from . import learning, lesson_attribution
 from .verification import resolve_turn_success
 
 logger = logging.getLogger(__name__)
@@ -81,10 +83,15 @@ def recall_lessons(query: str, deps: AgentDeps, *, limit: int = RECALL_LIMIT) ->
         limit=limit,
         workspace=_workspace(deps),
         tags=lesson_tags(deps),
+        policy=lesson_attribution.recall_policy(deps),
     )
     if recalled:
         deps.recalled_lessons.extend(recalled)
-        deps.publisher.publish(LessonsRecalled(count=len(recalled)))
+        deps.publisher.publish(
+            LessonsRecalled(
+                count=len(recalled), lesson_ids=tuple(lesson.id for lesson in recalled if lesson.id)
+            )
+        )
     return recalled
 
 
@@ -106,6 +113,9 @@ async def reinforce_recalled(
     modele düzeltme talimatı olur hem buraya sinyal olarak düşer.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
+        return
+    if deps.config.runtime.lesson_attributed_feedback:
+        lesson_attribution.settle(outcome, deps)
         return
     if plan_mode or not deps.recalled_lessons:
         return
@@ -165,15 +175,23 @@ async def learn(
     *,
     plan_mode: bool,
     allow_read_only: bool = True,
+    final_closeout: bool = False,
 ) -> None:
     """Turdan ders çıkar ve belleğe yaz. Kapı kararı `should_learn`'dedir."""
     if deps.lessons is None or not deps.config.runtime.lessons:
+        return
+    if deps.config.runtime.lesson_attributed_feedback and not final_closeout:
         return
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
     external = learning.reads_external_content(outcome.tool_uses)
-    work = _bounded(_extract_and_store(task, list(outcome.messages), deps, external=external))
+    verification = deps.lesson_state.verification if deps.lesson_state else None
+    work = _bounded(
+        _extract_and_store(
+            task, list(outcome.messages), deps, external=external, verification=verification
+        )
+    )
     if deps.background is None:
         await work
     else:
@@ -201,7 +219,12 @@ async def _bounded(work: Awaitable[None]) -> None:
 
 
 async def _extract_and_store(
-    task: str, messages: list[Message], deps: AgentDeps, *, external: bool = False
+    task: str,
+    messages: list[Message],
+    deps: AgentDeps,
+    *,
+    external: bool = False,
+    verification: VerificationResult | None = None,
 ) -> None:
     """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur.
 
@@ -218,6 +241,31 @@ async def _extract_and_store(
         workspace=_workspace(deps),
         tags=lesson_tags(deps),
     )
+    lessons = tuple(
+        replace(lesson, source_split=deps.lesson_context.policy.source_split) for lesson in lessons
+    )
+    if deps.config.runtime.lesson_attributed_feedback:
+        from ...core.evidence import EvidenceStatus
+
+        refs = (
+            tuple(
+                item.criterion_id
+                for item in verification.evidence
+                if item.status is EvidenceStatus.PASSED and item.applicable
+            )
+            if verification
+            else ()
+        )
+        is_verified = bool(
+            verification and verification.ok and not verification.failure_evidence and refs
+        )
+        lessons = tuple(
+            replace(lesson, verified_at=str(deps.clock.now()), evidence_refs=refs)
+            if lesson.kind is LessonKind.SUCCESS
+            else lesson
+            for lesson in lessons
+            if lesson.kind is not LessonKind.SUCCESS or is_verified
+        )
     if external:
         lessons = learning.mark_external(
             lessons, getattr(deps.config.runtime, "external_lesson_confidence", 0.5)
@@ -236,7 +284,62 @@ async def _extract_and_store(
     # Yeni dersle çelişen ESKİ dersin güveni düşer (A2-11); yan yana iki zıt kural
     # geri çağrılmasın.
     # Dış kaynaklı (doğrulanmamış) ders güvenilir eski dersi çürütemez (MINJA).
-    if stored and not external:
+    if (
+        stored
+        and not external
+        and not (
+            deps.config.runtime.lesson_attributed_feedback
+            or deps.config.runtime.lesson_conflict_quarantine
+        )
+    ):
         deps.lessons.reinforce(learning.contradicted_texts(screened, existing), success=False)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored, external=stored if external else 0))
+
+
+def recall_hints(task: str, deps: AgentDeps) -> str:
+    """Açık bayrakla en fazla iki dersi gerçek isteme sun."""
+    if not deps.config.runtime.lesson_recall_hints:
+        return ""
+    from ...memory.lessons import as_prompt_block
+
+    lessons = recall_lessons(task, deps, limit=HINT_LIMIT)[:HINT_LIMIT]
+    lesson_attribution.offer(lessons, deps, LessonDelivery.HINT)
+    return as_prompt_block(lessons)
+
+
+async def finish_learning(
+    outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, task: str = ""
+) -> None:
+    """Stop kancası dahil en son sonucu yalnız bir kez işle."""
+    from ...memory.skill_proposals import SkillProposalError
+    from .routine_observer import refresh_routines
+    from .teacher_lessons import settle_advice
+
+    if deps.lesson_state is not None:
+        if deps.lesson_state.finished:
+            return
+        deps.lesson_state.finished = True
+    await refresh_routines(deps)
+    await asyncio.to_thread(settle_advice, outcome, deps)
+    state = deps.lesson_state
+    if deps.config.runtime.lesson_attributed_feedback:
+        lesson_attribution.settle(outcome, deps)
+        if task and not outcome.model_error and not outcome.budget_stopped:
+            await learn(task, outcome, deps, plan_mode=plan_mode, final_closeout=True)
+    if (
+        state is not None
+        and outcome.ok
+        and not outcome.hit_step_limit
+        and not outcome.budget_stopped
+        and not outcome.model_error
+        and deps.skill_proposals is not None
+        and deps.config.runtime.verified_skill_proposals
+    ):
+        for routine, observation in state.routines:
+            try:
+                await deps.skill_proposals.observe(routine, observation)
+            except (SkillProposalError, OSError):
+                logger.warning(
+                    "Rutin önerisi kaydedilemedi; ana iş sonucu korunuyor.", exc_info=True
+                )

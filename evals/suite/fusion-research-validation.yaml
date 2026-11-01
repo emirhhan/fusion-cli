@@ -1,0 +1,118 @@
+namespace: fusion_research
+split: validation
+task6_complete: false
+tasks:
+- id: T03
+  request: Eksik araç payloadu sonrası tam içeriği sonuc.txt dosyasına bir kez yaz.
+  setup:
+    notlar.txt: 'koru
+
+      '
+  runtime_scenario: missing_payload
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T03
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T07
+  request: Yalnız ikinci sınıfın tarih biçimleyicisini düzelt.
+  setup:
+    tarihler.py: "class Birinci:\n    def tarih(self, gun, ay):\n        return f\"\
+      {ay:02d}/{gun:02d}\"\n\nclass Ikinci:\n    def tarih(self, gun, ay):\n     \
+      \   return f\"{ay:02d}/{gun:02d}\"\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T07
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T11
+  request: parse_ozel_2026 davranışını çağıran yeri bul.
+  setup:
+    rastgele.py: "def parse_ozel_2026(metin):\n    return metin.split(\"|\")\n"
+    kullanici/yukle.py: "from rastgele import parse_ozel_2026\n\ndef yukle(metin):\n\
+      \    return parse_ozel_2026(metin)\n"
+    auth.py: '# Kimlik doğrulama açıklaması.
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T11
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T15
+  request: app.py değerini 2 yap; eski yeşil sonucu yeni kod için kanıt sayma, yeni
+    kontrolü çalıştır.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: stale_evidence
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T15
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T19
+  request: Eski özet bitti dese de checkpointte açık olan sonuc.txt işini tamamla.
+  setup:
+    sonuc.txt: 'eksik
+
+      '
+  runtime_scenario: checkpoint
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T19
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T23
+  request: python dersini geri çağır; sağlayıcı kota hatası dersin ürün hatası değildir.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: lesson_quota
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T23
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T27
+  request: notlar.txt tekrar okuması ilerleme değildir; onarım tavanında açık bırak
+    veya yeni.txt dosyasını incele.
+  setup:
+    notlar.txt: 'aynı
+
+      '
+    yeni.txt: 'yeni bulgu
+
+      '
+  runtime_scenario: false_progress
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T27
+  budget:
+    max_model_calls: 20
+    timeout_s: 720
+- id: T31
+  request: Rust komutunun hatalı girişteki dönüş değerini düzelt.
+  setup:
+    komut.rs: "pub fn komut(value: &str) -> String {\n    match value.parse::<i32>()\
+      \ {\n        Ok(number) => format!(\"{{\\\"ok\\\":true,\\\"value\\\":{}}}\"\
+      , number),\n        Err(_) => \"{\\\"ok\\\":true,\\\"value\\\":0}\".to_string(),\n\
+      \    }\n}\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T31
+  budget:
+    max_model_calls: 20
+    timeout_s: 720

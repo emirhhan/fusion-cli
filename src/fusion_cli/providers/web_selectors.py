@@ -14,6 +14,7 @@ dağıtım ve güven kanalı açmak ayrı bir üründür. Dosya bozuksa ya da ş
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from functools import cache
 from importlib import resources
 
 from ..core.errors import FusionError
+from ..core.web_provenance import ASSISTANT_ROLE_EVIDENCE
 
 _RESOURCE_PACKAGE = "fusion_cli.providers"
 _RESOURCE_PATH = ("data", "web-selectors.json")
@@ -31,7 +33,7 @@ _SUPPORTED_VERSION = 1
 #: Bir sağlayıcıda BOŞ olamayan alanlar: bunlar olmadan tur hiç başlayamaz.
 _REQUIRED_LISTS = ("input", "send", "response", "stop", "history")
 #: Boş olabilen alanlar: yalnız ölçülmüş sağlayıcı için doldurulur.
-_OPTIONAL_LISTS = ("tier", "model_menu", "image")
+_OPTIONAL_LISTS = ("tier", "model_menu", "image", "origin_roles", "origin_ids")
 
 
 class WebSelectorsError(FusionError):
@@ -50,6 +52,8 @@ class ProviderSelectors:
     tier: tuple[str, ...] = ()
     model_menu: tuple[str, ...] = ()
     image: tuple[str, ...] = ()
+    origin_roles: tuple[str, ...] = ()
+    origin_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +66,8 @@ class WebSelectors:
     model_option_gemini: str
     model_option_default: str
     challenge_dom: tuple[str, ...]
+    schema_version: str = "1"
+    bundle_digest: str = ""
 
 
 def parse_web_selectors(raw: object) -> WebSelectors:
@@ -89,6 +95,10 @@ def parse_web_selectors(raw: object) -> WebSelectors:
     _reject_unknown(option, {"gemini_web", "default"}, "model_option")
     return WebSelectors(
         providers=providers,
+        schema_version=str(root["version"]),
+        bundle_digest=hashlib.sha256(
+            json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest(),
         gemini_upload_menu_trigger=_non_empty_str(
             upload.get("menu_trigger"), "gemini_upload.menu_trigger"
         ),
@@ -122,6 +132,10 @@ def _provider(name: str, value: object) -> ProviderSelectors:
         )
         for key in (*_REQUIRED_LISTS, *_OPTIONAL_LISTS)
     }
+    if set(lists["origin_roles"]) - ASSISTANT_ROLE_EVIDENCE:
+        raise WebSelectorsError("Bilinmeyen assistant köken attribute ilişkisi.")
+    if set(lists["origin_ids"]) - {"id", "data-content-search-unit-key"}:
+        raise WebSelectorsError("Köken kimliği attribute allowlist dışında.")
     return ProviderSelectors(**lists)
 
 

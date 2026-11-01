@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .changeset import ChangeSet
+from .changeset import ChangeSet, RollbackConflict
 from .leak_filter import is_harness_note
 from .types import Message
 
@@ -114,6 +114,7 @@ class RewindResult:
     keep_users: int = 0
     #: Defterden düşen tur sayısı.
     dropped_turns: int = 0
+    conflicts: tuple[RollbackConflict, ...] = ()
 
 
 class TurnCheckpointLedger:
@@ -171,12 +172,20 @@ class TurnCheckpointLedger:
         affected = [entry for entry in self._entries if entry.index >= index]
         restored: list[Path] = []
         failed: list[Path] = []
+        conflicts: dict[Path, RollbackConflict] = {}
+        protected: set[Path] = set()
         if scope in (RewindScope.BOTH, RewindScope.CODE):
             for entry in reversed(affected):
                 expected = entry.changes.restorable_paths
-                done = entry.changes.restore()
+                done = entry.changes.restore(protected_paths=frozenset(protected))
+                conflicts.update(
+                    (conflict.path, conflict)
+                    for conflict in entry.changes.conflicts
+                    if conflict.is_identity_conflict
+                )
                 restored.extend(path for path in done if path not in restored)
                 failed.extend(path for path in expected if path not in done and path not in failed)
+                protected.update(path for path in expected if path not in done)
         history: tuple[Message, ...] | None = None
         keep_users = 0
         if scope in (RewindScope.BOTH, RewindScope.CONVERSATION):
@@ -192,14 +201,16 @@ class TurnCheckpointLedger:
             ]
             dropped = 0
         else:
-            self._entries = [entry for entry in self._entries if entry.index < index]
-            dropped = len(affected)
+            retained = [entry for entry in affected if entry.changes]
+            self._entries = [entry for entry in self._entries if entry.index < index] + retained
+            dropped = len(affected) - len(retained)
         return RewindResult(
             scope=scope,
             index=index,
-            restored=tuple(restored),
+            restored=tuple(path for path in restored if path not in protected),
             failed=tuple(failed),
             history=history,
             keep_users=keep_users,
             dropped_turns=dropped,
+            conflicts=tuple(conflicts.values()),
         )

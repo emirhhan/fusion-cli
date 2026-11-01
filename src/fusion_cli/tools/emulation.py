@@ -4,6 +4,14 @@ Modelin ürettiği argümanlar araç ÇALIŞMADAN önce şemaya karşı doğrula
 alanı çalıştırıp hata almak yerine modele ne yanlış olduğunu söylemek turu kurtarır.
 `jsonschema` bilinçli olarak kullanılmaz — bu doğrulama `core`/`config` sınırında da
 çağrılabilmelidir ve o katmanlar üçüncü partiye bağımlı olamaz.
+
+Desteklenen JSON Şeması alt kümesi: `type` (tek tür veya tür listesi), `enum`,
+`anyOf`, `oneOf`, `properties`, `required`, `additionalProperties: false`,
+`items` (tek şema), `minimum`, `maximum` ve `minItems`. Nesne/dizi kısıtları
+yalnız ilgili türdeki değerlere uygulanır; `oneOf` tam bir dal eşleşmesi ister.
+Tam JSON Şeması uygulaması değildir: bilinmeyen türler ve desteklenmeyen anahtarlar
+(`$ref`, `allOf`, `format`, `pattern`, şema değerli `additionalProperties` dahil)
+uyumluluk için değerlendirilmez. Girdi şemasının geçerliliğini denetlemez.
 """
 
 from __future__ import annotations
@@ -129,7 +137,7 @@ def validate_arguments(
     function_schema: Mapping[str, object],
     arguments: Mapping[str, object],
 ) -> tuple[str, ...]:
-    """Validate the JSON-Schema subset used by built-in Fusion tools."""
+    """Araç argümanlarını modülde belgelenen JSON Şeması alt kümesiyle doğrula."""
     raw = function_schema.get("parameters")
     if isinstance(raw, Mapping):
         parameters = raw
@@ -153,6 +161,16 @@ _TYPE_CHECKS: Mapping[str, Callable[[object], bool]] = {
     "null": lambda v: v is None,
 }
 
+_TYPE_MESSAGES = {
+    "object": "JSON nesnesi olmalı",
+    "array": "dizi olmalı",
+    "string": "metin olmalı",
+    "boolean": "boolean olmalı",
+    "integer": "tam sayı olmalı",
+    "number": "sayı olmalı",
+    "null": "null olmalı",
+}
+
 
 def _matches_type(kinds: Sequence[object], value: object) -> bool:
     """`type` bir liste ise (`["string", "null"]`) değer biriyle uyuşmalı; bilinmeyen tip geçer."""
@@ -164,15 +182,19 @@ def _matches_type(kinds: Sequence[object], value: object) -> bool:
 
 
 def _validate_combinators(schema: Mapping[str, object], value: object, path: str) -> list[str]:
-    """`anyOf`/`oneOf`: dallardan en az biri geçerse hata yok."""
+    """`anyOf` en az bir, `oneOf` tam bir geçerli dal ister."""
+    errors: list[str] = []
     for key in ("anyOf", "oneOf"):
         branches = schema.get(key)
         if not isinstance(branches, Sequence) or isinstance(branches, str | bytes):
             continue
         schemas = [b for b in branches if isinstance(b, Mapping)]
-        if schemas and all(_validate(b, value, path=path) for b in schemas):
-            return [f"{path}: izin verilen şemalardan hiçbirine uymuyor ({key})"]
-    return []
+        matching = sum(not _validate(branch, value, path=path) for branch in schemas)
+        if matching == 0:
+            errors.append(f"{path}: izin verilen şemalardan hiçbirine uymuyor ({key})")
+        elif key == "oneOf" and matching != 1:
+            errors.append(f"{path}: yalnız bir şemaya uymalı (oneOf)")
+    return errors
 
 
 def _validate_bounds(schema: Mapping[str, object], value: object, path: str) -> list[str]:
@@ -185,54 +207,82 @@ def _validate_bounds(schema: Mapping[str, object], value: object, path: str) -> 
         and value < minimum
     ):
         errors.append(f"{path}: en az {minimum} olmalı")
+    maximum = schema.get("maximum")
+    if (
+        isinstance(maximum, int | float)
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and value > maximum
+    ):
+        errors.append(f"{path}: en fazla {maximum} olmalı")
     min_items = schema.get("minItems")
     if isinstance(min_items, int) and isinstance(value, list) and len(value) < min_items:
         errors.append(f"{path}: en az {min_items} öğe içermeli")
     return errors
 
 
+def _validate_object(
+    schema: Mapping[str, object], value: Mapping[str, object], path: str
+) -> list[str]:
+    """Nesnenin zorunlu, tanımlı ve kapalı alan kısıtlarını uygula."""
+    errors: list[str] = []
+    required = schema.get("required", ())
+    if isinstance(required, Sequence) and not isinstance(required, (str, bytes)):
+        for field in required:
+            if isinstance(field, str) and field not in value:
+                errors.append(f"{path}.{field}: {MESSAGE_REQUIRED_MISSING}")
+    raw_properties = schema.get("properties")
+    properties = raw_properties if isinstance(raw_properties, Mapping) else {}
+    for field, field_value in value.items():
+        field_schema = properties.get(field)
+        if isinstance(field_schema, Mapping):
+            errors.extend(_validate(field_schema, field_value, path=f"{path}.{field}"))
+        elif field not in properties and schema.get("additionalProperties") is False:
+            errors.append(f"{path}.{field}: ek alana izin verilmiyor")
+    return errors
+
+
 def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list[str]:
-    errors: list[str] = _validate_combinators(schema, value, path)
+    errors = _validate_combinators(schema, value, path)
     kind = schema.get("type")
     if isinstance(kind, Sequence) and not isinstance(kind, str | bytes):
         if not _matches_type(kind, value):
             return [*errors, f"{path}: tür {list(kind)} içinden biri olmalı"]
-        return [*errors, *_validate_bounds(schema, value, path)]
+    elif isinstance(kind, str):
+        check = _TYPE_CHECKS.get(kind)
+        if check is not None and not check(value):
+            return [*errors, f"{path}: {_TYPE_MESSAGES[kind]}"]
     errors.extend(_validate_bounds(schema, value, path))
-
-    if kind == "object":
-        if not isinstance(value, Mapping):
-            return [f"{path}: JSON nesnesi olmalı"]
-        required = schema.get("required", ())
-        if isinstance(required, Sequence) and not isinstance(required, (str, bytes)):
-            for field in required:
-                if isinstance(field, str) and field not in value:
-                    errors.append(f"{path}.{field}: {MESSAGE_REQUIRED_MISSING}")
-        properties = schema.get("properties")
-        if isinstance(properties, Mapping):
-            for field, field_value in value.items():
-                field_schema = properties.get(field)
-                if isinstance(field, str) and isinstance(field_schema, Mapping):
-                    errors.extend(_validate(field_schema, field_value, path=f"{path}.{field}"))
-        return errors
-
-    if kind == "array":
-        if not isinstance(value, list):
-            return [f"{path}: dizi olmalı"]
+    if isinstance(value, Mapping):
+        errors.extend(_validate_object(schema, value, path))
+    elif isinstance(value, list):
         item_schema = schema.get("items")
         if isinstance(item_schema, Mapping):
             for index, item in enumerate(value):
                 errors.extend(_validate(item_schema, item, path=f"{path}[{index}]"))
-    elif kind == "string" and not isinstance(value, str):
-        errors.append(f"{path}: metin olmalı")
-    elif kind == "boolean" and not isinstance(value, bool):
-        errors.append(f"{path}: boolean olmalı")
-    elif kind == "integer" and not _TYPE_CHECKS["integer"](value):
-        errors.append(f"{path}: tam sayı olmalı")
-    elif kind == "number" and (not isinstance(value, (int, float)) or isinstance(value, bool)):
-        errors.append(f"{path}: sayı olmalı")
 
     enum = schema.get("enum")
-    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes)) and value not in enum:
+    if (
+        isinstance(enum, Sequence)
+        and not isinstance(enum, (str, bytes))
+        and not any(_json_equal(value, choice) for choice in enum)
+    ):
         errors.append(f"{path}: izin verilen değerlerden biri olmalı: {list(enum)}")
     return errors
+
+
+def _json_equal(left: object, right: object) -> bool:
+    """Enum eşitliğinde JSON türlerini koru; boolean sayıyla eşleşemez."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return left.keys() == right.keys() and all(
+            _json_equal(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _json_equal(first, second) for first, second in zip(left, right, strict=True)
+        )
+    return type(left) is type(right) and left == right

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from fusion_cli.core.budget import BudgetStop, TurnBudget
 from fusion_cli.core.repair_ledger import FailureEvidence, FailureOrigin, SourceFingerprint
 from fusion_cli.core.tools import ToolResult
@@ -167,3 +169,194 @@ def test_changed_padding_family_note_keeps_existing_budget() -> None:
     assert turn.verify_rounds == 2
     assert record_failure_evidence(failure("3"), turn).is_exhausted
     assert turn.stop is BudgetStop.NO_PROGRESS
+
+
+async def test_real_infrastructure_failure_cannot_consume_repair_budget(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+    from fusion_cli.engines.agent.verifier_repair import observe_verifier_failures
+
+    result = await CommandVerifier(
+        ("fusion_fixture_missing_runner",), cwd=str(tmp_path), timeout_s=3
+    ).verify()
+    assert result.failure_evidence
+    turn = budget()
+    tool_result = ToolResult("ölçüm yapılamadı", ok=False, failure_evidence=result.failure_evidence)
+    assert not record_failure_evidence(tool_result, turn).is_new_failure
+    assert observe_verifier_failures(result, turn) == ""
+    assert turn.verify_rounds == 0
+    assert turn.repair_ledger.snapshot().failures == ()
+
+
+async def test_selected_missing_python_runner_is_infrastructure_but_product_import_is_not(tmp_path):
+    import shlex
+    import sys
+
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    python = shlex.quote(sys.executable)
+    missing = await CommandVerifier(
+        (f"{python} -I -S -m pytest",), cwd=str(tmp_path), timeout_s=3
+    ).verify()
+    assert missing.failure_evidence[0].origin is FailureOrigin.INFRASTRUCTURE
+    turn = budget()
+    result = ToolResult("koşucu yok", ok=False, failure_evidence=missing.failure_evidence)
+    assert not record_failure_evidence(result, turn).is_new_failure
+    assert turn.verify_rounds == 0
+    source = tmp_path / "product.py"
+    source.write_text("import fixture_missing_product_dependency\n")
+    product = await CommandVerifier(
+        (f"{python} product.py",), cwd=str(tmp_path), timeout_s=3
+    ).verify()
+    assert product.failure_evidence[0].origin is FailureOrigin.PRODUCT
+
+
+@pytest.mark.parametrize("origin", ("infrastructure", "provider"))
+async def test_real_loop_infrastructure_has_no_product_correction_or_budget_charge(
+    monkeypatch, tmp_path, origin
+):
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_turn_budget import TAM_CEVAP, _deps, _kur
+
+    provider = ScriptedProvider(
+        [
+            model_result(
+                tool_calls=[tool_call("write_file", path="initial.txt", content="fixture")]
+            ),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, RecordingSink())
+    deps.verifier = (
+        CommandVerifier(("true",), cwd=str(tmp_path / "wrong"), timeout_s=3)
+        if origin == "infrastructure"
+        else CommandVerifier(
+            ("printf 'provider quota exceeded HTTP 429'; exit 1",), cwd=str(tmp_path), timeout_s=3
+        )
+    )
+    result = await loop.run_agent("değişikliği yap", deps, internal=True, self_review=False)
+    assert not result.ok
+    assert (tmp_path / "initial.txt").read_text() == "fixture"
+    assert provider.calls == result.model_calls_made == 2
+    assert deps.require_budget().verify_rounds == 0
+    assert deps.require_budget().repair_ledger.snapshot().failures == ()
+
+
+async def test_real_loop_product_failure_still_gets_existing_correction_budget(
+    monkeypatch, tmp_path
+):
+    import shlex
+    import sys
+
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_turn_budget import TAM_CEVAP, _deps, _kur
+
+    provider = ScriptedProvider(
+        [
+            model_result(
+                tool_calls=[tool_call("write_file", path="initial.txt", content="fixture")]
+            ),
+            model_result(TAM_CEVAP),
+            model_result(tool_calls=[tool_call("write_file", path="fixed.txt", content="fixed")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    script = "from pathlib import Path; assert Path('fixed.txt').is_file()"
+    deps = _deps(tmp_path, RecordingSink())
+    deps.verifier = CommandVerifier(
+        (f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",), cwd=str(tmp_path), timeout_s=3
+    )
+    result = await loop.run_agent("değişikliği yap", deps, internal=True, self_review=False)
+    assert result.ok
+    assert (tmp_path / "fixed.txt").read_text() == "fixed"
+    assert provider.calls == result.model_calls_made == 4
+    assert deps.require_budget().verify_rounds == 1
+
+
+@pytest.mark.parametrize("origin", ("infrastructure", "provider"))
+async def test_composite_keeps_real_web_product_failure_repairable_with_nonproduct_failure(
+    tmp_path, origin
+):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import (
+        CommandVerifier,
+        CompositeVerifier,
+        WebVerifier,
+    )
+    from fusion_cli.engines.agent.verifier_repair import should_repair_verifier
+
+    context = ToolContext(root=tmp_path)
+    html = tmp_path / "index.html"
+    html.write_text(
+        "<!doctype html><html><head><title>Fixture</title></head>"
+        '<body><script src="missing.js"></script></body></html>'
+    )
+    context.touched.add(html)
+    command = (
+        CommandVerifier(("true",), cwd=str(tmp_path / "wrong"), timeout_s=3)
+        if origin == "infrastructure"
+        else CommandVerifier(
+            ("printf 'provider quota exceeded HTTP 429'; exit 1",), cwd=str(tmp_path), timeout_s=3
+        )
+    )
+    result = await CompositeVerifier((WebVerifier(context), command)).verify()
+    assert not result.ok
+    assert any("missing.js" in finding for finding in result.findings)
+    assert should_repair_verifier(result)
+    assert any(item.origin is FailureOrigin.PRODUCT for item in result.failure_evidence)
+
+
+@pytest.mark.parametrize("origin", ("infrastructure", "provider"))
+async def test_real_loop_repairs_web_product_failure_in_nonproduct_composite(
+    monkeypatch, tmp_path, origin
+):
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.verification import (
+        CommandVerifier,
+        CompositeVerifier,
+        WebVerifier,
+    )
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_turn_budget import TAM_CEVAP, _deps, _kur
+
+    html = (
+        "<!doctype html><html><head><title>Fixture</title></head>"
+        '<body><script src="missing.js"></script></body></html>'
+    )
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="index.html", content=html)]),
+            model_result(TAM_CEVAP),
+            model_result(
+                tool_calls=[tool_call("write_file", path="missing.js", content="void 0;")]
+            ),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, RecordingSink())
+    command = (
+        CommandVerifier(("true",), cwd=str(tmp_path / "wrong"), timeout_s=3)
+        if origin == "infrastructure"
+        else CommandVerifier(
+            ("printf 'provider quota exceeded HTTP 429'; exit 1",), cwd=str(tmp_path), timeout_s=3
+        )
+    )
+    deps.verifier = CompositeVerifier((WebVerifier(deps.tool_context), command))
+    result = await loop.run_agent("sayfayı oluştur", deps, internal=True, self_review=False)
+    assert not result.ok  # Altyapı ölçümü hâlâ başarısız; ürün kusuru düzeltildi.
+    assert (tmp_path / "missing.js").read_text() == "void 0;"
+    assert provider.calls == result.model_calls_made == 4
+    assert deps.require_budget().verify_rounds == 1
+    assert any(
+        item.family == "unclassified_verifier_failure"
+        for item in deps.require_budget().repair_ledger.snapshot().failures
+    )

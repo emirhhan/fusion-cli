@@ -10,13 +10,26 @@ Blok yalnız ADLARI taşır, içerik taşımaz: yönlendirir, bağlamı şişirm
 
 from __future__ import annotations
 
+import hashlib
+from dataclasses import replace
+
+import pytest
+
+from fusion_cli.core.execution_plan import PlanPhase, VerificationCheck, VerificationCheckKind
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent.loop import run_agent
 from fusion_cli.engines.agent.plan_context import (
     MAX_STEP_WORKSPACE_FILES,
+    step_deps,
     step_prompt,
     workspace_block,
 )
+from fusion_cli.engines.agent.playbook_stage import _AgentStageExecutor
+from fusion_cli.engines.workflow import Stage
 from tests.test_plan_repair import _step
+
+from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+from .test_agent_loop import TAM_CEVAP, _deps, _kur
 
 
 def _baglam(tmp_path, okunan=(), degisen=()):
@@ -95,3 +108,100 @@ def test_gozlem_turu_istemi_yazma_araclarinin_kapali_oldugunu_soyler():
 
 def test_normal_adim_istemi_gozlem_notu_tasimaz():
     assert "GÖZLEM TURU" not in step_prompt(_step("adim"), {})
+
+
+class _EditingProvider(ScriptedProvider):
+    """İlk gerçek isteğin ardından yalnız geçici kaynağı değiştir."""
+
+    def __init__(self, source):
+        super().__init__(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="target.py")]),
+                model_result(TAM_CEVAP),
+            ]
+        )
+        self._source = source
+
+    def _next(self, request):
+        result = super()._next(request)
+        if self.calls == 1:
+            self._source.write_text("def changed():\n    return 2\n")
+        return result
+
+
+async def _stale_card_deps(tmp_path, monkeypatch):
+    source = tmp_path / "target.py"
+    original = b"def target():\n    return 1\n"
+    source.write_bytes(original)
+    deps = _deps(tmp_path, RecordingSink())
+    deps = replace(
+        deps,
+        config=replace(
+            deps.config,
+            runtime=replace(
+                deps.config.runtime,
+                localization_cards=True,
+                project_instructions=False,
+            ),
+        ),
+    )
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("search_code", pattern="target", path="target.py")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    await run_agent("target.py konumunu incele", deps, self_review=False, verify=False)
+    step = replace(
+        _step("fresh-step"),
+        phase=PlanPhase.DISCOVERY,
+        verification_checks=(
+            VerificationCheck("fresh-criterion", VerificationCheckKind.TOOL, "search_code"),
+        ),
+    )
+    return (
+        step_deps(deps, step, 5, observe=True),
+        step,
+        source,
+        hashlib.sha256(original).hexdigest(),
+    )
+
+
+@pytest.mark.parametrize("phase", ["discovery", "localize"])
+async def test_discovery_and_localize_remove_stale_cards_from_all_active_messages(
+    tmp_path, monkeypatch, phase
+):
+    scoped, step, source, digest = await _stale_card_deps(tmp_path, monkeypatch)
+    provider = _kur(monkeypatch, _EditingProvider(source))
+    if phase == "discovery":
+        await run_agent(
+            step_prompt(step, {}, workspace=workspace_block(scoped.tool_context)),
+            scoped,
+            depth=1,
+            self_review=False,
+            verify=False,
+        )
+    else:
+        await _AgentStageExecutor("target.py yerini belirle", scoped, run_agent).run(
+            Stage.LOCALIZE, {}
+        )
+    first = provider.seen_messages[0]
+    assert any(digest in message.content for message in first if "KANITLI" in message.content)
+    assert any(
+        "fresh-step" in message.content and "fresh-criterion" in message.content
+        for message in first
+        if "KANITLI" in message.content
+    )
+    latest = provider.seen_messages[1]
+    assert all(digest not in message.content for message in latest if "KANITLI" in message.content)
+    assert sum("KANITLI YER BELİRLEME KARTI" in message.content for message in latest) == 1
+    assert not any(
+        "KANITLI YER BELİRLEME KARTI" in message.content
+        for message in latest
+        if message.role == "user"
+    )

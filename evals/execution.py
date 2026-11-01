@@ -8,6 +8,27 @@ metrik ve karşılaştırma mantığı sahte gözlemle ağ olmadan test edilebil
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from fusion_cli.core.events import Event
+from fusion_cli.core.evidence import EvidenceEnvironment
+
+if TYPE_CHECKING:
+    from evals.research_runtime import RuntimeReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallIdentity:
+    """İstenen kimliği gözlenenden ayır; ölçülmeyen kullanım None kalır."""
+
+    call_id: str
+    role: str
+    requested_model: str | None
+    served_model: str | None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    outcome: str = "unknown"
+    cost_usd: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,3 +59,9 @@ class TaskExecution:
     claimed_success: bool = True
     #: Görevin baştan sona sürdüğü süre (saniye).
     duration_seconds: float = 0.0
+    calls: tuple[ModelCallIdentity, ...] = ()
+    trace_events: tuple[Event, ...] = ()
+    runtime_receipt: RuntimeReceipt | None = None
+    environments: tuple[EvidenceEnvironment, ...] = ()
+    effective_config_digest: str | None = None
+    sample_index: int | None = None

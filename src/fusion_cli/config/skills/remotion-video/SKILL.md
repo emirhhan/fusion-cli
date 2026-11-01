@@ -1,62 +1,53 @@
 ---
 name: remotion-video
-description: Remotion ile kare tabanlı React video üretimi, MP4 render ve doğrulama.
+description: Remotion React video/MP4 üretimi ve doğrulama.
 ---
 
 # Remotion video
+## Kit (fade + yazı yetmez)
 
-## Hareket kiti (sade "fade + yazı" yapma)
-
-Üretimden önce sahne id/kind/duration planını
-`scaffold_remotion(path="video",composition_id="Video",timeout_s=120,scenes=[…])` ile kaydet;
-Host sabit `src/index.tsx` ve uyumlu tsconfig oluşturur. Yalnız `src/Composition.tsx`
-`Video` exportunda sahneleri yaz; giriş/kit değiştirme, rename etme. Süre karedir.
-Kit `{SKILL_DIR}/kit`; logoyu `video/public/`a koy.
-Boş projede önce iskele; sonra yalnız bağımlılık kur, mevcut dosyaları ezme:
+Önce id/kind/duration planı:
+`scaffold_remotion(path="video",composition_id="Video",timeout_s=120,scenes=[…])`.
+Host `src/index.tsx`/uyumlu tsconfig üretir; yalnız `src/Composition.tsx` `Video` exportunu yaz;
+giriş/kit değiştirme, rename etme. Süre=kare. Kit `{SKILL_DIR}/kit`; logo `video/public/`a.
+Boş projede iskele → bağımlılık; ezme:
 ```
 run_shell(command="cd video && npm init -y && npm install remotion @remotion/cli react react-dom && npm install -D typescript @types/react @types/react-dom", background=true)
 job_status(id=..., wait_s=600)
 ```
-`import {FusionTimeline} from "./kit";` — diğer bileşenler de buradan.
-Renkleri `kit/theme.ts`'te markaya göre ayarla.
-- Zeminde `<Aurora/>` + `<Particles/>`; süreleri `FusionTimeline` yönetir:
+Bileşenler: `import {FusionTimeline} from "./kit";`; marka: `kit/theme.ts`.
+- Zemin `<Aurora/>` + `<Particles/>`; süre:
   `<FusionTimeline scenes={[{id:"features",kind:"feature",duration:120,props:{
   title:"Başlık",cards:[{title:"Hız",body:"Akıcı"}]}}]}/>`.
-  Sürelerin toplamı composition süresiyle aynı; `from`/örtüşme hesaplama.
-  `kind:"custom", component:Scene` özgün sahne içindir. İlk karede okunabilir
-  başlık göster; opacity gecikmesiyle boşluğu gizleme. Timeline kesme yapar,
-  gerçek FeatureScene oluşturur; bileşeni kopyalama, iç kit dosyalarını değiştirme.
-  Bağımsız özel içerik `<SceneFade><CameraPush>` içinde.
-- FeatureScene 1–3 eşit sütun tek satır; kamera/parallax içerir, dıştan sarma.
-  Başlık 96, gövde 44 px. Font sonrası kapasite yetmezse sahneyi böl; küçültme/
-  kırpma/kapı kaldırma. Bağımsız kullanımda SceneFade içerir.
-- Özel başlık: `<KineticText text=... gradient/>`.
-- Açılış/kapanış `<LogoReveal src="logo.png" title=... subtitle=.../>`; vurguda `<LightSweep/>`.
-- 1 sn'den uzun donuk sahne olmasın: her an en az iki katman hareket etsin.
-- Kit varsayılan kamera/derinlik hareketine göre güvenli yer ayırır; özel sahnede
-  120 px iç payı TÜM dönüşümlerden sonra koru; yazılar çakışmasın. Parallax
-  normal akışta; gap kullan, kart width padding dahil dış genişliktir.
-- En dış sabit AbsoluteFill'a data-fusion-canvas ekle; kamerayı İÇİNE koy.
-- Timeline her kare boşluğu/çoklu okunabilir sahneyi denetler; yerel grace bu
-  kapıyı körleştirmez. SceneFade içindeki LayoutAudit ilk 1 sn/son 0,5 sn dışında taşma,
-  çakışma, boş içerik ve bölünen kelimeyi durdurur. Hata karesini ölç, düzelt.
-  Kit dışı anlamlı içeriğe data-fusion-content ekle, dekorlara ekleme. Kapıyı koru.
-- Sahneyi tam doldur; son 7 saniyeye soluk yazı/boş buffer koyma. 4 kartı böl.
-- Tam render öncesinde her sahneden giriş sonrasında ve çıkış öncesinde still al.
-  Still'ler geçmeden tam render başlatma. Hata karesini yeniden ölç; denetim hatası
-  kalan videoyu tamamlandı diye sunma.
+  Toplam=composition; `from`/örtüşme hesaplama. Özgün:
+  `kind:"custom", component:Scene`; bağımsız içerik `<SceneFade><CameraPush>` içinde.
+  İlk karede okunur başlık; opacity gecikmesiyle boşluk gizleme.
+  Timeline keser, FeatureScene üretir; kopyalama.
+- FeatureScene: 1–3 eşit sütun/tek satır; kamera/parallax/SceneFade içerir, dıştan sarma.
+  Font sonrası taşanı/4 kartı böl; küçültme/kırpma/kapı kaldırma.
+- Başlık `<KineticText text=... gradient/>`; açılış/kapanış
+  `<LogoReveal src="logo.png" title=... subtitle=.../>`; vurgu `<LightSweep/>`.
+- Her an ≥ 2 hareketli katman; 1 sn'den uzun donma yok.
+- Kit kamera/derinlik payı ayırır. Özelde TÜM dönüşümler sonrası 120 px pay;
+  Yazı çakışmasın. Parallax normal akış/gap; kart width padding dahil.
+- Sabit dış AbsoluteFill'a data-fusion-canvas; kamera İÇİNDE.
+- Timeline her kare boşluk/çoklu okunur sahneyi denetler; yerel grace körleştirmez.
+  SceneFade/LayoutAudit ilk 1 sn/son 0,5 sn dışında taşma/çakışma/boş içerik/bölünen
+  kelimeyi durdurur; hata karesini ölç/düzelt, kapıyı koru. Kit dışı anlamlı içeriğe
+  data-fusion-content ekle; dekora ekleme.
+- Sahneyi doldur; son 7 sn soluk yazı/boş buffer koyma.
+- Tam render öncesi HER sahnede giriş sonrası/çıkış öncesi still geçsin.
+  Hata karesini tekrar ölç; denetim hatasıyla teslim etme.
+## Animasyon
 
-## Kare tabanlı animasyon
-
-- Hareketi `useCurrentFrame()` + `interpolate()` / `spring()` ile hesapla.
-- CSS `transition`, `animation`, `@keyframes` ve Tailwind `animate-*` KULLANMA: render
-  kare kare yapılır, bunlar çalışmaz ve video donuk çıkar.
-- fps/süre `useVideoConfig()`; host girişinde plan toplamı ve 1920×1080/30 sabittir.
-- Metin: ana başlık ≥ 96 px, destek metni ≥ 44 px (1080p); kenarlarda 120 px güvenli alan.
-- Ekran metni sade Türkçe; komut/yol/env adı yazma. Marka adı kullanıcınınki; "Fusion" asla ekleme.
-- Görsel/font: `public/` + `staticFile()`; Google fontu `@remotion/google-fonts`.
-
-## Render ve doğrulama (bitti demeden önce)
+- `useCurrentFrame()` + `interpolate()` / `spring()` kullan.
+- CSS `transition`, `animation`, `@keyframes`, Tailwind `animate-*` KULLANMA:
+  kare render'da çalışmaz, donar.
+- fps/süre `useVideoConfig()`; host: plan toplamı, 1920×1080/30.
+- 1080p: başlık ≥ 96/gövde ≥ 44 px; kenar 120 px.
+- Ekran sade Türkçe; komut/yol/env yazma. Kullanıcının markası; "Fusion" asla ekleme.
+- Görsel/font `public/` + `staticFile()`; Google: `@remotion/google-fonts`.
+## Teslim öncesi doğrulama
 
 ```
 render_remotion(output="out/video.mp4")

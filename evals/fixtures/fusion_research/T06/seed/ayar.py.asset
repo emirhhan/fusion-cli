@@ -1,0 +1,4 @@
+def ayar_oku(ayarlar):
+    return ayarlar.get("tekrar", 0)
+
+# Kullanıcı notu: satır sonları korunur.

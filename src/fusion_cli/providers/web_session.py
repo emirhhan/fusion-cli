@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, replace
 
 from ..core.clock import SystemClock
 from ..core.model_capability import ToolSupport
+from ..core.prompt_manifest import PromptTransportMeasurement
 from ..core.protocols import Clock
 from ..core.redaction import redact, strip_driver_log
 from ..core.tool_emulation import escape_tool_markers, parse_tool_calls, render_tool_instructions
@@ -38,6 +39,7 @@ from ..core.types import (
     StreamItem,
     TextChunk,
 )
+from ..core.web_provenance import WebCallContext, WebResponseProvenance
 
 _logger = logging.getLogger(__name__)
 
@@ -79,6 +81,8 @@ class WebTurn:
     #: Kullanıcıya TEK satır olarak gösterilecek not (ör. seçili mod pasif, mevcut kiple
     #: sürüldü). Cevabın parçası değildir; boşsa gösterilecek bir şey yok.
     note: str = ""
+    prompt_measurement: PromptTransportMeasurement | None = field(default=None, kw_only=True)
+    provenance: WebResponseProvenance | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,10 +102,18 @@ class WebTurnContext:
     #: Kullanıcı bu modeli açıkça seçti (`ModelSpec.strict`): seçili mod/model kullanılamıyorsa
     #: sayfanın başka kipiyle sessizce sürülmez, oturum hatası verilir ve zincir yedeğe geçer.
     strict: bool = False
+    web_call_context: WebCallContext | None = None
+    is_capture_probe: bool = False
 
     @property
     def is_empty(self) -> bool:
-        return not (self.conversation_id or self.answer_contract or self.strict)
+        return not (
+            self.conversation_id
+            or self.answer_contract
+            or self.strict
+            or self.web_call_context
+            or self.is_capture_probe
+        )
 
 
 #: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → tur.
@@ -199,7 +211,18 @@ class WebProviderAdapter:
             )
         latency = int((self._clock.monotonic() - start) * 1000)
         self._forward_note(getattr(raw, "note", ""))
-        return self._to_result(raw.text, latency, served_by=raw.tier)
+        return replace(
+            self._to_result(
+                raw.text,
+                latency,
+                served_by=raw.tier,
+                protocol=request.emulation_protocol,
+                provenance=raw.provenance,
+                call_context=request.web_call_context,
+            ),
+            prompt_measurement=raw.prompt_measurement,
+            web_provenance=raw.provenance,
+        )
 
     def _forward_note(self, note: str) -> None:
         if not note or self._note_sink is None:
@@ -216,7 +239,9 @@ class WebProviderAdapter:
         context = WebTurnContext(
             conversation_id=request.conversation_id,
             answer_contract=request.answer_contract if request.tools else "",
-            strict=self._strict,
+            strict=self._strict or request.is_capture_probe,
+            web_call_context=request.web_call_context,
+            is_capture_probe=request.is_capture_probe,
         )
         if context.is_empty or not self._transport_takes_context:
             return self._transport(self._credential, messages, self._model)
@@ -271,7 +296,9 @@ class WebProviderAdapter:
         # Web yolunda çağrı METİNDEN üretilir: şema ne kadar şişkinse model o kadar
         # sık yanlış anahtar yazıyor. Sade biçim zorunlu alanları öne çıkarır;
         # opsiyonel alanlar araç açıklamasında zaten anlatılıyor.
-        instructions = render_tool_instructions(request.tools, compact=True)
+        instructions = render_tool_instructions(
+            request.tools, compact=True, edit_format=request.edit_format
+        )
         return (Message("system", instructions), *messages)
 
     @staticmethod
@@ -300,17 +327,28 @@ class WebProviderAdapter:
             harness_note=message.harness_note,
         )
 
-    def _to_result(self, raw: str, latency_ms: int, *, served_by: str = "") -> ModelResult:
+    def _to_result(
+        self,
+        raw: str,
+        latency_ms: int,
+        *,
+        served_by: str = "",
+        protocol: str = "v1",
+        provenance: WebResponseProvenance | None = None,
+        call_context: WebCallContext | None = None,
+    ) -> ModelResult:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""
         if self._tool_support is ToolSupport.EMULATED:
-            parse = parse_tool_calls(raw)
+            parse = parse_tool_calls(
+                raw, protocol=protocol, provenance=provenance, call_context=call_context
+            )
             # KURTARILABİLİR olan kurtarılır. Ölçüldü: model doğru bir edit_file
             # üretip yanında kullanılmayan bir payload bıraktığında, çalışacak
             # düzenleme uygulanmadan atılıyordu — bir model çağrısı (~40 sn) ve bir
             # onarım hakkı yanıyor, model bağlamda "okuma başarılı / yazma hatalı"
             # görüyor ve rasyonel olarak okumaya kaçıyordu. Ayrıştırılabilen çağrı
-            # varsa artıklar turu öldürmez; sözleşme hatası YALNIZCA hiçbir çağrı
-            # kurtarılamadığında bildirilir.
+            # varsa uyarılar da taşınır; güvenli okumayı ve ertelenecek değişikliği
+            # motor ayırır. Eski error alanı yalnız hiçbir çağrı kurtarılamazsa dolar.
             if parse.errors and not parse.calls:
                 return ModelResult(
                     name=self._model,
@@ -320,6 +358,7 @@ class WebProviderAdapter:
                     ok=True,
                     error="TOOL_CALL_PARSE_ERROR: " + "; ".join(parse.errors),
                     tool_calls=(),
+                    parse_warnings=parse.warnings,
                     served_by=served_by,
                 )
             return ModelResult(
@@ -329,6 +368,7 @@ class WebProviderAdapter:
                 latency_ms=latency_ms,
                 ok=True,
                 tool_calls=parse.calls,
+                parse_warnings=parse.warnings,
                 served_by=served_by,
             )
         return ModelResult(

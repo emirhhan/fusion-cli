@@ -137,12 +137,12 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
     settingsSection: "ses", inOnboarding: true,
   },
   {
-    id: "gorsel", group: "calisma", title: "Görsel ve video üretimi",
+    id: "gorsel", group: "calisma", title: "Görsel oluştur",
     summary: "Tarif et, Fusion görseli üretsin.",
-    where: "En soldaki ana menü → Görsel ve video üretimi.",
+    where: "En soldaki ana menü → Görsel oluştur.",
     image: "gorsel", imageAlt: "Görsel üretim ekranı ve üretilen görseller",
     steps: [
-      "Ana menüden \"Görsel ve video üretimi\"ni aç.",
+      "Ana menüden \"Görsel oluştur\"ni aç.",
       "Ne istediğini yaz, boyutu seç ve üret.",
       "Üretilen görseller listede toplanır; istediğini kaydedebilir ya da yeniden üretebilirsin.",
     ],

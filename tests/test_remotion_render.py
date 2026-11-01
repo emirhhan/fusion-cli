@@ -137,6 +137,41 @@ def test_render_skill_keeps_host_tool_and_final_verification_inside_existing_bud
     assert "teslim kanıtı" in hint and "animasyon çalışmıyor demektir." in hint
 
 
+@pytest.mark.parametrize("path_depth", [0, 6], ids=["short-install", "long-install"])
+@pytest.mark.parametrize("use_catalog", [False, True], ids=["fallback", "catalog"])
+def test_installed_render_skill_keeps_complete_guidance_within_hint_budget(
+    tmp_path, monkeypatch, path_depth, use_catalog
+):
+    from fusion_cli.config.paths import bundled_skills_dir
+    from fusion_cli.engines.agent.expertise import MAX_EXPERTISE_CHARS, expertise_hint
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    source = bundled_skills_dir() / "remotion-video/SKILL.md"
+    skills = tmp_path.joinpath(*(["installation-" + "x" * 78] * path_depth), "skills")
+    installed = skills / "remotion-video/SKILL.md"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(source.read_bytes())
+    if path_depth:
+        assert len(str(installed.parent)) >= 600
+    monkeypatch.setattr("fusion_cli.tools.capabilities.bundled_skills_dir", lambda: skills)
+    registry = CapabilityRegistry(home=tmp_path / "home", root=tmp_path / "project")
+
+    hint = expertise_hint(
+        "Remotion ile tanıtım videosu üret",
+        skills_dir=skills,
+        registry=registry if use_catalog else None,
+    )
+
+    assert hint is not None and len(hint) <= MAX_EXPERTISE_CHARS
+    assert str(installed.parent / "kit") in hint and "{SKILL_DIR}" not in hint
+    assert 'render_remotion(output="out/video.mp4")' in hint
+    assert "job_status(id=..., wait_s=600)" in hint and "ffprobe -v error" in hint
+    assert "teslim kanıtı" in hint and "animasyon çalışmıyor demektir." in hint
+    assert hint.rstrip().endswith(
+        "Host girişini/kit kapısını değiştirerek render hatasını geçiştirme."
+    )
+
+
 @pytest.mark.parametrize("fault", ["cancelled", "scope"])
 async def test_cancel_or_write_scope_blocks_before_output_directory(tmp_path, monkeypatch, fault):
     from fusion_cli.tools import remotion_render

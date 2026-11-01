@@ -76,6 +76,9 @@ async def generate_plan(
     path = Path(__file__).parent / "prompts" / "execution_plan.md"
     template = await asyncio.to_thread(path.read_text, encoding="utf-8")
     prompt = fill_template(template, {"task": task})
+    if deps.config.runtime.verified_skill_proposals:
+        routine_path = path.with_name("routine_definition.md")
+        prompt += "\n\n" + await asyncio.to_thread(routine_path.read_text, encoding="utf-8")
     original_prompt = prompt
     calls = 0
     error = "Planlama bütçesi tükendi."

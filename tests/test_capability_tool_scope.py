@@ -93,3 +93,59 @@ def test_toml_ajani_kisit_bildirmezse_tam_yetki_kalir(tmp_path):
 
     assert ajan is not None
     assert map_tools(ajan.tools) is None
+
+
+def test_capability_genislemesi_ilgi_seciminde_izin_kapsamini_asmaz():
+    from fusion_cli.core.tools import Tool, ToolResult
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _permitted
+    from fusion_cli.engines.agent.tool_surface import narrow_to_compact_surface
+    from fusion_cli.tools import build_registry
+    from fusion_cli.tools.capabilities import expand_tool_patterns
+
+    registry = build_registry()
+    for name in ("jira__read", "jira__write", "other__read"):
+        registry.register_or_replace(
+            Tool(
+                name=name,
+                description="jira issue read write",
+                parameters={},
+                run=lambda args, context: ToolResult("ok"),
+            )
+        )
+    expanded = expand_tool_patterns({"jira__*", "read_file"}, registry.names())
+    policy = ExecutionPolicy(
+        is_web=False, allowed_tool_names=frozenset({"jira__read", "read_file"})
+    )
+    permitted = _permitted(expanded, registry, policy)
+    selected = narrow_to_compact_surface(
+        permitted,
+        registry,
+        max_external_tools=1,
+        task_kinds=(),
+        explicit=expanded,
+        external_tool_selection="relevance",
+        task="jira issue write",
+    )
+    assert selected == {"jira__read", "read_file"}
+
+
+def test_profil_genislemesi_ilgi_seciminde_korunur():
+    from fusion_cli.engines.agent.tool_profiles import WIDENED_KIND
+    from fusion_cli.engines.agent.tool_surface import narrow_to_compact_surface
+    from fusion_cli.tools import build_registry
+
+    registry = build_registry()
+    arguments = {
+        "max_external_tools": 1,
+        "explicit": (),
+        "profiles": ("kod",),
+        "external_tool_selection": "relevance",
+        "task": "browser tabs",
+    }
+    initial = narrow_to_compact_surface(set(registry.names()), registry, task_kinds=(), **arguments)
+    widened = narrow_to_compact_surface(
+        set(registry.names()), registry, task_kinds=(WIDENED_KIND,), **arguments
+    )
+    assert "browser_tabs_list" not in initial
+    assert "browser_tabs_list" in widened

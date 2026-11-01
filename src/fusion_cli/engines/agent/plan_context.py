@@ -107,11 +107,18 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     # araca yönlendirdi; model aynı duvara üç kez çarptı ve oyun teslim edilemedi.
     # Kural depoda zaten yazılı: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez.
     context = replace(
-        deps.tool_context, available_tools=set(deps.tool_context.available_tools) & allowed
+        deps.tool_context,
+        available_tools=set(deps.tool_context.available_tools) & allowed,
+        tool_phase=step.phase.value,
+        localization_step_id=step.step_id,
+        localization_criterion_ids=tuple(
+            dict.fromkeys(check.criterion_id for check in step.verification_checks)
+        ),
     )
     return replace(
         deps,
         tool_context=context,
+        context_step=step,
         execution=replace(
             policy,
             required_effect=effect,

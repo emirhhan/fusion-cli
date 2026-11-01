@@ -1,0 +1,11 @@
+[
+  {
+    "name": "recall_lessons",
+    "arguments": {
+      "query": "python değer"
+    }
+  },
+  {
+    "error": "429 rate limit quota exceeded"
+  }
+]

@@ -15,6 +15,7 @@ import pytest
 from fusion_cli.cli.repl.commands import build_registry
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.config.loader import load_config
+from fusion_cli.core.proposal_invocation import ProposalPolicy
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.tools.capabilities import CapabilityRegistry
 from fusion_cli.tools.capability_doctor import diagnose
@@ -195,3 +196,38 @@ def test_skills_new_ve_agents_new_gorev_hazirlar(state: ReplState):
     assert "ask_user" in gorev_b and "description" in gorev_b
     assert ".claude/agents/" in gorev_a and "ask_user" in gorev_a
     assert ajan
+
+
+def test_acik_oneri_kurulumu_mevcut_katalogda_gorunur(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_verified_skill_public_flow import apply_proposal, seed_plan
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "ev")
+    monkeypatch.setenv("FUSION_MEMORY_DIR", str(tmp_path / "bellek"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "veri"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "veri"))
+    registry = CapabilityRegistry(
+        Path.home(), tmp_path, proposal_policy=ProposalPolicy(True, source_split="development")
+    )
+    proposal, arguments = seed_plan(tmp_path)
+    assert registry.get_skill(proposal.routine.routine_id) is None
+
+    result = apply_proposal(proposal, arguments)
+
+    assert result.exit_code == 0, result.output
+    skill = registry.get_skill(proposal.routine.routine_id)
+    assert skill is not None
+    assert skill.source == "kurulu"
+    assert skill.proposal is not None
+    assert skill.proposal.proposal_id == proposal.id
+    assert skill.proposal.source_split == "development"
+    assert skill.proposal.routine == proposal.routine
+    assert CapabilityRegistry(Path.home(), tmp_path).get_skill(skill.name) is None
+    assert (
+        registry.with_proposal_policy(ProposalPolicy(True, source_split="blind")).get_skill(
+            skill.name
+        )
+        is None
+    )

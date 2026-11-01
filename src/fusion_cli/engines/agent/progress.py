@@ -14,14 +14,15 @@ if TYPE_CHECKING:
     from .loop import AgentOutcome
 
 
-#: Çıktıdaki her denemede değişen ayrıntılar: tarih/saat, onaltılık kimlik, geçici dizin, sayı.
+#: Çıktıdaki her denemede değişen ayrıntılar: tarih/saat, onaltılık kimlik, geçici dizin, açık PID.
 #: Ölçüldü (29 Ekim, A3-12): ham çıktı (zaman damgası, PID, tmp yolu) her denemede farklı
 #: özet üretiyor, "aynı duvara çarpıyorsun" tespiti (`repeated`) hiç tetiklenmiyordu.
 _VOLATILE = re.compile(
     r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?"
-    r"|0x[0-9a-fA-F]+|\b[0-9a-f]{8,}\b"
+    r"|0x[0-9a-fA-F]+|\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b"
     r"|/(?:private/)?(?:var/folders|tmp)/\S+"
-    r"|\d+"
+    r"|\b(?:pid|process[ _-]?id)\s*[:=]?\s*\d+",
+    re.IGNORECASE,
 )
 
 
@@ -51,9 +52,23 @@ def progress_fingerprint(
             for use in outcome.tool_uses
         ),
         "verification": {
-            "findings": sorted(verification.findings),
+            "findings": sorted(_stable_tail(item) for item in verification.findings),
+            "failures": sorted(
+                (
+                    item.check_id,
+                    item.family,
+                    item.origin.value,
+                    tuple((source.path, source.digest) for source in sorted(item.sources)),
+                )
+                for item in verification.failure_evidence
+            ),
             "criteria": sorted(
-                (item.criterion_id, item.status.value, item.summary)
+                (
+                    item.criterion_id,
+                    item.status.value,
+                    _stable_tail(item.summary),
+                    _stable_tail(item.output),
+                )
                 for item in verification.criteria
             ),
         },

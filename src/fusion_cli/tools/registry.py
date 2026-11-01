@@ -12,7 +12,7 @@ import time
 from collections.abc import Awaitable, Iterable, Iterator
 from dataclasses import replace
 from threading import Event
-from typing import cast
+from typing import Literal, cast
 
 from ..core.artifacts import offload_output
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -25,6 +25,10 @@ from .injection import flag_injection
 
 #: `_CancellationEvent.wait` üst olayı bu aralıkla yoklar.
 _WAIT_SLICE_S = 0.05
+_EDIT_PREFERENCE_NOTE = (
+    "Bu turun önerilen düzenleme biçimi bu araçtır; açık kullanıcı seçimi, "
+    "izinler, tam okuma ve güncellik/yapı kontrolleri önceliklidir."
+)
 
 
 class _CancellationEvent(Event):
@@ -132,16 +136,28 @@ class ToolRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(self._tools)
 
-    def schemas(self, allowed: Iterable[str] | None = None) -> list[dict[str, object]]:
-        """Modele verilecek şemalar. `allowed` verilirse yalnızca o araçlar döner."""
-        if allowed is None:
-            return [tool.schema() for tool in self._tools.values() if tool.advertised]
-        permitted = set(allowed)
-        return [
-            tool.schema()
-            for name, tool in self._tools.items()
-            if name in permitted and tool.advertised
-        ]
+    def schemas(
+        self,
+        allowed: Iterable[str] | None = None,
+        *,
+        edit_format: Literal["exact", "whole"] | None = None,
+    ) -> list[dict[str, object]]:
+        """Yalnız izinli şemaları ver; tavsiye araç yetkisini değiştirmez."""
+        if edit_format not in {None, "exact", "whole"}:
+            raise ValueError("Geçersiz düzenleme biçimi tavsiyesi.")
+        permitted = None if allowed is None else set(allowed)
+        preferred = {"exact": "edit_file", "whole": "write_file"}.get(edit_format or "")
+        schemas = []
+        for name, tool in self._tools.items():
+            if not tool.advertised or (permitted is not None and name not in permitted):
+                continue
+            if name == preferred:
+                tool = replace(
+                    tool,
+                    description=tool.description + " " + _EDIT_PREFERENCE_NOTE,
+                )
+            schemas.append(tool.schema())
+        return schemas
 
     async def execute(self, name: str, args: ToolArgs, context: ToolContext) -> ToolResult:
         """Bir aracı çalıştır ve HER durumda `ToolResult` döndür.

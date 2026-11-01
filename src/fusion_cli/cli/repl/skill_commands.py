@@ -15,7 +15,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ...config import trust
+from ...core.proposal_invocation import ProposalPolicy
 from ...engines.agent.approval import ApprovalMode
+from ...engines.agent.routine_invocation import RoutineInvocationValidator
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.skill_commands import TemplateEnv, build_invocation
@@ -87,7 +89,14 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
             ),
             shell_allowed=shell_allowed,
             shell_read_only=shell_read_only,
+            proposal_policy=ProposalPolicy(state.config.runtime.verified_skill_proposals),
+            proposal_validator=RoutineInvocationValidator(
+                state.config.memory_dir,
+                ProposalPolicy(state.config.runtime.verified_skill_proposals),
+            ),
         )
+        if not invocation.ok:
+            return "\n".join(invocation.notes)
         state.pending_task = invocation.task
         # `context: fork` (P-054): tur ana bağlamı devralan fork alt ajanda koşar (`/subtask`
         # ile aynı yol); beceri gövdesi ve araç kısıtı brif/tavan olarak alt ajana geçer.

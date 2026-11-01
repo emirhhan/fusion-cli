@@ -16,7 +16,6 @@ export const PALETTE_SCREENS: { id: string; label: string; keywords: string }[] 
   { id: "main:library", label: "Kitaplık", keywords: "galeri dosya yüklenen görsel" },
   { id: "main:kits", label: "Kits", keywords: "kit uygulama" },
   { id: "image-create", label: "Görsel oluştur", keywords: "resim görsel üret medya" },
-  { id: "video-create", label: "Video oluştur", keywords: "video medya üret" },
   { id: "skills", label: "Beceriler ve Ajanlar", keywords: "beceri skill ajan agent" },
   { id: "connectors", label: "Bağlantılar", keywords: "mcp bağlayıcı connector entegrasyon" },
   { id: "control-panel", label: "Kontrol Paneli", keywords: "sağlayıcı anahtar provider" },

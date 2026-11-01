@@ -33,6 +33,7 @@ def _turn(ledger: TurnCheckpointLedger, task: str, history: list[Message], write
     for path, content in writes.items():
         checkpoint.changes.record(path)
         path.write_text(content, encoding="utf-8")
+        checkpoint.changes.record_applied(path)
     history.extend([Message("user", task), Message("assistant", f"{task} yapıldı")])
     return checkpoint
 
@@ -140,6 +141,7 @@ def _seed_turns(state: ReplState) -> Path:
         checkpoint = state.checkpoints.begin(ad, state.history)
         checkpoint.changes.record(dosya)
         dosya.write_text(ad, encoding="utf-8")
+        checkpoint.changes.record_applied(dosya)
         state.history.extend([Message("user", ad), Message("assistant", f"{ad} yapıldı")])
         store.record_user(ad)
         store.record_assistant(f"{ad} yapıldı")
@@ -252,3 +254,77 @@ def test_masaustu_rewind_iki_adimli_secici_sonra_uygular(state):
 def test_masaustu_bos_defterde_secici_acmaz(state):
     assert command_choices(state, "rewind") is None
     assert run_command(build_registry(), state, "rewind", "")["metin"].startswith("Geri sarılacak")
+
+
+def test_rewind_kullanici_degisimini_izin_hatasi_gibi_gostermez(state):
+    dosya = _seed_turns(state)
+    dosya.write_text("kullanici", encoding="utf-8")
+
+    text = _run(state, "/rewind 2 kod")
+
+    assert "çakış" in text and "a.txt" in text
+    assert "izin ya da" not in text
+    assert dosya.read_text(encoding="utf-8") == "kullanici"
+    assert state.checkpoints.find(2) is not None
+
+
+def test_rewind_gercek_yazma_hatasini_icerik_cakismasindan_ayirir(state, monkeypatch):
+    dosya = _seed_turns(state)
+    write_bytes = Path.write_bytes
+
+    def izin_engeli(path, content):
+        if path == dosya:
+            raise PermissionError("izin yok")
+        return write_bytes(path, content)
+
+    monkeypatch.setattr(Path, "write_bytes", izin_engeli)
+
+    text = _run(state, "/rewind 2 kod")
+
+    assert "izin ya da" in text
+    assert "çakış" not in text
+    assert dosya.read_text(encoding="utf-8") == "iki"
+    assert state.checkpoints.find(2) is not None
+
+
+@pytest.mark.parametrize("failure", ["user_change", "io_error"])
+def test_yeni_turda_korunan_yol_eski_turdan_geri_yazilmaz(tmp_path, monkeypatch, failure):
+    ledger = TurnCheckpointLedger(clock=lambda: 1.0)
+    dosya = tmp_path / "a.txt"
+    bagimsiz = tmp_path / "b.txt"
+    dosya.write_text("ilk", encoding="utf-8")
+    bagimsiz.write_text("b0", encoding="utf-8")
+    history = []
+    ilk = _turn(ledger, "bir", history, {dosya: "tur1", bagimsiz: "b1"})
+    ikinci = _turn(
+        ledger,
+        "iki",
+        history,
+        {dosya: "tur2" if failure == "user_change" else "tur1", bagimsiz: "b2"},
+    )
+    if failure == "user_change":
+        dosya.write_text("tur1", encoding="utf-8")
+    else:
+        write_bytes = Path.write_bytes
+        denendi = []
+
+        def izin_engeli(path, content):
+            if path == dosya and not denendi:
+                denendi.append(path)
+                raise PermissionError("izin yok")
+            return write_bytes(path, content)
+
+        monkeypatch.setattr(Path, "write_bytes", izin_engeli)
+
+    result = ledger.rewind(ilk.index, RewindScope.CODE)
+
+    assert dosya.read_text(encoding="utf-8") == "tur1"
+    assert bagimsiz.read_text(encoding="utf-8") == "b0"
+    assert result.restored == (bagimsiz,)
+    assert result.failed == (dosya,)
+    assert not set(result.restored).intersection(result.failed)
+    assert ledger.entries() == (ilk, ikinci)
+    assert ilk.changes.snapshots[0].content == b"ilk"
+    assert ikinci.changes.snapshots[0].content == b"tur1"
+    assert ilk.changes.paths == ikinci.changes.paths == (dosya,)
+    assert bool(result.conflicts) == (failure == "user_change")

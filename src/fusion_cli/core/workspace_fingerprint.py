@@ -25,10 +25,11 @@ Yalnız stdlib kullanır (`core` katmanı).
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -169,3 +170,32 @@ def measure_effect(before: Fingerprint | None, root: Path) -> WorkspaceEffect:
     if after is None:
         return WorkspaceEffect(None, "ikinci parmak izi alınamadı (dosya/süre sınırı)")
     return WorkspaceEffect(changed_paths(before, after))
+
+
+_CONTENT_CHUNK_BYTES = 65_536
+
+
+def content_digest(paths: Iterable[Path], *, strict: bool = False) -> str:
+    """Açıkça seçilmiş dosyaların adını ve içeriğini tek özette birleştir.
+
+    Dosya yokluğu da kimliktir; okunamayan dosya başarıyla okunmuş sayılmaz.
+    Sembolik bağın hedefi yerine bağın kendi değeri kullanılır.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(set(paths)):
+        digest.update(str(path).encode())
+        digest.update(b"\0")
+        try:
+            if path.is_symlink():
+                digest.update(b"link:")
+                digest.update(str(path.readlink()).encode())
+            else:
+                with path.open("rb") as stream:
+                    while chunk := stream.read(_CONTENT_CHUNK_BYTES):
+                        digest.update(chunk)
+        except OSError as error:
+            if strict and (not isinstance(error, FileNotFoundError) or path.is_symlink()):
+                raise
+            digest.update(f"okunamadi:{error.errno}".encode())
+        digest.update(b"\0")
+    return digest.hexdigest()

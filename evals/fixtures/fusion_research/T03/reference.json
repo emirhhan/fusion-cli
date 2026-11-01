@@ -1,0 +1,12 @@
+[
+  {
+    "raw": "FUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"sonuc.txt\", \"content\": {\"$ref\": \"missing\"}}}\nFUSION_TOOL_CALL_END"
+  },
+  {
+    "name": "write_file",
+    "arguments": {
+      "path": "sonuc.txt",
+      "content": "Tam içerik\n"
+    }
+  }
+]

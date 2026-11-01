@@ -15,7 +15,10 @@ from typing import Any, cast
 
 from ..core import events as event_module
 from ..core.events import Channel, Event, ToolOutcome
-from ..core.types import ModelResult, TokenUsage, ToolCall
+from ..core.evidence import CriterionEvidence, EvidenceEnvironment, EvidenceStatus
+from ..core.execution_plan import VerificationCheckKind
+from ..core.types import ModelResult, ParseWarning, TokenUsage, ToolCall
+from ..core.web_provenance import load_web_provenance
 
 #: Ada göre olay sınıfları — tek kaynak `core.events` modülüdür.
 _EVENT_TYPES: dict[str, type[Event]] = {
@@ -36,10 +39,13 @@ def event_from_payload(payload: object) -> Event | None:
     if tip is None:
         return None
     kwargs: dict[str, object] = {}
-    for field in dataclasses.fields(tip):
-        if field.name not in payload:
-            continue
-        kwargs[field.name] = _coerce(field.name, payload[field.name])
+    try:
+        for field in dataclasses.fields(tip):
+            if field.name not in payload:
+                continue
+            kwargs[field.name] = _coerce(field.name, payload[field.name])
+    except (TypeError, ValueError):
+        return None
     # Olay kurucuları alan alan farklı tip ister; değerler yukarıda alan adına göre
     # geri kuruldu, uyumsuzluk aşağıdaki TypeError ile yakalanır.
     kurucu: Callable[..., Event] = tip
@@ -57,6 +63,8 @@ def _coerce(name: str, value: object) -> object:
         # Enum değeri (`"main"`) olarak yazılır; geri çevrilmezse `event.channel is
         # Channel.MAIN` hep yanlış çıkar ve tüm akış metni tüketiciden kaybolur.
         return _enum(Channel, value)
+    if name == "criteria":
+        return _criteria(value)
     if name == "result" and isinstance(value, dict):
         return _model_result(value)
     if isinstance(value, list):
@@ -78,10 +86,33 @@ def _model_result(payload: dict[str, object]) -> ModelResult | dict[str, object]
     # boşalmış oluyordu: araç kullanan bir turun kaydı, o turu yeniden
     # üretemiyordu ve kayıp sessizdi (çağrı sayısı 1 → 0).
     kwargs["tool_calls"] = _tool_calls(payload.get("tool_calls"))
+    kwargs["parse_warnings"] = _parse_warnings(payload.get("parse_warnings"))
     try:
+        kwargs["web_provenance"] = load_web_provenance(payload.get("web_provenance"))
         return ModelResult(**cast("Any", kwargs))
     except (TypeError, ValueError):
         return payload
+
+
+def _parse_warnings(value: object) -> tuple[ParseWarning, ...]:
+    """Yalnız tipli uyarıları geri kur; eski kayıtlar boş demet üretir."""
+    if not isinstance(value, (list, tuple)):
+        return ()
+    warnings: list[ParseWarning] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        kind, message = item.get("kind"), item.get("message")
+        index = item.get("call_index")
+        blocks = item.get("blocks_mutation", True)
+        if not isinstance(kind, str) or not isinstance(message, str):
+            continue
+        if index is not None and (not isinstance(index, int) or isinstance(index, bool)):
+            continue
+        if not isinstance(blocks, bool):
+            continue
+        warnings.append(ParseWarning(kind, message, index, blocks))
+    return tuple(warnings)
 
 
 def _tool_calls(value: object) -> tuple[ToolCall, ...]:
@@ -136,3 +167,43 @@ def _enum(tip: type[Enum], value: str) -> object:
         return tip(value)
     except ValueError:
         return value
+
+
+def _criteria(value: object) -> tuple[CriterionEvidence, ...]:
+    """Aday trace kanıtını aynı reducer'ın beklediği frozen türlerle geri kur."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("Kriter kanıtı dizi olmalı.")
+    return tuple(_criterion(item) for item in value)
+
+
+def _criterion(value: object) -> CriterionEvidence:
+    if not isinstance(value, dict):
+        raise ValueError("Kriter kanıtı nesne olmalı.")
+    fields = {field.name for field in dataclasses.fields(CriterionEvidence)}
+    kwargs = {key: item for key, item in value.items() if key in fields}
+    for key, item in kwargs.items():
+        if key in {"behavioral", "applicable"}:
+            if not isinstance(item, bool):
+                raise ValueError("Kriter kanıtı bayrağı boolean olmalı.")
+        elif key != "environment" and not isinstance(item, str):
+            raise ValueError("Kriter kanıtı alanı metin olmalı.")
+    kind, status = value.get("kind"), value.get("status")
+    if not isinstance(kind, str) or not isinstance(status, str):
+        raise ValueError("Kriter kanıtı türü ve durumu metin olmalı.")
+    kwargs["kind"] = VerificationCheckKind(kind)
+    kwargs["status"] = EvidenceStatus(status)
+    kwargs["environment"] = _evidence_environment(value.get("environment"))
+    constructor: Callable[..., CriterionEvidence] = CriterionEvidence
+    return constructor(**kwargs)
+
+
+def _evidence_environment(value: object) -> EvidenceEnvironment | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Kanıt ortamı nesne olmalı.")
+    names = {field.name for field in dataclasses.fields(EvidenceEnvironment)}
+    if any(not isinstance(value.get(name), str) for name in names):
+        raise ValueError("Kanıt ortamı alanları metin olmalı.")
+    constructor: Callable[..., EvidenceEnvironment] = EvidenceEnvironment
+    return constructor(**{name: value[name] for name in names})

@@ -580,6 +580,7 @@ def test_terminal_yeniden_boyutlaninca_console_genisligi_guncellenir(monkeypatch
     from fusion_cli.cli.repl import tui as tui_modulu
     from fusion_cli.cli.repl.tui import FusionTui
 
+    monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setattr(tui_modulu, "_term_width", lambda: 100)
     tui = FusionTui(
         on_submit=lambda _t: None,

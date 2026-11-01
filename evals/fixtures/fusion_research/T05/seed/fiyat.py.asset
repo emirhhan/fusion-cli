@@ -1,0 +1,7 @@
+def indirim_hesapla(tutar, uye):
+    if uye:
+        return tutar
+    return tutar * 0.9
+
+def vergi_hesapla(tutar):
+    return tutar * 0.2

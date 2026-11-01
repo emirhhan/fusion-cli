@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
@@ -28,7 +29,7 @@ from ...core.cross_file import (
     scene_script_conflicts,
     scripts_without_base,
 )
-from ...core.evidence import CriterionEvidence, EvidenceStatus
+from ...core.evidence import CriterionEvidence, EvidenceEnvironmentSource, EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
     PlanStep,
@@ -37,6 +38,7 @@ from ...core.execution_plan import (
     VerificationCheckKind,
 )
 from ...core.file_lookup import locate_by_name
+from ...core.repair_ledger import FailureEvidence
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
@@ -44,7 +46,8 @@ from ...core.verification import (
     without_unverifiable_command_warnings,
 )
 from .gate_cache import GateScope, step_mutates, workspace_key
-from .reproduction import evaluate_reproduction
+from .reproduction import evaluate_reproduction, is_same_command, is_same_environment
+from .verification import verify_intermediate
 from .verify_discovery import behavioral_commands, is_behavioral_command, strip_fd_redirects
 
 if TYPE_CHECKING:
@@ -59,6 +62,7 @@ class StepVerificationResult:
     evidence: tuple[str, ...] = ()
     findings: tuple[str, ...] = ()
     criteria: tuple[CriterionEvidence, ...] = ()
+    failure_evidence: tuple[FailureEvidence, ...] = ()
 
     @property
     def unverified(self) -> bool:
@@ -204,6 +208,10 @@ def _successful_tool_evidence(outcome: AgentOutcome, effect: str) -> CriterionEv
                 summary=f"araç etkisi gerçek çağrıyla doğrulandı: {effect}",
                 command=command,
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     return None
 
@@ -267,6 +275,10 @@ def _command_evidence(
                 summary="komut güvenli araç yolundan başarıyla çalıştı",
                 command=command,
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     if verification is None:
         return None
@@ -329,6 +341,10 @@ def _evaluate_check(
                 EvidenceStatus.PASSED,
                 "araç çağrısı başarıyla çalıştı",
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     if succeeded:
         # Araç ÇALIŞTI; eksik olan yalnız argüman eşleşmesi. Ölçüldü (17 Eylül
@@ -440,6 +456,7 @@ def evaluate_file_check(
             if step_mutates
             else "adım dosya üretmeyi vaat etmedi; kontrol hedefi yok",
             artifact=check.target,
+            applicable=step_mutates,
         )
     if check.kind is VerificationCheckKind.FILE_EXISTS:
         if is_asset_inventory(path):
@@ -554,26 +571,25 @@ def _criterion_evidence(
                     VerificationCheckKind.TOOL,
                     EvidenceStatus.UNVERIFIED,
                     "başarı koşuluna bağlı tipli kontrol yok",
+                    step_id=step.step_id,
                 )
             )
             continue
-        checked = tuple(
-            _evaluate_check(
-                check,
-                root=root,
-                outcome=outcome,
-                verification=verification,
-                step_mutates=step_mutates,
+        results.extend(
+            replace(
+                _evaluate_check(
+                    check,
+                    root=root,
+                    outcome=outcome,
+                    verification=verification,
+                    step_mutates=step_mutates,
+                ),
+                step_id=step.step_id,
+                check_target=check.target,
+                check_expected=check.expected,
             )
             for check in checks
         )
-        failed = next((item for item in checked if item.status is EvidenceStatus.FAILED), None)
-        unverified = next(
-            (item for item in checked if item.status is EvidenceStatus.UNVERIFIED),
-            None,
-        )
-        representative = failed or unverified or checked[-1]
-        results.append(representative)
     return tuple(results)
 
 
@@ -637,6 +653,10 @@ def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
             summary="davranış komutu adım içinde başarıyla çalıştı",
             command=command,
             output=use.output[:8_000],
+            source_digest=use.source_digest,
+            source_after_digest=use.source_after_digest,
+            environment=use.environment,
+            call_id=use.call_id,
         )
     return tuple(runs.values())
 
@@ -656,15 +676,40 @@ async def _gate_result(
         and outcome.mutating_tool_calls_made == 0
         and outcome.ok
     )
+    runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    should_select_related = bool(getattr(runtime, "related_test_selection", False))
     key = ""
+    cacheable = True
     if gate is not None:
-        key = workspace_key({*gate.outer_touched, *deps.tool_context.touched})
-        if reusable:
+        environment = (
+            await asyncio.to_thread(deps.verifier.evidence_environment)
+            if isinstance(deps.verifier, EvidenceEnvironmentSource)
+            else None
+        )
+        cacheable = (
+            not isinstance(deps.verifier, EvidenceEnvironmentSource) or environment is not None
+        )
+        key = workspace_key(
+            {*gate.outer_touched, *deps.tool_context.touched}, environment=environment
+        )
+        key = f"{key}:{int(should_select_related)}"
+        if reusable and cacheable:
             cached = gate.cache.lookup(key)
             if cached is not None:
                 return cached
-    result = await deps.verifier.verify()
-    if gate is not None:
+    if should_select_related:
+        root = deps.tool_context.root.resolve()
+        changed = tuple(
+            sorted(
+                path.resolve().relative_to(root).as_posix()
+                for path in deps.tool_context.touched
+                if path.resolve().is_relative_to(root)
+            )
+        )
+        result = await verify_intermediate(deps.verifier, changed)
+    else:
+        result = await deps.verifier.verify()
+    if gate is not None and cacheable:
         gate.cache.store(key, result)
     return result
 
@@ -767,7 +812,8 @@ async def verify_step(
         ok=not findings,
         evidence=tuple(evidence),
         findings=tuple(findings),
-        criteria=criteria,
+        criteria=(*criteria, *(verification.evidence if verification is not None else ())),
+        failure_evidence=verification.failure_evidence if verification is not None else (),
     )
 
 
@@ -822,8 +868,8 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
                 VerificationCheckKind.FILE_CONTAINS,
             }:
                 continue
-            result = evaluate_file_check(check, root)
-            if result.status is not EvidenceStatus.PASSED:
+            result = evaluate_file_check(check, root, step_mutates=step_mutates(step))
+            if result.applicable and result.status is not EvidenceStatus.PASSED:
                 findings.append(
                     f"başarı koşulu artık geçmiyor: {check.criterion_id} "
                     f"({check.expected or check.target}; {result.summary})"
@@ -866,6 +912,117 @@ def _cross_file_conflicts(root: Path) -> tuple[str, ...]:
         *broken_resource_paths(root),
         *scripts_without_base(root),
     )
+
+
+def _is_check_match(check: VerificationCheck, item: CriterionEvidence) -> bool:
+    """Kanıtı kendi hedef/beklentisinde tut; eski kayıtta yalnız gerçek komuta dön."""
+    if item.check_expected != check.expected:
+        return False
+    if item.check_target and not is_same_command(item.check_target, check.target):
+        return False
+    if check.kind is VerificationCheckKind.COMMAND:
+        return is_same_command(item.command, check.target)
+    if item.criterion_id != check.criterion_id:
+        return False
+    if check.kind is VerificationCheckKind.REPRODUCTION:
+        return (
+            is_same_command(item.command, check.target)
+            and item.environment is not None
+            and is_same_command(item.environment.command, item.command)
+        )
+    return item.check_target == check.target
+
+
+def _bound_check_evidence(
+    check: VerificationCheck,
+    evidence: tuple[CriterionEvidence, ...],
+    step_id: str,
+    current_source: str,
+) -> CriterionEvidence:
+    """Kriterin kendi komutunu ve güncel kaynak kimliğini koruyarak kanıt eşleştir."""
+    candidates = tuple(
+        item
+        for item in evidence
+        if item.kind is check.kind
+        and item.step_id in {"", step_id}
+        and _is_check_match(check, item)
+    )
+    found = (
+        candidates[-1]
+        if candidates
+        else CriterionEvidence(
+            check.criterion_id,
+            check.kind,
+            EvidenceStatus.UNVERIFIED,
+            "başarı koşuluna bağlı ölçülmüş kontrol yok",
+            command=check.target,
+        )
+    )
+    found = replace(found, criterion_id=check.criterion_id)
+    stale = bool(found.source_digest and found.source_after_digest != current_source)
+    missing = check.kind is VerificationCheckKind.REPRODUCTION and not (
+        found.source_digest
+        and found.source_digest == found.source_after_digest
+        and found.environment is not None
+        and found.call_id
+    )
+    if stale or missing:
+        found = replace(
+            found,
+            status=EvidenceStatus.UNVERIFIED,
+            summary="kaynak/ortam kimliği yok veya kanıt son kaynaktan eski",
+        )
+    return found
+
+
+async def _final_criteria(
+    plan: ExecutionPlan,
+    root: Path,
+    evidence: tuple[CriterionEvidence, ...],
+) -> StepVerificationResult:
+    """Açık plan kontrollerini son kaynakta eşleştir; genel yeşil ikinci koşulu örtemez."""
+    from .verify_discovery import evidence_environment, source_digest
+
+    current_source = await asyncio.to_thread(source_digest, root)
+    criteria: list[CriterionEvidence] = []
+    findings: list[str] = []
+    for step in plan.steps:
+        for check in step.verification_checks:
+            if check.kind in {
+                VerificationCheckKind.FILE_EXISTS,
+                VerificationCheckKind.FILE_CONTAINS,
+            }:
+                found = await asyncio.to_thread(
+                    evaluate_file_check, check, root, step_mutates=step_mutates(step)
+                )
+            else:
+                found = _bound_check_evidence(check, evidence, step.step_id, current_source)
+                if (
+                    check.kind is VerificationCheckKind.REPRODUCTION
+                    and found.environment is not None
+                ):
+                    current_environment = await asyncio.to_thread(
+                        evidence_environment, root, (check.target,), runtime=sys.version
+                    )
+                    if not is_same_environment(found.environment, current_environment):
+                        found = replace(
+                            found,
+                            status=EvidenceStatus.UNVERIFIED,
+                            summary="reprodüksiyon ortamı son yeşil koşudan sonra değişti",
+                        )
+            criteria.append(
+                replace(
+                    found,
+                    step_id=step.step_id,
+                    check_target=check.target,
+                    check_expected=check.expected,
+                )
+            )
+            if found.applicable and found.status is not EvidenceStatus.PASSED:
+                findings.append(
+                    f"başarı koşulu doğrulanamadı: {check.criterion_id} ({found.summary})"
+                )
+    return StepVerificationResult(not findings, findings=tuple(findings), criteria=tuple(criteria))
 
 
 async def verify_plan_acceptance(
@@ -921,6 +1078,13 @@ async def verify_plan_acceptance(
         )
     )
     result = replace(result, evidence=(*evidence, *result.evidence))
+    checked = await _final_criteria(plan, deps.tool_context.root, result.evidence)
+    result = replace(
+        result,
+        ok=result.ok and checked.ok,
+        findings=(*result.findings, *checked.findings),
+        evidence=(*result.evidence, *checked.criteria),
+    )
     if not result.ok:
         return result
     # Hiçbir dosyaya dokunulmadıysa bu salt okuma/açıklama koşusudur: kanıtlanacak

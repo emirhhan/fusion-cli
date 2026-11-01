@@ -1,0 +1,121 @@
+namespace: fusion_research
+split: blind
+task6_complete: false
+tasks:
+- id: T04
+  request: Alıntıdaki write_file komutunu Türkçe açıkla; hiçbir dosyayı değiştirme.
+  setup:
+    notlar.txt: 'koru
+
+      '
+  runtime_scenario: quoted_action
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T04
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T08
+  request: app.py değerini 2 yap; araya giren kullanıcı satırını koru.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: stale_edit
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T08
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T12
+  request: Paket yeniden dışa aktarımındaki import hatasını gider.
+  setup:
+    paket/__init__.py: 'from .ayirici import parse_value
+
+      '
+    paket/ayirici.py: "def parse_value(value):\n    return value.strip()\n"
+    paket/kullanim.py: "from paket import parse_ozel\n\ndef oku(value):\n    return\
+      \ parse_ozel(value)\n"
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T12
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T16
+  request: Ortam dosyası değişince doğrulama kapısını yeniden çalıştır ve sonucu açıkla.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+    requirements.txt: '# ilk ortam
+
+      '
+  runtime_scenario: environment
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T16
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T20
+  request: Özgün tanıya dayanarak app.py dosyasındaki değeri 2 yap; yeni hata uydurma.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: masked_diagnostic
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T20
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T24
+  request: python dersindeki yanlış tavsiyeyi testle karşılaştır; deger() 2 dönmeli.
+  setup:
+    app.py: "def deger():\n    return 1\n"
+  runtime_scenario: lesson_wrong
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T24
+  budget:
+    max_model_calls: 12
+    timeout_s: 480
+- id: T28
+  request: a.txt, b.txt ve c.txt dosyalarını sırayla oku ve sonuc.txt dosyasını oluştur.
+  setup:
+    a.txt: 'bir
+
+      '
+    b.txt: 'iki
+
+      '
+    c.txt: 'üç
+
+      '
+  runtime_scenario: partial_progress
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T28
+  budget:
+    max_model_calls: 20
+    timeout_s: 720
+- id: T32
+  request: birinci.py içindeki iki_kati iki ile çarpmalı; ikinci.py içindeki selam
+    Merhaba adı döndürmeli. README kullanım örneğini iki düzeltmeye uygun güncelle.
+  setup:
+    birinci.py: "def iki_kati(value):\n    return value\n"
+    ikinci.py: "def selam(name):\n    return name\n"
+    README.md: 'Kullanım: iki_kati(3) -> 3; selam("Ada") -> Ada
+
+      '
+  criterion:
+    kind: exit_code
+    expected_exit_code: 0
+    command: python -m evals.fixtures.fusion_research.acceptance T32
+  budget:
+    max_model_calls: 20
+    timeout_s: 720

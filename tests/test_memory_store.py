@@ -558,3 +558,143 @@ def test_indeks_sir_iceren_yapilandirmayi_maskeleyerek_saklar(tmp_path):
     assert "docker-compose.yml" in {match.path for match in eslesmeler}
     assert "hunter2-cok-gizli-parola" not in govde
     assert "sk-live-gizli-anahtar-degeri" not in govde
+
+
+class _LocalEmbedding:
+    """Ağ veya indirilen model kullanmayan sabit test gömmesi."""
+
+    def __call__(self, input):
+        return [[1.0, 0.1, 0.2] for _ in input]
+
+    def supported_spaces(self):
+        return ["cosine"]
+
+    def default_space(self):
+        return "cosine"
+
+    def get_config(self):
+        return {}
+
+    @classmethod
+    def build_from_config(cls, config):
+        return cls()
+
+    def is_legacy(self):
+        return False
+
+    @staticmethod
+    def name():
+        return "task-10a-local"
+
+    def embed_query(self, input):
+        return self(input)
+
+
+@pytest.mark.parametrize("pair", range(20))
+def test_foundation_chroma_yirmi_cift_kimlik_filtre_ve_karantina_geri_acilir(tmp_path, pair):
+    from dataclasses import replace
+
+    from fusion_cli.core.memory import LessonRecallPolicy
+
+    store = ChromaLessonMemory(tmp_path, embedding_function=_LocalEmbedding())
+    old = Lesson(
+        text=f"python eski kontrol {pair}",
+        kind=LessonKind.MISTAKE,
+        subject_key=f"api-{pair}",
+        version="1",
+        applies_to=("python",),
+        source_split="development",
+    )
+    assert store.add(old)
+    old = store.all()[0]
+    assert old.id
+    new = replace(
+        old,
+        id="",
+        text=f"python yeni kontrol {pair}",
+        version="2",
+        supersedes=(old.id,),
+        verified_at="2026-11-01",
+        evidence_refs=(f"check:{pair}",),
+    )
+    assert store.add(new)
+    new = next(item for item in store.all() if item.version == "2")
+    policy = LessonRecallPolicy(
+        subject_key=old.subject_key, applies_to=("python",), conflict_quarantine=True
+    )
+    assert store.recall("python kontrol", policy=policy) == (new,)
+    assert store.set_quarantined((new.id,), quarantined=True) == 1
+    assert store.recall("python kontrol", policy=policy) == (old,)
+    assert store.count() == 2
+    assert store.set_quarantined((new.id,), quarantined=False) == 1
+    assert store.recall("python kontrol", policy=policy) == (new,)
+    assert not store.recall("python kontrol", policy=replace(policy, source_split="blind"))
+    assert len(store.recall("python kontrol")) == 2
+
+
+def test_foundation_chroma_attribution_kalici_ve_kesinti_noop(tmp_path):
+    from fusion_cli.core.repair_ledger import FailureOrigin
+
+    store = ChromaLessonMemory(tmp_path, embedding_function=_LocalEmbedding())
+    assert store.add(Lesson(text="python önce kontrol", kind=LessonKind.SUCCESS, confidence=0.5))
+    original = store.all()[0]
+    assert store.reinforce((original.text,), success=True, feedback_reason="retrieved") == 0
+    assert (
+        store.reinforce((original.text,), success=False, failure_origin=FailureOrigin.PROVIDER) == 0
+    )
+    assert store.all() == (original,)
+    assert (
+        store.reinforce(
+            (original.text,),
+            success=True,
+            feedback_reason="verified_outcome",
+            used=True,
+            evidence_refs=("check:1",),
+            verified_at="2026-11-01",
+        )
+        == 1
+    )
+    updated = store.all()[0]
+    assert updated.id == original.id and updated.success_count == 1
+    assert updated.evidence_refs == ("check:1",) and updated.confidence == pytest.approx(0.6)
+
+
+def test_foundation_legacy_dis_kaynak_sayac_sozlesmesi_korunur(tmp_path):
+    store = ChromaLessonMemory(tmp_path, embedding_function=_LocalEmbedding())
+    assert store.add(Lesson(text="python kontrol", kind=LessonKind.SUCCESS, external=True))
+    assert store.reinforce(("python kontrol",), success=True, external_turn=True) == 1
+    assert store.all()[0].success_count == 0
+
+
+def test_exact_lesson_id_ayni_metinli_farkli_split_kaydini_degistirmez(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.memory.lesson_codec import _to_metadata
+
+    store = ChromaLessonMemory(tmp_path, embedding_function=_LocalEmbedding())
+    lesson = Lesson(
+        "Aynı ders metni", LessonKind.SUCCESS, confidence=0.5, source_split="development"
+    )
+    assert store.add(lesson)
+    first = store.all()[0]
+    assert store._collection.add(
+        ids=["komsu"],
+        documents=[lesson.text],
+        metadatas=[_to_metadata(replace(lesson, source_split="blind"), 0.0)],
+    )
+    assert (
+        store.reinforce(
+            (lesson.text,),
+            success=True,
+            lesson_ids=(first.id,),
+            used=True,
+            feedback_reason="verified_outcome",
+            evidence_refs=("gerçek-kanıt",),
+            verified_at="1",
+        )
+        == 1
+    )
+    rows = {item.id: item for item in store.all()}
+    assert rows[first.id].success_count == 1
+    assert rows["komsu"].confidence == 0.5 and rows["komsu"].success_count == 0
+    assert store.reinforce((lesson.text,), success=False, lesson_ids=()) == 0

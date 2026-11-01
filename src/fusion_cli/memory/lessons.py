@@ -1,14 +1,7 @@
-"""Ders belleği — agent'ın öz-gelişimi.
+"""Agent ders belleği; alaka/güven süzgeçleri ve kilitli Chroma kalıcılığı.
 
-Agent her görevden somut dersler çıkarır; benzer bir görev geldiğinde bunlar sistem
-promptuna geri enjekte edilir. Zamanla aynı hataları tekrarlamaz.
-
-İki koruma kritiktir:
-
-- **Alaka eşiği** — kosinüs mesafesi eşiği aşan dersler ENJEKTE EDİLMEZ. Aksi halde
-  basit bir göreve alakasız ders gürültüsü sızar ve prompt zehirlenir.
-- **Yazma kilidi** — ders çıkarımı arka planda çalışabilir; aynı SQLite dosyasına
-  eşzamanlı yazma bozulmaya yol açar. Tüm yazmalar süreç genelinde serileştirilir.
+Dersler benzer görevde geri çağrılır. Açık politika verildiğinde köken,
+konu/sürüm ve geri alınabilir karantina da sıralamaya katılır.
 """
 
 from __future__ import annotations
@@ -23,19 +16,20 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.memory import (
     AGENT_LESSON_TAG_PREFIX,
-    DEFAULT_LESSON_CONFIDENCE,
     Lesson,
     LessonKind,
-    LessonSource,
+    LessonRecallPolicy,
     visible_to,
 )
 from ..core.protocols import Clock
+from ..core.repair_ledger import FailureOrigin
 from .hybrid import (
     CANDIDATE_MULTIPLIER,
     MIN_CANDIDATE_POOL,
     bm25_scores,
     reciprocal_rank_fusion,
 )
+from .lesson_codec import _idle_seconds, _to_lesson, _to_metadata
 from .lesson_ranking import Candidate, select_lessons
 from .lesson_scoring import reinforced
 from .store import get_collection
@@ -96,6 +90,7 @@ class ChromaLessonMemory:
         scope: str | None = None,
         workspace: str | None = None,
         tags: tuple[str, ...] = (),
+        policy: LessonRecallPolicy | None = None,
     ) -> tuple[Lesson, ...]:
         total = self.count()
         if not total or not task.strip():
@@ -103,13 +98,15 @@ class ChromaLessonMemory:
 
         # Geniş çek, sonra hibrit skorla ele: embedding'in ıskaladığı birebir terim
         # eşleşmesini lexical katman kurtarsın diye aday havuzunu bilerek geniş tutuyoruz.
-        havuz = min(max(limit * CANDIDATE_MULTIPLIER, MIN_CANDIDATE_POOL), total)
-        selected = self._recall_from_pool(task, havuz, limit, scope, workspace, tags)
+        havuz = (
+            total if policy else min(max(limit * CANDIDATE_MULTIPLIER, MIN_CANDIDATE_POOL), total)
+        )
+        selected = self._recall_from_pool(task, havuz, limit, scope, workspace, tags, policy)
         if workspace is not None and len(selected) < limit and havuz < total:
             # Workspace süzgeci havuz çekildikten SONRA uygulanır: başka projelerin
             # çok sayıda dersi geçerli projeninkini 40'lık havuzdan itmiş olabilir.
             # Yetersiz kalınca havuz tüm belleğe genişletilir (bellek yüzlerle sınırlı).
-            selected = self._recall_from_pool(task, total, limit, scope, workspace, tags)
+            selected = self._recall_from_pool(task, total, limit, scope, workspace, tags, policy)
         return selected
 
     def _recall_from_pool(
@@ -120,9 +117,11 @@ class ChromaLessonMemory:
         scope: str | None,
         workspace: str | None,
         tags: tuple[str, ...],
+        policy: LessonRecallPolicy | None,
     ) -> tuple[Lesson, ...]:
         result = self._collection.query(query_texts=[task], n_results=havuz)
         documents = (result.get("documents") or [[]])[0]
+        ids = (result.get("ids") or [[]])[0] or [""] * len(documents)
         metadatas = (result.get("metadatas") or [[]])[0]
         distances = [float(distance) for distance in (result.get("distances") or [[]])[0]] or [
             0.0
@@ -133,13 +132,13 @@ class ChromaLessonMemory:
         simdi = self._clock.now()
         candidates = tuple(
             replace(
-                Candidate(lesson=_to_lesson(document, metadata), distance=distance),
+                Candidate(lesson=_to_lesson(document, metadata, row_id=row_id), distance=distance),
                 lexical=lexical_score,
                 fused=fused_score,
                 idle_s=_idle_seconds(metadata, simdi),
             )
-            for document, metadata, distance, lexical_score, fused_score in zip(
-                documents, metadatas, distances, lexical, fused, strict=False
+            for row_id, document, metadata, distance, lexical_score, fused_score in zip(
+                ids, documents, metadatas, distances, lexical, fused, strict=False
             )
         )
         # Kişilik süzgeci (P-055): kendi belleği olan ajanın dersi yalnız o ajana döner;
@@ -162,10 +161,20 @@ class ChromaLessonMemory:
                 or item.lesson.workspace == workspace
                 or (item.lesson.tags and istenen.intersection(item.lesson.tags))
             )
-        return select_lessons(candidates, limit=limit, scope=scope)
+        return select_lessons(candidates, limit=limit, scope=scope, policy=policy)
 
     def reinforce(
-        self, texts: tuple[str, ...], *, success: bool, external_turn: bool = False
+        self,
+        texts: tuple[str, ...],
+        *,
+        success: bool,
+        external_turn: bool = False,
+        feedback_reason: str | None = None,
+        evidence_refs: tuple[str, ...] = (),
+        used: bool | None = None,
+        failure_origin: FailureOrigin = FailureOrigin.PRODUCT,
+        verified_at: str = "",
+        lesson_ids: tuple[str, ...] | None = None,
     ) -> int:
         """Metni eşleşen derslerin güvenini tur sonucuna göre günceller."""
         wanted = {text.strip().lower() for text in texts if text.strip()}
@@ -178,10 +187,30 @@ class ChromaLessonMemory:
             metadatas = rows.get("metadatas") or []
             updated = 0
             for row_id, document, metadata in zip(ids, documents, metadatas, strict=False):
-                mevcut = _to_lesson(document, metadata)
+                if lesson_ids is not None and row_id not in lesson_ids:
+                    continue
+                mevcut = _to_lesson(document, metadata, row_id=row_id)
                 if mevcut.text.strip().lower() not in wanted:
                     continue
-                lesson = reinforced(mevcut, success=success, external_turn=external_turn)
+                lesson = reinforced(
+                    mevcut,
+                    success=success,
+                    external_turn=external_turn,
+                    feedback_reason=feedback_reason,
+                    evidence_refs=evidence_refs,
+                    used=used,
+                    failure_origin=failure_origin,
+                    verified_at=verified_at,
+                )
+                has_attribution = (
+                    feedback_reason is not None
+                    or bool(evidence_refs)
+                    or used is not None
+                    or bool(verified_at)
+                    or failure_origin is not FailureOrigin.PRODUCT
+                )
+                if lesson == mevcut and has_attribution:
+                    continue
                 yazildi = self._collection.update(
                     ids=[row_id],
                     documents=[document],
@@ -190,17 +219,39 @@ class ChromaLessonMemory:
                 updated += 1 if yazildi else 0
             return updated
 
+    def set_quarantined(self, lesson_ids: tuple[str, ...], *, quarantined: bool) -> int:
+        """Dersi silmeden devre dışı bırak veya yeniden aç; mevcut depo kimliğini kullan."""
+        with _write_lock:
+            rows = self._collection.get()
+            updated = 0
+            for row_id, document, metadata in zip(
+                rows.get("ids") or [],
+                rows.get("documents") or [],
+                rows.get("metadatas") or [],
+                strict=False,
+            ):
+                if row_id not in lesson_ids:
+                    continue
+                lesson = _to_lesson(document, metadata, row_id=row_id)
+                if lesson.quarantined == quarantined:
+                    continue
+                updated += int(
+                    bool(
+                        self._collection.update(
+                            ids=[row_id],
+                            documents=[document],
+                            metadatas=[
+                                _to_metadata(
+                                    replace(lesson, quarantined=quarantined), self._clock.now()
+                                )
+                            ],
+                        )
+                    )
+                )
+            return updated
+
     def retag_from_workspace(self) -> int:
-        """Etiketsiz derslere, kayıtlı proje kökünden teknoloji etiketi ver.
-
-        Etiket alanı taşınmadan önce yazılmış kayıtlar için geriye dönük göç.
-        Ölçüldü: bellekte 320 ders, 221'i bir klasöre bağlı ve HİÇBİRİ etiketsiz;
-        51'i hâlâ diskte duran bir Godot projesine aitti ve etiketlenmeden yeni
-        bir Godot projesine taşınamazdı.
-
-        Kökü artık DİSKTE OLMAYAN ders atlanır: türünü tahmin etmek, dersi yanlış
-        teknolojiye taşıma riskidir. Zaten etiketli ders de değiştirilmez.
-        """
+        """Etiketsiz dersleri hâlâ diskte bulunan proje kökünden etiketle."""
         from ..engines.agent.verify_discovery import project_kinds
 
         with _write_lock:
@@ -252,8 +303,10 @@ class ChromaLessonMemory:
         documents = rows.get("documents") or []
         metadatas = rows.get("metadatas") or []
         lessons = [
-            _to_lesson(document, metadata)
-            for document, metadata in zip(documents, metadatas, strict=False)
+            _to_lesson(document, metadata, row_id=row_id)
+            for row_id, document, metadata in zip(
+                rows.get("ids") or [""] * len(documents), documents, metadatas, strict=False
+            )
         ]
         lessons.sort(key=lambda lesson: 0 if lesson.kind is LessonKind.MISTAKE else 1)
         return tuple(lessons)
@@ -277,17 +330,7 @@ class ChromaLessonMemory:
 
 
 def _embed_source(lesson: Lesson) -> str:
-    """Anlamsal aramaya verilen metin: GÖREV BAĞLAMI + ders.
-
-    `Lesson.task` alanının açıklaması "anlamsal geri çağırmada kullanılır" diyordu
-    ama yalnız `text` gömülüyordu — belgelenen davranış uygulanmamıştı. Ölçüldü:
-    "postgres veritabanında eski kayıtları sil" sorgusu, tam bu durumu anlatan
-    dersi getirmiyordu çünkü ders metninde 'veritabanı' geçmiyor, yalnız görev
-    etiketinde geçiyordu.
-
-    Gerçek ders metni metadata'da ayrıca saklanır; eski kayıtlarda o alan yoktur
-    ve belge metnin kendisidir (bkz. `_to_lesson`). Göç gerekmez.
-    """
+    """Kısa görev etiketiyle göm; asıl ders metni metadata içinde saklanır."""
     gorev = lesson.task.strip()
     if not gorev or not _is_label(gorev):
         return lesson.text
@@ -307,74 +350,6 @@ MAX_LABEL_LINES = 2
 def _is_label(task: str) -> bool:
     """Görev alanı kısa bir etiket mi, yoksa kopyalanmış bir istem mi?"""
     return len(task) <= MAX_LABEL_CHARS and task.count("\n") < MAX_LABEL_LINES
-
-
-def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
-    """Dersi ChromaDB metadata'sına çevir. Güven/sayaç alanları burada kalıcılaşır."""
-    return {
-        # Ders METNİ burada saklanır: belge alanı artık görev bağlamını da
-        # içerir ve doğrudan metin olarak okunamaz.
-        "text": lesson.text[:2000],
-        "task": lesson.task[:500],
-        "kind": lesson.kind.value,
-        "source": lesson.source.value,
-        "confidence": float(lesson.confidence),
-        "success_count": int(lesson.success_count),
-        "failure_count": int(lesson.failure_count),
-        "scope": lesson.scope[:100],
-        "trigger": lesson.trigger[:200],
-        "workspace": lesson.workspace[:500],
-        # Chroma metadata yalnız skaler tutar; etiketler virgülle saklanır.
-        "tags": ",".join(sorted(lesson.tags))[:300],
-        # Chroma metadata skaler tutar; bayrak 0/1 saklanır (eski kayıtlarda alan yok = 0).
-        "external": int(lesson.external),
-        "timestamp": timestamp,
-    }
-
-
-def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
-    # Geriye dönük uyumluluk: güven/sayaç alanları taşınmadan önce yazılmış eski
-    # kayıtlar bu alanları içermez; makul varsayılanlarla okunur.
-    return Lesson(
-        text=str(metadata.get("text") or document),
-        kind=_enum(LessonKind, metadata.get("kind"), LessonKind.SUCCESS),
-        task=str(metadata.get("task", "")),
-        source=_enum(LessonSource, metadata.get("source"), LessonSource.LEARNED),
-        confidence=_number(float, metadata.get("confidence"), DEFAULT_LESSON_CONFIDENCE),
-        success_count=_number(int, metadata.get("success_count"), 0),
-        failure_count=_number(int, metadata.get("failure_count"), 0),
-        scope=str(metadata.get("scope", "")),
-        trigger=str(metadata.get("trigger", "")),
-        workspace=str(metadata.get("workspace", "")),
-        tags=tuple(t for t in str(metadata.get("tags", "")).split(",") if t),
-        external=bool(_number(int, metadata.get("external"), 0)),
-    )
-
-
-def _number(kind: Any, raw: object, fallback: Any) -> Any:
-    """Bozuk sayısal metadata tek kaydı değil bütün `recall`ı düşürürdü."""
-    if raw is None:
-        return fallback
-    try:
-        return kind(raw)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _idle_seconds(metadata: dict[str, Any], now: float) -> float:
-    """Güvenin son güncellenmesinden geçen süre; zaman damgası yoksa 0 (yeniden deneme yok)."""
-    try:
-        return max(0.0, now - float(metadata["timestamp"]))
-    except (KeyError, TypeError, ValueError):
-        return 0.0
-
-
-def _enum(enum_type: Any, raw: object, fallback: Any) -> Any:
-    """Bilinmeyen değer kaydı bozmaz; makul bir varsayılana düşülür."""
-    try:
-        return enum_type(str(raw))
-    except ValueError:
-        return fallback
 
 
 #: Ders bloğunun başına yazılan üstünlük sınırı.

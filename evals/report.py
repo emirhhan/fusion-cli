@@ -8,10 +8,14 @@ Rapor iki bölümden oluşur: her görevin sonucu (`results`) ve özet metrikler
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
+from evals.candidate_metrics import CandidateMetrics
+from evals.execution import ModelCallIdentity
 from evals.metrics import RunReport, TaskResult
 from evals.profiles import RunMetadata
+from evals.research_contracts import parse_execution_ids, parse_task_budgets
 
 
 def _result_to_dict(result: TaskResult) -> dict[str, object]:
@@ -59,14 +63,13 @@ def report_to_dict(report: RunReport) -> dict[str, object]:
     }
     if report.metadata is not None:
         payload["metadata"] = {
-            "schema_version": report.metadata.schema_version,
-            "suite": report.metadata.suite,
-            "profile": report.metadata.profile,
-            "model": report.metadata.model,
-            "repeat": report.metadata.repeat,
-            "seed": report.metadata.seed,
+            **asdict(report.metadata),
             "exclusions": list(report.metadata.exclusions),
+            "unknowns": list(report.metadata.unknowns),
+            "calls": [asdict(call) for call in report.metadata.calls],
         }
+    if report.candidate_metrics is not None:
+        payload["candidate_metrics"] = asdict(report.candidate_metrics)
     return payload
 
 
@@ -89,8 +92,38 @@ def report_from_dict(payload: dict[str, object]) -> RunReport:
             repeat=int(raw_metadata.get("repeat", 1)),
             seed=None if raw_metadata.get("seed") is None else str(raw_metadata["seed"]),
             exclusions=tuple(str(item) for item in raw_exclusions),
+            arm=str(raw_metadata.get("arm", "unknown")),
+            requested_model=_optional_text(raw_metadata.get("requested_model")),
+            calls=_calls_from_list(raw_metadata.get("calls", [])),
+            source_digest=_optional_text(raw_metadata.get("source_digest")),
+            prompt_digest=_optional_text(raw_metadata.get("prompt_digest")),
+            initial_workspace_digest=_optional_text(raw_metadata.get("initial_workspace_digest")),
+            split=_optional_text(raw_metadata.get("split")),
+            split_digest=_optional_text(raw_metadata.get("split_digest")),
+            scorer_digest=_optional_text(raw_metadata.get("scorer_digest")),
+            effective_config_digest=_optional_text(raw_metadata.get("effective_config_digest")),
+            environment_digest=_optional_text(raw_metadata.get("environment_digest")),
+            corpus_digest=_optional_text(raw_metadata.get("corpus_digest")),
+            max_model_calls=_optional_int(raw_metadata.get("max_model_calls")),
+            timeout_s=_optional_float(raw_metadata.get("timeout_s")),
+            execution_ids=parse_execution_ids(raw_metadata.get("execution_ids")),
+            task_config_digests=tuple(
+                (str(item[0]), str(item[1])) for item in raw_metadata.get("task_config_digests", [])
+            ),
+            model_calls_total=_optional_int(raw_metadata.get("model_calls_total")),
+            task_ids=tuple(str(item) for item in raw_metadata.get("task_ids", [])),
+            task_budgets=parse_task_budgets(raw_metadata.get("task_budgets")),
+            corpus_counts=tuple(
+                (str(item[0]), int(item[1])) for item in raw_metadata.get("corpus_counts", [])
+            ),
+            unknowns=tuple(
+                str(item)
+                for item in raw_metadata.get("unknowns", ["environment", "corpus", "live_baseline"])
+            ),
         )
-    return RunReport(results=results, metadata=metadata)
+    raw_candidates = payload.get("candidate_metrics")
+    candidates = _candidate_metrics(raw_candidates) if raw_candidates is not None else None
+    return RunReport(results=results, metadata=metadata, candidate_metrics=candidates)
 
 
 def _result_from_dict(item: object) -> TaskResult:
@@ -125,3 +158,100 @@ def read_report(path: Path) -> RunReport:
     if not isinstance(payload, dict):
         raise ValueError("rapor kök öğesi bir sözlük olmalı")
     return report_from_dict(payload)
+
+
+def _optional_text(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Ölçüm sayacı tam sayı veya null olmalı.")
+    return value
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("Ölçüm süresi sayı veya null olmalı.")
+    return float(value)
+
+
+def _calls_from_list(value: object) -> tuple[ModelCallIdentity, ...]:
+    if not isinstance(value, list):
+        raise ValueError("Model çağrıları liste olmalı.")
+    calls = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Model çağrısı nesne olmalı.")
+        calls.append(
+            ModelCallIdentity(
+                call_id=str(item["call_id"]),
+                role=str(item["role"]),
+                requested_model=_optional_text(item.get("requested_model")),
+                served_model=_optional_text(item.get("served_model")),
+                prompt_tokens=_optional_int(item.get("prompt_tokens")),
+                completion_tokens=_optional_int(item.get("completion_tokens")),
+                outcome=str(item.get("outcome", "unknown")),
+                cost_usd=_optional_float(item.get("cost_usd")),
+            )
+        )
+    return tuple(calls)
+
+
+def _candidate_metrics(value: object) -> CandidateMetrics:
+    """Kaydedilmiş tipli aday özetini doğrula; bilinmeyen oran None kalır."""
+    if not isinstance(value, dict):
+        raise ValueError("Aday metrikleri nesne olmalı.")
+    rates = ("pass_at_1", "oracle_at_2", "selected_at_2", "serial_at_c")
+    counts = (
+        "candidate_tasks",
+        "two_candidate_tasks",
+        "lifecycle_calls",
+        "abandoned_calls",
+        "open_calls",
+        "unknown_served_calls",
+        "mismatched_model_calls",
+        "source_conflicts",
+        "rollback_conflicts",
+    )
+    parsed_rates = [_optional_float(value[name]) for name in rates]
+    parsed_counts = [_optional_int(value[name]) for name in counts]
+    if any(item is None or item < 0 for item in parsed_counts):
+        raise ValueError("Aday sayaçları negatif olamaz ve null olamaz.")
+    if any(item is not None and not 0 <= item <= 1 for item in parsed_rates):
+        raise ValueError("Aday oranları sıfır ile bir arasında olmalı.")
+    return CandidateMetrics(
+        pass_at_1=parsed_rates[0],
+        oracle_at_2=parsed_rates[1],
+        selected_at_2=parsed_rates[2],
+        serial_at_c=parsed_rates[3],
+        candidate_tasks=_required_count(value["candidate_tasks"]),
+        two_candidate_tasks=_required_count(value["two_candidate_tasks"]),
+        lifecycle_calls=_required_count(value["lifecycle_calls"]),
+        abandoned_calls=_required_count(value["abandoned_calls"]),
+        open_calls=_required_count(value["open_calls"]),
+        unknown_served_calls=_required_count(value["unknown_served_calls"]),
+        mismatched_model_calls=_required_count(value["mismatched_model_calls"]),
+        source_conflicts=_required_count(value["source_conflicts"]),
+        rollback_conflicts=_required_count(value["rollback_conflicts"]),
+        supported_candidate_tasks=_required_count(value.get("supported_candidate_tasks", 0)),
+        unsupported_candidate_tasks=_required_count(value.get("unsupported_candidate_tasks", 0)),
+        unavailable_candidate_tasks=_required_count(value.get("unavailable_candidate_tasks", 0)),
+        unavailable_serial_tasks=_required_count(value.get("unavailable_serial_tasks", 0)),
+        step_pass_at_1=_optional_float(value.get("step_pass_at_1")),
+        step_oracle_at_2=_optional_float(value.get("step_oracle_at_2")),
+        step_selected_at_2=_optional_float(value.get("step_selected_at_2")),
+        candidate_steps=_required_count(value.get("candidate_steps", 0)),
+        two_candidate_steps=_required_count(value.get("two_candidate_steps", 0)),
+    )
+
+
+def _required_count(value: object) -> int:
+    count = _optional_int(value)
+    if count is None or count < 0:
+        raise ValueError("Aday sayacı pozitif veya sıfır tam sayı olmalı.")
+    return count

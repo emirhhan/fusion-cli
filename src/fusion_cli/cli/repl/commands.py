@@ -823,16 +823,20 @@ def _undo(state: ReplState, argument: str) -> str:
     kayit = state.last_changes
     if kayit is None or not kayit:
         return messages.UNDO_NOTHING
-    tum_yollar = kayit.paths
+    tum_yollar = kayit.restorable_paths
     geri_alinan = kayit.restore()
-    # `restore()` kaydı boşaltır (çekirdek sözleşmesi); bu yüzden GERİ ALINAMAYANLARIN
-    # adı burada, elle düzeltilebilsin diye gösterilir (L2-30). Yalnız SON tur tutulur.
-    state.last_changes = None
+    # Çakışan ilk hâller, kullanıcı yeniden deneyebilsin diye kayıtta kalır.
+    state.last_changes = kayit if kayit.conflicts else None
     if len(geri_alinan) < len(tum_yollar):
         basarisiz = "\n".join(f"  {yol}" for yol in tum_yollar if yol not in geri_alinan)
         return (
             messages.UNDO_PARTIAL.format(
                 count=len(geri_alinan), failed=len(tum_yollar) - len(geri_alinan)
+            )
+            + (
+                "\nGeri alma çakışması: mevcut dosyalar ve ilk kayıtları korundu."
+                if kayit.conflicts
+                else ""
             )
             + f"\n{basarisiz}"
         )

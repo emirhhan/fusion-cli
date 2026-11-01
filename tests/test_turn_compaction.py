@@ -218,3 +218,24 @@ def sink():
     from .fakes import RecordingSink
 
     return RecordingSink()
+
+
+def test_pinlenen_eski_kanit_1500_karakterle_korunur_ve_kimlik_degismez():
+    messages = _konusma(8, cikti="kanıt " + "z" * 4_000)
+    pinned = messages[3].tool_call_id
+    result = history.clear_old_tool_outputs(messages, 3_000, pinned_call_ids=frozenset({pinned}))
+    assert result[3].content.startswith("kanıt ")
+    assert len(result[3].content) <= 1_500
+    assert result[3].tool_call_id == pinned
+    assert result[-1] == messages[-1]
+    assert messages[3].content == "kanıt " + "z" * 4_000
+
+
+@pytest.mark.parametrize("pin_chars", [0, -1, 10_000])
+def test_pin_butcesi_sifir_ve_asiri_degerlerde_de_sinirlidir(pin_chars):
+    messages = _konusma(8, cikti="kanıt " + "z" * 4_000)
+    result = history.clear_old_tool_outputs(
+        messages, 3_000, pinned_call_ids=frozenset({messages[3].tool_call_id}), pin_chars=pin_chars
+    )
+    assert len(result[3].content) <= 1_500
+    assert result[-1] == messages[-1]

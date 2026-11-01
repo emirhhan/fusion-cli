@@ -29,6 +29,7 @@ from .changeset import ChangeSet
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
+from .localization import LocalizationState
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
@@ -89,6 +90,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "extract_archive": ToolFamily.FILES,
     "grep_search": ToolFamily.SEARCH,
     "search_code": ToolFamily.SEARCH,
+    "symbol_query": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
     "run_shell": ToolFamily.SHELL,
     "render_remotion": ToolFamily.SHELL,
@@ -314,6 +316,10 @@ class ToolContext:
 
     #: Göreli yolların çözümleneceği kök dizin.
     root: Path
+    localization: LocalizationState = field(default_factory=LocalizationState, kw_only=True)
+    tool_phase: str = field(default="", kw_only=True)
+    localization_step_id: str = field(default="", kw_only=True)
+    localization_criterion_ids: tuple[str, ...] = field(default=(), kw_only=True)
     job_scope: str = field(default_factory=lambda: uuid4().hex, kw_only=True)
     #: Bu tura ait görev listesi.
     todos: TodoList = field(default_factory=TodoList)

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.config.loader import load_config
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import context_budget as budget_module
 from fusion_cli.providers.context_window import input_window_tokens
+
+from .fakes import make_config
 
 
 def test_bilinen_dar_modelin_esigi_duser(tmp_path, monkeypatch) -> None:
@@ -170,3 +174,34 @@ def test_varsayilanlar_gerekceli_degerlerdir(tmp_path) -> None:
 
     assert config.runtime.tool_output_window == 8
     assert config.runtime.weak_model_compaction_ratio == 0.2
+
+
+@pytest.mark.parametrize("chars", [4000, 8000, 16000])
+def test_explicit_model_profile_threshold_does_not_change_unprofiled(chars):
+    from dataclasses import replace
+
+    from fusion_cli.core.prompt_manifest import ContextProfile
+
+    config = make_config()
+    spec = config.agent
+    base = budget_module.context_budget(config, spec)
+    profile = ContextProfile("eval", "sahte", spec.model, chars)
+    selected = replace(spec, context_profile=profile)
+    budget = budget_module.context_budget(config, selected)
+    assert budget.compression_chars == chars and budget.profile == "eval"
+    assert budget.estimated
+    assert budget_module.context_budget(config, spec) == base
+    assert selected.with_identity("sahte/other").context_profile is None
+
+
+def test_yapilandirma_explicit_tipli_model_profilini_yukler(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "agent:\n  name: eval\n  model: sahte/model\n  context_profile:\n"
+        "    name: eval-4k\n    provider: sahte\n    model: sahte/model\n"
+        "    compression_chars: 4000\n"
+    )
+    config = load_config(config_file)
+    budget = budget_module.context_budget(config, config.agent)
+    assert budget.compression_chars == 4000
+    assert budget.profile == "eval-4k"

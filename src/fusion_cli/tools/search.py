@@ -6,11 +6,12 @@ binlerce satır boca etmek sinyali gürültüde boğar.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.constants import (
@@ -19,7 +20,9 @@ from ..core.constants import (
     MAX_SEARCHABLE_FILE_BYTES,
     SKIP_DIRECTORIES,
 )
+from ..core.localization import MAX_LOCALIZATION_CANDIDATES, localization_symbol
 from ..core.redaction import redact
+from ..core.source_read import read_scoped_source
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
 from .files import display_path, resolve_path
@@ -101,6 +104,7 @@ class _SearchScan:
     truncated_files: int = 0
     oversized_lines: int = 0
     skipped_secret_files: int = 0
+    localization_candidates: list[dict[str, str]] = field(default_factory=list)
 
     def should_stop(self) -> bool:
         if self.context.cancelled.is_set():
@@ -110,6 +114,14 @@ class _SearchScan:
         elif self.candidates >= MAX_SEARCH_CANDIDATES:
             self.stopped = f"{MAX_SEARCH_CANDIDATES} dosyalık aday sınırına ulaştı"
         return self.stopped is not None
+
+
+@dataclass(frozen=True, slots=True)
+class SearchSource:
+    """Çağıranın güvenli okuduğu tek kaynak; model argümanlarından üretilemez."""
+
+    path: Path
+    text: str
 
 
 def _empty_note(message: str, root: Path) -> str:
@@ -145,18 +157,25 @@ def _bounded_result(lines: list[str], scan: _SearchScan, empty: str) -> ToolResu
                 f"\n\nArama sınırları: {'; '.join(limits)}. "
                 "Bu dosyaların tamamı gerekirse proje kökünde 'rg' ile ayrıca aranmalı."
             )
-        return ToolResult(output)
+        return ToolResult(
+            output, structured={"localization_candidates": tuple(scan.localization_candidates)}
+        )
     partial = "\n".join(lines) if lines else "(bu sınır içinde eşleşme bulunmadı)"
     return ToolResult.failure(
         f"{partial}\n\nArama {scan.stopped}; {scan.candidates} dosya adayı incelendi. "
         "Bu sonuç kısmidir ve tekrar denenebilir: aynı geniş aramayı yinelemek yerine "
-        "'path' alanını proje içindeki ilgili klasör veya dosyayla daraltın."
+        "'path' alanını proje içindeki ilgili klasör veya dosyayla daraltın.",
+        structured={"localization_candidates": tuple(scan.localization_candidates)},
     )
 
 
-def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
+def search_code(
+    args: ToolArgs, context: ToolContext, *, source: SearchSource | None = None
+) -> ToolResult:
     pattern = require_str(args, "pattern")
     root = resolve_path(context, optional_str(args, "path", ".")).resolve()
+    if source is not None and source.path != root:
+        return ToolResult.failure("Doğrulanmış kaynak arama yoluyla eşleşmiyor.")
 
     if not root.exists():
         return ToolResult.failure(f"Yol yok: {root}")
@@ -174,7 +193,7 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
     per_file: dict[str, tuple[int, str]] = {}
     scan = _SearchScan(context=context, started=time.monotonic())
     for path in _searchable_files(root, scan):
-        for number, line in _matching_lines(path, regex, scan):
+        for number, line in _matching_lines(path, regex, scan, source=source):
             gosterim = display_path(context, path)
             metin = _truncate_utf8(redact(line.strip()), MAX_SEARCH_LINE_BYTES)
             hits.append(f"{gosterim}:{number}: {metin}")
@@ -183,7 +202,8 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
             if len(hits) >= MAX_SEARCH_HITS:
                 return ToolResult.failure(
                     "\n".join(_summarize(per_file))
-                    + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, deseni daraltın)"
+                    + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, deseni daraltın)",
+                    structured={"localization_candidates": tuple(scan.localization_candidates)},
                 )
     if len(hits) > MAX_DETAILED_HITS:
         return _bounded_result(_summarize(per_file), scan, _empty_note("eşleşme yok", root))
@@ -339,6 +359,11 @@ def _is_secret_file(path: Path) -> bool:
 is_secret_file = _is_secret_file
 
 
+def is_searchable_source(path: Path, root: Path) -> bool:
+    """Sembol adaptörü de aramanın kimlik deposu ve gizli dosya sınırını paylaşır."""
+    return path.is_relative_to(root) and not _is_skipped(path, root) and not _is_secret_file(path)
+
+
 def _truncate_utf8(text: str, max_bytes: int) -> str:
     """UTF-8 çıktıyı byte sınırında, geçerli karakter sınırında kes."""
     encoded = text.encode("utf-8")
@@ -384,13 +409,22 @@ def _searchable_files(
 
 
 def _matching_lines(
-    path: Path, regex: re.Pattern[str], scan: _SearchScan
+    path: Path, regex: re.Pattern[str], scan: _SearchScan, *, source: SearchSource | None = None
 ) -> Iterator[tuple[int, str]]:
-    try:
-        with path.open("rb") as handle:
-            data = handle.read(MAX_SEARCH_SCAN_BYTES + 1)
-    except OSError:
-        return
+    if source is not None:
+        if source.path != path:
+            return
+        data = source.text.encode("utf-8")
+    else:
+        root = scan.context.root.resolve()
+        if not path.is_relative_to(root):
+            root = path.parent
+        source_bytes = read_scoped_source(
+            root, path.relative_to(root), max_bytes=MAX_SEARCHABLE_FILE_BYTES
+        )
+        if source_bytes is None:
+            return
+        data = source_bytes
     if len(data) > MAX_SEARCH_SCAN_BYTES:
         scan.truncated_files += 1
     text = data[:MAX_SEARCH_SCAN_BYTES].decode("utf-8", errors="ignore")
@@ -401,4 +435,26 @@ def _matching_lines(
             scan.oversized_lines += 1
             line = _truncate_utf8(line, MAX_SEARCH_LINE_BYTES)
         if regex.search(line):
+            _record_source(scan, path, data, number)
             yield number, line
+
+
+def _record_source(scan: _SearchScan, path: Path, source: bytes, line_number: int) -> None:
+    """Eşleşmenin okunduğu aynı güvenli baytların özetini taşı."""
+    root = scan.context.root.resolve()
+    if not path.is_relative_to(root):
+        return
+    relative = path.relative_to(root).as_posix()
+    if any(candidate["path"] == relative for candidate in scan.localization_candidates):
+        return
+    if len(scan.localization_candidates) >= MAX_LOCALIZATION_CANDIDATES:
+        return
+    scan.localization_candidates.append(
+        {
+            "path": relative,
+            "symbol": localization_symbol(
+                source.decode("utf-8", errors="ignore"), line_number, path
+            ),
+            "source_digest": hashlib.sha256(source).hexdigest(),
+        }
+    )

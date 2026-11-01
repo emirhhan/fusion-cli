@@ -27,7 +27,7 @@ import json
 import platform
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...core.errors import PathAccessError
@@ -40,6 +40,7 @@ from .instruction_layers import (
     MAX_LINKED_CHARS,
     TOTAL_MAX_CHARS,
     UNTRUSTED_NOTE,
+    InstructionLoad,
     load_instruction_layers,
     neutralize,
     read_text_limited,
@@ -340,18 +341,17 @@ _MEASURED_EXECUTABLES = (
 )  # fmt: skip
 
 
-def read_all_instructions(
+def load_all_instructions(
     root: Path,
     home: Path | None,
     *,
     instruction_merge: bool = True,
     instruction_max_chars: int = TOTAL_MAX_CHARS,
-) -> str:
-    """Proje talimatı ve dış araç belleklerini birlikte döndür.
+) -> InstructionLoad:
+    """Proje talimatı ve ilk yükleme ölçümünü birlikte döndür.
 
-    Sıra bilinçlidir: kullanıcı katmanı önce, proje katmanı sonra gelir — çakışma
-    halinde projeye daha yakın olan kural kazanır (Claude Code ile aynı). Dış bellek
-    (MEMORY.md vb.) en sonda.
+    Kullanıcı katmanı önce, proje katmanı sonra gelir; yakın kural önceliklidir.
+    Dış bellek (MEMORY.md vb.) en sondadır.
 
     `home` verilmezse (ör. testte ya da ev dizini bilinmiyorsa) kullanıcı katmanı ve dış
     bellek hiç okunmaz — bu, `AgentDeps` alanlarının "yoksa o yetenek hiç sunulmaz"
@@ -384,16 +384,33 @@ def read_all_instructions(
     if depo:
         ortam = f"{ortam}\n{depo}"
     ozet = workspace_summary(root)
-    proje_talimati = read_project_instructions(
+    instruction_load = load_instruction_layers(
         root, home, merge=instruction_merge, max_chars=instruction_max_chars
     )
+    proje_talimati = instruction_load.text
     # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.
     kurallar = unscoped_rules_block(discover_rules(root, home)) if instruction_merge else ""
     if home is None:
-        return "\n".join(part for part in (ortam, ozet, proje_talimati, kurallar) if part)
+        return replace(
+            instruction_load,
+            text="\n".join(part for part in (ortam, ozet, proje_talimati, kurallar) if part),
+        )
 
     from ...history.memory_files import read_external_memory
 
     dis_bellek = read_external_memory(home, root)
     parts = [ortam, ozet, proje_talimati, kurallar, dis_bellek]
-    return "\n".join(part for part in parts if part)
+    return replace(instruction_load, text="\n".join(part for part in parts if part))
+
+
+def read_all_instructions(
+    root: Path,
+    home: Path | None,
+    *,
+    instruction_merge: bool = True,
+    instruction_max_chars: int = TOTAL_MAX_CHARS,
+) -> str:
+    """Mevcut metin çağıranlarını aynı ilk yüklemeye yönlendir."""
+    return load_all_instructions(
+        root, home, instruction_merge=instruction_merge, instruction_max_chars=instruction_max_chars
+    ).text

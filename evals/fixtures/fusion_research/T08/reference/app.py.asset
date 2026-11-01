@@ -1,0 +1,3 @@
+def deger():
+    return 2
+# Kullanıcı satırı

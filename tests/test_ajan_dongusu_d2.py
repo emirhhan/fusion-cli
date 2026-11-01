@@ -930,9 +930,11 @@ async def test_alakasiz_istek_duraklamis_plani_yeniden_baslatmaz(tmp_path, monke
     from fusion_cli.engines.agent import plan_runner
     from fusion_cli.engines.agent.plan_generation import PlanGeneration
     from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
-    from tests.test_plan_resume import _Deps, _duraklamis_plan
+    from tests.test_plan_resume import _duraklamis_plan
 
-    deps = _Deps(ToolContext(root=tmp_path), JsonCheckpointStore(tmp_path / ".cp"))
+    deps = _deps(tmp_path, RecordingSink())
+    deps.checkpoint_store = JsonCheckpointStore(tmp_path / ".cp")
+    deps.conversation_id = "conv"
     deps.checkpoint_store.save(
         WorkflowCheckpoint(
             plan=_duraklamis_plan(),

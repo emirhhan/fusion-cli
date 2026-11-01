@@ -478,10 +478,17 @@ async def test_ogrenme_adimi_celisen_eski_dersin_guvenini_dusurur(monkeypatch):
     async def cikar(*args, **kwargs):
         return (yeni,)
 
+    from fusion_cli.core.lesson_runtime import LessonRuntimeContext
+
     monkeypatch.setattr(learning, "extract_lessons", cikar)
     deps = SimpleNamespace(
         lessons=_Bellek(),
-        config=None,
+        config=SimpleNamespace(
+            runtime=SimpleNamespace(
+                lesson_attributed_feedback=False, lesson_conflict_quarantine=False
+            )
+        ),
+        lesson_context=LessonRuntimeContext(),
         publisher=SimpleNamespace(publish=lambda event: None),
         tool_context=None,
         mcp_servers=(),
@@ -493,3 +500,117 @@ async def test_ogrenme_adimi_celisen_eski_dersin_guvenini_dusurur(monkeypatch):
     )
 
     assert reinforce_cagrilari == [((eski.text,), False)]
+
+
+# Task 10a: kontrollü geri bildirim ve çelişki süzgeci.
+@pytest.mark.parametrize("origin", ["provider", "infrastructure"])
+def test_foundation_kesinti_dogru_dersi_cezalandirmaz(origin):
+    from fusion_cli.core.repair_ledger import FailureOrigin
+
+    lesson = _lesson("önce ölç", confidence=0.6)
+    assert reinforced(lesson, success=False, failure_origin=FailureOrigin(origin)) == lesson
+
+
+def test_foundation_retrieval_basari_kullanim_kaniti_degil():
+    lesson = _lesson("önce ölç", confidence=0.6)
+    assert reinforced(lesson, success=True, feedback_reason="retrieved") == lesson
+    assert (
+        reinforced(
+            lesson, success=True, feedback_reason="verified_outcome", evidence_refs=("check:1",)
+        )
+        == lesson
+    )
+    updated = reinforced(
+        lesson,
+        success=True,
+        feedback_reason="verified_outcome",
+        used=True,
+        evidence_refs=("check:1",),
+        verified_at="2026-11-01T00:00:00Z",
+    )
+    assert updated.success_count == 1
+    assert updated.verified_at == "2026-11-01T00:00:00Z"
+    assert updated.evidence_refs == ("check:1",)
+
+
+@pytest.mark.parametrize("pair", range(20))
+def test_foundation_yirmi_cift_tersinir_quarantine_ve_surume_gore_suzulur(pair):
+    from dataclasses import replace
+
+    from fusion_cli.core.memory import LessonRecallPolicy
+
+    old = replace(
+        _lesson(f"eski {pair}"),
+        id=f"old-{pair}",
+        subject_key=f"api-{pair}",
+        version="1",
+        applies_to=("python",),
+    )
+    new = replace(
+        _lesson(f"yeni {pair}"),
+        id=f"new-{pair}",
+        subject_key=f"api-{pair}",
+        version="2",
+        applies_to=("python",),
+        supersedes=(old.id,),
+        verified_at="2026-11-01",
+        evidence_refs=(f"check:{pair}",),
+    )
+    candidates = (Candidate(old, 0.1), Candidate(new, 0.1))
+    policy = LessonRecallPolicy(
+        subject_key=old.subject_key, version="2", applies_to=("python",), conflict_quarantine=True
+    )
+    assert select_lessons(candidates, limit=4, policy=policy) == (new,)
+    quarantined = replace(new, quarantined=True)
+    assert select_lessons((Candidate(quarantined, 0.1),), limit=4, policy=policy) == ()
+    assert select_lessons(
+        (Candidate(replace(quarantined, quarantined=False), 0.1),), limit=4, policy=policy
+    ) == (new,)
+    assert old in select_lessons(candidates, limit=4)
+
+
+def test_foundation_blind_development_ve_bilinmeyen_kaynagi_dislar():
+    from dataclasses import replace
+
+    from fusion_cli.core.memory import LessonRecallPolicy
+
+    base = _lesson("önce ölç")
+    lessons = tuple(replace(base, source_split=split) for split in ("", "development", "blind"))
+    assert select_lessons(
+        tuple(Candidate(item, 0.1) for item in lessons),
+        limit=4,
+        policy=LessonRecallPolicy(source_split="blind"),
+    ) == (lessons[-1],)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"used": False},
+        {"used": None, "evidence_refs": ("check:1",)},
+        {
+            "feedback_reason": "verified_outcome",
+            "used": True,
+            "evidence_refs": (" ",),
+            "verified_at": "today",
+        },
+    ],
+)
+def test_foundation_kismi_attribution_legacy_basarisi_sayilmaz(metadata):
+    lesson = _lesson("önce ölç", confidence=0.5)
+    assert reinforced(lesson, success=True, **metadata) == lesson
+
+
+def test_foundation_dogrulanmamis_celiski_kontrollu_recallda_elenir():
+    from dataclasses import replace
+
+    from fusion_cli.core.memory import LessonRecallPolicy
+
+    first = replace(_lesson("api eski davranış"), id="first", subject_key="api", version="1")
+    second = replace(first, id="second", text="api çelişik davranış", version="2")
+    candidates = (Candidate(first, 0.1), Candidate(second, 0.1))
+    assert (
+        select_lessons(candidates, limit=4, policy=LessonRecallPolicy(conflict_quarantine=True))
+        == ()
+    )
+    assert len(select_lessons(candidates, limit=4)) == 2

@@ -2,7 +2,7 @@
 
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 from evals import live_drive
@@ -12,6 +12,70 @@ from evals.effective_config import project_effective
 
 from .fakes import make_config
 from .test_live_drive_engine_proof import settings
+
+
+@pytest.mark.parametrize("edit_format", [None, "exact", "whole"])
+def test_current_effective_producer_roundtrips_new_model_and_runtime_fields(edit_format):
+    from evals.driver_config import validate_wire
+    from evals.engine_proof import ImportedEngineProof
+
+    config = make_config(runtime={"escalation_model": "fixture/escalation"})
+    model = replace(config.agent, recommended_edit_format=edit_format)
+    config = replace(config, agent=model, candidates=(model,))
+    proof = ImportedEngineProof(123, "", "", "", "a" * 64, "b" * 40)
+    receipt = ConfigReceipt(
+        1,
+        proof.pid,
+        proof.source_digest,
+        proof.requested_revision,
+        proof.revision_provenance,
+        project_effective(config, model, "general"),
+    )
+
+    restored = validate_wire(json.loads(json.dumps(asdict(receipt))), proof)
+
+    assert restored == receipt
+    assert not restored.effective.missing_fields
+    fields = {field.path: field for field in restored.effective.fields}
+    assert fields["runtime.escalation_model"].kind == "text_digest"
+    for prefix in ("agent", "selected_agent", "candidates.0"):
+        field = fields[f"{prefix}.recommended_edit_format"]
+        assert field.kind == ("absent" if edit_format is None else "text_digest")
+        assert field.count == (None if edit_format is None else 1)
+
+
+@pytest.mark.parametrize(
+    "path,key,value",
+    [
+        ("agent.recommended_edit_format", "kind", "flag"),
+        ("runtime.escalation_model", "value", "a" * 64),
+        ("runtime.escalation_model", "path", "runtime.unapproved_field"),
+    ],
+)
+def test_current_effective_fields_cannot_be_tampered(path, key, value):
+    from evals.driver_config import validate_wire
+    from evals.engine_proof import ImportedEngineProof
+
+    config = make_config()
+    proof = ImportedEngineProof(123, "", "", "", "a" * 64, "b" * 40)
+    raw = json.loads(
+        json.dumps(
+            asdict(
+                ConfigReceipt(
+                    1,
+                    proof.pid,
+                    proof.source_digest,
+                    proof.requested_revision,
+                    proof.revision_provenance,
+                    project_effective(config, config.agent, "general"),
+                )
+            )
+        )
+    )
+    field = next(field for field in raw["effective"]["fields"] if field["path"] == path)
+    field[key] = value
+    with pytest.raises(ValueError):
+        validate_wire(raw, proof)
 
 
 @pytest.mark.parametrize(

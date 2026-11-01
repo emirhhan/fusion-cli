@@ -83,8 +83,12 @@ class IsolatedWorkspace:
             hedef = self.origin / goreli
             hedef.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self.root / goreli, hedef)
+            if changes is not None:
+                changes.record_applied(hedef)
         for goreli in silinenler:
             (self.origin / goreli).unlink(missing_ok=True)
+            if changes is not None:
+                changes.record_applied(self.origin / goreli)
         self._applied = True
         return (*degisenler, *silinenler)
 

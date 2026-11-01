@@ -1,18 +1,17 @@
-"""Tur günlüğü — süren turun atomik JSON kopyası (çökme sonrası devam için).
+"""Tur günlüğü: atomik devam snapshot'ı ve ayrı, maskelenmiş özgün segmentler.
 
-Dosya konuşma başınadır ve başarıyla kalıcılaşan turdan sonra silinir. Hata veya
-iptalde korunur; sekme açılırken geri yüklenir. Görseller yazılmaz (data URI'ler
-megabaytlarca olabilir ve devam için gerekmez); metin `redact`'tan geçer çünkü
-araç çıktıları sır taşıyabilir ve dosya diskte kalır.
+İki kayıt aynı kilit ve clear yaşam döngüsünü paylaşır; snapshot özgün iz değildir.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
 import logging
 import math
+import os
 import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -21,12 +20,16 @@ from pathlib import Path
 from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
 from ..core.file_lease import FileLease
+from ..core.original_trace import OriginalTraceRead, OriginalTraceScope
 from ..core.protocols import Clock
 from ..core.redaction import redact
-from ..core.types import Message, ToolCall
+from ..core.types import Message
+from .turn_journal_codec import message_from, message_to, original_messages_from
 
 _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
+_ORIGINAL_SCHEMA = 1
+_ORIGINAL_FILE_BYTES = 2_000_000
 #: Günlük kilidi için bekleme: en çok `_LOCK_ATTEMPTS * _LOCK_RETRY_S` ≈ 0,6 sn.
 _LOCK_ATTEMPTS = 12
 _LOCK_RETRY_S = 0.05
@@ -47,11 +50,19 @@ class JournalEntry:
 class FileTurnJournal:
     """`TurnJournal` protokolünün dosya uygulaması."""
 
-    def __init__(self, path: Path, *, task: str = "", clock: Clock | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        task: str = "",
+        clock: Clock | None = None,
+        original_owner_id: str = "",
+    ) -> None:
         self._path = path
         #: Kullanıcıya "şu iş yarıda kaldı" diye gösterilecek görev metni.
         self._task = task
         self._clock = clock or SystemClock()
+        self._original_owner_id = original_owner_id
 
     @property
     def path(self) -> Path:
@@ -85,7 +96,7 @@ class FileTurnJournal:
             or saved_at < 0
         ):
             return None
-        parsed = tuple(_message_from(item) for item in items)
+        parsed = tuple(message_from(item) for item in items)
         if any(message is None for message in parsed):
             # Okunamayan bir mesajı sessizce süzmek `assistant tool_calls` / `tool`
             # çiftini bozar (sağlayıcılar yetim `tool` mesajında 400 verir).
@@ -111,8 +122,159 @@ class FileTurnJournal:
     def clear(self) -> None:
         with self._transaction() as owned:
             if owned:
-                with contextlib.suppress(FileNotFoundError):
-                    self._path.unlink()
+                for path in (self._path, self.original_path):
+                    with contextlib.suppress(FileNotFoundError):
+                        path.unlink()
+
+    @property
+    def original_owner_id(self) -> str:
+        """Composition sınırının atadığı sahip; modelden türetilmez."""
+        return self._original_owner_id
+
+    @property
+    def original_path(self) -> Path:
+        """Aynı günlük sahibinin özgün segment dosyası; clear ile birlikte silinir."""
+        return self._path.with_suffix(self._path.suffix + ".original.jsonl")
+
+    async def append_original(self, scope: OriginalTraceScope, messages: Sequence[Message]) -> bool:
+        """Gerçek üretici mesajlarını ekle; snapshot veya özet bu kaynağa dönüşmez."""
+        if not self._owns_scope(scope) or len(scope.segment_ids) != 1:
+            return False
+        if not OriginalTraceRead(scope, "redacted_original", tuple(messages)).is_usable():
+            return False
+        return await asyncio.to_thread(self._append_original, scope, tuple(messages))
+
+    async def read_original(self, scope: OriginalTraceScope) -> OriginalTraceRead:
+        """Sahibi doğrula, ardından yalnız istenen tur ve segment kapsamını döndür."""
+        if not self._owns_scope(scope):
+            return OriginalTraceRead(scope, "invalid_scope")
+        return await asyncio.to_thread(self._read_original, scope)
+
+    def _owns_scope(self, scope: OriginalTraceScope) -> bool:
+        return (
+            bool(self._original_owner_id)
+            and scope.is_valid()
+            and (scope.owner_id == self._original_owner_id)
+        )
+
+    def _append_original(self, scope: OriginalTraceScope, messages: tuple[Message, ...]) -> bool:
+        record = {
+            "surum": _ORIGINAL_SCHEMA,
+            "sahip": hashlib.sha256(scope.owner_id.encode()).hexdigest(),
+            "tur": scope.turn_id,
+            "segment": scope.segment_ids[0],
+            "mesajlar": [message_to(message) for message in messages],
+        }
+        # Argüman normalizasyonu büyüyebilir; diske gidecek değerleri yeniden doğrula.
+        published = original_messages_from(record["mesajlar"])
+        if (
+            published is None
+            or not OriginalTraceRead(scope, "redacted_original", published).is_usable()
+        ):
+            return False
+        with self._transaction() as owned:
+            if not owned:
+                return False
+            try:
+                records = self._original_records()
+                if records is None:
+                    return False
+                call_ids = _original_call_ids(record)
+                for previous in records:
+                    if previous["tur"] != scope.turn_id:
+                        continue
+                    if previous["segment"] == scope.segment_ids[0]:
+                        return previous == record
+                    if call_ids & _original_call_ids(previous):
+                        return False
+                serialized = json.dumps(record, ensure_ascii=False) + "\n"
+                current = self.original_path.stat().st_size if self.original_path.exists() else 0
+                if current + len(serialized.encode()) > _ORIGINAL_FILE_BYTES:
+                    return False
+                descriptor = os.open(
+                    self.original_path,
+                    os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    self.original_path.chmod(0o600)
+                    stream.write(serialized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return True
+            except (OSError, UnicodeError, ValueError) as error:
+                _LOG.warning("özgün segment yazılamadı", extra={"hata": type(error).__name__})
+                return False
+
+    def _original_records(self) -> list[dict[str, object]] | None:
+        try:
+            if (
+                self.original_path.is_symlink()
+                or self.original_path.stat().st_size > _ORIGINAL_FILE_BYTES
+            ):
+                return None
+            descriptor = os.open(self.original_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(descriptor, encoding="utf-8") as stream:
+                serialized = stream.read(_ORIGINAL_FILE_BYTES + 1)
+        except FileNotFoundError:
+            return []
+        if len(serialized) > _ORIGINAL_FILE_BYTES or not serialized.endswith("\n"):
+            return None
+        records: list[dict[str, object]] = []
+        for line in serialized.splitlines():
+            raw = json.loads(line)
+            if (
+                not isinstance(raw, dict)
+                or not isinstance(raw.get("surum"), int)
+                or isinstance(raw.get("surum"), bool)
+                or raw.get("surum") != _ORIGINAL_SCHEMA
+                or not isinstance(raw.get("tur"), str)
+                or not isinstance(raw.get("segment"), str)
+                or raw.get("sahip") != hashlib.sha256(self._original_owner_id.encode()).hexdigest()
+                or set(raw) != {"surum", "sahip", "tur", "segment", "mesajlar"}
+            ):
+                return None
+            messages = original_messages_from(raw["mesajlar"])
+            scope = OriginalTraceScope(self._original_owner_id, raw["tur"], (raw["segment"],))
+            if (
+                messages is None
+                or not OriginalTraceRead(scope, "redacted_original", messages).is_usable()
+            ):
+                return None
+            records.append(raw)
+        return records
+
+    def _read_original(self, scope: OriginalTraceScope) -> OriginalTraceRead:
+        try:
+            records = self._original_records()
+        except (OSError, UnicodeError, ValueError) as error:
+            _LOG.warning("özgün segment okunamadı", extra={"hata": type(error).__name__})
+            return OriginalTraceRead(scope, "unavailable")
+        if records is None:
+            return OriginalTraceRead(scope, "incomplete")
+        if not records:
+            return OriginalTraceRead(scope, "missing")
+        selected = [
+            record
+            for record in records
+            if record.get("tur") == scope.turn_id and record.get("segment") in scope.segment_ids
+        ]
+        if tuple(record["segment"] for record in selected) != scope.segment_ids:
+            return OriginalTraceRead(scope, "incomplete")
+        messages: list[Message] = []
+        for record in selected:
+            decoded = original_messages_from(record["mesajlar"])
+            if decoded is None:
+                return OriginalTraceRead(scope, "incomplete")
+            messages.extend(decoded)
+        size = sum(
+            len(message.content) + sum(len(call.arguments) for call in message.tool_calls)
+            for message in messages
+        )
+        if size > scope.max_chars:
+            return OriginalTraceRead(scope, "truncated")
+        result = OriginalTraceRead(scope, "redacted_original", tuple(messages))
+        return result if result.is_usable() else OriginalTraceRead(scope, "incomplete")
 
     def _write(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
         with self._transaction() as owned:
@@ -136,11 +298,7 @@ class FileTurnJournal:
 
     @staticmethod
     def _acquire(lease: FileLease) -> bool:
-        """Kilidi kısa süre bekleyerek al.
-
-        Tek denemeyle vazgeçmek `clear()`ı sessizce atlıyordu: biten iş günlükte
-        kalıp sonraki sekme açılışında 'yarıda kaldı' diye geri yükleniyordu.
-        """
+        """Geçici kilit çakışmasında biten turu diriltmemek için kısa süre bekle."""
         for attempt in range(_LOCK_ATTEMPTS):
             if lease.try_acquire():
                 return True
@@ -154,7 +312,7 @@ class FileTurnJournal:
             "gorev": redact(task),
             "zaman": self._clock.now(),
             "bildirildi": notified,
-            "mesajlar": [_message_to(message) for message in messages],
+            "mesajlar": [message_to(message) for message in messages],
         }
         try:
             atomic_replace_text(self._path, json.dumps(payload, ensure_ascii=False))
@@ -163,74 +321,9 @@ class FileTurnJournal:
             _LOG.warning("tur günlüğü yazılamadı", extra={"hata": type(error).__name__})
 
 
-def _message_to(message: Message) -> dict[str, object]:
-    return {
-        "rol": message.role,
-        "icerik": redact(message.content),
-        "araclar": [
-            {"id": call.id, "ad": call.name, "arguman": _redact_arguments(call.arguments)}
-            for call in message.tool_calls
-        ],
-        "arac_id": message.tool_call_id,
-        "ad": message.name,
-        "ok": message.ok,
-        "tool_diff": redact(message.tool_diff) if message.tool_diff is not None else None,
-        "harness": message.harness_note,
-    }
-
-
-def _redact_arguments(raw: str) -> str:
-    """Araç argümanındaki sırları JSON'u BOZMADAN maskele.
-
-    Düz `redact`, `{"api_key": "sk-…"}` biçimini `{[gizlendi], …}` yapıyordu
-    (geçersiz JSON). JSON ise yapı korunur, yalnız sır taşıyan değer değişir.
-    """
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return redact(raw)
-    return json.dumps(_scrub(data), ensure_ascii=False)
-
-
-def _scrub(value: object, key: str = "") -> object:
-    if isinstance(value, dict):
-        return {name: _scrub(item, str(name)) for name, item in value.items()}
-    if isinstance(value, list):
-        return [_scrub(item, key) for item in value]
-    if isinstance(value, str):
-        probe = f"{key}: {value}" if key else value
-        return value if redact(probe) == probe else "[gizlendi]"
-    return value
-
-
-def _message_from(item: object) -> Message | None:
-    if not isinstance(item, dict):
-        return None
-    role, content = item.get("rol"), item.get("icerik")
-    if not isinstance(role, str) or not isinstance(content, str):
-        return None
-    raw_calls = item.get("araclar", [])
-    if not isinstance(raw_calls, list):
-        return None
-    calls = tuple(
-        ToolCall(
-            id=str(call.get("id", "")),
-            name=str(call.get("ad", "")),
-            arguments=str(call.get("arguman", "")),
-        )
-        for call in raw_calls
-        if isinstance(call, dict)
-    )
-    tool_call_id = item.get("arac_id")
-    name = item.get("ad")
-    ok = item.get("ok")
-    return Message(
-        role,
-        content,
-        tool_calls=calls,
-        tool_call_id=tool_call_id if isinstance(tool_call_id, str) else None,
-        name=name if isinstance(name, str) else None,
-        ok=ok if isinstance(ok, bool) else None,
-        tool_diff=item["tool_diff"] if isinstance(item.get("tool_diff"), str) else None,
-        harness_note=bool(item.get("harness", False)),
-    )
+def _original_call_ids(record: dict[str, object]) -> set[str]:
+    """Yalnız katı ayrıştırıcıdan geçmiş segmentin çağrı kimliklerini topla."""
+    messages = original_messages_from(record.get("mesajlar"))
+    if messages is None:
+        return set()
+    return {call.id for message in messages for call in message.tool_calls}

@@ -36,6 +36,7 @@ from . import (
     worktree_tools,
 )
 from .registry import ToolRegistry
+from .symbol_query import SymbolQuery, SymbolQuerySettings
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
@@ -59,13 +60,40 @@ _INTEGER: SchemaFragment = {"type": "integer"}
 _NUMBER: SchemaFragment = {"type": "number"}
 
 
-def build_registry() -> ToolRegistry:
+def build_registry(
+    *, symbol_query_enabled: bool = False, symbol_query_settings: SymbolQuerySettings | None = None
+) -> ToolRegistry:
     """Yerleşik araçların tamamını içeren yeni bir kayıt defteri üret."""
     registry = ToolRegistry()
     for tool in _TOOLS:
         registry.register(tool)
     for alias, target in _ALIASES.items():
         registry.register_alias(alias, target)
+    if symbol_query_enabled:
+        registry.register(
+            Tool(
+                name="symbol_query",
+                description="Sembol tanımı, referansları veya LSP tanılarını sorgula; "
+                "sunucusuz yol lexical fallback verir.",
+                parameters={
+                    **_schema(
+                        {
+                            "action": {
+                                **_STRING,
+                                "enum": ["definition", "references", "diagnostics"],
+                            },
+                            "path": _STRING,
+                            "line": {**_INTEGER, "minimum": 0},
+                            "character": {**_INTEGER, "minimum": 0},
+                            "symbol": _STRING,
+                        },
+                        ["action", "path"],
+                    ),
+                    "additionalProperties": False,
+                },
+                run=SymbolQuery(symbol_query_settings or SymbolQuerySettings()),
+            )
+        )
     return registry
 
 

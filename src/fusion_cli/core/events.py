@@ -14,9 +14,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from .auto_review import ReviewSource, ReviewVerdict
+from .evidence import CriterionEvidence
+from .lesson_runtime import LessonDelivery
+from .prompt_manifest import PromptManifest
+from .repair_ledger import FailureOrigin
 from .types import FusionResult, ModelResult
 
 
@@ -38,6 +42,7 @@ class Event:
     varsayılanı boştur: mevcut olay kurucuları değişmez.
     """
 
+    candidate_id: str | None = field(default=None, kw_only=True)
     agent_id: str = field(default="", kw_only=True)
     event_id: str | None = field(default=None, kw_only=True)
     session_id: str | None = field(default=None, kw_only=True)
@@ -199,6 +204,8 @@ class ToolStarted(Event):
 
     name: str
     args: Mapping[str, object]
+    call_id: str | None = None
+    attempt_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +224,9 @@ class ToolExecuted(Event):
     #: `run_shell` için proje kökü parmak izi sonucu: "değişmedi" | "N dosya değişti: ..." |
     #: "ölçülemedi: neden". Boş = ölçüm denenmedi (salt-okunur komut, ayar kapalı).
     workspace: str = ""
+    call_id: str | None = None
+    attempt_id: str | None = None
+    mutating: bool | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +242,11 @@ class ToolCallRepaired(Event):
     tekrarlarsa turu bitirir. Ekranda hiçbir iz yokken arka planda üç çağrı yanmış
     olabilir; kullanıcı turun neden uzadığını göremezse Fusion'ı yavaş sanır.
     """
+
+    call_id: str | None = None
+    attempt_id: str | None = None
+    repair_kind: str = ""
+    failure_stage: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,9 +495,30 @@ class GateEscalationFinished(Event):
 
 @dataclass(frozen=True, slots=True)
 class LessonsRecalled(Event):
-    """Göreve benzer dersler hatırlandı ve prompta eklendi."""
+    """Göreve benzer dersler bellekten bulundu."""
 
     count: int
+    lesson_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LessonOffered(Event):
+    """Kimliği bilinen ders modele gerçekten sunuldu."""
+
+    lesson_id: str
+    delivery: LessonDelivery
+
+
+@dataclass(frozen=True, slots=True)
+class LessonOutcome(Event):
+    """Ders kullanımının son doğrulanmış veya bilinmeyen sonucu."""
+
+    lesson_id: str
+    used: bool | None
+    outcome: str
+    feedback_reason: str
+    evidence_refs: tuple[str, ...] = ()
+    failure_origin: FailureOrigin | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -886,3 +922,113 @@ class EventPublisher(Protocol):
     """
 
     def publish(self, event: Event) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PromptManifestRecorded(Event):
+    """Gerçek çağrının içeriksiz istem ölçümü; mevcut korelasyonla yayınlanır."""
+
+    manifest: PromptManifest
+
+
+@dataclass(frozen=True, slots=True)
+class ContextProtectionMeasured(Event):
+    """Zorunlu son grup ve sınırlı pinler nedeniyle kalan bağlam taşması."""
+
+    threshold_chars: int
+    visible_chars: int
+    newest_group_chars: int
+    pinned_calls: int
+    omitted_pins: int
+    budget_exceeded: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateStarted(Event):
+    """İzole adayın önceden ayrılmış çağrı payı ve istenen modeli."""
+
+    plan_id: str
+    step_id: str
+    ordinal: int
+    requested_model: str
+    edit_format: Literal["exact", "whole"] | None
+    allocated_calls: int
+    arm: str
+    task_id: str
+    repeat: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateFinished(Event):
+    """Adayın gerçek çağrı kimlikleri ve seçimden önceki kabul snapshot'ı."""
+
+    plan_id: str
+    step_id: str
+    ordinal: int
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+    call_ids: tuple[str, ...]
+    scope: Literal["step", "task"] = field(default="step", kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSelected(Event):
+    """Seçim uygunluğu başarı değildir; terfi olayı ayrı kaydedilir."""
+
+    plan_id: str
+    step_id: str
+    selected_candidate_id: str | None
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatePromoted(Event):
+    """Asıl çalışma alanında terfi sonrası yeniden ölçülen kabul snapshot'ı."""
+
+    plan_id: str
+    step_id: str
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceConflictDetected(Event):
+    """Kaynak terfisi ve geri alma çakışmalarını metin ayrıştırmadan say."""
+
+    plan_id: str
+    step_id: str
+    phase: Literal["source-promotion", "rollback"]
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptExperimentFinished(Event):
+    """Bütün adımlar ve final kabulünden sonra aynı toplam hakla biten kol."""
+
+    task_id: str
+    repeat: int
+    arm: str
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+    used_calls: int
+    total_calls: int
+    measurement: Literal["measured", "unavailable"] = field(default="measured", kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherAdviceOffered(Event):
+    """Cevabı saklamadan öğretmen tavsiyesini mevcut tur kimliğine bağla."""
+
+    advice_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherAdviceOutcome(Event):
+    """Tavsiyenin ilgili son kanıtla doğrulanma durumu."""
+
+    advice_id: str
+    verified: bool
+    evidence_refs: tuple[str, ...] = ()

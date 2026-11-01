@@ -1,0 +1,2 @@
+def selam(name):
+    return name

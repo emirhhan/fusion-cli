@@ -128,7 +128,7 @@ import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
-import { MediaScreen } from "./sections/MediaScreen";
+import { normalizeNavigationDestination } from "./state/normalizeNavigationDestination";
 import { KitsScreen } from "./kits/KitsScreen";
 import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
@@ -329,8 +329,7 @@ type Page =
   | "help"
   | "settings"
   | "account"
-  | "image-create"
-  | "video-create";
+  | "image-create";
 
 function ProjectInspector({
   activeTab,
@@ -572,10 +571,10 @@ export function SessionUygulama({
   const pageHistory = useNavigationHistory<Page>("chat");
   const page = pageHistory.current;
   const setPage = pageHistory.push;
-  // En soldaki ana menü. Home ve Görsel/Video kabuğun içindeki sayfalardır;
+  // En soldaki ana menü. Home ve Görsel oluştur kabuğun içindeki sayfalardır;
   // diğer üç bölüm tüm yüzeyi kaplar ve sayfa geçmişine girmez.
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
-  const mediaPage = page === "image-create" || page === "video-create";
+  const mediaPage = page === "image-create";
   const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("genel");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
@@ -741,7 +740,8 @@ export function SessionUygulama({
     }
   };
   const history = useHistory(active?.client ?? null);
-  const navigateSidebar = async (destination: string) => {
+  const navigateSidebar = async (incomingDestination: string) => {
+    const destination = normalizeNavigationDestination(incomingDestination);
     setNewTaskError(null);
     if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
@@ -750,10 +750,10 @@ export function SessionUygulama({
       return;
     }
     try {
-      if (!active && destination !== "video-create" && !destination.startsWith("project:") && !destination.startsWith("project-id:")) {
+      if (!active && !destination.startsWith("project:") && !destination.startsWith("project-id:")) {
         await controller.create({ root: await desktopDir() });
       }
-            if (destination === "image-create" || destination === "video-create") {
+            if (destination === "image-create") {
               setPage(destination);
             } else if (destination === "skills") {
               setPage("skills");
@@ -1480,7 +1480,7 @@ export function SessionUygulama({
       surfaceFullBleed={surfaceSection !== null}
       sidebarHidden={sectionOwnsSidebar}
       header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
-      content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
+      content={<>{mediaPage ? <ImageCreate client={null} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} {...projectSidebarProps} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, projectId: projects.registry.chats[conversation.id], updated_at: conversation.updatedAt * 1000 }))} />}
@@ -1528,10 +1528,9 @@ export function SessionUygulama({
     : SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
     ? activeProjectName
     : page === "image-create" ? "Görsel oluştur"
-      : page === "video-create" ? "Video oluştur"
-        : page === "skills" ? "Beceriler ve Ajanlar"
-          : page === "help" ? "Yardım"
-            : active.title;
+      : page === "skills" ? "Beceriler ve Ajanlar"
+        : page === "help" ? "Yardım"
+          : active.title;
 
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
   const activeAttachments = attachments[active.id] ?? controller.submissionAttachments(active.id);
@@ -1703,7 +1702,7 @@ export function SessionUygulama({
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={activeProjectName} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
   const content = mediaPage
-    ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
+    ? <ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />
     : page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"

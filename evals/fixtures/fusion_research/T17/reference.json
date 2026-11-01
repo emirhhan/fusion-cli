@@ -1,0 +1,30 @@
+[
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "bir.txt"
+    }
+  },
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "iki.txt"
+    }
+  },
+  {
+    "name": "edit_file",
+    "arguments": {
+      "path": "bir.txt",
+      "old": "eksik",
+      "new": "TAM"
+    }
+  },
+  {
+    "name": "edit_file",
+    "arguments": {
+      "path": "iki.txt",
+      "old": "eksik",
+      "new": "TAM"
+    }
+  }
+]

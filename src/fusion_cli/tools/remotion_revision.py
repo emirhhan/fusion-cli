@@ -8,6 +8,7 @@ import json
 from dataclasses import asdict, replace
 from pathlib import Path
 
+from ..core.changeset import ChangeSet
 from ..core.errors import FusionError
 from ..core.remotion_contract import RegisteredKitContract
 from ..core.repair_ledger import SourceFingerprint
@@ -68,19 +69,23 @@ def _apply(
         raise ValueError("İptal edilen oturum sahne revizyonu yazamaz.")
     check_packaged(root, old)
     entry, metadata = root / BOOTSTRAP_ENTRY, root / "fusion-contract.json"
+    changes = ChangeSet()
     for path in (entry, metadata):
         _safe_file(root, path)
-        context.changes.record(path)
-    originals = ((entry, entry.read_text()), (metadata, metadata.read_text()))
+        path.read_text()
+        changes.record(path)
     if new == old:
         return
     try:
         atomic_write(entry, bootstrap_source(new.plan.composition_id, new.scenes).decode())
+        changes.record_applied(entry)
         if context.cancelled.is_set():
             raise ValueError("İptal edilen oturum revizyonu durdurdu.")
         atomic_write(metadata, json.dumps(asdict(new), ensure_ascii=False, indent=2))
+        changes.record_applied(metadata)
     except (OSError, ValueError):
-        for path, content in originals:
-            atomic_write(path, content)
+        changes.restore()
+        context.changes.absorb(changes)
         raise
+    context.changes.absorb(changes)
     context.touched.update((entry, metadata))

@@ -44,7 +44,7 @@ class _FakeLessons:
         self.lessons.append(lesson)
         return True
 
-    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
+    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=(), policy=None):
         return tuple(self.lessons[:limit])
 
     def all(self):

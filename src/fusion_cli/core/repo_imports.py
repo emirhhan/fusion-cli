@@ -35,6 +35,7 @@ __all__ = [
     "ModuleIndex",
     "build_graph",
     "extract_imports",
+    "related_tests",
 ]
 
 #: İçe aktarma çıkarımı olan uzantılar. Diğer dillerde harita eski sayım yoluna döner.
@@ -330,6 +331,7 @@ class ImportGraph:
     fan_in: Mapping[str, int]
     named_in: Mapping[tuple[str, str], int]
     edges: int
+    dependencies: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def _targets(
@@ -363,6 +365,22 @@ def _python_targets(kaynak: str, ref: ImportRef, index: ModuleIndex) -> list[tup
     return bulunan
 
 
+def _dependency_paths(source: str, refs: list[ImportRef], index: ModuleIndex) -> tuple[str, ...]:
+    """İçe aktarmanın yürüttüğü paket başlatıcılarını da bağımlılığa kat."""
+    suffix = posixpath.splitext(source)[1]
+    targets = {target for ref in refs for target, _ in _targets(source, suffix, ref, index)}
+    if suffix == ".py":
+        for target in tuple(targets):
+            parent = posixpath.dirname(target)
+            while parent:
+                initializer = f"{parent}/__init__.py"
+                if initializer in index.paths:
+                    targets.add(initializer)
+                parent = posixpath.dirname(parent)
+    targets.discard(source)
+    return tuple(sorted(targets))
+
+
 def build_graph(
     imports: Mapping[str, list[ImportRef]],
     index: ModuleIndex,
@@ -379,10 +397,12 @@ def build_graph(
     named_in: dict[tuple[str, str], int] = defaultdict(int)
     gorulen_kenar: set[tuple[str, str]] = set()
     gorulen_ad: set[tuple[str, str, str]] = set()
+    dependencies: dict[str, tuple[str, ...]] = {}
     for kaynak in sorted(imports):
+        uzanti = posixpath.splitext(kaynak)[1]
+        dependencies[kaynak] = _dependency_paths(kaynak, imports[kaynak], index)
         if is_test(kaynak):
             continue
-        uzanti = posixpath.splitext(kaynak)[1]
         for ref in imports[kaynak]:
             for hedef, adli in _targets(kaynak, uzanti, ref, index):
                 if hedef == kaynak:
@@ -396,4 +416,28 @@ def build_graph(
                     if (kaynak, hedef, ad) not in gorulen_ad:
                         gorulen_ad.add((kaynak, hedef, ad))
                         named_in[(hedef, ad)] += 1
-    return ImportGraph(fan_in, named_in, len(gorulen_kenar))
+    return ImportGraph(fan_in, named_in, len(gorulen_kenar), dependencies)
+
+
+def related_tests(
+    graph: ImportGraph,
+    changed: tuple[str, ...],
+    *,
+    is_test: Callable[[str], bool],
+) -> tuple[str, ...] | None:
+    """Ters bağımlılık kapanışındaki mevcut testler; bilinmeyen ilişkide tam kapı."""
+    if not changed or any(path not in graph.dependencies for path in changed):
+        return None
+    reverse: dict[str, set[str]] = defaultdict(set)
+    for source, targets in graph.dependencies.items():
+        for target in targets:
+            reverse[target].add(source)
+    reached = set(changed)
+    pending = list(changed)
+    while pending:
+        for source in reverse.get(pending.pop(), ()):
+            if source not in reached:
+                reached.add(source)
+                pending.append(source)
+    selected = tuple(sorted(path for path in reached if is_test(path)))
+    return selected or None

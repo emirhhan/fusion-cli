@@ -217,17 +217,20 @@ async def test_remotion_tasima_hatasi_nedeniyle_bulguya_girer(tmp_path):
 # --- A3-37 / A3-38 ----------------------------------------------------------------- #
 
 
-def test_reprodiksiyon_komutu_kucuk_sapmalarla_eslesir():
+def test_reprodiksiyon_komutu_yalniz_kosmetik_sapmalarla_eslesir():
+    from fusion_cli.core.evidence import ToolUse
     from fusion_cli.engines.agent.reproduction import _ayni_komut
 
-    class Kullanim:
-        def __init__(self, komut):
-            self.arguments = {"command": komut}
-
     hedef = "pytest tests/test_a.py"
-    assert _ayni_komut(Kullanim("pytest -x tests/test_a.py"), hedef)
-    assert _ayni_komut(Kullanim("cd app && pytest  tests/test_a.py"), hedef)
-    assert not _ayni_komut(Kullanim("pytest tests/test_b.py"), hedef)
+    assert _ayni_komut(
+        ToolUse("run_shell", arguments={"command": "pytest  tests/test_a.py"}), hedef
+    )
+    for komut in (
+        "pytest -x tests/test_a.py",
+        "cd app && pytest tests/test_a.py",
+        "pytest tests/test_b.py",
+    ):
+        assert not _ayni_komut(ToolUse("run_shell", arguments={"command": komut}), hedef)
 
 
 def test_denetim_sayfalari_dis_siteyi_secmez():

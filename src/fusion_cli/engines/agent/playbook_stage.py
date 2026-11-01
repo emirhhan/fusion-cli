@@ -14,6 +14,7 @@ için `run_agent` çağrı sırasında parametre olarak geçirilir; bu modül on
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.constants import SHELL_TIMEOUT_S
@@ -101,6 +102,8 @@ async def _commands_approved(playbook: Playbook, deps: AgentDeps) -> bool:
     karar yolu (`resolve_request` + politika) kullanılır; komutlardan biri onaylanmaz
     ya da reddedilirse playbook hiç başlamaz.
     """
+    if deps.base_registry is None:
+        return False
     tool = deps.base_registry.get("run_shell")
     if tool is None:
         return False
@@ -163,8 +166,13 @@ class _AgentStageExecutor:
 
     async def run(self, stage: Stage, notes: dict[Stage, str]) -> StageOutcome:
         prompt = _STAGE_PROMPTS[stage].format(task=self._task, notes=_format_notes(notes))
+        stage_deps = self._deps
+        if hasattr(self._deps, "tool_context"):
+            stage_deps = replace(
+                self._deps, tool_context=replace(self._deps.tool_context, tool_phase=stage.value)
+            )
         # depth=1: üstteki workflow/playbook/öz-denetim dalları yeniden tetiklenmesin.
-        outcome = await self._run_agent(prompt, self._deps, depth=1, self_review=False)
+        outcome = await self._run_agent(prompt, stage_deps, depth=1, self_review=False)
         ok = outcome.ok and not outcome.hit_step_limit
         # Bütçe kapısı GERÇEK model çağrısıyla beslenir; sayaç yoksa (0) araç turu + son
         # cevap turu tahmini kullanılır (A3-28: tahmin bütçeyi yanlış ölçüyordu).

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -55,7 +56,9 @@ def run_round_command(
     prompt: Annotated[
         str, typer.Option("--istem", help="Optimize edilecek istem.")
     ] = DEFAULT_PROMPT,
-    variants: Annotated[int, typer.Option("--aday", min=1, help="Denenecek aday sayısı.")] = 3,
+    variants: Annotated[
+        int, typer.Option("--aday", min=1, max=4, help="Denenecek aday sayısı.")
+    ] = 3,
     repeat: Annotated[int, typer.Option("--tekrar", min=1, help="Her görev kaç kez koşulsun.")] = 1,
     min_tasks: Annotated[
         int, typer.Option("--en-az-gorev", min=1, help="Her kümede en az görev.")
@@ -66,31 +69,12 @@ def run_round_command(
     GERÇEK MODEL ÇAĞRISI yapar (kota/ücret kullanıcıya aittir). İstem dosyasını değiştirmez.
     """
     require_dev_tools()
-    from evals.kume import kume_coz
-    from evals.loader import load_tasks
     from evals.runner import EvaluationUnavailableError, RateLimitedError
-    from prompt_opt.campaign import RoundSetup, preflight
-    from prompt_opt.targets import get_target
+    from prompt_opt.campaign import preflight
 
     paths = loop_paths()
     try:
-        target = get_target(prompt)
-        opt_tasks = load_tasks(_suite_file(suite, paths, kume_coz))
-        held_tasks = load_tasks(_suite_file(heldout, paths, kume_coz))
-        setup = RoundSetup(
-            prompt=prompt,
-            base_text=target.read(),
-            suite=suite,
-            heldout_suite=heldout,
-            opt_tasks=opt_tasks,
-            heldout_tasks=held_tasks,
-            log_path=paths.log,
-            now=SystemClock().now,
-            timestamp=iso_time,
-            variant_count=variants,
-            min_tasks=min_tasks,
-            max_chars=target.max_chars,
-        )
+        setup = _round_setup(suite, heldout, prompt, variants, min_tasks, paths)
         # Sağlayıcı kurulumundan ÖNCE: aşırı uyum ve boyut tavanı burada kesilir.
         result = preflight(setup) or asyncio.run(
             with_web_cleanup(_run_round(setup, paths, repeat=repeat))
@@ -104,23 +88,98 @@ def run_round_command(
     _print_round(result)
 
 
+def _round_setup(
+    suite: str,
+    heldout: str,
+    prompt: str,
+    variants: int,
+    min_tasks: int,
+    paths: LoopPaths,
+) -> RoundSetup:
+    """Küme başlıklarını aday içeriği değerlendirilmeden önce doğrula."""
+    from evals.kume import kume_coz
+    from evals.loader import load_suite
+    from prompt_opt.campaign import RoundSetup
+    from prompt_opt.targets import get_target
+
+    target = get_target(prompt)
+    opt_path = _suite_file(suite, paths, kume_coz)
+    heldout_path = _suite_file(heldout, paths, kume_coz)
+    opt_suite = load_suite(opt_path, allowed_splits=frozenset({"development"}))
+    held_suite = load_suite(heldout_path, allowed_splits=frozenset({"validation"}))
+    return RoundSetup(
+        prompt=prompt,
+        base_text=target.read(),
+        suite=suite,
+        heldout_suite=heldout,
+        opt_tasks=opt_suite.tasks,
+        heldout_tasks=held_suite.tasks,
+        opt_metadata=opt_suite.metadata,
+        heldout_metadata=held_suite.metadata,
+        opt_path=opt_path,
+        heldout_path=heldout_path,
+        log_path=paths.log,
+        now=SystemClock().now,
+        timestamp=iso_time,
+        variant_count=variants,
+        min_tasks=min_tasks,
+        max_chars=target.max_chars,
+    )
+
+
 def _suite_file(name: str, paths: LoopPaths, resolve: Callable[..., Path]) -> Path:
     return resolve(name, kullanici_dizini=paths.suites, paketli_dizin=paths.bundled_suites)
 
 
 async def _run_round(setup: RoundSetup, paths: LoopPaths, *, repeat: int) -> RoundResult:
+    from evals.effective_config import project_effective
+    from evals.profiles import EvalProfile, build_run_metadata, prepare_eval_config
     from prompt_opt.campaign import run_round
     from prompt_opt.evaluator import SuiteEvaluator
     from prompt_opt.proposals import ProposalStore
     from prompt_opt.targets import get_target
 
-    config = load_config()
+    config = prepare_eval_config(load_config())
+    setup = replace(
+        setup,
+        effective_flags=tuple(
+            field
+            for field in project_effective(config, config.agent, "eval").fields
+            if field.kind == "flag"
+        ),
+    )
     factory = _executor_factory(config, get_target(setup.prompt))
     return await run_round(
         setup,
         provider=_snippet_provider(config),
-        opt_evaluator=SuiteEvaluator(setup.opt_tasks, factory, repeat=repeat),
-        heldout_evaluator=SuiteEvaluator(setup.heldout_tasks, factory, repeat=repeat),
+        opt_evaluator=SuiteEvaluator(
+            setup.opt_tasks,
+            factory,
+            repeat=repeat,
+            metadata_factory=lambda calls: build_run_metadata(
+                suite=setup.opt_path or Path(setup.suite),
+                tasks=setup.opt_tasks,
+                profile=EvalProfile.FUSION_FULL,
+                config=config,
+                repeat=repeat,
+                seed=None,
+                calls=calls,
+            ),
+        ),
+        heldout_evaluator=SuiteEvaluator(
+            setup.heldout_tasks,
+            factory,
+            repeat=repeat,
+            metadata_factory=lambda calls: build_run_metadata(
+                suite=setup.heldout_path or Path(setup.heldout_suite),
+                tasks=setup.heldout_tasks,
+                profile=EvalProfile.FUSION_FULL,
+                config=config,
+                repeat=repeat,
+                seed=None,
+                calls=calls,
+            ),
+        ),
         store=ProposalStore(paths.proposals),
     )
 
@@ -150,14 +209,17 @@ def _snippet_provider(config: Config) -> SnippetProvider:
 
 def _executor_factory(config: Config, target: PromptTarget) -> ExecutorFactory:
     """Aday istemle gerçek agent koşturan yürütücü fabrikası (testte değiştirilir)."""
-    from evals.profiles import EvalProfile, build_runner
+    from evals.profiles import EvalProfile, build_runner, prepare_eval_config
     from prompt_opt.evaluator import agent_executor_factory
 
     return agent_executor_factory(
-        build_runner(EvalProfile.FUSION_FULL, config),
+        build_runner(EvalProfile.FUSION_FULL, prepare_eval_config(config)),
         target,
         workspace_root=Path(tempfile.mkdtemp(prefix="fusion-prompt-opt-")),
         clock=SystemClock(),
+        runner_factory=lambda task, repeat: build_runner(
+            EvalProfile.FUSION_FULL, prepare_eval_config(config), task=task
+        ),
     )
 
 

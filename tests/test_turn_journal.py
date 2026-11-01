@@ -468,3 +468,405 @@ def test_kilit_kisa_sure_baska_yazarda_ise_temizleme_atlanmaz(tmp_path):
 
     assert gunluk.load() is None
     assert time.monotonic() - baslangic < 2.0
+
+
+async def test_ozgun_segment_snapshot_ozetinden_bagimsiz_append_only_kalir(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("segment1",))
+    original = [Message("assistant", "özgün karar"), Message("user", "Asla main'e push etme.")]
+    assert await journal.append_original(scope, original)
+    path = journal.original_path
+    first = path.read_bytes()
+    assert await journal.append_original(scope, original)
+    assert path.read_bytes() == first
+    journal.save([Message("user", "[önceki adımların özeti] kayıplı özet", harness_note=True)])
+    reopened = FileTurnJournal(journal.path, original_owner_id="chat1")
+    result = await reopened.read_original(scope)
+    assert result.status == "redacted_original"
+    assert result.messages == tuple(original)
+    assert journal.load().messages != result.messages
+    assert path.stat().st_mode & 0o777 == 0o600
+    journal.clear()
+    assert not path.exists()
+
+
+async def test_ozgun_segment_ve_cagri_kimlik_cakismasi_yeni_kaydi_reddeder(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    original = [
+        Message("assistant", "", tool_calls=(ToolCall("c1", "read_file", "{}"),)),
+        Message("tool", "kanıt", tool_call_id="c1"),
+    ]
+    assert await journal.append_original(scope, original)
+    before = journal.original_path.read_bytes()
+    assert not await journal.append_original(scope, [Message("assistant", "farklı")])
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)), original
+    )
+    assert journal.original_path.read_bytes() == before
+
+
+async def test_ozgun_segment_tum_metin_alanlarindaki_sirlari_maskeler(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    canary = "sk-or-v1-" + "q" * 48
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    messages = [
+        Message(
+            "assistant",
+            "api_key=" + canary,
+            tool_calls=(
+                ToolCall("c1", "write_file", json.dumps({"api_key": canary, "path": "a.py"})),
+            ),
+        ),
+        Message("tool", "password=" + canary, tool_call_id="c1", tool_diff="+token=" + canary),
+    ]
+    assert await journal.append_original(scope, messages)
+    restored = await journal.read_original(scope)
+    assert restored.status == "redacted_original"
+    assert canary not in journal.original_path.read_text()
+    assert canary not in repr(restored.messages)
+    assert json.loads(restored.messages[0].tool_calls[0].arguments)["path"] == "a.py"
+
+
+@pytest.mark.parametrize(
+    "owner,turn,segments",
+    [
+        ("other", "turn1", ("s1",)),
+        ("chat1", "other", ("s1",)),
+        ("chat1", "../turn1", ("s1",)),
+        ("chat1", "turn1", ("../s1",)),
+        ("chat1", "turn1", ("s1", "s1")),
+        ("chat1", "turn1", ("absent",)),
+    ],
+)
+async def test_ozgun_okuma_sahip_tur_ve_segment_sinirlarini_karistirmaz(
+    tmp_path, owner, turn, segments
+):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s1",)), [Message("user", "özel")]
+    )
+    result = await journal.read_original(OriginalTraceScope(owner, turn, segments))
+    assert result.status != "redacted_original"
+    assert result.messages == ()
+
+
+async def test_snapshot_kaydetmek_ozgun_kaynak_uretmez_ozet_segment_olamaz(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    summary = [Message("user", "[önceki adımların özeti] özet", harness_note=True)]
+    journal.save(summary)
+    assert (await journal.read_original(scope)).status == "missing"
+    assert not await journal.append_original(scope, summary)
+    disabled = FileTurnJournal(tmp_path / "off.json")
+    assert not await disabled.append_original(scope, [Message("user", "ham")])
+    assert not disabled.original_path.exists()
+
+
+async def test_ozgun_okuma_eksik_ve_butceyi_asan_kaynagi_tam_saymaz(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    assert await journal.append_original(scope, [Message("assistant", "z" * 100)])
+    result = await journal.read_original(
+        OriginalTraceScope("chat1", "turn1", ("s1",), max_chars=10)
+    )
+    assert result.status == "truncated" and result.messages == ()
+    journal.original_path.write_text(journal.original_path.read_text() + '{"yarım":')
+    result = await journal.read_original(scope)
+    assert result.status != "redacted_original" and result.messages == ()
+
+
+@pytest.mark.parametrize("corruption", ["json", "identity", "schema", "messages"])
+async def test_bozuk_ozgun_dosya_yeni_eklemeyi_dusurmeden_reddeder(tmp_path, corruption):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    assert await journal.append_original(scope, [Message("assistant", "özgün")])
+    record = json.loads(journal.original_path.read_text())
+    if corruption == "identity":
+        record.pop("tur")
+    elif corruption == "schema":
+        record["surum"] = True
+    elif corruption == "messages":
+        record["mesajlar"] = [False]
+    journal.original_path.write_text(
+        "{bozuk}\n" if corruption == "json" else json.dumps(record) + "\n"
+    )
+    before = journal.original_path.read_bytes()
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)), [Message("assistant", "yeni")]
+    )
+    assert journal.original_path.read_bytes() == before
+    assert (await journal.read_original(scope)).status != "redacted_original"
+
+
+async def test_ozgun_journal_baska_dosyaya_sembolik_bagla_yazmaz_ve_okumaz(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    target = tmp_path / "other.jsonl"
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    assert await journal.append_original(scope, [Message("assistant", "özgün")])
+    journal.original_path.rename(target)
+    before = target.read_bytes()
+    journal.original_path.symlink_to(target)
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)), [Message("assistant", "yeni")]
+    )
+    assert (await journal.read_original(scope)).status != "redacted_original"
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("partial", [False, True])
+async def test_ozgun_segment_tamamlanmamis_arac_grubu_ve_asiri_boyutu_reddeder(tmp_path, partial):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",), max_chars=10)
+    messages = (
+        [Message("assistant", "", tool_calls=(ToolCall("c1", "read_file", "{}"),))]
+        if partial
+        else [Message("assistant", "z" * 11)]
+    )
+    assert not await journal.append_original(scope, messages)
+    assert not journal.original_path.exists()
+
+
+async def test_ozgun_segment_eszamanli_tekrar_yazimda_bir_kez_eklenir(tmp_path):
+    import asyncio
+
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    journals = [FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1") for _ in range(6)]
+    assert all(
+        await asyncio.gather(
+            *(
+                journal.append_original(scope, [Message("assistant", "özgün")])
+                for journal in journals
+            )
+        )
+    )
+    assert len(journals[0].original_path.read_text().splitlines()) == 1
+
+
+async def test_ozgun_depo_tutma_sinirinda_eski_segmenti_silmeden_eklemeyi_reddeder(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    assert await journal.append_original(scope, [Message("assistant", "ilk")])
+    before = journal.original_path.read_bytes()
+    monkeypatch.setattr("fusion_cli.memory.turn_journal._ORIGINAL_FILE_BYTES", len(before) + 1)
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)), [Message("assistant", "yeni")]
+    )
+    assert journal.original_path.read_bytes() == before
+
+
+async def test_ozgun_segment_metin_olmayan_kimlik_alaninda_da_sir_saklamaz(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    canary = "sk-or-v1-" + "w" * 48
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    messages = [
+        Message("assistant", "", tool_calls=(ToolCall(canary, canary, "{}"),)),
+        Message("tool", "sonuç", tool_call_id=canary, name=canary),
+    ]
+    assert await journal.append_original(scope, messages)
+    result = await journal.read_original(scope)
+    assert canary not in journal.original_path.read_text()
+    assert canary not in repr(result.messages)
+    assert result.status == "redacted_original"
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "call_item",
+        "role",
+        "call_id",
+        "call_name",
+        "call_arguments",
+        "result_id",
+        "name",
+        "ok",
+        "harness",
+        "diff",
+    ],
+)
+async def test_strict_original_decoder_rejects_nested_corruption_on_read_and_append(
+    tmp_path, corruption
+):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    messages = [
+        Message("assistant", "", tool_calls=(ToolCall("c1", "read_file", "{}"),)),
+        Message("tool", "sonuç", tool_call_id="c1"),
+    ]
+    assert await journal.append_original(scope, messages)
+    raw = json.loads(journal.original_path.read_text())
+    assistant, result = raw["mesajlar"]
+    if corruption == "call_item":
+        assistant["araclar"] = [False]
+        raw["mesajlar"] = [assistant]
+    elif corruption == "role":
+        assistant["rol"] = "invalid"
+    elif corruption.startswith("call_"):
+        field = {"call_id": "id", "call_name": "ad", "call_arguments": "arguman"}[corruption]
+        assistant["araclar"][0][field] = 42
+    else:
+        field = {
+            "result_id": "arac_id",
+            "name": "ad",
+            "ok": "ok",
+            "harness": "harness",
+            "diff": "tool_diff",
+        }[corruption]
+        result[field] = 42
+    journal.original_path.write_text(json.dumps(raw) + "\n")
+    before = journal.original_path.read_bytes()
+    assert (await journal.read_original(scope)).status != "redacted_original"
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)),
+        [Message("assistant", "yeni")],
+    )
+    assert journal.original_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("metadata", ["turn", "segment"])
+async def test_original_metadata_rejects_recognized_secret_before_writing(tmp_path, metadata):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    canary = "sk-or-v1-" + "v" * 48
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    safe = OriginalTraceScope("chat1", "turn1", ("s1",))
+    assert await journal.append_original(safe, [Message("assistant", "koru")])
+    before = journal.original_path.read_bytes()
+    scope = OriginalTraceScope(
+        "chat1",
+        canary if metadata == "turn" else "turn1",
+        (canary if metadata == "segment" else "s2",),
+    )
+    assert not await journal.append_original(scope, [Message("assistant", "yeni")])
+    assert journal.original_path.read_bytes() == before
+    assert canary not in journal.original_path.read_text()
+    assert (await journal.read_original(safe)).status == "redacted_original"
+
+
+async def test_original_metadata_distinct_safe_ids_remain_independent(tmp_path):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    first = OriginalTraceScope("chat1", "turn-a", ("segment-a",))
+    second = OriginalTraceScope("chat1", "turn-b", ("segment-b",))
+    assert await journal.append_original(first, [Message("assistant", "ilk")])
+    assert await journal.append_original(second, [Message("assistant", "ikinci")])
+    assert (await journal.read_original(first)).messages[0].content == "ilk"
+    assert (await journal.read_original(second)).messages[0].content == "ikinci"
+
+
+def test_legacy_snapshot_keeps_its_tolerant_nested_call_restore(tmp_path):
+    journal = FileTurnJournal(tmp_path / "j.json")
+    journal.save([Message("assistant", "eski snapshot")])
+    raw = json.loads(journal.path.read_text())
+    raw["mesajlar"][0]["araclar"] = [False, {"id": 7, "ad": "read_file", "arguman": "{}"}]
+    journal.path.write_text(json.dumps(raw))
+    restored = journal.load()
+    assert restored is not None
+    assert restored.messages[0].tool_calls == (ToolCall("7", "read_file", "{}"),)
+
+
+@pytest.mark.parametrize("malformed", ["before", "cross_group", "wrong_role"])
+async def test_original_disk_batch_grammar_blocks_read_and_later_append(tmp_path, malformed):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    scope = OriginalTraceScope("chat1", "turn1", ("s1",))
+    messages = [
+        Message("assistant", "", tool_calls=(ToolCall("c1", "read_file", "{}"),)),
+        Message("tool", "birinci", tool_call_id="c1"),
+        Message("assistant", "", tool_calls=(ToolCall("c2", "read_file", "{}"),)),
+        Message("tool", "ikinci", tool_call_id="c2"),
+    ]
+    assert await journal.append_original(scope, messages)
+    raw = json.loads(journal.original_path.read_text())
+    first_call, first_result, second_call, second_result = raw["mesajlar"]
+    if malformed == "before":
+        raw["mesajlar"] = [first_result, first_call, second_call, second_result]
+    elif malformed == "cross_group":
+        raw["mesajlar"] = [first_call, second_call, second_result, first_result]
+    else:
+        first_call["rol"] = "user"
+    journal.original_path.write_text(json.dumps(raw) + "\n")
+    before = journal.original_path.read_bytes()
+    assert (await journal.read_original(scope)).status == "incomplete"
+    assert not await journal.append_original(
+        OriginalTraceScope("chat1", "turn1", ("s2",)),
+        [Message("assistant", "yeni")],
+    )
+    assert journal.original_path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "value_count, output, budget, raw_chars, published_chars, should_append",
+    [
+        pytest.param(22_000, "ok", 60_000, 44_014, 66_014, False, id="review_example"),
+        pytest.param(19_996, "ok", 60_000, 40_006, 60_002, False, id="over_boundary"),
+        pytest.param(19_995, "ok", 60_000, 40_004, 59_999, True, id="under_boundary"),
+        pytest.param(19_995, "ok!", 60_000, 40_005, 60_000, True, id="exact_boundary"),
+        pytest.param(20, "ok", 60, 54, 74, False, id="explicit_scope_budget"),
+        pytest.param(None, "ok", 60_000, 44_014, 44_015, True, id="same_raw_size"),
+    ],
+)
+async def test_published_original_record_is_validated_before_append(
+    tmp_path, value_count, output, budget, raw_chars, published_chars, should_append
+):
+    from fusion_cli.core.original_trace import OriginalTraceScope
+
+    journal = FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1")
+    safe_scope = OriginalTraceScope("chat1", "turn1", ("safe",))
+    assert await journal.append_original(safe_scope, [Message("assistant", "güvenli kayıt")])
+    before = journal.original_path.read_bytes()
+    payload = {"value": "x" * 44_000} if value_count is None else {"values": [0] * value_count}
+    arguments = json.dumps(payload, separators=(",", ":"))
+    assert len(arguments) + len(output) == raw_chars
+    scope = OriginalTraceScope("chat1", "turn1", ("normalized",), max_chars=budget)
+    messages = [
+        Message("assistant", "", tool_calls=(ToolCall("c1", "read_file", arguments),)),
+        Message("tool", output, tool_call_id="c1"),
+    ]
+
+    accepted = await journal.append_original(scope, messages)
+
+    assert accepted is should_append
+    if should_append:
+        published = await journal.read_original(scope)
+        assert published.status == "redacted_original"
+        assert len(published.messages[0].tool_calls[0].arguments) + len(output) == published_chars
+    else:
+        assert journal.original_path.read_bytes() == before
+    safe = await journal.read_original(safe_scope)
+    assert safe.status == "redacted_original"
+    assert safe.messages == (Message("assistant", "güvenli kayıt"),)
+    next_scope = OriginalTraceScope("chat1", "turn1", ("next",))
+    assert await journal.append_original(next_scope, [Message("assistant", "sonraki kısa kayıt")])
+    assert (await journal.read_original(next_scope)).status == "redacted_original"

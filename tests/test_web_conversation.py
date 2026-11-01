@@ -80,7 +80,9 @@ def pool(monkeypatch, log) -> BrowserSessionPool:
 
     sayac = {"n": 0}
 
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         log.append(("send", prompt))
         # Her tur FARKLI yanıt: gerçek transport tazelik ölçütü olarak önceki
         # yanıtı kullanır; sahtenin de aynı sözleşmeyi karşılaması gerekir.
@@ -210,7 +212,9 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
 
     cagri = {"sayi": 0}
 
-    async def _patlayan(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _patlayan(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         cagri["sayi"] += 1
         raise web_browser.WebBrowserSelectorError("arayüz değişti")
 
@@ -481,7 +485,9 @@ def test_aracsiz_sistemli_istekte_arac_talimati_yok():
 
 
 async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         return "### FUSION//SIRADAKİ ADIM\nİş bitti."
 
     monkeypatch.setattr(web_browser, "_send_turn", _send)
@@ -596,7 +602,9 @@ def _kalip_ret_ortami(monkeypatch, cevaplar: dict[str, str]) -> dict[str, list[s
             durum["model"] = komsu
         return komsu
 
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         kayit["gonderim"].append(durum["model"])
         return cevaplar[durum["model"]]
 
@@ -695,7 +703,9 @@ async def test_sure_asan_secili_modelden_sonraki_deneme_komsu_modelle_yapilir(po
     kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": "geç cevap", "3.6 Flash": "plan"})
     asil_gonder = web_browser._send_turn
 
-    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _yavas(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         if kayit["secim"][-1:] == ["3.1 Pro"] and not kayit["gonderim"]:
             kayit["gonderim"].append("3.1 Pro")
             await asyncio.sleep(60)
@@ -718,7 +728,9 @@ async def test_sure_asan_yeni_sohbetin_sayfasi_acik_birakilmaz(pool, monkeypatch
     """Ölçüldü (2 Ekim 2026): süresi dolan iki tur, paylaşılan Chrome'da hâlâ cevap
     üreten iki sahipsiz sekme bıraktı (sohbet havuza kaydedilmeden iptal ediliyordu)."""
 
-    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _yavas(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         await asyncio.sleep(60)
 
     monkeypatch.setattr(web_browser, "_send_turn", _yavas)
@@ -836,7 +848,9 @@ async def test_oturum_zaman_asimi_yanit_beklemeye_gecirilir(pool, monkeypatch):
 
     gorulen: list[float] = []
 
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         gorulen.append(limit_s)
         return "tamam"
 
@@ -895,7 +909,9 @@ async def test_iptal_edilen_tur_sohbet_durumunu_bayat_birakmaz(pool, log, monkey
     kok = conversation_digest(mesajlar[:1])
     assert pool.conversation("chatgpt_web", "main", kok) is not None
 
-    async def _asili(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _asili(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(web_browser, "_send_turn", _asili)

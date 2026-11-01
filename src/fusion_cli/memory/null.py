@@ -7,7 +7,16 @@ karşılanır, yalnızca içi boştur.
 
 from __future__ import annotations
 
-from ..core.memory import CodeMatch, Feedback, IndexStats, Lesson, ModelStats, Outcome
+from ..core.memory import (
+    CodeMatch,
+    Feedback,
+    IndexStats,
+    Lesson,
+    LessonRecallPolicy,
+    ModelStats,
+    Outcome,
+)
+from ..core.repair_ledger import FailureOrigin
 
 
 class NullPerformanceMemory:
@@ -40,12 +49,26 @@ class NullLessonMemory:
         scope: str | None = None,
         workspace: str | None = None,
         tags: tuple[str, ...] = (),
+        policy: LessonRecallPolicy | None = None,
     ) -> tuple[Lesson, ...]:
         return ()
 
     def reinforce(
-        self, texts: tuple[str, ...], *, success: bool, external_turn: bool = False
+        self,
+        texts: tuple[str, ...],
+        *,
+        success: bool,
+        external_turn: bool = False,
+        feedback_reason: str | None = None,
+        evidence_refs: tuple[str, ...] = (),
+        used: bool | None = None,
+        failure_origin: FailureOrigin = FailureOrigin.PRODUCT,
+        verified_at: str = "",
+        lesson_ids: tuple[str, ...] | None = None,
     ) -> int:
+        return 0
+
+    def set_quarantined(self, lesson_ids: tuple[str, ...], *, quarantined: bool) -> int:
         return 0
 
     def retag_from_workspace(self) -> int:

@@ -12,12 +12,11 @@ from __future__ import annotations
 import dataclasses
 import json
 import sys
-from collections.abc import Mapping
 from enum import Enum
 from typing import TextIO
 
 from ..core.events import Event
-from ..core.redaction import redact
+from ..core.redaction import redact, redact_value
 
 
 class JsonRenderer:
@@ -35,7 +34,7 @@ class JsonRenderer:
         # Redact values before JSON encoding. Redacting the complete JSON line
         # would mistake keys such as ``prompt_tokens`` for ``token=...`` and
         # remove them, leaving invalid JSON for downstream consumers.
-        payload = _redact_value({"event": type(event).__name__, **_fields(event)})
+        payload = redact_value({"event": type(event).__name__, **_fields(event)})
         line = json.dumps(payload, ensure_ascii=False, default=_encode)
         self._stream.write(line + "\n")
         self._stream.flush()
@@ -47,7 +46,7 @@ def _fields(event: Event) -> dict[str, object]:
     if not fields.get("agent_id"):
         fields.pop("agent_id", None)
     # Ek korelasyon yoksa legacy JSONL şekli değişmez; diğer null veriler korunur.
-    for name in ("event_id", "session_id", "turn_id", "schema_version"):
+    for name in ("event_id", "session_id", "turn_id", "schema_version", "candidate_id"):
         if fields.get(name) is None:
             fields.pop(name, None)
     # Parmak izi yalnız ölçülen `run_shell` olayında vardır; diğerlerinde satır biçimi değişmez.
@@ -67,21 +66,3 @@ def _encode(value: object) -> object:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
     return redact(str(value))
-
-
-def _redact_value(value: object) -> object:
-    """Recursively redact string values without changing JSON object keys."""
-    if isinstance(value, str):
-        return redact(value)
-    if isinstance(value, Enum):
-        return _redact_value(value.value)
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: _redact_value(getattr(value, field.name))
-            for field in dataclasses.fields(value)
-        }
-    if isinstance(value, Mapping):
-        return {key: _redact_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_redact_value(item) for item in value]
-    return value

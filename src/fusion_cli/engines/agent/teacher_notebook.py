@@ -32,6 +32,7 @@ def append_entry(
     answer: str,
     lesson_written: bool,
     lesson_skip_reason: str = "",
+    advice_id: str = "",
 ) -> Path:
     """Bir öğretmen danışmasını günlüğe ekle; dosyanın yolunu döndür."""
     hedef = root / NOTEBOOK_PATH
@@ -45,7 +46,8 @@ def append_entry(
         durum=redact(durum),
         answer=redact(answer),
         lesson_written=lesson_written,
-        lesson_skip_reason=lesson_skip_reason,
+        lesson_skip_reason=redact(lesson_skip_reason),
+        advice_id=redact(advice_id),
     )
     yeni = not hedef.exists()
     with hedef.open("a", encoding="utf-8", errors="replace") as dosya:
@@ -61,8 +63,11 @@ def _format_entry(
     answer: str,
     lesson_written: bool,
     lesson_skip_reason: str,
+    advice_id: str = "",
 ) -> str:
     parcalar = [f"\n## {timestamp}\n\n**Soru:** {question}\n"]
+    if advice_id:
+        parcalar.append(f"**Tavsiye kimliği:** {advice_id}\n")
     if durum:
         parcalar.append(f"**Durum:** {durum}\n")
     parcalar.append(f"\n**Cevap:**\n\n{answer}\n")
@@ -71,3 +76,16 @@ def _format_entry(
     elif lesson_skip_reason:
         parcalar.append(f"\n_Ders belleğe kaydedilmedi: {lesson_skip_reason}_\n")
     return "".join(parcalar)
+
+
+def append_outcome(root: Path, advice_id: str, refs: tuple[str, ...], written: bool) -> None:
+    """Aynı tavsiye kaydına son doğrulama durumunu ekle."""
+    status = "doğrulandı" if refs else "kullanım/sonuç bağı bilinmiyor"
+    evidence = ", ".join(refs) or "yok"
+    with (root / NOTEBOOK_PATH).open("a", encoding="utf-8", errors="replace") as handle:
+        handle.write(
+            redact(
+                f"\n**Tavsiye sonucu:** {advice_id}; {status}; "
+                f"kanıt: {evidence}; ders yazıldı: {written}\n"
+            )
+        )

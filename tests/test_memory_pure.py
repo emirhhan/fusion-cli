@@ -303,3 +303,64 @@ def test_olculmus_arac_disiplini_tam_guvende_kalir():
 
     assert set(by_task) == ornekler
     assert all(lesson.confidence == 1.0 for lesson in by_task.values())
+
+
+def test_foundation_metadata_eski_kayit_ve_yeni_alanlari_korur():
+    from fusion_cli.memory.lesson_codec import _to_lesson, _to_metadata
+
+    old = _to_lesson("eski", {"kind": "success"}, row_id="existing-id")
+    assert old.id == "existing-id" and old.source_split == ""
+    lesson = Lesson(
+        text="yeni",
+        kind=LessonKind.SUCCESS,
+        id="existing-id",
+        subject_key="api",
+        applies_to=("python",),
+        version="2",
+        supersedes=("old-id",),
+        verified_at="2026-11-01",
+        quarantined=True,
+        source_split="development",
+        evidence_refs=("check:1", "artifact:2"),
+    )
+    assert _to_lesson("gömme", _to_metadata(lesson, 12.0), row_id=lesson.id) == lesson
+    assert _to_lesson("eski", {"evidence_refs": "bozuk"}).evidence_refs == ()
+
+
+def test_foundation_null_yeni_sozlesmeyi_guvenle_karsilar():
+    from fusion_cli.core.memory import LessonRecallPolicy
+    from fusion_cli.memory.null import NullLessonMemory
+
+    store = NullLessonMemory()
+    assert store.recall("test", policy=LessonRecallPolicy(source_split="blind")) == ()
+    assert (
+        store.reinforce(
+            ("ders",),
+            success=True,
+            feedback_reason="verified_outcome",
+            used=True,
+            evidence_refs=("check:1",),
+            verified_at="2026-11-01",
+        )
+        == 0
+    )
+    assert store.set_quarantined(("existing-id",), quarantined=False) == 0
+
+
+def test_foundation_eski_bool_metadata_dis_kaynagi_korur():
+    from fusion_cli.memory.lesson_codec import _to_lesson
+
+    lesson = _to_lesson("eski", {"external": True, "success_count": 1.5})
+    assert lesson.external is True
+    assert lesson.success_count == 1
+
+
+def test_foundation_kimliksiz_eski_adaptor_sonucu_dersi_kaybetmez(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fusion_cli.memory import lessons
+
+    collection = SimpleNamespace(get=lambda: {"documents": ["eski ders"], "metadatas": [{}]})
+    monkeypatch.setattr(lessons, "get_collection", lambda *args, **kwargs: collection)
+    found = lessons.ChromaLessonMemory(tmp_path).all()
+    assert len(found) == 1 and found[0].text == "eski ders" and found[0].id == ""

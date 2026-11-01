@@ -145,3 +145,63 @@ def test_kok_disina_giden_sembolik_baglar_kopyalanmaz(tmp_path):
         assert (alan.root / "ic_hedef").read_text(encoding="utf-8") == "x = 1\n"
 
     assert (dis / "gizli.txt").read_text(encoding="utf-8") == "asıl\n"
+
+
+def test_terfi_geri_alma_kullanici_degisimini_korur(tmp_path):
+    from fusion_cli.core.changeset import ChangeSet
+
+    asil = tmp_path / "kod.py"
+    asil.write_text("ilk\n", encoding="utf-8")
+    changes = ChangeSet()
+    with isolate(tmp_path, name="terfi") as alan:
+        (alan.root / "kod.py").write_text("aday\n", encoding="utf-8")
+        alan.apply(changes=changes)
+        asil.write_text("kullanici\n", encoding="utf-8")
+
+    assert changes.restore() == ()
+    assert asil.read_text(encoding="utf-8") == "kullanici\n"
+    assert changes.conflicts[0].path == asil
+
+
+def test_cok_dosyali_terfi_yarida_kalinca_basarili_yazma_geri_alinir(tmp_path, monkeypatch):
+    from fusion_cli.core import workspace
+    from fusion_cli.core.changeset import ChangeSet
+
+    for ad in ("a.py", "b.py"):
+        (tmp_path / ad).write_text("ilk\n", encoding="utf-8")
+    copy2 = workspace.shutil.copy2
+
+    def copy_or_fail(source, target):
+        if target.name == "b.py":
+            raise OSError("ikinci dosya yazilamadi")
+        return copy2(source, target)
+
+    changes = ChangeSet()
+    with isolate(tmp_path, name="yarim") as alan:
+        for ad in ("a.py", "b.py"):
+            (alan.root / ad).write_text("aday\n", encoding="utf-8")
+        monkeypatch.setattr(workspace.shutil, "copy2", copy_or_fail)
+        with pytest.raises(OSError, match="ikinci dosya"):
+            alan.apply(changes=changes)
+
+    assert changes.restore() == (tmp_path / "a.py",)
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "ilk\n"
+    assert (tmp_path / "b.py").read_text(encoding="utf-8") == "ilk\n"
+
+
+def test_terfi_olusturma_ve_silme_kaydi_geri_alinabilir(tmp_path):
+    from fusion_cli.core.changeset import ChangeSet
+
+    eski = tmp_path / "eski.py"
+    yeni = tmp_path / "yeni.py"
+    eski.write_text("ilk\n", encoding="utf-8")
+    changes = ChangeSet()
+    with isolate(tmp_path, name="olustur-sil") as alan:
+        (alan.root / "eski.py").unlink()
+        (alan.root / "yeni.py").write_text("aday\n", encoding="utf-8")
+        alan.apply(changes=changes)
+    assert not eski.exists() and yeni.exists()
+
+    assert set(changes.restore()) == {eski, yeni}
+    assert eski.read_text(encoding="utf-8") == "ilk\n"
+    assert not yeni.exists() and not changes.conflicts

@@ -44,8 +44,14 @@ def null_memory(reason: str | None = None) -> Memory:
     )
 
 
-def build_memory(config: Config, *, root: Path) -> Memory:
-    """Yapılandırmaya göre belleği kur; açılamazsa boş belleğe düş."""
+def build_memory(
+    config: Config,
+    *,
+    root: Path,
+    code_lexical_candidates: int | None = None,
+    code_chunk_strategy: str | None = None,
+) -> Memory:
+    """Belleği kur; açık seçenekler ayarı ezer, None ayardan devralır."""
     try:
         embedding_function, suffix = build_embedding_function(
             config.embedding.provider, config.embedding.model, cache_dir=config.memory_dir
@@ -57,7 +63,20 @@ def build_memory(config: Config, *, root: Path) -> Memory:
                 directory, embedding_function=embedding_function, suffix=suffix
             ),
             code_index=ChromaCodeIndex(
-                directory, root, embedding_function=embedding_function, suffix=suffix
+                directory,
+                root,
+                embedding_function=embedding_function,
+                suffix=suffix,
+                lexical_candidates=(
+                    config.runtime.code_lexical_candidates
+                    if code_lexical_candidates is None
+                    else code_lexical_candidates
+                ),
+                chunk_strategy=(
+                    config.runtime.code_chunk_strategy
+                    if code_chunk_strategy is None
+                    else code_chunk_strategy
+                ),
             ),
         )
     except MemoryUnavailableError as exc:

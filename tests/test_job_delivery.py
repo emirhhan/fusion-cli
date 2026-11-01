@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fusion_cli.core.evidence import ToolUse
 from fusion_cli.core.job_evidence import ArtifactReceipt, JobCompletion, JobPhase
 from fusion_cli.core.repair_ledger import SourceFingerprint
@@ -200,7 +202,7 @@ def test_unrelated_write_before_first_poll_does_not_rewrite_completion_receipt(t
 async def test_real_agent_launch_only_is_not_success_and_poll_is_not_mutation(
     monkeypatch, tmp_path
 ) -> None:
-    from fusion_cli.core.events import ToolOutcome
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.engines.agent import loop
 
@@ -214,31 +216,49 @@ async def test_real_agent_launch_only_is_not_success_and_poll_is_not_mutation(
                 model_result(
                     tool_calls=[tool_call("run_shell", command="render", background=True)]
                 ),
+                model_result(tool_calls=[tool_call("job_status", id="one")]),
                 model_result(TAM_CEVAP),
             ]
         ),
     )
 
-    async def execute(*args, **kwargs):
+    def launch(args, context):
         return ToolResult(
             "başladı", job_completion=JobCompletion("one", "render", JobPhase.STARTED)
-        ), ToolOutcome.OK
+        )
 
-    monkeypatch.setattr(loop, "_execute", execute)
-    result = await loop.run_agent(
-        "video üret", _deps(tmp_path, RecordingSink()), self_review=False, verify=False
-    )
+    def poll(args, context):
+        return ToolResult(
+            "sürüyor",
+            job_completion=JobCompletion("one", "render", JobPhase.RUNNING),
+            is_observation=True,
+        )
+
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    registry = deps.base_registry
+    assert registry is not None
+    for name, executor in (("run_shell", launch), ("job_status", poll)):
+        tool = registry.get(name)
+        assert tool is not None
+        registry.register_or_replace(replace(tool, run=executor))
+
+    result = await loop.run_agent("video üret", deps, self_review=False, verify=False)
     assert not result.ok and "sürüyor" in result.final_text
-    state = loop._State()
-    loop._note_tool_use(
-        state,
-        "job_status",
-        None,
-        ok=True,
-        is_observation=True,
-        job_completion=JobCompletion("one", "render", JobPhase.COMPLETED, 0),
-    )
-    assert not state.tool_uses[0].mutating
+    assert [item.call_id for item in result.tool_uses] == ["call_run_shell", "call_job_status"]
+    assert [item.job_completion.phase for item in result.tool_uses] == [
+        JobPhase.STARTED,
+        JobPhase.RUNNING,
+    ]
+    assert result.mutating_tool_calls_made == 1
+    assert not result.tool_uses[1].mutating
+    executed = [event for event in sink.events if isinstance(event, ToolExecuted)]
+    assert [event.call_id for event in executed] == ["call_run_shell", "call_job_status"]
+    assert all(event.outcome is ToolOutcome.OK for event in executed)
+    report = result.completion_report
+    assert report is not None and report.blocks_success and not report.is_verified
+    assert len(report.job_deliveries) == 1
+    assert report.job_deliveries[0].completion.phase is JobPhase.RUNNING
 
 
 async def test_real_agent_completed_background_exit_reaches_report(monkeypatch, tmp_path) -> None:

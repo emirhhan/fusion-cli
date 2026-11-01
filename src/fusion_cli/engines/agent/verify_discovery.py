@@ -14,14 +14,27 @@ Keşif YALNIZCA dosya sistemine bakar, hiçbir komut çalıştırmaz.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
+import sys
 import tomllib
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
+from importlib import metadata
 from pathlib import Path, PurePosixPath
 
+from ...core.evidence import EvidenceEnvironment
+from ...core.repo_imports import (
+    GRAPH_SUFFIXES,
+    ImportRef,
+    ModuleIndex,
+    build_graph,
+    related_tests,
+)
+from ...core.workspace_fingerprint import content_digest, take_fingerprint
 from .domain_adapters.defaults import default_domain_registry
 from .domain_adapters.registry import DomainRegistry
 
@@ -280,14 +293,8 @@ def is_behavioral_command(command: str) -> bool:
     biri koşucuyu hiç çağırmaz, diğeri tek satır test koşmaz.
     """
     try:
-        # `punctuation_chars` ile `;`/`&`/`|` bitişik oldukları kelimeden (`S3;`
-        # gibi) ayrı token olarak çıkar; düz `shlex.split` bunları harf gibi
-        # yutar ve `cd yol;` önekini asla `;` token'ına dönüştürmezdi.
-        lexer = shlex.shlex(strip_fd_redirects(command), posix=True, punctuation_chars=";&|")
-        lexer.whitespace_split = True
-        tokens = list(lexer)
+        tokens = list(_command_tokens(command))
     except ValueError:
-        # Tırnağı kapanmayan komut ayrıştırılamaz; kanıt saymak uydurma olurdu.
         return False
     tokens = list(_strip_setup_prefix(tuple(tokens)))
     if not tokens or any(
@@ -479,3 +486,336 @@ def _read(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+
+
+#: Yalnız bilinen doğrulama girdileri okunur; ortam değişkenleri ve sır dosyaları okunmaz.
+_EVIDENCE_LOCKFILES = (
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+    "package-lock.json",
+    "Cargo.lock",
+    "go.sum",
+    "composer.lock",
+    "Gemfile.lock",
+)
+_EVIDENCE_CONFIGS = (
+    "pyproject.toml",
+    "pytest.ini",
+    ".pytest.ini",
+    "tox.ini",
+    "setup.cfg",
+    "ruff.toml",
+    ".ruff.toml",
+    "mypy.ini",
+    ".mypy.ini",
+    "package.json",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "vitest.config.js",
+    "vite.config.ts",
+    "vite.config.js",
+    "jest.config.js",
+    "jest.config.ts",
+    "jest.config.mjs",
+    "jest.config.cjs",
+    "playwright.config.ts",
+    "Cargo.toml",
+    "go.mod",
+    "Makefile",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandEnvironment:
+    """Desteklenen kurulum öneklerinden sonraki gerçek dizin ve koşucu argümanları."""
+
+    cwd: Path
+    tokens: tuple[str, ...]
+
+
+def _command_tokens(command: str) -> tuple[str, ...]:
+    """Davranış ve ortam çözümlemesi için aynı kabuk tokenlarını üret."""
+    lexer = shlex.shlex(strip_fd_redirects(command), posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    return tuple(lexer)
+
+
+def command_environment(root: Path, command: str) -> CommandEnvironment | None:
+    """Yalnız kök içindeki açık cd öneklerini çöz; belirsiz kabukta önbellek yok."""
+    root = root.resolve()
+    try:
+        tokens = _command_tokens(command)
+        cwd = root
+        remaining = tokens
+        while remaining and remaining[0] == "cd":
+            if len(remaining) < 3 or remaining[2] not in {"&&", ";"}:
+                return None
+            target = remaining[1]
+            if any(marker in target for marker in ("$", "~", "*", "?", "`")):
+                return None
+            cwd = (cwd / target).resolve()
+            if not cwd.is_relative_to(root) or not cwd.is_dir():
+                return None
+            remaining = remaining[3:]
+        effective = _strip_setup_prefix(tokens)
+        if effective != remaining or not effective or not cwd.is_dir():
+            return None
+        if any(token in {"&&", "||", "|", ";", "&", "(", ")"} for token in effective):
+            return None
+        if any("$" in token or "`" in token for token in effective):
+            return None
+        return CommandEnvironment(cwd, effective)
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def evidence_environment(
+    root: Path,
+    commands: tuple[str, ...],
+    *,
+    runtime: str,
+    runner_paths: tuple[Path, ...] = (),
+) -> EvidenceEnvironment | None:
+    """Güvenle ölçülen etkin proje girdilerini özetle; belirsizlikte cache'i kapat."""
+    root = root.resolve()
+    environments = [command_environment(root, command) for command in commands]
+    if not environments or any(item is None for item in environments):
+        return None
+    known = [item for item in environments if item is not None]
+    runners = {Path(sys.executable), Path(sys.executable).resolve(), *runner_paths}
+    configs: set[Path] = set()
+    dependencies: set[Path] = set()
+    distributions: set[str] = set()
+    try:
+        for item in known:
+            for ancestor in _project_ancestors(root, item.cwd):
+                configs.update(ancestor / name for name in _EVIDENCE_CONFIGS)
+                dependencies.update(ancestor / name for name in _EVIDENCE_LOCKFILES)
+            configs.update(_explicit_configs(item.cwd, list(item.tokens)))
+            program = Path(item.tokens[0])
+            candidate = selected_runner_module(item) or program.name
+            if candidate in _RUNNER_DISTRIBUTIONS:
+                distributions.add(candidate)
+            runners.add(program if program.is_absolute() else item.cwd / program)
+            runners.add(item.cwd / ".venv" / "bin" / program.name)
+        if any(part.startswith(".env") for runner in runners for part in runner.parts):
+            return None
+        safe_configs = _environment_paths(root, configs)
+        safe_dependencies = _environment_paths(root, dependencies)
+        if safe_configs is None or safe_dependencies is None:
+            return None
+        runner_digest = content_digest(runners, strict=True)
+        return EvidenceEnvironment(
+            command="\n".join(commands),
+            cwd="\n".join(str(item.cwd) for item in known),
+            runtime=f"{runtime}:{_runner_versions(distributions)}:{runner_digest}",
+            dependency_digest=content_digest(safe_dependencies, strict=True),
+            config_digest=content_digest(safe_configs, strict=True),
+        )
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _project_ancestors(root: Path, cwd: Path) -> tuple[Path, ...]:
+    """Koşucunun üst dizin keşfini yalnız izin verilen proje köküne kadar kapsa."""
+    ancestors = []
+    current = cwd
+    while current.is_relative_to(root):
+        ancestors.append(current)
+        if current == root:
+            return tuple(ancestors)
+        current = current.parent
+    raise ValueError("Etkin çalışma dizini izin verilen proje kökü dışında.")
+
+
+def _environment_paths(root: Path, paths: set[Path]) -> tuple[Path, ...] | None:
+    """Bağ kimliğiyle birlikte izin verilen hedef içeriğini de ölçüme ekle."""
+    expanded: set[Path] = set()
+    for path in paths:
+        target = path.resolve()
+        if not target.is_relative_to(root) or any(
+            part.startswith(".env") for part in target.relative_to(root).parts
+        ):
+            return None
+        if path.is_symlink() and not target.is_file():
+            return None
+        expanded.update((path, target))
+    return tuple(sorted(expanded))
+
+
+def selected_runner_module(environment: CommandEnvironment) -> str | None:
+    """Yalnız seçilmiş python -m koşucu modülünü döndür; ürün importlarını sınıflama."""
+    tokens = environment.tokens
+    if not Path(tokens[0]).name.startswith("python") or "-m" not in tokens:
+        return None
+    module_index = tokens.index("-m") + 1
+    module = tokens[module_index] if module_index < len(tokens) else ""
+    return module if module in _RUNNER_DISTRIBUTIONS else None
+
+
+_CONFIG_OPTIONS = frozenset({"-c", "--config", "--config-file", "-p", "--project"})
+
+
+def _explicit_configs(root: Path, tokens: list[str]) -> set[Path]:
+    """Komuttaki açık test/derleme yapılandırmasını kök sınırı içinde kimliğe kat."""
+    configs: set[Path] = set()
+    for index, token in enumerate(tokens):
+        option, separator, inline = token.partition("=")
+        if option not in _CONFIG_OPTIONS:
+            continue
+        value = inline if separator else tokens[index + 1] if index + 1 < len(tokens) else ""
+        if not value:
+            continue
+        # Güvenlik kararı tüm girdilerle birlikte _environment_paths sınırında verilir.
+        configs.add(root / value)
+    return configs
+
+
+_RUNNER_DISTRIBUTIONS = frozenset({"pytest", "ruff", "mypy", "tox", "nox"})
+
+
+def _runner_versions(distributions: set[str]) -> str:
+    """Yalnız seçilmiş Python koşucularının kurulu sürüm kaydını oku; paket kurma."""
+    versions = []
+    for distribution in sorted(distributions):
+        try:
+            version = metadata.version(distribution)
+        except metadata.PackageNotFoundError:
+            version = "kurulu-degil"
+        versions.append(f"{distribution}:{version}")
+    return ";".join(versions)
+
+
+def source_digest(root: Path) -> str:
+    """Mevcut içerik özetleyiciyle kaynak/test dosyalarını ölç; sır dosyalarını okuma."""
+    snapshot = take_fingerprint(root)
+    if snapshot is None:
+        return ""
+    paths = tuple(
+        root / name
+        for name in snapshot
+        if Path(name).suffix in GRAPH_SUFFIXES
+        and not any(part.startswith(".env") for part in Path(name).parts)
+    )
+    try:
+        return content_digest(paths, strict=True)
+    except OSError:
+        return ""
+
+
+def _is_python_test(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return name.startswith("test_") or name.endswith("_test.py")
+
+
+def related_test_command(root: Path, command: str, changed: tuple[str, ...]) -> str:
+    """Yalnız yalın tam-pytest komutunu güvenle daralt; belirsizlikte aynen bırak."""
+    environment = command_environment(root, command)
+    if environment is None or environment.cwd != root.resolve():
+        return command
+    tokens = environment.tokens
+    runner = 3 if selected_runner_module(environment) == "pytest" else 1
+    if runner == 1 and Path(tokens[0]).name != "pytest":
+        return command
+    # Seçici/yapılandırma/dizin argümanları anlaşılmadan üzerine yeni kapsam eklenmez.
+    if any(token not in {"-q", "-v", "-x", "--disable-warnings"} for token in tokens[runner:]):
+        return command
+    snapshot = take_fingerprint(root)
+    if snapshot is None:
+        return command
+    paths = tuple(name for name in snapshot if name.endswith(".py"))
+    if any(PurePosixPath(path).name == "conftest.py" for path in paths) or _custom_test_discovery(
+        root
+    ):
+        return command
+    if any(not path.endswith(".py") for path in changed):
+        return command
+    imports = {}
+    try:
+        for path in paths:
+            source_path = root / path
+            if source_path.is_symlink() or any(
+                part.startswith(".env") for part in Path(path).parts
+            ):
+                return command
+            source = source_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            if any(_has_dynamic_import(node) for node in ast.walk(tree)):
+                return command
+            imports[path] = _python_import_refs(tree)
+    except (OSError, UnicodeError, SyntaxError):
+        return command
+    graph = build_graph(imports, ModuleIndex.build(paths), is_test=_is_python_test)
+    selected = related_tests(graph, changed, is_test=_is_python_test)
+    return shlex.join((*tokens, *selected)) if selected else command
+
+
+def _python_import_refs(tree: ast.AST) -> list[ImportRef]:
+    """Bütün geçerli Python importlarını mevcut grafın sözleşmesine dönüştür."""
+    references: list[ImportRef] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            references.extend(ImportRef(alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            references.append(
+                ImportRef(
+                    node.module or "",
+                    tuple(alias.name for alias in node.names),
+                    node.level,
+                )
+            )
+    return references
+
+
+_CUSTOM_TEST_DISCOVERY = re.compile(
+    r"\b(?:python_files|python_classes|python_functions|required_plugins|pytest_plugins)\b"
+    r"|(?:^|[\s\"'])(?:-p|--pyargs|--ignore|--deselect)(?:[=\s\"']|$)"
+)
+_TEST_DISCOVERY_CONFIGS = ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml")
+
+
+def _custom_test_discovery(root: Path) -> bool:
+    """Grafın bilmediği test adlandırması veya eklenti ayarı varsa tam kapıya dön."""
+    root = root.resolve()
+    for name in _TEST_DISCOVERY_CONFIGS:
+        path = root / name
+        if not path.exists():
+            continue
+        target = path.resolve()
+        if not target.is_relative_to(root) or any(part.startswith(".env") for part in target.parts):
+            return True
+        try:
+            if _CUSTOM_TEST_DISCOVERY.search(path.read_text(encoding="utf-8")):
+                return True
+        except (OSError, UnicodeError):
+            return True
+    return False
+
+
+def _has_dynamic_import(node: ast.AST) -> bool:
+    """Dinamik yükleme ve yıldız importu statik ilişkiyi belirsiz kılar."""
+    if isinstance(node, ast.Name) and node.id == "pytest_plugins":
+        return True
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        modules = (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+        )
+        if any(module.split(".")[0] in {"importlib", "pkgutil", "runpy"} for module in modules):
+            return True
+    if isinstance(node, ast.ImportFrom):
+        return any(alias.name == "*" for alias in node.names)
+    if not isinstance(node, ast.Call):
+        return False
+    function = node.func
+    return (isinstance(function, ast.Name) and function.id in {"__import__", "exec", "eval"}) or (
+        isinstance(function, ast.Attribute) and function.attr in {"import_module", "load_module"}
+    )

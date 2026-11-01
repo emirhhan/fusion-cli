@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from evals.agent_runner import _CountingPublisher, _NullPublisher
+from evals.agent_runner import _NullPublisher
 from evals.executor import AgentRunObservation
+from evals.research_budget import CountingPublisher as _CountingPublisher
 from evals.runner import EvaluationUnavailableError
 from evals.transcript import TranscriptRecorder
 from fusion_cli.cli.session import build_request

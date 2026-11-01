@@ -33,6 +33,7 @@ def launches(monkeypatch):
 def _deps(tmp_path: Path, *, mode=ApprovalMode.AUTO, **runtime):
     settings = {
         "background_agents": True,
+        "subagent_context_mode": "existing",
         "max_background_agents": 4,
         "cross_session_messaging": True,
         "max_agent_depth": 2,
@@ -45,6 +46,8 @@ def _deps(tmp_path: Path, *, mode=ApprovalMode.AUTO, **runtime):
         conversation_id="sohbet-1",
         approval_mode=lambda: mode,
         child_runs=None,
+        invocation_budget=None,
+        budget=None,
     )
 
 
@@ -299,3 +302,44 @@ def test_mesaj_ve_durdurma_araclari_degistirici_sayilir(tmp_path):
     tools = {tool.name: tool for tool in agent_task_tools.agent_task_tools(_deps(tmp_path))}
     assert tools["send_message"].mutating and tools["stop_agent"].mutating
     assert not tools["list_agents"].mutating
+
+
+@pytest.mark.parametrize("budget_field", ["budget", "invocation_budget"])
+async def test_arka_plan_ortak_model_butcesini_asamaz(tmp_path, launches, budget_field):
+    deps = _deps(tmp_path, subagent_context_mode="evidence_bundle")
+    setattr(deps, budget_field, object())
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)
+    result = await tool.run({"task": "oku", "arka_plan": True}, deps.tool_context)
+    assert not result.ok and launches == []
+    assert "bütçesi" in result.output
+
+
+async def test_arka_plan_kanit_paketi_gecmisi_dislar_kisitlari_tasir(tmp_path, launches):
+    from fusion_cli.core.types import Message
+
+    deps = _deps(tmp_path, subagent_context_mode="evidence_bundle")
+    deps.lesson_state = None
+    deps.live_history = lambda: [Message("user", "ALAKASIZ GEÇMİŞ")]
+    deps.denied_tools = frozenset({"run_shell"})
+    deps.execution = SimpleNamespace(allowed_tool_names=frozenset({"read_file"}))
+    (tmp_path / "docs").mkdir()
+    tool = spawn_agent_tool(deps, depth=0, run_agent=None)
+    result = await tool.run(
+        {
+            "task": "oku",
+            "arka_plan": True,
+            "baglam_miras": True,
+            "yazma_alani": ["docs/"],
+            "adim_siniri": 2,
+        },
+        deps.tool_context,
+    )
+    assert result.ok, result.output
+    task = agent_tasks.task_store(deps.config.memory_dir).tasks()[0]
+    assert not agent_tasks.task_store(deps.config.memory_dir).load_history(task.id)
+    assert "ALAKASIZ" not in task.options.extra_system
+    assert "yeniden oku" in task.options.extra_system
+    assert task.options.allowed_tools == ("read_file",)
+    assert task.options.denied_tools == ("run_shell",)
+    assert task.options.write_scope == (str((tmp_path / "docs").resolve()),)
+    assert task.max_turns == 0

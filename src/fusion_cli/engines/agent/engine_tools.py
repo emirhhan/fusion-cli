@@ -57,6 +57,7 @@ from .orchestration_tools import register_orchestration_tools
 from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
+from .teacher_lessons import AdviceBinding
 from .team import (
     DEPTH_LIMIT_MESSAGE,
     SubTask,
@@ -117,6 +118,7 @@ def build_agent_registry(
 ) -> ToolRegistry:
     """Temel araçlara motora bağlı olanları ekleyerek çalışma-anı defteri üret."""
     registry = deps.base_registry
+    assert registry is not None
     # Chrome eklentisine giden yol yoksa (`fusion agent`, terminal) chrome_* araçları
     # sunulmaz. Ölçüldü (2 Ekim, kabul koşusu): model bunları dört kez çağırdı ve her
     # seferinde "yalnız masaüstü uygulamasında" cevabı aldı.
@@ -250,7 +252,10 @@ def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
     kalan = ToolRegistry()
     for tool in registry:
         if tool.name not in names and tool.run not in kapali_calistiricilar:
-            kalan.register(tool)
+            if registry.is_remote(tool.name):
+                kalan.register_or_replace(tool)
+            else:
+                kalan.register(tool)
     return kalan
 
 
@@ -317,7 +322,13 @@ def _council_tool(deps: AgentDeps) -> Tool:
 
 
 def _sync_and_log_teacher_answer(
-    deps: AgentDeps, context: ToolContext, *, question: str, durum: str, answer: str
+    deps: AgentDeps,
+    context: ToolContext,
+    *,
+    question: str,
+    durum: str,
+    answer: str,
+    binding: AdviceBinding | None = None,
 ) -> tuple[bool, str]:
     """`.fusion/ogretmen.md`'ye HER ZAMAN yaz; ders belleğine yalnız açıksa dene.
 
@@ -327,21 +338,17 @@ def _sync_and_log_teacher_answer(
     from datetime import UTC, datetime
 
     from . import teacher_notebook
-    from .teacher_lessons import sync_teacher_lesson
+    from .teacher_lessons import pending_advice
 
     lesson_written = False
-    skip_reason = ""
-    # Otomatik plan/denetim cevapları burada yazılmaz: plan tur sonunda, yalnız
-    # başarılı sonuçla `teacher_memory.record_plan_outcome` üzerinden yazılır.
-    if (
-        deps.lessons is not None
-        and deps.config.runtime.teacher_lesson_sync
-        and not deps.teacher_lesson_sync_deferred
-    ):
-        lesson_written, skip_reason = sync_teacher_lesson(
-            deps.lessons, question=question, answer=answer
-        )
-    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
+    skip_reason = "Tavsiye henüz doğrulanmadı; ilgili değişiklik ve son kontrol bekleniyor."
+    advice = pending_advice(deps, question, answer, binding)
+    from ...core.events import TeacherAdviceOffered
+
+    deps.publisher.publish(TeacherAdviceOffered(advice.advice_id))
+    if deps.lessons is not None and deps.config.runtime.teacher_lesson_sync:
+        deps.pending_advice.append(advice)
+    timestamp = datetime.fromtimestamp(deps.clock.now(), UTC).isoformat(timespec="seconds")
     teacher_notebook.append_entry(
         context.root,
         timestamp=timestamp,
@@ -350,6 +357,7 @@ def _sync_and_log_teacher_answer(
         answer=answer,
         lesson_written=lesson_written,
         lesson_skip_reason=skip_reason,
+        advice_id=advice.advice_id,
     )
     return lesson_written, skip_reason
 
@@ -431,15 +439,39 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
                     + ", ".join(yol for yol, _ in kesitler)
                 )
             )
+        from .evidence_handoff import current_diff, evidence_text
+        from .teacher_lessons import bind_advice
+
+        selector = args.get("criterion_id")
+        binding = await asyncio.to_thread(
+            bind_advice, deps, selector if isinstance(selector, str) else ""
+        )
+        binding_text = evidence_text((binding.criterion,)) if binding else ""
+        verification = deps.lesson_state.verification if deps.lesson_state else None
+        failures = verification.failure_evidence if verification else ()
         brief = compile_brief(
-            durum=durum,
-            denenenler=denenenler,
+            durum=durum
+            + (
+                "\nDanışma yalnız bu ölçülmüş kriterin düzeltmesine bağlıdır:\n" + binding_text
+                if binding
+                else ""
+            ),
+            denenenler=(
+                denenenler
+                + "\n"
+                + await asyncio.to_thread(current_diff, deps)
+                + "\nBaşarısızlık kanıtları:\n"
+                + evidence_text(failures)
+            ),
             question=question,
+            char_budget=deps.config.runtime.teacher_max_brief_chars,
             touched_paths=touched_paths,
             code_excerpts=kesitler,
             # İç akışın (`teacher_flow`) plan isteği; şemada yoktur, model veremez.
             frame=PLAN_FRAME if args.get("bicim") == "plan" else TEACHER_FRAME,
         )
+        if binding_text and binding_text not in brief.text:
+            binding = None  # Bütçe içinde sunulmayan kriter tavsiyeye atfedilemez.
         deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
 
         runtime = deps.config.runtime
@@ -482,8 +514,14 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         if looks_like_refusal(result.text):
             return _teacher_refused()
 
-        _lesson_written, skip_reason = _sync_and_log_teacher_answer(
-            deps, context, question=question, durum=durum, answer=result.text
+        _lesson_written, skip_reason = await asyncio.to_thread(
+            _sync_and_log_teacher_answer,
+            deps,
+            context,
+            question=question,
+            durum=durum,
+            answer=result.text,
+            binding=binding,
         )
         cevap = f"[öğretmen · {result.model}]\n{result.text}"
         if skip_reason and "çelişebilir" in skip_reason:
@@ -506,6 +544,11 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             "type": "object",
             "properties": {
                 "question": {**_STRING, "description": "öğretmene sorulacak TEK, net soru"},
+                "criterion_id": {
+                    **_STRING,
+                    "description": "Varsa mevcut doğrulamada başarısız ölçülen tek kriter kimliği; "
+                    "tavsiye yalnız bu hedef/beklentiye bağlanır.",
+                },
                 "durum": {
                     **_STRING,
                     "description": "kısa durum özeti: ne yapmaya çalışıyorsun, nerede takıldın",
@@ -715,6 +758,10 @@ def _recall_lessons_tool(deps: AgentDeps) -> Tool:
         if not query:
             return ToolResult.failure(messages.RECALL_LESSONS_EMPTY_QUERY)
         recalled = learning_steps.recall_lessons(query, deps)
+        from ...core.lesson_runtime import LessonDelivery
+        from .lesson_attribution import offer
+
+        offer(recalled, deps, LessonDelivery.TOOL)
         return ToolResult(as_prompt_block(recalled) or messages.RECALL_LESSONS_NONE)
 
     return Tool(

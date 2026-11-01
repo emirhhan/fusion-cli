@@ -11,18 +11,22 @@ Denetim başarısız olursa (zaman aşımı, bozuk yanıt) düzeltme atlanır; b
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
 
 from ...config.models import Config
 from ...core.events import EventPublisher
+from ...core.evidence import CriterionEvidence
+from ...core.redaction import redact
 from ...core.types import CompletionRequest, Message, ModelResult
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from . import history
+from .evidence_handoff import DIFF_CHAR_LIMIT, evidence_text
 
-_PROMPT = (Path(__file__).parent / "prompts" / "review.txt").read_text(encoding="utf-8")
+_PROMPT_PATH = Path(__file__).parent / "prompts" / "review.txt"
 
 #: Denetçinin "sorun yok" cevabı.
 CLEAN_VERDICT = "TAMAM"
@@ -85,16 +89,30 @@ async def review_turn(
     *,
     config: Config,
     publisher: EventPublisher | None = None,
+    diff: str = "",
+    criteria: tuple[CriterionEvidence, ...] = (),
+    failures: tuple[str, ...] = (),
 ) -> str | None:
     """Düzeltme talimatı, açık temiz karar için boş metin, denetim yoksa None döner."""
     trace = history.transcript(messages, TRACE_CHARS, message_chars=TRACE_MESSAGE_CHARS)
+    if config.runtime.review_diff_only:
+        if not diff.strip():
+            return None
+        trace = redact(diff)[:DIFF_CHAR_LIMIT] + "\nKriterler:\n" + evidence_text(criteria)
+        trace += "\nHatalar:\n" + redact("\n".join(failures))[:FINAL_TEXT_CHARS]
     if not trace.strip() and not final_text.strip():
         return None
 
     # TEK geçişte doldur: ardışık `.replace` görev/iz içindeki `{final}` gibi metni sonraki
     # yer tutucu sanıp izi bozuyordu (A4-51).
     values = {"task": task, "trace": trace, "final": final_text[:FINAL_TEXT_CHARS]}
-    prompt = _PLACEHOLDER.sub(lambda match: values[match.group(1)], _PROMPT)
+    template = await asyncio.to_thread(_PROMPT_PATH.read_text, encoding="utf-8")
+    prompt = _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)
+    if config.runtime.review_diff_only:
+        prompt += (
+            "\nYalnız JSON bulgu döndür: path, line (pozitif sayı), reproduction, issue. "
+            "Sorun yoksa TAMAM."
+        )
     try:
         result = await asyncio.wait_for(
             _ask(prompt, config, publisher), timeout=config.runtime.judge_timeout_s + 2.0
@@ -115,6 +133,8 @@ async def review_turn(
         and result.text.strip().upper() != CLEAN_VERDICT
     ):
         return None
+    if config.runtime.review_diff_only:
+        return _diff_feedback(result.text, diff)
     return parse_feedback(result.text)
 
 
@@ -135,3 +155,27 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
         web_sessions=web_registry_for(config),
     )
     return await provider.complete(request)
+
+
+def _diff_feedback(text: str, diff: str) -> str:
+    """Konum ve yeniden üretim yoksa otomatik düzeltme başlatma."""
+    if not parse_feedback(text):
+        return ""
+    try:
+        finding = json.loads(text)
+    except ValueError:
+        return ""
+    if not isinstance(finding, dict):
+        return ""
+    path, line = finding.get("path"), finding.get("line")
+    paths = {row[6:] for row in diff.splitlines() if row.startswith(("+++ b/", "--- a/"))}
+    if not isinstance(path, str) or not path or path not in paths:
+        return ""
+    if type(line) is not int or line < 1:
+        return ""
+    if any(
+        not isinstance(finding.get(key), str) or not finding[key].strip()
+        for key in ("reproduction", "issue")
+    ):
+        return ""
+    return redact(text)

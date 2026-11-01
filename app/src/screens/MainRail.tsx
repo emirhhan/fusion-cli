@@ -15,7 +15,7 @@ export const MAIN_SECTIONS: readonly RailItem[] = [
   { id: "home", label: "Home", icon: "home" },
   { id: "scheduled", label: "Zamanlananlar", icon: "clock" },
   { id: "library", label: "Kitaplık", icon: "library" },
-  { id: "media", label: "Görsel ve video üretimi", icon: "image" },
+  { id: "media", label: "Görsel oluştur", icon: "image" },
   { id: "kits", label: "Kits", icon: "sparkle" },
 ];
 

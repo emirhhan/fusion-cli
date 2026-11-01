@@ -1,0 +1,7 @@
+class Birinci:
+    def tarih(self, gun, ay):
+        return f"{ay:02d}/{gun:02d}"
+
+class Ikinci:
+    def tarih(self, gun, ay):
+        return f"{ay:02d}/{gun:02d}"

@@ -742,15 +742,15 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
-  fireEvent.click(screen.getByRole("button", { name: "Görsel ve video üretimi" }));
+  fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
   // Basit mod varsayılandır; iş akışı seçildiğinde düğümlü tuval açılır.
   expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
   expect(screen.getByLabelText("Nasıl bir görsel istiyorsun?")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
   expect(screen.getByLabelText("Metin istemi")).toBeTruthy();
   expect(screen.getByRole("region", { name: "Görsel iş akışı tuvali" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "Video" }));
-  expect(await screen.findByRole("heading", { name: "Yakında" })).toBeTruthy();
+  expect(screen.queryByRole("tab", { name: "Video" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Yakında" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
@@ -909,4 +909,19 @@ it("yanıtın Kit'e gönder düğmesi pencereyi açar ve etkin oturumun kit.* RP
   expect(await within(dialog).findByText(/kuyruğa alındı/)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Kapat" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Kit'e gönder" })).toBeNull());
+});
+
+
+it("etkin sohbetten görsel sayfasına geçer, geri ve ileri gezinir", async () => {
+  const fake = composerTransport({});
+  render(<SessionUygulama transport={fake.transport} />);
+  await screen.findByRole("textbox", { name: "Mesaj" });
+  fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+  expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
+  expect(screen.queryByRole("tab", { name: "Video" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Geri git" }));
+  expect(await screen.findByRole("textbox", { name: "Mesaj" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "İleri git" }));
+  expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
+  expect(fake.transport.create).toHaveBeenCalledTimes(1);
 });

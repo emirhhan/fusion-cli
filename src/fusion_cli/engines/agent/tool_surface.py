@@ -31,9 +31,11 @@ from __future__ import annotations
 import json
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from ...config.models import Config
 from ...core.types import ModelSpec
+from ...tools.capability_search import relevance_score
 from ...tools.registry import ToolRegistry
 from .tool_profiles import WIDENED_KIND, hidden_tools
 
@@ -85,12 +87,17 @@ def narrow_to_compact_surface(
     task_kinds: Collection[str],
     explicit: Collection[str] | None,
     profiles: Sequence[str] = (),
+    external_tool_selection: Literal["registration_order", "relevance"] = "registration_order",
+    task: str = "",
+    phase: str = "",
 ) -> set[str]:
     """Sıkı yüzeyde sunulacak araç adlarını daralt (saf: girdiyi değiştirmez).
 
     `profiles` görev profilleridir (`tool_profiles`); profil gizlemesi yalnız yerleşik
     araçlara uygulanır ve `WIDENED_KIND` işareti varsa atlanır.
     """
+    if external_tool_selection not in {"registration_order", "relevance"}:
+        raise ValueError("Geçersiz dış araç seçim stratejisi.")
     requested = set(explicit or ())
     hide_desktop = DESKTOP_TASK_KIND not in task_kinds
     profile_hidden = hidden_tools(profiles) if WIDENED_KIND not in task_kinds else frozenset()
@@ -106,6 +113,14 @@ def narrow_to_compact_surface(
     if not max_external_tools:
         return kept
     external = [name for name in registry.names() if name in kept and registry.is_remote(name)]
+    if external_tool_selection == "relevance":
+        query = f"{task} {phase}"
+        scores = {
+            tool.name: relevance_score(tool.name, tool.description, query)
+            for tool in registry
+            if tool.name in kept and registry.is_remote(tool.name)
+        }
+        external.sort(key=lambda name: (-scores[name], name))
     over_limit = {name for name in external[max_external_tools:] if name not in requested}
     return kept - over_limit
 

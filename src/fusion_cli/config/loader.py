@@ -21,7 +21,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from types import UnionType
-from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import Any, Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import yaml
 from dotenv import dotenv_values
@@ -711,6 +711,10 @@ def _convert(value: object, target: object, where: str) -> object:
     if dataclasses.is_dataclass(target) and isinstance(target, type):
         return _build(target, value, where)
 
+    if get_origin(target) is Literal:
+        if any(type(value) is type(option) and value == option for option in get_args(target)):
+            return value
+        raise ConfigError(f"{where}: izin verilen değerlerden biri gerekli.")
     if get_origin(target) is tuple:
         return _convert_tuple(value, target, where)
     if get_origin(target) is dict:
@@ -770,6 +774,8 @@ def _convert_dict(value: object, target: object, where: str) -> dict[str, object
 
 def _convert_tuple(value: object, target: object, where: str) -> tuple[object, ...]:
     (item_type, *_) = get_args(target)
+    if where == "runtime.lsp_server.command" and isinstance(value, str):
+        raise ConfigError(f"{where}: açık argv listesi gerekli; metin komut kabul edilmez.")
     # Metin listesi beklenen yere yazılan TEK metin, tek elemanlı liste sayılır.
     # Önceki sürüm `fallback: str | list[str]` kabul ediyordu; kullanıcıların
     # elindeki `fallback: bir/model` yazan config'ler yükleme anında patlamasın.

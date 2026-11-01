@@ -307,3 +307,48 @@ def test_kriter_kaniti_artifact_alani_da_maskelenir():
     yuk = evidence_payload((StepCheckpointEvidence(step_id="s1", criteria=(kanit,)),))
 
     assert sir not in json.dumps(yuk)
+
+
+def test_checkpoint_preserves_evidence_identity_and_nonbehavioral_flag():
+    from fusion_cli.core.evidence import EvidenceEnvironment
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload, parse_evidence
+
+    identity = EvidenceEnvironment("pytest -q", "/repo", "python", "dependencies", "config")
+    criterion = CriterionEvidence(
+        "criterion",
+        VerificationCheckKind.COMMAND,
+        EvidenceStatus.PASSED,
+        "ölçüldü",
+        behavioral=False,
+        source_digest="source",
+        source_after_digest="source",
+        environment=identity,
+        call_id="call",
+    )
+    use = ToolUse(
+        "run_shell",
+        source_digest="source",
+        source_after_digest="source",
+        environment=identity,
+        call_id="call",
+    )
+    saved = StepCheckpointEvidence("step", criteria=(criterion,), tool_uses=(use,))
+    assert parse_evidence(evidence_payload((saved,))) == (saved,)
+
+
+def test_legacy_reproduction_criterion_without_identity_loads_unverified():
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload, parse_evidence
+
+    legacy = StepCheckpointEvidence(
+        "step",
+        criteria=(
+            CriterionEvidence(
+                "bug", VerificationCheckKind.REPRODUCTION, EvidenceStatus.PASSED, "önceki kayıt"
+            ),
+        ),
+    )
+    payload = evidence_payload((legacy,))
+    for field in ("source_digest", "source_after_digest", "environment", "call_id"):
+        payload[0]["criteria"][0].pop(field)
+    loaded = parse_evidence(payload)
+    assert loaded[0].criteria[0].status is EvidenceStatus.UNVERIFIED

@@ -11,6 +11,8 @@ from fusion_cli.core.memory import IndexStats
 from fusion_cli.memory.code_index import ChromaCodeIndex
 from fusion_cli.ui import messages
 
+from .test_hybrid_retrieval import LocalRetrievalEmbedding
+
 
 def _proje(tmp_path, adet: int):
     proje = tmp_path / "proje"
@@ -21,7 +23,9 @@ def _proje(tmp_path, adet: int):
 
 
 def test_tavana_takilan_indeks_kismi_oldugunu_bildirir(tmp_path):
-    indeks = ChromaCodeIndex(tmp_path / "bellek", _proje(tmp_path, 5))
+    indeks = ChromaCodeIndex(
+        tmp_path / "bellek", _proje(tmp_path, 5), embedding_function=LocalRetrievalEmbedding()
+    )
 
     stats = indeks.reindex(limit=3)
 
@@ -31,7 +35,9 @@ def test_tavana_takilan_indeks_kismi_oldugunu_bildirir(tmp_path):
 
 
 def test_tavan_altindaki_indeks_tam_sayilir(tmp_path):
-    indeks = ChromaCodeIndex(tmp_path / "bellek", _proje(tmp_path, 3))
+    indeks = ChromaCodeIndex(
+        tmp_path / "bellek", _proje(tmp_path, 3), embedding_function=LocalRetrievalEmbedding()
+    )
 
     stats = indeks.reindex(limit=3)
 

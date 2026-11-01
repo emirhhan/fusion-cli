@@ -377,6 +377,9 @@ async def _run_child(
         # Belleği olan ajan derslerini de kendine ayırır; olmayan ortak havuza yazar (P-055).
         lesson_owner=persona.name if persona.memory_scope else "",
         effect_recorder=deps.effect_recorder,
+        lesson_context=deps.lesson_context,
+        invocation_budget=deps.invocation_budget,
+        clock=deps.clock,
         ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
         # Kancalar (P-009) alt ajanda da çalışır; `SubagentStop` eşleştiricisi türe bakar.
         hooks=getattr(deps, "hooks", None),
@@ -389,6 +392,20 @@ async def _run_child(
     inherited = (
         team_fork.fork_history(team_fork.parent_history(deps)) if subtask.inherit_context else None
     )
+    from .evidence_handoff import compile_handoff
+
+    if deps.config.runtime.subagent_context_mode == "evidence_bundle":
+        inherited = None
+    handoff = await asyncio.to_thread(
+        compile_handoff,
+        deps,
+        _member_brief(
+            persona,
+            subtask,
+            skills=team_settings.preloaded_skills(deps, persona),
+            fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
+        ),
+    )
     try:
         return await run_agent(
             subtask.task,
@@ -396,12 +413,7 @@ async def _run_child(
             history=inherited,
             depth=depth + 1,
             self_review=False,
-            extra_system=_member_brief(
-                persona,
-                subtask,
-                skills=team_settings.preloaded_skills(deps, persona),
-                fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
-            ),
+            extra_system=handoff,
             allowed_tools=_capped_tools(
                 _allowed_tools(deps, persona, subtask, available=available),
                 subtask.tool_cap,
