@@ -8,7 +8,8 @@ motor hangi kipte olduğunu bilmez, yalnızca `decide` çağırır.
               dikkat gerektiren silme, uzak sistemde değişiklik) sorulur
     edits     dosya düzenlemeleri ve tanınan güvenli komutlar sorulmaz; kalan sorulur
     security  "Manuel": okuma dışındaki her işlem tek tek sorulur
-    plan      hiçbir değişikliğe izin yok; yalnız okuma, keşif ve plan
+    plan      düzenleme yok; okuma serbest; öteki kabuk komutu ve uzak değişiklik
+              sorulur (`plan_approval`, #52)
     bypass    hiçbir şey sorulmaz (silinen yine Fusion çöpüne gider); tek istisna:
               uzak sistemde geri alınamaz etki bildiren araç her çağrıda sorulur
 
@@ -60,6 +61,7 @@ from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
+from .plan_approval import PlanApproval
 from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
@@ -354,6 +356,8 @@ class ApprovalMemory:
         self.notices: list[str] = []
         #: Otomatik kip denetçisinin oturum durumu: engel sayaçları, kip düşüşü (P-011).
         self.auto_review = AutoReviewState(remembered=self.is_remembered)
+        #: Bypass kullanılabilir oturum: plan kipinde de soru/sınıflandırıcı yok (#52).
+        self.plan_bypass = False
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
@@ -470,31 +474,6 @@ class DontAskApproval:
         return Decision.BLOCKED
 
 
-class PlanApproval:
-    """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
-
-    Okumaya izin verilir — `ls`, `grep`, `git log` gibi salt okuyan kabuk komutu ve
-    uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
-    kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
-    tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
-
-    "Her seferinde sorulur" diyen istek (`pre_ask`: `ask` kuralı, sandbox dışı
-    çalıştırma) plan kipinde sorulamayacağı için ENGELLENİR. Ölçüldü (31 Ekim):
-    `cat ~/.kube/config` + `unsandboxed=true` plan kipinde sorulmadan sandbox dışında
-    çalışıyordu.
-    """
-
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
-        if (
-            request.read_only
-            and request.danger is None
-            and request.pre_denied is None
-            and request.pre_ask is None
-        ):
-            return Decision.ALLOW
-        return Decision.BLOCKED
-
-
 class BypassApproval:
     """İzinleri atla: neredeyse hiçbir şey sorulmaz. Sade `rm` yine çöpe gider (`shell`).
 
@@ -538,7 +517,7 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval()
+        return PlanApproval(prompter, memory)
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:

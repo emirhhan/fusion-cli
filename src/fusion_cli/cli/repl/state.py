@@ -585,3 +585,11 @@ def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:
         root is not None and bypass_mode_disabled(root)
     )
     state.auto_available = not (root is not None and auto_mode_disabled(root))
+    _apply_plan_policy(state)
+
+
+def _apply_plan_policy(state: ReplState) -> None:
+    """Bypass kullanılabilir oturumda plan kipi de sormaz (#52)."""
+    memory = getattr(state, "approval_memory", None)
+    if memory is not None:
+        memory.plan_bypass = bool(state.bypass_available)

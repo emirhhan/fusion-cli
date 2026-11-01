@@ -107,7 +107,8 @@ def test_salt_okuma_tespiti():
         (ApprovalMode.SECURITY, "git status", Decision.ALLOW),
         (ApprovalMode.SECURITY, "pytest -q", Decision.DENIED),
         (ApprovalMode.PLAN, "git log", Decision.ALLOW),
-        (ApprovalMode.PLAN, "npm install", Decision.BLOCKED),
+        # Claude (#52): plan kipinde okuma dışı komut sorulur (burada reddedilir).
+        (ApprovalMode.PLAN, "npm install", Decision.DENIED),
         (ApprovalMode.BYPASS, "git push", Decision.ALLOW),
         (ApprovalMode.BYPASS, "git reset --hard", Decision.ALLOW),
     ],

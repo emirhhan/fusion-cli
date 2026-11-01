@@ -78,7 +78,8 @@ def proje(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("kip", "karar", "soru"),
     [
-        (ApprovalMode.PLAN, Decision.BLOCKED, 0),
+        # Claude (#52): plan kipinde de sorulur (sandbox auto-allow açık olsa da).
+        (ApprovalMode.PLAN, Decision.ALLOW, 1),
         (ApprovalMode.SECURITY, Decision.ALLOW, 1),
         (ApprovalMode.AUTO, Decision.ALLOW, 1),
         (ApprovalMode.ACCEPT_EDITS, Decision.ALLOW, 1),
