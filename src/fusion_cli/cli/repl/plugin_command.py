@@ -168,20 +168,38 @@ def _toggle(enabled: bool) -> Callable[[list[str], bool], str]:
             else:
                 plugins.disable_all_plugins()
             return DONE.format(name="Bütün eklentiler", state=label)
-        if len(rest) != 1:
+        names, scope = _scope_flag(rest)
+        if len(names) != 1:
             return USAGE
-        plugins.set_plugin_enabled(rest[0], enabled)
-        return DONE.format(name=rest[0], state=label)
+        written = plugins.set_plugin_enabled(names[0], enabled, scope=scope)
+        return DONE.format(name=names[0], state=f"{label} (kapsam: {written})")
 
     return handler
 
 
 def _remove(rest: list[str], confirmed: bool) -> str:
     del confirmed
-    if len(rest) != 1:
+    names, scope = _scope_flag([w for w in rest if w != "--keep-data"])
+    if len(names) != 1:
         return USAGE
-    plugins.uninstall_plugin(rest[0])
-    return DONE.format(name=rest[0], state="kaldırıldı (çöpte)")
+    keep = "--keep-data" in rest
+    plugins.uninstall_plugin(names[0], keep_data=keep, scope=scope)
+    return DONE.format(name=names[0], state="kaldırıldı (çöpte" + (", veri korundu)" if keep else ")"))
+
+
+def _scope_flag(words: list[str]) -> tuple[list[str], str]:
+    """`--scope x` / `-s x` / `--scope=x` (#376); kalan sözcükler ve kapsam."""
+    names: list[str] = []
+    scope = ""
+    items = iter(words)
+    for word in items:
+        if word in {"--scope", "-s"}:
+            scope = next(items, "")
+        elif word.startswith("--scope="):
+            scope = word.split("=", 1)[1]
+        else:
+            names.append(word)
+    return names, scope
 
 
 def _discover(rest: list[str], confirmed: bool) -> str:
@@ -204,8 +222,9 @@ def _market(rest: list[str], confirmed: bool) -> str:
         plugin_update.update_marketplace(rest[1])
         return DONE.format(name=rest[1], state="pazar güncellendi")
     if action in {"kaldir", "remove"} and len(rest) == 2:
-        plugins.remove_marketplace(rest[1])
-        return DONE.format(name=rest[1], state="pazar kaldırıldı")
+        removed = plugins.remove_marketplace(rest[1])
+        also = f"; ayrıca {len(removed)} eklenti kaldırıldı: {', '.join(removed)}" if removed else ""
+        return DONE.format(name=rest[1], state="pazar kaldırıldı" + also)
     return USAGE
 
 

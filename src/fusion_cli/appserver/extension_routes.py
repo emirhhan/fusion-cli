@@ -187,14 +187,14 @@ def _plugin_action(name: str, data: Mapping[str, object]) -> dict[str, Any]:
             else:
                 plugins.disable_all_plugins()
         elif plugin:
-            plugins.set_plugin_enabled(plugin, enabled)
+            plugins.set_plugin_enabled(plugin, enabled, scope=_text(data, "kapsam"))
         else:
             return {"ok": False, "metin": NEEDS_NAME}
         return {**_list(), "yenile": True}
     if not plugin:
         return {"ok": False, "metin": NEEDS_NAME}
     if name == "eklenti.kaldir":
-        plugins.uninstall_plugin(plugin)
+        plugins.uninstall_plugin(plugin, keep_data=data.get("veriyi_koru") is True)
         return {**_list(), "yenile": True}
     return _trust(plugin, data)
 

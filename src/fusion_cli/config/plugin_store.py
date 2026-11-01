@@ -254,23 +254,44 @@ def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledP
     return InstalledPlugin(record, layout, STATUS_ACTIVE if record.enabled else STATUS_DISABLED)
 
 
-def installed_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
+def plugin_id(record: PluginRecord) -> str:
+    """Claude kimliği `ad@pazar`; pazarsız (yerel/git) kurulumda yalnız ad (#376)."""
+    return f"{record.name}@{record.marketplace}" if record.marketplace else record.name
+
+
+def effective_record(record: PluginRecord, root: Path | None = None) -> PluginRecord:
+    """`enabledPlugins` project/local katmanları uygulanmış kayıt (#376)."""
+    from .plugin_scopes import resolve_enabled
+
+    decision = resolve_enabled(plugin_id(record), record.name, record.enabled, root or Path.cwd())
+    return record if decision.enabled == record.enabled else replace(record, enabled=decision.enabled)
+
+
+def installed_plugins(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[InstalledPlugin, ...]:
     state = load_state(base)
-    return tuple(inspect_plugin(record, base) for record in sorted(state.plugins, key=_by_name))
+    return tuple(
+        inspect_plugin(effective_record(record, root), base)
+        for record in sorted(state.plugins, key=_by_name)
+    )
 
 
 def _by_name(record: PluginRecord) -> str:
     return record.name
 
 
-def active_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
-    """Bileşenleri yüklenecek eklentiler (genel kapatma ve bütünlük denetimi sonrası)."""
+def active_plugins(
+    base: Path | None = None, root: Path | None = None
+) -> tuple[InstalledPlugin, ...]:
+    """Bileşenleri yüklenecek eklentiler (genel kapatma, kapsamlar ve bütünlük denetimi sonrası)."""
     if plugins_disabled_by_environment():
         return ()
     state = load_state(base)
     if state.all_disabled:
         return ()
-    found = (inspect_plugin(r, base) for r in sorted(state.plugins, key=_by_name) if r.enabled)
+    records = (effective_record(r, root) for r in sorted(state.plugins, key=_by_name))
+    found = (inspect_plugin(r, base) for r in records if r.enabled)
     active: list[InstalledPlugin] = []
     for item in found:
         if item.is_active:
@@ -344,10 +365,16 @@ def plugin_root_of(path: Path, base: Path | None = None) -> Path | None:
     return root / first if first and not first.startswith(".") else None
 
 
-def state_signature(base: Path | None = None) -> tuple[str, int] | None:
-    """Kayıt dosyasının (yol, mtime_ns) imzası: kur/kapat/kaldır katalog önbelleğini yeniler."""
+def state_signature(base: Path | None = None, root: Path | None = None) -> tuple[str, int] | None:
+    """Kayıt dosyasının (yol, mtime_ns) imzası: kur/kapat/kaldır katalog önbelleğini yeniler.
+
+    project/local `enabledPlugins` dosyalarının mtime'ları da karışır (#376).
+    """
+    from .plugin_scopes import settings_signature
+
     path = state_file(base)
     try:
-        return str(path), path.stat().st_mtime_ns
+        mtime = path.stat().st_mtime_ns
     except OSError:
         return None
+    return str(path), hash((mtime, *settings_signature(root or Path.cwd())))

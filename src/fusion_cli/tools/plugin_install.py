@@ -375,12 +375,18 @@ def install_plugin(
     return inspect_plugin(record, root)
 
 
-def uninstall_plugin(name: str, *, base: Path | None = None) -> Path:
-    """Klasörü Fusion çöpüne taşı (`fusion cop geri-al`) ve kaydı sil."""
+def uninstall_plugin(
+    name: str, *, base: Path | None = None, keep_data: bool = False, scope: str = ""
+) -> Path:
+    """Klasörü Fusion çöpüne taşı (`fusion cop geri-al`), kaydı ve veri klasörünü sil (#408).
+
+    Claude gibi `ad@pazar` kabul eder; `--keep-data` verilmezse `${CLAUDE_PLUGIN_DATA}` silinir.
+    """
+    from .plugin_toggle import check_uninstall_scope, find_record, remove_plugin_data
+
+    check_uninstall_scope(name, scope)
     root = base or plugins_dir()
-    state = load_state(root)
-    if state.plugin(name) is None:
-        raise PluginError(ERR_NOT_INSTALLED.format(name=name))
+    name = find_record(load_state(root), name).name
     folder = root / name
     if folder.is_dir():
         try:
@@ -388,20 +394,23 @@ def uninstall_plugin(name: str, *, base: Path | None = None) -> Path:
         except DeleteRefusedError as error:
             raise PluginError(str(error)) from error
     plugin_store.update_state(lambda current: current.without_plugin(name), root)
+    if not keep_data:
+        remove_plugin_data(name)
     return folder
 
 
-def set_plugin_enabled(name: str, enabled: bool, *, base: Path | None = None) -> PluginRecord:
-    root = base or plugins_dir()
-    state = load_state(root)
-    record = state.plugin(name)
-    if record is None:
-        raise PluginError(ERR_NOT_INSTALLED.format(name=name))
-    if record.enabled == enabled:
-        raise PluginError(ERR_ALREADY.format(name=name, state="açık" if enabled else "kapalı"))
-    updated = replace(record, enabled=enabled)
-    plugin_store.update_state(lambda current: current.with_plugin(updated), root)
-    return updated
+def set_plugin_enabled(
+    name: str,
+    enabled: bool,
+    *,
+    base: Path | None = None,
+    scope: str = "",
+    root: Path | None = None,
+) -> str:
+    """Aç/kapat; yazılan kapsamı döndürür (`--scope` yoksa local/project/user algılanır, #376)."""
+    from .plugin_toggle import toggle_plugin
+
+    return toggle_plugin(name, enabled, scope=scope, base=base, root=root).scope
 
 
 class PluginAlreadyInstalledError(PluginError):
@@ -519,18 +528,25 @@ def _check_market_name(name: str, source: str, root: Path) -> None:
         raise PluginError(ERR_MARKET_TAKEN.format(name=name, source=existing.source))
 
 
-def remove_marketplace(name: str, *, base: Path | None = None) -> None:
+def remove_marketplace(name: str, *, base: Path | None = None) -> tuple[str, ...]:
+    """Pazarı ve ondan kurulan BÜTÜN eklentileri kaldır (Claude, #396); kaldırılan eklentiler."""
+    from .plugin_toggle import plugins_from_marketplace
+
     root = base or plugins_dir()
     state = load_state(root)
     record = state.marketplace(name)
     if record is None:
         raise PluginError(ERR_NO_MARKET.format(name=name))
+    removed = plugins_from_marketplace(name, root)
+    for plugin in removed:
+        uninstall_plugin(f"{plugin}@{name}", base=root)
     clones = markets_dir(root).resolve()
     folder = Path(record.path).resolve()
     # Yalnız Fusion'ın kendi klonu silinir: elle bozulmuş kayıttaki `~/Belgeler` silinmez.
     if record.kind == "git" and folder.is_relative_to(clones) and folder != clones:
         shutil.rmtree(folder, ignore_errors=True)
     plugin_store.update_state(lambda current: current.without_marketplace(name), root)
+    return removed
 
 
 def _entries(state: PluginState) -> Iterator[tuple[MarketplaceRecord, MarketplaceEntry]]:

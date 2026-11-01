@@ -146,6 +146,22 @@ def record_permissions_digest(root: Path) -> None:
     )
 
 
+def record_project_settings_digest(root: Path) -> None:
+    """Fusion'ın BİZZAT yazdığı `.claude/settings.json`'ın karmasını tazele (#376).
+
+    `record_permissions_digest` ile aynı ilke: yalnız bu alan değişir; çağıran, dosya
+    yazılmadan ÖNCE güvenilir olduğunu denetler (güvensiz içerik bununla güvenilir olmaz).
+    """
+    record = _load().get(_key(root))
+    _update(
+        root,
+        config_sha256=record.get("config_sha256") if record is not None else _NEVER_TRUSTED,
+        files=dict(record.get("files", {})) if record is not None else {},
+        settings_sha256=record.get("settings_sha256") if record else None,
+        project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
+    )
+
+
 def untrust_project(root: Path) -> bool:
     """Projenin güven kaydını sil; kayıt yoksa `False` (P-012)."""
     store = _load()

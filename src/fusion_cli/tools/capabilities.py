@@ -405,6 +405,11 @@ class CapabilityRegistry:
             extra_agent_sources=self._extra_agent_sources,
         )
 
+    @property
+    def home(self) -> Path:
+        """Kataloğun okuduğu ev dizini (Claude eklenti kurulumları buradan okunur)."""
+        return self._home
+
     def invalidate(self) -> None:
         """Önbelleği boşalt; bir sonraki erişim diski yeniden tarar."""
         self._skills = None
@@ -421,7 +426,7 @@ class CapabilityRegistry:
 
     def _current_signature(self) -> tuple[tuple[str, int], ...]:
         # Eklenti kaydı (P-059) değişince (kur/kapat/kaldır) katalog da yenilenir.
-        plugins = state_signature()
+        plugins = state_signature(root=self._root)
         signature = roots_signature(
             self._skill_roots(), self._agent_roots(), self._home, self._root
         )

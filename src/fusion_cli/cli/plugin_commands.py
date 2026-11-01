@@ -1,7 +1,7 @@
 """`fusion eklenti …` (takma ad `fusion plugin …`) — eklenti paketleri ve pazar yerleri (P-059).
 
 fusion eklenti kur <yol|https://…|sahip/repo|ad@pazar> [--yes] [--dry-run] [--karma <sha256>]
-fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--hepsi] | kaldir <ad>
+fusion eklenti listele | dogrula <yol|ad> | ac|kapat <ad> [--scope] [--all] | kaldir <ad> [--keep-data]
 fusion eklenti guven <ad>            değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] kaydedildiği kaynaktan yeniden çek (Claude `plugin update`)
 fusion eklenti kesfet [pazar]        kayıtlı pazarlardaki eklentiler
@@ -41,9 +41,10 @@ console = Console()
 CONFIRM = "Bu eklenti kurulsun mu?"
 CONFIRM_TRUST = "Güncel içerik onaylansın mı?"
 NEEDS_YES = "Bu eklenti komut çalıştırabilir; etkileşimsiz terminalde onay için --yes ekle."
-INSTALLED = "Kuruldu: {name} ({status}). Etkin olması için yeni bir oturum aç ya da /skills reload."
-REMOVED = "Kaldırıldı (çöpte): {name}"
-TOGGLED = "{name}: {state}"
+INSTALLED = "Kuruldu: {name} ({status}). Açık oturuma uygulamak için /reload-plugins çalıştır."
+REMOVED = "Eklenti kaldırıldı: {name} (kapsam: user; klasör çöpte{data})"
+DATA_KEPT = ", veri korundu"
+TOGGLED = "Eklenti {verb}: {name} (kapsam: {scope})"
 ALL_TOGGLED = "Bütün eklentiler: {state}"
 DISABLED_ALL = "{count} eklenti kapatıldı"
 ENABLE_ALL_DEPRECATED = "enable --all kullanımdan kalktı; Claude Code'da yok"
@@ -54,6 +55,8 @@ MARKET_UPDATED = "Pazar güncellendi: {name}. Eklentileri gör: fusion eklenti k
 MARKETS_UPDATED = "{count} pazar güncellendi"
 MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti kesfet {name}"
 MARKET_REMOVED = "Pazar kaldırıldı: {name}"
+MARKET_ALSO = "Ayrıca bu pazardan {count} eklenti kaldırıldı:"
+SCOPE_HELP = "Kapsam: user, project ya da local (verilmezse algılanır)."
 
 
 def _run(action: Callable[[], str]) -> None:
@@ -139,48 +142,59 @@ def validate(
     _run(act)
 
 
-def _toggle(name: str, everything: bool, enabled: bool) -> str:
-    label = "açık" if enabled else "kapalı"
-    if everything and name:
-        raise PluginError("--all bir eklenti adıyla birlikte kullanılamaz.")
+def _toggle(name: str, everything: bool, enabled: bool, scope: str = "") -> str:
+    if everything and (name or scope):
+        raise PluginError("--all bir eklenti adı ya da --scope ile birlikte kullanılamaz.")
     if everything and enabled:
         # Claude'da `enable --all` yok: yalnız eski genel kapatmayı kaldırır (kullanımdan kalktı).
         plugins.set_all_disabled(False)
-        return ALL_TOGGLED.format(state=label) + " (" + ENABLE_ALL_DEPRECATED + ")"
+        return ALL_TOGGLED.format(state="açık") + " (" + ENABLE_ALL_DEPRECATED + ")"
     if everything:
         closed = plugins.disable_all_plugins()
         return DISABLED_ALL.format(count=len(closed))
     if not name:
         raise PluginError("Eklenti adı ver ya da --all kullan.")
-    plugins.set_plugin_enabled(name, enabled)
-    return TOGGLED.format(name=name, state=label)
+    written = plugins.set_plugin_enabled(name, enabled, scope=scope)
+    verb = "açıldı" if enabled else "kapatıldı"
+    return TOGGLED.format(verb=verb, name=name.split("@", 1)[0], scope=written)
 
 
 @app.command("ac")
 def enable(
-    name: str = typer.Argument("", help="Eklenti adı"),
+    name: str = typer.Argument("", help="Eklenti adı ya da ad@pazar"),
     everything: bool = typer.Option(False, "--hepsi", "--all", help="Genel kapatmayı kaldır."),
+    scope: str = typer.Option("", "--scope", "-s", help=SCOPE_HELP),
 ) -> None:
-    """Eklentiyi (ya da --hepsi ile tüm eklentileri) aç."""
-    _run(lambda: _toggle(name, everything, True))
+    """Eklentiyi aç (enabledPlugins; kapsam verilmezse local → project → user algılanır)."""
+    _run(lambda: _toggle(name, everything, True, scope))
 
 
 @app.command("kapat")
 def disable(
-    name: str = typer.Argument("", help="Eklenti adı"),
-    everything: bool = typer.Option(False, "--hepsi", "--all", help="Bütün eklentileri kapat."),
+    name: str = typer.Argument("", help="Eklenti adı ya da ad@pazar"),
+    everything: bool = typer.Option(
+        False, "--hepsi", "--all", "-a", help="Bütün eklentileri kapat."
+    ),
+    scope: str = typer.Option("", "--scope", "-s", help=SCOPE_HELP),
 ) -> None:
     """Eklentiyi kaldırmadan kapat; bileşenleri yüklenmez."""
-    _run(lambda: _toggle(name, everything, False))
+    _run(lambda: _toggle(name, everything, False, scope))
 
 
 @app.command("kaldir")
-def uninstall(name: str = typer.Argument(..., help="Eklenti adı")) -> None:
-    """Eklentiyi kaldır (Fusion çöpüne taşınır, `fusion cop geri-al` ile döner)."""
+def uninstall(
+    name: str = typer.Argument(..., help="Eklenti adı ya da ad@pazar"),
+    scope: str = typer.Option("", "--scope", "-s", help="Kapsam (Fusion kurulumları: user)."),
+    keep_data: bool = typer.Option(
+        False, "--keep-data", help="Eklentinin kalıcı veri klasörünü (CLAUDE_PLUGIN_DATA) koru."
+    ),
+) -> None:
+    """Eklentiyi kaldır (klasör Fusion çöpüne taşınır; veri klasörü --keep-data yoksa silinir)."""
 
     def act() -> str:
-        plugins.uninstall_plugin(name)
-        return REMOVED.format(name=name)
+        plugins.uninstall_plugin(name, keep_data=keep_data, scope=scope)
+        data = DATA_KEPT if keep_data else ""
+        return REMOVED.format(name=name.split("@", 1)[0], data=data)
 
     _run(act)
 
@@ -262,11 +276,15 @@ def market_update(name: str = typer.Argument("", help="Pazar adı (boşsa hepsi)
 
 @market_app.command("kaldir")
 def market_remove(name: str = typer.Argument(..., help="Pazar adı")) -> None:
-    """Pazar kaydını sil (kurulu eklentiler kalır)."""
+    """Pazarı ve ondan kurulan bütün eklentileri kaldır (Claude `marketplace remove`)."""
 
     def act() -> str:
-        plugins.remove_marketplace(name)
-        return MARKET_REMOVED.format(name=name)
+        removed = plugins.remove_marketplace(name)
+        lines = [MARKET_REMOVED.format(name=name)]
+        if removed:
+            lines.append(MARKET_ALSO.format(count=len(removed)))
+            lines.extend(f"  - {plugin}" for plugin in removed)
+        return "\n".join(lines)
 
     _run(act)
 

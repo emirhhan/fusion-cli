@@ -1780,6 +1780,7 @@ AUTO_REVIEW_TRY_FIXED = (
 
 # --- Eklenti paketi ve içe aktarma (P-059, P-071) ------------------------------- #
 EKLENTI_CMD_PLUGIN = "eklentileri listele/kur/aç/kapat/kaldır, pazar yerleri: /plugin kur <kaynak>"
+EKLENTI_CMD_RELOAD = "bekleyen eklenti değişikliklerini oturumu yeniden başlatmadan uygula"
 EKLENTI_CMD_IMPORT = "Claude Code/Codex/Gemini/Cursor yapılandırmasını taşı (önizle, --yes uygula)"
 EKLENTI_CMD_RELEASE_NOTES = "sürüm notlarını göster (CHANGELOG)"
 EKLENTI_MCP_REMOVE = (

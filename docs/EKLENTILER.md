@@ -78,14 +78,28 @@ fusion eklenti kur https://git.ornek.com/x.git # genel https git adresi
 fusion eklenti kur rapor@ekip [--yes]          # kayıtlı pazardan
 fusion eklenti kur <kaynak> --dry-run          # yalnız doğrula ve özetle
 fusion eklenti listele | dogrula <yol|ad>
-fusion eklenti ac|kapat <ad>  ·  fusion eklenti kapat --all   # her eklentiyi ayrı kapatır
-fusion eklenti kaldir <ad>                     # Fusion çöpüne (fusion cop geri-al)
+fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
+fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # Fusion çöpüne; veri klasörü silinir
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
 fusion eklenti kesfet [pazar]
 fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
-fusion eklenti pazar kaldir <ad>
+fusion plugin marketplace remove <ad>          # o pazardan kurulan eklentiler de kaldırılır
 ```
+
+REPL'de `/reload-plugins [--force]` bekleyen eklenti değişikliklerini oturumu yeniden başlatmadan
+uygular ve `Yeniden yüklendi: N eklenti · N beceri · N ajan · N kanca · N eklenti MCP sunucusu · 0
+eklenti LSP sunucusu` özetini basar; bir eklenti MCP sunucusu eklenip çıkacaksa (istem önbelleği
+bozulur) `--force` ister.
+
+**Kapsamlar (`enabledPlugins`):** Claude Code gibi açık/kapalı bilgisi settings dosyalarındaki
+`enabledPlugins` (`{"ad@pazar": true|false}`; pazarsız kurulumda yalnız ad) anahtarında durur,
+öncelik local (`.claude/settings.local.json`) > project (`.claude/settings.json`) > user. `--scope`
+verilmezse local, project, user sırasıyla eklentiyi anan ilk kapsam kullanılır; ilan edilenden düşük
+öncelikli kapsam "… kapsamında kurulu, … değil" hatası verir, yüksek öncelikli kapsama geçersiz
+kılma yazılır. Güvenlik: `fusion trust` sonrası değişmiş (güvenilmeyen) proje dosyasındaki `true`
+eklenti açmaz; `false` her zaman uygulanır. Fusion'ın yazdığı güvenilir dosya güvenilir kalır.
+Kaldırma eklentinin `${CLAUDE_PLUGIN_DATA}` klasörünü siler (`--keep-data` korur).
 
 Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
 eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;
@@ -108,9 +122,11 @@ onayla" (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`).
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.
 
-**Bilinçli eksikler:** yalnız kullanıcı kapsamı vardır; Claude Code'un proje/yerel eklenti kapsamları,
-`settings.json` `enabledPlugins` ve `extraKnownMarketplaces` alanları okunmaz. Kriptografik imza yok:
-bütünlük sha256 karma + commit pinidir.
+**Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
+`~/.claude/settings.json`'ına yazılmaz; kurulum yalnız user kapsamındadır (`install --scope`
+yok), `uninstall --scope project|local` "kurulu değil" der. `extraKnownMarketplaces` ve managed
+kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
+commit pinidir.
 
 ## Güven ve bütünlük
 
