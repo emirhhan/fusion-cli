@@ -31,7 +31,7 @@ async def test_sessionstart_kancasi_yoksa_oturum_acik_sayilmaz(tmp_path):
 
 
 def test_sessionstart_girdisi_model_agent_type_ve_baslik(tmp_path):
-    """Claude SessionStart girdisi: `model`, `agent_type`, `session_title`; /clear'da model yok (#111)."""
+    """Claude SessionStart girdisi: model, agent_type, session_title; /clear'da model yok."""
     import asyncio
 
     from fusion_cli.core.hooks.events import HookSet
@@ -52,13 +52,14 @@ def test_sessionstart_girdisi_model_agent_type_ve_baslik(tmp_path):
 
 
 def test_branch_sonrasi_sessionstart_kaynagi_fork(tmp_path):
+    import contextlib
+
     from fusion_cli.cli.repl import session_resume
 
     state = type("S", (), {})()
     state.hook_start_source = ""
     target = session_resume.ResumeTarget("yeni", (), "başlık", forked_from="eski")
-    try:
+    # Sahte durum yalnız kaynağı taşır; sonraki adımlar (PR künyesi) burada önemsiz.
+    with contextlib.suppress(AttributeError):
         session_resume.apply_target(state, target)
-    except AttributeError:
-        pass
     assert state.hook_start_source == "fork"
