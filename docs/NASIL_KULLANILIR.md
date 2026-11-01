@@ -147,7 +147,7 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   Aynı oturumda daha önce `/clear` çalıştıysa menünün başında `/resume <kimlik> (önceki oturum)` satırı
   durur (terminal ve TUI; masaüstü sohbetleri sekmelerle sürdürür); seçilince `/clear` öncesi konuşma sürdürülür. Başka bir sohbete
   geçince satır kaybolur.
-  Boş satırda **Esc Esc** de aynı seçiciyi açar. Girdi doluyken (tur sürmüyorsa) **Esc Esc** metni temizler; taslak geçmişe yazılır, Up ile geri gelir. `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
+  Boş satırda **Esc Esc** de aynı seçiciyi açar. Girdi doluyken (tur sürmüyorsa) **Esc Esc** metni temizler; taslak Up ile geri gelir (yalnız bu oturumda, son 10 taslak; geçmiş dosyasına yazılmaz). `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
   Checkpoint'ler Claude Code'daki gibi konuşmayla birlikte diske yazılır
@@ -1139,7 +1139,7 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 
 - **Çok satır:** `\` + Enter, Option+Enter, Shift+Enter (CSI-u ya da modifyOtherKeys gönderen terminallerde), Ctrl+J; yapıştırma. Enter gönderir. Kutu en çok 10 satıra uzar.
 - **Geçmiş:** Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son satırda geçmişi gezer. Geçmiş çalışma dizini başınadır (`<bellek>/girdi-gecmisi/`, 0600), art arda aynı satır bir kez yazılır. **Ctrl+R** satır içi tersine arama (Ctrl+R sonraki, Enter kabul, Ctrl+C/Esc iptal).
-- **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler, boş girdide ikinci basış (800 ms) çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
+- **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler (silinen taslak Claude Code'daki gibi Up ile geri gelir: hemen ya da sonraki mesajlardan sonra, oturumda son 10 taslak tutulur, dosyaya yazılmaz), 800 ms içindeki ikinci basış çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
 - Konuşma kaydırma: PageUp/PageDown, Home/End, Ctrl+Home/Ctrl+End, Shift+Up/Down.
 - **Kuyruk:** tur sürerken Enter mesajı kuyruğa alır. Düz mesaj Claude Code'daki gibi araç çağrıları bitince AYNI tura verilir; tur mesaj okunmadan biterse kendiliğinden sıradaki tur olarak gider. Komutlar, `!` kabuk satırları ve `@` anması tur sonunu bekler. İlk satırda Up kuyruktakileri (`!` satırları hariç) taslağın önüne geri alır. Ctrl+X Ctrl+S (`chat:sendNow`) kuyruğu hemen yollar: bekleyen varsa tur kesilir, taslak arkasına kuyruklanır. Esc turu keser, kuyruktakiler korunur ve hemen gönderilir. `/status`, `/tasks`, `/usage` (`/cost`), `/model`, `/effort`, `/add-dir` ve `/permissions` Claude Code'daki gibi kuyruğa girmez, tur sürerken hemen çalışır (tam ekran TUI).
 - **Düzenleme:** Ctrl+G ya da Ctrl+X Ctrl+E girdiyi dış editörde açar, Ctrl+_ son düzenlemeyi geri alır, Ctrl+S dolu taslağı saklar (boş girdide geri getirir), Ctrl+L girdi ve konuşmayı koruyarak ekranı yeniden çizer.

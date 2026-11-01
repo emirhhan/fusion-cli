@@ -147,8 +147,8 @@ def test_ctrl_c_bosta_iki_basista_cikar_girdi_doluysa_temizler():
 
     _press(tui, "c-c")
     assert tui._input.buffer.text == "" and olaylar["exit"] == 0
-    _press(tui, "c-c")
-    assert olaylar["exit"] == 0 and "Ctrl+C" in tui._status_html
+    assert "Ctrl+C" in tui._status_html
+    # Belge: ilk basış girdiyi temizler, ikinci basış çıkar.
     _press(tui, "c-c")
     assert olaylar["exit"] == 1
     _press(tui, "s-tab")
@@ -820,3 +820,43 @@ async def test_await_choice_numara_tusu_hemen_secer_ve_isaretler():
     tui._accept(type("B", (), {"text": ""})())
     assert await task == "a"
     assert tui.picked_by_number is False
+
+
+async def test_ctrl_c_ile_silinen_taslak_up_ile_geri_gelir_dosyaya_yazilmaz(tmp_path):
+    """Claude Code "Bring back a cleared draft" (#195): taslak oturumluk, dosyaya girmez."""
+    from fusion_cli.cli.repl.tui_input_keys import DirectoryHistory
+
+    yol = tmp_path / "gecmis"
+    tui = FusionTui(
+        on_submit=lambda text: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+        history=DirectoryHistory(yol),
+    )
+    buffer = tui._input.buffer
+    tui.set_input("uzun bir istem")
+    _press(tui, "c-c")
+    assert buffer.text == ""
+    buffer.load_history_if_not_yet_loaded()
+    for _ in range(50):
+        if len(buffer._working_lines) >= 2:
+            break
+        await asyncio.sleep(0.02)
+    _press(tui, "up")
+    assert buffer.text == "uzun bir istem"
+    assert not yol.exists() or "uzun bir istem" not in yol.read_text(encoding="utf-8")
+
+
+def test_oturumluk_taslaklar_en_cok_on_tane():
+    from fusion_cli.cli.repl.tui_input_keys import MAX_CLEARED_DRAFTS, DirectoryHistory
+
+    import tempfile
+    from pathlib import Path
+
+    gecmis = DirectoryHistory(Path(tempfile.mkdtemp()) / "g")
+    for no in range(MAX_CLEARED_DRAFTS + 3):
+        gecmis.remember_draft(f"taslak {no}")
+    kalan = [s for s in gecmis.get_strings() if s.startswith("taslak")]
+    assert len(kalan) == MAX_CLEARED_DRAFTS
+    assert "taslak 0" not in kalan

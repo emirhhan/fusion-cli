@@ -41,6 +41,10 @@ def register_shift_enter() -> None:
         ANSI_SEQUENCES.setdefault(sequence, Keys.ControlJ)
 
 
+#: Claude Code: oturumda tutulan en son silinmiş taslak sayısı (Ctrl+C / Esc Esc, #195).
+MAX_CLEARED_DRAFTS = 10
+
+
 class DirectoryHistory(FileHistory):
     """Çalışma dizini başına girdi geçmişi (0600).
 
@@ -52,6 +56,23 @@ class DirectoryHistory(FileHistory):
         filename.parent.mkdir(parents=True, exist_ok=True)
         super().__init__(str(filename))
         self._path = filename
+        self._drafts: list[str] = []
+
+    def remember_draft(self, text: str) -> None:
+        """Silinen taslağı yalnız bu oturumda Up ile geri getir; dosyaya yazılmaz.
+
+        Claude Code "Bring back a cleared draft": son 10 taslak tutulur, çıkışta atılır.
+        """
+        if not self._loaded:
+            # `load()` önbelleği ilk okumada dosyadan kurar; taslak ondan sonra eklenmeli.
+            self._loaded_strings = list(self.load_history_strings())
+            self._loaded = True
+        self._drafts = [*self._drafts, text]
+        if len(self._drafts) > MAX_CLEARED_DRAFTS:
+            oldest, self._drafts = self._drafts[0], self._drafts[1:]
+            if oldest in self._loaded_strings:
+                self._loaded_strings.remove(oldest)
+        self._loaded_strings.insert(0, text)
 
     def store_string(self, string: str) -> None:
         super().store_string(string)

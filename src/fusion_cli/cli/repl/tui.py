@@ -916,10 +916,13 @@ class FusionTui:
             self._ctrl_c.reset()
             self._cancel_or_interrupt()
             return
-        buffer = self._input.buffer
-        if buffer.text:
-            buffer.reset()
+        if self._input.buffer.text:
+            # Claude Code (#195): ilk basış girdiyi temizler (taslak Up ile geri gelir),
+            # pencere içindeki ikinci basış çıkar.
+            self._clear_into_history()
             self._ctrl_c.reset()
+            self._ctrl_c.press()
+            self._show_flash(messages.TUI_PRESS_AGAIN_TO_EXIT.format(key="Ctrl+C"))
             return
         if self._ctrl_c.press():
             self._on_exit()
@@ -991,7 +994,11 @@ class FusionTui:
         draft = self._expand_pastes(buffer.text)
         buffer.reset()
         if draft.strip():
-            buffer.history.append_string(draft)
+            remember = getattr(buffer.history, "remember_draft", None)
+            if remember is not None:
+                remember(draft)
+            else:
+                buffer.history.append_string(draft)
 
     def _rewind_requested(self, *, now: float | None = None) -> bool:
         """Boş girdide art arda iki Esc mi? (Claude Code: Esc Esc → `/rewind`.)
