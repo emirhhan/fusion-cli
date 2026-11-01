@@ -160,4 +160,3 @@ def _drop_wrapper(name: str, rest: list[str]) -> list[str]:
     while rest and rest[0].startswith("-") and len(rest[0]) > 1:
         rest = rest[2:] if rest[0] in value_flags else rest[1:]
     return rest[skip:]
-

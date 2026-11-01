@@ -75,8 +75,6 @@ def test_repl_durumu_plan_bayraklarini_kurar(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(trust, "trust_store_file", lambda: tmp_path / "guven.json")
-    durum = SimpleNamespace(
-        root=tmp_path, approval_memory=ApprovalMemory(), bypass_available=True
-    )
+    durum = SimpleNamespace(root=tmp_path, approval_memory=ApprovalMemory(), bypass_available=True)
     _apply_plan_policy(durum)
     assert durum.approval_memory.plan_bypass is True

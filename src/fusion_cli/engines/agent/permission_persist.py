@@ -28,6 +28,7 @@ from ...tools.auto_policy import command_words
 from ...tools.write_targets import FILE_WRITE_TOOLS
 from ...ui import messages
 from .approval import ApprovalRequest
+from .web_approval import web_rule
 
 
 def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionRule:
@@ -36,6 +37,10 @@ def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionR
     if tool_family(tool) is ToolFamily.SHELL:
         command = str(request.args.get("command", "")).strip()
         return PermissionRule("Bash", _shell_prefix(command), PermissionDecision.ALLOW)
+    web = web_rule(request)
+    if web is not None:
+        # `WebFetch(domain:<alan>)` / `WebSearch` (#55).
+        return web
     if tool in FILE_WRITE_TOOLS:
         raw = request.args.get("path")
         if isinstance(raw, str) and raw.strip():

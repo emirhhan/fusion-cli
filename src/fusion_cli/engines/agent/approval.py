@@ -62,6 +62,7 @@ from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
+from .web_approval import adjust_web_request, web_scope
 from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
@@ -629,7 +630,7 @@ def build_request(
         outside_dir=outside_dir,
         pre_denied=pre_denied,
     )
-    return _apply_rule(request, match)
+    return adjust_web_request(_apply_rule(request, match))
 
 
 #: Kök-dışı yazma engeli açıkken (P-002) modele dönen gerekçe.
@@ -809,6 +810,10 @@ def _scope(request: ApprovalRequest) -> str | None:
     """
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    web = web_scope(request)
+    if web is not None:
+        # WebFetch alan başına, WebSearch araç başına (#55).
+        return web
     if request.consent_key is not None:
         # Uygulama başına masaüstü onayı: aynı uygulamada tıklama ve yazma tek izindir.
         return request.consent_key

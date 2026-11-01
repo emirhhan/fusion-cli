@@ -64,11 +64,11 @@ class PlanApproval:
 def _edits_files(request: ApprovalRequest) -> bool:
     """Plan kipinde sorulmadan engellenen değişiklik mi?
 
-    Yalnız kabuk ve MCP (uzak araç ailesi) çağrısı soruya gider; yerel dosya yazımı, masaüstü
+    Yalnız kabuk, web (#55) ve MCP (uzak araç ailesi) çağrısı soruya gider; yerel dosya yazımı, masaüstü
     ve tarayıcı eylemi plan onaylanana dek engellenir.
     """
     family = tool_family(request.tool.name)
-    if family is ToolFamily.SHELL:
+    if family in {ToolFamily.SHELL, ToolFamily.WEB}:
         return False
     return not (family is ToolFamily.EXTERNAL and request.effect is not ToolEffect.LOCAL)
 
