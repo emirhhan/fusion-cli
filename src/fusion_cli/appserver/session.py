@@ -2457,8 +2457,9 @@ class AppSession:
             # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
-            self._state.history.clear()
-            linked_pr.forget(self._state)
+            # `/reset`, `/new` artık `/clear` takma adı (#185). Masaüstü sohbet kimliğini
+            # kendi sekmesi yönetir; geçmiş ve hook oturumu Claude `/clear` gibi yenilenir.
+            self._state.reset_history()
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
             return {

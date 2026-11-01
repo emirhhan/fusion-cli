@@ -52,6 +52,7 @@ from . import (
     profiles_flow,
     provider_flow,
     rewind,
+    session_clear,
     session_resume,
     status_line,
     team_commands,
@@ -238,10 +239,6 @@ def _set_mode(mode: ApprovalMode) -> Handler:
         return messages.REPL_MODE_CHANGED.format(mode=mode.value)
 
     return _handler
-
-
-def _reset(state: ReplState, argument: str) -> str:
-    return messages.REPL_HISTORY_CLEARED.format(count=state.reset_history())
 
 
 def _set_task_type(state: ReplState, argument: str) -> str:
@@ -977,7 +974,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", messages.CMD_HELP, lambda state, argument: "", ("h", "?")),
     SlashCommand("tips", messages.CMD_TIPS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("exit", messages.CMD_EXIT, _exit, ("quit", "q")),
-    SlashCommand("clear", messages.CMD_CLEAR, lambda state, argument: ""),
+    SlashCommand(
+        "clear",
+        messages.CMD_CLEAR,
+        session_clear.clear_command,
+        ("reset", "new"),
+        usage="[ad]",
+    ),
     SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
     SlashCommand("fusion", messages.CMD_FUSION, _use_fusion, group="Motor"),
     SlashCommand("auto", messages.CMD_AUTO, _set_mode(ApprovalMode.AUTO), group="Onay modu"),
@@ -1020,7 +1023,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Onay modu",
         usage="[on|off|izin <alan>|…]",
     ),
-    SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
     SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
     SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
@@ -1349,7 +1351,6 @@ RENDERED_COMMANDS = frozenset(
     {
         "help",
         "tips",
-        "clear",
         "stats",
         "lessons",
         "models",

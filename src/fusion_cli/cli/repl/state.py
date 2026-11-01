@@ -527,15 +527,23 @@ class ReplState:
         self.approval = next_mode(self.approval)
         return self.approval
 
-    def reset_history(self) -> int:
-        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+    def reset_history(self, *, session_id: str | None = None) -> int:
+        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür.
+
+        `session_id` verilirse (`/clear` yeni sohbet kimliği, #185) yeni hook oturumu onu taşır.
+        """
         from . import linked_pr
 
         removed = len(self.history)
         self.history = []
         if self.hook_session is not None:
             # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
-            self.hook_session.restart("clear", reason="clear")
+            if session_id is None:
+                self.hook_session.restart("clear", reason="clear")
+            else:
+                self.hook_session.restart(
+                    "clear", reason="clear", session_id=session_id, conversation_id=session_id
+                )
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed

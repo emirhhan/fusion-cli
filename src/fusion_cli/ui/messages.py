@@ -888,7 +888,7 @@ REPL_PASTE_FOLDED_CHARS = "⧉ {count} karakter yapıştırıldı [#{index}]"
 # --- Komut açıklamaları ---------------------------------------------------- #
 CMD_HELP = "komut listesini göster"
 CMD_EXIT = "çıkış"
-CMD_CLEAR = "ekranı temizle"
+CMD_CLEAR = "yeni boş sohbet başlat; önceki sohbet /resume ile açılır (ekran: Ctrl+L)"
 CMD_AGENT = "agent motoruna geç (araçlarla iş yapar)"
 CMD_FUSION = "fusion motoruna geç (çoklu model + hakem)"
 CMD_AUTO = "otomatik: Fusion karar verir, yalnız riskli işlemde sorar"
@@ -1129,6 +1129,9 @@ SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet deği
 SESSION_NAMED_NEW = "Yeni sohbet: {name}"
 SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
 SESSION_RENAMED = "Sohbet adı: {name}"
+SESSION_CLEARED = "Yeni sohbet başladı ({count} mesaj bırakıldı; /resume ile geri açılır)"
+SESSION_CLEARED_NAMED = "Yeni sohbet başladı; bırakılan sohbet '{name}' adıyla kayıtlı ({count} mesaj)"
+SESSION_CLEARED_EMPTY = "Yeni sohbet başladı"
 SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder."
 SESSION_BRANCHED = (
     "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
