@@ -152,6 +152,8 @@ okunmadığı için orada `/bg` kullanılır.
   iken komut eskisi gibi durdurulur.
 - `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
+- `/tasks` (`/bashes`) kabuk arka plan işlerini de listeler (`kabuk <kimlik> · sürüyor · komut`);
+  `/tasks stop <kimlik>` işi durdurur (süreç başlangıç kimliği doğrulanır).
 - Arka plan işinin ömrü: Fusion kapanırken o oturumun başlattığı işler durdurulur; çıktısı
   5 GB'ı geçen iş durdurulur ve nedeni günlüğe yazılır. Yalnız gözetimsiz koşuda
   (`fusion agent`) süre sınırı vardır: 10 dk (metin istem) ya da `timeout` (en çok 2 sa);
@@ -167,7 +169,6 @@ okunmadığı için orada `/bg` kullanılır.
 ## Bilinen sınırlar
 
 - Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
-- `/tasks` kabuk arka plan işlerini (`run_shell(run_in_background=true)`, `job_status`) listelemez.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u

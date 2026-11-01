@@ -75,3 +75,25 @@ def test_bashes_tasks_komutunun_diger_adi():
     komutlar = build_commands()
     assert komutlar.get("bashes") is not None
     assert komutlar.get("bashes").name == "tasks"
+
+
+def test_tasks_kabuk_islerini_listeler_ve_durdurur(tmp_path):
+    """Claude Code `/tasks`: kabuk arka plan işleri de listelenir ve durdurulur (#333)."""
+    from fusion_cli.cli.repl import background_commands
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.memory.factory import null_memory
+
+    sonuc = shell.run_shell(
+        {"command": "sleep 30", "run_in_background": True}, ToolContext(root=tmp_path)
+    )
+    kimlik = sonuc.output.split("Arka plan işi başladı: ", 1)[1].split()[0]
+    kaynak = tmp_path / "ayar.yaml"
+    kaynak.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
+    durum = ReplState(
+        config=load_config(kaynak), memory=null_memory(), root=tmp_path, home=tmp_path / "ev"
+    )
+    liste = background_commands.tasks_command(durum, "")
+    assert f"kabuk {kimlik} · sürüyor · sleep 30" in liste
+    assert background_commands.tasks_command(durum, f"stop {kimlik}") == f"İş {kimlik} durduruldu."
+    assert "bitti (çıkış 143)" in background_commands.tasks_command(durum, "")

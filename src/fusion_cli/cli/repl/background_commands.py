@@ -13,6 +13,7 @@ from ...core.background_tasks import BackgroundTask, BackgroundTaskError
 from ...core.peers import inbound_turn_text
 from ...engines.agent.approval import ApprovalMode
 from ...tools import agent_tasks
+from ...tools.job_listing import shell_job_lines, stop_shell_job
 from ...ui import background_messages as texts
 from ...ui.background_view import peer_lines, task_detail, task_lines
 from .state import ReplState
@@ -97,7 +98,9 @@ def tasks_command(state: ReplState, argument: str) -> str:
     action = word.casefold()
     try:
         if action in {"", "list", "liste"}:
-            return task_lines(store.tasks(root=_root(state, rest)))
+            text = task_lines(store.tasks(root=_root(state, rest)))
+            shell = shell_job_lines(state.root)  # kabuk işleri de listede (#333)
+            return "\n".join([text, "", *shell]) if shell else text
         if action in {"clean", "temizle"}:
             removed, failed = agent_tasks.clean_finished(store, _root(state, rest))
             text = texts.BG_CLEANED.format(count=removed)
@@ -105,6 +108,11 @@ def tasks_command(state: ReplState, argument: str) -> str:
                 text += "\n" + texts.BG_CLEAN_FAILED.format(names=", ".join(failed))
             return text
         query, _, value = rest.strip().partition(" ")
+        if action in {"stop", "durdur"}:
+            try:
+                return stop_shell_job(state.root, query.strip())
+            except KeyError:
+                pass  # kabuk işi değil: arka plan görevi olarak çöz
         task = store.resolve(query)
         return _task_action(state, action, task, value.strip())
     except BackgroundTaskError as error:
