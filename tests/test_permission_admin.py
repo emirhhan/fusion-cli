@@ -335,3 +335,11 @@ async def test_izin_rpc_ekle_proje_kapsami_guvenilmeyen_projede_reddedilir(proje
         assert tamam["ok"] is True and tamam["dosya"] == str(user_permissions_file())
     finally:
         await session.close()
+
+
+def test_allowed_tools_permissions_takma_adidir():
+    """Claude (#83): `/allowed-tools` `/permissions`'ın takma adıdır."""
+    from fusion_cli.cli.repl.commands import build_registry
+
+    kayit = build_registry()
+    assert kayit.get("allowed-tools") is kayit.get("permissions")

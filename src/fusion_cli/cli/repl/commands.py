@@ -993,7 +993,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Onay modu",
     ),
     SlashCommand(
-        "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[goster|ac]"
+        "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[açıklama]"
     ),
     SlashCommand(
         "bypass",
@@ -1012,7 +1012,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "permissions",
         messages.CMD_PERMISSIONS,
         permissions_command.permissions,
-        ("izinler",),
+        ("allowed-tools", "izinler"),
         group="Onay modu",
         usage="[list|add|remove] …",
     ),
