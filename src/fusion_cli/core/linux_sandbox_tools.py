@@ -3,7 +3,9 @@
 Claude Code Linux sandbox'ı `bwrapPath`, `socatPath` ve `ripgrep: {command, args}` ayarlarını
 okur. rg alt dizinlerdeki korumalı dosyaları (iç içe depoların `.git/config`'i, `.claude`
 ayarları, `.mcp.json`) bulmak için kullanılır; bulunanlar sandbox içinde salt okunur bağlanır.
-rg yoksa yalnız kök düzeyindeki korumalı yollar bağlanır (önceki davranış).
+rg yoksa yalnız kök düzeyindeki korumalı yollar bağlanır (önceki davranış). Tarama sonucu
+kök başına kısa süre (`SCAN_CACHE_S`) önbelleklenir: aynı komutun onay ve çalıştırma planı tek
+taramayı paylaşır, sonraki komutlar yeni oluşan iç içe depoları yine görür.
 """
 
 from __future__ import annotations
@@ -11,6 +13,8 @@ from __future__ import annotations
 import functools
 import shutil
 import subprocess
+import threading
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +29,11 @@ _PROBE_TIMEOUT_S = 5.0
 _SCAN_TIMEOUT_S = 10.0
 #: Korumalı dizinler: içlerinden bir dosya bulunursa dizinin kendisi bağlanır.
 _PROTECTED_DIRS = (".git/hooks", ".fusion/tools")
+#: Kök başına tarama sonucunun geçerli kaldığı süre (saniye).
+SCAN_CACHE_S = 5.0
+_clock = time.monotonic
+_SCAN_LOCK = threading.Lock()
+_SCAN_CACHE: dict[tuple[tuple[str, ...], Path], tuple[float, tuple[Path, ...]]] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,25 +106,43 @@ def nested_protected(ripgrep: Sequence[str], roots: Sequence[Path]) -> tuple[Pat
         return ()
     found: list[Path] = []
     for root in roots:
-        argv = [
-            *ripgrep,
-            "--files",
-            "--hidden",
-            "--no-ignore",
-            "--max-depth",
-            str(SEARCH_DEPTH),
-            *_globs(),
-            str(root),
-        ]
-        try:
-            result = subprocess.run(
-                argv, capture_output=True, text=True, timeout=_SCAN_TIMEOUT_S, check=False
-            )
-        except (OSError, subprocess.SubprocessError):
-            continue
-        for line in result.stdout.splitlines():
-            path = Path(line.strip())
-            target = _protected_target(path if path.is_absolute() else root / path, root)
-            if target is not None:
-                found.append(target)
+        found.extend(_scan_cached(tuple(ripgrep), root))
     return tuple(dict.fromkeys(found))
+
+
+def _scan_cached(ripgrep: tuple[str, ...], root: Path) -> tuple[Path, ...]:
+    key, now = (ripgrep, root), _clock()
+    with _SCAN_LOCK:
+        cached = _SCAN_CACHE.get(key)
+    if cached is not None and now - cached[0] < SCAN_CACHE_S:
+        return cached[1]
+    result = _scan(ripgrep, root)
+    with _SCAN_LOCK:
+        _SCAN_CACHE[key] = (now, result)
+    return result
+
+
+def _scan(ripgrep: tuple[str, ...], root: Path) -> tuple[Path, ...]:
+    argv = [
+        *ripgrep,
+        "--files",
+        "--hidden",
+        "--no-ignore",
+        "--max-depth",
+        str(SEARCH_DEPTH),
+        *_globs(),
+        str(root),
+    ]
+    try:
+        result = subprocess.run(
+            argv, capture_output=True, text=True, timeout=_SCAN_TIMEOUT_S, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    found: list[Path] = []
+    for line in result.stdout.splitlines():
+        path = Path(line.strip())
+        target = _protected_target(path if path.is_absolute() else root / path, root)
+        if target is not None:
+            found.append(target)
+    return tuple(found)
