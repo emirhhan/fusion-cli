@@ -116,7 +116,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. Yalnız `-p`'de. |
 | `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |
 | `--agent <ad>` / `--agents '<json>'` | Baş ajan ve oturumluk ajan tanımları. |
-| `-w/--worktree [ad]` | Çalışma ağacında koş; ad verilmezse üretilir. |
+| `-w/--worktree [ad\|#N\|PR/MR adresi]` | Çalışma ağacında koş; ad verilmezse üretilir. `#123`, GitHub PR ya da GitLab MR adresi verilince PR/MR `origin`'den çekilir ve `pr-<n>` ağacı ondan dallanır (kök komutta da). |
 | `--verbose` | `text` kipinde ilerleme satırları (stderr); `stream-json` için zorunlu. |
 | `--debug [kategoriler]` / `--debug-file <yol>` | Ayrıntılı günlük stderr'e ya da dosyaya; `"api,hooks"`, `"!statsig"` süzgeci `fusion_cli.*` günlükçü adlarına uygulanır. |
 | `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |

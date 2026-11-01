@@ -112,7 +112,10 @@ def resolve_launch_root(cwd: Path, name: str) -> tuple[Path, Worktree | None]:
     """`--worktree <ad>`: kökü çalışma ağacına çevir; ad boşsa `cwd` olduğu gibi kalır."""
     if not name.strip():
         return cwd, worktree_for_path(cwd)
-    worktree = enter_worktree(cwd, name)
+    from ..worktree_pr import enter_pull_worktree, parse_pull_ref
+
+    pull = parse_pull_ref(name)
+    worktree = enter_pull_worktree(cwd, pull) if pull is not None else enter_worktree(cwd, name)
     return worktree.path, worktree
 
 
