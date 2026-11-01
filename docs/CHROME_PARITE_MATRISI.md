@@ -52,13 +52,34 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
   `chrome.izleme` (`{acik?: bool}` → `{acik}`), `chrome.kisayollar`, `chrome.kisayol_kaydet` (`{ad, metin}`),
   `chrome.kisayol_sil` (`{ad}`) → `{kisayollar}`; eklenti tarafında `monitor_get/set`, `shortcut_set/delete`
   (`appserver/chrome_settings.py`, `core.js`). Depo eklentinin `storage.local`'ı: panel ve masaüstü aynı listeyi görür.
-  CLI'de karşılığı yok: Chrome köprüsü yalnız masaüstü uygulamasında çalışır.
+  CLI'de bu iki ayar eklentinin panelinden yönetilir.
 - **Onay sınıfı**: `record start|stop` REMOTE_INTERACT'tır (Manuel kipte sorulur, otomatik kipte sorulmaz);
   `window`, `open` okuma kalır. Plan kipinde `record`, `open`, `window` ve `shortcut` izin sorar, onaylanırsa
   çalışır (Claude: "Browser tools in plan mode", #450). Kayıt sırasında etkin sekme
   değişirse kare alınmaz (`record_check`), atlanan kare sayısı çıktıya düşer; kareler GIF yazılınca `release` ile bırakılır.
 - **Windows/Linux**: Fusion Chrome kapalıyken `chrome_launch_command` ile açar (`start chrome`, PATH'teki
   `google-chrome`/`chromium`). Kılavuzlu kurulum hâlâ macOS/Windows.
+
+## Terminalde Chrome (`--chrome`, `/chrome`; #421)
+
+Claude Code ile aynı akış (code.claude.com/docs/en/chrome):
+
+- `fusion --chrome` oturumu masaüstüyle aynı yerel köprüye (`ChromeBridge`, 127.0.0.1 + rastgele anahtar,
+  yerel mesajlaşma ile eşleşme) bağlar; `--no-chrome` kapatır. Köprü açıkken `chrome_*` araçları modele sunulur,
+  kapalıyken hiç sunulmaz. Chrome açık değilse oturum normal başlar; ilk tarayıcı eyleminde Chrome açılır.
+- İlk `--chrome` açılışında bir kerelik tanıtım (Enter ile devam).
+- `/chrome`: `Status: Enabled | Not connected | Disabled`, `Extension: Installed | Not detected`, bağlı tarayıcı ve
+  **Enabled by default**. Seçenekler alt komuttur: `/chrome reconnect` (Reconnect extension), `/chrome select`
+  (Select browser…), `/chrome default on|off`, `/chrome install`, `/chrome permissions`.
+- **Enabled by default** kullanıcının yapılandırma dizinindeki `chrome-cli.json`'dadır ve sonraki oturumlara uygulanır.
+  Bayraksız açılışta eklenti bulunur ve tercih yoksa "eklenti bulundu" sorusu: Evet ayarı açar ve oturumu bağlar;
+  Hayır/Esc ayarı kapatır ve kurulum önerisini durdurur.
+- Eklenti kurulu değilken tarayıcı gerekince oturumda en çok bir kez "Fusion tarayıcını kullanmak istiyor":
+  Install extension (kılavuzlu kurulum, bağlanınca görev sürer) / Not now / Don't ask again.
+- `CLAUDE_CODE_ENABLE_CFC=1` kullanıcının kabuğunda ya da `~/.claude/settings.json` `env` bloğunda Chrome'u açar;
+  projenin `.claude/settings(.local).json`'ındaki aynı değer yok sayılır ve uyarılır (bir depo tarayıcıyı bağlatamaz).
+- **Henüz yok**: birden çok bağlı tarayıcı arasında seçim (#432; köprü en son eşleşen tarayıcıyı kullanır),
+  `-p` yolunda `--chrome`, masaüstü ile terminal aynı anda açıkken iki köprü (en son açılan eşleşir).
 
 ## Güvenlik ve izin karşılaştırması
 

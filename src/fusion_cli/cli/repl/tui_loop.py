@@ -41,6 +41,7 @@ from . import (
     async_commands,
     background_commands,
     browser_command,
+    chrome_cli,
     cron_store,
     goal_flow,
     goal_store,
@@ -314,6 +315,8 @@ class _TuiSession:
             self._tui, drain, self._state.root, AppDenials(self._deny_persist())
         )
         self._custom_status = ""
+        # Chrome kurulum sorusu (#421) tam ekranda uygulama-içi seçiciyle sorulur.
+        chrome_cli.bind_chooser(state.chrome, self._tui.await_choice)
         self._sync_status()
 
     @property
@@ -939,6 +942,7 @@ class _TuiSession:
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
+                    chrome=chrome_cli.bridge_of(self._state.chrome),
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

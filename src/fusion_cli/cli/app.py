@@ -195,6 +195,14 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    chrome: Annotated[
+        bool | None,
+        typer.Option(
+            "--chrome/--no-chrome",
+            help="Oturumu Chrome'daki Fusion Browser eklentisine bağla (ya da bağlama); "
+            "varsayılan /chrome › Enabled by default.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
@@ -242,6 +250,7 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                chrome=chrome,
             )
         )
     )
