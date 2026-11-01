@@ -54,17 +54,23 @@ dosyayı bağlama alır (Claude Code sözdizimi).
 
 ## `.claude/rules/` kural dosyaları
 
-`~/.claude/rules/**/*.md` (kullanıcı, güvenilir) ve projede `.claude/rules/**/*.md`,
-`.fusion/rules/**/*.md` (`.mdc` de olur) özyinelemeli keşfedilir.
+`~/.claude/rules/**/*.md` (kullanıcı) ve projede `.claude/rules/**/*.md` özyinelemeli
+keşfedilir (yalnız `.md`). Eski `.fusion/rules` kökü bu sürüm boyunca okunur, kullanımdan
+kalktığı uyarısı düşer.
 
-- `paths:` frontmatter'ı **olmayan** kurallar tur başında yüklenir (toplam 8.000 karakter;
-  aşım notla bildirilir).
-- `paths:` olanlar (`src/**/*.tsx`, `*.css`, `docs/`, `*.{ts,tsx}`, `.github/**`, `.*rc`)
-  yalnız model eşleşen dosyayı okuyup/düzenleyince, o turda bir kez, iç içe talimat notuyla
-  aynı mesajda gelir. Dizin içermeyen desen dosya adına da uygulanır. Bir erişimde en çok
-  **6 kural / 8.000 karakter** eklenir; sığmayanlar `[…N kural atlandı…]` notuyla bildirilir
-  ve sonraki erişimde gelir.
-- Kök dışına çıkan sembolik bağ hiç açılmaz; `node_modules`/`vendor` gibi dizinler taranmaz.
+- `paths:` frontmatter'ı **olmayan** kurallar tur başında, CLAUDE.md gibi bütünüyle (4 MiB'a
+  kadar) yüklenir; karakter bütçesi yoktur.
+- `paths:` olanlar yalnız model eşleşen dosyayı okuyup/düzenleyince, o turda bir kez, iç içe
+  talimat notuyla aynı mesajda gelir; dosya başı sınır 40.000 karakter, adet sınırı yoktur.
+  Desenler kuralın taban dizinine (proje kökü) görelidir: `*.md` yalnız kökteki `.md`
+  dosyalarına uyar, `**/*.md` her yerdekine. `[abc]` / `[!a]` köşeli ayraç ifadeleri ve
+  `*.{ts,tsx}` brace açılımı geçerlidir (kural başına en çok 1.000 açılmış desen). Okunan
+  frontmatter alanı yalnız `paths` (eski `yollar` uyarıyla okunur; `globs` okunmaz).
+- Kök dışını gösteren proje kuralı sembolik bağı dış import gibidir: projede dış import onayı
+  verilmişse yüklenir, yoksa atlanır. `claudeMdExcludes` kural dosyalarına da uygulanır.
+- İç içe talimat: alt klasördeki `CLAUDE.md` ve `CLAUDE.local.md` birlikte, o klasörde hiç
+  Claude dosyası yoksa `AGENTS.md` okunur (dosya başı 40.000 karakter; `GEMINI.md` ve
+  `.cursorrules` okunmaz). `node_modules`/`vendor` gibi dizinler taranmaz.
 - Masaüstü **Beceriler › Talimatlar** sekmesi kullanıcı katmanını, proje talimatlarını ve
   kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
   dosyayı okur.

@@ -57,7 +57,7 @@ def test_kullanici_kurallari_guvenilir_etiketle_once_gelir(proje, tmp_path):
     assert kurallar[0].label == "~/.claude/rules/dil.md"
     assert kurallar[0].trusted is True
     blok = unscoped_rules_block(kurallar)
-    assert '<kullanici_kurali kaynak="~/.claude/rules/dil.md">' in blok
+    assert "rules/dil.md (user's private global instructions for all projects):" in blok
     assert blok.index("Türkçe yanıt ver") < blok.index("testsiz kod yok")
 
 
@@ -68,7 +68,8 @@ def test_paths_siz_kurallar_tur_basinda_paths_li_olanlar_girmez(proje):
 
     assert "testsiz kod yok" in blok
     assert "React kuralı" not in blok
-    assert '<proje_kurali kaynak=".claude/rules/genel.md">' in blok
+    assert "rules/genel.md (project instructions, checked into the codebase):" in blok
+    assert "DEĞİLDİR" not in blok
 
 
 def test_paths_li_kural_yalniz_eslesen_dosyada_devreye_girer(proje):
@@ -78,8 +79,9 @@ def test_paths_li_kural_yalniz_eslesen_dosyada_devreye_girer(proje):
         ".claude/rules/frontend/react.md"
     ]
     assert scoped_rules_for(kurallar, "src/app/hero.py") == ()
-    # Dizin parçası olmayan `*.css` deseni dosya adına da uygulanır (Claude Code).
-    assert len(scoped_rules_for(kurallar, "styles/tema.css")) == 1
+    # Claude Code (#154): desen taban dizine görelidir; `*.css` yalnız kökteki .css'e uyar.
+    assert scoped_rules_for(kurallar, "styles/tema.css") == ()
+    assert len(scoped_rules_for(kurallar, "tema.css")) == 1
 
 
 @pytest.mark.parametrize(
@@ -92,6 +94,10 @@ def test_paths_li_kural_yalniz_eslesen_dosyada_devreye_girer(proje):
         ("docs/", "docs/a/b.md", True),
         ("*.{ts,tsx}", "x.tsx", True),
         ("*.{ts,tsx}", "x.js", False),
+        ("*.md", "docs/a.md", False),
+        ("src/[ab].ts", "src/a.ts", True),
+        ("src/[ab].ts", "src/c.ts", False),
+        ("src/[!a].ts", "src/c.ts", True),
     ],
 )
 def test_glob_eslesmesi(desen, yol, beklenen):
@@ -189,6 +195,7 @@ def test_kapsamli_kurallarin_toplam_butcesi_ve_ic_ice_talimat_sayaci(proje):
 
     assert ilk is not None and ikinci is not None
     assert "a klasörü talimatı" in ilk.message.content
-    assert len(ilk.message.content) <= SCOPED_RULES_MAX_CHARS + 2_000
-    assert "kural" in ilk.message.content and "atlandı" in ilk.message.content
+    # Claude Code (#154): erişim başına kural adedi/toplam sınırı yok; 12 kuralın hepsi gelir.
+    assert all(f"Kural {index}:" in ilk.message.content for index in range(12))
+    assert SCOPED_RULES_MAX_CHARS >= 4 * 1024 * 1024
     assert "b klasörü talimatı" in ikinci.message.content
