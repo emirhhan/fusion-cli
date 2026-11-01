@@ -213,7 +213,9 @@ ask > allow), `permissionDecisionReason` (`ask`'ta onay kartında, `deny`'de mod
 `additionalContext` (araç sonucunun yanına). `defer` `fusion agent`'ta (etkileşimsiz) turu
 `tool_deferred` ile bitirir: araç çalışmaz, model yeniden çağrılmaz, `--output-format json`
 sonucunda `durma_nedeni: "tool_deferred"` ve `deferred_tool_use` (`id`, `name`, `input`), kanca
-dökümünde (`transcript_path`) sonuçsuz `tool_use` kalır. `PostToolUse`: `updatedToolOutput` / `updatedMCPToolOutput` (metin ya da araç
+dökümünde (`transcript_path`) sonuçsuz `tool_use` kalır. Sohbet sürdürülünce (`--resume`)
+ertelenen çağrı ilk model çağrısından önce PreToolUse'tan, onaydan ve çalıştırmadan yeniden
+geçer: `allow` aracı çalıştırır, yine `defer` turu ertelenmiş bitirir, `deny` reddeder. `PostToolUse`: `updatedToolOutput` / `updatedMCPToolOutput` (metin ya da araç
 şeklinde nesne), `classifierContext`. `UserPromptSubmit`: `sessionTitle`,
 `suppressOriginalPrompt` (engel mesajı varsayılan olarak `Original prompt: <metin>` ile
 biter). `SessionStart`: `sessionTitle`, `initialUserMessage`, `watchPaths`, `reloadSkills`.
@@ -288,8 +290,6 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) yoksa `Elicitation`
   kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
   kancaları kullanılır.
-- `defer` ile ertelenen çağrı sürdürülen oturumda yeniden değerlendirilmez (`fusion agent`
-  sohbet sürdürmez; `-p --resume` geldiğinde bağlanacak).
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli
   `fusion --init`/`--init-only`/`--maintenance` tetikler.
 - `WorktreeCreate` kancasının kurduğu ağaçta `exit_worktree` aracı ağacı tanımaz

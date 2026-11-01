@@ -176,6 +176,7 @@ from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, o
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
+from .deferred_resume import take_deferred
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -1756,6 +1757,10 @@ async def _drive(
     if execution.max_model_calls is not None:
         local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
     local_calls = 0
+    if not internal and deps.channel is not Channel.SUBAGENT:
+        await _resume_deferred(
+            messages, deps, registry, state, execution=execution, plan_mode=plan_mode
+        )
 
     while True:
         notices = await deps.child_runs.completion_messages(
@@ -3715,6 +3720,27 @@ def _post_edit_commands(deps: AgentDeps) -> tuple[str, ...]:
     config = getattr(deps, "config", None)
     runtime = getattr(config, "runtime", None)
     return tuple(getattr(runtime, "post_edit_commands", ()))
+
+
+async def _resume_deferred(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    state: _State,
+    *,
+    execution: ExecutionPolicy,
+    plan_mode: bool,
+) -> None:
+    """Sürdürülen geçmişteki ertelenen çağrı olağan araç yolundan yeniden geçer (#114)."""
+    pending = take_deferred(messages)
+    if pending is None:
+        return
+    index, call = pending
+    results: list[Message] = []
+    await _run_tools(
+        (call,), results, deps, registry, state, execution=execution, plan_mode=plan_mode
+    )
+    messages[index:index] = results
 
 
 async def _run_tools(
