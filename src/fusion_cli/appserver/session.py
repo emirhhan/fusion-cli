@@ -111,7 +111,6 @@ from .browser_panel import BrowserPanel
 from .bypass_policy import bypass_policy_disabled
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
-from .side_chat import SIDE_CHAT_ROUTE, ask_side
 from .chrome_bridge import ChromeBridge
 from .chrome_group import schedule_group_close
 from .chrome_install import install_status
@@ -202,6 +201,7 @@ from .protocol import Reply, Request, encode_event, encode_result
 from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
+from .side_chat import SIDE_CHAT_ROUTE, ask_side
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
@@ -2025,7 +2025,7 @@ class AppSession:
                 anahtar = sonuc["anahtar"]
                 # Anahtar `browser_profiles._BOOL_SETTINGS` içindedir (headless, profiles_enabled,
                 # panel_agent, tools #439).
-                yeni_tarayici = replace(tarayici, **{anahtar: deger})
+                yeni_tarayici = replace(tarayici, **{str(anahtar): deger})  # type: ignore[arg-type]
                 self._state.config = replace(self._state.config, browser=yeni_tarayici)
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}

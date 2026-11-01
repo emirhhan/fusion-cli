@@ -22,8 +22,15 @@ def _managed(tmp_path, monkeypatch, data: dict) -> None:
 
 async def test_dis_site_tanimi_localhost_ve_dosyayi_disarida_tutar() -> None:
     assert external_host("https://www.example.com/a") == "www.example.com"
-    for local in ("http://localhost:5173", "http://127.0.0.1:8000", "http://[::1]:3000",
-                  "http://app.localhost", "file:///tmp/a.html", "about:blank", None):
+    for local in (
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://[::1]:3000",
+        "http://app.localhost",
+        "file:///tmp/a.html",
+        "about:blank",
+        None,
+    ):
         assert external_host(local) is None, local
 
 

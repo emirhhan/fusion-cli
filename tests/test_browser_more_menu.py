@@ -25,7 +25,12 @@ def _launch(root, body: str):
 
 
 async def test_auto_verify_kapatilir_acilir_yapilandirma_korunur(tmp_path) -> None:
-    config = {"name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173}
+    config = {
+        "name": "web",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "dev"],
+        "port": 5173,
+    }
     path = _launch(tmp_path, json.dumps({"version": "0.0.1", "configurations": [config]}))
     trust.approve_file(tmp_path, path)
     off = await handle_preview_rpc(tmp_path, "onizleme.otomatik_dogrulama", {"deger": False})
@@ -54,7 +59,9 @@ async def test_clear_browsing_data_panel_oturumunu_siler(tmp_path) -> None:
     store.save(PANEL_PROFILE, (), source="panel")
     assert store.exists(PANEL_PROFILE)
     panel = BrowserPanel(
-        config=lambda: make_config(), root=lambda: tmp_path, turn_running=lambda: False,
+        config=lambda: make_config(),
+        root=lambda: tmp_path,
+        turn_running=lambda: False,
         store=lambda: store,
     )
     result = await panel.handle("tarayici_panel.veri_temizle", {})

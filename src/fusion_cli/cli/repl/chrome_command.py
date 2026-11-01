@@ -46,7 +46,9 @@ def status_lines(session: ChromeSession | None, *, extension_installed: bool) ->
         lines.append(text.BROWSER_LINE.format(browser=browser))
         in_use = next((b for b in _browsers(session) if b.get("inUse")), None)
         if in_use is not None:
-            lines.append(text.BROWSER_SELECTED.format(name=in_use["name"], device=in_use["deviceId"]))
+            lines.append(
+                text.BROWSER_SELECTED.format(name=in_use["name"], device=in_use["deviceId"])
+            )
     default = text.DEFAULT_ON if prefs.enabled_by_default else text.DEFAULT_OFF
     lines.append(text.DEFAULT_LINE.format(value=default))
     lines.append("")

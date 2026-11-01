@@ -30,6 +30,7 @@ from ..core.errors import BrowserProfileError
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
+from .browser_policy import navigation_blocked, page_tools_blocked
 from .browser_shared import control_gate
 from .browser_target import TargetError, fill_or_select, resolve
 from .files import writable_path
@@ -43,7 +44,6 @@ from .mirror import (
     rewrite_links,
 )
 from .preview_origins import allowed_local
-from .browser_policy import navigation_blocked, page_tools_blocked
 from .web import access_wall_notice, browser_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan

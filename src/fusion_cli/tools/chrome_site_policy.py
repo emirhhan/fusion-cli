@@ -105,7 +105,9 @@ def classify(host: str) -> SiteCategory:
 def blocked_reason(site: ChromeSite) -> str | None:
     """Engelli sitenin modele dönen gerekçesi; engelli değilse `None`."""
     if site.category is SiteCategory.ADULT:
-        return f"{site.host} yetişkin içerik sitesi; Chrome'da Fusion bu siteleri varsayılan engeller"
+        return (
+            f"{site.host} yetişkin içerik sitesi; Chrome'da Fusion bu siteleri varsayılan engeller"
+        )
     if site.category is SiteCategory.PIRACY:
         return f"{site.host} korsan içerik sitesi; Chrome'da Fusion bu siteleri varsayılan engeller"
     return None

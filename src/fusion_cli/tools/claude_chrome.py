@@ -202,7 +202,9 @@ async def _browser_choice(short: str, args: ToolArgs, context: ToolContext) -> T
         if not callable(selector):
             if device_id == LOCAL_DEVICE_ID:
                 return ToolResult(f"{LOCAL_DEVICE_ID} seçildi.")
-            return ToolResult.failure(f"Bilinmeyen deviceId; bağlı tek tarayıcı: {LOCAL_DEVICE_ID}.")
+            return ToolResult.failure(
+                f"Bilinmeyen deviceId; bağlı tek tarayıcı: {LOCAL_DEVICE_ID}."
+            )
         chosen = selector(device_id) if isinstance(device_id, str) else None
         if chosen is None:
             ids = ", ".join(str(b["deviceId"]) for b in _browsers(chrome)) or "yok"

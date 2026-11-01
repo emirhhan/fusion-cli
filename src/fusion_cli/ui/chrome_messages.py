@@ -63,7 +63,9 @@ STATUS_OFF_HINT = (
 )
 
 RECONNECTED = "Chrome bağlantısı yeniden başlatıldı; eklenti birkaç saniye içinde yeniden eşleşir."
-SELECT_NONE = "Bağlı tarayıcı yok; tarayıcıda Fusion Browser eklentisini açıp /chrome reconnect çalıştır."
+SELECT_NONE = (
+    "Bağlı tarayıcı yok; tarayıcıda Fusion Browser eklentisini açıp /chrome reconnect çalıştır."
+)
 SELECT_LIST_TITLE = "Bağlı tarayıcılar (seçmek için /chrome select <numara|deviceId>):"
 SELECT_ITEM = "  {index}. {name} ({device}){mark}"
 SELECT_IN_USE = " · kullanılıyor"

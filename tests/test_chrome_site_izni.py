@@ -74,7 +74,9 @@ async def test_ilk_eylem_site_izni_ister_hep_izin_verilince_sitede_sorulmaz(tmp_
     prompter = _Prompter()
     policy = SecurityApproval(prompter, memory)
     assert await policy.decide(request) is Decision.ALLOW
-    again = await _request(tmp_path, "https://example.com/baska", "chrome_type", {"ref": "e2", "text": "a"})
+    again = await _request(
+        tmp_path, "https://example.com/baska", "chrome_type", {"ref": "e2", "text": "a"}
+    )
     assert await policy.decide(again) is Decision.ALLOW
     assert len(prompter.asked) == 1  # aynı sitede ikinci eylem sorulmadı
     other = await _request(tmp_path, "https://other.org/")
@@ -87,7 +89,9 @@ async def test_allow_this_action_hatirlanmaz(tmp_path) -> None:
     prompter = _Prompter(ApprovalAnswer.ONCE)
     policy = SecurityApproval(prompter, memory)
     for _ in range(2):
-        assert await policy.decide(await _request(tmp_path, "https://example.com")) is Decision.ALLOW
+        assert (
+            await policy.decide(await _request(tmp_path, "https://example.com")) is Decision.ALLOW
+        )
     assert len(prompter.asked) == 2
 
 
@@ -148,27 +152,34 @@ async def test_chrome_permissions_izinli_siteleri_listeler_ve_geri_alir(tmp_path
 
 async def test_yerlesik_tarayici_dis_site_her_kipte_bir_kez_sorulur(tmp_path) -> None:
     """#439: Claude Desktop Browser — dış sitede Allow once / Always allow / Deny."""
-    from fusion_cli.engines.agent.approval import AutoApproval
-
     from fusion_cli.core.browser_session import BrowserSession
+    from fusion_cli.engines.agent.approval import AutoApproval
 
     tool = _REGISTRY.get("browser_open")
     assert tool is not None
-    cli = await resolve_request(tool, {"url": "example.com"}, root=tmp_path, context=ToolContext(root=tmp_path))
+    cli = await resolve_request(
+        tool, {"url": "example.com"}, root=tmp_path, context=ToolContext(root=tmp_path)
+    )
     assert cli.consent_key is None  # CLI tur tarayıcısı sormaz
     shared = BrowserSession()
     shared.persistent = True  # masaüstü Browser bölmesinin paylaşılan tarayıcısı
     context = ToolContext(root=tmp_path, browser=shared)
     request = await resolve_request(tool, {"url": "example.com"}, root=tmp_path, context=context)
     assert request.consent_key == "browser-site:example.com" and not request.read_only
-    assert [o["etiket"] for o in _approval_options(request)] == ["Allow once", "Always allow", "Deny"]
+    assert [o["etiket"] for o in _approval_options(request)] == [
+        "Allow once",
+        "Always allow",
+        "Deny",
+    ]
     for policy_type in (BypassApproval, AutoApproval):
         memory, prompter = ApprovalMemory(), _Prompter()
         policy = policy_type(prompter, memory)
         assert await policy.decide(request) is Decision.ALLOW
         assert await policy.decide(request) is Decision.ALLOW
         assert len(prompter.asked) == 1, policy_type
-    local = await resolve_request(tool, {"url": "http://localhost:5173"}, root=tmp_path, context=context)
+    local = await resolve_request(
+        tool, {"url": "http://localhost:5173"}, root=tmp_path, context=context
+    )
     assert local.consent_key is None
 
 
@@ -181,7 +192,9 @@ async def test_yerlesik_tarayici_always_allow_kalicidir(tmp_path) -> None:
     shared = BrowserSession()
     shared.persistent = True
     context = ToolContext(root=tmp_path, browser=shared)
-    request = await resolve_request(tool, {"url": "docs.example.org"}, root=tmp_path, context=context)
+    request = await resolve_request(
+        tool, {"url": "docs.example.org"}, root=tmp_path, context=context
+    )
     await SecurityApproval(_Prompter(), ApprovalMemory()).decide(request)
     assert "docs.example.org" in load_allowed()
     # Yeni oturum (yeni hafıza): soru çıkmaz.

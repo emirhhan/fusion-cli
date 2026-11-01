@@ -9,7 +9,7 @@ tek çağrı yapar. Yanıt ana geçmişe, transkripte ya da belleğe yazılmaz; 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.protocols import LlmProvider
 from ..core.types import CompletionRequest, Message
@@ -27,7 +27,10 @@ SIDE_SYSTEM = (
     "doğrudan yanıtla. Bu yanıt ana sohbete eklenmez."
 )
 
-ProviderFactory = Callable[[Any], LlmProvider]
+if TYPE_CHECKING:
+    from ..config.models import Config
+
+ProviderFactory = Callable[["Config"], LlmProvider]
 
 
 def _main_context(history: Sequence[Message]) -> list[Message]:
@@ -65,7 +68,7 @@ def build_messages(history: Sequence[Message], side: object, question: str) -> t
     )
 
 
-def _default_provider(config: Any) -> LlmProvider:
+def _default_provider(config: Config) -> LlmProvider:
     from ..providers.factory import build_provider
     from ..providers.web_registry import web_registry_for
 
@@ -79,7 +82,7 @@ def _default_provider(config: Any) -> LlmProvider:
 
 
 async def ask_side(
-    config: Any,
+    config: Config,
     history: Sequence[Message],
     data: dict[str, Any],
     *,

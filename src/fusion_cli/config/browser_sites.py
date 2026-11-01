@@ -41,7 +41,7 @@ def _save(hosts: frozenset[str], path: Path | None = None) -> None:
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             json.dump({"always_allow": sorted(hosts)[:_MAX_SITES]}, stream, indent=2)
-        os.replace(temp, target)
+        Path(temp).replace(target)
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise

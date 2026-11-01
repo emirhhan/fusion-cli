@@ -162,10 +162,10 @@ class ChromeBridge:
         device = self._devices.select(device_id)
         return None if device is None else {"deviceId": device.device_id, "name": device.name}
 
-    async def request_switch(self, timeout: float) -> dict[str, Any] | None:
+    async def request_switch(self, wait_s: float) -> dict[str, Any] | None:
         """Claude `switch_browser`: bütün panellere bağlanma isteği yayar, seçimi bekler."""
         self.publish({"tur": "tarayici_sec", "metin": "Fusion'ın kullanacağı tarayıcıyı seç."})
-        chosen = await self._devices.wait_switch(timeout)
+        chosen = await self._devices.wait_switch(wait_s)
         if chosen is None:
             return None
         return next((b for b in self._devices.describe() if b["deviceId"] == chosen), None)

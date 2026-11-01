@@ -60,7 +60,7 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
-        os.replace(temp, path)
+        Path(temp).replace(path)
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise

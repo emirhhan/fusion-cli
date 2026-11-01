@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from fusion_cli.appserver.chrome_bridge import ChromeBridge
-from fusion_cli.appserver.chrome_devices import BrowserChoiceRequired, parse_device
+from fusion_cli.appserver.chrome_devices import BrowserChoiceRequiredError, parse_device
 from fusion_cli.cli.repl import chrome_command
 from fusion_cli.cli.repl.chrome_cli import ChromeSession
 from fusion_cli.core.tools import ToolContext
@@ -33,7 +33,7 @@ async def test_iki_tarayici_listelenir_secim_yokken_kullaniciya_sorulur() -> Non
     adlar = {b["deviceId"]: b for b in bridge.browsers()}
     assert set(adlar) == {"chrome-1", "edge-1"}
     assert not any(b["inUse"] for b in adlar.values())
-    with pytest.raises(BrowserChoiceRequired) as hata:
+    with pytest.raises(BrowserChoiceRequiredError) as hata:
         await bridge.invoke("snapshot", {})
     assert "Kullanıcıya" in str(hata.value) and "select_browser" in str(hata.value)
     assert not bridge._pending  # askıda kalan komut yok

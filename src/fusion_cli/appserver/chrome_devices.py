@@ -24,7 +24,7 @@ _DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _NAME_LIMIT = 40
 
 
-class BrowserChoiceRequired(ConnectionError):
+class BrowserChoiceRequiredError(ConnectionError):
     """Birden çok tarayıcı bağlı ve hiçbiri seçilmemiş: kullanıcıya sorulmalı."""
 
 
@@ -81,14 +81,14 @@ class BrowserDevices:
         return sorted(alive, key=lambda device: device.device_id)
 
     def target(self) -> BrowserDevice | None:
-        """Komutun gideceği cihaz; birden çok bağlı ve seçim yoksa `BrowserChoiceRequired`."""
+        """Komutun gideceği cihaz; birden çok bağlı ve seçim yoksa `BrowserChoiceRequiredError`."""
         alive = self.connected()
         chosen = next((d for d in alive if d.device_id == self.selected), None)
         if chosen is not None:
             return chosen
         if len(alive) > 1:
             names = ", ".join(f"{d.name} ({d.device_id})" for d in alive)
-            raise BrowserChoiceRequired(
+            raise BrowserChoiceRequiredError(
                 f"Birden çok tarayıcı bağlı: {names}. Kullanıcıya hangisinin kullanılacağını "
                 "sor; seçince select_browser ile o deviceId'yi seç (terminalde /chrome select)."
             )
@@ -119,13 +119,13 @@ class BrowserDevices:
             for device in alive
         ]
 
-    async def wait_switch(self, timeout: float) -> str | None:
+    async def wait_switch(self, wait_s: float) -> str | None:
         """Kullanıcı bir tarayıcıda "Bu tarayıcıyı kullan"a basana dek bekle."""
         loop = asyncio.get_running_loop()
         if self._switch is None or self._switch.done():
             self._switch = loop.create_future()
         try:
-            return await asyncio.wait_for(asyncio.shield(self._switch), timeout)
+            return await asyncio.wait_for(asyncio.shield(self._switch), wait_s)
         except TimeoutError:
             return None
 
