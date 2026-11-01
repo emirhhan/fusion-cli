@@ -128,7 +128,9 @@ def start_auto_update(
         except (OSError, PluginError) as error:
             _LOG.warning("eklenti otomatik güncellemesi başarısız: %s", error)
             return
-        for name in names if notify is not None else ():
+        if notify is None:
+            return
+        for name in names:
             notify(NOTICE.format(name=name))
 
     worker = threading.Thread(target=run, name="fusion-plugin-autoupdate", daemon=True)
