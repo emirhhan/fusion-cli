@@ -347,6 +347,7 @@ class McpToolPool:
             # TUR YOLU ETKİLEŞİMSİZDİR: giriş penceresi yalnız kullanıcının
             # "Bağlan" eyleminde açılır (bkz. `oauth.LoopbackOAuthCallback`).
             async with McpClient((entry.config,), interactive=False) as client:
+                client.reauth = self._reauth  # 401/403'te headersHelper yeniden (#249)
                 entry.client = client
                 entry.ready.set()
                 await entry.stop.wait()
@@ -377,6 +378,16 @@ class McpToolPool:
             if entry is not None:
                 await self._discard(entry, loop)
         self.forget(name)
+
+    async def _reauth(self, name: str) -> McpClient | None:
+        """Sunucuyu kapatıp yeniden bağla: bağlantıda headersHelper taze başlık üretir (#249)."""
+        entry = self._entries.get(name)
+        if entry is None:
+            return None
+        config = entry.config
+        await self.drop(name)
+        clients = await self.clients_for((config,))
+        return clients[0] if clients else None
 
     async def discard_client(self, client: McpClient) -> None:
         """Kullanım sırasında bozulan istemciyi bırak; sonraki tur yeniden bağlanır."""

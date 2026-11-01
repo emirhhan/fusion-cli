@@ -39,7 +39,8 @@ from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_reso
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .failures import STATE_CONNECTED
+from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
+from .auth_retry import AuthFailures, Reauth
 from .elicitation import elicitation_callback
 from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
@@ -148,6 +149,10 @@ class McpClient:
         self._stale_tools: set[str] = set()
         #: Sunucu başına deftere yazılan araç adları (kaldırılanları silmek için).
         self._registered: dict[str, set[str]] = {}
+        #: Gözlenen 401/403 ve havuzun yeniden bağlanma geri çağırımı (#249).
+        self._auth_failures = AuthFailures()
+        self.reauth: Reauth | None = None
+        self._successor: McpClient | None = None
         #: Araç başına `_meta["anthropic/maxResultSizeChars"]` sınırı (#240).
         self._result_limits: dict[tuple[str, str], int] = {}
 
@@ -281,7 +286,11 @@ class McpClient:
                     stack.push_async_callback(bundle.callback.close)
                 read, write = await stack.enter_async_context(
                     open_mcp_stream(
-                        config, auth=auth, errlog=stderr_capture, extra_headers=helper_headers
+                        config,
+                        auth=auth,
+                        errlog=stderr_capture,
+                        extra_headers=helper_headers,
+                        on_status=self._auth_failures.observer(config.name),
                     )
                 )
                 session = await stack.enter_async_context(
@@ -549,11 +558,42 @@ class McpClient:
 
         return resolve
 
+    def _current(self) -> McpClient:
+        """Yeniden kimlik doğrulamayla yenilenen istemci zincirinin sonu (#249)."""
+        client = self
+        while client._successor is not None:
+            client = client._successor
+        return client
+
+    async def _retry_after_auth(
+        self, server: str, tool: str, args: dict[str, object]
+    ) -> ToolResult | None:
+        """401/403 + headersHelper: yardımcıyı yeniden çalıştırıp yeniden bağlan, bir kez dene."""
+        config = next((item for item in self._configs if item.name == server), None)
+        if config is None or not config.headers_helper or self.reauth is None:
+            return None
+        if not self._auth_failures.take(server):
+            return None
+        fresh = await self.reauth(server)
+        if fresh is None or fresh is self:
+            return None
+        self._successor = fresh
+        try:
+            return await fresh.call(server, tool, args)
+        except Exception as error:
+            fresh._statuses[server] = McpConnectionStatus(
+                server, STATE_LOGIN_REQUIRED, message=describe_call_error(error)
+            )
+            return ToolResult.failure(
+                f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
+            )
+
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
             del context
+            owner = self._current()
             try:
-                result = await self.call(server, tool, dict(args))
+                result = await owner.call(server, tool, dict(args))
             except TimeoutError:
                 return ToolResult.failure(
                     f"MCP çağrısı süre sınırını aştı ({server}.{tool}). "
@@ -563,6 +603,9 @@ class McpClient:
                 _LOG.warning(
                     "MCP aracı başarısız", extra={"sunucu": server, "hata": type(error).__name__}
                 )
+                retried = await owner._retry_after_auth(server, tool, dict(args))
+                if retried is not None:
+                    return retried
                 return ToolResult.failure(
                     f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
                 )

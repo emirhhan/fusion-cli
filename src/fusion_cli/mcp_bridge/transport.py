@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TextIO
@@ -190,6 +190,7 @@ async def open_mcp_stream(
     auth: httpx.Auth | None = None,
     errlog: TextIO | None = None,
     extra_headers: Mapping[str, str] | None = None,
+    on_status: Callable[[int], None] | None = None,
 ) -> AsyncIterator[tuple[Any, Any]]:
     """Yapılandırılmış taşımanın okuma/yazma akışlarını aç.
 
@@ -228,7 +229,7 @@ async def open_mcp_stream(
             timeout=request_timeout,
             sse_read_timeout=idle_timeout_s(config) or MAX_SSE_READ_S,
             auth=auth,
-            httpx_client_factory=guarded_client_factory(url),
+            httpx_client_factory=guarded_client_factory(url, on_response=on_status),
         ) as (read, write):
             yield read, write
         return
@@ -239,7 +240,7 @@ async def open_mcp_stream(
         timeout=request_timeout,
         sse_read_timeout=idle_timeout_s(config) or MAX_SSE_READ_S,
         auth=auth,
-        httpx_client_factory=guarded_client_factory(url),
+        httpx_client_factory=guarded_client_factory(url, on_response=on_status),
     ) as streams:
         read, write, _session_id = streams
         yield read, write

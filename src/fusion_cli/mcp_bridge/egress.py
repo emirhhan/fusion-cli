@@ -74,6 +74,7 @@ def guarded_client_factory(
     *,
     transport_for: TransportFactory | None = None,
     resolver: Resolver | None = None,
+    on_response: Callable[[int], None] | None = None,
 ) -> Callable[..., httpx.AsyncClient]:
     """SDK'nın `httpx_client_factory` sözleşmesine uyan korumalı istemci üreticisi.
 
@@ -95,6 +96,12 @@ def guarded_client_factory(
             kwargs["headers"] = headers
         if auth is not None:
             kwargs["auth"] = auth
+        if on_response is not None:
+            # 401/403 gözlemi (#249): yanıt durumunu bildir, akışa dokunma.
+            async def _observe(response: httpx.Response) -> None:
+                on_response(response.status_code)
+
+            kwargs["event_hooks"] = {"response": [_observe]}
         return httpx.AsyncClient(**kwargs)
 
     return factory
