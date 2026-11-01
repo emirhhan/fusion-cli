@@ -724,10 +724,16 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   / `deniedMcpServers` (`serverName`, `serverCommand`, `serverUrl` jokerli) ve
   `allowManagedMcpServersOnly`. Ret listesi kullanıcı/proje ayarlarından da birleşir ve her şeyi
   geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir.
+- Araç adları Claude Code ile aynı: `mcp__<sunucu>__<araç>` (eklentide
+  `mcp__plugin_<eklenti>_<sunucu>__<araç>`); `A-Z a-z 0-9 _ -` dışındaki karakterler `_` olur,
+  tam adı 128 karakteri aşan araç modele gönderilmez ve günlüğe yazılır. OpenAI/Gemini 64
+  karakter sınırı yüzünden 65-128 karakterlik ad 64'e kısaltılıp sonuna 8 haneli özet eklenir.
+  Eski öneksiz yazım (`github__get_issue`) izin kuralında, kancada ve `--allowed-tools`'ta bir
+  sürüm boyunca takma addır (izin kuralında bir kez uyarılır).
 - Henüz yok (Claude Code'da var): araç araması/erteleme (`ENABLE_TOOL_SEARCH`, `alwaysLoad`
   okunur ama etkisiz; `MCP_CONNECTION_NONBLOCKING`, `MCP_CONNECT_TIMEOUT_MS`), uzun çağrının
   2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
-  masaüstünde proje sunucusu onay istemi, `mcp__sunucu__araç` araç adları,
+  masaüstünde proje sunucusu onay istemi,
   masaüstü panelinde araç/izin görünümü (REPL'de `/mcp tools` var), `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 

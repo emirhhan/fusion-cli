@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from ..config.models import McpServerConfig
+from ..core.mcp_tool_names import claude_mcp_tool_name
 from ..core.redaction import contains_sensitive
 from ..mcp_bridge.client import McpClient
 from ..mcp_bridge.references import McpCatalog, visible_prompts, visible_resources
@@ -56,7 +57,7 @@ def project_tools(tools: list[RemoteTool]) -> dict[str, Any]:
         parameters, truncated = _parameters(tool.schema)
         rows.append(
             {
-                "name": _text(f"{tool.server}__{tool.name}", 240),
+                "name": _text(claude_mcp_tool_name(tool.server, tool.name), 240),
                 "server": _text(tool.server, 120),
                 "description": _text(tool.description, 600),
                 "effect": tool.effect.value,

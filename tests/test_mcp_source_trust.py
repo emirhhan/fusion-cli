@@ -63,7 +63,7 @@ async def test_unreviewed_discovery_cannot_register_read_exemption():
     client._sessions["offline"] = OfflineSession()
     registry = ToolRegistry()
     await client.register_into(registry)
-    assert registry.get("offline__read").effect is ToolEffect.REMOTE_WRITE
+    assert registry.get("mcp__offline__read").effect is ToolEffect.REMOTE_WRITE
 
 
 def test_trust_review_is_bound_to_displayed_source(monkeypatch, tmp_path):
@@ -182,7 +182,7 @@ async def test_degisen_arac_tanimi_okuma_muafiyeti_alamaz():
         client._sessions["offline"] = Session(tool)
         registry = ToolRegistry()
         await client.register_into(registry)
-        assert registry.get("offline__read").effect is expected
+        assert registry.get("mcp__offline__read").effect is expected
 
 
 def test_guven_karari_arac_ozetini_kaydeder_geri_cekince_siler(monkeypatch, tmp_path):

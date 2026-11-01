@@ -19,7 +19,7 @@ def test_arac_katalogu_kaynagi_etkiyi_ve_parametreleri_ayri_gosterir():
         RemoteTool("two", "lookup", "Update", {}, ToolEffect.REMOTE_WRITE),
     ]
     result = project_tools(tools)
-    assert [item["name"] for item in result["tools"]] == ["one__lookup", "two__lookup"]
+    assert [item["name"] for item in result["tools"]] == ["mcp__one__lookup", "mcp__two__lookup"]
     assert result["tools"][0]["effect"] == "remote_read"
     assert result["tools"][0]["parameters"][0] == {
         "name": "query",

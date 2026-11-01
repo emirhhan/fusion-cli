@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
+from ..core.mcp_tool_names import split_mcp_tool_name
 from ..core.tools import ToolFamily, tool_family
 
 _FILE_WRITE = {"write_file", "create_file"}
@@ -67,8 +68,9 @@ def approval_summary(
         return "Bilgisayarında bu işlem yapılsın mı?", _text(args, "app", "text", "key", "name")
     if family is ToolFamily.WEB:
         return "Bu web isteği yapılsın mı?", _text(args, "url", "query")
-    if "__" in tool_name:
-        sunucu, arac = tool_name.split("__", 1)
+    mcp_parts = split_mcp_tool_name(tool_name)
+    if mcp_parts is not None:
+        sunucu, arac = mcp_parts
         yetenek = _text(args, "ability_name")
         if yetenek:
             # WordPress yetenek geçidi: araç adı değil ÇALIŞACAK yetenek söylenir.

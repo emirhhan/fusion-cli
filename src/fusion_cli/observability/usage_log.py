@@ -26,6 +26,7 @@ from dataclasses import MISSING, asdict, dataclass, field, fields
 from pathlib import Path
 
 from ..config.models import Config
+from ..core.mcp_tool_names import mcp_server_of as _core_mcp_server_of
 from ..core.events import Event, ModelCallFinished, SkillLoaded, ToolExecuted, ToolOutcome
 from ..core.types import TokenUsage
 
@@ -41,8 +42,6 @@ WINDOWS: tuple[tuple[str, float], ...] = (
     ("son 7 gün", 7 * 24 * 3600.0),
     ("son 30 gün", 30 * 24 * 3600.0),
 )
-#: Uzak MCP aracının adı `<sunucu>__<araç>` biçimindedir (`mcp_bridge/tool_name.py`).
-_MCP_SEPARATOR = "__"
 
 KIND_MODEL = "model"
 KIND_TOOL = "arac"
@@ -219,9 +218,8 @@ def new_session_id(prefix: str) -> str:
 
 
 def mcp_server_of(tool_name: str) -> str:
-    """`github__create_issue` → `github`; yerleşik araçta boş."""
-    head, separator, tail = tool_name.partition(_MCP_SEPARATOR)
-    return head if separator and head and tail else ""
+    """`mcp__github__create_issue` (ve eski `github__create_issue`) → `github`; yerleşikte boş."""
+    return _core_mcp_server_of(tool_name)
 
 
 def _line_ts(line: str) -> float:

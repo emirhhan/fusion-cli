@@ -1425,7 +1425,7 @@ def test_persona_tools_vermeyip_yasak_arac_yazan_ajanda_yasak_uygulanir(state, r
     assert state.persona is not None and state.persona.name == "okur"
     tur = persona_turn(state.persona)
     assert tur.allowed_tools is None
-    assert {"write_file", "edit_file", "srv__*"} <= tur.denied_tools
+    assert {"write_file", "edit_file", "mcp__srv__*"} <= tur.denied_tools
 
 
 def test_subtask_komutu_gorevi_fork_kipiyle_hazirlar(state, registry):

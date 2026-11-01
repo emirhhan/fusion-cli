@@ -7,6 +7,7 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
+from ...core.mcp_tool_names import mcp_server_of
 from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
@@ -66,7 +67,7 @@ def allowed_tools(
                 allowed = {
                     name
                     for name in allowed
-                    if not registry.is_remote(name) or name.split("__", 1)[0] in persona.mcp_servers
+                    if not registry.is_remote(name) or mcp_server_of(name) in persona.mcp_servers
                 }
     # Ajan belleği olan üyenin bellek araçları (P-055): yasak listesindekiler açılmaz ve
     # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
@@ -114,7 +115,7 @@ def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[st
     yapılandırmada olmayan ad sessizce 'araç yok' sonucu verirdi, günlüğe uyarı düşer."""
     # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
     registry = cast("ToolRegistry", deps.base_registry)
-    known = {name.split("__", 1)[0] for name in available if registry.is_remote(name)}
+    known = {mcp_server_of(name) for name in available if registry.is_remote(name)}
     missing = sorted(set(persona.mcp_servers) - known)
     if missing:
         _LOG.warning(

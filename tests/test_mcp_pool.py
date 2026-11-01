@@ -448,9 +448,9 @@ async def test_barindirmali_kesif_turlar_arasi_tekrarlanmaz(monkeypatch):
     ikinci_defter = ToolRegistry()
     ikinci = await pool_module.ensure_hosted_tools(config, ikinci_defter)
 
-    assert ilk == ikinci == ("MetaAds__get_campaigns",)
+    assert ilk == ikinci == ("mcp__MetaAds__get_campaigns",)
     assert len(sorular) == 1, "ikinci turda keşif turu harcanmamalı"
-    assert ikinci_defter.get("MetaAds__get_campaigns") is not None
+    assert ikinci_defter.get("mcp__MetaAds__get_campaigns") is not None
 
 
 def test_havuz_kilidi_farkli_olay_dongusunden_cekismeyle_kullanilabilir():

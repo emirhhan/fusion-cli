@@ -639,7 +639,7 @@ def test_claude_code_arac_adlari_fusion_adlarina_cevrilir():
         frozenset({"Read", "Bash(git diff:*)", "mcp__github__get_issue", "read_file", "WebFetch"})
     )
 
-    assert {"read_file", "run_shell", "github__get_issue", "web_fetch"} <= sonuc
+    assert {"read_file", "run_shell", "mcp__github__get_issue", "web_fetch"} <= sonuc
     assert "Read" not in sonuc and "Bash(git diff:*)" not in sonuc
 
 

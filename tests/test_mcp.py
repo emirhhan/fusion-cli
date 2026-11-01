@@ -148,9 +148,9 @@ async def test_register_into_araclari_kayit_defterine_ekler(tmp_path):
     async with McpClient([_server_config(tmp_path)]) as client:
         eklenen = await client.register_into(registry)
 
-    # Araçlar <sunucu>__<araç> biçiminde ve mutating (onay akışına girsin) eklenir.
-    assert any(name.startswith("fusion__") for name in eklenen)
-    tool = registry.get("fusion__list_dir")
+    # Araçlar mcp__<sunucu>__<araç> biçiminde ve mutating (onay akışına girsin) eklenir.
+    assert any(name.startswith("mcp__fusion__") for name in eklenen)
+    tool = registry.get("mcp__fusion__list_dir")
     assert tool is not None
     assert tool.mutating is True
 
@@ -170,7 +170,7 @@ async def test_bozuk_bir_sunucu_saglam_sunucunun_araclarini_dusurmez(tmp_path):
         eklenen = await client.register_into(registry)
         durumlar = client.statuses
 
-    assert any(name.startswith("fusion__") for name in eklenen)
+    assert any(name.startswith("mcp__fusion__") for name in eklenen)
     assert durumlar["bozuk"].state == "hata"
     assert durumlar["bozuk"].kind == "komut_yok"
     assert durumlar["fusion"].state == "bagli"
@@ -225,7 +225,7 @@ async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
     )
 
     assert len(gorulen_registry) == 1
-    assert gorulen_registry[0].get("fusion__list_dir") is not None
+    assert gorulen_registry[0].get("mcp__fusion__list_dir") is not None
 
 
 # --- uzak araç hatasının taşınması ----------------------------------------- #
@@ -437,7 +437,7 @@ async def test_arac_listesi_butun_sayfalari_kaydeder():
 
     eklenen = await client.register_into(registry)
 
-    assert eklenen == ("fixture__bir", "fixture__iki")
+    assert eklenen == ("mcp__fixture__bir", "mcp__fixture__iki")
     assert session.cursors == [None, "ikinci"]
 
 
@@ -481,14 +481,14 @@ async def test_register_into_mcp_aciklamasini_arac_etkisine_tasir():
 
     await client.register_into(registry)
 
-    etkiler = {ad: registry.get(f"fixture__{ad}").effect for ad in ("oku", "sil", "yaz")}
+    etkiler = {ad: registry.get(f"mcp__fixture__{ad}").effect for ad in ("oku", "sil", "yaz")}
     assert etkiler == {
         "oku": ToolEffect.REMOTE_READ,
         "sil": ToolEffect.REMOTE_DESTRUCTIVE,
         "yaz": ToolEffect.REMOTE_WRITE,
     }
     # Onay akışından çıkarılan uzak araç yok: security kip hepsini sormaya devam eder.
-    assert all(registry.get(f"fixture__{ad}").mutating for ad in ("oku", "sil", "yaz"))
+    assert all(registry.get(f"mcp__fixture__{ad}").mutating for ad in ("oku", "sil", "yaz"))
 
 
 async def test_hicbir_uzak_arac_yerel_etkiyle_kaydedilmez():
@@ -542,7 +542,7 @@ async def _sahte_calistir(ad: str, metin: str, hata: bool):
     istemci._sessions["godot"] = _SahteOturum(ad, metin, hata)
     kayit = ToolRegistry()
     await istemci.register_into(kayit)
-    arac = kayit.get(f"godot__{ad}")
+    arac = kayit.get(f"mcp__godot__{ad}")
     assert arac is not None
     return await arac.run({}, None)
 
@@ -617,14 +617,14 @@ async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
     registry = ToolRegistry()
 
     await client.register_into(registry)
-    arac = registry.get("ornekmagaza__mcp-adapter-execute-ability")
+    arac = registry.get("mcp__ornekmagaza__mcp-adapter-execute-ability")
 
     assert arac.effect_resolver is not None
     okuma = await arac.effect_resolver({"ability_name": "woocommerce/products-query"}, None)
     yazma = await arac.effect_resolver({"ability_name": "woocommerce/product-update"}, None)
     assert okuma is ToolEffect.REMOTE_READ
     assert yazma is ToolEffect.REMOTE_DESTRUCTIVE
-    assert registry.get("ornekmagaza__mcp-adapter-get-ability-info").effect_resolver is None
+    assert registry.get("mcp__ornekmagaza__mcp-adapter-get-ability-info").effect_resolver is None
 
 
 def _trusted_client(server: str) -> McpClient:

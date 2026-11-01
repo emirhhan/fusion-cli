@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from ...core.errors import ConfigError
 from ...core.hooks.events import HookEvent, HookSet
+from ...core.mcp_tool_names import MCP_TOOL_PREFIX, mcp_server_of
 from ..hooks.session import HookSession
 
 if TYPE_CHECKING:
@@ -117,11 +118,14 @@ async def child_mcp_scope(deps: AgentDeps, persona: Persona, task: SubTask) -> A
             servers = tuple(
                 server
                 for server in servers
-                if any(name.startswith(server.name + "__") or name == "*" for name in names)
+                if any(mcp_server_of(name) == server.name or name == "*" for name in names)
             )
     denied = persona.disallowed_tools | task.tool_deny
     servers = tuple(
-        server for server in servers if "*" not in denied and f"{server.name}__*" not in denied
+        server
+        for server in servers
+        if "*" not in denied
+        and not {f"{MCP_TOOL_PREFIX}{server.name}__*", f"{server.name}__*"} & set(denied)
     )
     if not servers:
         yield

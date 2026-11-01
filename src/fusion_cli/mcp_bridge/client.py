@@ -497,7 +497,8 @@ class McpClient:
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.
 
-        Ad çakışmasını önlemek için araçlar `<sunucu>__<araç>` biçiminde adlandırılır.
+        Araçlar Claude Code gibi `mcp__<sunucu>__<araç>` adını alır (#242); tam adı 128
+        karakteri aşan araç kaydedilmez ve günlüğe yazılır.
         """
         added: list[str] = []
         for server in self._sessions:
@@ -519,15 +520,15 @@ class McpClient:
                     tools_digest=self._tool_digests.get(server, ""),
                 )
             resolver = self._ability_resolver(server, {remote.name for remote in tools})
-            current_names = {fusion_tool_name(server, remote.name) for remote in tools}
+            named = _named_tools(server, tools)
+            current_names = {name for name, _remote in named}
             # `tools/list_changed` (#256): sunucunun kaldırdığı araçlar defterden de çıkar;
             # başarısız yenilemede (yukarıdaki `continue`) önceki araçlar korunur.
             for stale in self._registered.get(server, set()) - current_names:
                 registry.unregister_remote(stale)
             self._registered[server] = current_names
             self._stale_tools.discard(server)
-            for remote in tools:
-                fusion_name = fusion_tool_name(server, remote.name)
+            for fusion_name, remote in named:
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
                 # ikinci turda yeniden beslenebilir (bkz. `mcp_bridge/pool.py`).
                 registry.register_or_replace(
@@ -624,3 +625,18 @@ class McpClient:
             return result
 
         return _run
+
+
+def _named_tools(server: str, tools: Sequence[RemoteTool]) -> list[tuple[str, RemoteTool]]:
+    """(kayıt adı, araç); Claude gibi tam adı 128 karakteri aşan araç dışarıda kalır."""
+    named: list[tuple[str, RemoteTool]] = []
+    for remote in tools:
+        name = fusion_tool_name(server, remote.name)
+        if name is None:
+            _LOG.warning(
+                "MCP aracı modele gönderilmedi: tam adı 128 karakteri aşıyor",
+                extra={"sunucu": server, "arac": remote.name},
+            )
+            continue
+        named.append((name, remote))
+    return named

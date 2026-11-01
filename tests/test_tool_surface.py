@@ -176,7 +176,7 @@ async def test_izin_listesi_yalniz_secilen_araclari_kaydeder():
 
     kayitli = await _kaydet(config, "posts_list", "posts_get", "users_delete", "options_update")
 
-    assert kayitli == ["wp__posts_get", "wp__posts_list"]
+    assert kayitli == ["mcp__wp__posts_get", "mcp__wp__posts_list"]
 
 
 async def test_max_tools_sunucu_sirasiyla_ilk_n_araci_tutar():
@@ -184,13 +184,13 @@ async def test_max_tools_sunucu_sirasiyla_ilk_n_araci_tutar():
 
     kayitli = await _kaydet(config, "a", "b", "c", "d")
 
-    assert kayitli == ["gh__a", "gh__b"]
+    assert kayitli == ["mcp__gh__a", "mcp__gh__b"]
 
 
 async def test_izin_listesi_sonra_max_tools_uygulanir():
     config = McpServerConfig("gh", allowed_tools=("b", "c", "d"), max_tools=2)
 
-    assert await _kaydet(config, "a", "b", "c", "d") == ["gh__b", "gh__c"]
+    assert await _kaydet(config, "a", "b", "c", "d") == ["mcp__gh__b", "mcp__gh__c"]
 
 
 async def test_ayar_yoksa_hepsi_kaydedilir_ve_guven_ozeti_tum_tanimlardan_alinir():
