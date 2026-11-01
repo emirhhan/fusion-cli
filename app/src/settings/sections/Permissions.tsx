@@ -8,6 +8,7 @@ import { ToggleRow } from "../PanelParts";
 import { HookList } from "./Hooks";
 import { SandboxCard } from "./SandboxCard";
 import { AutoReviewCard } from "./AutoReviewCard";
+import { WorkspaceDirsCard } from "./WorkspaceDirsCard";
 import "./Permissions.css";
 
 /**
@@ -117,6 +118,13 @@ export function Permissions({
   useEffect(() => onAutoGateChange(() => setAutoKapali(autoPolicyDisabled())), []);
   const [confirmUntrust, setConfirmUntrust] = useState(false);
   const owner = useRef(0);
+  const kalipInput = useRef<HTMLInputElement>(null);
+  /** Auto mode retinin kalıp önerisi (#83): forma alınır, kapsamı kullanıcı seçip ekler. */
+  const suggestRule = (oneri: string) => {
+    setKarar("allow");
+    setKalip(oneri);
+    kalipInput.current?.focus();
+  };
 
   const loadRules = useCallback(async () => {
     if (!client) return;
@@ -223,7 +231,7 @@ export function Permissions({
         </p>
       </article>
 
-      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} />}
+      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} onSuggestRule={suggestRule} />}
 
       <article className="settings__card">
         <h3>Proje klasörü</h3>
@@ -289,6 +297,8 @@ export function Permissions({
         )}
       </article>
 
+      {client && <WorkspaceDirsCard client={client} />}
+
       {client && (
         <article className="settings__card settings__card--wide" id="settings-permission-rules">
           <div className="settings__card-head">
@@ -345,6 +355,7 @@ export function Permissions({
               disabled={busy}
               onChange={(event) => setKalip(event.target.value)}
               placeholder="Bash(npm test *)"
+              ref={kalipInput}
               spellCheck={false}
               value={kalip}
             />

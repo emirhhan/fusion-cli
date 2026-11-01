@@ -257,7 +257,12 @@ yapılmaz (kural istenenden geniş olurdu), kalıbı sen yazarsın. Öneri varke
 kullanır; vazgeçmek için kapsam seçiminde Esc. TUI'de uygulama-içi modal, düz REPL'de ok
 tuşlu seçicidir; terminal yoksa (boru, CI) metin listesi basılır.
 
-Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
+Masaüstünde **Ayarlar › İzinler** aynı beş sekmeyi kartlarla sunar: **İzin kuralları** tablosu
+aynı dosyaları gösterir (ekle/sil); **Çalışma dizinleri** kartı (Workspace) birincil kökü ve bu
+oturumda eklenen dizinleri gösterir, `/add-dir` ile aynı kurallarla dizin ekler/kaldırır
+(`izin.dizinler`, `izin.dizin_ekle`, `izin.dizin_kaldir`); **Otomatik kip denetçisi** kartı
+(Auto mode) son kararları listeler, riskli karardaki "İzin kuralı öner" kalıbı kural formuna alır,
+kural kapsam seçilip "Ekle" denince yazılır.
 Kapsam seçicisi "Bu proje" (yerel), "Proje (paylaşılan)" (`.claude/settings.json`) ve "Tüm
 projeler" (`~/.claude/settings.json`) sunar.
 Claude gibi kural kullanıcı (`--user`), paylaşılan proje (`--project`, masaüstü RPC kapsamı

@@ -2276,9 +2276,15 @@ class AppSession:
 
     def _permissions_rpc(self, request: Request) -> dict[str, Any]:
         """İzin kuralı tablosu ve proje güveni (P-003, P-012); bkz. `permissions_rpc`."""
-        from . import permissions_rpc
+        from . import permissions_rpc, workspace_dirs_rpc
 
         root, data = self._state.root, request.data
+        if request.name in workspace_dirs_rpc.NAMES:
+            # Claude `/permissions` Workspace sekmesi (#83); katalog ek köklerle yenilenir.
+            result = workspace_dirs_rpc.handle(self._state, request)
+            if result.get("degisti"):
+                self._refresh_capabilities()
+            return result
         if request.name == "izin.kurallar":
             return permissions_rpc.list_rules(root, self._state.config)
         if request.name == "izin.ekle":
