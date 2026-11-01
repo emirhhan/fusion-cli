@@ -1090,7 +1090,6 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                proje_ve_dis_bellek if system_prompt is None else "",
                 memory_prompt_block(deps),
                 harita,
                 beceri_dizini,
@@ -1112,7 +1111,8 @@ async def _run_agent(
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
         system_prompt=system_prompt,
-        project_context=proje_ve_dis_bellek if system_prompt is not None else "",
+        # Claude Code (#149): CLAUDE.md içeriği sistem isteminden SONRA kullanıcı mesajıdır.
+        project_context=proje_ve_dis_bellek,
         images=images,
     )
     if deps.agent_transcript is not None:

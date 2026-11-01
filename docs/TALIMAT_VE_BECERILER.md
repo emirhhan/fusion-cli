@@ -8,7 +8,9 @@ girdiğini, bütçeleri ve kapatma ayarlarını anlatır.
 
 Tur başında şu dosyalar sırayla (genelden özele) okunur ve **birleştirilir** (biri ötekini
 ezmez; çalışma dizinine yakın olan en son okunur). İçerik Claude Code'daki gibi uyulacak
-talimat olarak sunulur ("Contents of <yol> (…):" başlığıyla); izin ve onay kuralları yine
+talimat olarak sunulur ("Contents of <yol> (…):" başlığıyla) ve Claude Code'daki gibi sistem
+isteminin içine değil, sistem isteminden **sonra ayrı bir kullanıcı mesajı** olarak verilir
+(her turda aynı yerde, tek kopya); izin ve onay kuralları yine
 ayarlarla (`permissions`, kancalar) zorlanır.
 
 | Sıra | Katman | Dosyalar |
