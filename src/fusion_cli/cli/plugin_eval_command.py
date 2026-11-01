@@ -311,7 +311,8 @@ def eval_command(
             raise PluginError(ERR_NO_CASES.format(path=folder))
         options, notes = _options(folder, resolved, flags)
         _trusted(root, trust_plugin)
-        for note in (*notes, *_scaffold_notes(cases, options, no_scaffold)):
+        warnings = run.tool_warnings(cases, options)
+        for note in (*notes, *_scaffold_notes(cases, options, no_scaffold), *warnings):
             typer.echo(note, err=True)
         chosen = options.judge_model
         judge = judge_subprocess if not chosen else (lambda p: judge_subprocess(p, chosen))

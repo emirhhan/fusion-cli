@@ -106,6 +106,33 @@ def denied_tools(spec: RunSpec) -> tuple[str, ...]:
     return tuple(tool for tool in GATED if tool not in granted)
 
 
+_WRITERS = frozenset({"Write", "Edit", "Bash", "NotebookEdit"})
+WARN_TOOLS = (
+    "⚠ case {case} cannot pass with the granted tools: a file grader needs Write, Edit or Bash "
+    "(allowed_tools, the skill's allowed-tools or --allow-tools)"
+)
+
+
+def _needs_file(case: EvalCase) -> bool:
+    for grader in case.graders:
+        if grader.type == "file_exists" and grader.fields.get("exists") is not False:
+            return True
+        if grader.type == "regex" and grader.fields.get("target") == "files":
+            return str(grader.fields.get("match") or "contains") == "contains"
+    return False
+
+
+def tool_warnings(cases: tuple[EvalCase, ...], options: EvalOptions) -> tuple[str, ...]:
+    """Dosya değerlendiricisi olup dosya yazabilecek araç izni olmayan vakalar (Claude ⚠)."""
+    granted = {_base(t) for t in (*options.allow_tools, *options.plugin_grants)}
+    return tuple(
+        WARN_TOOLS.format(case=case.name)
+        for case in cases
+        if _needs_file(case)
+        and not (_WRITERS & granted & ({_base(t) for t in case.allowed_tools} or _WRITERS))
+    )
+
+
 def child_command(spec: RunSpec) -> list[str]:
     case = spec.case
     args = fusion_command()
@@ -312,6 +339,7 @@ def run_suite(
         "plugin": target.name if target else "",
         "ablation": "with-without" if len(arms) == 2 else "none",
         "costUsd": round(budget.spent, 6),
+        "suite": {"plugins": [{"name": target.name, "root": str(target.root)}] if target else []},
         "aborted": budget.hit,
         "cases": rows,
     }

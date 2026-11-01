@@ -210,3 +210,18 @@ def test_eval_init_eklenti_disinda_ve_oturum_icinde(tmp_path, monkeypatch):
     text = cli.invoke(app, ["eval", "init", "ozet"])
     assert text.exit_code == 0
     assert "You are the interviewer" in text.output and '"ozet"' in text.output
+
+
+def test_dosya_degerlendiricisi_izinsizse_uyari(tmp_path):
+    root = _plugin(tmp_path, runs=1)
+    (root / "evals" / "a" / "graders" / "dosya.md").write_text(
+        "---\ntype: file_exists\npath: rapor.md\n---\n", "utf-8"
+    )
+    cases = load_cases(root / "evals")
+    (warning,) = run.tool_warnings(cases, run.EvalOptions())
+    assert warning.startswith("⚠ case a cannot pass with the granted tools")
+    assert run.tool_warnings(cases, run.EvalOptions(allow_tools=("Write",))) == ()
+    result = run.run_suite(
+        cases, run.Target(root, "rapor", False), runner=_trace, judge=lambda _p: 1.0
+    )
+    assert result["suite"] == {"plugins": [{"name": "rapor", "root": str(root)}]}
