@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { bypassAllowed, onBypassGateChange } from "../sessions/bypassGate";
 import { Icon } from "../ui/Icon";
 import "./ApprovalModeMenu.css";
 
@@ -11,17 +12,27 @@ interface ModeInfo {
   hint: string;
 }
 
-/** Menü sırası Claude'un izin menüsüyle aynıdır; rakam kısayolu bu sıradır. */
+/**
+ * Menü sırası Claude Code Desktop'takiyle aynıdır (#423): Manual (`default`), Accept edits
+ * (`acceptEdits`), Plan (`plan`), Auto (`auto`), Bypass permissions (`bypassPermissions`).
+ * Rakam kısayolu bu sıradır. Değerler çekirdeğin `ApprovalMode` adlarıdır.
+ */
 export const APPROVAL_MODES: readonly ModeInfo[] = [
-  { id: "auto", label: "Otomatik", hint: "Fusion karar verir; yalnız riskli işlemde sorar" },
-  { id: "security", label: "Manuel", hint: "Okuma dışındaki her işlemden önce sorar" },
+  { id: "security", label: "Manuel", hint: "Dosya düzenlemeden ya da komut çalıştırmadan önce sorar" },
   { id: "edits", label: "Düzenlemeleri kabul et", hint: "Dosya düzenlemelerini sormadan uygular; komutları sorar" },
   { id: "plan", label: "Plan", hint: "Değiştirmeden önce plan çıkarır; yalnız okur" },
+  { id: "auto", label: "Otomatik", hint: "Rutin soruları atlar; riskli işlemi denetçi denetler" },
   { id: "bypass", label: "İzinleri atla", hint: "Hiçbir şey sormaz; silinenler yine Fusion çöpüne gider" },
 ];
 
-/** Shift+Tab döngüsü. "İzinleri atla" BİLEREK yok: yanlışlıkla açılmamalı. */
-const CYCLE: readonly ApprovalMode[] = ["auto", "security", "edits", "plan"];
+/** Bypass yalnız Ayarlar'daki anahtar açıkken listelenir (#442). */
+function visibleModes(current: ApprovalMode): readonly ModeInfo[] {
+  if (bypassAllowed() || current === "bypass") return APPROVAL_MODES;
+  return APPROVAL_MODES.filter((item) => item.id !== "bypass");
+}
+
+/** CLI/TUI Shift+Tab döngüsünün eşi; masaüstünde Shift+Tab mod DÖNDÜRMEZ (#441). */
+const CYCLE: readonly ApprovalMode[] = ["security", "edits", "plan", "auto"];
 
 export function approvalInfo(mode: ApprovalMode): ModeInfo {
   return APPROVAL_MODES.find((item) => item.id === mode) ?? APPROVAL_MODES[0];
@@ -42,10 +53,27 @@ export function ApprovalModeMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState(0);
+  const [, setGate] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const current = approvalInfo(mode);
+  const modes = visibleModes(mode);
+
+  useEffect(() => onBypassGateChange(() => setGate((value) => value + 1)), []);
+
+  useEffect(() => {
+    // Cmd/Ctrl+Shift+M izin modu menüsünü açar (Claude Code Desktop, #441).
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        setFocus(Math.max(0, visibleModes(mode).findIndex((item) => item.id === mode)));
+        setOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mode]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,22 +96,22 @@ export function ApprovalModeMenu({
   };
 
   const toggle = () => {
-    setFocus(Math.max(0, APPROVAL_MODES.findIndex((item) => item.id === mode)));
+    setFocus(Math.max(0, modes.findIndex((item) => item.id === mode)));
     setOpen((value) => !value);
   };
 
   const onMenuKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const digit = Number(event.key);
-    if (Number.isInteger(digit) && digit >= 1 && digit <= APPROVAL_MODES.length) {
+    if (Number.isInteger(digit) && digit >= 1 && digit <= modes.length) {
       event.preventDefault();
-      choose(APPROVAL_MODES[digit - 1].id);
+      choose(modes[digit - 1].id);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setFocus((value) => (value + step + APPROVAL_MODES.length) % APPROVAL_MODES.length);
+      setFocus((value) => (value + step + modes.length) % modes.length);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      setFocus(event.key === "Home" ? 0 : APPROVAL_MODES.length - 1);
+      setFocus(event.key === "Home" ? 0 : modes.length - 1);
     } else if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
@@ -100,7 +128,7 @@ export function ApprovalModeMenu({
       <button
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={`İzin modu: ${current.label}. Değiştirmek için tıkla ya da Shift+Tab.`}
+        aria-label={`İzin modu: ${current.label}. Değiştirmek için tıkla ya da Cmd/Ctrl+Shift+M.`}
         className="composer__approval approval-menu__trigger"
         ref={trigger}
         data-mode={mode}
@@ -113,7 +141,7 @@ export function ApprovalModeMenu({
       </button>
       {open && (
         <div aria-label="İzin modu" className="approval-menu__list" onKeyDown={onMenuKey} role="menu">
-          {APPROVAL_MODES.map((item, index) => (
+          {modes.map((item, index) => (
             <button
               aria-checked={item.id === mode}
               className="approval-menu__item"

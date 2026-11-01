@@ -38,9 +38,9 @@ describe("ApprovalModeMenu — odak yönetimi (U1-49)", () => {
     ac();
     const menu = screen.getByRole("menu");
     fireEvent.keyDown(menu, { key: "End" });
-    expect(document.activeElement?.textContent).toContain("İzinleri atla");
-    fireEvent.keyDown(menu, { key: "Home" });
     expect(document.activeElement?.textContent).toContain("Otomatik");
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(document.activeElement?.textContent).toContain("Manuel");
   });
 });
 

@@ -51,8 +51,8 @@ describe("useSessionModes — sohbet başına mod", () => {
     });
     await waitFor(() => expect(result.current.approval).toBe("plan"));
     rerender({ s: { id: "b", client: b } });
-    await waitFor(() => expect(result.current.approval).toBe("security"));
-    expect(result.current.workspaceMode).toBe("sohbet");
+    await waitFor(() => expect(result.current.workspaceMode).toBe("sohbet"));
+    expect(result.current.approval).toBe("security");
     rerender({ s: { id: "a", client: a } });
     await waitFor(() => expect(result.current.approval).toBe("plan"));
   });
@@ -120,5 +120,33 @@ describe("useSessionModes — denetçi kip düşüşü (P-011)", () => {
     expect(result.current.approval).toBe("security");
     act(() => result.current.adoptApproval("auto"));
     expect(result.current.approval).toBe("auto");
+  });
+});
+
+describe("useSessionModes — klasör başına mod (#451)", () => {
+  it("seçilen mod klasörde hatırlanır, yeni oturum onunla açılır; Plan hatırlanmaz", async () => {
+    window.localStorage.removeItem("fusion.folderApprovalModes");
+    const c = istemci({
+      "oturum.durum": { ok: true, mod: "auto", kip: "kod" },
+      "oturum.baslat": { ok: true, mod: "edits", kip: "kod" },
+    });
+    const { result } = renderHook(() => useSessionModes({ id: "a", client: c, root: "/p" }, vi.fn()));
+    await waitFor(() => expect(result.current.approval).toBe("auto"));
+    await act(async () => { await result.current.changeApproval("edits"); });
+    expect(JSON.parse(window.localStorage.getItem("fusion.folderApprovalModes") ?? "{}")).toEqual({ "/p": "edits" });
+
+    const yeni = istemci({
+      "oturum.durum": { ok: true, mod: "auto", kip: "kod" },
+      "oturum.baslat": { ok: true, mod: "edits", kip: "kod" },
+    });
+    const ikinci = renderHook(() => useSessionModes({ id: "b", client: yeni, root: "/p" }, vi.fn()));
+    await waitFor(() => expect(yeni.request).toHaveBeenCalledWith("oturum.baslat", { mod: "edits" }));
+    await waitFor(() => expect(ikinci.result.current.approval).toBe("edits"));
+
+    const plan = istemci({ "oturum.baslat": { ok: true, mod: "plan", kip: "kod" } });
+    const ucuncu = renderHook(() => useSessionModes({ id: "c", client: plan, root: "/p" }, vi.fn()));
+    await act(async () => { await ucuncu.result.current.changeApproval("plan"); });
+    expect(JSON.parse(window.localStorage.getItem("fusion.folderApprovalModes") ?? "{}")).toEqual({ "/p": "edits" });
+    window.localStorage.removeItem("fusion.folderApprovalModes");
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../../protocol/client";
 import { errorMessage, operationResult } from "../../protocol/result";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
+import { bypassAllowed, setBypassAllowed } from "../../sessions/bypassGate";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
 import { HookList } from "./Hooks";
@@ -104,6 +105,7 @@ export function Permissions({
 }) {
   // "İzinleri atla" hiçbir şey sormaz; tek tıkla açılmasın, önce açık onay istenir (U2-51).
   const [confirmBypass, setConfirmBypass] = useState(false);
+  const [allowBypass, setAllowBypass] = useState(bypassAllowed);
   const [rules, setRules] = useState<RulesPayload | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -178,7 +180,7 @@ export function Permissions({
       <article className="settings__card">
         <h3>Çalışma modu</h3>
         <div className="settings__choices" role="group">
-          {PERMISSION_MODES.map((secenek) => (
+          {PERMISSION_MODES.filter((secenek) => secenek.id !== "bypass" || allowBypass || mod === "bypass").map((secenek) => (
             <button
               aria-pressed={secenek.id === mod}
               className="settings__choice"
@@ -211,8 +213,14 @@ export function Permissions({
             </div>
           </div>
         )}
+        <ToggleRow
+          checked={allowBypass}
+          description="Açıkken İzinleri atla modu sohbetteki izin menüsünde görünür. Yalnız korumalı (sandbox) bir kapta ya da sanal makinede kullan."
+          onChange={(value) => { setBypassAllowed(value); setAllowBypass(value); }}
+          title="İzinleri atla modunu etkinleştir"
+        />
         <p className="settings__hint">
-          Sohbet ekranında Shift+Tab ile de değiştirebilirsin.
+          Sohbet ekranında Cmd/Ctrl+Shift+M ile izin modu menüsünü açabilirsin.
         </p>
       </article>
 

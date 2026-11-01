@@ -306,8 +306,10 @@ describe("Settings — İzinler", () => {
     await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
     const otomatik = screen.getByText("Otomatik").closest(".settings__choice");
     expect(otomatik?.getAttribute("data-active")).toBe("true");
-    expect(screen.getByText(/yalnız riskli işlemde sorar/i)).toBeTruthy();
-    expect(screen.getByText("İzinleri atla")).toBeTruthy();
+    expect(screen.getByText(/riskli işlemi denetçi denetler/i)).toBeTruthy();
+    // #442: İzinleri atla yalnız anahtar açılınca seçilebilir.
+    expect(screen.queryByRole("button", { name: /^İzinleri atlaHiçbir/ })).toBeNull();
+    expect(screen.getByRole("switch", { name: "İzinleri atla modunu etkinleştir" })).toBeTruthy();
   });
 
   it("klasör değiştirme isteğini iletir", async () => {
@@ -481,6 +483,7 @@ describe("Settings — dalga 4 bölümleri (U2-48, U2-50, U2-51)", () => {
     const onRunCommand = vi.fn(async () => ({ ok: true }));
     ciz({ onRunCommand });
     bolum("İzinler");
+    fireEvent.click(await screen.findByRole("switch", { name: "İzinleri atla modunu etkinleştir" }));
     await screen.findByText("İzinleri atla");
     fireEvent.click(screen.getByRole("button", { name: /İzinleri atla/ }));
     expect(onRunCommand).not.toHaveBeenCalled();

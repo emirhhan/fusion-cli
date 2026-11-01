@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { APPROVAL_MODES, type ApprovalMode } from "../screens/ApprovalModeMenu";
+import { folderMode, rememberFolderMode } from "./folderModes";
 import { saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./useSessions";
 
 interface ActiveSession {
   id: string;
+  /** Oturumun klasörü: seçilen izin modu klasör başına hatırlanır (#451). */
+  root?: string;
   /** `onEvent` verilirse denetçinin kip düşüşü (P-011) arayüze anında yansır. */
   client: Pick<ProtocolClient, "request"> & Partial<Pick<ProtocolClient, "onEvent">>;
 }
@@ -49,6 +52,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
   const [personas, setPersonas] = useState<Record<string, SessionPersona | null>>({});
   const id = active?.id;
   const client = active?.client;
+  const root = active?.root;
   const changes = useRef(0);
   const report = useRef(onError);
   report.current = onError;
@@ -62,6 +66,15 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
       if (cancelled || result.ok === false || changes.current !== stamp) return;
       const { approval, workspace, persona } = modlariOku(result);
       if (approval) setApprovals((current) => ({ ...current, [id]: approval }));
+      // Klasörde hatırlanan mod (Plan hariç) `defaultMode`'u ezer (#451).
+      const remembered = folderMode(root);
+      if (remembered && approval && remembered !== approval) {
+        void client.request("oturum.baslat", { mod: remembered }).then((changed) => {
+          if (cancelled || changed.ok === false || changes.current !== stamp) return;
+          const confirmed = modlariOku(changed).approval ?? remembered;
+          setApprovals((current) => ({ ...current, [id]: confirmed }));
+        }).catch(() => undefined);
+      }
       if (persona !== undefined) setPersonas((current) => ({ ...current, [id]: persona }));
       if (workspace) {
         saveWorkspaceMode(id, workspace);
@@ -69,7 +82,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
       }
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [id, client]);
+  }, [id, client, root]);
 
   useEffect(() => {
     if (!id || !client?.onEvent) return;
@@ -111,8 +124,9 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     if (!result || !id) return false;
     const confirmed = modlariOku(result).approval ?? next;
     setApprovals((current) => ({ ...current, [id]: confirmed }));
+    rememberFolderMode(root, confirmed);
     return true;
-  }, [id, request]);
+  }, [id, request, root]);
 
   const changeWorkspace = useCallback(async (next: WorkspaceMode): Promise<boolean> => {
     const result = await request({ kip: next }, "Sohbet kipi değiştirilemedi. Yeniden dene.");
@@ -131,7 +145,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
   }, [id, request]);
 
   return {
-    approval: (id ? approvals[id] : undefined) ?? "auto" as ApprovalMode,
+    approval: (id ? approvals[id] : undefined) ?? folderMode(root) ?? "security" as ApprovalMode,
     workspaceMode: (id ? workspaces[id] ?? storedWorkspaceMode(id) : null) ?? "kod" as WorkspaceMode,
     persona: (id ? personas[id] : undefined) ?? null,
     changeApproval,

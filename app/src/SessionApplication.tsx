@@ -682,7 +682,7 @@ export function SessionUygulama({
   }, [activeSessionId]);
   // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
   const { approval, workspaceMode, persona, changeApproval, adoptApproval, changeWorkspace, changePersona } = useSessionModes(
-    active ? { id: active.id, client: active.client } : null,
+    active ? { id: active.id, client: active.client, root: active.root } : null,
     setCommandError,
   );
   // `/voice gonder` (P-072): kesin metin gelince taslak gönderilir; gönderim taslak güncellendikten

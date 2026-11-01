@@ -161,18 +161,16 @@ describe("Composer", () => {
 // (bkz. `appserver/session.py`). Bu describe eskiden kip düğmelerini de
 // test ediyordu; o testler silindi, klavye kısayolu testleri kaldı.
 describe("Composer — izin modu klavye kısayolları", () => {
-  it("Shift+Tab İZİN modunu döndürür, normal Tab dolaşımını engellemez", () => {
-    // Kullanıcı terminaldeki davranışı bekliyor: Shift+Tab izin modunu döndürür.
-    // Çalışma kipi (Sohbet/Kod) ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
-    // alışkanlığı bozuyordu.
+  it("masaüstünde Shift+Tab izin modunu döndürmez; Cmd/Ctrl+Shift+M menüyü açar (#441)", () => {
     const onApprovalChange = vi.fn();
     render(<Composer approval="auto" onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
 
-    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(false);
-    expect(onApprovalChange).toHaveBeenCalledWith("security");
-
-    expect(fireEvent.keyDown(textbox, { key: "Tab" })).toBe(true);
+    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(onApprovalChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.keyDown(document, { key: "M", metaKey: true, shiftKey: true });
+    expect(screen.getByRole("menu", { name: "İzin modu" })).toBeTruthy();
   });
 
   it("IME composition sürerken Shift+Tab izin modunu değiştirmez", () => {
@@ -284,37 +282,34 @@ describe("Composer — izin modu", () => {
     expect(screen.queryByText("Agent · Otomatik")).toBeNull();
   });
 
-  it("Shift+Tab izin modunu Claude'daki sırayla döndürür; İzinleri atla döngüde yok", () => {
+  it("menü Claude sırasıyla; İzinleri atla yalnız Ayarlar'da açılınca görünür (#423, #442)", () => {
     const secilen: string[] = [];
-    const { rerender } = render(
-      <Composer approval="auto" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
-    );
-    for (const kip of ["security", "edits", "plan"] as const) {
-      fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
-      rerender(<Composer approval={kip} onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
-    }
-    fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
-    expect(secilen).toEqual(["security", "edits", "plan", "auto"]);
-  });
-
-  it("menüden açıklamalı beş kip seçilir; rakam tuşu da seçer", () => {
-    const secilen: string[] = [];
-    render(
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
+    const { unmount } = render(
       <Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
     );
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
+    expect(screen.getAllByRole("menuitemradio").map((s) => s.querySelector("strong")?.textContent)).toEqual([
+      "Manuel", "Düzenlemeleri kabul et", "Plan", "Otomatik",
+    ]);
+    unmount();
+
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "true");
+    render(<Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     const secenekler = screen.getAllByRole("menuitemradio");
     expect(secenekler.map((s) => s.querySelector("strong")?.textContent)).toEqual([
-      "Otomatik", "Manuel", "Düzenlemeleri kabul et", "Plan", "İzinleri atla",
+      "Manuel", "Düzenlemeleri kabul et", "Plan", "Otomatik", "İzinleri atla",
     ]);
-    expect(secenekler[3].getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(secenekler[2]);
+    expect(secenekler[2].getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(secenekler[1]);
     expect(secilen).toEqual(["edits"]);
 
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     fireEvent.keyDown(screen.getByRole("menu"), { key: "5" });
     expect(secilen).toEqual(["edits", "bypass"]);
     expect(screen.queryByRole("menu")).toBeNull();
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
   });
 });
 
@@ -535,11 +530,11 @@ describe("Composer — P2/P3 ayıklama turu (dalga 4)", () => {
     expect(onApprovalChange).not.toHaveBeenCalled();
   });
 
-  it("çalışma kipinde Shift+Tab izin modunu döndürmeyi sürdürür (U1-03)", () => {
+  it("çalışma kipinde de Shift+Tab izin modunu döndürmez (#441)", () => {
     const onApprovalChange = vi.fn();
     render(<Composer workspaceMode="kod" onWorkspaceModeChange={vi.fn()} onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Mesaj" }), { key: "Tab", shiftKey: true });
-    expect(onApprovalChange).toHaveBeenCalledTimes(1);
+    expect(onApprovalChange).not.toHaveBeenCalled();
   });
 
   it("gönderim beklenirken eklenen karakter korunur, gönderilen kısım silinir (U1-04)", async () => {

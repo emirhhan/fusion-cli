@@ -9,7 +9,6 @@ import { ModelPicker, shortModelName, type ModelOption } from "./ModelPicker";
 import {
   ApprovalModeMenu,
   approvalInfo,
-  nextApprovalMode,
   type ApprovalMode,
 } from "./ApprovalModeMenu";
 import { ContextGauge } from "./ContextGauge";
@@ -330,9 +329,6 @@ export function Composer({
       fail();
     }
   };
-  /** Sıradaki izin modu (Shift+Tab). "İzinleri atla" döngüde yoktur. */
-  const nextApproval = (): ApprovalMode => nextApprovalMode(approval);
-
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // IME adayını onaylayan Enter ve composition sırasında basılan diğer
     // kısayollar (aday penceresini kapatan Esc dahil), Fusion komutu, turu
@@ -351,17 +347,8 @@ export function Composer({
       onStop();
       return;
     }
-    // Shift+Tab İZİN MODUNU döndürür — terminaldeki davranışın aynısı.
-    // Sohbet/Kod ayrımı ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
-    // kullanıcının beklediği terminal alışkanlığını bozuyordu.
-    // Sohbet kipinde izin menüsü çizilmez: mod görünmeden değişmesin, Shift+Tab
-    // de normal ters odak hareketini korusun (U1-03).
-    const izinModuGorunur = !(workspaceMode === "sohbet" && onWorkspaceModeChange);
-    if (event.key === "Tab" && event.shiftKey && onApprovalChange && izinModuGorunur) {
-      event.preventDefault();
-      onApprovalChange(nextApproval());
-      return;
-    }
+    // Masaüstünde Shift+Tab izin modunu DÖNDÜRMEZ (Claude Code Desktop, #441): menü
+    // Cmd/Ctrl+Shift+M ile açılır (`ApprovalModeMenu`); Shift+Tab ters odak hareketidir.
     // Anma paleti açıkken ok/Enter/Esc ONA aittir; komut paleti `/` ile
     // başlar ve ikisi aynı anda açılamaz, ama sıra yine de belirli olmalı.
     if (mentionOpen && event.key === "ArrowDown") {
