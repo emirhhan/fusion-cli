@@ -225,3 +225,96 @@ def test_dosya_degerlendiricisi_izinsizse_uyari(tmp_path):
         cases, run.Target(root, "rapor", False), runner=_trace, judge=lambda _p: 1.0
     )
     assert result["suite"] == {"plugins": [{"name": "rapor", "root": str(root)}]}
+
+
+def _yakala(monkeypatch, stdout: str = ""):
+    import subprocess
+
+    seen: list[list[str]] = []
+
+    def fake(argv, **_kwargs):
+        seen.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    return seen
+
+
+def test_yargic_alt_sureci_kapili_araclarsiz_kosar(monkeypatch):
+    seen = _yakala(monkeypatch, '{"sonuc": "SCORE: 1", "kullanim": {"maliyet_usd": 0.25}}\n')
+
+    _score, cost = run.judge_command("puanla")
+
+    argv = seen[0]
+    assert argv[argv.index("--disallowed-tools") + 1] == ",".join(run.GATED)
+    assert argv[argv.index("--max-turns") + 1] == "1"
+    assert cost == 0.25
+
+
+def test_sahte_mcp_ajani_kapili_araclarsiz_ve_tek_turda_kosar(monkeypatch):
+    from fusion_cli.tools import plugin_eval_mock_server as mock
+
+    seen = _yakala(monkeypatch, '{"sonuc": "tamam"}\n')
+    server = mock.MockServer(name="s", folder=Path(), world="dünya", agent={"abort_when": ""})
+
+    assert mock._agent_reply(server, "ara", {"q": "x"}) == "tamam"
+    argv = seen[0]
+    assert argv[argv.index("--disallowed-tools") + 1] == ",".join(run.GATED)
+    assert argv[argv.index("--max-turns") + 1] == "1"
+
+
+def test_yargic_maliyeti_toplama_ve_tavana_girer(tmp_path):
+    root = _plugin(tmp_path, runs=1)
+    for name in ("a", "b", "c"):
+        (root / "evals" / name / "graders" / "g.md").write_text("---\ntype: llm\n---\nİyi mi?\n")
+    cases = load_cases(root / "evals")
+
+    result = run.run_suite(
+        cases,
+        None,
+        runner=lambda spec: _trace(spec, cost=0.0),
+        judge=lambda _p: (1.0, 1.0),
+        options=run.EvalOptions(max_cost_usd=1.5),
+    )
+
+    assert result["costUsd"] == 2.0 and result["aborted"] is True
+    assert result["cases"][0]["with"]["score"] == 1.0
+    assert result["cases"][2]["with"]["runs"] == []
+
+
+def test_desenli_allow_tools_arac_ailesini_acmaz_ve_uyarir(tmp_path):
+    root = _plugin(tmp_path)
+    (case, *_) = load_cases(root / "evals")
+    options = run.EvalOptions(allow_tools=("Bash(git status:*)", "Write"))
+    spec = run.RunSpec(case, "without", None, tmp_path, options)
+
+    assert "Bash" in run.denied_tools(spec) and "Write" not in run.denied_tools(spec)
+    notes = run.pattern_warnings(options)
+    assert len(notes) == 1 and "Bash(git status:*)" in notes[0]
+
+
+def test_scaffold_zaman_asimi_vakayi_hatali_sayar_kosu_surer(tmp_path, monkeypatch):
+    import subprocess
+
+    root = _plugin(tmp_path, runs=1, extra="scaffold_script: kur.sh\n")
+    cases = load_cases(root / "evals")
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout") or 1)
+
+    monkeypatch.setattr(run.subprocess, "run", slow)
+    ran = []
+
+    def runner(spec):
+        ran.append(spec.case.name)
+        return _trace(spec)
+
+    result = run.run_suite(
+        cases, None, runner=runner, judge=lambda _p: 1.0, options=run.EvalOptions(scaffold=True)
+    )
+
+    assert ran == []  # zaman aşımına uğrayan scaffold'un vakası koşmaz
+    rows = result["cases"]
+    assert [r["name"] for r in rows] == ["a", "b", "c"]
+    first = rows[0]["with"]["runs"][0]
+    assert first["score"] == 0.0 and "scaffold" in first["error"]

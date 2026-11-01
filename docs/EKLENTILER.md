@@ -228,10 +228,15 @@ yeterli `report.html` (`--report <yol>` başka yere yazar); `--json` tam sonucu 
 (ya da `--json-file <yol>`) dosyaya yazar; vaka `--threshold`'un (varsayılan 1.0) altındaysa çıkış 1.
 `-j/--concurrency <1-8>` koşuları eşzamanlı yürütür (sonuç sırası vaka sırası). `--max-cost-usd`
 tavanı her koşu başlamadan denetlenir; aşılınca kalan koşular başlamaz, kısmi sonuç yazılır, tavanı
-aşan koşunun ücretli `llm`/`baseline` değerlendiricileri atlanır ve çıkış 2. Kapılı araçlar (`Bash`,
-`Write`, `Edit`, `NotebookEdit`, `WebFetch`) alt süreçte kapalıdır; `--allow-tools` operatör izni ya da
-eklentili kolda eklenti becerisinin `allowed-tools` ön maddesi açar (`Bash(desen:*)` deseni Fusion'da
-araç ailesinin tamamına uygulanır). `--model` tüm vakaların, vaka `model:` alanı o vakanın, `--judge-model`
+aşan koşunun ücretli `llm`/`baseline` değerlendiricileri atlanır ve çıkış 2; yargıç (`llm`) alt
+süreçlerinin maliyeti de toplama ve tavana girer. Kapılı araçlar (`Bash`, `Write`, `Edit`,
+`NotebookEdit`, `WebFetch`) alt süreçte kapalıdır; `--allow-tools` operatör izni ya da eklentili kolda
+eklenti becerisinin `allowed-tools` ön maddesi açar. Desenli operatör izni (`--allow-tools
+'Bash(git status:*)'`) Fusion alt sürecinde desenle sınırlanamadığı için aileyi AÇMAZ ve uyarı basar
+(bütün aile için çıplak `--allow-tools Bash`); becerinin `allowed-tools` deseni aileye uygulanır.
+Yargıç ve `_server.md` sahte MCP ajanı alt süreçleri kapılı araçlar kapalı, tek turda koşar.
+Zaman aşımına uğrayan ya da başlatılamayan `scaffold_script` o koşuyu hatalı (puan 0, `error`) sayar;
+kalan koşular sürer. `--model` tüm vakaların, vaka `model:` alanı o vakanın, `--judge-model`
 yargıcın modelini seçer (alt sürece `FUSION_EVAL_MODEL` ile; aday adı ya da model kimliği; varsayılan
 yargıç Fusion yapılandırmasıdır, Claude'daki `haiku` değil). `--scaffold` vakanın `scaffold_script`'ini
 (vaka klasöründe dosya ya da bash metni) çalışma klasöründe çalıştırır; varsayılan kapalıdır ve atlanınca

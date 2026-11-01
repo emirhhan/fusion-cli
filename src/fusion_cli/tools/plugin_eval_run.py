@@ -5,7 +5,8 @@ sırasıdır), `--max-cost-usd` (tavan her koşu başlamadan denetlenir; aşıl�
 başlamaz, kısmi sonuç ve çıkış 2; tavanı aşan koşunun ücretli `llm`/`baseline` değerlendiricileri
 atlanır), `--allow-tools` (kapılı araçlar — Bash, Write, Edit, NotebookEdit, WebFetch — yalnız
 operatör izniyle ya da eklentili kolda eklenti becerisinin `allowed-tools` ön maddesiyle açılır;
-`Tool(desen:*)` biçiminde desen Fusion'da araç ailesinin tamamına uygulanır), `--model` (tüm
+`Tool(desen:*)` biçimindeki operatör izni Fusion alt sürecinde desenle sınırlanamadığından aileyi
+AÇMAZ, uyarı verir; aileyi açmak için çıplak ad verilir), `--model` (tüm
 vakalar; vaka `model:` alanından önce gelir), `--judge-model` (yargıç; varsayılan yapılandırma),
 `--scaffold` (vakanın `scaffold_script`'ini çalışma klasöründe bash ile çalıştırır; varsayılan
 kapalı), `--keep-temp` (çalışma klasörlerini silmez).
@@ -31,6 +32,13 @@ from .plugin_eval import EvalCase, Judge, RunTrace, score_run
 from .plugin_eval_mocks import LOG_ENV, read_log
 
 GATED = ("Bash", "Write", "Edit", "NotebookEdit", "WebFetch")
+#: Yargıç ve sahte MCP ajanı yalnız metin üretir: kapılı araç yok, tek tur (#380).
+TEXT_ONLY_ARGS = ("--disallowed-tools", ",".join(GATED), "--max-turns", "1")
+WARN_PATTERN = (
+    "⚠ --allow-tools {grant}: Fusion eval alt sürecinde araç deseni uygulanamaz; {tool} kapalı "
+    "kalır (bütün {tool} komutlarına izin için --allow-tools {tool})"
+)
+ERR_SCAFFOLD = "scaffold_script başarısız: {error}"
 EXCLUDE_ENV = "FUSION_EVAL_EXCLUDE_PLUGINS"
 MAX_CONCURRENCY = 8
 NOTE_SCAFFOLD_SKIPPED = (
@@ -99,8 +107,27 @@ def skill_grants(root: Path) -> tuple[str, ...]:
     return tuple(sorted(found))
 
 
+def _operator_grants(options: EvalOptions) -> set[str]:
+    """Operatörün AÇTIĞI araçlar: yalnız çıplak adlar (#380).
+
+    Claude `Bash(git status:*)` iznini desenle sınırlar; Fusion'ın alt süreci bunu yalnız araç
+    ailesi düzeyinde uygulayabildiği için desenli izin aileyi açmaz (eskiden bütün Bash
+    komutları açılıyordu) ve `pattern_warnings` uyarır.
+    """
+    return {t.strip() for t in options.allow_tools if "(" not in t}
+
+
+def pattern_warnings(options: EvalOptions) -> tuple[str, ...]:
+    bare = _operator_grants(options)
+    return tuple(
+        WARN_PATTERN.format(grant=grant, tool=_base(grant))
+        for grant in options.allow_tools
+        if "(" in grant and _base(grant) in GATED and _base(grant) not in bare
+    )
+
+
 def denied_tools(spec: RunSpec) -> tuple[str, ...]:
-    granted = {_base(t) for t in spec.options.allow_tools}
+    granted = _operator_grants(spec.options)
     if spec.arm == "with":
         granted |= set(spec.options.plugin_grants)
     return tuple(tool for tool in GATED if tool not in granted)
@@ -124,7 +151,7 @@ def _needs_file(case: EvalCase) -> bool:
 
 def tool_warnings(cases: tuple[EvalCase, ...], options: EvalOptions) -> tuple[str, ...]:
     """Dosya değerlendiricisi olup dosya yazabilecek araç izni olmayan vakalar (Claude ⚠)."""
-    granted = {_base(t) for t in (*options.allow_tools, *options.plugin_grants)}
+    granted = _operator_grants(options) | set(options.plugin_grants)
     return tuple(
         WARN_TOOLS.format(case=case.name)
         for case in cases
@@ -221,7 +248,7 @@ def judge_command(prompt: str, model: str = "") -> tuple[float, float]:
     argv = [*fusion_command(), "agent", prompt, "--output-format", "json", "--no-memory"]
     try:
         done = subprocess.run(
-            [*argv, "--max-turns", "1"],
+            [*argv, *TEXT_ONLY_ARGS],
             capture_output=True,
             text=True,
             timeout=300,
@@ -275,6 +302,30 @@ class _Job:
     index: int
 
 
+def _costed(ctx: _SuiteContext) -> Judge:
+    """Yargıç maliyeti de toplam harcamaya ve tavana girer (`(puan, maliyet)` döndüren yargıç)."""
+
+    def judge(prompt: str) -> float:
+        value = ctx.judge(prompt)
+        if isinstance(value, tuple):
+            score, cost = value
+            ctx.budget.add(cost)
+            return score
+        return value
+
+    return judge
+
+
+def _scaffold_failure(case: EvalCase, folder: Path) -> dict[str, object] | None:
+    """Zaman aşımı ya da başlatma hatası vakayı hatalı sayar; kalan koşular sürer."""
+    try:
+        scaffold(case, folder)
+    except (subprocess.TimeoutExpired, OSError) as error:
+        message = ERR_SCAFFOLD.format(error=error)
+        return {"score": 0.0, "graders": [], "error": message, "costUsd": 0.0, "mockCalls": []}
+    return None
+
+
 def _one(job: _Job, target: Target | None, ctx: _SuiteContext) -> dict[str, object] | None:
     if not ctx.budget.may_start():
         return None
@@ -282,11 +333,13 @@ def _one(job: _Job, target: Target | None, ctx: _SuiteContext) -> dict[str, obje
     log = Path(tempfile.mkdtemp(prefix="fusion-eval-log-")) / "mock-calls.jsonl"
     try:
         if job.case.scaffold_script and ctx.options.scaffold:
-            scaffold(job.case, folder)
+            failed = _scaffold_failure(job.case, folder)
+            if failed is not None:
+                return {**failed, "paidSkipped": False}
         spec = RunSpec(job.case, job.arm, target, folder, ctx.options, log)
         trace = ctx.runner(spec)
         breached = ctx.budget.add(trace.cost_usd)
-        judge = ctx.judge if not breached else (lambda _p: 0.0)
+        judge = _costed(ctx) if not breached else (lambda _p: 0.0)
         result = score_run(job.case, trace, judge, arm=job.arm, ablation=ctx.ablation)
         calls = read_log(log)
         aborts = [str(a) for row in calls for a in _items(row.get("abort"))]
@@ -299,10 +352,14 @@ def _one(job: _Job, target: Target | None, ctx: _SuiteContext) -> dict[str, obje
         shutil.rmtree(log.parent, ignore_errors=True)
 
 
+#: Yargıç puanı ya da `(puan, maliyet)`; maliyet `--max-cost-usd` toplamına girer.
+CostedJudge = Callable[[str], float | tuple[float, float]]
+
+
 @dataclass(frozen=True, slots=True)
 class _SuiteContext:
     runner: Runner
-    judge: Judge
+    judge: CostedJudge
     options: EvalOptions
     budget: _Budget
     ablation: bool
@@ -321,7 +378,7 @@ def run_suite(
     target: Target | None,
     *,
     runner: Runner,
-    judge: Judge,
+    judge: CostedJudge,
     runs: int = 0,
     ablation: bool = True,
     options: EvalOptions | None = None,

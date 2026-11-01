@@ -27,7 +27,7 @@ import typer
 from ..config.plugin_store import load_state, plugin_folder, plugins_dir
 from ..core.plugins import PluginError
 from ..tools import plugin_eval_run as run
-from ..tools.plugin_eval import EvalCase, Judge, eval_dir, load_cases
+from ..tools.plugin_eval import EvalCase, eval_dir, load_cases
 from ..tools.plugin_eval_run import (
     EXCLUDE_ENV,
     EvalOptions,
@@ -81,8 +81,9 @@ def resolve_target(target: str) -> Target | None:
     return Target(plugin_folder(record), record.name, installed=True)
 
 
-def judge_subprocess(prompt: str, model: str = "") -> float:
-    return run.judge_command(prompt, model)[0]
+def judge_subprocess(prompt: str, model: str = "") -> tuple[float, float]:
+    """(puan, maliyet): yargıç maliyeti `--max-cost-usd` toplamına girer (#380)."""
+    return run.judge_command(prompt, model)
 
 
 def run_suite(
@@ -90,7 +91,7 @@ def run_suite(
     target: Target | None,
     *,
     runner: run.Runner,
-    judge: Judge,
+    judge: run.CostedJudge,
     runs: int = 0,
     ablation: bool = True,
     options: EvalOptions | None = None,
@@ -311,7 +312,7 @@ def eval_command(
             raise PluginError(ERR_NO_CASES.format(path=folder))
         options, notes = _options(folder, resolved, flags)
         _trusted(root, trust_plugin)
-        warnings = run.tool_warnings(cases, options)
+        warnings = (*run.tool_warnings(cases, options), *run.pattern_warnings(options))
         for note in (*notes, *_scaffold_notes(cases, options, no_scaffold), *warnings):
             typer.echo(note, err=True)
         chosen = options.judge_model

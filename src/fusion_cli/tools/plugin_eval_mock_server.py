@@ -66,10 +66,15 @@ def _agent_reply(server: MockServer, name: str, arguments: Mapping[str, object])
         f"<call tool={json.dumps(name)}>\n"
         f"{json.dumps(dict(arguments), ensure_ascii=False)}\n</call>"
     )
-    from .plugin_eval_run import fusion_command
+    from .plugin_eval_run import TEXT_ONLY_ARGS, fusion_command
 
+    # İstemde model üretimi çağrı argümanları ve `world` var: kapılı araç yok, tek tur (#380).
     done = subprocess.run(
-        [*fusion_command(), "agent", prompt, "--output-format", "json", "--no-memory"],
+        [
+            *fusion_command(),
+            *("agent", prompt, "--output-format", "json", "--no-memory"),
+            *TEXT_ONLY_ARGS,
+        ],
         capture_output=True,
         text=True,
         timeout=300,
