@@ -79,6 +79,7 @@ from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
+from .sandbox_panel import sandbox_panel
 from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 from .task_list import session_todos
@@ -683,6 +684,12 @@ class _TuiSession:
         elif command.name == "provider":
             await self._apply_flow(
                 lambda picker: provider_flow.choose_provider(self._state.config, picker=picker)
+            )
+            return
+        elif command.name == "sandbox" and not argument.strip():
+            # Claude `/sandbox` paneli (#352): uygulama-içi modalla.
+            await self._apply_flow(
+                lambda picker: sandbox_panel(self._state.config, self._state.root, picker=picker)
             )
             return
         elif command.name == "verify":

@@ -198,3 +198,42 @@ def test_rpc_durum_ve_ayarla(tmp_path):
     assert sonuc["dosya"].endswith(".claude/settings.local.json")
     assert hata["ok"] is False and "alan adı" in hata["metin"]
     assert tip["ok"] is False
+
+
+def test_sandbox_paneli_kip_ve_gecersiz_kilma_yerel_ayara_yazar(tmp_path):
+    """Claude `/sandbox` paneli (#352): Kip / Geçersiz kılmalar / Yapılandırma / Bağımlılıklar."""
+    from fusion_cli.cli.repl import sandbox_panel as panel
+
+    state = _state(tmp_path, tmp_path / "config.yaml")
+    seen: list[list[str]] = []
+
+    def picker(value):
+        def _pick(choices, *, title="", **_):
+            seen.append([choice.label for choice in choices])
+            return value
+
+        return _pick
+
+    sonuc = panel.sandbox_panel(state.config, tmp_path, picker=picker(panel.MODE_REGULAR))
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"]["enabled"] is True
+    assert yerel["sandbox"]["autoAllowBashIfSandboxed"] is False
+    assert sonuc.config.runtime.shell_sandbox == "write_root"
+    assert not sonuc.config.sandbox.auto_allow
+    bolumler = {label.split(" › ")[0] for label in seen[0]}
+    assert bolumler == {"Kip", "Geçersiz kılma", "Yapılandırma", "Bağımlılıklar"}
+
+    kati = panel.sandbox_panel(sonuc.config, tmp_path, picker=picker(panel.OVERRIDE_STRICT))
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"]["allowUnsandboxedCommands"] is False
+    assert not kati.config.sandbox.allow_unsandboxed
+    secili = [label for label in seen[-1] if "●" in label]
+    assert any("normal izinlerle" in label for label in secili)
+
+    durum = panel.sandbox_panel(kati.config, tmp_path, picker=picker(panel.SHOW_CONFIG))
+    assert durum.config is kati.config and "sandbox" in durum.message.lower()
+    deps = panel.dependency_report("linux")
+    assert "bwrap" in deps and "socat" in deps
+    assert "sandbox-exec" in panel.dependency_report("darwin")
+    # Etkileşimsiz ortamda (test) argümansız komut durum metnini basar, panel açılmaz.
+    assert "sandbox" in sandbox_command(state, "").lower()

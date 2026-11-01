@@ -269,6 +269,8 @@ _LOCAL_MODE = {
     "ac": ("runtime.shell_sandbox", "enabled"),
     "kapat": ("runtime.shell_sandbox", "enabled"),
     "oto": ("sandbox.auto_allow", "autoAllowBashIfSandboxed"),
+    # Claude `/sandbox` › Overrides sekmesi (#352).
+    "disari": ("sandbox.allow_unsandboxed", "allowUnsandboxedCommands"),
 }
 
 
@@ -290,6 +292,9 @@ def _local_mode_change(
     if action == "oto":
         updated = apply_setting(config, internal, value)
         flag = updated.sandbox.auto_allow
+    elif action == "disari":
+        updated = apply_setting(config, internal, value)
+        flag = updated.sandbox.allow_unsandboxed
     else:
         flag = action == "ac"
         mode = SHELL_SANDBOX_WRITE_ROOT if flag else SHELL_SANDBOX_OFF
@@ -322,7 +327,7 @@ def apply_sandbox_action(
             f"Bilinmeyen sandbox eylemi: {action!r}. Eylemler: {', '.join(SANDBOX_ACTIONS)}"
         )
     change_local = _local_mode_change(config, action, value, file, root) if local else None
-    if change_local is not None and action == "oto":
+    if change_local is not None and action in ("oto", "disari"):
         return change_local
     if action in ("ac", "kapat"):
         mode = SHELL_SANDBOX_WRITE_ROOT if action == "ac" else SHELL_SANDBOX_OFF

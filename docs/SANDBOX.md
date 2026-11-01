@@ -14,11 +14,18 @@ izin kuralları neyin sorulacağına karar verir.
 ## Açma ve durum
 
 ```text
-/sandbox                  # durum: platform, kurulabilirlik, yazma/okuma/ağ kuralları
+/sandbox                  # panel: Kip · Geçersiz kılmalar · Yapılandırma · Bağımlılıklar
 /sandbox on | off         # sandbox.enabled = true | false
 fusion sandbox durum      # aynı durum, terminalden
 fusion doctor             # "Kabuk sandbox'ı" satırı
 ```
+
+Argümansız `/sandbox` (terminal ve TUI) Claude Code'daki paneli açar: **Kip** (sandbox otomatik
+izinle / normal izinlerle / kapalı), **Geçersiz kılmalar** (sandbox dışı yeniden denemeye izin ya
+da "Katı sandbox kipi" = `allowUnsandboxedCommands: false`), **Yapılandırma** (etkin ayarlar) ve
+**Bağımlılıklar** (Linux'ta `bwrap`/`socat`, macOS'ta `sandbox-exec`). Fusion'ın seçicisi tek
+liste olduğu için sekmeler listede başlıklı bölümlerdir; etkin seçim ● ile işaretlidir.
+Etkileşimsiz ortamda durum metni basılır.
 
 Masaüstünde: **Ayarlar › İzinler › Kabuk sandbox'ı**. Değişiklik bir sonraki görevde geçerli olur.
 
@@ -48,8 +55,9 @@ ayarında `~/.claude`, `--settings` dosyasında o dosyanın dizini, yönetilen a
 dizin; `/` mutlak, `~/` ev dizinidir (Fusion YAML'ındaki göreli yollar proje
 köküne göredir).
 
-`/sandbox on|off|oto` (REPL) ve masaüstü sandbox paneli kip seçimini Claude'daki gibi projenin
-`.claude/settings.local.json` dosyasına (`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`)
+`/sandbox` paneli, `/sandbox on|off|oto|disari` (REPL) ve masaüstü sandbox paneli kip ve
+geçersiz kılma seçimini Claude'daki gibi projenin `.claude/settings.local.json` dosyasına
+(`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`, `sandbox.allowUnsandboxedCommands`)
 yazar; proje yerel ayarı güvenilmiyorsa kullanıcı dosyasına düşer. `fusion sandbox` ve alan adı
 / bayrak eylemleri Fusion kullanıcı dosyasına yazar.
 
