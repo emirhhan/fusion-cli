@@ -576,6 +576,7 @@ def agent(
         _reject_background_flags(output_format, as_json, json_schema, permission_channel)
     base_config = _session_config()
     start_mode = _start_mode(permission_mode, mode, dangerously_skip_permissions)
+    permission_flags.warn_legacy_allowed_tools(allowed_tools)
     set_session_rules(permission_flags.cli_rules(allowed_tools, disallowed_tools))
     options = _headless_options(
         task,

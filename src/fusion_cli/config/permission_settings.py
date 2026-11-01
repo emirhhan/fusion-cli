@@ -86,8 +86,14 @@ def _managed_path() -> Path:
 
 
 def default_mode_setting(root: Path, home: Path | None = None) -> str | None:
-    """Geçerli `permissions.defaultMode` (en yüksek öncelikli dosyadan); yoksa `None`."""
+    """Geçerli `permissions.defaultMode` (en yüksek öncelikli dosyadan); yoksa `None`.
+
+    Güvenilmeyen klasördeki proje/yerel dosyanın kipi yok sayılır: Claude proje ayarını güven
+    iletişim kutusu kabul edilmeden uygulamaz (inceleme, 1 Kasım).
+    """
     for layer in reversed(settings_layers(root, home)):
+        if not layer.trusted:
+            continue
         value = layer.permissions.get("defaultMode")
         if not isinstance(value, str) or value not in CLAUDE_MODE_NAMES:
             continue

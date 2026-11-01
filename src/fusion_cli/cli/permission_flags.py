@@ -16,6 +16,7 @@ Başlangıç kipi önceliği: bayrak > `permissions.defaultMode` > yerleşik var
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -36,6 +37,14 @@ BYPASS_DISABLED_WARNING = (
     "uyarı: bypassPermissions kipi `permissions.disableBypassPermissionsMode` ile kapalı; "
     "Manuel (default) kipte başlanıyor."
 )
+#: Eski anlam (`--allowed-tools read_file,list_dir` modele yalnız bu araçları sunardı).
+LEGACY_ALLOWED_TOOLS_WARNING = (
+    "uyarı: `--allowed-tools` artık Claude Code gibi allow kuralıdır (sorulmadan çalışır), araç "
+    "kümesini daraltmaz; {adlar} gibi Fusion araç adları hiçbir kuralla eşleşmez. Araç kümesini "
+    "daraltmak için `--tools` (ör. `--tools Read,Grep`), kural için Claude adları (`Read`, "
+    "`Bash(git log *)`) kullanın."
+)
+_LEGACY_TOOL_NAME = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
 _warned: set[str] = set()
 
 
@@ -75,6 +84,14 @@ def cli_rules(
     ):
         rules.extend(r for e in entries if (r := parse_rule(e, decision, source="cli")))
     return tuple(rules)
+
+
+def warn_legacy_allowed_tools(allowed: Iterable[str] | None) -> None:
+    """Eski Fusion adlı `--allowed-tools` kullanımını bir kez uyar (anlamı değişti, #47)."""
+    legacy = [e for e in split_entries(allowed) if _LEGACY_TOOL_NAME.match(e)]
+    if legacy:
+        names = ", ".join(f"`{name}`" for name in legacy[:3])
+        warn_once("legacy-allowed-tools", LEGACY_ALLOWED_TOOLS_WARNING.format(adlar=names))
 
 
 def bare_denied_names(disallowed: Iterable[str] | None) -> frozenset[str]:

@@ -78,6 +78,7 @@ def test_proje_ayarindaki_auto_ve_bypass_yok_sayilir(proje):
     _yaz(proje / ".claude" / "settings.json", {"permissions": {"defaultMode": "bypassPermissions"}})
     assert _kip(proje) is ApprovalMode.SECURITY
     _yaz(proje / ".claude" / "settings.json", {"permissions": {"defaultMode": "acceptEdits"}})
+    trust.trust_project(proje)
     assert _kip(proje) is ApprovalMode.ACCEPT_EDITS
     _yaz(
         Path.home() / ".claude" / "settings.json",
@@ -85,6 +86,17 @@ def test_proje_ayarindaki_auto_ve_bypass_yok_sayilir(proje):
     )
     _yaz(proje / ".claude" / "settings.json", {})
     assert _kip(proje) is ApprovalMode.BYPASS
+
+
+def test_guvenilmeyen_proje_ve_yerel_defaultmode_yok_sayilir(proje):
+    """İnceleme (1 Kasım): güvenilmeyen klondaki defaultMode kipi açılışta uygulanıyordu (#50)."""
+    (proje / ".git").mkdir()
+    _yaz(proje / ".claude" / "settings.json", {"permissions": {"defaultMode": "acceptEdits"}})
+    assert _kip(proje) is ApprovalMode.SECURITY
+    _yaz(proje / ".claude" / "settings.local.json", {"permissions": {"defaultMode": "dontAsk"}})
+    assert _kip(proje) is ApprovalMode.SECURITY
+    trust.trust_project(proje)
+    assert _kip(proje) is ApprovalMode.DONT_ASK
 
 
 def test_disable_auto_mode_auto_yu_kapatir(proje):
@@ -150,3 +162,14 @@ def test_eski_fusion_izin_dosyasi_okunur_ve_bir_uyari_verir(proje):
     kural = permission_admin.parse_pattern("Bash(ls *)", PermissionDecision.ALLOW)
     degisim = permission_admin.add_permission_rule(proje, kural, user_level=True)
     assert degisim.path == user_rule_file() == Path.home() / ".claude" / "settings.json"
+
+
+def test_eski_fusion_adli_allowed_tools_bir_kez_uyarir(capsys, monkeypatch):
+    """İnceleme (1 Kasım): `--allowed-tools read_file` anlamı sessizce değişmişti (#47)."""
+    monkeypatch.setattr(permission_flags, "_warned", set())
+    permission_flags.warn_legacy_allowed_tools(["read_file,list_dir"])
+    permission_flags.warn_legacy_allowed_tools(["read_file"])
+    hata = capsys.readouterr().err
+    assert hata.count("allow kuralıdır") == 1 and "`read_file`" in hata and "--tools" in hata
+    permission_flags.warn_legacy_allowed_tools(["Read,Bash(git log *),mcp__s__t"])
+    assert capsys.readouterr().err == ""
