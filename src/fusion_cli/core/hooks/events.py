@@ -42,6 +42,7 @@ class HookEvent(Enum):
     POST_TOOL_BATCH = "PostToolBatch"
     INSTRUCTIONS_LOADED = "InstructionsLoaded"
     USER_PROMPT_EXPANSION = "UserPromptExpansion"
+    DIRECTORY_ADDED = "DirectoryAdded"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -65,6 +66,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.PERMISSION_REQUEST: "araç adı",
     HookEvent.POST_TOOL_BATCH: None,
     HookEvent.USER_PROMPT_EXPANSION: "komut adı (command_name)",
+    HookEvent.DIRECTORY_ADDED: "kaynak (slash_command)",
     HookEvent.INSTRUCTIONS_LOADED: (
         "yükleme nedeni (session_start|nested_traversal|path_glob_match|include|compact)"
     ),
@@ -107,7 +109,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "PermissionDenied",
         "MessageDisplay",
         "ConfigChange",
-        "DirectoryAdded",
         "FileChanged",
         "WorktreeCreate",
         "WorktreeRemove",
