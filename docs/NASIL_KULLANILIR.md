@@ -1451,7 +1451,7 @@ Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gi
 /tasks answer gorev-1a2b evet                   # onay bekleyen göreve cevap
 @gorev-1a2b CHANGELOG'u da güncelle             # devam mesajı (bitmişse yeniden başlar)
 /list-agents                                    # açık öteki Fusion oturumları
-@backend-oturumu API şeması değişti, testleri koştur
+@backend-oturumu API şeması değişti, testleri koştur   # tur çalışır, model SendMessage ile iletir
 ```
 
 Tam ekranda tur sürerken **Ctrl+B** ajanın süren kabuk komutunu ya da beklenen alt ajanı

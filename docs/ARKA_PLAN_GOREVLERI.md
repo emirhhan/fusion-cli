@@ -107,8 +107,10 @@ Her REPL, tam ekran ve masaüstü oturumu `<bellek dizini>/oturumlar/` defterine
 görünmez.
 
 - `/list-agents` (`/peers`): açık oturumlar ve bekletilen gelen mesajlar.
-- `@oturum-adı <metin>` ya da `/list-agents gonder <ad> <metin>`: mesaj gönder. `@ad`
-  projede bir dosya/dizin adıysa dosya anması olarak kalır.
+- `@oturum-adı <metin>` (Claude Code gibi): tur çalışır, model mesajı `SendMessage(to=<ad>)`
+  ile o oturuma iletir (terminal, TUI, masaüstü). `@` tamamlaması açık oturumları önerir.
+  `/list-agents gonder <ad> <metin>` modelsiz doğrudan gönderir. `@görev-adı <metin>` arka plan
+  görevine doğrudan devam mesajıdır. `@ad` projede bir dosya/dizin adıysa dosya anması kalır.
 - Model: `list_agents` (görevler + oturumlar), `send_message(to, message)`.
 
 Gelen mesaj BAŞKA bir ajan ya da kullanıcıdan gelir ve **güvenilmez girdi** sayılır: tura

@@ -3050,6 +3050,10 @@ class AppSession:
             local = await self._prefix_reply(task)
             if local is not None:
                 return local
+            from ..cli.repl.background_commands import at_session_turn
+
+            # `@oturum mesaj` (#228): Claude Code gibi tur çalışır, model SendMessage ile iletir.
+            task = at_session_turn(self._state, task) or task
         image_command = None if browser_only else parse_image_command(task)
         if image_command is not None and not attachment_context and not images:
             ok, markdown = await run_image_command(self._state.config, image_command)

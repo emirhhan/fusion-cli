@@ -1646,6 +1646,10 @@ SHELL_PREFIX_TIMEOUT = (
 SHELL_PREFIX_TRUNCATED = "\n[çıktı kısaltıldı; tamamı: {path}]"
 SHELL_JOBS_TITLE = "Kabuk komutları (! · Ctrl+B):"
 INLINE_QUEUED = "↳ sıraya alındı: {text}"
+PEER_MENTION_TURN = (
+    "Kullanıcı @{name} anmasıyla açık öteki oturum `{name}`'e şu mesajı göndermek istiyor. "
+    'Mesajı SendMessage aracıyla (to: "{name}") ilet, sonra kısaca bildir:\n\n{text}'
+)
 INLINE_BACKGROUND_HINT = (
     "Ctrl+B: süren kabuk komutu ya da alt ajan yok; turu arka plana taşımak için /bg kullan."
 )

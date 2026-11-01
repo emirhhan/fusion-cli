@@ -238,32 +238,50 @@ def _number(raw: str) -> int:
 
 
 def route_at_message(state: ReplState, line: str) -> str | None:
-    """`@ad mesaj`: ad açık bir oturum ya da arka plan görevi ise mesajı gönder.
+    """`@görev mesaj`: ad bu projenin arka plan görevi ise mesajı doğrudan gönder.
 
-    Ad bir dosya/dizin olarak VARSA dokunulmaz (`@dosya` anması; P-022). Eşleşme yoksa None:
-    satır olağan tura gider.
+    Ad bir dosya/dizin olarak VARSA dokunulmaz (`@dosya` anması; P-022). Açık öteki oturum
+    anması (`@oturum mesaj`) burada gönderilmez: Claude Code'daki gibi tur çalışır ve model
+    mesajı `SendMessage` aracıyla iletir (`at_session_turn`, #228). Eşleşme yoksa None.
     """
+    parsed = _at_target(state, line)
+    if parsed is None:
+        return None
+    name, text = parsed
+    store = agent_tasks.task_store(state.config.memory_dir)
+    try:
+        task = store.resolve(name)
+    except BackgroundTaskError:
+        return None
+    try:
+        updated = agent_tasks.send_to_task(store, task, text, sender=state.conversation_id)
+    except BackgroundTaskError as error:
+        return str(error)
+    return texts.BG_SENT.format(name=updated.name, status=updated.status.value)
+
+
+def at_session_turn(state: ReplState, line: str) -> str | None:
+    """`@oturum mesaj` açık öteki oturumu anıyorsa modelin göndereceği turun görevi (#228)."""
+    parsed = _at_target(state, line)
+    link = state.agent_link
+    if parsed is None or link is None or link.peer is None:
+        return None
+    name, text = parsed
+    peers = link.registry.peers()
+    peer = next(
+        (item for item in peers if item.id != link.peer_id and name in {item.name, item.id}),
+        None,
+    )
+    if peer is None:
+        return None
+    return messages.PEER_MENTION_TURN.format(name=peer.name, text=text)
+
+
+def _at_target(state: ReplState, line: str) -> tuple[str, str] | None:
     if not line.startswith("@"):
         return None
     head, _, text = line[1:].partition(" ")
     name = head.strip()
     if not name or not text.strip() or (state.root / name).exists():
         return None
-    store = agent_tasks.task_store(state.config.memory_dir)
-    try:
-        task = store.resolve(name)
-    except BackgroundTaskError:
-        task = None
-    try:
-        if task is not None:
-            updated = agent_tasks.send_to_task(store, task, text, sender=state.conversation_id)
-            return texts.BG_SENT.format(name=updated.name, status=updated.status.value)
-        link = state.agent_link
-        if link is None or link.peer is None:
-            return None
-        if not any(peer.name == name or peer.id == name for peer in link.registry.peers()):
-            return None
-        peer = link.registry.send(link.peer, name, text)
-    except BackgroundTaskError as error:
-        return str(error)
-    return texts.PEER_SENT.format(name=peer.name)
+    return name, text.strip()

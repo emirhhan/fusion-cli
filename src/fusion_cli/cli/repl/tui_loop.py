@@ -643,6 +643,9 @@ class _TuiSession:
                 # `@oturum mesaj` / `@görev mesaj` (P-060): tur değil, mesaj gönderimi.
                 self._echo(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
             else:
+                if not scheduled_turn:
+                    # `@oturum mesaj` (#228): tur çalışır, model SendMessage ile iletir.
+                    line = background_commands.at_session_turn(self._state, line) or line
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)

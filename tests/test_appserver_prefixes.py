@@ -129,3 +129,33 @@ async def test_masaustu_tur_surerken_anlik_olmayan_komut_kuyruga_girer(tmp_path)
         app._turn.cancel()
         app._turn = None
         await app.close()
+
+
+@pytest.mark.asyncio
+async def test_masaustu_oturum_anmasi_modelin_sendmessage_turuna_doner(tmp_path, monkeypatch):
+    """Claude Code (#228): `@oturum mesaj` doğrudan gönderilmez; model SendMessage ile iletir."""
+    from fusion_cli.cli.repl import agent_link
+    from fusion_cli.core.peers import InboundPolicy
+
+    seen: list[str] = []
+
+    async def fake_run_agent_task(task, _config, **_kwargs):
+        seen.append(task)
+        return SimpleNamespace(ok=True, final_text="iletildi", messages=[], made_no_changes=True)
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    app = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "home")
+    try:
+        link = agent_link.open_link(app._state, kind="app")
+        link.registry.register(
+            name="oteki",
+            kind="repl",
+            pid=1,
+            root=tmp_path,
+            conversation_id="c2",
+            inbound=InboundPolicy.HOLD,
+        )
+        await app._dispatch(Request("p7", "tur.calistir", {"gorev": "@oteki testler kırmızı"}))
+        assert seen and "SendMessage" in seen[0] and "testler kırmızı" in seen[0]
+    finally:
+        await app.close()

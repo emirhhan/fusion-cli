@@ -105,7 +105,7 @@ from . import (
     view_commands,
     worktrees,
 )
-from .background_commands import route_at_message
+from .background_commands import at_session_turn, route_at_message
 from .commands import (
     ASYNC_COMMANDS,
     CommandRegistry,
@@ -588,6 +588,9 @@ async def _handle(
     if not scheduled_turn and (sent := route_at_message(state, line)) is not None:
         console.print(f"[{theme.DIM}]{escape(sent)}[/{theme.DIM}]")
         return
+    # `@oturum mesaj` (#228): Claude Code gibi tur çalışır, model SendMessage ile iletir.
+    if not scheduled_turn:
+        line = at_session_turn(state, line) or line
     for note in apply_mentions(line, state):
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
     if await _run_turn(line, state, console, background):
