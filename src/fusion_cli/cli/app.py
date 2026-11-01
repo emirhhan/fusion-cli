@@ -173,7 +173,10 @@ def main_callback(
     resume: Annotated[
         str,
         typer.Option(
-            "--resume", "-r", help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür."
+            "--resume",
+            "-r",
+            help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür; değersiz verilirse "
+            "seçici açılır.",
         ),
     ] = "",
     fork_session: Annotated[
@@ -1570,8 +1573,10 @@ def configure_file_logging() -> None:
 def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     configure_file_logging()
+    from .repl.resume_launch import normalize_resume_argv
+
     try:
-        app(obj=host_dependencies)
+        app(args=normalize_resume_argv(sys.argv[1:]), obj=host_dependencies)
     except FusionError as exc:
         error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "

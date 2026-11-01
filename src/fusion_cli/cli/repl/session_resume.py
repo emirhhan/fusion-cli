@@ -73,6 +73,11 @@ def resolve_launch(
     `SessionNotFoundError` ile bildirilir; sessizce yeni sohbet açılmaz.
     """
     name = name.strip()
+    from .resume_launch import RESUME_PICKER, pick_conversation
+
+    if resume == RESUME_PICKER:
+        # Argümansız `--resume` (#188): seçilen sohbetin kimliğiyle devam.
+        resume = pick_conversation(memory_dir, root)
     if not continue_last and not resume.strip():
         if fork:
             # Ölçüldü (31 Ekim): bayrak sessizce yok sayılıp yeni boş sohbet açılıyordu.

@@ -1121,6 +1121,7 @@ CMD_RENAME = "açık sohbete ad ver; --resume <ad> ve /resume listesinde görün
 CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
 SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
 SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
+SESSION_PICK_CANCELLED = "Sohbet seçilmedi; oturum açılmadı."
 SESSION_NONE_TO_CONTINUE = "Bu projede sürdürülecek sohbet yok; `fusion` ile yeni sohbet aç."
 SESSION_NOT_FOUND = "Sohbet bulunamadı: {query} (kimlik, ad ya da kimlik öneki; liste için /resume)"
 SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
