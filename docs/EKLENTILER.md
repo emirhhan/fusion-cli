@@ -40,8 +40,9 @@ benim-eklentim/
   `${CLAUDE_PROJECT_DIR}` proje köküne çözülür: kanca ve MCP tanımlarında, komut/beceri/ajan
   gövdesinde.
 - Bütün adlar eklenti adıyla öneklenir: üçüncü taraf bir eklenti kendi `ozet` becerini gölgeleyemez.
-  **Claude Code'dan sapma:** eklenti beceri/komutlarında `` !`komut` `` bağlamı çalıştırılmaz
-  (yerinde "komut çalıştırılmadı" notu kalır).
+  Eklenti beceri/komutlarında `` !`komut` `` dinamik bağlamı Claude Code'daki gibi çalışır: kullanıcının
+  kendi becerisiyle aynı kipte (auto/acceptEdits/bypass) ve aynı riskli komut denetimiyle; diğer
+  kiplerde yerinde "komut çalıştırılmadı" notu kalır. Güvenlik notu: önceden hiç çalışmıyordu.
 - MCP sunucuları `plugin_<eklenti>_<sunucu>` adıyla, `unreviewed` güvenle eklenir; araç çağrıları
   onay ister, hiçbir ayar dosyasına yazılmaz ve güven kararı kalıcı tutulmaz (`fusion mcp remove`
   yerine eklentiyi kapat). Eklentiyi kapatmak/kaldırmak sunucuyu çalışan oturumdan da çıkarır

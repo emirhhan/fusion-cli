@@ -2,7 +2,7 @@
 
 Claude Code'daki gibi her bileşen eklenti adıyla öneklenir: `skills/rapor/SKILL.md` →
 `/eklenti:rapor`. Önek, üçüncü taraf bir eklentinin kullanıcının kendi becerisini aynı adla
-GÖLGELEMESİNİ önler. Kaynak etiketi `eklenti`dir: `!`cmd`` bağlamı çalıştırılmaz ve beceri
+GÖLGELEMESİNİ önler. Kaynak etiketi `eklenti`dir: `!`cmd`` bağlamı kullanıcı becerisi gibi koşar (#386) ve beceri
 dizininde depo içeriği gibi işaretlenir.
 
 Gövdedeki `${CLAUDE_PLUGIN_ROOT}` / `${FUSION_PLUGIN_ROOT}` eklentinin kurulu klasörüne çözülür

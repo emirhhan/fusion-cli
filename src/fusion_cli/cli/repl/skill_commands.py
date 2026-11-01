@@ -28,6 +28,10 @@ from .state import Engine, ReplState
 #: Bu kaynaklardan gelen beceri dosyaları kullanıcının kendi dizinindedir: `!`cmd`` koşabilir.
 TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
 
+#: Kurulu eklenti becerileri (#386): Claude Code'daki gibi `!`cmd`` kullanıcı becerisiyle aynı
+#: kipte ve aynı riskli komut denetimiyle koşar (güvenlik davranışı değişti).
+PLUGIN_SOURCES = frozenset({"eklenti", "claude-plugin"})
+
 #: Depo içeriği sayılan kaynaklar: güvenilen projede bile yalnız salt-okur `!`cmd``.
 PROJECT_SOURCES = frozenset({"proje", "ek-kok"})
 
@@ -51,7 +55,7 @@ def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, boo
     if state.approval not in SHELL_CONTEXT_MODES:
         return False, False
     sources = set(skill.source.split("+"))
-    if sources & TRUSTED_SOURCES:
+    if sources & (TRUSTED_SOURCES | PLUGIN_SOURCES):
         return True, False
     project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(state.root).trusted
     return project, True
