@@ -30,8 +30,9 @@ MAX_TOOL_DESCRIPTION_CHARS = 4096
 #: Araç aramasıyla yüklenen açıklamanın sınırı (Claude Code 16384).
 MAX_DEFERRED_DESCRIPTION_CHARS = 16384
 DESCRIPTION_LENGTH_ENV = "CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH"
-#: Tek alan açıklamasının en çok karakteri.
-MAX_FIELD_DESCRIPTION_CHARS = 300
+#: Eski alan açıklaması sınırı; artık kullanılmaz (#262: Claude Code alan başına sınır koymaz,
+#: alan açıklaması da araç açıklaması sınırına, `description_limit()`'e tabidir).
+MAX_FIELD_DESCRIPTION_CHARS = MAX_TOOL_DESCRIPTION_CHARS
 #: Bundan derin iç içe şema kesilir (`{"type": "object"}`).
 MAX_SCHEMA_DEPTH = 6
 
@@ -146,7 +147,7 @@ def _walk(
         elif key == "items":
             result["items"] = _walk(value, definitions, depth=depth + 1, seen=seen)
         elif key == "description" and isinstance(value, str):
-            result["description"] = clean_description(value, limit=MAX_FIELD_DESCRIPTION_CHARS)
+            result["description"] = clean_description(value)
         elif key == "const":
             result["enum"] = [value]
         elif key in ("required", "enum", "minimum", "maximum", "minItems", "maxItems"):
