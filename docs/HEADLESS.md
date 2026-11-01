@@ -26,6 +26,17 @@ provided either through stdin or as a prompt argument when using --print`) çık
 satırını yazar. `--output-format stream-json` gerektirir. `--replay-user-messages` gelen
 kullanıcı mesajlarını çıktıya yansıtır.
 
+Aynı akışta Agent SDK'nın denetim istekleri de işlenir (stdin ayrı iş parçacığında okunur,
+tur sürerken de cevap verilir): `{"type":"control_request","request_id":"…","request":
+{"subtype":"interrupt"}}` süren turu keser (tur `error_during_execution` sonucu ve
+`[Request interrupted by user]` hatasıyla biter); `initialize`, `set_permission_mode`
+(`mode`, Claude kip adları) ve `set_model` (`model`) sonraki turdan geçerlidir. Her isteğe
+`{"type":"control_response","response":{"subtype":"success"|"error","request_id":"…"}}`
+yazılır; bilinmeyen alt tür `error` döner. `--permission-prompt-tool stdio` ile onay
+gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name`, `input`,
+`tool_use_id`) olarak sorulur; yalnız `{"behavior":"allow"}` cevabı onaydır, stdin kapanırsa
+bekleyen onay reddedilir.
+
 ## Çıktı — `--output-format text|json|stream-json`
 
 | Değer | Davranış |

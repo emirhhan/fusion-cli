@@ -3,7 +3,8 @@
 - `text`: stdout'a YALNIZ nihai cevap (#281); ilerleme `--verbose` ile stderr'e.
 - `json`: tek `SDKResultMessage` (#279); koşu içi hata da sonuç nesnesidir (#315).
 - `stream-json`: `system/init`, `assistant`/`user` mesajları, `result` (#280).
-- `--input-format stream-json`: stdin'deki her `{"type":"user",...}` satırı bir tur (#283).
+- `--input-format stream-json`: her kullanıcı satırı bir tur, denetim istekleri (#280;
+  bkz. `print_stream`, `print_control`).
 - `--json-schema`: cevap şemaya uymazsa tur sınırlı kez yeniden denenir (#301).
 """
 
@@ -14,10 +15,10 @@ import json
 import re
 import sys
 import time
-from collections.abc import Coroutine, Iterator
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from rich.console import Console
 from rich.markup import escape
@@ -80,6 +81,8 @@ class _Run:
     capabilities: CapabilityRegistry | None = None
     #: `/beceri` genişletmesinin bu tura eki (#313).
     slash: SlashExpansion | None = None
+    #: `--input-format stream-json` denetim kanalı (`print_control.ControlChannel`).
+    control: Any = None
 
 
 def run_print(request: PrintRequest) -> int:
@@ -155,7 +158,9 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
         )
         run.stream.write(_init(run))
     if plan.stream_input:
-        return _stream_turns(run)
+        from .print_stream import stream_turns
+
+        return stream_turns(run)
     stdin = getattr(sys.stdin, "buffer", None)
     task, warning = read_print_prompt(request.prompt, stdin, is_tty=sys.stdin.isatty())
     if warning:
@@ -290,7 +295,8 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         child_runs=child_runs,
     )
     try:
-        outcome = asyncio.run(with_web_cleanup(_and_wait(coro, child_runs)))
+        main = with_web_cleanup(_and_wait(coro, child_runs))
+        outcome = asyncio.run(run.control.guard(main) if run.control is not None else main)
     finally:
         observers.finish()
     run.history = list(getattr(outcome, "messages", None) or run.history)
@@ -309,6 +315,10 @@ def _prompter(run: _Run) -> PrintPrompter:
     name = run.plan.request.permission_prompt_tool
     if not name:
         return PrintPrompter()
+    from .print_control import STDIO_PROMPT_TOOL, StdioPrompter
+
+    if name.strip() == STDIO_PROMPT_TOOL:
+        return StdioPrompter(run.control) if run.control is not None else PrintPrompter()
     from .print_prompt_tool import PromptToolPrompter, mcp_tool_loader
 
     return PromptToolPrompter(name, mcp_tool_loader(run.plan.config), root=run.root)
@@ -376,47 +386,5 @@ def _result_input(
         cost_complete=bool(cost.cost_complete) if cost is not None else True,
         structured=structured if has_structured else None,
         has_structured=has_structured,
-        errors=errors if subtype == sdk.SUBTYPE_STRUCTURED else (),
+        errors=errors if subtype != sdk.SUBTYPE_SUCCESS else (),
     )
-
-
-def _stream_turns(run: _Run) -> int:
-    """`--input-format stream-json`: her kullanıcı satırı sırayla bir tur (#283)."""
-    code = 0
-    for task, raw in _user_messages(sys.stdin):
-        if run.plan.request.replay_user and run.stream is not None:
-            run.stream.write(sdk.user_message(run.session.session_id, raw))
-        code = _finish(run, task, *_turn(run, task))
-    return code
-
-
-def _user_messages(stream: TextIO) -> Iterator[tuple[str, object]]:
-    """stdin'den `{"type":"user","message":{"content":...}}` satırları; bozuk satır hata."""
-    for line in stream:
-        if not line.strip():
-            continue
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(texts.PRINT_STREAM_LINE_INVALID.format(error=error)) from None
-        if not isinstance(data, dict) or data.get("type") != "user":
-            continue
-        message = data.get("message")
-        content = message.get("content") if isinstance(message, dict) else None
-        text = _content_text(content)
-        if text:
-            yield text, content
-    return
-
-
-def _content_text(content: object) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts = [
-            str(block.get("text", ""))
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        return "\n\n".join(part for part in parts if part).strip()
-    return ""
