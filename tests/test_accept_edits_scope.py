@@ -43,3 +43,29 @@ def test_ek_dizin_icindeki_yol_kapsamda(tmp_path):
     ek = tmp_path.parent / "ek-dizin"
     assert accept_edits_allows(f"cp a {ek}/b", tmp_path) is False
     assert accept_edits_allows(f"cp a {ek}/b", tmp_path, (ek,)) is True
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"),
+    [
+        ("cp --target-directory=/etc f", False),
+        ("mv --target-directory=/tmp f", False),
+        ("cp -t/etc f", False),
+        ("cp -vt/etc f", False),
+        ("cp --target-directory=alt f", True),
+        ("sed -n 'w /tmp/leak' f", False),
+        ("sed -n '1e id' f", False),
+        ("sed -i 's/a/b/e' f", False),
+        ("sed -i 's/a/b/w /tmp/x' f", False),
+        ("sed -f betik.sed -i f", False),
+        ("sed -i '' 's/a/b/e' f", False),
+        ("sed -i.bak 's/a/b/g' f", True),
+        ("sed -Ei 's/a+/b/' f", True),
+        ("sed -i '' 's/a/b/' f", True),
+        ("sed --in-place=.bak -e 's/a/b/' f", True),
+        ("sed -i/etc/* s/a/b/ f", False),
+    ],
+)
+def test_hedef_dizin_secenegi_ve_sed_betigi(tmp_path, komut, beklenen):
+    """İnceleme (1 Kasım): `--target-directory=` ve sed `e`/`w` acceptEdits sınırını aşıyordu."""
+    assert accept_edits_allows(komut, tmp_path) is beklenen, komut
