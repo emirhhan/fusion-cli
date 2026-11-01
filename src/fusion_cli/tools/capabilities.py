@@ -538,6 +538,8 @@ class CapabilityRegistry:
             for path in sorted(root.rglob("SKILL.md")):
                 if not _trusted_path(path, root, source):
                     continue
+                if source == "claude" and _in_skills_dir_plugin(path, root):
+                    continue  # `<ad>@skills-dir` eklentisi: önekli eklenti becerisi (#401)
                 capability = _to_capability(path, source, fallback=path.parent.name)
                 if root in self._nested_roots and any(
                     item.name == capability.name for item in found.values()
@@ -590,6 +592,12 @@ class CapabilityRegistry:
         for capability in plugin_agents(_to_agent_capability, self._home, self._root):
             shadow_agent(found, capability)
         return tuple(found.values())
+
+
+def _in_skills_dir_plugin(path: Path, root: Path) -> bool:
+    from ..config.plugin_skills_dir import skills_dir_plugin_of
+
+    return skills_dir_plugin_of(path, root)
 
 
 def _trusted_path(path: Path, bound: Path, source: str) -> bool:

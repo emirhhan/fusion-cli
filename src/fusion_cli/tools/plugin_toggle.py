@@ -73,6 +73,8 @@ def toggle_plugin(
     """Kapsamı algıla ya da denetle, hedef kapsamda zaten o durumdaysa hata, değilse yaz."""
     store = base or plugins_dir()
     project = root or Path.cwd()
+    if spec.endswith("@skills-dir"):
+        return _toggle_skills_dir(spec, enabled, scope, project)
     record = find_record(load_state(store), spec)
     ident = plugin_id(record)
     target = target_scope(ident, record.name, project, scope)
@@ -86,6 +88,24 @@ def toggle_plugin(
     else:
         write_enabled(target, ident, record.name, enabled, project)
     return ToggleResult(record.name, target, enabled)
+
+
+def _toggle_skills_dir(spec: str, enabled: bool, scope: str, project: Path) -> ToggleResult:
+    """`<ad>@skills-dir` (#401): kullanıcı `~/.claude/settings.json` ya da project/local."""
+    from ..config.plugin_skills_dir import find_skills_dir, skills_dir_enabled, write_user_enabled
+
+    item = find_skills_dir(spec)
+    if item is None:
+        raise PluginError(ERR_NOT_INSTALLED.format(name=spec))
+    if skills_dir_enabled(item, project) == enabled:
+        label = "açık" if enabled else "kapalı"
+        raise PluginError(ERR_ALREADY.format(name=item.record.name, state=label))
+    target = check_scope(scope) if scope else SCOPE_USER
+    if target == SCOPE_USER:
+        write_user_enabled(spec, enabled)
+    else:
+        write_enabled(target, spec, spec, enabled, project)
+    return ToggleResult(item.record.name, target, enabled)
 
 
 def check_uninstall_scope(spec: str, scope: str) -> None:

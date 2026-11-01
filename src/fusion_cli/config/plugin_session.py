@@ -4,8 +4,9 @@ Claude: `--plugin-dir` eklentiyi kurmadan yalnız o oturum için `<ad>@inline` o
 `.claude-plugin/plugin.json` içeren klasörü, ya da böyle çocuk klasörleri olan bir eklenti
 klasörünü kabul eder. Aynı adlı kurulu eklenti o oturumda atlanır, oturumluk kopya yüklenir.
 Kullanıcı yolu açıkça verdiği için kanca/MCP onayı verilmiş sayılır (Claude'daki gibi; güvenlik
-davranışı değişti). `.zip` arşivi ve `--plugin-url` desteklenmez (uyarı). `defaultEnabled: false`
-ya da ayarlardaki `"<ad>@inline": false` oturumluk eklentiyi kapatır.
+davranışı değişti). `.zip` arşivi önbelleğe açılarak yüklenir; `--plugin-url` .zip'i indirir
+(`plugin_archive`). `defaultEnabled: false` ya da ayarlardaki `"<ad>@inline": false` oturumluk
+eklentiyi kapatır.
 """
 
 from __future__ import annotations
@@ -27,7 +28,8 @@ SESSION_SCOPE = "session"
 SESSION_HEADING = "Session-only plugins (--plugin-dir / --plugin-url):"
 _MANIFEST = Path(".claude-plugin") / "plugin.json"
 
-WARN_ZIP = "--plugin-dir: .zip arşivleri Fusion'da desteklenmiyor, atlandı: {path}"
+WARN_ZIP = "--plugin-dir: arşiv yüklenmedi: {error}"
+WARN_URL = "--plugin-url: yüklenmedi: {error}"
 WARN_MISSING = "--plugin-dir: klasör bulunamadı, atlandı: {path}"
 WARN_BROKEN = "--plugin-dir: '{path}' yüklenmedi: {error}"
 
@@ -42,15 +44,33 @@ def add_session_dirs(paths: Iterable[Path]) -> None:
     os.environ[SESSION_ENV] = os.pathsep.join(merged)
 
 
+def add_session_urls(urls: Iterable[str]) -> None:
+    """`--plugin-url`: her .zip'i indirip açar ve oturumluk yollara ekler (hata: uyarı)."""
+    from .plugin_archive import fetch_plugin_url
+
+    folders: list[Path] = []
+    for url in urls:
+        try:
+            folders.append(fetch_plugin_url(url))
+        except PluginError as error:
+            _LOG.warning(WARN_URL.format(error=error))
+    add_session_dirs(folders)
+
+
 def session_dirs() -> tuple[Path, ...]:
     raw = os.environ.get(SESSION_ENV, "")
     return tuple(Path(p).expanduser() for p in raw.split(os.pathsep) if p.strip())
 
 
 def _plugin_folders(path: Path) -> list[Path]:
-    if path.suffix.lower() == ".zip":
-        _LOG.warning(WARN_ZIP.format(path=path))
-        return []
+    if path.suffix.lower() == ".zip" and path.is_file():
+        from .plugin_archive import extract_plugin_zip
+
+        try:
+            return _plugin_folders(extract_plugin_zip(path))
+        except PluginError as error:
+            _LOG.warning(WARN_ZIP.format(error=error))
+            return []
     if not path.is_dir():
         _LOG.warning(WARN_MISSING.format(path=path))
         return []

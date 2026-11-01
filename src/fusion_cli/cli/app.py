@@ -202,11 +202,19 @@ def main_callback(
             help="Eklentiyi kurmadan yalnız bu oturum için yükle (<ad>@inline). Tekrarlanabilir.",
         ),
     ] = None,
+    plugin_url: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--plugin-url",
+            help="Eklenti .zip'ini adresten indirip yalnız bu oturum için yükle. Tekrarlanabilir.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
-    from ..config.plugin_session import add_session_dirs
+    from ..config.plugin_session import add_session_dirs, add_session_urls
 
     add_session_dirs(plugin_dir or ())
+    add_session_urls(plugin_url or ())
     _SESSION.agents_json = agents_json
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü

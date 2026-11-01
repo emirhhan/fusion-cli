@@ -93,15 +93,55 @@ def _session_entry(item: InstalledPlugin) -> dict[str, object]:
 
 
 def session_text() -> str:
-    """İnsan okunur listenin `Session-only plugins` bölümü (boşsa boş metin)."""
-    items = session_plugins()
+    """İnsan okunur listenin `Session-only plugins` ve `Skills-directory plugins` bölümleri."""
+    parts = [
+        _section(SESSION_HEADING, session_plugins()),
+        _skills_dir_section(),
+    ]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _section(
+    heading: str, items: tuple[InstalledPlugin, ...], states: dict[str, str] | None = None
+) -> str:
     if not items:
         return ""
-    rows = [SESSION_HEADING]
+    rows = [heading]
     for item in items:
         version = f" {item.record.version}" if item.record.version else ""
-        rows.append(f"  {plugin_id(item.record)}{version} — {item.record.source}")
+        state = (states or {}).get(item.record.name, "")
+        rows.append(f"  {plugin_id(item.record)}{version} — {item.record.source}{state}")
     return "\n".join(rows)
+
+
+def _skills_dir_section() -> str:
+    from ..config.plugin_skills_dir import (
+        SKILLS_DIR_HEADING,
+        skills_dir_enabled,
+        skills_dir_plugins,
+    )
+
+    items = skills_dir_plugins()
+    root = Path.cwd()
+    states = {i.record.name: "" if skills_dir_enabled(i, root) else " (kapalı)" for i in items}
+    return _section(SKILLS_DIR_HEADING, items, states)
+
+
+def _skills_dir_entries() -> list[dict[str, object]]:
+    """Claude `list --json`: `{id: ad@skills-dir, version, scope: user, enabled, installPath}`."""
+    from ..config.plugin_skills_dir import SKILLS_DIR_SCOPE, skills_dir_enabled, skills_dir_plugins
+
+    root = Path.cwd()
+    return [
+        {
+            "id": plugin_id(item.record),
+            "version": item.record.version or UNKNOWN_VERSION,
+            "scope": SKILLS_DIR_SCOPE,
+            "enabled": skills_dir_enabled(item, root),
+            "installPath": item.record.source,
+        }
+        for item in skills_dir_plugins()
+    ]
 
 
 def _server(server: object) -> dict[str, object]:
@@ -150,6 +190,7 @@ def list_payload(
     installed = [_installed_entry(item, store, project) for item in installed_plugins(store, root)]
     if base is None:
         installed.extend(_session_entry(item) for item in session_plugins())
+        installed.extend(_skills_dir_entries())
     if not available:
         return installed
     return {"installed": installed, "available": _available(store)}
@@ -159,7 +200,12 @@ def details_text(name: str, *, base: Path | None = None) -> str:
     """Claude `plugin details`: kimlik, bileşen envanteri, öngörülen token maliyeti."""
     store = base or plugins_dir()
     bare, _, market = name.partition("@")
+    from ..config.plugin_skills_dir import find_skills_dir
+
+    skills_dir = find_skills_dir(name)
     session = [i.record for i in session_plugins() if i.record.name == bare]
+    if skills_dir is not None and market in ("", skills_dir.record.marketplace) and not session:
+        session = [skills_dir.record]
     if session and market in ("", session[0].marketplace):
         record = session[0]
         folder = Path(record.source)

@@ -501,3 +501,4 @@ from . import plugin_extra_commands as _extra  # noqa: E402,F401  (details, prun
 for _group in app.registered_groups:
     if _group.name == "pazar":
         _group.hidden = True
+from . import plugin_authoring as _authoring  # noqa: E402,F401  (init/new, tag, test)

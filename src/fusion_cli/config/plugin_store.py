@@ -380,7 +380,20 @@ def active_plugins(
 
     names = {item.record.name for item in active}  # #376: projede açılan göreli eklentiler
     active.extend(project_enabled_plugins(state, project, names, base))
+    if base is None:
+        active.extend(_skills_dir_active(project, {item.record.name for item in active}))
     return tuple(active)
+
+
+def _skills_dir_active(project: Path, taken: set[str]) -> tuple[InstalledPlugin, ...]:
+    """`~/.claude/skills/<ad>/.claude-plugin` eklentileri (#401); aynı adlı yüklü olan kazanır."""
+    from .plugin_skills_dir import skills_dir_enabled, skills_dir_plugins
+
+    return tuple(
+        item
+        for item in skills_dir_plugins()
+        if item.record.name not in taken and skills_dir_enabled(item, project)
+    )
 
 
 def plugin_mcp_servers(
@@ -456,6 +469,11 @@ def plugin_root_of(
         session = session_root_of(path)
         if session is not None:
             return session
+        from .plugin_skills_dir import skills_dir_plugin_of, skills_root
+
+        home_skills = skills_root()
+        if skills_dir_plugin_of(path, home_skills):
+            return home_skills / path.relative_to(home_skills).parts[0]
     state = load_state(base)
     for record in state.plugins:
         if record.folder and _inside(path, Path(record.folder)):

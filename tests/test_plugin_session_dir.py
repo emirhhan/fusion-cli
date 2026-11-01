@@ -77,14 +77,74 @@ def test_cli_plugin_dir_list_json_ve_details(tmp_path, monkeypatch):
     assert shown.exit_code == 0 and "Skills: 1" in shown.output
 
 
-def test_zip_ve_olmayan_yol_atlanir(tmp_path, monkeypatch, caplog):
+def test_bozuk_zip_ve_olmayan_yol_atlanir(tmp_path, monkeypatch, caplog):
     import os
 
+    (tmp_path / "x.zip").write_bytes(b"zip degil")
     monkeypatch.setenv(
         SESSION_ENV, os.pathsep.join([str(tmp_path / "x.zip"), str(tmp_path / "yok")])
     )
     assert plugin_store.active_plugins() == ()
-    assert ".zip arşivleri" in caplog.text and "klasör bulunamadı" in caplog.text
+    assert "geçerli bir .zip" in caplog.text and "klasör bulunamadı" in caplog.text
+
+
+def _zip(tmp_path: Path, members: dict[str, str]) -> Path:
+    import zipfile
+
+    path = tmp_path / "eklenti.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, text in members.items():
+            archive.writestr(name, text)
+    return path
+
+
+def test_plugin_dir_zip_arsivini_acip_inline_yukler(tmp_path, monkeypatch):
+    """Claude `--plugin-dir`: "Load a plugin from a directory or .zip" (#401)."""
+    manifest = json.dumps({"name": "rapor", "version": "3.0.0"})
+    archive = _zip(
+        tmp_path,
+        {
+            "rapor/.claude-plugin/plugin.json": manifest,
+            "rapor/skills/ozet/SKILL.md": "---\nname: ozet\ndescription: Ö\n---\nÖ\n",
+        },
+    )
+    monkeypatch.setenv(SESSION_ENV, str(archive))
+    active = plugin_store.active_plugins()
+    assert [(i.record.name, i.record.marketplace, i.record.version) for i in active] == [
+        ("rapor", "inline", "3.0.0")
+    ]
+    assert plugin_store.active_plugins()[0].record.source == active[0].record.source  # önbellek
+
+
+def test_zip_yol_disina_cikan_girdi_reddedilir(tmp_path, monkeypatch, caplog):
+    archive = _zip(tmp_path, {"../kacak.txt": "x", ".claude-plugin/plugin.json": "{}"})
+    monkeypatch.setenv(SESSION_ENV, str(archive))
+    assert plugin_store.active_plugins() == ()
+    assert "güvensiz girdi" in caplog.text
+    assert not (tmp_path / "kacak.txt").exists()
+
+
+def test_plugin_url_zipi_indirip_oturumluk_yukler(tmp_path, monkeypatch):
+    """Claude `--plugin-url`: "Fetch a plugin .zip from a URL for this session only"."""
+    from fusion_cli.config import plugin_archive
+
+    manifest = json.dumps({"name": "uzak", "version": "1.0.0"})
+    source = _zip(tmp_path, {".claude-plugin/plugin.json": manifest, "SKILL.md": "x"})
+    seen: list[str] = []
+
+    def fake_download(url: str, target: Path) -> None:
+        seen.append(url)
+        target.write_bytes(source.read_bytes())
+
+    monkeypatch.setattr(plugin_archive, "_download", fake_download)
+    monkeypatch.setenv(SESSION_ENV, "")
+    url = "https://ornek.test/uzak.zip"
+    listed = runner.invoke(root_app, ["--plugin-url", url, "plugin", "list", "--json"])
+    assert listed.exit_code == 0, listed.output
+    assert [row["id"] for row in json.loads(listed.output)] == ["uzak@inline"]
+    assert seen == [url]
+    bad = runner.invoke(root_app, ["--plugin-url", "file:///etc/x.zip", "plugin", "list"])
+    assert bad.exit_code == 0  # uyarıyla atlanır
 
 
 def test_ayarda_inline_false_oturumluk_eklentiyi_kapatir_kurulu_kopya_yuklenir(
