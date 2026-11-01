@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from fusion_cli.cli import app as app_module
 from fusion_cli.cli import print_run
-from fusion_cli.config import setting_sources
+from fusion_cli.config import flag_settings, setting_sources
 from fusion_cli.config.agent_launch_compat import read_agent_launch
 from fusion_cli.config.agent_launch_settings import AgentLaunchConfig
 from fusion_cli.config.hooks import load_hooks, user_hooks_file
@@ -19,6 +19,7 @@ from fusion_cli.config.permission_rules import load_permission_rules
 
 runner = CliRunner()
 ENV = setting_sources.SETTING_SOURCES_ENV
+FLAG_ENV = flag_settings.FLAG_PERMISSIONS_ENV
 
 
 @pytest.fixture
@@ -29,6 +30,8 @@ def home(monkeypatch, tmp_path):
     # setenv + delenv: test sonunda değişken yok sayılır (koşu os.environ'a yazar).
     monkeypatch.setenv(ENV, "")
     monkeypatch.delenv(ENV)
+    monkeypatch.setenv(FLAG_ENV, "")
+    monkeypatch.delenv(FLAG_ENV)
     return home
 
 
@@ -144,4 +147,41 @@ def test_kok_komut_settings_env_kanca_ve_dizinleri_uygular(home, monkeypatch, tm
     assert seen["env"] == "1"
     assert seen["config"].runtime.hooks_enabled is False
     assert extra in seen["extra_roots"]
-    assert "permissions.deny" in result.output
+    assert "henüz uygulanmıyor" not in result.output
+    rules = load_permission_rules(tmp_path).rules
+    assert [(r.tool, r.decision.value, r.source) for r in rules] == [("Bash", "deny", "bayrak")]
+
+
+def test_kok_komut_settings_default_mode_baslangic_kipidir(home, monkeypatch):
+    from fusion_cli.config.readiness import Readiness
+
+    seen: dict[str, object] = {}
+
+    async def _repl(config, **kwargs):
+        seen["mode"] = config.runtime.approval_mode
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _repl)
+    monkeypatch.setattr(
+        app_module, "evaluate", lambda *_a, **_k: SimpleNamespace(state=Readiness.READY)
+    )
+    settings = {"permissions": {"defaultMode": "plan"}}
+    result = runner.invoke(app_module.app, ["--settings", json.dumps(settings)])
+    assert result.exit_code == 0, result.output
+    assert seen["mode"] == "plan"
+    bad = runner.invoke(app_module.app, ["--settings", '{"permissions":{"defaultMode":"x"}}'])
+    assert bad.exit_code == 1
+
+
+def test_bayrak_katmani_setting_sources_suzmesine_girmez(home, tmp_path, monkeypatch):
+    flag_settings.set_flag_permissions({"ask": ["Edit"], "allow": ["Read", 3]})
+    monkeypatch.setenv(ENV, "")
+    rules = {(r.tool, r.decision.value) for r in load_permission_rules(tmp_path).rules}
+    assert rules == {("Edit", "ask"), ("Read", "allow")}
+    flag_settings.set_flag_permissions({"allow": []})
+    assert FLAG_ENV not in os.environ
+
+
+def test_bozuk_bayrak_katmani_kural_acmaz(home, tmp_path, monkeypatch):
+    monkeypatch.setenv(FLAG_ENV, "{bozuk")
+    assert load_permission_rules(tmp_path).rules == ()

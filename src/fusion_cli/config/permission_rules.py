@@ -203,6 +203,9 @@ def load_permission_rules(
             untrusted.append(layer.name)
             found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
         rules.extend(found)
+    from .flag_settings import flag_permission_rules  # `--settings` katmanı (#296)
+
+    rules.extend(flag_permission_rules())
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )

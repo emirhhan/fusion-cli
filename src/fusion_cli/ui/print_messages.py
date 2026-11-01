@@ -63,10 +63,6 @@ PRINT_INTERRUPTED = "[Request interrupted by user]"
 PRINT_SETTING_SOURCES_INVALID = (
     "Hata: --setting-sources geçersiz kaynak: {given}. Geçerli: user, project, local"
 )
-ROOT_SETTINGS_PRINT_ONLY = (
-    "Uyarı: --settings içindeki {keys} etkileşimli oturumda henüz uygulanmıyor "
-    "(fusion -p ile uygulanır)."
-)
 PRINT_RESTRICTED_BYPASS = (
     "Hata: --restricted kipinde bypassPermissions kullanılamaz "
     "(--permission-mode bypassPermissions, --dangerously-skip-permissions ya da "

@@ -88,10 +88,11 @@ def root_settings(
     config: Config, raw: str | None, model_flag: str | None
 ) -> tuple[Config, tuple[Path, ...]]:
     """Kök komut `--settings`: `model` (`--model` öncelikli), `env`, `disableAllHooks`,
-    `permissions.additionalDirectories`. İzin kuralları ve `defaultMode` etkileşimli oturuma
-    henüz taşınmıyor (kök komutta `--permission-mode` de yok); bunlar uyarıyla bildirilir.
+    `permissions.additionalDirectories`, `permissions.defaultMode` (başlangıç kipi) ve
+    `permissions.allow/ask/deny` (oturumluk kural katmanı, `config/flag_settings.py`).
     """
-    from .print_options import apply_model, load_settings
+    from ..config.flag_settings import set_flag_permissions
+    from .print_options import apply_model, load_settings, parse_permission_mode
 
     settings = load_settings(raw)
     if not settings:
@@ -100,17 +101,9 @@ def root_settings(
     model = settings.get("model")
     if not model_flag and isinstance(model, str) and model.strip():
         config = apply_model(config, model, None)
-    _warn_root_only_print(settings)
-    return apply_settings(config, session), session.add_dirs
-
-
-def _warn_root_only_print(settings: dict[str, object]) -> None:
-    import sys
-
     block = settings.get("permissions")
-    keys = [
-        k for k in ("allow", "ask", "deny", "defaultMode") if isinstance(block, dict) and k in block
-    ]
-    if keys:
-        names = ", ".join(f"permissions.{k}" for k in keys)
-        sys.stderr.write(texts.ROOT_SETTINGS_PRINT_ONLY.format(keys=names) + "\n")
+    set_flag_permissions(block if isinstance(block, dict) else None)
+    if session.default_mode is not None:
+        mode = parse_permission_mode(session.default_mode, skip_permissions=False)
+        config = replace(config, runtime=replace(config.runtime, approval_mode=mode.value))
+    return apply_settings(config, session), session.add_dirs
