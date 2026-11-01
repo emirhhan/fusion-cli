@@ -726,6 +726,9 @@ class _TuiSession:
             self._tui.refresh_style()
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        if text := self._state.take_pending_input():
+            # `/rewind` konuşmayı sardıysa hedef istem giriş kutusuna gelir (#200).
+            self._tui.set_input(text)
         for hook_line in await hook_events.flush(self._state):
             self._echo(f"[{theme.WARN}]{escape(hook_line)}[/{theme.WARN}]")
         self._sync_conversation_binding()

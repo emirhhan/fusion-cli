@@ -341,3 +341,31 @@ def test_yeni_turda_korunan_yol_eski_turdan_geri_yazilmaz(tmp_path, monkeypatch,
     assert ikinci.changes.snapshots[0].content == b"tur1"
     assert ilk.changes.paths == ikinci.changes.paths == (dosya,)
     assert bool(result.conflicts) == (failure == "user_change")
+
+
+def test_konusma_geri_sarilinca_hedef_turun_istemi_girdiye_konur(state):
+    """Claude Code (#200): Restore conversation sonrası seçilen mesajın istemi girişe gelir."""
+    _seed_turns(state)
+
+    _run(state, "/rewind 2 konuşma")
+
+    assert state.take_pending_input() == "iki"
+
+
+def test_yalniz_kod_geri_sarilinca_girdi_dolmaz(state):
+    _seed_turns(state)
+
+    _run(state, "/rewind 2 kod")
+
+    assert state.take_pending_input() == ""
+
+
+async def test_tui_rewind_sonrasi_istem_girdi_kutusuna_yazilir(state):
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+
+    _seed_turns(state)
+    session = _TuiSession(state)
+
+    await session._command("/rewind 2 ikisi")
+
+    assert session.tui._input.text == "iki"

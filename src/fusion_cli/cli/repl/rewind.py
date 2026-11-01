@@ -114,13 +114,18 @@ def rewind_command(state: ReplState, argument: str) -> str:
 
 
 def apply_rewind(state: ReplState, index: int, scope: RewindScope) -> str:
-    """Geri sarmayı duruma uygula ve tek satırlık sonucu döndür."""
+    """Geri sarmayı duruma uygula ve tek satırlık sonucu döndür.
+
+    Konuşma geri sarılınca hedef turun istemi giriş kutusuna konur (Claude Code #200).
+    """
+    target = state.checkpoints.find(index)
     try:
         result = state.checkpoints.rewind(index, scope)
     except ValueError:
         return messages.REWIND_UNKNOWN_TURN.format(index=index)
     if result.history is not None:
         state.history = list(result.history)
+        state.pending_input = target.task if target is not None else ""
         # Transcript eklemelidir: silinen mesaj kalır, yükleyici olaydan sonrasını atlar.
         TranscriptStore(
             state.config.memory_dir, state.root, conversation_id=state.conversation_id
