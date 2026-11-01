@@ -34,3 +34,19 @@ describe("Sidebar arşivi (#443)", () => {
     expect(screen.queryByRole("button", { name: /Arşivlenenler/ })).toBeNull();
   });
 });
+
+describe("Sidebar Option-tık (#443)", () => {
+  it("Option (Alt) ile tıklanan sohbet yan bölmede açılır; düz tık seçer", () => {
+    const onSec = vi.fn();
+    const onSplit = vi.fn();
+    render(<Sidebar oturumlar={sessions} etkin="1" onSec={onSec} onSplit={onSplit} onYeni={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "İkinci iş" }), { altKey: true });
+    expect(onSplit).toHaveBeenCalledWith("2");
+    expect(onSec).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "İkinci iş" }));
+    expect(onSec).toHaveBeenCalledWith("2");
+    // Etkin sohbet kendisinin yanına bölünmez: Option-tık onu yalnız seçer.
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş" }), { altKey: true });
+    expect(onSplit).toHaveBeenCalledTimes(1);
+  });
+});

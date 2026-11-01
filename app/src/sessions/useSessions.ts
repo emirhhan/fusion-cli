@@ -1,4 +1,5 @@
 import { historyMessages } from "./history";
+import { renameConversation } from "./renameConversation";
 import { decodeGoalResult, GOAL_WAITING_USER } from "../goal/goalResult";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
@@ -1002,6 +1003,15 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     }
   }, [close, connect, state.sessions]);
 
+  /** Başlık çubuğundan yeniden adlandırma (#443): açık sohbetin kendi bağlantısıyla. */
+  const rename = useCallback(async (id: string, name: string) => {
+    const session = state.sessions[id];
+    if (!session || session.status !== "ready") throw new Error("Sohbet bağlı değil; yeniden adlandırılamadı.");
+    const title = await renameConversation(session.client, id, name);
+    dispatch({ type: "titleChanged", id, title });
+    setStored((rows) => rows.map((row) => (row.id === id ? { ...row, title } : row)));
+  }, [state.sessions]);
+
   const activeSession = state.activeId ? state.sessions[state.activeId] ?? null : null;
   const sessions = useMemo(
     () => state.order.map((id) => state.sessions[id]).filter(Boolean),
@@ -1040,6 +1050,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     recentProjects,
     remove,
     move,
+    rename,
     runCommand,
     selectModel,
     saveProviderSecret,

@@ -996,9 +996,11 @@ görünümden çıkar, ⌘; yan sohbet, Ctrl+O görünüm kipleri, ⌘⇧I/⌘�
 Kenar çubuğunda sohbetin `···` menüsünün ilk eylemi **Arşivle**dir (Claude Desktop'taki Archive):
 arşivlenen sohbet silinmez, ana listeden kalkar ve listenin başındaki **Arşivlenenler (N)**
 görünümünde durur; oradan **Arşivden çıkar** ile geri gelir. Kalıcı silme menünün son eylemidir ve
-onay ister. Tercih bu bilgisayarda saklanır. **Henüz yok** (#443): PR birleşince/kapanınca otomatik
-arşiv, başlık çubuğundan yeniden adlandırma, Group and sort menüsü, Option-tık ile yan yana ve
-Cmd-tık ile yeni pencerede açma.
+onay ister. Tercih bu bilgisayarda saklanır. Başlık çubuğundaki sohbet adına tıklayınca ad
+düzenlenir (Enter kaydeder, Esc vazgeçer); ad CLI `/rename` ile aynı kayda yazılır ve
+`fusion --resume <ad>` onu görür. Kenar çubuğunda bir sohbete **Option (⌥) ile tıklamak** onu
+etkin sohbetin yanında ikinci bölmede açar (menüdeki "Yan yana aç"). **Henüz yok** (#443): PR
+birleşince/kapanınca otomatik arşiv, Group and sort menüsü ve Cmd-tık ile yeni pencerede açma.
 
 Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
 devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı

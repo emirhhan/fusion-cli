@@ -2157,6 +2157,7 @@ export function SessionUygulama({
           onNavigateBack={pageHistory.back}
           onNavigateForward={pageHistory.forward}
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
+          onRename={page === "chat" && active.status === "ready" ? (name) => controller.rename(active.id, name) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
           remote={page === "chat" && surfaceSection === null ? {

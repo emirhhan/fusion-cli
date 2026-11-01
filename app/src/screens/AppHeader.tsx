@@ -1,4 +1,5 @@
 import { Button } from "../ui/Button";
+import { EditableTitle } from "./EditableTitle";
 import "./AppHeader.css";
 
 /** Üst bileşen ile başlık arasındaki tek sözleşme metni; iki yerde ayrı yazılınca biri değişince uyarı kayboluyordu (U1-61). */
@@ -32,6 +33,8 @@ interface AppHeaderProps {
   onToggleInspector: () => void;
   onToggleSidebar: () => void;
   onShare?: () => void;
+  /** Verilirse başlığa tıklayınca sohbet yeniden adlandırılır (#443). */
+  onRename?: (name: string) => void | Promise<void>;
   projectName?: string;
   /** Verilmezse anahtar çizilmez (ör. hesap kapısı, kurulum). */
   remote?: RemoteHeaderState;
@@ -51,6 +54,7 @@ export function AppHeader({
   onToggleInspector,
   onToggleSidebar,
   onShare,
+  onRename,
   projectName,
   remote,
   sidebarCollapsed,
@@ -92,7 +96,7 @@ export function AppHeader({
       {/* Kimlik alanının boş kısmı pencereyi sürükletir: ayrı bir boş başlık
           şeridi çizmek yerine üst çubuğun kendisi başlık çubuğuyla kaynaşır. */}
       <div className="app-header__identity" data-tauri-drag-region>
-        <h1>{title}</h1>
+        <EditableTitle onRename={onRename} title={title} />
         {projectName && <span className="app-header__project">{projectName}</span>}
       </div>
       <div className="app-header__actions">

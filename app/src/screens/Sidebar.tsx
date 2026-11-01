@@ -193,7 +193,8 @@ function SessionButton({ session, active, onSelect, onSplit, onDelete, onRemoveF
         className="sidebar__session"
         data-etkin={active}
         data-okunmamis={session.okunmamis || undefined}
-        onClick={onSelect}
+        // Claude Desktop: Option-tık sohbeti yan bölmede (split view) açar (#443).
+        onClick={(event) => (event.altKey && onSplit && !active ? void onSplit() : onSelect())}
         type="button"
       >
         {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
