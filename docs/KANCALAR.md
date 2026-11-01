@@ -240,7 +240,11 @@ runtime:
 - `fusion hooks list [--json]` — tüm katmanlar, durum ve atlanma nedeni.
 - `fusion hooks test PreToolUse --tool Bash --input '{"command": "rm -rf x"}'` (Fusion'a
   özgü) — eşleşen kancaları gerçekten çalıştırır ve kararı gösterir.
-- REPL `/hooks` (`/kancalar`) — salt okunur liste.
+- REPL `/hooks` (`/kancalar`) — salt okunur tarayıcı (Claude `/hooks` menüsü): her kanca
+  geldiği yerle etiketlenir (kullanıcı/proje/yerel/yönetilen ayar, eklenti, oturum: beceri
+  frontmatter'ı); TUI'de seçici açılır, seçilen kancanın tam metni ve tanım dosyası (ya da
+  eklenti adı) gösterilir; sondaki **All events** tanımı olmayanlar dahil bütün olayları
+  listeler. Düz REPL ve masaüstünde numaralı liste: `/hooks <no>`, `/hooks all`.
 - Masaüstü: Ayarlar › İzinler › **Kancalar** — liste (`kanca.listele`) ve iki anahtar
   (`hooks_enabled`, `claude_hooks`; `kanca.ayar`).
 
@@ -270,6 +274,6 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `transcript_path` Fusion'ın sohbet kaydından (`transcripts/<proje>/events.jsonl`) ayrı,
   Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde
   kırpılır.
-- `/hooks` etkileşimli tarayıcı ("All events") yok; düz liste.
+- `/hooks` seçicisi yalnız TUI'de; düz REPL ve masaüstü numaralı liste + `/hooks <no>` kullanır.
 - Etkileşimli oturumda kullanıcı kancaları da klasör güvenine bağlı değildir (Claude güven
   iletişimi kabul edilene kadar bekletir).

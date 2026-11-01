@@ -1675,7 +1675,9 @@ HOOKS_FLAG_INVALID = (
 HOOKS_FLAG_FAILED = "Kanca ayarı yazılamadı: {error}"
 #: Bir dosyadaki `disableAllHooks` kancaları kapattığında oturumda bir kez.
 HOOKS_DISABLED_NOTICE = "Kancalar bu oturumda kapalı: {reason}"
-HOOKS_USAGE = "Kullanım: /hooks [list]  (salt okunur; düzenleme: {path})"
+HOOKS_USAGE = "Kullanım: /hooks [list|<no>|all]  (salt okunur; düzenleme: {path})"
+HOOKS_BROWSER_HINT = "Ayrıntı: /hooks <no> · bütün olaylar (All events): /hooks all"
+HOOKS_BROWSER_TITLE = "Kancalar (salt okunur)"
 HOOKS_TEST_UNKNOWN_EVENT = "Bilinmeyen olay: {given}. Olaylar: {events}"
 HOOKS_TEST_BAD_INPUT = "--input geçerli bir JSON nesnesi olmalı: {error}"
 HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."
