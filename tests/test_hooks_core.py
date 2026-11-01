@@ -19,6 +19,9 @@ from fusion_cli.core.hooks.matcher import matcher_matches
 from fusion_cli.engines.hooks.runner import run_hook
 from fusion_cli.tools.permission_match import claude_tool_names
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 @pytest.fixture(autouse=True)
 def _izole_ev(tmp_path, monkeypatch):

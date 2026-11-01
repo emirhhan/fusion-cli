@@ -22,6 +22,9 @@ from fusion_cli.core.hooks.events import HookEvent, HookSet
 from fusion_cli.engines.agent.skill_hooks import activate_skill, after_skill_tool
 from fusion_cli.engines.hooks.session import HookSession
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 @pytest.fixture(autouse=True)
 def _kancalar_acik(monkeypatch):

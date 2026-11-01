@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from rich.console import Console
 
 from fusion_cli.cli.repl.hook_open import open_hooks
 
 from .test_hooks_surfaces import _izole_ev, _kaydeden_kancalar, _olaylar, _repl_durumu
+
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
 
 __all__ = ["_izole_ev"]  # otomatik fikstür bu modülde de geçerli
 

@@ -240,3 +240,11 @@ def _fusion_gunluk_isleyicisi_sizmaz():
         if getattr(handler, "_fusion_dosya", False):
             kok.removeHandler(handler)
             handler.close()
+
+
+@pytest.fixture
+def guvenilir_klasor(monkeypatch):
+    """Etkileşimli kanca testleri: klasör güveni verilmiş sayılır (#108 kapısı ayrı sınanır)."""
+    from fusion_cli.config import hook_trust
+
+    monkeypatch.setattr(hook_trust, "is_workspace_trusted", lambda root: True)

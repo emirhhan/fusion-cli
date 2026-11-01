@@ -10,10 +10,12 @@ Biçim (`~/.claude/settings.json` ile aynı):
 Katmanlar (okuma sırası, sonraki öncelikli): Fusion'ın eski kullanıcı dosyası
 (`<yapılandırma>/hooks.json`, kullanımdan kalktı: okunur ve bir kez uyarılır), Claude
 kullanıcı ayarı (`~/.claude/settings.json`, Claude gibi her zaman birleştirilir), proje
-`.claude/settings.json`, `.claude/settings.local.json` ve yönetilen (managed) ayar. Proje
-dosyalarının kancaları KOD ÇALIŞTIRIR: etkileşimli oturumda `fusion trust` sonrası (içerik o
-günden beri değişmediyse) okunur; `-p`/SDK (etkileşimsiz) oturumda klasör güvenilir sayılır
-(Claude Code ile aynı — güvenlik davranışı: depo kancaları `-p`'de çalışır).
+`.claude/settings.json`, `.claude/settings.local.json` ve yönetilen (managed) ayar. Kancalar
+KOD ÇALIŞTIRIR: etkileşimli oturumda yönetilen dışı bütün katmanlar (kullanıcı ve eklenti
+dahil) klasör güveni verilene dek bekler (`hook_trust`, #108); proje dosyaları ayrıca
+`fusion trust` sonrası içerik o günden beri değişmediyse okunur; `-p`/SDK (etkileşimsiz)
+oturumda klasör güvenilir sayılır (Claude Code ile aynı — güvenlik davranışı: depo kancaları
+`-p`'de çalışır).
 
 `disableAllHooks` öncelik sırasından sonra kalan değerdir: projedeki `false` kullanıcıdaki
 `true`'yu geçersiz kılar; yönetilen kancaları yalnız yönetilen düzeydeki değer kapatır.
@@ -35,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.hooks.events import HTTP_HANDLER, HookCommand, HookSet, HookSkip
+from . import hook_trust
 from .hook_parse import (
     DEFAULT_HOOK_TIMEOUT_S,
     MAX_HOOK_TIMEOUT_S,
@@ -54,6 +57,7 @@ from .hook_policy import (
     narrow_env,
     policy_filter,
 )
+from .hook_trust import REASON_WORKSPACE_UNTRUSTED, display_path
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
 from .plugin_hooks import plugin_hooks
@@ -205,6 +209,8 @@ class _Collected:
     managed_only: bool = False
     http_urls: list[str] | None = None
     http_env: list[str] | None = None
+    #: Klasöre güvenildi mi (ya da etkileşimsiz oturum)? Değilse yönetilen dışı kanca yok.
+    workspace_ok: bool = True
 
 
 def load_hooks(
@@ -228,6 +234,8 @@ def load_hooks(
     if hooks_disabled_by_environment():
         return HookSet(disabled_reason=f"{HOOKS_ENV}=off")
     found = _Collected([], [], [], [], [])
+    # Etkileşimli oturumda bütün kancalar klasör güvenine bağlı (#108; -p güvenilir sayılır).
+    found.workspace_ok = not interactive or hook_trust.is_workspace_trusted(root)
     for layer in hook_layers(root, home):
         data = (
             pinned[layer.path]
@@ -238,7 +246,11 @@ def load_hooks(
             _read_layer(found, layer, data, root, include_claude, default_timeout_s, interactive)
     if include_plugins:
         plugin_commands, plugin_skips = plugin_hooks(default_timeout_s)
-        found.commands.extend(plugin_commands)
+        if found.workspace_ok:
+            found.commands.extend(plugin_commands)
+        else:
+            reason = REASON_WORKSPACE_UNTRUSTED
+            found.skipped.extend(as_skip(command, reason) for command in plugin_commands)
         found.skipped.extend(plugin_skips)
     return _finish(found)
 
@@ -261,10 +273,12 @@ def _read_layer(
     if layer.is_claude and not include_claude:
         found.skipped.extend(as_skip(command, REASON_CLAUDE_OFF) for command in commands)
         return
-    trusted = not layer.requires_trust or not interactive or _is_trusted(layer, root)
+    project_ok = not layer.requires_trust or not interactive or _is_trusted(layer, root)
+    # Klasör güveni yoksa kanca çalışmaz ama `disableAllHooks` (kapatma) yine uygulanır.
+    trusted = project_ok and (layer.is_managed or found.workspace_ok)
     disable = data.get(DISABLE_ALL_KEY)
     if isinstance(disable, bool):
-        if not trusted:
+        if not project_ok:
             if disable:
                 found.ignored_disable.append(layer.name)
         elif layer.is_managed:
@@ -274,7 +288,8 @@ def _read_layer(
     if not trusted:
         if commands:
             found.untrusted.append(layer.name)
-        found.skipped.extend(as_skip(command, REASON_UNTRUSTED) for command in commands)
+        reason = REASON_UNTRUSTED if not project_ok else REASON_WORKSPACE_UNTRUSTED
+        found.skipped.extend(as_skip(command, reason) for command in commands)
         return
     _read_http_policy(found, data)
     if layer.is_managed:
@@ -331,21 +346,34 @@ def _finish(found: _Collected) -> HookSet:
     )
 
 
-def untrusted_hook_files(root: Path) -> tuple[str, ...]:
-    """Güvenilmediği için kancaları çalışmayan proje dosyaları (köke göreli).
+def untrusted_hook_files(root: Path, home: Path | None = None) -> tuple[str, ...]:
+    """Güvenilmediği için kancaları çalışmayan dosyalar (proje: köke göreli; kullanıcı: `~/…`).
 
-    Güven onayı (`fusion trust`, masaüstü şeridi) bunu söylemeli: güvenden sonra bu dosyaların
-    kanca komutları her araç çağrısında kullanıcının yetkisiyle çalışır.
+    Güven onayı (`fusion trust`, açılış sorusu, masaüstü şeridi) bunu söylemeli: güvenden
+    sonra bu dosyaların kanca komutları her araç çağrısında kullanıcının yetkisiyle çalışır.
+    Klasöre güvenilmemişse etkileşimli oturumda kullanıcı dosyalarının kancaları da bekler (#108).
     """
+    workspace_ok = hook_trust.is_workspace_trusted(root)
     found: list[str] = []
-    for layer in hook_layers(root):
-        if not layer.requires_trust or _is_trusted(layer, root):
+    for layer in hook_layers(root, home):
+        if layer.is_managed:
+            continue
+        if layer.requires_trust:
+            if workspace_ok and _is_trusted(layer, root):
+                continue
+        elif workspace_ok:
             continue
         data = read_settings_json(layer.path)
         block = data.get("hooks") if data is not None else None
         if isinstance(block, Mapping) and any(block.values()):
-            found.append(layer.path.relative_to(root).as_posix())
+            found.append(_shown_file(layer, root, home))
     return tuple(found)
+
+
+def _shown_file(layer: HookLayer, root: Path, home: Path | None) -> str:
+    if layer.requires_trust:
+        return layer.path.relative_to(root).as_posix()
+    return display_path(layer.path, home)
 
 
 def _is_trusted(layer: HookLayer, root: Path) -> bool:

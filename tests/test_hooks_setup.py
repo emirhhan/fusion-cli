@@ -18,6 +18,9 @@ from fusion_cli.core.hooks.events import HookSet
 from fusion_cli.engines.hooks.session import HookSession
 from fusion_cli.engines.hooks.setup_hook import run_setup
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 def _script(tmp_path: Path, log: Path, context: str = "kurulum tamam") -> str:
     path = tmp_path / "setup.py"

@@ -25,6 +25,9 @@ from fusion_cli.engines.hooks.session import HookSession
 
 from .fakes import RecordingSink, ScriptedProvider, make_config, model_result, tool_call
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 class _Publisher:
     def __init__(self, sink):

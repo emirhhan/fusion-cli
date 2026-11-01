@@ -22,6 +22,9 @@ from fusion_cli.engines.hooks.dispatch import with_event_timeout
 from fusion_cli.engines.hooks.overflow import spill
 from fusion_cli.engines.hooks.session import HookSession, claude_permission_mode
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 _PRE = HookEvent.PRE_TOOL_USE
 
 

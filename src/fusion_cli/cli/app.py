@@ -221,6 +221,10 @@ def main_callback(
     persona = str(agent_persona or "")
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
     setup_trigger = "maintenance" if maintenance else ("init" if init or init_only else "")
+    from .hook_trust_prompt import offer_hook_trust
+
+    # Claude gibi kancalar çalışma alanı güvenine bağlı (#108): güvenilmeyen klasörde sorulur.
+    offer_hook_trust(Path.cwd(), lambda line: console.print(escape(line)))
     if init_only:
         raise typer.Exit(_run_setup_only(config, Path.cwd()))
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,

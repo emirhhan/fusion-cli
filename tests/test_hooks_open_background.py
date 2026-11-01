@@ -14,6 +14,9 @@ from fusion_cli.core.hooks.events import HookCommand, HookEvent, HookSet
 from fusion_cli.engines.hooks.opening import open_soon, settle_opening
 from fusion_cli.engines.hooks.session import HookSession
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 @pytest.fixture(autouse=True)
 def _kancalar_acik(monkeypatch):

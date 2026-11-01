@@ -52,6 +52,15 @@ describe("TrustProject — güvenilmeyen proje şeridi (P-012)", () => {
     expect(serit.textContent).toContain("her araç çağrısında senin yetkinle çalışır");
   });
 
+  it("yalnız kullanıcı kancaları bekliyorsa da şerit çıkar (çalışma alanı güveni, #108)", async () => {
+    const durum = { ...guvensiz, dusurulen_bolumler: [], yok_sayilan_dosyalar: [], kanca_dosyalari: ["~/.claude/settings.json"] };
+    render(<TrustProject client={client(durum)} kok="/proje-e" />);
+    const serit = await screen.findByRole("note", { name: "Proje güveni" });
+    expect(serit.textContent).toContain("Güvenene dek kancalar (hook) çalışmaz.");
+    expect(serit.textContent).toContain("~/.claude/settings.json kanca (hook) komutları");
+    expect(serit.textContent).not.toContain("Proje kendi ayarlarını taşıyor");
+  });
+
   it("'Şimdilik kapat' aynı kökte bir daha göstermez; tur sürerken güven düğmesi kapalıdır", async () => {
     const fake = client(guvensiz);
     const view = render(<TrustProject client={fake} kok="/proje-c" running />);

@@ -18,6 +18,9 @@ from fusion_cli.engines.hooks.http_runner import expand_header
 from fusion_cli.engines.hooks.session import HookSession
 from fusion_cli.tools import pinned_http
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 #: Literal genel IP: ad çözümlemesi (ağ) yapılmaz.
 GENEL_URL = "https://93.184.216.34/kanca"
 

@@ -11,17 +11,24 @@ gövdesi stdout gibi okunur). Biçim, olay adları ve karar kuralları Claude Co
 
 | Katman | Dosya | Koşul |
 |---|---|---|
-| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman (`runtime.claude_hooks: false` ile atlanır) |
-| Proje | `.claude/settings.json` | etkileşimli: `fusion trust` + içerik o günden beri aynı; `-p`: her zaman |
+| Claude (kullanıcı) | `~/.claude/settings.json` | etkileşimli: klasöre güvenildiyse; `-p`: her zaman (`runtime.claude_hooks: false` ile atlanır) |
+| Proje | `.claude/settings.json` | etkileşimli: klasör güveni (`fusion trust`) + içerik o günden beri aynı; `-p`: her zaman |
 | Proje (yerel) | `.claude/settings.local.json` | proje ile aynı |
-| Yönetilen | macOS `/Library/Application Support/ClaudeCode/managed-settings.json`, Linux `/etc/claude-code/managed-settings.json` | her zaman |
+| Yönetilen | macOS `/Library/Application Support/ClaudeCode/managed-settings.json`, Linux `/etc/claude-code/managed-settings.json` | her zaman (yönetici politikası güven beklemez) |
 | Eklenti | etkin eklentinin `hooks/hooks.json` ya da `plugin.json` `hooks` alanı | eklenti etkin ve çalıştırma onaylı (`fusion eklenti guven`); süreç `CLAUDE_PLUGIN_ROOT` ve kalıcı `CLAUDE_PLUGIN_DATA` alır; mcp_tool'da sunucu `plugin:<eklenti>:<sunucu>` |
 | Beceri | SKILL.md frontmatter `hooks:` | beceri çağrılınca (`Skill` aracı ya da `/ad`) oturumun geri kalanında; `once: true` ilk başarılı çalışmadan sonra kalkar; proje içindeki beceri etkileşimli oturumda dosya güveni ister |
 | Alt ajan | ajan frontmatter `hooks:` | ajan çalışırken; alt ajanda `Stop` → `SubagentStop` |
 | Fusion (eski) | `<yapılandırma dizini>/hooks.json` | **kullanımdan kalktı**: bu sürümde okunur, oturumda bir kez uyarılır |
 
-Kanca **kod çalıştırır**. Etkileşimli oturumda (REPL, TUI, masaüstü) indirilen bir deponun
-kancaları projeye güvenmeden çalışmaz; listede "atlandı: proje güvenilmiyor" diye görünür.
+Kanca **kod çalıştırır**. Etkileşimli oturumda (REPL, TUI, masaüstü) Claude Code gibi
+kullanıcı ayarındakiler, Fusion'ın eski dosyası ve eklenti kancaları dahil **hiçbir kanca
+klasöre güvenilmeden çalışmaz** (yönetilen politika hariç); listede "atlandı: klasöre
+güvenilmedi" ya da "proje güvenilmiyor" diye görünür. `fusion` açılışında güvenilmeyen
+klasörde bekleyen kanca varsa sorulur (`Güven ve devam et? [e/H]`; evet `fusion trust` ile
+aynı kaydı yazar ve proje ayarlarını da açar, hayır oturumu kancasız sürdürür); masaüstünde
+güven şeridi aynı soruyu sorar. Üst klasöre verilen güven alt klasörleri kapsar
+(`--worktree` ağacı deponun güvenini alır). Güven beklenirken `disableAllHooks` kapatması
+yine uygulanır.
 **`fusion -p` / `fusion agent` (etkileşimsiz) oturumda klasör güvenilir sayılır** (Claude
 Code `-p`/SDK kuralı): yazmadığın bir depoda `-p` koşmadan önce `.claude/` ayarlarını
 gözden geçir ya da `FUSION_HOOKS=off` kullan.
@@ -318,5 +325,5 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde
   kırpılır.
 - `/hooks` seçicisi yalnız TUI'de; düz REPL ve masaüstü numaralı liste + `/hooks <no>` kullanır.
-- Etkileşimli oturumda kullanıcı kancaları da klasör güvenine bağlı değildir (Claude güven
-  iletişimi kabul edilene kadar bekletir).
+- Claude'da güven reddedilince oturum açılmaz; Fusion'da oturum kancasız sürer ve yönetilen
+  politika kancaları güven beklemeden çalışır.

@@ -18,6 +18,9 @@ from fusion_cli.config import trust
 
 from .fakes import make_config
 
+#: Kanca yükleme testleri güvenilmiş klasörde (#108; kapı: test_hooks_workspace_trust).
+pytestmark = pytest.mark.usefixtures("guvenilir_klasor")
+
 
 @pytest.fixture(autouse=True)
 def _izole_ev(tmp_path, monkeypatch):
