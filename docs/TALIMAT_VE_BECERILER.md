@@ -48,8 +48,11 @@ dosyayı bağlama alır (Claude Code sözdizimi).
 - Özyinelemeli, en çok **dört adım**; döngü korumalı; kod bloklarında (` ``` ` ve `` `…` ``)
   yok sayılır. E-posta (`ali@ornek.com`) import sayılmaz.
 - Proje dosyasında çalışma dizini **dışına** çıkan import "dış"tır: proje başına bir kez onay
-  gerekir (karar `dis_import_onaylari.json` dosyasında saklanır). Karar verilmemişse yüklenmez
-  ve notta "onay bekliyor" görünür; reddedilirse kapalı kalır.
+  gerekir (karar `dis_import_onaylari.json` dosyasında saklanır). Claude Code'daki gibi dış import
+  ilk görüldüğünde dosyaları listeleyen bir onay sorusu açılır: terminalde oturum başında `[e/H]`,
+  TUI'de uygulama içi seçim, masaüstünde Kişiselleştirme → Kalıcı talimat kartında "İzin ver" /
+  "Reddet". Reddedilirse importlar kapalı kalır ve soru bir daha görünmez; Esc ile kapatılırsa
+  (TUI) karar verilmemiş sayılır ve notta "onay bekliyor" görünür.
 - Markdown bağlantıları (`[metin](RULES.md)`) izlenmez; kuralı içe almak için `@RULES.md` yaz.
 
 ## `.claude/rules/` kural dosyaları
@@ -67,7 +70,7 @@ kalktığı uyarısı düşer.
   `*.{ts,tsx}` brace açılımı geçerlidir (kural başına en çok 1.000 açılmış desen). Okunan
   frontmatter alanı yalnız `paths` (eski `yollar` uyarıyla okunur; `globs` okunmaz).
 - Kök dışını gösteren proje kuralı sembolik bağı dış import gibidir: projede dış import onayı
-  verilmişse yüklenir, yoksa atlanır. `claudeMdExcludes` kural dosyalarına da uygulanır.
+  verilmişse yüklenir, yoksa atlanır; onay sorusunda bu bağların hedefleri de listelenir. `claudeMdExcludes` kural dosyalarına da uygulanır.
 - İç içe talimat: alt klasördeki `CLAUDE.md` ve `CLAUDE.local.md` birlikte, o klasörde hiç
   Claude dosyası yoksa `AGENTS.md` okunur (dosya başı 40.000 karakter; `GEMINI.md` ve
   `.cursorrules` okunmaz). `node_modules`/`vendor` gibi dizinler taranmaz.

@@ -668,6 +668,10 @@ REPL_MACRO_STARTED = "{name} çalıştırılıyor…"
 #: `/beceri` komutları (P-019).
 REPL_SKILL_STARTED = "{name} becerisi sıradaki tur için hazırlandı."
 REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile kataloğu yenile."
+#: Dış `@import` onay seçimi (Claude Code #145).
+IMPORT_APPROVAL_ALLOW = "İzin ver"
+IMPORT_APPROVAL_DENY = "Reddet (bir daha sorma)"
+
 REPL_SKILL_FORK_NOTE = (
     "context: fork — bu beceri konuşma geçmişini görmeyen bir alt ajanda çalışacak; "
     "etkileşimli oturumda arka planda koşar (background: false bekletir)."

@@ -75,6 +75,10 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
             }
         )
     sonuc["notlar"] = list(yuk.notes)
+    # Kararı verilmemiş dış `@import` hedefleri (Claude Code #145): arayüz onay sorar.
+    from ..engines.agent.import_approval import pending_external_imports
+
+    sonuc["dis_importlar"] = [str(path) for path in pending_external_imports(root, home)]
     sonuc["toplam_karakter"] = sum(item.chars for item in yuk.files)
     # `/doctor prompt` ile aynı öneriler (P-021): arayüz Kişiselleştirme ekranında gösterir.
     from ..engines.agent.instruction_audit import audit_instructions
@@ -85,6 +89,16 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
         {"kaynak": s.source, "satir": s.line_no, "metin": s.text} for s in denetim.suspicious
     ]
     return sonuc
+
+
+def set_external_imports(root: Path, data: dict[str, Any]) -> dict[str, Any]:
+    """`ayar.dis_import_karari`: dış import onayı ya da reddi (proje başına saklanır, #145)."""
+    from ..engines.agent.import_approval import record
+
+    onay = data.get("onay")
+    if not isinstance(onay, bool):
+        return {"ok": False, "metin": "'onay' alanı true ya da false olmalı."}
+    return {"ok": True, "metin": record(root, "e" if onay else "h")}
 
 
 def save_instructions(value: object) -> dict[str, Any]:

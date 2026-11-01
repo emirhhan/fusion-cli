@@ -1066,6 +1066,27 @@ def _print_startup(
     session.tui.sync_conversation()
 
 
+async def _offer_external_imports(session: _TuiSession, state: ReplState) -> None:
+    """Dış `@import` ilk görüldüğünde uygulama içi onay seçimi (Claude Code #145)."""
+    from ...engines.agent import import_approval
+
+    paths = import_approval.pending_external_imports(
+        state.root, state.home, tuple(state.extra_roots)
+    )
+    if not paths:
+        return
+    choices = [
+        Choice("e", messages.IMPORT_APPROVAL_ALLOW, ""),
+        Choice("h", messages.IMPORT_APPROVAL_DENY, ""),
+    ]
+    selected = await session.tui.await_choice(import_approval.question(paths), choices)
+    if selected is None:  # Esc: karar verilmedi, sonraki açılışta yine sorulur
+        return
+    note = import_approval.record(state.root, selected)
+    session.tui.console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+    session.tui.sync_conversation()
+
+
 async def run_tui_repl(
     state: ReplState, console: Console, *, resume: session_resume.ResumeTarget | None = None
 ) -> int:
@@ -1090,9 +1111,11 @@ async def run_tui_repl(
     # koruma tekerleği uygulamaya yönlendiren kiplerdir (bkz. tui._apply_wheel_modes).
     sys.stdout.write("\x1b[3J\x1b[2J\x1b[H")
     sys.stdout.flush()
+    import_offer = asyncio.ensure_future(_offer_external_imports(session, state))
     try:
         await session.tui.application.run_async()
     finally:
+        import_offer.cancel()
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
         await state.child_runs.close()
         session.tui.restore_wheel_modes()

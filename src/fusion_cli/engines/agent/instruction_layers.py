@@ -142,6 +142,8 @@ class InstructionLoad:
     text: str
     files: tuple[InstructionFile, ...] = ()
     notes: tuple[str, ...] = ()
+    #: Kararı verilmemiş, çalışma dizini dışını gösteren `@import` hedefleri (#145).
+    pending_imports: tuple[Path, ...] = ()
 
     @property
     def trimmed_chars(self) -> int:
@@ -159,6 +161,7 @@ class _Loader:
     files: list[InstructionFile] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     blocks: list[str] = field(default_factory=list)
+    pending: list[Path] = field(default_factory=list)
 
 
 def instruction_files_mode(root: Path, home: Path | None) -> str:
@@ -238,7 +241,9 @@ def load_instruction_layers(
                 for name in (*CLAUDE_NAMES, LOCAL_NAME):
                     _load_file(loader, Path(extra) / name, layer="ek-dizin")
     text = "\n\n".join((HEADER, *loader.blocks)) if loader.blocks else ""
-    return InstructionLoad(text, tuple(loader.files), tuple(loader.notes))
+    return InstructionLoad(
+        text, tuple(loader.files), tuple(loader.notes), tuple(dict.fromkeys(loader.pending))
+    )
 
 
 def _load_managed(loader: _Loader) -> None:
@@ -362,6 +367,8 @@ def _follow_imports(
         external = project and not resolved.is_relative_to(loader.root)
         if external and loader.external_ok is not True:
             state = "reddedildi" if loader.external_ok is False else "onay bekliyor"
+            if loader.external_ok is None:
+                loader.pending.append(resolved)
             loader.notes.append(f"@{target}: çalışma dizini dışına import ({state})")
             continue
         _load_file(loader, resolved, layer="import", depth=depth + 1, project=project)

@@ -277,6 +277,16 @@ async def _run_surface(
         console.print()
     if has_untrusted_permissions(state.root):
         console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    # Dış `@import` ilk görüldüğünde onay (Claude Code #145).
+    from ...engines.agent import import_approval
+
+    await import_approval.offer(
+        state.root,
+        state.home,
+        show=lambda text: console.print(escape(text), highlight=False),
+        read_answer=reader.prompt,
+        extra_roots=tuple(state.extra_roots),
+    )
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)

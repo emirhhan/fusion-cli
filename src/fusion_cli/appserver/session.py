@@ -176,7 +176,12 @@ from .image_create import create_image, image_output_dir, image_providers
 from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
-from .instructions import get_instructions, instruction_block, save_instructions
+from .instructions import (
+    get_instructions,
+    instruction_block,
+    save_instructions,
+    set_external_imports,
+)
 from .keybindings_rpc import KEYBINDING_ROUTES
 from .kits_browser_routes import (
     KITS_BROWSER_DESCRIBE_ROUTE,
@@ -1276,6 +1281,8 @@ class AppSession:
             return self._save_theme(request.data)
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
+        if request.name == "ayar.dis_import_karari":
+            return set_external_imports(self._state.root, dict(request.data))
         if request.name == "baglanti.guven":
             # Güvenilir kararında araç tanımı özeti ağdan okunur; tur denetiminden ÖNCE, böylece
             # beklerken başlayan bir tur güven sınırını değiştirmeden yakalanır.
