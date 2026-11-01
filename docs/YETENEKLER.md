@@ -51,6 +51,12 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
+- Alt ajan / oturum ajanı (Claude Code farkları): ajan `experimental.cacheTtl` okunur ama
+  etkisizdir; ajan belleğine Read/Write/Edit yerine `remember`/`memory_read` ile erişilir;
+  Türkçe ekip rolleri (`kodcu`, `mimar`...) hâlâ yerleşiktir; masaüstünde `@` öneri listesinde
+  ajan yok, sohbet geçişinde oturum ajanı geri yüklenmez ve Kişilik seçicisi oturum ortasında
+  değiştirmeye izin verir (`/persona` kullanımdan kalkıyor); ek ajan kaynaklarını (Codex,
+  kurulu repolar) tümden kapatan ayar yok.
 
 ## Bilerek yapılmayanlar
 
