@@ -29,7 +29,11 @@ from ..core.errors import ConfigError
 from . import trust
 from .claude_home import claude_user_dir
 from .claude_top_layers import top_layers
-from .sandbox_claude_keys import normalize_claude_sandbox
+from .sandbox_claude_keys import (
+    MANAGED_DOMAINS_ONLY_KEY,
+    MANAGED_READ_ONLY_KEY,
+    normalize_claude_sandbox,
+)
 from .sandbox_config import SandboxConfig
 
 __all__ = [
@@ -112,14 +116,48 @@ def _known_only(section: dict[str, object], path: Path) -> dict[str, object]:
     return kept
 
 
-def _candidates(root: Path, home: Path | None) -> Iterator[tuple[Mapping[str, object], Path, Path]]:
-    """(içerik, kaynak, göreli yol tabanı) artan öncelikle: dosyalar, `--settings`, managed."""
+def _candidates(
+    root: Path, home: Path | None
+) -> Iterator[tuple[Mapping[str, object], Path, Path, bool]]:
+    """(içerik, kaynak, taban, managed mı) artan öncelikle: dosyalar, `--settings`, managed."""
     for path, base in _sources(root, home):
         data = _load(path)
         if data is not None:
-            yield data, path, base
+            yield data, path, base, False
     for top in top_layers(root):
-        yield top.data, top.source, top.base
+        yield top.data, top.source, top.base, top.name == "managed"
+
+
+def _managed_flag(data: Mapping[str, object], group: str, key: str) -> bool:
+    """Managed dosyasındaki `sandbox.<group>.<key>: true` kısıtı."""
+    sandbox = data.get("sandbox")
+    section = sandbox.get(group) if isinstance(sandbox, Mapping) else None
+    return isinstance(section, Mapping) and section.get(key) is True
+
+
+def _apply_managed_only(
+    layers: list[tuple[dict[str, object], bool]], data: list[Mapping[str, object]]
+) -> list[tuple[dict[str, object], bool]]:
+    """`allowManagedReadPathsOnly` / `allowManagedDomainsOnly` (yalnız managed'da geçerli):
+    managed dışı katmanların `allowRead` / `allowedDomains` listeleri yok sayılır."""
+    managed = [item for item, (_, is_managed) in zip(data, layers, strict=True) if is_managed]
+    dropped: set[str] = set()
+    if any(_managed_flag(item, "filesystem", MANAGED_READ_ONLY_KEY) for item in managed):
+        dropped.add("allow_read")
+    domains_only = any(_managed_flag(item, "network", MANAGED_DOMAINS_ONLY_KEY) for item in managed)
+    if domains_only:
+        dropped.add("allowed_domains")
+    result = [
+        (
+            section if is_managed else {k: v for k, v in section.items() if k not in dropped},
+            is_managed,
+        )
+        for section, is_managed in layers
+    ]
+    if domains_only:
+        # Claude: izinli olmayan alan adı sorulmadan engellenir.
+        result.append(({"strict_allowlist": True}, True))
+    return result
 
 
 def _layer_from(
@@ -157,17 +195,22 @@ def merge_sandbox_sections(
 
 def read_claude_sandbox(root: Path, *, home: Path | None = None) -> ClaudeSandbox:
     """Claude ayar dosyalarındaki `sandbox` bölümlerini sırayla birleştir."""
-    section: dict[str, object] = {}
+    layers: list[tuple[dict[str, object], bool]] = []
+    raw: list[Mapping[str, object]] = []
     enabled: bool | None = None
     sources: list[Path] = []
-    for data, path, base in _candidates(root, home):
+    for data, path, base, is_managed in _candidates(root, home):
         layer = _layer_from(data, path, base)
         if layer is None:
             continue
-        section = merge_sandbox_sections(section, layer[0])
+        layers.append((layer[0], is_managed))
+        raw.append(data)
         if layer[1] is not None:
             enabled = layer[1]
         sources.append(path)
+    section: dict[str, object] = {}
+    for part, _ in _apply_managed_only(layers, raw):
+        section = merge_sandbox_sections(section, part)
     return ClaudeSandbox(section, enabled, tuple(sources))
 
 

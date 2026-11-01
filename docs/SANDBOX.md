@@ -35,7 +35,13 @@ boyunca **birleşir**; tekil değerlerde son dosya kazanır. Fusion YAML'ındaki
 bunların altında en düşük katmandır. Dosyaların üstünde Claude'daki gibi `--settings` katmanı
 ve en üstte yönetilen (managed) ayarlar gelir: macOS `/Library/Application Support/ClaudeCode/`,
 Linux `/etc/claude-code/` altında `managed-settings.json` ve `managed-settings.d/*.json`
-(alfabetik). Yönetilen dosyalar güven denetimi istemez ve Fusion bunlara yazmaz.
+(alfabetik). Yönetilen dosyalar güven denetimi istemez, ortam değişkeniyle başka dizine
+yönlendirilemez ve Fusion bunlara yazmaz. Yönetilen ayarda
+`sandbox.filesystem.allowManagedReadPathsOnly: true` kullanıcı/proje/yerel/`--settings`
+katmanlarındaki `allowRead` yollarını, `sandbox.network.allowManagedDomainsOnly: true` ise
+oradaki `allowedDomains` listelerini yok sayar; ikincisinde izinli olmayan alan adı sorulmadan
+engellenir. Bu iki anahtar yönetilen dosya dışında etkisizdir. `--settings` bayrağı henüz
+komut satırında yok (katman yalnız iç API'den beslenir).
 
 Göreli yollar ayar dosyasının kapsamına göre çözülür: proje ayarında proje kökü, kullanıcı
 ayarında `~/.claude`, `--settings` dosyasında o dosyanın dizini, yönetilen ayarda yönetilen

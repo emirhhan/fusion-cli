@@ -64,6 +64,9 @@ _LEGACY_NAMES = {
 }
 #: Claude'da olmayan Fusion uzantısı: `sandbox.network.mode` (`open` | `allowlist`).
 NETWORK_MODE_KEY = "mode"
+#: Yalnız managed ayarda geçerli kısıtlar (settings-reference › sandbox).
+MANAGED_READ_ONLY_KEY = "allowManagedReadPathsOnly"
+MANAGED_DOMAINS_ONLY_KEY = "allowManagedDomainsOnly"
 _WARNED: set[str] = set()
 
 
@@ -114,6 +117,7 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
         return []
     network = _section(raw, "sandbox.network")
     _move(network, _NETWORK, result)
+    network.pop(MANAGED_DOMAINS_ONLY_KEY, None)
     # Claude: sandbox içindeki komutun doğrudan çıkışı yok, trafik proxy'den geçer. Fusion'ın
     # eski kısıtsız ağı (`open`) geçiş süresince `network.mode` uzantısıyla korunur.
     result["network"] = network.pop(NETWORK_MODE_KEY, "allowlist")
@@ -173,6 +177,8 @@ def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool |
             result[old] = data.pop(old)
     filesystem = _section(data.pop("filesystem", None), "sandbox.filesystem")
     _move(filesystem, _FILESYSTEM, result)
+    # Yalnız managed katmanda anlamlı; `claude_sandbox_settings` ham veriden okur.
+    filesystem.pop(MANAGED_READ_ONLY_KEY, None)
     unsupported = [f"filesystem.{key}" for key in filesystem]
     unsupported += _network(data.pop("network", None), result)
     unsupported += _credentials(data.pop("credentials", None), result)

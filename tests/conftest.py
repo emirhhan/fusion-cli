@@ -243,3 +243,11 @@ def _fusion_gunluk_isleyicisi_sizmaz():
         if getattr(handler, "_fusion_dosya", False):
             kok.removeHandler(handler)
             handler.close()
+
+
+@pytest.fixture(autouse=True)
+def izole_yonetilen_ayarlar(monkeypatch):
+    """Testler sistemdeki Claude managed-settings dizinini okumasın (#321)."""
+    from fusion_cli.config import claude_top_layers
+
+    monkeypatch.setattr(claude_top_layers, "MANAGED_DIRS", {})

@@ -85,13 +85,13 @@ def test_desteklenmeyen_claude_anahtari_uyarilir_ve_atilir(caplog):
     with caplog.at_level(logging.WARNING):
         sonuc, _ = normalize_claude_sandbox(
             {
-                "filesystem": {"allowManagedReadPathsOnly": True},
+                "filesystem": {"disabled": True},
                 "network": {"allowUnixSockets": ["/s"]},
             }
         )
-    assert "allowManagedReadPathsOnly" not in sonuc and "allowUnixSockets" not in sonuc
+    assert "disabled" not in sonuc and "allowUnixSockets" not in sonuc
     mesaj = " ".join(r.getMessage() for r in caplog.records)
-    assert "filesystem.allowManagedReadPathsOnly" in mesaj and "network.allowUnixSockets" in mesaj
+    assert "filesystem.disabled" in mesaj and "network.allowUnixSockets" in mesaj
     assert "henüz desteklenmiyor" in mesaj and "kullanımdan kalkıyor" not in mesaj
 
 

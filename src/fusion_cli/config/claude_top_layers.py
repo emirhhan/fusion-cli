@@ -8,7 +8,8 @@ dosyalarını kendisi okur; bu modül üstteki iki katmanı aynı biçimde (`Set
 Yönetilen dosyalar Claude ile aynı yerdedir (macOS `/Library/Application Support/ClaudeCode`,
 Linux `/etc/claude-code`, Windows `C:/Program Files/ClaudeCode`): `managed-settings.json`, sonra
 `managed-settings.d/*.json` alfabetik sırayla. Güven denetimi gerekmez (yönetici dosyası); Fusion
-bu dosyalara yazmaz. Testler sistem dizinine dokunmasın diye `FUSION_CLAUDE_MANAGED_DIR` ezer.
+bu dosyalara yazmaz. Claude'daki gibi ortam değişkeniyle başka dizine yönlendirilemez (kullanıcı
+yönetici kuralından böyle kaçamaz); testler `MANAGED_DIRS` sözlüğünü ezer.
 
 `--settings <dosya|json>` içeriği süreç ortamında taşınır (`FUSION_FLAG_SETTINGS_JSON`) ki aynı
 süreçteki alt ajanlar ve oturumdan başlatılan alt süreçler aynı değeri görsün. Bayrağı okuyan
@@ -29,7 +30,6 @@ from pathlib import Path
 
 __all__ = [
     "FLAG_SETTINGS_ENV",
-    "MANAGED_DIR_ENV",
     "SettingsLayer",
     "flag_layer",
     "managed_layers",
@@ -44,7 +44,6 @@ MANAGED_DIRS: dict[str, Path] = {
     "Linux": Path("/etc/claude-code"),
     "Windows": Path("C:/Program Files/ClaudeCode"),
 }
-MANAGED_DIR_ENV = "FUSION_CLAUDE_MANAGED_DIR"
 FLAG_SETTINGS_ENV = "FUSION_FLAG_SETTINGS_JSON"
 FLAG_SETTINGS_DIR_ENV = "FUSION_FLAG_SETTINGS_DIR"
 #: `--settings` içinden taşınan bölümler (izin kuralları ayrı katmanda taşınır).
@@ -73,9 +72,6 @@ def _read(path: Path) -> dict[str, object] | None:
 
 
 def _managed_dir() -> Path | None:
-    override = os.environ.get(MANAGED_DIR_ENV, "").strip()
-    if override:
-        return Path(override).expanduser()
     return MANAGED_DIRS.get(platform.system())
 
 
