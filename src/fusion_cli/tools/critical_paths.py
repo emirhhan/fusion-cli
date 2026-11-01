@@ -14,6 +14,9 @@ kritik yol silmesidir:
 * hedefi yalnız komut ikamesi çıktısı olan özyinelemeli `rm` (`rm -rf "$(pwd)"`);
 * yalnız ters bölülerden oluşan hedef.
 
+`//` (POSIX'te kök) `/` sayılır, `$HOME`/`${HOME}` ev dizinine çözülür ve tırnaksız komut
+ikamesi (`rm -rf $(pwd)`) tırnaklı biçim gibi tanınır (inceleme, 1 Kasım).
+
 `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1` başlangıç ortamındaysa bypass kipinde
 bu istem kapanır (yalnız bypass kipinin kendisinde).
 """
@@ -41,6 +44,9 @@ _MOUNT_PARENTS: tuple[tuple[Path, int], ...] = (
     (Path("/run/media"), 2),
 )
 _SUBSTITUTION_ONLY = re.compile(r"^(?:\$?\(.*\)|`.*`)$", re.DOTALL)
+#: Ayrı sözcük olarak yazılmış tırnaksız ikame: `shell_segments` onu ayrı parçaya böler.
+_BARE_SUBSTITUTION = re.compile(r"(?<![^\s;&|])(\$\([^()]*\)|`[^`]*`)(?=$|[\s;&|])")
+_HOME_PREFIX = re.compile(r"^(?:\$HOME|\$\{HOME\})(?=/|$)")
 
 
 def skip_critical_prompt(environ: Mapping[str, str] | None = None) -> bool:
@@ -56,7 +62,7 @@ def critical_rm_reason(
 
     home = home or Path.home()
     extras = tuple(extra_roots)
-    for segment in shell_segments(command):
+    for segment in shell_segments(_BARE_SUBSTITUTION.sub(r'"\1"', command)):
         words = _raw_words(segment)
         if not words or words[0].rsplit("/", 1)[-1] not in _REMOVERS:
             continue
@@ -83,6 +89,7 @@ def _is_critical(
     raw: str, recursive: bool, root: Path | None, extras: tuple[Path, ...], home: Path
 ) -> bool:
     text = raw.strip("'\"") if not raw.startswith('"$') else raw.replace('"', "")
+    text = _HOME_PREFIX.sub("~", text)
     if text and set(text) == {"\\"}:
         return True
     if _VAR_GLOB.match(text):
@@ -119,7 +126,8 @@ def _absolute(text: str, root: Path | None, home: Path) -> Path:
     path = Path(text)
     if not path.is_absolute():
         path = (root or Path.cwd()) / path
-    return Path(os.path.normpath(path))
+    # POSIX `//` uygulamaya bağlıdır ama `rm` için köktür; `normpath` onu korur.
+    return Path(re.sub(r"^/{2,}", "/", os.path.normpath(path)))
 
 
 def _is_self_or_parent(target: Path, directory: Path) -> bool:

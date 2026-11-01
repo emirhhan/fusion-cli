@@ -61,6 +61,15 @@ def ev(tmp_path, monkeypatch):
         ("rm -rf build", False),
         ("rm -rf /tmp/proje/x", False),
         ("ls /", False),
+        # İnceleme (1 Kasım): `//` kök, tırnaksız ikame ve `$HOME` kaçıyordu.
+        ("rm -rf //", True),
+        ("rm -rf //usr", True),
+        ("rm -rf $(pwd)", True),
+        ("rm -rf `pwd`", True),
+        ("rm -rf $HOME", True),
+        ('rm -rf "${HOME}"', True),
+        ("rm -rf $HOME/x", False),
+        ("echo $(pwd)", False),
     ],
 )
 def test_kritik_yol_tespiti(tmp_path, ev, komut, kritik):
