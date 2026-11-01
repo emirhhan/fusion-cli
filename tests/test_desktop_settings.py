@@ -74,7 +74,7 @@ def test_eski_kademe_ayarlari_yuklemeyi_bozmaz_ve_uyarir(tmp_path: Path, caplog)
 
 
 def test_kisitlayici_eski_kademe_ayari_ayrica_belirgin_uyarilir(tmp_path: Path, caplog):
-    """#424: kısıtlayıcı eski ayar (observe/click) yok sayılınca yetki genişler; bu açıkça söylenir."""
+    """#424: kısıtlayıcı eski ayar yok sayılınca yetki genişler; bu açıkça söylenir."""
     from fusion_cli.config import desktop_deprecation
 
     desktop_deprecation._WARNED.clear()

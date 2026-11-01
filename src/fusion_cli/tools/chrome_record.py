@@ -79,7 +79,8 @@ async def start_recording(context: ToolContext) -> ToolResult:
     interval = result.get("interval_ms")
     return ToolResult(
         f"Ekran kaydı başladı (her {interval} ms bir kare, en çok {result.get('max_frames')} "
-        "kare). Sayfada işlemleri yap; bitince gif_creator stop_recording ve export ile GIF'e çevir."
+        "kare). Sayfada işlemleri yap; bitince gif_creator stop_recording ve export ile "
+        "GIF'e çevir."
     )
 
 

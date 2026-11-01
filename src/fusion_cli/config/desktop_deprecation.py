@@ -31,7 +31,7 @@ _RESTRICTIVE = frozenset({"observe", "click"})
 
 
 def _restrictive_items(raw: dict[object, object]) -> list[str]:
-    """Eski ayarlardaki tam kontrolden düşük kademeler (`control_level=click`, `Terminal=observe`)."""
+    """Eski ayarlardaki tam kontrolden düşük kademeler (ör. `Terminal=observe`)."""
     items: list[str] = []
     level = raw.get("control_level")
     if isinstance(level, str) and level.strip().lower() in _RESTRICTIVE:

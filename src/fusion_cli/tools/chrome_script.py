@@ -127,12 +127,12 @@ async def chrome_batch(args: ToolArgs, context: ToolContext) -> ToolResult:
     approved = [await _effect(tool, data, context) for _, data, tool in resolved]
     lines: list[str] = []
     content: list[ToolContent] = []
-    for index, (name, data, tool) in enumerate(resolved, start=1):
-        if index > 1 and approved[index - 1] is not _ESCALATED:
-            if await _effect(tool, data, context) is _ESCALATED:
-                lines.append(ESCALATED_RESULT.format(index=index, name=name))
-                return ToolResult.failure("\n".join(lines), content=tuple(content))
-        outcome = tool.run(data, context)
+    for index, (name, item_args, tool) in enumerate(resolved, start=1):
+        rechecked = index > 1 and approved[index - 1] is not _ESCALATED
+        if rechecked and await _effect(tool, item_args, context) is _ESCALATED:
+            lines.append(ESCALATED_RESULT.format(index=index, name=name))
+            return ToolResult.failure("\n".join(lines), content=tuple(content))
+        outcome = tool.run(item_args, context)
         result = await outcome if inspect.isawaitable(outcome) else outcome
         content.extend(result.content)
         lines.append(f"[{index}] {name}: {result.output}")
