@@ -45,7 +45,8 @@ REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin", "eklenti
 
 HEADER = (
     "BECERİ DİZİNİ (ad — ne işe yarar). Görev bunlardan birine uyuyorsa ÖNCE "
-    "read_skill('<ad>') ile talimatı yükle, sonra uygula; listede yoksa find_skill ile ara."
+    "Skill(skill='<ad>', args='…') ile çağır, dönen yönergeleri uygula; listede yoksa "
+    "find_skill ile ara."
 )
 
 

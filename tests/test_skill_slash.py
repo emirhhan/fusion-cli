@@ -104,12 +104,13 @@ def test_isleyici_gorev_baglam_ve_arac_kisitini_hazirlar(state: ReplState):
     assert state.pending_task == "42"
     assert "Rapor: 42" in state.pending_context
     assert "Durum: canli" in state.pending_context  # ~/.claude güvenilir kök, auto kipi
-    assert state.pending_tools == frozenset(
-        {"read_file", "view_file", "grep_search", "search_code"}
-    )
+    # Claude Code `allowed-tools` (#142): araçlar daraltılmaz, listedekiler bu tur ön onaylıdır.
+    assert state.pending_tools is None
+    assert ("allow", "Read") in state.pending_grants
     ekler = state.take_pending_extras()
-    assert ekler.merged_tools({"read_file", "run_shell"}) == {"read_file"}
-    assert state.pending_context == "" and state.pending_tools is None
+    assert ekler.merged_tools({"read_file", "run_shell"}) == {"read_file", "run_shell"}
+    assert ("allow", "Read") in ekler.grants
+    assert state.pending_context == "" and state.pending_grants == ()
 
 
 def test_plan_kipinde_shell_baglami_calismaz(state: ReplState):
@@ -157,10 +158,12 @@ def test_guvenilen_projenin_becerisinde_yalniz_salt_okur_komut_calisir(
     state: ReplState, monkeypatch
 ):
     """Ölçüldü: proje becerisi `fusion trust` sonrası `git pull` ile değişse de tam yetkiliydi."""
-    from fusion_cli.cli.repl import skill_commands as modul
     from fusion_cli.config.trust import TrustState
+    from fusion_cli.engines.agent import skill_tool
 
-    monkeypatch.setattr(modul.trust, "resolve_project_trust", lambda root: TrustState(True, "test"))
+    monkeypatch.setattr(
+        skill_tool.trust, "resolve_project_trust", lambda root: TrustState(True, "test")
+    )
     beceri = state.root / ".claude" / "skills" / "proje-b"
     beceri.mkdir(parents=True)
     (beceri / "SKILL.md").write_text(

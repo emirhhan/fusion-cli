@@ -89,7 +89,7 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "sendmessage": frozenset({"SendMessage", "send_message"}),
     "listagents": frozenset({"ListAgents", "list_agents"}),
     "taskstop": frozenset({"TaskStop", "stop_agent"}),
-    "skill": frozenset({"find_skill", "read_skill"}),
+    "skill": frozenset({"Skill", "find_skill", "read_skill"}),
     "askuserquestion": frozenset({"ask_user"}),
     # Fusion'da ayrı defter aracı yok; `.ipynb` de dosya düzenlemesiyle yazılır.
     "notebookedit": frozenset({"edit_file", "write_file"}),

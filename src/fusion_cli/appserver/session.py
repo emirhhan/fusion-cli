@@ -3113,6 +3113,7 @@ class AppSession:
                 history=history,
                 cron=None if browser_only else self._state.cron,
                 chrome_bridge=self._chrome,
+                skill_grants=pending_extras.grants,
                 allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
                     if browser_only
@@ -3510,6 +3511,13 @@ class AppSession:
             self._state.pending_model_choice = resolution.choice
         self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
             item.disallowed_tools
+        )
+        # `allowed-tools` ön onayı ve `disallowed-tools` deseni bu turun izin kuralı (#142).
+        from ..engines.agent.skill_tool import grant_entries
+
+        self._state.pending_grants = (
+            *self._state.pending_grants,
+            *grant_entries(item, self._state.root),
         )
 
     def _cancel_turn(self) -> dict[str, Any]:

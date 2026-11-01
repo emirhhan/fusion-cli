@@ -147,7 +147,7 @@ async def test_masaustu_katalog_secimi_beceri_modelini_tura_uygular(tmp_path: Pa
 def test_guvenilmeyen_projenin_becerisi_modeli_degistiremez(tmp_path: Path, monkeypatch):
     """Ölçüldü (31 Ekim): depo kaynaklı `/ad` becerisi `model:` ile turu güvenilmeyen
     projede bile başka bir sağlayıcıya yönlendirebiliyordu."""
-    from fusion_cli.cli.repl import skill_commands
+    from fusion_cli.engines.agent import skill_tool
 
     root = tmp_path / "depo"
     folder = root / ".claude" / "skills" / "depo-becerisi"
@@ -165,7 +165,7 @@ def test_guvenilmeyen_projenin_becerisi_modeli_degistiremez(tmp_path: Path, monk
     skill = state.capabilities.get_skill("depo-becerisi")  # type: ignore[union-attr]
     assert skill is not None and "proje" in skill.source
     trusted = SimpleNamespace(trusted=False)
-    monkeypatch.setattr(skill_commands.trust, "resolve_project_trust", lambda _root: trusted)
+    monkeypatch.setattr(skill_tool.trust, "resolve_project_trust", lambda _root: trusted)
 
     cikti = skill_handler(skill.qualified_name)(state, "")
     turn = state.take_pending_extras().turn_config(state.config)

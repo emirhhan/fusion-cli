@@ -25,6 +25,7 @@ from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
+from ...engines.agent import skill_grants
 from ...engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
@@ -959,6 +960,8 @@ class _TuiSession:
                 line = self._state.take_persona_initial(line)
                 persona = persona_turn(self._state.persona)
                 extras = self._state.take_pending_extras()
+                # Önceki becerinin ön onayı kalkar; bu çağrınınki girer (#142, #180).
+                skill_grants.begin_turn(tool_context, extras.grants)
                 turn_extra_system = "\n\n".join(
                     part
                     for part in (

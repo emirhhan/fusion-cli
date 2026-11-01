@@ -69,6 +69,7 @@ from ..engines.agent.approval import (
     may_run_unasked_commands,
 )
 from ..engines.agent.child_runs import ChildRuns
+from ..engines.agent.skill_grants import grant as grant_skill_rules
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.tool_filter import DeniedToolsPolicy
@@ -238,6 +239,8 @@ async def run_agent_task(
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
     denied_tools: frozenset[str] = frozenset(),
+    #: Becerinin tur izin kuralları (`allowed-tools` ön onayı, `disallowed-tools` deseni; #142).
+    skill_grants: tuple[tuple[str, str], ...] = (),
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
@@ -328,6 +331,7 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        grant_skill_rules(tool_context, skill_grants)
         tool_context = apply_runtime_settings(tool_context, config)
         if cron is not None:
             # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.

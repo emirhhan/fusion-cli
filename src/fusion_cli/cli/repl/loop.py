@@ -57,6 +57,7 @@ from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
+from ...engines.agent import skill_grants
 from ...engines.agent.compaction import compress
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
 from ...engines.agent.turn_evidence import evidence_from_turn
@@ -911,6 +912,8 @@ async def _agent_turn(
         try:
             persona = persona_turn(state.persona)
             extras = state.take_pending_extras()
+            # Önceki becerinin ön onayı kalkar; bu çağrınınki girer (#142, #180).
+            skill_grants.begin_turn(tool_context, extras.grants)
             # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
             deps.config = extras.turn_config(deps.config)
             turn_extra_system = "\n\n".join(

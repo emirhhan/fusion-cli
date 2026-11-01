@@ -926,6 +926,11 @@ def _register_capability_tools(
     if library.skills():
         registry.register(_find_skill_tool(library))
         registry.register(_read_skill_tool(library, publisher=deps.publisher))
+        if any(skill.model_invocable for skill in library.skills()):
+            # Claude Code `Skill` aracı (#139): işlenmiş gövde konuşmaya girer.
+            from .skill_tool import build_skill_tool
+
+            registry.register(build_skill_tool(library, deps, depth=depth, run_agent=run_agent))
     if library.agents():
         registry.register(_find_agent_tool(library))
         registry.register(_invoke_agent_tool(deps, depth=depth, run_agent=run_agent))

@@ -15,26 +15,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...config import trust
-from ...core.proposal_invocation import ProposalPolicy
-from ...engines.agent.approval import ApprovalMode
-from ...engines.agent.routine_invocation import RoutineInvocationValidator
+from ...engines.agent import skill_tool
 from ...engines.agent.skill_turn import resolve_turn_model
 from ...tools.capabilities import Capability, CapabilityRegistry
-from ...tools.skill_commands import TemplateEnv, build_invocation
 from ...tools.skill_shell import ShellPolicy
 from ...ui import messages
 from .macros import Mode
 from .state import Engine, ReplState
 
-#: Bu kaynaklardan gelen beceri dosyaları kullanıcının kendi dizinindedir: `!`cmd`` koşabilir.
-TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
-
-#: Depo içeriği sayılan kaynaklar: güvenilen projede bile yalnız salt-okur `!`cmd``.
-PROJECT_SOURCES = frozenset({"proje", "ek-kok"})
-
-#: `!`cmd`` yalnız komut çalıştırmaya zaten izinli kiplerde koşar; plan/security sormadan koşmaz.
-SHELL_CONTEXT_MODES = frozenset({ApprovalMode.AUTO, ApprovalMode.ACCEPT_EDITS, ApprovalMode.BYPASS})
+#: Ortak kurallar `engines/agent/skill_tool`'da (modelin `Skill` aracı ile aynı, #139).
+TRUSTED_SOURCES = skill_tool.TRUSTED_SOURCES
+PROJECT_SOURCES = skill_tool.PROJECT_SOURCES
+SHELL_CONTEXT_MODES = skill_tool.SHELL_CONTEXT_MODES
 
 #: Yardım satırında açıklamanın en fazla uzunluğu.
 _SUMMARY_CHARS = 72
@@ -44,56 +36,20 @@ GROUP = "Beceri"
 
 
 def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, bool]:
-    """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`.
-
-    Kullanıcının kendi kökleri (`~/.claude`, `~/.codex`, …) tam yetkili; proje (ya da ek kök)
-    kaynaklı beceri `fusion trust` ile güvenilen projede YALNIZ salt-okur komut koşar: güven
-    özeti `config.yaml`a bağlıdır, beceri dosyasının içeriğine değil (ölçüldü 31 Ekim).
-    """
-    if state.approval not in SHELL_CONTEXT_MODES:
-        return False, False
-    sources = set(skill.source.split("+"))
-    if sources & TRUSTED_SOURCES:
-        return True, False
-    project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(state.root).trusted
-    return project, True
-
-
-#: `disableSkillShellExecution` bu kaynakları etkilemez (Claude: paketli ve kurumsal beceriler).
-_POLICY_EXEMPT_SOURCES = frozenset({"fusion", "managed"})
+    """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`."""
+    return skill_tool.shell_mode_policy(skill, state.approval, state.root)
 
 
 def skill_shell_policy(state: ReplState, skill: Capability) -> ShellPolicy:
     """Becerinin `!`cmd`` politikası: kip, izin kuralları ve `disableSkillShellExecution`."""
     from pathlib import Path
 
-    from ...config import claude_settings
-    from ...config.permission_rules import load_permission_rules
-    from ...tools.permission_match import evaluate
-
-    allowed, read_only = shell_context_policy(state, skill)
-    root = state.root
-    rules = load_permission_rules(root)
-
-    def decision(command: str) -> str | None:
-        match = evaluate(rules, "run_shell", {"command": command}, root)
-        return match.decision.value if match is not None else None
-
-    disabled = (
-        claude_settings.effective_bool(root, Path.home(), "disableSkillShellExecution")
-        and not set(skill.source.split("+")) & _POLICY_EXEMPT_SOURCES
-    )
-    return ShellPolicy(
-        mode_allows=allowed, read_only=read_only, disabled=disabled, rule_decision=decision
-    )
+    return skill_tool.shell_policy(skill, state.approval, state.root, Path.home())
 
 
 def model_override_allowed(state: ReplState, skill: Capability) -> bool:
     """Becerinin `model:` alanı uygulanabilir mi: depo kaynaklıysa proje güvenilmeli."""
-    sources = set(skill.source.split("+"))
-    if sources & TRUSTED_SOURCES or not sources & PROJECT_SOURCES:
-        return True
-    return trust.resolve_project_trust(state.root).trusted
+    return skill_tool.skill_trusted(skill, state.root)
 
 
 def shell_context_allowed(state: ReplState, skill: Capability) -> bool:
@@ -109,35 +65,29 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         skill = registry.get_skill(qualified_name) if registry is not None else None
         if skill is None:
             return messages.REPL_SKILL_MISSING.format(name=qualified_name.split("@", 1)[0])
-        policy = skill_shell_policy(state, skill)
-        invocation = build_invocation(
+        from pathlib import Path
+
+        invocation = skill_tool.invoke(
             skill,
             argument,
-            TemplateEnv(
-                skill_dir=skill.path.parent,
-                project_dir=state.root,
-                session_id=state.conversation_id,
-                effort=str(getattr(state.config.runtime, "reasoning_effort", "") or ""),
-            ),
-            shell_allowed=policy.mode_allows,
-            shell_read_only=policy.read_only,
-            shell_policy=policy,
-            proposal_policy=ProposalPolicy(state.config.runtime.verified_skill_proposals),
-            proposal_validator=RoutineInvocationValidator(
-                state.config.memory_dir,
-                ProposalPolicy(state.config.runtime.verified_skill_proposals),
-            ),
+            mode=state.approval,
+            root=state.root,
+            home=Path.home(),
+            session_id=state.conversation_id,
+            effort=getattr(state.config.runtime, "reasoning_effort", "") or "",
+            verified_proposals=state.config.runtime.verified_skill_proposals,
+            memory_dir=state.config.memory_dir,
         )
         if not invocation.ok:
             return "\n".join(invocation.notes)
         state.pending_task = invocation.task
-        # `context: fork` (P-054): tur ana bağlamı devralan fork alt ajanda koşar (`/subtask`
-        # ile aynı yol); beceri gövdesi ve araç kısıtı brif/tavan olarak alt ajana geçer.
+        # `context: fork`: tur fork alt ajanda koşar (`/subtask` yolu), ama geçmişsiz.
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE
         state.pending_context = invocation.context
-        state.pending_tools = (
-            frozenset(invocation.allowed_tools) if invocation.allowed_tools is not None else None
-        )
+        # `allowed-tools` araçları daraltmaz, bu turda ön onaylar; `disallowed-tools` deseni
+        # (`Bash(rm *)`) izin kuralı olarak yalnız o komutu düşürür (Claude Code #142, #180).
+        state.pending_tools = None
+        state.pending_grants = skill_tool.grant_entries(skill, state.root)
         # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.
         resolution = resolve_turn_model(
             invocation.model,
@@ -148,6 +98,8 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_model_choice = resolution.choice
         state.pending_denied_tools = invocation.denied_tools
         state.pending_fork_agent = invocation.agent
+        # `context: fork` (#141): alt ajan konuşma geçmişini görmez; gövde görev istemidir.
+        state.pending_fresh_fork = invocation.fork
         lines = [messages.REPL_SKILL_STARTED.format(name=skill.name)]
         if state.engine is not Engine.AGENT:
             # Beceri gövdesi ve araç kısıtı yalnız agent turunda tüketilir; Fusion motorunda

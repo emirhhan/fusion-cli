@@ -96,6 +96,7 @@ async def run_forked_turn(
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
     persona: str = "",
+    inherit_context: bool = True,
     **_ignored: object,
 ) -> AgentOutcome:
     """`/subtask <görev>`: turu fork alt ajan olarak koştur, ana geçmişe yalnız özeti ekle.
@@ -107,12 +108,14 @@ async def run_forked_turn(
     becerisinin talimatı hiç uygulanmıyor, salt-okur kişilik fork içinde yazabiliyordu.
     `chat_mode`/`workflow` gibi kalan tur ayarları alt ajanda anlamsızdır, yok sayılır.
     `persona`: becerinin `agent:` alanı (P-020); o alt ajan tanımı fork'u koşar.
+    `inherit_context=False`: becerinin `context: fork`u (Claude Code #141) — alt ajan konuşma
+    geçmişini GÖRMEZ, gövde kendi başına yeter; ana geçmişe yine yalnız özet eklenir.
     """
     from .loop import AgentOutcome, run_agent
     from .team import SubTask, run_subagent
 
     snapshot = list(history or [])
-    seed = list(snapshot)
+    seed = list(snapshot) if inherit_context else []
     if system_prompt is not None:
         if seed and seed[0].role == "system":
             seed[0] = Message("system", system_prompt)
@@ -123,7 +126,7 @@ async def run_forked_turn(
         task=task.strip(),
         persona=persona,
         read_only=plan_mode,
-        inherit_context=True,
+        inherit_context=inherit_context,
         brief=extra_system,
         tool_cap=frozenset(allowed_tools) if allowed_tools is not None else None,
         tool_deny=frozenset(denied_tools),

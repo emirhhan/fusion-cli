@@ -103,6 +103,10 @@ class PendingExtras:
     denied: frozenset[str] = frozenset()
     #: `context: fork` + `agent:` → fork turunu bu alt ajan tanımı koşar.
     fork_agent: str = ""
+    #: Becerinin tur izin kuralları `("allow"|"deny", desen)` (#142, #180).
+    grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: alt ajan geçmişsiz başlar (Claude Code #141).
+    fresh_fork: bool = False
 
     def merged_tools(self, base: set[str] | None) -> set[str] | None:
         """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
@@ -119,8 +123,13 @@ class PendingExtras:
         return self.model_choice.apply(config)
 
     def fork_runner(self, runner: TurnRunner) -> TurnRunner:
-        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla koşar."""
-        return functools.partial(runner, persona=self.fork_agent) if self.fork_agent else runner
+        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla, beceri fork'u geçmişsiz koşar."""
+        options: dict[str, object] = {}
+        if self.fork_agent:
+            options["persona"] = self.fork_agent
+        if self.fresh_fork:
+            options["inherit_context"] = False
+        return functools.partial(runner, **options) if options else runner
 
 
 @dataclass(slots=True)
@@ -238,6 +247,10 @@ class ReplState:
     pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
     pending_denied_tools: frozenset[str] = frozenset()
     pending_fork_agent: str = ""
+    #: `allowed-tools` ön onayı ve `disallowed-tools` deseni: sıradaki turun izin kuralları.
+    pending_grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: sıradaki fork turu geçmişsiz alt ajanda koşar (#141).
+    pending_fresh_fork: bool = False
     #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
     linked_pr: PullRequestLink | None = None
 
@@ -360,8 +373,11 @@ class ReplState:
             self.pending_model_choice,
             self.pending_denied_tools,
             self.pending_fork_agent,
+            self.pending_grants,
+            self.pending_fresh_fork,
         )
         self.pending_context, self.pending_tools = "", None
+        self.pending_grants, self.pending_fresh_fork = (), False
         self.pending_model_choice = TurnModelChoice()
         self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
         return extras

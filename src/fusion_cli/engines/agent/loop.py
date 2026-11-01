@@ -157,6 +157,7 @@ from . import (
     output_style,
     reflexion,
     review,
+    skill_grants,
 )
 from .action_evidence import claimed_effects
 from .agent_task_tools import is_agent_task_request
@@ -4302,6 +4303,8 @@ async def _execute(
     # varsayılan profil hiç sorulmadan yükleniyordu. İzin kuralı (ask/deny) okuma
     # araçlarını da kapıdan geçirir (P-001).
     rules = hook_gate.rules(getattr(deps, "permission_rules", None), call.name)
+    # Etkin becerinin `allowed-tools` ön onayı ve `disallowed-tools` deseni (#142, #180).
+    rules = skill_grants.with_grants(rules, deps.tool_context)
     if tool is not None and (
         tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
     ):
