@@ -5,7 +5,8 @@ Claude Code (https://code.claude.com/docs/en/plugins/loading.md "When auto-updat
   pazar yenilenir ve ondan kurulan eklentiler diskte güncellenir; açık oturum yüklediği sürümle
   sürer ve `Plugin updated: <ad> · Run /reload-plugins to apply` bildirilir.
 - Açık mı: (1) `extraKnownMarketplaces` girdisindeki `autoUpdate`, (2) `known_marketplaces.json`
-  girdisindeki `autoUpdate` (Fusion'da yok: `/plugin` Marketplaces anahtarı yok), (3) varsayılan:
+  girdisindeki `autoUpdate` (Fusion: `/plugin` Marketplaces anahtarı pazar kaydına yazar),
+  (3) varsayılan:
   Anthropic'in resmî pazarlarında açık (`knowledge-work-plugins`, `first-party-plugins` kapalı),
   diğerlerinde kapalı.
 - `DISABLE_UPDATES=1`, `DISABLE_AUTOUPDATER=1` ya da `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
@@ -75,11 +76,16 @@ def auto_update_disabled() -> bool:
     return any(_truthy(name) for name in DISABLE_ENVS)
 
 
-def is_auto_update(name: str, declared: Mapping[str, DeclaredMarket]) -> bool:
-    """Önce bildirimdeki `autoUpdate`, yoksa resmî pazar varsayılanı."""
+def is_auto_update(
+    name: str, declared: Mapping[str, DeclaredMarket], recorded: bool | None = None
+) -> bool:
+    """Önce bildirimdeki `autoUpdate`, sonra `/plugin` anahtarıyla kaydedilen değer, yoksa
+    resmî pazar varsayılanı."""
     item = declared.get(name)
     if item is not None and item.auto_update is not None:
         return item.auto_update
+    if recorded is not None:
+        return recorded
     return name in DEFAULT_ON
 
 
@@ -116,7 +122,7 @@ def auto_update_pass(root: Path | None = None, *, base: Path | None = None) -> t
     declared = declared_marketplaces(root or Path.cwd())
     updated: list[str] = []
     for record in load_state(store).marketplaces:
-        if is_auto_update(record.name, declared):
+        if is_auto_update(record.name, declared, record.auto_update):
             updated.extend(_update_market(record.name, store))
     for name in updated:
         _LOG.info(NOTICE.format(name=name))

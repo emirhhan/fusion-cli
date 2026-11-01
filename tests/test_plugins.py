@@ -381,7 +381,7 @@ def test_repl_plugin_komutu_onay_ister_ve_katalogu_yeniler(tmp_path):
     assert "--yes" in first and "MCP" in first
     assert plugin_store.load_state().plugins == ()
 
-    second = command.handler(state, f"install {source} --yes")
+    second = command.handler(state, f"kur {source} --yes")
     assert "Kuruldu: rapor-araclari" in second
     assert state.capabilities is not None
     assert state.capabilities.get_skill("rapor-araclari:ozet") is not None

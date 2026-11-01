@@ -266,6 +266,12 @@ def _would_open_picker(name: str, argument: str) -> bool:
     return name == "providers" and arg.startswith("add")  # gizli anahtar istemi açar
 
 
+def _opens_plugin_panel(argument: str) -> bool:
+    from .plugin_panel import start_key
+
+    return start_key(argument) is not None
+
+
 def _profile_edit_target(argument: str) -> tuple[str, bool] | None:
     """`/profiles edit <profil> [incompatible]` → (profil, uyumsuzları göster); değilse None."""
     parts = argument.split()
@@ -617,6 +623,14 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "plugin" and _opens_plugin_panel(argument):
+            # `/plugin` paneli (#382): Discover/Installed/Marketplaces/Errors, uygulama-içi modal.
+            from .plugin_panel import run_async, start_key
+
+            start = start_key(argument) or "discover"
+            message = await run_async(self._state, self._tui.await_choice, start)
+            self._echo(f"[{theme.DIM}]{escape(message)}[/{theme.DIM}]")
+            return
         elif command.name == "development":
             # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.

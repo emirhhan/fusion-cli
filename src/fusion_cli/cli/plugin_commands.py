@@ -105,6 +105,7 @@ def approver(yes: bool) -> plugins.ApprovalCallback:
 
 @app.command("kur")
 def install(
+    ctx: typer.Context,
     source: str = typer.Argument(..., help="Eklenti adı ya da ad@pazar (eski: klasör/https/repo)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Yalnız doğrula ve özetle."),
@@ -149,6 +150,7 @@ def install(
             scope=scope,
             marketplace=marketplace,
             expected_digest=digest,
+            allow_direct=ctx.info_name == "kur",  # eski ad: doğrudan kaynak bir sürüm daha
         )
         text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
         return text + _configure_after_install(done, config), {
@@ -542,6 +544,7 @@ for _m_alias, _m_command, _m_hidden in (
 app.add_typer(market_app, name="marketplace")
 
 from . import plugin_configure as _configure  # noqa: E402,F401  (configure, #388)
+from . import plugin_extra_commands as _extra_commands  # noqa: E402,F401  (details, prune)
 
 for _group in app.registered_groups:
     if _group.name == "pazar":

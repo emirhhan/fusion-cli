@@ -153,7 +153,7 @@ def test_enable_disable_uninstall_json(tmp_path):
 
 def test_dogrudan_kaynak_kurulumu_uyari_verir_kesfet_kalkti(tmp_path, caplog):
     source = _plugin(tmp_path / "kaynak", "tek")
-    result = runner.invoke(app, ["install", str(source), "-y"])
+    result = runner.invoke(app, ["kur", str(source), "-y"])
     assert result.exit_code == 0, result.output
     assert "Doğrudan kaynaktan kurulum kullanımdan kalktı" in caplog.text
     discover = runner.invoke(app, ["discover"])

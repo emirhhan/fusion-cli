@@ -92,6 +92,8 @@ class MarketplaceRecord:
     added_at: float = 0.0
     #: `marketplace add --sparse` klasörleri (git sparse-checkout, #381); güncellemede korunur.
     sparse: tuple[str, ...] = ()
+    #: `/plugin` Marketplaces "Enable/Disable auto-update" (Claude known_marketplaces autoUpdate).
+    auto_update: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +235,12 @@ def _marketplace(name: str, raw: Mapping[str, object]) -> MarketplaceRecord:
         str(raw.get("yol") or ""),
         _number(raw.get("eklendi")),
         _strings(raw.get("seyrek")),
+        _optional_bool(raw.get("otomatik_guncelle")),
     )
+
+
+def _optional_bool(raw: object) -> bool | None:
+    return raw if isinstance(raw, bool) else None
 
 
 def _strings(raw: object) -> tuple[str, ...]:
@@ -276,6 +283,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 "yol": m.path,
                 "eklendi": m.added_at,
                 **({"seyrek": list(m.sparse)} if m.sparse else {}),
+                **({"otomatik_guncelle": m.auto_update} if m.auto_update is not None else {}),
             }
             for m in sorted(state.marketplaces, key=lambda item: item.name)
         },

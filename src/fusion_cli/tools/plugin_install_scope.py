@@ -32,6 +32,11 @@ WARN_DIRECT = (
     "Doğrudan kaynaktan kurulum kullanımdan kalktı: Claude Code `install` yalnız eklenmiş bir "
     "pazardan kurar. Kullan: fusion plugin install <ad> --marketplace <kaynak>"
 )
+ERR_NOT_IN_MARKET = (
+    'Eklenti kurulamadı "{spec}": eklenti "{spec}" yapılandırılmış hiçbir pazarda yok. '
+    "Yerel klasör için: fusion --plugin-dir <yol>; pazar için: "
+    "fusion plugin install <ad> --marketplace <kaynak>"
+)
 ALREADY = 'Plugin "{ident}" is already installed (scope: {scope})'
 
 
@@ -74,8 +79,12 @@ def install_scoped(
     expected_digest: str = "",
     base: Path | None = None,
     root: Path | None = None,
+    allow_direct: bool = False,
 ) -> ScopedInstall:
-    """Kur ve kapsama yaz. Zaten kuruluysa `PluginAlreadyInstalledError` (Claude: çıkış 0)."""
+    """Kur ve kapsama yaz. Zaten kuruluysa `PluginAlreadyInstalledError` (Claude: çıkış 0).
+
+    `allow_direct`: eski `kur` adı doğrudan kaynağı bir sürüm daha kabul eder (#379).
+    """
     store = base or plugins_dir()
     project = root or Path.cwd()
     target = check_scope(scope) if scope else SCOPE_USER
@@ -84,6 +93,8 @@ def install_scoped(
             raise PluginError(ERR_MARKET_BARE.format(spec=spec))
         spec = f"{spec.strip()}@{ensure_marketplace(marketplace, store)}"
     elif is_direct_source(spec):
+        if not allow_direct:  # Claude `install`: yalnız eklenmiş pazardan (#379)
+            raise PluginError(ERR_NOT_IN_MARKET.format(spec=spec))
         _LOG.warning(WARN_DIRECT)
     try:
         item = plugin_install.install_plugin(

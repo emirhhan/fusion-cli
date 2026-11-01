@@ -71,7 +71,7 @@ def test_sonradan_kanca_eklenen_eklentinin_kancasi_ek_onaysiz_yuklenir(tmp_path)
 def test_cli_install_kanca_iceren_eklentide_yes_sormaz(tmp_path):
     source = _plugin(tmp_path / "k", hooks=True)
 
-    result = CliRunner().invoke(plugin_app, ["install", str(source)])
+    result = CliRunner().invoke(plugin_app, ["kur", str(source)])
 
     assert result.exit_code == 0, result.output
     assert plugin_store.load_state().plugin("bicimci") is not None
