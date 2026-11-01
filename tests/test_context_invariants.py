@@ -31,7 +31,7 @@ def _oturum() -> list[Message]:
 
 @pytest.fixture
 def unutkan_ozetleyici(monkeypatch):
-    async def ozetle(trace, config, publisher):
+    async def ozetle(trace, config, publisher, focus=""):
         return "Kullanıcı projede düzenleme istedi."
 
     monkeypatch.setattr(compaction, "_summarize", ozetle)

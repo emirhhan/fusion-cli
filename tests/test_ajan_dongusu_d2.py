@@ -439,7 +439,7 @@ async def test_turlar_arasi_ozet_harness_notu_olarak_eklenir(monkeypatch):
     deyince `task_effect` özet metnini 'en son gerçek görev' sanıyordu."""
     from fusion_cli.engines.agent import compaction
 
-    async def ozetle(trace, config, publisher):
+    async def ozetle(trace, config, publisher, focus=""):
         return "Kullanıcı commit ve push istedi."
 
     monkeypatch.setattr(compaction, "_summarize", ozetle)
@@ -473,7 +473,7 @@ async def test_ardisik_tur_ici_sikistirmada_kurallar_kaybolmaz(monkeypatch):
     from fusion_cli.core.types import Message
     from fusion_cli.engines.agent import compaction
 
-    async def ozetle(trace, config, publisher):
+    async def ozetle(trace, config, publisher, focus=""):
         return "özet"
 
     monkeypatch.setattr(compaction, "_summarize", ozetle)
@@ -566,7 +566,7 @@ async def test_baglam_tasmasi_esigi_kucultur_gecmisi_sikistirir_ve_yeniden_dener
     from fusion_cli.core.types import Message
     from fusion_cli.engines.agent import compaction
 
-    async def ozetle(trace, config, publisher):
+    async def ozetle(trace, config, publisher, focus=""):
         return "özet"
 
     monkeypatch.setattr(compaction, "_summarize", ozetle)
