@@ -268,7 +268,10 @@ def _shell_env(context: ToolContext) -> dict[str, str]:
     kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz. MCP sır adları
     (`context.hidden_env`) çıkarılır: komut `env` yazarsa sırlar modele gitmesin.
     """
-    return {name: value for name, value in php_env().items() if name not in context.hidden_env}
+    from ..config.plugin_bin import with_plugin_bin
+
+    env = {name: value for name, value in php_env().items() if name not in context.hidden_env}
+    return with_plugin_bin(env, context.root)  # #389: etkin eklentilerin bin/ klasörleri
 
 
 def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
