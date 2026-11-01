@@ -24,6 +24,11 @@ RULES_TITLE = "{tab} kuralları — kural seç ya da yeni ekle (Esc: geri)"
 ADD_RULE = "+ Yeni kural ekle…"
 ADD_RULE_DESC = "ör. Bash(npm test *), Read(./.env), WebFetch(domain:example.com)"
 RULE_PROMPT = "Kural kalıbını yaz (boş: vazgeç):"
+#: Öneri varken boş giriş öneriyi kullanır (TUI'de Esc de boş giriştir); vazgeçmek için
+#: sonraki kapsam seçiminde Esc.
+RULE_PROMPT_SUGGESTED = (
+    "Kural kalıbını yaz (boş: öneriyi kullan [{pattern}]; vazgeçmek için kapsam seçiminde Esc):"
+)
 SCOPE_TITLE = "Kural nereye kaydedilsin?"
 SCOPE_LOCAL = "Proje ayarları (yerel)"
 SCOPE_LOCAL_DESC = ".claude/settings.local.json — yalnız sen, bu proje"
@@ -53,5 +58,7 @@ AUTO_STATUS_DESC = "/auto-mode ile aynı özet"
 AUTO_DENIAL_DESC = "auto mode reddetti"
 AUTO_DENIAL_RULE = "Bu çağrıya izin veren kural ekle"
 AUTO_DENIAL_RULE_DESC = "kalıp önerisi: {pattern}"
+#: Özet joker (`*`, `?`) taşıyor ya da kısaltılmış: öneri istenenden geniş olurdu.
+AUTO_DENIAL_RULE_NO_SUGGESTION = "öneri yok (özet joker ya da kısaltma içeriyor); kalıbı sen yaz"
 
 DIALOG_CLOSED = "İzinler kapatıldı."

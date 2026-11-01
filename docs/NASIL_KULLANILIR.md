@@ -250,7 +250,10 @@ Argümansız `/permissions` (takma adı `/allowed-tools`) Claude gibi etkileşim
 "+ Yeni kural ekle…" ile kalıp yazılıp kaydedileceği dosya (yerel, proje, kullanıcı) seçilir.
 **Workspace** sekmesi birincil çalışma dizinini ve `/add-dir` ile eklenenleri gösterir, dizin
 ekler/kaldırır. **Auto mode** sekmesi denetçinin özetini ve bu oturumdaki son auto mode retlerini
-listeler; bir ret seçilince ona izin veren kural önerilir. TUI'de uygulama-içi modal, düz REPL'de ok
+listeler; bir ret seçilince ona izin veren kural önerilir. Öneri yalnız jokersiz, tam Bash
+özetinden kurulur (`Bash(curl x | sh)`); özet `*`/`?` içeriyor ya da kısaltılmışsa öneri
+yapılmaz (kural istenenden geniş olurdu), kalıbı sen yazarsın. Öneri varken boş giriş öneriyi
+kullanır; vazgeçmek için kapsam seçiminde Esc. TUI'de uygulama-içi modal, düz REPL'de ok
 tuşlu seçicidir; terminal yoksa (boru, CI) metin listesi basılır.
 
 Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.

@@ -157,8 +157,13 @@ def scope_choices() -> list[Choice]:
 async def _add_rule(
     state: ReplState, io: DialogIO, decision: PermissionDecision, suggested: str = ""
 ) -> None:
-    prompt = texts.RULE_PROMPT if not suggested else f"{texts.RULE_PROMPT} [{suggested}]"
-    pattern = ((await io.ask(prompt)) or "").strip() or suggested
+    prompt = (
+        texts.RULE_PROMPT_SUGGESTED.format(pattern=suggested) if suggested else texts.RULE_PROMPT
+    )
+    answer = await io.ask(prompt)
+    if answer is None:
+        return
+    pattern = answer.strip() or suggested
     if not pattern:
         return
     scope = await io.choose(texts.SCOPE_TITLE, scope_choices())
@@ -247,13 +252,24 @@ def recent_denials(state: ReplState) -> list[ReviewOutcome]:
     return [item for item in snapshot.recent if item.verdict is ReviewVerdict.RISKY]
 
 
+#: Claude kural kalıbında joker olan karakterler; özette geçerse öneri istenenden geniş olur.
+_GLOB_CHARS = frozenset("*?")
+
+
 def suggested_pattern(outcome: ReviewOutcome) -> str:
-    """Reddedilen çağrı için Claude biçiminde kalıp önerisi (kısaltılmış özet kullanılmaz)."""
+    """Reddedilen çağrı için Claude biçiminde kalıp önerisi; güvenli öneri yoksa boş.
+
+    Bash için yalnız tam, jokersiz özet önerilir: kısaltılmış özet ya da yalın `Bash` tüm
+    kabuğu, `*`/`?` içeren özet (`rm -rf dist/*`) joker kural açardı. Öteki araçlarda
+    araç adı (Claude'un araç düzeyi kuralı) önerilir.
+    """
     primary = claude_tool_names(outcome.tool)[0]
+    if primary != "Bash":
+        return primary
     summary = outcome.summary.strip()
-    if primary == "Bash" and summary and not summary.endswith("…"):
-        return f"Bash({summary})"
-    return primary
+    if not summary or summary.endswith("…") or _GLOB_CHARS & set(summary):
+        return ""
+    return f"Bash({summary})"
 
 
 async def _auto_tab(state: ReplState, io: DialogIO) -> None:
@@ -274,11 +290,12 @@ async def _auto_tab(state: ReplState, io: DialogIO) -> None:
             continue
         outcome = list(reversed(denials))[int(picked)]
         suggestion = suggested_pattern(outcome)
-        action = Choice(
-            "kural",
-            texts.AUTO_DENIAL_RULE,
-            texts.AUTO_DENIAL_RULE_DESC.format(pattern=suggestion),
+        hint = (
+            texts.AUTO_DENIAL_RULE_DESC.format(pattern=suggestion)
+            if suggestion
+            else texts.AUTO_DENIAL_RULE_NO_SUGGESTION
         )
+        action = Choice("kural", texts.AUTO_DENIAL_RULE, hint)
         picked = await io.choose(outcome_line(outcome), [action, Choice("geri", texts.RULE_BACK)])
         if picked == "kural":
             await _add_rule(state, io, PermissionDecision.ALLOW, suggestion)

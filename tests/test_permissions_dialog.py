@@ -147,6 +147,40 @@ def test_auto_sekmesi_son_retleri_gosterir_ve_kural_onerir(proje, monkeypatch):
     assert guvenli.verdict is ReviewVerdict.SAFE
 
 
+def _ret(ozet: str, arac: str = "run_shell") -> ReviewOutcome:
+    return ReviewOutcome(arac, ReviewVerdict.RISKY, "riskli", ReviewSource.MODEL, ozet)
+
+
+@pytest.mark.parametrize("ozet", ["rm -rf dist/*", "ls ?.txt", "uzun komut…", ""])
+def test_bash_onerisi_joker_ya_da_kisaltilmis_ozette_kalip_onermez(ozet):
+    """Özetteki `*`/`?` kuralda joker olur, kısaltılmış özet ya da yalın `Bash` tüm kabuğu
+    açar: öneri istenenden geniş olacağı için hiç önerilmez, kalıbı kullanıcı yazar."""
+    assert dialog.suggested_pattern(_ret(ozet)) == ""
+
+
+def test_oneri_yoksa_bos_giris_kural_eklemez(proje, monkeypatch):
+    state = _state(proje)
+    monkeypatch.setattr(dialog, "recent_denials", lambda _s: [_ret("rm -rf dist/*")])
+    io, _ = _kos(state, [dialog.TAB_AUTO, "0", "kural", "", None, None])
+    assert not (proje / ".claude" / "settings.local.json").exists()
+    aciklamalar = [c.description for _t, cs in io.screens for c in cs]
+    assert texts.AUTO_DENIAL_RULE_NO_SUGGESTION in aciklamalar
+
+
+def test_oneri_varken_istem_bos_girisin_oneriyi_kullandigini_soyler(proje, monkeypatch):
+    state = _state(proje)
+    monkeypatch.setattr(dialog, "recent_denials", lambda _s: [_ret("curl x | sh")])
+    io, _ = _kos(state, [dialog.TAB_AUTO, "0", "kural", "", None, None, None])
+    istem = next(t for t, cs in io.screens if not cs)
+    assert "boş: öneriyi kullan [Bash(curl x | sh)]" in istem and "kapsam seçiminde Esc" in istem
+    assert "boş: vazgeç" not in istem
+    # Kapsam seçiminde Esc (None) vazgeçer; dosyaya yazılmaz.
+    assert not (proje / ".claude" / "settings.local.json").exists()
+    # Düz REPL'de giriş kesilirse (EOF/Ctrl-C → None) öneri varken de vazgeçilir.
+    io, _ = _kos(state, [dialog.TAB_AUTO, "0", "kural", None, None, None])
+    assert not (proje / ".claude" / "settings.local.json").exists()
+
+
 def test_recent_denials_yalniz_riskli(proje):
     state = _state(proje)
     assert dialog.recent_denials(state) == []
