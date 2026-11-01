@@ -1018,6 +1018,12 @@ CMD_DOCTOR = (
 )
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
 REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
+MEMORY_PICKER_HEADER = "Bellek dosyaları (açmak için /memory <n>):"
+MEMORY_PICKER_NEW = " (yok; seçilince oluşturulur)"
+MEMORY_PICKER_AUTO = (
+    "Otomatik bellek: {state} (/memory on|off) · klasör: {folder} · durum: /memory durum"
+)
+MEMORY_PICKER_RANGE = "Geçersiz seçim; 1 ile {count} arasında bir numara yaz."
 CMD_INIT = "proje talimat dosyası üret: CLAUDE.md (varsayılan) ya da AGENTS.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
 REPL_DOCTOR_SETUP_HINT = (

@@ -19,6 +19,7 @@ from ...engines.agent.team import resolve_persona
 from ...history.claude_source import slug_for
 from ...memory.plain_memory import PlainMemoryError, build_plain_memory, open_agent_memory
 from ...ui import messages
+from . import memory_picker
 from .state import ReplState
 
 #: `/memory import <kaynak>` ile alınabilecek dış bellekler: kaynak adı → ev dizinine göre yol.
@@ -26,7 +27,7 @@ IMPORT_SOURCES = ("claude",)
 
 
 def memory(state: ReplState, argument: str) -> str:
-    """`/memory [on|off|edit|list|import <kaynak>|ajan <ad> [sil]|<konu>]`."""
+    """`/memory [<n>|durum|on|off|edit|list|import <kaynak>|ajan <ad> [sil]|<konu>]`."""
     word, _, rest = argument.strip().partition(" ")
     word = word.lower()
     if word in ("on", "off", "ac", "aç", "kapat"):
@@ -34,6 +35,13 @@ def memory(state: ReplState, argument: str) -> str:
     if word in ("ajan", "agent"):
         # Ajan belleği projenin otomatik belleğinden bağımsızdır (P-055); kapalıyken de görülür.
         return _agent(state, rest.strip())
+    if not word:
+        # Claude Code `/memory` (#154): bellek dosyası seçicisi; `/memory <n>` açar.
+        return memory_picker.render_picker(state)
+    if word.isdigit():
+        return memory_picker.open_choice(state, word)
+    if word in ("durum", "status"):
+        return _status(state) if state.plain_memory is not None else messages.MEMORY_OFF_HINT
     if state.plain_memory is None:
         return messages.MEMORY_OFF_HINT
     if word == "edit":

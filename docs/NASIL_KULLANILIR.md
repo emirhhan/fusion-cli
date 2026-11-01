@@ -363,7 +363,10 @@ indeksi + `konular/<konu>.md` dosyaları. İndeksin ilk 200 satırı / 25 KB her
 bağlamına girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
 Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gibi düzenle.
 
-- `/memory` → durum (dosya yolu, satır sayısı, konular) · `/memory on|off` → aç/kapa
+- `/memory` → Claude Code'daki gibi bellek dosyası seçicisi: `~/.claude/CLAUDE.md`, proje
+  `CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` ve otomatik bellek (henüz olmayanlar da);
+  `/memory <n>` seçileni düzenleyicide açar, yoksa oluşturur · `/memory durum` → otomatik
+  bellek durumu (dosya yolu, satır sayısı, konular) · `/memory on|off` → aç/kapa
   (ayara kalıcı yazılır: `runtime.auto_memory`) · `/memory edit` → `$EDITOR`'da aç ·
   `/memory list` · `/memory <konu>` → konu dosyasını göster ·
   `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.

@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import init_prompt
 from .instruction_layers import (
     MAX_FILE_CHARS,
     TOTAL_MAX_CHARS,
@@ -23,7 +24,6 @@ from .instruction_layers import (
     load_instruction_layers,
     read_text_limited,
 )
-from . import init_prompt
 from .instruction_rules import discover_rules
 
 #: `/init` hedefleri ve varsayılan (CLAUDE.md; #155) `init_prompt`'ta.
