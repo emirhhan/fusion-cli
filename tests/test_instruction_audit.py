@@ -81,13 +81,15 @@ def test_saglikli_talimat_oneri_uretmez(proje, tmp_path):
 
 def test_init_gorevi_olculen_olgulari_ve_hedef_dosyayi_tasir(proje):
     gorev = init_task(proje)
-    claude = init_task(proje, fmt="claude")
+    agents = init_task(proje, fmt="agents")
 
-    assert "`AGENTS.md`" in gorev and "python" in gorev
+    # Claude Code /init: varsayılan CLAUDE.md (#155); AGENTS.md biçimi seçilebilir.
+    assert "`CLAUDE.md`" in gorev and "python" in gorev
+    assert "`AGENTS.md`" in agents
+    assert "3.000" not in gorev
     assert "pytest" in gorev  # keşfedilen doğrulama komutu
     assert "mevcut talimat dosyaları: yok" in gorev
     assert "ask_user" in gorev and "üzerine yazma" in gorev
-    assert "`CLAUDE.md`" in claude
 
 
 @pytest.fixture
@@ -107,7 +109,7 @@ def test_init_komutu_gorevi_hazirlar_doctor_prompt_denetler(state: ReplState):
     rapor = registry.get("doctor").handler(state, "prompt")  # type: ignore[union-attr]
 
     assert "CLAUDE.md" in cikti
-    assert "`CLAUDE.md`" in gorev and "Doğrulama" in gorev
+    assert "`CLAUDE.md`" in gorev and "test" in gorev
     assert "Talimat denetimi" in rapor and "/init" in rapor
     assert "fusion doctor" in registry.get("doctor").handler(state, "")  # type: ignore[union-attr]
 
@@ -143,3 +145,25 @@ def test_latest_sozcugu_dogrulama_komutu_sayilmaz(proje, tmp_path):
     denetim = audit_instructions(proje, tmp_path / "ev")
 
     assert any("Doğrulama" in s for s in denetim.suggestions)
+
+
+def test_init_cursor_copilot_kurallarini_katar_ve_import_onerir(proje):
+    (proje / ".cursorrules").write_text("tab kullanma", encoding="utf-8")
+    (proje / ".github").mkdir(exist_ok=True)
+    (proje / ".github" / "copilot-instructions.md").write_text("x", encoding="utf-8")
+    (proje / "GEMINI.md").write_text("g", encoding="utf-8")
+
+    gorev = init_task(proje)
+
+    assert "`.cursorrules`" in gorev and "`.github/copilot-instructions.md`" in gorev
+    assert "`/import gemini`" in gorev
+
+
+def test_claude_code_new_init_cok_asamali_akis(proje):
+    from fusion_cli.engines.agent import init_prompt
+
+    gorev = init_prompt.init_task(proje, environ={"CLAUDE_CODE_NEW_INIT": "1"})
+    duz = init_prompt.init_task(proje, environ={})
+
+    assert "CLAUDE_CODE_NEW_INIT=1" in gorev and "CLAUDE.local.md" in gorev
+    assert "CLAUDE_CODE_NEW_INIT" not in duz

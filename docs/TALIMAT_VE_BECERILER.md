@@ -172,12 +172,15 @@ bu keşfi de kapatır.
 
 ## `/init` ve `/doctor prompt`
 
-- `/init [agents|claude]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
-  [--format agents|claude] [--mode edits]`: Fusion depodan ölçtüğü olguları (proje türü,
-  keşfedilen lint/test komutları, mevcut talimat dosyaları) göreve koyar; model depoyu inceleyip
-  `AGENTS.md` (varsayılan) ya da `CLAUDE.md` yazar — bölümler: Proje, Kurulum ve çalıştırma,
-  Doğrulama, Kod kuralları, Dikkat; 3.000 karakter sınırı, uzun kurallar `@docs/…md` ile.
-  Dosya zaten varsa üzerine yazmaz; eksik bölümleri `ask_user` ile sorar.
+- `/init [claude|agents]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
+  [--format claude|agents] [--mode edits]`: Claude Code `/init` ile aynı — model kod tabanını
+  inceleyip kökte `CLAUDE.md` (varsayılan; `agents` ile `AGENTS.md`) yazar: derleme/test/lint
+  komutları, büyük resim mimarisi, depoya özgü kurallar; sabit bölüm ya da karakter sınırı yok.
+  Fusion depodan ölçtüğü olguları (proje türü, keşfedilen komutlar, mevcut talimat dosyaları)
+  göreve ekler. `.cursor/rules`, `.cursorrules`, `.github/copilot-instructions.md` varsa içeriği
+  katılır; `AGENTS.md`/`.codex`/`GEMINI.md` bulunursa `/import codex|gemini` önerilir.
+  `CLAUDE_CODE_NEW_INIT=1` çok aşamalı akışı açar (yapıt seçimi, alt ajanla inceleme, eksikleri
+  sorma, yazmadan önce öneriyi gösterme). Dosya zaten varsa üzerine yazmaz, iyileştirme önerir.
 - `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
   yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
   talimatında onay/izin kurallarını değiştirmeye ya da sır sızdırmaya çalışan şüpheli satırlar

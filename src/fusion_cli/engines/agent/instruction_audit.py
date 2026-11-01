@@ -23,11 +23,12 @@ from .instruction_layers import (
     load_instruction_layers,
     read_text_limited,
 )
+from . import init_prompt
 from .instruction_rules import discover_rules
 
-#: `/init` ile üretilecek dosya adı, biçime göre (Claude Code → CLAUDE.md, Codex → AGENTS.md).
-INIT_TARGETS: dict[str, str] = {"agents": "AGENTS.md", "claude": "CLAUDE.md"}
-DEFAULT_INIT_FORMAT = "agents"
+#: `/init` hedefleri ve varsayılan (CLAUDE.md; #155) `init_prompt`'ta.
+INIT_TARGETS = init_prompt.INIT_TARGETS
+DEFAULT_INIT_FORMAT = init_prompt.DEFAULT_INIT_FORMAT
 
 #: Toplam bütçenin bu payı dolunca "kısalt" önerisi (kırpma başlamadan uyarı).
 BUDGET_WARN_RATIO = 0.7
@@ -171,34 +172,17 @@ def render_audit(audit: InstructionAudit) -> str:
 
 
 def init_task(root: Path, home: Path | None = None, *, fmt: str = DEFAULT_INIT_FORMAT) -> str:
-    """`/init [agents|claude]` — modele verilecek görev; depodan ölçülen olgularla.
-
-    Bilinmeyen biçim `agents` sayılır. Dosya varsa model üzerine yazmaz: eksik bölümleri
-    önerir ve `ask_user` ile sorar.
-    """
+    """`/init [claude|agents]` — modele verilecek görev; depodan ölçülen olgularla (#155)."""
     from .verify_discovery import discover_commands, project_kinds
 
-    target = INIT_TARGETS.get(fmt.strip().lower(), INIT_TARGETS[DEFAULT_INIT_FORMAT])
     kinds = ", ".join(project_kinds(root)) or "bilinmiyor"
     commands = ", ".join(f"`{c}`" for c in discover_commands(root)) or "keşfedilemedi"
     existing = [
         item.label for item in load_instruction_layers(root, home).files if item.layer == "proje"
     ]
     mevcut = ", ".join(existing) if existing else "yok"
-    return (
-        f"Bu proje için kök talimat dosyası hazırla: `{target}` (Claude Code /init gibi). "
-        "Önce depoyu incele: depo haritası ve paket dosyaları (pyproject.toml, package.json, "
-        "Cargo.toml, go.mod, project.godot…), README, mevcut kural dosyaları ve CI yapılandırması. "
+    facts = (
         f"Fusion'ın ölçtükleri: proje türü: {kinds}; doğrulama komutları: {commands}; "
-        f"mevcut talimat dosyaları: {mevcut}.\n"
-        "Dosyayı şu bölümlerle yaz (kısa, somut, bu depoya özgü; genel öğüt yazma): "
-        "`## Proje` (ne yapar, ana dizinler), `## Kurulum ve çalıştırma`, `## Doğrulama` "
-        "(lint/tip/test komutları birebir), `## Kod kuralları` (stil, isimlendirme, dil, "
-        "test beklentisi), `## Dikkat` (dokunulmaması gereken dosyalar, sırlar, üretim yolları). "
-        "Toplam 3.000 karakteri geçme; uzun kuralları ayrı dosyaya koyup `@docs/...md` ile içe "
-        "aktar.\n"
-        f"`{target}` ZATEN VARSA üzerine yazma: eksik bölümleri listele ve `ask_user` ile "
-        "ekleyip eklemeyeceğini sor. Başka bir talimat dosyası varsa (ör. CLAUDE.md ↔ "
-        "AGENTS.md) aynı içeriği iki kez yazma; birini diğerine `@` ile bağla. Bitince dosyayı "
-        "özetle ve `/doctor prompt` ile denetlenebileceğini söyle."
+        f"mevcut talimat dosyaları: {mevcut}."
     )
+    return init_prompt.init_task(root, fmt=fmt, facts=facts)

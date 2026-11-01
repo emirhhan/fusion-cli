@@ -790,7 +790,7 @@ def _when(epoch: float) -> str:
 
 
 def _init(state: ReplState, argument: str) -> str:
-    """`/init [agents|claude]` — proje talimat dosyasını (AGENTS.md/CLAUDE.md) modele yazdır.
+    """`/init [claude|agents]` — proje talimat dosyasını (varsayılan CLAUDE.md) modele yazdır.
 
     Görev depodan ölçülen olgularla kurulur (bkz. `instruction_audit.init_task`); çalıştırma
     makrolarla aynı: REPL döngüsü bekleyen görevi sıradaki turda başlatır.
@@ -1149,7 +1149,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
-    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[agents|claude]"),
+    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[claude|agents]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
     SlashCommand(

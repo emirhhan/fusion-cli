@@ -809,7 +809,7 @@ def _headless_options(
 @app.command()
 def init(
     fmt: str = typer.Option(
-        "agents", "--format", "-f", help="Üretilecek dosya: agents (AGENTS.md) | claude (CLAUDE.md)"
+        "claude", "--format", "-f", help="Üretilecek dosya: claude (CLAUDE.md) | agents (AGENTS.md)"
     ),
     mode: str = typer.Option("edits", "--mode", "-m", help="Onay modu (varsayılan: edits)."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),

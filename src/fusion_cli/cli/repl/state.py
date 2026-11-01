@@ -18,7 +18,6 @@ from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
 from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
-from ...engines.agent.skill_context import InvokedSkills
 from ...core.changeset import ChangeSet
 from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
@@ -32,6 +31,7 @@ from ...core.worktree import Worktree, WorktreeSwitch
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.skill_context import InvokedSkills
 from ...engines.agent.skill_turn import TurnModelChoice
 from ...engines.agent.team import Persona
 from ...engines.hooks.session import HookSession, open_hook_session

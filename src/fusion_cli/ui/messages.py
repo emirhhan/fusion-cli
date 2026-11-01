@@ -1018,7 +1018,7 @@ CMD_DOCTOR = (
 )
 #: Argümansız `/doctor` raporunun altına: talimat denetiminin yeri.
 REPL_DOCTOR_PROMPT_HINT = "Yüklenen talimatları denetlemek için: /doctor prompt"
-CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
+CMD_INIT = "proje talimat dosyası üret: CLAUDE.md (varsayılan) ya da AGENTS.md"
 REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
 REPL_DOCTOR_SETUP_HINT = (
     "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
