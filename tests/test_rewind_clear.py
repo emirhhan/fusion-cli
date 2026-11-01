@@ -45,9 +45,8 @@ def test_clear_sonrasi_menude_onceki_oturum_satiri(state: ReplState, monkeypatch
     satirlar = rewind_clear.previous_session_choices(state)
     assert [c.value for c in satirlar] == [f"resume:{eski}"]
     assert satirlar[0].label == f"/resume {eski} (önceki oturum)"
-    # Masaüstü seçicisi de aynı satırı başta gösterir.
-    payload = command_choices(state, "rewind", "")
-    assert payload is not None and payload["secenekler"][0]["deger"] == f"resume:{eski}"
+    # Masaüstü sohbet sekmeleriyle sürdürür (slash `/resume` orada reddedilir): satır yok.
+    assert command_choices(state, "rewind", "") is None
     # Satır içi seçici: seçilince `/clear` öncesi sohbet sürdürülür.
     monkeypatch.setattr(rewind, "pick", lambda choices, title: choices[0].value)
     rewind.rewind_command(state, "")

@@ -245,15 +245,13 @@ def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
     Masaüstü `komut.secenekler` ile aynı seçici deseni kullanır; sohbet geçmişi ve
     dosyalar `rewind_command` üzerinden, terminalle AYNI defterden geri sarılır.
     """
-    from ..cli.repl import rewind_clear
-
     entries = state.checkpoints.entries()
-    previous = rewind_clear.previous_session_choices(state)
-    if not entries and not previous:
+    if not entries:
         return None
     if not argument:
-        rows = [*previous, *rewind.turn_choices(entries)]
-        return _payload("tur", "secim", messages.REWIND_PICK_TURN, rows, "rewind", "")
+        return _payload(
+            "tur", "secim", messages.REWIND_PICK_TURN, rewind.turn_choices(entries), "rewind", ""
+        )
     if argument.isdigit() and state.checkpoints.find(int(argument)) is not None:
         return _payload(
             "kapsam",
