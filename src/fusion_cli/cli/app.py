@@ -709,6 +709,23 @@ def agent(
         raise typer.Exit(1)
 
 
+def _session_start_may_prompt(root: Path, config: Config | None) -> bool:
+    """İstemsiz `fusion agent`: SessionStart kancası `initialUserMessage` verebilir mi (#111)?"""
+    from ..config.hooks import load_hooks
+    from ..core.hooks.events import HookEvent
+
+    if config is None:
+        return False
+    runtime = config.runtime
+    hooks = load_hooks(
+        root,
+        enabled=runtime.hooks_enabled,
+        include_claude=runtime.claude_hooks,
+        interactive=False,
+    )
+    return bool(hooks.for_event(HookEvent.SESSION_START, ("startup",)))
+
+
 def _launch_worktree_hooks(
     config: Config, worktree: str, *, interactive: bool
 ) -> WorktreeHookCalls | None:
@@ -830,7 +847,7 @@ def _headless_options(
                 else allowed & frozenset(turn.allowed_tools)
             )
         persona_denied = turn.denied_tools
-    if not task:
+    if not task and not _session_start_may_prompt(Path.cwd(), launch_config):
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     if append_system_prompt:
         parts.append(append_system_prompt)

@@ -270,6 +270,8 @@ class PromptGate:
     before: str = ""
     #: UserPromptSubmit bağlamı (istemin yanında).
     after: str = ""
+    #: İstemsiz etkileşimsiz koşuda SessionStart `initialUserMessage`: turun istemi bu olur.
+    task: str = ""
 
     @property
     def context(self) -> str:
@@ -301,6 +303,12 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     _publish(deps, await settle_opening(session))
     started = await session.start()
     _publish(deps, started)
+    initial = ""
+    if not prompt.strip() and not getattr(deps, "interactive", False):
+        # Claude `-p`: istem verilmediyse SessionStart `initialUserMessage` ilk istemdir.
+        initial = prompt = started.initial_user_message
+        if not initial:
+            return PromptGate(blocked=messages.RUN_EMPTY_TASK)
     session.new_prompt()
     from .hook_expansion import prompt_expansion
 
@@ -330,7 +338,7 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
         )
         if part
     )
-    return PromptGate(before=before, after=after)
+    return PromptGate(before=before, after=after, task=initial)
 
 
 async def pre_compact(deps: AgentDeps, trigger: str, instructions: str | None = None) -> bool:

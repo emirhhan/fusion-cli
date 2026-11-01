@@ -299,8 +299,11 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   çalışmış olur (engel modele gitmeyi durdurur).
 - Engellenen `ConfigChange` yalnız o dosyanın kanca tanımlarını sabitler; izin, model gibi
   öteki ayarları okuyan bileşenler dosyayı yine kendi zamanında okur.
-- `initialUserMessage` uygulanmaz (alan okunur; `-p`'ye özgü, `fusion agent` istemsiz açılmaz).
-  `reloadSkills: true` REPL ve masaüstünde beceri kataloğunu yeniden taratır.
+- `initialUserMessage` yalnız istemsiz etkileşimsiz koşuda (`fusion agent`, görev ve stdin
+  yokken) ilk istem olur; istemsiz koşuya ancak bir `SessionStart` kancası tanımlıysa izin
+  verilir, kanca mesaj vermezse koşu "Görev metni boş olamaz." ile biter. Etkileşimli
+  oturumda yok sayılır (Claude gibi). `reloadSkills: true` REPL ve masaüstünde beceri
+  kataloğunu yeniden taratır.
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
 - `transcript_path` Fusion'ın sohbet kaydından (`transcripts/<proje>/events.jsonl`) ayrı,
   Claude biçimindeki oturum dökümüdür; sırlar maskeli, araç girdi/çıktısı 8.000 karakterde

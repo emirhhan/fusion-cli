@@ -779,6 +779,8 @@ async def run_agent(
             return blocked
         # Kanca bağlamı (P-009) istemle birlikte geçmişte kalır (Claude: SessionStart başta,
         # UserPromptSubmit istemin yanında); sistem mesajı her turda yeniden kurulur.
+        if prompt_gate is not None and prompt_gate.task:
+            task = prompt_gate.task  # SessionStart `initialUserMessage` (istemsiz `-p`)
         model_task = prompt_gate.model_prompt(task) if prompt_gate is not None else task
         turn = partial(
             _run_agent,
