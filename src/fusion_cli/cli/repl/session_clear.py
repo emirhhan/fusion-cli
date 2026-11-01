@@ -27,6 +27,8 @@ def clear_command(state: ReplState, argument: str) -> str:
             state.config.memory_dir, state.root, conversation_id=previous_id
         ).record_name(name)
     new_id = new_conversation_id()
+    # `/resume` ile bu sohbete dönülürse izin kipi geri yüklenmez (Claude Code, #189).
+    state.opened_conversations = state.opened_conversations | {previous_id}
     state.conversation_id = new_id
     removed = state.reset_history(session_id=new_id)
     state.conversation_name = ""

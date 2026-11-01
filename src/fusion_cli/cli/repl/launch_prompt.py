@@ -19,6 +19,7 @@ from ...ui import messages
 #: Ana callback'in gizli ilk-istem seçeneği.
 PROMPT_FLAG = "--prompt-arg"
 #: Ana callback'te değer alan seçenekler: ardından gelen sözcük konum argümanı değildir.
+#: `tests/test_launch_prompt.py` ana komutun değerli her seçeneğinin burada olduğunu sınar.
 VALUE_OPTIONS = frozenset(
     {
         "--add-dir",
@@ -33,6 +34,7 @@ VALUE_OPTIONS = frozenset(
         "--worktree",
         "-w",
         "--session-id",
+        "--from-pr",
         PROMPT_FLAG,
     }
 )

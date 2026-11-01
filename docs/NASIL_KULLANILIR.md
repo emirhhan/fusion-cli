@@ -321,9 +321,14 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
   Ctrl+W/Ctrl+A/Ctrl+B kapsam süzgeçleri ve satır içi seçicide arama.
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
   `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
-- Terminal sürdürmesi (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,
-  araç çağrılarını ve sonuçlarını, compaction özetini, agent modelini ve izin kipini geri
-  yükler (`bypass` hariç: o kip yalnız açılış bayrağıyla girilir). Kayıtlı durum yoksa ya da
+- Sürdürme (`--continue`, `--resume`, `/resume`) Claude Code'daki gibi mesajları,
+  araç çağrılarını ve sonuçlarını, compaction özetini ve agent modelini geri yükler. İzin
+  kipi sürdürme yoluna bağlıdır: `fusion --continue` ve `fusion --resume <kimlik|tek sohbete
+  ait ad>` kayıtlı kipi geri yükler (`bypass` hariç: o kip yalnız açılış bayrağıyla girilir);
+  seçiciden seçilen sohbet (argümansız `--resume`, `--from-pr`, belirsiz ad) ve oturum içi
+  `/resume` geçerli kipte sürer, yalnız plan kipinde biten sohbet plan kipine döner. Bu süreçte
+  zaten açılmış bir sohbete (`/clear` ya da `/resume` ile bıraktığın) `/resume` ile dönersen
+  plan kipi de geri gelmez. Kayıtlı durum yoksa ya da
   sohbet sonradan başka yüzeyde (masaüstü) sürdüyse transcript'in SON 100 kullanıcı/cevap
   mesajı yüklenir; `--fork-session` ve `/branch` kopyası da metin geçmişiyle başlar. Aynı adı iki sohbete
   verdiysen `fusion --resume <ad>` Claude Code'daki gibi seçiciyi o adı taşıyan sohbetlerle açar,

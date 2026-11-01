@@ -87,3 +87,53 @@ def test_cli_argumani_ilk_istemi_repl_e_verir(tmp_path: Path, monkeypatch) -> No
 
     assert sonuc.exit_code == 0, sonuc.output
     assert alinan["initial_prompt"] == "merhaba dünya"
+
+
+def test_from_pr_degeri_istem_sanilmaz() -> None:
+    # Ölçüldü (1 Kasım): `fusion --from-pr 42` → "No such command 42" (#205).
+    assert normalize_prompt_argv(["--from-pr", "42"], _SUBS) == ["--from-pr", "42"]
+
+
+def test_ana_komutun_degerli_her_secenegi_kumede() -> None:
+    import typer
+
+    from fusion_cli.cli import app as app_module
+    from fusion_cli.cli.repl.launch_prompt import VALUE_OPTIONS
+
+    command = typer.main.get_command(app_module.app)
+    degerli = {
+        name
+        for param in command.params
+        if not getattr(param, "is_flag", False) and getattr(param, "opts", None)
+        for name in param.opts
+        if name.startswith("-")
+    }
+    assert degerli - VALUE_OPTIONS == set()
+
+
+def test_cli_from_pr_bosluklu_bicimle_seciciyi_acar(tmp_path: Path, monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli import app as app_module
+    from fusion_cli.cli.repl import pr_sessions
+
+    istenen: list[str] = []
+
+    async def sahte_repl(config, **kwargs):
+        return 0
+
+    def sahte_secici(memory_dir, root, value, chooser=None):
+        istenen.append(value)
+        raise SessionNotFoundError("eşleşme yok")
+
+    monkeypatch.setattr(app_module, "run_repl", sahte_repl)
+    monkeypatch.setattr(app_module, "evaluate", lambda *a, **k: type("R", (), {"state": None})())
+    monkeypatch.setattr(app_module, "open_memory", lambda *a, **k: None)
+    monkeypatch.setattr(pr_sessions, "pick_for_pr", sahte_secici)
+    monkeypatch.chdir(tmp_path)
+    argv = normalize_prompt_argv(["--from-pr", "42"], app_module.subcommand_names())
+
+    sonuc = CliRunner().invoke(app_module.app, argv)
+
+    assert istenen == ["42"], sonuc.output
+    assert sonuc.exit_code == 1

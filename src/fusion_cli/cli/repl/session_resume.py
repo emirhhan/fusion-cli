@@ -24,6 +24,7 @@ from ...core.types import Message
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import linked_pr, resume_lookup
+from .session_snapshot import PERMISSION_ALL, PERMISSION_NONE, PERMISSION_PLAN
 from .state import ReplState
 from .transcript_store import (
     ConversationRef,
@@ -48,6 +49,8 @@ class ResumeTarget:
     name: str = ""
     #: `--fork-session` ile kopyalandıysa kaynağın kimliği (bilgi amaçlı).
     forked_from: str = ""
+    #: Kayıtlı izin kipinin ne ölçüde geri geleceği (`session_snapshot.PERMISSION_*`, #189).
+    permission: str = PERMISSION_ALL
 
 
 def new_conversation_id() -> str:
@@ -64,6 +67,7 @@ def resolve_launch(
     fork: bool = False,
     name: str = "",
     session_id: str = "",
+    via_picker: bool = False,
 ) -> ResumeTarget | None:
     """CLI bayraklarını açılış hedefine çevir. Hiçbiri verilmediyse `None` (yeni sohbet).
 
@@ -71,6 +75,9 @@ def resolve_launch(
     `--fork-session` seçilenin kopyasını yeni kimlikle açar (özgün sohbet değişmez);
     `--name` yeni ya da sürdürülen sohbete ad verir. Bulunamayan sohbet
     `SessionNotFoundError` ile bildirilir; sessizce yeni sohbet açılmaz.
+
+    `via_picker` (`--from-pr` seçicisi) ya da argümansız `--resume` / belirsiz ad seçicisi
+    kullanıldıysa kayıtlı izin kipinden yalnız plan geri gelir (Claude Code, #189).
     """
     name = name.strip()
     from .launch_prompt import ensure_unused, session_id_value
@@ -86,6 +93,7 @@ def resolve_launch(
     if resume == RESUME_PICKER:
         # Argümansız `--resume` (#188): seçilen sohbetin kimliğiyle devam.
         resume = pick_conversation(memory_dir, root)
+        via_picker = True
     if not continue_last and not resume.strip():
         if fork:
             # Ölçüldü (31 Ekim): bayrak sessizce yok sayılıp yeni boş sohbet açılıyordu.
@@ -109,6 +117,7 @@ def resolve_launch(
             from .resume_launch import pick_among
 
             chosen = pick_among(list(resolution.ambiguous), resume.strip())
+            via_picker = True
             resolution = resume_lookup.Resolution(
                 next(r for r in resolution.ambiguous if r.conversation_id == chosen),
                 events_path=resolution.events_path,
@@ -132,7 +141,13 @@ def resolve_launch(
         )
     if name:
         TranscriptStore(memory_dir, root, conversation_id=ref.conversation_id).record_name(name)
-    return ResumeTarget(ref.conversation_id, history, name or ref.title, name=name or ref.name)
+    return ResumeTarget(
+        ref.conversation_id,
+        history,
+        name or ref.title,
+        name=name or ref.name,
+        permission=PERMISSION_PLAN if via_picker else PERMISSION_ALL,
+    )
 
 
 def fork_conversation(
@@ -151,6 +166,7 @@ def fork_conversation(
 
 def apply_target(state: ReplState, target: ResumeTarget) -> None:
     """Oturum durumunu seçilen sohbete bağla; motor geçmişi transcript'ten gelir."""
+    state.opened_conversations = state.opened_conversations | {state.conversation_id}
     state.conversation_id = target.conversation_id
     state.conversation_name = target.name
     state.history = list(target.history)
@@ -163,7 +179,7 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
         # kipi ve checkpoint'ler kayıtlı oturum durumundan gelir; yoksa metin geçmişi kalır.
         from . import session_snapshot
 
-        session_snapshot.restore(state)
+        session_snapshot.restore(state, permission=target.permission)
 
 
 def launch_notice(target: ResumeTarget) -> str:
@@ -224,7 +240,19 @@ def resume_command(state: ReplState, argument: str) -> str:
         conversation_id=ref.conversation_id,
         events_path=resolution.events_path,
     )
-    apply_target(state, ResumeTarget(ref.conversation_id, tuple(history), ref.title, name=ref.name))
+    # Claude Code (#189): `/resume` geçerli kipi korur, plan kipinde biten sohbet plana
+    # döner; bu süreçte zaten açılmış sohbete dönülürse plan da geri gelmez.
+    seen = ref.conversation_id in state.opened_conversations
+    apply_target(
+        state,
+        ResumeTarget(
+            ref.conversation_id,
+            tuple(history),
+            ref.title,
+            name=ref.name,
+            permission=PERMISSION_NONE if seen else PERMISSION_PLAN,
+        ),
+    )
     from . import session_agent
 
     if session_agent.load(state.config.memory_dir, state.conversation_id):

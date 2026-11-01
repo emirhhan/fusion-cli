@@ -251,6 +251,8 @@ def main_callback(
             fork=fork_session,
             name=name,
             session_id=session_id,
+            # Claude Code (#189): `--from-pr` seçicisinde yalnız plan kipi geri gelir.
+            via_picker=bool(from_pr.strip()),
         )
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")

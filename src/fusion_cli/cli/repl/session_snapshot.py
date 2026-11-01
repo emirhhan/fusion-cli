@@ -13,6 +13,11 @@ yazar: `memory_dir/oturum-durum/<sohbet>.json` (dizin 0700, dosya 0600, atomik).
 Güvenlik: mesaj metinleri `turn_journal_codec` ile maskelenir; dosya içerikleri geri alma
 için birebir saklanmak zorundadır (Claude'un dosya geçmişi de öyledir). `bypass` kipi
 sürdürmede geri yüklenmez: Claude'da da bu kip yalnız açılış bayrağıyla girilir.
+
+İzin kipi sürdürme yoluna göre gelir (sessions.md, "Permission mode on resume"): terminalde
+`--continue`/`--resume <kimlik|tekil ad>` kayıtlı kipi (`PERMISSION_ALL`), oturum seçicisi ve
+oturum içi `/resume` yalnız plan kipini (`PERMISSION_PLAN`) geri yükler; bu süreçte zaten
+açılmış sohbete `/resume` ile dönülürse hiçbiri (`PERMISSION_NONE`).
 """
 
 from __future__ import annotations
@@ -47,6 +52,10 @@ FORMAT_VERSION = 1
 DEFAULT_CLEANUP_DAYS = 30
 _DAY_S = 86_400
 _CLAUDE_SETTINGS = Path(".claude") / "settings.json"
+#: Sürdürmede izin kipi politikaları (bkz. modül belgesi).
+PERMISSION_ALL = "hepsi"
+PERMISSION_PLAN = "plan"
+PERMISSION_NONE = "yok"
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,8 +262,10 @@ def load(memory_dir: Path, conversation_id: str) -> SessionSnapshot | None:
     )
 
 
-def restore(state: ReplState) -> bool:
+def restore(state: ReplState, *, permission: str = PERMISSION_ALL) -> bool:
     """Sürdürülen sohbetin tam durumunu yükle; anlık görüntü güncel değilse `False`.
+
+    `permission` kayıtlı izin kipinin ne ölçüde geri geleceğini söyler (`PERMISSION_*`).
 
     Transcript anlık görüntüden yeniyse (sohbet başka bir yüzeyde sürdü) dokunulmaz:
     eski bir tam geçmiş, yeni metin geçmişini ezmesin.
@@ -268,7 +279,7 @@ def restore(state: ReplState) -> bool:
     state.history = list(snapshot.history)
     state.checkpoints.restore_entries(snapshot.checkpoints)
     _restore_model(state, snapshot.model)
-    _restore_approval(state, snapshot.approval)
+    _restore_approval(state, snapshot.approval, permission)
     return True
 
 
@@ -283,10 +294,15 @@ def _restore_model(state: ReplState, model: str) -> None:
         _LOG.info("sürdürülen oturumun modeli artık geçersiz", extra={"model": model})
 
 
-def _restore_approval(state: ReplState, value: str) -> None:
+def _restore_approval(state: ReplState, value: str, permission: str) -> None:
     try:
         mode = ApprovalMode(value)
     except ValueError:
+        return
+    if permission == PERMISSION_NONE:
+        return
+    if permission == PERMISSION_PLAN and mode is not ApprovalMode.PLAN:
+        # Claude Code: seçici ve `/resume` geçerli kipi korur; yalnız plan kipi geri gelir.
         return
     if mode is ApprovalMode.BYPASS:
         # Claude Code: bypassPermissions yalnız açılış bayrağıyla girilir; sürdürme açmaz.

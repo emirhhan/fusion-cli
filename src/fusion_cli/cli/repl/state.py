@@ -135,6 +135,9 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Bu süreçte açılıp bırakılan sohbetler (`/clear`, `/resume`); `/resume` ile bunlara
+    #: dönülürse kayıtlı izin kipi geri yüklenmez (Claude Code, #189).
+    opened_conversations: frozenset[str] = field(default_factory=frozenset, kw_only=True)
     #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
     hook_session: HookSession | None = field(default=None, kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
