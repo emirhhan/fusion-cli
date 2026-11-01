@@ -160,7 +160,8 @@ kendisi hiçbir çıktıda gösterilmez** — en fazla "ayarlı".
 ### Güncelleme ve kaldırma
 
 ```bash
-fusion update      # kurulum yöntemini tespit edip doğru komutu gösterir
+fusion update      # kurulum yöntemine göre (uv/pipx) en son sürüme günceller
+fusion install 0.8.0   # belirli sürümü kurar (stable/latest da olur)
 fusion uninstall   # aynı şekilde; yapılandırma ve dersler KORUNUR
 fusion uninstall --purge   # anahtarlar ve bellek dahil her şeyi sil
 ```
@@ -398,10 +399,14 @@ Kütüphanede içerik yoksa bu araçlar modele hiç sunulmaz.
 ### Agent modu
 
 ```bash
-.venv/bin/fusion agent "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir"
-.venv/bin/fusion agent "..." --mode plan       # yalnız planla, hiçbir şeyi değiştirme
-.venv/bin/fusion agent "..." --mode security   # her değişikliği tek tek sor
+.venv/bin/fusion -p "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir" --permission-mode acceptEdits
+.venv/bin/fusion -p "..." --permission-mode plan   # yalnız planla, hiçbir şeyi değiştirme
+.venv/bin/fusion -p "..." --output-format json     # Claude Code SDK sonuç nesnesi
+.venv/bin/fusion "merhaba"                         # etkileşimli oturum bu istemle açılır
 ```
+
+`fusion -p` Claude Code `claude -p` ile aynı bayrakları ve çıktı alanlarını kullanır (bkz.
+`docs/HEADLESS.md`). Eski `fusion agent "..." --mode …` bir sürüm daha çalışır.
 
 Agent dosya okur/yazar, komut çalıştırır, web'de arar, görev listesi tutar, zor
 kararlarda çoklu modele danışır (`council`) ve büyük işleri alt-ajana devreder.

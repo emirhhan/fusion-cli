@@ -61,7 +61,11 @@ from . import (
     mcp_commands,
     memory_commands,
     paperclip_command,
+    print_options,
+    print_restricted,
+    print_settings,
     prompt_opt_commands,
+    root_restricted,
     sandbox_commands,
     team_cli,
     trash_commands,
@@ -72,6 +76,8 @@ from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
+from .print_argv import INITIAL_PROMPT_OPTION, ClaudeArgsGroup
+from .print_command import print_command
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
@@ -80,6 +86,8 @@ from .session import Observers, build_observers, open_memory, run_agent_task, ru
 from .setup_command import run_setup
 
 app = typer.Typer(
+    # Claude Code kök sözdizimi: `fusion -p "sorgu"` ve `fusion "sorgu"` (#275, #276).
+    cls=ClaudeArgsGroup,
     add_completion=False,
     invoke_without_command=True,
     # Beklenmeyen istisnada zengin traceback YEREL DEĞİŞKENLERİ basmaz: `session.py`
@@ -87,7 +95,12 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
     help="Ücretsiz LLM'lerle çalışan agentic CLI. Argümansız çalıştırılırsa REPL açılır.",
 )
-config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
+config_app = typer.Typer(
+    no_args_is_help=True,
+    # Claude Code'da `claude config` alt komutu yok (ayar `/config`, settings.json, --settings);
+    # bu yüzey Fusion ekidir (#310).
+    help="Fusion eki: config.yaml'ı görüntüle ve değiştir (Claude'da /config ve --settings).",
+)
 app.add_typer(config_app, name="config")
 app.add_typer(memory_commands.app, name="memory")
 app.add_typer(knowledge_commands.app, name="knowledge")
@@ -116,6 +129,8 @@ app.add_typer(sandbox_commands.app, name="sandbox")
 app.command("paperclip")(paperclip_command.paperclip)
 # `fusion import`, `fusion release-notes`, `fusion eklenti` (P-071, P-059).
 register_extension_commands(app)
+# `fusion -p …` bu gizli alt komuta çevrilir (Claude Code `--print`; bkz. print_argv).
+app.command(name="print", hidden=True)(print_command)
 
 console = Console()
 #: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
@@ -195,9 +210,82 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    initial_prompt: Annotated[str, typer.Option(INITIAL_PROMPT_OPTION, hidden=True)] = "",
+    model: Annotated[
+        str | None, typer.Option("--model", help="Oturum modeli: takma ad ya da tam kimlik.")
+    ] = None,
+    fallback_model: Annotated[
+        str | None, typer.Option("--fallback-model", help="Sıralı yedek modeller (virgülle).")
+    ] = None,
+    system_prompt: Annotated[
+        str | None, typer.Option("--system-prompt", help="Varsayılan sistem isteminin yerine.")
+    ] = None,
+    system_prompt_file: Annotated[
+        str | None, typer.Option("--system-prompt-file", help="Sistem istemi dosyadan (yerine).")
+    ] = None,
+    append_system_prompt: Annotated[
+        str | None, typer.Option("--append-system-prompt", help="Sistem istemine ek metin.")
+    ] = None,
+    append_system_prompt_file: Annotated[
+        str | None, typer.Option("--append-system-prompt-file", help="Sistem istemine dosyadan ek.")
+    ] = None,
+    system_prompt_snapshot: Annotated[
+        str | None,
+        typer.Option(
+            "--system-prompt-snapshot", help="on (varsayılan) ya da off: her istekte kur."
+        ),
+    ] = None,
+    bare: Annotated[
+        bool,
+        typer.Option(
+            "--bare",
+            help="Kanca, beceri, komut, ajan, eklenti, MCP, bellek ve proje talimatı "
+            "keşfetmeden aç; araçlar Bash + dosya okuma/düzenleme.",
+        ),
+    ] = False,
+    restricted: Annotated[
+        bool,
+        typer.Option(
+            "--restricted",
+            help="Kısıtlı kip: komut/kod araçları ve WebFetch yok, ayar katmanları ve "
+            "yapılandırma MCP'si yüklenmez, bypassPermissions kullanılamaz.",
+        ),
+    ] = False,
+    settings_flag: Annotated[
+        str | None,
+        typer.Option(
+            "--settings",
+            help="Bu oturum için ayar dosyası ya da JSON (settings.json anahtarları).",
+        ),
+    ] = None,
+    setting_sources: Annotated[
+        str | None,
+        typer.Option(
+            "--setting-sources",
+            help="Yüklenecek ayar kaynakları (virgülle): user, project, local.",
+        ),
+    ] = None,
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-v",
+            is_eager=True,
+            callback=lambda value: _print_version_and_exit(value),
+            help="Sürümü yazdır ve çık (Claude `claude -v`).",
+        ),
+    ] = False,
 ) -> None:
-    """Argümansız çağrıldığında interaktif oturumu başlat."""
+    """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
+    try:
+        # Claude `claude --setting-sources` (#296): yükleyiciler okumadan önce ayarlanır.
+        print_settings.apply_setting_sources(setting_sources)
+        if restricted:  # #301: yalnız yönetilen ayarlar ve --settings
+            print_restricted.prepare_restricted_sources()
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
@@ -207,6 +295,28 @@ def main_callback(
         return
     persona = str(agent_persona or "")
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
+    try:
+        # Claude `claude --model`/`--fallback-model` (#296): oturum modeli ve yedek zinciri.
+        config = print_options.apply_model(config, model, fallback_model)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    try:
+        # Claude `claude --settings` (#296): model, env, disableAllHooks, ek dizinler.
+        saved_mode = config.runtime.approval_mode
+        config, settings_dirs = print_settings.root_settings(config, settings_flag, model)
+        if restricted:  # Claude `claude --restricted` (#301)
+            changed = config.runtime.approval_mode != saved_mode
+            config = root_restricted.restricted_root_config(
+                config, settings_mode=config.runtime.approval_mode if changed else None
+            )
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    add_dir = [*(add_dir or ()), *settings_dirs]
+    if bare:
+        # Claude `claude --bare` (#298): özelleştirme keşfi kapalı etkileşimli oturum.
+        config = _bare_config(config)
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -230,11 +340,20 @@ def main_callback(
         raise typer.Exit(1) from None
     if tree is not None and worktree.strip():
         _print_worktree_notice(tree)
+    launch = _launch_prompts_or_exit(
+        system_prompt,
+        system_prompt_file,
+        append_system_prompt,
+        append_system_prompt_file,
+        system_prompt_snapshot,
+        bare=bare,
+        restricted=restricted,
+    )
     exit_code = asyncio.run(
         with_web_cleanup(
             run_repl(
                 config,
-                memory=open_memory(config, root=root),
+                memory=open_memory(config, root=root, enabled=not bare),
                 root=root,
                 console=console,
                 extra_roots=tuple(add_dir or ()),
@@ -242,10 +361,53 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                initial_prompt=initial_prompt,
+                launch_prompts=launch,
             )
         )
     )
     raise typer.Exit(exit_code)
+
+
+def _bare_config(config: Config) -> Config:
+    """Kök `--bare`: `-p --bare` ile aynı yapılandırma daraltması (`print_runtime.apply_bare`)."""
+    from .print_runtime import apply_bare
+
+    return apply_bare(config)
+
+
+def _launch_prompts_or_exit(
+    replace_text: str | None,
+    replace_file: str | None,
+    append_text: str | None,
+    append_file: str | None,
+    snapshot: str | None,
+    *,
+    bare: bool = False,
+    restricted: bool = False,
+) -> object:
+    """Kök komutun `--system-prompt*` bayrakları (#295); hatalı değer 1 ile çıkar."""
+    from . import launch_prompts
+
+    try:
+        prompts = launch_prompts.from_flags(
+            system_prompt=replace_text,
+            system_prompt_file=replace_file,
+            append=append_text,
+            append_file=append_file,
+        )
+        enabled = launch_prompts.snapshot_enabled(snapshot, bare=bare)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    return launch_prompts.LaunchSpec(prompts, enabled, bare=bare, restricted=restricted)
+
+
+def _print_version_and_exit(value: bool) -> None:
+    """`fusion -v/--version`: Claude gibi yalnız sürüm numarası (#306)."""
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
 
 
 def _print_worktree_notice(tree: Worktree) -> None:
@@ -314,7 +476,11 @@ def run(
 def doctor(
     live: Annotated[
         bool,
-        typer.Option("--live", help="Sağlayıcılara küçük gerçek çağrı yap (kota harcar)."),
+        typer.Option(
+            "--live",
+            hidden=True,
+            help="Fusion eki: sağlayıcılara küçük gerçek çağrı yap (kota harcar).",
+        ),
     ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Betikler için JSON çıktı.")] = False,
 ) -> None:
@@ -336,13 +502,35 @@ def doctor(
 
 @app.command()
 def update() -> None:
-    """Fusion'ı nasıl güncelleyeceğini göster."""
-    from .maintenance import current_method, update_instructions
+    """Fusion'ı en son sürüme güncelle (Claude `claude update`, #308)."""
+    from .maintenance import current_method
+    from .self_update import run_maintenance, update_argv
 
-    console.print(messages.MAINT_METHOD.format(method=current_method().value))
-    console.print()
-    console.print(f"  {update_instructions()}")
-    console.print()
+    method = current_method()
+    console.print(messages.MAINT_METHOD.format(method=method.value))
+    _finish_maintenance(*run_maintenance(update_argv(method), method))
+
+
+@app.command(name="install")
+def install_version(
+    version: str = typer.Argument("", help="Sürüm (ör. 0.8.0) ya da stable/latest."),
+) -> None:
+    """Belirli Fusion sürümünü kur (Claude `claude install [version]`, #308)."""
+    from .maintenance import current_method
+    from .self_update import install_argv, run_maintenance
+
+    method = current_method()
+    console.print(messages.MAINT_METHOD.format(method=method.value))
+    _finish_maintenance(*run_maintenance(install_argv(method, version), method))
+
+
+def _finish_maintenance(code: int, instructions: str) -> None:
+    """Başarısız/çalıştırılamayan güncellemede elle yapılacak komutu göster."""
+    if instructions:
+        console.print()
+        console.print(f"  {instructions}")
+        console.print()
+    raise typer.Exit(code)
 
 
 @app.command()
@@ -414,7 +602,11 @@ def agent(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
     as_json: bool = typer.Option(
-        False, "--json", help="`--output-format stream-json` kısaltması (olaylar JSONL)."
+        False,
+        "--json",
+        hidden=True,
+        help="Eski Fusion olay akışı (kullanımdan kalkıyor; Claude: fusion -p --output-format "
+        "stream-json --verbose).",
     ),
     output_format: str = typer.Option(
         "text",
@@ -464,12 +656,14 @@ def agent(
     permission_channel: str | None = typer.Option(
         None,
         "--permission-channel",
+        hidden=True,
         help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
     ),
     permission_timeout: float = typer.Option(
         headless.DEFAULT_PERMISSION_TIMEOUT,
         "--permission-timeout",
         min=1.0,
+        hidden=True,
         help="Onay kanalında cevap bekleme süresi (saniye); dolunca 'sorulamadı' sayılır.",
     ),
     from_pr: int | None = typer.Option(

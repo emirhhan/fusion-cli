@@ -43,6 +43,7 @@ from ..core.hooks.events import (
 )
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
+from .setting_sources import layer_enabled
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
@@ -134,6 +135,8 @@ def load_hooks(
     ignored_disable: list[str] = []
     disabled: str | None = None
     for layer in hook_layers(root, home):
+        if not layer_enabled(layer.name):  # `--setting-sources` (#296)
+            continue
         data = _read_json(layer.path)
         if data is None:
             continue

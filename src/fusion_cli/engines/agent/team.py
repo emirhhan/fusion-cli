@@ -634,6 +634,10 @@ async def _run_child(
                     ok=False,
                 )
             handoff = "\n\n".join(part for part in (handoff, gate.context_text) if part)
+        if inherited is None:  # çatallı alt ajan konuşmanın kendi istemini kullanır
+            from .subagent_prompt import current as subagent_append
+
+            handoff = "\n\n".join(part for part in (handoff, subagent_append()) if part)
         try:
             outcome = await run_agent(
                 subtask.task,

@@ -1,9 +1,10 @@
 """`fusion update` ve `fusion uninstall` — bakım yönlendirmesi.
 
-Fusion kendi kendini kaldırmaz ya da güncellemez: çalışan bir sürecin kendi
-dosyalarını silmesi platforma göre farklı biçimlerde başarısız olur ve yarım
-kaldığında kullanıcı elinde bozuk bir kurulumla kalır. Bunun yerine kurulum
-YÖNTEMİ tespit edilir ve doğru komut gösterilir.
+Fusion kendi kendini kaldırmaz: çalışan bir sürecin kendi dosyalarını silmesi
+platforma göre farklı biçimlerde başarısız olur ve yarım kaldığında kullanıcı elinde
+bozuk bir kurulumla kalır. Bunun yerine kurulum YÖNTEMİ tespit edilir ve doğru komut
+gösterilir. Güncelleme ise Claude Code gibi gerçekten yapılır: iş paket yöneticisinin
+ayrı sürecine devredilir (bkz. `self_update`).
 
 Kullanıcı verisi (anahtarlar, yapılandırma, öğrenilen dersler) kaldırmayla
 SİLİNMEZ. Aracı kaldırmak "verilerimi de sil" demek değildir; silmek ayrı ve

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ..core.errors import ConfigError
 from .agent_launch_settings import AgentLaunchConfig
+from .setting_sources import SOURCE_LOCAL, SOURCE_PROJECT, SOURCE_USER, source_enabled
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
 if TYPE_CHECKING:
@@ -32,10 +33,10 @@ def read_agent_launch(
     configured: AgentLaunchConfig, *, home: Path, root: Path, environ: Mapping[str, str]
 ) -> AgentLaunchConfig:
     """Güvenilmeyen proje ayarı kod/sunucu/model yönlendirmesi açamaz."""
-    paths = [home / ".claude" / "settings.json"]
-    if is_project_settings_trusted(root):
+    paths = [home / ".claude" / "settings.json"] if source_enabled(SOURCE_USER) else []
+    if source_enabled(SOURCE_PROJECT) and is_project_settings_trusted(root):
         paths.append(root / ".claude" / "settings.json")
-    if is_permissions_trusted(root):
+    if source_enabled(SOURCE_LOCAL) and is_permissions_trusted(root):
         paths.append(root / ".claude" / "settings.local.json")
     legacy = AgentLaunchConfig()
     merged_env: dict[str, str] = {}

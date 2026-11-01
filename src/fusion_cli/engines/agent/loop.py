@@ -162,6 +162,7 @@ from .action_evidence import claimed_effects
 from .agent_task_tools import is_agent_task_request
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import (
+    Allowance,
     ApprovalMode,
     ApprovalPolicy,
     ApprovalRequest,
@@ -1066,6 +1067,11 @@ async def _run_agent(
         if depth == 0 and not chat_mode and not internal
         else ()
     )
+    # `--exclude-dynamic-system-prompt-sections` (#301): kişiye özgü bölümler kullanıcı mesajına.
+    from . import dynamic_sections
+
+    dinamik_disari = dynamic_sections.applies(depth=depth, system_prompt=system_prompt)
+    bellek_blogu = memory_prompt_block(deps)
     messages = _initial_messages(
         task,
         history,
@@ -1073,9 +1079,9 @@ async def _run_agent(
         extra_system="\n\n".join(
             part
             for part in (
-                proje_ve_dis_bellek if system_prompt is None else "",
-                memory_prompt_block(deps),
-                harita,
+                proje_ve_dis_bellek if system_prompt is None and not dinamik_disari else "",
+                "" if dinamik_disari else bellek_blogu,
+                "" if dinamik_disari else harita,
                 beceri_dizini,
                 ajan_baslangici,
                 teacher_hint,
@@ -1095,7 +1101,13 @@ async def _run_agent(
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
         system_prompt=system_prompt,
-        project_context=proje_ve_dis_bellek if system_prompt is not None else "",
+        project_context=(
+            dynamic_sections.user_context(proje_ve_dis_bellek, bellek_blogu, harita)
+            if dinamik_disari
+            else proje_ve_dis_bellek
+            if system_prompt is not None
+            else ""
+        ),
         images=images,
     )
     if deps.agent_transcript is not None:
@@ -4310,6 +4322,7 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
+        request = replace(request, call_id=call.id)
         # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır. Eşik bu
         # çağrıda aşılıp kip Manuel'e düştüyse yeni kip bu çağrının kapsamıdır (riskli karar
         # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
@@ -4326,6 +4339,21 @@ async def _execute(
             return ToolResult.failure(
                 "Onay kapsamı değişti; eski işlem başlatılmadı."
             ), ToolOutcome.BLOCKED
+        if isinstance(verdict, Allowance):
+            # Onaylayan argümanı değiştirdi (`-p` onay aracı `updatedInput`): yeni argüman
+            # kural/kök-dışı engelinden yeniden geçer, sonra çalışır.
+            args = dict(verdict.arguments)
+            request = await resolve_request(
+                tool,
+                deepcopy(args),
+                deps.allowed_commands,
+                root=deps.tool_context.root,
+                context=deps.tool_context,
+                rules=rules,
+            )
+            if request.pre_denied is not None:
+                return ToolResult.failure(request.pre_denied), ToolOutcome.BLOCKED
+            verdict = Decision.ALLOW
         if isinstance(verdict, Denial):
             # Gerekçeli ret (P-013): tur DURMAZ; model gerekçeyi okur ve yolunu değiştirir.
             # Sonuç BLOCKED sınıfındadır: refleksiyon tetiklenmez, bütçe durdurulmaz.

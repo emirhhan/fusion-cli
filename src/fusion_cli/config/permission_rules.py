@@ -36,6 +36,7 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from .paths import user_config_dir
+from .setting_sources import layer_enabled
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
@@ -195,11 +196,16 @@ def load_permission_rules(
     rules: list[PermissionRule] = []
     untrusted: list[str] = []
     for layer in rule_layers(root):
+        if not layer_enabled(layer.name):  # `--setting-sources` (#296)
+            continue
         found = read_rules_file(layer.path, source=layer.name)
         if layer.requires_trust and layer.path.is_file() and not _layer_trusted(layer, root):
             untrusted.append(layer.name)
             found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
         rules.extend(found)
+    from .flag_settings import flag_permission_rules  # `--settings` katmanı (#296)
+
+    rules.extend(flag_permission_rules())
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )

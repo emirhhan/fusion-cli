@@ -1,10 +1,242 @@
-# Headless (betik) kullanım — `fusion agent`
+# Headless (betik) kullanım — `fusion -p`
 
-`fusion agent` bir terminal olmadan, betikten ya da başka bir programdan çalıştırılmak
-için tasarlanmıştır. Claude Code'un `claude -p` ve Codex'in `codex exec` davranışı örnek
-alınmıştır; bayrak adları tanınır biçimde korunur, açıklamalar Türkçedir.
+`fusion -p` Claude Code'un `claude -p/--print` kipinin karşılığıdır: istemi etkileşimsiz
+çalıştırır, cevabı yazar ve çıkar. Bayrak adları, değerleri ve çıktı alanları Claude
+Code'unkilerle aynıdır; Claude için yazılmış betik komut adı değiştirilerek çalışır.
 
-## Görev kaynağı
+```bash
+fusion -p "testleri çalıştır ve kırmızıları düzelt"
+cat build-error.txt | fusion -p "kök nedeni kısaca açıkla" > cikti.txt
+fusion -p "özetle" --output-format json | jq -r .result
+fusion -c -p "kaldığın yerden sürdür"
+fusion -r "$session_id" -p "testleri de ekle"
+fusion "merhaba"                      # -p yok: etkileşimli oturum bu istemle açılır
+fusion -v                             # sürüm
+```
+
+## İstem ve stdin
+
+Boru stdin'i istemle birleşir (istem önce, stdin içeriği sonra). Boru girdisi 10 MB ile
+sınırlıdır; aşılırsa açık hata ve çıkış kodu 1. stdin okunamazsa stderr'e uyarı yazılır ve
+argümandaki istemle sürülür. İstem de stdin de yoksa Claude'un hatasıyla (`Input must be
+provided either through stdin or as a prompt argument when using --print`) çıkılır.
+
+`--input-format stream-json` stdin'den `{"type":"user","message":{"role":"user","content":
+"..."}}` satırlarını okur; her satır aynı oturumda bir turdur ve her tur kendi `result`
+satırını yazar. `--output-format stream-json` gerektirir. `--replay-user-messages` gelen
+kullanıcı mesajlarını çıktıya yansıtır.
+
+Aynı akışta Agent SDK'nın denetim istekleri de işlenir (stdin ayrı iş parçacığında okunur,
+tur sürerken de cevap verilir): `{"type":"control_request","request_id":"…","request":
+{"subtype":"interrupt"}}` süren turu keser (tur `error_during_execution` sonucu ve
+`[Request interrupted by user]` hatasıyla biter); `initialize`, `set_permission_mode`
+(`mode`, Claude kip adları) ve `set_model` (`model`) sonraki turdan geçerlidir.
+`bypassPermissions`'a geçiş Claude'daki gibi yalnız koşu `--dangerously-skip-permissions` ya
+da `--allow-dangerously-skip-permissions` ile başladıysa kabul edilir, `--restricted` koşuda
+hiç kabul edilmez (ikisinde de `error` döner). `set_model` istek anında çözülür; çözülemeyen
+model `error` döner ve oturum mevcut modelle sürer. Her isteğe
+`{"type":"control_response","response":{"subtype":"success"|"error","request_id":"…"}}`
+yazılır; bilinmeyen alt tür `error` döner. `--permission-prompt-tool stdio` ile onay
+gereken çağrı stdout'a `control_request` (`subtype: can_use_tool`, `tool_name`, `input`,
+`tool_use_id`) olarak sorulur; cevap MCP onay aracıyla aynı kuralla işlenir (`allow` +
+`updatedInput`, `deny` + `message`/`interrupt`), stdin kapanırsa bekleyen onay reddedilir.
+
+## Çıktı — `--output-format text|json|stream-json`
+
+| Değer | Davranış |
+|-------|----------|
+| `text` (varsayılan) | stdout'a yalnız nihai cevap. İlerleme satırları yalnız `--verbose` ile ve stderr'e. |
+| `json` | Tek `SDKResultMessage` nesnesi (aşağıda). |
+| `stream-json` | Her satır bir SDK mesajı. Claude gibi `--verbose` ister. |
+
+`json` sonuç nesnesi:
+
+```json
+{"type": "result", "subtype": "success", "is_error": false, "result": "…",
+ "session_id": "8f0c…", "num_turns": 3, "duration_ms": 5120, "duration_api_ms": 4100,
+ "total_cost_usd": 0.0012, "stop_reason": null,
+ "usage": {"input_tokens": 1200, "output_tokens": 300,
+           "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+ "modelUsage": {"openrouter/…": {"inputTokens": 1200, "outputTokens": 300, "costUSD": 0.0012}},
+ "permission_denials": [], "uuid": "…", "fusion": {"maliyet_tam": true, "durma_nedeni": null}}
+```
+
+`subtype`: `success` | `error_max_turns` | `error_max_budget_usd` | `error_during_execution` |
+`error_max_structured_output_retries`. Hata alt türlerinde `result` yerine `errors[]` gelir.
+`--json-schema` verildiyse ve cevap uyduysa `structured_output` alanı eklenir. `fusion` alt
+nesnesi Fusion'a özgü ektir (`maliyet_tam` false ise maliyet alt sınırdır). Önbellek
+token'ları (`cache_read_input_tokens`, `cache_creation_input_tokens`) sağlayıcı bildirdiğinde
+dolar; `modelUsage` satırlarında `contextWindow` ve `maxOutputTokens` model kataloğundan gelir
+(bilinmiyorsa 0).
+
+`stream-json` sırası: `{"type":"system","subtype":"init",session_id,cwd,model,permissionMode,
+mcp_servers[{name,status}],tools,slash_commands,skills,plugins[{name,path}],...}` (komut
+listesi kullanıcının çağırabildiği beceri/özel komutlar ve `-p` yerleşikleridir; `initialize`
+cevabının `commands[{name,description,argumentHint}]` dizisi de aynıdır), ardından `assistant` (metin + `tool_use` blokları;
+araç adları Claude adlarıyla: `Bash`, `Read`, `Edit`…) ve `user` (`tool_result`) mesajları,
+yeniden denemede `system/api_retry`, reddedilen çağrıda `system/permission_denied`, en sonda
+aynı `result` nesnesi. `--include-partial-messages` metin parçalarını `stream_event`
+(`content_block_delta`/`text_delta`) olarak ekler.
+
+Koşu başladıktan sonra oluşan hata (bulunamayan oturum, açılamayan çalışma ağacı…) json
+kiplerinde `is_error: true` sonuç nesnesi olarak stdout'a yazılır; geçersiz bayrak koşu
+başlamadan stderr'e yazılır.
+
+## Oturumlar
+
+`-p` koşusu da bir oturumdur: kimliği `session_id` alanında döner, REPL'in `/resume`
+listesinde görünür. `-c/--continue` son oturumu, `-r/--resume <kimlik|ad>` seçileni sürdürür;
+`--fork-session` kopyasını yeni kimlikle açar. `--session-id <uuid>` yeni oturuma kimlik
+verir (sürdürmeyle yalnız `--fork-session` ile birlikte). `--no-session-persistence` diske
+hiç yazmaz. `-n/--name` oturuma ad verir.
+
+## İzinler ve araçlar
+
+| Bayrak | Claude anlamı (Fusion'da da aynı) |
+|--------|-----------------------------------|
+| `--permission-mode` | `default` (varsayılan) \| `acceptEdits` \| `plan` \| `auto` \| `dontAsk` \| `bypassPermissions` \| `manual`. |
+| `--dangerously-skip-permissions` | `bypassPermissions` ile aynı. |
+| `--allowedTools` / `--allowed-tools` | Ön-onay kuralları: eşleşen çağrı sorulmadan çalışır. Kural sözdizimi `permissions.allow` ile aynı: `Bash(git diff *)`, `Read(./src/**)`, `mcp__github`. Değerler boşlukla ya da virgülle. |
+| `--disallowedTools` / `--disallowed-tools` | Çıplak ad aracı bağlamdan çıkarır (`*` hepsi, `mcp__*` tüm MCP araçları, `mcp__<sunucu>` o sunucu); kapsamlı kural (`Bash(rm *)`) aracı bırakır, yalnız eşleşen çağrıyı reddeder. |
+| `--tools` | Yerleşik araç kümesini daraltır: `"Bash,Read"`, `""` (hepsi kapalı), `"default"`. MCP araçlarını etkilemez. |
+| `--permission-prompts host\|none` | Kabul edilir; `-p` zaten kimseye sormaz. |
+| `--permission-prompt-tool` | Onayları bir MCP aracına sorar (aşağıda). |
+
+`-p` hiçbir zaman terminalde onay sormaz: onay gerektiren ve hiçbir allow kuralı ya da kipin
+onaylamadığı çağrı reddedilir, tur sürer (model başka yol dener) ve çağrı
+`permission_denials` listesine düşer. Fusion'da karşılığı olmayan Claude araç adı koşuyu
+düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uygulanır.
+
+## Diğer bayraklar
+
+| Bayrak | Etkisi |
+|--------|--------|
+| `--max-turns N` | Model çağrısı üst sınırı; verilmezse sınır yok. Sınırda `error_max_turns`. |
+| `--max-budget-usd X` | Bilinen maliyet X'e ulaşınca tur durur (`error_max_budget_usd`). |
+| `--model <takma ad\|tam kimlik>` / `--fallback-model a,b` | Oturum modeli ve sıralı yedek zinciri. |
+| `--effort low\|medium\|high\|…` | Akıl yürütme yoğunluğu. |
+| `--system-prompt`, `--system-prompt-file` | Fusion'ın çekirdek sistem metninin yerine geçer. |
+| `--append-system-prompt`, `--append-system-prompt-file` | Sisteme eklenir (dosya içeriği önce). |
+| `--system-prompt-snapshot on\|off` | Bayraklardan gelen istem metni sohbetin ilk koşusunda kaydedilir; `-r/-c` ile sürdürülen sohbet kayıtlı metni kullanır (`off` her koşuda yeniden kurar; `--bare`'de kayıt `on` verilmedikçe kapalı). Dört istem bayrağı ve bu bayrak kök komutta (etkileşimli oturum) da geçerlidir. |
+| `--json-schema '<şema>'\|dosya` | Satır içi JSON ya da dosya; geçersiz şemada `Error: --json-schema is not a valid JSON Schema`. Tam JSON Schema denetimi; uymayan cevap iki kez yeniden denenir. |
+| `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `permissions.defaultMode` (`--permission-mode` öncelikli), `permissions.additionalDirectories`, `model`, `env`, `disableAllHooks`. Kök komutta (etkileşimli oturum) de hepsi uygulanır: `permissions.defaultMode` başlangıç kipidir (kayıtlı `approval_mode` gibi; `bypassPermissions` etkileşimli açılışta `auto`ya iner), `permissions.allow/ask/deny` `bayrak` adlı oturumluk kural katmanıdır (`FUSION_FLAG_PERMISSIONS`; alt ajanlar ve alt süreçler devralır; `--setting-sources` süzmesine girmez). |
+| `--setting-sources user,project,local` | Yalnız adı geçen ayar kaynakları yüklenir: `user` (`~/.claude/settings.json` ve Fusion'ın kullanıcı `permissions.json`/`hooks.json`'ı), `project` (`.claude/settings.json`), `local` (`.claude/settings.local.json`). İzin kuralları, kancalar ve ajan ayarları için geçerlidir; `--settings` her zaman yüklenir, proje güven denetimi sürer. Liste `FUSION_SETTING_SOURCES` ile aynı süreçteki alt ajanlara ve başlatılan alt süreçlere geçer. Geçersiz kaynak hatadır. Kök komutta (etkileşimli oturum ve alt komutlar) da geçerlidir. |
+| `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
+| `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. `CLAUDE_CODE_SIMPLE=1` ayarlanır. Kök komutta (etkileşimli `fusion --bare`) da geçerlidir. |
+| `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |
+| `--agent <ad>` / `--agents '<json>'` | Baş ajan ve oturumluk ajan tanımları. |
+| `-w/--worktree [ad\|#N\|PR/MR adresi]` | Çalışma ağacında koş; ad verilmezse üretilir. `#123`, GitHub PR ya da GitLab MR adresi verilince PR/MR `origin`'den çekilir ve `pr-<n>` ağacı ondan dallanır (kök komutta da). |
+| `--verbose` | `text` kipinde ilerleme satırları (stderr); `stream-json` için zorunlu. |
+| `--debug [kategoriler]` / `--debug-file <yol>` | Ayrıntılı günlük stderr'e ya da dosyaya; `"api,hooks"`, `"!statsig"` süzgeci `fusion_cli.*` günlükçü adlarına uygulanır. |
+| `--disable-slash-commands` | İstemdeki `/ad` genişletilmez. |
+| `--append-subagent-system-prompt <metin>` / `--append-subagent-system-prompt-file <yol>` | İç içe olanlar dahil her alt ajanın sistem istemine eklenir (çatallı alt ajan hariç); ikisi birleştirilemez. |
+| `--safe-mode` | Proje talimatı, beceriler, özel komut/ajanlar, eklentiler, kancalar, MCP ve bellek yüklenmez; yerleşik araçlar ve izinler normal. `CLAUDE_CODE_SAFE_MODE=1` ayarlanır. |
+| `--plugin-dir <yol>` | Eklentiyi kurmadan yalnız bu oturum için yükler; her bayrak tek yol alır, tekrarlanır (`--plugin-dir A --plugin-dir B`). Yollar `CLAUDE_CODE_PLUGIN_DIRS`'e eklenir (alt ajanlar ve alt süreçler aynı listeyi görür); eklentinin yüklenmesi için bkz. EKLENTILER.md. |
+| `--restricted` | Kısıtlı kip: komut ya da kod çalıştıran araçlar (Bash ve Fusion'ın masaüstü/tarayıcı/iş/Python gibi ek araçları) ve WebFetch kaldırılır; `--tools` ile TEK TEK adı verilen kalır (`default` geri getirmez). Dosya araçları çalışma dizinlerine (kök + `--add-dir`) sınırlanır; kullanıcı/proje/yerel ayar katmanları yüklenmez (yalnız `--settings`); yapılandırmadaki MCP bağlanmaz (`--mcp-config` bağlanır); `bypassPermissions` reddedilir. Alt ajanlar aynı tavanı devralır. Kök komutta (`fusion --restricted`, etkileşimli oturum) de geçerlidir: araç kümesi her turda aynı güvenli kümeyle kesişir (`--bare` ile birlikte iki kısıtın kesişimi), `--settings permissions.defaultMode bypassPermissions` açılışı reddeder, oturumda `/bypass` açık bir ret mesajıyla reddedilir (kip değişmez; shift-tab döngüsünde bypass zaten yok), başka yoldan seçilen bypass tur başında `auto`ya iner. Fusion'ın kendi `config.yaml`'ı (sağlayıcı ve anahtar) okunmaya devam eder; Claude'un kimlik bilgilerini okuması gibi bu bir ayar katmanı değildir. |
+| `--from-pr <N\|URL>` | Bu PR'a bağlı en son oturumu sürdürür (GitHub/GitLab/Bitbucket adresi ya da numara). |
+| `--bg` | `-p` ile birleştirilemez (Claude'un hatası). `fusion --bg "görev"` arka plan görevi başlatır. |
+
+Alt ajan mesajları akışa `assistant`/`user` olarak düşer; `parent_tool_use_id` mesajın ait
+olduğu Agent çağrısının kimliğidir (ana konuşmada `null`). İlk mesaj alt ajanı süren istemi
+taşıyan `user` mesajıdır; varsayılanda yalnız `tool_use`/`tool_result` blokları ve yalnız
+ana konuşmanın doğrudan çocukları iletilir. `--forward-subagent-text` ya da
+`CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1` metin bloklarını da ekler ve her derinlikteki alt ajanı
+iletir.
+
+İstem `/<beceri>` ile `context: fork` taşıyan bir beceriyi başlatıyorsa tur Claude'daki gibi
+ana bağlamı devralan fork alt ajanda koşar (REPL `/subtask` yolu; `agent:` alanı o alt ajan
+tanımını seçer). Bu alt ajanın mesajlarında `parent_tool_use_id` `forked-command-<beceri adı>`
+olur ve mesajlar beceri bitince toplu ve sırayla yazılır; eşleştirmeyi `forked-command-`
+önekine göre yap (ad yazdığından farklı olabilir).
+
+`--exclude-dynamic-system-prompt-sections` kişiye/makineye özgü bölümleri (proje
+talimatları, bellek bloğu ve konumu, depo haritası) sistem isteminden ilk kullanıcı mesajına
+taşır; böylece aynı görevi koşan farklı kullanıcı ve makinelerde sistem istemi aynı kalır.
+Yalnız varsayılan sistem isteminde geçerlidir; `--system-prompt(-file)` verilince yok sayılır.
+
+`--betas <ad...>` verilen beta adlarını Anthropic API isteklerine `anthropic-beta`
+başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız Anthropic API'sine
+giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
+
+`--include-hook-events` (stream-json) her kanca komutu için `system/hook_started`
+(`hook_id`, `hook_name` = `Olay:konu`, ör. `PreToolUse:Bash`, `hook_event`) ve bittiğinde
+aynı `hook_id` ile `system/hook_response` (`output`, `stdout`, `stderr`, `exit_code`,
+`outcome`: `success|error|cancelled`) yazar; alt ajanların kancaları dahil.
+
+`--prompt-suggestions` (stream-json) her turun `result` mesajından sonra
+`{"type": "prompt_suggestion", "suggestion": …, "uuid": …, "session_id": …}` yazar. Öneri
+Claude'daki gibi kullanıcının sıradaki isteminin model tahminidir: hakem rolünün modeli
+(`judge`, `/goal` değerlendiricisiyle aynı ucuz rol) konuşmanın son bölümüne bakıp tek kısa
+istem önerir; bu bayrak açıkken her tur sonunda bir ek model çağrısı yapılır. Model
+ulaşılamaz ya da tahmin vermezse turun kanıtından (değişen dosyalar, düşen araç/doğrulama,
+adım sınırı) üretilen ilk takip önerisi kullanılır. Hatayla biten turda ve plan kipinde öneri
+yazılmaz; mesaj `result`'tan sonra gelir, akışı sonuna kadar oku.
+
+`-p --init` ve `-p --maintenance` konuşmadan önce `Setup` kanca olayını tetikler
+(eşleştirici ve girdideki `trigger` sırasıyla `init` / `maintenance`); `fusion --init-only`
+(ya da `-p --init-only`) Setup(`init`) ve `SessionStart(startup)` kancalarını koşup konuşma
+açmadan, başarıda çıktısız çıkar. Setup olağan açılışta çalışmaz ve engelleyemez: çıkış kodu
+ve JSON çıktısı yok sayılır (Claude ile aynı). Çalıştığını görmek için
+`fusion --debug-file <yol> --init-only` günlüğünde `Setup:` ve `SessionStart:` satırlarına bak.
+
+`--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına
+`{tool_name, input, tool_use_id}` ile sorar (`input` Claude alan adlarıyla, `tool_use_id`
+modelin araç çağrısı kimliği); araç `{"behavior":"allow"}` dönerse çağrı çalışır,
+`updatedInput` verildiyse Claude'daki gibi argümanın tamamı olur (yeni argüman izin kuralları ve kök-dışı
+engelinden yeniden geçer). `{"behavior":"deny","message":"…"}` mesajı modele araç sonucu olarak
+gider ve tur sürer; `interrupt: true` turu durdurur. Araç hatası ya da bulunamayan araç
+isteği reddeder ve nedeni stderr'e yazılır.
+
+İstem `/ad` ile başlıyorsa beceri/özel komut koşudan önce genişletilir (gövde sistem
+bağlamına, argüman göreve; `allowed-tools`/`disallowed-tools` turu daraltır). Etkileşimli
+arayüze özgü komutlar (`/clear`, `/resume`…) Claude'daki gibi `/<ad> isn't available in this
+environment.` cevabını verir. `--input-format stream-json`'da her kullanıcı satırı aynı yoldan
+geçer (yerleşik komut, beceri genişletmesi; daraltma yalnız o tura). `--disable-slash-commands`
+genişletmeyi kapatır.
+
+Değer alan yerleşik komutlar modele gitmeden cevaplanır: `/model <takma ad|kimlik>` ve
+`/effort <seviye>` bu koşunun (stream-json'da sonraki turların) ayarıdır, argümansız biçimleri
+geçerli değeri yazar; `/config yol=değer` Fusion'ın nokta yollu ayarını YALNIZ bu koşuya
+uygular, kullanıcı yapılandırmasına yazmaz (borulu stdin'deki `/config …` satırı kalıcı
+güvenlik ayarını değiştiremez; kalıcı yazma REPL'deki `/config yol=değer` ile; argümansız
+`/config` menüsü `-p`'de yok); `/output-style <stil>` stili seçer, `/output-style` listeler; `/mcp`
+argümansız sunucuların metin özetini basar.
+
+Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`,
+`--no-memory` (belleği kapatır; Claude'da bellek `--bare` ya da ayarla kapanır).
+
+Kök komut (etkileşimli oturum) da `--system-prompt*` bayraklarını, `--model`, `--fallback-model`, `-c/-r/--fork-session`,
+`-n`, `-w`, `--add-dir`, `--agent`, `--agents` ve konumsal istemi (`fusion "istem"`) alır.
+
+## Arka plan işi
+
+Tur bittikten sonra `-p`, turun başlattığı arka plan alt ajanlarını bekler; 5 sn sonra
+stderr'e `Waiting for background work to finish` yazar. Tavan toplam süre değil,
+kesintisiz boşta bekleme süresidir: alt ajanlardan olay (model/araç adımı) geldikçe sayaç
+sıfırlanır. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (varsayılan 600000 ms, `0` tavansız);
+dolunca kalan iş durdurulur ve kısmi sonucu düşer. `--max-budget-usd` tavanına ulaşılınca
+(turun sonunda ya da bekleme sırasında) arka plan işi beklenmez, durdurulur. `--bare` kipinde arka plan alt ajanı
+başlatılamaz. Fusion'da arka plan kabuk komutu ve Monitor aracı olmadığından beklenecek
+başka iş türü yoktur; arka plan işi bitince ayrı bir ek tur açılmaz (sonuç, ajanın tur
+içinde beklediği alt ajan çıktısıyla gelir).
+
+## Çıkış kodları
+
+- `0` — `success`.
+- `1` — hata alt türleri, geçersiz bayrak ya da boş cevap.
+- `2` — Typer bayrak ayrıştırma hatası (ör. var olmayan `--add-dir`).
+- `143` — SIGTERM (kapanış kancaları çalışır).
+
+---
+
+# Eski yüzey — `fusion agent` (kullanımdan kalkıyor)
+
+`fusion agent` bir sürüm boyunca eski davranışıyla çalışmaya devam eder (varsayılan kip
+`auto`, Türkçe alanlı sonuç, `--allowed-tools` = araç daraltma, `--permission-channel`
+onay protokolü). Yeni betikler `fusion -p` kullanmalı; aşağıdaki bölümler eski yüzeyi
+belgeler.
+
+### Görev kaynağı
 
 ```bash
 fusion agent "testleri çalıştır ve kırmızıları düzelt"     # argüman
@@ -15,7 +247,7 @@ echo "dosyaları listele" | fusion agent                    # boru hattında bo�
 Terminalde boş görev hata verir (`Görev metni boş olamaz.`); stdin yalnız boru hattında
 okunur.
 
-## Çıktı biçimi — `--output-format`
+### Çıktı biçimi — `--output-format`
 
 | Değer | Davranış |
 |-------|----------|
@@ -23,7 +255,7 @@ okunur.
 | `json` | Tek satır: nihai sonuç nesnesi (aşağıda). İlerleme satırı basılmaz. |
 | `stream-json` | Her olay bir satır (JSONL). İlk satır `SystemInit`. `--json` bunun kısaltmasıdır. |
 
-### `json` sonuç nesnesi
+#### `json` sonuç nesnesi
 
 ```json
 {"type": "result", "ok": true, "durum": "completed", "sonuc": "…",
@@ -35,7 +267,7 @@ okunur.
 `durum`: `completed` | `budget` (tur bütçe/tavan sebebiyle kesildi) | `failed`.
 `maliyet_tam` false ise toplam alt sınırdır (ölçülmemiş ya da iptal edilmiş çağrı var).
 
-### `stream-json` olayları
+#### `stream-json` olayları
 
 Her satır `{"event": "<OlayAdı>", ...alanlar}` biçimindedir; alanlar `core/events.py`
 içindeki olay dataclass'larının alanlarıdır ve sırlar maskelenir. Betiklerin en çok
@@ -51,7 +283,7 @@ kullandığı olaylar:
 | `TurnBudgetExhausted` | Tur bütçe sebebiyle kesildi; `reason` alanı (`cost_limit`, `model_calls`, …). |
 | `TurnAnswered` / `TurnFinished` | Nihai cevap ve tur sonu (`result`). |
 
-## Sınırlar
+### Sınırlar
 
 | Bayrak | Etkisi |
 |--------|--------|
@@ -66,7 +298,7 @@ runtime:
   agent_max_cost_usd: 2.0     # null = tavan yok
 ```
 
-## Araç listeleri
+### Araç listeleri
 
 ```bash
 fusion agent "…" --allowed-tools read_file,grep,run_shell   # modele YALNIZ bunlar sunulur
@@ -91,7 +323,7 @@ bulunmayan bir ad (yazım hatası, bağlanmamış MCP sunucusu) verilirse model 
 Bilinmeyen araç adı: raed_file. Şunu mu demek istediniz: read_file?
 ```
 
-## Sistem istemi ve ajan tanımı
+### Sistem istemi ve ajan tanımı
 
 ```bash
 fusion agent "…" --append-system-prompt "Yalnız Türkçe yaz."
@@ -101,14 +333,18 @@ fusion agent "…" --agent gozden-gecirici     # .claude/agents/gozden-gecirici.
 `--agent` tanımının gövdesi sistem istemine eklenir; `tools:` alanı varsa izin listesi
 onunla kesişir (`--allowed-tools` da verildiyse ikisinin kesişimi).
 
-## `--bare`
+### `--bare`
 
 Bellek, MCP sunucuları, barındırılan bağlayıcılar ve proje talimatı (AGENTS.md/CLAUDE.md,
 dış araç bellekleri) yüklenmez; tur yalnız yerleşik araçlarla çalışır
-(`runtime.project_instructions: false` + boş `mcp_servers`). CI'da tekrarlanabilir
-koşular için.
+(`runtime.project_instructions: false`, `runtime.auto_memory: false`, kancalar kapalı,
+boş `mcp_servers`). Kullanıcı/proje becerileri, komutları, ajanları ve eklentileri
+keşfedilmez; yalnız `--add-dir` becerileri ve `--agents` tanımları yüklenir. Bayrak
+`CLAUDE_CODE_SIMPLE=1` ayarlar. Etkileşimli `fusion --bare` aynı daraltmayla açılır ve her
+turda araç kümesi Bash + dosya okuma/düzenlemeyle kesişir; `/add-dir`, `/cd` ya da yeniden
+yükleme kataloğu yeniden keşfedebilir. CI'da tekrarlanabilir koşular için.
 
-## Yapısal çıktı — `--json-schema`
+### Yapısal çıktı — `--json-schema`
 
 ```bash
 fusion agent "bu depodaki açık TODO'ları say" \
@@ -121,7 +357,7 @@ nesnesi olsun"); nihai cevaptan JSON ayıklanır (kod çiti sökülür) ve denet
 `type` (tek ad ya da liste), `required`, `properties`, `items`, `enum`,
 `additionalProperties: false`. Diğer anahtarlar denetlenmez.
 
-## Dış onay kanalı — `--permission-channel stdin`
+### Dış onay kanalı — `--permission-channel stdin`
 
 Etkileşimsiz oturumda onay istemi normalde `UNAVAILABLE` sayılır (sorulamadı, tur sürer).
 Kanal açıkken istekler yazılır, kararlar stdin'den JSON-Lines olarak okunur. İsteklerin
@@ -148,13 +384,13 @@ fusion agent "testleri düzelt" --permission-channel stdin --permission-timeout 
   --output-format json 2> istekler.jsonl
 ```
 
-## Çıkış kodları
+### Çıkış kodları
 
 - `0` — tur tamamlandı, nihai metin dolu, şema (varsa) uyumlu.
 - `1` — boş cevap, hata, bütçe/tavan kesintisi ya da şemaya uymayan cevap.
 - `2` — bayrak hatası (Typer).
 
-## Arka planda koşturma — `--bg`
+### Arka planda koşturma — `--bg`
 
 `fusion agent --bg [--name ad] "görev"` görevi ayrı bir süreçte başlatır ve kimliği yazıp
 hemen döner; olaylar aynı JSON-Lines biçiminde `<bellek>/arka-plan/<kimlik>/olaylar.jsonl`

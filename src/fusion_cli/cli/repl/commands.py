@@ -234,6 +234,12 @@ def _use_fusion(state: ReplState, argument: str) -> str:
 
 def _set_mode(mode: ApprovalMode) -> Handler:
     def _handler(state: ReplState, argument: str) -> str:
+        if mode is ApprovalMode.BYPASS:
+            from ..root_restricted import bypass_refusal
+
+            refusal = bypass_refusal(state)  # `fusion --restricted` (#301)
+            if refusal:
+                return refusal
         state.approval = mode
         return messages.REPL_MODE_CHANGED.format(mode=mode.value)
 

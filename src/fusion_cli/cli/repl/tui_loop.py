@@ -33,6 +33,7 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from .. import launch_prompts as launch_prompts_mod
 from ..desktop_never import AppDenials, config_persist, offers_never
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
@@ -960,7 +961,9 @@ class _TuiSession:
                 digest = self._state.take_pending_digest()
                 self._state.prepare_persona_config()
                 line = self._state.take_persona_initial(line)
-                persona = persona_turn(self._state.persona)
+                persona = launch_prompts_mod.apply_to_turn(
+                    persona_turn(self._state.persona), self._state
+                )
                 extras = self._state.take_pending_extras()
                 turn_extra_system = "\n\n".join(
                     part
@@ -1084,6 +1087,10 @@ async def run_tui_repl(
     )
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
+    if state.initial_prompt:
+        # `fusion "istem"` (#276): istem ilk satır olarak gönderilir.
+        first, state.initial_prompt = state.initial_prompt, ""
+        session._submit(first)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl

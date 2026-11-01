@@ -24,7 +24,7 @@ from ...config.hooks import DISABLE_ALL_KEY, hook_environment, load_hooks
 from ...config.models import Config, mcp_secret_env_names
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookEvent, HookSet, HookVerdict
-from .runner import run_hook
+from .lifecycle import run_observed
 from .transcript import HOOK_TRANSCRIPT_DIR, HookTranscript, transcript_for
 
 #: Boş karar: hiçbir kanca eşleşmedi.
@@ -134,9 +134,10 @@ class HookSession:
         private = self.http_allow_private() if self.http_allow_private is not None else False
         runs = await asyncio.gather(
             *(
-                run_hook(
+                run_observed(
                     command,
                     payload,
+                    subjects=subjects,
                     cwd=self.root,
                     environment=environment,
                     allow_private=private,

@@ -25,7 +25,7 @@ yıkıcı sayılır (P-002).
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from hashlib import sha256
@@ -197,6 +197,19 @@ class ApprovalReply:
 
     answer: ApprovalAnswer | bool
     note: str = ""
+    #: Onaylayan tarafın değiştirdiği argümanlar (Claude `updatedInput`; `-p` onay aracı).
+    updated_input: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Allowance:
+    """`decide` sonucu: izin verildi, ama çağrı onaylayanın verdiği argümanlarla çalışır."""
+
+    arguments: Mapping[str, object]
+
+    @property
+    def decision(self) -> Decision:
+        return Decision.ALLOW
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +221,10 @@ class Denial:
     @property
     def decision(self) -> Decision:
         return Decision.DENIED
+
+
+#: Onay politikasının kararı.
+Verdict = Decision | Denial | Allowance
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +271,8 @@ class ApprovalRequest:
     consent_key: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
+    #: Modelin araç çağrısı kimliği (`tool_use_id`); döngü onaydan önce doldurur.
+    call_id: str = ""
 
     @property
     def can_remember(self) -> bool:
@@ -311,7 +330,7 @@ class Prompter(Protocol):
 class ApprovalPolicy(Protocol):
     """Bir araç çağrısına izin verilip verilmeyeceğine karar verir."""
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial: ...
+    async def decide(self, request: ApprovalRequest) -> Verdict: ...
 
 
 class ApprovalMemory:
@@ -371,7 +390,7 @@ class _AskingApproval:
     def _allows(self, request: ApprovalRequest) -> bool:
         raise NotImplementedError
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if request.pre_denied is not None:
             # `deny` kuralı / kök-dışı engel: kimseye sorulmaz, model gerekçeyi görür.
             return Decision.BLOCKED
@@ -434,7 +453,7 @@ class SecurityApproval(_AskingApproval):
 class DontAskApproval:
     """Açık izinleri ve okumayı koru; kullanıcı etkileşimi gereken çağrıyı reddet."""
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if (
             request.pre_denied is not None
             or request.pre_ask is not None
@@ -462,7 +481,7 @@ class PlanApproval:
     çalışıyordu.
     """
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if (
             request.read_only
             and request.danger is None
@@ -489,7 +508,7 @@ class BypassApproval:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
-    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+    async def decide(self, request: ApprovalRequest) -> Verdict:
         if request.pre_denied is not None:
             return Decision.BLOCKED
         if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
@@ -744,12 +763,13 @@ async def _ask_and_remember(
     prompter: Prompter,
     request: ApprovalRequest,
     memory: ApprovalMemory,
-) -> Decision | Denial:
+) -> Verdict:
     revision = memory.revision
     reply = await prompter.confirm(request)
     answer, note = (
         (reply.answer, reply.note.strip()) if isinstance(reply, ApprovalReply) else (reply, "")
     )
+    updated = reply.updated_input if isinstance(reply, ApprovalReply) else None
     if memory.revision != revision:
         return Decision.BLOCKED
     if answer is ApprovalAnswer.ALWAYS:
@@ -769,7 +789,7 @@ async def _ask_and_remember(
         memory.remember(request)
         return Decision.ALLOW
     if answer is ApprovalAnswer.ONCE or answer is True:
-        return Decision.ALLOW
+        return Allowance(dict(updated)) if updated is not None else Decision.ALLOW
     if answer is ApprovalAnswer.UNAVAILABLE:
         # Kimseye SORULAMADI — bu insanın "hayır" demesiyle AYNI şey değildir.
         # `BLOCKED`, model açısından "bu yoldan olmaz, başka dene" demektir ve

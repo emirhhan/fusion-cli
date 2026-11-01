@@ -102,6 +102,11 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     checks.append(_path_check())
     checks.extend(_optional())
     checks.append(sandbox_check(config))
+    # Claude `claude doctor`: ayar dosyası doğrulama hataları ve Remote Control (#309).
+    from .doctor_settings import remote_control_check, settings_checks
+
+    checks.extend(settings_checks(Path.cwd()))
+    checks.append(remote_control_check())
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
