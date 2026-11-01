@@ -83,9 +83,10 @@ def add_vi_meta_binding(
     def _meta_in_same_read() -> bool:
         return _queued_meta_action(get_app(), meta) is not None
 
-    @bindings.add("escape", filter=vi_mode & _meta_in_same_read)
     def _option(event: Any) -> None:
         action = take_meta_action(event.app, meta)
         handler = resolve(action) if action is not None else None
         if handler is not None:
             handler(event)
+
+    bindings.add("escape", filter=vi_mode & _meta_in_same_read)(_option)
