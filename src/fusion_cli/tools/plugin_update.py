@@ -39,10 +39,12 @@ from .plugin_install import (
     _fetch,
     _resolve,
     _workspace,
+    accepted_command_of,
     read_marketplace,
     version_of,
 )
 from .plugin_market_source import split_ref
+from .plugin_source_fetch import KIND_COMMAND, CommandConsent, ShownCommand
 from .plugin_version import orphan, sweep_orphans
 
 _LOG = logging.getLogger(__name__)
@@ -72,7 +74,9 @@ def update_plugin(
     approve: ApprovalCallback,
     base: Path | None = None,
     expected_digest: str = "",
+    accept_command: CommandConsent | None = None,
 ) -> UpdateResult:
+    """`accept_command`: değişen pazar komutu için onay; değişmeyen komut yeniden sorulmaz."""
     root = base or plugins_dir()
     sweep_orphans(root)
     state = load_state(root)
@@ -85,7 +89,7 @@ def update_plugin(
         state = load_state(root)
     resolved = _resolve(update_source(record), state)
     with _workspace(root) as workspace:
-        folder, commit = _fetch(resolved, workspace)
+        folder, commit = _fetch(resolved, workspace, _update_consent(record, accept_command))
         report = validate_plugin(folder, record.name)
         if not report.ok or report.layout is None:
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
@@ -107,9 +111,22 @@ def update_plugin(
             digest=digest,
             exec_approved=report.layout.is_executable,
             installed_at=time.time(),
+            accepted_command=accepted_command_of(resolved),
         )
         _swap(root / record.store_key, folder, updated, root)
     return UpdateResult(updated, changed=True)
+
+
+def _update_consent(record: PluginRecord, given: CommandConsent | None) -> CommandConsent:
+    """Kayıtta onaylı aynı komut kendiliğinden kabul; değişmişse `given` karar verir (#399)."""
+
+    def consent(shown: ShownCommand) -> bool:
+        text = f"{shown.mode} {shown.command}" if shown.kind == KIND_COMMAND else shown.command
+        if record.accepted_command and text == record.accepted_command:
+            return True
+        return given is not None and given(shown)
+
+    return consent
 
 
 def _refresh_in_place(record: PluginRecord, root: Path) -> UpdateResult:

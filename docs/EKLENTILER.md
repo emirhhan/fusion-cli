@@ -227,12 +227,36 @@ eklentileri kurulamaz), klasör ya da `.json` dosyası (dosya türü yerinde oku
 git sparse-checkout ile yalnız o klasörleri çeker ve güncellemede korunur. **Güvenlik davranışı
 değişti:** kullanıcının verdiği pazar kaynağı Claude gibi yerel git kimlik bilgileri ve SSH
 anahtarlarıyla, iç ağ adresleri dahil klonlanır (etkileşimsiz: `BatchMode=yes`, yönlendirme
-izlenmez). Pazar GİRDİSİNDEKİ eklenti kaynakları hâlâ yalnız genel https ile klonlanır.
+izlenmez). Pazar GİRDİSİNDEKİ git eklenti kaynakları hâlâ yalnız genel https ile klonlanır.
 `--claudeai` claude.ai hesabı gerektirir; Fusion'da açık hata verir.
 
-Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url` ve `git-subdir` (`url` tam git
-adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur) olabilir; `npm`,
-`archive` ve `command` kaynakları henüz yok.
+Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url`, `git-subdir` (`url` tam git
+adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur), `archive`,
+`npm` ya da `command` olabilir (Claude Code şemasıyla doğrulanır; bozuk girdi atlanıp uyarılır):
+
+- `archive`: `url` https zip (loopback, link-local ve bulut meta veri adresi reddedilir; yönlendirme
+  her adımda yeniden denetlenir), isteğe bağlı `sha256` (64 hex; her indirmede doğrulanır, uyuşmazsa
+  kurulmaz; plugin.json/girdi sürümü yoksa ilk 12 karakteri sürümdür). Arşivin tepesindeki ya da tek
+  sarmalayıcı klasördeki eklenti kökü alınır; güvenli açma sınırları `--plugin-dir .zip` ile aynıdır.
+  Girdinin `headers`'ı indirmeye eklenir; `headersHelper` (stdout'a JSON başlık nesnesi basan komut)
+  girdinin `strict: false` olmasını ister ve çalışmadan önce gösterilip onaylanır. `headers` /
+  `headersHelper` archive dışı girdide uyarı verir.
+- `npm`: `package` (ad, adres ya da yerel yol), `version` (sürüm/aralık), `registry`. Paket
+  `npm pack --ignore-scripts` ile indirilir (paket betikleri çalışmaz), sürüm `unknown`.
+- `command`: stdout'a tek satır mutlak eklenti klasörü yolu basan kabuk komutu (≤500 yazdırılabilir
+  ASCII, 4+ boşluk dizisi yok), `timeout` 1-600 sn (varsayılan 60), `mode` `copy` (kopyalanır, içerik
+  karması sürümdür) ya da `link` (klasör yerinde yüklenir). Ev klasöründen çalışır.
+
+**Pazar komutu onayı (güvenlik davranışı değişti):** command kaynağı ve headersHelper Claude Code gibi
+ancak komut gösterilip onaylanınca çalışır: terminalde sorulur (reddedince `Aborted.`); `-y/--yes`
+gösterilen komutu, `--accept-command <sha256>` yalnız önceki `--json` çıktısındaki
+`shownCommand.sha256` özetli komutu (eklenti, komut, kip/arşiv adresi ve katalog sürümü) onaylar;
+terminal yoksa ve onay verilmediyse kurulum `failureCode: command_source_refused` ve `shownCommand`
+ile reddedilir. `-y` ile `--accept-command` birlikte kullanılamaz. Onaylanan komut kayıtta tutulur:
+`update` aynı komutu yeniden sormaz, değişen komut yeniden onay ister. `--json` hata satırları Claude
+kodlarını taşır: `not_installed`, `not_found`, `ambiguous_marketplace`, `already_in_goal_state`,
+`not_installed_at_scope`, `command_source_refused`, `command_source_declined`. Claude'un `<paket>@npm`
+doğrudan npm pazarı ve command kaynağının oturum başında arka planda yeniden çalıştırılması yok.
 
 `plugin marketplace update` sonrasında pazarın `renames` haritası uygulanır (zincir en eski addan
 izlenir): yeniden adlandırılan kurulum yeni girdi adıyla sürer, project/local `enabledPlugins`
@@ -275,8 +299,7 @@ artık hiçbir eklentiye gerekmeyince `plugin prune` (`autoremove`, `--dry-run`)
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır. Managed kapsam okunmaz;
 `extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` (user) user ayarına
 yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez. Bağımlılık sürüm aralıkları
-(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels`, `plugin eval`, `npm`/`archive`/`command`
-eklenti kaynakları ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
+(`<ad>--v<sürüm>` etiketinden çözüm), `lspServers`/`monitors`/`themes`/`channels`, `plugin eval` ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
 pinidir.
 
 ## Sürüm ve güncelleme

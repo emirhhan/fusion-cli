@@ -106,7 +106,17 @@ def approver(yes: bool) -> plugins.ApprovalCallback:
 def install(
     ctx: typer.Context,
     source: str = typer.Argument(..., help="Eklenti adı ya da ad@pazar (eski: klasör/https/repo)"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Pazarın bildirdiği komutu (command/headersHelper) sormadan onayla.",
+    ),
+    accept_command: str = typer.Option(
+        "",
+        "--accept-command",
+        help="Önceki --json çıktısındaki shownCommand.sha256: yalnız tam o komutu onayla.",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Yalnız doğrula ve özetle."),
     digest: str = typer.Option(
         "", "--karma", help="--dry-run'da gösterilen karma; içerik değiştiyse kurulmaz."
@@ -140,6 +150,7 @@ def install(
     def act() -> tuple[str, dict[str, object]]:
         from ..tools.plugin_declared import sync_quietly
         from ..tools.plugin_install_scope import install_scoped
+        from .plugin_failure import command_consent
 
         sync_quietly()  # #376: depoda bildirilen pazarlar (extraKnownMarketplaces)
 
@@ -150,6 +161,7 @@ def install(
             marketplace=marketplace,
             expected_digest=digest,
             allow_direct=ctx.info_name == "kur",  # eski ad: doğrudan kaynak bir sürüm daha
+            accept_command=command_consent(yes, accept_command),  # #399/#381
         )
         text = INSTALLED.format(name=done.ident, scope=done.scope, status=done.item.status)
         text = "\n".join([text, *done.notes])  # bağımlılıklar (#389)
@@ -355,13 +367,25 @@ def trust(
 @app.command("guncelle")
 def update(
     name: str = typer.Argument(..., help="Eklenti adı"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Kanca/MCP onayını sormadan ver."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Değişen pazar komutunu (command/headersHelper) sormadan onayla."
+    ),
+    accept_command: str = typer.Option(
+        "", "--accept-command", help="Önceki --json çıktısındaki shownCommand.sha256."
+    ),
     digest: str = typer.Option("", "--karma", help="Önizlenen karma; içerik değiştiyse kurulmaz."),
 ) -> None:
     """Eklentiyi kaydedildiği kaynaktan yeniden çek; yeni içerik önizlenir ve onay ister."""
 
     def act() -> str:
-        result = plugin_update.update_plugin(name, approve=approver(yes), expected_digest=digest)
+        from .plugin_failure import command_consent
+
+        result = plugin_update.update_plugin(
+            name,
+            approve=approver(yes),
+            expected_digest=digest,
+            accept_command=command_consent(yes, accept_command),
+        )
         if not result.changed:
             return UP_TO_DATE.format(name=name, version=result.record.version or "unknown")
         version = f" {result.record.version}" if result.record.version else ""

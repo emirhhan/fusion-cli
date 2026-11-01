@@ -84,6 +84,9 @@ class PluginRecord:
     #: Kayıt/klasör anahtarı (#391): boşsa `name`. Başka pazardan aynı adlı eklenti zaten
     #: kuruluysa yenisi `ad@pazar` anahtarı ve `<eklentiler>/ad@pazar/` klasörüyle kurulur.
     key: str = ""
+    #: Onaylanan pazar komutu (command kaynağı/headersHelper, #399); güncellemede aynıysa
+    #: yeniden sorulmaz.
+    accepted_command: str = ""
 
     @property
     def store_key(self) -> str:
@@ -264,6 +267,7 @@ def _plugin(key: str, raw: Mapping[str, object]) -> PluginRecord:
         entry_strict=raw.get("girdi_strict") is not False,
         scopes=_scopes(raw.get("kapsamlar")),
         dependency=raw.get("bagimlilik") is True,
+        accepted_command=str(raw.get("onayli_komut") or ""),
     )
 
 
@@ -321,6 +325,7 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 **({"girdi_strict": False} if not p.entry_strict else {}),
                 **({"kapsamlar": list(p.scopes)} if p.scopes != ("user",) else {}),
                 **({"bagimlilik": True} if p.dependency else {}),
+                **({"onayli_komut": p.accepted_command} if p.accepted_command else {}),
             }
             for p in sorted(state.plugins, key=lambda item: item.store_key)
         },

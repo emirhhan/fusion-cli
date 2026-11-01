@@ -34,7 +34,10 @@ ERR_ENTRY_NAME = (
     "eklenti adı harf ya da rakamla başlamalı; yalnız harf, rakam, '.', '_', '-': {value!r}"
 )
 ERR_DUPLICATE = '{where}: yinelenen eklenti adı "{name}"'
-ERR_SOURCE = "'{name}' için kaynak anlaşılamadı (./göreli yol, github ya da url)"
+ERR_SOURCE = (
+    "'{name}' için kaynak anlaşılamadı (./göreli yol, github, url, git-subdir, npm, archive ya da "
+    "command)"
+)
 ERR_DOT = "'{name}' kaynağı './' ile başlamalı: {value!r}"
 ERR_SHA = "'{name}' sha tam 40 karakterlik küçük harf commit olmalı: {value!r}"
 WARN_ENTRY_SKIPPED = "{where}: plugins[{index}] atlandı: {error}"
@@ -79,6 +82,11 @@ class MarketplaceSource:
     sha: str = ""
     #: `git-subdir`: depodaki eklenti alt klasörü (#399).
     subdir: str = ""
+    #: `archive`/`npm`/`command` seçenekleri (#399; `core.plugin_source_kinds`).
+    options: tuple[tuple[str, str], ...] = ()
+
+    def option(self, key: str, default: str = "") -> str:
+        return next((value for k, value in self.options if k == key), default)
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +237,7 @@ def _entry(raw: object, plugin_root: str) -> tuple[MarketplaceEntry, tuple[str, 
     name = raw.get("name")
     if not isinstance(name, str) or not _ID_PART.match(name) or _has_control(name):
         raise PluginError(ERR_ENTRY_NAME.format(value=name))
-    source, notes = _source(raw.get("source"), name, plugin_root)
+    source, notes = _source(raw.get("source"), name, plugin_root, raw)
     entry = MarketplaceEntry(
         name=name,
         source=source,
@@ -246,12 +254,27 @@ def _has_control(text: str) -> bool:
     return any(unicodedata.category(char) in {"Cc", "Cf"} for char in text)
 
 
-def _source(raw: object, name: str, plugin_root: str) -> tuple[MarketplaceSource, tuple[str, ...]]:
+def _source(
+    raw: object, name: str, plugin_root: str, entry: Mapping[str, object] | None = None
+) -> tuple[MarketplaceSource, tuple[str, ...]]:
+    from .plugin_source_kinds import headers_warning
+
+    entry = entry or {}
+    kind = str(raw.get("source") or "") if isinstance(raw, Mapping) else ""
+    found, notes = _source_of(raw, name, plugin_root, entry)
+    return found, (*notes, *headers_warning(entry, kind, name))
+
+
+def _source_of(
+    raw: object, name: str, plugin_root: str, entry: Mapping[str, object]
+) -> tuple[MarketplaceSource, tuple[str, ...]]:
     if isinstance(raw, str) and raw.strip():
         return MarketplaceSource("path", _relative(raw.strip(), name, plugin_root)), ()
     if not isinstance(raw, Mapping):
         raise PluginError(ERR_SOURCE.format(name=name))
     kind = str(raw.get("source") or "")
+    if kind in {"archive", "npm", "command"}:
+        return _extra_source(kind, raw, entry, name)
     ref = str(raw.get("ref") or "")
     sha = str(raw.get("sha") or "")
     if sha and not _SHA.match(sha):
@@ -268,6 +291,21 @@ def _source(raw: object, name: str, plugin_root: str) -> tuple[MarketplaceSource
         notes = (WARN_GIT_SOURCE.format(name=name),) if kind == "git" else ()
         return MarketplaceSource("git", str(raw["url"]), ref, sha), notes
     raise PluginError(ERR_SOURCE.format(name=name))
+
+
+def _extra_source(
+    kind: str, raw: Mapping[str, object], entry: Mapping[str, object], name: str
+) -> tuple[MarketplaceSource, tuple[str, ...]]:
+    from . import plugin_source_kinds as kinds
+
+    if kind == "archive":
+        url, options, notes = kinds.archive_options(raw, entry, name)
+        return MarketplaceSource("archive", url, options=options), notes
+    if kind == "npm":
+        package, version, options = kinds.npm_options(raw, name)
+        return MarketplaceSource("npm", package, version, options=options), ()
+    command, options = kinds.command_options(raw, name)
+    return MarketplaceSource("command", command, options=options), ()
 
 
 def _relative(text: str, name: str, plugin_root: str) -> str:

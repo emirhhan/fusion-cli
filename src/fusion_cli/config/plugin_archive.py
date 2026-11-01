@@ -91,6 +91,18 @@ def extract_plugin_zip(path: Path) -> Path:
     return _plugin_root(destination)
 
 
+def extract_zip_into(path: Path, destination: Path) -> Path:
+    """Arşivi güvenle `destination`'a aç (aynı sınır/denetim); eklenti kökü (#399 archive)."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            _check_members(archive, path)
+            destination.mkdir(parents=True, exist_ok=True)
+            archive.extractall(destination)
+    except (OSError, zipfile.BadZipFile) as error:
+        raise PluginError(ERR_ZIP.format(path=path)) from error
+    return _plugin_root(destination)
+
+
 def _download(url: str, target: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "fusion-cli"})
     with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_S) as response:

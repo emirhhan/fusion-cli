@@ -1,7 +1,8 @@
 """Eklenti komutlarının `--json` sonuç satırı (Claude Code `plugin … --json`, #381).
 
 Son stdout satırı tek JSON nesnesi: her zaman `command`, `outcome` (`ok`|`failed`), `message`;
-uygun olduğunda `pluginId`, `scope`, `marketplace`. Çıkış kodu başarıda 0, hatada 1.
+uygun olduğunda `pluginId`, `scope`, `marketplace`; hatada `failureCode` ve (pazar komutu
+reddedildiyse) `shownCommand` (`sha256` → `--accept-command`). Çıkış kodu başarıda 0, hatada 1.
 """
 
 from __future__ import annotations
@@ -33,7 +34,10 @@ def run_result(command: str, as_json: bool, action: ResultAction) -> None:
     except PluginAlreadyInstalledError as error:
         message = str(error)  # Claude: bilgi mesajı, çıkış 0 (#407)
     except PluginError as error:
+        from .plugin_failure import failure_fields
+
         message, failed = str(error), True
+        fields = failure_fields(error)  # #381: failureCode, shownCommand
     if as_json:
         outcome = OUTCOME_FAILED if failed else OUTCOME_OK
         payload = {"command": command, "outcome": outcome, "message": message, **fields}

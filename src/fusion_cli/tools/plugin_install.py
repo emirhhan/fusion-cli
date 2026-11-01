@@ -41,6 +41,7 @@ from ..config.plugin_store import (
 )
 from ..core.constants import GIT_TIMEOUT_S
 from ..core.network_address import is_public_ip
+from ..core.plugin_marketplace import MarketplaceSource
 from ..core.plugins import (
     MARKETPLACE_PATHS,
     Marketplace,
@@ -49,6 +50,7 @@ from ..core.plugins import (
     parse_marketplace,
 )
 from . import capability_install
+from .plugin_source_fetch import CommandConsent
 from .plugin_version import orphan, resolve_version, sweep_orphans
 
 #: Resmi Claude Code pazarı için kısa ad (`fusion eklenti pazar ekle resmi`).
@@ -135,6 +137,15 @@ class _Resolved:
     #: Girdinin plugin.json alanları ve strict modu (#398).
     entry_fields: str = ""
     strict: bool = True
+    #: `archive`/`npm`/`command` kaynağı ve katalog sürümü (komut onay özeti, #399).
+    source: MarketplaceSource | None = None
+    revision: str = ""
+    #: command `mode: link` çıktısı yerinde yüklenir.
+    link: bool = False
+
+    @property
+    def plugin_id(self) -> str:
+        return f"{self.entry}@{self.marketplace}" if self.marketplace else self.location
 
     @property
     def fallback_name(self) -> str:
@@ -220,6 +231,18 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
             entry_fields=entry.fields,
             strict=entry.strict,
         )
+    if source.kind in EXTRA_KINDS:
+        return _Resolved(
+            source.kind,
+            source.location,
+            record.name,
+            entry=entry.name,
+            entry_version=entry.version,
+            entry_fields=entry.fields,
+            strict=entry.strict,
+            source=source,
+            revision=_revision(record),
+        )
     return _Resolved(
         "git",
         source.location,
@@ -231,6 +254,18 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         entry_version=entry.version,
         entry_fields=entry.fields,
         strict=entry.strict,
+    )
+
+
+EXTRA_KINDS = frozenset({"archive", "npm", "command"})
+
+
+def _revision(record: MarketplaceRecord) -> str:
+    from .plugin_source_fetch import catalog_revision
+
+    path = Path(record.path)
+    return catalog_revision(
+        path if path.is_file() else path / ".claude-plugin" / "marketplace.json"
     )
 
 
@@ -328,14 +363,50 @@ def _check_local_size(folder: Path) -> None:
                 )
 
 
-def _fetch(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
+def _fetch(
+    resolved: _Resolved, workspace: Path, consent: CommandConsent | None = None
+) -> tuple[Path, str]:
     """Kaynağı `workspace/eklenti` altına al, girdi alanlarını uygula (#398); (klasör, commit)."""
-    folder, commit = _fetch_raw(resolved, workspace)
+    if resolved.source is not None and resolved.kind in EXTRA_KINDS:
+        folder, commit = _fetch_extra(resolved, resolved.source, workspace, consent)
+    else:
+        folder, commit = _fetch_raw(resolved, workspace)
     if resolved.entry_fields:
         from .plugin_entry import apply_entry
 
         apply_entry(folder, resolved.entry_fields, resolved.strict, resolved.fallback_name)
     return folder, commit
+
+
+def _fetch_extra(
+    resolved: _Resolved,
+    source: MarketplaceSource,
+    workspace: Path,
+    consent: CommandConsent | None,
+) -> tuple[Path, str]:
+    """archive (sürüm: sha256), npm (sürüm: unknown), command copy (sürüm: içerik karması)."""
+    from . import plugin_source_fetch as extra
+
+    target = workspace / "eklenti"
+    if resolved.kind == "archive":
+        root, digest = extra.fetch_archive(
+            source,
+            workspace,
+            plugin_id=resolved.plugin_id,
+            revision=resolved.revision,
+            consent=consent,
+        )
+        shutil.move(str(root), target)
+        return target, digest
+    if resolved.kind == "npm":
+        shutil.move(str(extra.fetch_npm(source, workspace)), target)
+        return target, ""
+    printed = extra.run_command_source(
+        source, plugin_id=resolved.plugin_id, revision=resolved.revision, consent=consent
+    )
+    _check_local_size(printed)
+    shutil.copytree(printed, target, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+    return target, tree_digest(target)
 
 
 def _fetch_raw(resolved: _Resolved, workspace: Path) -> tuple[Path, str]:
@@ -393,8 +464,13 @@ def install_plugin(
     approve: ApprovalCallback,
     base: Path | None = None,
     expected_digest: str = "",
+    accept_command: CommandConsent | None = None,
 ) -> InstalledPlugin:
-    """Kur. `expected_digest` verildiyse çekilen içerik önizlemedekiyle aynı olmalıdır."""
+    """Kur. `expected_digest` verildiyse çekilen içerik önizlemedekiyle aynı olmalıdır.
+
+    `accept_command`: pazarın bildirdiği komut (command kaynağı, archive headersHelper) için
+    onay; verilmezse böyle bir kaynak `CommandRefusedError` ile reddedilir (#399).
+    """
     root = base or plugins_dir()
     sweep_orphans(root)
     state = load_state(root)
@@ -403,12 +479,13 @@ def install_plugin(
     if refresh_marketplace_for(spec, state.marketplaces, base=root):  # Claude: ad@pazar (#393)
         state = load_state(root)
     resolved = _resolve(spec, state)
+    resolved = _linked_command(resolved, accept_command)
     if _loads_in_place(resolved, state):
         from .plugin_in_place import install_in_place
 
         return install_in_place(resolved, spec, state, root, approve, expected_digest)
     with _workspace(root) as workspace:
-        folder, commit = _fetch(resolved, workspace)
+        folder, commit = _fetch(resolved, workspace, accept_command)
         report = validate_plugin(folder, resolved.fallback_name)
         if not report.ok or report.layout is None:
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
@@ -439,6 +516,7 @@ def install_plugin(
         enabled=report.layout.manifest.default_enabled,
         exec_approved=executable,
         installed_at=time.time(),
+        accepted_command=accepted_command_of(resolved),
     )
     try:
         plugin_store.update_state(lambda current: current.with_plugin(record), root)
@@ -463,8 +541,33 @@ def directory_commit(folder: Path) -> str:
         return ""
 
 
+def accepted_command_of(resolved: _Resolved) -> str:
+    """Onaylanan komut metni (güncellemede değişmediyse yeniden sorulmaz, #399)."""
+    source = resolved.source
+    if source is None:
+        return ""
+    if source.kind == "command":
+        return f"{source.option('mode', 'copy')} {source.location}"
+    return source.option("headersHelper")
+
+
+def _linked_command(resolved: _Resolved, consent: CommandConsent | None) -> _Resolved:
+    """command `mode: link`: basılan klasör kopyalanmadan yerinde yüklenir (Claude)."""
+    source = resolved.source
+    if resolved.kind != "command" or source is None or source.option("mode") != "link":
+        return resolved
+    from .plugin_source_fetch import run_command_source
+
+    printed = run_command_source(
+        source, plugin_id=resolved.plugin_id, revision=resolved.revision, consent=consent
+    )
+    return replace(resolved, kind="yerel", location=str(printed), source=None, link=True)
+
+
 def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
     """Yerel klasörden eklenmiş pazarın göreli (path) eklentisi mi? (Claude: yerinde yüklenir)"""
+    if resolved.link:
+        return True
     market = state.marketplace(resolved.marketplace) if resolved.marketplace else None
     local = market is not None and market.kind in ("yerel", "dosya")
     return local and resolved.kind == "yerel"

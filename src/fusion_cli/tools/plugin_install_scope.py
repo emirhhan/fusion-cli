@@ -82,6 +82,7 @@ def install_scoped(
     base: Path | None = None,
     root: Path | None = None,
     allow_direct: bool = False,
+    accept_command: plugin_install.CommandConsent | None = None,
 ) -> ScopedInstall:
     """Kur ve kapsama yaz. Zaten kuruluysa `PluginAlreadyInstalledError` (Claude: çıkış 0).
 
@@ -100,7 +101,11 @@ def install_scoped(
         _LOG.warning(WARN_DIRECT)
     try:
         item = plugin_install.install_plugin(
-            spec, approve=approve, base=store, expected_digest=expected_digest
+            spec,
+            approve=approve,
+            base=store,
+            expected_digest=expected_digest,
+            accept_command=accept_command,
         )
     except plugin_install.PluginAlreadyInstalledError:
         if target == SCOPE_USER:
