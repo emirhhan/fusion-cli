@@ -274,6 +274,23 @@ def test_yalniz_yerel_model_kullanan_repl_e_girebilir(monkeypatch):
     assert sonuc.exit_code == 0
 
 
+def test_etkilesimli_oturum_permission_mode_bayragini_iletir(monkeypatch):
+    """Claude Code `claude --permission-mode plan` (#328)."""
+    _anahtarsiz_ollama_kurulumu(monkeypatch)
+    gelen: list[str] = []
+
+    async def _sahte_repl(*args, **kwargs):
+        gelen.append(kwargs.get("permission_mode", ""))
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _sahte_repl)
+    monkeypatch.setattr(app_module, "open_memory", lambda *a, **k: None)
+
+    sonuc = runner.invoke(app_module.app, ["--permission-mode", "plan"])
+
+    assert sonuc.exit_code == 0 and gelen == ["plan"]
+
+
 def test_karsilama_terminal_degilse_kontrol_dizisi_yazmaz():
     """Boruya/dosyaya yönlendirilen çıktıya `ESC [ 3 J` bulaşmamalı (L1-39)."""
     import io

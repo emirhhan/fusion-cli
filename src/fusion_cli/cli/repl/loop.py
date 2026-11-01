@@ -41,6 +41,8 @@ from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
+from ...config.start_mode import auto_available as start_auto_available
+from ...config.start_mode import resolve_start_mode
 from ...core.changeset import ChangeSet
 from ...core.concurrency import BackgroundTasks
 from ...core.events import (
@@ -57,6 +59,7 @@ from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
+from ...engines.agent.approval import ApprovalMode
 from ...engines.agent.compaction import compress
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
 from ...engines.agent.turn_evidence import evidence_from_turn
@@ -158,6 +161,7 @@ async def run_repl(
     session_agents: tuple[Capability, ...] = (),
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
+    permission_mode: str = "",
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -185,6 +189,7 @@ async def run_repl(
         health=build_health(config),
         worktree=worktree,
     )
+    _apply_start_mode(state, config, root, permission_mode, console)
     # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
     state.usage_log = open_usage_log(config)
     restored_note = ""
@@ -355,6 +360,22 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
         state.cron.complete(task.id, now=now)
         console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")
         cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
+
+
+def _apply_start_mode(
+    state: ReplState, config: Config, root: Path, flag: str, console: Console
+) -> None:
+    """`--permission-mode` > `permissions.defaultMode` > `runtime.approval_mode` (#328)."""
+    start = resolve_start_mode(
+        root,
+        flag=flag,
+        legacy=config.runtime.approval_mode,
+        auto_available=start_auto_available(config),
+    )
+    state.approval = ApprovalMode(start.mode)
+    state.bypass_available = start.bypass_available
+    if start.note:
+        console.print(f"[{theme.WARN}]{escape(start.note)}[/{theme.WARN}]")
 
 
 def _arm_reminders(state: ReplState, console: Console, background: BackgroundTasks) -> None:

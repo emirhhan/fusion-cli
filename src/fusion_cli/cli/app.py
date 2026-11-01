@@ -198,6 +198,14 @@ def main_callback(
             help="Git çalışma ağacında çalış: .claude/worktrees/<ad>, dal worktree-<ad>; ad verilmezse üretilir.",
         ),
     ] = "",
+    permission_mode: Annotated[
+        str,
+        typer.Option(
+            "--permission-mode",
+            help="Başlangıç izin kipi: default | acceptEdits | plan | auto | dontAsk | "
+            "bypassPermissions (permissions.defaultMode'u ezer).",
+        ),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
@@ -245,6 +253,7 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                permission_mode=permission_mode,
             )
         )
     )

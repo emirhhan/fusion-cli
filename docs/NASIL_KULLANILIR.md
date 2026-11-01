@@ -204,6 +204,16 @@ okunamaz, ağ istenirse yalnız izinli alan adlarına açık. `/sandbox on`, `/s
 github.com`, `fusion sandbox durum`; masaüstünde **Ayarlar › İzinler › Kabuk sandbox'ı**.
 Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrıntı: [SANDBOX.md](SANDBOX.md).
 
+### Başlangıç izin kipi — `--permission-mode`, `permissions.defaultMode`
+
+Claude Code ile aynı sıra: `fusion --permission-mode <kip>` (`default`/`manual`, `acceptEdits`,
+`plan`, `auto`, `dontAsk`, `bypassPermissions`) > Claude `settings.json`'daki
+`permissions.defaultMode` (`.claude/settings.local.json` > `.claude/settings.json` >
+`~/.claude/settings.json`) > eski `runtime.approval_mode` > `auto`. Proje ve yerel dosyada
+`"auto"` yok sayılır (kullanıcı dosyasına düşülmez), `"bypassPermissions"` yok sayılır ve
+oturum Manual açılır. Bayrakla ya da kullanıcı dosyasıyla bypass verilirse oturum bypass
+kipinde başlar (root olarak reddedilir); otomatik kip kullanılamıyorsa Manual açılır.
+
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
 - Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar
