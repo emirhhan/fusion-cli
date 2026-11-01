@@ -28,7 +28,21 @@ def allowed_local(context: ToolContext) -> set[str]:
     """Canlı izin kümesi (`context.local_origins`) + projenin önizleme kökenleri.
 
     Küme yerinde güncellenir: tarayıcının istek kapısı (`install_request_guard`) aynı canlı
-    kümeyi okur, alt istekler de aynı kuralla geçer.
+    kümeyi okur, alt istekler de aynı kuralla geçer. Önizlemeden eklenen köken önizleme
+    kapanınca çıkarılır; kullanıcının mesajında yazdığı köken kalır.
+
+    Ölçüldü (1 Kasım, bağımsız inceleme): küme yalnız büyüyordu; kapanan önizlemenin portunu
+    sonra başka bir yerel hizmet alırsa tarayıcı araçları ona onaysız gidiyordu.
     """
-    context.local_origins.update(project_preview_origins(context))
+    current = project_preview_origins(context)
+    added: set[str] | None = getattr(context, "preview_origins", None)
+    if added is None:  # Eski bağlam: yalnız ekle.
+        context.local_origins.update(current)
+        return context.local_origins
+    stale = added - current
+    context.local_origins.difference_update(stale)
+    added.difference_update(stale)
+    fresh = current - context.local_origins
+    added.update(fresh)
+    context.local_origins.update(fresh)
     return context.local_origins

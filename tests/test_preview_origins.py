@@ -47,3 +47,14 @@ async def test_onizleme_yoksa_yerel_adres_kapali(tmp_path, monkeypatch):
         {"action": "open", "value": "http://localhost:5173/"}, context
     )
     assert not result.ok
+
+
+async def test_kapanan_onizlemenin_kokeni_izin_kumesinden_cikar(tmp_path, monkeypatch):
+    """Önizleme kapanınca o port oturum boyu açık kalmaz; kullanıcının yazdığı köken kalır."""
+    context = ToolContext(root=tmp_path, chrome=_Kopru())
+    context.local_origins.add("localhost:4000")
+    _onizleme(monkeypatch, "http://localhost:3000/")
+    assert "localhost:3000" in preview_origins.allowed_local(context)
+    _onizleme(monkeypatch, None)
+    izinli = preview_origins.allowed_local(context)
+    assert "localhost:3000" not in izinli and "localhost:4000" in izinli
