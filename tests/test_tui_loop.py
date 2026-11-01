@@ -689,3 +689,33 @@ async def test_mesgulken_anlik_komutlar_hemen_calisir(tmp_path):
     assert session._queue == ["/agent"]
     assert session._task is not None and not session._task.done()
     session._task.cancel()
+
+
+async def test_mesgulken_duz_mesaj_ayni_tura_verilir_up_geri_alir_sendnow_keser(tmp_path):
+    """Claude Code (#190): düz mesaj koşan agent turuna verilir; komut kuyrukta bekler.
+    Tüketilmeyen tur sonunda kuyruğun başına döner; ilk satırda Up geri alır;
+    chat:sendNow bekleyen varken turu keser."""
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    steering = session._steer.begin()
+    session._submit("şunu da yap")
+    session._submit("/status")
+    session._submit("/compact")
+    assert steering.pending and session._queue == ["/compact"]
+    assert "sıraya alındı" in session.tui.transcript
+
+    taken = session._take_back_queue()
+    assert taken == ["şunu da yap", "/compact"] and session._queue == []
+    session._submit("bir daha")
+    session._settle_steer()
+    assert session._queue == ["bir daha"]
+
+    session._steer.begin()
+    session._submit("hemen")
+    session._send_now("taslak")
+    await asyncio.sleep(0)
+    assert session._task.cancelled()

@@ -138,8 +138,8 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_messaging` | `true` | `false`: oturum defteri ve mesajlaşma kapalı |
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
-Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırılabilir ya da
-başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
+Ctrl+B (ve Ctrl+X Ctrl+B) `~/.claude/keybindings.json` içinde `Task` bağlamında
+`"ctrl+b": null` ile kaldırılabilir ya da başka tuşa (`"task:background"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
 okunmadığı için orada `/bg` kullanılır.
 
 ## Bilinen sınırlar

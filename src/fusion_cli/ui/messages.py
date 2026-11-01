@@ -1590,8 +1590,10 @@ CMD_KEYBINDINGS = "tuş bağlarını göster; dosya keybindings.json (yeniden ba
 CMD_VIM = "vim düzenleme kipi aç/kapa (NORMAL/INSERT); kalıcı"
 KEYBINDINGS_HEADER = "Tuş bağları — dosya: {path}"
 KEYBINDINGS_HINT = (
-    "Düzenle ve kaydet: bağlam → {{tuş: eylem}}; eylem 'komut:<ad>' bir slash komutu gönderir, "
-    "null varsayılan bağı kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz."
+    "Düzenle ve kaydet (Claude Code biçimi): {\"bindings\": [{\"context\": \"Chat\", "
+    "\"bindings\": {\"ctrl+e\": \"chat:externalEditor\"}}]}; 'command:<ad>' bir slash "
+    "komutu çalıştırır, null varsayılan bağı kaldırır, chord 'ctrl+x ctrl+e'. Ayrılmış: "
+    "Ctrl+C, Ctrl+D, Ctrl+M, Ctrl+[, Ctrl+I, Ctrl+H."
 )
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."

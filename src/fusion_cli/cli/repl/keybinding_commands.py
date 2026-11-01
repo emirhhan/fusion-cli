@@ -15,9 +15,13 @@ VIM_SETTING_PATH = "runtime.vim_mode"
 
 
 def keybindings_command(state: ReplState, argument: str) -> str:
-    """Dosya yolunu (yoksa örnek dosyayı yazarak), etkin tabloyu ve uyarıları göster."""
-    path = keybindings.write_default_file()
-    keymap = keybindings.load_keymap(path)
+    """Claude Code dosyasını (yoksa iskeletiyle yazarak), etkin tabloyu ve uyarıları göster.
+
+    Claude Code'daki gibi dosya `~/.claude/keybindings.json` (#194); eski
+    `~/.fusion/keybindings.json` varsa kullanımdan kalkmış takma ad olarak okunur.
+    """
+    path = keybindings.write_claude_file()
+    keymap = keybindings.load_keymap(keybindings.keybindings_path(), path)
     lines = [messages.KEYBINDINGS_HEADER.format(path=path), *keybindings.describe(keymap)]
     lines.append(messages.KEYBINDINGS_HINT)
     return "\n".join(lines)

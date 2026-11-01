@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import keybindings
+from . import input_actions
 from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
 
@@ -189,7 +190,7 @@ class ReplInput:
 
     def _reload_keymap_if_changed(self) -> None:
         if keybindings.has_changed(self._keymap):
-            self._keymap = keybindings.load_keymap(self._keymap.path)
+            self._keymap = keybindings.reload_keymap(self._keymap)
             self._bindings = build_input_bindings(self, self._keymap)
 
     @property
@@ -314,16 +315,27 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         owner.toggle_fold()
         event.app.invalidate()
 
+    stash = input_actions.PromptStash()
+
+    def _stash(event: Any) -> None:
+        if stash.toggle(event.current_buffer):
+            event.app.invalidate()
+
     actions: dict[str, Callable[[Any], None]] = {
         "kip_dongusu": _cycle,
         "yapistirma_katla": _fold,
+        # Claude Code Chat bağlamı (#194, #216).
+        "dis_editor": lambda event: input_actions.open_external_editor(event.current_buffer),
+        "geri_al": lambda event: input_actions.undo(event.current_buffer),
+        "sakla": _stash,
+        "yeniden_ciz": lambda event: input_actions.redraw(event.app),
     }
     for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
         handler = _resolve_action(owner, action, actions)
         if handler is None:
             continue
         try:
-            bindings.add(key)(handler)
+            bindings.add(*(key.split(" ") if key != " " else [key]))(handler)
         except ValueError:
             # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
             continue

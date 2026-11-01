@@ -1107,20 +1107,26 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 - **Geçmiş:** Up/Down (Ctrl+P/Ctrl+N) çok satırda imleci, ilk/son satırda geçmişi gezer. Geçmiş çalışma dizini başınadır (`<bellek>/girdi-gecmisi/`, 0600), art arda aynı satır bir kez yazılır. **Ctrl+R** satır içi tersine arama (Ctrl+R sonraki, Enter kabul, Ctrl+C/Esc iptal).
 - **Ctrl+C** tur sürerken keser; boştayken ilk basış girdiyi temizler, boş girdide ikinci basış (800 ms) çıkar. **Ctrl+D** girdi doluysa sonraki karakteri siler, boşken 800 ms içinde iki basış çıkar. **Ctrl+U** satır başına kadar siler.
 - Konuşma kaydırma: PageUp/PageDown, Home/End, Ctrl+Home/Ctrl+End, Shift+Up/Down.
-- **Kuyruk:** tur sürerken Enter mesajı kuyruğa alır; tur bitince sırayla gider. Esc turu keser, kuyruktakiler korunur ve hemen gönderilir. `/status`, `/tasks`, `/usage` (`/cost`), `/model`, `/effort`, `/add-dir` ve `/permissions` Claude Code'daki gibi kuyruğa girmez, tur sürerken hemen çalışır (tam ekran TUI).
+- **Kuyruk:** tur sürerken Enter mesajı kuyruğa alır. Düz mesaj Claude Code'daki gibi araç çağrıları bitince AYNI tura verilir; tur mesaj okunmadan biterse kendiliğinden sıradaki tur olarak gider. Komutlar, `!` kabuk satırları ve `@` anması tur sonunu bekler. İlk satırda Up kuyruktakileri (`!` satırları hariç) taslağın önüne geri alır. Ctrl+X Ctrl+S (`chat:sendNow`) kuyruğu hemen yollar: bekleyen varsa tur kesilir, taslak arkasına kuyruklanır. Esc turu keser, kuyruktakiler korunur ve hemen gönderilir. `/status`, `/tasks`, `/usage` (`/cost`), `/model`, `/effort`, `/add-dir` ve `/permissions` Claude Code'daki gibi kuyruğa girmez, tur sürerken hemen çalışır (tam ekran TUI).
+- **Düzenleme:** Ctrl+G ya da Ctrl+X Ctrl+E girdiyi dış editörde açar, Ctrl+_ son düzenlemeyi geri alır, Ctrl+S dolu taslağı saklar (boş girdide geri getirir), Ctrl+L girdi ve konuşmayı koruyarak ekranı yeniden çizer.
 
-Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+L ekran temizleme yok; kuyruğa alınan mesaj araç çağrıları arasında aynı tura verilmez (tur sonunu bekler), Ctrl+Enter / Ctrl+X Ctrl+S ve Up ile geri alma yok.
+Claude Code'dan farklar: Ctrl+R araması prompt_toolkit'in arama çubuğuyla yapılır (Tab kabul tuşu değil); Ctrl+Enter terminalden ayrı bir tuş olarak okunmadığı için `chat:sendNow` yalnız Ctrl+X Ctrl+S'de; `chat:sendNow` süren kabuk komutunu arka plana almak yerine turu keser; motor yönlendirme gelince aynı yanıttaki henüz başlamamış araç çağrılarını başlatmaz.
 
 ### Tuş bağları ve vim: `/keybindings`, `editorMode`
 
 Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
 
-`/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
+`/keybindings` Claude Code'daki gibi `~/.claude/keybindings.json` dosyasını gösterir (yoksa `$schema`/`$docs` iskeletiyle yazar; `CLAUDE_CONFIG_DIR` verilmişse orada):
 ```json
-{ "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
-  "tui":   { "c-d": null, "c-g": "kes", "f2": "komut:status" } }
+{ "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
+  "bindings": [
+    { "context": "Chat", "bindings": { "ctrl+e": "chat:externalEditor", "ctrl+s": null,
+                                        "meta+g": "command:compact" } },
+    { "context": "Task", "bindings": { "ctrl+x ctrl+b": null } } ] }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kes_temizle_cik`, `cift_basista_cik`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/config editorMode=vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Tuş yazımı Claude Code ile aynıdır: `ctrl`/`shift`/`alt`/`meta`/`opt` ile `+`, büyük/küçük harf duyarsız, chord'lar boşlukla (`ctrl+x ctrl+e`), `escape`, `enter`, `space`, `pageup`, `wheelup`… `null` varsayılan bağı kaldırır, `command:<ad>` `/ad` komutunu çalıştırır. Ayrılmış kısayollar (Ctrl+C, Ctrl+D, Ctrl+M, Ctrl+[, Ctrl+I, Ctrl+H) bağlanamaz. Bağlamlar: `Global` ve `Chat` satır içi istem ile tam ekran TUI'ye, `Task` ve `Scroll` tam ekran TUI'ye uygulanır; belgelenen öteki bağlamlar geçerlidir ama Fusion'da ayrı yüzeyleri olmadığından yok sayılır. Karşılığı olan eylemler: `chat:cycleMode`, `chat:sendNow`, `chat:externalEditor`, `chat:undo`, `chat:stash`, `chat:clearInput`, `chat:clearScreen`, `app:redraw`, `chat:modelPicker`, `app:interrupt`, `app:exit`, `task:background`, `scroll:*`. Karşılığı olmayan eylem (`chat:fastMode` gibi) dosyayı bozmaz, `/keybindings` uyarı olarak gösterir. Dosya kaydedilince yeniden başlatmadan uygulanır.
+
+Eski `~/.fusion/keybindings.json` (`giris`/`tui` bağlamları, `c-x` yazımı, `komut:<ad>`) bir sürüm boyunca kullanımdan kalkmış takma ad olarak okunur ve `/keybindings` uyarır; Claude dosyası onun üstüne uygulanır. Aynı eski dosyanın `masaustu` bölümü masaüstü kısayollarının yeri olarak kalır.
 
 ---
 

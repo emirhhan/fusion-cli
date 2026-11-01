@@ -38,6 +38,7 @@ from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
 from rich.console import Console
 
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
+from . import input_actions
 from ...ui import messages, theme
 from ...ui.picker import Choice
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
@@ -183,6 +184,10 @@ class FusionTui:
         self._status_context = ""
         self._status_custom = ""
         self._status_vim = False
+        #: Ctrl+S taslağı (#216) ve kuyruk kancaları (#190: Up ile geri alma, chat:sendNow).
+        self._stash = input_actions.PromptStash()
+        self._take_back: Callable[[], list[str]] | None = None
+        self._send_now: Callable[[str], None] | None = None
         #: Tuş tablosu (P-067); `rebind` dosya değişince yeniler.
         self._keymap = keymap or load_keymap()
         self._kb = self._bindings()
@@ -654,7 +659,10 @@ class FusionTui:
         @kb.add("up", filter=nav, eager=True)
         @kb.add("c-p", filter=nav, eager=True)
         def _up(_event: object) -> None:
-            self._move_choice(-1) if self._mode == "choice" else self._input.buffer.auto_up()
+            if self._mode == "choice":
+                self._move_choice(-1)
+            elif not self._take_back_queue():
+                self._input.buffer.auto_up()
 
         @kb.add("down", filter=nav, eager=True)
         @kb.add("c-n", filter=nav, eager=True)
@@ -699,6 +707,14 @@ class FusionTui:
             "en_son": (self._scroll_end, scrollable),
             "kaydir_yukari": (lambda: self._scroll_by(_SCROLL_STEP), scrollable),
             "kaydir_asagi": (lambda: self._scroll_by(-_SCROLL_STEP), scrollable),
+            "simdi_gonder": (self._send_queue_now, typing),
+            "dis_editor": (
+                lambda: input_actions.open_external_editor(self._input.buffer),
+                typing,
+            ),
+            "geri_al": (lambda: input_actions.undo(self._input.buffer), typing),
+            "sakla": (self._toggle_stash, typing),
+            "yeniden_ciz": (lambda: input_actions.redraw(self.application), None),
         }
         # Vim kipinde (P-067) Esc INSERT'ten NORMAL'e geçmelidir. Ölçüldü (31 Ekim): uygulama
         # düzeyinde eager bağlı `escape: kes` prompt_toolkit'in vi bağını eziyor, vi_state hep
@@ -741,10 +757,44 @@ class FusionTui:
         def _run(_event: object) -> None:
             handler()
 
+        # Chord (#194): `c-x c-e` prompt_toolkit'e tuş dizisi olarak verilir.
+        keys = key.split(" ") if key != " " else [key]
         if condition is None:
-            kb.add(key, eager=True)(_run)
+            kb.add(*keys, eager=True)(_run)
         else:
-            kb.add(key, filter=condition, eager=True)(_run)
+            kb.add(*keys, filter=condition, eager=True)(_run)
+
+    def set_queue_hooks(
+        self, take_back: Callable[[], list[str]], send_now: Callable[[str], None]
+    ) -> None:
+        """Kuyruk kancaları (#190): ilk satırda Up geri alır, chat:sendNow hemen yollar."""
+        self._take_back = take_back
+        self._send_now = send_now
+
+    def _take_back_queue(self) -> bool:
+        """İlk satırda Up: kuyruktakileri taslağın önüne koy (Claude Code ile aynı)."""
+        buffer = self._input.buffer
+        if self._take_back is None or buffer.document.cursor_position_row != 0:
+            return False
+        taken = self._take_back()
+        if not taken:
+            return False
+        text = input_actions.take_back_text(taken, buffer.text)
+        buffer.text = text
+        buffer.cursor_position = len(text)
+        return True
+
+    def _send_queue_now(self) -> None:
+        """chat:sendNow: kuyruğu hemen yolla; yazılmış taslak arkasına kuyruklanır."""
+        if self._send_now is None:
+            return
+        draft = self._input.buffer.text
+        self._input.buffer.reset()
+        self._send_now(draft)
+
+    def _toggle_stash(self) -> None:
+        if self._stash.toggle(self._input.buffer):
+            self.application.invalidate()
 
     def _ctrl_c_pressed(self) -> None:
         """Ctrl+C: modalı kapatır, turu keser; boştayken girdiyi temizler, ikincisi çıkar."""

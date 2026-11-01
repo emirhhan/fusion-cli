@@ -353,8 +353,9 @@ def test_klavye_kaydirma_baglari_var():
     assert ("down",) in names
     assert ("pageup",) in names
     assert ("pagedown",) in names
-    assert ("home",) in names
-    assert ("end",) in names
+    # Claude Code Scroll bağlamı (#194): Home/End girdide, kaydırma Ctrl+Home/Ctrl+End.
+    assert ("c-home",) in names
+    assert ("c-end",) in names
     # `\x1b[62~`/`\x1b[63~` gönderen terminaller için; bu diziler fare kipinden
     # BAĞIMSIZ ayrıştırılır, dolayısıyla bağlar ölü kod değildir.
     assert ("<scroll-up>",) in names

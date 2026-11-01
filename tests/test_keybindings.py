@@ -130,10 +130,12 @@ def test_vim_komutu_tersler_ve_kalicilastirir(state: ReplState, tmp_path: Path):
 def test_keybindings_komutu_ornek_dosya_yazar_ve_listeler(
     state: ReplState, tmp_path: Path, monkeypatch
 ):
+    # Claude Code ile aynı (#194): dosya `~/.claude/keybindings.json` (CLAUDE_CONFIG_DIR).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ev"))
     path = tmp_path / "ev" / "keybindings.json"
-    monkeypatch.setattr(keybindings, "keybindings_path", lambda: path)
     out = keybindings_command(state, "")
     assert path.is_file() and str(path) in out and "[tui]" in out and "escape" in out
+    assert '"bindings"' in path.read_text(encoding="utf-8")
 
 
 def test_vim_kipinde_escape_insert_ten_normale_gecer_kesmez():

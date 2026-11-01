@@ -19,6 +19,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import claude_keybindings
 from .desktop_keys import (
     CONTEXT_DESKTOP,
     desktop_actions,
@@ -40,7 +41,16 @@ DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarla
 
 #: Varsayılan tablo — `input.py` ve `tui.py` eskiden sabit kodladığı bağların tamamı.
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
-    CONTEXT_INPUT: {"s-tab": "kip_dongusu", "c-v": "yapistirma_katla"},
+    CONTEXT_INPUT: {
+        "s-tab": "kip_dongusu",
+        "c-v": "yapistirma_katla",
+        # Claude Code Chat bağlamı (#194, #216): dış editör, geri al, taslak sakla.
+        "c-g": "dis_editor",
+        "c-x c-e": "dis_editor",
+        "c-_": "geri_al",
+        "c-s": "sakla",
+        "c-l": "yeniden_ciz",
+    },
     CONTEXT_TUI: {
         # Claude Code (#195): Ctrl+C keser / girdiyi temizler / ikinci basışta çıkar; Ctrl+D
         # boş girdide 800 ms içinde iki basışla çıkar. Ctrl+U/Ctrl+R/Ctrl+D satır düzenleme
@@ -49,21 +59,30 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "c-d": "cift_basista_cik",
         "escape": "kes",
         "s-tab": "kip_dongusu",
+        # Claude Code Scroll bağlamı: Home/End girdide imleci taşır, kaydırma Ctrl+Home/End.
         "pageup": "sayfa_yukari",
         "pagedown": "sayfa_asagi",
-        "home": "en_bas",
         "c-home": "en_bas",
-        "end": "en_son",
         "c-end": "en_son",
         "s-up": "kaydir_yukari",
         "s-down": "kaydir_asagi",
         # Süren turu arka plan görevine taşı (P-048; Claude Code Ctrl+B).
         "c-b": "arka_plana_al",
+        "c-x c-b": "arka_plana_al",
+        # Claude Code chat:sendNow (#190), chat:externalEditor/undo/stash/clearInput (#216).
+        "c-x c-s": "simdi_gonder",
+        "c-g": "dis_editor",
+        "c-x c-e": "dis_editor",
+        "c-_": "geri_al",
+        "c-s": "sakla",
+        "c-l": "yeniden_ciz",
     },
 }
+#: Satır içi ve tam ekran girdinin ortak düzenleme eylemleri.
+_EDIT_ACTIONS = frozenset({"dis_editor", "geri_al", "sakla", "yeniden_ciz"})
 #: Bağlam başına geçerli eylemler (`komut:*` hepsinde geçerli).
 ACTIONS: dict[str, frozenset[str]] = {
-    CONTEXT_INPUT: frozenset({"kip_dongusu", "yapistirma_katla"}),
+    CONTEXT_INPUT: frozenset({"kip_dongusu", "yapistirma_katla", *_EDIT_ACTIONS}),
     CONTEXT_TUI: frozenset(
         {
             "cik",
@@ -78,6 +97,8 @@ ACTIONS: dict[str, frozenset[str]] = {
             "kaydir_yukari",
             "kaydir_asagi",
             "arka_plana_al",
+            "simdi_gonder",
+            *_EDIT_ACTIONS,
         }
     ),
 }
@@ -93,6 +114,9 @@ class KeyMap:
     path: Path
     mtime: float
     warnings: tuple[str, ...] = field(default=())
+    #: Claude Code dosyası (`~/.claude/keybindings.json`, #194); yoksa `None`.
+    claude_path: Path | None = None
+    claude_mtime: float = 0.0
 
     def bindings(self, context: str) -> dict[str, str]:
         return dict(self.contexts.get(context, {}))
@@ -143,8 +167,15 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
-def load_keymap(path: Path | None = None) -> KeyMap:
-    """Varsayılanları kullanıcı dosyasıyla birleştir; hatalar uyarı olur, oturum düşmez."""
+def load_keymap(path: Path | None = None, claude_path: Path | None = None) -> KeyMap:
+    """Varsayılanları kullanıcı dosyalarıyla birleştir; hatalar uyarı olur, oturum düşmez.
+
+    Sıra: varsayılan ← eski Fusion dosyası (kullanımdan kalkmış takma ad) ← Claude Code
+    `~/.claude/keybindings.json` (#194). `path` açıkça verilip `claude_path` verilmezse
+    yalnız o dosya okunur (masaüstü düzenleyicisi ve testler).
+    """
+    if path is None and claude_path is None:
+        claude_path = claude_keybindings.claude_keybindings_path()
     target = path or keybindings_path()
     contexts = default_keymap()
     warnings: list[str] = []
@@ -178,14 +209,56 @@ def load_keymap(path: Path | None = None) -> KeyMap:
                     )
                     continue
                 contexts[context][lowered] = action
+        if claude_path is not None and any(name != CONTEXT_DESKTOP for name in raw):
+            warnings.append(f"{target}: kullanımdan kalktı; {claude_path} (Claude Code biçimi)")
     elif raw is not None:
         warnings.append(f"{target}: kök bir sözlük olmalı (bağlam → tuş → eylem)")
-    return KeyMap(contexts, target, _mtime(target), tuple(warnings))
+    if claude_path is not None:
+        claude = claude_keybindings.load_claude_bindings(claude_path)
+        _apply_claude(contexts, claude.contexts)
+        warnings.extend(claude.warnings)
+    return KeyMap(
+        contexts,
+        target,
+        _mtime(target),
+        tuple(warnings),
+        claude_path,
+        _mtime(claude_path) if claude_path is not None else 0.0,
+    )
+
+
+def _apply_claude(
+    contexts: dict[str, dict[str, str]], overrides: dict[str, dict[str, str | None]]
+) -> None:
+    for context, table in overrides.items():
+        for key, action in table.items():
+            if action is None:
+                contexts[context].pop(key, None)
+            elif is_valid_action(context, action):
+                contexts[context][key] = action
+
+
+def reload_keymap(keymap: KeyMap) -> KeyMap:
+    """Aynı dosyalardan yeniden yükle (değişiklik algılanınca)."""
+    if keymap.claude_path is None:
+        return load_keymap(keymap.path)
+    return load_keymap(keymap.path, keymap.claude_path)
 
 
 def has_changed(keymap: KeyMap) -> bool:
     """Dosya son yüklemeden beri değişti mi? (yeniden başlatmadan uygulamak için)"""
+    if keymap.claude_path is not None and _mtime(keymap.claude_path) != keymap.claude_mtime:
+        return True
     return _mtime(keymap.path) != keymap.mtime
+
+
+def write_claude_file(path: Path | None = None) -> Path:
+    """`/keybindings` (#194): Claude Code dosyası yoksa `$schema`/`$docs` iskeletiyle yaz."""
+    target = path or claude_keybindings.claude_keybindings_path()
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(claude_keybindings.example_file(), encoding="utf-8")
+    return target
 
 
 def write_default_file(path: Path | None = None) -> Path:

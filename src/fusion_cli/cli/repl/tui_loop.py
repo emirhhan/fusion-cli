@@ -55,6 +55,7 @@ from . import (
     model_flows,
     output_style_command,
     plan_card,
+    queue_steer,
     prefixes,
     profiles_flow,
     provider_flow,
@@ -297,6 +298,8 @@ class _TuiSession:
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
         self._queue: list[str] = []
+        #: Düz mesajı koşan agent turuna veren köprü (#190).
+        self._steer = queue_steer.SteerBridge()
         #: Tur sürerken çalışan anlık komut görevleri (#209); bitince kümeden düşer.
         self._immediate: set[asyncio.Future[None]] = set()
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
@@ -327,6 +330,7 @@ class _TuiSession:
             # Ctrl+B: süren turu arka plan görevine taşı (P-048).
             on_background=self._background_turn,
         )
+        self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
         self._to_background = False
@@ -364,8 +368,10 @@ class _TuiSession:
             future.add_done_callback(self._immediate.discard)
             return
         if self._busy:
-            # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir.
-            self._queue.append(line)
+            # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir. Düz mesaj
+            # Claude Code'daki gibi araç çağrıları bitince AYNI tura verilir (#190).
+            if not self._steer.offer(line):
+                self._queue.append(line)
             self._echo(
                 f"[{theme.DIM}]{escape(messages.TUI_QUEUED.format(line=line))}[/{theme.DIM}]"
             )
@@ -429,6 +435,34 @@ class _TuiSession:
             is_busy=lambda: self._busy,
         )
 
+    def _settle_steer(self) -> None:
+        """Tur bitti: modele giden mesajlar dökümde, gitmeyenler kuyruğun başında (#190)."""
+        consumed, leftover = self._steer.end()
+        for text in consumed:
+            self._transcript_store.record_user(text)
+        self._queue[0:0] = leftover
+
+    def _take_back_queue(self) -> list[str]:
+        """İlk satırda Up (#190): kuyruktaki mesaj ve komutları geri ver; `!` satırları kalır."""
+        taken = self._steer.take_back()
+        shell = [line for line in self._queue if line.lstrip().startswith("!")]
+        taken.extend(line for line in self._queue if not line.lstrip().startswith("!"))
+        self._queue[:] = shell
+        return taken
+
+    def _send_now(self, draft: str) -> None:
+        """chat:sendNow (Ctrl+X Ctrl+S, #190): kuyruğu hemen yolla, taslak arkasına girer.
+
+        Kuyrukta tur sonunu bekleyen satır (komut, `!`) ya da modele henüz gitmemiş mesaj
+        varsa tur kesilir; kesme yolu kuyruğu korur ve sıradakini hemen başlatır.
+        """
+        if draft.strip():
+            self._submit(draft)
+        if not self._busy or self._task is None:
+            return
+        if self._queue or self._steer.pending:
+            self._task.cancel()
+
     def _exit(self) -> None:
         self._state.running = False
         # Çalışan tur uygulamayla birlikte KABA iptal edilmesin: önce görev iptal edilir,
@@ -472,7 +506,7 @@ class _TuiSession:
         self._status_trigger_key = key
         # Tuş dosyası değiştiyse yeniden başlatmadan uygula (P-067).
         if keybindings.has_changed(self._tui.keymap):
-            self._tui.rebind(keybindings.load_keymap(self._tui.keymap.path))
+            self._tui.rebind(keybindings.reload_keymap(self._tui.keymap))
 
     async def _refresh_custom_status(self) -> None:
         """Asistan cevabından sonra durum satırı betiğini tetikle (#192; debounce'lu)."""
@@ -1024,6 +1058,7 @@ class _TuiSession:
                     )
                     if part
                 )
+                steering = self._steer.begin()
                 try:
                     outcome = await run_agent_task(
                         line,
@@ -1061,6 +1096,8 @@ class _TuiSession:
                         turn_runner=(
                             extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else None
                         ),
+                        # Tur sürerken yazılan düz mesaj aynı tura girer (#190).
+                        steering=steering,
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
@@ -1072,6 +1109,8 @@ class _TuiSession:
                     if digest and not self._state.pending_digest:
                         self._state.pending_digest = digest
                     raise
+                finally:
+                    self._settle_steer()
                 self._state.history = outcome.messages
                 session_snapshot.save(self._state)  # sürdürme için tam durum (#187, #189)
                 linked_pr.bind_from_turn(self._state, outcome.tool_uses)
