@@ -194,3 +194,55 @@ def test_model_alani_cozumu():
     assert hook_model_spec(config, "") is judge  # type: ignore[arg-type]
     assert hook_model_spec(config, "openai/gpt-x").model == "openai/gpt-x"  # type: ignore[arg-type]
     assert hook_model_spec(config, "haiku") is judge  # type: ignore[arg-type]
+
+
+def test_status_message_kanca_calisirken_gosterilir(tmp_path):
+    shown: list[str] = []
+    session = _session(
+        tmp_path,
+        "Stop",
+        {"type": "prompt", "prompt": "x", "statusMessage": "Testler denetleniyor"},
+        _model('{"ok": true}'),
+    )
+    session.status_sink = shown.append
+    asyncio.run(session.emit(HookEvent.STOP))
+    assert shown == ["Testler denetleniyor"]
+
+
+def test_ajan_turu_status_satirini_yayinciya_baglar(tmp_path):
+    published: list[object] = []
+    hooks = HookSession(root=tmp_path, loader=HookSet)
+    deps = SimpleNamespace(
+        hooks=hooks, publisher=SimpleNamespace(publish=published.append), config=None
+    )
+    bind_hook_services(deps, run_agent=None)  # type: ignore[arg-type]
+    assert hooks.status_sink is not None
+    hooks.status_sink("bekle")
+    assert getattr(published[0], "text", "") == "bekle"
+
+
+def test_async_kanca_json_baglami_sonraki_tura_gider(tmp_path):
+    import sys
+
+    body = json.dumps(
+        {
+            "systemMessage": "biçimlendi",
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "dosya değişti",
+            },
+        }
+    )
+    script = tmp_path / "kanca.py"
+    script.write_text(f"print({body!r})", encoding="utf-8")
+    command = f"{sys.executable} {script}"
+    commands, _ = _parse("PostToolUse", {"type": "command", "command": command, "async": True})
+    session = HookSession(root=tmp_path, loader=lambda: HookSet(commands))
+
+    async def run() -> None:
+        await session.emit(HookEvent.POST_TOOL_USE, subjects=("Write",))
+        await asyncio.gather(*session._background)
+
+    asyncio.run(run())
+    (note,) = session.take_rewake_notes()
+    assert "biçimlendi" in note and "dosya değişti" in note

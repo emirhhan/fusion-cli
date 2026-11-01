@@ -89,6 +89,8 @@ class HookSession:
     terminal_writer: Callable[[str], None] | None = None
     #: `mcp_tool`/`prompt`/`agent` kancalarının model ve MCP erişimi (ajan turu bağlar).
     services: HookServices | None = None
+    #: `statusMessage` gösterimi (kanca çalışırken arayüze yazılan satır; ajan turu bağlar).
+    status_sink: Callable[[str], None] | None = None
     #: Oturum boyu eklenen kancalar (çağrılan becerinin frontmatter'ı; `once` uygulanır).
     session_commands: tuple[HookCommand, ...] = ()
     #: Tur kimliği (`prompt_id`): her kök istemde yenilenir.
@@ -217,6 +219,7 @@ class HookSession:
             if dispatch.is_background(command):
                 self._run_background(event, command, payload, environment, private)
         foreground = [command for command in timed if not dispatch.is_background(command)]
+        self._show_status(foreground)
         runs = await asyncio.gather(
             *(
                 run_hook(
@@ -240,6 +243,13 @@ class HookSession:
         verdict = spill_verdict(merge_verdicts(verdicts), self._output_dir())
         self._write_terminal(verdict)
         return verdict
+
+    def _show_status(self, commands: list[HookCommand]) -> None:
+        """Claude `statusMessage`: kanca çalışırken gösterilen satır (aynı metin bir kez)."""
+        if self.status_sink is None:
+            return
+        for text in dict.fromkeys(c.status_message for c in commands if c.status_message):
+            self.status_sink(text)
 
     def _write_terminal(self, verdict: HookVerdict) -> None:
         """İzinli `terminalSequence` dizileri: yalnız etkileşimli oturumda (Claude `-p`'de yok)."""
@@ -268,7 +278,7 @@ class HookSession:
                 event=event,
                 services=self.services,
             )
-            text = dispatch.rewake_text(run)
+            text = dispatch.rewake_text(run) or dispatch.async_context(event, run)
             if text:
                 self.rewake_notes.append(f"{event.value} hook (async): {text}")
 

@@ -81,12 +81,14 @@ izin kurallarında geçerlidir.)
 
 Ortak: `type` (**zorunlu**: `command`, `http`, `mcp_tool`, `prompt`, `agent`), `if` (izin
 kuralı sözdizimi, ör. `Bash(git *)`; yalnız araç olaylarında değerlendirilir, öteki
-olaylarda `if` taşıyan kanca hiç çalışmaz), `timeout` (sn), `statusMessage`, `once` (yalnız
-beceri frontmatter'ında anlamlı).
+olaylarda `if` taşıyan kanca hiç çalışmaz), `timeout` (sn), `statusMessage` (kanca
+çalışırken CLI/TUI/masaüstünde gösterilen satır), `once` (yalnız beceri frontmatter'ında:
+ilk başarılı çalışmadan sonra kanca kalkar; ayar dosyasında yok sayılır).
 
 - **`command`**: `command`; `args` verilirse kabuksuz exec biçimi (her öğe tek argüman,
   `${CLAUDE_PROJECT_DIR}` düz metin olarak yerleşir); `shell` (`bash` | `powershell`);
-  `async: true` arka planda çalışır, kararı beklenmez; `asyncRewake: true` çıkış 2'de
+  `async: true` arka planda çalışır, kararı beklenmez (JSON'daki `systemMessage`/
+  `additionalContext` bir sonraki turda modele gider); `asyncRewake: true` çıkış 2'de
   stderr'i (boşsa stdout'u) bir sonraki tura sistem hatırlatması olarak bırakır;
   `onFailure: "block"` başarısızlıkta (başlatılamadı, 0/2 dışı çıkış, zaman aşımı, şema
   hatası) çıkış 2 gibi engeller (Stop/SubagentStop/TaskCompleted/TeammateIdle ve arka plan

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from ...config.hooks import explicit_sessionend_timeout_s, sessionend_budget_s
 from ...config.permission_rules import PermissionDecision, parse_rule
-from ...core.hooks.decision import BLOCK_EXIT_CODE, is_failure
+from ...core.hooks.decision import BLOCK_EXIT_CODE, is_failure, verdict_from_run
 from ...core.hooks.events import MODEL_HANDLERS, HookCommand, HookEvent, HookRun, HookVerdict
 from ...tools.permission_match import matches
 
@@ -99,6 +99,15 @@ def apply_on_failure(event: HookEvent, run: HookRun, verdict: HookVerdict) -> Ho
 
 def is_background(command: HookCommand) -> bool:
     return command.run_async or command.async_rewake
+
+
+def async_context(event: HookEvent, run: HookRun) -> str | None:
+    """`async` kanca JSON'undaki `systemMessage`/`additionalContext` sonraki tura (Claude)."""
+    if run.command.async_rewake:
+        return None
+    verdict = verdict_from_run(event, run)
+    parts = (*verdict.system_messages, *verdict.additional_context)
+    return "\n\n".join(part for part in parts if part) or None
 
 
 def rewake_text(run: HookRun) -> str | None:

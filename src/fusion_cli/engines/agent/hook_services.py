@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ...core.errors import FusionError
+from ...core.events import NarrationPublished
 from ...core.types import CompletionRequest, Message, ModelSpec
 from ...mcp_bridge.tool_name import fusion_tool_name
 from ..hooks.handlers import EVALUATOR_SYSTEM, HookServices
@@ -59,6 +60,9 @@ def bind_hook_services(deps: AgentDeps, run_agent: Callable[..., Awaitable[Any]]
     if hooks is None:
         return
     activate_selected_skill(deps)
+    publisher = getattr(deps, "publisher", None)
+    if publisher is not None:
+        hooks.status_sink = lambda text: publisher.publish(NarrationPublished(text=text))
     hooks.services = HookServices(
         model_call=_model_call(deps),
         agent_call=_agent_call(deps, run_agent),
