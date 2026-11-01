@@ -9,7 +9,7 @@ from typing import Any
 from ..config.models import McpServerConfig
 from ..core.redaction import contains_sensitive
 from ..mcp_bridge.client import McpClient
-from ..mcp_bridge.references import McpCatalog
+from ..mcp_bridge.references import McpCatalog, visible_prompts
 from ..mcp_bridge.types import RemoteTool
 
 _LOG = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def project_references(catalog: McpCatalog) -> dict[str, Any]:
                 "usage": _text(prompt.usage, 240),
                 "description": _text(prompt.description, 600),
             }
-            for prompt in catalog.prompts[:200]
+            for prompt in visible_prompts(catalog.prompts)[:200]
         ],
         "resources": [
             {

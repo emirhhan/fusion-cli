@@ -1,7 +1,7 @@
 """MCP istemlerinin slash komutları ve `/mcp prompts|resources` listeleri (P-049).
 
-Bağlı sunucunun her istemi `/mcp__<sunucu>__<istem>` olarak "MCP" grubunda sunulur (Claude
-Code yazımı). İşleyici turu ÇALIŞTIRMAZ (makro sözleşmesi): satırı bekleyen görev yapar; tur
+Bağlı sunucunun her istemi menüde `/<sunucu>:<istem> (MCP)` olarak "MCP" grubunda sunulur;
+`/mcp__<sunucu>__<istem>` yazmak da çalışır (Claude Code, #268). İşleyici turu ÇALIŞTIRMAZ (makro sözleşmesi): satırı bekleyen görev yapar; tur
 yürütücüsü MCP bağlandıktan sonra istemi `prompts/get` ile çözer (`mcp_bridge.reference_service`).
 Katalog bağlantı kurulunca dolar: sunucu henüz hiç bağlanmadıysa ilk turdan sonra görünür.
 """
@@ -15,6 +15,7 @@ from ...ui import messages
 from .state import ReplState
 
 if TYPE_CHECKING:
+    from ...mcp_bridge.references import McpPrompt
     from .commands import SlashCommand
 
 #: `mcp_bridge.references.SLASH_PREFIX` ile aynı (o modül `mcp` paketini içe aktarır).
@@ -22,6 +23,8 @@ SLASH_PREFIX = "mcp__"
 
 #: Yardım/tamamlama grubu.
 GROUP = "MCP"
+#: Menüde istem adının yanındaki ek (Claude Code `/servername:promptname (MCP)`).
+MENU_SUFFIX = "(MCP)"
 #: Listede açıklamanın en fazla uzunluğu.
 _SUMMARY_CHARS = 72
 
@@ -42,27 +45,37 @@ def prompt_handler(name: str) -> Callable[[ReplState, str], str]:
     return _handler
 
 
-def mcp_prompt_slash_commands() -> tuple[object, ...]:
-    """Bilinen MCP istemleri için `SlashCommand`'lar (katalog boşsa hiç)."""
-    from ...mcp_bridge.references import McpCatalog
+def _known_prompts() -> tuple[McpPrompt, ...]:
+    from ...mcp_bridge.references import McpCatalog, visible_prompts
+
+    return visible_prompts(
+        [
+            prompt
+            for catalog in _catalogs().values()
+            if isinstance(catalog, McpCatalog)
+            for prompt in catalog.prompts
+        ]
+    )
+
+
+def _prompt_command(prompt: McpPrompt) -> SlashCommand:
     from .commands import SlashCommand
 
-    commands: list[SlashCommand] = []
-    for catalog in _catalogs().values():
-        if not isinstance(catalog, McpCatalog):
-            continue
-        for prompt in catalog.prompts:
-            summary = " ".join(prompt.description.split())[:_SUMMARY_CHARS]
-            commands.append(
-                SlashCommand(
-                    prompt.slash_name,
-                    summary or messages.MCP_PROMPT_DEFAULT.format(server=prompt.server),
-                    prompt_handler(prompt.slash_name),
-                    group=GROUP,
-                    usage=prompt.usage,
-                )
-            )
-    return tuple(commands)
+    summary = " ".join(prompt.description.split())[:_SUMMARY_CHARS]
+    text = summary or messages.MCP_PROMPT_DEFAULT.format(server=prompt.server)
+    return SlashCommand(
+        prompt.display_name,
+        f"{text} {MENU_SUFFIX}",
+        prompt_handler(prompt.slash_name),
+        aliases=(prompt.slash_name,),
+        group=GROUP,
+        usage=prompt.usage,
+    )
+
+
+def mcp_prompt_slash_commands() -> tuple[object, ...]:
+    """Bilinen MCP istemleri için `SlashCommand`'lar (katalog boşsa hiç)."""
+    return tuple(_prompt_command(prompt) for prompt in _known_prompts())
 
 
 def listing(kind: str) -> str:
@@ -79,8 +92,7 @@ def listing(kind: str) -> str:
             messages.MCP_PROMPT_ROW.format(
                 name=prompt.slash_name, usage=prompt.usage, description=prompt.description
             ).rstrip(" —")
-            for catalog in catalogs.values()
-            for prompt in catalog.prompts
+            for prompt in _known_prompts()
         ]
         return "\n".join(rows) if rows else messages.MCP_PROMPTS_EMPTY
     rows = [
@@ -101,8 +113,12 @@ def unlisted_prompt_command(name: str) -> SlashCommand | None:
     bağlanır, sonra istemi çözer (`reference_service.expand_mcp_references`); bulunamazsa
     model çağrılmadan "MCP istemi bulunamadı" denir.
     """
+    from ...mcp_bridge.references import find_prompt
     from .commands import SlashCommand
 
+    known = find_prompt(_known_prompts(), name) if (":" in name or SLASH_PREFIX in name) else None
+    if known is not None:  # menü adı dinamik komutta; `/mcp__…` yazımı buraya düşer
+        return _prompt_command(known)
     if not name.startswith(SLASH_PREFIX) or len(name) <= len(SLASH_PREFIX):
         return None
 
