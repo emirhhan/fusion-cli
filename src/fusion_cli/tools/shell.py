@@ -21,7 +21,7 @@ from ..core.constants import (
     truncate_notice,
 )
 from ..core.errors import ProcessCancelledError
-from ..core.process_control import run_foreground
+from ..core.process_control import MovedToBackground, run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
@@ -54,6 +54,7 @@ from .sandbox_runtime import (
     sandbox_env,
     sandbox_notes,
 )
+from .shell_adopt import adopt, can_adopt, marked_command, new_token
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
@@ -128,10 +129,19 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         )
         return replace(started, output=f"{started.output}{notes}") if notes else started
     run = prepare_sandbox(command, args, context)
+    token = new_token() if can_adopt(command) else None
+    handed_over = False
     try:
-        return _run_foreground(command, context, run, integrity_error, timeout_seconds(args))
+        return _run_foreground(
+            command, context, run, integrity_error, timeout_seconds(args), token=token
+        )
+    except MovedToBackground as moved:
+        # Süreç ve proxy artık işe aittir: iş bitince kapanır (#319).
+        handed_over = True
+        return adopt(moved, command, token or "", context, lambda: background_exit_note(run))
     finally:
-        release_sandbox(run)
+        if not handed_over:
+            release_sandbox(run)
 
 
 def _run_foreground(
@@ -140,8 +150,13 @@ def _run_foreground(
     run: SandboxRun,
     integrity_error: str | None,
     timeout_s: float = SHELL_TIMEOUT_S,
+    *,
+    token: str | None = None,
 ) -> ToolResult:
-    """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır)."""
+    """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır).
+
+    `token` verilirse zaman aşımında süreç öldürülmez, `MovedToBackground` yükselir (#319).
+    """
     if run.plan.refused:
         return ToolResult.failure(run.plan.refused)
     before, skipped = _fingerprint_before(command, context)
@@ -149,12 +164,13 @@ def _run_foreground(
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
         process = run_foreground(
-            command,
+            marked_command(command, token) if token else command,
             timeout_s=timeout_s,
             cancelled=context.cancelled,
             cwd=context.root,
             env=sandbox_env(_shell_env(context), run),
             argv_prefix=run.plan.prefix,
+            adopt_on_timeout=(lambda: True) if token else None,
         )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))

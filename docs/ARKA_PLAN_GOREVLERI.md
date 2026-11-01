@@ -145,6 +145,10 @@ okunmadığı için orada `/bg` kullanılır.
 
 - `run_shell(timeout=<ms>)`: çağrı başına zaman aşımı. Varsayılan `BASH_DEFAULT_TIMEOUT_MS`
   (120000), tavan `BASH_MAX_TIMEOUT_MS` (600000).
+- Zaman aşımına uğrayan ön plan komutu durdurulmaz, **arka plana taşınır**: sonuç iş
+  kimliğini ve `.fusion/is/<kimlik>.log` çıktı dosyasını verir; `job_status` ile izlenir ya da
+  durdurulur. `sleep` ile başlayan komutlar ve `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  iken komut eskisi gibi durdurulur.
 - `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
 - Satır içi çıktı sınırı 30.000 karakter; `BASH_MAX_OUTPUT_LENGTH` ile değişir.

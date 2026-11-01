@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections import deque
+from collections.abc import Callable
 from typing import IO
 
 _CHUNK_BYTES = 65_536
@@ -28,6 +29,7 @@ class BoundedCapture:
         self._dropped = 0
         self._lock = threading.Lock()
         self._eof = threading.Event()
+        self._sink: Callable[[bytes], None] | None = None
         self._thread = threading.Thread(target=self._pump, name="fusion-capture", daemon=True)
         self._thread.start()
 
@@ -42,8 +44,16 @@ class BoundedCapture:
                 self._stream.close()  # okuyucu sahiptir: fd sızmaz
             self._eof.set()
 
+    def redirect(self, sink: Callable[[bytes], None]) -> None:
+        """Bundan sonraki baytları `sink`'e ver (arka plana taşınan komut, #319)."""
+        with self._lock:
+            self._sink = sink
+
     def _add(self, chunk: bytes) -> None:
         with self._lock:
+            if self._sink is not None:
+                self._sink(chunk)
+                return
             room = self._limit - len(self._head)
             if room > 0:
                 self._head += chunk[:room]

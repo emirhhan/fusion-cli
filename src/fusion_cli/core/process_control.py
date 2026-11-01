@@ -9,7 +9,7 @@ import platform
 import signal
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -22,7 +22,7 @@ from .constants import (
     PROCESS_TERMINATE_GRACE_S,
     SHELL_CAPTURE_CHARS,
 )
-from .errors import CleanupFailedError, ProcessCancelledError
+from .errors import CleanupFailedError, FusionError, ProcessCancelledError
 from .protocols import Clock
 
 
@@ -215,6 +215,21 @@ def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
             time.sleep(min(PROCESS_POLL_S, remaining))
 
 
+class MovedToBackground(FusionError):
+    """Zaman aşımında süreç öldürülmedi; sahipliği çağırana devredildi (#319)."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        captures: tuple[BoundedCapture, BoundedCapture],
+        timeout_s: float,
+    ) -> None:
+        super().__init__(f"Komut {timeout_s:.0f}s içinde bitmedi; arka plana taşındı.")
+        self.process = process
+        self.captures = captures
+        self.timeout_s = timeout_s
+
+
 def run_foreground(
     command: str,
     *,
@@ -224,6 +239,7 @@ def run_foreground(
     timeout_s: float,
     clock: Clock | None = None,
     argv_prefix: Sequence[str] = (),
+    adopt_on_timeout: Callable[[], bool] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
 
@@ -233,7 +249,9 @@ def run_foreground(
     Çıktı bellekte SINIRLIDIR (`SHELL_CAPTURE_CHARS`: akış başına baş + son kesit, C1-16).
     Kabuk normal çıkınca borular `PROCESS_TERMINATE_GRACE_S` içinde kapanmazsa (boruyu tutan
     `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
-    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür.
+    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür;
+    yalnız `adopt_on_timeout()` doğruysa zaman aşımında süreç öldürülmez,
+    `MovedToBackground` ile sahipliği çağırana geçer (Claude Code, #319).
     """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
@@ -263,6 +281,8 @@ def run_foreground(
             remaining = deadline - timing.monotonic()
             if remaining <= 0:
                 cleanup_started = True
+                if adopt_on_timeout is not None and adopt_on_timeout():
+                    raise MovedToBackground(process, captures, timeout_s)
                 stdout, stderr = _drain(process, captures, force=True)
                 raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
             try:
