@@ -1660,6 +1660,9 @@ SHORTCUTS_PANEL = (
     "  Ctrl+X Ctrl+S / Ctrl+Enter kuyruğu şimdi yolla · Up kuyruğu geri al\n"
     "  Ctrl+G / Ctrl+X Ctrl+E dış editör · Ctrl+_ geri al · Ctrl+S taslağı sakla\n"
     "  Ctrl+L yeniden çiz · Ctrl+R geçmişte ara · PageUp/PageDown kaydır\n"
+    "  Ctrl+O transcript · Ctrl+T görev listesi · Ctrl+V görüntü yapıştır\n"
+    "  Option+P model · Option+T düşünme · Option+O hızlı kip · :kod: + Tab emoji\n"
+    "  Tab / Sağ ok istem önerisini al\n"
     "  /keybindings tuşları düzenler"
 )
 PEER_MENTION_TURN = (

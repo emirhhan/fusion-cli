@@ -325,6 +325,12 @@ async def _run_inline(
         agents=lambda: agent_names(state),
         sessions=lambda: live_session_names(state),
     )
+    # #216 genel kısayolları: Ctrl+O/Ctrl+T/Ctrl+V/Ctrl+X Ctrl+K/?/Option+P/T/O, istem önerisi.
+    from .inline_shortcuts import InlineShortcuts
+
+    shortcuts = InlineShortcuts(state, console)
+    state.inline_shortcuts = shortcuts
+    reader.set_shortcuts(shortcuts.actions(reader), shortcuts.next_suggestion)
     background = BackgroundTasks()
 
     # Isıtma kota harcar ve kullanıcı henüz bir şey göndermeden kafa karıştırıcı
@@ -907,6 +913,7 @@ async def _drive_agent(
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
     denied_tools: frozenset[str] = frozenset(),
+    images: tuple[str, ...] = (),
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -925,6 +932,8 @@ async def _drive_agent(
         "allowed_tools": allowed_tools,
         "denied_tools": denied_tools,
     }
+    if images:
+        kwargs["images"] = images
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
     try:
@@ -1036,9 +1045,13 @@ async def _agent_turn(
         bus.subscribe(tracer)
         if state.usage_log is not None:
             bus.subscribe(state.usage_log)
+        shortcuts = state.inline_shortcuts
+        if shortcuts is not None:
+            bus.subscribe(shortcuts.suggestions)  # tur sonrası istem önerisi (#216)
         # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
         checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = _turn_tool_context(state, checkpoint.changes)
+        state.last_tool_context = tool_context  # Ctrl+T görev listesi (#216)
         partial = PartialTurn()
         # Tur sürerken yazılan mesaj aynı tura verilir, Ctrl+B devreder (#190, #218).
         keys = inline_turn_keys.InlineTurnKeys(
@@ -1151,6 +1164,8 @@ async def _agent_turn(
                 # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                 allowed_tools=extras.merged_tools(persona.allowed_tools),
                 denied_tools=extras.merged_denied(persona.denied_tools),
+                # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
+                images=shortcuts.take_images(line) if shortcuts is not None else (),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:

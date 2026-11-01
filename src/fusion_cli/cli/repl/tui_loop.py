@@ -107,6 +107,7 @@ from .status_line_settings import resolve_status_line
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
 from .tui_input_keys import DirectoryHistory, history_path
+from .tui_shortcuts import TuiShortcuts
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
@@ -354,6 +355,8 @@ class _TuiSession:
         )
         self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
         self._tui.set_agent_hooks(self._kill_agents, self._todo_lines)
+        #: #216: Ctrl+O transcript, Ctrl+V görüntü, Option+P/T/O, istem önerileri.
+        self._shortcuts = TuiShortcuts(state, self._tui, self._submit, self._echo)
         self._tui.set_vim_remaps(vim_remaps.load_remaps(state.home))
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
@@ -1259,6 +1262,7 @@ class _TuiSession:
             pump,
             self._state.cost,
             *((usage_log,) if usage_log is not None else ()),
+            self._shortcuts.begin_turn(),
         )
         try:
             if self._state.engine is Engine.FUSION:
@@ -1353,6 +1357,8 @@ class _TuiSession:
                         ),
                         # Tur sürerken yazılan düz mesaj aynı tura girer (#190).
                         steering=steering,
+                        # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
+                        images=self._shortcuts.take_images(line),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
@@ -1385,6 +1391,8 @@ class _TuiSession:
             renderer.abort()
             self._tui.clear_work()
             self._tui.sync_conversation()
+        if not self._queue:
+            self._shortcuts.finish_turn()
 
 
 def _print_startup(

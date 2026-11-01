@@ -39,7 +39,7 @@ from typing import Any
 from ...config import keybindings
 from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
-from . import input_actions
+from . import input_actions, prompt_suggestion
 
 #: Yapıştırma bu satır ya da bu karakter sayısını aşarsa tek satırlık yer tutucuya
 #: katlanır (ikisinden biri yeterli). Karakter eşiği, az satırlı ama çok uzun tek
@@ -97,12 +97,26 @@ class ReplInput:
         self._paste_seq = 0
         #: İstem açık mı? `inject` yalnız bu sırada satır verebilir.
         self._waiting = False
+        #: #216 genel kısayolları (`inline_shortcuts`) ve tur sonrası istem önerisi kaynağı.
+        self.extra_actions: dict[str, Callable[[Any], None]] = {}
+        self.suggestion_source: Callable[[], str] | None = None
+        #: Option+P gibi taslağı koruyan bağlı komuttan sonra istem bu metinle açılır.
+        self._restore_draft = ""
         if sys.stdin.isatty():
             self._session = _build_session(self, history_path, words, roots, agents, sessions)
 
     @property
     def interactive(self) -> bool:
         return self._session is not None
+
+    def set_shortcuts(
+        self, actions: dict[str, Callable[[Any], None]], suggestion: Callable[[], str] | None
+    ) -> None:
+        """#216 eylemlerini ve istem önerisi kaynağını bağla; tuş tablosu yeniden kurulur."""
+        self.extra_actions = dict(actions)
+        self.suggestion_source = suggestion
+        if self._session is not None:
+            self._bindings = build_input_bindings(self, self._keymap)
 
     def history_strings(self) -> list[str]:
         """İstem geçmişi (en yeni önce); `!` kipi Tab tamamlaması (#219)."""
@@ -213,9 +227,18 @@ class ReplInput:
         # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.
         self._reload_keymap_if_changed()
         self._session.editing_mode = _editing_mode(self.vim_mode)
+        if not default and self._restore_draft:
+            default, self._restore_draft = self._restore_draft, ""
+        suggestion = self.suggestion_source() if self.suggestion_source is not None else ""
+        session = self._session
         self._waiting = True
         try:
-            line = await self._session.prompt_async(self._prompt_message, default=default)
+            line = await session.prompt_async(
+                self._prompt_message,
+                default=default,
+                # Tur sonrası istem önerisi boş girdide sönük görünür (Claude Code, #216).
+                pre_run=lambda: prompt_suggestion.offer(session.default_buffer, suggestion),
+            )
         finally:
             self._waiting = False
         if self._bound_command is not None:
@@ -233,9 +256,11 @@ class ReplInput:
     def keymap(self) -> keybindings.KeyMap:
         return self._keymap
 
-    def run_bound_command(self, command: str, event: Any) -> None:
-        """`komut:<ad>` bağı: `/ad` satırını gönder (tampondaki metin korunmaz)."""
+    def run_bound_command(self, command: str, event: Any, *, keep_draft: bool = False) -> None:
+        """`komut:<ad>` bağı: `/ad` satırını gönder; `keep_draft` taslağı sonraki isteme taşır."""
         self._bound_command = f"/{command.strip().lstrip('/')}"
+        if keep_draft:
+            self._restore_draft = event.current_buffer.text
         event.current_buffer.validate_and_handle()
 
     def _prompt_message(self) -> Any:
@@ -379,6 +404,8 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         "geri_al": lambda event: input_actions.undo(event.current_buffer),
         "sakla": _stash,
         "yeniden_ciz": lambda event: input_actions.redraw(event.app),
+        # #216: transcript, görüntü, görev listesi, ajanlar, `?`, Option+P/T/O.
+        **owner.extra_actions,
     }
     for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
         handler = _resolve_action(owner, action, actions)
@@ -389,6 +416,20 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         except ValueError:
             # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
             continue
+
+    from prompt_toolkit.filters import Condition
+
+    @Condition
+    def _has_suggestion() -> bool:
+        from prompt_toolkit.application import get_app
+
+        return prompt_suggestion.available(get_app().current_buffer)
+
+    @bindings.add("tab", filter=_has_suggestion)
+    @bindings.add("right", filter=_has_suggestion)
+    def _accept_suggestion(event: Any) -> None:
+        # İstem önerisi (#216): Tab/Sağ ok girdiye alır, göndermez.
+        prompt_suggestion.accept(event.current_buffer)
 
     @bindings.add(Keys.BracketedPaste)
     def _paste(event: Any) -> None:

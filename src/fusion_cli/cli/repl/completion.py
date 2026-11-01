@@ -20,6 +20,8 @@ from pathlib import Path
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
+from . import emoji_codes
+
 #: Yol tamamlamada hiç listelenmeyen dizinler.
 NOISE_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache"})
 #: Bir seferde gösterilecek en fazla öneri.
@@ -151,6 +153,12 @@ class ReplCompleter(Completer):
                     yield Completion(
                         f"@{mention}", start_position=-len(word), display=mention, display_meta=name
                     )
+            return
+        emoji_prefix = emoji_codes.shortcode_prefix(word) if word.startswith(":") else None
+        if emoji_prefix is not None:
+            # `:emoji:` kısa kodları (#216): seçilen öneri sözcüğü emojiyle değiştirir.
+            for name, emoji in emoji_codes.suggestions(emoji_prefix):
+                yield Completion(emoji, start_position=-len(word), display=f"{emoji} :{name}:")
             return
         if word.startswith("/") and document.text_before_cursor.lstrip() == word:
             words = self._words() if callable(self._words) else self._words

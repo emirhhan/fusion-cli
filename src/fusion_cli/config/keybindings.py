@@ -43,13 +43,24 @@ DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarla
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
     CONTEXT_INPUT: {
         "s-tab": "kip_dongusu",
-        "c-v": "yapistirma_katla",
+        # Claude Code chat:imagePaste (#216): Ctrl+V panodaki görüntüyü `[Image #N]` çipi
+        # olarak ekler. Eski varsayılan (yapıştırmayı katla) eylem olarak kalır, tuşsuz.
+        "c-v": "gorsel_yapistir",
         # Claude Code Chat bağlamı (#194, #216): dış editör, geri al, taslak sakla.
         "c-g": "dis_editor",
         "c-x c-e": "dis_editor",
         "c-_": "geri_al",
         "c-s": "sakla",
         "c-l": "yeniden_ciz",
+        # Claude Code Global (#216): transcript, görev listesi, arka plan ajanları, `?` paneli.
+        "c-o": "transkript",
+        "c-t": "gorevler",
+        "c-x c-k": "ajanlari_durdur",
+        "?": "kisayollar",
+        # Option+P/T/O (Meta): model seçici, düşünme, hızlı kip.
+        "escape p": "model_sec",
+        "escape t": "dusunme",
+        "escape o": "hizli_kip",
     },
     CONTEXT_TUI: {
         # Claude Code (#195): Ctrl+C keser / girdiyi temizler / ikinci basışta çıkar; Ctrl+D
@@ -84,10 +95,33 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "c-_": "geri_al",
         "c-s": "sakla",
         "c-l": "yeniden_ciz",
+        # Claude Code app:toggleTranscript ve chat:imagePaste (#216).
+        "c-o": "transkript",
+        "c-v": "gorsel_yapistir",
+        # Option+P/T/O (Meta, #216): Esc ile aynı okumada gelen harf (bkz. `option_keys`).
+        "escape p": "model_sec",
+        "escape t": "dusunme",
+        "escape o": "hizli_kip",
     },
 }
 #: Satır içi ve tam ekran girdinin ortak düzenleme eylemleri.
-_EDIT_ACTIONS = frozenset({"dis_editor", "geri_al", "sakla", "yeniden_ciz"})
+_EDIT_ACTIONS = frozenset(
+    {
+        "dis_editor",
+        "geri_al",
+        "sakla",
+        "yeniden_ciz",
+        # #216: iki bağlamda da geçerli genel kısayollar.
+        "transkript",
+        "gorsel_yapistir",
+        "gorevler",
+        "ajanlari_durdur",
+        "kisayollar",
+        "model_sec",
+        "dusunme",
+        "hizli_kip",
+    }
+)
 #: Bağlam başına geçerli eylemler (`komut:*` hepsinde geçerli).
 ACTIONS: dict[str, frozenset[str]] = {
     CONTEXT_INPUT: frozenset({"kip_dongusu", "yapistirma_katla", *_EDIT_ACTIONS}),

@@ -46,7 +46,7 @@ def test_claude_dosyasi_eski_dosyanin_ustune_uygulanir(tmp_path: Path):
                             "ctrl+s": None,
                             "meta+g": "command:compact",
                             "ctrl+c": "chat:stash",
-                            "ctrl+y": "chat:fastMode",
+                            "ctrl+y": "chat:bilinmeyenEylem",
                         },
                     },
                     {"context": "Task", "bindings": {"ctrl+x ctrl+b": None}},
@@ -71,7 +71,7 @@ def test_claude_dosyasi_eski_dosyanin_ustune_uygulanir(tmp_path: Path):
     assert tui["f2"] == "komut:status"  # eski dosya takma ad olarak okunur
     assert tui["c-c"] == "kes_temizle_cik"  # ayrılmış tuş bağlanamaz
     warnings = " | ".join(keymap.warnings)
-    assert "ayrılmış" in warnings and "chat:fastMode" in warnings
+    assert "ayrılmış" in warnings and "chat:bilinmeyenEylem" in warnings
     assert "Bilinmez" in warnings and "kullanımdan kalktı" in warnings
     assert "confirm:yes" not in warnings  # bilinen bağlam, Fusion'da yüzeyi yok
     assert not keybindings.has_changed(keymap)

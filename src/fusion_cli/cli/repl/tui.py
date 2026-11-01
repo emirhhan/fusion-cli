@@ -40,10 +40,12 @@ from rich.console import Console
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
 from ...ui import messages, theme
 from ...ui.picker import Choice, initial_index
-from . import input_actions, vim_remaps
+from . import input_actions, option_keys, prompt_suggestion, vim_remaps
 from .choice_search import ChoiceSearch
+from .clipboard_image import NO_IMAGE
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 from .status_line_runner import ansi_for_tui
+from .tui_extras import TuiExtras
 from .tui_input_keys import (
     DOUBLE_PRESS_SECONDS,
     KILL_AGENTS_WINDOW_S,
@@ -220,6 +222,8 @@ class FusionTui:
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
+        #: #216: Ctrl+O transcript, Ctrl+V görüntü çipleri, Option+P/T/O kancası.
+        self.extras = TuiExtras()
 
         # Konuşma tamponu: renderer bu Rich console'a RENKLİ yazar; ANSI olarak gösterilir.
         self._sink = io.StringIO()
@@ -357,6 +361,10 @@ class FusionTui:
         updated_lines = len(updated.splitlines())
         added = max(0, updated_lines - previous_lines)
         self._conversation = updated
+        if self.extras.viewing:
+            # Ctrl+O görünümü açıkken konuşma arkada dolar; görünüm yeni mesajları gösterir.
+            self.extras.refresh()
+            added = 0
         if self._scroll > 0 and added:
             # Alttan ofseti büyütmek, kullanıcının baktığı eski satırları sabit tutar.
             self._scroll += added
@@ -624,9 +632,13 @@ class FusionTui:
 
     # -- Konuşma render'ı --------------------------------------------------- #
 
+    def _visible_text(self) -> str:
+        """Konuşma alanında gösterilen metin: Ctrl+O görünümü açıksa transcript (#216)."""
+        return self.extras.view if self.extras.view is not None else self._conversation
+
     def _conversation_fragments(self) -> ANSI:
         """Konuşmanın görünür kısmı: kaydırma ofsetine göre son satırlar, ANSI renkli."""
-        lines = self._conversation.splitlines()
+        lines = self._visible_text().splitlines()
         body = max(1, _term_rows() - _CHROME_ROWS)
         end = max(0, len(lines) - self._scroll)
         start = max(0, end - body)
@@ -703,7 +715,7 @@ class FusionTui:
         return line
 
     def _scroll_by(self, delta: int) -> None:
-        lines = len(self._conversation.splitlines())
+        lines = len(self._visible_text().splitlines())
         body = max(1, _term_rows() - _CHROME_ROWS)
         maximum = max(0, lines - body)
         self._scroll = max(0, min(maximum, self._scroll + delta))
@@ -712,7 +724,7 @@ class FusionTui:
         self._refresh_status()
 
     def _scroll_home(self) -> None:
-        lines = len(self._conversation.splitlines())
+        lines = len(self._visible_text().splitlines())
         body = max(1, _term_rows() - _CHROME_ROWS)
         self._scroll = max(0, lines - body)
         self._refresh_status()
@@ -897,7 +909,14 @@ class FusionTui:
             "geri_al": (lambda: input_actions.undo(self._input.buffer), typing),
             "sakla": (self._toggle_stash, typing),
             "yeniden_ciz": (lambda: input_actions.redraw(self.application), None),
+            # #216: Ctrl+O transcript, Ctrl+V görüntü, Option+P/T/O.
+            "transkript": (self._toggle_transcript, None),
+            "gorsel_yapistir": (self._paste_image, typing),
+            "model_sec": (lambda: self._run_option("model_sec"), None),
+            "dusunme": (lambda: self._run_option("dusunme"), None),
+            "hizli_kip": (lambda: self._run_option("hizli_kip"), None),
         }
+        self._add_view_bindings(kb, typing)
         # Vim kipinde (P-067) Esc INSERT'ten NORMAL'e geçmelidir. Ölçüldü (31 Ekim): uygulama
         # düzeyinde eager bağlı `escape: kes` prompt_toolkit'in vi bağını eziyor, vi_state hep
         # INSERT'te kalıyordu. INSERT kipinde (seçici açık değilken) `kes` bağı devre dışı kalır;
@@ -1019,6 +1038,9 @@ class FusionTui:
 
     def _ctrl_c_pressed(self) -> None:
         """Ctrl+C: modalı kapatır, turu keser; boştayken girdiyi temizler, ikincisi çıkar."""
+        if self.extras.viewing and self._mode not in ("ask", "choice"):
+            self._close_transcript()  # Claude Code: Ctrl+C transcript görünümünden çıkar
+            return
         if self._mode in ("ask", "choice") or self._is_busy():
             self._ctrl_c.reset()
             self._cancel_or_interrupt()
@@ -1067,6 +1089,14 @@ class FusionTui:
             self._on_background()
 
     def _cancel_or_interrupt(self) -> None:
+        # Option+harf (Meta) Esc ile aynı okumada gelir; kesme değil o eylemdir (#216).
+        meta = option_keys.take_meta_action(self.application, self._keymap.bindings(CONTEXT_TUI))
+        if meta is not None:
+            self._run_option(meta)
+            return
+        if self.extras.viewing and self._mode not in ("ask", "choice"):
+            self._close_transcript()
+            return
         if self._mode == "ask":
             self._resolve("")
         elif self._mode == "choice":
@@ -1127,6 +1157,56 @@ class FusionTui:
         is_double = 0.0 < stamp - self._last_escape_at <= DOUBLE_ESCAPE_SECONDS
         self._last_escape_at = 0.0 if is_double else stamp
         return is_double
+
+    # -- #216: transcript görünümü, görüntü yapıştırma, Option+harf, istem önerisi --- #
+
+    def _add_view_bindings(self, kb: KeyBindings, typing: Filter) -> None:
+        """Transcript görünümünde q/Ctrl+E; boş girdideki öneride Tab/Sağ ok."""
+        viewing = Condition(lambda: self.extras.viewing and not self._input.buffer.text)
+        has_suggestion = Condition(lambda: prompt_suggestion.available(self._input.buffer))
+
+        @kb.add("q", filter=typing & viewing, eager=True)
+        def _view_quit(_event: object) -> None:
+            self._close_transcript()
+
+        @kb.add("c-e", filter=typing & Condition(lambda: self.extras.viewing), eager=True)
+        def _view_all(_event: object) -> None:
+            self.extras.toggle_all()
+            self._scroll = 0
+            self._invalidate()
+
+        @kb.add("tab", filter=typing & has_suggestion, eager=True)
+        @kb.add("right", filter=typing & has_suggestion, eager=True)
+        def _accept_suggestion(_event: object) -> None:
+            prompt_suggestion.accept(self._input.buffer)
+
+    def offer_suggestion(self, text: str) -> None:
+        """Tur bitince boş girdiye sönük istem önerisi (Claude Code Prompt suggestions)."""
+        if prompt_suggestion.offer(self._input.buffer, text):
+            self._invalidate()
+
+    def _toggle_transcript(self) -> None:
+        if self.extras.viewing:
+            self._close_transcript()
+        elif self.extras.open(self._scroll):
+            self._scroll = 0
+            self._refresh_status()
+
+    def _close_transcript(self) -> None:
+        self._scroll = self.extras.close()
+        self._refresh_status()
+
+    def _paste_image(self) -> None:
+        chips = self.extras.image_chips
+        chip = chips.paste() if chips is not None else None
+        if chip is None:
+            self._show_flash(NO_IMAGE)
+            return
+        self._input.buffer.insert_text(chip)
+
+    def _run_option(self, action: str) -> None:
+        if not self.extras.run_option(action):
+            self._show_flash(option_keys.FAST_UNAVAILABLE if action == "hizli_kip" else "")
 
     def _invalidate(self) -> None:
         if self.application.is_running:
