@@ -14,6 +14,7 @@ gider. Ön planda `SHELL_TIMEOUT_S` geçerlidir; arka plana alınan komutun sür
 from __future__ import annotations
 
 import asyncio
+import codecs
 import contextlib
 import itertools
 import logging
@@ -135,17 +136,36 @@ async def _pump(
     on_chunk: Callable[[str], None] | None,
     job: ShellJob,
 ) -> None:
-    decoder_errors = "replace"
-    while chunk := await stream.read(_CHUNK):
-        text = chunk.decode("utf-8", errors=decoder_errors).replace("\r\n", "\n")
-        log.write(text)
-        log.flush()
-        capture.add(text)
-        if on_chunk is not None and not job.in_background:
-            try:
-                on_chunk(text)
-            except Exception:  # ekrana basma hatası komutu düşürmesin
-                _LOG.exception("! çıktısı basılamadı")
+    # Okuma sınırı çok baytlı karakteri ya da `\r\n` çiftini bölebilir: artımlı çözücü
+    # yarım baytları, sondaki `\r` bir sonraki parçayı bekler (yoksa U+FFFD / fazla `\r`).
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    held_cr = ""
+    while True:
+        chunk = await stream.read(_CHUNK)
+        text = held_cr + decoder.decode(chunk, final=not chunk)
+        held_cr = "\r" if chunk and text.endswith("\r") else ""
+        text = (text[:-1] if held_cr else text).replace("\r\n", "\n")
+        if text:
+            _emit(text, log, capture, on_chunk, job)
+        if not chunk:
+            return
+
+
+def _emit(
+    text: str,
+    log: IO[str],
+    capture: _Capture,
+    on_chunk: Callable[[str], None] | None,
+    job: ShellJob,
+) -> None:
+    log.write(text)
+    log.flush()
+    capture.add(text)
+    if on_chunk is not None and not job.in_background:
+        try:
+            on_chunk(text)
+        except Exception:  # ekrana basma hatası komutu düşürmesin
+            _LOG.exception("! çıktısı basılamadı")
 
 
 async def run_live(

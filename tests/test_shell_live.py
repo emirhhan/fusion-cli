@@ -178,3 +178,28 @@ async def test_tty_degilse_izleyici_hicbir_sey_yapmaz():
         pass
     with shell_background.watch_ctrl_b(ShellDetach(), enabled=False):
         pass
+
+
+@pytest.mark.asyncio
+async def test_parca_sinirina_denk_gelen_cok_baytli_karakter_bozulmaz(tmp_path):
+    # 4096 baytlık okuma sınırı 'ş' (2 bayt) karakterini ikiye bölerse U+FFFD oluşmamalı;
+    # parça sınırındaki \r\n de tek satır sonu olmalı.
+    komut = (
+        f"{sys.executable} -c \"import sys; sys.stdout.write('x' + 'ş' * 20000 + 'a' * 4094 "
+        "+ '\\r\\n' + 'son'); sys.stdout.flush()\""
+    )
+    parcalar: list[str] = []
+    run = await shell_live.run_live(
+        komut,
+        cwd=tmp_path,
+        env=dict(os.environ),
+        log_dir=tmp_path / "gunluk",
+        timeout_s=30,
+        on_chunk=parcalar.append,
+    )
+    akan = "".join(parcalar)
+    assert "�" not in akan and "�" not in run.output
+    assert akan.count("ş") == 20000 and "\r" not in akan and akan.endswith("\nson")
+    gunluk = run.log_path.read_text(encoding="utf-8").split("\n", 1)[1]  # ilk satır komut
+    assert "\ufffd" not in gunluk
+    assert gunluk.count("ş") == 20000
