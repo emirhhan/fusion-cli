@@ -92,8 +92,7 @@ class ApprovalMode(Enum):
     DONT_ASK = "dontAsk"
 
 
-#: Shift+Tab döngüsü (Claude'daki sıra). "İzinleri atla" BİLEREK yok: tek tuşla
-#: yanlışlıkla açılmamalı; `/bypass` ile açıkça seçilir.
+#: Shift+Tab döngüsü (Claude'daki sıra: default → acceptEdits → plan → [bypass] → auto).
 CYCLE_MODES = (
     ApprovalMode.AUTO,
     ApprovalMode.SECURITY,
@@ -102,11 +101,16 @@ CYCLE_MODES = (
 )
 
 
-def next_mode(mode: ApprovalMode) -> ApprovalMode:
-    """Döngüdeki sıradaki kip; döngü dışındaki kipten (bypass) Otomatik'e dönülür."""
-    if mode not in CYCLE_MODES:
+def next_mode(mode: ApprovalMode, *, bypass_available: bool = False) -> ApprovalMode:
+    """Döngüdeki sıradaki kip.
+
+    Claude (permission-modes, #370): bypass yalnız oturumda KULLANILABİLİRSE (bypass ile
+    başlatıldı ya da `/bypass` ile açıkça seçildi) döngüye girer; yeri plan ile auto arası.
+    """
+    cycle = (*CYCLE_MODES, ApprovalMode.BYPASS) if bypass_available else CYCLE_MODES
+    if mode not in cycle:
         return ApprovalMode.AUTO
-    return CYCLE_MODES[(CYCLE_MODES.index(mode) + 1) % len(CYCLE_MODES)]
+    return cycle[(cycle.index(mode) + 1) % len(cycle)]
 
 
 def may_run_unasked_commands(mode: ApprovalMode) -> bool:

@@ -152,6 +152,8 @@ class ReplState:
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
+    #: Shift+Tab döngüsünde bypass yuvası açık mı (Claude "when available"; #370)?
+    bypass_available: bool = False
     task_type: str = "general"
     #: `/mode auto` açık mı? Açıkken her tur görevi sınıflandırıp kademe seçilir.
     auto_profile: bool = False
@@ -261,9 +263,14 @@ class ReplState:
             approval = ApprovalMode(config.runtime.approval_mode)
         except ValueError:
             approval = ApprovalMode.AUTO
+        # Claude: `defaultMode: bypassPermissions` bypass'ı döngüye ekler; Fusion oturumu yine
+        # AUTO açılır (bypass kalıcı kip değildir; #370).
+        bypass_available = approval is ApprovalMode.BYPASS
         if approval is ApprovalMode.BYPASS:
             approval = ApprovalMode.AUTO
-        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        state = cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        state.bypass_available = bypass_available
+        return state
 
     async def reset_child_runs(self) -> None:
         """Sohbet/kök değişiminde önce eski görevleri kapat, sonra yeni sahibi kur."""
@@ -532,7 +539,9 @@ class ReplState:
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
-        self.approval = next_mode(self.approval)
+        if self.approval is ApprovalMode.BYPASS:
+            self.bypass_available = True
+        self.approval = next_mode(self.approval, bypass_available=self.bypass_available)
         return self.approval
 
     def reset_history(self) -> int:

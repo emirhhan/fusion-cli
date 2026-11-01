@@ -283,7 +283,8 @@ Alttaki durum çubuğu ekrana sabittir ve onay modu değişince kendiliğinden g
 İpucu çalışma dizinine göre seçilir: aynı projede hep aynı, farklı projede farklı.
 Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte taşma olmaz.
 
-**shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
+**shift-tab** onay modunu döndürür (Claude sırası: auto → default → acceptEdits → plan →
+bypass yalnız bu oturumda `/bypass` ile seçildiyse ya da `defaultMode` bypass ise) · **Ctrl-C** çalışan turu durdurur (oturumdan
 çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.
 
 | Grup | Komutlar |

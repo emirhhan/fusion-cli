@@ -287,3 +287,13 @@ async def test_plan_kipi_siniflandiricisi_kaynak_duzenleyen_komutu_reddeder(
 ):
     """Claude: plan kaynağı düzenlemez; Fusion denetçisi kipten habersiz olduğu için (#318)."""
     assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is beklenen
+
+
+def test_shift_tab_dongusunde_bypass_yalniz_kullanilabilirken_plan_ile_auto_arasinda():
+    """Claude (#370): default → acceptEdits → plan → [bypassPermissions] → auto."""
+    from fusion_cli.engines.agent.approval import next_mode
+
+    assert next_mode(ApprovalMode.PLAN) is ApprovalMode.AUTO
+    assert next_mode(ApprovalMode.PLAN, bypass_available=True) is ApprovalMode.BYPASS
+    assert next_mode(ApprovalMode.BYPASS, bypass_available=True) is ApprovalMode.AUTO
+    assert next_mode(ApprovalMode.AUTO, bypass_available=True) is ApprovalMode.SECURITY

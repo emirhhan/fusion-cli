@@ -74,6 +74,8 @@ class ReplInput:
         tamamlamada görünmüyordu.
         """
         self.mode = mode
+        #: Shift+Tab döngüsünde bypass yuvası (Claude "when available"; #370).
+        self.bypass_available = mode is ApprovalMode.BYPASS
         #: `@yol` tamamlamasının gezineceği kökler (proje kökü + `--add-dir`).
         self.roots = roots
         #: Vim düzenleme kipi (P-067); REPL `runtime.vim_mode`'dan eşler.
@@ -103,7 +105,10 @@ class ReplInput:
         return self._session is not None
 
     def cycle_mode(self) -> ApprovalMode:
-        self.mode = next_mode(self.mode)
+        if self.mode is ApprovalMode.BYPASS:
+            # Kullanıcı bypass'ı bu oturumda açıkça seçti: döngüde yeri olur (#370).
+            self.bypass_available = True
+        self.mode = next_mode(self.mode, bypass_available=self.bypass_available)
         return self.mode
 
     def toggle_fold(self) -> None:
