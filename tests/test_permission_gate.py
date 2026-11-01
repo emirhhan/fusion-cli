@@ -371,30 +371,39 @@ async def test_bir_daha_sorma_kurali_dosyaya_yazilir_ve_oturumda_hatirlanir(tmp_
     assert karar is Decision.ALLOW and prompter2.soruldu == []
 
 
-def test_guvenilmeyen_izin_dosyasi_varsa_kullanici_dosyasina_yazilir(tmp_path):
+def test_guvenilmeyen_izin_dosyasi_varsa_yine_yerel_dosyaya_yazilir_ve_bekletilir(tmp_path):
+    """Claude (#68): CLI "bir daha sorma"yı her zaman yerel dosyaya yazar. Güvenilmeyen dosyaya
+    eklemek onu güvenilir YAPMAZ (içindeki `Bash(*)` aklanmaz); kural klasör güvenine dek bekler."""
+    from fusion_cli.engines.agent.permission_persist import remember_always
+
     proje = tmp_path / "proje"
     (proje / ".claude").mkdir(parents=True)
-    (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
-    assert persist_target(proje) == user_rule_file()
+    yerel = proje / trust.PROJECT_PERMISSIONS_PATH
+    yerel.write_text('{"permissions":{"allow":["Bash(*)"]}}')
+    assert persist_target(proje) == yerel
+    istek = build_request(_arac(), {"command": "npm test"}, root=proje)
+    remember_always(proje, istek)
+    veri = json.loads(yerel.read_text())
+    assert veri["permissions"]["allow"] == ["Bash(*)", "Bash(npm test *)"]
+    assert not trust.is_permissions_trusted(proje)
+    assert not user_rule_file().exists()
 
 
-def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(tmp_path):
-    """Ölçüldü (31 Ekim): proje izin dosyası güvenilmiyorken kural sessizce kullanıcının
-    permissions.json'ına yazılıyor, kart 'her oturumda geçerli olur' deyip kapsamı söylemiyordu."""
+def test_kalici_kural_aciklamasi_guvenilmeyen_dosyada_bekletilir_der(tmp_path):
+    """Kart kapsamı söyler: güvenilmeyen klasörde kural yazılır ama güvenilene dek uygulanmaz."""
     from fusion_cli.appserver.bridges import _approval_options
     from fusion_cli.engines.agent.permission_persist import always_description
 
     proje = tmp_path / "proje"
     (proje / ".claude").mkdir(parents=True)
     istek = build_request(_arac(), {"command": "npm test"}, root=proje)
-    # İzin dosyası yok → projeye yazılır; açıklama kapsam genişletmez.
-    assert "tüm projeler" not in always_description(istek, proje).lower()
+    assert "bekletilir" not in always_description(istek, proje)
     (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
     aciklama = always_description(istek, proje)
-    assert "tüm projeler" in aciklama.lower() and "Bash(npm test *)" in aciklama
-    assert str(user_rule_file()) in aciklama
+    assert "bekletilir" in aciklama and "Bash(npm test *)" in aciklama
+    assert "tüm projeler" not in aciklama.lower()
     secenekler = {s["deger"]: s for s in _approval_options(istek, proje)}
-    assert "tüm projeler" in secenekler["always"]["aciklama"].lower()
+    assert "bekletilir" in secenekler["always"]["aciklama"]
 
 
 async def test_yazici_bagli_degilse_bir_daha_sorma_oturumda_hatirlanir_bildirim_uretmez(tmp_path):

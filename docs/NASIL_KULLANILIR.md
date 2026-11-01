@@ -160,7 +160,7 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 | Katman | Dosya | Ne zaman okunur |
 |---|---|---|
 | Yönetilen (managed) | macOS `/Library/Application Support/ClaudeCode/managed-settings.json` (Linux `/etc/claude-code/`, Windows `C:\Program Files\ClaudeCode\`) ve yanındaki `managed-settings.d/*.json` | her zaman, en yüksek öncelik; Fusion bu dosyalara yazmaz, satırları silinemez |
-| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` ve "bir daha sorma" düşüşü buraya yazar |
+| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` buraya yazar |
 | Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`) |
 | Proje (yerel) | `<git kökü>/.claude/settings.local.json` (alt dizinde başlatılsa da depo kökündeki; worktree'de ana checkout'un kökündeki; depo dışında `<proje>/`) | allow kuralları klasör güveninden sonra; ev dizininde ve Fusion'ın kendi yazdığı dosyada güven gerekmez; "bir daha sorma" aynı dosyaya yazar; Fusion dosyayı depoda ilk kez oluşturduğunda ve depo onu zaten dışlamıyorsa Claude gibi genel git dışlamasına (`core.excludesFile`, yoksa `~/.config/git/ignore`) `**/.claude/settings.local.json` ekler |
 | Eski Fusion dosyası | `~/.config/fusion-cli/permissions.json` | kullanımdan kalktı: bu sürüm boyunca okunur, başlangıçta uyarı verir |
@@ -245,7 +245,9 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
 - Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar
-  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Yorumlayıcı ve
+  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Kural Claude gibi
+  her zaman projenin yerel ayar dosyasına yazılır; dosya güvenilmeyen bir klasördeyse kural
+  klasöre güvenilene dek bekletilir (dosyadaki öteki kurallar da aklanmaz). Yorumlayıcı ve
   başlatıcılarda (`python`, `bash`, `node`, `npx`, `find`, `xargs`, `ssh`, `curl`…) ve ilk iki
   sözcüğü düz olmayan komutlarda kural komutun **kendisidir** (`Bash(python -m pytest)`), genel
   `python *` yazılmaz. Yıkıcı işlemlerde ve `ask` kurallı istekte bu seçenek çıkmaz. Terminalde

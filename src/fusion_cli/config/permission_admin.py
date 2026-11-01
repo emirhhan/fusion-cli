@@ -83,22 +83,35 @@ class RuleChange:
 
 
 def add_permission_rule(
-    root: Path, rule: PermissionRule, *, user_level: bool = False, strict_project: bool = False
+    root: Path,
+    rule: PermissionRule,
+    *,
+    user_level: bool = False,
+    strict_project: bool = False,
+    local_only: bool = False,
 ) -> RuleChange:
     """Kuralı hedef dosyaya ekle; proje dosyasına yazıldıysa güven karmasını tazele.
 
     Proje izin dosyası güvenilmiyorsa hedef kullanıcı dosyasına düşer ve `fell_back` işaretlenir
     (ölçüldü, 31 Ekim: masaüstünde "Bu proje" seçilirken kural sessizce tüm projelere
     yazılıyordu). `strict_project` ile bu düşüş `ConfigError` olur (masaüstü "Bu proje" kapsamı).
+
+    `local_only` (Claude "bir daha sorma", #68): hedef her zaman yerel dosyadır. Dosya
+    güvenilmiyorsa güven karması TAZELENMEZ: içindeki kurallar aklanmaz, yeni kural da
+    klasöre güvenilene dek bekletilir.
     """
     project_target = local_settings_path(root)
-    target = user_rule_file() if user_level else project_rule_file(root)
+    was_trusted = trust.is_permissions_trusted(root)
+    if local_only:
+        target = project_target
+    else:
+        target = user_rule_file() if user_level else project_rule_file(root)
     fell_back = not user_level and target != project_target
     if fell_back and strict_project:
         raise ConfigError(messages.PERMISSIONS_PROJECT_UNTRUSTED)
     created = target == project_target and not target.exists()
     changed = add_rule(target, rule)
-    if changed and target == project_target:
+    if changed and target == project_target and was_trusted:
         trust.record_permissions_digest(root)
     if created and target.is_file():
         # Claude (#67): ilk yazımda dosya genel git dışlamasına eklenir.

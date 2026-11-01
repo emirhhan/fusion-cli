@@ -437,10 +437,10 @@ TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yo
 #: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
 TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
 TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
-#: Proje izin dosyası güvenilmiyorsa kural kullanıcı dosyasına düşer: kapsam TÜM projelerdir.
-TUI_APPROVAL_ALWAYS_DESC_USER = (
-    "{rule} kuralı TÜM PROJELER için kullanıcı dosyasına yazılır ({path}; bu projenin izin "
-    "dosyası güvenilmiyor) ve her oturumda geçerli olur."
+#: Yerel dosya güvenilmiyor: kural yazılır ama klasöre güvenilene dek uygulanmaz (#68).
+TUI_APPROVAL_ALWAYS_DESC_HELD = (
+    "{rule} kuralı bu projenin yerel ayar dosyasına yazılır ({path}); klasöre güvenilene "
+    "kadar (fusion trust) bekletilir."
 )
 #: Onay kartında eşleşen izin kuralı bilgisi.
 APPROVAL_RULE_NOTE = "izin kuralı: {rule}"
