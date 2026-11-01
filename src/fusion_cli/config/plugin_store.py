@@ -32,6 +32,7 @@ from ..core.plugins import NAME_PATTERN, PluginError
 from .models import McpServerConfig
 from .paths import user_data_dir
 from .plugin_layout import PluginLayout, hook_blocks, mcp_servers, scan_plugin
+from .plugin_scan import entry_overlay
 
 _LOG = logging.getLogger(__name__)
 
@@ -71,6 +72,9 @@ class PluginRecord:
     installed_at: float = 0.0
     #: Yerel pazarın göreli eklentisi yerinde yüklenir (#403): kaynak klasör; boşsa kopya.
     folder: str = ""
+    #: Yerinde yüklenen eklentide pazar girdisinin plugin.json alanları ve strict modu (#398).
+    entry_fields: str = ""
+    entry_strict: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +200,8 @@ def _plugin(name: str, raw: Mapping[str, object]) -> PluginRecord:
         exec_approved=raw.get("calistirma_onayi") is True,
         installed_at=_number(raw.get("kurulum")),
         folder=str(raw.get("klasor") or ""),
+        entry_fields=str(raw.get("girdi_alanlari") or ""),
+        entry_strict=raw.get("girdi_strict") is not False,
     )
 
 
@@ -230,6 +236,8 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
                 "calistirma_onayi": p.exec_approved,
                 "kurulum": p.installed_at,
                 **({"klasor": p.folder} if p.folder else {}),
+                **({"girdi_alanlari": p.entry_fields} if p.entry_fields else {}),
+                **({"girdi_strict": False} if not p.entry_strict else {}),
             }
             for p in sorted(state.plugins, key=lambda item: item.name)
         },
@@ -267,7 +275,8 @@ def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledP
     """
     folder = plugin_folder(record, base)
     try:
-        layout = scan_plugin(folder)
+        overlay = entry_overlay(record.entry_fields, record.entry_strict)
+        layout = scan_plugin(folder, entry=overlay)
     except (PluginError, OSError) as error:
         return InstalledPlugin(record, None, STATUS_BROKEN, str(error))
     return InstalledPlugin(record, layout, STATUS_ACTIVE if record.enabled else STATUS_DISABLED)

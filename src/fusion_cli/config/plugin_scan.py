@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ..core.plugin_entry_merge import merge_entry
 from ..core.plugins import (
     DEFAULT_AGENTS,
     DEFAULT_COMMANDS,
@@ -82,8 +84,14 @@ class PluginLayout:
         return self.has_hooks or self.has_mcp
 
 
-def read_manifest(root: Path, fallback_name: str = "") -> tuple[PluginManifest, bool]:
-    """Bildirim ve var olup olmadığı. Bozuk bildirim `PluginError`."""
+def read_manifest(
+    root: Path, fallback_name: str = "", entry: EntryOverlay | None = None
+) -> tuple[PluginManifest, bool]:
+    """Bildirim ve var olup olmadığı. Bozuk bildirim `PluginError`.
+
+    `entry` (yerinde yüklenen pazar eklentisi, #398): girdinin plugin.json alanları dosyaya
+    yazılmadan bellekte birleştirilir; plugin.json yoksa girdi bildirimdir.
+    """
     fallback = fallback_name or root.name
     for relative in MANIFEST_PATHS:
         path = root / relative
@@ -92,16 +100,42 @@ def read_manifest(root: Path, fallback_name: str = "") -> tuple[PluginManifest, 
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as error:
                 raise PluginError(f"{relative}: okunamadı: {error}") from error
+            if entry is not None and isinstance(raw, Mapping):
+                raw = merge_entry(raw, entry.fields, entry.strict, fallback)
             manifest = parse_manifest(raw, fallback_name=fallback, where=relative)
             if relative.startswith(LEGACY_MANIFEST_DIR):
                 note = WARN_LEGACY.format(old=relative, new=MANIFEST_PATHS[0])
                 manifest = replace(manifest, warnings=(*manifest.warnings, note))
             return manifest, True
+    if entry is not None:
+        merged = merge_entry(None, entry.fields, entry.strict, fallback)
+        return parse_manifest(merged, fallback_name=fallback), True
     return parse_manifest(None, fallback_name=fallback), False
 
 
-def scan_plugin(root: Path, fallback_name: str = "") -> PluginLayout:
-    manifest, has_manifest = read_manifest(root, fallback_name)
+@dataclass(frozen=True, slots=True)
+class EntryOverlay:
+    """Pazar girdisinin bildirim alanları ve strict modu (#398)."""
+
+    fields: Mapping[str, object]
+    strict: bool = True
+
+
+def entry_overlay(fields_json: str, strict: bool) -> EntryOverlay | None:
+    """Kayıttaki girdi alanları metni → katman; alan yoksa None."""
+    if not fields_json:
+        return None
+    try:
+        fields = json.loads(fields_json)
+    except ValueError as error:
+        raise PluginError(f"pazar girdisi alanları okunamadı: {error}") from error
+    return EntryOverlay(dict(fields), strict) if isinstance(fields, Mapping) and fields else None
+
+
+def scan_plugin(
+    root: Path, fallback_name: str = "", entry: EntryOverlay | None = None
+) -> PluginLayout:
+    manifest, has_manifest = read_manifest(root, fallback_name, entry)
     problems: list[str] = []
     notes = [
         WARN_DEFAULT_IGNORED.format(folder=_DEFAULTS[key], key=key)

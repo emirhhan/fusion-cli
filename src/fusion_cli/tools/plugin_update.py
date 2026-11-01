@@ -114,14 +114,24 @@ def update_plugin(
 
 
 def _refresh_in_place(record: PluginRecord, root: Path) -> UpdateResult:
-    """Yerinde yüklenen eklenti kaynağından okunur (#403): yalnız sürüm kaydı tazelenir."""
+    """Yerinde yüklenen eklenti kaynağından okunur (#403): sürüm ve girdi alanları (#398)
+    kaydı tazelenir."""
+    from ..config.plugin_scan import entry_overlay, scan_plugin
+
     report = validate_plugin(Path(record.folder), record.name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
-    version = report.layout.manifest.version or record.version
-    if version == record.version:
+    try:
+        resolved = _resolve(update_source(record), load_state(root))
+        fields, strict = resolved.entry_fields, resolved.strict
+    except PluginError:  # pazar/girdi artık yok: kayıttaki alanlarla sürer
+        fields, strict = record.entry_fields, record.entry_strict
+    overlay = entry_overlay(fields, strict)
+    layout = scan_plugin(Path(record.folder), record.name, overlay) if overlay else report.layout
+    version = layout.manifest.version or record.version
+    updated = replace(record, version=version, entry_fields=fields, entry_strict=strict)
+    if updated == record:
         return UpdateResult(record, changed=False)
-    updated = replace(record, version=version)
     plugin_store.update_state(lambda current: current.with_plugin(updated), root)
     return UpdateResult(updated, changed=True)
 

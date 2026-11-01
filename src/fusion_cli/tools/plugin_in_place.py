@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from ..config import plugin_store
 from ..config.plugin_layout import context_cost, tree_digest, validate_plugin
+from ..config.plugin_scan import entry_overlay, scan_plugin
 from ..config.plugin_store import InstalledPlugin, PluginRecord, PluginState, inspect_plugin
 from ..core.plugins import PluginError
 from .plugin_version import resolve_version
@@ -45,7 +46,10 @@ def install_in_place(
     report = validate_plugin(folder, resolved.fallback_name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
-    name = report.layout.name
+    overlay = entry_overlay(resolved.entry_fields, resolved.strict)
+    # #398: girdi alanları kaynağa yazılmadan bellekte birleştirilir (çakışma burada hata verir).
+    layout = scan_plugin(folder, resolved.fallback_name, overlay) if overlay else report.layout
+    name = layout.name
     if state.plugin(name) is not None or (root / name).exists():
         raise PluginAlreadyInstalledError(ERR_EXISTS.format(name=name))
     if expected_digest:
@@ -57,14 +61,16 @@ def install_in_place(
         raise PluginError(ERR_DECLINED)
     record = PluginRecord(
         name=name,
-        version=resolve_version(report.layout.manifest.version, resolved.entry_version, ""),
+        version=resolve_version(layout.manifest.version, resolved.entry_version, ""),
         source=f"{resolved.entry or name}@{resolved.marketplace}",
         kind="pazar",
         marketplace=resolved.marketplace,
-        enabled=report.layout.manifest.default_enabled,
-        exec_approved=report.layout.is_executable,
+        enabled=layout.manifest.default_enabled,
+        exec_approved=layout.is_executable,
         installed_at=time.time(),
         folder=str(folder),
+        entry_fields=resolved.entry_fields if overlay else "",
+        entry_strict=resolved.strict,
     )
     plugin_store.update_state(lambda current: current.with_plugin(record), root)
     return inspect_plugin(record, root)

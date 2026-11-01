@@ -12,7 +12,8 @@ plugin.json", "Strict mode"):
 - Girdide `hooks` dosya yolu ya da dizi ise "not yet supported in a marketplace entry" hatası.
 
 Fusion bunu kopyalanan eklentinin önbellek kopyasındaki `.claude-plugin/plugin.json`'a yazarak
-uygular; yerinde yüklenen (#403) eklentinin kaynak klasörüne yazılmaz.
+uygular. Yerinde yüklenen (#403) eklentinin kaynak klasörüne yazılmaz: alanlar kayıtta saklanır ve
+bildirim her taramada bellekte birleştirilir (`config/plugin_scan.read_manifest`).
 """
 
 from __future__ import annotations
@@ -22,58 +23,37 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.plugin_entry_merge import (  # noqa: F401  (eski içe aktarımlar)
+    COMPONENT_KEYS,
+    DISPLAY_KEYS,
+    ERR_CONFLICT,
+    ERR_ENTRY_HOOKS,
+    merge_entry,
+)
 from ..core.plugins import PluginError
 
-COMPONENT_KEYS = ("commands", "agents", "skills", "hooks", "outputStyles", "themes")
-DISPLAY_KEYS = (
-    "displayName",
-    "description",
-    "author",
-    "homepage",
-    "repository",
-    "license",
-    "keywords",
-    "defaultEnabled",
-)
-ERR_CONFLICT = (
-    "Plugin {name} has conflicting manifests: both plugin.json and marketplace entry specify "
-    "components"
-)
-ERR_ENTRY_HOOKS = (
-    "Plugin {name}: hooks as a file path or array are not yet supported in a marketplace entry; "
-    "girdide kancaları satır içi nesne olarak yaz"
-)
 ERR_MANIFEST = "Plugin {name}: plugin.json okunamadı: {error}"
 _MANIFEST = Path(".claude-plugin") / "plugin.json"
 
 
 def apply_entry(folder: Path, fields_json: str, strict: bool, name: str) -> None:
     """Girdi alanlarını `folder` içindeki bildirime uygula (yukarıdaki kurallar)."""
-    if not fields_json:
+    fields = parse_fields(fields_json)
+    if not fields:
         return
-    fields = json.loads(fields_json)
-    if not isinstance(fields, Mapping) or not fields:
-        return
-    if "hooks" in fields and not isinstance(fields["hooks"], Mapping):
-        raise PluginError(ERR_ENTRY_HOOKS.format(name=name))
     path = folder / _MANIFEST
-    if not path.is_file():
-        _write(path, {"name": name, **fields})
-        return
-    manifest = _read(path, name)
-    components = {k: fields[k] for k in COMPONENT_KEYS if k in fields}
-    if components and not strict:
-        raise PluginError(ERR_CONFLICT.format(name=name))
-    merged = dict(manifest)
-    for key, value in components.items():
-        merged[key] = (
-            _merge_hooks(manifest.get(key), value, name)
-            if key == "hooks"
-            else (_append(manifest.get(key), value))
-        )
-    merged.update({k: fields[k] for k in DISPLAY_KEYS if k in fields})
+    manifest = _read(path, name) if path.is_file() else None
+    merged = merge_entry(manifest, fields, strict, name)
     if merged != manifest:
         _write(path, merged)
+
+
+def parse_fields(fields_json: str) -> dict[str, object]:
+    """Kayıttaki girdi alanları JSON metni → nesne (boş ya da nesne değilse {})."""
+    if not fields_json:
+        return {}
+    fields = json.loads(fields_json)
+    return dict(fields) if isinstance(fields, Mapping) else {}
 
 
 def _read(path: Path, name: str) -> dict[str, object]:
@@ -89,33 +69,3 @@ def _read(path: Path, name: str) -> dict[str, object]:
 def _write(path: Path, data: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_replace_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-
-
-def _as_list(value: object) -> list[object]:
-    if value is None:
-        return []
-    return list(value) if isinstance(value, list) else [value]
-
-
-def _append(current: object, extra: object) -> object:
-    """Bildirimde alan yoksa girdininki; varsa bildirimin değerlerine girdininkiler eklenir."""
-    if current is None:
-        return extra
-    return [*_as_list(current), *(v for v in _as_list(extra) if v not in _as_list(current))]
-
-
-def _merge_hooks(current: object, extra: object, name: str) -> object:
-    """Girdi kancaları (olay → eşleyici dizisi) bildirimdekileri olay başına değiştirir."""
-    if not isinstance(extra, Mapping):
-        raise PluginError(ERR_ENTRY_HOOKS.format(name=name))
-    events = (
-        dict(extra.get("hooks", extra)) if isinstance(extra.get("hooks"), Mapping) else dict(extra)
-    )
-    if isinstance(current, Mapping):
-        inner = current.get("hooks")
-        base = dict(inner) if isinstance(inner, Mapping) else dict(current)
-        return {"hooks": {**base, **events}}
-    if current is None:
-        return {"hooks": events}
-    # Bildirimde dosya yolu/dizi: girdinin satır içi bloğu karışık diziye eklenir (#385).
-    return [*_as_list(current), {"hooks": events}]

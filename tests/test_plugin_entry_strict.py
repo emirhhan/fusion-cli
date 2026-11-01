@@ -113,3 +113,61 @@ def test_git_kaynakli_girdinin_bilesenleri_kurulumda_uygulanir(tmp_path, monkeyp
     assert item.record.version == "2.0.0"
     assert item.layout is not None and item.layout.manifest.description == "Girdiden"
     assert plugin_store.load_state().plugin("rapor") is not None
+
+
+def _local_market(tmp_path: Path, entry: dict[str, object], manifest: dict[str, object]) -> Path:
+    market = tmp_path / "pazar"
+    plugin = _folder(market / "plugins", manifest=manifest)
+    (market / ".claude-plugin").mkdir(parents=True)
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "ekip",
+                "owner": {"name": "E"},
+                "plugins": [{"name": "rapor", "source": "./plugins/eklenti", **entry}],
+            }
+        ),
+        "utf-8",
+    )
+    plugin_install.add_marketplace(str(market))
+    return plugin
+
+
+def test_yerinde_yuklenen_eklentide_girdi_alanlari_uygulanir_kaynak_degismez(tmp_path):
+    entry = {"commands": ["./ek"], "description": "Girdi", "defaultEnabled": False}
+    plugin = _local_market(tmp_path, entry, {"name": "rapor", "description": "Bildirim"})
+    before = (plugin / ".claude-plugin" / "plugin.json").read_text("utf-8")
+
+    item = plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+
+    assert item.record.folder == str(plugin.resolve())
+    assert item.layout is not None
+    assert item.layout.manifest.description == "Girdi"
+    assert any(path.name == "yayinla.md" for _name, path in item.layout.commands)
+    assert item.record.enabled is False  # girdinin defaultEnabled'ı
+    assert (plugin / ".claude-plugin" / "plugin.json").read_text("utf-8") == before
+    again = plugin_store.inspect_plugin(plugin_store.load_state().plugin("rapor"))
+    assert again.layout is not None and again.layout.manifest.description == "Girdi"
+
+
+def test_yerinde_strict_false_bilesen_cakismasi_kurulmaz(tmp_path):
+    _local_market(tmp_path, {"commands": ["./ek"], "strict": False}, {"name": "rapor"})
+    with pytest.raises(PluginError, match="conflicting manifests"):
+        plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+
+
+def test_yerinde_eklenti_guncellemesi_degisen_girdi_alanlarini_alir(tmp_path):
+    from fusion_cli.tools import plugin_update
+
+    _local_market(tmp_path, {"description": "Eski"}, {"name": "rapor"})
+    plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
+    market_file = tmp_path / "pazar" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(market_file.read_text("utf-8"))
+    data["plugins"][0]["description"] = "Yeni"
+    market_file.write_text(json.dumps(data), "utf-8")
+
+    result = plugin_update.update_plugin("rapor", approve=lambda _p: True)
+
+    assert result.changed is True
+    item = plugin_store.inspect_plugin(plugin_store.load_state().plugin("rapor"))
+    assert item.layout is not None and item.layout.manifest.description == "Yeni"

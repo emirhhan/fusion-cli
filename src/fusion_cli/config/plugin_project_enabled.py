@@ -7,7 +7,7 @@ kaynaklı girdi bu makineye çekilmez; `Plugin "<ad>" is enabled in project sett
 installed here` bildirilir (Claude bunu `/plugin` Errors sekmesinde gösterir; Fusion günlüğe yazar).
 
 Güvenlik: proje dosyasındaki `true` yalnız güvenilen dosyada geçerlidir (`plugin_scopes`).
-Eklenti pazar kökünün dışına çıkamaz. Pazar girdisinin plugin.json alanları burada uygulanmaz.
+Eklenti pazar kökünün dışına çıkamaz. Girdinin plugin.json alanları bellekte uygulanır (#398).
 """
 
 from __future__ import annotations
@@ -96,7 +96,13 @@ def project_enabled_plugins(
             _LOG.warning(NOT_INSTALLED.format(name=name))
             continue
         plugin = PluginRecord(
-            name=name, source=ident, kind="pazar", marketplace=market_name, folder=str(folder)
+            name=name,
+            source=ident,
+            kind="pazar",
+            marketplace=market_name,
+            folder=str(folder),
+            entry_fields=entry.fields if entry else "",
+            entry_strict=entry.strict if entry else True,
         )
         item = inspect_plugin(plugin, base)
         if item.layout is None:

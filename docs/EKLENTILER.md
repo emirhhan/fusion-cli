@@ -177,8 +177,8 @@ bildirimdir; varsa o otoritedir ve `strict: true` (varsayılan) iken girdinin `c
 değiştirir), `strict: false` iken bileşen alanı taşıyan girdi `has conflicting manifests` hatasıyla
 kurulmaz. Girdinin `defaultEnabled` ve görünen alanları (`displayName`, `description`, …) önce gelir,
 `version`'da plugin.json kazanır. Girdide dosya yolu/dizi `hooks` desteklenmez. Fusion bunu önbellek
-kopyasının `plugin.json`'ına yazar; yerinde yüklenen (yerel pazar) eklentide girdi alanları henüz
-uygulanmaz.
+kopyasının `plugin.json`'ına yazar; yerinde yüklenen (yerel pazar) eklentide kaynağa yazılmaz, alanlar
+kayıtta saklanıp her taramada bellekte birleştirilir (`plugin update` değişen girdiyi alır).
 
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
