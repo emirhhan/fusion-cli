@@ -30,6 +30,8 @@ from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
 from ..config.readiness import Readiness, evaluate
+from ..config.start_mode import auto_available as start_auto_available
+from ..config.start_mode import headless_start_mode, skip_permissions_flag
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
@@ -207,6 +209,21 @@ def main_callback(
             "bypassPermissions (permissions.defaultMode'u ezer).",
         ),
     ] = "",
+    dangerously_skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--dangerously-skip-permissions",
+            help="Oturumu bypassPermissions kipinde başlat (--permission-mode "
+            "bypassPermissions ile aynı; root olarak reddedilir).",
+        ),
+    ] = False,
+    allow_dangerously_skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dangerously-skip-permissions",
+            help="Bypass'ı başlatmadan Shift+Tab döngüsüne ekle.",
+        ),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     _SESSION.agents_json = agents_json
@@ -254,7 +271,10 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
-                permission_mode=permission_mode,
+                permission_mode=skip_permissions_flag(
+                    permission_mode, dangerously_skip_permissions
+                ),
+                allow_bypass=allow_dangerously_skip_permissions,
             )
         )
     )
@@ -420,7 +440,7 @@ def agent(
         help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
     ),
     mode: str = typer.Option(
-        HEADLESS_DEFAULT_MODE,
+        "",
         "--permission-mode",
         "--mode",
         "-m",
@@ -428,6 +448,11 @@ def agent(
         "gerektiren çağrı sorulmadan reddedilir, allow kuralı ya da kanca onaylamadıkça) | "
         "acceptEdits/edits | auto | plan | dontAsk | bypassPermissions/bypass. "
         "--mode eski addır.",
+    ),
+    dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--dangerously-skip-permissions",
+        help="--permission-mode bypassPermissions ile aynı (root olarak reddedilir).",
     ),
     no_memory: bool = typer.Option(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
@@ -523,7 +548,7 @@ def agent(
     base_config = _session_config()
     options = _headless_options(
         task,
-        mode=mode,
+        mode=_headless_mode(mode, dangerously_skip_permissions, base_config),
         as_json=as_json,
         output_format=output_format,
         json_schema=json_schema,
@@ -731,6 +756,18 @@ class _HeadlessOptions:
     @property
     def channel_name(self) -> str | None:
         return self.channel.value if self.channel is not None else None
+
+
+def _headless_mode(raw: str, dangerously_skip: bool, config: Config) -> str:
+    """Bayrak > `permissions.defaultMode` > Manual (Claude -p; #328); root'ta bypass reddedilir."""
+    start = headless_start_mode(
+        Path.cwd(),
+        flag=skip_permissions_flag(raw, dangerously_skip),
+        auto_available=start_auto_available(config),
+    )
+    if start.note:
+        error_console.print(f"[{theme.WARN}]{escape(start.note)}[/{theme.WARN}]")
+    return HEADLESS_DEFAULT_MODE if start.mode == "security" else start.mode
 
 
 def _headless_options(

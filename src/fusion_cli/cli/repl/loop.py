@@ -162,6 +162,7 @@ async def run_repl(
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
     permission_mode: str = "",
+    allow_bypass: bool = False,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -189,7 +190,7 @@ async def run_repl(
         health=build_health(config),
         worktree=worktree,
     )
-    _apply_start_mode(state, config, root, permission_mode, console)
+    _apply_start_mode(state, config, root, permission_mode, console, allow_bypass=allow_bypass)
     # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
     state.usage_log = open_usage_log(config)
     restored_note = ""
@@ -363,7 +364,13 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
 
 
 def _apply_start_mode(
-    state: ReplState, config: Config, root: Path, flag: str, console: Console
+    state: ReplState,
+    config: Config,
+    root: Path,
+    flag: str,
+    console: Console,
+    *,
+    allow_bypass: bool = False,
 ) -> None:
     """`--permission-mode` > `permissions.defaultMode` > `runtime.approval_mode` (#328)."""
     start = resolve_start_mode(
@@ -371,6 +378,7 @@ def _apply_start_mode(
         flag=flag,
         legacy=config.runtime.approval_mode,
         auto_available=start_auto_available(config),
+        allow_bypass=allow_bypass,
     )
     state.approval = ApprovalMode(start.mode)
     state.bypass_available = start.bypass_available

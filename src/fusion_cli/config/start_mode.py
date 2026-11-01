@@ -20,7 +20,7 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..core.errors import ConfigError
@@ -110,8 +110,55 @@ def resolve_start_mode(
     auto_available: bool = True,
     home: Path | None = None,
     is_root: Callable[[], bool] | None = None,
+    allow_bypass: bool = False,
 ) -> StartMode:
-    """Bayrak > `permissions.defaultMode` > eski `runtime.approval_mode` > `auto`."""
+    """Bayrak > `permissions.defaultMode` > eski `runtime.approval_mode` > `auto`.
+
+    `allow_bypass` (`--allow-dangerously-skip-permissions`): oturum bypass'ta BAŞLAMAZ ama
+    bypass Shift+Tab döngüsüne girer (root olarak reddedilir).
+    """
+    start = _resolve(root, flag, legacy, auto_available, home, is_root)
+    if not allow_bypass or start.bypass_available:
+        return start
+    if (is_root() if is_root is not None else _is_root()):
+        return replace(start, note=_ROOT_ALLOW_NOTE)
+    return replace(start, bypass_available=True)
+
+
+def skip_permissions_flag(flag: str, dangerously_skip: bool) -> str:
+    """`--dangerously-skip-permissions` = `--permission-mode bypassPermissions` (açık kip önce)."""
+    return flag if flag.strip() or not dangerously_skip else "bypassPermissions"
+
+
+def headless_start_mode(
+    root: Path,
+    *,
+    flag: str = "",
+    auto_available: bool = True,
+    home: Path | None = None,
+    is_root: Callable[[], bool] | None = None,
+) -> StartMode:
+    """`fusion agent` (Claude -p) kipi: bayrak > `permissions.defaultMode` > Manual (#328).
+
+    Projede `auto` ve `bypassPermissions` yok sayılır (etkileşimli oturumdaki kural) ve
+    Manual'e düşülür; kullanıcı dosyasındaki bypass root olarak reddedilir.
+    """
+    if flag.strip():
+        return _resolve(root, flag, "", auto_available, home, is_root)
+    configured, from_user = _from_settings(root, home)
+    if configured is None or (configured == BUILT_IN_DEFAULT and not from_user):
+        return StartMode(MANUAL)
+    return _resolve(root, _FLAG_FOR.get(configured, ""), "", auto_available, home, is_root)
+
+
+def _resolve(
+    root: Path,
+    flag: str,
+    legacy: str,
+    auto_available: bool,
+    home: Path | None,
+    is_root: Callable[[], bool] | None,
+) -> StartMode:
     if flag.strip():
         mode = parse_mode(flag)
     else:
@@ -132,6 +179,20 @@ def resolve_start_mode(
             )
         return StartMode("bypass", bypass_available=True)
     return _checked(StartMode(mode), auto_available)
+
+
+#: Fusion kipi → Claude bayrak değeri (`headless_start_mode` ayardan gelen kipi bayrakla çözer).
+_FLAG_FOR = {
+    "security": "default",
+    "edits": "acceptEdits",
+    "plan": "plan",
+    "auto": "auto",
+    "dontAsk": "dontAsk",
+    "bypass": "bypassPermissions",
+}
+_ROOT_ALLOW_NOTE = (
+    "Bypass kipi root olarak kullanılamaz; --allow-dangerously-skip-permissions yok sayıldı."
+)
 
 
 def _checked(start: StartMode, auto_available: bool) -> StartMode:

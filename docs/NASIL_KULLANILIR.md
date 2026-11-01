@@ -214,6 +214,11 @@ Claude Code ile aynı sıra: `fusion --permission-mode <kip>` (`default`/`manual
 oturum Manual açılır. Bayrakla ya da kullanıcı dosyasıyla bypass verilirse oturum bypass
 kipinde başlar (root olarak reddedilir); otomatik kip kullanılamıyorsa Manual açılır.
 
+`--dangerously-skip-permissions` `--permission-mode bypassPermissions` ile aynıdır;
+`--allow-dangerously-skip-permissions` oturumu bypass'ta başlatmaz ama bypass'ı Shift+Tab
+döngüsüne ekler (ikisi de root olarak reddedilir). `fusion agent` (Claude `-p`) da aynı sırayı
+izler; ayarda kip yoksa varsayılan Manual'dir ve onay gerektiren çağrı sorulmadan reddedilir.
+
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
 - Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar

@@ -96,3 +96,49 @@ def test_eski_yaml_bypass_davranisi_korunur(dizinler):
     sonuc = _coz(root, home, legacy="bypass")
     assert sonuc.mode == "auto" and sonuc.bypass_available
     assert _coz(root, home, legacy="edits").mode == "edits"
+
+
+# --- #328: fusion agent defaultMode ve skip-permissions bayrakları ------------------- #
+
+
+def _baslik(root, home, **kw):
+    return start_mode.headless_start_mode(root, home=home, is_root=lambda: False, **kw)
+
+
+def test_headless_ayar_yoksa_manual(dizinler):
+    root, home = dizinler
+    assert _baslik(root, home).mode == "security"
+
+
+def test_headless_kullanici_defaultmode_okunur_projede_auto_yok_sayilir(dizinler):
+    root, home = dizinler
+    _yaz(start_mode.claude_user_dir(home) / "settings.json", "acceptEdits")
+    assert _baslik(root, home).mode == "edits"
+    _yaz(root / ".claude" / "settings.json", "auto")
+    assert _baslik(root, home).mode == "security"
+
+
+def test_headless_bayrak_ayari_ezer_ve_root_bypass_reddedilir(dizinler):
+    root, home = dizinler
+    _yaz(start_mode.claude_user_dir(home) / "settings.json", "plan")
+    assert _baslik(root, home, flag="dontAsk").mode == "dontAsk"
+    reddedilen = start_mode.headless_start_mode(
+        root, home=home, flag="bypassPermissions", is_root=lambda: True
+    )
+    assert reddedilen.mode == "security" and reddedilen.note
+
+
+def test_dangerously_skip_permissions_bypass_bayragidir():
+    assert start_mode.skip_permissions_flag("", True) == "bypassPermissions"
+    assert start_mode.skip_permissions_flag("plan", True) == "plan"
+    assert start_mode.skip_permissions_flag("", False) == ""
+
+
+def test_allow_dangerously_skip_bypass_i_baslatmadan_donguye_ekler(dizinler):
+    root, home = dizinler
+    acik = _coz(root, home, allow_bypass=True)
+    assert acik.mode == "auto" and acik.bypass_available
+    root_ta = start_mode.resolve_start_mode(
+        root, home=home, is_root=lambda: True, allow_bypass=True
+    )
+    assert not root_ta.bypass_available and root_ta.note
