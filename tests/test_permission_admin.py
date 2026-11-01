@@ -194,7 +194,7 @@ def test_sil_guvenilmeyen_yerel_dosyadan_reddedilir_ve_izin_acmaz(proje):
     from fusion_cli.config.permission_rules import format_rule, load_permission_rules
     from fusion_cli.core.errors import ConfigError
 
-    trust.trust_project(proje)
+    # Klasöre hiç güvenilmedi (#67: güven klasöre bağlı; içerik karmasına değil).
     yerel = proje / PROJECT_PERMISSIONS_PATH
     _yaz(yerel, {"permissions": {"allow": ["Bash(*)", "Bash(ls *)"]}})
     assert not trust.is_permissions_trusted(proje)
