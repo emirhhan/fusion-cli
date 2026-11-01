@@ -7,8 +7,6 @@ ve izin ayarıyla gösterir; Fusion aynı bilgiyi metin olarak verir. Durum izin
 
 from __future__ import annotations
 
-from typing import Any
-
 from ...ui import mcp_messages
 
 _MCP_PREFIX = "mcp__"
@@ -20,7 +18,7 @@ def full_name(fusion_name: str) -> str:
     return fusion_name if fusion_name.startswith(_MCP_PREFIX) else f"{_MCP_PREFIX}{fusion_name}"
 
 
-def _decision(state: Any, fusion_name: str) -> str:
+def _decision(state: object, fusion_name: str) -> str:
     from ...tools.permission_match import evaluate
 
     rules_of = getattr(state, "permission_rules", None)
@@ -32,7 +30,7 @@ def _decision(state: Any, fusion_name: str) -> str:
     return _DECISION_LABELS.get(match.decision.value, match.decision.value)
 
 
-def tools_view(state: Any, name: str) -> str:
+def tools_view(state: object, name: str) -> str:
     """Sunucunun araç listesi; bağlı değilse ne yapılacağını söyleyen tek satır."""
     from ...mcp_bridge.pool import connected_mcp_client
 

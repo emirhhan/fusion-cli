@@ -81,7 +81,7 @@ def test_reset_project_choices_secimleri_siler(izole):
     assert approval.reset_project_choices(izole) is False
 
 
-def test_kullanici_ayari_enabledMcpjsonServers_guvenilmeyen_klasorde_de_gecer(izole):
+def test_kullanici_ayari_enabled_mcpjson_servers_guvenilmeyen_klasorde_de_gecer(izole):
     _mcp(izole, "github", "linear")
     _settings(
         izole.parent / "ev" / ".claude" / "settings.json", {"enabledMcpjsonServers": ["linear"]}
@@ -98,7 +98,7 @@ def test_proje_ayari_guvenilmeyen_klasorde_onay_veremez(izole):
     assert _project_names() == ["github", "yeni"]
 
 
-def test_disabledMcpjsonServers_her_kaynaktan_ve_her_kipte_reddeder(izole):
+def test_disabled_mcpjson_servers_her_kaynaktan_ve_her_kipte_reddeder(izole):
     _mcp(izole, "github")
     trust.trust_project(izole)
     _settings(izole / ".claude" / "settings.json", {"disabledMcpjsonServers": ["github"]})
@@ -108,7 +108,9 @@ def test_disabledMcpjsonServers_her_kaynaktan_ve_her_kipte_reddeder(izole):
 
 def test_yonetilen_ayar_onayi_gecer(izole, tmp_path):
     _mcp(izole, "github")
-    _settings(tmp_path / "yonetilen" / "managed-settings.json", {"enabledMcpjsonServers": ["github"]})
+    _settings(
+        tmp_path / "yonetilen" / "managed-settings.json", {"enabledMcpjsonServers": ["github"]}
+    )
     assert _project_names() == ["github"]
 
 

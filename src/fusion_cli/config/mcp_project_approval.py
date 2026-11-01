@@ -42,7 +42,8 @@ APPROVED = "approved"
 REJECTED = "rejected"
 PENDING = "pending"
 
-#: İstem seçenekleri (Claude: "Use this and all future…", "Use this MCP server", "Continue without…").
+#: İstem seçenekleri (Claude: "Use this and all future…", "Use this MCP server",
+#: "Continue without…").
 CHOICE_ALL = "all"
 CHOICE_ONE = "one"
 CHOICE_NO = "no"

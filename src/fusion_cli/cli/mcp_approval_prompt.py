@@ -23,7 +23,9 @@ def ask_with_console(console: Console, read: Callable[[str], str] = input) -> Ca
     from .mcp_manage import target_text
 
     def _ask(server: McpServerConfig) -> str:
-        console.print(f"[bold]{escape(mcp_messages.APPROVAL_TITLE.format(name=server.name))}[/bold]")
+        console.print(
+            f"[bold]{escape(mcp_messages.APPROVAL_TITLE.format(name=server.name))}[/bold]"
+        )
         target = redact(target_text(server))
         console.print(f"[{theme.DIM}]{escape(mcp_messages.APPROVAL_TARGET.format(target=target))}")
         console.print(f"[{theme.WARN}]{escape(mcp_messages.APPROVAL_NOTE)}[/{theme.WARN}]")
