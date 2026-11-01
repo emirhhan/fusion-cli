@@ -15,7 +15,7 @@ from fusion_cli.appserver.session import AppSession
 from fusion_cli.cli.repl.commands import build_registry
 from fusion_cli.cli.repl.permissions_command import permissions
 from fusion_cli.config import trust
-from fusion_cli.config.permission_rules import user_permissions_file
+from fusion_cli.config.permission_rules import user_rule_file
 from fusion_cli.config.trust import PROJECT_PERMISSIONS_PATH
 
 from .fakes import make_config
@@ -79,8 +79,8 @@ def test_repl_ekle_listele_sil(proje):
 def test_repl_user_bayragi_kullanici_dosyasina_yazar_ve_hatalar_turkce(proje):
     state = _state(proje)
     sonuc = permissions(state, "add deny Read(~/.ssh/**) --user")
-    assert str(user_permissions_file()) in sonuc
-    assert _oku(user_permissions_file())["permissions"]["deny"] == ["Read(~/.ssh/**)"]
+    assert str(user_rule_file()) in sonuc
+    assert _oku(user_rule_file())["permissions"]["deny"] == ["Read(~/.ssh/**)"]
     assert "allow, ask ya da deny" in permissions(state, "add belki Bash(ls)")
     assert "biçiminde" in permissions(state, "add allow Bash(")
     assert "Kullanım" in permissions(state, "bilinmeyen")
@@ -194,7 +194,7 @@ def test_sil_guvenilmeyen_yerel_dosyadan_reddedilir_ve_izin_acmaz(proje):
     from fusion_cli.config.permission_rules import format_rule, load_permission_rules
     from fusion_cli.core.errors import ConfigError
 
-    trust.trust_project(proje)
+    # Klasöre hiç güvenilmedi (#67: güven klasöre bağlı; içerik karmasına değil).
     yerel = proje / PROJECT_PERMISSIONS_PATH
     _yaz(yerel, {"permissions": {"allow": ["Bash(*)", "Bash(ls *)"]}})
     assert not trust.is_permissions_trusted(proje)
@@ -227,21 +227,24 @@ def test_sil_fusionun_yazdigi_yerel_dosyada_karmayi_tazeler_kalan_kurallar_dusme
     assert yuklenen.untrusted_layers == ()
 
 
-def test_sil_salt_okunur_katmanlardan_reddedilir(proje, _izole_ev):
-    """`~/.claude/settings.json` ve proje `.claude/settings.json` Fusion tarafından YAZILMAZ."""
+def test_sil_kullanici_ve_proje_katmanindan_sirayla(proje, _izole_ev):
+    """Claude gibi (#66, #83): `~/.claude/settings.json` ve proje `.claude/settings.json`
+    `/permissions` ile düzenlenir; yalnız yönetilen dosyalar salt okunurdur."""
     from fusion_cli.config import permission_admin
     from fusion_cli.config.permission_rules import rule_layers
-    from fusion_cli.core.errors import ConfigError
 
     katmanlar = {k.name: k for k in rule_layers(proje)}
     _yaz(katmanlar["kullanici"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
     _yaz(katmanlar["proje"].path, {"permissions": {"deny": ["Read(.env)", "Bash(rm *)"]}})
     trust.trust_project(proje)
     kural = permission_admin.parse_pattern("Bash(rm *)", permission_admin.parse_decision("deny"))
-    with pytest.raises(ConfigError, match="salt okunur"):
-        permission_admin.remove_permission_rule(proje, kural)
-    assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == ["Bash(rm *)"]
-    assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Read(.env)", "Bash(rm *)"]
+    silindi = permission_admin.remove_permission_rule(proje, kural)
+    assert silindi is not None and silindi.path == katmanlar["kullanici"].path
+    ikinci = permission_admin.remove_permission_rule(proje, kural)
+    assert ikinci is not None and ikinci.path == katmanlar["proje"].path
+    assert permission_admin.remove_permission_rule(proje, kural) is None
+    assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == []
+    assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Read(.env)"]
     assert trust.is_project_settings_trusted(proje)
 
 
@@ -255,32 +258,27 @@ def test_sil_dosya_verilirse_yalniz_o_katmandan_siler(proje):
     silindi = permission_admin.remove_permission_rule(proje, kural, path=yerel)
     assert silindi is not None and silindi.path == yerel
     assert _oku(yerel)["permissions"]["allow"] == []
-    assert _oku(user_permissions_file())["permissions"]["allow"] == ["Bash(ls *)"]
+    assert _oku(user_rule_file())["permissions"]["allow"] == ["Bash(ls *)"]
     # Satır tablosu hangi satırın silinebildiğini söyler.
     satirlar = permission_admin.rules_payload(proje, make_config())["kurallar"]
     assert all(s["silinebilir"] is True for s in satirlar)
 
 
-async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _izole_ev):
+async def test_izin_rpc_sil_dosya_ile_proje_ve_yerel_katman(proje, _izole_ev):
     from fusion_cli.config.permission_rules import rule_layers
 
     katmanlar = {k.name: k for k in rule_layers(proje)}
-    _yaz(katmanlar["kullanici"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
+    _yaz(katmanlar["proje"].path, {"permissions": {"deny": ["Bash(rm *)"]}})
+    trust.trust_project(proje)
     lines: list[str] = []
     session = AppSession(lines.append, root=proje, home=proje / "ev")
     try:
         await _rpc(session, lines, "izin.ekle", {"kalip": "Bash(rm *)", "karar": "deny"})
         tablo = await _rpc(session, lines, "izin.kurallar")
         satirlar = {k["kaynak"]: k for k in tablo["kurallar"]}
-        assert satirlar["kullanici"]["silinebilir"] is False
+        # Claude gibi proje dosyası da düzenlenir (#83).
+        assert satirlar["proje"]["silinebilir"] is True
         assert satirlar["yerel"]["silinebilir"] is True
-        ret = await _rpc(
-            session,
-            lines,
-            "izin.sil",
-            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["kullanici"]["dosya"]},
-        )
-        assert ret["ok"] is False and "salt okunur" in ret["metin"]
         silindi = await _rpc(
             session,
             lines,
@@ -288,7 +286,15 @@ async def test_izin_rpc_sil_dosya_ile_ve_salt_okunur_katman_turkce_hata(proje, _
             {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["yerel"]["dosya"]},
         )
         assert silindi["ok"] is True and silindi["dosya"] == satirlar["yerel"]["dosya"]
-        assert _oku(katmanlar["kullanici"].path)["permissions"]["deny"] == ["Bash(rm *)"]
+        assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == ["Bash(rm *)"]
+        proje_sil = await _rpc(
+            session,
+            lines,
+            "izin.sil",
+            {"kalip": "Bash(rm *)", "karar": "deny", "dosya": satirlar["proje"]["dosya"]},
+        )
+        assert proje_sil["ok"] is True
+        assert _oku(katmanlar["proje"].path)["permissions"]["deny"] == []
     finally:
         await session.close()
 
@@ -306,7 +312,7 @@ def test_repl_ekle_kullanici_dosyasina_dusunce_tum_projeler_der(proje):
     etkileyen kullanıcı dosyasına yazıyordu; çıktı yalnız yolu gösteriyordu."""
     _guvenilmeyen_yerel(proje)
     sonuc = permissions(_state(proje), "add allow Bash(npm test *)")
-    assert "eklendi" in sonuc and str(user_permissions_file()) in sonuc
+    assert "eklendi" in sonuc and str(user_rule_file()) in sonuc
     assert "tüm projeler" in sonuc.lower()
     # Açıkça --user istenirse not gerekmez.
     sonuc = permissions(_state(proje), "add allow Bash(pytest *) --user")
@@ -325,13 +331,21 @@ async def test_izin_rpc_ekle_proje_kapsami_guvenilmeyen_projede_reddedilir(proje
             {"kalip": "Bash(npm test *)", "karar": "allow", "kapsam": "proje"},
         )
         assert ret["ok"] is False and "güvenilmiyor" in ret["metin"]
-        assert not user_permissions_file().is_file()
+        assert not user_rule_file().is_file()
         tamam = await _rpc(
             session,
             lines,
             "izin.ekle",
             {"kalip": "Bash(npm test *)", "karar": "allow", "kapsam": "kullanici"},
         )
-        assert tamam["ok"] is True and tamam["dosya"] == str(user_permissions_file())
+        assert tamam["ok"] is True and tamam["dosya"] == str(user_rule_file())
     finally:
         await session.close()
+
+
+def test_allowed_tools_permissions_takma_adidir():
+    """Claude (#83): `/allowed-tools` `/permissions`'ın takma adıdır."""
+    from fusion_cli.cli.repl.commands import build_registry
+
+    kayit = build_registry()
+    assert kayit.get("allowed-tools") is kayit.get("permissions")

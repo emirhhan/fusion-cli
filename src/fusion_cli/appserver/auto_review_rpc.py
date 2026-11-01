@@ -12,10 +12,13 @@ from __future__ import annotations
 from typing import Any
 
 from ..cli.repl import auto_mode_command
+from ..cli.repl.permissions_dialog import suggested_pattern
 from ..cli.repl.state import ReplState
 from ..core.auto_review import (
     AUTO_REVIEW_CONSECUTIVE_LIMIT,
     AUTO_REVIEW_TOTAL_LIMIT,
+    ReviewOutcome,
+    ReviewVerdict,
 )
 from ..engines.agent.risk_classifier import classifier_label
 from ..ui import messages
@@ -68,7 +71,14 @@ def status_payload(state: ReplState) -> dict[str, Any]:
                 "kaynak": source_label(outcome.source),
                 "ozet": outcome.summary,
                 "gerekce": outcome.reason,
+                # Claude Auto mode sekmesi (#83): ret için güvenli allow kalıbı; yoksa boş.
+                "oneri": _suggestion(outcome),
             }
             for outcome in reversed(snapshot.recent)
         ],
     }
+
+
+def _suggestion(outcome: ReviewOutcome) -> str:
+    """Yalnız riskli bulunan çağrıya kalıp önerilir; REPL/TUI kutusuyla aynı kural."""
+    return suggested_pattern(outcome) if outcome.verdict is ReviewVerdict.RISKY else ""

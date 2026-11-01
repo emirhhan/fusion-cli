@@ -436,11 +436,24 @@ TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
 #: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
 TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
+#: "Yes, and switch to auto mode" (Claude metni, #82); satır içinde `oto`.
+APPROVAL_AUTO_SWITCH = "Evet, ve auto kipine geç"
+APPROVAL_AUTO_SWITCH_DESC = (
+    "Bu işlem çalışır; oturum auto kipine geçer, sonraki eylemleri kurallar ve denetçi inceler."
+)
+CONFIRM_AUTO_SWITCH_HINT = "oto = evet ve auto kipine geç (Shift+Tab ile geri dönülür)"
+#: Korumalı `.claude/` yazımında oturumluk seçenek (Claude metni, #82).
+CLAUDE_DIR_SESSION_PROJECT = (
+    "Evet, ve bu oturumda projenin .claude klasöründeki dosyaları düzenlemeye izin ver"
+)
+CLAUDE_DIR_SESSION_USER = (
+    "Evet, ve bu oturumda ~/.claude klasöründeki dosyaları düzenlemeye izin ver"
+)
 TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
-#: Proje izin dosyası güvenilmiyorsa kural kullanıcı dosyasına düşer: kapsam TÜM projelerdir.
-TUI_APPROVAL_ALWAYS_DESC_USER = (
-    "{rule} kuralı TÜM PROJELER için kullanıcı dosyasına yazılır ({path}; bu projenin izin "
-    "dosyası güvenilmiyor) ve her oturumda geçerli olur."
+#: Yerel dosya güvenilmiyor: kural yazılır ama klasöre güvenilene dek uygulanmaz (#68).
+TUI_APPROVAL_ALWAYS_DESC_HELD = (
+    "{rule} kuralı bu projenin yerel ayar dosyasına yazılır ({path}); klasöre güvenilene "
+    "kadar (fusion trust) bekletilir."
 )
 #: Onay kartında eşleşen izin kuralı bilgisi.
 APPROVAL_RULE_NOTE = "izin kuralı: {rule}"
@@ -904,7 +917,7 @@ CMD_AUTO = "otomatik: Fusion karar verir, yalnız riskli işlemde sorar"
 CMD_EDITS = "düzenlemeleri kabul et: dosya düzenlemeleri sorulmaz, komutlar sorulur"
 CMD_PLAN = "plan: değişiklik yapma, yalnız oku ve planla"
 #: `/plan` alt komutları ve kabul kartı (P-025).
-PLAN_USAGE = "Kullanım: /plan (kipe geç) · /plan goster (planı yaz) · /plan ac (editörde aç)"
+PLAN_USAGE = "Kullanım: /plan [açıklama] (kipe geç, açıklamayı görev yap) · /plan goster · /plan ac"
 PLAN_NONE = (
     "Bu sohbette kayıtlı plan yok. Plan kipinde bir görev ver; biten tur plan dosyasını yazar."
 )
@@ -929,11 +942,14 @@ PLAN_IMPLEMENT_TASK = (
 )
 CMD_SECURITY = "manuel: okuma dışındaki her işlemi tek tek sor"
 CMD_BYPASS = "izinleri atla: hiçbir şey sorma (silinen yine çöpe gider)"
-CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
+CMD_PERMISSIONS = (
+    "izin iletişim kutusunu aç (Allow/Ask/Deny/Workspace/Auto mode); list/add/remove ile metin"
+)
 PERMISSIONS_EMPTY = "İzin kuralı yok. Ekle: /permissions add allow Bash(npm test *)"
 PERMISSIONS_USAGE = (
-    "Kullanım: /permissions [list] · /permissions add <allow|ask|deny> <Araç(kalıp)> "
-    "[--user] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
+    "Kullanım: /permissions (iletişim kutusu) · /permissions list · "
+    "/permissions add <allow|ask|deny> <Araç(kalıp)> "
+    "[--user | --project] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
 )
 PERMISSIONS_BAD_DECISION = "Karar allow, ask ya da deny olmalı: {given}"
 PERMISSIONS_BAD_PATTERN = "Kalıp `Araç` ya da `Araç(belirteç)` biçiminde olmalı: {given}"
@@ -1546,6 +1562,7 @@ CD_NOT_FOUND = "Klasör bulunamadı. Var olan bir klasör ver: /cd ../diger-proj
 CD_SAME = "Zaten bu dizindesin: {path}"
 CD_TOO_BROAD = "Diskin ya da ev dizininin tamamı çalışma dizini yapılamaz; bir proje klasörü seç."
 CD_DENIED = "Bu dizine geçiş izin kuralıyla engelli: {rule}"
+CD_NOT_ALLOWED = "Cd izin listesi açık; {path} hiçbir Cd(...) allow kuralına uymuyor."
 CD_CHANGED = (
     "Çalışma dizini değişti: {old} → {new}\n"
     "Ek klasörler ve oturumluk izinler sıfırlandı; konuşma aynı sohbette sürüyor."

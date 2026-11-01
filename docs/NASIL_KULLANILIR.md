@@ -147,6 +147,24 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   /verify
   ```
 - Yıkıcı bir komutta (`rm -rf` gibi) Fusion zaten durup sana sorar.
+- **Başlangıç kipi:** Claude Code gibi `fusion --permission-mode plan` (default, acceptEdits,
+  plan, auto, dontAsk, bypassPermissions), `fusion --dangerously-skip-permissions` (bypass ile
+  başlar) ve `fusion --allow-dangerously-skip-permissions` (bypass'ı Shift+Tab döngüsüne ekler,
+  oturum onunla başlamaz). Bayrak `permissions.defaultMode` ayarından önce gelir; aynı bayraklar
+  `fusion agent` ve `fusion -p` için de geçerlidir. Bayrak ve ayar yoksa Claude gibi her yüzey
+  (REPL/TUI, masaüstü, `fusion agent`) **Manuel** (`default`) kipte başlar; Otomatik kip ve
+  denetçisi yalnız sen seçince (Shift+Tab, `/auto`, `--permission-mode auto`,
+  `defaultMode: auto`) devrededir. Güvenilmeyen klasördeki `.claude/settings.json` ya da
+  `settings.local.json` `defaultMode` değeri güven verilene dek uygulanmaz.
+- **acceptEdits** Claude gibi yalnız dosya düzenlemelerini ve çalışma dizinlerindeki `mkdir`,
+  `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed` komutlarını (ve salt okunur komutları) sormaz;
+  tarayıcıda tıklama/yazma gibi öteki eylemler Manuel kipteki gibi sorulur. Masaüstü kip
+  menüsünün ipucu da bunu söyler.
+- **`disableAutoMode: "disable"`** (ya da `permissions.disableAutoMode`) herhangi bir ayar
+  dosyasında auto kipini kapatır: oturum Manuel'de başlar, auto Shift+Tab döngüsünden, `/auto`
+  komutundan, masaüstü kip menüsünden ve Ayarlar › İzinler › Çalışma modu listesinden çıkar;
+  masaüstü çekirdeği auto isteğini reddeder. Masaüstünde değer sohbet başınadır: ayarı farklı
+  projelerdeki sohbetler arasında geçince menü etkin sohbetin ayarını izler.
 
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 
@@ -154,15 +172,34 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 
 | Katman | Dosya | Ne zaman okunur |
 |---|---|---|
-| Fusion (kullanıcı) | `~/.config/fusion-cli/permissions.json` | her zaman |
-| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman |
-| Proje | `<proje>/.claude/settings.json` | yalnız `fusion trust` sonrası |
-| Proje (yerel) | `<proje>/.claude/settings.local.json` | yalnız `fusion trust` sonrası (Fusion'ın kendi yazdığı dosya otomatik güvenilir) |
+| Yönetilen (managed) | macOS `/Library/Application Support/ClaudeCode/managed-settings.json` (Linux `/etc/claude-code/`, Windows `C:\Program Files\ClaudeCode\`) ve yanındaki `managed-settings.d/*.json` | her zaman, en yüksek öncelik; Fusion bu dosyalara yazmaz, satırları silinemez |
+| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman; `--user` buraya yazar |
+| Proje | `<proje>/.claude/settings.json` | allow kuralları klasöre güvenildikten sonra (`fusion trust`); `--project` buraya yazar |
+| Proje (yerel) | `<git kökü>/.claude/settings.local.json` (alt dizinde başlatılsa da depo kökündeki; worktree'de ana checkout'un kökündeki; depo dışında `<proje>/`) | allow kuralları klasör güveninden sonra; ev dizininde ve Fusion'ın kendi yazdığı dosyada güven gerekmez; "bir daha sorma" aynı dosyaya yazar; Fusion dosyayı depoda ilk kez oluşturduğunda ve depo onu zaten dışlamıyorsa Claude gibi genel git dışlamasına (`core.excludesFile`, yoksa `~/.config/git/ignore`) `**/.claude/settings.local.json` ekler |
+| Eski Fusion dosyası | `~/.config/fusion-cli/permissions.json` | kullanımdan kalktı: bu sürüm boyunca okunur, başlangıçta uyarı verir |
 
-Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,
-`~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
+Güven Claude Code'daki gibi **klasöre** bağlıdır: depoda git köküne (alt dizinler dahil, iç
+içe depo hariç), depo dışında başlatılan dizine ve alt dizinlerine. Dosya sonradan değişse de
+güven düşmez. Etkileşimli `fusion` açılışında proje ayarı var ama klasöre güvenilmiyorsa Claude
+Code gibi güven sorulur ve güvenince etkin olacak allow kuralları listelenir (`e` = `fusion trust`;
+etkileşimsiz girişte sorulmaz). Ayar dosyalarındaki `permissions.additionalDirectories` ek çalışma dizini olur
+(proje/yerel dosyada güven ister); `permissions.blockReadsOutsideWorkingDirectories: true`
+herhangi bir dosyada kök dışı okumayı kapatır. Yönetilen dosyadaki
+`allowManagedPermissionRulesOnly: true` kullanıcı/proje/yerel dosyaların ve `--allowedTools`'un
+kurallarını devre dışı bırakır; yalnız yönetilen kurallar uygulanır (`--disallowedTools` deny'ı
+kısıtlayıcı olduğu için korunur). Yönetilen `defaultMode` ve `disable…Mode` anahtarları her
+katmanı ezer. Parantezli `mcp__…(…)` kuralı yüklenmez;
+başlangıçta ve `fusion doctor`da bildirilir.
+
+Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` ayar kaynağına bağlı:
+proje/yerel dosyada proje kökü, `~/.claude/settings.json`'da `~/.claude`, `--settings <dosya>`'da o dosyanın
+dizini; `//` disk kökü, `~` ev; yalın ad `.env` her derinlikte), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
 `mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
-**deny → yıkıcı komut → ask → allow → çalışma modu**. `deny` "İzinleri atla" modunda da
+**deny → ask → allow → çalışma modu** (Claude Code ile aynı). Allow kuralı yalnız korumalı yolları
+(`.git/`, `.claude/`…) ve kritik yol silmelerini açmaz; Fusion'ın yıkıcı komut sezgisi
+(`git push --force`, `git reset --hard`, `chmod -R 777`…) yalnız kuralı olmayan çağrıda çalışma
+modunun önüne geçer ve sordurur. Yalın deny (`Bash`, `Bash(*)`,
+`Read`) aracı modele hiç sunmaz; belirteçli kural (`Bash(rm *)`) yalnız eşleşen çağrıyı engeller. `deny` "İzinleri atla" modunda da
 geçerlidir; `ask` Otomatik modda bile sordurur ve oturum hafızasıyla susturulamaz. Kurallar
 yalnız yazan araçlarda değil **okuma, arama ve web araçlarında da** uygulanır
 (`Read(~/.ssh/**)` deny → `read_file`, `search_code`, `glob`; `WebFetch(domain:x)` → `web_fetch`).
@@ -171,27 +208,68 @@ içindeyse arama da yasaklanır/sorulur. `Agent(...)`/`Task(...)` `Agent` aracı
 `spawn_agents` adlarını kapsar (`Agent(Explore)` yalnız o tipi); `Edit/Write(...)` indirme, arşiv açma ve görsel üretme
 araçlarının hedefini de kapsar.
 
-Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak, hepsi
-izinliyse sorulmaz. Sarmalayıcılar açılır: `sh -c '…'`, `eval`, `timeout 5 …`, `sudo …`,
-`/bin/rm` içindeki komut da kurala karşı denenir. Dosyaya yönlendirme (`> x`, `>> x`, `| tee x`)
-içeren komut `allow` ile serbest kalmaz (deny/ask yine uygulanır). Bilinen sınır: `python -c "…"`
+Kabuk zincirleri (`a && b`) parça parça değerlendirilir: bir parça yasaksa tamamı yasak; her
+alt komut bir allow kuralına uyuyor ya da salt okunursa sorulmaz. Allow tarafında Claude'un sabit
+sarmalayıcıları soyulur (`timeout`, `time`, `nice`, `nohup`, `stdbuf`, `command`, `builtin`,
+`noglob`, bayraksız `xargs`) ve yalnız güvenli env ataması (`NODE_ENV=test`) geçer;
+`sh -c '…'`, `sudo …`, `/bin/rm` allow'da açılmaz. `watch`/`setsid`/`ionice`/`flock` ve
+`find -exec/-delete/-fprint` yalnız `*`'sız birebir kuralla onaylanır. **Fusion eki (Claude'dan
+sıkı):** deny/ask tarafında `sh -c`, `eval`, `sudo`, mutlak yol da açılır, yasak bu biçimlerle
+aşılamaz. Dosyaya yönlendirme (`> x`, `>> x`, `| tee x`) içeren komut `allow` ile serbest
+kalmaz (deny/ask yine uygulanır). "Bir daha sorma" zincirde onay gereken her alt komut için ayrı
+kural yazar (en çok 5); dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir.
+
+Manuel, acceptEdits ve plan kipinde `web_fetch` (önceden onaylı belge alanları hariç),
+`web_search` ve çalışma dizinleri dışından okuma (salt okunur kabuk komutu `cat ~/x`, `ls /etc`
+dahil) sorulur; dontAsk reddeder, auto ve bypass
+sormaz. Hiçbir kip (bypass dahil) şunları sormadan geçirmez: açık `ask` kuralı ve kritik yol
+`rm`/`rmdir` silmesi (disk kökü ve doğrudan alt dizinleri, ev dizini, çalışma dizini ve üstleri,
+bağlı sürücü kökleri `/Volumes/<ad>`, `/mnt/<ad>`, `/media/…`, `C:\`); bypass'taki kritik yol
+istemini yalnız `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1` kapatır. Plan kipinde okuma dışı kabuk komutu ve MCP değişikliği engellenmez, sorulur; dosya
+düzenlemesi engelli kalır. Claude gibi `useAutoModeDuringPlan` (varsayılan `true`) açıkken ve auto kullanılabiliyorsa
+(`disableAutoMode` yok, denetçi `off` değil) planlama komutunu denetçi modeli inceler: "güvenli" → sorulmaz, "riskli" →
+gerekçeyle sorulur; kritik yol silmesi ve sabit riskler hep sorulur, model yoksa komut sorulur. `false` kullanıcı, yerel ve
+yönetilen dosyada geçerlidir; `.claude/settings.json`'daki `false` yok sayılır. Plan kipindeki riskli kararlar auto kipinin
+engel sayacına yazılmaz. Bilinen sınır: `python -c "…"`
 gibi satır içi kodun içi kurallara karşı çözülmez; o yol ayrı risk denetiminden geçer.
 
-Güvenilmeyen proje dosyasından (`fusion trust` yapılmamış ya da içerik değişmiş) yalnız
+Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
 **allow** kuralları düşer; deny ve ask kuralları yine okunur.
 
 ```
-/permissions                              # listele
-/permissions add allow Bash(npm test *)   # projeye yaz
+/permissions                              # sekmeli iletişim kutusu (Allow/Ask/Deny/Workspace/Auto mode)
+/permissions list                         # metin olarak listele
+/permissions add allow Bash(npm test *)   # projenin yerel dosyasına (settings.local.json)
 /permissions add deny Read(~/.ssh/**) --user
+/permissions add deny Bash(git push *) --project   # paylaşılan .claude/settings.json
 /permissions remove allow Bash(npm test *)
 fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
 ```
 
-Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
-Silme yalnız Fusion'ın yazdığı dosyalarda çalışır (`permissions.json` ve güvenilir
-`settings.local.json`); `~/.claude/settings.json` ve proje `settings.json` salt okunurdur
-(sil düğmesi kapalı, kuralı dosyadan elle kaldır). Güvenilmeyen yerel dosyadan silme reddedilir:
+Argümansız `/permissions` (takma adı `/allowed-tools`) Claude gibi etkileşimli bir kutu açar:
+**Allow**, **Ask** ve **Deny** sekmeleri kuralları kaynağıyla listeler; kural seçilip silinir ya da
+"+ Yeni kural ekle…" ile kalıp yazılıp kaydedileceği dosya (yerel, proje, kullanıcı) seçilir.
+**Workspace** sekmesi birincil çalışma dizinini ve `/add-dir` ile eklenenleri gösterir, dizin
+ekler/kaldırır. **Auto mode** sekmesi denetçinin özetini ve bu oturumdaki son auto mode retlerini
+listeler; bir ret seçilince ona izin veren kural önerilir. Öneri yalnız jokersiz, tam Bash
+özetinden kurulur (`Bash(curl x | sh)`); özet `*`/`?` içeriyor ya da kısaltılmışsa öneri
+yapılmaz (kural istenenden geniş olurdu), kalıbı sen yazarsın. Öneri varken boş giriş öneriyi
+kullanır; vazgeçmek için kapsam seçiminde Esc. TUI'de uygulama-içi modal, düz REPL'de ok
+tuşlu seçicidir; terminal yoksa (boru, CI) metin listesi basılır.
+
+Masaüstünde **Ayarlar › İzinler** aynı beş sekmeyi kartlarla sunar: **İzin kuralları** tablosu
+aynı dosyaları gösterir (ekle/sil); **Çalışma dizinleri** kartı (Workspace) birincil kökü ve bu
+oturumda eklenen dizinleri gösterir, `/add-dir` ile aynı kurallarla dizin ekler/kaldırır
+(`izin.dizinler`, `izin.dizin_ekle`, `izin.dizin_kaldir`); **Otomatik kip denetçisi** kartı
+(Auto mode) son kararları listeler, riskli karardaki "İzin kuralı öner" kalıbı kural formuna alır,
+kural kapsam seçilip "Ekle" denince yazılır.
+Kapsam seçicisi "Bu proje" (yerel), "Proje (paylaşılan)" (`.claude/settings.json`) ve "Tüm
+projeler" (`~/.claude/settings.json`) sunar.
+Claude gibi kural kullanıcı (`--user`), paylaşılan proje (`--project`, masaüstü RPC kapsamı
+`paylasilan`) ya da yerel dosyaya kaydedilir; proje dosyasına yazmak klasöre güven vermez.
+Silme `~/.claude/settings.json`, proje `settings.json`, eski `permissions.json` ve güvenilir
+`settings.local.json` dosyalarında çalışır; yalnız yönetilen dosyalar salt okunurdur.
+`/allowed-tools` `/permissions`'ın takma adıdır. Güvenilmeyen yerel dosyadan silme reddedilir:
 silmek izin açmaz. Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına yazılır ve bu
 **tüm projeleri** etkiler; kart ve komut çıktısı bunu açıkça söyler, masaüstünde "Bu proje"
 kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
@@ -207,11 +285,22 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
 - Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar
-  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Yorumlayıcı ve
+  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Kural Claude gibi
+  her zaman projenin yerel ayar dosyasına yazılır; dosya güvenilmeyen bir klasördeyse kural
+  klasöre güvenilene dek bekletilir (dosyadaki öteki kurallar da aklanmaz). Yorumlayıcı ve
   başlatıcılarda (`python`, `bash`, `node`, `npx`, `find`, `xargs`, `ssh`, `curl`…) ve ilk iki
   sözcüğü düz olmayan komutlarda kural komutun **kendisidir** (`Bash(python -m pytest)`), genel
   `python *` yazılmaz. Yıkıcı işlemlerde ve `ask` kurallı istekte bu seçenek çıkmaz. Terminalde
   (`fusion`, `fusion run`) `k` tuşu; kural yazıldı/yazılamadı bildirimi tur sonunda basılır.
+  Claude Code gibi kabuk komutunda kartta yalnız bu kalıcı seçenek vardır; "bu oturumda sorma"
+  kalıcı kural yazılamayan isteklerde (web, uzak araç, masaüstü) çıkar. Korumalı `.claude/`
+  klasörüne dosya aracıyla yazımda Claude gibi "Evet, ve bu oturumda projenin .claude
+  klasöründeki dosyaları düzenlemeye izin ver" (ev dizini için `~/.claude` sürümü) çıkar; izin
+  yalnız o klasörü kapsar, `.git/` gibi öteki korumalı yollar yine sorulur. Manuel ve
+  acceptEdits kiplerinde, auto kullanılabiliyorsa (`disableAutoMode` yok) kart Claude'un "Yes, and
+  switch to auto mode" seçeneğini **Evet, ve auto kipine geç** olarak sunar (terminalde `oto`):
+  bu işlem çalışır, oturum auto kipine geçer; geri dönmek için Shift+Tab. Kritik yol silmesinde
+  sunulmaz; uzak onay (telefon) bu seçeneği taşımaz.
 - Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
   modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
   Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar. Bilinen sınır: **evet**
@@ -222,7 +311,8 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
 
 - `.git/`, `.claude/`, `.fusion/tools/`, `.codex/`, `.cursor/rules/`, `.github/workflows/`
   altına yazan her çağrı (dosya aracı, indirme/arşiv/görsel aracı ya da kabuk komutu) **her
-  modda** sorulur ve oturum iznine dönüşmez; okumak serbesttir. Kabukta `cd .git && …` sonrası
+  modda** sorulur ve oturum iznine dönüşmez (tek istisna Claude gibi: dosya aracıyla `.claude/`
+  yazımında kartın "bu oturumda .claude klasöründe izin ver" seçeneği); okumak serbesttir. Kabukta `cd .git && …` sonrası
   göreli hedefler, `tar -C`, `curl -o`, `unzip -d` de yakalanır; karşılaştırma büyük/küçük harf
   duyarsızdır (`.GIT/config`). Bilinen sınır: `python -c "open('.git/x','w')"` statik olarak
   çözülmez.
@@ -231,7 +321,10 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
   yazmak sorulmadan engellenir; modele dizinin `--add-dir` ile açılabileceği söylenir. Yazma
   engeli kabuk yönlendirmesini de kapsar (`echo x > ~/.zshrc`, `| tee /etc/hosts`); başka kabuk
   komutlarının (`cp a ~/b`) kök dışı yazması engellenmez, Otomatik modda sorulur.
-  `restrict_to_root` ikisini birden kapatır.
+  `restrict_to_root` ikisini birden kapatır. Okuma anahtarı Claude'un
+  `permissions.blockReadsOutsideWorkingDirectories` ayarıyla aynıdır (o da okunur); **yazma
+  anahtarı Fusion ekidir** (Claude'da karşılığı yok, varsayılan kapalı, kapalıyken davranış
+  Claude ile aynı).
 
 ### Otomatik kip denetçisi (risk sınıflandırıcısı) — `/auto-mode`
 
@@ -254,10 +347,12 @@ eylemi (komut, yol) görür; araç çıktısı, web sayfası ve yazılacak dosya
 - Alt ajanların çağrıları denetçiye girmez (niyetleri model yazımıdır); kurallar geçerlidir.
 
 Ayar `runtime.auto_classifier` (`/auto-mode ac` ya da `fusion auto-mode ayar ask_only`):
-`off` (varsayılan: yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (ek olarak
-salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur, yavaşlatır).
-Varsayılan kapalıdır: açıkken son 3 mesajın ve eylem denetçi modelinin sağlayıcısına gider ve
-onun (ücretsiz) günlük kotasını kullanır; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
+`off` (yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (varsayılan; ek olarak
+salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur).
+Varsayılan Claude Code gibi açıktır (auto kipte eylemi sınıflandırıcı inceler); oturum
+varsayılan olarak Manuel başladığından denetçi yalnız Otomatik kipi seçtiğinde çalışır. Son 3 mesajın ve
+eylem denetçi modelinin sağlayıcısına gider ve onun (ücretsiz) günlük kotasını kullanır; anahtar
+yoksa ağa çıkılmaz, kurallar geçerli olur; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
 Model `runtime.auto_classifier_model` (boş = hakem rolü ve yedekleri; web oturumu olamaz),
 süre sınırı `runtime.auto_classifier_timeout_s` (12 sn).
 
@@ -1413,6 +1508,14 @@ itibaren yeni kökte çalışır. Argümansız `/cd` mevcut dizini yazar. Masaü
 sekmenin kökünü taşır (tur sürerken reddedilir).
 
 - Göreli yol mevcut köke göredir, `~` ev dizinidir. Disk kökü ve ev dizininin tamamı reddedilir.
+- Herhangi bir `Cd(...)` **allow** kuralı Claude gibi `/cd`'yi izin listesi kipine sokar: hedef bir
+  allow kuralına uymuyorsa `/cd` reddeder.
+- **Claude Code'dan fark (kullanıcı kararı bekliyor):** Claude belgesi `/cd` ve `/add-dir` için
+  disk kökü, ev dizini ya da (`/add-dir`'de) proje kökünün üst dizini yasağı belgelemiyor. Fusion bu
+  üç hedefi güvenlik gereği reddeder (tek komutla bütün ev dizinine ya da kardeş projelere sorgusuz
+  okuma açılmasın). Belge bu hedeflere açıkça izin vermediği için yasak, kullanıcı açıkça karar
+  verene dek korunur. `/add-dir` proje kökünün alt dizininde Claude gibi yalnız o dizinin beceri,
+  komut ve ajan tanımlarını yükler.
 - Eski projenin `/add-dir` klasörleri ve "oturum boyunca izin ver" kararları yeni köke taşınmaz;
   yeni kökün becerileri, düz belleği ve `.claude/settings.local.json` onaysız komutları yüklenir.
   İzin dosyası güvenilmiyorsa uyarı çıkar (`fusion trust`).

@@ -18,7 +18,7 @@ from fusion_cli.config.permission_rules import (
     PermissionDecision,
     PermissionRuleSet,
     parse_rule,
-    user_permissions_file,
+    user_rule_file,
 )
 from fusion_cli.core.tools import Tool, ToolContext, ToolEffect
 from fusion_cli.engines.agent import loop as agent_loop
@@ -160,12 +160,13 @@ async def test_ask_kurali_oturum_hafizasiyla_susturulamaz(tmp_path):
     assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
 
 
-async def test_yikici_komut_allow_kuraliyla_bile_sorulur(tmp_path):
+async def test_yikici_komut_allow_kuraliyla_sorulmaz_claude_gibi(tmp_path):
+    # #84: Claude'da allow kuralı yalnız korumalı yol ve kritik silmeyi açmaz.
     kurallar = _kurallar(("Bash(*)", "allow"))
     karar, prompter = await _karar(
         ApprovalMode.AUTO, _arac(), {"command": "git push --force"}, tmp_path, kurallar
     )
-    assert karar is Decision.ALLOW and prompter.soruldu == ["run_shell"]
+    assert karar is Decision.ALLOW and prompter.soruldu == []
 
 
 async def test_kural_yokken_eski_davranis_korunur(tmp_path):
@@ -179,12 +180,13 @@ async def test_kural_yokken_eski_davranis_korunur(tmp_path):
 @pytest.mark.parametrize(
     ("arac", "args"),
     [
-        ("write_file", {"path": ".claude/settings.local.json", "content": "{}"}),
+        # `.claude/` dosya yazımı Claude gibi oturum izni sunar (#82, test_claude_dir_session).
+        ("write_file", {"path": ".vscode/settings.json", "content": "{}"}),
         ("edit_file", {"path": ".git/config", "old": "a", "new": "b"}),
         ("write_file", {"path": ".fusion/tools/x.py", "content": ""}),
         ("run_shell", {"command": "rm -rf .git"}),
         ("run_shell", {"command": "echo '{}' > .claude/settings.local.json"}),
-        ("run_shell", {"command": "sed -i 's/a/b/' .github/workflows/ci.yml"}),
+        ("run_shell", {"command": "sed -i 's/a/b/' .husky/pre-commit"}),
     ],
 )
 async def test_korumali_yola_yazma_her_kipte_sorulur_ve_hatirlanmaz(tmp_path, arac, args):
@@ -218,7 +220,7 @@ def test_korumali_yolu_okumak_ve_benzer_adlar_yikici_degil(tmp_path, arac, args)
         ("download_file", {"url": "https://x/y", "path": ".git/hooks/pre-commit"}),
         ("extract_archive", {"path": "a.tgz", "dest": ".git/hooks"}),
         ("extract_archive", {"path": ".claude/a.zip"}),
-        ("generate_image", {"prompt": "x", "path": ".github/workflows/a.png"}),
+        ("generate_image", {"prompt": "x", "path": ".vscode/a.png"}),
         ("optimize_image", {"path": "a.png", "out": ".claude/b.webp"}),
         ("write_file", {"path": ".GIT/config", "content": ""}),
         ("run_shell", {"command": "cd .git && rm -rf hooks"}),
@@ -370,30 +372,39 @@ async def test_bir_daha_sorma_kurali_dosyaya_yazilir_ve_oturumda_hatirlanir(tmp_
     assert karar is Decision.ALLOW and prompter2.soruldu == []
 
 
-def test_guvenilmeyen_izin_dosyasi_varsa_kullanici_dosyasina_yazilir(tmp_path):
+def test_guvenilmeyen_izin_dosyasi_varsa_yine_yerel_dosyaya_yazilir_ve_bekletilir(tmp_path):
+    """Claude (#68): CLI "bir daha sorma"yı her zaman yerel dosyaya yazar. Güvenilmeyen dosyaya
+    eklemek onu güvenilir YAPMAZ (içindeki `Bash(*)` aklanmaz); kural klasör güvenine dek bekler."""
+    from fusion_cli.engines.agent.permission_persist import remember_always
+
     proje = tmp_path / "proje"
     (proje / ".claude").mkdir(parents=True)
-    (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
-    assert persist_target(proje) == user_permissions_file()
+    yerel = proje / trust.PROJECT_PERMISSIONS_PATH
+    yerel.write_text('{"permissions":{"allow":["Bash(*)"]}}')
+    assert persist_target(proje) == yerel
+    istek = build_request(_arac(), {"command": "npm test"}, root=proje)
+    remember_always(proje, istek)
+    veri = json.loads(yerel.read_text())
+    assert veri["permissions"]["allow"] == ["Bash(*)", "Bash(npm test *)"]
+    assert not trust.is_permissions_trusted(proje)
+    assert not user_rule_file().exists()
 
 
-def test_kalici_kural_aciklamasi_kullanici_dosyasina_dusuyorsa_tum_projeler_der(tmp_path):
-    """Ölçüldü (31 Ekim): proje izin dosyası güvenilmiyorken kural sessizce kullanıcının
-    permissions.json'ına yazılıyor, kart 'her oturumda geçerli olur' deyip kapsamı söylemiyordu."""
+def test_kalici_kural_aciklamasi_guvenilmeyen_dosyada_bekletilir_der(tmp_path):
+    """Kart kapsamı söyler: güvenilmeyen klasörde kural yazılır ama güvenilene dek uygulanmaz."""
     from fusion_cli.appserver.bridges import _approval_options
     from fusion_cli.engines.agent.permission_persist import always_description
 
     proje = tmp_path / "proje"
     (proje / ".claude").mkdir(parents=True)
     istek = build_request(_arac(), {"command": "npm test"}, root=proje)
-    # İzin dosyası yok → projeye yazılır; açıklama kapsam genişletmez.
-    assert "tüm projeler" not in always_description(istek, proje).lower()
+    assert "bekletilir" not in always_description(istek, proje)
     (proje / trust.PROJECT_PERMISSIONS_PATH).write_text('{"permissions":{"allow":["Bash(*)"]}}')
     aciklama = always_description(istek, proje)
-    assert "tüm projeler" in aciklama.lower() and "Bash(npm test *)" in aciklama
-    assert str(user_permissions_file()) in aciklama
+    assert "bekletilir" in aciklama and "Bash(npm test *)" in aciklama
+    assert "tüm projeler" not in aciklama.lower()
     secenekler = {s["deger"]: s for s in _approval_options(istek, proje)}
-    assert "tüm projeler" in secenekler["always"]["aciklama"].lower()
+    assert "bekletilir" in secenekler["always"]["aciklama"]
 
 
 async def test_yazici_bagli_degilse_bir_daha_sorma_oturumda_hatirlanir_bildirim_uretmez(tmp_path):

@@ -361,10 +361,14 @@ def test_plan_ac_editoru_plan_dosyasiyla_calistirir(state: ReplState, monkeypatc
     assert calistirilan == [["nano", str(yol)]]
 
 
-def test_plan_bilinmeyen_alt_komut_kullanimi_soyler(state: ReplState) -> None:
+def test_plan_aciklamasi_plan_kipinde_gorevi_baslatir(state: ReplState) -> None:
+    """Claude (#75): `/plan [description]` plan kipine geçer ve açıklamayı ilk istem yapar."""
+    state.approval = ApprovalMode.AUTO
     command = build_registry().get("plan")
     assert command is not None
-    assert command.handler(state, "sil") == messages.PLAN_USAGE
+    command.handler(state, "giriş akışını yeniden tasarla")
+    assert state.approval is ApprovalMode.PLAN
+    assert state.pending_task == "giriş akışını yeniden tasarla"
 
 
 # --- TUI kabul kartı ---------------------------------------------------------- #

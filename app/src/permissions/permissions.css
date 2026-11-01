@@ -116,3 +116,4 @@
 
 .auto-review-card__list { font-size: var(--text-sm); margin: var(--space-2) 0 0; padding-left: var(--space-4); }
 .auto-review-card__list li[data-verdict="riskli"] { color: var(--text-warning); }
+.auto-review-card__list li > button { margin-inline-start: var(--space-2); vertical-align: middle; }

@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
+from ...config.permission_warnings import skipped_rule_warnings
 from ...config.permissions import has_untrusted_permissions
 from ...core.changeset import ChangeSet
 from ...core.concurrency import BackgroundTasks
@@ -272,6 +273,9 @@ async def _run_surface(
         roots=lambda: (state.root, *state.extra_roots),
         agents=lambda: agent_names(state),
     )
+    # Satır içi yedek girişte de Shift+Tab döngüsü TUI ile aynı kipleri içerir (#73, #85).
+    reader.bypass_available = bool(getattr(state, "bypass_available", False))
+    reader.auto_available = bool(getattr(state, "auto_available", True))
     background = BackgroundTasks()
 
     # Isıtma kota harcar ve kullanıcı henüz bir şey göndermeden kafa karıştırıcı
@@ -301,6 +305,8 @@ async def _run_surface(
         read_answer=reader.prompt,
         extra_roots=tuple(state.extra_roots),
     )
+    for uyari in skipped_rule_warnings(state.root):
+        console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)
@@ -602,6 +608,16 @@ async def _run_command(
                     raise
                 cancelled = messages.ASYNC_COMMAND_CANCELLED.format(name=command.name)
                 console.print(f"[{theme.WARN}]{cancelled}[/{theme.WARN}]")
+        return
+
+    if command.name == "permissions" and not argument.strip() and reader.interactive:
+        # Claude (#83): argümansız /permissions sekmeli iletişim kutusunu açar.
+        from .permissions_dialog import PlainIO, run_permissions_dialog
+
+        def say(text: str) -> None:
+            console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+
+        say(await run_permissions_dialog(state, PlainIO(say)))
         return
 
     previous = (state.root, state.conversation_id)

@@ -144,6 +144,7 @@ from ...tools.mcp_background import (
     settle_mcp_background_calls,
     take_mcp_background_notices,
 )
+from ...tools.outside_reads import reads_outside
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
 from ...tools.tool_search import visible_tool_names
@@ -184,6 +185,7 @@ from .approval import (
 )
 from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
+from .bare_deny import surface_denied
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -1211,7 +1213,7 @@ async def _run_agent(
                 registry,
                 execution,
                 deps.tool_context.task_kinds,
-                denied=getattr(deps, "denied_tools", ()),
+                denied=surface_denied(deps, registry.names()),
                 task=task,
                 phase=deps.tool_context.tool_phase,
             )
@@ -2057,7 +2059,7 @@ async def _drive(
                     registry,
                     execution,
                     deps.tool_context.task_kinds,
-                    denied=getattr(deps, "denied_tools", ()),
+                    denied=surface_denied(deps, registry.names()),
                     task=_surface_task(messages),
                     phase=deps.tool_context.tool_phase,
                 ),
@@ -2925,7 +2927,7 @@ async def _call_model(
                         registry,
                         execution,
                         deps.tool_context.task_kinds,
-                        denied=getattr(deps, "denied_tools", ()),
+                        denied=surface_denied(deps, registry.names()),
                         task=_surface_task(messages),
                         phase=deps.tool_context.tool_phase,
                     ),
@@ -4409,7 +4411,10 @@ async def _execute(
     # Etkin becerinin `allowed-tools` ön onayı ve `disallowed-tools` deseni (#142, #180).
     rules = skill_grants.with_grants(rules, deps.tool_context)
     if tool is not None and (
-        tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
+        tool.mutating
+        or tool.effect_resolver is not None
+        or _rule_gates(rules, tool, args, deps)
+        or reads_outside(tool.name, args, deps.tool_context)
     ):
         revision = deps.approval_revision() if deps.approval_revision else None
         policy = deps.policy_factory() if deps.policy_factory else deps.policy
@@ -4431,7 +4436,11 @@ async def _execute(
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
             policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        switches = guard.mode_switches if guard is not None else 0
         verdict = await policy.decide(request)
+        if guard is not None and guard.mode_switches != switches:
+            # Kartta "auto kipine geç" (#82): onaylanan çağrı yeni kipin kapsamında çalışır.
+            revision = deps.approval_revision() if deps.approval_revision else None
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
         ):

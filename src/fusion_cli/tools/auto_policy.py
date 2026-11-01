@@ -525,6 +525,11 @@ def _drop_options(prefix: str, parts: list[str]) -> list[str]:
     return parts
 
 
+def raw_segments(command: str) -> list[str]:
+    """Zincirin ham alt komut metinleri (`_segments`; izin allow eşlemesi kullanır, #58)."""
+    return _segments(command)
+
+
 def _segments(command: str) -> list[str]:
     """Komutu `;`, `&&`, `||`, `|`, satır sonu ve alt kabuk (`$(…)`, ters tırnak) sınırlarından böl.
 

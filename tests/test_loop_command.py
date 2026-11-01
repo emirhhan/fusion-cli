@@ -427,13 +427,14 @@ async def test_repl_ajan_zamanlamasi_slash_satirini_komut_olarak_calistirmaz(
     console = Console(record=True, force_terminal=False)
     registry = build_registry()
     state.scheduled_turn_only = True
-    await repl_loop._handle("/bypass", state, registry, _Reader(), console, BackgroundTasks())
-    assert turlar == ["/bypass"] and state.approval is not ApprovalMode.BYPASS
+    await repl_loop._handle("/edits", state, registry, _Reader(), console, BackgroundTasks())
+    assert turlar == ["/edits"] and state.approval is not ApprovalMode.ACCEPT_EDITS
     assert state.scheduled_turn_only is False
 
-    # İşaret yokken aynı satır komuttur (kullanıcının elle yazdığı /bypass).
-    await repl_loop._handle("/bypass", state, registry, _Reader(), console, BackgroundTasks())
-    assert turlar == ["/bypass"] and state.approval is ApprovalMode.BYPASS
+    # İşaret yokken aynı satır komuttur (kullanıcının elle yazdığı /edits; /bypass
+    # Claude gibi bypass'sız oturumda açılmaz).
+    await repl_loop._handle("/edits", state, registry, _Reader(), console, BackgroundTasks())
+    assert turlar == ["/edits"] and state.approval is ApprovalMode.ACCEPT_EDITS
 
 
 async def test_tui_ajan_zamanlamasi_slash_satirini_tur_olarak_calistirir(

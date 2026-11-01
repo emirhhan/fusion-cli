@@ -10,7 +10,7 @@ import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter, ProtocolSink
 from fusion_cli.core.events import Event, TurnOutcome
-from fusion_cli.core.tools import AuthorizationScope, ToolEffect
+from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 
 
@@ -392,11 +392,18 @@ async def test_kalici_izin_secenegi_yalniz_kalicilastirilabilen_istekte_sunulur(
     pending = PendingQuestions()
     prompter = ProtocolPrompter(satirlar.append, pending)
 
-    gorev = asyncio.ensure_future(prompter.confirm(_request(args={"path": "src/a.py"})))
+    kabuk = ApprovalRequest(
+        tool=Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None),
+        args={"command": "git status && npm test --watch"},
+        danger=None,
+    )
+    gorev = asyncio.ensure_future(prompter.confirm(kabuk))
     await asyncio.sleep(0)
     soru = json.loads(satirlar[0])
     always = next(s for s in soru["veri"]["secenekler"] if s["deger"] == "always")
-    assert "Edit(/src/**)" in always["aciklama"]
+    # Claude (#68): zincirde yalnız onay gereken alt komut için kural yazılır.
+    assert "Bash(npm test *)" in always["aciklama"]
+    assert "git status" not in always["aciklama"]
     assert soru["veri"]["not_alinir"] is True
     pending.resolve(soru["id"], {"secim": "always"})
     assert await gorev is ApprovalAnswer.ALWAYS
@@ -408,6 +415,11 @@ async def test_kalici_izin_secenegi_yalniz_kalicilastirilabilen_istekte_sunulur(
     pending.resolve(soru["id"], {"secim": "always"})
     # Yıkıcı istekte "always" cevabı bile kalıcı izne dönüşmez: red sayılır.
     assert await gorev is ApprovalAnswer.DENY
+
+
+def test_dosya_duzenleme_onayi_kalici_kurala_donusmez() -> None:
+    """Claude (#68): dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir."""
+    assert _request(args={"path": "src/a.py"}).can_persist is False
 
 
 async def test_ret_notu_kararla_birlikte_tasinir_ve_kirpilir() -> None:

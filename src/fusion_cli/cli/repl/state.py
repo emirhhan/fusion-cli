@@ -28,7 +28,8 @@ from ...core.session_goal import SessionGoal
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree, WorktreeSwitch
-from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode, parse_mode
+from ...engines.agent.auto_switch import AutoSwitch
 from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...engines.agent.skill_context import InvokedSkills
@@ -286,6 +287,13 @@ class ReplState:
     invoked_skills: InvokedSkills = field(default_factory=InvokedSkills)
     #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
     linked_pr: PullRequestLink | None = None
+    #: Bypass Shift+Tab döngüsünde mi (#73): oturum bypass etkin başladıysa.
+    bypass_available: bool = False
+    #: Auto kipi kullanılabilir mi (#85): hiçbir ayar `disableAutoMode: "disable"` demiyorsa.
+    auto_available: bool = True
+    #: Çekirdek kipi kendisi değiştirince (karttan auto'ya geçiş, #82) haber verilen taraf;
+    #: masaüstü bunu `IzinKipiDegisti` olayına bağlar ki kip rozeti bayat kalmasın.
+    on_mode_change: Callable[[ApprovalMode], None] | None = None
 
     def bind_pull_request(self, link: PullRequestLink | None) -> None:
         """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
@@ -303,13 +311,11 @@ class ReplState:
             engine = Engine(config.runtime.engine)
         except ValueError:
             engine = Engine.AGENT
-        try:
-            approval = ApprovalMode(config.runtime.approval_mode)
-        except ValueError:
-            approval = ApprovalMode.AUTO
-        if approval is ApprovalMode.BYPASS:
-            approval = ApprovalMode.AUTO
-        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        approval = _initial_approval(config, kwargs.get("root"))
+        state = cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        _apply_mode_availability(state, approval)
+        _apply_additional_directories(state)
+        return state
 
     async def reset_child_runs(self) -> None:
         """Sohbet/kök değişiminde önce eski görevleri kapat, sonra yeni sahibi kur."""
@@ -483,6 +489,10 @@ class ReplState:
         attach_rule_writer(self.approval_memory, lambda: self.root)
         # Denetçi engel eşiğini aşınca (P-011) oturum Manuel kipe düşer; kalıcı ayar değişmez.
         self.approval_memory.auto_review.on_fallback = self._fall_back_to_manual
+        # Onay kartında "Evet, ve auto kipine geç" (#82): Manuel/acceptEdits'te auto açıksa.
+        self.approval_memory.auto_switch = AutoSwitch(
+            available=self._auto_switch_available, switch=self._switch_to_auto
+        )
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
 
@@ -545,6 +555,20 @@ class ReplState:
             )
         return session
 
+    def _auto_switch_available(self) -> bool:
+        return self.auto_available and self.approval in (
+            ApprovalMode.SECURITY,
+            ApprovalMode.ACCEPT_EDITS,
+        )
+
+    def _switch_to_auto(self) -> None:
+        if not self._auto_switch_available():
+            return
+        self.approval = ApprovalMode.AUTO
+        notify = getattr(self, "on_mode_change", None)
+        if notify is not None:
+            notify(self.approval)
+
     def _fall_back_to_manual(self) -> None:
         if self.approval is ApprovalMode.AUTO:
             self.approval = ApprovalMode.SECURITY
@@ -597,7 +621,11 @@ class ReplState:
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
-        self.approval = next_mode(self.approval)
+        self.approval = next_mode(
+            self.approval,
+            bypass_available=getattr(self, "bypass_available", False),
+            auto_available=getattr(self, "auto_available", True),
+        )
         return self.approval
 
     def reset_history(self) -> int:
@@ -617,3 +645,57 @@ class ReplState:
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed
+
+
+def _initial_approval(config: Config, root: object) -> ApprovalMode:
+    """Etkileşimli başlangıç kipi (#49, #50, #85): settings `permissions.defaultMode` önce,
+    sonra Fusion'ın kayıtlı `runtime.approval_mode`u (Claude adları da okunur).
+
+    Bypass yalnız kullanıcı ayarındaki `defaultMode: bypassPermissions` ile açılır; Fusion'ın
+    kendi kaydından bypass'a dönülmez (Claude: bypass'sız başlayan oturum bypass'a geçemez).
+    """
+    from ...config.permission_settings import default_mode_setting
+    from ..launch_permissions import launch_permissions
+    from ..permission_flags import enforce_mode_limits
+
+    launched = launch_permissions().mode
+    if launched is not None:
+        # Kök komut bayrağı (`fusion --permission-mode plan`) ayardan önce gelir (#49).
+        return launched
+    setting = default_mode_setting(root) if isinstance(root, Path) else None
+    try:
+        approval = parse_mode(setting or config.runtime.approval_mode)
+    except ValueError:
+        approval = ApprovalMode.SECURITY
+    if approval is ApprovalMode.BYPASS and setting is None:
+        approval = ApprovalMode.SECURITY
+    return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval
+
+
+def _apply_additional_directories(state: ReplState) -> None:
+    """Ayarlardaki `permissions.additionalDirectories` oturumun ek dizinlerine eklenir (#57)."""
+    from ...config.permission_settings import working_directories
+
+    root = getattr(state, "root", None)
+    if isinstance(root, Path):
+        state.extra_roots = working_directories(root, tuple(state.extra_roots))
+
+
+def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:
+    """Döngüdeki isteğe bağlı kipler: bypass bypass'la başlayınca, auto kapatılmadıkça."""
+    from ...config.permission_settings import auto_mode_disabled, bypass_mode_disabled
+    from ..launch_permissions import launch_permissions
+
+    root = state.root if isinstance(getattr(state, "root", None), Path) else None
+    # `--allow-dangerously-skip-permissions` bypass'ı döngüye ekler, başlatmaz (#73).
+    offered = approval is ApprovalMode.BYPASS or launch_permissions().allow_bypass
+    state.bypass_available = offered and not (root is not None and bypass_mode_disabled(root))
+    state.auto_available = not (root is not None and auto_mode_disabled(root))
+    _apply_plan_policy(state)
+
+
+def _apply_plan_policy(state: ReplState) -> None:
+    """Bypass kullanılabilir oturumda plan kipi de sormaz (#52)."""
+    memory = getattr(state, "approval_memory", None)
+    if memory is not None:
+        memory.plan_bypass = bool(state.bypass_available)

@@ -29,6 +29,8 @@ from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
+from ..config.permission_rules import set_session_rules
+from ..config.permission_settings import working_directories
 from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
@@ -61,6 +63,7 @@ from . import (
     mcp_commands,
     memory_commands,
     paperclip_command,
+    permission_flags,
     print_options,
     print_restricted,
     print_settings,
@@ -283,6 +286,27 @@ def main_callback(
         bool,
         typer.Option("--strict-mcp-config", help="Yalnız --mcp-config sunucularını kullan."),
     ] = False,
+    permission_mode: Annotated[
+        str,
+        typer.Option(
+            "--permission-mode",
+            help="Başlangıç kipi: default, acceptEdits, plan, auto, dontAsk, bypassPermissions.",
+        ),
+    ] = "",
+    skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--dangerously-skip-permissions",
+            help="İzin istemlerini atla; `--permission-mode bypassPermissions` ile eşdeğer.",
+        ),
+    ] = False,
+    allow_skip_permissions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dangerously-skip-permissions",
+            help="bypassPermissions kipini Shift+Tab döngüsüne ekle; oturum onunla başlamaz.",
+        ),
+    ] = False,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
@@ -304,6 +328,7 @@ def main_callback(
         if refusal is not None:
             typer.echo(refusal, err=True)
             raise typer.Exit(1)
+    _apply_launch_permissions(permission_mode, skip_permissions, allow_skip_permissions)
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
@@ -370,6 +395,10 @@ def main_callback(
         bare=bare,
         restricted=restricted,
     )
+    from .startup_trust import offer_startup_trust
+
+    # Claude gibi açılışta klasör güveni (#71): güvenilmeyen proje ayarı varsa sorulur.
+    offer_startup_trust(root, lambda line: console.print(escape(line)))
     exit_code = asyncio.run(
         with_web_cleanup(
             run_repl(
@@ -429,6 +458,24 @@ def _print_version_and_exit(value: bool) -> None:
     if value:
         typer.echo(__version__)
         raise typer.Exit()
+
+
+def _apply_launch_permissions(flag: str, skip: bool, allow_skip: bool) -> None:
+    """Kök komutun izin bayrakları (#49, #73); geçersiz kip adı hata verir."""
+    from .launch_permissions import set_launch_permissions
+
+    try:
+        set_launch_permissions(
+            flag=flag.strip() or None,
+            skip_permissions=skip,
+            allow_bypass=allow_skip,
+            root=Path.cwd(),
+        )
+    except ValueError:
+        valid = "default, manual, acceptEdits, plan, auto, dontAsk, bypassPermissions"
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_MODE.format(given=flag, valid=valid)
+        ) from None
 
 
 def _print_worktree_notice(tree: Worktree) -> None:
@@ -611,14 +658,36 @@ def agent(
         "",
         help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
     ),
-    mode: str = typer.Option(
-        "auto",
+    permission_mode: str | None = typer.Option(
+        None,
+        "--permission-mode",
+        help="Başlangıç izin kipi: default (manual) | acceptEdits | plan | auto | dontAsk | "
+        "bypassPermissions. Verilmezse settings `permissions.defaultMode`, o da yoksa default.",
+    ),
+    mode: str | None = typer.Option(
+        None,
         "--mode",
         "-m",
-        help="Onay modu: auto (yalnız riskli işlemde sorar) | edits (düzenlemeler "
-        "sorulmaz) | security/manual (her değişikliği sor) | plan (yalnız planla) | "
-        "bypass (hiçbir şey sorma)",
+        help="Kullanımdan kalktı: `--permission-mode` kullanın (eski adlar da okunur).",
     ),
+    dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--dangerously-skip-permissions",
+        help="İzin istemlerini atla; `--permission-mode bypassPermissions` ile eşdeğer.",
+    ),
+    allow_dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--allow-dangerously-skip-permissions",
+        help="bypassPermissions kipini Shift+Tab döngüsüne ekle, onunla başlama.",
+    ),
+    tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tools",
+            help='Modele sunulan yerleşik araçları daralt: "" hepsini kapatır, "default" '
+            'varsayılan küme, ya da "Bash,Edit,Read".',
+        ),
+    ] = None,
     no_memory: bool = typer.Option(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
@@ -653,15 +722,19 @@ def agent(
     allowed_tools: Annotated[
         list[str] | None,
         typer.Option(
+            "--allowedTools",
             "--allowed-tools",
-            help="Modele YALNIZ bu araçlar sunulur (virgülle ya da tekrarla).",
+            help='Sorulmadan çalışan araçlar (izin kuralı, ör. "Bash(git log *)" "Read"); '
+            "araç kümesini daraltmak için --tools.",
         ),
     ] = None,
     disallowed_tools: Annotated[
         list[str] | None,
         typer.Option(
+            "--disallowedTools",
             "--disallowed-tools",
-            help="Bu araçlar sorulmadan engellenir (virgülle ya da tekrarla).",
+            help='Yasak kuralları: yalın ad aracı kaldırır ("Edit", "mcp__*"), '
+            '"Bash(rm *)" yalnız eşleşen çağrıyı reddeder.',
         ),
     ] = None,
     append_system_prompt: str | None = typer.Option(
@@ -720,9 +793,12 @@ def agent(
 
     set_noninteractive()  # Claude `-p` gibi: .mcp.json sunucuları sorulmadan yüklenir (#246)
     base_config = _session_config()
+    start_mode = _start_mode(permission_mode, mode, dangerously_skip_permissions)
+    permission_flags.warn_legacy_allowed_tools(allowed_tools)
+    set_session_rules(permission_flags.cli_rules(allowed_tools, disallowed_tools))
     options = _headless_options(
         task,
-        mode=mode,
+        mode=start_mode.value,
         as_json=as_json,
         output_format=output_format,
         json_schema=json_schema,
@@ -731,8 +807,8 @@ def agent(
         session_agents=_cli_session_agents(agents_json or _SESSION.agents_json, Path.cwd()),
         permission_channel=permission_channel,
         append_system_prompt=append_system_prompt,
-        allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
+        allowed_tools=_tools_restriction(tools),
+        disallowed_tools=sorted(permission_flags.bare_denied_names(disallowed_tools)) or None,
         from_pr=from_pr,
     )
     if background:
@@ -794,7 +870,7 @@ def agent(
         sys.stdout.flush()
     tool_context = ToolContext(
         root=root,
-        extra_roots=tuple(add_dir or ()),
+        extra_roots=working_directories(root, tuple(add_dir or ())),
         restrict_to_root=config.runtime.restrict_to_root,
     )
 
@@ -830,7 +906,7 @@ def agent(
                 root=root,
                 home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
-                extra_roots=tuple(add_dir or ()),
+                extra_roots=working_directories(root, tuple(add_dir or ())),
                 extra_system=options.extra_system,
                 system_prompt=options.system_prompt,
                 session_persona=options.session_persona,
@@ -839,7 +915,7 @@ def agent(
                     Path.home(),
                     root,
                     session_agents=options.session_agents,
-                    extra_roots=tuple(add_dir or ()),
+                    extra_roots=working_directories(root, tuple(add_dir or ())),
                     headless=options.channel is None,
                 ),
                 allowed_tools=options.allowed_tools,
@@ -1084,6 +1160,27 @@ def _run_observed(
         raise
 
 
+def _start_mode(flag: str | None, legacy: str | None, skip: bool) -> ApprovalMode:
+    """`--permission-mode` > `--mode` (eski) > settings `defaultMode` > default (#49, #50, #70)."""
+    try:
+        return permission_flags.resolve_start_mode(
+            flag=flag, legacy=legacy, skip_permissions=skip, root=Path.cwd(), headless=True
+        )
+    except ValueError:
+        valid = "default, manual, acceptEdits, plan, auto, dontAsk, bypassPermissions"
+        given = flag or legacy or ""
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_MODE.format(given=given, valid=valid)
+        ) from None
+
+
+def _tools_restriction(tools: list[str] | None) -> list[str] | None:
+    """`--tools`: verilmezse ya da "default" ise kısıt yok; "" hiç araç yok."""
+    if tools is None or [t.strip() for t in tools] == ["default"]:
+        return None
+    return [name for chunk in tools for name in chunk.split(",") if name.strip()] or [""]
+
+
 def _parse_mode(raw: str) -> ApprovalMode:
     try:
         return parse_mode(raw)
@@ -1203,7 +1300,15 @@ def permissions(
     ] = None,
     user: Annotated[
         bool,
-        typer.Option("--user", help="Projeye değil kullanıcı dosyasına (permissions.json) yaz."),
+        typer.Option(
+            "--user", help="Projeye değil kullanıcı dosyasına (~/.claude/settings.json) yaz."
+        ),
+    ] = False,
+    project: Annotated[
+        bool,
+        typer.Option(
+            "--project", help="Paylaşılan proje dosyasına (.claude/settings.json) yaz (Claude #83)."
+        ),
     ] = False,
     path: Annotated[
         Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
@@ -1232,7 +1337,7 @@ def permissions(
             f"yazma {'KAPALI' if config.runtime.block_writes_outside_root else 'onayla'}"
         )
         return
-    if action not in ("add", "remove") or not decision or not pattern:
+    if action not in ("add", "remove") or not decision or not pattern or (user and project):
         console.print(f"[red]{escape(messages.PERMISSIONS_USAGE)}[/red]")
         raise typer.Exit(code=2)
     try:
@@ -1250,7 +1355,9 @@ def permissions(
         raise typer.Exit(code=2) from None
     try:
         if action == "add":
-            change = permission_admin.add_permission_rule(root, rule, user_level=user)
+            change = permission_admin.add_permission_rule(
+                root, rule, user_level=user, project_shared=project
+            )
             text = (
                 permission_admin.added_message(change, karar)
                 if change.changed

@@ -159,6 +159,21 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-mg"))
     # Otomatik bellek `~/.claude/projects/<proje>/memory` (#153): testler gerçek eve yazmasın.
     monkeypatch.setenv("FUSION_CLAUDE_HOME", str(tmp_path.parent / f".{tmp_path.name}-claude-ev"))
+    # Kullanıcı izin kuralları artık Claude gibi `~/.claude/settings.json`'a yazılır (#66):
+    # HOME'u yalıtmayan bir test gerçek ayar dosyasına kural eklemesin (ölçüldü, 1 Kasım).
+    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        # Playwright tarayıcı ikilileri gerçek ev dizinindeki önbellekte durur (salt okunur).
+        cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+        if not cache.is_dir():
+            cache = Path.home() / ".cache" / "ms-playwright"
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache))
+    ev = tmp_path.parent / f".{tmp_path.name}-home"
+    ev.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(ev))
+    # Claude yönetilen ayarları (#65) gerçek sistem dizininden okunmasın.
+    monkeypatch.setenv(
+        "FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-managed")
+    )
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")
@@ -244,3 +259,13 @@ def _fusion_gunluk_isleyicisi_sizmaz():
         if getattr(handler, "_fusion_dosya", False):
             kok.removeHandler(handler)
             handler.close()
+
+
+@pytest.fixture(autouse=True)
+def izole_oturum_izin_kurallari():
+    """`fusion agent --allowedTools/--disallowedTools` süreç kuralları testten teste taşınmasın."""
+    from fusion_cli.config.permission_rules import set_session_rules
+
+    set_session_rules(())
+    yield
+    set_session_rules(())

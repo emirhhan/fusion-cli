@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ..core.errors import ConfigError
 from .agent_launch_settings import AgentLaunchConfig
+from .local_settings_location import local_settings_path
 from .setting_sources import SOURCE_LOCAL, SOURCE_PROJECT, SOURCE_USER, source_enabled
 from .trust import is_permissions_trusted, is_project_settings_trusted
 
@@ -37,7 +38,7 @@ def read_agent_launch(
     if source_enabled(SOURCE_PROJECT) and is_project_settings_trusted(root):
         paths.append(root / ".claude" / "settings.json")
     if source_enabled(SOURCE_LOCAL) and is_permissions_trusted(root):
-        paths.append(root / ".claude" / "settings.local.json")
+        paths.append(local_settings_path(root))
     legacy = AgentLaunchConfig()
     merged_env: dict[str, str] = {}
     for path in paths:

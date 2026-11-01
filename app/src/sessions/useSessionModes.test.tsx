@@ -122,3 +122,19 @@ describe("useSessionModes — denetçi kip düşüşü (P-011)", () => {
     expect(result.current.approval).toBe("auto");
   });
 });
+
+describe("useSessionModes — karttan auto'ya geçiş (#82)", () => {
+  it("IzinKipiDegisti olayıyla kip rozetini günceller, tanınmayan kipi yok sayar", async () => {
+    let dinleyici: ((veri: Record<string, unknown>) => void) | null = null;
+    const c = {
+      ...istemci({ "oturum.durum": { ok: true, mod: "security", kip: "kod" } }),
+      onEvent: vi.fn((f: (veri: Record<string, unknown>) => void) => { dinleyici = f; return () => undefined; }),
+    };
+    const { result } = renderHook(() => useSessionModes({ id: "a", client: c }, vi.fn()));
+    await waitFor(() => expect(result.current.approval).toBe("security"));
+    act(() => dinleyici?.({ olay: "IzinKipiDegisti", mod: "auto" }));
+    expect(result.current.approval).toBe("auto");
+    act(() => dinleyici?.({ olay: "IzinKipiDegisti", mod: "bilinmeyen" }));
+    expect(result.current.approval).toBe("auto");
+  });
+});

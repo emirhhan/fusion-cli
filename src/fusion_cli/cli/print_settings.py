@@ -92,8 +92,10 @@ def root_settings(
     `permissions.allow/ask/deny` (oturumluk kural katmanı, `config/flag_settings.py`).
     """
     from ..config.flag_settings import set_flag_permissions
+    from ..config.flag_settings_anchor import record_settings_flag
     from .print_options import apply_model, load_settings, parse_permission_mode
 
+    record_settings_flag(raw)  # `/x` kalıbı `--settings` dosyasının dizinine bağlanır (#45)
     settings = load_settings(raw)
     if not settings:
         return config, ()

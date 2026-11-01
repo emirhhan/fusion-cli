@@ -61,6 +61,7 @@ from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
 from ..config.permission_rules import PermissionRuleSet
+from ..config.permission_settings import auto_mode_disabled
 from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
@@ -103,6 +104,7 @@ from ..tools.safe_delete import is_container_root, project_folders
 from ..tools.skill_commands import map_denied_tools
 from ..tools.skill_pages import read_skill_page
 from ..ui import messages
+from ..ui.permission_dialog_messages import AUTO_MODE_SETTING_DISABLED
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, computer_routes, intelligence, ui_prefs
@@ -585,6 +587,10 @@ class AppSession:
         self._local_state_purged = False
         self._local_state_purge_task: asyncio.Future[Any] | None = None
         self._child_runs = self._state.child_runs
+        # Karttan auto'ya geçiş (#82) arayüzün kip rozetine bildirilir.
+        self._state.on_mode_change = lambda mode: self._writer(
+            encode_event({"olay": "IzinKipiDegisti", "mod": mode.value})
+        )
         self._state.history = load_transcript_messages(config.memory_dir, root)
         # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
         # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve
@@ -1911,6 +1917,8 @@ class AppSession:
     def _apply_mode(self, value: str | None, *, persist: bool = True) -> dict[str, Any] | None:
         if not isinstance(value, str) or not value:
             return None
+        if (auto_error := self._auto_mode_refusal(value)) is not None:
+            return auto_error
         try:
             mode = parse_mode(value)
         except ValueError:
@@ -1925,6 +1933,14 @@ class AppSession:
         if persist:
             self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
+
+    def _auto_mode_refusal(self, value: str) -> dict[str, Any] | None:
+        """Claude (#85): `disableAutoMode: "disable"` olan oturumda auto seçilemez."""
+        if value.strip().lower() != ApprovalMode.AUTO.value:
+            return None
+        if self._state.approval is ApprovalMode.AUTO or not auto_mode_disabled(self._state.root):
+            return None
+        return {"ok": False, "metin": AUTO_MODE_SETTING_DISABLED}
 
     def _note_persist_warning(self, warning: str | None) -> None:
         """Kalıcı yazma uyarısını sonraki yanıta taşımak üzere sakla.
@@ -2314,9 +2330,15 @@ class AppSession:
 
     def _permissions_rpc(self, request: Request) -> dict[str, Any]:
         """İzin kuralı tablosu ve proje güveni (P-003, P-012); bkz. `permissions_rpc`."""
-        from . import permissions_rpc
+        from . import permissions_rpc, workspace_dirs_rpc
 
         root, data = self._state.root, request.data
+        if request.name in workspace_dirs_rpc.NAMES:
+            # Claude `/permissions` Workspace sekmesi (#83); katalog ek köklerle yenilenir.
+            result = workspace_dirs_rpc.handle(self._state, request)
+            if result.get("degisti"):
+                self._refresh_capabilities()
+            return result
         if request.name == "izin.kurallar":
             return permissions_rpc.list_rules(root, self._state.config)
         if request.name == "izin.ekle":
@@ -2389,6 +2411,8 @@ class AppSession:
                 if self._state.linked_pr is not None
                 else None
             ),
+            # Bir ayar dosyası `disableAutoMode: "disable"` diyorsa kip seçici auto'yu gizler (#85).
+            "auto_kapali": auto_mode_disabled(self._state.root),
         }
 
     def _container_projects(self) -> list[str]:

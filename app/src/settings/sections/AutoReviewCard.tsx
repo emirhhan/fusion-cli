@@ -23,7 +23,16 @@ const SON_KARAR_SINIRI = 5;
  * Ayar, model, engel sayacı, Manuel'e düşüş ve son kararlar tek kartta. Yıkıcı işlemler,
  * sudo/sistem ayarı ve `| sh` hiçbir ayarda modele bırakılmaz; bunu kart da söyler.
  */
-export function AutoReviewCard({ client, onResumed }: { client: Pick<ProtocolClient, "request" | "onEvent">; onResumed?: () => void }) {
+export function AutoReviewCard({
+  client,
+  onResumed,
+  onSuggestRule,
+}: {
+  client: Pick<ProtocolClient, "request" | "onEvent">;
+  onResumed?: () => void;
+  /** Claude Auto mode sekmesi (#83): riskli kararın kalıp önerisini kural formuna al. */
+  onSuggestRule?: (kalip: string) => void;
+}) {
   const { status, resume, setStatus } = useAutoReviewStatus(client);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +104,17 @@ export function AutoReviewCard({ client, onResumed }: { client: Pick<ProtocolCli
           {kararlar.map((karar, sira) => (
             <li data-verdict={karar.karar} key={`${sira}:${karar.arac}:${karar.ozet}`}>
               <strong>{karar.karar_etiketi}</strong> [{karar.kaynak}] {karar.ozet} — {karar.gerekce}
+              {onSuggestRule && karar.karar === "riskli" && (karar.oneri ? (
+                <Button
+                  aria-label={`${karar.oneri} kuralını forma al`}
+                  onClick={() => onSuggestRule(karar.oneri ?? "")}
+                  variant="secondary"
+                >
+                  İzin kuralı öner
+                </Button>
+              ) : (
+                <small> · öneri yok (joker ya da kısaltılmış özet); kalıbı kurallara sen yaz</small>
+              ))}
             </li>
           ))}
         </ul>

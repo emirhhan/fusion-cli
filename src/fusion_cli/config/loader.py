@@ -200,6 +200,8 @@ def load_config(path: str | Path | None = None) -> Config:
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
+        # Claude ayarındaki `permissions.blockReadsOutsideWorkingDirectories: true` (#76).
+        yapilandirma = _with_claude_read_block(yapilandirma, Path.cwd())
         # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
         yapilandirma = _with_plugin_mcp_servers(yapilandirma)
         # `--mcp-config` / `--strict-mcp-config` (Claude Code; #253).
@@ -473,6 +475,18 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     return dataclasses.replace(
         config, mcp_servers=tuple(server for server in merged if server.name not in disabled)
     )
+
+
+def _with_claude_read_block(config: Config, root: Path) -> Config:
+    """Herhangi bir Claude ayar kapsamındaki `true` kök dışı okumayı kapatır (#76)."""
+    from .permission_settings import block_reads_outside_working_directories
+
+    if config.runtime.block_reads_outside_root:
+        return config
+    if not block_reads_outside_working_directories(root):
+        return config
+    runtime = dataclasses.replace(config.runtime, block_reads_outside_root=True)
+    return dataclasses.replace(config, runtime=runtime)
 
 
 def _with_plugin_mcp_servers(config: Config) -> Config:

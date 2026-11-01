@@ -78,7 +78,8 @@ def proje(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("kip", "karar", "soru"),
     [
-        (ApprovalMode.PLAN, Decision.BLOCKED, 0),
+        # Claude (#52): plan kipinde de sorulur (sandbox auto-allow açık olsa da).
+        (ApprovalMode.PLAN, Decision.ALLOW, 1),
         (ApprovalMode.SECURITY, Decision.ALLOW, 1),
         (ApprovalMode.AUTO, Decision.ALLOW, 1),
         (ApprovalMode.ACCEPT_EDITS, Decision.ALLOW, 1),
@@ -89,7 +90,7 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
     onayci = _Onayci()
     istek = await resolve_request(
         build_registry().get("run_shell"),
-        {"command": "cat ~/.kube/config", "unsandboxed": True},
+        {"command": "cat ayar/config", "unsandboxed": True},
         root=proje,
         context=_context(proje),
     )

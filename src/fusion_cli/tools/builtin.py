@@ -9,7 +9,7 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 
 from __future__ import annotations
 
-from ..core.tools import Tool, ToolEffect
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect
 from . import (
     archive,
     browser,
@@ -41,6 +41,11 @@ from .symbol_query import SymbolQuery, SymbolQuerySettings
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
 SchemaFragment = dict[str, object]
+
+
+async def _gate_only(_args: ToolArgs, _context: ToolContext | None = None) -> None:
+    """Etkiyi değiştirmeden aracı onay kapısına sokan çözücü (web araçları, #55)."""
+    return None
 
 
 def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> SchemaFragment:
@@ -631,6 +636,8 @@ _TOOLS: tuple[Tool, ...] = (
         "gerektiğinde kullan; ezberden emin konuşma.",
         parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
         run=web.web_search,
+        # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
+        effect_resolver=_gate_only,
     ),
     Tool(
         name="download_file",
@@ -658,6 +665,8 @@ _TOOLS: tuple[Tool, ...] = (
         description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
+        # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
+        effect_resolver=_gate_only,
     ),
     Tool(
         name="kits_list",

@@ -15,11 +15,14 @@ from pathlib import Path
 from ..core.errors import ConfigError
 from ..ui import messages
 from . import trust
+from .local_settings_gitignore import ensure_globally_ignored
+from .local_settings_location import local_settings_path, local_settings_root
 from .models import Config
 from .permission_rules import (
     LAYER_FUSION,
     LAYER_LOCAL,
     LAYER_PROJECT,
+    LAYER_USER,
     PermissionDecision,
     PermissionRule,
     RuleRow,
@@ -31,7 +34,7 @@ from .permission_rules import (
     read_rules_file,
     remove_rule,
     rule_layers,
-    user_permissions_file,
+    user_rule_file,
 )
 from .writer import write_runtime_flag
 
@@ -42,8 +45,8 @@ OUTSIDE_ROOT_FLAGS = ("block_reads_outside_root", "block_writes_outside_root")
 def project_rule_file(root: Path) -> Path:
     """Varsayılan hedef: güvenilen (ya da izin dosyasız) projede yerel ayar, yoksa kullanıcı."""
     if trust.is_permissions_trusted(root):
-        return root / trust.PROJECT_PERMISSIONS_PATH
-    return user_permissions_file()
+        return local_settings_path(root)
+    return user_rule_file()
 
 
 def parse_decision(raw: object) -> PermissionDecision:
@@ -80,28 +83,52 @@ class RuleChange:
 
 
 def add_permission_rule(
-    root: Path, rule: PermissionRule, *, user_level: bool = False, strict_project: bool = False
+    root: Path,
+    rule: PermissionRule,
+    *,
+    user_level: bool = False,
+    strict_project: bool = False,
+    local_only: bool = False,
+    project_shared: bool = False,
 ) -> RuleChange:
     """Kuralı hedef dosyaya ekle; proje dosyasına yazıldıysa güven karmasını tazele.
 
     Proje izin dosyası güvenilmiyorsa hedef kullanıcı dosyasına düşer ve `fell_back` işaretlenir
     (ölçüldü, 31 Ekim: masaüstünde "Bu proje" seçilirken kural sessizce tüm projelere
     yazılıyordu). `strict_project` ile bu düşüş `ConfigError` olur (masaüstü "Bu proje" kapsamı).
+
+    `local_only` (Claude "bir daha sorma", #68): hedef her zaman yerel dosyadır. Dosya
+    güvenilmiyorsa güven karması TAZELENMEZ: içindeki kurallar aklanmaz, yeni kural da
+    klasöre güvenilene dek bekletilir.
+
+    `project_shared` (Claude `/permissions` proje kapsamı, #83): paylaşılan proje
+    `.claude/settings.json`'ı. Allow kuralları yine klasör güvenine bağlıdır.
     """
-    project_target = root / trust.PROJECT_PERMISSIONS_PATH
-    target = user_permissions_file() if user_level else project_rule_file(root)
+    if project_shared:
+        shared = root / trust.PROJECT_SETTINGS_PATH
+        return RuleChange(rule, shared, add_rule(shared, rule))
+    project_target = local_settings_path(root)
+    was_trusted = trust.is_permissions_trusted(root)
+    if local_only:
+        target = project_target
+    else:
+        target = user_rule_file() if user_level else project_rule_file(root)
     fell_back = not user_level and target != project_target
     if fell_back and strict_project:
         raise ConfigError(messages.PERMISSIONS_PROJECT_UNTRUSTED)
+    created = target == project_target and not target.exists()
     changed = add_rule(target, rule)
-    if changed and target == project_target:
+    if changed and target == project_target and was_trusted:
         trust.record_permissions_digest(root)
+    if created and target.is_file():
+        # Claude (#67): ilk yazımda dosya genel git dışlamasına eklenir.
+        ensure_globally_ignored(local_settings_root(root))
     return RuleChange(rule, target, changed, fell_back)
 
 
-#: Fusion'ın YAZDIĞI katmanlar; ötekiler (`~/.claude/settings.json`, proje `settings.json`)
-#: Claude Code'un dosyalarıdır ve yalnız okunur (tasarım kararı 3).
-WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_LOCAL})
+#: Fusion'ın YAZDIĞI katmanlar: Claude gibi kullanıcı, proje ve yerel dosya (#66, #83);
+#: yönetilen dosyalar salt okunurdur.
+WRITABLE_LAYERS = frozenset({LAYER_FUSION, LAYER_USER, LAYER_PROJECT, LAYER_LOCAL})
 
 
 def is_rule_removable(root: Path, layer_name: str) -> bool:
@@ -194,7 +221,9 @@ def rules_payload(root: Path, config: Config) -> dict[str, object]:
         ],
         "guvensiz_katmanlar": list(loaded.untrusted_layers),
         "hedef": str(project_rule_file(root)),
-        "kullanici_dosyasi": str(user_permissions_file()),
+        "kullanici_dosyasi": str(user_rule_file()),
+        # Claude'un paylaşılan proje kapsamı (#83): masaüstü kapsam seçicisi "paylasilan".
+        "paylasilan_dosyasi": str(root / trust.PROJECT_SETTINGS_PATH),
         "katmanlar": [
             {"ad": layer.name, "dosya": str(layer.path), "aciklama": layer.description}
             for layer in rule_layers(root)

@@ -156,8 +156,9 @@ async def test_onay_akisi_yazilan_riskli_betigi_sorar(tmp_path, mod):
     assert await politika.decide(istek) is Decision.DENIED
 
 
-@pytest.mark.parametrize("mod", [ApprovalMode.AUTO, ApprovalMode.ACCEPT_EDITS])
+@pytest.mark.parametrize("mod", [ApprovalMode.AUTO])
 async def test_onay_akisi_yazilan_zararsiz_betigi_sormaz(tmp_path, mod):
+    """acceptEdits'te betik çalıştırmak Claude gibi sorulur (#53); yalnız auto sormaz."""
     yol = _yaz(tmp_path, "y.sh", "echo merhaba\n")
     politika = build_policy(mod, AlwaysReject())
 

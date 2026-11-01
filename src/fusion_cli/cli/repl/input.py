@@ -102,8 +102,14 @@ class ReplInput:
     def interactive(self) -> bool:
         return self._session is not None
 
+    #: Shift+Tab döngüsündeki isteğe bağlı kipler (#73, #85); `ReplState` ile aynı.
+    bypass_available: bool = False
+    auto_available: bool = True
+
     def cycle_mode(self) -> ApprovalMode:
-        self.mode = next_mode(self.mode)
+        self.mode = next_mode(
+            self.mode, bypass_available=self.bypass_available, auto_available=self.auto_available
+        )
         return self.mode
 
     def toggle_fold(self) -> None:

@@ -29,7 +29,7 @@ from ..permission_rules import (
     add_rule,
     format_rule,
     load_permission_rules,
-    user_permissions_file,
+    user_rule_file,
 )
 from ..writer import write_mcp_servers
 from .claude_codex import read_claude, read_codex
@@ -192,7 +192,7 @@ def _apply_one(
         if isinstance(action, McpImport):
             return _apply_mcp(action, root, secrets, user_servers, written)
         if isinstance(action, RuleImport):
-            target = user_permissions_file()
+            target = user_rule_file()
             add_rule(target, action.rule)
             written.append(target)
         elif isinstance(action, FileImport):

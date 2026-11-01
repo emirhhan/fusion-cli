@@ -35,10 +35,15 @@ from enum import Enum
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from .local_settings_location import local_settings_path
+from .managed_settings import (
+    managed_permission_rules_only,
+    managed_settings_files,
+    mdm_settings_data,
+)
 from .paths import user_config_dir
 from .setting_sources import layer_enabled
 from .trust import (
-    PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
     is_permissions_trusted,
     is_project_settings_trusted,
@@ -54,6 +59,13 @@ LAYER_FUSION = "fusion"
 LAYER_USER = "kullanici"
 LAYER_PROJECT = "proje"
 LAYER_LOCAL = "yerel"
+#: Claude yönetilen ayarları (#65): salt okunur, hiçbir katman aşamaz.
+LAYER_MANAGED = "yonetilen"
+#: Komut satırı bayrakları (`--allowedTools`, `--disallowedTools`) ve oturum kuralları.
+LAYER_CLI = "cli"
+
+#: Bu süreçte komut satırından verilen kurallar (`set_session_rules`); dosyaya yazılmaz.
+_SESSION_RULES: list[PermissionRule] = []
 
 
 class PermissionDecision(Enum):
@@ -92,7 +104,11 @@ class PermissionRule:
 def parse_rule(
     entry: object, decision: PermissionDecision, *, source: str = ""
 ) -> PermissionRule | None:
-    """`Bash(npm run *)` metnini kurala çevir; bozuk yazım `None` (yok sayılır)."""
+    """`Bash(npm run *)` metnini kurala çevir; bozuk yazım `None` (yok sayılır).
+
+    Claude gibi belirteç ilk `(` ile son `)` arasıdır; iç içe parantez (`Bash(echo (hi))`)
+    geçerlidir, `\\(` ve `\\)` kaçışı çözülür (inceleme, 1 Kasım: sessizce atılıyordu).
+    """
     if not isinstance(entry, str):
         return None
     text = entry.strip()
@@ -102,8 +118,9 @@ def parse_rule(
         if "(" not in text:
             return None
         head, _, body = text[:-1].partition("(")
-        if not head.strip() or "(" in body:
+        if not head.strip() or ")" in head:
             return None
+        body = body.replace("\\(", "(").replace("\\)", ")")
         return PermissionRule(head.strip(), body.strip() or None, decision, source)
     if "(" in text or ")" in text:
         return None
@@ -148,8 +165,13 @@ class RuleLayer:
 
 
 def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
-    """Okuma sırasıyla katmanlar: fusion → kullanıcı → proje → yerel."""
+    """Okuma sırasıyla katmanlar: yönetilen → fusion → kullanıcı → proje → yerel."""
+    managed = tuple(
+        RuleLayer(LAYER_MANAGED, path, description="Claude yönetilen ayarı")
+        for path in managed_settings_files()
+    )
     return (
+        *managed,
         RuleLayer(LAYER_FUSION, user_permissions_file(), description="Fusion kullanıcı dosyası"),
         RuleLayer(
             LAYER_USER, Path.home() / CLAUDE_USER_SETTINGS, description="Claude kullanıcı ayarı"
@@ -162,7 +184,7 @@ def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
         ),
         RuleLayer(
             LAYER_LOCAL,
-            root / PROJECT_PERMISSIONS_PATH,
+            local_settings_path(root),
             requires_trust=True,
             description="Proje yerel ayarı",
         ),
@@ -170,8 +192,13 @@ def rule_layers(root: Path) -> tuple[RuleLayer, ...]:
 
 
 def user_permissions_file() -> Path:
-    """Fusion'ın kendi izin dosyası."""
+    """Fusion'ın eski kendi izin dosyası (kullanımdan kalktı, #66; yalnız okunur)."""
     return user_config_dir() / USER_PERMISSIONS_NAME
+
+
+def user_rule_file() -> Path:
+    """Kullanıcı kurallarının yazıldığı dosya: Claude Code gibi `~/.claude/settings.json` (#66)."""
+    return Path.home() / CLAUDE_USER_SETTINGS
 
 
 def _layer_trusted(layer: RuleLayer, root: Path) -> bool:
@@ -206,15 +233,63 @@ def load_permission_rules(
     from .flag_settings import flag_permission_rules  # `--settings` katmanı (#296)
 
     rules.extend(flag_permission_rules())
+    mdm = _parse_mapping(mdm_settings_data(), source=LAYER_MANAGED)
+    rules.extend(r for r in mdm if not is_settings_mcp_param_rule(r))
+    rules.extend(_SESSION_RULES)
+    if managed_permission_rules_only():
+        rules = [rule for rule in rules if _kept_when_managed_only(rule)]
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )
 
 
+def _kept_when_managed_only(rule: PermissionRule) -> bool:
+    """`allowManagedPermissionRulesOnly` (#65): yalnız managed kurallar; komut satırının
+    kısıtlayıcı (deny/ask) kuralları belge dışı olduğu için gevşetilmez, korunur."""
+    if rule.source == LAYER_MANAGED:
+        return True
+    return rule.source == LAYER_CLI and rule.decision is not PermissionDecision.ALLOW
+
+
+def set_session_rules(rules: Iterable[PermissionRule]) -> None:
+    """Komut satırı kurallarını bu süreç için kur (öncekilerin yerine)."""
+    _SESSION_RULES[:] = [PermissionRule(r.tool, r.specifier, r.decision, LAYER_CLI) for r in rules]
+
+
+def session_rules() -> tuple[PermissionRule, ...]:
+    return tuple(_SESSION_RULES)
+
+
+def is_settings_mcp_param_rule(rule: PermissionRule) -> bool:
+    """Ayar dosyasında parantezli `mcp__` kuralı: Claude yükleme sırasında atlar (#87)."""
+    return rule.tool.startswith("mcp__") and rule.specifier is not None
+
+
+def skipped_settings_rules(path: Path) -> tuple[str, ...]:
+    """Dosyada atlanan (geçersiz) kuralların yazımı; uyarı ve `doctor` için."""
+    return tuple(
+        format_rule(rule)
+        for rule in _parse_file(path, source="")
+        if is_settings_mcp_param_rule(rule)
+    )
+
+
 def read_rules_file(path: Path, *, source: str = "") -> tuple[PermissionRule, ...]:
-    """Tek bir ayar dosyasının `permissions.{allow,ask,deny}` listelerini oku."""
+    """Tek bir ayar dosyasının `permissions.{allow,ask,deny}` listelerini oku.
+
+    Parantezli `mcp__` kuralı atlanır (Claude: MCP parametre eşlemesi yalnız
+    `--disallowedTools` ile verilir; #87).
+    """
+    return tuple(r for r in _parse_file(path, source=source) if not is_settings_mcp_param_rule(r))
+
+
+def _parse_file(path: Path, *, source: str) -> tuple[PermissionRule, ...]:
     data = _read_json(path)
-    permissions = data.get("permissions") if data is not None else None
+    return _parse_mapping(data or {}, source=source)
+
+
+def _parse_mapping(data: Mapping[str, object], *, source: str) -> tuple[PermissionRule, ...]:
+    permissions = data.get("permissions")
     if not isinstance(permissions, Mapping):
         return ()
     found: list[PermissionRule] = []

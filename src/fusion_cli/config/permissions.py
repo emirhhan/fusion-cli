@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 
+from .local_settings_location import local_settings_path
 from .setting_sources import SOURCE_LOCAL, source_enabled
 from .trust import PROJECT_PERMISSIONS_PATH, is_permissions_trusted
 
@@ -36,12 +37,12 @@ _SHELL_META = re.compile(r"[;&|<>`\n\r]|\$\(|\$\{")
 
 def has_untrusted_permissions(root: Path) -> bool:
     """Projede izin dosyası var ama güvenilmediği için yok mu sayılıyor?"""
-    return (root / SETTINGS_PATH).is_file() and not is_permissions_trusted(root)
+    return (local_settings_path(root)).is_file() and not is_permissions_trusted(root)
 
 
 def load_allowed_commands(root: Path) -> frozenset[str]:
     """İzin verilen kabuk komutlarını oku (yalnız güvenilen projede)."""
-    path = root / SETTINGS_PATH
+    path = local_settings_path(root)
     if not source_enabled(SOURCE_LOCAL) or not is_permissions_trusted(root):
         return frozenset()
     try:

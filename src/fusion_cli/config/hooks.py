@@ -41,11 +41,11 @@ from ..core.hooks.events import (
     HookSkip,
     parse_event,
 )
+from .local_settings_location import local_settings_path
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
 from .setting_sources import layer_enabled
 from .trust import (
-    PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
     is_permissions_trusted,
     is_project_settings_trusted,
@@ -92,7 +92,7 @@ def hook_layers(root: Path, home: Path | None = None) -> tuple[HookLayer, ...]:
         HookLayer(LAYER_FUSION, user_config_dir() / USER_HOOKS_NAME),
         HookLayer(LAYER_USER, base / CLAUDE_USER_SETTINGS, is_claude=True),
         HookLayer(LAYER_PROJECT, root / PROJECT_SETTINGS_PATH, requires_trust=True),
-        HookLayer(LAYER_LOCAL, root / PROJECT_PERMISSIONS_PATH, requires_trust=True),
+        HookLayer(LAYER_LOCAL, local_settings_path(root), requires_trust=True),
     )
 
 

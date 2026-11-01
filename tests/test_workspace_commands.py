@@ -73,8 +73,19 @@ def test_add_dir_acar_listeler_ve_kapatir(state, tmp_path):
     assert state.extra_roots == (ek.resolve(),)
     assert "Zaten açık" in _run(state, "add-dir", str(ek))
     assert str(ek.resolve()) in _run(state, "add-dir")
-    assert "proje kökünün içinde" in _run(state, "add-dir", str(state.root))
+    assert "zaten proje kökü" in _run(state, "add-dir", str(state.root))
     assert "bulunamadı" in _run(state, "add-dir", str(tmp_path / "yok"))
     assert "ev dizininin" in _run(state, "add-dir", str(Path.home()))
     assert "kapatıldı" in _run(state, "add-dir", f"kaldir {ek}")
     assert state.extra_roots == ()
+
+
+def test_add_dir_alt_klasorun_tanimlarini_yukler(state):
+    """Claude (#77): birincil dizinin alt dizini reddedilmez; tanımları yüklenir."""
+    alt = state.root / "paket"
+    (alt / ".claude" / "skills" / "yerel-beceri").mkdir(parents=True)
+    (alt / ".claude" / "skills" / "yerel-beceri" / "SKILL.md").write_text(
+        "---\nname: yerel-beceri\ndescription: test\n---\ngovde\n", encoding="utf-8"
+    )
+    assert "tanımları yüklendi" in _run(state, "add-dir", str(alt))
+    assert "yerel-beceri" in {skill.name for skill in state.capabilities.skills()}

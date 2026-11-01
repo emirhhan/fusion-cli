@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { autoPolicyDisabled, onAutoGateChange } from "../sessions/autoGate";
 import { Icon } from "../ui/Icon";
 import "./ApprovalModeMenu.css";
 
@@ -15,7 +16,7 @@ interface ModeInfo {
 export const APPROVAL_MODES: readonly ModeInfo[] = [
   { id: "auto", label: "Otomatik", hint: "Fusion karar verir; yalnız riskli işlemde sorar" },
   { id: "security", label: "Manuel", hint: "Okuma dışındaki her işlemden önce sorar" },
-  { id: "edits", label: "Düzenlemeleri kabul et", hint: "Dosya düzenlemelerini sormadan uygular; komutları sorar" },
+  { id: "edits", label: "Düzenlemeleri kabul et", hint: "Dosya düzenlemelerini ve mkdir, touch, rm, rmdir, mv, cp, sed komutlarını çalışma dizininde sormadan uygular; öteki komutları sorar" },
   { id: "plan", label: "Plan", hint: "Değiştirmeden önce plan çıkarır; yalnız okur" },
   { id: "bypass", label: "İzinleri atla", hint: "Hiçbir şey sormaz; silinenler yine Fusion çöpüne gider" },
 ];
@@ -23,13 +24,20 @@ export const APPROVAL_MODES: readonly ModeInfo[] = [
 /** Shift+Tab döngüsü. "İzinleri atla" BİLEREK yok: yanlışlıkla açılmamalı. */
 const CYCLE: readonly ApprovalMode[] = ["auto", "security", "edits", "plan"];
 
+/** `disableAutoMode: "disable"` (#85): auto menüden ve döngüden çıkar (seçiliyse görünür kalır). */
+function visibleModes(current: ApprovalMode): readonly ModeInfo[] {
+  if (!autoPolicyDisabled() || current === "auto") return APPROVAL_MODES;
+  return APPROVAL_MODES.filter((item) => item.id !== "auto");
+}
+
 export function approvalInfo(mode: ApprovalMode): ModeInfo {
   return APPROVAL_MODES.find((item) => item.id === mode) ?? APPROVAL_MODES[0];
 }
 
 export function nextApprovalMode(mode: ApprovalMode): ApprovalMode {
-  const index = CYCLE.indexOf(mode);
-  return CYCLE[(index + 1) % CYCLE.length];
+  const cycle = autoPolicyDisabled() ? CYCLE.filter((item) => item !== "auto") : CYCLE;
+  const index = cycle.indexOf(mode);
+  return cycle[(index + 1) % cycle.length];
 }
 
 /** Composer'daki izin kipi seçici: Claude'daki gibi açıklamalı, rakam kısayollu menü. */
@@ -46,6 +54,10 @@ export function ApprovalModeMenu({
   const trigger = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const current = approvalInfo(mode);
+  const [, setAutoGate] = useState(0);
+  const modes = visibleModes(mode);
+
+  useEffect(() => onAutoGateChange(() => setAutoGate((value) => value + 1)), []);
 
   useEffect(() => {
     if (!open) return;
@@ -68,22 +80,22 @@ export function ApprovalModeMenu({
   };
 
   const toggle = () => {
-    setFocus(Math.max(0, APPROVAL_MODES.findIndex((item) => item.id === mode)));
+    setFocus(Math.max(0, modes.findIndex((item) => item.id === mode)));
     setOpen((value) => !value);
   };
 
   const onMenuKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const digit = Number(event.key);
-    if (Number.isInteger(digit) && digit >= 1 && digit <= APPROVAL_MODES.length) {
+    if (Number.isInteger(digit) && digit >= 1 && digit <= modes.length) {
       event.preventDefault();
-      choose(APPROVAL_MODES[digit - 1].id);
+      choose(modes[digit - 1].id);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setFocus((value) => (value + step + APPROVAL_MODES.length) % APPROVAL_MODES.length);
+      setFocus((value) => (value + step + modes.length) % modes.length);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      setFocus(event.key === "Home" ? 0 : APPROVAL_MODES.length - 1);
+      setFocus(event.key === "Home" ? 0 : modes.length - 1);
     } else if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
@@ -113,7 +125,7 @@ export function ApprovalModeMenu({
       </button>
       {open && (
         <div aria-label="İzin modu" className="approval-menu__list" onKeyDown={onMenuKey} role="menu">
-          {APPROVAL_MODES.map((item, index) => (
+          {modes.map((item, index) => (
             <button
               aria-checked={item.id === mode}
               className="approval-menu__item"

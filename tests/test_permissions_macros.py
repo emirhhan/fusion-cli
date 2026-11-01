@@ -94,23 +94,24 @@ def test_guvenilmeyen_projenin_izin_listesi_yuklenmez(tmp_path):
     assert has_untrusted_permissions(tmp_path)
 
 
-def test_guvenden_sonra_degisen_izin_dosyasi_yeniden_guvensiz(tmp_path):
+def test_guvenden_sonra_degisen_izin_dosyasi_guvenli_kalir(tmp_path):
+    """Claude (#67, #71): güven klasör başına bir kez verilir; içerik değişince düşmez."""
     _yaz(tmp_path, {"permissions": {"allow": ["Bash(ls)"]}})
     assert load_allowed_commands(tmp_path) == {"ls"}
 
     _yaz(tmp_path, {"permissions": {"allow": ["Bash(ls)", "Bash(curl *)"]}}, guven=False)
 
-    assert load_allowed_commands(tmp_path) == frozenset()
+    assert load_allowed_commands(tmp_path) == {"ls", "curl *"}
 
 
-def test_config_guveni_eski_kayitta_izin_dosyasini_acmaz(tmp_path):
-    """Yalnız config için verilmiş eski güven kaydı izin dosyasını da güvenilir yapmaz."""
+def test_klasor_guveni_sonradan_yazilan_izin_dosyasini_kapsar(tmp_path):
+    """Klasöre güvenildiyse sonradan oluşan yerel dosya da geçerlidir (#67)."""
     from fusion_cli.config import trust
 
     trust.trust_project(tmp_path)  # izin dosyası henüz yok
     _yaz(tmp_path, {"permissions": {"allow": ["Bash(curl *)"]}}, guven=False)
 
-    assert load_allowed_commands(tmp_path) == frozenset()
+    assert load_allowed_commands(tmp_path) == {"curl *"}
 
 
 def test_sozcuk_siniri_ve_kabuk_meta_karakteri():
@@ -160,8 +161,8 @@ async def test_izinli_komut_security_modda_sorulmaz():
     assert karar is Decision.ALLOW
 
 
-async def test_izinli_olsa_bile_yikici_komut_sorulur():
-    """İzin listesi yıkıcı komutlar için istisna sağlamaz."""
+async def test_izinli_yikici_komut_claude_gibi_gecer():
+    """Claude (#84): allow kuralı sezgisel yıkıcı komut adımını aşar (deny → ask → allow)."""
     from fusion_cli.core.tools import Tool
     from fusion_cli.engines.agent.approval import (
         ApprovalMode,
@@ -181,7 +182,7 @@ async def test_izinli_olsa_bile_yikici_komut_sorulur():
         build_request(tool, {"command": "git reset --hard"}, frozenset({"git reset --hard"}))
     )
 
-    assert karar is Decision.DENIED
+    assert karar is Decision.ALLOW
 
 
 # --- Makrolar ------------------------------------------------------------------- #

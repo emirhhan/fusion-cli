@@ -373,13 +373,16 @@ async def test_auto_allow_ag_acikken_ya_da_yikici_komutta_yine_sorar(proje):
     assert len(onayci.sorulan) == 2
 
 
-async def test_plan_kipi_auto_allow_ile_de_yazma_komutunu_engeller(proje):
-    politika = build_policy(ApprovalMode.PLAN, _Onayci())
+async def test_plan_kipi_auto_allow_ile_de_yazma_komutunu_sorar(proje):
+    """Claude (#52): plan kipinde okuma dışı komut sandbox auto-allow açık olsa da sorulur."""
+    onayci = _Onayci()
+    politika = build_policy(ApprovalMode.PLAN, onayci)
     policy = SandboxPolicy(auto_allow=True, network="allowlist")
     istek = await resolve_request(
         _run_shell(), {"command": "touch yeni.txt"}, root=proje, context=_context(proje, policy)
     )
-    assert await politika.decide(istek) is Decision.BLOCKED
+    await politika.decide(istek)
+    assert len(onayci.sorulan) == 1
 
 
 async def test_kurulamayan_sandbox_fail_if_unavailable_ile_sorulmadan_engellenir(

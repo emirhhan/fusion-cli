@@ -54,6 +54,11 @@ class AutoReviewState:
         self._cache: OrderedDict[str, ReviewOutcome] = OrderedDict()
         #: Kip düşünce oturum kipini Manuel'e çeken geri çağrı (sahip bağlar).
         self.on_fallback: Callable[[], None] | None = None
+        #: Bypass kullanılabilir oturum mu (#52; sahip bağlar): plan kipinde sınıflandırıcı yok.
+        self.plan_bypass: Callable[[], bool] | None = None
+        #: Onay kartındaki "auto kipine geç" ile kaç kez geçildi (#82); döngü bu turdaki
+        #: onaylı çağrıyı iptal etmesin diye kapsamı yeniden okur.
+        self.mode_switches = 0
 
     @property
     def model_unavailable(self) -> bool:

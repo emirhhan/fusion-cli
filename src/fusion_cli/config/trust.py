@@ -26,6 +26,7 @@ from typing import Any
 import yaml
 
 from ..core.errors import ConfigError
+from .local_settings_location import local_settings_path
 from .paths import user_config_dir
 
 #: Proje kökünde yürütme ayarı taşıyabilen yapılandırma dosyası.
@@ -111,32 +112,40 @@ def was_project_trusted(root: Path) -> bool:
 
 
 def is_permissions_trusted(root: Path) -> bool:
-    """`.claude/settings.local.json` güvenildiği andaki içerikle mi duruyor?
+    """`.claude/settings.local.json` allow kuralları uygulanabilir mi? (Claude, #67)
 
-    Dosya yoksa güvenilecek bir şey yoktur (True). Dosya varsa kayıtta onun karması
-    bulunmalı ve eşleşmelidir; `fusion trust` öncesinde yazılmış kayıtlarda alan
-    olmadığından dosya yeniden güvenilene kadar yok sayılır.
+    Dosya yoksa ya da ev dizinindeyse güven gerekmez; öteki yerde klasör güveni yeter
+    (içerik karması aranmaz, dosya değişince güven düşmez).
     """
-    return _is_digest_trusted(root, PROJECT_PERMISSIONS_PATH)
+    from .workspace_trust import is_config_home, is_folder_trusted
+
+    if not (local_settings_path(root)).is_file() or is_config_home(root):
+        return True
+    # Fusion'ın kendi yazdığı ("bir daha sorma") dosya, karması tutuyorsa güven sorusu
+    # olmadan da geçerlidir (güven iletişim kutusu henüz yok, #71).
+    return is_folder_trusted(root) or _written_by_fusion(root)
+
+
+def _written_by_fusion(root: Path) -> bool:
+    try:
+        current = _digest(local_settings_path(root))
+    except ConfigError:
+        return False
+    record = _load().get(_key(root))
+    return record is not None and record.get("settings_sha256") == current
 
 
 def is_project_settings_trusted(root: Path) -> bool:
-    """`.claude/settings.json` güvenildiği andaki içerikle mi duruyor? (P-001)
+    """`.claude/settings.json` allow kuralları uygulanabilir mi? (Claude, #71)
 
-    Eski kayıtlarda alan yoktur: dosya yeniden `fusion trust` ile güvenilene dek yok sayılır.
+    Dosya yoksa güvenilecek bir şey yoktur. Varsa klasöre (ya da git köküne) bir kez
+    güvenilmiş olması yeter; içerik değişince güven düşmez.
     """
-    return _is_digest_trusted(root, PROJECT_SETTINGS_PATH)
+    from .workspace_trust import is_folder_trusted
 
-
-def _is_digest_trusted(root: Path, relative: Path) -> bool:
-    try:
-        current = _digest(root / relative)
-    except ConfigError:
-        return False
-    if current is None:
+    if not (root / PROJECT_SETTINGS_PATH).is_file():
         return True
-    record = _load().get(_key(root))
-    return record is not None and record.get(_DIGEST_KEYS[relative]) == current
+    return is_folder_trusted(root)
 
 
 def record_permissions_digest(root: Path) -> None:
@@ -150,7 +159,7 @@ def record_permissions_digest(root: Path) -> None:
         root,
         config_sha256=record.get("config_sha256") if record is not None else _NEVER_TRUSTED,
         files=dict(record.get("files", {})) if record is not None else {},
-        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        settings_sha256=_digest(local_settings_path(root)),
         project_settings_sha256=record.get("project_settings_sha256") if record else None,
     )
 
@@ -189,11 +198,11 @@ def trust_report(root: Path) -> TrustReport:
             data = None
         if isinstance(data, Mapping):
             _, dropped = without_execution_settings(data)
-    ignored = tuple(
-        relative.as_posix()
-        for relative in (PROJECT_SETTINGS_PATH, PROJECT_PERMISSIONS_PATH)
-        if (root / relative).is_file() and not _is_digest_trusted(root, relative)
+    checks = (
+        (PROJECT_SETTINGS_PATH, is_project_settings_trusted),
+        (PROJECT_PERMISSIONS_PATH, is_permissions_trusted),
     )
+    ignored = tuple(relative.as_posix() for relative, trusted in checks if not trusted(root))
     tools = sum(
         1
         for path in (root / FORGED_TOOLS_DIR).glob("*.py")
@@ -244,7 +253,7 @@ def trust_project(root: Path) -> None:
         root,
         config_sha256=_digest(root / PROJECT_CONFIG_NAME),
         files=files,
-        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        settings_sha256=_digest(local_settings_path(root)),
         project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
 

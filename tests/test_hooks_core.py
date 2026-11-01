@@ -190,9 +190,9 @@ def test_kullanici_dosyalari_okunur_proje_dosyasi_guven_ister(tmp_path, _izole_e
     assert any(s.detail == "depo-kancasi" for s in hooks.skipped)
     trust.trust_project(proje)
     assert "depo-kancasi" in {c.command for c in hooks_config.load_hooks(proje).commands}
-    # Güvenden SONRA değişen dosya yeniden güvensizdir.
+    # Claude (#71): güven klasöre bağlıdır; dosya sonradan değişse de düşmez.
     _ayar(proje / ".claude" / "settings.json", {"PreToolUse": _grup("yeni-kanca")})
-    assert "yeni-kanca" not in {c.command for c in hooks_config.load_hooks(proje).commands}
+    assert "yeni-kanca" in {c.command for c in hooks_config.load_hooks(proje).commands}
 
 
 def test_disable_all_hooks_guvenilmeyen_projeden_okunmaz_uyari_olarak_gorunur(tmp_path, _izole_ev):

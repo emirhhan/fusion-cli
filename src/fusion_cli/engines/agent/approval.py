@@ -8,7 +8,8 @@ motor hangi kipte olduğunu bilmez, yalnızca `decide` çağırır.
               dikkat gerektiren silme, uzak sistemde değişiklik) sorulur
     edits     dosya düzenlemeleri ve tanınan güvenli komutlar sorulmaz; kalan sorulur
     security  "Manuel": okuma dışındaki her işlem tek tek sorulur
-    plan      hiçbir değişikliğe izin yok; yalnız okuma, keşif ve plan
+    plan      düzenleme yok; okuma serbest; öteki kabuk komutu ve uzak değişiklik
+              sorulur (`plan_approval`, #52)
     bypass    hiçbir şey sorulmaz (silinen yine Fusion çöpüne gider); tek istisna:
               uzak sistemde geri alınamaz etki bildiren araç her çağrıda sorulur
 
@@ -17,9 +18,10 @@ iznine dönüşmez: otomatik onay hız içindir, geri alınamaz bir işlemi sess
 yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alınır.
 
 İzin kuralları (P-001, `config/permission_rules.py`) kipten ÖNCE gelir ve karar sırası
-sabittir: deny (her kipte, bypass dahil; sorulmaz) → yıkıcı (sorulur) → ask (sorulur)
-→ allow (sorulmaz) → kip → hafıza → soru. Korumalı proje yolu (`.git/`, `.claude/`…)
-yıkıcı sayılır (P-002).
+sabittir (Claude gibi, #84): deny (her kipte, bypass dahil; sorulmaz) → ask (sorulur)
+→ allow (sorulmaz; yalnız korumalı yol ve kritik yol silmesini açmaz) → kip → hafıza → soru.
+Fusion'ın sezgisel yıkıcı (`danger`) sınıflandırması yalnız kuralsız çağrıda kipin önüne geçer.
+Korumalı proje yolu (`.git/`, `.claude/`…) yıkıcı sayılır (P-002).
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ from pathlib import Path
 from typing import Protocol
 
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
-from ...config.permissions import is_allowed
 from ...core.desktop_settings import DesktopTarget
 from ...core.errors import ConfigError
 from ...core.tools import (
@@ -46,19 +47,54 @@ from ...core.tools import (
     tool_family,
 )
 from ...tools import desktop_policy
-from ...tools.auto_policy import auto_risk, is_read_only_command
-from ...tools.command_paths import escapes_project
-from ...tools.command_policy import is_unattended_safe
-from ...tools.delete_preview import delete_caution, describe_delete, script_danger
-from ...tools.permission_match import RuleMatch, evaluate, writes_files
+from ...tools.accept_edits_scope import accept_edits_allows
+from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
+from ...tools.outside_reads import read_roots
+from ...tools.permission_match import RuleMatch, evaluate
 from ...tools.protected_paths import protected_path_reason
-from ...tools.safe_delete import simple_rm_targets
-from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
-from ...tools.script_chain import script_chain_risk
-from ...tools.write_targets import write_targets
+from ...tools.safety import danger_reason
+from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
+from .approval_modes import (
+    CYCLE_MODES as CYCLE_MODES,
+)
+from .approval_modes import (
+    MODE_STRICTNESS as MODE_STRICTNESS,
+)
+from .approval_modes import (
+    ApprovalMode as ApprovalMode,
+)
+from .approval_modes import (
+    may_run_unasked_commands as may_run_unasked_commands,
+)
+from .approval_modes import (
+    next_mode as next_mode,
+)
+from .approval_modes import (
+    parse_mode as parse_mode,
+)
+from .approval_modes import (
+    strictest_mode as strictest_mode,
+)
 from .auto_guard import AutoReviewState
+from .auto_switch import AutoSwitch, apply_auto_switch, with_auto_offer
+from .claude_dir_session import claude_dir_key, claude_dir_label
 from .desktop_approval import apply_desktop, consent_description
+from .plan_approval import PlanApproval
+from .read_approval import mark_outside_read
 from .sandbox_approval import apply_sandbox_policy
+from .shell_approval import (
+    OUTSIDE_WRITE_BLOCKED as OUTSIDE_WRITE_BLOCKED,
+)
+from .shell_approval import (
+    _outside_write_dir as _outside_write_dir,
+)
+from .shell_approval import (
+    _outside_write_targets as _outside_write_targets,
+)
+from .shell_approval import (
+    _shell_request as _shell_request,
+)
+from .web_approval import adjust_web_request, web_scope
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -81,82 +117,6 @@ _UNATTENDED_EFFECTS = frozenset(
 )
 
 
-class ApprovalMode(Enum):
-    """Kullanıcının seçtiği onay politikası (Claude'un izin kipleri)."""
-
-    AUTO = "auto"
-    ACCEPT_EDITS = "edits"
-    SECURITY = "security"
-    PLAN = "plan"
-    BYPASS = "bypass"
-    DONT_ASK = "dontAsk"
-
-
-#: Shift+Tab döngüsü (Claude'daki sıra). "İzinleri atla" BİLEREK yok: tek tuşla
-#: yanlışlıkla açılmamalı; `/bypass` ile açıkça seçilir.
-CYCLE_MODES = (
-    ApprovalMode.AUTO,
-    ApprovalMode.SECURITY,
-    ApprovalMode.ACCEPT_EDITS,
-    ApprovalMode.PLAN,
-)
-
-
-def next_mode(mode: ApprovalMode) -> ApprovalMode:
-    """Döngüdeki sıradaki kip; döngü dışındaki kipten (bypass) Otomatik'e dönülür."""
-    if mode not in CYCLE_MODES:
-        return ApprovalMode.AUTO
-    return CYCLE_MODES[(CYCLE_MODES.index(mode) + 1) % len(CYCLE_MODES)]
-
-
-def may_run_unasked_commands(mode: ApprovalMode) -> bool:
-    """Kip, onay sorusu olmadan arka plan komutu (dev sunucusu) çalıştırmaya izin verir mi?
-
-    SECURITY ("okuma dışı her şey sorulur") ve PLAN (hiçbir değişiklik yok) vermez.
-    """
-    return mode not in (ApprovalMode.SECURITY, ApprovalMode.PLAN, ApprovalMode.DONT_ASK)
-
-
-#: Kipin elle yazılabilen öteki adları (Claude'daki adlar dahil).
-_MODE_ALIASES = {
-    "dontask": ApprovalMode.DONT_ASK,
-    "dont-ask": ApprovalMode.DONT_ASK,
-    "manual": ApprovalMode.SECURITY,
-    "manuel": ApprovalMode.SECURITY,
-    "default": ApprovalMode.SECURITY,
-    "accept-edits": ApprovalMode.ACCEPT_EDITS,
-    "acceptedits": ApprovalMode.ACCEPT_EDITS,
-    "bypass-permissions": ApprovalMode.BYPASS,
-    "bypasspermissions": ApprovalMode.BYPASS,
-}
-
-
-def parse_mode(raw: str) -> ApprovalMode:
-    """Kip adını çöz; bilinmiyorsa `ValueError`."""
-    value = raw.strip().lower()
-    return _MODE_ALIASES.get(value) or ApprovalMode(value)
-
-
-#: Kiplerin sıkılık sırası (küçük = gevşek). Alt ajanın `permissionMode` alanı üst ajanın
-#: kipini yalnız bu sırada YUKARI taşıyabilir (P-034): `bypass` miras alınmaz, `plan`
-#: isteyen alt ajan auto kipteki üstten daha gevşek olamaz.
-MODE_STRICTNESS: dict[ApprovalMode, int] = {
-    ApprovalMode.BYPASS: 0,
-    ApprovalMode.AUTO: 1,
-    ApprovalMode.ACCEPT_EDITS: 2,
-    ApprovalMode.SECURITY: 3,
-    ApprovalMode.DONT_ASK: 3,
-    ApprovalMode.PLAN: 4,
-}
-
-
-def strictest_mode(parent: ApprovalMode, requested: ApprovalMode | None) -> ApprovalMode:
-    """Üst kip ile istenen kipten SIKI olanı döndür; istek yoksa üst kip."""
-    if requested is None:
-        return parent
-    return requested if MODE_STRICTNESS[requested] > MODE_STRICTNESS[parent] else parent
-
-
 class Decision(Enum):
     """Bir araç çağrısının akıbeti.
 
@@ -176,6 +136,8 @@ class ApprovalAnswer(Enum):
     SESSION = "session"
     #: Kalıcı kural: "bir daha sorma" (`permission_persist`); yalnız `can_persist` isteklerde.
     ALWAYS = "always"
+    #: "Evet, ve auto kipine geç" (#82); yalnız `offers_auto` isteklerde.
+    AUTO = "auto"
     DENY = "deny"
     #: Kimseye SORULAMADI (oturum etkileşimsiz — TTY yok, boru hattı, CI).
     #:
@@ -273,6 +235,32 @@ class ApprovalRequest:
     desktop_blocked: bool = False
     #: Modelin araç çağrısı kimliği (`tool_use_id`); döngü onaydan önce doldurur.
     call_id: str = ""
+    #: Tanınan kritik yol `rm`/`rmdir` silmesi (#42): bypass dahil hiçbir kip sormadan geçirmez.
+    critical: str | None = None
+    #: Kabuk komutu acceptEdits kapsamında mı (#53)? Kabuk dışı çağrıda `None`.
+    accept_edits_ok: bool | None = None
+    #: Korumalı yol gerekçesi (`.git/`, `.claude/`…); allow kuralı bunu açmaz (#84).
+    protected: str | None = None
+    #: Dosya aracı yalnız `.claude/` klasörüne yazıyor (#82): kart Claude gibi o klasör için
+    #: oturumluk izin sunar (`claude_dir_session.PROJECT_KEY` / `USER_KEY`).
+    claude_dir: str | None = None
+    #: Plan kipinde auto sınıflandırıcısı komutu güvenli buldu (#52, `useAutoModeDuringPlan`):
+    #: `PlanApproval` sormadan geçirir. Yalnız `plan_review` doldurur.
+    classifier_allowed: bool = False
+    #: Kart "Evet, ve auto kipine geç" seçeneğini sunar (#82; `auto_switch.with_auto_offer`).
+    offers_auto: bool = False
+
+    @property
+    def rule_opens(self) -> bool:
+        """Allow kuralı çağrıyı açıyor mu (#84)? Claude: deny → ask → allow; allow kuralı
+        yalnız korumalı yolları ve kritik yol silmelerini açmaz, Fusion'ın sezgisel
+        `danger` sınıflandırması allow'un önüne geçmez."""
+        return (
+            self.pre_allowed
+            and self.pre_ask is None
+            and self.critical is None
+            and self.protected is None
+        )
 
     @property
     def can_remember(self) -> bool:
@@ -282,7 +270,23 @@ class ApprovalRequest:
         ask daima sorar). Ölçüldü (31 Ekim): kart 'bu oturumda tekrar sorma' sunuyor ve
         ikinci `git push` sorulmadan geçiyordu.
         """
+        if self.claude_dir is not None:
+            # Korumalı `.claude/` yazımı (#82): tek tehlike korumalı yol olduğunda.
+            return self.pre_ask is None and self.critical is None
         return self.danger is None and self.pre_ask is None and _scope(self) is not None
+
+    @property
+    def session_label(self) -> str | None:
+        """Oturum seçeneğinin isteğe özgü etiketi (`.claude/` için Claude metni, #82)."""
+        return claude_dir_label(self.claude_dir)
+
+    @property
+    def offers_session(self) -> bool:
+        """Kartta "bu oturumda sorma" seçeneği var mı (#82)? Claude'da kabuk komutunda
+        yalnız kalıcı "Yes, and don't ask again" sunulur; kalıcı kural yazılamıyorsa oturum."""
+        if not self.can_remember:
+            return False
+        return not (tool_family(self.tool.name) is ToolFamily.SHELL and self.can_persist)
 
     @property
     def can_persist(self) -> bool:
@@ -296,6 +300,8 @@ class ApprovalRequest:
             and self.pre_ask is None
             and self.effect is ToolEffect.LOCAL
             and tool_family(self.tool.name) is not ToolFamily.EXTERNAL
+            # Claude (#68): dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir.
+            and self.tool.name not in FILE_WRITE_TOOLS
         )
 
     @property
@@ -354,6 +360,11 @@ class ApprovalMemory:
         self.notices: list[str] = []
         #: Otomatik kip denetçisinin oturum durumu: engel sayaçları, kip düşüşü (P-011).
         self.auto_review = AutoReviewState(remembered=self.is_remembered)
+        #: Bypass kullanılabilir oturum: plan kipinde de soru/sınıflandırıcı yok (#52).
+        self.plan_bypass = False
+        self.auto_review.plan_bypass = lambda: self.plan_bypass
+        #: Kartta "auto kipine geç" seçeneği (#82); sahip (`ReplState`) bağlar.
+        self.auto_switch: AutoSwitch | None = None
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
@@ -367,12 +378,12 @@ class ApprovalMemory:
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
         scope = _scope(request)
-        return request.danger is None and scope is not None and scope in self._scopes
+        return _rememberable(request) and scope is not None and scope in self._scopes
 
     def remember(self, request: ApprovalRequest) -> None:
         """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
         scope = _scope(request)
-        if request.danger is None and scope is not None:
+        if _rememberable(request) and scope is not None:
             self._scopes.add(scope)
 
 
@@ -382,6 +393,9 @@ class _AskingApproval:
     Yıkıcı (`danger`) çağrı hiçbir kipte serbest değildir; kullanıcının izin
     listesindeki komut (`pre_allowed`) her soran kipte serbesttir.
     """
+
+    #: Kart "Evet, ve auto kipine geç" sunar mı (#82; Claude: yalnız Manuel ve acceptEdits).
+    _offers_auto = False
 
     def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
@@ -394,15 +408,15 @@ class _AskingApproval:
         if request.pre_denied is not None:
             # `deny` kuralı / kök-dışı engel: kimseye sorulmaz, model gerekçeyi görür.
             return Decision.BLOCKED
-        if (
-            request.danger is None
-            and request.pre_ask is None
-            and (request.pre_allowed or self._allows(request))
+        if request.rule_opens or (
+            request.danger is None and request.pre_ask is None and self._allows(request)
         ):
             return Decision.ALLOW
         if request.pre_ask is None and self._memory.is_remembered(request):
             return Decision.ALLOW
-        return await _ask_and_remember(self._prompter, request, self._memory)
+        return await _ask_and_remember(
+            self._prompter, request, self._memory, offer_auto=self._offers_auto
+        )
 
 
 class AutoApproval(_AskingApproval):
@@ -435,7 +449,15 @@ class AutoApproval(_AskingApproval):
 class AcceptEditsApproval(_AskingApproval):
     """Düzenlemeleri kabul et: dosya düzenlemeleri ve tanınan güvenli komutlar serbest."""
 
+    _offers_auto = True
+
     def _allows(self, request: ApprovalRequest) -> bool:
+        # Kabukta Claude kapsamı (#53): 7 dosya sistemi komutu çalışma dizinlerinde + salt okuma.
+        if request.accept_edits_ok is not None:
+            return request.accept_edits_ok
+        # Sayfada tıklama/yazma düzenleme değildir: Claude gibi Manuel kipteki gibi sorulur.
+        if request.effect is ToolEffect.REMOTE_INTERACT:
+            return False
         return request.unattended_safe
 
 
@@ -446,6 +468,8 @@ class SecurityApproval(_AskingApproval):
     o kararı zaten vermiştir. Yıkıcı komutlar bu istisnadan yararlanamaz.
     """
 
+    _offers_auto = True
+
     def _allows(self, request: ApprovalRequest) -> bool:
         return request.read_only
 
@@ -454,6 +478,8 @@ class DontAskApproval:
     """Açık izinleri ve okumayı koru; kullanıcı etkileşimi gereken çağrıyı reddet."""
 
     async def decide(self, request: ApprovalRequest) -> Verdict:
+        if request.pre_denied is None and request.rule_opens:
+            return Decision.ALLOW
         if (
             request.pre_denied is not None
             or request.pre_ask is not None
@@ -462,32 +488,7 @@ class DontAskApproval:
             or request.effect is ToolEffect.REMOTE_SESSION
         ):
             return Decision.BLOCKED
-        if request.pre_allowed or request.read_only:
-            return Decision.ALLOW
-        return Decision.BLOCKED
-
-
-class PlanApproval:
-    """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
-
-    Okumaya izin verilir — `ls`, `grep`, `git log` gibi salt okuyan kabuk komutu ve
-    uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
-    kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
-    tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
-
-    "Her seferinde sorulur" diyen istek (`pre_ask`: `ask` kuralı, sandbox dışı
-    çalıştırma) plan kipinde sorulamayacağı için ENGELLENİR. Ölçüldü (31 Ekim):
-    `cat ~/.kube/config` + `unsandboxed=true` plan kipinde sorulmadan sandbox dışında
-    çalışıyordu.
-    """
-
-    async def decide(self, request: ApprovalRequest) -> Verdict:
-        if (
-            request.read_only
-            and request.danger is None
-            and request.pre_denied is None
-            and request.pre_ask is None
-        ):
+        if request.read_only:
             return Decision.ALLOW
         return Decision.BLOCKED
 
@@ -511,7 +512,15 @@ class BypassApproval:
     async def decide(self, request: ApprovalRequest) -> Verdict:
         if request.pre_denied is not None:
             return Decision.BLOCKED
-        if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
+        # Claude: açık `ask` kuralı ve kritik yol silmesi bypass'ta da sorulur (#42).
+        # Sandbox dışı çalıştırma isteği de `pre_ask` taşır ama kural değildir: bypass sormaz.
+        explicit_ask = (
+            request.pre_ask is not None and request.rule is not None and not request.pre_allowed
+        )
+        must_ask = explicit_ask or (request.critical is not None and not skip_critical_prompt())
+        if self._prompter is None:
+            return Decision.BLOCKED if must_ask else Decision.ALLOW
+        if not must_ask and request.effect is not ToolEffect.REMOTE_DESTRUCTIVE:
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
@@ -527,7 +536,7 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval()
+        return PlanApproval(prompter, memory)
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:
@@ -562,6 +571,13 @@ async def resolve_request(
         touched=touched,
         extra_roots=extra_roots,
         rules=rules,
+    )
+    # Çalışma dizinleri dışından okuma (#56): Manuel/acceptEdits/plan sorar.
+    request = mark_outside_read(
+        request,
+        root,
+        read_roots(context),
+        blocked=bool(getattr(context, "block_reads_outside_root", False)),
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
@@ -599,13 +615,19 @@ def build_request(
         request = _shell_request(
             tool, args, command, allowed_commands, effect, root, touched, rules=rules
         )
+        request = replace(request, accept_edits_ok=accept_edits_allows(command, root, extra_roots))
+        critical = critical_rm_reason(command, root, extra_roots) if root is not None else None
+        if critical is not None:
+            # Allow kuralı ve oturum izni kritik yol silmesini açmaz (#42, #84).
+            request = replace(request, critical=critical, danger=request.danger or critical)
         return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
-    if danger is None:
-        # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
-        danger = protected_path_reason(tool.name, args, root)
+    # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
+    protected = protected_path_reason(tool.name, args, root)
+    claude_dir = claude_dir_key(tool.name, args, root) if protected and not danger else None
+    danger = danger or protected
     risk = None if effect in _UNATTENDED_EFFECTS else _remote_risk(effect)
     unattended_safe = effect in _UNATTENDED_EFFECTS
     # Yerel dosya aracı proje DIŞINA yazıyorsa risklidir (modül belgesi: "proje dışı
@@ -633,15 +655,10 @@ def build_request(
         authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
         outside_dir=outside_dir,
         pre_denied=pre_denied,
+        protected=protected,
+        claude_dir=claude_dir,
     )
-    return _apply_rule(request, match)
-
-
-#: Kök-dışı yazma engeli açıkken (P-002) modele dönen gerekçe.
-OUTSIDE_WRITE_BLOCKED = (
-    "proje kökü dışına yazma kapalı (ayar: runtime.block_writes_outside_root): {yol}. "
-    "Gerekiyorsa kullanıcı `--add-dir <dizin>` ile ya da Ayarlar › İzinler'den açar"
-)
+    return adjust_web_request(_apply_rule(request, match))
 
 
 def _apply_rule(request: ApprovalRequest, match: RuleMatch | None) -> ApprovalRequest:
@@ -665,105 +682,15 @@ def _remote_risk(effect: ToolEffect) -> str:
     return REMOTE_WRITE_REASON
 
 
-def _outside_write_dir(
-    tool: Tool, args: ToolArgs, root: Path | None, extra_roots: tuple[Path, ...]
-) -> str | None:
-    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini.
-
-    Yazan araç listesi `write_targets` ile ortaktır (A1-06, P-002): `download_file`,
-    `extract_archive` ve görsel araçları da proje dışına yazıyorsa sorulur.
-    """
-    if root is None:
-        return None
-    targets = write_targets(tool.name, args)
-    if not targets:
-        return None
-    raw = targets[0]
-    try:
-        path = Path(raw).expanduser()
-        target = (path if path.is_absolute() else root / path).resolve()
-        allowed = (root.resolve(), *(extra.resolve() for extra in extra_roots))
-    except (OSError, RuntimeError, ValueError):
-        # Çözümlenemeyen yol güvenli tarafta DIŞARIDA sayılır.
-        return str(raw)
-    if any(target == base or base in target.parents for base in allowed):
-        return None
-    return str(target.parent)
-
-
-def _shell_request(
-    tool: Tool,
-    args: ToolArgs,
-    command: str,
-    allowed_commands: frozenset[str],
-    effect: ToolEffect,
-    root: Path | None,
-    touched: Collection[Path] = (),
-    *,
-    rules: PermissionRuleSet | None = None,
-) -> ApprovalRequest:
-    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli.
-
-    Kök-dışı yazma engeli (P-002) kabuk yönlendirmesini de kapatır: `echo x > ~/.zshrc`,
-    `| tee /etc/hosts`. Ölçüldü (31 Ekim): engel yalnız dosya araçlarında uygulanıyordu;
-    Ayarlar'daki "onay bile sorulmadan engellenir" sözü kabukta tutmuyordu.
-    """
-    danger = danger_reason(tool.name, args)
-    trashed = simple_rm_targets(command) is not None
-    if trashed and danger in TRASHABLE_DELETE_REASONS:
-        # Sade `rm` kalıcı silmez, Fusion çöpüne taşır (`shell._guarded_delete`).
-        danger = None
-    home = Path.home()
-    if danger is None and root is not None:
-        danger = script_danger(command, root, home)
-    if danger is None:
-        danger = protected_path_reason(tool.name, args, root, is_shell=True)
-    caution = delete_caution(command, root, home) if root is not None else None
-    target = describe_delete(command, root, home) if root is not None else ""
-    chain = script_chain_risk(command, root, touched)
-    risk = caution or auto_risk(command, root) or chain
-    if danger is not None and target:
-        danger = f"{danger}. {target}"
-    note = ". ".join(part for part in (risk, target) if part) or None
-    pre_denied = None
-    if rules is not None and rules.block_writes_outside_root and root is not None:
-        disari = _outside_write_targets(command, root)
-        if disari:
-            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=disari[0])
-    return ApprovalRequest(
-        tool=tool,
-        args=args,
-        danger=danger,
-        pre_allowed=is_allowed(command, allowed_commands),
-        unattended_safe=(trashed and caution is None)
-        or (chain is None and is_unattended_safe(command, root)),
-        effect=effect,
-        risk=risk,
-        read_only=is_read_only_command(command),
-        note=note,
-        pre_denied=pre_denied,
-    )
-
-
-def _outside_write_targets(command: str, root: Path) -> tuple[str, ...]:
-    """Komutun yönlendirme/`tee` ile proje kökü DIŞINA yazdığı hedefler.
-
-    Bilinmeyen değişken (`> $OUT`) dışarı sayılmaz (`auto_policy._outside` ile aynı kural);
-    `$HOME`/`~` ve mutlak/`..` yollar sayılır.
-    """
-    return tuple(
-        target
-        for target in writes_files(command)
-        if ("$" not in target or "$HOME" in target or "${HOME" in target)
-        and escapes_project("tee", [target], root)
-    )
-
-
 async def _ask_and_remember(
     prompter: Prompter,
     request: ApprovalRequest,
     memory: ApprovalMemory,
+    *,
+    offer_auto: bool = False,
 ) -> Verdict:
+    if offer_auto:
+        request = with_auto_offer(request, memory)
     revision = memory.revision
     reply = await prompter.confirm(request)
     answer, note = (
@@ -790,6 +717,10 @@ async def _ask_and_remember(
         return Decision.ALLOW
     if answer is ApprovalAnswer.ONCE or answer is True:
         return Allowance(dict(updated)) if updated is not None else Decision.ALLOW
+    if answer is ApprovalAnswer.AUTO and request.offers_auto:
+        # Claude "Yes, and switch to auto mode" (#82): bu çağrı çalışır, oturum auto'ya geçer.
+        apply_auto_switch(memory)
+        return Decision.ALLOW
     if answer is ApprovalAnswer.UNAVAILABLE:
         # Kimseye SORULAMADI — bu insanın "hayır" demesiyle AYNI şey değildir.
         # `BLOCKED`, model açısından "bu yoldan olmaz, başka dene" demektir ve
@@ -802,6 +733,11 @@ async def _ask_and_remember(
     return Decision.DENIED
 
 
+def _rememberable(request: ApprovalRequest) -> bool:
+    """Oturum izni saklanabilir mi? Yıkıcı çağrı hayır; korumalı `.claude/` yazımı evet (#82)."""
+    return request.danger is None or (request.claude_dir is not None and request.critical is None)
+
+
 def _scope(request: ApprovalRequest) -> str | None:
     """Oturum izninin dar kapsamı: araç, aynı shell komutu ya da dışarıdaki dizin.
 
@@ -811,8 +747,14 @@ def _scope(request: ApprovalRequest) -> str | None:
     farklı bir anahtara düşer, komuta özgü daralma kaybolur ve izin aracın TÜM
     komutlarını kapsayacak kadar genişler.
     """
+    if request.claude_dir is not None:
+        return request.claude_dir
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    web = web_scope(request)
+    if web is not None:
+        # WebFetch alan başına, WebSearch araç başına (#55).
+        return web
     if request.consent_key is not None:
         # Uygulama başına masaüstü onayı: aynı uygulamada tıklama ve yazma tek izindir.
         return request.consent_key

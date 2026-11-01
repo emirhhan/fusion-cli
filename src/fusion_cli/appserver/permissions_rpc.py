@@ -1,7 +1,9 @@
 """Masaüstü `izin.*` ve `proje.guven_*` istekleri (P-003, P-012).
 
     izin.kurallar        tüm katmanlardaki kurallar + engeller + hedef dosya
-    izin.ekle            {kalip, karar, kapsam: "proje"|"kullanici"}  (proje: güvenilmiyorsa hata)
+    izin.ekle            {kalip, karar, kapsam: "proje"|"paylasilan"|"kullanici"}
+                         (proje: yerel dosya, güvenilmiyorsa hata;
+                         paylasilan: .claude/settings.json)
     izin.sil             {kalip, karar, dosya?}  (dosya: tablodaki satırın dosyası)
     izin.engel           {anahtar: block_reads_outside_root|block_writes_outside_root, deger: bool}
     proje.guven_durum    TrustReport: güvenildi mi, neden, düşürülen bölümler
@@ -50,6 +52,8 @@ def add_rule(root: Path, data: dict[str, Any]) -> dict[str, Any]:
             rule,
             user_level=data.get("kapsam") == "kullanici",
             strict_project=data.get("kapsam") == "proje",
+            # Claude'un paylaşılan proje kapsamı: `.claude/settings.json` (#83).
+            project_shared=data.get("kapsam") == "paylasilan",
         )
     except ConfigError as error:
         return {"ok": False, "metin": str(error)}

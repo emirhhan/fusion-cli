@@ -120,16 +120,23 @@ def _launch(argv: list[str]) -> None:
 
 
 def command(state: ReplState, argument: str) -> str:
-    """`/plan [goster|ac]`: argümansız plan kipine geçer (eski davranış korunur)."""
-    sub = argument.strip().casefold()
-    if not sub:
-        state.approval = ApprovalMode.PLAN
-        return messages.REPL_MODE_CHANGED.format(mode=ApprovalMode.PLAN.value)
+    """`/plan [açıklama]`: plan kipine geçer; açıklama verilirse onu hemen görev yapar (#75).
+
+    Claude Code'daki gibi argüman ilk istemdir. Fusion'ın eski tek sözcüklük alt komutları
+    (`goster`, `ac`) planı göstermek/açmak için çalışmayı sürdürür.
+    """
+    text = argument.strip()
+    sub = text.casefold()
     if sub in {"goster", "göster"}:
         return show(state)
     if sub in {"ac", "aç"}:
         return open_in_editor(state)
-    return messages.PLAN_USAGE
+    state.approval = ApprovalMode.PLAN
+    changed = messages.REPL_MODE_CHANGED.format(mode=ApprovalMode.PLAN.value)
+    if not text:
+        return changed
+    state.pending_task = text
+    return changed
 
 
 __all__ = [

@@ -100,11 +100,15 @@ def test_salt_okuma_tespiti():
         (ApprovalMode.AUTO, "unzip a.zip", Decision.ALLOW),
         (ApprovalMode.AUTO, "git push", Decision.DENIED),
         (ApprovalMode.ACCEPT_EDITS, "unzip a.zip", Decision.DENIED),
-        (ApprovalMode.ACCEPT_EDITS, "pytest -q", Decision.ALLOW),
+        # Claude (#53): acceptEdits yalnız 7 dosya sistemi komutunu ve salt okumayı onaylar.
+        (ApprovalMode.ACCEPT_EDITS, "pytest -q", Decision.DENIED),
+        (ApprovalMode.ACCEPT_EDITS, "mkdir -p src/yeni", Decision.ALLOW),
+        (ApprovalMode.ACCEPT_EDITS, "cp a.txt ~/disari.txt", Decision.DENIED),
         (ApprovalMode.SECURITY, "git status", Decision.ALLOW),
         (ApprovalMode.SECURITY, "pytest -q", Decision.DENIED),
         (ApprovalMode.PLAN, "git log", Decision.ALLOW),
-        (ApprovalMode.PLAN, "npm install", Decision.BLOCKED),
+        # Claude (#52): plan kipinde okuma dışı komut sorulur (burada reddedilir).
+        (ApprovalMode.PLAN, "npm install", Decision.DENIED),
         (ApprovalMode.BYPASS, "git push", Decision.ALLOW),
         (ApprovalMode.BYPASS, "git reset --hard", Decision.ALLOW),
     ],

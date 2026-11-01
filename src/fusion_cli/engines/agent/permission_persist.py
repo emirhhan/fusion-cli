@@ -4,10 +4,10 @@ Claude Code "Yes, and don't ask again for `git status`" dediğinde
 `.claude/settings.local.json` `permissions.allow` listesine `Bash(git status:*)` yazar;
 Fusion aynı dosyayı ve aynı biçimi kullanır — iki araçta tek liste.
 
-Hedef dosya: proje güveniliyorsa (ya da henüz izin dosyası yoksa) projenin
-`.claude/settings.local.json`'ı ve güven kaydındaki karma tazelenir (Fusion'ın kendi
-yazdığı dosya bir sonraki turda "güvenilmiyor" diye düşmesin); proje güvenilmiyorsa
-kullanıcının `permissions.json`'ı. Kural her zaman DAR üretilir: kabukta komutun
+Hedef dosya Claude gibi her zaman git kökündeki `.claude/settings.local.json`'dır (#68).
+Dosya güveniliyorsa (ya da henüz yoksa) güven kaydındaki karma tazelenir (Fusion'ın kendi
+yazdığı dosya bir sonraki turda "güvenilmiyor" diye düşmesin); güvenilmiyorsa kural yazılır
+ama klasöre güvenilene dek bekletilir. Kural her zaman DAR üretilir: kabukta komutun
 seçenek öncesi sözcükleri (`Bash(git status *)`), dosyada hedefin dizini
 (`Edit(/src/alt/**)`), ötekilerde araç adı.
 """
@@ -16,18 +16,39 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...config.permission_admin import add_permission_rule, project_rule_file
-from ...config.permission_rules import (
-    PermissionDecision,
-    PermissionRule,
-    format_rule,
-    user_permissions_file,
-)
+from ...config.local_settings_location import local_settings_path
+from ...config.permission_admin import add_permission_rule
+from ...config.permission_rules import PermissionDecision, PermissionRule, format_rule
+from ...config.trust import is_permissions_trusted
 from ...core.tools import ToolFamily, tool_family
-from ...tools.auto_policy import command_words
+from ...tools.auto_policy import command_words, is_read_only_command
+from ...tools.bash_allow import allow_segments
 from ...tools.write_targets import FILE_WRITE_TOOLS
 from ...ui import messages
 from .approval import ApprovalRequest
+from .web_approval import web_rule
+
+#: Zincirli komutta kaydedilen en çok kural (Claude, #68).
+MAX_COMPOUND_RULES = 5
+
+
+def rules_for_request(request: ApprovalRequest, root: Path | None) -> tuple[PermissionRule, ...]:
+    """Kalıcı kurallar: zincirli kabuk komutunda onay gereken her alt komut için ayrı (en çok 5).
+
+    Claude (#68): `git status && npm test` onaylanınca yalnız `npm test` için kural yazılır;
+    salt okunur alt komut zaten sorulmaz.
+    """
+    if tool_family(request.tool.name) is not ToolFamily.SHELL:
+        return (rule_for_request(request, root),)
+    command = str(request.args.get("command", "")).strip()
+    segments = allow_segments(command) or [command]
+    if len(segments) < 2:
+        return (rule_for_request(request, root),)
+    needing = [seg for seg in segments if not is_read_only_command(seg)] or segments[:1]
+    rules = [
+        PermissionRule("Bash", _shell_prefix(seg), PermissionDecision.ALLOW) for seg in needing
+    ]
+    return tuple(dict.fromkeys(rules))[:MAX_COMPOUND_RULES]
 
 
 def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionRule:
@@ -36,6 +57,10 @@ def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionR
     if tool_family(tool) is ToolFamily.SHELL:
         command = str(request.args.get("command", "")).strip()
         return PermissionRule("Bash", _shell_prefix(command), PermissionDecision.ALLOW)
+    web = web_rule(request)
+    if web is not None:
+        # `WebFetch(domain:<alan>)` / `WebSearch` (#55).
+        return web
     if tool in FILE_WRITE_TOOLS:
         raw = request.args.get("path")
         if isinstance(raw, str) and raw.strip():
@@ -83,8 +108,8 @@ def _dir_glob(raw: str, root: Path | None) -> str:
 
 
 def persist_target(root: Path) -> Path:
-    """Kuralın yazılacağı dosya: güvenilen projede yerel ayar, değilse kullanıcı dosyası."""
-    return project_rule_file(root)
+    """Kuralın yazılacağı dosya: Claude gibi her zaman yerel ayar dosyası (#68)."""
+    return local_settings_path(root)
 
 
 def always_description(request: ApprovalRequest, root: Path | None) -> str:
@@ -94,11 +119,9 @@ def always_description(request: ApprovalRequest, root: Path | None) -> str:
     `permissions.json`'ına düşüyor, kart yalnız 'her oturumda geçerli olur' diyordu; kullanıcı
     'bu proje' sanıp tüm projelere izin yazıyordu. Hedef kullanıcı dosyasıysa açıkça söylenir.
     """
-    rule = rule_for_request(request, root).pattern
-    if root is not None and persist_target(root) == user_permissions_file():
-        return messages.TUI_APPROVAL_ALWAYS_DESC_USER.format(
-            rule=rule, path=user_permissions_file()
-        )
+    rule = ", ".join(r.pattern for r in rules_for_request(request, root))
+    if root is not None and not is_permissions_trusted(root):
+        return messages.TUI_APPROVAL_ALWAYS_DESC_HELD.format(rule=rule, path=persist_target(root))
     return messages.TUI_APPROVAL_ALWAYS_DESC.format(rule=rule)
 
 
@@ -108,5 +131,9 @@ def remember_always(root: Path, request: ApprovalRequest) -> str:
     Proje dosyasına yazıldığında güven karması tazelenir (`permission_admin`); yazma
     hatası `ConfigError` olarak yükselir (çağıran kullanıcıya söyler, tur düşmez).
     """
-    change = add_permission_rule(root, rule_for_request(request, root))
-    return f"{format_rule(change.rule)} → {change.path}"
+    changes = [
+        add_permission_rule(root, rule, local_only=True)
+        for rule in rules_for_request(request, root)
+    ]
+    rules = ", ".join(format_rule(change.rule) for change in changes)
+    return f"{rules} → {changes[0].path}"

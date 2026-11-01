@@ -21,6 +21,7 @@ from rich.markup import escape
 
 from ...config import keybindings
 from ...config.models import Config
+from ...config.permission_warnings import skipped_rule_warnings
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
@@ -166,13 +167,13 @@ class TuiPrompter:
                 Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)
             )
             target = request.desktop_target
-            if request.can_remember:
+            if request.offers_session:
                 choices.append(
                     Choice(
                         "session",
                         messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
                         if target is not None and offers_never(request)
-                        else messages.TUI_APPROVAL_SESSION,
+                        else request.session_label or messages.TUI_APPROVAL_SESSION,
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
@@ -184,6 +185,12 @@ class TuiPrompter:
                         "always",
                         messages.TUI_APPROVAL_ALWAYS,
                         always_description(request, self._state_root()),
+                    )
+                )
+            if request.offers_auto:
+                choices.append(
+                    Choice(
+                        "auto", messages.APPROVAL_AUTO_SWITCH, messages.APPROVAL_AUTO_SWITCH_DESC
                     )
                 )
             if not request.danger:
@@ -208,6 +215,8 @@ class TuiPrompter:
                 return ApprovalAnswer.SESSION
             if answer == "always" and request.can_persist:
                 return ApprovalAnswer.ALWAYS
+            if answer == "auto" and request.offers_auto:
+                return ApprovalAnswer.AUTO
             return ApprovalAnswer.DENY
         finally:
             if previous_work is None:
@@ -640,6 +649,10 @@ class _TuiSession:
             if resolved is None:
                 return
             argument = resolved
+        elif command.name == "permissions" and not argument.strip():
+            # Claude (#83): argümansız /permissions sekmeli iletişim kutusunu açar.
+            await self._permissions_dialog()
+            return
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -774,6 +787,21 @@ class _TuiSession:
             result = flow(lambda *_a, **_k: selected)
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
+        self._sync_status()
+
+    async def _permissions_dialog(self) -> None:
+        """`/permissions` iletişim kutusunu uygulama-içi modallarla sür (#83)."""
+        from .permissions_dialog import CallbackIO, run_permissions_dialog
+
+        def say(text: str) -> None:
+            self._echo(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+
+        async def ask(prompt: str) -> str | None:
+            self._echo(f"[{theme.ACCENT}]{escape(prompt)}[/{theme.ACCENT}]")
+            return await self._tui.await_text()
+
+        io = CallbackIO(self._tui.await_choice, ask, say)
+        say(await run_permissions_dialog(self._state, io))
         self._sync_status()
 
     def _sync_conversation_binding(self) -> None:
@@ -1071,6 +1099,8 @@ def _print_startup(
         session.tui.console.print(bildirim)
     if has_untrusted_permissions(state.root):
         session.tui.console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
+    for uyari in skipped_rule_warnings(state.root):
+        session.tui.console.print(f"[{theme.WARN}]{uyari}[/{theme.WARN}]", highlight=False)
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)

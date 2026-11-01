@@ -157,6 +157,9 @@ def _build_config(
         config = apply_session_flags(load_config(), request.config_set, request.profile)
     except ConfigError as error:
         raise ValueError(str(error)) from None
+    from ..config.flag_settings_anchor import record_settings_flag
+
+    record_settings_flag(request.settings)  # `/x` kalıbı dosyanın dizinine bağlanır (#45)
     settings = opts.load_settings(request.settings)
     model = request.model or _settings_text(settings, "model")
     config = opts.apply_model(config, model, request.fallback_model)

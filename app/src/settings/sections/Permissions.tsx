@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../../protocol/client";
 import { errorMessage, operationResult } from "../../protocol/result";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
+import { autoPolicyDisabled, onAutoGateChange } from "../../sessions/autoGate";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
 import { HookList } from "./Hooks";
 import { SandboxCard } from "./SandboxCard";
 import { AutoReviewCard } from "./AutoReviewCard";
+import { WorkspaceDirsCard } from "./WorkspaceDirsCard";
 import "./Permissions.css";
 
 /**
@@ -53,6 +55,8 @@ interface RulesPayload {
   guvensiz_katmanlar?: string[];
   hedef?: string;
   kullanici_dosyasi?: string;
+  /** Claude'un paylaşılan proje dosyası `.claude/settings.json` (#83). */
+  paylasilan_dosyasi?: string;
   kok_disi_okuma_engeli?: boolean;
   kok_disi_yazma_engeli?: boolean;
 }
@@ -109,9 +113,18 @@ export function Permissions({
   const [busy, setBusy] = useState(false);
   const [kalip, setKalip] = useState("");
   const [karar, setKarar] = useState<RuleDecision>("allow");
-  const [kapsam, setKapsam] = useState<"proje" | "kullanici">("proje");
+  const [kapsam, setKapsam] = useState<"proje" | "paylasilan" | "kullanici">("proje");
+  const [autoKapali, setAutoKapali] = useState(autoPolicyDisabled);
+  useEffect(() => onAutoGateChange(() => setAutoKapali(autoPolicyDisabled())), []);
   const [confirmUntrust, setConfirmUntrust] = useState(false);
   const owner = useRef(0);
+  const kalipInput = useRef<HTMLInputElement>(null);
+  /** Auto mode retinin kalıp önerisi (#83): forma alınır, kapsamı kullanıcı seçip ekler. */
+  const suggestRule = (oneri: string) => {
+    setKarar("allow");
+    setKalip(oneri);
+    kalipInput.current?.focus();
+  };
 
   const loadRules = useCallback(async () => {
     if (!client) return;
@@ -184,6 +197,8 @@ export function Permissions({
               className="settings__choice"
               data-active={secenek.id === mod}
               disabled={!onSelectMode || pending}
+              // `disableAutoMode` (#85): auto seçilemez ve listede görünmez.
+              hidden={secenek.id === "auto" && autoKapali && mod !== "auto"}
               key={secenek.id}
               onClick={() => {
                 if (secenek.id === "bypass" && mod !== "bypass") { setConfirmBypass(true); return; }
@@ -216,7 +231,7 @@ export function Permissions({
         </p>
       </article>
 
-      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} />}
+      {client && <AutoReviewCard client={client} onResumed={() => onSelectMode?.("/auto")} onSuggestRule={suggestRule} />}
 
       <article className="settings__card">
         <h3>Proje klasörü</h3>
@@ -282,6 +297,8 @@ export function Permissions({
         )}
       </article>
 
+      {client && <WorkspaceDirsCard client={client} />}
+
       {client && (
         <article className="settings__card settings__card--wide" id="settings-permission-rules">
           <div className="settings__card-head">
@@ -338,18 +355,20 @@ export function Permissions({
               disabled={busy}
               onChange={(event) => setKalip(event.target.value)}
               placeholder="Bash(npm test *)"
+              ref={kalipInput}
               spellCheck={false}
               value={kalip}
             />
-            <select aria-label="Kapsam" disabled={busy} onChange={(event) => setKapsam(event.target.value as "proje" | "kullanici")} value={kapsam}>
+            <select aria-label="Kapsam" disabled={busy} onChange={(event) => setKapsam(event.target.value as "proje" | "paylasilan" | "kullanici")} value={kapsam}>
               <option value="proje">Bu proje</option>
+              <option value="paylasilan">Proje (paylaşılan)</option>
               <option value="kullanici">Tüm projeler</option>
             </select>
             <Button disabled={busy || !kalip.trim()} type="submit" variant="primary">Ekle</Button>
           </form>
           {rules?.hedef && (
             <p className="settings__hint">
-              &quot;Bu proje&quot; → <code>{rules.hedef}</code> · &quot;Tüm projeler&quot; → <code>{rules.kullanici_dosyasi}</code>
+              &quot;Bu proje&quot; → <code>{rules.hedef}</code>{rules.paylasilan_dosyasi && <> · &quot;Proje (paylaşılan)&quot; → <code>{rules.paylasilan_dosyasi}</code></>} · &quot;Tüm projeler&quot; → <code>{rules.kullanici_dosyasi}</code>
             </p>
           )}
         </article>

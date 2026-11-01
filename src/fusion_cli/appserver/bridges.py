@@ -246,6 +246,8 @@ class ProtocolPrompter:
             answer = ApprovalAnswer.SESSION
         elif choice == "always" and request.can_persist:
             answer = ApprovalAnswer.ALWAYS
+        elif choice == "auto" and request.offers_auto:
+            answer = ApprovalAnswer.AUTO
         else:
             answer = ApprovalAnswer.DENY
             if choice == "never":
@@ -380,11 +382,11 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
     """
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     target = request.desktop_target
-    if request.can_remember:
+    if request.offers_session:
         label = (
             messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
             if target is not None and request.consent_key is not None
-            else messages.TUI_APPROVAL_SESSION
+            else request.session_label or messages.TUI_APPROVAL_SESSION
         )
         session = {"deger": "session", "etiket": label}
         description = request.remembered_scope_description
@@ -398,6 +400,14 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
                 "etiket": messages.TUI_APPROVAL_ALWAYS,
                 # Kapsamı da söyler: kullanıcı dosyasına düşüyorsa "TÜM PROJELER" (P-003).
                 "aciklama": always_description(request, root),
+            }
+        )
+    if request.offers_auto:
+        options.append(
+            {
+                "deger": "auto",
+                "etiket": messages.APPROVAL_AUTO_SWITCH,
+                "aciklama": messages.APPROVAL_AUTO_SWITCH_DESC,
             }
         )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})

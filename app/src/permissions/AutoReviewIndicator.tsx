@@ -31,6 +31,8 @@ export interface AutoReviewDecision {
   kaynak: string;
   ozet: string;
   gerekce: string;
+  /** Riskli karar için güvenli allow kalıbı önerisi; yoksa boş (#83). */
+  oneri?: string;
 }
 
 /** Durumu yeniden okutan olaylar: denetçi kararı ve kip düşüşü. */

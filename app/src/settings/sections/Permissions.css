@@ -48,6 +48,13 @@
 .permissions__add input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 720px) { .permissions__add { grid-template-columns: 1fr 1fr; } }
 
+/* Çalışma dizinleri (#83): tek giriş + düğme; liste satırında kaldır düğmesi sağda. */
+.permissions__add--dir { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 720px) { .permissions__add--dir { grid-template-columns: minmax(0, 1fr) auto; } }
+.permissions__dirs { display: grid; gap: var(--space-1); list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.permissions__dirs li { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; min-width: 0; }
+.permissions__dirs code { overflow-wrap: anywhere; }
+
 /* Kabuk sandbox'ı kartı (P-010). */
 .sandbox__domains { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
 .sandbox__list { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
