@@ -54,7 +54,7 @@ güvenilmiyor" diye görünür.
 | `Notification` | izin sorusundan önce; girdi bekleyen oturum boşta kalınca | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince (REPL, TUI, masaüstü) | — | — |
-| `DirectoryAdded` | `/add-dir` oturum ortasında dizin ekleyince (REPL, TUI, masaüstü); başlangıç `--add-dir` ve kök içindeki dizin tetiklemez | kaynak (`slash_command`) | — |
+| `DirectoryAdded` | `/add-dir` oturum ortasında dizin ekleyince (REPL, TUI, masaüstü); başlangıç `--add-dir` ve kök içindeki dizin tetiklemez. `systemMessage` kullanıcıya, `additionalContext` sonraki turda modele gider (`CwdChanged` için de) | kaynak (`slash_command`) | — |
 | `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
 | `TaskCompleted` | ekip üyesi görevi "tamam" yapmadan önce | — | görev üyede kalır, gerekçe üyeye |
 | `TeammateIdle` | ekip üyesi boşa düşmeden önce | — | üye gerekçeyle yeniden koşar |

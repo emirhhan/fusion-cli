@@ -111,3 +111,26 @@ async def test_baska_kaynak_eslestiricisi_tetiklenmez(tmp_path: Path, ev: Path) 
     await hook_events.flush(state)
 
     assert _satirlar(kayit) == []
+
+
+async def test_kanca_additionalcontext_sonraki_tura_baglam_olur(tmp_path: Path, ev: Path) -> None:
+    """Kanca `additionalContext`'i kullanıcıya basılmaz, modele bağlam olarak gider (#213)."""
+    kok, ek = tmp_path / "proje", tmp_path / "diger"
+    kok.mkdir()
+    ek.mkdir()
+    script = tmp_path / "baglam.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'systemMessage': 'eklendi', 'hookSpecificOutput': "
+        "{'hookEventName': 'DirectoryAdded', 'additionalContext': 'yeni dizin notu'}}))\n",
+        encoding="utf-8",
+    )
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    state = _durum(kok, ev, HookCommand(HookEvent.DIRECTORY_ADDED, "", command, 20.0, "test", ""))
+
+    build_registry().get("add-dir").handler(state, str(ek))  # type: ignore[union-attr]
+    lines = await hook_events.flush(state)
+
+    assert any("eklendi" in line for line in lines)
+    assert not any("yeni dizin notu" in line for line in lines)
+    assert any("yeni dizin notu" in block for block in state.pending_blocks)

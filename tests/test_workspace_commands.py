@@ -65,16 +65,29 @@ def test_trace_son_kosuyu_ozetler(state):
     assert "Böyle bir koşu yok" in _run(state, "trace", "uydurma")
 
 
-def test_add_dir_acar_listeler_ve_kapatir(state, tmp_path):
+def test_add_dir_acar_dirs_listeler_ve_kapatir(state, tmp_path):
     ek = tmp_path / "ortak"
     ek.mkdir()
-    assert "Ek klasör yok" in _run(state, "add-dir")
+    assert "Ek klasör yok" in _run(state, "dirs")
     assert "Erişim açıldı" in _run(state, "add-dir", str(ek))
     assert state.extra_roots == (ek.resolve(),)
     assert "Zaten açık" in _run(state, "add-dir", str(ek))
-    assert str(ek.resolve()) in _run(state, "add-dir")
+    assert str(ek.resolve()) in _run(state, "dirs")
     assert "proje kökünün içinde" in _run(state, "add-dir", str(state.root))
     assert "bulunamadı" in _run(state, "add-dir", str(tmp_path / "yok"))
     assert "ev dizininin" in _run(state, "add-dir", str(Path.home()))
-    assert "kapatıldı" in _run(state, "add-dir", f"kaldir {ek}")
+    assert "Kullanım: /dirs" in _run(state, "dirs", "sil")
+    assert "kapatıldı" in _run(state, "dirs", f"kaldir {ek}")
+    assert state.extra_roots == ()
+
+
+def test_add_dir_eski_listeleme_ve_kaldir_bir_kez_uyarir(state, tmp_path):
+    """Claude `/add-dir` yalnız ekler (#213); eski Fusion dalları /dirs'e gider, bir kez uyarır."""
+    ek = tmp_path / "ortak"
+    ek.mkdir()
+    _run(state, "add-dir", str(ek))
+    ilk = _run(state, "add-dir")
+    assert str(ek.resolve()) in ilk and "/dirs kullanın" in ilk
+    ikinci = _run(state, "add-dir", f"kaldir {ek}")
+    assert "kapatıldı" in ikinci and "/dirs kullanın" not in ikinci
     assert state.extra_roots == ()

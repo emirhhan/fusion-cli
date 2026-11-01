@@ -605,6 +605,7 @@ APP_TURN_INTERRUPTED_TASK_CHARS = 120
 CMD_TRASH = "Fusion'ın sildiklerini listele ya da geri al"
 CMD_TRACE = "Son koşunun teşhis özeti: nerede ve neden düştü"
 CMD_ADD_DIR = "Proje kökünün yanında başka bir klasöre de erişim aç"
+CMD_DIRS = "Ek klasörleri listele ya da birini kapat (Fusion eki)"
 #: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
 #:
 #: Ölçülen hata: araçlar tıkandığında protokol `{"ok": false, "metin": ""}`

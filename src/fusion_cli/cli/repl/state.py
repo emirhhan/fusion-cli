@@ -223,6 +223,8 @@ class ReplState:
     surface_switch: str = field(default="", kw_only=True)
     #: Görünüm değişiminden sonra tam ekranın açılışta basacağı not (#232).
     surface_notice: str = field(default="", kw_only=True)
+    #: Eski `/add-dir` listeleme/kaldırma biçimi uyarısı bir kez gösterildi mi (#213).
+    add_dir_legacy_warned: bool = field(default=False, kw_only=True)
     #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
     side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)

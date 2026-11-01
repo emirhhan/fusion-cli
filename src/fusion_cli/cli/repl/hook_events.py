@@ -21,11 +21,22 @@ from .state import ReplState
 
 
 async def flush(state: ReplState) -> tuple[str, ...]:
-    """Kuyruktaki kanca olaylarını gönder; kullanıcıya gösterilecek satırları döndür."""
+    """Kuyruktaki kanca olaylarını gönder; kullanıcıya gösterilecek satırları döndür.
+
+    `additionalContext` (ör. `DirectoryAdded`, `CwdChanged`, #213) kullanıcıya basılmaz,
+    Claude Code'daki gibi sonraki turda modele bağlam olarak gider.
+    """
     session = state.hook_session
     if session is None:
         return ()
-    return verdict_lines(await session.flush_deferred())
+    verdict = await session.flush_deferred()
+    if verdict.context_text:
+        from .prefixes import push_pending_context
+
+        push_pending_context(
+            state, messages.HOOKS_CONTEXT_NOTE.format(event="slash", context=verdict.context_text)
+        )
+    return verdict_lines(verdict)
 
 
 def verdict_lines(verdict: HookVerdict) -> tuple[str, ...]:

@@ -1356,6 +1356,10 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   bildirimi) ve çalışma geçmişine yazılır (`zamanlama.calisma_kaydet`; görev başına son 10:
   zaman, sohbet, tamam/hata, cevap özeti). Kartta son üç çalışma görünür.
 
+## Ek klasörler: `/add-dir`, `/dirs`
+
+Claude Code'daki gibi `/add-dir <yol>` oturuma bir çalışma klasörü ekler (Tab yol önerir) ve `DirectoryAdded` kancalarını tetikler. Açık ek klasörleri listelemek ve kapatmak Fusion ekidir: `/dirs`, `/dirs kaldir <yol>`. Eski `/add-dir` (argümansız listeleme) ve `/add-dir kaldir <yol>` bir sürüm boyunca çalışır, ilk kullanımda bir kez uyarır.
+
 ## Çalışma dizini: `/cd`
 
 Claude Code / Codex `/cd` karşılığı. `/cd ../diger-proje` oturumun proje kökünü değiştirir;

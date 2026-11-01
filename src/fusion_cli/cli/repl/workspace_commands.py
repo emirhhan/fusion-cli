@@ -1,4 +1,4 @@
-"""Çalışma alanı komutları: `/cop`, `/trace`, `/add-dir`.
+"""Çalışma alanı komutları: `/cop`, `/trace`, `/add-dir`, `/dirs`.
 
 Terminal alt komutlarının (`fusion cop`, `fusion trace`, `--add-dir`) slash
 karşılıkları. Slash komutları terminal ve masaüstü uygulamasında AYNI defterden
@@ -53,24 +53,43 @@ def trace(state: ReplState, argument: str) -> str:
     return trace_text(store, argument.strip() or None)
 
 
-def add_dir(state: ReplState, argument: str) -> str:
-    """`/add-dir <yol>` — proje kökünün yanında bir klasöre daha erişim aç.
+def dirs(state: ReplState, argument: str) -> str:
+    """`/dirs [kaldir <yol>]` (Fusion eki) — ek klasörleri listele ya da birini kapat.
 
-    `/add-dir` tek başına açık klasörleri listeler; `/add-dir kaldir <yol>` kapatır.
-    Erişim bu oturumla sınırlıdır; diske kalıcı izin yazılmaz.
+    Claude Code'un `/add-dir`'i yalnız ekler (#213); listeleme ve kaldırma bu komuttadır.
     """
     eylem, _, kalan = argument.strip().partition(" ")
     if not eylem:
         if not state.extra_roots:
             return "Ek klasör yok. Eklemek için: /add-dir <yol>"
         return "Ek klasörler:\n" + "\n".join(f"  {yol}" for yol in state.extra_roots)
-    if eylem in ("kaldir", "kaldır"):
-        hedef = _resolve(kalan)
-        if hedef is None or hedef not in state.extra_roots:
-            return "Bu klasör ek klasörler arasında değil."
-        state.extra_roots = tuple(yol for yol in state.extra_roots if yol != hedef)
-        state.refresh_capability_roots()
-        return f"Erişim kapatıldı: {hedef}"
+    if eylem not in ("kaldir", "kaldır", "remove"):
+        return "Kullanım: /dirs  ya da  /dirs kaldir <yol>"
+    hedef = _resolve(kalan)
+    if hedef is None or hedef not in state.extra_roots:
+        return "Bu klasör ek klasörler arasında değil."
+    state.extra_roots = tuple(yol for yol in state.extra_roots if yol != hedef)
+    state.refresh_capability_roots()
+    return f"Erişim kapatıldı: {hedef}"
+
+
+#: `/add-dir kaldir` ve argümansız listeleme eski Fusion biçimi; bir sürüm takma ad (#213).
+ADD_DIR_LEGACY_NOTE = "Not: bu biçim kullanımdan kalkıyor; ek klasörler için /dirs kullanın."
+
+
+def add_dir(state: ReplState, argument: str) -> str:
+    """`/add-dir <yol>` — proje kökünün yanında bir klasöre daha erişim aç.
+
+    Erişim bu oturumla sınırlıdır; diske kalıcı izin yazılmaz. Eski `/add-dir`
+    (listeleme) ve `/add-dir kaldir <yol>` bir kez uyarıp `/dirs`'e gider (#213).
+    """
+    eylem, _, kalan = argument.strip().partition(" ")
+    if not eylem or eylem in ("kaldir", "kaldır"):
+        sonuc = dirs(state, f"kaldir {kalan}" if eylem else "")
+        if getattr(state, "add_dir_legacy_warned", False):
+            return sonuc
+        state.add_dir_legacy_warned = True
+        return f"{sonuc}\n{ADD_DIR_LEGACY_NOTE}"
     hedef = _resolve(argument)
     if hedef is None or not hedef.is_dir():
         return "Klasör bulunamadı. Tam yolu ver: /add-dir /Users/sen/proje"

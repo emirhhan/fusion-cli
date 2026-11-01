@@ -1292,7 +1292,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_ADD_DIR,
         workspace_commands.add_dir,
         group="Agent",
-        usage="[yol|kaldir <yol>]",
+        usage="<yol>",
+    ),
+    SlashCommand(
+        "dirs",
+        messages.CMD_DIRS,
+        workspace_commands.dirs,
+        group="Agent",
+        usage="[kaldir <yol>]",
     ),
     SlashCommand("cd", messages.CMD_CD, cd_command, group="Agent", usage="[yol]"),
     # REPL'de asenkron (`async_commands`); bu eşzamanlı işleyici masaüstü/uzak yoludur.
