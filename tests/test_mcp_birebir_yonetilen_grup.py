@@ -197,3 +197,20 @@ def test_masaustu_kurulus_sunucusunu_kaldirmaz_guven_yazmaz(tmp_path: Path):
     assert updated is None and "provided by your organization" in reply["metin"]
     updated, reply = review_connector(config, {"ad": "kurum", "guven": "trusted"})
     assert updated is None and not reply["ok"]
+
+
+def test_barindirmali_politika_proje_kokunden_okunur_cwd_den_degil(ev, monkeypatch):
+    """Masaüstünde proje değişince süreç cwd'si eski kalır; politika oturum kökünden okunur."""
+    from fusion_cli.mcp_bridge import pool
+
+    from .fakes import make_config
+
+    monkeypatch.setattr(mcp_policy, "managed_dir", lambda: ev / "yonetim-yok")
+    kok = ev / "diger-proje"
+    (kok / ".claude").mkdir(parents=True)
+    ret = {"deniedMcpServers": [{"serverUrl": "https://mcp.facebook.com/*"}]}
+    (kok / ".claude" / "settings.json").write_text(json.dumps(ret), encoding="utf-8")
+    monkeypatch.setattr(pool, "_hosted_channel", lambda _config: pytest.fail("oturuma gidilmemeli"))
+    config = make_config(hosted_connectors=(_connector("meta", "https://mcp.facebook.com/ads"),))
+
+    assert asyncio.run(pool.ensure_hosted_tools(config, object(), root=kok)) == ()

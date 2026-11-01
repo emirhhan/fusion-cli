@@ -604,18 +604,25 @@ def _hosted_channel(config: Config) -> AskSession:
     return channel
 
 
-def _policy_connectors(config: Config) -> tuple[HostedConnectorConfig, ...]:
+def _policy_connectors(
+    config: Config, root: Path | None = None
+) -> tuple[HostedConnectorConfig, ...]:
     """Kuruluş politikası (#274): tekelde connector'lar düşer (allowAllClaudeAiMcps hariç),
-    ret/izin listesi uygulanır. Yapılandırma süzülmez: kullanıcının kaydı silinmesin."""
+    ret/izin listesi uygulanır. Yapılandırma süzülmez: kullanıcının kaydı silinmesin.
+
+    Proje katmanı oturum kökünden okunur: masaüstünde proje değişince süreç cwd'si eski
+    projede kalır ve proje `deniedMcpServers` listesi connector'lara uygulanmıyordu."""
     import os
 
     from ..config.mcp_policy import filter_hosted_connectors, load_policy
 
-    policy = load_policy(Path.cwd())
+    policy = load_policy(root if root is not None else Path.cwd())
     return filter_hosted_connectors(config.hosted_connectors, policy, os.environ)
 
 
-async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[str, ...]:
+async def ensure_hosted_tools(
+    config: Config, registry: ToolRegistry, *, root: Path | None = None
+) -> tuple[str, ...]:
     """Sağlayıcı-barındırmalı connector araçlarını kayıt defterine ekle.
 
     MCP havuzundan AYRIDIR: burada tutulacak bir bağlantı yoktur, araçlar
@@ -627,7 +634,7 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
     # Kopya connector ayıklanır. `mcp_servers` bu korumayı `unique_configs` ile
     # zaten alıyordu; barındırmalı connector'lar dışarıda kalmıştı ve aynı Meta
     # Ads adresi iki kez kayıt defterine giriyordu (ölçüldü, 22 Eylül).
-    benzersiz = unique_hosted_configs(_policy_connectors(config))
+    benzersiz = unique_hosted_configs(_policy_connectors(config, root))
     if not benzersiz:
         return ()
     # İstemci de kanal gibi turlar arası yaşar: keşif sonucu onda önbelleklenir ve

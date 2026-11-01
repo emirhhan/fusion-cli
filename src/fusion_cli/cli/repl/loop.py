@@ -760,7 +760,9 @@ async def _drive_agent(
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.
         try:
-            added += await ensure_hosted_tools(state.config, registry)
+            added += await ensure_hosted_tools(
+                state.config, registry, root=getattr(deps.tool_context, "root", None)
+            )
         except Exception as error:
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"

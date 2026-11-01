@@ -602,7 +602,9 @@ async def _run_agent_with_mcp(
         # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
         # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
         try:
-            eklenen += await ensure_hosted_tools(config, registry)
+            eklenen += await ensure_hosted_tools(
+                config, registry, root=getattr(deps.tool_context, "root", None)
+            )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
