@@ -46,6 +46,7 @@ from ...core.tools import (
     tool_family,
 )
 from ...tools import desktop_policy
+from ...tools.accept_edits_scope import accept_edits_allows
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
@@ -270,6 +271,8 @@ class ApprovalRequest:
     desktop_blocked: bool = False
     #: Tanınan kritik yol `rm`/`rmdir` silmesi (#42): bypass dahil hiçbir kip sormadan geçirmez.
     critical: str | None = None
+    #: Kabuk komutu acceptEdits kapsamında mı (#53)? Kabuk dışı çağrıda `None`.
+    accept_edits_ok: bool | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -433,6 +436,9 @@ class AcceptEditsApproval(_AskingApproval):
     """Düzenlemeleri kabul et: dosya düzenlemeleri ve tanınan güvenli komutlar serbest."""
 
     def _allows(self, request: ApprovalRequest) -> bool:
+        # Kabukta Claude kapsamı (#53): 7 dosya sistemi komutu çalışma dizinlerinde + salt okuma.
+        if request.accept_edits_ok is not None:
+            return request.accept_edits_ok
         return request.unattended_safe
 
 
@@ -604,6 +610,7 @@ def build_request(
         request = _shell_request(
             tool, args, command, allowed_commands, effect, root, touched, rules=rules
         )
+        request = replace(request, accept_edits_ok=accept_edits_allows(command, root, extra_roots))
         critical = critical_rm_reason(command, root, extra_roots) if root is not None else None
         if critical is not None:
             # Allow kuralı ve oturum izni kritik yol silmesini açmaz (#42, #84).
