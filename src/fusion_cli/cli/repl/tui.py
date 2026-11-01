@@ -19,7 +19,7 @@ import io
 import logging
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from html import escape as html_escape
 
 from prompt_toolkit.application import Application
@@ -167,8 +167,12 @@ class FusionTui:
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
         self._choices: list[Choice] = []
+        self._choice_all: list[Choice] = []
         self._choice_index = 0
         self._choice_title = ""
+        self._choice_hotkeys: dict[str, str] = {}
+        self._choice_filterable = False
+        self._choice_filter = ""
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
@@ -423,13 +427,28 @@ class FusionTui:
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
-    async def await_choice(self, title: str, choices: list[Choice]) -> str | None:
-        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None."""
+    async def await_choice(
+        self,
+        title: str,
+        choices: list[Choice],
+        *,
+        hotkeys: Mapping[str, str] | None = None,
+        filterable: bool = False,
+    ) -> str | None:
+        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
+
+        `hotkeys`: tek harf → döndürülecek değer (`/skills`'te `t`). `filterable`: yazılan
+        harfler listeyi süzer, silme tuşu geri alır (Claude Code `/skills`, #176).
+        """
         if not choices:
             return None
+        self._choice_all = list(choices)
         self._choices = list(choices)
         self._choice_index = 0
         self._choice_title = title
+        self._choice_hotkeys = dict(hotkeys or {})
+        self._choice_filterable = filterable
+        self._choice_filter = ""
         result = await self._await_answer("choice")
         return None if result is None else str(result)
 
@@ -463,9 +482,31 @@ class FusionTui:
     def _rule_fragments(self) -> StyleAndTextTuples:
         return gradient_rule(_term_width())
 
+    def _choice_key(self, data: str) -> bool:
+        """Modalda harf tuşu: kısayolsa değeri döndür, süzülebilir listede filtreyi düzenle."""
+        if data in self._choice_hotkeys:
+            self._resolve(self._choice_hotkeys[data])
+            return True
+        if not self._choice_filterable:
+            return False
+        if data in ("\x7f", "\x08"):
+            self._choice_filter = self._choice_filter[:-1]
+        elif len(data) == 1 and data.isprintable():
+            self._choice_filter += data
+        else:
+            return False
+        needle = self._choice_filter.casefold()
+        self._choices = [
+            c for c in self._choice_all if needle in f"{c.label} {c.description}".casefold()
+        ]
+        self._choice_index = min(self._choice_index, max(0, len(self._choices) - 1))
+        self._invalidate()
+        return True
+
     def _choice_fragments(self) -> StyleAndTextTuples:
         """Seçim modalının satırları: başlık + seçenekler, seçili olan işaretli."""
-        fragments: StyleAndTextTuples = [("class:choice-title", f" {self._choice_title}\n")]
+        title = self._choice_title + (f"  [süz: {self._choice_filter}]" if self._choice_filter else "")
+        fragments: StyleAndTextTuples = [("class:choice-title", f" {title}\n")]
         for index, choice in enumerate(self._choices):
             selected = index == self._choice_index
             marker = theme.ICON_STATUS if selected else " "
@@ -591,7 +632,8 @@ class FusionTui:
 
         @kb.add(Keys.Any, filter=modal, eager=True)
         def _yut(_event: object) -> None:
-            """Cevap olmayan tuşu sessizce yut; kutuya yazma."""
+            """Cevap olmayan tuşu sessizce yut; kutuya yazma (kısayol/süzme hariç)."""
+            self._choice_key(str(getattr(_event, "data", "") or ""))
 
         # Oklar: seçim modunda seçeneği gezer, boştayken konuşmayı kaydırır.
         nav = Condition(lambda: self._mode in ("idle", "choice"))

@@ -80,7 +80,7 @@ def test_terminal_numarali_liste_ve_n_ile_dongu(state: ReplState) -> None:
 async def test_tui_paneli_enter_dondurur_esc_kaydeder_off_listede_kalir(state: ReplState) -> None:
     secimler = iter(["beta", "beta", "beta", None])
 
-    async def await_choice(title: str, choices: list) -> str | None:
+    async def await_choice(title: str, choices: list, **_options: object) -> str | None:
         assert "Esc" in title and {c.value for c in choices} == {"alfa", "beta"}
         return next(secimler)
 
@@ -115,3 +115,63 @@ async def test_masaustu_gorunurluk_rpc(tmp_path: Path) -> None:
     data = json.loads((root / ".claude" / "settings.local.json").read_text("utf-8"))
     assert data["skillOverrides"] == {"review": "off"}
     assert hata["ok"] is False
+
+
+def _buyuk(state: ReplState) -> None:
+    folder = state.home / ".claude" / "skills" / "gamma"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: gamma\ndescription: " + "uzun açıklama " * 30 + "\n---\ngövde", "utf-8"
+    )
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+
+
+def test_terminal_t_ile_token_siralamasi_ve_metinle_filtre(state: ReplState) -> None:
+    """#176: `/skills t` liste maliyetine göre sıralar; `/skills <metin>` paneli süzer."""
+    _buyuk(state)
+    skills = build_registry(state.home).get("skills")
+    assert skills is not None
+
+    sirali = skills.handler(state, "t").splitlines()
+    assert "gamma" in sirali[0]
+    suzulmus = skills.handler(state, "bet")
+    assert "beta" in suzulmus and "alfa" not in suzulmus
+    # Numara tam listedeki sırayı korur: `/skills <n>` aynı beceriyi döndürür.
+    numara = suzulmus.split(".", 1)[0].strip()
+    assert "beta: name-only" in skills.handler(state, numara)
+
+
+async def test_tui_paneli_t_tusu_siralar_ve_filtreyi_acar(state: ReplState) -> None:
+    _buyuk(state)
+    seen: list[list[str]] = []
+    secimler = iter([skills_panel.SORT_TOKENS, None])
+
+    async def await_choice(title: str, choices: list, **options: object) -> str | None:
+        assert options.get("filterable") is True
+        assert options.get("hotkeys") == {"t": skills_panel.SORT_TOKENS}
+        seen.append([c.value for c in choices])
+        return next(secimler)
+
+    await skills_panel.run_tui_panel(state, await_choice)
+
+    assert seen[0][0] == "alfa" and seen[1][0] == "gamma"
+
+
+def test_guvenilen_izin_dosyasina_yazinca_guven_karmasi_tazelenir(tmp_path: Path) -> None:
+    """#176: Fusion'ın kendi yazımı güvenilen dosyayı güvenilmez yapmaz; güvenilmeyeni güvenmez."""
+    from fusion_cli.config import trust
+
+    root = tmp_path / "proje"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "settings.local.json").write_text('{"permissions": {}}', "utf-8")
+    trust.record_permissions_digest(root)
+    assert trust.is_permissions_trusted(root)
+
+    write_skill_overrides(root, {"x": SkillVisibility.OFF})
+    assert trust.is_permissions_trusted(root)
+
+    other = tmp_path / "baska"
+    (other / ".claude").mkdir(parents=True)
+    (other / ".claude" / "settings.local.json").write_text('{"permissions": {}}', "utf-8")
+    write_skill_overrides(other, {"x": SkillVisibility.OFF})
+    assert not trust.is_permissions_trusted(other)

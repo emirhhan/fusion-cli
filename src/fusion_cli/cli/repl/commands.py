@@ -702,8 +702,10 @@ def _skills(state: ReplState, argument: str) -> str:
         return skills_panel.render_list(state) or messages.SKILLS_EMPTY
     if eylem.isdigit() and not kalan:
         return skills_panel.cycle_index(state, eylem)
-    items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
-    return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
+    if eylem in skills_panel.SORT_WORDS and not kalan:
+        return skills_panel.render_list(state, by_tokens=True) or messages.SKILLS_EMPTY
+    # `/skills <metin>`: panel süzülür (numaralar tam listedeki gibi; `/skills <n>` aynı beceri).
+    return skills_panel.render_list(state, argument.strip()) or messages.SKILLS_EMPTY
 
 
 def _reload_skills(state: ReplState, argument: str) -> str:
