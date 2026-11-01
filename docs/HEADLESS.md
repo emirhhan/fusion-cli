@@ -168,9 +168,10 @@ environment.` cevabını verir. `--disable-slash-commands` genişletmeyi kapatı
 
 Değer alan yerleşik komutlar modele gitmeden cevaplanır: `/model <takma ad|kimlik>` ve
 `/effort <seviye>` bu koşunun (stream-json'da sonraki turların) ayarıdır, argümansız biçimleri
-geçerli değeri yazar; `/config yol=değer` Fusion'ın nokta yollu ayarını kullanıcı
-yapılandırmasına kalıcı yazar (REPL'deki `/config yol=değer` ile aynı; argümansız `/config`
-menüsü `-p`'de yok); `/output-style <stil>` stili seçer, `/output-style` listeler; `/mcp`
+geçerli değeri yazar; `/config yol=değer` Fusion'ın nokta yollu ayarını YALNIZ bu koşuya
+uygular, kullanıcı yapılandırmasına yazmaz (borulu stdin'deki `/config …` satırı kalıcı
+güvenlik ayarını değiştiremez; kalıcı yazma REPL'deki `/config yol=değer` ile; argümansız
+`/config` menüsü `-p`'de yok); `/output-style <stil>` stili seçer, `/output-style` listeler; `/mcp`
 argümansız sunucuların metin özetini basar.
 
 Fusion ekleri (Claude'da yok): `--set bölüm.alan=değer`, `--profile <kademe>`,

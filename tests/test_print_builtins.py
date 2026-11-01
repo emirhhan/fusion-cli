@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -32,13 +31,12 @@ def _print(monkeypatch, args, *, input=None):
     return calls, runner.invoke(app_module.app, args, input=input)
 
 
-def test_config_key_value_kalici_yazar_ve_modele_gitmez(monkeypatch):
+def test_config_key_value_oturumluktur_ve_modele_gitmez(monkeypatch):
     calls, result = _print(monkeypatch, ["-p", "/config runtime.max_tokens=4321"])
     assert result.exit_code == 0, result.output
     assert not calls
     assert "runtime.max_tokens = 4321" in result.stdout
-    written = Path(result.stdout.split("yazıldı:", 1)[1].strip())
-    assert "4321" in written.read_text(encoding="utf-8")
+    assert "kalıcı yazılmadı" in result.stdout
 
 
 def test_config_argumansiz_kullanilamaz(monkeypatch):

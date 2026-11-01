@@ -6,9 +6,11 @@ Claude Code'da `-p` koşusunda `/model sonnet`, `/effort high` değeri argüman 
 gitmez: cevap doğrudan sonuç metnidir. Değer isteyen bir menü açacak biçimler (`/config`
 argümansız, `/model` alt komutları…) `-p`'de kullanılamaz.
 
-Fusion'da `/config` yolu Fusion'ın nokta yollu ayarıdır (`runtime.max_tokens=8192`) ve
-REPL'deki `/config yol=değer` gibi kullanıcı yapılandırmasına kalıcı yazılır; `/model` ve
-`/effort` yalnız bu koşunun (stream-json'da sonraki turların) ayarıdır.
+Fusion'da `/config` yolu Fusion'ın nokta yollu ayarıdır (`runtime.max_tokens=8192`); `-p`'de
+`/model` ve `/effort` gibi YALNIZ bu koşunun (stream-json'da sonraki turların) ayarıdır ve
+kullanıcı yapılandırmasına yazılmaz. İstem borulu stdin'den gelebilir (`cat dosya | fusion
+-p`): içeriğin ilk satırı `/config runtime.block_writes_outside_root=false` olsa bile kalıcı
+güvenlik ayarı değişmemeli (bağımsız inceleme, bulgu 1). Kalıcı yazma REPL'in işidir.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ from typing import TYPE_CHECKING, cast
 
 from ..config.models import Config
 from ..core.errors import ConfigError
-from ..ui import messages
 from ..ui import print_messages as texts
 
 if TYPE_CHECKING:
@@ -106,16 +107,14 @@ def _config(config: Config, argument: str) -> BuiltinReply:
     path, equals, raw = argument.partition("=")
     if not equals or not path.strip():
         return BuiltinReply(texts.PRINT_SLASH_UNAVAILABLE.format(name="config"), config)
-    from ..config.settings_access import read_setting, write_setting
+    from ..config.settings_access import apply_setting, read_setting
 
     try:
-        updated, target = write_setting(config, path.strip(), raw.strip())
+        updated = apply_setting(config, path.strip(), raw.strip())
     except ConfigError as error:
         return BuiltinReply(str(error), config)
     value = read_setting(updated, path.strip())
-    return BuiltinReply(
-        messages.CONFIG_SET_DONE.format(path=path.strip(), value=value, file=target), updated
-    )
+    return BuiltinReply(texts.PRINT_CONFIG_SESSION.format(path=path.strip(), value=value), updated)
 
 
 def _output_style(config: Config, argument: str, root: Path) -> BuiltinReply:
