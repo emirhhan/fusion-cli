@@ -229,7 +229,9 @@ async def browser_tabs_list(args: ToolArgs, context: ToolContext) -> ToolResult:
     pages = await context.browser.pages()
     rows: list[str] = []
     for index, page in enumerate(pages, start=1):
-        title = await page.title()
+        # Başlık sayfa içeriğidir: yönetici dış sayfa okumayı kapattıysa gösterilmez (#439).
+        hidden = page_tools_blocked(page.url)
+        title = "(başlık gizli: browserExternalPageTools)" if hidden else await page.title()
         marker = "*" if page is context.browser.page else " "
         rows.append(f"{marker} {index}. {title} — {page.url}")
     return ToolResult("\n".join(rows) if rows else "Açık sekme yok.")

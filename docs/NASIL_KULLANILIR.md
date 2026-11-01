@@ -951,7 +951,8 @@ turlar arasında açık kalır (sekmeler, giriş yapılmış oturum korunur).
   `disableBrowserExternalNavigation: true` dış sitelere gezinmeyi hem sana hem ajana kapatır
   (localhost ve yerel dosya açılır; tıklama/yönlendirme ile gezinme de engellenir);
   `browserExternalPageTools: false` dış sitelere gitmene izin verir ama ajan o sayfaları okuyamaz,
-  tıklayamaz, yazamaz, görüntüsünü alamaz (sonuç yalnız adresi söyler).
+  tıklayamaz, yazamaz, görüntüsünü alamaz (sonuç yalnız adresi söyler; sekme listesinde dış
+  sekmenin başlığı da gizlenir).
 - **Kapatmak:** **Ajan bu tarayıcıyı kullanır** kutusu kaldırılınca ajan eski davranışa döner
   (her tur ayrı tarayıcı; Tarayıcı sekmesi de kendiliğinden öne gelmez). Seçim kalıcıdır
   (`browser.panel_agent`); aynı ayar **Ayarlar → Web oturumları**'nda ve terminalde

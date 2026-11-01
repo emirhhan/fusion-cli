@@ -90,3 +90,36 @@ async def test_browser_tools_kapaliyken_ajan_browser_araclarini_gormez(tmp_path)
     assert _disabled_browser_tools(on, registry) == frozenset()  # type: ignore[arg-type]
     bad = set_setting(SimpleNamespace(), {"anahtar": "tools", "deger": "evet"})  # type: ignore[arg-type]
     assert not bad["ok"]
+
+
+async def test_dis_sayfa_araclari_kapaliyken_sekme_listesi_basligi_gizler(tmp_path, monkeypatch):
+    """Sekme başlığı sayfa içeriğidir: browserExternalPageTools:false iken dış sekmede gizli."""
+    from types import SimpleNamespace
+
+    _managed(tmp_path, monkeypatch, {"browserExternalPageTools": False})
+
+    class _Page:
+        def __init__(self, url: str, title: str) -> None:
+            self.url, self._title = url, title
+
+        async def title(self) -> str:
+            return self._title
+
+    yerel = _Page("http://localhost:5173/", "Geliştirme")
+    dis = _Page("https://example.com/hesap", "Gizli Bakiye 1.234 TL")
+
+    async def pages():
+        return (yerel, dis)
+
+    async def wait_for_control(_timeout):
+        return True
+
+    session = SimpleNamespace(is_open=True, page=yerel, pages=pages)
+    session.wait_for_control = wait_for_control
+    context = ToolContext(root=tmp_path)
+    object.__setattr__(context, "browser", session)
+    result = await browser.browser_tabs_list({}, context)
+    assert result.ok
+    assert "Geliştirme" in result.output  # yerel sekme olduğu gibi
+    assert "Bakiye" not in result.output
+    assert "https://example.com/hesap" in result.output  # adres söylenir (sayfa özeti gibi)
