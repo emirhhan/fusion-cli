@@ -249,3 +249,21 @@ def test_edit_kurali_yonlendirme_ve_tee_hedefini_denetler(tmp_path):
     acik = _kume(("Edit(./cikti/**)", "allow"), ("Bash(echo *)", "allow"))
     assert _karar(acik, "run_shell", {"command": "echo x > cikti/a.txt"}, tmp_path) is ALLOW
     assert _karar(acik, "run_shell", {"command": "echo x > ~/a.txt"}, tmp_path) is None
+
+
+# --- #43 iç içe parantez -------------------------------------------------- #
+
+
+def test_ic_ice_parantezli_belirtec_claude_gibi_okunur(tmp_path):
+    """İnceleme (1 Kasım): `Bash(echo (hi))` sessizce yok sayılıyor, deny etkisiz kalıyordu.
+
+    Claude ilk `(` ile son `)` arasını belirteç alır; `\\(` ve `\\)` kaçışı çözülür.
+    """
+    kural = parse_rule("Bash(echo (hi))", DENY)
+    assert kural is not None and kural.tool == "Bash" and kural.specifier == "echo (hi)"
+    kacisli = parse_rule(r"Bash(git log --format=\(%h\) *)", DENY)
+    assert kacisli is not None and kacisli.specifier == "git log --format=(%h) *"
+    kume = _kume(("Bash(git log --format=(%h) *)", "deny"))
+    komut = "git log --format='(%h)' -1"
+    assert _karar(kume, "run_shell", {"command": komut}, tmp_path) is DENY
+    assert parse_rule("Bash(echo x) sonra", DENY) is None

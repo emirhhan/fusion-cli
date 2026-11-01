@@ -103,7 +103,11 @@ class PermissionRule:
 def parse_rule(
     entry: object, decision: PermissionDecision, *, source: str = ""
 ) -> PermissionRule | None:
-    """`Bash(npm run *)` metnini kurala çevir; bozuk yazım `None` (yok sayılır)."""
+    """`Bash(npm run *)` metnini kurala çevir; bozuk yazım `None` (yok sayılır).
+
+    Claude gibi belirteç ilk `(` ile son `)` arasıdır; iç içe parantez (`Bash(echo (hi))`)
+    geçerlidir, `\\(` ve `\\)` kaçışı çözülür (inceleme, 1 Kasım: sessizce atılıyordu).
+    """
     if not isinstance(entry, str):
         return None
     text = entry.strip()
@@ -113,8 +117,9 @@ def parse_rule(
         if "(" not in text:
             return None
         head, _, body = text[:-1].partition("(")
-        if not head.strip() or "(" in body:
+        if not head.strip() or ")" in head:
             return None
+        body = body.replace("\\(", "(").replace("\\)", ")")
         return PermissionRule(head.strip(), body.strip() or None, decision, source)
     if "(" in text or ")" in text:
         return None
