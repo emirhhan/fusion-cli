@@ -148,7 +148,11 @@ def test_ag_allowlist_profili_yalniz_proxy_portuna_izin_verir(tmp_path):
 
 def test_ag_acik_kipte_ag_kurali_ve_proxy_ortami_yok(tmp_path):
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (tmp_path,), platform="darwin", executable=str(_SANDBOX_EXEC)
+        "write_root",
+        (tmp_path,),
+        policy=SandboxPolicy(network="open"),
+        platform="darwin",
+        executable=str(_SANDBOX_EXEC),
     )
     assert "network" not in plan.prefix[-1] and plan.env == ()
 
@@ -169,7 +173,7 @@ def test_linux_bwrap_kok_salt_okunur_yazma_kokleri_bagli(tmp_path):
     gizli.mkdir()
     dosya = tmp_path / "netrc"
     dosya.write_text("x")
-    policy = SandboxPolicy(deny_read=(gizli, dosya, tmp_path / "yok"))
+    policy = SandboxPolicy(deny_read=(gizli, dosya, tmp_path / "yok"), network="open")
     plan = shell_sandbox.plan_shell_sandbox(
         "write_root",
         (tmp_path,),
@@ -492,3 +496,12 @@ def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
 def test_validate_bos_onek_reddedilir():
     with pytest.raises(ConfigError, match="excluded_commands"):
         validate_sandbox(SandboxConfig(excluded_commands=(" ",)))
+
+
+def test_politikasiz_baglam_varsayilani_da_proxyli_izin_listesi():
+    """Claude: sandbox açıkken ağ her zaman proxy'den geçer (#323). Politikası doldurulmamış
+    bağlamın yedeği (`SandboxPolicy()`) de açık ağ değil (bağımsız inceleme #11)."""
+    from fusion_cli.config.sandbox_config import SandboxConfig
+
+    assert SandboxPolicy().restricts_network
+    assert SandboxPolicy().network == SandboxConfig().network

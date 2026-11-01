@@ -79,7 +79,7 @@ class SandboxPolicy:
     #: `allow_read` ile açılamayan engeller (Fusion'ın kendi sır dosyaları).
     locked_read: tuple[Path, ...] = ()
     #: `open` | `allowlist`.
-    network: str = NETWORK_OPEN
+    network: str = NETWORK_ALLOWLIST
     #: `allowlist` kipinde erişilebilen alan adları (`*.ornek.com` alt alan adları).
     allowed_domains: tuple[str, ...] = ()
     #: Her kipte reddedilen alan adları; izin listesinden üstündür.
