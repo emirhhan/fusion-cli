@@ -92,7 +92,12 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
     help="Ücretsiz LLM'lerle çalışan agentic CLI. Argümansız çalıştırılırsa REPL açılır.",
 )
-config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
+config_app = typer.Typer(
+    no_args_is_help=True,
+    # Claude Code'da `claude config` alt komutu yok (ayar `/config`, settings.json, --settings);
+    # bu yüzey Fusion ekidir (#310).
+    help="Fusion eki: config.yaml'ı görüntüle ve değiştir (Claude'da /config ve --settings).",
+)
 app.add_typer(config_app, name="config")
 app.add_typer(memory_commands.app, name="memory")
 app.add_typer(knowledge_commands.app, name="knowledge")
@@ -352,7 +357,11 @@ def run(
 def doctor(
     live: Annotated[
         bool,
-        typer.Option("--live", help="Sağlayıcılara küçük gerçek çağrı yap (kota harcar)."),
+        typer.Option(
+            "--live",
+            hidden=True,
+            help="Fusion eki: sağlayıcılara küçük gerçek çağrı yap (kota harcar).",
+        ),
     ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Betikler için JSON çıktı.")] = False,
 ) -> None:

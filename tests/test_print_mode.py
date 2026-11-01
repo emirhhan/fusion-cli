@@ -611,3 +611,23 @@ def test_install_surum_iğneler_ve_bilinmeyen_yontem_talimat_verir():
     assert code == 1 and "git pull" in text
     code, text = run_maintenance(["x"], InstallMethod.UV, runner=lambda _a: 3)
     assert code == 3 and "uv tool upgrade" in text
+
+
+# --- fusion doctor ayar doğrulaması (#309) ---------------------------------------------- #
+
+
+def test_doctor_bozuk_ayar_dosyasini_raporlar(monkeypatch, tmp_path):
+    from fusion_cli.cli.doctor_settings import remote_control_check, settings_checks
+
+    claude = tmp_path / ".claude"
+    claude.mkdir()
+    (claude / "settings.json").write_text(
+        '{"permissions": {"allow": ["Bash(git *)", "Bash(("], "deny": "Read"}}', encoding="utf-8"
+    )
+    (claude / "settings.local.json").write_text("{bozuk", encoding="utf-8")
+    checks = {c.name: c for c in settings_checks(tmp_path)}
+    bad = [c for c in checks.values() if c.ok is False]
+    assert len(bad) == 2
+    text = " ".join(c.value for c in bad)
+    assert "Bash((" in text and "bir liste olmalı" in text and "okunamadı" in text
+    assert remote_control_check().name == "Remote Control"
