@@ -335,12 +335,13 @@ class RuntimeConfig:
     #: `~/.claude/settings.json` kancaları çalışsın mı? Claude Code gibi varsayılan açık;
     #: false Fusion'a özgü kapatmadır.
     claude_hooks: bool = True
-    #: Kullanımdan kalktı (okunmaz): süre Claude varsayılanıdır (600 sn; olay başına kural).
+    #: Kullanımdan kalktı: Claude varsayılanı 600 sn; başka değer bu sürümde hâlâ süresi
+    #: yazılmamış kancaya uygulanır ve bir kez uyarılır (`engines/hooks/factory.py`).
     hook_timeout_s: float = 600.0
     #: Girdi bekleyen oturum bu kadar sn boşta kalınca `Notification(idle_prompt)`; 0 = kapalı.
     hook_idle_prompt_s: float = 60.0
-    #: Kullanımdan kalktı (okunmaz): http kancası Claude gibi yerel adrese gider;
-    #: kısıt ayar dosyasındaki `allowedHttpHookUrls` ile konur.
+    #: Kullanımdan kalktı: http kancası Claude gibi yerel adrese gider (kısıt
+    #: `allowedHttpHookUrls`); açıkça `false` bu sürümde hâlâ uygulanır ve bir kez uyarılır.
     hook_http_allow_private: bool = True
     #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun

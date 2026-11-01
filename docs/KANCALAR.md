@@ -238,7 +238,8 @@ runtime:
   hooks_enabled: true    # false = hiçbir kanca çalışmaz
   claude_hooks: true     # false = ~/.claude/settings.json kancalarını atla
   hook_idle_prompt_s: 60 # Notification(idle_prompt) gecikmesi; 0 = kapalı
-  # hook_timeout_s, hook_http_allow_private: kullanımdan kalktı, okunmaz
+  # hook_timeout_s, hook_http_allow_private: kullanımdan kalktı; varsayılandan farklı
+  # değer (ör. hook_http_allow_private: false) bu sürümde hâlâ uygulanır, bir kez uyarılır
 ```
 
 `FUSION_HOOKS=off` ortam değişkeni de hepsini kapatır (acil durum ve testler). Eski

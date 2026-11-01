@@ -218,12 +218,14 @@ runtime:
   # ~/.claude/settings.json kancaları (Claude gibi varsayılan açık). false = atla (Fusion'a özgü).
   claude_hooks: true
   # Kullanımdan kalktı: süre Claude varsayılanıdır (command/http 600 sn, UserPromptSubmit 30 sn,
-  # SessionEnd ortak 1,5 sn bütçe); kanca başına `timeout` yazın. Bu değer artık okunmaz.
+  # SessionEnd ortak 1,5 sn bütçe); kanca başına `timeout` yazın. 600 dışı değer bu sürümde
+  # hâlâ süresi yazılmamış kancaya uygulanır ve bir kez uyarılır.
   hook_timeout_s: 600
   # Girdi bekleyen oturum bu kadar sn boşta kalınca Notification(idle_prompt) kancası; 0 = kapalı.
   hook_idle_prompt_s: 60
   # Kullanımdan kalktı: http kancası Claude gibi yerel adrese de gider; kısıt için ayar
-  # dosyasında `allowedHttpHookUrls` kullanın. Bu değer artık okunmaz.
+  # dosyasında `allowedHttpHookUrls` kullanın. Açıkça false bu sürümde hâlâ uygulanır
+  # (iç ağ adresi engellenir) ve bir kez uyarılır.
   hook_http_allow_private: true
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
