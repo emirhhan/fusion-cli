@@ -45,3 +45,21 @@ async def test_plan_kipinde_okuma_sorulmaz_otomatikte_yeni_sekme_sorulmaz(tmp_pa
         tmp_path, {"action": "open", "value": "example.com"}, ApprovalMode.AUTO
     )
     assert decision is Decision.ALLOW and prompter.asked == []
+
+
+@pytest.mark.parametrize(
+    "item",
+    [{"name": "chrome_action", "input": {"action": "new_tab", "value": "example.com"}},
+     {"name": "chrome_action", "input": {"action": "shortcut", "value": "ozet"}}],
+)  # fmt: skip
+async def test_plan_kipinde_toplu_cagri_icindeki_istemli_eylem_de_sorulur(tmp_path, item):
+    """Belge: "including batch calls that contain them" (#450)."""
+    tool = build_registry().get("chrome_batch")
+    args = {"actions": [{"name": "chrome_page", "input": {}}, item]}
+    request = await resolve_request(tool, args, root=tmp_path, context=ToolContext(root=tmp_path))
+    assert request.plan_prompt
+    prompter = _Sor(True)
+    assert await build_policy(ApprovalMode.PLAN, prompter).decide(request) is Decision.ALLOW
+    assert len(prompter.asked) == 1
+    prompter = _Sor(False)
+    assert await build_policy(ApprovalMode.PLAN, prompter).decide(request) is not Decision.ALLOW

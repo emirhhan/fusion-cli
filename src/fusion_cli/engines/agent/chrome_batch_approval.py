@@ -9,6 +9,11 @@ sorulur ama karar öğelerden kurulur:
 - Etki en sıkı öğenin etkisidir; tehlike notu (yetki verme, hassas alan) korunur, böyle bir
   çağrı oturum iznine dönüşmez.
 - Yalnız tüm öğeler salt okunursa çağrı okuma sayılır (plan kipi izin verir).
+- Plan kipinde istem çıkaran öğe (#450: GIF kaydı, yeni sekme/pencere, kısayol) toplu çağrıyı
+  da istemli yapar (belge: "including batch calls that contain them").
+
+Öğelerin etkisi onay anındaki sayfaya göre hesaplanır; önceki öğe sayfayı değiştirirse
+çalışma anı denetimi `tools.chrome_script.chrome_batch` içindedir.
 """
 
 from __future__ import annotations
@@ -93,4 +98,5 @@ def _merge(
         read_only=reading,
         unattended_safe=all(sub.unattended_safe for _, _, sub in subs),
         rule=request.rule or next((sub.rule for _, _, sub in subs if sub.rule), None),
+        plan_prompt=request.plan_prompt or any(sub.plan_prompt for _, _, sub in subs),
     )
