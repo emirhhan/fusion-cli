@@ -98,21 +98,24 @@ def test_hatali_ve_zaman_asimli_betik_bos_doner(state: ReplState, caplog):
 
 
 @pytest.mark.asyncio
-async def test_ayarsizken_bos_ayarliyken_cikti(state: ReplState):
+async def test_ayarsizken_bos_eski_runtime_komutu_takma_ad(state: ReplState):
+    from dataclasses import replace
+
     assert await status_line_text(state) == ""
-    statusline_command(state, "echo 'özel satır'")
-    assert await status_line_text(state) == "özel satır"
-
-
-def test_komut_gosterir_kaydeder_kaldirir(state: ReplState, tmp_path: Path):
-    assert build_registry().get("statusline") is not None
-    assert "(yok)" in statusline_command(state, "") and "context_window" in statusline_command(
-        state, ""
+    state.config = replace(
+        state.config, runtime=replace(state.config.runtime, status_line_command="echo 'özel'")
     )
-    assert "kaydedildi" in statusline_command(state, "echo x")
-    assert load_config(tmp_path / "config.yaml").runtime.status_line_command == "echo x"
-    assert "kaldırıldı" in statusline_command(state, "kapat")
-    assert state.config.runtime.status_line_command == ""
+    assert await status_line_text(state) == "özel"
+
+
+def test_statusline_istegi_modele_devreder(state: ReplState):
+    assert build_registry().get("statusline") is not None
+    note = statusline_command(state, "model adını ve git dalını göster")
+    assert "statusline-setup" in note
+    assert "model adını ve git dalını göster" in state.pending_task
+    assert '"statusLine"' in state.pending_task
+    statusline_command(state, "")
+    assert "PS1" in state.pending_task
 
 
 def test_durum_cubuklari_ozel_satiri_kacirarak_gosterir(tmp_path: Path, monkeypatch):

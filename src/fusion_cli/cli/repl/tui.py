@@ -36,6 +36,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
 from rich.console import Console
 
+from .status_line_runner import ansi_for_tui
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
 from ...ui import messages, theme
 from ...ui.picker import Choice
@@ -86,7 +87,9 @@ def format_status(
     `vim` açıkken kısa `vim` etiketi eklenir (P-067).
     """
     color = theme.MODE_COLORS.get(mode, theme.DIM)
-    shown = html_escape(custom) if custom else context
+    # Çok satırlı/ANSI betik çıktısı (#192) TUI'de kendi satırlarında gösterilir
+    # (`custom_status_window`); burada yalnız tek satır olanı yerine geçer.
+    shown = html_escape(custom) if custom and "\n" not in custom and "\x1b" not in custom else context
     extra = f" · {shown}" if shown else ""
     if vim:
         extra += " · vim"
@@ -206,6 +209,15 @@ class FusionTui:
         )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
+        # Claude Code: betik çıktısı yerleşik çubuğun ÜSTÜNDE kendi satır(lar)ında, ANSI renk
+        # ve OSC 8 bağlantılarıyla (#192). Tek satırlık düz çıktı eski yerinde kalır.
+        custom_window = ConditionalContainer(
+            Window(
+                FormattedTextControl(lambda: ANSI(ansi_for_tui(self._status_custom))),
+                height=lambda: Dimension.exact(self._status_custom.count("\n") + 1),
+            ),
+            filter=Condition(self._custom_is_rich),
+        )
         # Seçim modalı: yalnızca "choice" modunda, girdinin hemen üstünde ok-tuşlu liste.
         choice_window = ConditionalContainer(
             Window(FormattedTextControl(self._choice_fragments)),
@@ -213,7 +225,15 @@ class FusionTui:
         )
         # Konuşma alanı tüm boşluğu kaplar; alt-chrome (çizgi + girdi + durum) en altta pinli.
         root = HSplit(
-            [conversation, work_window, choice_window, rule, Frame(self._input), status_window],
+            [
+                conversation,
+                work_window,
+                choice_window,
+                rule,
+                Frame(self._input),
+                custom_window,
+                status_window,
+            ],
             height=Dimension(),
         )
         self.application: Application[None] = Application(
@@ -355,6 +375,10 @@ class FusionTui:
         self._status_custom = custom
         self._status_vim = vim
         self._refresh_status()
+
+    def _custom_is_rich(self) -> bool:
+        custom = self._status_custom
+        return bool(custom) and ("\n" in custom or "\x1b" in custom)
 
     def set_vim(self, enabled: bool) -> None:
         """Vim düzenleme kipini aç/kapa (P-067); durum satırı etiketi `set_status` ile gelir."""

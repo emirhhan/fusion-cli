@@ -1064,13 +1064,19 @@ Proje dizinindeki stil (`.claude/output-styles`, `.fusion/cikti-stilleri`) yerle
 
 ### Durum satırı betiği: `/statusline`
 
-`runtime.status_line_command` kabuk komutu çalıştırır; güven kaydı olmayan projenin `config.yaml`'ından gelirse (`verification_commands` gibi) `fusion trust` verilene kadar düşürülür.
+Ayar Claude Code ile aynıdır: `settings.json` içinde
+`"statusLine": {"type": "command", "command": "~/.claude/statusline.sh", "padding": 0, "refreshInterval": 5, "hideVimModeIndicator": false}`.
+Okuma sırası: `~/.claude/settings.json` → Fusion'ın eski `runtime.status_line_command` dizesi (kullanımdan kalkmış takma ad) → proje `.claude/settings.json` → `.claude/settings.local.json`; proje dosyaları kabuk komutu çalıştırdığı için yalnız `fusion trust` sonrası okunur.
 
 ```
-/statusline jq -r '.model.display_name + " · %" + ((.context_window.used_percentage // 0)|tostring)'
-/statusline kapat
+/statusline model adını, bağlam yüzdesini ve git dalını göster
+/statusline
 ```
-Betik her tur sonunda stdin'den Claude Code statusline şemasında JSON alır (`cwd`, `session_id`, `session_name`, `transcript_path`, `model.{id,display_name}`, `workspace.{current_dir,project_dir,added_dirs,git_worktree}`, `version`, `output_style.name`, `cost.*`, `context_window.*`, `exceeds_200k_tokens`, `effort.level`, `thinking.enabled`, `vim`, `agent`, `pr`, `worktree`; Fusion'a özgü motor/izin kipi/kademe `fusion` altında. Fusion'ın ölçmediği API süresi ve satır sayaçları 0), bastığı ilk satır durum çubuğunda gösterilir; 1 sn sınırı, hata olursa yerleşik çubuk. Ayar: `runtime.status_line_command`.
+`/statusline <istek>` betiği Claude Code'daki gibi `statusline-setup` ajanına yazdırır; argümansız hâli durum satırını kabuk isteminden (PS1) kurdurur.
+
+Betik oturum başında (sürdürmede de), her asistan cevabından sonra, `/compact` bitince, izin kipi ya da vim kipi değişince ve `refreshInterval` saniyede bir çalışır; tetikler 300 ms birleştirilir, yeni tetik süren betiği iptal eder, komut değişince beklemeden çalışır. stdin'den Claude Code statusline şemasında JSON alır (`cwd`, `session_id`, `session_name`, `transcript_path`, `model.{id,display_name}`, `workspace.{current_dir,project_dir,added_dirs,git_worktree}`, `version`, `output_style.name`, `cost.*`, `context_window.*`, `exceeds_200k_tokens`, `effort.level`, `thinking.enabled`, `vim`, `agent`, `pr`, `worktree`; Fusion'a özgü motor/izin kipi/kademe `fusion` altında). Betiğe `COLUMNS`/`LINES` verilir. TUI'de bütün satırlar ANSI renk ve OSC 8 bağlantılarıyla yerleşik çubuğun üstünde gösterilir.
+
+Claude Code'dan farklar: Fusion'ın ölçmediği `cost.total_api_duration_ms`, `total_lines_added/removed` 0 gelir; `prompt_cache`, `rate_limits`, `prompt_id`, `workspace.repo` yazılmaz. Satır içi (düz) REPL yalnız ilk satırı tur sonunda gösterir.
 
 ### Görünüm: `/theme`, `/tui`, `/search`
 

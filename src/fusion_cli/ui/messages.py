@@ -1492,7 +1492,7 @@ SEARCH_FOUND = (
 )
 
 # --- /statusline (P-069) --------------------------------------------------- #
-CMD_STATUSLINE = "durum satırı betiği: /statusline <komut> · /statusline kapat (stdin JSON alır)"
+CMD_STATUSLINE = "durum satırını modele kurdur: /statusline <istek> (argümansız: kabuk isteminden)"
 STATUSLINE_CURRENT = (
     "Durum satırı betiği: {command}\n"
     "Betik stdin'den JSON alır, bastığı ilk satır durum çubuğunda görünür (1 sn sınırı). "
@@ -1502,6 +1502,14 @@ STATUSLINE_CURRENT = (
 STATUSLINE_SET = "Durum satırı betiği kaydedildi: {command} — bir sonraki turdan itibaren."
 STATUSLINE_SET_UNSAVED = "Durum satırı betiği dosyaya yazılamadı: {error}"
 STATUSLINE_CLEARED = "Durum satırı betiği kaldırıldı; yerleşik çubuk kullanılıyor."
+STATUSLINE_FROM_PROMPT = "durum satırını kabuk istemimden (PS1) kur"
+STATUSLINE_DELEGATED = "Durum satırı isteği statusline-setup ajanına gönderiliyor."
+STATUSLINE_TASK = (
+    "statusline-setup ajanını kullan: {request}. Betiği ~/.claude/statusline.sh gibi bir dosyaya "
+    "yaz ve ~/.claude/settings.json içine Claude Code biçiminde "
+    '"statusLine": {{"type": "command", "command": "<betik yolu>"}} olarak kaydet. Betik '
+    "stdin'den şu JSON alanlarını alır: {fields}."
+)
 
 # --- /keybindings ve /vim (P-067) ------------------------------------------ #
 CMD_KEYBINDINGS = "tuş bağlarını göster; dosya keybindings.json (yeniden başlatmadan uygulanır)"

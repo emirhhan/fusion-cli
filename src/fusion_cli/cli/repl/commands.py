@@ -1256,7 +1256,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_STATUSLINE,
         status_line.statusline_command,
         group="Görünüm",
-        usage="[komut|kapat]",
+        usage="[istek]",
     ),
     SlashCommand(
         "keybindings",

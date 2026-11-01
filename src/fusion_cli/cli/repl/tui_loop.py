@@ -78,6 +78,8 @@ from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_pre
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
+from .status_line_runner import StatusLineRunner
+from .status_line_settings import resolve_status_line
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
@@ -324,6 +326,14 @@ class _TuiSession:
             self._tui, drain, self._state.root, AppDenials(self._deny_persist())
         )
         self._custom_status = ""
+        # Durum satırı betiği Claude Code tetikleriyle çalışır (#192, `status_line_runner`).
+        self._status_runner = StatusLineRunner(
+            lambda: resolve_status_line(self._state.config, self._state.root, self._state.home),
+            lambda: status_line.status_payload(self._state),
+            self._set_custom_status,
+            cwd_source=lambda: str(self._state.root),
+        )
+        self._status_trigger_key: tuple[str, bool] | None = None
         self._sync_status()
 
     @property
@@ -432,21 +442,40 @@ class _TuiSession:
     def _sync_status(self) -> None:
         vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
         self._tui.set_vim(vim)
+        spec = resolve_status_line(self._state.config, self._state.root, self._state.home)
         self._tui.set_status(
             self._state.approval.value,
             self._state.engine.value,
             status_view.context_label(self._state),
             self._custom_status,
-            vim=vim,
+            vim=vim and not (spec is not None and spec.hide_vim_mode_indicator),
         )
+        # İzin kipi ya da vim kipi değişince betik yeniden çalışır (Claude Code ile aynı).
+        key = (self._state.approval.value, vim)
+        if self._status_trigger_key is not None and key != self._status_trigger_key:
+            self._request_status_line()
+        self._status_trigger_key = key
         # Tuş dosyası değiştiyse yeniden başlatmadan uygula (P-067).
         if keybindings.has_changed(self._tui.keymap):
             self._tui.rebind(keybindings.load_keymap(self._tui.keymap.path))
 
     async def _refresh_custom_status(self) -> None:
-        """Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; sonucu durum satırına gider."""
-        self._custom_status = await status_line.status_line_text(self._state)
+        """Asistan cevabından sonra durum satırı betiğini tetikle (#192; debounce'lu)."""
+        self._request_status_line()
+
+    def _request_status_line(self) -> None:
+        try:
+            self._status_runner.request()
+        except RuntimeError:
+            # Döngü yok (eşzamanlı test kurulumu): betik bir sonraki tetikte çalışır.
+            return
+
+    def _set_custom_status(self, text: str) -> None:
+        self._custom_status = text
         self._sync_status()
+
+    async def close_status_line(self) -> None:
+        await self._status_runner.close()
 
     def _echo(self, renderable: object) -> None:
         """Konuşmaya bir şey yaz ve ekranı tazele."""
@@ -566,6 +595,8 @@ class _TuiSession:
                 command.name, self._state, self._registry, self._out, argument
             )
             self._tui.sync_conversation()
+            if command.name == "compact":
+                self._request_status_line()
             return
         if command.name in ASYNC_COMMANDS:
             # `/voice` kısmi metni canlı olarak giriş kutusuna yazar; sonuç orada kalır.
@@ -1086,6 +1117,8 @@ async def run_tui_repl(
     )
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
+    # Oturum başında (sürdürmede de) durum satırı betiği bir kez çalışır (#192).
+    session._request_status_line()
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl
@@ -1097,6 +1130,7 @@ async def run_tui_repl(
     finally:
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
         await state.child_runs.close()
+        await session.close_status_line()
         session.tui.restore_wheel_modes()
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):

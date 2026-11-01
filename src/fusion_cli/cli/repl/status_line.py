@@ -62,35 +62,26 @@ def run_status_line(command: str, payload: dict[str, Any], *, cwd: str | None = 
 
 
 async def status_line_text(state: ReplState) -> str:
-    """Yapılandırılmış betik varsa çıktısı; yoksa boş (yerleşik çubuk kullanılır)."""
-    command = str(getattr(state.config.runtime, "status_line_command", "") or "").strip()
-    if not command:
+    """Yapılandırılmış betik varsa İLK satırı (düz REPL alt çubuğu); yoksa boş."""
+    from .status_line_settings import resolve_status_line
+
+    spec = resolve_status_line(state.config, state.root, state.home)
+    if spec is None:
         return ""
     return await asyncio.to_thread(
-        run_status_line, command, status_payload(state), cwd=str(state.root)
+        run_status_line, spec.command, status_payload(state), cwd=str(state.root)
     )
 
 
 def statusline_command(state: ReplState, argument: str) -> str:
-    """`/statusline [komut|kapat]` — betiği göster, ayarla ya da kaldır (kalıcı)."""
-    from dataclasses import replace
+    """`/statusline [istek]` — Claude Code gibi betiği modele (statusline-setup) yazdırır.
 
-    from ...config.settings_access import write_setting
-    from ...core.errors import ConfigError
-
-    wanted = argument.strip()
-    current = str(getattr(state.config.runtime, "status_line_command", "") or "")
-    if not wanted:
-        fields = ", ".join(status_payload(state))
-        return messages.STATUSLINE_CURRENT.format(command=current or "(yok)", fields=fields)
-    value = "" if wanted.lower() in ("kapat", "off", "sil", "yok") else wanted
-    try:
-        state.config, _ = write_setting(state.config, SETTING_PATH, value)
-    except ConfigError as error:
-        state.config = replace(
-            state.config, runtime=replace(state.config.runtime, status_line_command=value)
-        )
-        return messages.STATUSLINE_SET_UNSAVED.format(error=error)
-    if not value:
-        return messages.STATUSLINE_CLEARED
-    return messages.STATUSLINE_SET.format(command=value)
+    Argümansız hâli durum satırını kabuk isteminden (PS1) kurdurur. Ayar Claude Code
+    `statusLine` nesnesidir (`.claude/settings.json`); Fusion'ın eski
+    `runtime.status_line_command` dizesi kullanımdan kalkmış takma ad olarak okunur.
+    """
+    request = argument.strip() or messages.STATUSLINE_FROM_PROMPT
+    state.pending_task = messages.STATUSLINE_TASK.format(
+        request=request, fields=", ".join(status_payload(state))
+    )
+    return messages.STATUSLINE_DELEGATED
