@@ -109,7 +109,7 @@ def test_kaynak_turleri_pazar_ekleme_kaynagina_cevrilir(tmp_path, source, spec):
 @pytest.mark.parametrize(
     "source",
     [
-        {"source": "url", "url": "https://example.com/marketplace.json"},
+        {"source": "url"},
         {"source": "settings", "name": "x", "plugins": []},
         {"source": "github"},
         "acme/eklentiler",
@@ -117,6 +117,12 @@ def test_kaynak_turleri_pazar_ekleme_kaynagina_cevrilir(tmp_path, source, spec):
 )
 def test_desteklenmeyen_ya_da_bozuk_kaynak_atlanir(tmp_path, source):
     assert plugin_declared.source_spec(source, tmp_path) is None
+
+
+def test_url_turu_bildirim_adres_olarak_eklenir(tmp_path):
+    """#395: Claude url türü (marketplace.json adresi) artık Fusion'da da var."""
+    source = {"source": "url", "url": "https://example.com/marketplace.json"}
+    assert plugin_declared.source_spec(source, tmp_path) == "https://example.com/marketplace.json"
 
 
 def test_eklenemeyen_pazar_digerlerini_durdurmaz(tmp_path, caplog):

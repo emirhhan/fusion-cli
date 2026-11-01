@@ -1,12 +1,15 @@
 """`plugin marketplace add <kaynak>` kaynak biçimleri (Claude Code kaynak tablosu, #395).
 
-Desteklenen: `owner/repo`, `owner/repo#ref`, `owner/repo@ref` (GitHub); `.git` ile biten ya da
-`/_git/` içeren https adresi; github.com/gitlab.com https adresi (git olarak klonlanır);
-`./`, `../`, `/`, `~` ile başlayan klasör (directory) ya da `.json` dosyası (file).
+Claude Code (cli-reference "plugin marketplace add", install.md "Add a private marketplace"):
+`owner/repo`, `owner/repo#ref`, `owner/repo@ref` (GitHub); `user@host:path` (SSH); `.git` ile
+biten ya da `/_git/` içeren http(s) adresi ve github.com/gitlab.com adresleri (git olarak
+klonlanır); başka http(s) adresi doğrudan `marketplace.json` dosyasıdır (url türü); `./`, `../`,
+`/`, `~` ile başlayan klasör (directory) ya da `.json` dosyası (file). Özel depolar kullanıcının
+yerel git kimlik bilgileri ve SSH anahtarlarıyla klonlanır.
 
-Fusion'da açıkça desteklenmeyen (Claude'da var): SSH (`user@host:path`), düz `http://`, ve
-`.git`'siz başka https adresinin marketplace.json olarak indirilmesi (url türü). Fusion klonu yalnız
-genel https adresleriyle, iç ağa çıkmadan yapar; bunlar açık hata mesajıyla reddedilir.
+Güvenlik davranışı değişti (#395): kullanıcının açıkça verdiği pazar kaynağında SSH, düz http ve
+iç ağ adresleri artık kabul edilir (Claude gibi); pazar GİRDİSİNDEKİ eklenti kaynakları (#399)
+hâlâ yalnız genel https ile klonlanır. Klon etkileşimsizdir (parola/anahtar sorusu sorulmaz).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from ..core.plugins import PluginError
 KIND_DIRECTORY = "yerel"
 KIND_FILE = "dosya"
 KIND_GIT = "git"
+KIND_URL = "url"
 OFFICIAL_ALIAS = "resmi"
 OFFICIAL_MARKETPLACE = "https://github.com/anthropics/claude-plugins-official"
 #: Claude: `Invalid marketplace source format. Try: owner/repo, https://..., or ./path`
@@ -28,11 +32,9 @@ ERR_FORMAT = "Geçersiz pazar kaynağı biçimi. Dene: owner/repo, https://... y
 ERR_BARE_HOST = (
     "'{spec}' geçersiz owner/repo kısaltması: başına https:// ekle ya da yerel yol kullan"
 )
-ERR_SSH = "SSH pazar kaynakları (user@host:path) Fusion'da desteklenmiyor; https adresi kullan"
-ERR_HTTP = "Yalnız https adresleri kabul edilir: {spec}"
-ERR_URL_KIND = (
-    "marketplace.json adresi (url türü) Fusion'da desteklenmiyor; depoyu klonlamak için "
-    "adresin sonuna .git ekle: {spec}"
+WARN_OFFICIAL_ALIAS = (
+    "'resmi' kısa adı kullanımdan kalktı (Claude Code'da yok); kullan: "
+    "fusion plugin marketplace add anthropics/claude-plugins-official"
 )
 ERR_NOT_FOUND = "Pazar yolu bulunamadı: {spec}"
 
@@ -64,16 +66,18 @@ def parse_market_source(spec: str) -> MarketSource:
     """Kullanıcının yazdığı kaynağı türüne ayır; desteklenmeyen biçimde açık hata."""
     text = spec.strip()
     if text.lower() == OFFICIAL_ALIAS:
+        import logging
+
+        logging.getLogger(__name__).warning(WARN_OFFICIAL_ALIAS)
         return MarketSource(KIND_GIT, OFFICIAL_MARKETPLACE)
     local = Path(text).expanduser()
     if text.startswith(_PATH_PREFIXES) or (text and local.exists()):
         return _local(local, spec)
     if _SSH.match(text):
-        raise PluginError(ERR_SSH)
-    if text.startswith("http://"):
-        raise PluginError(ERR_HTTP.format(spec=spec))
-    if text.startswith("https://"):
-        return _https(text, spec)
+        location, _, ref = text.partition("#")
+        return MarketSource(KIND_GIT, location, ref)
+    if text.startswith(("https://", "http://")):
+        return _http(text)
     match = _SHORTHAND.match(text)
     if match is None:
         head = text.split("/", 1)[0]
@@ -90,7 +94,7 @@ def _local(path: Path, spec: str) -> MarketSource:
     raise PluginError(ERR_NOT_FOUND.format(spec=spec))
 
 
-def _https(text: str, spec: str) -> MarketSource:
+def _http(text: str) -> MarketSource:
     url, _, ref = text.partition("#")
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
@@ -99,7 +103,8 @@ def _https(text: str, spec: str) -> MarketSource:
     if host in _GIT_HOSTS:
         # Claude `.git` ekleyerek klonlar; git bunu kendisi de çözer, kayıt adresi değişmesin.
         return MarketSource(KIND_GIT, url.rstrip("/"), ref)
-    raise PluginError(ERR_URL_KIND.format(spec=spec))
+    # Claude: başka her http(s) adresi doğrudan marketplace.json dosyasıdır (url türü).
+    return MarketSource(KIND_URL, url)
 
 
 def market_root(kind: str, path: Path) -> Path:

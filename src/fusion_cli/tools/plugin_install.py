@@ -80,6 +80,10 @@ ERR_CHANGED = (
 ERR_SHA = "Commit uyuşmuyor: pazar {expected} bekliyor, klon {actual}. Kurulmadı."
 ERR_SHA_FORMAT = "Pazar sha pini en az 7 onaltılık karakter olmalı: {sha!r}. Kurulmadı."
 ERR_NO_MARKET = "Pazar yok: {name}"
+ERR_URL_RELATIVE = (
+    "'{name}@{market}': adresten (url türü) eklenen pazarda göreli yollu eklenti kurulamaz; "
+    "pazarı git deposu olarak ekle"
+)
 ERR_MARKET_PARTIAL = (
     "'{name}' pazarı kaldırılmadı; şu eklentiler kaldırılamadı: {errors}. "
     "Sorunu giderip yeniden deneyin (kaldırılanlar geri gelmez)."
@@ -196,6 +200,8 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         )
     record, entry = hits[0]
     source = entry.source
+    if source.kind == "path" and record.kind == "url":
+        raise PluginError(ERR_URL_RELATIVE.format(name=name, market=record.name))
     if source.kind == "path":
         from .plugin_market_source import market_root
 
@@ -228,17 +234,21 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
     )
 
 
+class PrivateUrlError(PluginError):
+    """Adres genel https değil (iç ağ, kimlik bilgili ya da başka şema)."""
+
+
 def _check_url(url: str) -> str | None:
     """Klon adresi genel bir https sunucusu mu (iç ağ, kimlik bilgisi yok)? Denetlenen IP."""
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
-        raise PluginError(ERR_URL.format(url=url))
+        raise PrivateUrlError(ERR_URL.format(url=url))
     try:
         addresses = sorted({str(info[4][0]) for info in socket.getaddrinfo(parts.hostname, 443)})
     except OSError as error:
         raise PluginError(f"{ERR_URL.format(url=url)} ({error})") from error
     if not addresses or not all(is_public_ip(address) for address in addresses):
-        raise PluginError(ERR_URL.format(url=url))
+        raise PrivateUrlError(ERR_URL.format(url=url))
     return addresses[0]
 
 
@@ -606,33 +616,70 @@ def read_marketplace(folder: Path, *, source: str = "") -> Marketplace:
     raise PluginError(ERR_MARKET_FILE.format(path=folder))
 
 
-def add_marketplace(spec: str, *, base: Path | None = None) -> MarketplaceRecord:
-    """Yerel klasör/.json dosyası ya da git deposunu pazar olarak kaydet (git ise klonlanır)."""
-    from .plugin_market_source import KIND_GIT, parse_market_source
+def add_marketplace(
+    spec: str, *, base: Path | None = None, sparse: tuple[str, ...] = ()
+) -> MarketplaceRecord:
+    """Yerel klasör/.json dosyası, git deposu (`--sparse` ile seyrek) ya da marketplace.json
+    adresini (url türü) pazar olarak kaydet (#395, #381)."""
+    from .plugin_market_fetch import ERR_SPARSE
+    from .plugin_market_source import KIND_GIT, KIND_URL, parse_market_source
 
     root = base or plugins_dir()
     source = parse_market_source(spec)
-    if source.kind != KIND_GIT:
+    if sparse and source.kind != KIND_GIT:
+        raise PluginError(ERR_SPARSE)
+    if source.kind not in (KIND_GIT, KIND_URL):
         market = read_marketplace(Path(source.location))
         _check_market_name(market.name, source.location, root)
         record = MarketplaceRecord(
             market.name, source.location, source.kind, source.location, time.time()
         )
     else:
-        with _workspace(root) as workspace:
-            clone = workspace / "pazar"
-            _clone(source.location, clone, ref=source.ref)
-            market = read_marketplace(clone, source=source.location)
-            _check_market_name(market.name, source.record_source, root)
-            destination = markets_dir(root) / market.name
-            shutil.rmtree(destination, ignore_errors=True)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(clone), destination)
+        destination = fetch_market(source.kind, source.location, source.ref, sparse, root)
         record = MarketplaceRecord(
-            market.name, source.record_source, "git", str(destination), time.time()
+            destination.name,
+            source.record_source,
+            source.kind,
+            str(destination),
+            time.time(),
+            sparse,
         )
     plugin_store.update_state(lambda current: current.with_marketplace(record), root)
     return record
+
+
+def fetch_market(
+    kind: str, url: str, ref: str, sparse: tuple[str, ...], root: Path, *, expected: str = ""
+) -> Path:
+    """Git ya da url pazarını çalışma alanına çek, adını doğrula ve `.pazarlar/<ad>`'a taşı."""
+    from .plugin_market_fetch import clone_user_source, download_marketplace
+    from .plugin_market_source import KIND_URL
+
+    with _workspace(root) as workspace:
+        clone = workspace / "pazar"
+        if kind == KIND_URL:
+            download_marketplace(url, clone)
+        elif sparse or not url.startswith("https://"):
+            clone_user_source(url, clone, ref=ref, sparse=sparse)  # SSH/http/seyrek (#395)
+        else:
+            try:
+                _clone(url, clone, ref=ref)
+            except PrivateUrlError:
+                # Kullanıcının verdiği iç ağ/kimlikli adres: Claude gibi yerel git ile (#395).
+                shutil.rmtree(clone, ignore_errors=True)
+                clone_user_source(url, clone, ref=ref)
+        market = read_marketplace(clone, source=url)
+        if expected and market.name != expected:
+            from .plugin_update import ERR_MARKET_RENAMED
+
+            raise PluginError(ERR_MARKET_RENAMED.format(old=expected, new=market.name))
+        if not expected:
+            _check_market_name(market.name, f"{url}#{ref}" if ref else url, root)
+        destination = markets_dir(root) / market.name
+        shutil.rmtree(destination, ignore_errors=True)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(clone), destination)
+    return destination
 
 
 def _check_market_name(name: str, source: str, root: Path) -> None:

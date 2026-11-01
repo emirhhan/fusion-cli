@@ -90,6 +90,8 @@ class MarketplaceRecord:
     #: Pazarın diskteki kökü (yerel klasör ya da klon).
     path: str
     added_at: float = 0.0
+    #: `marketplace add --sparse` klasörleri (git sparse-checkout, #381); güncellemede korunur.
+    sparse: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +232,13 @@ def _marketplace(name: str, raw: Mapping[str, object]) -> MarketplaceRecord:
         str(raw.get("tur") or "yerel"),
         str(raw.get("yol") or ""),
         _number(raw.get("eklendi")),
+        _strings(raw.get("seyrek")),
+    )
+
+
+def _strings(raw: object) -> tuple[str, ...]:
+    return (
+        tuple(str(item) for item in raw if isinstance(item, str)) if isinstance(raw, list) else ()
     )
 
 
@@ -261,7 +270,13 @@ def save_state(state: PluginState, base: Path | None = None) -> Path:
             for p in sorted(state.plugins, key=lambda item: item.name)
         },
         "pazarlar": {
-            m.name: {"kaynak": m.source, "tur": m.kind, "yol": m.path, "eklendi": m.added_at}
+            m.name: {
+                "kaynak": m.source,
+                "tur": m.kind,
+                "yol": m.path,
+                "eklendi": m.added_at,
+                **({"seyrek": list(m.sparse)} if m.sparse else {}),
+            }
             for m in sorted(state.marketplaces, key=lambda item: item.name)
         },
     }

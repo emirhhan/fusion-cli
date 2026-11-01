@@ -35,11 +35,10 @@ from .plugin_install import (
     ApprovalCallback,
     PluginPreview,
     _check_expected,
-    _clone,
+    _clone,  # noqa: F401  (testler bu adı yamar)
     _fetch,
     _resolve,
     _workspace,
-    markets_dir,
     read_marketplace,
     version_of,
 )
@@ -190,22 +189,15 @@ def update_marketplace(name: str, *, base: Path | None = None) -> MarketplaceRec
     record = load_state(root).marketplace(name)
     if record is None:
         raise PluginError(ERR_NO_MARKET.format(name=name))
-    if record.kind != "git":
+    if record.kind not in ("git", "url"):
         market = read_marketplace(Path(record.path))
         if market.name != record.name:
             raise PluginError(ERR_MARKET_RENAMED.format(old=record.name, new=market.name))
         return record
-    with _workspace(root) as workspace:
-        clone = workspace / "pazar"
-        url, ref = split_ref(record.source)
-        _clone(url, clone, ref=ref)
-        market = read_marketplace(clone, source=url)
-        if market.name != record.name:
-            raise PluginError(ERR_MARKET_RENAMED.format(old=record.name, new=market.name))
-        destination = markets_dir(root) / market.name
-        shutil.rmtree(destination, ignore_errors=True)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(clone), destination)
+    from .plugin_install import fetch_market
+
+    url, ref = split_ref(record.source)
+    destination = fetch_market(record.kind, url, ref, record.sparse, root, expected=record.name)
     updated = replace(record, path=str(destination), added_at=time.time())
     plugin_store.update_state(lambda current: current.with_marketplace(updated), root)
     return updated

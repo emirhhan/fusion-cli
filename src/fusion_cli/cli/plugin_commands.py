@@ -65,6 +65,11 @@ MARKET_UPDATED = "Pazar güncellendi: {name}. Eklentileri gör: fusion eklenti k
 MARKETS_UPDATED = "{count} pazar güncellendi"
 MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti kesfet {name}"
 MARKET_REMOVED = "Pazar kaldırıldı: {name}"
+MARKET_DECLARED = "({scope} ayarlarında bildirildi)"
+CLAUDEAI_UNSUPPORTED = (
+    "--claudeai claude.ai hesabının barındırdığı pazarları ister; Fusion claude.ai hesabına "
+    "bağlanmaz. Pazarı kaynağından ekle: fusion plugin marketplace add <kaynak>"
+)
 MARKET_ALSO = "Ayrıca bu pazardan {count} eklenti kaldırıldı:"
 SCOPE_HELP = "Kapsam: user, project ya da local (verilmezse algılanır)."
 JSON_HELP = "Sonucu son satırda tek JSON nesnesi olarak bas."
@@ -72,6 +77,9 @@ DISCOVER_DEPRECATED = (
     "discover/kesfet kullanımdan kalktı; Claude Code karşılığı: "
     "fusion plugin list --json --available"
 )
+
+
+_EXTRA_ARGS = {"allow_extra_args": True, "ignore_unknown_options": False}
 
 
 def _run(action: Callable[[], str]) -> None:
@@ -168,22 +176,33 @@ def _configure_after_install(done: ScopedInstall, pairs: list[str]) -> str:
     return "\n" + CONFIG_HINT.format(keys=", ".join(missing), ident=done.ident)
 
 
-@app.command("listele")
+@app.command("listele", context_settings=_EXTRA_ARGS)
 def list_plugins(
+    ctx: typer.Context,
     as_json: bool = typer.Option(False, "--json", help="Listeyi JSON olarak bas."),
     available: bool = typer.Option(
         False, "--available", help="Pazarlardaki kurulmamış eklentileri de ekle (yalnız --json)."
+    ),
+    data_size: bool = typer.Option(
+        False,
+        "--data-size",
+        help="Kurulu eklentilerin [ya da yalnız verilenin] veri klasörünü ölç (yalnız --json).",
     ),
 ) -> None:
     """Kurulu eklentiler: sürüm, kapsam, durum (Claude `plugin list`)."""
     from ..tools.plugin_declared import sync_quietly
 
+    if (ctx.args and not data_size) or len(ctx.args) > 1:
+        typer.echo(f"Beklenmeyen bağımsız değişken: {' '.join(ctx.args)}", err=True)
+        raise typer.Exit(2)
     sync_quietly()  # #376
     if as_json:
         from ..tools.plugin_listing import list_payload
 
         try:
-            payload = list_payload(available=available)
+            # Claude `--data-size [eklenti]`: isteğe bağlı değer çıplak bağımsız değişken olarak gelir.
+            wanted = (ctx.args[0] if ctx.args else "") if data_size else None
+            payload = list_payload(available=available, data_size=wanted)
         except PluginError as error:
             typer.echo(str(error), err=True)
             raise typer.Exit(1) from error
@@ -354,18 +373,40 @@ def discover(marketplace: str = typer.Argument("", help="Yalnız bu pazar")) -> 
     _run(lambda: format_catalog(plugins.browse(marketplace)))
 
 
-@market_app.command("ekle")
+@market_app.command("ekle", context_settings=_EXTRA_ARGS)
 def market_add(
+    ctx: typer.Context,
     source: str = typer.Argument(
-        ..., help="./klasör, ./pazar.json, sahip/repo[#ref], https://….git ya da resmi"
+        ..., help="./klasör, ./pazar.json, owner/repo[#ref], user@host:yol, https://… adresi"
     ),
     as_json: bool = typer.Option(False, "--json", help=JSON_HELP),
+    scope: str = typer.Option(
+        "", "--scope", help="Bildirileceği yer: user (varsayılan), project ya da local."
+    ),
+    sparse: list[str] = typer.Option(  # noqa: B008
+        [], "--sparse", help="Checkout'u bu klasörlerle sınırla (git sparse-checkout)."
+    ),
+    claudeai: bool = typer.Option(
+        False, "--claudeai", help="claude.ai'nin barındırdığı pazarı ekle (Fusion'da yok)."
+    ),
 ) -> None:
-    """Pazar yeri ekle (`resmi` = anthropics/claude-plugins-official)."""
+    """Pazar yeri ekle (klasör, .json dosyası, git deposu ya da marketplace.json adresi)."""
+    paths = (*sparse, *ctx.args) if sparse else ()
 
     def act() -> tuple[str, dict[str, object]]:
-        record = plugins.add_marketplace(source)
+        from ..tools.plugin_market_declare import declare
+
+        if claudeai:
+            raise PluginError(CLAUDEAI_UNSUPPORTED)
+        if scope:
+            from ..config.plugin_scopes import check_scope
+
+            check_scope(scope)
+        record = plugins.add_marketplace(source, sparse=tuple(paths))
+        written = declare(scope, record)
         text = MARKET_ADDED.format(name=record.name, kind=record.kind)
+        if written != "user":
+            text += " " + MARKET_DECLARED.format(scope=written)
         return text, {"marketplace": record.name}
 
     run_result("marketplace-add", as_json, act)
@@ -410,7 +451,10 @@ def market_remove(
     """Pazarı ve ondan kurulan bütün eklentileri kaldır (Claude `marketplace remove`)."""
 
     def act() -> tuple[str, dict[str, object]]:
+        from ..tools.plugin_market_declare import undeclare
+
         removed = plugins.remove_marketplace(name)
+        undeclare(name)  # Claude: bildirim kapsam dosyalarından da silinir
         lines = [MARKET_REMOVED.format(name=name)]
         if removed:
             lines.append(MARKET_ALSO.format(count=len(removed)))
@@ -484,7 +528,8 @@ for _alias, _command, _hidden in (
     ("trust", trust, True),
     ("discover", discover, True),
 ):
-    app.command(_alias, hidden=_hidden)(_command)
+    _extra = _EXTRA_ARGS if _command is list_plugins else None
+    app.command(_alias, hidden=_hidden, context_settings=_extra)(_command)
 for _m_alias, _m_command, _m_hidden in (
     ("add", market_add, False),
     ("list", market_list, False),
@@ -492,11 +537,12 @@ for _m_alias, _m_command, _m_hidden in (
     ("remove", market_remove, False),
     ("rm", market_remove, True),
 ):
-    market_app.command(_m_alias, hidden=_m_hidden)(_m_command)
+    _settings = _EXTRA_ARGS if _m_command is market_add else None
+    market_app.command(_m_alias, hidden=_m_hidden, context_settings=_settings)(_m_command)
 app.add_typer(market_app, name="marketplace")
 
 from . import plugin_configure as _configure  # noqa: E402,F401  (configure, #388)
-from . import plugin_extra_commands as _extra  # noqa: E402,F401  (details, prune)
+from . import plugin_extra_commands as _extra  # noqa: E402  (details, prune)
 
 for _group in app.registered_groups:
     if _group.name == "pazar":

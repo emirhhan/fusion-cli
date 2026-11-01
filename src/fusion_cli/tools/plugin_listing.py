@@ -27,6 +27,7 @@ from ..core.plugins import PluginError
 from .plugin_install import browse
 from .plugin_toggle import find_record
 
+ERR_DATA_SIZE_MISSING = "--data-size kurulu olmayan bir eklentiyi gösteriyor"
 #: Claude: bildirimde `version` yoksa `unknown`.
 UNKNOWN_VERSION = "unknown"
 ERR_DETAILS_MISSING = (
@@ -181,13 +182,57 @@ def _available(base: Path) -> list[dict[str, object]]:
     return rows
 
 
+def human_size(size: int) -> str:
+    """Claude `dataDirSize.human` biçimi: 1024 tabanlı, tek ondalık (5000 → `4.9KB`)."""
+    value, unit = float(size), "B"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            break
+        value /= 1024
+    return f"{size}B" if unit == "B" else f"{value:.1f}{unit}"
+
+
+def _data_size(record_name: str) -> dict[str, object] | None:
+    from ..config.plugin_data import plugin_data_dir
+
+    folder = plugin_data_dir(record_name)
+    if not folder.is_dir():
+        return None
+    total = sum(p.stat().st_size for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
+    return {"bytes": total, "human": human_size(total)}
+
+
+def _with_sizes(
+    rows: list[dict[str, object]], items: tuple[InstalledPlugin, ...], data_size: str
+) -> list[dict[str, object]]:
+    """`--data-size [eklenti]`: kurulu eklentinin veri klasörü varsa `dataDirSize` (#381)."""
+    wanted = {plugin_id(item.record): item.record.name for item in items}
+    if data_size:
+        hits = [i for i, n in wanted.items() if data_size in (i, n)]
+        if not hits:
+            raise PluginError(ERR_DATA_SIZE_MISSING)
+        wanted = {hits[0]: wanted[hits[0]]}
+    sized: list[dict[str, object]] = []
+    for row in rows:
+        size = _data_size(wanted[str(row["id"])]) if row["id"] in wanted else None
+        sized.append({**row, "dataDirSize": size} if size is not None else row)
+    return sized
+
+
 def list_payload(
-    *, available: bool = False, base: Path | None = None, root: Path | None = None
+    *,
+    available: bool = False,
+    base: Path | None = None,
+    root: Path | None = None,
+    data_size: str | None = None,
 ) -> list[dict[str, object]] | dict[str, object]:
     """Claude `plugin list --json`: dizi; `--available` ile `{installed, available}` nesnesi."""
     store = base or plugins_dir()
     project = root or Path.cwd()
-    installed = [_installed_entry(item, store, project) for item in installed_plugins(store, root)]
+    items = installed_plugins(store, root)
+    installed = [_installed_entry(item, store, project) for item in items]
+    if data_size is not None:
+        installed = _with_sizes(installed, items, data_size)
     if base is None:
         installed.extend(_session_entry(item) for item in session_plugins())
         installed.extend(_skills_dir_entries())

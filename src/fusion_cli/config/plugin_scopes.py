@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -174,6 +174,30 @@ def write_enabled(scope: str, plugin_id: str, name: str, value: bool | None, roo
         else:
             changed = {**enabled, key: value}
         updated = {**raw, ENABLED_KEY: changed}
+        atomic_replace_text(path, json.dumps(updated, ensure_ascii=False, indent=2) + "\n")
+        if trusted_before:
+            _refresh_digest(scope, root)
+    return path
+
+
+def update_settings(
+    scope: str, root: Path, change: Callable[[dict[str, object]], dict[str, object]]
+) -> Path:
+    """project/local dosyasının üst düzey nesnesini `change` ile yeniden yaz (kilit + güven
+    karması `write_enabled` ile aynı kurallarla); `extraKnownMarketplaces` için (#381)."""
+    from .writer import config_lock
+
+    path = settings_path(scope, root)
+    with config_lock(path):
+        trusted_before = _is_trusted(scope, root)
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except (OSError, ValueError) as error:
+            raise PluginError(ERR_UNREADABLE.format(path=path, error=error)) from error
+        if not isinstance(raw, Mapping):
+            raise PluginError(ERR_UNREADABLE.format(path=path, error="nesne değil"))
+        updated = change(dict(raw))
+        path.parent.mkdir(parents=True, exist_ok=True)
         atomic_replace_text(path, json.dumps(updated, ensure_ascii=False, indent=2) + "\n")
         if trusted_before:
             _refresh_digest(scope, root)

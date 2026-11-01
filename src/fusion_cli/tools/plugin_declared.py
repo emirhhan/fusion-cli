@@ -8,8 +8,8 @@ https://code.claude.com/docs/en/plugins/loading.md "Plugins and marketplaces tha
 - Aynı adlı girdide en yüksek öncelikli dosyanınki (local > project) BÜTÜNÜYLE geçerlidir.
 - Aynı dosyada iki yazım da varsa asıl anahtar (`extraKnownMarketplaces`) kazanır.
 
-Fusion'da: kaynak türleri github/git/directory/file `marketplace add` kaynağına çevrilir; `url` ve
-`settings` türleri (Fusion'da yok, #395) uyarıyla atlanır. Claude bildirilen pazarı oturum
+Fusion'da: kaynak türleri github/git/url/directory/file `marketplace add` kaynağına çevrilir;
+`settings` türü (Fusion'da yok) uyarıyla atlanır. Claude bildirilen pazarı oturum
 başladıktan sonra arka planda kaydeder; Fusion bunu REPL açılışında arka planda ve
 `plugin install`/`plugin marketplace list`/`plugin list` öncesinde yapar. Kullanıcı kapsamı
 (Fusion'ın kendi kaydı) ve managed kapsam bu modülde okunmaz.
@@ -59,6 +59,9 @@ def source_spec(source: object, root: Path) -> str | None:
             return None
         ref = source.get("ref")
         return f"{location.strip()}#{ref}" if isinstance(ref, str) and ref else location.strip()
+    if kind == "url":
+        url = source.get("url")
+        return url.strip() if isinstance(url, str) and url.strip() else None
     if kind in _PATH_KINDS:
         path = source.get("path")
         if not isinstance(path, str) or not path.strip():

@@ -36,9 +36,6 @@ def test_git_kaynaklari(spec, location, ref):
 @pytest.mark.parametrize(
     ("spec", "part"),
     [
-        ("git@github.com:o/r.git", "SSH"),
-        ("http://ornek.com/x.git", "Yalnız https"),
-        ("https://ornek.com/marketplace.json", "url türü"),
         ("gitlab.ornek.com/ekip/eklentiler", "başına https://"),
         ("tek", ERR_FORMAT),
         ("./yok", "bulunamadı"),
