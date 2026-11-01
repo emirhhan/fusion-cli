@@ -175,6 +175,18 @@ class ChildRuns:
         self._raise_failure()
 
     @property
+    def active_count(self) -> int:
+        """Şu an çalışan (ön plan ya da arka plan) alt ajan sayısı."""
+        tasks = {**self._tasks, **self._background}
+        return sum(
+            any(
+                task is not None and not task.done()
+                for task in (self._tasks.get(identifier), self._background.get(identifier))
+            )
+            for identifier in tasks
+        )
+
+    @property
     def pending_starts(self) -> int:
         return sum(
             identifier not in self._tasks

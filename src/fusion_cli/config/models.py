@@ -281,17 +281,16 @@ class RuntimeConfig:
     rate_pace_max_wait_s: float = 3.0
     #: `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Asıl hız sınırını
     #: paylaşılan defter korur; bu tavan bağlamı ve kullanıcının takip edebileceği
-    #: kart sayısını sınırlar. 8: Claude Code 20, dynamic workflows 16 eşzamanlı
-    #: çalıştırır; ücretsiz model kotası paylaşılan kova ile korunduğundan 4'ün yarım
-    #: bıraktığı paralel araştırma+kodlama dalgaları için ikiye katlandı (P-035).
-    max_parallel_agents: int = 8
-    #: Alt ajanın alt ajan başlatabileceği en büyük derinlik: 1 = yalnız ana ajan
-    #: başlatır (eski davranış), 2 = alt ajan bir kat daha açabilir, 3 = Claude Code'un
-    #: sınırı. Her derinlik bağlamı ve adım bütçesini yarılar (bkz. `team.child_step_limit`).
-    max_agent_depth: int = 2
-    #: Bir kök turda (tüm derinlikler toplam) başlatılabilecek alt ajan sayısı; dolunca
-    #: `spawn_agent` "bütçe doldu" döner. Sonsuz ajan ağacı kotayı tüketmesin.
-    max_subagents_per_turn: int = 20
+    #: kart sayısını sınırlar. 20: Claude Code'un eşzamanlı alt ajan sınırı; dolunca yeni
+    #: Agent çağrısı "Concurrent subagent limit reached" döner
+    #: (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ezer).
+    max_parallel_agents: int = 20
+    #: Ana konuşmanın altında açılabilecek alt ajan katı: 1 = yalnız ana konuşma açar,
+    #: 3 = Claude Code varsayılanı (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ezer).
+    max_agent_depth: int = 3
+    #: Bir kök turda (tüm derinlikler toplam) başlatılabilecek alt ajan sayısı; 0 = sınırsız
+    #: (Claude Code'da tur bütçesi yok). İş akışı koşuları kendi tavanını burada uygular.
+    max_subagents_per_turn: int = 0
     #: Turdan bağımsız arka plan ajan görevleri (P-048): `/bg`, Ctrl+B, `fusion agent --bg`,
     #: `spawn_agent(arka_plan=true)`. False = hiçbir yüzey arka plan görevi başlatmaz.
     background_agents: bool = True

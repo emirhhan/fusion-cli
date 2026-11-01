@@ -171,14 +171,12 @@ runtime:
   auto_memory: true
   # Bellek dizini; boş = <bellek dizini>/projeler/<proje>/bellek.
   auto_memory_dir: ""
-  # 8 (P-035): Claude Code 20, dynamic workflows 16 eşzamanlı; kota ortak kovayla korunur.
-  max_parallel_agents: 8
-  # Alt ajan ağacının derinliği: 1 = yalnız ana ajan başlatır, 2 = alt ajan bir kat daha
-  # açabilir, 3 = Claude Code sınırı. Her derinlik adım bütçesini yarılar.
-  max_agent_depth: 2
-  # Bir kök turda toplam başlatılabilecek alt ajan (tüm derinlikler). Dolunca spawn
-  # "bütçe doldu" döner.
-  max_subagents_per_turn: 20
+  # Claude Code: aynı anda en çok 20 alt ajan (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS ezer).
+  max_parallel_agents: 20
+  # Ana konuşmanın altında 3 kat (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH ezer; 1 = iç içe yok).
+  max_agent_depth: 3
+  # Bir kök turda toplam alt ajan; 0 = sınırsız (Claude Code'da tur bütçesi yok).
+  max_subagents_per_turn: 0
   # Arka plan ajan görevleri (P-048): /bg, Ctrl+B, fusion agent --bg, fusion agents.
   # false = kapalı. Görevler <bellek>/arka-plan/<kimlik>/ altında ayrı süreçte koşar.
   background_agents: true
@@ -1135,6 +1133,8 @@ agent_launch:
   disable_background_tasks: false
   disable_explore_plan_agents: false
   disable_builtin_agents: false
+  max_spawn_depth: 0
+  max_concurrent_subagents: 0
   fork_enabled: true
   auto_supported_models: []
   managed_agent_roots: []

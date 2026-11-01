@@ -51,24 +51,42 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger(__name__)
 
 #: Alt ajan derinliğinin YEDEK tavanı: yapılandırma okunamazsa alt ajan başka alt ajan
-#: başlatamaz. Asıl değer `runtime.max_agent_depth` (P-035; Claude Code 3 derinliğe izin
-#: verir); iç içe ajanlar bağlamı ve hız kotasını katlayarak tüketir, bu yüzden her
-#: derinlik adım bütçesini yarılar (`child_step_limit`).
+#: başlatamaz. Asıl değer `runtime.max_agent_depth` (Claude Code: ana konuşmanın altında 3
+#: kat) ya da `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`.
 MAX_AGENT_DEPTH = 1
 #: Kartta gösterilecek sonuç satırının en fazla karakteri.
 SUMMARY_CHARS = 160
-#: Derinlik ne olursa olsun bir alt ajana bırakılan en az model çağrısı.
-MIN_CHILD_STEPS = 8
-
 DEPTH_LIMIT_MESSAGE = "Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap."
+#: maxTurns sınırına ulaşan alt ajan sonucunun başı.
+PARTIAL_PREFIX = "[Kısmi çıktı: alt ajan maxTurns sınırına ulaştı; SendMessage ile sürdürülebilir.]"
+#: Claude Code'un eşzamanlı alt ajan sınırı iletisi (aynen).
+CONCURRENT_LIMIT_MESSAGE = "Concurrent subagent limit reached ({limit} alt ajan çalışıyor)."
 SUBAGENT_BUDGET_MESSAGE = (
     "Bu turda alt ajan bütçesi doldu ({limit} alt ajan başlatıldı); kalan işi kendin yap."
 )
 
 
 def max_agent_depth(deps: AgentDeps) -> int:
-    """Yapılandırılmış derinlik tavanı; eski yapılandırmada yedek sabit."""
+    """Claude ortam değişkeni → yapılandırılmış tavan; eski yapılandırmada yedek sabit."""
+    launch = getattr(getattr(deps.config, "agent_launch", None), "max_spawn_depth", 0) or 0
+    if launch > 0:
+        return int(launch)
     return max(1, int(getattr(deps.config.runtime, "max_agent_depth", MAX_AGENT_DEPTH)))
+
+
+def concurrent_limit(deps: AgentDeps) -> int:
+    """Aynı anda çalışabilecek alt ajan sayısı (Claude Code varsayılanı 20)."""
+    launch = getattr(getattr(deps.config, "agent_launch", None), "max_concurrent_subagents", 0)
+    if launch:
+        return int(launch)
+    return max(1, int(getattr(deps.config.runtime, "max_parallel_agents", 20)))
+
+
+def concurrent_limit_reached(deps: AgentDeps) -> str | None:
+    """Oturumda sınır kadar alt ajan çalışıyorsa modele dönecek ileti."""
+    limit = concurrent_limit(deps)
+    active = getattr(deps.child_runs, "active_count", 0)
+    return CONCURRENT_LIMIT_MESSAGE.format(limit=limit) if active >= limit else None
 
 
 def depth_limit_reached(deps: AgentDeps, depth: int) -> bool:
@@ -88,21 +106,17 @@ def subagent_budget_exhausted(deps: AgentDeps) -> str | None:
 
 
 def child_step_limit(deps: AgentDeps, depth: int, requested: int | None = None) -> int | None:
-    """Derinliğe göre azalan adım bütçesi: her kat öncekinin yarısı.
+    """Alt ajanın adım tavanı: tanımdaki `maxTurns` olduğu gibi uygulanır (#36).
 
-    `requested` (kişiliğin `max_turns` alanı) daha darsa o geçerlidir ama yapılandırılmış
-    `agent_max_steps` tavanını AŞAMAZ (ölçüldü, 31 Ekim: depodan gelen `maxTurns: 500`
-    derinlik 0'da tek başına geçerli oluyordu). Derinlik 0'ın çocuğu tam bütçeyi alır; daha
-    içteki ajanlar bağlamı katlamasın diye yarılanır.
+    Claude Code derinliğe göre bütçe yarılamaz (#29). Kullanıcının `agent_max_steps`
+    tavanı aşılmaz (ölçüldü, 31 Ekim: depodan gelen `maxTurns: 500` deliyordu); `depth`
+    eski çağıranlar için imzada kalır.
     """
-    halved: int | None = None
+    del depth
     base = deps.config.runtime.agent_max_steps
-    if depth >= 1 and base:
-        halved = max(MIN_CHILD_STEPS, base >> depth)
     if requested and base:
-        requested = min(requested, base)
-    candidates = [limit for limit in (halved, requested) if limit is not None and limit > 0]
-    return min(candidates) if candidates else None
+        return min(requested, base)
+    return requested or None
 
 
 RunAgent = Callable[..., Awaitable["AgentOutcome"]]
@@ -292,6 +306,9 @@ async def run_subagent(
         persona_error = type(error).__name__
     if subtask.effort:
         persona = dataclasses.replace(persona, effort=subtask.effort)
+    if persona.memory_scope and not getattr(deps.config.runtime, "auto_memory", True):
+        # Claude Code: ajan belleği otomatik belleğin parçasıdır; kapalıyken alan etkisizdir.
+        persona = dataclasses.replace(persona, memory_scope="")
     from .agent_runtime_context import launch_denial
 
     denial = launch_denial(deps, persona, subtask.persona)
@@ -355,6 +372,10 @@ async def run_subagent(
             if getattr(outcome, "budget_stopped", False)
             else "failed"
         )
+        if ok and getattr(outcome, "hit_step_limit", False):
+            # Claude Code: maxTurns'e ulaşan çıktı kısmi işaretlenir ve sürdürülebilir (#36).
+            status = "partial"
+            text = f"{PARTIAL_PREFIX}\n{text}"
     except asyncio.CancelledError:
         text = "Alt ajan iptal edildi."
         status = "cancelled"

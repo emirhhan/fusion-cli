@@ -52,7 +52,14 @@ def _receipt(
 async def launch_agent(
     deps: AgentDeps, task: SubTask, args: ToolArgs, *, depth: int, run_agent: RunAgent
 ) -> ToolResult:
-    from .team import new_agent_id, resolve_persona, run_subagent, subagent_budget_exhausted
+    from .team import (
+        concurrent_limit,
+        concurrent_limit_reached,
+        new_agent_id,
+        resolve_persona,
+        run_subagent,
+        subagent_budget_exhausted,
+    )
 
     try:
         if task.persona == "fork" and (depth > 0 or not deps.config.agent_launch.fork_enabled):
@@ -68,6 +75,10 @@ async def launch_agent(
         budget = subagent_budget_exhausted(deps)
         if budget:
             return ToolResult.failure(budget)
+        if not task.resume:
+            concurrent = concurrent_limit_reached(deps)
+            if concurrent:
+                return ToolResult.failure(concurrent)
         identifier = task.agent_id or new_agent_id(persona.name)
         task = replace(task, agent_id=identifier)
         if not _one_shot(persona) and not task.resume:
@@ -85,7 +96,7 @@ async def launch_agent(
             deps.child_runs.launch(
                 identifier,
                 _owned_background(replace(deps), task, depth=depth, run_agent=run_agent),
-                max_parallel=deps.config.runtime.max_parallel_agents,
+                max_parallel=concurrent_limit(deps),
             )
             return _receipt("async_launched", identifier, deps=deps)
         result = await run_subagent(deps, task, depth=depth, run_agent=run_agent)
@@ -93,7 +104,7 @@ async def launch_agent(
         if not result.ok:
             return ToolResult.failure(result.text)
         return _receipt(
-            "completed",
+            "partial" if result.status == "partial" else "completed",
             "" if _one_shot(persona) else identifier,
             result.text,
             complete=bool(state and state.complete_history),

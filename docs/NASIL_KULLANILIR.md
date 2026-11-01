@@ -379,15 +379,20 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
 ### Alt ajan tanımları (`.claude/agents/<ad>.md`)
 
 Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`, proje
-`.claude/agents`, `~/.codex/agents`) ve frontmatter'daki ayarları alt ajana uygular:
+`.claude/agents`, `~/.codex/agents`) ve frontmatter'daki ayarları alt ajana uygular.
+Claude Code'daki gibi şu dosyalar sessizce atlanır (yalnız hata ayıklama günlüğüne düşer):
+`name` yok (dosya belge sayılır), açılış `---` ilk satırda değil, `name` `-` ile başlıyor,
+`:` içeriyor ya da 256 karakteri aşıyor, `description` yok. Kimlik dosya adından değil `name`
+alanından gelir. Kullanıcı, proje, yönetilen ve `--add-dir` ajan dosyaları izlenir: düzenlenen
+ya da eklenen dosya yeniden başlatmadan bir sonraki turda etkin olur.
 
 | Alan (İngilizce / Türkçe) | Fusion'da ne olur |
 |---|---|
 | `tools`, `disallowedTools` / `yasak_araclar` | Araç kümesi yalnız DARALIR; `mcp__sunucu__arac` ve `mcp__sunucu` (tüm araçları) tanınır; `Agent`, `Skill`, `AskUserQuestion`, `NotebookEdit`, `TodoWrite` eşlenir; tanınmayan ad günlüğe uyarı düşer |
 | `model` | Claude Code sırası: çağrıdaki `model` > tanımdaki `model` > `CLAUDE_CODE_SUBAGENT_MODEL` > ana model (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` ortam modelini zorlar). `inherit` ana modeldir; `sonnet`/`opus`/`haiku`/`fable` ana model aynı ailedeyse ana modelin kendisi, değilse `agent_launch.model_aliases` / `ANTHROPIC_DEFAULT_<AİLE>_MODEL` ya da aday modellerdeki aynı aileden model; çözülemezse alt ajan açık hatayla başlamaz. Tam kimlik (`claude-opus-5-5` ya da `<sağlayıcı>/<model>`) kabul edilir |
 | `permissionMode` / `izin_kipi` | Claude Code kuralları: ana oturum `bypassPermissions`, `acceptEdits` ya da `auto` ise alt ajan o kipte koşar (alan yok sayılır); `plan` ise plan kipinde kalır; `default`/`dontAsk` ise tanımdaki kip uygulanır (`bypassPermissions` ve kullanılamayan `auto` hariç, o zaman ana kip korunur). Değerler: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`, `manual` (= `default`). Eklenti ajanlarında alan yok sayılır |
-| `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı; derinliğe göre yarılanan bütçeden ve `runtime.agent_max_steps`'ten küçükse o geçerli (büyüğü aşamaz) |
-| `skills` / `beceriler` | Başlangıçta yüklenen beceriler (en fazla 32, 24 KB) |
+| `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı, olduğu gibi uygulanır (yalnız `runtime.agent_max_steps` aşılmaz). Sınıra ulaşan alt ajanın sonucu `[Kısmi çıktı…]` ile başlar, Agent alındısında `status: partial` döner ve `SendMessage` ile sürdürülebilir |
+| `skills` / `beceriler` | Başlangıçta TAM içeriğiyle yüklenen beceriler (kırpma ve adet sınırı yok) |
 | `mcpServers` | Ad listesi yapılandırmadaki sunuculardan yalnız bunları açar; satır içi sunucu tanımı yalnız bu ajanın koşusu için bağlanır ve ajan bitince kapatılır. Yapılandırmada olmayan ad günlüğe uyarı düşer |
 | `effort` / `efor` | `low` · `medium` · `high`: yalnız o alt ajanın düşünme yoğunluğu |
 | `memory` / `bellek` | `user` · `project` · `local`: ajana özel kalıcı bellek (bkz. aşağı) |
@@ -416,7 +421,9 @@ sembolik bağ izlenmez, yazma reddedilir.
 | `local` | `<proje>/.fusion/ajan-bellek-yerel/<ad>/` (otomatik `.gitignore`, git dışı) |
 
 - `/memory ajan <ad>` → kapsam, yol, satır sayısı, konular ve indeks metni ·
-  `/memory ajan <ad> sil` → belleği sıfırla. Otomatik bellek kapalıyken de çalışır.
+  `/memory ajan <ad> sil` → belleği sıfırla. Claude Code'daki gibi ajan belleği otomatik
+  belleğin parçasıdır: `runtime.auto_memory: false` iken `memory` alanı etkisizdir (alt ajan
+  bellek talimatı ve bellek araçları olmadan başlar).
 - Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil" →
   "Evet, sil / Vazgeç" onayı; silme geri alınamaz).
 - RPC: `yetenek.detay` yanıtında `bellek`, silme için `yetenek.bellek_sil {ad}`.
@@ -472,6 +479,12 @@ ajanlarını listeler/durdurur. Eski `Task`, `spawn_agent`, `spawn_agents` ve `i
 adları kullanımdan kalktı: adıyla çağrılırsa çalışır, modele sunulmaz.
 
 - `permissions.deny` içine `Agent(Explore)` yazmak o tipi kapatır (eski adlara da uygulanır).
+- İç içe alt ajan: varsayılan ana konuşmanın altında 3 kat (`runtime.max_agent_depth`,
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`; `1` iç içeyi kapatır). Aynı anda en çok 20 alt ajan
+  çalışır (`runtime.max_parallel_agents`, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`); sınırda yeni
+  çağrı `Concurrent subagent limit reached` döner. Derinlik adım bütçesini yarılamaz, turda
+  toplam alt ajan sınırı yoktur (`runtime.max_subagents_per_turn: 0`; iş akışları kendi
+  tavanını kullanır).
 - `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` arka planı kapatır; `CLAUDE_CODE_FORK_SUBAGENT=0`
   fork kipini kapatır (varsayılan açık).
 

@@ -17,6 +17,8 @@ BACKGROUND_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 FORK_ENV = "CLAUDE_CODE_FORK_SUBAGENT"
 EXPLORE_PLAN_ENV = "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"
 SDK_BUILTIN_ENV = "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"
+SPAWN_DEPTH_ENV = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"
+CONCURRENT_ENV = "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"
 DEFAULT_MODEL_ENV = "ANTHROPIC_DEFAULT_{alias}_MODEL"
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off", ""})
@@ -80,6 +82,10 @@ def read_agent_launch(
         disable_builtin_agents=_environment_bool(
             merged_env, SDK_BUILTIN_ENV, loaded.disable_builtin_agents
         ),
+        max_spawn_depth=_environment_count(merged_env, SPAWN_DEPTH_ENV, loaded.max_spawn_depth),
+        max_concurrent_subagents=_environment_count(
+            merged_env, CONCURRENT_ENV, loaded.max_concurrent_subagents
+        ),
         model_aliases=tuple(aliases.items()),
     )
 
@@ -121,6 +127,16 @@ def _legacy(current: AgentLaunchConfig, raw: Mapping[str, object], path: Path) -
     return replace(
         current, default_agent=agent, available_models=allowed, disable_auto_mode=disable_auto
     )
+
+
+def _environment_count(environ: Mapping[str, str], name: str, default: int) -> int:
+    """Pozitif tam sayı bekleyen Claude ortam değişkeni; bozuk değer açık hata verir."""
+    raw = environ.get(name, "").strip()
+    if not raw:
+        return default
+    if not raw.isdigit() or int(raw) < 1:
+        raise ConfigError(f"{name}: pozitif tam sayı bekleniyor.")
+    return int(raw)
 
 
 def _environment_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:

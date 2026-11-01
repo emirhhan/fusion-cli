@@ -96,7 +96,8 @@ def test_kullanicinin_ayni_adli_ajani_yerlesigi_ezer(tmp_path):
     ajanlar = tmp_path / ".claude" / "agents"
     ajanlar.mkdir(parents=True)
     (ajanlar / "tasarimci.md").write_text(
-        "---\nname: tasarimci\nunvan: Benim Tasarımcım\navatar: ozel\n---\nkendi talimatım\n",
+        "---\nname: tasarimci\ndescription: d\nunvan: Benim Tasarımcım\navatar: ozel\n---\n"
+        "kendi talimatım\n",
         encoding="utf-8",
     )
 
@@ -208,8 +209,8 @@ async def test_spawn_agents_alt_ajanda_derinlik_sinirina_takilir(tmp_path):
     async def _hic(*_args, **_kwargs):
         raise AssertionError("çağrılmamalı")
 
-    # Varsayılan `max_agent_depth` 2: derinlik 2'deki ajan yeni ajan açamaz (P-035).
-    arac = spawn_agents_tool(deps, depth=2, run_agent=_hic)
+    # Varsayılan `max_agent_depth` 3 (Claude Code): derinlik 3'teki ajan yeni ajan açamaz.
+    arac = spawn_agents_tool(deps, depth=3, run_agent=_hic)
     sonuc = await arac.run({"gorevler": [{"task": "a"}]}, deps.tool_context)
 
     assert "derinlik" in sonuc.output
@@ -599,21 +600,53 @@ async def test_tur_basina_alt_ajan_butcesi_dolunca_spawn_reddedilir(tmp_path):
     assert sonuclar[2].status == "budget" and "bütçesi doldu" in sonuclar[2].text
 
 
-def test_cocuk_adim_butcesi_derinlikle_yarilanir(tmp_path):
-    from fusion_cli.engines.agent.team import MIN_CHILD_STEPS, child_step_limit
+def test_cocuk_adim_butcesi_derinlikle_yarilanmaz_maxturns_aynen_uygulanir(tmp_path):
+    """Claude Code'da derinlik adım bütçesini yarılamaz; `maxTurns` olduğu gibi uygulanır
+    (#29, #36). Kullanıcının `agent_max_steps` tavanı yine aşılmaz."""
+    from fusion_cli.engines.agent.team import child_step_limit
 
     deps = _deps(tmp_path, RecordingSink(), agent_max_steps=64)
 
     assert child_step_limit(deps, 0) is None
-    assert child_step_limit(deps, 1) == 32
-    assert child_step_limit(deps, 2) == 16
-    assert child_step_limit(deps, 10) == MIN_CHILD_STEPS
-    # Kişiliğin `max_turns` alanı daha darsa o geçerlidir.
+    assert child_step_limit(deps, 1) is None
+    assert child_step_limit(deps, 2) is None
     assert child_step_limit(deps, 1, requested=5) == 5
-    # Ölçüldü (31 Ekim): derinlik 0'da `maxTurns: 500` tek başına geçerli oluyordu ve
-    # kullanıcının `agent_max_steps` tavanı (64) alt ajan için deliniyordu.
+    assert child_step_limit(deps, 2, requested=40) == 40
     assert child_step_limit(deps, 0, requested=500) == 64
-    assert child_step_limit(deps, 1, requested=500) == 32
+
+
+def test_varsayilan_derinlik_uc_kat_ve_eszamanlilik_yirmi(tmp_path):
+    from fusion_cli.config.models import RuntimeConfig
+    from fusion_cli.engines.agent.team import depth_limit_reached
+
+    deps = _deps(tmp_path, RecordingSink())
+    assert RuntimeConfig.__dataclass_fields__["max_agent_depth"].default == 3
+    assert RuntimeConfig.__dataclass_fields__["max_parallel_agents"].default == 20
+    assert RuntimeConfig.__dataclass_fields__["max_subagents_per_turn"].default == 0
+    assert not depth_limit_reached(deps, 2) and depth_limit_reached(deps, 3)
+
+
+def test_claude_derinlik_ve_eszamanlilik_ortam_degiskenleri_okunur(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.config.agent_launch_compat import read_agent_launch
+    from fusion_cli.config.agent_launch_settings import AgentLaunchConfig
+    from fusion_cli.engines.agent.team import concurrent_limit, depth_limit_reached
+
+    loaded = read_agent_launch(
+        AgentLaunchConfig(),
+        home=tmp_path / "ev",
+        root=tmp_path,
+        environ={
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "5",
+        },
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    deps = replace(deps, config=replace(deps.config, agent_launch=loaded))
+
+    assert depth_limit_reached(deps, 1) and not depth_limit_reached(deps, 0)
+    assert concurrent_limit(deps) == 5
 
 
 def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):
@@ -628,3 +661,20 @@ def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):
     assert plan is not GENERIC_PERSONA and plan.title == "Planlayıcı"
     assert plan.tools is not None and "run_shell" not in plan.tools
     assert plan.permission_mode == "plan"
+
+
+async def test_maxturns_sinirina_ulasan_alt_ajan_kismi_isaretlenir(tmp_path):
+    """Claude Code: `maxTurns`'e ulaşan alt ajanın çıktısı 'kısmi' döner, sürdürülebilir (#36)."""
+    from fusion_cli.engines.agent.team import run_subagent
+
+    deps = _deps(tmp_path, RecordingSink())
+
+    async def _yarim(task, sub_deps, **kwargs):
+        return SimpleNamespace(
+            final_text="ilk yarı", ok=True, tool_calls_made=3, hit_step_limit=True, messages=[]
+        )
+
+    run = await run_subagent(deps, SubTask("uzun iş"), depth=0, run_agent=_yarim)
+
+    assert run.status == "partial" and run.ok
+    assert "ilk yarı" in run.text and "maxTurns" in run.text
