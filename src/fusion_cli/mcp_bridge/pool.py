@@ -20,6 +20,7 @@ from ..config.models import Config, McpServerConfig
 from ..config.paths import base_data_dir
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..tools import ToolRegistry
+from ..tools.mcp_background import cancel_mcp_background_calls
 from .backoff import McpBackoff
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
@@ -596,4 +597,6 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
 
 async def close_mcp_pool() -> None:
     """Süreç/oturum biterken açık MCP bağlantılarını kapat."""
+    # Önce arka plana taşınmış çağrılar (#233): bağlantı kapanınca zaten düşerlerdi.
+    await cancel_mcp_background_calls()
     await _POOL.aclose()

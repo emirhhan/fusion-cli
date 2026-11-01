@@ -141,6 +141,7 @@ from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
+from ...tools.mcp_background import mark_main_conversation, take_mcp_background_notices
 from ...tools.tool_search import visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
@@ -707,6 +708,8 @@ async def run_agent(
         from .agent_runtime_hooks import prepare_main_metadata
 
         prepare_main_metadata(deps)
+        # Arka plana taşınan MCP çağrıları yalnız ana sohbette (#233).
+        mark_main_conversation(deps.tool_context)
         if deps.session_persona is not None:
             persona = deps.session_persona
             skills = team_settings.preloaded_skills(deps, persona)
@@ -1747,6 +1750,8 @@ async def _drive(
         notices = await deps.child_runs.completion_messages(
             deps.conversation_id or deps.child_runs.session_id, wait=False
         )
+        # Arka plana taşınmış MCP çağrılarının sonuçları (#233); ana sohbet dışında boştur.
+        messages.extend(take_mcp_background_notices(deps.tool_context))
         if notices:
             messages.append(
                 Message(

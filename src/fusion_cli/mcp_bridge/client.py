@@ -33,8 +33,10 @@ from mcp.types import CallToolResult
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
+from ..core.mcp_tool_names import claude_mcp_tool_name
 from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
+from ..tools.mcp_background import run_mcp_call
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
 from .auth_retry import AuthFailures, Reauth
 from .call_errors import describe_call_error
@@ -605,7 +607,12 @@ class McpClient:
 
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-            del context
+            # Ana sohbette 2 dk'yı aşan çağrı arka plan görevine taşınır (#233).
+            return await run_mcp_call(
+                functools.partial(_execute, args), context, claude_mcp_tool_name(server, tool)
+            )
+
+        async def _execute(args: ToolArgs) -> ToolResult:
             owner = self._current()
             try:
                 result = await owner.call(server, tool, dict(args))

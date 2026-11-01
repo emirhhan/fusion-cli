@@ -694,7 +694,10 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   HTTPS_PROXY, NPM_TOKEN, sağlayıcı anahtarları…) boş okunur.
 - Zaman sınırları: başlatma 30 sn (`MCP_TIMEOUT`), araç çağrısı ~28 saat (`MCP_TOOL_TIMEOUT`
   ya da sunucu `timeout`), HTTP/SSE istek başına en az 60 sn, boşta kalma ağda 5 dk / stdio'da
-  30 dk (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`).
+  30 dk (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). Ana sohbetteki çağrı 2 dk sonra arka plan
+  görevine taşınır (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`, `0` kapatır): model görev kimliğini
+  alıp çalışmaya devam eder, sonuç hazır olunca sıradaki isteğe bildirim olarak eklenir. Alt
+  ajanlarda çağrı beklenir.
 - Bloklamayan bağlantı (Claude Code gibi varsayılan): tur başı sunucuları en çok 5 sn
   (`MCP_CONNECT_TIMEOUT_MS`) bekler; geç kalan sunucu arka planda bağlanmayı sürdürür ve
   araçları sonraki turda gelir. `MCP_CONNECTION_NONBLOCKING=0` bütün sunucuları başlatma
@@ -751,8 +754,7 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   alanıyla değil istemci tarafında yapılır; bu yüzden her modelde çalışır.
 - Henüz yok (Claude Code'da var): bağlantısı tur ortasında biten sunucunun araçlarının aynı
   turda listelenmesi (Fusion'da sonraki turda gelir), `alwaysLoad` sunucusunu ayrıca bekleme,
-  `WaitForMcpServers` aracı, uzun çağrının
-  2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
+  `WaitForMcpServers` aracı, Elicitation kancası,
   `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
