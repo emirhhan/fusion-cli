@@ -1172,7 +1172,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/agent` · `/fusion` | Motor değiştir |
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
-| `/model` | Model değiştir |
+| `/model [model]` | `/model <model>` agent modelini değiştirir ve varsayılan olarak kaydeder (tam kimlik, `claude-…`, aday adı ya da yapılandırılmış aileden `sonnet`/`opus`/`haiku`); Fusion alt komutları `agent`/`judge`/`cand`/`add`/`rm` yalnız oturum içindir |
 | `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |

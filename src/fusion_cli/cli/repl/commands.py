@@ -45,6 +45,7 @@ from . import (
     macros,
     memory_commands,
     model_flows,
+    model_switch,
     output_style_command,
     permissions_command,
     persona_commands,
@@ -351,9 +352,9 @@ def _forget(state: ReplState, argument: str) -> str:
 
 
 def _model(state: ReplState, argument: str) -> str:
-    """`/model` — oturum içinde model değiştir.
+    """`/model` — `/model <ad>` agent modelini değiştirip kaydeder (#211, Claude Code).
 
-    Alt komutlar: agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
+    Fusion alt komutları (yalnız oturum): agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
     | rm <ad>. Argümansız çağrı etkin modelleri listeler.
     """
     parts = argument.split()
@@ -384,6 +385,8 @@ def model_command_result(state: ReplState, parts: list[str]) -> ModelCommandResu
 def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
     action, arguments = parts[0].lower(), parts[1:]
     config = state.config
+    if model_switch.is_direct_model(parts):
+        return model_switch.switch_and_save(config, parts[0])
 
     if action == "agent" and len(arguments) == 1:
         return model_select.set_agent_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
@@ -1084,7 +1087,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[ad|off]",
     ),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
-    SlashCommand("model", messages.CMD_MODEL, _model, group="Model", usage="[alt-komut]"),
+    SlashCommand(
+        "model", messages.CMD_MODEL, _model, group="Model", usage="[model|agent|judge|cand|add|rm …]"
+    ),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand(
         "profiles", messages.CMD_PROFILES, _profiles, group="Model", usage="[edit <profil>]"

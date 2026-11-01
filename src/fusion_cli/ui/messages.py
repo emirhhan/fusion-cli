@@ -680,8 +680,14 @@ REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"
 REPL_SCHEDULE_FIRED = "⏰ hatırlatma zamanı geldi"
 REPL_MACRO_NEEDS_ARGUMENT = "/{name} bir görev metni ister. Örnek: /{name} <ne yapılacak>"
+REPL_MODEL_SAVED = "agent modeli → {model} (varsayılan olarak kaydedildi: {path})"
+REPL_MODEL_SESSION_ONLY = "agent modeli → {model} (yalnız bu oturum; ayar dosyası yazılamadı)"
+REPL_MODEL_UNRESOLVED = (
+    "'{model}' çözülemedi: tam <sağlayıcı>/<model> kimliği, aday adı ya da yapılandırılmış "
+    "aileden bir Claude takma adı (sonnet/opus/haiku) yazın. Liste: /model"
+)
 REPL_MODEL_USAGE = (
-    "Kullanım: /model [agent|judge <id>] | [cand <ad|no> <id>] | "
+    "Kullanım: /model <model> (kaydeder) | [agent|judge <id>] | [cand <ad|no> <id>] | "
     "[add <ad> <id> [etiket…]] | [rm <ad>]   ·   liste için: /model"
 )
 # --- Seçim ekranı ---------------------------------------------------------- #
