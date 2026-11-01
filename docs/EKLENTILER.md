@@ -32,6 +32,16 @@ benim-eklentim/
   `anthropic-…` gibi ayrılmış adlar hatadır. Tanınan alanlar Claude'un `plugin.json` alan tablosudur
   (`displayName`, `defaultEnabled`, `dependencies`, `userConfig`, `lspServers`… uyarı vermez); gerçekten
   bilinmeyen üst düzey alan atılır ve uyarı olur.
+- `userConfig` (Claude "User configuration"): seçenekler `type` (string/number/boolean/directory/file),
+  `title`, `description`, `required`, `default`, `options`, `multiple`, `sensitive`, `min`/`max` ile
+  doğrulanır. Değerler `fusion plugin configure <ad@pazar> --values-stdin [--json]` ile kaydedilir
+  (önce hepsi doğrulanır; biri geçersizse hiçbiri yazılmaz, çıkış 1); bayraksız `configure` her seçeneği
+  `required|optional · sensitive · set|not set` etiketleriyle, değer basmadan listeler. Hassas olmayanlar
+  `<eklentiler>/plugin-configs.json` (`pluginConfigs`), hassaslar yalnız sahibinin okuyabildiği (0600)
+  `<eklentiler>/.credentials.json` dosyasına yazılır. `${user_config.KEY}` MCP yapılandırmasında ve
+  beceri/ajan içeriğinde çözülür (içerikte hassas değer yer tutucu olur); kanca süreçleri her seçeneği
+  `CLAUDE_PLUGIN_OPTION_<KEY>` olarak alır. Henüz yok: etkinleştirmede soru penceresi, `install
+  --config`, `channels`, `/config` satırları; hassas değer şifreli depo yerine 0600 dosyadadır.
 - Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).

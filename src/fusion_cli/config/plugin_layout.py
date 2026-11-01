@@ -31,6 +31,7 @@ from .mcp_json import parse_project_mcp
 from .models import McpScope, McpServerConfig
 from .plugin_data import plugin_data_dir
 from .plugin_scan import PluginLayout, read_manifest, scan_plugin
+from .plugin_user_config import plugin_values, substitute_tree
 
 __all__ = ["PluginLayout", "read_manifest", "scan_plugin"]
 
@@ -244,6 +245,7 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     atlanır. `Authorization: Bearer ${VAR}` başlığı Fusion'ın `token_env` alanına iner.
     """
     root = str(layout.root)
+    schema, values = plugin_values(layout.root, layout.name)
     documents: list[tuple[str, object]] = [
         (path.name, _load_json(path, ERR_MCP)) for path in layout.mcp_files
     ]
@@ -254,6 +256,8 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     skipped: list[str] = []
     for label, raw in documents:
         data = _substituted(raw, root, layout.name)
+        if schema:  # #388: `${user_config.KEY}` MCP yapılandırmasında çözülür
+            data = substitute_tree(data, schema, values)
         if isinstance(data, Mapping) and "mcpServers" in data:
             data = data["mcpServers"]
         # Claude eklentilerinde kök doğrudan sunucu sözlüğü olabilir.

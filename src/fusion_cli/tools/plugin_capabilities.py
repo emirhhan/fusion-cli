@@ -23,7 +23,13 @@ from ..config.claude_plugins import claude_plugin_layouts
 from ..config.plugin_data import plugin_data_dir
 from ..config.plugin_store import active_plugins, plugin_root_of, plugins_dir
 from ..core.hooks.events import HookSet
-from ..core.plugins import DATA_VARIABLE, PROJECT_VARIABLE, ROOT_VARIABLES, substitute_root
+from ..core.plugins import (
+    DATA_VARIABLE,
+    PROJECT_VARIABLE,
+    ROOT_VARIABLES,
+    PluginError,
+    substitute_root,
+)
 from .frontmatter import body_after_frontmatter
 
 if TYPE_CHECKING:
@@ -45,14 +51,31 @@ Converter = Callable[..., "Capability"]
 def with_plugin_root(text: str, path: Path) -> str:
     """Kurulu eklenti dosyasının gövdesinde `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`
     ve `${CLAUDE_PROJECT_DIR}`'ı çöz (#387); eklenti dışındaki dosyaya dokunma."""
-    variables = (*ROOT_VARIABLES, DATA_VARIABLE, PROJECT_VARIABLE)
+    variables = (*ROOT_VARIABLES, DATA_VARIABLE, PROJECT_VARIABLE, "${user_config.")
     if not any(variable in text for variable in variables):
         return text
     root = plugin_root_of(path)
     if root is None:
         return text
     data = str(plugin_data_dir(root.name, create=True)) if DATA_VARIABLE in text else ""
-    return substitute_root(text, str(root), data, str(Path.cwd()))
+    text = substitute_root(text, str(root), data, str(Path.cwd()))
+    return _with_user_config(text, root)
+
+
+def _with_user_config(text: str, root: Path) -> str:
+    """`${user_config.KEY}` (#388): içerikte yalnız hassas olmayan değer; hassas yer tutucu."""
+    if "${user_config." not in text:
+        return text
+    from ..config import plugin_user_config as user_config
+    from ..config.plugin_scan import read_manifest
+
+    try:
+        name = read_manifest(root)[0].name
+        schema = user_config.read_schema(root)
+    except PluginError:
+        return text
+    values = user_config.effective_values(name, schema, plugins_dir())
+    return user_config.substitute(text, schema, values, content=True)
 
 
 def _prefixed(capability: Capability, plugin: str, name: str = "") -> Capability:
