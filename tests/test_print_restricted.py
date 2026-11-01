@@ -86,3 +86,12 @@ def test_kisitli_kip_bypass_reddeder(monkeypatch, flags):
     calls, result = _print(monkeypatch, ["-p", "x", "--restricted", *flags])
     assert result.exit_code == 1
     assert "--restricted" in result.output and not calls
+
+
+def test_init_bayraklari_dusmez_uyarir_init_only_konusma_baslatmaz(monkeypatch):
+    calls, result = _print(monkeypatch, ["-p", "x", "--init", "--maintenance"])
+    assert result.exit_code == 0, result.output
+    assert "--init" in result.output and "--maintenance" in result.output and calls
+    calls, result = _print(monkeypatch, ["-p", "--init-only"])
+    assert result.exit_code == 0 and not calls
+    assert "--init-only" in result.output

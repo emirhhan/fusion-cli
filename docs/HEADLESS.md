@@ -144,7 +144,8 @@ başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız
 giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
 
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--prompt-suggestions`)
+`--prompt-suggestions`; Setup kanca olayı tetiklenmediği için `--init`, `--maintenance` ve
+konuşma başlatmadan çıkan `--init-only`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına

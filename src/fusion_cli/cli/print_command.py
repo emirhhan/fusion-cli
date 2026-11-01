@@ -14,6 +14,7 @@ from typing import Annotated
 
 import typer
 
+from ..ui import print_messages as texts
 from .print_plan import PrintRequest
 from .print_run import run_print
 
@@ -47,6 +48,9 @@ def print_command(
     ] = None,
     safe_mode: Annotated[bool, typer.Option("--safe-mode")] = False,
     restricted: Annotated[bool, typer.Option("--restricted")] = False,
+    init: Annotated[bool, typer.Option("--init")] = False,
+    init_only: Annotated[bool, typer.Option("--init-only")] = False,
+    maintenance: Annotated[bool, typer.Option("--maintenance")] = False,
     append_system_prompt_file: Annotated[
         str | None, typer.Option("--append-system-prompt-file")
     ] = None,
@@ -96,6 +100,10 @@ def print_command(
     ignored = {
         "--include-hook-events": include_hooks,
         "--prompt-suggestions": prompt_suggestions,
+        # Setup kanca olayı henüz tetiklenmiyor (kancalar alanı); bayrak düşmez, uyarır.
+        "--init": init,
+        "--init-only": init_only,
+        "--maintenance": maintenance,
     }
     request = PrintRequest(
         prompt=prompt,
@@ -156,4 +164,8 @@ def print_command(
         betas=tuple(betas or ()),
     )
     del allow_skip  # Claude: bypass'ı yalnız seçilebilir yapar; -p'de etkisi yok
+    if init_only:
+        # Claude: kancaları çalıştırıp konuşma başlatmadan çıkar; sohbet açılmaz.
+        typer.echo(texts.PRINT_UNSUPPORTED_FLAG.format(flag="--init-only"), err=True)
+        raise typer.Exit(0)
     raise typer.Exit(run_print(request))
