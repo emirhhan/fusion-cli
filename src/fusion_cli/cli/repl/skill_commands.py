@@ -138,7 +138,10 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         )
         # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.
         resolution = resolve_turn_model(
-            invocation.model, invocation.effort, allow_model=model_override_allowed(state, skill)
+            invocation.model,
+            invocation.effort,
+            allow_model=model_override_allowed(state, skill),
+            aliases=dict(getattr(state.config.agent_launch, "model_aliases", {}) or {}),
         )
         state.pending_model_choice = resolution.choice
         state.pending_denied_tools = invocation.denied_tools

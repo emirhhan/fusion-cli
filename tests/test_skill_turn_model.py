@@ -177,3 +177,13 @@ def test_guvenilmeyen_projenin_becerisi_modeli_degistiremez(tmp_path: Path, monk
     trusted.trusted = True
     skill_handler(skill.qualified_name)(state, "")
     assert state.take_pending_extras().turn_config(state.config).agent.model == "pahali/model"
+
+
+def test_kisa_ad_yapilandirilmis_claude_modeline_gecer():
+    """Claude Code (#170): `model: opus` o modele geçirir."""
+    from fusion_cli.engines.agent.skill_turn import resolve_turn_model
+
+    sonuc = resolve_turn_model("opus", "", aliases={"opus": "anthropic/claude-opus-4"})
+
+    assert sonuc.choice.model == "anthropic/claude-opus-4"
+    assert resolve_turn_model("opus", "").choice.model == ""  # eşleme yoksa oturum modeli
