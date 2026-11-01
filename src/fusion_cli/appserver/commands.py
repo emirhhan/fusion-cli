@@ -33,7 +33,14 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
-from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
+from ..cli.repl import (
+    model_flows,
+    output_style_command,
+    profiles_flow,
+    provider_flow,
+    rewind,
+    settings_panel,
+)
 from ..cli.repl.commands import CommandRegistry, model_command_result
 from ..cli.repl.copy_blocks import WRITE_PREFIX
 from ..cli.repl.export_commands import copy_picker_choices, export_dialog_choices
@@ -223,6 +230,8 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return simple
     if canonical == "model":
         return _model_step(state, stripped)
+    if canonical in ("config", "settings"):
+        return _settings_step(state, stripped)
     if canonical == "development":
         return _development_choices(state, stripped)
     if canonical == "profiles":
@@ -240,6 +249,17 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
             rows = (*rows, *(_write_row(row) for row in rows))
             return _payload("blok", "secim", messages.COPY_PICK_TITLE_DESKTOP, rows, "copy", prefix)
     return None
+
+
+def _settings_step(state: ReplState, argument: str) -> ChoicePayload | None:
+    """Claude Code Settings paneli (#210): ayar → değer; seçim `/config key=value` olur."""
+    if not argument:
+        rows = settings_panel.config_rows(state)
+        return _payload("ayar", "secim", messages.SETTINGS_DESKTOP_TITLE, rows, "config", "")
+    values = settings_panel.value_choices(state, argument)
+    if "=" in argument or not values:
+        return None
+    return _payload("deger", "secim", argument, values, "config", f"{argument}=")
 
 
 def _write_row(row: Choice) -> Choice:

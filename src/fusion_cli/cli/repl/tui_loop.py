@@ -67,6 +67,7 @@ from . import (
     rewind_summary,
     session_resume,
     session_snapshot,
+    settings_panel,
     shell_background,
     status_line,
     status_view,
@@ -655,6 +656,12 @@ class _TuiSession:
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
             return
+        if command.name == "status" or (command.name == "config" and not argument.strip()):
+            # Claude Code Settings paneli (#210, #225): /status Status, /config Config sekmesi.
+            await self._run_settings_panel(
+                settings_panel.STATUS if command.name == "status" else settings_panel.CONFIG
+            )
+            return
         if renders_itself(command.name, argument):
             await help_view.render(command.name, self._state, self._registry, self._out, argument)
             self._tui.sync_conversation()
@@ -831,6 +838,25 @@ class _TuiSession:
             await self._turn(pending, mode=mode)
             await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _run_settings_panel(self, tab: str) -> None:
+        async def _ask(
+            title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+        ) -> str | None:
+            return await self._tui.await_choice(
+                title, list(choices), alt_keys=keys, initial=initial
+            )
+
+        palette = theme.CURRENT_THEME
+        notes = await settings_panel.run_async(self._state, _ask, tab)
+        if notes:
+            self._echo(f"[{theme.DIM}]{escape(notes)}[/{theme.DIM}]")
+        if palette != theme.CURRENT_THEME:
+            self._tui.refresh_style()
+        self._sync_status()
+        if not self._state.running:
+            # Panelden `tui` değiştiyse yüzey konuşmayı koruyarak yeniden açılır (#232).
+            self._tui.request_exit()
 
     async def _run_model_picker(self) -> None:
         async def _ask(

@@ -62,6 +62,7 @@ from . import (
     rewind,
     session_clear,
     session_resume,
+    settings_panel,
     status_line,
     team_commands,
     terminal_setup,
@@ -416,6 +417,19 @@ def _model(state: ReplState, argument: str) -> str:
         state.model_subcommand_warned = True
         return f"{result.message}\n{messages.MODEL_SUBCOMMAND_LEGACY.format(action=action)}"
     return result.message
+
+
+def _config(state: ReplState, argument: str) -> str:
+    """`/config` — argümansız ve terminalde Settings paneli (#210), aksi hâlde metin yolu."""
+    if argument.strip() or not sys.stdin.isatty():
+        return config_command.config_command(state, argument)
+
+    def _ask(
+        title: str, choices: Sequence[Choice], keys: tuple[str, ...], initial: str
+    ) -> str | None:
+        return pick(choices, title=title, alt_keys=keys, initial=initial)
+
+    return settings_panel.run(state, _ask) or messages.PICKER_CANCELLED
 
 
 def model_picker_command(state: ReplState, picker: Callable[..., str | None]) -> str:
@@ -1248,7 +1262,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "config",
         messages.CMD_CONFIG,
-        config_command.config_command,
+        _config,
         ("settings",),
         group="Bilgi",
         usage="[key=value ...|filtre|yol]",

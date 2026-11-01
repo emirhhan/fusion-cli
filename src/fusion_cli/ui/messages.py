@@ -702,6 +702,8 @@ MODEL_PICK_TITLE = (
     "Model seç · effort: {effort} (←/→ değiştirir) · Enter kaydeder · s yalnız bu oturum"
 )
 MODEL_PICK_CURRENT = "etkin"
+SETTINGS_TITLE = "Ayarlar  {tabs}  · ←/→ sekme · Enter değiştirir · Esc kapatır"
+SETTINGS_DESKTOP_TITLE = "Ayarlar · Config"
 MODELS_USAGE = (
     "Kullanım: /models  ya da  /models agent|judge <id> · cand <ad|no> <id> · add <ad> <id>"
     " · rm <ad>"
