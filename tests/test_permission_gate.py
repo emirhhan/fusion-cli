@@ -184,7 +184,7 @@ async def test_kural_yokken_eski_davranis_korunur(tmp_path):
         ("write_file", {"path": ".fusion/tools/x.py", "content": ""}),
         ("run_shell", {"command": "rm -rf .git"}),
         ("run_shell", {"command": "echo '{}' > .claude/settings.local.json"}),
-        ("run_shell", {"command": "sed -i 's/a/b/' .github/workflows/ci.yml"}),
+        ("run_shell", {"command": "sed -i 's/a/b/' .husky/pre-commit"}),
     ],
 )
 async def test_korumali_yola_yazma_her_kipte_sorulur_ve_hatirlanmaz(tmp_path, arac, args):
@@ -218,7 +218,7 @@ def test_korumali_yolu_okumak_ve_benzer_adlar_yikici_degil(tmp_path, arac, args)
         ("download_file", {"url": "https://x/y", "path": ".git/hooks/pre-commit"}),
         ("extract_archive", {"path": "a.tgz", "dest": ".git/hooks"}),
         ("extract_archive", {"path": ".claude/a.zip"}),
-        ("generate_image", {"prompt": "x", "path": ".github/workflows/a.png"}),
+        ("generate_image", {"prompt": "x", "path": ".vscode/a.png"}),
         ("optimize_image", {"path": "a.png", "out": ".claude/b.webp"}),
         ("write_file", {"path": ".GIT/config", "content": ""}),
         ("run_shell", {"command": "cd .git && rm -rf hooks"}),

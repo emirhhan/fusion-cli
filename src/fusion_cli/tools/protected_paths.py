@@ -22,20 +22,51 @@ Bilinen sınır: `python -c "open('.git/x','w')"` gibi satır içi kod statik ol
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 from .auto_policy import command_words, is_read_only_command, written_files
 from .write_targets import write_targets
 
-#: Köke göreli korumalı yol ön ekleri (posix). Sıra önemsizdir.
-PROTECTED_PATHS: tuple[str, ...] = (
+#: Korumalı dizinler (Claude Code listesi, #69). Yolun HERHANGİ bir bölümü bu adsa korunur.
+PROTECTED_DIRS: tuple[str, ...] = (
     ".git",
+    ".config/git",
+    ".vscode",
+    ".idea",
+    ".husky",
+    ".cargo",
+    ".devcontainer",
+    ".yarn",
+    ".mvn",
     ".claude",
-    ".fusion/tools",
+    # Fusion eki: Fusion'ın kendi yapılandırma kökleri (Claude'un `.claude`u korumasıyla aynı
+    # ilke; buralardan ajan/beceri/araç tanımı okunur, bkz. `capability_roots`).
+    ".fusion",
     ".codex",
     ".cursor/rules",
-    ".github/workflows",
+)
+#: Korumalı dosyalar (Claude Code listesi): ad her dizinde eşleşir.
+PROTECTED_FILES = frozenset(
+    {".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".bash_login", ".bash_aliases",
+     ".bash_logout", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".profile",
+     ".envrc", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnp.cjs", ".pnp.loader.mjs",
+     ".pnpmfile.cjs", "bunfig.toml", ".bunfig.toml", ".bazelrc", ".bazelversion",
+     ".bazeliskrc", ".pre-commit-config.yaml", "lefthook.yml", "lefthook.yaml",
+     ".lefthook.yml", ".lefthook.yaml", "gradle-wrapper.properties",
+     "maven-wrapper.properties", ".devcontainer.json", ".ripgreprc", "pyrightconfig.json",
+     ".mcp.json", ".claude.json"}
+)  # fmt: skip
+#: Geriye uyum: eski ad.
+PROTECTED_PATHS = PROTECTED_DIRS
+#: `.claude` istisnaları (Claude): kendi worktree'leri, planlar, iş geçici dizini, bellek .md'leri.
+_CLAUDE_EXCEPTIONS = re.compile(
+    r"(?:^|/)\.claude/worktrees(?:/|$)"
+    r"|(?:^|/)\.claude/plans(?:/|$)"
+    r"|(?:^|/)\.claude/jobs/[^/]+/tmp(?:/|$)"
+    r"|(?:^|/)\.claude/agent-memory(?:-local)?/.*\.md$"
+    r"|(?:^|/)\.claude/projects/[^/]+/memory/.*\.md$"
 )
 #: Argümanları arasında dosya yolu geçen ve o yolu DEĞİŞTİREBİLEN kabuk komutları.
 _MUTATING_COMMANDS = frozenset(
@@ -107,10 +138,18 @@ def _protected_hit(raw: str, root: Path, base: Path | None = None) -> str | None
         relative = os.path.relpath(os.path.normpath(absolute), os.path.normpath(root))
     except (OSError, RuntimeError, ValueError):
         return None
-    posix = PurePosixPath(relative).as_posix().lower()
-    if posix.startswith(".."):
+    inside = not relative.startswith("..")
+    posix = PurePosixPath(relative if inside else os.path.normpath(absolute)).as_posix().lower()
+    return protected_hit(posix)
+
+
+def protected_hit(posix: str) -> str | None:
+    """Küçük harfli posix yol korumalı dizin/dosyaya düşüyorsa korunan öğe (#69)."""
+    if _CLAUDE_EXCEPTIONS.search(posix):
         return None
-    for prefix in PROTECTED_PATHS:
-        if posix == prefix or posix.startswith(prefix + "/"):
+    padded = f"/{posix.strip('/')}/"
+    for prefix in PROTECTED_DIRS:
+        if f"/{prefix}/" in padded:
             return prefix
-    return None
+    name = posix.rstrip("/").rsplit("/", 1)[-1]
+    return name if name in PROTECTED_FILES else None
