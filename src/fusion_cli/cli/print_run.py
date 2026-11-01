@@ -232,14 +232,18 @@ def _turn(run: _Run, task: str) -> tuple[AgentOutcome, object | None, tuple[str,
 
 
 def _structured(text: str, schema: dict[str, object]) -> tuple[object | None, tuple[str, ...]]:
+    """Önce ham metin JSON denenir; olmazsa ``` çitinin içi (çit JSON dizgesinde de olabilir)."""
     raw = text.strip()
-    fenced = _FENCE.search(raw)
-    if fenced is not None:
-        raw = fenced.group(1).strip()
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as error:
-        return None, (f"nihai cevap geçerli bir JSON değil: {error}",)
+        fenced = _FENCE.search(raw)
+        if fenced is None:
+            return None, (f"nihai cevap geçerli bir JSON değil: {error}",)
+        try:
+            value = json.loads(fenced.group(1).strip())
+        except json.JSONDecodeError as inner:
+            return None, (f"nihai cevap geçerli bir JSON değil: {inner}",)
     return value, schema_errors(value, schema)
 
 

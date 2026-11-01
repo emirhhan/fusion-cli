@@ -168,3 +168,16 @@ def test_stream_json_turunda_ozel_komut_genisletilir(monkeypatch, tmp_path):
     assert second["allowed_tools"] is None
     final = [m for m in out if m["type"] == "result"][-1]
     assert final["result"] == "/clear isn't available in this environment."
+
+
+# --- bulgu 7: --json-schema çit ayıklaması geçerli JSON'u bozmaz (#301) ---------------- #
+
+
+def test_icinde_cit_gecen_gecerli_json_bozulmaz():
+    value, errors = print_run._structured('{"a": "```x```"}', {"type": "object"})
+    assert errors == () and value == {"a": "```x```"}
+
+
+def test_citli_json_hala_ayiklanir():
+    value, errors = print_run._structured('Sonuç:\n```json\n{"a": 1}\n```', {"type": "object"})
+    assert errors == () and value == {"a": 1}
