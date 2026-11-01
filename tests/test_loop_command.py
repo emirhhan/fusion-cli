@@ -431,7 +431,8 @@ async def test_repl_ajan_zamanlamasi_slash_satirini_komut_olarak_calistirmaz(
     assert turlar == ["/edits"] and state.approval is not ApprovalMode.ACCEPT_EDITS
     assert state.scheduled_turn_only is False
 
-    # İşaret yokken aynı satır komuttur (kullanıcının elle yazdığı /edits; /bypass Claude gibi bypass'sız oturumda açılmaz).
+    # İşaret yokken aynı satır komuttur (kullanıcının elle yazdığı /edits; /bypass
+    # Claude gibi bypass'sız oturumda açılmaz).
     await repl_loop._handle("/edits", state, registry, _Reader(), console, BackgroundTasks())
     assert turlar == ["/edits"] and state.approval is ApprovalMode.ACCEPT_EDITS
 
