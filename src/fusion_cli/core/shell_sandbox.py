@@ -167,7 +167,8 @@ def _darwin_prefix(
     guarded: Sequence[Path] = (),
 ) -> tuple[str, ...]:
     reads = read_rules(policy)
-    protected = protected_write_paths(guarded)
+    # Claude `filesystem.denyWrite` (#350) zorunlu engellerle aynı `deny file-write*` kuralına girer.
+    protected = tuple(dict.fromkeys((*protected_write_paths(guarded), *policy.deny_write)))
     git_entries = tuple(root / PROTECTED_ANCHORS[0] for root in guarded)
     anchors = tuple(
         path for path in protected_anchors(guarded) if path.name != PROTECTED_ANCHORS[0]

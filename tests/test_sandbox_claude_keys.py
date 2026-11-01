@@ -84,11 +84,12 @@ def test_claude_adi_eski_adin_ustundedir():
 def test_desteklenmeyen_claude_anahtari_uyarilir_ve_atilir(caplog):
     with caplog.at_level(logging.WARNING):
         sonuc, _ = normalize_claude_sandbox(
-            {"filesystem": {"denyWrite": ["x"]}, "network": {"allowUnixSockets": ["/s"]}}
+            {"filesystem": {"allowManagedReadPathsOnly": True}, "network": {"allowUnixSockets": ["/s"]}}
         )
-    assert "denyWrite" not in sonuc and "allowUnixSockets" not in sonuc
+    assert "allowManagedReadPathsOnly" not in sonuc and "allowUnixSockets" not in sonuc
     mesaj = " ".join(r.getMessage() for r in caplog.records)
-    assert "filesystem.denyWrite" in mesaj and "network.allowUnixSockets" in mesaj
+    assert "filesystem.allowManagedReadPathsOnly" in mesaj and "network.allowUnixSockets" in mesaj
+    assert "henüz desteklenmiyor" in mesaj and "kullanımdan kalkıyor" not in mesaj
 
 
 def test_enabled_bool_olmali():

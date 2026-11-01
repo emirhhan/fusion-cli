@@ -72,12 +72,14 @@ düz `allow_write`, `deny_read`, `allow_read`, `allowed_domains`, `denied_domain
 `excluded_commands`, `allow_unsandboxed`, `fail_if_unavailable`, `network: open|allowlist`)
 bir sürüm boyunca okunur ve bir kez uyarılır; ikisi birden yazılmışsa Claude adı kazanır.
 `/sandbox` bir ayarı yazınca dosyadaki eski adlar Claude adlarına taşınır. Henüz desteklenmeyen
-Claude anahtarları (`filesystem.denyWrite`, `network.allowUnixSockets`, `allowLocalBinding`…)
+Claude anahtarları (`network.allowUnixSockets`, `allowLocalBinding`, `httpProxyPort`…)
 yok sayılır ve uyarılır.
 
 ## Ne sınırlanır?
 
 - **Yazma:** proje kökü, `--add-dir` dizinleri, geçici dizinler ve `sandbox.allow_write`.
+  `sandbox.filesystem.denyWrite` bu bölgelerin içinde de yazılamayan yolları verir (Claude
+  Code ile aynı; macOS'ta yol yoksa da korunur, Linux'ta yalnız var olan yol).
   `echo x > ../y` reddedilir. Sade `rm` (Fusion çöpüne taşınan) da köklerin dışını silmez.
 - **Zorunlu yazma engeli (kök altında da):** `.git/config`, `.git/config.worktree`,
   `.git/hooks`, `.claude/settings.json`, `.claude/settings.local.json`, `.claude/launch.json`,

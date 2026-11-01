@@ -70,6 +70,8 @@ class SandboxPolicy:
 
     #: Kök (+ `--add-dir`) ve geçici dizinlere EK yazılabilir dizinler.
     extra_write: tuple[Path, ...] = ()
+    #: Yazılabilir bölgelerin içinde de yazılamayan yollar (Claude `filesystem.denyWrite`, #350).
+    deny_write: tuple[Path, ...] = ()
     #: Sandbox içinde okunamayan yollar (dizin ise altı da).
     deny_read: tuple[Path, ...] = ()
     #: `deny_read` bölgesinin içini yeniden açan yollar (Claude `allowRead`; dar olan kazanır).

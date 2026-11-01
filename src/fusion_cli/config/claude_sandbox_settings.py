@@ -44,6 +44,7 @@ _LOG = logging.getLogger(__name__)
 LIST_FIELDS = frozenset(
     {
         "allow_write",
+        "deny_write",
         "deny_read",
         "allow_read",
         "allowed_domains",
@@ -54,7 +55,7 @@ LIST_FIELDS = frozenset(
     }
 )
 #: Göreli yolu ayar dosyasının kapsamına göre çözülen alanlar.
-PATH_FIELDS = ("allow_write", "deny_read", "allow_read", "credential_files")
+PATH_FIELDS = ("allow_write", "deny_write", "deny_read", "allow_read", "credential_files")
 _KNOWN = frozenset(item.name for item in fields(SandboxConfig))
 _WARNED: set[str] = set()
 

@@ -46,6 +46,8 @@ class SandboxConfig:
     """`sandbox:` bölümü; alan açıklamaları `defaults.yaml`'da (tek kaynak)."""
 
     allow_write: tuple[str, ...] = ()
+    #: Claude `filesystem.denyWrite`: yazılabilir bölgenin içinde de yazılamayan yollar (#350).
+    deny_write: tuple[str, ...] = ()
     deny_read: tuple[str, ...] = ()
     allow_read: tuple[str, ...] = ()
     network: str = "allowlist"
@@ -138,6 +140,7 @@ def sandbox_policy(
     """Yapılandırmayı çalışma anı politikasına çevir (`~`/göreli yollar çözülür)."""
     return SandboxPolicy(
         extra_write=tuple(_expand(raw, home, root) for raw in config.allow_write),
+        deny_write=tuple(dict.fromkeys(_expand(raw, home, root) for raw in config.deny_write)),
         deny_read=tuple(
             dict.fromkeys(
                 (

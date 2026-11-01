@@ -1083,6 +1083,9 @@ sandbox:
   # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
   # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
   allow_write: []
+  # Yazılabilir bölgelerin (proje kökü, allow_write) içinde de YAZILAMAYAN yollar (Claude
+  # filesystem.denyWrite). Örn: ["./dist/imzali", "~/.npmrc"].
+  deny_write: []
   # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da; Claude filesystem.denyRead).
   # Claude gibi yerleşik bir liste yoktur: ~/.ssh ve ~/.aws/credentials da yazılmazsa okunur.
   # Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum profilleri her zaman engelli.

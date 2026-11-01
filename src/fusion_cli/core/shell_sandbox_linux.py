@@ -126,6 +126,10 @@ def linux_sandbox_argv(
             unavailable="bubblewrap (bwrap) bulunamadı (kur: apt install bubblewrap)"
         )
     arguments = [tools.bwrap, *_ISOLATION, *_mounts(roots, read_rules(policy), protected_roots)]
+    # Claude `filesystem.denyWrite` (#350): var olan yol salt okunur yeniden bağlanır.
+    for path in policy.deny_write:
+        if path.exists():
+            arguments += ["--ro-bind", str(path), str(path)]
     if not policy.restricts_network:
         return LinuxSandboxArgv(prefix=(*arguments, "--"))
     arguments.append("--unshare-net")

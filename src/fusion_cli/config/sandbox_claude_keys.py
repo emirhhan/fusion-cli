@@ -38,7 +38,12 @@ _TOP_LEVEL = {
     "failIfUnavailable": "fail_if_unavailable",
 }
 #: `sandbox.filesystem.*` → Fusion iç alanı.
-_FILESYSTEM = {"allowWrite": "allow_write", "denyRead": "deny_read", "allowRead": "allow_read"}
+_FILESYSTEM = {
+    "allowWrite": "allow_write",
+    "denyWrite": "deny_write",
+    "denyRead": "deny_read",
+    "allowRead": "allow_read",
+}
 #: `sandbox.network.*` → Fusion iç alanı.
 _NETWORK = {
     "allowedDomains": "allowed_domains",
@@ -67,6 +72,13 @@ def _warn_once(old: str, new: str) -> None:
         return
     _WARNED.add(old)
     _LOGGER.warning("%s kullanımdan kalkıyor; Claude Code adı %s kullanılmalı.", old, new)
+
+
+def _warn_unsupported(name: str) -> None:
+    if name in _WARNED:
+        return
+    _WARNED.add(name)
+    _LOGGER.warning("%s Fusion'da henüz desteklenmiyor; yok sayıldı.", name)
 
 
 def warn_legacy_switch() -> None:
@@ -166,7 +178,7 @@ def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool |
     unsupported += _credentials(data.pop("credentials", None), result)
     _move(data, _TOP_LEVEL, result)
     for key in unsupported:
-        _warn_once(f"sandbox.{key}", "(henüz desteklenmiyor; yok sayıldı)")
+        _warn_unsupported(f"sandbox.{key}")
     result.update(data)  # kalan (bilinmeyen ya da iç) anahtarlar doğrulamaya bırakılır
     return result, enabled
 
