@@ -99,3 +99,14 @@ def test_ayni_model_kanca_calistirmaz(tmp_path):
     state, d = _state(tmp_path, {"PreModelSwitch": ("", "sys.exit(2)\n")})
     _model(state, "agent anthropic/claude-sonnet-5")
     assert not (d / "PreModelSwitch.json").exists()
+
+
+def test_model_switch_olaylarinda_yazilmamis_sure_30_sn():
+    # Claude: command/http/mcp_tool varsayılanı UserPromptSubmit, PreModelSwitch ve
+    # PostModelSwitch'te 30 sn (#105).
+    from fusion_cli.core.hooks.events import HookCommand, HookEvent
+    from fusion_cli.engines.hooks.dispatch import with_event_timeout
+
+    for event in (HookEvent.PRE_MODEL_SWITCH, HookEvent.POST_MODEL_SWITCH):
+        (command,) = with_event_timeout((HookCommand(event, "", "x", 600.0),), event)
+        assert command.timeout_s == 30.0

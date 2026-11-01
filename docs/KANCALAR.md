@@ -132,7 +132,7 @@ Olay × tür (Claude tablosu): SessionStart yalnız `command`/`mcp_tool`; gözle
 `agent` desteklemez; desteklenmeyen birleşim gerekçesiyle atlanır.
 
 **Varsayılan süreler:** `command`/`http`/`mcp_tool` 600 sn, `prompt` 30 sn, `agent` 60 sn;
-`UserPromptSubmit`'te `command`/`http`/`mcp_tool` 30 sn; `SessionEnd`
+`UserPromptSubmit`, `PreModelSwitch` ve `PostModelSwitch`'te `command`/`http`/`mcp_tool` 30 sn; `SessionEnd`
 kancaları ortak 1,5 sn bütçeyi paylaşır (yazılı `timeout` bütçeyi en çok 60 sn'ye kadar
 yükseltir; `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` ile değişir). Üst sınır yoktur.
 
