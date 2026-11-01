@@ -17,6 +17,12 @@ from fusion_cli.tools.plugin_capabilities import with_plugin_root
 
 runner = CliRunner()
 
+
+@pytest.fixture(autouse=True)
+def _vault_key(monkeypatch):
+    """Şifreli depo için yalnız teste ait ana anahtar (gerçek Keychain/kasa yok)."""
+    monkeypatch.setenv("FUSION_SECRET_KEY", "test-yalniz-eklenti-anahtari")
+
 _SCHEMA = {
     "api_url": {"type": "string", "title": "API", "description": "Adres", "required": True},
     "api_token": {"type": "string", "title": "Token", "description": "T", "sensitive": True},
@@ -59,7 +65,7 @@ def test_sema_dogrulanir_bilinmeyen_alan_ve_tur_hata():
         plugin_user_config.parse_schema({"1a": {"type": "string", "title": "", "description": ""}})
 
 
-def test_configure_values_stdin_kaydeder_hassasi_ayri_0600_dosyada(tmp_path):
+def test_configure_values_stdin_kaydeder_hassasi_sifreli_depoda(tmp_path):
     _install(tmp_path)
     values = {"api_url": "https://x.example", "api_token": "gizli", "limit": "3"}
     result = runner.invoke(app, ["configure", "rapor", "--values-stdin"], input=json.dumps(values))
@@ -71,9 +77,56 @@ def test_configure_values_stdin_kaydeder_hassasi_ayri_0600_dosyada(tmp_path):
         "api_url": "https://x.example",
         "limit": 3,
     }
-    secret = base / plugin_user_config.SECRET_FILE
+    assert not (base / plugin_user_config.SECRET_FILE).exists()  # düz metin yok
+    vault = base / plugin_user_config.VAULT_FILE
+    assert b"gizli" not in vault.read_bytes()
+    assert plugin_user_config.saved_values("rapor", base)["api_token"] == "gizli"
+
+
+def test_sifreli_depo_yoksa_hassas_deger_0600_dosyaya_yedeklenir(tmp_path, monkeypatch):
+    _install(tmp_path)
+    monkeypatch.setattr(plugin_user_config, "_vault", lambda _base: None)
+    values = {"api_url": "https://x.example", "api_token": "gizli"}
+    result = runner.invoke(app, ["configure", "rapor", "--values-stdin"], input=json.dumps(values))
+    assert result.exit_code == 0, result.output
+    secret = plugin_store.plugins_dir() / plugin_user_config.SECRET_FILE
     assert "gizli" in secret.read_text("utf-8")
     assert stat.S_IMODE(secret.stat().st_mode) == 0o600
+    assert not secret.with_name(secret.name + ".tmp").exists()
+
+
+def test_eski_duz_metin_hassas_deger_okunur_ve_ilk_yazimda_sifreli_depoya_tasinir(tmp_path):
+    _install(tmp_path)
+    base = plugin_store.plugins_dir()
+    legacy = base / plugin_user_config.SECRET_FILE
+    legacy.write_text(
+        json.dumps({"pluginConfigs": {"rapor": {"options": {"api_token": "eski"}}}}), "utf-8"
+    )
+    assert plugin_user_config.saved_values("rapor", base)["api_token"] == "eski"
+
+    schema = plugin_user_config.read_schema(base / "rapor")
+    plugin_user_config.save_values("rapor", schema, {"api_token": "yeni"}, base)
+
+    assert plugin_user_config.saved_values("rapor", base)["api_token"] == "yeni"
+    assert "rapor" not in legacy.read_text("utf-8")
+
+
+def test_kaydetme_kayit_kilidi_altinda_yapilir(tmp_path, monkeypatch):
+    import contextlib
+
+    _install(tmp_path)
+    base = plugin_store.plugins_dir()
+    locked: list[str] = []
+
+    @contextlib.contextmanager
+    def fake_lock(path):
+        locked.append(path.name)
+        yield
+
+    monkeypatch.setattr(plugin_user_config, "config_lock", fake_lock)
+    schema = plugin_user_config.read_schema(base / "rapor")
+    plugin_user_config.save_values("rapor", schema, {"api_url": "https://y"}, base)
+    assert locked == [plugin_user_config.CONFIG_FILE]
 
 
 def test_gecersiz_deger_hicbir_sey_kaydetmez_cikis_1(tmp_path):

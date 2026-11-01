@@ -11,25 +11,41 @@ https://code.claude.com/docs/en/plugins/cli-reference.md "plugin configure"):
   `CLAUDE_PLUGIN_OPTION_<KEY>` olarak verilir.
 
 Fusion'da: hassas olmayanlar `<eklentiler>/plugin-configs.json` (`{"pluginConfigs": {ad:
-{"options": {...}}}}`), hassaslar yalnız sahibinin okuyabildiği (0600)
-`<eklentiler>/.credentials.json` dosyasına yazılır (Claude'un Keychain yokken kullandığı
-`~/.claude/.credentials.json` karşılığı).
+{"options": {...}}}}`), hassaslar Fusion'ın şifreli sır deposu biçiminde (ana anahtar Keychain/
+yerel kasada) `<eklentiler>/.plugin-secrets.enc` dosyasına yazılır. Ana anahtar yoksa Claude'un
+Keychain yokken kullandığı `.credentials.json` gibi yalnız sahibinin okuyabildiği (0600)
+`<eklentiler>/.credentials.json` yedektir; eski sürümün bu dosyadaki değerleri okunur ve ilk
+yazımda şifreli depoya taşınır. Oku-değiştir-yaz `config_lock` altındadır.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.errors import ConfigError
 from ..core.plugins import MANIFEST_PATHS, PluginError
+from .writer import config_lock
+
+if TYPE_CHECKING:
+    from .credentials import FernetSecretStore
+
+_LOG = logging.getLogger(__name__)
 
 CONFIG_FILE = "plugin-configs.json"
 SECRET_FILE = ".credentials.json"
+VAULT_FILE = ".plugin-secrets.enc"
+_VAULT_PREFIX = "pluginSecrets/"
+WARN_NO_VAULT = (
+    "şifreli sır deposu kullanılamıyor; '{name}' hassas değerleri 0600 dosyaya yazıldı ({path})"
+)
 CONFIGS_KEY = "pluginConfigs"
 ENV_PREFIX = "CLAUDE_PLUGIN_OPTION_"
 SENSITIVE_PLACEHOLDER = "[sensitive user_config.{key}]"
@@ -161,12 +177,37 @@ def _read_all(path: Path) -> dict[str, dict[str, object]]:
     return found
 
 
-def saved_values(name: str, base: Path) -> dict[str, object]:
-    """Kaydedilmiş değerler (hassaslar dahil)."""
-    return {
-        **_read_all(_store(base, False)).get(name, {}),
-        **_read_all(_store(base, True)).get(name, {}),
-    }
+def _vault(base: Path) -> FernetSecretStore | None:
+    """Şifreli sır deposu; ana anahtar yoksa None (düz metin 0600 yedeğe düşülür)."""
+    from .credentials import FernetSecretStore
+    from .keys import secret_key
+
+    store = FernetSecretStore(base / VAULT_FILE, secret_key=secret_key())
+    return store if store.available else None
+
+
+def _vault_values(name: str, base: Path) -> dict[str, object]:
+    store = _vault(base)
+    if store is None:
+        return {}
+    try:
+        raw = store.get(_VAULT_PREFIX + name)
+        parsed = json.loads(raw) if raw else {}
+    except (ConfigError, ValueError) as error:
+        _LOG.warning("eklenti '%s' hassas değerleri okunamadı: %s", name, error)
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def saved_values(name: str, base: Path, *, secrets: bool = True) -> dict[str, object]:
+    """Kaydedilmiş değerler; `secrets` ile hassaslar (şifreli depo düz metin yedeği geçer).
+
+    Şifreli depo her okumada anahtar türetir: hassas seçeneği olmayan eklentide hiç açılmaz.
+    """
+    plain = _read_all(_store(base, False)).get(name, {})
+    if not secrets:
+        return dict(plain)
+    return {**plain, **_read_all(_store(base, True)).get(name, {}), **_vault_values(name, base)}
 
 
 def _write(path: Path, data: Mapping[str, dict[str, object]], secret: bool) -> None:
@@ -178,10 +219,33 @@ def _write(path: Path, data: Mapping[str, dict[str, object]], secret: bool) -> N
         return
     # Hassas dosya hiçbir an başkalarınca okunabilir olmasın: 0600 ile açılıp yerine konur.
     temporary = path.with_name(path.name + ".tmp")
-    descriptor = os.open(temporary, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(text)
-    temporary.replace(path)
+    try:
+        descriptor = os.open(temporary, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _save_secrets(name: str, chosen: Mapping[str, object], base: Path) -> None:
+    legacy_path = _store(base, True)
+    legacy = _read_all(legacy_path)
+    store = _vault(base)
+    if store is None:
+        _LOG.warning(WARN_NO_VAULT.format(name=name, path=legacy_path))
+        _write(legacy_path, {**legacy, name: {**legacy.get(name, {}), **chosen}}, True)
+        return
+    merged = {**legacy.get(name, {}), **_vault_values(name, base), **chosen}
+    store.set(_VAULT_PREFIX + name, json.dumps(merged, ensure_ascii=False))
+    if name in legacy:  # eski düz metin kopya kalmasın
+        _write(legacy_path, {k: v for k, v in legacy.items() if k != name}, True)
+
+
+def _save_plain(name: str, chosen: Mapping[str, object], base: Path) -> None:
+    path = _store(base, False)
+    current = _read_all(path)
+    _write(path, {**current, name: {**current.get(name, {}), **chosen}}, False)
 
 
 def save_values(
@@ -197,19 +261,20 @@ def save_values(
         if not isinstance(text, str):
             raise PluginError(ERR_VALUE.format(key=key, reason="metin olmalı"))
         parsed[key] = (option, coerce(option, text))
-    for secret in (False, True):
-        chosen = {k: v for k, (o, v) in parsed.items() if o.sensitive is secret}
-        if chosen:
-            path = _store(base, secret)
-            current = _read_all(path)
-            current[name] = {**current.get(name, {}), **chosen}
-            _write(path, current, secret)
+    plain = {k: v for k, (o, v) in parsed.items() if not o.sensitive}
+    secret = {k: v for k, (o, v) in parsed.items() if o.sensitive}
+    # CLI `configure` ile masaüstü aynı anda yazınca biri ötekinin değerini silmesin.
+    with config_lock(_store(base, False)):
+        if plain:
+            _save_plain(name, plain, base)
+        if secret:
+            _save_secrets(name, secret, base)
     return tuple(parsed)
 
 
 def effective_values(name: str, schema: tuple[UserOption, ...], base: Path) -> dict[str, object]:
     """Kaydedilen değer, yoksa `default` (ikisi de yoksa seçenek yok sayılır)."""
-    saved = saved_values(name, base)
+    saved = saved_values(name, base, secrets=any(option.sensitive for option in schema))
     found: dict[str, object] = {}
     for option in schema:
         value = saved.get(option.key, option.default)
