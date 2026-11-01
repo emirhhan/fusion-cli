@@ -228,7 +228,10 @@ def test_enter_worktree_araci_kurar_ve_tur_sonunda_kok_degisir(state, repo):
     assert context.worktree_switch.requested is None, "istek bir kez uygulanır"
 
     ic = ToolContext(root=state.root)
-    assert not asyncio.run(enter_worktree_tool({"name": "icice"}, ic)).ok, "iç içe ağaç açılmaz"
+    # Claude (#342): ağacın içindeyken başkasına doğrudan geçilir; yeni ağaç ana depoda açılır.
+    ikinci = asyncio.run(enter_worktree_tool({"name": "ikinci"}, ic))
+    assert ikinci.ok and str(repo / ".claude" / "worktrees" / "ikinci") in ikinci.output
+    ic.worktree_switch.take()
     cikis = asyncio.run(exit_worktree_tool({}, ic))
     assert cikis.ok and ic.worktree_switch.exit_requested
     assert "kaldırıldı" in worktrees.apply_switch(state, ic)
@@ -239,7 +242,7 @@ def test_exit_worktree_agacta_degilken_bilgi_verir(repo):
     context = ToolContext(root=repo)
     result = asyncio.run(exit_worktree_tool({}, context))
     assert result.ok and not context.worktree_switch.exit_requested
-    assert not asyncio.run(enter_worktree_tool({"name": ""}, context)).ok
+    assert not asyncio.run(enter_worktree_tool({"name": "../kacak"}, context)).ok
 
 
 # --- Alt ajan izolasyonu ---------------------------------------------------------------- #

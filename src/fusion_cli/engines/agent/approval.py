@@ -59,6 +59,7 @@ from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .desktop_approval import apply_desktop, consent_description
 from .sandbox_approval import apply_sandbox_policy
+from .worktree_approval import apply_worktree_path_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -607,6 +608,7 @@ async def resolve_request(
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
     request = apply_sandbox_policy(request, context)
+    request = apply_worktree_path_policy(request, context)  # #342
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).

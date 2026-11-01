@@ -9,11 +9,14 @@ içindedir, kısıtlı kip bozulmaz.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from ..config.worktree_settings import enter_configured_worktree
 from ..core.errors import WorktreeError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from ..core.worktree import WORKTREE_DIR, worktree_for_path
+from ..core.worktree import Worktree, worktree_for_path
+from ..core.worktree_attach import attach_worktree, origin_of
+from ..core.worktree_names import random_worktree_name
 from ..ui import messages
 
 ENTER_WORKTREE_SCHEMA: dict[str, object] = {
@@ -21,34 +24,52 @@ ENTER_WORKTREE_SCHEMA: dict[str, object] = {
     "properties": {
         "name": {
             "type": "string",
-            "description": "çalışma ağacının adı (harf/rakam, nokta, alt çizgi, tire); "
-            "dal worktree-<ad> olur",
-        }
+            "description": "yeni ağacın adı (harf/rakam . _ -); dal worktree-<ad>. Verilmezse "
+            "rastgele ad",
+        },
+        "path": {
+            "type": "string",
+            "description": "yeni ağaç yerine bu deponun VAR OLAN çalışma ağacına geç "
+            "(.claude/worktrees dışındaysa onay istenir)",
+        },
     },
-    "required": ["name"],
+    "required": [],
 }
 
 EXIT_WORKTREE_SCHEMA: dict[str, object] = {"type": "object", "properties": {}, "required": []}
 
 
-async def enter_worktree_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Adı verilen git çalışma ağacını aç (yoksa oluştur) ve tur sonunda köke geçilmesini iste."""
-    name = args.get("name")
-    if not isinstance(name, str) or not name.strip():
-        return ToolResult.failure("'name' boş olmayan bir metin olmalı.")
-    if worktree_for_path(context.root) is not None:
-        return ToolResult.failure(
-            "Zaten bir çalışma ağacındasın; iç içe ağaç açılmaz. Önce exit_worktree çağır."
-        )
+def _open(root: Path, name: object, path: object) -> Worktree:
+    if isinstance(path, str) and path.strip():
+        return attach_worktree(root, path.strip())
+    if name is not None and not isinstance(name, str):
+        raise WorktreeError("'name' metin olmalı.")
+    chosen = name.strip() if isinstance(name, str) and name.strip() else random_worktree_name()
+    return enter_configured_worktree(root, chosen)
+
+
+def _reach(root: Path, worktree: Worktree) -> Path:
+    """Bu turda ağaca ulaşılacak yol: kökün içindeyse göreli, değilse mutlak."""
     try:
-        worktree = await asyncio.to_thread(enter_configured_worktree, context.root, name)
+        return worktree.path.relative_to(root.resolve())
+    except ValueError:
+        return worktree.path
+
+
+async def enter_worktree_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Çalışma ağacı aç (yoksa oluştur) ya da `path` ile var olana geç; tur sonunda köke geçilir.
+
+    Claude Code (EnterWorktree): bir ağacın içindeyken başka bir ağaca doğrudan geçilir;
+    yeni ağaç her zaman ana depoda açılır (iç içe ağaç olmaz).
+    """
+    try:
+        worktree = await asyncio.to_thread(_open, context.root, args.get("name"), args.get("path"))
     except WorktreeError as error:
         return ToolResult.failure(str(error))
     context.worktree_switch.request(worktree)
-    relative = WORKTREE_DIR / worktree.name
     return ToolResult(
         messages.WORKTREE_TOOL_ENTERED.format(
-            path=worktree.path, branch=worktree.branch, relative=relative
+            path=worktree.path, branch=worktree.branch, relative=_reach(context.root, worktree)
         )
     )
 
@@ -57,7 +78,17 @@ async def exit_worktree_tool(args: ToolArgs, context: ToolContext) -> ToolResult
     """Tur sonunda ana depoya dönülmesini iste; temiz ağaç kaldırılır, iş kalmışsa korunur."""
     del args
     inside = worktree_for_path(context.root)
-    if inside is None:
+    origin = inside.origin if inside is not None else _linked_origin(context.root)
+    if origin is None:
         return ToolResult(messages.WORKTREE_TOOL_NOT_IN)
     context.worktree_switch.request_exit()
-    return ToolResult(messages.WORKTREE_TOOL_EXIT.format(origin=inside.origin))
+    return ToolResult(messages.WORKTREE_TOOL_EXIT.format(origin=origin))
+
+
+def _linked_origin(root: Path) -> Path | None:
+    """Kök `path` ile girilmiş bağlı bir ağaçsa ana depo kökü; değilse `None`."""
+    try:
+        origin = origin_of(root)
+    except WorktreeError:
+        return None
+    return None if origin == root.resolve() else origin

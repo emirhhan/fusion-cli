@@ -66,6 +66,9 @@ class Worktree:
     #: `.worktreeinclude` ile kopyalanan izlenmeyen dosyalar (ağaca göreli). Bunlar git'te
     #: "yeni dosya" görünür ama kullanıcının İŞİ değildir; temizlik ölçümünde sayılmaz.
     included: tuple[str, ...] = ()
+    #: Oturumun yaratmadığı, yolu ile girilen ağaç (`enter_worktree path`, #342): çıkışta
+    #: kaldırılmaz.
+    external: bool = False
 
 
 class LeaveOutcome(Enum):
@@ -395,6 +398,8 @@ def has_new_commits(worktree: Worktree) -> bool:
 
 def leave_worktree(worktree: Worktree) -> LeaveResult:
     """Çıkış kuralı: temiz ve commit'siz ağaç kaldırılır, iş kalmışsa korunur."""
+    if worktree.external:
+        return LeaveResult(worktree, LeaveOutcome.KEPT, "harici")
     if is_dirty(worktree):
         return LeaveResult(worktree, LeaveOutcome.KEPT, "degisiklik")
     if has_new_commits(worktree):

@@ -369,8 +369,11 @@ durumunda görünmez (`.git/info/exclude`).
 - Ajan araçları `enter_worktree` / `exit_worktree`: model bir ağaç açar, aynı turda
   `.claude/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
   masaüstünde). `fusion agent "…"` tek atışta kök değişmez; açılan ağaç bildirilir ve korunur.
-  Bu araçlar yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur
-  (istem bütçesi).
+  `name` verilmezse rastgele ad üretilir; `path` ile deponun VAR OLAN bir ağacına geçilir
+  (`.claude/worktrees` dışındaysa her kipte sorulur, yalnız bypass sormaz; oturumun yaratmadığı
+  ağaç çıkışta kaldırılmaz). Bir ağacın içindeyken başka ağaca doğrudan geçilir (Claude Code
+  EnterWorktree). Claude'dan fark (henüz): araçlar yalnız isteğinde "worktree / ayrı dal /
+  izole dal" geçen görevlerde sunulur (araç istemi bütçesi dolu).
 - Alt ajan: `Agent` çağrısına `isolation: "worktree"` verilirse (ya da tanımda `isolation: worktree` varsa) üye kendi ağacında
   (`ajan-<kimlik>`) yazar; ana proje değişmez. Üye dosya değiştirmediyse ağaç ve dal kaldırılır,
   iş kaldıysa korunur ve yolu özetine yazılır.

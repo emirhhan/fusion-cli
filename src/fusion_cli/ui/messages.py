@@ -1202,6 +1202,7 @@ WORKTREE_LEFT_KEPT = (
 WORKTREE_KEPT_REASON = {
     "degisiklik": "commit'lenmemiş değişiklik var",
     "commit": "dalda yeni commit var",
+    "harici": "bu oturum yaratmadı (yolu ile girildi)",
 }
 WORKTREE_TOOL_ENTERED = (
     "Çalışma ağacı hazır: {path} (dal {branch}). Bu turda dosyalara {relative}/… ile ulaş; "
