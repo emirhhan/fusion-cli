@@ -93,3 +93,52 @@ def test_gercek_sandboxta_kullanici_ca_anahtari_okunamaz(tmp_path, monkeypatch):
     assert cert_read.returncode == 0, cert_read.stderr
     assert key_read.returncode != 0 and b"PRIVATE KEY" not in key_read.stdout
     assert b"not permitted" in key_read.stderr
+
+
+def _artiklar(folder: Path) -> list[str]:
+    return sorted(item.name for item in folder.iterdir() if item.name.startswith("fusion-sbx-ca"))
+
+
+def test_ca_dizinleri_surec_sonunda_silinir_hatali_ca_dizin_birakmaz(tmp_path, monkeypatch):
+    """İnceleme bulgusu 6: anahtar içeren geçici dizinler /tmp altında kalmaz."""
+    import tempfile
+
+    from fusion_cli.core.errors import ConfigError
+    from fusion_cli.tools import sandbox_ca
+
+    temp = tmp_path / "tmp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    with pytest.raises(ConfigError):
+        sandbox_ca.SessionCa(str(tmp_path / "yok.pem"), str(tmp_path / "yok.key"))
+    assert _artiklar(temp) == []
+
+    ca = sandbox_ca.SessionCa()
+    ca.server_context("127.0.0.1")
+    assert len(_artiklar(temp)) == 2
+    sandbox_ca._cleanup_all()
+    assert _artiklar(temp) == []
+
+
+def test_doctor_ca_denetimi_gecici_dizin_acmaz(tmp_path, monkeypatch):
+    import tempfile
+    from dataclasses import replace
+
+    from fusion_cli.cli.doctor import tls_terminate_check
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.config.sandbox_config import SandboxConfig
+
+    temp = tmp_path / "tmp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    path = tmp_path / "config.yaml"
+    path.write_text("{}\n", encoding="utf-8")
+    config = load_config(path)
+    cert, key = _user_ca(tmp_path)
+    for sandbox in (
+        SandboxConfig(tls_terminate=True),
+        SandboxConfig(tls_terminate=True, tls_ca_cert=str(cert), tls_ca_key=str(key)),
+    ):
+        (check,) = tls_terminate_check(replace(config, sandbox=sandbox))
+        assert check.ok is True
+    assert _artiklar(temp) == []

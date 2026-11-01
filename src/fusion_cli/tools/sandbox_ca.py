@@ -10,8 +10,10 @@ sandbox'a OKUNAMAZ (`private_dir`, `caKeyPath` → `locked_read`; `sandbox_mask.
 
 from __future__ import annotations
 
+import atexit
 import datetime
 import ipaddress
+import shutil
 import ssl
 import tempfile
 import threading
@@ -25,7 +27,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from ..core.errors import ConfigError
 
-__all__ = ["SessionCa", "session_ca"]
+__all__ = ["SessionCa", "session_ca", "validate_ca"]
 
 #: Yaprak sertifikanın ömrü; oturum süresince yeniden üretilmez.
 _LEAF_DAYS = 2
@@ -40,6 +42,9 @@ _BUNDLE_ENV = (
 )
 _LOCK = threading.Lock()
 _CACHE: dict[tuple[str, str], SessionCa] = {}
+#: Dizinleri süreç sonunda silinecek CA'lar (anahtarlar /tmp altında kalmasın).
+_LIVE: list[SessionCa] = []
+_LIVE_LOCK = threading.Lock()  # `_LOCK` session_ca içinde tutulur; ayrı kilit kilitlenmeyi önler
 
 
 def _now() -> datetime.datetime:
@@ -64,13 +69,16 @@ class SessionCa:
     """CA anahtarı + sertifikası; ana makine başına sunucu bağlamı üretir."""
 
     def __init__(self, cert_path: str = "", key_path: str = "") -> None:
+        # Önce CA: okunamazsa geride boş dizin kalmaz.
+        if cert_path:
+            self._key, self._cert = _load_pair(Path(cert_path), Path(key_path))
+        else:
+            self._key, self._cert = self._generate_ca()
         self.private_dir = Path(tempfile.mkdtemp(prefix="fusion-sbx-ca-key-"))
         self.public_dir = Path(tempfile.mkdtemp(prefix="fusion-sbx-ca-"))
         self.private_dir.chmod(0o700)
-        if cert_path:
-            self._key, self._cert = self._load(Path(cert_path), Path(key_path))
-        else:
-            self._key, self._cert = self._generate_ca()
+        with _LIVE_LOCK:
+            _LIVE.append(self)
         pem = self._cert.public_bytes(serialization.Encoding.PEM).decode("ascii")
         self.cert_path = self.public_dir / "ca.pem"
         self.cert_path.write_text(pem, encoding="ascii")
@@ -78,18 +86,6 @@ class SessionCa:
         self.bundle_path.write_text(_system_roots().rstrip() + "\n" + pem, encoding="utf-8")
         self._contexts: dict[str, ssl.SSLContext] = {}
         self._lock = threading.Lock()
-
-    def _load(
-        self, cert: Path, key: Path
-    ) -> tuple[CertificateIssuerPrivateKeyTypes, x509.Certificate]:
-        try:
-            certificate = x509.load_pem_x509_certificate(cert.read_bytes())
-            private = serialization.load_pem_private_key(key.read_bytes(), password=None)
-        except (OSError, ValueError, TypeError) as error:
-            raise ConfigError(f"sandbox.network.tlsTerminate CA okunamadı: {error}") from error
-        if not isinstance(private, ec.EllipticCurvePrivateKey | rsa.RSAPrivateKey):
-            raise ConfigError("sandbox.network.tlsTerminate: CA anahtarı imzalamaya uygun değil.")
-        return private, certificate
 
     def _generate_ca(self) -> tuple[CertificateIssuerPrivateKeyTypes, x509.Certificate]:
         key = ec.generate_private_key(ec.SECP256R1())
@@ -162,11 +158,33 @@ class SessionCa:
         context.set_alpn_protocols(["http/1.1"])
         return context
 
+    def close(self) -> None:
+        """Anahtar ve sertifika dizinlerini sil."""
+        for folder in (self.private_dir, self.public_dir):
+            shutil.rmtree(folder, ignore_errors=True)
+
     def trust_env(self) -> dict[str, str]:
         """Sandbox içindeki istemcilerin CA'ya güvenmesi için ortam."""
         env = dict.fromkeys(_BUNDLE_ENV, str(self.bundle_path))
         env["NODE_EXTRA_CA_CERTS"] = str(self.cert_path)
         return env
+
+
+def _load_pair(cert: Path, key: Path) -> tuple[CertificateIssuerPrivateKeyTypes, x509.Certificate]:
+    try:
+        certificate = x509.load_pem_x509_certificate(cert.read_bytes())
+        private = serialization.load_pem_private_key(key.read_bytes(), password=None)
+    except (OSError, ValueError, TypeError) as error:
+        raise ConfigError(f"sandbox.network.tlsTerminate CA okunamadı: {error}") from error
+    if not isinstance(private, ec.EllipticCurvePrivateKey | rsa.RSAPrivateKey):
+        raise ConfigError("sandbox.network.tlsTerminate: CA anahtarı imzalamaya uygun değil.")
+    return private, certificate
+
+
+def validate_ca(cert_path: str = "", key_path: str = "") -> None:
+    """CA'nın kurulabildiğini dizin açmadan doğrula (`fusion doctor`); kurulamıyorsa hata."""
+    if cert_path:
+        _load_pair(Path(cert_path), Path(key_path))
 
 
 def _key_usage(*, ca: bool) -> x509.KeyUsage:
@@ -192,3 +210,15 @@ def session_ca(cert_path: str = "", key_path: str = "") -> SessionCa:
             existing = SessionCa(cert_path, key_path)
             _CACHE[key] = existing
         return existing
+
+
+@atexit.register
+def _cleanup_all() -> None:
+    """Süreç sonunda bu sürecin açtığı CA dizinlerini sil."""
+    with _LOCK:
+        _CACHE.clear()
+    with _LIVE_LOCK:
+        live = list(_LIVE)
+        _LIVE.clear()
+    for ca in live:
+        ca.close()

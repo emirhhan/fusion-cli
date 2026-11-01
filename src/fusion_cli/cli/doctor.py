@@ -296,13 +296,14 @@ def tls_terminate_check(config: Config) -> list[Check]:
         return []
     from ..config.sandbox_config import sandbox_policy
     from ..core.errors import FusionError
-    from ..tools.sandbox_ca import session_ca
 
     policy = sandbox_policy(sandbox, home=Path.home(), root=Path.cwd())
     name = "Sandbox TLS sonlandırma"
     try:
-        session_ca(policy.tls_ca_cert, policy.tls_ca_key)
-    except (FusionError, OSError, ValueError) as error:
+        from ..tools.sandbox_ca import validate_ca  # cryptography yalnız gerekince
+
+        validate_ca(policy.tls_ca_cert, policy.tls_ca_key)  # geçici dizin açmaz
+    except (FusionError, OSError, ValueError, ImportError) as error:
         return [
             Check(
                 name,
