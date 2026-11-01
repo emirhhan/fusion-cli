@@ -96,7 +96,6 @@ def print_command(
         "--betas": bool(betas),
         "--exclude-dynamic-system-prompt-sections": exclude_dynamic,
         "--setting-sources": setting_sources is not None,
-        "--from-pr": from_pr is not None,
     }
     request = PrintRequest(
         prompt=prompt,
@@ -142,6 +141,7 @@ def print_command(
         config_set=tuple(config_set or ()),
         profile=profile,
         ignored_flags=tuple(flag for flag, given in ignored.items() if given),
+        from_pr=from_pr or "",
     )
     del allow_skip  # Claude: bypass'ı yalnız seçilebilir yapar; -p'de etkisi yok
     raise typer.Exit(run_print(request))

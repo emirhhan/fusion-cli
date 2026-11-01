@@ -38,7 +38,7 @@ from .headless import OutputFormat
 from .print_options import read_print_prompt, schema_errors
 from .print_plan import PrintPlan, PrintRequest, build_plan
 from .print_runtime import SIGTERM_EXIT_CODE, PrintPrompter, TerminatedError, sigterm_as_exception
-from .print_session import PrintSession, record_turn, resolve_print_session
+from .print_session import PrintSession, find_pr_session, record_turn, resolve_print_session
 from .print_slash import SlashExpansion, expand_slash
 from .repl.persona_commands import initial_persona_task
 from .session import build_observers, open_memory, run_agent_task
@@ -125,11 +125,14 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
 
     request = plan.request
     root, _tree = worktrees.resolve_launch_root(cwd, request.worktree)
+    resume = request.resume
+    if request.from_pr:
+        resume = find_pr_session(plan.config.memory_dir, root, request.from_pr)
     session = resolve_print_session(
         plan.config.memory_dir,
         root,
         continue_last=request.continue_last,
-        resume=request.resume,
+        resume=resume,
         fork=request.fork_session,
         name=request.name,
         session_id=plan.session_id,

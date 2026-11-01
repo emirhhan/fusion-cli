@@ -27,6 +27,8 @@ from typer.core import TyperGroup
 
 #: `-p` yolunun gizli alt komutu.
 PRINT_COMMAND = "print"
+#: `fusion --bg` arka plan görevini başlatan alt komut.
+BACKGROUND_COMMAND = "agent"
 #: Kök konumsal istemi taşıyan gizli kök seçeneği.
 INITIAL_PROMPT_OPTION = "--initial-prompt"
 _PRINT_FLAGS = frozenset({"-p", "--print"})
@@ -131,6 +133,9 @@ def rewrite_root_args(args: Sequence[str], group: TyperGroup) -> list[str]:
     if any(token in _PRINT_FLAGS for token in tokens):
         rest = [token for token in tokens if token not in _PRINT_FLAGS]
         return [PRINT_COMMAND, *expand_variadic(fill_worktree_names(rest))]
+    if "--bg" in tokens:
+        # `fusion --bg "görev"` (Claude kök bayrağı, #311): arka plan görevi başlatılır.
+        return [BACKGROUND_COMMAND, *fill_worktree_names(tokens)]
     tokens = fill_worktree_names(tokens)
     position = _first_positional(tokens, _value_options(group))
     if position is None:

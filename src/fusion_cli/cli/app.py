@@ -61,6 +61,7 @@ from . import (
     mcp_commands,
     memory_commands,
     paperclip_command,
+    print_options,
     prompt_opt_commands,
     sandbox_commands,
     team_cli,
@@ -202,6 +203,12 @@ def main_callback(
         ),
     ] = "",
     initial_prompt: Annotated[str, typer.Option(INITIAL_PROMPT_OPTION, hidden=True)] = "",
+    model: Annotated[
+        str | None, typer.Option("--model", help="Oturum modeli: takma ad ya da tam kimlik.")
+    ] = None,
+    fallback_model: Annotated[
+        str | None, typer.Option("--fallback-model", help="Sıralı yedek modeller (virgülle).")
+    ] = None,
     _version: Annotated[
         bool,
         typer.Option(
@@ -224,6 +231,12 @@ def main_callback(
         return
     persona = str(agent_persona or "")
     config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
+    try:
+        # Claude `claude --model`/`--fallback-model` (#296): oturum modeli ve yedek zinciri.
+        config = print_options.apply_model(config, model, fallback_model)
+    except ValueError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -439,7 +452,11 @@ def agent(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
     as_json: bool = typer.Option(
-        False, "--json", help="`--output-format stream-json` kısaltması (olaylar JSONL)."
+        False,
+        "--json",
+        hidden=True,
+        help="Eski Fusion olay akışı (kullanımdan kalkıyor; Claude: fusion -p --output-format "
+        "stream-json --verbose).",
     ),
     output_format: str = typer.Option(
         "text",
@@ -489,12 +506,14 @@ def agent(
     permission_channel: str | None = typer.Option(
         None,
         "--permission-channel",
+        hidden=True,
         help="Onay/soru kanalı: stdin (JSON-Lines; bkz. docs/HEADLESS.md).",
     ),
     permission_timeout: float = typer.Option(
         headless.DEFAULT_PERMISSION_TIMEOUT,
         "--permission-timeout",
         min=1.0,
+        hidden=True,
         help="Onay kanalında cevap bekleme süresi (saniye); dolunca 'sorulamadı' sayılır.",
     ),
     from_pr: int | None = typer.Option(

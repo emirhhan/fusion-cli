@@ -10,14 +10,16 @@ REPL'deki `/resume` listesinde de görünür.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.errors import SessionNotFoundError
 from ..core.types import Message
 from ..ui import print_messages as texts
-from .repl import session_resume
-from .repl.transcript_store import TranscriptStore
+from .repl import linked_pr, session_resume
+from .repl.transcript_store import TranscriptStore, list_conversations
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +75,30 @@ def record_turn(
     store.record_user(task)
     if answer.strip():
         store.record_assistant(answer)
+
+
+_PR_NUMBER = re.compile(r"(?:/pull/|/merge_requests/|/pull-requests/)(\d+)")
+
+
+def pr_number(raw: str) -> int | None:
+    """`--from-pr` değeri: PR numarası ya da GitHub/GitLab/Bitbucket URL'si."""
+    text = raw.strip().lstrip("#")
+    if text.isdigit():
+        return int(text)
+    match = _PR_NUMBER.search(text)
+    return int(match.group(1)) if match else None
+
+
+def find_pr_session(memory_dir: Path, root: Path, raw: str) -> str:
+    """`--from-pr`: bu PR'a bağlı en son oturumun kimliği; yoksa `SessionNotFoundError`."""
+    number = pr_number(raw)
+    if number is None:
+        raise ValueError(texts.PRINT_FROM_PR_INVALID.format(value=raw))
+    url = raw.strip().rstrip("/")
+    for ref in list_conversations(memory_dir, root):
+        link = linked_pr.load(memory_dir, ref.conversation_id)
+        if link is None:
+            continue
+        if link.number == number and (not url.startswith("http") or link.url.rstrip("/") == url):
+            return ref.conversation_id
+    raise SessionNotFoundError(texts.PRINT_FROM_PR_NONE.format(value=raw.strip()))

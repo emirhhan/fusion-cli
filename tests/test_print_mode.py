@@ -524,3 +524,50 @@ def test_sigterm_istisnaya_cevrilir():
     with pytest.raises(TerminatedError), sigterm_as_exception():
         os.kill(os.getpid(), signal.SIGTERM)
         __import__("time").sleep(1)
+
+
+# --- --from-pr, kök --bg, kök --model (#302, #311, #296) -------------------------------- #
+
+
+def test_from_pr_pre_bagli_oturumu_surdurur(monkeypatch):
+    from fusion_cli.cli.repl import linked_pr
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.core.pull_request import PullRequestLink
+
+    _calls, first = _print(monkeypatch, ["-p", "ilk", "--output-format", "json"])
+    sid = json.loads(first.stdout)["session_id"]
+    url = "https://github.com/o/r/pull/42"
+    linked_pr.save(load_config().memory_dir, sid, PullRequestLink("o/r", 42, url))
+    for value in ("42", url):
+        calls, result = _print(
+            monkeypatch, ["-p", "sürdür", "--from-pr", value, "--output-format", "json"]
+        )
+        assert json.loads(result.stdout)["session_id"] == sid, result.output
+        assert calls[0]["history"]
+
+
+def test_from_pr_bagli_oturum_yoksa_hata_sonucu(monkeypatch):
+    _calls, result = _print(monkeypatch, ["-p", "x", "--from-pr", "7", "--output-format", "json"])
+    assert result.exit_code == 1 and json.loads(result.stdout)["is_error"] is True
+
+
+def test_kok_bg_arka_plan_komutuna_cevrilir():
+    assert rewrite_root_args(["--bg", "görev"], _group()) == ["agent", "--bg", "görev"]
+
+
+def test_kok_model_repl_yapilandirmasina_gecer(monkeypatch):
+    seen: dict[str, object] = {}
+
+    async def _repl(config, **kwargs):
+        seen["config"] = config
+        return 0
+
+    from fusion_cli.config.readiness import Readiness
+
+    monkeypatch.setattr(app_module, "run_repl", _repl)
+    monkeypatch.setattr(
+        app_module, "evaluate", lambda *_a, **_k: SimpleNamespace(state=Readiness.READY)
+    )
+    result = runner.invoke(app_module.app, ["--model", "openrouter/a/b"])
+    assert result.exit_code == 0, result.output
+    assert seen["config"].agent.model == "openrouter/a/b"

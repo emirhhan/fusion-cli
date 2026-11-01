@@ -70,6 +70,7 @@ class PrintRequest:
     config_set: tuple[str, ...] = ()
     profile: str | None = None
     ignored_flags: tuple[str, ...] = ()
+    from_pr: str = ""
 
 
 @dataclass(frozen=True, slots=True)

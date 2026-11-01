@@ -55,3 +55,5 @@ PRINT_SCHEMA_RETRY = (
     "Önceki cevabın JSON şemasına uymadı: {errors}. Yalnız şemaya uyan tek bir JSON nesnesi yaz."
 )
 PRINT_SLASH_UNAVAILABLE = "/{name} isn't available in this environment."
+PRINT_FROM_PR_INVALID = "Hata: --from-pr bir PR numarası ya da PR/MR adresi olmalı: {value}"
+PRINT_FROM_PR_NONE = "Bu PR'a bağlı oturum bulunamadı: {value}"
