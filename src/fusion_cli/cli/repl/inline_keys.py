@@ -132,6 +132,8 @@ class InlineKeys:
         self._saved: list[Any] | None = None
         self._on_trigger: Callable[[], None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        #: Açık `paused` sayısı: paralel alt ajanların onayları iç içe duraklatır.
+        self._pause_depth = 0
 
     @property
     def active(self) -> bool:
@@ -163,15 +165,23 @@ class InlineKeys:
 
     @contextlib.contextmanager
     def paused(self) -> Iterator[None]:
-        """Onay/soru boyunca terminali eski (kanonik, yankılı) kipine döndür."""
-        if not self.active:
+        """Onay/soru boyunca terminali eski (kanonik, yankılı) kipine döndür.
+
+        İç içe/paralel çağrılarda yalnız ilk giriş kipi bırakır, son çıkış geri açar;
+        tur o arada bittiyse (`watching` kapandıysa) gözcü yeniden açılmaz.
+        """
+        if self._pause_depth == 0 and not self.active:
             yield
             return
-        self._leave()
+        self._pause_depth += 1
+        if self._pause_depth == 1:
+            self._leave()
         try:
             yield
         finally:
-            self._enter()
+            self._pause_depth -= 1
+            if self._pause_depth == 0 and self._on_trigger is not None:
+                self._enter()
 
     def _enter(self) -> bool:
         assert termios is not None and self._fd is not None and self._loop is not None

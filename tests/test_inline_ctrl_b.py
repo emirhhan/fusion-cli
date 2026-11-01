@@ -254,3 +254,44 @@ async def test_add_reader_basarisizsa_terminal_kipi_geri_yuklenir(monkeypatch):
         os.close(master)
         os.close(slave)
 
+
+async def test_ic_ice_onay_istemlerinde_terminal_kanonik_kalir():
+    """İnceleme bulgusu 2: paralel alt ajanların onayları iç içe `paused` açar."""
+    import termios
+
+    master, slave = _pty()
+    try:
+        keys = InlineKeys(frozenset({0x02}), slave, out=io.StringIO())
+        with keys.watching(lambda: None):
+            first, second = keys.paused(), keys.paused()
+            first.__enter__()
+            second.__enter__()
+            first.__exit__(None, None, None)
+            # B hâlâ soruyor: kanonik + yankılı kalmalı, gözcü yeniden açılmamalı.
+            assert _lflag(slave) & termios.ICANON and _lflag(slave) & termios.ECHO
+            assert not keys.active
+            second.__exit__(None, None, None)
+            assert keys.active
+            assert not _lflag(slave) & termios.ICANON
+        assert not keys.active
+        assert _lflag(slave) & termios.ICANON
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+async def test_tur_bitince_acik_kalan_onay_gozcuyu_yeniden_acmaz():
+    import termios
+
+    master, slave = _pty()
+    try:
+        keys = InlineKeys(frozenset({0x02}), slave, out=io.StringIO())
+        pause = keys.paused()
+        with keys.watching(lambda: None):
+            pause.__enter__()
+        pause.__exit__(None, None, None)
+        assert not keys.active
+        assert _lflag(slave) & termios.ICANON and _lflag(slave) & termios.ECHO
+    finally:
+        os.close(master)
+        os.close(slave)
