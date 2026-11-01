@@ -178,7 +178,9 @@ değiştirir), `strict: false` iken bileşen alanı taşıyan girdi `has conflic
 kurulmaz. Girdinin `defaultEnabled` ve görünen alanları (`displayName`, `description`, …) önce gelir,
 `version`'da plugin.json kazanır. Girdide dosya yolu/dizi `hooks` desteklenmez. Fusion bunu önbellek
 kopyasının `plugin.json`'ına yazar; yerinde yüklenen (yerel pazar) eklentide kaynağa yazılmaz, alanlar
-kayıtta saklanıp her taramada bellekte birleştirilir (`plugin update` değişen girdiyi alır).
+kayıtta saklanıp her taramada bellekte birleştirilir (`plugin update` değişen girdiyi alır). `plugin validate`
+göreli yollu girdinin `version`'ı plugin.json'dakiyle çelişirse Claude'un `Entry declares version "x"
+but <yol>/plugin.json says "y". At install time, plugin.json wins` uyarısını verir.
 
 `resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı

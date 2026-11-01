@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.plugin_marketplace import parse_marketplace
+from ..core.plugin_marketplace import Marketplace, parse_marketplace
 from ..core.plugin_paths import reserved_error
 from ..core.plugins import PluginError
 from .plugin_layout import ERR_NO_COMPONENTS, validate_plugin
@@ -35,6 +35,10 @@ ERR_NO_TARGET = "doğrulanacak bildirim yok (.claude-plugin/marketplace.json ya 
 WARN_VERSION = "version alanı yok"
 WARN_DESCRIPTION = "description alanı yok"
 WARN_AUTHOR = "author alanı yok"
+WARN_ENTRY_VERSION = (
+    'Entry declares version "{entry}" but {path}/plugin.json says "{manifest}". '
+    "At install time, plugin.json wins"
+)
 WARN_CLAUDE_MD = "eklenti kökünde CLAUDE.md var; Claude Code eklentiden CLAUDE.md yüklemez"
 
 
@@ -135,7 +139,28 @@ def _marketplace(file: Path) -> FileResult:
         market = parse_marketplace(raw, where=file.name)
     except PluginError as error:
         return FileResult(str(file), (str(error),))
-    return FileResult(str(file), warnings=market.warnings)
+    root = file.parent.parent if file.parent.name == ".claude-plugin" else file.parent
+    return FileResult(str(file), warnings=(*market.warnings, *_entry_versions(market, root)))
+
+
+def _entry_versions(market: Marketplace, root: Path) -> tuple[str, ...]:
+    """Göreli yollu girdinin `version`'ı plugin.json'dakiyle çelişiyorsa uyarı (#398)."""
+    found: list[str] = []
+    for entry in market.entries:
+        if entry.source.kind != "path" or not entry.version:
+            continue
+        folder = root / entry.source.location
+        try:
+            raw = json.loads((folder / PLUGIN_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        version = raw.get("version") if isinstance(raw, dict) else None
+        if isinstance(version, str) and version and version != entry.version:
+            path = folder / PLUGIN_FILE.parent
+            found.append(
+                WARN_ENTRY_VERSION.format(entry=entry.version, path=path, manifest=version)
+            )
+    return tuple(found)
 
 
 def _plugin(root: Path, file: Path) -> FileResult:

@@ -256,3 +256,21 @@ def test_workflows_ve_mods_desteklenmiyor_diye_raporlanir(tmp_path):
     result = runner.invoke(app, ["validate", str(root)])
     assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in result.output
     assert "'modules' (Claude mod'ları) Fusion'da desteklenmiyor" in result.output
+
+
+def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
+    """Claude: `Entry declares version "x" but <yol>/plugin.json says "y"…` uyarısı (#398)."""
+    market = tmp_path / "pazar"
+    (market / ".claude-plugin").mkdir(parents=True)
+    _plugin(market / "plugins" / "rapor")  # plugin.json version 1.0.0
+    entry = {"name": "rapor", "source": "./plugins/rapor", "version": "2.0.0"}
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {"name": "ekip", "owner": {"name": "E"}, "description": "d", "plugins": [entry]}
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["validate", str(market)])
+    assert result.exit_code == 0, result.output
+    assert 'Entry declares version "2.0.0" but' in result.output
+    assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in result.output
