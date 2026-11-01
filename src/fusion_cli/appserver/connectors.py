@@ -454,6 +454,14 @@ def remove_connector(
         except Exception as error:  # ConfigError ve OSError türevleri
             return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
         return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı projeden kaldırıldı."}
+    if silinen.scope is McpScope.LOCAL:
+        from ..config.mcp_local import remove_local_mcp_server
+
+        try:
+            remove_local_mcp_server(root or Path.cwd(), ad)
+        except Exception as error:  # ConfigError ve OSError türevleri
+            return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+        return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı yerel kapsamdan kaldırıldı."}
     return _persist(yeni, f"'{ad}' bağlantısı kaldırıldı.")
 
 

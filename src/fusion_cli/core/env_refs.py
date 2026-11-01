@@ -57,3 +57,14 @@ def expand_env_refs(text: str, environ: Mapping[str, str]) -> str:
 def referenced_names(text: str) -> tuple[str, ...]:
     """Metindeki başvurulan değişken adları (sırayla, tekrarsız)."""
     return tuple(dict.fromkeys(match.group("name") for match in _REFERENCE.finditer(text)))
+
+
+def missing_refs(text: str, environ: Mapping[str, str]) -> tuple[str, ...]:
+    """Varsayılanı olmayan ve ortamda TANIMLI olmayan başvurular (`claude mcp list` uyarısı)."""
+    return tuple(
+        dict.fromkeys(
+            match.group("name")
+            for match in _REFERENCE.finditer(text)
+            if match.group("default") is None and match.group("name") not in environ
+        )
+    )

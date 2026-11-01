@@ -182,7 +182,8 @@ def test_config_yaml_yazici_proje_kaydini_kopyalamaz(tmp_path):
 
 def test_mcp_add_kullanici_kapsamina_yazar(izole, tmp_path):
     result = runner.invoke(
-        app_module.app, ["mcp", "add", "github", "npx", "--", "-y", "server-github"]
+        app_module.app,
+        ["mcp", "add", "--scope", "user", "github", "npx", "--", "-y", "server-github"],
     )
 
     assert result.exit_code == 0, result.output
@@ -234,12 +235,16 @@ def test_mcp_add_http_adres_ister_ve_add_json_calisir(izole):
     assert [s.command for s in loader.load_config().mcp_servers] == ["uvx"]
 
 
-def test_mcp_list_kapsam_ve_tasima_gosterir(izole):
-    runner.invoke(app_module.app, ["mcp", "add", "a", "npx"])
+def test_mcp_list_kapsam_ve_durum_gosterir(izole, monkeypatch):
+    async def _durum(server):
+        return "✔ Bağlandı"
+
+    monkeypatch.setattr("fusion_cli.cli.mcp_manage._health", _durum)
+    runner.invoke(app_module.app, ["mcp", "add", "--scope", "user", "a", "npx"])
     result = runner.invoke(app_module.app, ["mcp", "list"])
 
     assert result.exit_code == 0
-    assert "kullanıcı" in result.output and "stdio" in result.output
+    assert "a: npx (kullanıcı) - ✔ Bağlandı" in result.output
 
 
 def test_eski_mcp_add_takma_adi_calisir(izole, tmp_path):
@@ -357,7 +362,7 @@ def test_proje_kaydi_golgelerken_kullanici_kapsamina_yazma_golgelenen_kaydi_silm
     )
     assert [s.command for s in loader.load_config().mcp_servers] == ["projebin"]
 
-    result = runner.invoke(app_module.app, ["mcp", "add", "other", "x"])
+    result = runner.invoke(app_module.app, ["mcp", "add", "--scope", "user", "other", "x"])
 
     assert result.exit_code == 0, result.output
     yazilan = (tmp_path / "xdg" / "fusion-cli" / "config.yaml").read_text(encoding="utf-8")

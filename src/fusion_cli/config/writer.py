@@ -594,3 +594,23 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise ConfigError(f"Yapılandırma yazılamadı ({path}): {exc}") from exc
+
+
+def read_user_mcp_entries(config: Config) -> list[dict[str, object]]:
+    """Kullanıcı `config.yaml`'ındaki ham `mcp_servers` girdileri (gölgelenenler dahil)."""
+    raw = _read_existing(_target_path(config)).get("mcp_servers")
+    return [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
+
+
+def remove_user_mcp_server(config: Config, name: str) -> Path:
+    """Kullanıcı kapsamındaki adı `config.yaml`'dan sil (gölgelenmiş olsa bile)."""
+    target = _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        raw = existing.get("mcp_servers")
+        entries = raw if isinstance(raw, list) else []
+        existing["mcp_servers"] = [
+            entry for entry in entries if not (isinstance(entry, dict) and entry.get("name") == name)
+        ]
+        _atomic_write(target, existing)
+    return target

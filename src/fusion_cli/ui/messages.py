@@ -778,7 +778,12 @@ MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda 
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 )
-MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje", "plugin": "eklenti"}
+MCP_SCOPE_LABELS = {
+    "local": "yerel",
+    "user": "kullanıcı",
+    "project": "proje",
+    "plugin": "eklenti",
+}
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
 MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"

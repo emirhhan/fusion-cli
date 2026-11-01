@@ -1234,7 +1234,8 @@ def mcp_add(
     ] = None,
 ) -> None:
     """`fusion mcp add` takma adı (eski betikler için): stdio sunucusunu config.yaml'a ekle."""
-    mcp_commands.add_server(name, command, tuple(args or ()))
+    # Eski takma ad eski kapsamını (user) korur; yeni `fusion mcp add` varsayılanı local.
+    mcp_commands.add_server(name, command, tuple(args or ()), scope="user")
 
 
 @app.command(name="remote-control")
