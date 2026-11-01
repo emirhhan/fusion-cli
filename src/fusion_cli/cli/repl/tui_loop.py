@@ -63,6 +63,7 @@ from . import (
     remote_control,
     rewind,
     rewind_clear,
+    rewind_summary,
     session_resume,
     session_snapshot,
     shell_background,
@@ -794,7 +795,12 @@ class _TuiSession:
             )
             return
         previous = (self._state.root, self._state.conversation_id)
-        result = command.handler(self._state, argument)
+        summary = rewind_summary.parse(argument) if command.name == "rewind" else None
+        if summary is not None and summary[0] is not None:
+            # Özet modele gider: olay döngüsünü tutmadan beklenir (#199).
+            result = await rewind_summary.summarize(self._state, *summary)
+        else:
+            result = command.handler(self._state, argument)
         if command.name == "reset" or previous != (self._state.root, self._state.conversation_id):
             await self._state.reset_child_runs()
         if command.name == "theme":
@@ -914,6 +920,9 @@ class _TuiSession:
         previous = rewind_clear.previous_session_choices(self._state)
         if rewind_clear.resume_target(argument) is not None:
             return argument
+        summary = rewind_summary.parse(argument)
+        if summary is not None and summary[0] is not None:
+            return argument
         if not entries and not previous:
             self._echo(f"[{theme.DIM}]{messages.REWIND_NOTHING}[/{theme.DIM}]")
             return None
@@ -938,6 +947,11 @@ class _TuiSession:
             if chosen is None or chosen == rewind.CANCEL_VALUE:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return None
+            if chosen in rewind_summary.KINDS:
+                # Claude Code "add context": özeti yönlendiren isteğe bağlı talimat (#199).
+                self._echo(f"[{theme.DIM}]{messages.REWIND_SUMMARY_PROMPT}[/{theme.DIM}]")
+                guide = (await self._tui.await_text()).strip()
+                return f"{index} {chosen} {guide}".strip()
             return f"{index} {chosen}"
         return f"{index} {scope.value}"
 

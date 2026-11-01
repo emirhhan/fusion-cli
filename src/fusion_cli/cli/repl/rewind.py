@@ -62,7 +62,10 @@ def scope_choices(entries: Sequence[TurnCheckpoint] = (), index: int | None = No
         Choice(RewindScope.CONVERSATION.value, messages.REWIND_SCOPE_CONVERSATION, ""),
         *((Choice(RewindScope.CODE.value, messages.REWIND_SCOPE_CODE, ""),) if has_code else ()),
     ]
-    return [*rows, Choice(CANCEL_VALUE, messages.REWIND_CANCEL, "")]
+    from . import rewind_summary
+
+    # Claude Code (#199): özet seçenekleri kod seçeneklerinden sonra, Vazgeç'ten önce.
+    return [*rows, *rewind_summary.choices(), Choice(CANCEL_VALUE, messages.REWIND_CANCEL, "")]
 
 
 def parse_arguments(
@@ -91,8 +94,12 @@ def parse_arguments(
 
 
 def rewind_command(state: ReplState, argument: str) -> str:
-    """`/rewind [no] [kod|konuşma|ikisi]` — seçilen turun başına dön."""
-    from . import rewind_clear
+    """`/rewind [no] [kod|konuşma|ikisi|ozet-buradan|ozet-oncesi [talimat]]` — geri sar/özetle."""
+    from . import rewind_clear, rewind_summary
+
+    summary = rewind_summary.parse(argument)
+    if summary is not None and summary[0] is not None:
+        return rewind_summary.summarize_blocking(state, *summary)
 
     if (target := rewind_clear.resume_target(argument)) is not None:
         return _resume_previous(state, target)
@@ -116,8 +123,18 @@ def rewind_command(state: ReplState, argument: str) -> str:
         picked = pick(scope_choices(entries, index), title=messages.REWIND_PICK_SCOPE)
         if picked is None or picked == CANCEL_VALUE:
             return ""
+        if picked in rewind_summary.KINDS:
+            return rewind_summary.summarize_blocking(state, index, picked, _ask_instructions())
         scope = parse_scope(picked) or RewindScope.BOTH
     return apply_rewind(state, index, scope)
+
+
+def _ask_instructions() -> str:
+    """Özet için isteğe bağlı talimat (Claude Code "add context" satırı)."""
+    try:
+        return input(messages.REWIND_SUMMARY_PROMPT).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
 
 
 def _resume_previous(state: ReplState, conversation_id: str) -> str:
