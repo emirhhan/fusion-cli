@@ -25,6 +25,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequ
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
+from ..ui.chrome_site_labels import SITE_SESSION_HINT, site_host
 from ..ui.diff import diff_lines
 from .desktop_never import AppDenials
 
@@ -105,6 +106,10 @@ class ConsolePrompter:
                 if target is not None and request.consent_key is not None:
                     session_hint = messages.BILGISAYAR_CONFIRM_SESSION_HINT.format(app=target.app)
                     self._console.print(f"[{theme.DIM}]{escape(session_hint)}[/{theme.DIM}]")
+                host = site_host(request)
+                if host is not None and request.can_remember:
+                    site_hint = SITE_SESSION_HINT.format(host=host)
+                    self._console.print(f"[{theme.DIM}]{escape(site_hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )

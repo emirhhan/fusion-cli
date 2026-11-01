@@ -19,6 +19,7 @@ from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
+from .chrome_site_policy import navigation_block_reason
 from .key_spec import key_base
 from .preview_origins import allowed_local
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
@@ -452,7 +453,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         if not isinstance(value, str) or not value.strip():
             return ToolResult.failure("open için 'value' alanına adresi yaz.")
         url = value if value.startswith(("https://", "http://")) else f"https://{value}"
-        reason = browser_block_reason(url, allowed_local(context))
+        reason = browser_block_reason(url, allowed_local(context)) or navigation_block_reason(url)
         if reason is not None:
             return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
         return await _call(context, "tab_open", {"url": url})
@@ -646,7 +647,7 @@ async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = require_str(args, "url")
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
-    reason = browser_block_reason(url, allowed_local(context))
+    reason = browser_block_reason(url, allowed_local(context)) or navigation_block_reason(url)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     tab = args.get("tabId")

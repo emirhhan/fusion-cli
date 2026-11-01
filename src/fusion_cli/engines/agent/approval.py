@@ -48,6 +48,7 @@ from ...core.tools import (
 from ...tools import desktop_policy
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.chrome_plan import plan_prompt_call
+from ...tools.chrome_site_policy import ChromeSite
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
@@ -59,6 +60,7 @@ from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
 from .auto_guard import AutoReviewState
 from .chrome_batch_approval import BATCH_TOOL, apply_batch
+from .chrome_site_approval import apply_site, is_site_consent, site_description
 from .desktop_access import ACCESS_TOOL, apply_access
 from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
 from .sandbox_approval import apply_sandbox_policy
@@ -266,6 +268,9 @@ class ApprovalRequest:
     #: Plan kipinde bile sorulup onaylanırsa çalışan çağrı (#450: Chrome'da GIF kaydı, yeni
     #: sekme, kısayol). Diğer kiplerde etkisi yoktur.
     plan_prompt: bool = False
+    #: Chrome eyleminin hedef sitesi (#435): kart "Chrome'da Fusion x.com sitesinde…" der,
+    #: "bu sitede hep izin ver" `consent_key` (`chrome-site:<host>`) ile hatırlanır.
+    chrome_site: ChromeSite | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -297,6 +302,9 @@ class ApprovalRequest:
         desktop = consent_description(self)
         if desktop is not None and self.can_remember:
             return desktop
+        site = site_description(self)
+        if site is not None and self.can_remember:
+            return site
         scope = self.authorization_scope
         if (
             not self.can_remember
@@ -356,6 +364,18 @@ class ApprovalMemory:
         """Oturum izinlerini açıkça geri al."""
         self._scopes.clear()
         self.revision += 1
+
+    def scopes_with_prefix(self, prefix: str) -> list[str]:
+        """Önekle başlayan oturum izinleri (ör. `chrome-site:` izinli siteler, #435)."""
+        return sorted(scope for scope in self._scopes if scope.startswith(prefix))
+
+    def forget(self, scope: str) -> bool:
+        """Tek oturum iznini geri al; yoksa `False`."""
+        if scope not in self._scopes:
+            return False
+        self._scopes.discard(scope)
+        self.revision += 1
+        return True
 
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
@@ -520,7 +540,7 @@ class BypassApproval:
             return Decision.BLOCKED
         # Computer use uygulama onayı her kipte ilk kullanımda sorulur (#446; Claude: "The first
         # time Claude needs a specific app in a session, a prompt appears").
-        is_app_consent = is_desktop_consent(request)
+        is_app_consent = is_desktop_consent(request) or is_site_consent(request)
         if self._prompter is None or (
             request.effect is not ToolEffect.REMOTE_DESTRUCTIVE and not is_app_consent
         ):
@@ -589,6 +609,9 @@ async def resolve_request(
             )
 
         return await apply_batch(request, args, _item)
+    if context is not None and tool_family(tool.name) is ToolFamily.BROWSER:
+        # Chrome site izni (#435): ilk eylemde site sorusu, engelli/finansal site.
+        return await apply_site(request, tool.name, args, context)
     if context is None or tool_family(tool.name) is not ToolFamily.DESKTOP:
         return request
     if tool.name == ACCESS_TOOL:

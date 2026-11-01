@@ -75,9 +75,17 @@ DEFAULT_SET_ON = "Enabled by default açıldı; sonraki oturumlar Chrome'a bağl
 DEFAULT_SET_OFF = "Enabled by default kapandı; Chrome yalnız --chrome ile açılır."
 DEFAULT_USAGE = "Kullanım: /chrome default on|off"
 PERMISSIONS_HINT = (
-    "Site izinleri tarayıcı eyleminin onay kartında verilir (o site için oturum boyu izin). "
-    "Kalıcı kurallar için /permissions; eklentinin kendi site ayarları Fusion Browser panelinde."
+    "Site izinleri tarayıcı eyleminin onay kartında verilir: Allow this action (bir kez), "
+    "Always allow actions on this site (bu oturum boyunca), Decline. Yetişkin ve korsan "
+    "içerik siteleri engellidir; finansal sitelerde izin her kipte sorulur. Kalıcı kurallar "
+    "için /permissions; Chrome'un site erişimi Fusion Browser panelinde."
 )
+SITES_TITLE = "Your approved sites (bu oturum):"
+SITES_USAGE = "Geri almak için: /chrome permissions revoke <site>"
+SITES_EMPTY = "Bu oturumda 'Always allow actions on this site' verilmiş site yok."
+SITES_REVOKED = "{host} site izni geri alındı; sonraki eylemde yeniden sorulur."
+SITES_UNKNOWN = "{host} için bu oturumda verilmiş site izni yok."
+
 INSTALL_STARTED = "Fusion Browser eklenti kurulumu başlatıldı: {detail}"
 INSTALL_FAILED = "Eklenti kurulumu başlatılamadı: {error}"
 UNKNOWN = "Bilinmeyen /chrome seçeneği: {argument}. " + STATUS_OPTIONS

@@ -17,6 +17,8 @@ from rich.panel import Panel
 
 from ...config import chrome_cli_prefs
 from ...core.errors import ConfigError
+from ...engines.agent.approval import ApprovalMemory
+from ...engines.agent.chrome_site_approval import SITE_KEY_PREFIX, site_key
 from ...ui import chrome_messages as text
 from ...ui import theme
 from .chrome_cli import ChromeSession
@@ -116,7 +118,30 @@ async def install(installer: Callable[[], Awaitable[dict[str, Any]]]) -> str:
     return text.INSTALL_STARTED.format(detail=detail)
 
 
-async def run(session: ChromeSession | None, argument: str, console: Console) -> None:
+def permissions(memory: ApprovalMemory | None, argument: str) -> str:
+    """Your approved sites (#435): oturumda "Always allow" denen siteler; `revoke <site>`."""
+    sites = [
+        scope.removeprefix(SITE_KEY_PREFIX)
+        for scope in (memory.scopes_with_prefix(SITE_KEY_PREFIX) if memory is not None else [])
+    ]
+    verb, _, target = argument.strip().partition(" ")
+    if verb.lower() in ("revoke", "kaldir", "kaldır") and target.strip():
+        host = target.strip().lower().removeprefix("www.")
+        if memory is None or not memory.forget(site_key(host)):
+            return text.SITES_UNKNOWN.format(host=host)
+        return text.SITES_REVOKED.format(host=host)
+    if not sites:
+        return text.SITES_EMPTY + "\n" + text.PERMISSIONS_HINT
+    return "\n".join([text.SITES_TITLE, *(f"  · {site}" for site in sites), text.SITES_USAGE])
+
+
+async def run(
+    session: ChromeSession | None,
+    argument: str,
+    console: Console,
+    *,
+    memory: ApprovalMemory | None = None,
+) -> None:
     """REPL'in asenkron `/chrome` işleyicisi; çıktıyı kendisi basar."""
     action, _, rest = argument.strip().partition(" ")
     action = action.lower()
@@ -134,7 +159,7 @@ async def run(session: ChromeSession | None, argument: str, console: Console) ->
     elif action in ("install", "kur"):
         message = await install(session.installer if session is not None else _guided)
     elif action in ("permissions", "izinler"):
-        message = text.PERMISSIONS_HINT
+        message = permissions(memory, rest)
     else:
         message = text.UNKNOWN.format(argument=action)
     console.print(f"[{theme.INFO}]{escape(message)}[/{theme.INFO}]")

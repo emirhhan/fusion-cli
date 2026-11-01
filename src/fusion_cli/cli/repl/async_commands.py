@@ -26,7 +26,9 @@ async def run(
         await voice_command.run(state, argument, console, on_partial=on_partial)
         return
     if name == "chrome":
-        await chrome_command.run(state.chrome, argument, console)
+        await chrome_command.run(
+            state.chrome, argument, console, memory=getattr(state, "approval_memory", None)
+        )
         return
     if name == "oturum-aktar":
         await web_session_command.run(state, argument, console)

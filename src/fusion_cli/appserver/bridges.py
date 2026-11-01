@@ -25,6 +25,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequ
 from ..engines.agent.engine_tools import QuestionOption
 from ..engines.agent.permission_persist import always_description
 from ..ui import messages
+from ..ui.chrome_site_labels import site_options
 from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
 from .protocol import encode_error, encode_event, encode_question
@@ -389,6 +390,10 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
         if request.remembered_scope_description:
             session["aciklama"] = request.remembered_scope_description
         return [session, {"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY}]
+    site = site_options(request)
+    if site is not None:
+        # Chrome site izni (#435): Allow this action / Always allow… / Decline.
+        return site
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     if request.can_remember:
         label = (

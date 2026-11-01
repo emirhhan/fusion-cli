@@ -30,6 +30,7 @@ from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
 from ...history import source_by_name
 from ...ui import banner, messages, theme
+from ...ui.chrome_site_labels import relabel_choices
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
@@ -191,6 +192,8 @@ class TuiPrompter:
             if target is not None and offers_never(request):
                 # Uygulama onayı (#426): yalnız "Bu oturum için izin ver / Reddet".
                 choices = [choice for choice in choices if choice.value in {"session", "deny"}]
+            # Chrome site izni (#435): Allow this action / Always allow… / Decline.
+            choices = relabel_choices(request, choices)
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
             if answer == "once":
                 return ApprovalAnswer.ONCE

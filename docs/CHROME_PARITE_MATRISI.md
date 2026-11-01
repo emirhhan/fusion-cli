@@ -147,6 +147,16 @@ Claude Code ile aynı akış (code.claude.com/docs/en/chrome):
 ## Güvenlik ve izin karşılaştırması
 
 - Site izni: ilk girişte panelde kart (tek tık; "tüm siteler" ya da yalnız o site), komut kullanıcıyı bekler.
+- Site izni uygulama katmanı (#435, Claude in Chrome "Allow this action / Always allow actions on this site /
+  Decline"): okumayan bir Chrome eylemi bağlı sekmenin sitesiyle sorulur ("Chrome'da Fusion x.com sitesinde tıklamak
+  istiyor"); kart CLI, TUI, masaüstü ve yan panelde Claude adlarıyla üç seçenek gösterir. "Always allow…" o siteyi bu
+  oturum boyunca izinli yapar (riskli eylem yine her seferinde sorulur); `/chrome permissions` izinli siteleri
+  listeler, `/chrome permissions revoke <site>` geri alır. Otomatik ve İzinleri atla kipleri site sorusu sormaz
+  (Claude: auto kipte sınıflandırıcı onaylarsa site denetimi atlanır). Yetişkin ve korsan içerik siteleri varsayılan
+  engelli (gezinme ve eylem; `tools/chrome_site_policy.py`); finansal sitelerde (banka, ödeme, kripto) izin her kipte,
+  İzinleri atla dahil, oturumda ilk eylemde sorulur. Eklenti bağlı değilken ya da sekme adresi okunamazken katman
+  uygulanmaz, eylem eski kurallarla sorulur. Liste alan adı ve alan adı parçası tabanlıdır; Claude'un kategori
+  servisi gibi tam değildir.
 - **Her kipte yasak** (#422; Claude in Chrome: "prohibited ... regardless of permissions"): satın alma ve finansal
   işlem, hesap oluşturma, bot doğrulaması (CAPTCHA). Tıklama, koordinat tıklaması ve form Enter'ı öğe adına bakılarak
   çalıştırılmaz; model kullanıcıya bu adımı kendisinin yapmasını söyler (`tools/chrome_guard.py`).
