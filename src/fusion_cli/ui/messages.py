@@ -546,7 +546,7 @@ TIPS_SECTIONS = (
         (
             ("/compact", "geçmişi özetle, bağlam limitinden tasarruf et"),
             ("/reset", "sohbet geçmişini tamamen temizle"),
-            ("/cost", "bu oturumda ne kadar token/çağrı harcandı"),
+            ("/usage", "bu oturumda ne kadar token/çağrı harcandı (/cost, /stats)"),
         ),
     ),
 )
@@ -999,8 +999,7 @@ MEMORY_AGENT_CLEAR_NONE = "{agent} belleği zaten yok."
 MEMORY_NOTE_SAVED = "Not belleğe yazıldı ({path}, {lines} satır)."
 MEMORY_NOTE_EMPTY = "`#` ile başlayan satır not olarak belleğe yazılır; not boş olamaz."
 CMD_MODELS = "yapılandırılmış modeller"
-CMD_COST = "oturumda harcanan token ve tahmini maliyet"
-CMD_USAGE = "kullanım: bu oturum / 24 saat / 7 gün; model, alt ajan, MCP ve beceri kırılımı"
+CMD_USAGE = "kullanım ve maliyet: bu oturum / 24 saat / 7 gün; model, alt ajan, MCP, beceri"
 CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
 UNDO_NOTHING = "Geri alınacak bir değişiklik yok."
 UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"

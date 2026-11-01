@@ -33,14 +33,12 @@ async def render(
         _help(registry, console)
     elif name == "tips":
         _tips(console)
-    elif name == "stats":
+    elif name == "model-stats":
         _stats(state, console)
     elif name == "lessons":
         _lessons(state, console)
     elif name == "models":
         _models(state, console)
-    elif name == "cost":
-        _cost(state, console)
     elif name == "usage":
         _usage(state, console)
     elif name == "status":
@@ -175,7 +173,7 @@ def _cost(state: ReplState, console: Console) -> None:
 
 
 def _usage(state: ReplState, console: Console) -> None:
-    """`/usage` — bu oturum / 24s / 7g pencereleri ve atıf kırılımı (P-056)."""
+    """`/usage` (`/cost`, `/stats`) — bu oturum / 24s / 7g, atıf kırılımı ve maliyet (P-056)."""
     import time
 
     from ...observability.usage_log import summarize
@@ -187,8 +185,9 @@ def _usage(state: ReplState, console: Console) -> None:
         records, now=time.time(), session_id=log.session_id if log is not None else ""
     )
     print_usage(console, summary, log_path=str(log.path) if log is not None else None)
-    if log is None and state.cost.calls:
-        console.print(cost_table(state.cost))
+    if state.cost.calls:
+        # `/cost` artık `/usage` takma adı (#208): oturumun model kırılımı ve tahmini maliyet.
+        _cost(state, console)
 
 
 def _models(state: ReplState, console: Console) -> None:

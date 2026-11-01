@@ -1064,7 +1064,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("learn", messages.CMD_LEARN, _learn, group="Bellek", usage="<kural>"),
     SlashCommand("seed", messages.CMD_SEED, _seed, group="Bellek"),
     SlashCommand("reindex", messages.CMD_REINDEX, _reindex, group="Bellek"),
-    SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
+    SlashCommand("model-stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
     SlashCommand(
@@ -1121,8 +1121,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[no] [kod|konuşma|ikisi]",
     ),
-    SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
-    SlashCommand("usage", messages.CMD_USAGE, lambda state, argument: "", group="Bilgi"),
+    # Claude Code: `/cost` ve `/stats` `/usage` takma adıdır (#208).
+    SlashCommand(
+        "usage", messages.CMD_USAGE, lambda state, argument: "", ("cost", "stats"), group="Bilgi"
+    ),
     SlashCommand(
         "config",
         messages.CMD_CONFIG,
@@ -1270,6 +1272,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "resume",
         messages.CMD_RESUME_OWN,
         session_resume.resume_command,
+        ("continue",),
         group="Geçmiş",
         usage="[kimlik|ad]",
     ),
@@ -1356,11 +1359,10 @@ RENDERED_COMMANDS = frozenset(
     {
         "help",
         "tips",
-        "stats",
+        "model-stats",
         "lessons",
         "models",
         "compact",
-        "cost",
         "usage",
         "status",
         "context",

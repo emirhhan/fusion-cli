@@ -297,7 +297,7 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 | `fusion --resume <kimlik\|ad>` (`-r`) | Kimliği, adı ya da kimlik önekiyle seçtiğin sohbeti açar |
 | `fusion --resume <ad> --fork-session` | Seçilen sohbetin KOPYASINI yeni kimlikle açar; özgün sohbet değişmez |
 | `fusion --name "Ödeme akışı"` (`-n`) | Yeni (ya da sürdürülen) sohbete ad verir |
-| `/resume` | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
+| `/resume` (`/continue`) | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
 | `/rename <ad>` | Açık sohbete ad verir (`--resume <ad>` ile bulunur) |
 | `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer |
 
@@ -704,7 +704,8 @@ fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
 
 ## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
 
-`/cost` bu oturumu gösterir. `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
+`/cost` ve `/stats` Claude Code'daki gibi `/usage` takma adıdır (model performans tablosu
+`/model-stats` adına taşındı). `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
 kullanım günlüğünden **bu oturum / son 24 saat / son 7 gün / son 30 gün** pencerelerini ve
 "kim harcadı" kırılımını (ana ajan, alt ajan, arka plan; model; MCP sunucusu; beceri)
 verir. Masaüstünde Ayarlar → Kullanım aynı veriyi "Son dönem" ve "Kim harcadı" olarak
