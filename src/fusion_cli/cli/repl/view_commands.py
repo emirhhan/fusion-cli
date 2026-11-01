@@ -2,7 +2,7 @@
 
 - `/theme [ad]` — terminal paletini ANINDA uygular ve `runtime.terminal_theme`'e yazar.
   Masaüstü temasından (`runtime.theme`, system/light/dark) ayrıdır.
-- `/tui [fullscreen|inline]` — REPL görünümünü `runtime.tui`'ye yazar; yeni oturumda geçerli
+- `/tui [default|fullscreen]` — REPL görünümünü `runtime.tui`'ye yazar; yeni oturumda geçerli
   (çalışan tam-ekran uygulamayı yerinde değiştirmek konuşmayı kaybettirirdi).
 - `/search <metin>` — tam-ekran konuşmasında son eşleşmeye kaydır (yalnız TUI; `tui_loop`
   uygular, burada yalnız satır-içi yüzeyin cevabı vardır).
@@ -19,6 +19,10 @@ from ...ui.picker import Choice
 from .state import ReplState
 
 TUI_MODES = ("fullscreen", "inline")
+#: Claude Code adları (`/tui [default|fullscreen]`, #232) → ayar değeri. `inline` eski ad.
+TUI_NAMES = {"default": "inline", "fullscreen": "fullscreen", "inline": "inline"}
+#: Ayar değeri → kullanıcıya gösterilen Claude adı.
+TUI_DISPLAY = {"inline": "default", "fullscreen": "fullscreen"}
 #: Tema seçicisinde ad → kısa açıklama.
 THEME_DESCRIPTIONS = {
     "koyu": "Fusion'ın özgün paleti (koyu zemin)",
@@ -80,16 +84,21 @@ def theme_command(state: ReplState, argument: str) -> str:
 
 
 def tui_command(state: ReplState, argument: str) -> str:
+    """`/tui [default|fullscreen]` — Claude Code adları; `inline`, `default`'un eski adıdır."""
     wanted = argument.strip().lower()
     current = getattr(state.config.runtime, "tui", "fullscreen")
+    options = tuple(TUI_DISPLAY.values())
     if not wanted:
-        return messages.TUI_MODE_CURRENT.format(mode=current, options=" · ".join(TUI_MODES))
-    if wanted not in TUI_MODES:
-        return messages.TUI_MODE_UNKNOWN.format(name=wanted, options=", ".join(TUI_MODES))
-    error_text = _persist(state, "runtime.tui", wanted)
+        shown = TUI_DISPLAY.get(current, current)
+        return messages.TUI_MODE_CURRENT.format(mode=shown, options=" · ".join(options))
+    value = TUI_NAMES.get(wanted)
+    if value is None:
+        return messages.TUI_MODE_UNKNOWN.format(name=wanted, options=", ".join(options))
+    shown = TUI_DISPLAY[value]
+    error_text = _persist(state, "runtime.tui", value)
     if error_text:
-        return messages.TUI_MODE_SET_UNSAVED.format(mode=wanted, error=error_text)
-    return messages.TUI_MODE_SET.format(mode=wanted)
+        return messages.TUI_MODE_SET_UNSAVED.format(mode=shown, error=error_text)
+    return messages.TUI_MODE_SET.format(mode=shown)
 
 
 def search_command(state: ReplState, argument: str) -> str:

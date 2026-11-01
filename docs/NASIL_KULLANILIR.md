@@ -1082,7 +1082,7 @@ Claude Code'dan farklar: Fusion'ın ölçmediği `cost.total_api_duration_ms`, `
 Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (masaüstü teması ayarlardan). `fusion config set runtime.terminal_theme`/`runtime.tui` yalnız geçerli değerleri kabul eder.
 
 - `/theme` → `koyu` · `acik` · `ansi` · `daltonizm`; anında uygulanır, `runtime.terminal_theme` ile kalıcı. Masaüstü teması ayrıdır (Ayarlar › Genel).
-- `/tui inline` / `/tui fullscreen` → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı).
+- `/tui default` / `/tui fullscreen` (Claude Code adları; `inline` eski takma ad) → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı). Claude Code oluşturucuyu konuşmayı koruyarak hemen yeniden açar; Fusion'da geçiş sonraki açılışta olur.
 - `/search <metin>` → tam ekran konuşmasında son eşleşmeye kaydırır; `End` canlı akışa döner.
 
 ### Tam ekran girdi: çok satır, geçmiş, Ctrl+C/Ctrl+D (Claude Code ile aynı)

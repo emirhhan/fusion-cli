@@ -1242,7 +1242,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         messages.CMD_TUI,
         view_commands.tui_command,
         group="Görünüm",
-        usage="[fullscreen|inline]",
+        usage="[default|fullscreen]",
     ),
     SlashCommand(
         "search",

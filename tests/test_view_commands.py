@@ -81,9 +81,17 @@ def test_oturum_basinda_kayitli_tema_uygulanir_bozuksa_koyu(state: ReplState):
 
 def test_tui_komutu_gorunumu_kaydeder(state: ReplState, tmp_path: Path):
     assert "fullscreen" in tui_command(state, "")
-    assert "inline olarak kaydedildi" in tui_command(state, "inline")
+    assert "default olarak kaydedildi" in tui_command(state, "inline")
     assert load_config(tmp_path / "config.yaml").runtime.tui == "inline"
     assert "Bilinmeyen görünüm" in tui_command(state, "yarim")
+
+
+def test_tui_default_claude_adi_kabul_edilir(state: ReplState, tmp_path: Path):
+    """Claude Code `/tui [default|fullscreen]` (#232); `inline` eski takma ad olarak kalır."""
+    assert "default olarak kaydedildi" in tui_command(state, "default")
+    assert load_config(tmp_path / "config.yaml").runtime.tui == "inline"
+    assert "default · fullscreen" in tui_command(state, "")
+    assert "REPL görünümü: default" in tui_command(state, "")
 
 
 def test_search_satir_icinde_yonlendirir_tam_ekranda_kaydirir(state: ReplState, monkeypatch):

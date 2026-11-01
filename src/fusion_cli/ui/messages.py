@@ -1475,7 +1475,7 @@ OUTPUT_STYLE_SET_UNSAVED = "Çıktı stili bu oturum için {name}; dosyaya yazı
 
 # --- /theme, /tui, /search (P-070) ----------------------------------------- #
 CMD_THEME = "terminal teması: koyu · acik · ansi · daltonizm (anında uygulanır, kalıcı)"
-CMD_TUI = "REPL görünümü: /tui fullscreen|inline (yeni oturumda geçerli)"
+CMD_TUI = "REPL görünümü: /tui default|fullscreen (yeni oturumda geçerli; inline = default)"
 CMD_SEARCH = "tam ekran konuşmasında metin ara ve son eşleşmeye kaydır"
 THEME_TITLE = "Terminal teması"
 THEME_HEADER = "Temalar (etkin: {current}):"
