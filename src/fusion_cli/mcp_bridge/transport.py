@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from collections.abc import AsyncIterator, Mapping
@@ -11,13 +12,22 @@ from typing import Any, TextIO
 
 import httpx
 from mcp import StdioServerParameters
+from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from ..config.models import McpServerConfig, McpTransport
-from ..core.env_refs import EnvRefError, expand_env_refs, has_env_refs
+from ..core.env_refs import (
+    REMOTE_BLANKED_VARIABLES,
+    expand_claude_refs,
+    has_env_refs,
+    referenced_names,
+)
 from .egress import guarded_client_factory
+from .timeouts import MAX_SSE_READ_S, http_request_timeout_s, idle_timeout_s
 from .types import McpConfigError
+
+_LOG = logging.getLogger(__name__)
 
 _SECRET_ARGUMENT_PREFIX = "__FUSION_SECRET__:"
 
@@ -26,14 +36,27 @@ _SYSTEM_TOOL_DIRS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"
 _HOME_TOOL_DIRS = (".local/bin", ".cargo/bin", ".bun/bin", ".volta/bin")
 
 
-def _expand(text: str, source: Mapping[str, str]) -> str:
-    """`${VAR:-varsayılan}` başvurularını çöz; eksik değişken yapılandırma hatasıdır."""
+def _expand(text: str, source: Mapping[str, str], *, remote: bool = False) -> str:
+    """Claude Code `${VAR}` genişletmesi (#243, #244).
+
+    Tanımsız ve varsayılansız başvuru `${VAR}` olarak kalır (uyarı günlüğe yazılır, bağlantı
+    yine denenir); boş metne ayarlı değişken tanımlı sayılır. Uzak `url`/`headers` alanlarında
+    kimlik bilgisi değişkenleri boş okunur.
+    """
     if not has_env_refs(text):
         return text
-    try:
-        return expand_env_refs(text, source)
-    except EnvRefError as error:
-        raise McpConfigError(str(error)) from error
+    expanded, missing = expand_claude_refs(
+        text, source, blanked=REMOTE_BLANKED_VARIABLES if remote else frozenset()
+    )
+    if missing:
+        _LOG.warning("MCP yapılandırmasında ortam değişkeni eksik: %s", ", ".join(missing))
+    if remote:
+        blocked = [name for name in referenced_names(text) if name in REMOTE_BLANKED_VARIABLES]
+        if blocked and any(name in source for name in blocked):
+            _LOG.debug(
+                "never expanded toward a remote server: %s", ", ".join(sorted(set(blocked)))
+            )
+    return expanded
 
 
 def resolve_stdio_command(
@@ -45,7 +68,17 @@ def resolve_stdio_command(
 
 def resolve_remote_url(config: McpServerConfig, *, environ: Mapping[str, str] | None = None) -> str:
     """Adresteki `${VAR}` başvurularını çöz; adres config'e çözülmüş hâliyle yazılmaz."""
-    return _expand(config.url, os.environ if environ is None else environ)
+    return _expand(config.url, os.environ if environ is None else environ, remote=True)
+
+
+def resolve_static_headers(
+    config: McpServerConfig, *, environ: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """`headers` (`--header`) + eski `token_env` Bearer'ı; değerlerdeki `${VAR}` çözülür."""
+    source = os.environ if environ is None else environ
+    headers = {key: _expand(value, source, remote=True) for key, value in config.headers}
+    bearer = resolve_bearer_headers(config, environ=source)
+    return {**headers, **(bearer or {})}
 
 
 def resolve_stdio_args(
@@ -91,6 +124,33 @@ def resolve_stdio_env(
     return {**literals, **{name: source[name] for name in config.env_names}}
 
 
+#: Claude Code: 1 iken stdio sunucusu yalnız güvenli temel ortam + `env` ile başlar (#245).
+ALLOWLIST_ENV = "CLAUDE_CODE_MCP_ALLOWLIST_ENV"
+
+
+def stdio_process_env(
+    config: McpServerConfig,
+    *,
+    environ: Mapping[str, str] | None = None,
+    project_dir: Path | None = None,
+) -> dict[str, str] | None:
+    """Stdio sürecinin ortamı (#245, #273).
+
+    Claude Code varsayılanı: kabuk ortamı miras alınır, sunucunun `env`'i üstüne yazılır ve
+    `CLAUDE_PROJECT_DIR` verilir. `CLAUDE_CODE_MCP_ALLOWLIST_ENV=1` iken SDK'nın güvenli
+    temel ortamı (HOME, USER, PATH…) + `env` kullanılır.
+    """
+    source = os.environ if environ is None else environ
+    configured = {
+        "PATH": stdio_search_path(source),
+        "CLAUDE_PROJECT_DIR": str(project_dir or Path.cwd()),
+        **resolve_stdio_env(config, environ=source),
+    }
+    if source.get(ALLOWLIST_ENV, "").strip() == "1":
+        return configured
+    return {**dict(source), **configured}
+
+
 def resolve_bearer_headers(
     config: McpServerConfig, *, environ: Mapping[str, str] | None = None
 ) -> dict[str, str] | None:
@@ -131,6 +191,7 @@ async def open_mcp_stream(
     *,
     auth: httpx.Auth | None = None,
     errlog: TextIO | None = None,
+    extra_headers: Mapping[str, str] | None = None,
 ) -> AsyncIterator[tuple[Any, Any]]:
     """Yapılandırılmış taşımanın okuma/yazma akışlarını aç.
 
@@ -145,20 +206,40 @@ async def open_mcp_stream(
             command=resolve_stdio_command(config),
             args=resolve_stdio_args(config),
             # SDK güvenli varsayılan ortamı (HOME, USER…) bununla birleştirir.
-            env={"PATH": stdio_search_path(), **resolve_stdio_env(config)},
+            env=stdio_process_env(config),
         )
         async with stdio_client(params, errlog=errlog or sys.stderr) as streams:
             yield streams
         return
 
     if not config.url:
-        raise McpConfigError("HTTP MCP bağlantısı için URL gerekli")
-    headers = resolve_bearer_headers(config)
+        raise McpConfigError("Uzak MCP bağlantısı için URL gerekli")
     url = resolve_remote_url(config)
+    headers = {**resolve_static_headers(config), **(extra_headers or {})} or None
+    if config.transport is McpTransport.WS:
+        from .ws_transport import ws_streams
+
+        async with ws_streams(url, headers) as streams:
+            yield streams
+        return
+    request_timeout = http_request_timeout_s(config)
+    if config.transport is McpTransport.SSE:
+        async with sse_client(
+            url,
+            headers=headers,
+            timeout=request_timeout,
+            sse_read_timeout=idle_timeout_s(config) or MAX_SSE_READ_S,
+            auth=auth,
+            httpx_client_factory=guarded_client_factory(url),
+        ) as (read, write):
+            yield read, write
+        return
     # OAuth keşfi dahil her istek korumalı istemciden geçer (bkz. `egress.py`).
     async with streamablehttp_client(
         url,
         headers=headers,
+        timeout=request_timeout,
+        sse_read_timeout=idle_timeout_s(config) or MAX_SSE_READ_S,
         auth=auth,
         httpx_client_factory=guarded_client_factory(url),
     ) as streams:

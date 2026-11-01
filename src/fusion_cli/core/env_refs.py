@@ -68,3 +68,68 @@ def missing_refs(text: str, environ: Mapping[str, str]) -> tuple[str, ...]:
             if match.group("default") is None and match.group("name") not in environ
         )
     )
+
+
+#: Uzak sunucunun `url`/`headers` alanlarında BOŞ okunan kimlik bilgisi değişkenleri
+#: (Claude Code "Credential variables that read as empty"; #244). Fusion'ın kendi sağlayıcı
+#: anahtarları da "istemcinin kendi kimlik bilgisi" sayılır.
+REMOTE_BLANKED_VARIABLES = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_CUSTOM_HEADERS",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "AWS_BEARER_TOKEN_BEDROCK",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+        "NPM_TOKEN",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "NVIDIA_API_KEY",
+        "NVIDIA_NIM_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "XAI_API_KEY",
+    }
+)
+
+
+def expand_claude_refs(
+    text: str, environ: Mapping[str, str], *, blanked: frozenset[str] = frozenset()
+) -> tuple[str, tuple[str, ...]]:
+    """Claude Code `.mcp.json` genişletmesi → (metin, eksik adlar) (#243, #244).
+
+    - Tanımlı değişken (BOŞ metin dahil) değerine açılır; `${VAR:-x}` boşa açılır.
+    - Tanımsız ve varsayılanlı başvuru varsayılana açılır.
+    - Tanımsız ve varsayılansız başvuru `${VAR}` olarak KALIR ve eksik listesine girer.
+    - `blanked` adlar tanımlı olsa da boş okunur, varsayılanları yok sayılır.
+    """
+    missing: list[str] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        name = match.group("name")
+        if name in blanked:
+            return ""
+        if name in environ:
+            value = environ[name]
+            if name.endswith("_BASE_URL") and "@" in value.split("//", 1)[-1].split("/", 1)[0]:
+                return ""  # adres kullanıcı adı/parola taşıyor: kimlik bilgisi sayılır
+            return value
+        default = match.group("default")
+        if default is not None:
+            return default
+        missing.append(name)
+        return match.group(0)
+
+    return _REFERENCE.sub(_replace, text), tuple(dict.fromkeys(missing))

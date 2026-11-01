@@ -28,6 +28,7 @@ from dataclasses import replace
 from typing import Any, Literal, TextIO, cast
 
 from mcp import ClientSession
+from mcp.client.session import ClientSession as _SdkSession
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
@@ -52,6 +53,8 @@ from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
+from .headers_helper import has_authorization, run_headers_helper
+from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .transport import open_mcp_stream
 from .trust import tools_digest, trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
@@ -91,6 +94,21 @@ def _read_tail(capture: TextIO) -> str:
     return capture.read()
 
 
+async def _call_with_idle(
+    session: Any, name: str, args: dict[str, object], idle: float | None
+) -> Any:
+    """`tools/call`; yanıt ya da ilerleme bildirimi `idle` sn gelmezse TimeoutError."""
+    async with asyncio.timeout(idle) as idle_scope:
+        if idle is None or not isinstance(session, _SdkSession):
+            return await session.call_tool(name, args)
+        loop = asyncio.get_running_loop()
+
+        async def _progress(progress: float, total: float | None, message: str | None) -> None:
+            idle_scope.reschedule(loop.time() + idle)
+
+        return await session.call_tool(name, args, progress_callback=_progress)
+
+
 class McpClient:
     """Yapılandırılmış MCP sunucularına bağlanan, araçlarını taşıyan istemci."""
 
@@ -98,12 +116,17 @@ class McpClient:
         self,
         configs: Sequence[McpServerConfig],
         *,
-        timeout_seconds: float = MCP_NETWORK_TIMEOUT_S,
+        timeout_seconds: float | None = None,
         interactive: bool = True,
     ) -> None:
         self._configs = tuple(configs)
         self._tracker = RequestTracker()
-        self._timeout_seconds = timeout_seconds
+        #: Açıkça verilen bütçe eski davranışı korur (her aşama aynı sınır). Verilmezse
+        #: Claude Code sınırları (`timeouts.py`): başlatma 30 sn, araç ~28 sa, boşta 5/30 dk.
+        self._explicit_timeout = timeout_seconds
+        self._timeout_seconds = (
+            timeout_seconds if timeout_seconds is not None else MCP_NETWORK_TIMEOUT_S
+        )
         #: Giriş penceresi açılabilir mi? Tur yolu bunu KAPATIR.
         self._interactive = interactive
         self._stacks: dict[str, AsyncExitStack] = {}
@@ -144,6 +167,23 @@ class McpClient:
     def _timeout(self, configured: float | None) -> float:
         """Ayrı değer yoksa mevcut constructor bütçesini koru."""
         return configured if configured is not None else self._timeout_seconds
+
+    def _config(self, server: str) -> McpServerConfig:
+        return next(
+            (config for config in self._configs if config.name == server), McpServerConfig(server)
+        )
+
+    def _connect_budget(self, config: McpServerConfig) -> float:
+        if config.connect_timeout_s is None and self._explicit_timeout is not None:
+            return self._explicit_timeout
+        return startup_timeout_s(config)
+
+    def _call_budgets(self, server: str) -> tuple[float, float | None]:
+        """(duvar saati, boşta kalma) — araç çağrısı sınırları (#233)."""
+        config = self._config(server)
+        if config.call_timeout_s is None and self._explicit_timeout is not None:
+            return self._explicit_timeout, None
+        return tool_timeout_s(config), idle_timeout_s(config)
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
@@ -192,24 +232,30 @@ class McpClient:
                     ),
                 )
                 stack.callback(stderr_capture.close)
-            async with asyncio.timeout(self._timeout(config.connect_timeout_s)) as deadline:
+            async with asyncio.timeout(self._connect_budget(config)) as deadline:
                 auth = None
-                # Token yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
-                # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez.
-                if config.transport is McpTransport.STREAMABLE_HTTP and not config.token_env:
+                helper_headers = await run_headers_helper(config) if config.is_remote else {}
+                # Token/Authorization yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
+                # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez (Claude Code:
+                # headersHelper Authorization verirse OAuth'a düşülmez).
+                if (
+                    config.transport in (McpTransport.STREAMABLE_HTTP, McpTransport.SSE)
+                    and not config.token_env
+                    and not has_authorization({**dict(config.headers), **helper_headers})
+                ):
                     from .oauth import oauth_provider_for
 
                     bundle = await oauth_provider_for(
                         config,
-                        on_waiting=self._deadline_pause(
-                            deadline, self._timeout(config.connect_timeout_s)
-                        ),
+                        on_waiting=self._deadline_pause(deadline, self._connect_budget(config)),
                         interactive=self._interactive,
                     )
                     auth = bundle.auth
                     stack.push_async_callback(bundle.callback.close)
                 read, write = await stack.enter_async_context(
-                    open_mcp_stream(config, auth=auth, errlog=stderr_capture)
+                    open_mcp_stream(
+                        config, auth=auth, errlog=stderr_capture, extra_headers=helper_headers
+                    )
                 )
                 session = await stack.enter_async_context(
                     ClientSession(
@@ -339,8 +385,9 @@ class McpClient:
         session = self._session(server)
         with self._tracker.track(server) as scope:
             try:
-                async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-                    result = await session.call_tool(name, args)
+                wall, idle = self._call_budgets(server)
+                async with asyncio.timeout(wall):
+                    result = await _call_with_idle(session, name, args, idle)
                     normalized = normalize_call_result(result)
                     self._timeouts.pop(server, None)
                     current = self._statuses.get(server)

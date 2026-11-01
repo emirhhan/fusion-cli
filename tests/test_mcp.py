@@ -102,9 +102,14 @@ async def test_stdio_akisi_ortam_degiskenlerini_sunucu_surecine_verir(monkeypatc
     async with transport.open_mcp_stream(config) as akislar:
         assert akislar == ("okuma", "yazma")
 
-    # Kayıtlı adlar + PATH (bkz. test_mcp_stdio_path); Fusion'ın geri kalan ortamı aktarılmaz.
-    assert set(yakalanan["env"]) == {"BRAVE_API_KEY", "PATH"}
+    # Claude Code: kabuk ortamı miras alınır (#245); CLAUDE_CODE_MCP_ALLOWLIST_ENV=1 iken
+    # yalnız kayıtlı adlar + PATH + CLAUDE_PROJECT_DIR.
     assert yakalanan["env"]["BRAVE_API_KEY"] == "anahtar"
+    assert "CLAUDE_PROJECT_DIR" in yakalanan["env"]
+    monkeypatch.setenv("CLAUDE_CODE_MCP_ALLOWLIST_ENV", "1")
+    async with transport.open_mcp_stream(config):
+        pass
+    assert set(yakalanan["env"]) == {"BRAVE_API_KEY", "PATH", "CLAUDE_PROJECT_DIR"}
 
 
 # --- sunucu (birim) -------------------------------------------------------- #

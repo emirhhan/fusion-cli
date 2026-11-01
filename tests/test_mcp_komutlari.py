@@ -91,10 +91,10 @@ def test_tasima_komut_arguman_adres_ve_ortam_degerlerini_baglanti_aninda_cozer()
     assert config.args[-1] == "${DB_URL}"
 
 
-def test_eksik_basvuru_tasimada_yapilandirma_hatasi():
+def test_eksik_basvuru_tasimada_metin_olarak_kalir():
+    # Claude Code: yapılandırma yine yüklenir, `${VAR}` metni aynen kullanılır (#243).
     config = McpServerConfig(name="x", command="c", args=("${YOK}",))
-    with pytest.raises(ValueError, match="YOK"):
-        resolve_stdio_args(config, environ={})
+    assert resolve_stdio_args(config, environ={}) == ["${YOK}"]
 
 
 # --- .mcp.json --------------------------------------------------------------------------- #
