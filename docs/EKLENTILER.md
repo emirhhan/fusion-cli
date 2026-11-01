@@ -62,13 +62,16 @@ benim-eklentim/
   kiplerde yerinde "komut çalıştırılmadı" notu kalır. Güvenlik notu: önceden hiç çalışmıyordu.
   Projeden (`.claude/settings.json`) açılan ya da kaynağı proje klasöründe yerinde duran eklenti depo
   içeriğidir: proje becerisi gibi yalnız güvenilen projede ve yalnız salt-okur komut koşar.
-- MCP sunucuları `plugin_<eklenti>_<sunucu>` adıyla, `unreviewed` güvenle eklenir; araç çağrıları
+- MCP sunucuları Claude Code adıyla `plugin:<eklenti>:<sunucu>` (büyük/küçük harf ve tire korunur;
+  araç adı MCP kayıt kuralıyla `mcp__plugin_<eklenti>_<sunucu>__<araç>`), `unreviewed` güvenle eklenir;
+  eski `plugin_<eklenti>_<sunucu>` adı kalktı (proje eklentisi sunucuları bir kez yeniden
+  `fusion trust` ister); araç çağrıları
   onay ister, hiçbir ayar dosyasına yazılmaz ve güven kararı kalıcı tutulmaz (`fusion mcp remove`
   yerine eklentiyi kapat). Eklentiyi kapatmak/kaldırmak sunucuyu çalışan oturumdan da çıkarır
   (masaüstünde canlı bağlantı hemen kapanır). Desteklenmeyen alan taşıyan sunucu (`type: sse`, `cwd`,
   Authorization dışı başlık…) uyarıyla atlanır, eklentinin geri kalanı kurulur;
-  `Authorization: Bearer ${VAR}` başlığı desteklenir. İki eklentinin sunucu adı çakışırsa ada göre
-  ilk eklenti kazanır.
+  `Authorization: Bearer ${VAR}` başlığı desteklenir (taşıma ve başlık desteği MCP yapılandırmasının
+  ortak ayrıştırıcısından gelir). Aynı tam adlı iki sunucuda ada göre ilk eklenti kazanır.
 - Kancalar Claude Code'daki gibi çalışır: etkin eklentinin `hooks/hooks.json` ve `plugin.json` `hooks`
   girdileri kanca kümesine `eklenti:<ad>` kaynağıyla katılır; süreçler `CLAUDE_PLUGIN_ROOT`,
   `CLAUDE_PLUGIN_DATA` ve `CLAUDE_PROJECT_DIR` alır. `FUSION_HOOKS=off`, `runtime.hooks_enabled:

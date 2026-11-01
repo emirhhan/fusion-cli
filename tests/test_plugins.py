@@ -132,7 +132,7 @@ def test_dogrulama_kanca_ve_mcp_sayar_bozuk_kancayi_hata_verir(tmp_path):
     report = validate_plugin(folder)
     assert report.ok, report.errors
     assert report.hook_count == 1
-    assert report.servers[0].name == "plugin_rapor_araclari_veri"
+    assert report.servers[0].name == "plugin:rapor-araclari:veri"
     assert report.servers[0].command == f"{folder}/sunucu"
 
     (folder / "hooks" / "hooks.json").write_text("{bozuk", encoding="utf-8")
@@ -222,7 +222,7 @@ def test_eklenti_mcp_sunucusu_yuklenir_incelenmemis_ve_dosyaya_yazilmaz(tmp_path
     source.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
 
     config = load_config(source)
-    server = next(s for s in config.mcp_servers if s.name == "plugin_rapor_araclari_veri")
+    server = next(s for s in config.mcp_servers if s.name == "plugin:rapor-araclari:veri")
     assert server.scope is McpScope.PLUGIN
     assert server.trust is McpTrust.UNREVIEWED
 
@@ -572,8 +572,8 @@ def test_desteklenmeyen_mcp_alani_yalniz_o_sunucuyu_atlar_eklenti_kurulur(tmp_pa
 
     assert report.ok, report.errors
     servers = {s.name: s for s in report.servers}
-    assert set(servers) == {"plugin_rapor_araclari_iyi", "plugin_rapor_araclari_bas_kli"}
-    assert servers["plugin_rapor_araclari_bas_kli"].token_env == "API_TOKEN"
+    assert set(servers) == {"plugin:rapor-araclari:iyi", "plugin:rapor-araclari:bas-kli"}
+    assert servers["plugin:rapor-araclari:bas-kli"].token_env == "API_TOKEN"
     skipped = " ".join(report.warnings)
     assert "eski" in skipped and "cwdli" in skipped and "atlandı" in skipped
     item = plugin_install.install_plugin(str(source), approve=_yes)
@@ -705,14 +705,14 @@ def test_iki_eklentinin_cakisan_mcp_adi_birbirini_ezmez_ve_guven_kalici_sayilmaz
     plugin_install.install_plugin(str(_mcp_only(tmp_path / "b", "foo-bar", "baz")), approve=_yes)
 
     servers = plugin_store.plugin_mcp_servers()
-    assert [s.name for s in servers] == ["plugin_foo_bar_baz"]
-    assert servers[0].command == "foo-srv"  # ada göre ilk kurulan kazanır, ikincisi atlanır
+    # #400: Claude adı `plugin:<eklenti>:<sunucu>`; eski slug'daki çakışma artık yok.
+    assert sorted(s.name for s in servers) == ["plugin:foo-bar:baz", "plugin:foo:bar-baz"]
 
     config_file = tmp_path / "config.yaml"
     config_file.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
     config = load_config(config_file)
     updated, reply = review_connector(
-        config, {"ad": "plugin_foo_bar_baz", "guven": "trusted", "inceleme_kimligi": "x"}
+        config, {"ad": "plugin:foo:bar-baz", "guven": "trusted", "inceleme_kimligi": "x"}
     )
     assert updated is None and reply["ok"] is False and "eklenti" in reply["metin"]
 

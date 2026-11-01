@@ -44,7 +44,7 @@ MAX_PLUGIN_BYTES = 256 * 1024 * 1024
 _SKIP_DIRS = frozenset({".git", "__pycache__"})
 #: Bağlam maliyeti tahmini: dizine giren her satır için karakter/4 ≈ token.
 CHARS_PER_TOKEN = 4
-#: Eklenti MCP sunucusunun Fusion'daki adı: `plugin_<eklenti>_<sunucu>` (araç adına uygun).
+#: Eski (kullanımdan kalkmış) eklenti MCP sunucu adının slug kuralı (#400).
 _SERVER_SLUG = re.compile(r"[^A-Za-z0-9]+")
 _FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---", re.DOTALL)
 
@@ -227,7 +227,16 @@ def _as_block(raw: object, path: Path) -> Mapping[str, object]:
 
 
 def server_name(plugin: str, server: str) -> str:
-    """`plugin_<eklenti>_<sunucu>`: araç adı `plugin_x_y__arac`; kullanıcı kaydıyla çakışmaz."""
+    """Claude Code adı `plugin:<eklenti>:<sunucu>` (#400; büyük/küçük harf ve tire korunur).
+
+    Araç adı MCP kayıt kuralıyla `mcp__plugin_<eklenti>_<sunucu>__<araç>` olur (`:` → `_`);
+    `:` kullanıcı sunucu adlarında geçmediği için kullanıcı kaydıyla çakışmaz.
+    """
+    return f"plugin:{plugin}:{server}"
+
+
+def legacy_server_name(plugin: str, server: str) -> str:
+    """Eski Fusion adı `plugin_<eklenti>_<sunucu>` (küçük harf, alfasayısal olmayan `_`)."""
     return "plugin_" + _SERVER_SLUG.sub("_", f"{plugin}_{server}").strip("_").lower()
 
 

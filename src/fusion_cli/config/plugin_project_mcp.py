@@ -68,7 +68,7 @@ def is_project_scope(item: InstalledPlugin, state: PluginState, project: Path) -
     record = item.record
     if record.kind == "inline":
         return False
-    raw = state.plugin(record.name)
+    raw = state.plugin(record.store_key)
     if raw is not None and raw.enabled:
         return False
     decision = resolve_enabled(plugin_id(record), record.name, False, project)

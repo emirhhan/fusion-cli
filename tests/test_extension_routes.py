@@ -140,22 +140,22 @@ async def test_masaustunde_eklenti_kapatma_ve_kaldirma_oturumdaki_mcp_yi_dusurur
     installed = await session._extension_rpc("eklenti.kur", {"kaynak": source, "onay": True})
     assert installed["ok"] is True
     names = {s.name for s in session._state.config.mcp_servers}
-    assert "plugin_veri_db" in names  # kurulumda aynı oturuma girer
+    assert "plugin:veri:db" in names  # kurulumda aynı oturuma girer
 
     await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": False})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
-    assert dropped == ["plugin_veri_db"]
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin:veri:db"]
 
     await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
-    assert "plugin_veri_db" in {s.name for s in session._state.config.mcp_servers}
+    assert "plugin:veri:db" in {s.name for s in session._state.config.mcp_servers}
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": False})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": True})
     # Claude `disable --all` her eklentiyi ayrı kapatır; `enable --all` yoktur (#409).
     await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
     await session._extension_rpc("eklenti.kaldir", {"ad": "veri"})
-    assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
-    assert dropped == ["plugin_veri_db"] * 3
+    assert "plugin:veri:db" not in {s.name for s in session._state.config.mcp_servers}
+    assert dropped == ["plugin:veri:db"] * 3
 
 
 def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
@@ -170,9 +170,9 @@ def test_repl_eklenti_kapatinca_mcp_kaydi_oturumdan_cikar(tmp_path):
     command = build_registry(context.home, skills=lambda: state.capabilities).get("plugin")
     assert command is not None
     command.handler(state, f"kur {_mcp_plugin(tmp_path / 'kaynak')} --yes")
-    assert "plugin_veri_db" in {s.name for s in state.config.mcp_servers}
+    assert "plugin:veri:db" in {s.name for s in state.config.mcp_servers}
     command.handler(state, "kapat veri")
-    assert "plugin_veri_db" not in {s.name for s in state.config.mcp_servers}
+    assert "plugin:veri:db" not in {s.name for s in state.config.mcp_servers}
 
 
 def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
