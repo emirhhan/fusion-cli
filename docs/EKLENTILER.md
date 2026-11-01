@@ -37,11 +37,14 @@ benim-eklentim/
   doğrulanır. Değerler `fusion plugin configure <ad@pazar> --values-stdin [--json]` ile kaydedilir
   (önce hepsi doğrulanır; biri geçersizse hiçbiri yazılmaz, çıkış 1); bayraksız `configure` her seçeneği
   `required|optional · sensitive · set|not set` etiketleriyle, değer basmadan listeler. Hassas olmayanlar
-  `<eklentiler>/plugin-configs.json` (`pluginConfigs`), hassaslar yalnız sahibinin okuyabildiği (0600)
-  `<eklentiler>/.credentials.json` dosyasına yazılır. `${user_config.KEY}` MCP yapılandırmasında ve
+  `<eklentiler>/plugin-configs.json` (`pluginConfigs`), hassaslar Claude gibi güvenli depoya: Fusion'ın
+  şifreli sır deposu biçiminde (ana anahtar Keychain/yerel kasada) `<eklentiler>/.plugin-secrets.enc`.
+  Ana anahtar yoksa yalnız sahibinin okuyabildiği (0600) `<eklentiler>/.credentials.json` yedektir;
+  eski sürümün bu dosyadaki değerleri okunur ve ilk yazımda şifreli depoya taşınır. Kaydetme kilit
+  altındadır (CLI ve masaüstü aynı anda yazınca değer kaybolmaz). `${user_config.KEY}` MCP yapılandırmasında ve
   beceri/ajan içeriğinde çözülür (içerikte hassas değer yer tutucu olur); kanca süreçleri her seçeneği
   `CLAUDE_PLUGIN_OPTION_<KEY>` olarak alır. Henüz yok: etkinleştirmede soru penceresi, `install
-  --config`, `channels`, `/config` satırları; hassas değer şifreli depo yerine 0600 dosyadadır.
+  --config`, `channels`, `/config` satırları.
 - Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).
@@ -53,6 +56,8 @@ benim-eklentim/
   Eklenti beceri/komutlarında `` !`komut` `` dinamik bağlamı Claude Code'daki gibi çalışır: kullanıcının
   kendi becerisiyle aynı kipte (auto/acceptEdits/bypass) ve aynı riskli komut denetimiyle; diğer
   kiplerde yerinde "komut çalıştırılmadı" notu kalır. Güvenlik notu: önceden hiç çalışmıyordu.
+  Projeden (`.claude/settings.json`) açılan ya da kaynağı proje klasöründe yerinde duran eklenti depo
+  içeriğidir: proje becerisi gibi yalnız güvenilen projede ve yalnız salt-okur komut koşar.
 - MCP sunucuları `plugin_<eklenti>_<sunucu>` adıyla, `unreviewed` güvenle eklenir; araç çağrıları
   onay ister, hiçbir ayar dosyasına yazılmaz ve güven kararı kalıcı tutulmaz (`fusion mcp remove`
   yerine eklentiyi kapat). Eklentiyi kapatmak/kaldırmak sunucuyu çalışan oturumdan da çıkarır
@@ -76,6 +81,8 @@ benim-eklentim/
 girdi atlanır ve uyarı olur, pazarın geri kalanı eklenir; yinelenen eklenti adı hatadır. Pazar adı
 harf/rakamla başlar ve harf, rakam, `.`, `_`, `-` içerir; resmî adlar (`claude-plugins-official`…),
 taklitleri, `inline`, `skills-dir`, `synced`, `npm`, `github`, `claudeai-…` gibi ayrılmış adlar
+reddedilir. Resmî/topluluk/dizin adlarının kendisi yalnız `github.com/anthropics/` altındaki github/git
+kaynağından gelen pazara serbesttir (`marketplace add resmi` böyle eklenir); taklitler her kaynakta
 reddedilir. Göreli kaynak `./` ile başlar (`.` tek başına pazar köküdür); çıplak ad yalnız
 `metadata.pluginRoot` altında ve `/` içermeden geçerlidir. `sha` tam 40 karakter küçük harf commit
 olmalıdır. Eklenti kaynağındaki `git` türü kullanımdan kalktı (Claude adı `url`).
@@ -157,8 +164,11 @@ sürüm boyunca okunur ve süreç başına bir kez uyarır (Claude karşılığ�
 `configure`, `init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
 komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
 değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
-Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula, değişmiş eklentide "İncele ve yeniden
-onayla" (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`).
+Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula; pazar kaldırma önce o pazardan kurulan
+bütün eklentilerin, ayarlarının ve verilerinin de silineceğini söyleyip onay ister ve kaldırılanları
+bildirir (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`, `eklenti.pazar_kaldir` →
+`kaldirilan`). Masaüstünde henüz yok: `--scope` seçici, `/reload-plugins` karşılığı, otomatik güncelleme
+ve bildirilen pazar eşitlemesi (ikisi yalnız REPL açılışında çalışır).
 
 Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentileri Claude Code gibi
 kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki
@@ -204,7 +214,7 @@ yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 `~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
 yalnız o kapsamın `enabledPlugins` girdisini siler, paylaşılan kopyaya dokunmaz. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. Managed
 kapsam okunmaz; `extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` user
-ayarına yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez, `autoUpdate` uygulanmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
+ayarına yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 
 ## Sürüm ve güncelleme
@@ -233,9 +243,14 @@ oturumda kendiliğinden eklenmesi, bildirimin TUI'de gösterilmesi (#394).
 - Claude Code gibi karma kilidi yoktur (güvenlik davranışı değişti, #392): kurulumda kaydedilen sha256
   karma yalnız bilgidir; kopya sonradan değişse de eklenti yüklenir. `trust`/`guven` kullanımdan
   kalktı (yalnız karma kaydını yeniler, uyarı verir).
+- Eski sürümün kaydında (`kayit.json` `surum: 1`) kopyası kurulumdan sonra değişmiş eklenti yükseltmede
+  bir kez kapatılır ve günlüğe `fusion plugin enable <ad>` ile açılması yazılır (eski 'değişmiş'
+  kilidinin reddettiği içerik sessizce çalışmasın diye; güvenlik davranışı değişti).
 - Kullanıcı kapsamında etkin eklentinin kanca ve MCP sunucuları ek onay istemeden yüklenir (#419).
   Proje kapsamında (`.claude/settings.json`) açılan eklenti yalnız o dosya güvenildiyse (`fusion
-  trust`) yüklenir; eklenti MCP kayıtları `unreviewed` güvenle girer.
+  trust`) yüklenir. Claude'daki gibi kancaları klasör güveniyle çalışır; MCP sunucuları ise projenin
+  `.mcp.json`'ı gibi ayrıca onaylanır: `fusion trust` sunucu tanımlarını kaydeder, tanım sonradan
+  değişirse sunucu yeniden onaylanana dek başlatılmaz. Eklenti MCP kayıtları `unreviewed` güvenle girer.
 - CLI `plugin install`/`update` ek soru sormaz (Claude gibi; `--yes` etkisiz kabul edilir). Masaüstü
   ve REPL panelde önizler, kanca/MCP içeren eklentide "Onaylıyorum, kur" / `--yes` ister.
 - Onay ekranı kanca satırlarını (`Olay [eşleşen]: komut`), MCP sunucularının tam komutunu (sırlar
@@ -246,8 +261,8 @@ oturumda kendiliğinden eklenmesi, bildirimin TUI'de gösterilmesi (#394).
   commit'i doğrudan çeker (dal ucu ilerlese de); kısa sha dal ucuyla eşleşmelidir.
 - Git adresleri yalnız genel https sunucularıdır (iç ağ, kimlik bilgili adres
   yok); klon yönlendirme izlemez, https dışı protokole geçmez ve denetlenen IP'ye sabitlenir.
-  Yerel klasör 5 000 dosya / 50 MB sınırını aşıyorsa kopyalanmadan reddedilir.
-- Hepsini kapatma: `fusion eklenti kapat --hepsi` ya da `FUSION_PLUGINS=off`.
+  Kopyalanan eklenti Claude'un kopyalama sınırını (20.000 dosya / 256 MiB) aşıyorsa reddedilir.
+- Hepsini kapatma: `fusion plugin disable --all` (eski `FUSION_PLUGINS=off` uyarıyla okunur).
 
 ## İçe aktarma (`/import`)
 

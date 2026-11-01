@@ -9,8 +9,7 @@ import "./PluginsPanel.css";
  * Bir eklenti beceri, komut, ajan, çıktı stili, kanca ve MCP sunucusunu tek paket olarak getirir.
  * Kanca/MCP Fusion dışında komut çalıştırdığı için kurulum iki adımdır: önce önizleme (bileşenler,
  * MCP komutları, uyarılar) gösterilir, kullanıcı "Onaylıyorum, kur" deyince `onay: true` gider.
- * Dosyaları kurulumdan sonra değişen eklenti "değişmiş" görünür ve yeniden onaylanana dek yüklenmez;
- * "Yeniden onayla" önce güncel içeriğin önizlemesini ister, onay o önizlemenin karmasıyla gider.
+ * Claude Code gibi karma kilidi yoktur (#392): kopyası sonradan değişen eklenti de yüklenir.
  * Önizleme karması (`karma`) onaylı isteğe `beklenen_karma` olarak eklenir: kullanıcı kartı okurken
  * kaynak değiştiyse sunucu kurmaz.
  */
@@ -25,10 +24,10 @@ interface Preview {
   kanca_sayisi: number; kancalar: string[]; kancalar_calismaz: boolean; mcp: { ad: string; hedef: string }[];
   calistirilabilir: boolean; baglam_maliyeti: number; uyarilar: string[]; hatalar: string[]; karma: string;
 }
-/** Ekrandaki önizleme: yeni kurulum mu, değişmiş eklentinin yeniden onayı mı. */
+/** Ekrandaki önizleme: yeni kurulum mu, güncelleme mi. */
 type PendingPreview =
   | { mode: "kur"; kaynak: string; data: Preview }
-  | { mode: "guven" | "guncelle"; ad: string; data: Preview };
+  | { mode: "guncelle"; ad: string; data: Preview };
 interface CatalogEntry { ad: string; pazar: string; surum: string; aciklama: string; kurulu: boolean }
 interface Marketplace { ad: string; kaynak: string; tur: string }
 
@@ -83,24 +82,22 @@ export function componentSummary(value: Components): string {
   return parts.join(" · ") || "bileşen yok";
 }
 
-const STATUS_TONE: Record<string, string> = { etkin: "on", kapalı: "off", değişmiş: "warn", bozuk: "warn" };
+const STATUS_TONE: Record<string, string> = { etkin: "on", kapalı: "off", bozuk: "warn" };
 
 type Tab = "kurulu" | "kesfet" | "pazarlar";
 
 interface PreviewCardProps { preview: Preview; mode: PendingPreview["mode"]; onConfirm: () => void; onCancel: () => void; busy: boolean }
 
-const CONFIRM_LABEL: Record<PendingPreview["mode"], string> = { kur: "Onaylıyorum, kur", guven: "Onaylıyorum", guncelle: "Onaylıyorum, güncelle" };
+const CONFIRM_LABEL: Record<PendingPreview["mode"], string> = { kur: "Onaylıyorum, kur", guncelle: "Onaylıyorum, güncelle" };
 
 function PreviewCard({ preview, mode, onConfirm, onCancel, busy }: PreviewCardProps) {
   const blocked = preview.hatalar.length > 0;
-  const reapprove = mode === "guven";
   const confirmLabel = mode === "kur" && !preview.calistirilabilir ? "Kur" : CONFIRM_LABEL[mode];
   return (
     <section aria-label="Eklenti önizlemesi" className="plugins-panel__preview">
       <h3>{preview.ad} {preview.surum}</h3>
       {preview.aciklama && <p>{preview.aciklama}</p>}
       <p className="plugins-panel__meta">{componentSummary(preview.bilesenler)} · bağlam ~{preview.baglam_maliyeti} token/tur{preview.yazar ? ` · ${preview.yazar}` : ""}</p>
-      {reapprove && <p className="plugins-panel__warn" role="note">Dosyalar kurulumdan sonra değişti. Aşağıdaki güncel içerik onaylanınca yeniden yüklenir.</p>}
       {preview.kancalar.length > 0 && <ul aria-label="Kanca komutları">{preview.kancalar.map((line) => <li key={line}><code>{line}</code></li>)}</ul>}
       {preview.kancalar_calismaz && <p className="plugins-panel__meta">Not: Fusion bu sürümde eklenti kancalarını henüz çalıştırmıyor; kancalar onaylansa da tetiklenmez.</p>}
       {preview.mcp.length > 0 && <ul aria-label="MCP sunucuları">{preview.mcp.map((server) => <li key={server.ad}><code>{server.ad}</code> → <code>{server.hedef}</code></li>)}</ul>}
@@ -176,17 +173,6 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
     } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
   };
 
-  /** Değişmiş eklenti: önce güncel içeriğin önizlemesi (onaysız `eklenti.guven`), sonra onay. */
-  const askReapproval = async (ad: string) => {
-    setBusy(true); setError(null); setNotice(""); setPreview(null);
-    try {
-      const payload = await client.request("eklenti.guven", { ad });
-      const data = previewFrom(payload.onizleme);
-      if (payload.onay_gerekli !== true || !data) throw new Error(str(payload.metin) || "Önizleme alınamadı.");
-      setPreview({ mode: "guven", ad, data });
-    } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); }
-  };
-
   /** Güncelle: içerik aynıysa "zaten güncel"; kanca/MCP içeren yeni içerik önce önizlenir. */
   const askUpdate = async (ad: string) => {
     setBusy(true); setError(null); setNotice(""); setPreview(null);
@@ -218,7 +204,6 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
     // Önizleme kullanıcıya gösterildi: onay bu tıklamadır ve yalnız gösterilen içerik için geçerli.
     let done: Record<string, unknown> | null;
     if (preview.mode === "kur") done = await run("eklenti.kur", { kaynak: preview.kaynak, onay: preview.data.calistirilabilir, beklenen_karma }, `${preview.data.ad} kuruldu.`);
-    else if (preview.mode === "guven") done = await run("eklenti.guven", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} yeniden onaylandı.`);
     else done = await run("eklenti.guncelle", { ad: preview.ad, onay: true, beklenen_karma }, `${preview.ad} güncellendi.`);
     if (done) { setPreview(null); if (preview.mode === "kur") setSource(""); }
   };
@@ -265,7 +250,6 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
                   {plugin.ayrinti && <small className="plugins-panel__warn">{plugin.ayrinti}</small>}
                 </div>
                 <div className="plugins-panel__actions">
-                  {plugin.durum === "değişmiş" && <button disabled={busy} onClick={() => void askReapproval(plugin.ad)} type="button">İncele ve yeniden onayla</button>}
                   <button aria-label={`${plugin.ad} güncelle`} disabled={busy} onClick={() => void askUpdate(plugin.ad)} type="button">Güncelle</button>
                   <button aria-label={`${plugin.ad} doğrula`} disabled={busy} onClick={() => void validate(plugin.ad)} type="button">Doğrula</button>
                   <button aria-checked={plugin.etkin} aria-label={`${plugin.ad} etkin`} className="skills-catalog__switch" disabled={busy} onClick={() => void run("eklenti.etkinlik", { ad: plugin.ad, etkin: !plugin.etkin }, `${plugin.ad} ${plugin.etkin ? "kapatıldı" : "açıldı"}.`)} role="switch" type="button"><span /></button>

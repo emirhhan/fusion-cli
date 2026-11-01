@@ -153,3 +153,11 @@ def test_uninstall_kopyayi_orphaned_at_ile_birakir_14_gun_sonra_temizlenir(tmp_p
     assert plugin_version.sweep_orphans(root, now=time.time()) == ()
     swept = plugin_version.sweep_orphans(root, now=time.time() + 15 * 86400)
     assert swept == (orphan,) and not orphan.exists()
+
+
+def test_kopyalama_siniri_claude_degerleri():
+    """#414: Claude marketplace-reference command source copy modu: 20.000 girdi / 256 MiB."""
+    from fusion_cli.config import plugin_layout
+
+    assert plugin_layout.MAX_PLUGIN_FILES == 20_000
+    assert plugin_layout.MAX_PLUGIN_BYTES == 256 * 1024 * 1024
