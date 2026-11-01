@@ -38,6 +38,8 @@ _TOP_LEVEL = {
     "failIfUnavailable": "fail_if_unavailable",
     "bwrapPath": "bwrap_path",
     "socatPath": "socat_path",
+    "enableWeakerNestedSandbox": "enable_weaker_nested_sandbox",
+    "allowNestedUserNamespaces": "allow_nested_user_namespaces",
 }
 #: `sandbox.filesystem.*` → Fusion iç alanı.
 _FILESYSTEM = {
@@ -45,6 +47,7 @@ _FILESYSTEM = {
     "denyWrite": "deny_write",
     "denyRead": "deny_read",
     "allowRead": "allow_read",
+    "disabled": "filesystem_disabled",
 }
 #: `sandbox.network.*` → Fusion iç alanı.
 _NETWORK = {
@@ -54,6 +57,8 @@ _NETWORK = {
     "allowUnixSockets": "allow_unix_sockets",
     "allowAllUnixSockets": "allow_all_unix_sockets",
     "allowLocalBinding": "allow_local_binding",
+    "httpProxyPort": "http_proxy_port",
+    "socksProxyPort": "socks_proxy_port",
 }
 #: Fusion'ın Seatbelt profili `(allow default)` olduğundan zaten verilen izinler: okunur, uyarı
 #: verilmez (Claude'da varsayılan kapalı olup bu anahtarlarla açılırlar; #350).
@@ -126,6 +131,7 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
         return []
     network = _section(raw, "sandbox.network")
     _move(network, _NETWORK, result)
+    _tls_terminate(network.pop("tlsTerminate", None), result)
     network.pop(MANAGED_DOMAINS_ONLY_KEY, None)
     for key in _ALREADY_ALLOWED_NETWORK:
         network.pop(key, None)
@@ -137,37 +143,82 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
     return [f"network.{key}" for key in network]
 
 
-def _credential_entries(raw: object, where: str, key: str) -> list[str]:
-    """`[{<key>: ..., mode: deny|mask}]`; `mask` Fusion'da `deny`'a düşer (bir kez uyarılır)."""
+def _tls_terminate(raw: object, result: dict[str, object]) -> None:
+    """Claude `network.tlsTerminate`: `{}` geçici CA, `{caCertPath, caKeyPath}` kullanıcı CA'sı."""
+    if raw is None or raw is False:
+        return
+    section = {} if raw is True else _section(raw, "sandbox.network.tlsTerminate")
+    cert, key = section.get("caCertPath", ""), section.get("caKeyPath", "")
+    if not isinstance(cert, str) or not isinstance(key, str) or bool(cert) != bool(key):
+        raise ConfigError(
+            "sandbox.network.tlsTerminate: caCertPath ve caKeyPath birlikte (metin) verilmeli."
+        )
+    result.update(tls_terminate=True, tls_ca_cert=cert, tls_ca_key=key)
+
+
+def _credential_entries(raw: object, where: str, key: str) -> tuple[list[str], list[str]]:
+    """`[{<key>: ..., mode: deny|mask, injectHosts?}]` → (deny değerleri, mask girdileri).
+
+    Mask girdisi `AD` ya da `AD=host1,host2` (injectHosts) biçimindedir. Claude: aynı ad iki
+    kipte de yazılmışsa `deny` uygulanır (`sandbox_policy` birleştirmesi).
+    """
     if raw is None:
-        return []
+        return [], []
     if not isinstance(raw, list):
         raise ConfigError(f"{where} bir liste olmalı.")
-    values: list[str] = []
+    denied: list[str] = []
+    masked: list[str] = []
     for entry in raw:
         if not isinstance(entry, dict) or not isinstance(entry.get(key), str):
             raise ConfigError(f"{where}: her girdi {{{key}: ..., mode: deny|mask}} olmalı.")
         mode = entry.get("mode", "deny")
         if mode not in ("deny", "mask"):
             raise ConfigError(f"{where}: mode deny ya da mask olmalı: {mode!r}")
-        if mode == "mask":
-            _warn_once(f"{where} mode: mask", f"{where} mode: deny (Fusion maskelemez)")
-        values.append(str(entry[key]))
-    return values
+        if mode == "deny":
+            denied.append(str(entry[key]))
+            continue
+        if key != "name":
+            raise ConfigError(f"{where}: mode: mask yalnız envVars için geçerli.")
+        masked.append(_mask_entry(entry, where))
+    return denied, masked
+
+
+def _mask_entry(entry: dict[str, object], where: str) -> str:
+    hosts = entry.get("injectHosts")
+    if hosts is None:
+        return str(entry["name"])
+    if not isinstance(hosts, list) or not all(isinstance(h, str) and h for h in hosts):
+        raise ConfigError(f"{where}: injectHosts alan adı listesi olmalı.")
+    return f"{entry['name']}={','.join(hosts)}"
 
 
 def _credentials(raw: object, result: dict[str, object]) -> list[str]:
-    """Claude `sandbox.credentials` (#368): `envVars` ortamdan çıkar, `files` okunamaz."""
+    """Claude `sandbox.credentials` (#368): `envVars` deny/mask, `files` okunamaz."""
     if raw is None:
         return []
     section = _section(raw, "sandbox.credentials")
-    result["credential_env"] = _credential_entries(
+    denied, masked = _credential_entries(
         section.pop("envVars", None), "sandbox.credentials.envVars", "name"
     )
+    result["credential_env"], result["credential_mask"] = denied, masked
     result["credential_files"] = _credential_entries(
         section.pop("files", None), "sandbox.credentials.files", "path"
-    )
+    )[0]
+    plaintext = section.pop("allowPlaintextInject", None)
+    if plaintext is not None:
+        result["allow_plaintext_inject"] = plaintext
     return [f"credentials.{key}" for key in section]
+
+
+def _ripgrep(raw: object, result: dict[str, object]) -> None:
+    """Claude `ripgrep: {command, args?}`."""
+    if raw is None:
+        return
+    section = _section(raw, "sandbox.ripgrep")
+    command, args = section.get("command", ""), section.get("args", [])
+    if not isinstance(command, str) or not isinstance(args, list):
+        raise ConfigError("sandbox.ripgrep: {command: <yol>, args: [...]} olmalı.")
+    result["ripgrep_command"], result["ripgrep_args"] = command, [str(item) for item in args]
 
 
 def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool | None]:
@@ -193,6 +244,7 @@ def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool |
     unsupported = [f"filesystem.{key}" for key in filesystem]
     unsupported += _network(data.pop("network", None), result)
     unsupported += _credentials(data.pop("credentials", None), result)
+    _ripgrep(data.pop("ripgrep", None), result)
     _move(data, _TOP_LEVEL, result)
     for key in _ALREADY_ALLOWED_TOP:
         data.pop(key, None)

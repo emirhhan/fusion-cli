@@ -20,11 +20,10 @@ yazılabilir DEĞİLDİR; gerekiyorsa `sandbox.allow_write`'a eklenir.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .sandbox_policy import (
@@ -34,7 +33,13 @@ from .sandbox_policy import (
     protected_write_paths,
     read_rules,
 )
-from .shell_sandbox_linux import LINUX_BRIDGE_PORT, LinuxTools, linux_sandbox_argv
+from .shell_sandbox_linux import (
+    LINUX_BRIDGE_PORT,
+    LINUX_SOCKS_BRIDGE_PORT,
+    LinuxTools,
+    discover_linux_tools,
+    linux_sandbox_argv,
+)
 
 SHELL_SANDBOX_OFF = "off"
 SHELL_SANDBOX_WRITE_ROOT = "write_root"
@@ -65,6 +70,9 @@ class ProxyEndpoint:
 
     port: int = 0
     unix_path: Path | None = None
+    #: Kullanıcının SOCKS5 proxy'si (Claude `socksProxyPort`, #350): macOS portu, Linux soketi.
+    socks_port: int = 0
+    socks_unix_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +111,9 @@ def _network_rules(policy: SandboxPolicy, proxy: ProxyEndpoint | None) -> str:
     if not policy.restricts_network:
         return ""
     rules = "\n(deny network*)"
-    if proxy is not None and proxy.port:
-        rules += f'\n(allow network-outbound (remote ip "localhost:{int(proxy.port)}"))'
+    for port in (proxy.port, proxy.socks_port) if proxy is not None else ():
+        if port:
+            rules += f'\n(allow network-outbound (remote ip "localhost:{int(port)}"))'
     if policy.allow_localhost:
         rules += (
             '\n(allow network* (remote ip "localhost:*"))'
@@ -145,13 +154,18 @@ def _local_port_rules(ports: Sequence[int]) -> str:
 def _profile(
     write_count: int, reads: Sequence[bool] = (), network: str = "", guard: str = ""
 ) -> str:
-    """SBPL profili: her şeye izin ver, yazmayı kapat, kökleri geri aç, okuma/ağ kısıtla."""
+    """SBPL profili: her şeye izin ver, yazmayı kapat, kökleri geri aç, okuma/ağ kısıtla.
+
+    `write_count < 0`: dosya sistemi yalıtımı yok (Claude `filesystem.disabled`); yazma açık.
+    """
     allowed = " ".join(f'(subpath (param "W{index}"))' for index in range(write_count))
     devices = " ".join(f'(literal "{path}")' for path in _DEVICE_FILES)
-    profile = (
-        "(version 1)\n(allow default)\n(deny file-write*)\n"
-        f'(allow file-write* {allowed} {devices} (regex #"^/dev/fd/[0-9]+$"))'
-    )
+    profile = "(version 1)\n(allow default)"
+    if write_count >= 0:
+        profile += (
+            "\n(deny file-write*)\n"
+            f'(allow file-write* {allowed} {devices} (regex #"^/dev/fd/[0-9]+$"))'
+        )
     # Okuma kuralları geniş→dar sırada; SBPL'de sonraki kural kazanır (allowRead, #349).
     for index, allowed_read in enumerate(reads):
         verb = "allow" if allowed_read else "deny"
@@ -185,14 +199,22 @@ def _darwin_prefix(
     guarded: Sequence[Path] = (),
 ) -> tuple[str, ...]:
     reads = read_rules(policy)
+    deny_write = policy.deny_write
+    if policy.filesystem_disabled:
+        # Claude `filesystem.disabled` (#350): yazma/okuma kuralları atlanır; Fusion sırları
+        # (`locked_read`) ve korumalı yollar (.git/config…) yine kapalı kalır.
+        reads, deny_write = read_rules(_locked_only(policy)), ()
     # Claude `filesystem.denyWrite` (#350) zorunlu engellerle aynı `deny file-write*`
     # kuralına girer.
-    protected = tuple(dict.fromkeys((*protected_write_paths(guarded), *policy.deny_write)))
+    protected = tuple(dict.fromkeys((*protected_write_paths(guarded), *deny_write)))
     git_entries = tuple(root / PROTECTED_ANCHORS[0] for root in guarded)
     anchors = tuple(
         path for path in protected_anchors(guarded) if path.name != PROTECTED_ANCHORS[0]
     )
-    parameters = [item for index, path in enumerate(roots) for item in ("-D", f"W{index}={path}")]
+    writable = () if policy.filesystem_disabled else roots
+    parameters = [
+        item for index, path in enumerate(writable) for item in ("-D", f"W{index}={path}")
+    ]
     parameters += [
         item for index, (path, _) in enumerate(reads) for item in ("-D", f"R{index}={path}")
     ]
@@ -202,16 +224,28 @@ def _darwin_prefix(
         ]
     guard = _guard_rules(len(protected), len(git_entries), len(anchors))
     network = _network_rules(policy, proxy) + _local_port_rules(policy.denied_local_ports)
-    profile = _profile(len(roots), tuple(allowed for _, allowed in reads), network, guard)
+    writes = -1 if policy.filesystem_disabled else len(roots)
+    profile = _profile(writes, tuple(allowed for _, allowed in reads), network, guard)
     return (executable, *parameters, "-p", profile)
 
 
-def _proxy_env(policy: SandboxPolicy, address: str | None) -> tuple[tuple[str, str], ...]:
-    if not policy.restricts_network or address is None:
+def _locked_only(policy: SandboxPolicy) -> SandboxPolicy:
+    """Yalnız Fusion'ın kendi sırlarını taşıyan okuma politikası."""
+    return replace(policy, deny_read=(), allow_read=())
+
+
+def _proxy_env(
+    policy: SandboxPolicy, address: str | None, socks: str | None = None
+) -> tuple[tuple[str, str], ...]:
+    """Proxy ortamı; SOCKS5 verilmişse `ALL_PROXY` (yalnız SOCKS varsa hepsi) ona gider."""
+    if not policy.restricts_network or (address is None and socks is None):
         return ()
     no_proxy = _LOOPBACK_NO_PROXY if policy.allow_localhost else ""
+    values = dict.fromkeys(_PROXY_ENV_NAMES, address or socks or "")
+    if socks is not None:
+        values.update(ALL_PROXY=socks, all_proxy=socks)
     return (
-        *((name, address) for name in _PROXY_ENV_NAMES),
+        *values.items(),
         ("NO_PROXY", no_proxy),
         ("no_proxy", no_proxy),
         ("NODE_USE_ENV_PROXY", "1"),
@@ -257,23 +291,35 @@ def plan_shell_sandbox(
         if executable is None or not Path(executable).exists():
             return _unavailable("sandbox-exec bulunamadı", rules)
         address = f"http://127.0.0.1:{proxy.port}" if proxy is not None and proxy.port else None
+        socks = (
+            f"socks5h://127.0.0.1:{proxy.socks_port}"
+            if proxy is not None and proxy.socks_port
+            else None
+        )
         return SandboxPlan(
             prefix=_darwin_prefix(roots, rules, executable, proxy, guarded),
-            env=_proxy_env(rules, address),
+            env=_proxy_env(rules, address, socks),
             hide_secret_env=hide,
         )
     if system.startswith("linux"):
-        tools = linux_tools or LinuxTools(
-            shutil.which(rules.bwrap_path or "bwrap"), shutil.which(rules.socat_path or "socat")
-        )
+        tools = linux_tools or discover_linux_tools(rules)
         socket_path = proxy.unix_path if proxy is not None else None
+        socks_path = proxy.socks_unix_path if proxy is not None else None
         argv = linux_sandbox_argv(
-            roots, rules, tools, proxy_socket=socket_path, protected_roots=guarded
+            roots,
+            rules,
+            tools,
+            proxy_socket=socket_path,
+            socks_socket=socks_path,
+            protected_roots=guarded,
         )
         if argv.unavailable:
             return _unavailable(argv.unavailable, rules)
         address = f"http://127.0.0.1:{LINUX_BRIDGE_PORT}" if socket_path is not None else None
-        return SandboxPlan(prefix=argv.prefix, env=_proxy_env(rules, address), hide_secret_env=hide)
+        socks = f"socks5h://127.0.0.1:{LINUX_SOCKS_BRIDGE_PORT}" if socks_path is not None else None
+        return SandboxPlan(
+            prefix=argv.prefix, env=_proxy_env(rules, address, socks), hide_secret_env=hide
+        )
     return _unavailable(
         "runtime.shell_sandbox=write_root yalnız macOS ve Linux'ta desteklenir", rules
     )

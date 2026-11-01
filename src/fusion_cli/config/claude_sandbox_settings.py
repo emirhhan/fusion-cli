@@ -58,6 +58,22 @@ LIST_FIELDS = frozenset(
         "excluded_commands",
         "credential_env",
         "credential_files",
+        "credential_mask",
+    }
+)
+#: Proje ayar dosyalarından (`.claude/settings*.json`) OKUNMAYAN alanlar: Claude'da depo
+#: yalıtımı gevşetemez, CA veremez, mask kaydı açamaz (settings-reference › sandbox).
+PROJECT_IGNORED = frozenset(
+    {
+        "tls_terminate",
+        "tls_ca_cert",
+        "tls_ca_key",
+        "credential_mask",
+        "allow_plaintext_inject",
+        "filesystem_disabled",
+        "allow_nested_user_namespaces",
+        "ripgrep_command",
+        "ripgrep_args",
     }
 )
 #: Göreli yolu ayar dosyasının kapsamına göre çözülen alanlar.
@@ -126,6 +142,20 @@ def _candidates(
             yield data, path, base, False
     for top in top_layers(root):
         yield top.data, top.source, top.base, top.name == "managed"
+
+
+def _without_project_only(section: dict[str, object], path: Path) -> dict[str, object]:
+    """Proje katmanında yok sayılan sandbox alanlarını (iç adlarla) çıkar; bir kez uyarır."""
+    for key in sorted(PROJECT_IGNORED & {key for key, value in section.items() if value}):
+        if f"proje:{key}" not in _WARNED:
+            _WARNED.add(f"proje:{key}")
+            _LOG.warning(
+                "sandbox.%s proje ayarında yok sayıldı (Claude gibi yalnız kullanıcı, managed "
+                "ya da --settings): %s",
+                key,
+                path,
+            )
+    return {key: value for key, value in section.items() if key not in PROJECT_IGNORED}
 
 
 def _managed_flag(data: Mapping[str, object], group: str, key: str) -> bool:
@@ -203,7 +233,8 @@ def read_claude_sandbox(root: Path, *, home: Path | None = None) -> ClaudeSandbo
         layer = _layer_from(data, path, base)
         if layer is None:
             continue
-        layers.append((layer[0], is_managed))
+        project = not is_managed and base == root and path.parent.name == ".claude"
+        layers.append((_without_project_only(layer[0], path) if project else layer[0], is_managed))
         raw.append(data)
         if layer[1] is not None:
             enabled = layer[1]

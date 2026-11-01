@@ -99,9 +99,32 @@ localhost portunda dinlemeye izin verir (Fusion uzantısı `allow_localhost` kap
 `bwrapPath` / `socatPath` Linux araçlarının yolunu verir. `allowMachLookup`, `allowAppleEvents` ve
 `enableWeakerNetworkIsolation` okunur ama etkisizdir: Fusion'ın Seatbelt profili `(allow default)`
 olduğu için Mach araması ve Apple Events zaten açıktır (Claude'da varsayılan kapalıdır).
-Henüz desteklenmeyen anahtarlar (`network.httpProxyPort`, `socksProxyPort`, `tlsTerminate`,
-`filesystem.disabled`, `enableWeakerNestedSandbox`, `allowNestedUserNamespaces`, `ripgrep`…)
-yok sayılır ve bir kez uyarılır.
+`network.httpProxyPort` / `socksProxyPort` trafiği kullanıcının localhost'taki kendi HTTP /
+SOCKS5 proxy'sine yönlendirir: Fusion proxy başlatmaz, `allowedDomains`/`deniedDomains` ve ağ
+soruları o trafiğe uygulanmaz (süzme o proxy'dedir); macOS'ta Seatbelt yalnız bu portlara çıkışa
+izin verir, Linux'ta port ad alanına Unix soketi + socat köprüsüyle (SOCKS için 1080) taşınır;
+`ALL_PROXY` SOCKS adresini alır. `network.tlsTerminate` (`{}` oturum başına geçici CA ya da
+`{caCertPath, caKeyPath}`) proxy'nin HTTPS'i sonlandırmasını sağlar: her ana makine için CA
+imzalı sertifika üretilir, gerçek sunucuya doğrulanarak yeniden bağlanılır (HTTP/1.1), sandbox
+içindeki istemciler CA'ya `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+`GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE` (sistem kökleri + CA) ve `NODE_EXTRA_CA_CERTS`
+ile güvenir; CA ve yaprak anahtarlarının dizini sandbox'a okunamaz. TLS olmayan tüneller (ilk
+bayt el sıkışması değilse; git+ssh) dokunulmadan geçer. CA okunamazsa komuta bir not düşülür
+ve HTTPS sonlandırılmaz. `filesystem.disabled: true` dosya sistemi yalıtımını atlar, ağ
+yalıtımı kalır (Fusion sırları ve `.git/config` gibi korumalı yollar yine kapalı).
+`enableWeakerNestedSandbox` (Linux) yetkisiz Docker içinde yeni `/proc` bağlamaz;
+`allowNestedUserNamespaces` (Linux) kapalıyken sandbox içinde yeni kullanıcı ad alanı açılamaz
+(`--unshare-user --disable-userns`; bunu desteklemeyen eski bwrap'te atlanır). `ripgrep:
+{command, args}` (Linux) alt dizinlerdeki korumalı dosyaları (iç içe depoların `.git/config` ve
+`.git/hooks`'u, `.claude` ayarları, `.mcp.json`; 4 dizin derinliğe kadar) bulan rg'dir; boşsa
+PATH'teki `rg`, o da yoksa yalnız kök düzeyi korunur.
+
+Claude'daki gibi proje ayar dosyaları (`.claude/settings.json`, `.claude/settings.local.json`)
+`tlsTerminate`, mask girdileri, `allowPlaintextInject`, `filesystem.disabled`,
+`allowNestedUserNamespaces` ve `ripgrep` ayarlayamaz: bunlar yok sayılır ve bir kez uyarılır;
+yalnız kullanıcı ayarı, managed ve `--settings` geçerlidir. Etkin olanlar `/sandbox`
+Yapılandırma ekranında ve masaüstü Sandbox kartında listelenir. Bilinmeyen anahtarlar yok
+sayılır ve bir kez uyarılır.
 
 ## Ne sınırlanır?
 
@@ -154,8 +177,14 @@ yok sayılır ve bir kez uyarılır.
   IP'yi ya da `localhost`'u listeye açıkça yazın. `allow_localhost: true` dev sunucularına ve yerel
   veritabanına doğrudan erişimi açık tutar (Linux'ta yalnız sandbox içinde başlatılanlara).
 - **Sır ortamı:** Claude gibi ortam Fusion'dan miras alınır. `sandbox.credentials.envVars`
-  (`mode: deny`) adları sandbox içindeki komutun ortamından çıkarır; `mode: mask` Fusion'da
-  `deny`'a düşer ve bir kez uyarılır (Fusion proxy'si sırrı yeniden imzalamaz). Kullanımdan
+  (`mode: deny`) adları sandbox içindeki komutun ortamından çıkarır. `mode: mask` (Claude gibi)
+  komuta gerçek değer yerine oturum boyunca aynı kalan, aynı bayt uzunluğunda bir yer tutucu
+  verir; proxy izinli ana makinelere (`injectHosts`, yoksa `allowedDomains`; `injectHosts`
+  girdisi `allowedDomains` kapsamında olmalı) giden istekte yer tutucuyu gerçek değerle
+  değiştirir, yanıtta geri çevirir. HTTPS için `network.tlsTerminate`, düz HTTP için
+  `credentials.allowPlaintextInject` gerekir; ikisi de yoksa istek yer tutucuyla gider (sır
+  sızmaz). Aynı ad iki kipte de yazılmışsa `deny` uygulanır. Kullanıcının kendi proxy'si
+  (`httpProxyPort`) verilmişse yerine koyma yapılmaz. Kullanımdan
   kalkan Fusion uzantısı `hide_secret_env: true` adı sır gibi görünen değişkenleri
   (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`…) de çıkarır; varsayılan `false`. Bu
   macOS'ta **kaza önleyicidir, güvenlik sınırı değildir** (aşağıya bakın).
@@ -274,5 +303,10 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
   görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
   deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven
   karması ayar dosyası değişince projeyi güvenilmez sayar). macOS'ta yol yoksa da korunur.
-- Yalnız kökteki `.git` korunur; iç içe depoların (alt dizindeki `.git`) yapılandırması korunmaz.
+- macOS'ta yalnız kökteki `.git` korunur; iç içe depoların (alt dizindeki `.git`) yapılandırması
+  Linux'ta rg bulunursa (`ripgrep` ayarı ya da PATH) salt okunur bağlanır, macOS'ta korunmaz.
+- TLS sonlandırmada istemci HTTP/1.1'e indirilir (ALPN); sertifika sabitleyen (pinning) ya da
+  kendi kök deposunu ortamdan okumayan araçlar sonlandırılan bağlantıda başarısız olur. Yer
+  tutucu bayt akışında aranır: sıkıştırılmış ya da kodlanmış (Basic auth base64) değer
+  değiştirilmez.
 - Linux yolu birim testlerle doğrulandı; gerçek bubblewrap davranışı Linux makinede elle denenmelidir.

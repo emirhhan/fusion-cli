@@ -85,13 +85,13 @@ def test_desteklenmeyen_claude_anahtari_uyarilir_ve_atilir(caplog):
     with caplog.at_level(logging.WARNING):
         sonuc, _ = normalize_claude_sandbox(
             {
-                "filesystem": {"disabled": True},
-                "network": {"tlsTerminate": True},
+                "filesystem": {"bilinmeyen": True},
+                "network": {"bilinmeyenAg": True},
             }
         )
-    assert "disabled" not in sonuc and "tlsTerminate" not in sonuc
+    assert "bilinmeyen" not in sonuc and "bilinmeyenAg" not in sonuc
     mesaj = " ".join(r.getMessage() for r in caplog.records)
-    assert "filesystem.disabled" in mesaj and "network.tlsTerminate" in mesaj
+    assert "filesystem.bilinmeyen" in mesaj and "network.bilinmeyenAg" in mesaj
     assert "henüz desteklenmiyor" in mesaj and "kullanımdan kalkıyor" not in mesaj
 
 

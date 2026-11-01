@@ -31,8 +31,16 @@ from pathlib import Path
 
 from .network_address import is_public_ip
 from .sandbox_policy import SandboxPolicy, domain_allowed, domain_denied, normalize_domain
+from .sandbox_tls import (
+    Injection,
+    TlsInterceptor,
+    injections_for,
+    relay_rewriting,
+    replacers,
+    starts_tls,
+)
 
-__all__ = ["DomainProxy", "ProxyDenial"]
+__all__ = ["DomainProxy", "ProxyDenial", "relay"]
 
 _LOG = logging.getLogger(__name__)
 
@@ -111,8 +119,14 @@ class DomainProxy:
         resolver: Resolver = _resolve,
         blocked_ports: BlockedPorts | None = None,
         host_decider: HostDecider | None = None,
+        tls: TlsInterceptor | None = None,
+        plaintext_inject: bool = False,
     ) -> None:
         self._policy = policy
+        #: Claude `tlsTerminate` / mask (#350, #368): HTTPS sonlandırılır, yer tutucu değişir.
+        self._tls = tls
+        self._plaintext_inject = plaintext_inject
+        self._injections: tuple[Injection, ...] = ()
         self._host_decider = host_decider
         self._blocked_ports = blocked_ports
         self._unix_path = unix_path
@@ -168,6 +182,10 @@ class DomainProxy:
             self._unix_path.unlink(missing_ok=True)
         self._server = None
 
+    def set_injections(self, injections: tuple[Injection, ...]) -> None:
+        """Komut ortamına verilen yer tutucular (`tools.sandbox_mask`); ortam kurulunca çağrılır."""
+        self._injections = injections
+
     def mark(self) -> int:
         """Şu anki ret sayacı; `denials_since(mark)` sonrakileri verir."""
         with self._lock:
@@ -194,7 +212,10 @@ class DomainProxy:
             upstream = self._open(client, host, port)
             if upstream is not None:
                 client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                _relay(client, upstream, rest)
+                if self._tls is not None and not rest and starts_tls(client):
+                    self._intercept(client, upstream, host)
+                else:
+                    _relay(client, upstream, rest)
             return
         scheme, host, port, path = _split_url(target)
         if scheme != "http" or not host:
@@ -206,8 +227,36 @@ class DomainProxy:
         headers = "\r\n".join(
             line for line in header_text.split("\r\n") if not line.lower().startswith("proxy-")
         )
-        upstream.sendall(f"{method} {path} {version}\r\n{headers}\r\n\r\n".encode("latin-1"))
-        _relay(client, upstream, rest)
+        head_bytes = f"{method} {path} {version}\r\n{headers}\r\n\r\n".encode("latin-1")
+        found = injections_for(host, self._injections) if self._plaintext_inject else ()
+        if not found:
+            upstream.sendall(head_bytes)
+            _relay(client, upstream, rest)
+            return
+        outbound, inbound = replacers(found)
+        with upstream:
+            upstream.sendall(outbound.feed(head_bytes + rest) + outbound.flush())
+            relay_rewriting(client, upstream, outbound, inbound)
+
+    def _intercept(self, client: socket.socket, upstream: socket.socket, host: str) -> None:
+        """TLS'i sonlandır, gerçek sunucuya yeniden bağlan, yer tutucuları değiştir."""
+        if self._tls is None:
+            return
+        with upstream:
+            try:
+                inner = self._tls.server_context(host).wrap_socket(client, server_side=True)
+            except (OSError, ValueError) as error:
+                _LOG.debug("sandbox TLS el sıkışması olmadı", extra={"hata": str(error)})
+                return
+            with inner:
+                try:
+                    outer = self._tls.upstream_context().wrap_socket(upstream, server_hostname=host)
+                except OSError as error:
+                    _LOG.debug("sandbox TLS hedefi doğrulanamadı", extra={"hata": str(error)})
+                    return
+                with outer:
+                    outbound, inbound = replacers(injections_for(host, self._injections))
+                    relay_rewriting(inner, outer, outbound, inbound)
 
     def _open(self, client: socket.socket, host: str, port: int) -> socket.socket | None:
         verdict = self._check(host, port)
@@ -347,3 +396,7 @@ def _relay(client: socket.socket, upstream: socket.socket, pending: bytes) -> No
                 if not data:
                     return
                 (upstream if source is client else client).sendall(data)
+
+
+#: Aynı aktarıcı dış modüller için (`sandbox_forward`).
+relay = _relay

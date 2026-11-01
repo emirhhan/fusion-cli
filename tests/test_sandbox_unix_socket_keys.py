@@ -15,7 +15,7 @@ import pytest
 
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.sandbox_config import sandbox_policy
-from fusion_cli.core import shell_sandbox
+from fusion_cli.core import linux_sandbox_tools, shell_sandbox
 from fusion_cli.core.sandbox_policy import SandboxPolicy
 
 _SANDBOX = Path("/usr/bin/sandbox-exec")
@@ -70,14 +70,14 @@ def test_seatbelt_kurallari(tmp_path):
 
 def test_bwrap_ve_socat_yolu_ayardan(tmp_path, monkeypatch):
     seen: list[str] = []
-    monkeypatch.setattr(shell_sandbox.shutil, "which", lambda name: seen.append(name) or None)
+    monkeypatch.setattr(linux_sandbox_tools.shutil, "which", lambda name: seen.append(name) or None)
     shell_sandbox.plan_shell_sandbox(
         "write_root",
         (tmp_path,),
         policy=SandboxPolicy(bwrap_path="/opt/bwrap", socat_path="/opt/socat"),
         platform="linux",
     )
-    assert seen == ["/opt/bwrap", "/opt/socat"]
+    assert seen == ["/opt/bwrap", "/opt/socat", "rg"]
 
 
 def _serve(path: Path) -> socket.socket:

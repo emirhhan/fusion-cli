@@ -71,6 +71,28 @@ class SandboxConfig:
     #: Claude `bwrapPath` / `socatPath`: Linux araçlarının yolu (boş = PATH'te ara).
     bwrap_path: str = ""
     socat_path: str = ""
+    #: Claude `network.httpProxyPort` / `socksProxyPort`: kullanıcının kendi proxy'si (#350).
+    #: Verilirse Fusion proxy başlatmaz; alan adı listeleri ve ağ soruları o trafiğe uygulanmaz.
+    http_proxy_port: int = 0
+    socks_proxy_port: int = 0
+    #: Claude `network.tlsTerminate` (#350, #368): proxy HTTPS'i sonlandırır (mask için gerekli).
+    #: CA yolları boşsa oturum başına geçici CA üretilir. Yalnız kullanıcı/managed/--settings.
+    tls_terminate: bool = False
+    tls_ca_cert: str = ""
+    tls_ca_key: str = ""
+    #: Claude `credentials.envVars` mode: mask — `AD` ya da `AD=host1,host2` (injectHosts).
+    credential_mask: tuple[str, ...] = ()
+    #: Claude `credentials.allowPlaintextInject`: düz HTTP isteğinde de yerine koy.
+    allow_plaintext_inject: bool = False
+    #: Claude `filesystem.disabled`: dosya sistemi yalıtımı atlanır, ağ yalıtımı kalır.
+    filesystem_disabled: bool = False
+    #: Claude `enableWeakerNestedSandbox` (Linux): yeni `/proc` bağlanmaz (yetkisiz Docker).
+    enable_weaker_nested_sandbox: bool = False
+    #: Claude `allowNestedUserNamespaces` (Linux): sandbox içinde yeni kullanıcı ad alanı.
+    allow_nested_user_namespaces: bool = False
+    #: Claude `ripgrep: {command, args}` (Linux): iç içe korumalı dosyaları bulan rg.
+    ripgrep_command: str = ""
+    ripgrep_args: tuple[str, ...] = ()
 
 
 def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
@@ -91,6 +113,10 @@ def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
                 )
             cleaned.append(value)
         domains[name] = tuple(dict.fromkeys(cleaned))
+    for name in ("http_proxy_port", "socks_proxy_port"):
+        port = getattr(config, name)
+        if not 0 <= port <= 65_535:
+            raise ConfigError(f"sandbox.{name}: 1-65535 arasında bir port olmalı.")
     for command in config.excluded_commands:
         if not command.strip():
             raise ConfigError("sandbox.excluded_commands: boş önek olamaz.")
@@ -175,4 +201,20 @@ def sandbox_policy(
         allow_local_binding=config.allow_local_binding,
         bwrap_path=config.bwrap_path,
         socat_path=config.socat_path,
+        http_proxy_port=config.http_proxy_port,
+        socks_proxy_port=config.socks_proxy_port,
+        filesystem_disabled=config.filesystem_disabled,
+        enable_weaker_nested_sandbox=config.enable_weaker_nested_sandbox,
+        allow_nested_user_namespaces=config.allow_nested_user_namespaces,
+        ripgrep=(config.ripgrep_command, *config.ripgrep_args) if config.ripgrep_command else (),
+        # Claude: aynı ad iki kipte de yazılmışsa deny uygulanır.
+        mask_env=tuple(
+            entry
+            for entry in dict.fromkeys(config.credential_mask)
+            if entry.partition("=")[0].strip() not in config.credential_env
+        ),
+        tls_terminate=config.tls_terminate,
+        tls_ca_cert=str(_expand(config.tls_ca_cert, home, root)) if config.tls_ca_cert else "",
+        tls_ca_key=str(_expand(config.tls_ca_key, home, root)) if config.tls_ca_key else "",
+        allow_plaintext_inject=config.allow_plaintext_inject,
     )

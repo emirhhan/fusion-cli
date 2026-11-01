@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.core import shell_sandbox
+from fusion_cli.core import linux_sandbox_tools, shell_sandbox
 from fusion_cli.core.redaction import is_secret_env_name
 from fusion_cli.core.sandbox_policy import SandboxPolicy
 from fusion_cli.core.shell_sandbox_linux import LinuxTools
@@ -108,7 +108,9 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
 async def test_linux_socat_yokken_auto_allow_sormadan_onaylamaz(proje, monkeypatch):
     monkeypatch.setattr(shell_sandbox.sys, "platform", "linux")
     monkeypatch.setattr(
-        shell_sandbox.shutil, "which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None
+        linux_sandbox_tools.shutil,
+        "which",
+        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
     policy = SandboxPolicy(network="allowlist", allowed_domains=("github.com",), auto_allow=True)
     context = _context(proje, policy)
@@ -125,7 +127,7 @@ async def test_linux_socat_yokken_auto_allow_sormadan_onaylamaz(proje, monkeypat
 
 def test_linux_socat_varken_prob_ve_gercek_plan_ayni(proje, monkeypatch):
     monkeypatch.setattr(shell_sandbox.sys, "platform", "linux")
-    monkeypatch.setattr(shell_sandbox.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(linux_sandbox_tools.shutil, "which", lambda name: f"/usr/bin/{name}")
     policy = SandboxPolicy(network="allowlist", allowed_domains=("github.com",))
     assert sandbox_runtime.probe_plan(_context(proje, policy)).is_active
 

@@ -112,10 +112,33 @@ class SandboxPolicy:
     #: Linux araç yolları (Claude `bwrapPath` / `socatPath`); boş = PATH.
     bwrap_path: str = ""
     socat_path: str = ""
+    #: Kullanıcının kendi HTTP / SOCKS5 proxy'si (Claude `httpProxyPort`/`socksProxyPort`, #350).
+    http_proxy_port: int = 0
+    socks_proxy_port: int = 0
+    #: Dosya sistemi yalıtımı yok, ağ yalıtımı var (Claude `filesystem.disabled`).
+    filesystem_disabled: bool = False
+    #: Linux: yeni `/proc` bağlanmaz (Claude `enableWeakerNestedSandbox`).
+    enable_weaker_nested_sandbox: bool = False
+    #: Linux: iç içe kullanıcı ad alanına izin (Claude `allowNestedUserNamespaces`).
+    allow_nested_user_namespaces: bool = False
+    #: Linux: iç içe korumalı dosyaları arayan rg komutu ve argümanları (Claude `ripgrep`).
+    ripgrep: tuple[str, ...] = ()
+    #: Claude `credentials.envVars` mode: mask — `AD` / `AD=host1,host2` (#368).
+    mask_env: tuple[str, ...] = ()
+    #: Claude `network.tlsTerminate` ve isteğe bağlı CA yolları; `allowPlaintextInject`.
+    tls_terminate: bool = False
+    tls_ca_cert: str = ""
+    tls_ca_key: str = ""
+    allow_plaintext_inject: bool = False
 
     @property
     def restricts_network(self) -> bool:
         return self.network == NETWORK_ALLOWLIST
+
+    @property
+    def external_proxy(self) -> bool:
+        """Kullanıcının kendi proxy'si verilmiş mi (Fusion proxy'si başlatılmaz)?"""
+        return bool(self.http_proxy_port or self.socks_proxy_port)
 
 
 def normalize_domain(text: str) -> str | None:

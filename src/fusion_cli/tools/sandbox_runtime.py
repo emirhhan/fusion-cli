@@ -24,8 +24,10 @@ import sys
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.redaction import is_secret_env_name
+from ..core.sandbox_forward import UnixForwarder
 from ..core.sandbox_policy import (
     PROTECTED_ANCHORS,
     SandboxPolicy,
@@ -42,6 +44,10 @@ from ..core.shell_sandbox import (
 from ..core.tools import ToolArgs, ToolContext
 from .sandbox_cdp import fusion_debug_ports
 from .sandbox_excluded import is_excluded
+from .sandbox_mask import apply_masks, prepare_tls
+
+if TYPE_CHECKING:
+    from .sandbox_ca import SessionCa
 
 __all__ = [
     "OUTSIDE_EXCLUDED",
@@ -103,6 +109,10 @@ class SandboxRun:
     notices: list[str] = field(default_factory=list)
     #: Sandbox ortamından çıkarılan sır görünümlü ADLAR (değerler değil).
     hidden_env: tuple[str, ...] = ()
+    #: Kullanıcının kendi proxy'sine Linux aktarıcıları (`httpProxyPort`/`socksProxyPort`).
+    forwarders: list[UnixForwarder] = field(default_factory=list)
+    #: `tlsTerminate` CA'sı (sandbox ortamına güven değişkenleri eklenir; #350, #368).
+    tls: SessionCa | None = None
 
 
 def _uses_unix_proxy() -> bool:
@@ -126,7 +136,10 @@ def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | 
 
 
 def _proxy(
-    policy: SandboxPolicy, notices: list[str], decider: HostDecider | None = None
+    policy: SandboxPolicy,
+    notices: list[str],
+    decider: HostDecider | None = None,
+    tls: SessionCa | None = None,
 ) -> DomainProxy | None:
     """Bu komuta özel proxy (sahibi `release_sandbox` ile kapatır).
 
@@ -134,13 +147,22 @@ def _proxy(
     ad kipe göre sorulur (`decider`, #323). Karar veren yoksa ve liste boşsa proxy kurulmaz
     (dış ağ tamamen kapalı; eski davranış).
     """
-    if not policy.restricts_network or not (policy.allowed_domains or decider is not None):
+    if (
+        not policy.restricts_network
+        or policy.external_proxy
+        or not (policy.allowed_domains or decider is not None)
+    ):
         return None
     path = (
         Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / "proxy.sock" if _uses_unix_proxy() else None
     )
     proxy = DomainProxy(
-        policy, unix_path=path, blocked_ports=fusion_debug_ports, host_decider=decider
+        policy,
+        unix_path=path,
+        blocked_ports=fusion_debug_ports,
+        host_decider=decider,
+        tls=tls,
+        plaintext_inject=policy.allow_plaintext_inject,
     )
     try:
         proxy.start()
@@ -167,19 +189,47 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
         )
     # Fusion Chrome'larının CDP portları her kipte kapalı (Seatbelt; proxy her bağlantıda bakar).
     policy = replace(policy, denied_local_ports=fusion_debug_ports())
+    policy, run.tls = prepare_tls(policy, run.notices)
     run.policy = policy
     gate = getattr(context, "sandbox_hosts", None)
-    run.proxy = _proxy(policy, run.notices, getattr(gate, "decider", None))
+    run.proxy = _proxy(policy, run.notices, getattr(gate, "decider", None), run.tls)
     endpoint = (
         ProxyEndpoint(port=run.proxy.port, unix_path=run.proxy.unix_path)
         if run.proxy is not None
-        else None
+        else _external_endpoint(policy, run)
     )
     run.plan = plan_shell_sandbox(
         mode, (context.root, *context.extra_roots), policy=policy, proxy=endpoint
     )
     run.mark = run.proxy.mark() if run.proxy is not None else 0
     return run
+
+
+def _external_endpoint(policy: SandboxPolicy, run: SandboxRun) -> ProxyEndpoint | None:
+    """Claude `httpProxyPort`/`socksProxyPort` (#350): trafik kullanıcının proxy'sine gider.
+
+    Fusion proxy'si başlatılmaz; alan adı listeleri ve ağ soruları bu trafiğe uygulanmaz
+    (süzme kullanıcının proxy'sindedir). Linux'ta port, ad alanına Unix soketiyle taşınır.
+    """
+    if not policy.restricts_network or not policy.external_proxy:
+        return None
+    if not _uses_unix_proxy():
+        return ProxyEndpoint(port=policy.http_proxy_port, socks_port=policy.socks_proxy_port)
+    paths: dict[str, Path | None] = {"http": None, "socks": None}
+    for name, port in (("http", policy.http_proxy_port), ("socks", policy.socks_proxy_port)):
+        if not port:
+            continue
+        forwarder = UnixForwarder(
+            Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / f"{name}.sock", port
+        )
+        try:
+            forwarder.start()
+        except OSError as error:
+            run.notices.append(f"Proxy aktarıcısı başlatılamadı ({error}); dış ağ kapalı.")
+            continue
+        run.forwarders.append(forwarder)
+        paths[name] = forwarder.unix_path
+    return ProxyEndpoint(unix_path=paths["http"], socks_unix_path=paths["socks"])
 
 
 def _remove_socket_dir(path: Path | None) -> None:
@@ -191,6 +241,10 @@ def _remove_socket_dir(path: Path | None) -> None:
 
 def release_sandbox(run: SandboxRun) -> None:
     """Komutun proxy'sini kapat (Linux'ta soket dizini de silinir); ikinci çağrı zararsız."""
+    for forwarder in run.forwarders:
+        forwarder.close()
+        _remove_socket_dir(forwarder.unix_path)
+    run.forwarders.clear()
     if run.proxy is None:
         return
     run.proxy.close()
@@ -217,7 +271,7 @@ def probe_plan(context: ToolContext) -> SandboxPlan:
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
     probe = (
         ProxyEndpoint(port=1, unix_path=_PROBE_SOCKET)
-        if policy.restricts_network and policy.allowed_domains
+        if policy.restricts_network and (policy.allowed_domains or policy.external_proxy)
         else None
     )
     return plan_shell_sandbox(
@@ -239,6 +293,8 @@ def delete_blocked(targets: list[str], args: ToolArgs, context: ToolContext) -> 
     if outside_reason(" ".join(["rm", *targets]), args, context) is not None:
         return None
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
+    if policy.filesystem_disabled:
+        return None  # Claude `filesystem.disabled`: yazma sınırı yok (#350)
     allowed = tuple(
         path.resolve()
         for path in (context.root, *context.extra_roots, *policy.extra_write, *temporary_roots())
@@ -267,7 +323,13 @@ def sandbox_env(base: dict[str, str], run: SandboxRun) -> dict[str, str]:
         if name not in denied and not (run.plan.hide_secret_env and is_secret_env_name(name))
     }
     run.hidden_env = tuple(sorted(name for name in base if name not in env))
+    # Claude mask (#368): komut yer tutucuyu görür; proxy gerçek değeri izinli adlara koyar.
+    env, injections = apply_masks(env, run.policy)
+    if run.proxy is not None:
+        run.proxy.set_injections(injections)
     env.update(dict(run.plan.env))
+    if run.tls is not None and run.proxy is not None:
+        env.update(run.tls.trust_env())
     return env
 
 

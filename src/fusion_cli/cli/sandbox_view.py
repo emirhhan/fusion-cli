@@ -103,6 +103,7 @@ def format_status(status: SandboxStatus) -> str:
     )
     if status.excluded_commands:
         lines.append(messages.SANDBOX_EXCLUDED.format(commands=", ".join(status.excluded_commands)))
+    lines.extend(f"  · {item}" for item in getattr(status, "extras", ()))
     lines.append(messages.SANDBOX_HINT)
     return "\n".join(lines)
 

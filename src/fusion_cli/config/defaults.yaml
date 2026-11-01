@@ -1127,8 +1127,14 @@ sandbox:
   # true: listede olmayan ana makine sorulmadan reddedilir (Claude network.strictAllowlist).
   strict_allowlist: false
   # Claude sandbox.credentials.envVars (mode: deny): bu adlar sandbox ortamından çıkarılır.
-  # Claude'daki gibi varsayılan boş; ortam Fusion'dan miras alınır. mode: mask deny'a düşer.
+  # Claude'daki gibi varsayılan boş; ortam Fusion'dan miras alınır.
   credential_env: []
+  # Claude credentials.envVars (mode: mask): komut gerçek değer yerine aynı uzunlukta bir yer
+  # tutucu görür; proxy giden istekte gerçek değeri koyar (izinli adlara ya da "AD=host1,host2"
+  # injectHosts'a). HTTPS için tls_terminate, düz HTTP için allow_plaintext_inject gerekir.
+  # Aynı ad deny'da da varsa deny uygulanır. Proje ayarından okunmaz.
+  credential_mask: []
+  allow_plaintext_inject: false
   # Claude sandbox.credentials.files (mode: deny): sandbox içinde okunamayan dosya/dizinler.
   credential_files: []
   # Claude network.allowUnixSockets: bağlanılabilen Unix soket yolları (macOS Seatbelt);
@@ -1139,6 +1145,29 @@ sandbox:
   # Claude bwrapPath / socatPath: Linux araçlarının yolu (boş = PATH'te ara).
   bwrap_path: ""
   socat_path: ""
+  # Claude network.httpProxyPort / socksProxyPort: trafik kullanıcının localhost'taki kendi
+  # HTTP / SOCKS5 proxy'sine gider; Fusion proxy başlatmaz, alan adı listeleri ve ağ soruları
+  # o trafiğe uygulanmaz (süzme o proxy'dedir). 0 = kapalı.
+  http_proxy_port: 0
+  socks_proxy_port: 0
+  # Claude network.tlsTerminate: proxy HTTPS'i sonlandırır (mask için). CA yolları boşsa oturum
+  # başına geçici CA üretilir; sandbox'a SSL_CERT_FILE/NODE_EXTRA_CA_CERTS… ile güvenilir kılınır.
+  # Yalnız kullanıcı, managed ya da --settings ayarından.
+  tls_terminate: false
+  tls_ca_cert: ""
+  tls_ca_key: ""
+  # Claude filesystem.disabled: dosya sistemi yalıtımı atlanır, ağ yalıtımı kalır (Fusion
+  # sırları ve .git/config gibi korumalı yollar yine kapalı). Proje ayarından okunmaz.
+  filesystem_disabled: false
+  # Claude enableWeakerNestedSandbox (Linux): yetkisiz Docker içinde yeni /proc bağlanmaz.
+  enable_weaker_nested_sandbox: false
+  # Claude allowNestedUserNamespaces (Linux): false iken sandbox içinde yeni kullanıcı ad alanı
+  # açılamaz (bwrap --disable-userns; destekleyen bwrap'te). Proje ayarından okunmaz.
+  allow_nested_user_namespaces: false
+  # Claude ripgrep {command, args} (Linux): alt dizinlerdeki korumalı dosyaları bulan rg; boş =
+  # PATH'teki rg (yoksa yalnız kök düzeyi korunur). Proje ayarından okunmaz.
+  ripgrep_command: ""
+  ripgrep_args: []
   # Kullanımdan kalkan Fusion uzantısı: true iken adı sır gibi görünen değişkenler (*_API_KEY,
   # *_TOKEN, *_SECRET, *PASSWORD*) de çıkarılır. Claude'da yok; varsayılan false.
   hide_secret_env: false

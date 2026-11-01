@@ -65,7 +65,7 @@ def panel_choices(status: SandboxStatus) -> list[Choice]:
 def dependency_report(platform: str | None = None) -> str:
     """Sandbox araçlarının bu makinedeki durumu (Linux: bwrap, socat; macOS: sandbox-exec)."""
     name = platform or sys.platform
-    tools = ("bwrap", "socat") if name.startswith("linux") else ("sandbox-exec",)
+    tools = ("bwrap", "socat", "rg") if name.startswith("linux") else ("sandbox-exec",)
     lines = [f"Bağımlılıklar ({name}):"]
     for tool in tools:
         found = shutil.which(tool)

@@ -23,6 +23,7 @@ from ..core.shell_sandbox import (
 )
 from .models import Config
 from .sandbox_config import (
+    SandboxConfig,
     effective_deny_read,
     fusion_secret_paths,
     sandbox_policy,
@@ -100,6 +101,8 @@ class SandboxStatus:
     debug_ports: str = ""
     #: Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`).
     allow_read: tuple[str, ...] = ()
+    #: Ek Claude anahtarlarının etkin hâli (kendi proxy, tlsTerminate, mask…; #350, #368).
+    extras: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         """Masaüstü RPC biçimi (Türkçe anahtarlar, listeler JSON dizisi)."""
@@ -116,6 +119,7 @@ class SandboxStatus:
             "ek_yazma": list(self.allow_write),
             "okuma_engeli": list(self.deny_read),
             "okuma_izni": list(self.allow_read),
+            "ek_ayarlar": list(self.extras),
             "cdp_korumasi": self.debug_ports,
             "zorunlu": self.fail_if_unavailable,
             "disari_izinli": self.allow_unsandboxed,
@@ -186,7 +190,40 @@ def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -
         auto_allow=sandbox.auto_allow,
         excluded_commands=sandbox.excluded_commands,
         hide_secret_env=sandbox.hide_secret_env,
+        extras=_extras(sandbox),
     )
+
+
+def _extras(sandbox: SandboxConfig) -> tuple[str, ...]:
+    """Etkin ek anahtarlar (Claude adlarıyla), durum ekranı ve masaüstü kartı için."""
+    items: list[str] = []
+    if sandbox.http_proxy_port or sandbox.socks_proxy_port:
+        ports = ", ".join(
+            f"{name} {port}"
+            for name, port in (
+                ("HTTP", sandbox.http_proxy_port),
+                ("SOCKS5", sandbox.socks_proxy_port),
+            )
+            if port
+        )
+        items.append(
+            f"kendi proxy'n (httpProxyPort/socksProxyPort): {ports}; alan adı listesi uygulanmaz"
+        )
+    if sandbox.tls_terminate:
+        source = "kullanıcı CA'sı" if sandbox.tls_ca_cert else "oturum başına geçici CA"
+        items.append(f"TLS sonlandırma (tlsTerminate): {source}")
+    if sandbox.credential_mask:
+        names = ", ".join(entry.partition("=")[0] for entry in sandbox.credential_mask)
+        items.append(f"maskeli ortam (credentials mode: mask): {names}")
+    for flag, text in (
+        (sandbox.allow_plaintext_inject, "düz HTTP'de de yerine koy (allowPlaintextInject)"),
+        (sandbox.filesystem_disabled, "dosya sistemi yalıtımı kapalı (filesystem.disabled)"),
+        (sandbox.enable_weaker_nested_sandbox, "zayıf iç içe sandbox (enableWeakerNestedSandbox)"),
+        (sandbox.allow_nested_user_namespaces, "iç içe kullanıcı ad alanı açık"),
+    ):
+        if flag:
+            items.append(text)
+    return tuple(items)
 
 
 def _domain(value: str) -> str:
