@@ -140,6 +140,8 @@ class ReplState:
     conversation_name: str = field(default="", kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
     worktree: Worktree | None = field(default=None, kw_only=True)
+    #: Oturum boyu yaşayan görev listesi (#331; `task_list.session_todos` kurar).
+    todos: object | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum

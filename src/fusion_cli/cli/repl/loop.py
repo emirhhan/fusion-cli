@@ -98,6 +98,7 @@ from . import (
     session_agent,
     session_resume,
     status_line,
+    task_list,
     view_commands,
     worktree_exit,
     worktrees,
@@ -1061,6 +1062,7 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             local_origins=browser_command.turn_origins(state),
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
+            todos=task_list.session_todos(state),  # oturum boyu liste (#331)
         ),
         state.config,
     )

@@ -76,6 +76,7 @@ from .commands import (
 )
 from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
+from .task_list import session_todos
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
@@ -979,6 +980,7 @@ class _TuiSession:
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
+                    todos=session_todos(self._state),  # oturum boyu liste (#331)
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

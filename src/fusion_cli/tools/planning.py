@@ -1,7 +1,8 @@
 """Görev listesi aracı.
 
-Liste tur bazlıdır ve `ToolContext` üzerinden taşınır: alt-ajanlar ana ajanın
-listesini ezmez. Ayrıca "iş yarım mı kaldı?" sezgiseli bu listeyi okur.
+Liste `ToolContext` üzerinden taşınır: alt-ajanlar ana ajanın listesini ezmez. Etkileşimli
+oturumda liste oturum boyu yaşar ve diske yazılır (`cli/repl/task_list`, #331). "İş yarım mı
+kaldı?" sezgiseli yalnız bu turda yazılmış listeye bakar.
 """
 
 from __future__ import annotations

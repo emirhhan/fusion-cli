@@ -1251,6 +1251,15 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 
 ---
 
+## Görev listesi (`todo_write`)
+
+Claude Code'daki gibi görev listesi oturum boyunca yaşar: turlar arasında kalır ve sohbet
+`--resume`/`--continue` ile sürdürülünce geri gelir (`<bellek dizini>/tasks/<sohbet>.json`).
+`CLAUDE_CODE_TASK_LIST_ID=<ad>` verilirse liste `~/.claude/tasks/<ad>/fusion-todos.json`
+üzerinden oturumlar arasında paylaşılır. Otomatik devam yalnız o turda yazılan listeye bakar.
+Claude'dan fark (henüz): TaskCreate/TaskGet/TaskList/TaskUpdate araçları yok, yalnız
+`todo_write` var; masaüstü sekmesinde liste hâlâ tur bazlıdır.
+
 ## Plan kipi: plan dosyası ve kabul kartı
 
 `/plan` ile plan kipine geçince agent okur, keşif için kabuk komutu çalıştırır ve planlar;
