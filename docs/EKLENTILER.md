@@ -78,14 +78,21 @@ fusion eklenti kur https://git.ornek.com/x.git # genel https git adresi
 fusion eklenti kur rapor@ekip [--yes]          # kayıtlı pazardan
 fusion eklenti kur <kaynak> --dry-run          # yalnız doğrula ve özetle
 fusion eklenti listele | dogrula <yol|ad>
-fusion eklenti ac|kapat <ad>  ·  fusion eklenti kapat --hepsi
+fusion eklenti ac|kapat <ad>  ·  fusion eklenti kapat --all   # her eklentiyi ayrı kapatır
 fusion eklenti kaldir <ad>                     # Fusion çöpüne (fusion cop geri-al)
 fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
 fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
 fusion eklenti kesfet [pazar]
-fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle <ad>
+fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
 fusion eklenti pazar kaldir <ad>
 ```
+
+Claude Code'daki gibi: zaten kurulu eklentiyi yeniden kurmak bilgi mesajıyla 0, zaten açık/kapalı
+eklentiyi açmak/kapatmak "zaten açık/kapalı" ile 1 döner; `--all` bir adla birlikte kullanılamaz;
+`ac --hepsi` (Claude'da `enable --all` yok) yalnız eski genel kapatmayı kaldırır ve kullanımdan
+kalktı. Eklenti ajanlarında `permissionMode`, `hooks`, `mcpServers`, `initialPrompt` yok sayılır;
+`agents/` alt klasörleri ada katılır (`eklenti:inceleme:guvenlik`). Kurulum boyut sınırı Claude'un
+kopyalama sınırıdır: 20.000 dosya / 256 MiB.
 
 Claude Code adları gizli takma ad olarak çalışır: `fusion plugin install|list|validate|enable|disable|
 uninstall|update|marketplace add|update`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt

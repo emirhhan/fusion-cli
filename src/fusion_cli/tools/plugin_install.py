@@ -58,7 +58,12 @@ OFFICIAL_MARKETPLACE = "https://github.com/anthropics/claude-plugins-official"
 _TEMP_DIRNAME = ".gecici"
 _MARKETS_DIRNAME = ".pazarlar"
 
-ERR_EXISTS = "'{name}' zaten kurulu. Güncellemek için önce kaldır: fusion eklenti kaldir {name}"
+#: Claude: 'Plugin "x@m" is already installed (scope: …)', çıkış kodu 0 (#407).
+ERR_EXISTS = (
+    'Eklenti "{name}" zaten kurulu (kapsam: user). Güncellemek için: fusion plugin update {name}'
+)
+#: Claude: 'Plugin "x" is already enabled/disabled', çıkış kodu 1 (#417).
+ERR_ALREADY = 'Eklenti "{name}" zaten {state}'
 ERR_NOT_INSTALLED = "Kurulu değil: {name}"
 ERR_INVALID = "Eklenti geçersiz:\n  - {errors}"
 ERR_DECLINED = "Kurulum onaylanmadı; hiçbir şey yazılmadı."
@@ -329,7 +334,7 @@ def install_plugin(
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
         name = report.layout.name
         if state.plugin(name) is not None or (root / name).exists():
-            raise PluginError(ERR_EXISTS.format(name=name))
+            raise PluginAlreadyInstalledError(ERR_EXISTS.format(name=name))
         digest = tree_digest(folder)
         _check_expected(expected_digest, digest)
         preview = PluginPreview(report, spec, context_cost(report.layout), digest, commit)
@@ -381,9 +386,33 @@ def set_plugin_enabled(name: str, enabled: bool, *, base: Path | None = None) ->
     record = state.plugin(name)
     if record is None:
         raise PluginError(ERR_NOT_INSTALLED.format(name=name))
+    if record.enabled == enabled:
+        raise PluginError(ERR_ALREADY.format(name=name, state="açık" if enabled else "kapalı"))
     updated = replace(record, enabled=enabled)
     plugin_store.update_state(lambda current: current.with_plugin(updated), root)
     return updated
+
+
+class PluginAlreadyInstalledError(PluginError):
+    """Eklenti zaten kurulu: Claude bunu bilgi olarak basar ve 0 ile çıkar."""
+
+
+def disable_all_plugins(*, base: Path | None = None) -> tuple[str, ...]:
+    """`disable --all` (#409): her etkin eklentiyi AYRI ayrı kapat; kapatılanların adları."""
+    root = base or plugins_dir()
+    closed: list[str] = []
+
+    def change(current: PluginState) -> PluginState:
+        closed.clear()
+        updated = current
+        for record in current.plugins:
+            if record.enabled:
+                closed.append(record.name)
+                updated = updated.with_plugin(replace(record, enabled=False))
+        return replace(updated, all_disabled=False)
+
+    plugin_store.update_state(change, root)
+    return tuple(closed)
 
 
 def set_all_disabled(disabled: bool, *, base: Path | None = None) -> None:

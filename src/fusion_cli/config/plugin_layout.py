@@ -34,9 +34,10 @@ from .plugin_scan import PluginLayout, read_manifest, scan_plugin
 
 __all__ = ["PluginLayout", "read_manifest", "scan_plugin"]
 
-#: Karma ve doğrulamada dosya sınırları: dev bir depo "eklenti" diye kurulmasın.
-MAX_PLUGIN_FILES = 5_000
-MAX_PLUGIN_BYTES = 50 * 1024 * 1024
+#: Karma ve doğrulamada dosya sınırları: Claude'un kopyalama sınırı (command kaynağı, copy
+#: modu: 256 MiB / 20.000 girdi) ile eşit (#414). Eski 5.000 dosya / 50 MB sınırı yoktu.
+MAX_PLUGIN_FILES = 20_000
+MAX_PLUGIN_BYTES = 256 * 1024 * 1024
 #: Karmada atlanan dizinler: git iç verisi ve Python önbelleği (kurulumda kod çalışmaz;
 #: `node_modules` gibi çalıştırılabilir içerik karmaya DAHİLDİR).
 _SKIP_DIRS = frozenset({".git", "__pycache__"})

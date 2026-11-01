@@ -45,10 +45,13 @@ INSTALLED = "Kuruldu: {name} ({status}). Etkin olması için yeni bir oturum aç
 REMOVED = "Kaldırıldı (çöpte): {name}"
 TOGGLED = "{name}: {state}"
 ALL_TOGGLED = "Bütün eklentiler: {state}"
+DISABLED_ALL = "{count} eklenti kapatıldı"
+ENABLE_ALL_DEPRECATED = "enable --all kullanımdan kalktı; Claude Code'da yok"
 TRUSTED = "Onaylandı: {name} (karma yenilendi)"
 UPDATED = "Güncellendi: {name}{version}. Bileşenler yeni turda/oturumda etkin olur."
 UP_TO_DATE = "Zaten güncel: {name}"
 MARKET_UPDATED = "Pazar güncellendi: {name}. Eklentileri gör: fusion eklenti kesfet {name}"
+MARKETS_UPDATED = "{count} pazar güncellendi"
 MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti kesfet {name}"
 MARKET_REMOVED = "Pazar kaldırıldı: {name}"
 
@@ -56,6 +59,8 @@ MARKET_REMOVED = "Pazar kaldırıldı: {name}"
 def _run(action: Callable[[], str]) -> None:
     try:
         console.print(escape(action()))
+    except plugins.PluginAlreadyInstalledError as error:
+        console.print(escape(str(error)))  # Claude: bilgi mesajı, çıkış kodu 0 (#407)
     except PluginError as error:
         console.print(f"[red]{escape(str(error))}[/red]")
         raise typer.Exit(1) from error
@@ -136,11 +141,17 @@ def validate(
 
 def _toggle(name: str, everything: bool, enabled: bool) -> str:
     label = "açık" if enabled else "kapalı"
+    if everything and name:
+        raise PluginError("--all bir eklenti adıyla birlikte kullanılamaz.")
+    if everything and enabled:
+        # Claude'da `enable --all` yok: yalnız eski genel kapatmayı kaldırır (kullanımdan kalktı).
+        plugins.set_all_disabled(False)
+        return ALL_TOGGLED.format(state=label) + " (" + ENABLE_ALL_DEPRECATED + ")"
     if everything:
-        plugins.set_all_disabled(not enabled)
-        return ALL_TOGGLED.format(state=label)
+        closed = plugins.disable_all_plugins()
+        return DISABLED_ALL.format(count=len(closed))
     if not name:
-        raise PluginError("Eklenti adı ver ya da --hepsi kullan.")
+        raise PluginError("Eklenti adı ver ya da --all kullan.")
     plugins.set_plugin_enabled(name, enabled)
     return TOGGLED.format(name=name, state=label)
 
@@ -236,10 +247,13 @@ def market_list() -> None:
 
 
 @market_app.command("guncelle")
-def market_update(name: str = typer.Argument(..., help="Pazar adı")) -> None:
-    """Git pazarını yeniden klonla (yerel pazar zaten diskten okunur)."""
+def market_update(name: str = typer.Argument("", help="Pazar adı (boşsa hepsi)")) -> None:
+    """Git pazarını yeniden klonla; ad verilmezse bütün pazarları yenile (#410)."""
 
     def act() -> str:
+        if not name:
+            count = len(plugin_update.update_all_marketplaces())
+            return MARKETS_UPDATED.format(count=count)
         plugin_update.update_marketplace(name)
         return MARKET_UPDATED.format(name=name)
 

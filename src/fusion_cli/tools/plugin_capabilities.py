@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from ..config.claude_plugins import claude_plugin_layouts
 from ..config.plugin_data import plugin_data_dir
 from ..config.plugin_store import active_plugins, plugin_root_of, plugins_dir
+from ..core.hooks.events import HookSet
 from ..core.plugins import DATA_VARIABLE, PROJECT_VARIABLE, ROOT_VARIABLES, substitute_root
 from .frontmatter import body_after_frontmatter
 
@@ -119,9 +120,23 @@ def _inline_command_files(layout: PluginLayout) -> list[tuple[str, Path]]:
 def plugin_agents(convert: Converter, home: Path | None = None) -> Iterator[Capability]:
     for prefix, layout in _layouts(home):
         for path in layout.agents:
-            capability = convert(path, PLUGIN_SOURCE, fallback=path.stem)
+            capability = _without_ignored_fields(convert(path, PLUGIN_SOURCE, fallback=path.stem))
             name = _agent_scoped_name(layout, path, capability.name)
             yield _prefixed(capability, prefix, name)
+
+
+def _without_ignored_fields(capability: Capability) -> Capability:
+    """Claude (components.md "Frontmatter fields in plugin agents"): eklenti ajanlarında
+    `permissionMode`, `hooks`, `mcpServers` ve `initialPrompt` yok sayılır (#405)."""
+    return replace(
+        capability,
+        permission_mode="",
+        hooks=(),
+        hook_definitions=HookSet(),
+        mcp_servers=(),
+        inline_mcp_servers=(),
+        initial_prompt="",
+    )
 
 
 def _agent_scoped_name(layout: PluginLayout, path: Path, name: str) -> str:

@@ -320,3 +320,68 @@ def test_eklenti_kancasi_yuklenir_ve_ortam_degiskenleriyle_calisir(tmp_path, mon
     assert plugin_root.endswith("eklentiler/kancali")
     assert "/.veri/kancali" in data and Path(data).is_dir()
     assert project_dir == str(project)
+
+
+# --- #404, #405: eklenti ajanları ----------------------------------------------- #
+
+
+def test_alt_klasor_ajani_adi_ve_yok_sayilan_alanlar(tmp_path):
+    root = _manifest(tmp_path / "ajanlar", {"name": "ajanlar"})
+    _write(
+        root / "agents" / "inceleme" / "guvenlik.md",
+        "---\nname: guvenlik\ndescription: d\npermissionMode: bypassPermissions\n"
+        "initialPrompt: başla\nmcpServers: [github]\n"
+        "hooks:\n  Stop:\n    - hooks:\n        - type: command\n          command: echo x\n"
+        "---\nİncele.\n",
+    )
+    plugin_install.install_plugin(str(root), approve=lambda _p: True)
+    agent = CapabilityRegistry(tmp_path / "ev", tmp_path / "proje").get_agent(
+        "ajanlar:inceleme:guvenlik"
+    )
+    assert agent is not None
+    assert agent.permission_mode == "" and agent.initial_prompt == ""
+    assert agent.mcp_servers == () and agent.hooks == ()
+    assert not agent.hook_definitions.commands
+
+
+# --- #407, #409, #410, #417: CLI davranışları ----------------------------------- #
+
+
+def test_cli_yeniden_kurma_zaten_acik_ve_hepsini_kapat(tmp_path):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.plugin_commands import app
+    from fusion_cli.config import plugin_store
+
+    runner = CliRunner()
+    for name in ("bir", "iki"):
+        root = _manifest(tmp_path / name, {"name": name})
+        _write(root / "commands" / "k.md", "k")
+        assert runner.invoke(app, ["kur", str(root)]).exit_code == 0
+
+    again = runner.invoke(app, ["kur", str(tmp_path / "bir")])
+    assert again.exit_code == 0 and "zaten kurulu" in again.output
+    already = runner.invoke(app, ["ac", "bir"])
+    assert already.exit_code == 1 and "zaten açık" in already.output
+    assert runner.invoke(app, ["kapat", "bir", "--all"]).exit_code == 1
+
+    closed = runner.invoke(app, ["kapat", "--all"])
+    assert closed.exit_code == 0 and "2 eklenti kapatıldı" in closed.output
+    state = plugin_store.load_state()
+    assert not state.all_disabled
+    assert [record.enabled for record in state.plugins] == [False, False]
+
+
+def test_pazar_guncelle_adsiz_hepsini_yeniler(tmp_path):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.plugin_commands import app
+
+    for name in ("a", "b"):
+        _write(
+            tmp_path / name / ".claude-plugin" / "marketplace.json",
+            json.dumps(_market([], name=f"pazar-{name}")),
+        )
+        plugin_install.add_marketplace(str(tmp_path / name))
+    result = CliRunner().invoke(app, ["pazar", "guncelle"])
+    assert result.exit_code == 0 and "2 pazar güncellendi" in result.output

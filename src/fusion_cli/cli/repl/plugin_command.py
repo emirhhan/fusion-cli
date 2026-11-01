@@ -163,7 +163,10 @@ def _toggle(enabled: bool) -> Callable[[list[str], bool], str]:
         del confirmed
         label = "açık" if enabled else "kapalı"
         if rest and rest[0] in _ALL:
-            plugins.set_all_disabled(not enabled)
+            if enabled:  # Claude'da `enable --all` yok; eski genel kapatmayı kaldırır.
+                plugins.set_all_disabled(False)
+            else:
+                plugins.disable_all_plugins()
             return DONE.format(name="Bütün eklentiler", state=label)
         if len(rest) != 1:
             return USAGE
@@ -194,6 +197,9 @@ def _market(rest: list[str], confirmed: bool) -> str:
     if action in {"ekle", "add"} and len(rest) == 2:
         record = plugins.add_marketplace(rest[1])
         return DONE.format(name=record.name, state=f"pazar eklendi ({record.kind})")
+    if action in {"guncelle", "update"} and len(rest) == 1:
+        count = len(plugin_update.update_all_marketplaces())
+        return f"{count} pazar güncellendi"
     if action in {"guncelle", "update"} and len(rest) == 2:
         plugin_update.update_marketplace(rest[1])
         return DONE.format(name=rest[1], state="pazar güncellendi")

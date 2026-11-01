@@ -181,7 +181,11 @@ def _plugin_action(name: str, data: Mapping[str, object]) -> dict[str, Any]:
     if name == "eklenti.etkinlik":
         enabled = data.get("etkin") is True
         if data.get("hepsi") is True:
-            plugins.set_all_disabled(not enabled)
+            # Claude `disable --all` her eklentiyi ayrı kapatır (#409).
+            if enabled:
+                plugins.set_all_disabled(False)
+            else:
+                plugins.disable_all_plugins()
         elif plugin:
             plugins.set_plugin_enabled(plugin, enabled)
         else:

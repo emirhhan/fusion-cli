@@ -151,6 +151,8 @@ async def test_masaustunde_eklenti_kapatma_ve_kaldirma_oturumdaki_mcp_yi_dusurur
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": False})
     assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
     await session._extension_rpc("eklenti.etkinlik", {"hepsi": True, "etkin": True})
+    # Claude `disable --all` her eklentiyi ayrı kapatır; `enable --all` yoktur (#409).
+    await session._extension_rpc("eklenti.etkinlik", {"ad": "veri", "etkin": True})
     await session._extension_rpc("eklenti.kaldir", {"ad": "veri"})
     assert "plugin_veri_db" not in {s.name for s in session._state.config.mcp_servers}
     assert dropped == ["plugin_veri_db"] * 3

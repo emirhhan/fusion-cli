@@ -114,6 +114,12 @@ def _swap(destination: Path, folder: Path, record: PluginRecord, root: Path) -> 
         raise
 
 
+def update_all_marketplaces(*, base: Path | None = None) -> tuple[MarketplaceRecord, ...]:
+    """`marketplace update` adsız: bütün kayıtlı pazarları sırayla yenile (#410)."""
+    names = [record.name for record in load_state(base or plugins_dir()).marketplaces]
+    return tuple(update_marketplace(name, base=base) for name in names)
+
+
 def update_marketplace(name: str, *, base: Path | None = None) -> MarketplaceRecord:
     root = base or plugins_dir()
     record = load_state(root).marketplace(name)
