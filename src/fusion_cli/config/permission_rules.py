@@ -53,6 +53,11 @@ LAYER_FUSION = "fusion"
 LAYER_USER = "kullanici"
 LAYER_PROJECT = "proje"
 LAYER_LOCAL = "yerel"
+#: Komut satırı bayrakları (`--allowedTools`, `--disallowedTools`) ve oturum kuralları.
+LAYER_CLI = "cli"
+
+#: Bu süreçte komut satırından verilen kurallar (`set_session_rules`); dosyaya yazılmaz.
+_SESSION_RULES: list[PermissionRule] = []
 
 
 class PermissionDecision(Enum):
@@ -200,13 +205,45 @@ def load_permission_rules(
             untrusted.append(layer.name)
             found = tuple(r for r in found if r.decision is not PermissionDecision.ALLOW)
         rules.extend(found)
+    rules.extend(_SESSION_RULES)
     return PermissionRuleSet(
         tuple(rules), block_reads_outside_root, block_writes_outside_root, tuple(untrusted)
     )
 
 
+def set_session_rules(rules: Iterable[PermissionRule]) -> None:
+    """Komut satırı kurallarını bu süreç için kur (öncekilerin yerine)."""
+    _SESSION_RULES[:] = [PermissionRule(r.tool, r.specifier, r.decision, LAYER_CLI) for r in rules]
+
+
+def session_rules() -> tuple[PermissionRule, ...]:
+    return tuple(_SESSION_RULES)
+
+
+def is_settings_mcp_param_rule(rule: PermissionRule) -> bool:
+    """Ayar dosyasında parantezli `mcp__` kuralı: Claude yükleme sırasında atlar (#87)."""
+    return rule.tool.startswith("mcp__") and rule.specifier is not None
+
+
+def skipped_settings_rules(path: Path) -> tuple[str, ...]:
+    """Dosyada atlanan (geçersiz) kuralların yazımı; uyarı ve `doctor` için."""
+    return tuple(
+        format_rule(rule)
+        for rule in _parse_file(path, source="")
+        if is_settings_mcp_param_rule(rule)
+    )
+
+
 def read_rules_file(path: Path, *, source: str = "") -> tuple[PermissionRule, ...]:
-    """Tek bir ayar dosyasının `permissions.{allow,ask,deny}` listelerini oku."""
+    """Tek bir ayar dosyasının `permissions.{allow,ask,deny}` listelerini oku.
+
+    Parantezli `mcp__` kuralı atlanır (Claude: MCP parametre eşlemesi yalnız
+    `--disallowedTools` ile verilir; #87).
+    """
+    return tuple(r for r in _parse_file(path, source=source) if not is_settings_mcp_param_rule(r))
+
+
+def _parse_file(path: Path, *, source: str) -> tuple[PermissionRule, ...]:
     data = _read_json(path)
     permissions = data.get("permissions") if data is not None else None
     if not isinstance(permissions, Mapping):

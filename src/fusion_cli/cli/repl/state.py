@@ -28,7 +28,7 @@ from ...core.session_goal import SessionGoal
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree, WorktreeSwitch
-from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode, parse_mode
 from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...engines.agent.skill_turn import TurnModelChoice
@@ -257,12 +257,7 @@ class ReplState:
             engine = Engine(config.runtime.engine)
         except ValueError:
             engine = Engine.AGENT
-        try:
-            approval = ApprovalMode(config.runtime.approval_mode)
-        except ValueError:
-            approval = ApprovalMode.AUTO
-        if approval is ApprovalMode.BYPASS:
-            approval = ApprovalMode.AUTO
+        approval = _initial_approval(config, kwargs.get("root"))
         return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
 
     async def reset_child_runs(self) -> None:
@@ -539,3 +534,23 @@ class ReplState:
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed
+
+
+def _initial_approval(config: Config, root: object) -> ApprovalMode:
+    """Etkileşimli başlangıç kipi (#49, #50, #85): settings `permissions.defaultMode` önce,
+    sonra Fusion'ın kayıtlı `runtime.approval_mode`u (Claude adları da okunur).
+
+    Bypass yalnız kullanıcı ayarındaki `defaultMode: bypassPermissions` ile açılır; Fusion'ın
+    kendi kaydından bypass'a dönülmez (Claude: bypass'sız başlayan oturum bypass'a geçemez).
+    """
+    from ...config.permission_settings import default_mode_setting
+    from ..permission_flags import enforce_mode_limits
+
+    setting = default_mode_setting(root) if isinstance(root, Path) else None
+    try:
+        approval = parse_mode(setting or config.runtime.approval_mode)
+    except ValueError:
+        approval = ApprovalMode.AUTO
+    if approval is ApprovalMode.BYPASS and setting is None:
+        approval = ApprovalMode.AUTO
+    return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval

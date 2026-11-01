@@ -158,11 +158,28 @@ def test_arac_listeleri_virgul_ve_tekrarla_ayrilir():
 def test_allowed_ve_disallowed_tools_oturuma_gecer(monkeypatch):
     yakalanan, _ = _agent(
         monkeypatch,
-        ["gorev", "--allowed-tools", "read_file,grep", "--disallowed-tools", "run_shell"],
+        ["gorev", "--tools", "read_file,grep", "--disallowed-tools", "run_shell"],
     )
 
     assert yakalanan["allowed_tools"] == {"read_file", "grep"}
     assert yakalanan["denied_tools"] == frozenset({"run_shell"})
+
+
+def test_allowed_tools_claude_gibi_izin_kurali_olur_kumeyi_daraltmaz(monkeypatch):
+    """Claude (#47): --allowedTools allow kuralıdır; --disallowedTools "Bash(rm *)" aracı açık bırakır."""
+    from fusion_cli.config.permission_rules import PermissionDecision, session_rules
+
+    yakalanan, result = _agent(
+        monkeypatch,
+        ["gorev", "--allowedTools", "Bash(git log *)", "--disallowedTools", "Bash(rm *)"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert yakalanan["allowed_tools"] is None
+    assert "run_shell" not in yakalanan["denied_tools"]
+    kurallar = {(r.pattern, r.decision) for r in session_rules()}
+    assert ("Bash(git log *)", PermissionDecision.ALLOW) in kurallar
+    assert ("Bash(rm *)", PermissionDecision.DENY) in kurallar
 
 
 def test_append_system_prompt_sisteme_eklenir(monkeypatch):
@@ -233,7 +250,8 @@ def test_stream_json_ilk_satir_system_init(monkeypatch):
 
     ilk = json.loads(result.output.splitlines()[0])
     assert ilk["event"] == "SystemInit"
-    assert ilk["kip"] == "auto"
+    # Claude (#70): `-p`/headless varsayılan kipi `default` (Manuel).
+    assert ilk["kip"] == "security"
     assert "model" in ilk
 
 
@@ -645,7 +663,7 @@ def test_claude_code_arac_adlari_fusion_adlarina_cevrilir():
 
 def test_agent_komutu_claude_adlarini_cevirir_ve_kati_dogrulama_ister(monkeypatch):
     yakalanan, result = _agent(
-        monkeypatch, ["gorev", "--allowed-tools", "Read,Edit", "--disallowed-tools", "Bash"]
+        monkeypatch, ["gorev", "--tools", "Read,Edit", "--disallowed-tools", "Bash"]
     )
 
     assert result.exit_code == 0, result.output

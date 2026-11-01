@@ -240,3 +240,13 @@ def _fusion_gunluk_isleyicisi_sizmaz():
         if getattr(handler, "_fusion_dosya", False):
             kok.removeHandler(handler)
             handler.close()
+
+
+@pytest.fixture(autouse=True)
+def izole_oturum_izin_kurallari():
+    """`fusion agent --allowedTools/--disallowedTools` süreç kuralları testten teste taşınmasın."""
+    from fusion_cli.config.permission_rules import set_session_rules
+
+    set_session_rules(())
+    yield
+    set_session_rules(())

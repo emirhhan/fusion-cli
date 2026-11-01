@@ -29,6 +29,7 @@ from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
+from ..config.permission_rules import set_session_rules
 from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
@@ -61,6 +62,7 @@ from . import (
     mcp_commands,
     memory_commands,
     paperclip_command,
+    permission_flags,
     prompt_opt_commands,
     sandbox_commands,
     team_cli,
@@ -402,14 +404,36 @@ def agent(
         "",
         help="Agent'a verilecek görev. `-` ya da boş: boru hattında stdin'den okunur.",
     ),
-    mode: str = typer.Option(
-        "auto",
+    permission_mode: str | None = typer.Option(
+        None,
+        "--permission-mode",
+        help="Başlangıç izin kipi: default (manual) | acceptEdits | plan | auto | dontAsk | "
+        "bypassPermissions. Verilmezse settings `permissions.defaultMode`, o da yoksa default.",
+    ),
+    mode: str | None = typer.Option(
+        None,
         "--mode",
         "-m",
-        help="Onay modu: auto (yalnız riskli işlemde sorar) | edits (düzenlemeler "
-        "sorulmaz) | security/manual (her değişikliği sor) | plan (yalnız planla) | "
-        "bypass (hiçbir şey sorma)",
+        help="Kullanımdan kalktı: `--permission-mode` kullanın (eski adlar da okunur).",
     ),
+    dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--dangerously-skip-permissions",
+        help="İzin istemlerini atla; `--permission-mode bypassPermissions` ile eşdeğer.",
+    ),
+    allow_dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--allow-dangerously-skip-permissions",
+        help="bypassPermissions kipini Shift+Tab döngüsüne ekle, onunla başlama.",
+    ),
+    tools: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tools",
+            help='Modele sunulan yerleşik araçları daralt: "" hepsini kapatır, "default" '
+            'varsayılan küme, ya da "Bash,Edit,Read".',
+        ),
+    ] = None,
     no_memory: bool = typer.Option(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
@@ -440,15 +464,19 @@ def agent(
     allowed_tools: Annotated[
         list[str] | None,
         typer.Option(
+            "--allowedTools",
             "--allowed-tools",
-            help="Modele YALNIZ bu araçlar sunulur (virgülle ya da tekrarla).",
+            help='Sorulmadan çalışan araçlar (izin kuralı, ör. "Bash(git log *)" "Read"); '
+            "araç kümesini daraltmak için --tools.",
         ),
     ] = None,
     disallowed_tools: Annotated[
         list[str] | None,
         typer.Option(
+            "--disallowedTools",
             "--disallowed-tools",
-            help="Bu araçlar sorulmadan engellenir (virgülle ya da tekrarla).",
+            help='Yasak kuralları: yalın ad aracı kaldırır ("Edit", "mcp__*"), '
+            '"Bash(rm *)" yalnız eşleşen çağrıyı reddeder.',
         ),
     ] = None,
     append_system_prompt: str | None = typer.Option(
@@ -502,9 +530,11 @@ def agent(
     if background:
         _reject_background_flags(output_format, as_json, json_schema, permission_channel)
     base_config = _session_config()
+    start_mode = _start_mode(permission_mode, mode, dangerously_skip_permissions)
+    set_session_rules(permission_flags.cli_rules(allowed_tools, disallowed_tools))
     options = _headless_options(
         task,
-        mode=mode,
+        mode=start_mode.value,
         as_json=as_json,
         output_format=output_format,
         json_schema=json_schema,
@@ -513,8 +543,8 @@ def agent(
         session_agents=_cli_session_agents(agents_json or _SESSION.agents_json, Path.cwd()),
         permission_channel=permission_channel,
         append_system_prompt=append_system_prompt,
-        allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
+        allowed_tools=_tools_restriction(tools),
+        disallowed_tools=sorted(permission_flags.bare_denied_names(disallowed_tools)) or None,
         from_pr=from_pr,
     )
     if background:
@@ -864,6 +894,27 @@ def _run_observed(
         renderer.abort()
         observers.finish()
         raise
+
+
+def _start_mode(flag: str | None, legacy: str | None, skip: bool) -> ApprovalMode:
+    """`--permission-mode` > `--mode` (eski) > settings `defaultMode` > default (#49, #50, #70)."""
+    try:
+        return permission_flags.resolve_start_mode(
+            flag=flag, legacy=legacy, skip_permissions=skip, root=Path.cwd(), headless=True
+        )
+    except ValueError:
+        valid = "default, manual, acceptEdits, plan, auto, dontAsk, bypassPermissions"
+        given = flag or legacy or ""
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_MODE.format(given=given, valid=valid)
+        ) from None
+
+
+def _tools_restriction(tools: list[str] | None) -> list[str] | None:
+    """`--tools`: verilmezse ya da "default" ise kısıt yok; "" hiç araç yok."""
+    if tools is None or [t.strip() for t in tools] == ["default"]:
+        return None
+    return [name for chunk in tools for name in chunk.split(",") if name.strip()] or [""]
 
 
 def _parse_mode(raw: str) -> ApprovalMode:
