@@ -529,7 +529,7 @@ TIPS_SECTIONS = (
         (
             ("shift-tab", "onay modunu döndür: auto → security → edits → plan"),
             ("plan modu", "önce planı gör, onaylayınca uygulansın — büyük değişikliklerde"),
-            ("/undo", "son turun dosya değişikliklerini geri al"),
+            ("/undo", "bir turun başına dön (= /rewind)"),
             ("--add-dir", "proje dışına erişim gerekiyorsa açıkça ver"),
         ),
     ),
@@ -1006,7 +1006,6 @@ UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"
 UNDO_PARTIAL = (
     "{count} dosya geri alındı; {failed} dosya geri alınamadı (izin ya da silinmiş dizin)."
 )
-CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"

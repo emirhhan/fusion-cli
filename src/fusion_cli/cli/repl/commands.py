@@ -813,6 +813,17 @@ def _health(state: ReplState, argument: str) -> str:
     return "\n".join(rows)
 
 
+def _rewind(state: ReplState, argument: str) -> str:
+    """`/rewind` (`/checkpoint`, `/undo`) — defter boşken eski son-tur kaydı geri alınır.
+
+    Tur defteri dolmadan kaydedilen değişiklik (dışarıdan verilen `last_changes`) için menüde
+    seçilecek tur yoktur; o durumda geri alınacak tek şey o kayıttır.
+    """
+    if not state.checkpoints.entries() and state.last_changes:
+        return _undo(state, argument)
+    return rewind.rewind_command(state, argument)
+
+
 def _undo(state: ReplState, argument: str) -> str:
     """`/undo` — son agent turunun dosya değişikliklerini geri al (= `/rewind <son> kod`).
 
@@ -1112,12 +1123,12 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
-    SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
+    # Claude Code: `/checkpoint` ve `/undo` `/rewind` takma adıdır, aynı menüyü açar (#201).
     SlashCommand(
         "rewind",
         messages.CMD_REWIND,
-        rewind.rewind_command,
-        ("checkpoint",),
+        _rewind,
+        ("checkpoint", "undo"),
         group="Agent",
         usage="[no] [kod|konuşma|ikisi]",
     ),

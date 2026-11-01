@@ -211,10 +211,13 @@ def test_rewind_bos_defter_ve_checkpoint_takma_adi(state):
     assert build_registry().get("checkpoint") is build_registry().get("rewind")
 
 
-def test_undo_defterden_son_turu_geri_alir(state):
+def test_undo_rewind_takma_adi_ayni_menuyu_acar(state):
+    """Claude Code: `/rewind` takma adları `/checkpoint` ve `/undo` (#201)."""
+    registry = build_registry()
+    assert registry.get("undo") is registry.get("rewind")
     dosya = _seed_turns(state)
 
-    sonuc = _run(state, "/undo")
+    sonuc = _run(state, "/undo 2 kod")
 
     assert "2. turdan önceki hâline" in sonuc
     assert dosya.read_text(encoding="utf-8") == "bir"

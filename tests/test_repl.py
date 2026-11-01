@@ -766,7 +766,8 @@ def test_undo_degisiklik_yokken_bilgi_verir(state):
     komut = build_registry().get("undo")
 
     assert komut is not None
-    assert komut.handler(state, "") == messages.UNDO_NOTHING
+    # `/undo` `/rewind` takma adıdır (#201): boş defterde rewind'in iletisi.
+    assert komut.handler(state, "") == messages.REWIND_NOTHING
 
 
 def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):

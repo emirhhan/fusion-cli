@@ -120,9 +120,9 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
   yaz. Fusion sadece PLAN yapar, dosyaya dokunmaz. Beğenirsen `/auto` ile uygulamaya
   geçersin.
-- **Geri al:** son turda Fusion’ın yazdığı ve sonradan değişmemiş dosyaları geri almak için
+- **Geri al:** Fusion’ın yazdığı ve sonradan değişmemiş dosyaları geri almak için
   ```
-  /undo
+  /undo        → /rewind ile aynı menü (tur, sonra "yalnız kod" seç)
   ```
   Yalnız Fusion’ın yazdığı doğrulanabilen dosyalar otomatik geri alınır. Senin sonradan
   değiştirdiğin dosyalar ve yazarı doğrulanamayan kabuk değişiklikleri korunur; çakışma
@@ -134,7 +134,7 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod"
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
-  Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` = `/rewind <son tur> kod`.
+  Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` ve `/checkpoint` Claude Code'daki gibi `/rewind` takma adıdır ve aynı menüyü açar.
   Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
   kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
   Checkpoint'ler Claude Code'daki gibi konuşmayla birlikte diske yazılır
