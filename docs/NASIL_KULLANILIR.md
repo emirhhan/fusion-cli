@@ -163,7 +163,8 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
 - **`disableAutoMode: "disable"`** (ya da `permissions.disableAutoMode`) herhangi bir ayar
   dosyasında auto kipini kapatır: oturum Manuel'de başlar, auto Shift+Tab döngüsünden, `/auto`
   komutundan, masaüstü kip menüsünden ve Ayarlar › İzinler › Çalışma modu listesinden çıkar;
-  masaüstü çekirdeği auto isteğini reddeder.
+  masaüstü çekirdeği auto isteğini reddeder. Masaüstünde değer sohbet başınadır: ayarı farklı
+  projelerdeki sohbetler arasında geçince menü etkin sohbetin ayarını izler.
 
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 

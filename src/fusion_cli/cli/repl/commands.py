@@ -1014,7 +1014,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         permissions_command.permissions,
         ("allowed-tools", "izinler"),
         group="Onay modu",
-        usage="[list|add|remove] …",
+        usage="[list | add <karar> <kalıp> | remove <karar> <kalıp>]",
     ),
     SlashCommand(
         "hooks", messages.CMD_HOOKS, hooks_command.hooks, ("kancalar",), group="Onay modu"

@@ -933,10 +933,13 @@ PLAN_IMPLEMENT_TASK = (
 )
 CMD_SECURITY = "manuel: okuma dışındaki her işlemi tek tek sor"
 CMD_BYPASS = "izinleri atla: hiçbir şey sorma (silinen yine çöpe gider)"
-CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
+CMD_PERMISSIONS = (
+    "izin iletişim kutusunu aç (Allow/Ask/Deny/Workspace/Auto mode); list/add/remove ile metin"
+)
 PERMISSIONS_EMPTY = "İzin kuralı yok. Ekle: /permissions add allow Bash(npm test *)"
 PERMISSIONS_USAGE = (
-    "Kullanım: /permissions [list] · /permissions add <allow|ask|deny> <Araç(kalıp)> "
+    "Kullanım: /permissions (iletişim kutusu) · /permissions list · "
+    "/permissions add <allow|ask|deny> <Araç(kalıp)> "
     "[--user | --project] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
 )
 PERMISSIONS_BAD_DECISION = "Karar allow, ask ya da deny olmalı: {given}"

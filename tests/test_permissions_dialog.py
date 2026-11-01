@@ -234,3 +234,16 @@ async def test_duz_repl_etkilesimli_permissions_secici_acar(proje, monkeypatch):
     kullanici = Path.home() / ".claude" / "settings.json"
     assert _oku(kullanici)["permissions"]["allow"] == ["WebFetch(domain:example.com)"]
     assert texts.DIALOG_CLOSED in console.export_text()
+
+
+def test_permissions_kullanim_metni_argumansiz_kutuyu_anar():
+    """Argümansız `/permissions` iletişim kutusunu açar; kullanım metni bunu söylemeli,
+    `/permissions` tek başına "liste" gibi görünmemeli (inceleme bulgusu, #83)."""
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    komut = build_registry().get("permissions")
+    assert "iletişim kutusu" in komut.summary
+    assert "[list]" not in messages.PERMISSIONS_USAGE
+    assert "/permissions list" in messages.PERMISSIONS_USAGE
+    assert "iletişim kutusu" in messages.PERMISSIONS_USAGE

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { APPROVAL_MODES, type ApprovalMode } from "../screens/ApprovalModeMenu";
-import { readAutoGate } from "./autoGate";
+import { readAutoGate, setAutoGateSession } from "./autoGate";
 import { saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./useSessions";
 
 interface ActiveSession {
@@ -17,9 +17,9 @@ export interface SessionPersona {
 }
 
 /** `oturum.durum` / `oturum.baslat` cevabındaki mod alanlarını doğrulayarak okur. */
-export function modlariOku(result: Record<string, unknown>): { approval?: ApprovalMode; workspace?: WorkspaceMode; persona?: SessionPersona | null } {
-  // `auto_kapali` (#85): ayar auto'yu kapattıysa kip seçici onu gizler.
-  readAutoGate(result);
+export function modlariOku(result: Record<string, unknown>, sessionId?: string): { approval?: ApprovalMode; workspace?: WorkspaceMode; persona?: SessionPersona | null } {
+  // `auto_kapali` (#85): ayar auto'yu kapattıysa kip seçici onu gizler; değer oturum başınadır.
+  readAutoGate(result, sessionId);
   const approval = APPROVAL_MODES.find((mode) => mode.id === result.mod)?.id;
   const workspace = result.kip === "sohbet" || result.kip === "kod" ? result.kip : undefined;
   return { approval, workspace, persona: kisilikOku(result) };
@@ -56,6 +56,9 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
   const report = useRef(onError);
   report.current = onError;
 
+  // Kip seçicisi etkin oturumun `disableAutoMode` değerini izler (#85).
+  useEffect(() => { setAutoGateSession(id ?? null); }, [id]);
+
   useEffect(() => {
     if (!id || !client) return;
     const stamp = changes.current;
@@ -63,7 +66,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     client.request("oturum.durum", {}).then((result) => {
       // Yanıt gelirken kullanıcı mod değiştirdiyse bayat durum onu ezmesin.
       if (cancelled || result.ok === false || changes.current !== stamp) return;
-      const { approval, workspace, persona } = modlariOku(result);
+      const { approval, workspace, persona } = modlariOku(result, id);
       if (approval) setApprovals((current) => ({ ...current, [id]: approval }));
       if (persona !== undefined) setPersonas((current) => ({ ...current, [id]: persona }));
       if (workspace) {
@@ -116,7 +119,7 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
   const changeApproval = useCallback(async (next: ApprovalMode): Promise<boolean> => {
     const result = await request({ mod: next }, "İzin modu değiştirilemedi.");
     if (!result || !id) return false;
-    const confirmed = modlariOku(result).approval ?? next;
+    const confirmed = modlariOku(result, id).approval ?? next;
     setApprovals((current) => ({ ...current, [id]: confirmed }));
     return true;
   }, [id, request]);
