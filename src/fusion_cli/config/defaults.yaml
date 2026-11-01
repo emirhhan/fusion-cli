@@ -1138,4 +1138,7 @@ agent_launch:
   fork_enabled: true
   auto_supported_models: []
   managed_agent_roots: []
+  # Claude kapsamları dışındaki ajan kaynakları (~/.codex/agents, `fusion yetenek kur`
+  # repoları, Claude'da olmayan yerleşik roller). false = Claude Code ile birebir katalog.
+  extra_agent_sources: true
   default_agent: ""

@@ -98,4 +98,5 @@ def registry_from_config(
         session_agents=session_agents,
         working_directory=working_directory if working_directory is not None else root,
         disabled_builtin_agents=builtin_off,
+        extra_agent_sources=getattr(launch, "extra_agent_sources", True),
     )

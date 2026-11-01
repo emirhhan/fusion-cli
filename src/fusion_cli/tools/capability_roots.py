@@ -73,12 +73,22 @@ def agent_roots(
     bundled: Path,
     managed_roots: tuple[Path, ...] = (),
     working_directory: Path | None = None,
+    extra_sources: bool = True,
 ) -> Roots:
     """Yönetilen kökler ve en yakın projeden başlayan ajan arama dizinleri.
 
     Yönetilen yolların yetkisi config çağıranındadır; burada ortam veya genel cwd okunmaz.
     CLI tanımları dosya kökü değildir; katalog onları ayrı, tiplenmiş girdilerden alır.
+    `extra_sources=False`: Codex ve kurulu repo kökleri hiç taranmaz (#38).
     """
+    extra: Roots = (
+        (
+            (home / ".codex" / "agents", "codex"),
+            *((folder / "agents", "kurulu") for folder in installed_folders(installed)),
+        )
+        if extra_sources
+        else ()
+    )
     return (
         *((folder, "managed") for folder in managed_roots),
         *(
@@ -87,8 +97,7 @@ def agent_roots(
         ),
         *((extra / ".claude" / "agents", "ek-kok") for extra in extra_roots),
         (home / ".claude" / "agents", "claude"),
-        (home / ".codex" / "agents", "codex"),
-        *((folder / "agents", "kurulu") for folder in installed_folders(installed)),
+        *extra,
         (bundled, "fusion"),
     )
 

@@ -115,6 +115,12 @@ _HEAD_CHARS = 16_000
 #: Eski Fusion kimlikleri korunur; Claude uyumluluk adları aynı yerleşik kayda çözülür.
 BUILTIN_AGENT_ALIASES: Mapping[str, str] = {"Explore": "explore", "Plan": "plan"}
 
+#: Claude Code'un belgeli yerleşik ajanları; `extra_agent_sources=False` iken yerleşik
+#: rosterdan yalnız bunlar kalır (Claude'da olmayan Türkçe ekip rolleri düşer, #38).
+CLAUDE_BUILTIN_AGENTS = frozenset(
+    {"general-purpose", "explore", "plan", "statusline-setup", "claude-code-guide"}
+)
+
 
 @functools.lru_cache(maxsize=4096)
 def _path_identity(path: str) -> str:
@@ -327,6 +333,7 @@ class CapabilityRegistry:
         session_agents: tuple[Capability, ...] = (),
         working_directory: Path | None = None,
         disabled_builtin_agents: frozenset[str] = frozenset(),
+        extra_agent_sources: bool = True,
     ) -> None:
         self._proposal_policy = proposal_policy or ProposalPolicy()
         self._home = home
@@ -345,6 +352,8 @@ class CapabilityRegistry:
         self._working_directory = working_directory
         #: Yalnız paketle gelen (`fusion`) tanımlar; aynı adlı kullanıcı/proje tanımı kalır.
         self._disabled_builtin_agents = disabled_builtin_agents
+        #: `agent_launch.extra_agent_sources`: Claude kapsamları dışı kaynaklar (#38).
+        self._extra_agent_sources = extra_agent_sources
         #: Alt klasörlerde tembel keşfedilen beceri dizinleri (P-052); bkz. `add_nested_roots`.
         self._nested_roots: tuple[Path, ...] = ()
         self._skills: tuple[Capability, ...] | None = None
@@ -393,6 +402,7 @@ class CapabilityRegistry:
             session_agents=self._session_agents,
             working_directory=self._working_directory,
             disabled_builtin_agents=self._disabled_builtin_agents,
+            extra_agent_sources=self._extra_agent_sources,
         )
 
     def invalidate(self) -> None:
@@ -504,6 +514,15 @@ class CapabilityRegistry:
             bundled=bundled_roster_dir(),
             managed_roots=self._managed_roots,
             working_directory=self._working_directory,
+            extra_sources=self._extra_agent_sources,
+        )
+
+    def _keeps_source(self, capability: Capability) -> bool:
+        """Ek kaynaklar kapalıyken yerleşik rosterdan yalnız Claude'un yerleşikleri kalır."""
+        return (
+            self._extra_agent_sources
+            or capability.source != "fusion"
+            or capability.name in CLAUDE_BUILTIN_AGENTS
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -548,10 +567,12 @@ class CapabilityRegistry:
                 if not _trusted_path(path, bound, source):
                     continue
                 agent_file = _agent_file(path, source)
-                if agent_file is not None:
+                if agent_file is not None and self._keeps_source(agent_file):
                     shadow_agent(found, agent_file)
-            # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
-            for path in sorted(root.rglob("*.toml")):
+            # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir. Claude
+            # TOML okumaz: ek kaynaklar kapalıyken hiç taranmaz (#38).
+            toml_paths = sorted(root.rglob("*.toml")) if self._extra_agent_sources else []
+            for path in toml_paths:
                 if not _trusted_path(path, bound, source):
                     continue
                 toml_capability = _toml_capability(path, source)

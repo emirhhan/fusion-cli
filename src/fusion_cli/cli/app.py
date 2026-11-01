@@ -760,6 +760,9 @@ def _headless_options(
                 root=Path.cwd(),
                 managed_roots=tuple(Path(value) for value in roots),
                 session_agents=session_agents,
+                extra_agent_sources=getattr(
+                    getattr(launch_config, "agent_launch", None), "extra_agent_sources", True
+                ),
             )
             validate_agent_hooks(persona)
             session_persona = persona

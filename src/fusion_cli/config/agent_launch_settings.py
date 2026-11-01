@@ -30,6 +30,9 @@ class AgentLaunchConfig:
     fork_enabled: bool = True
     auto_supported_models: tuple[str, ...] = ()
     managed_agent_roots: tuple[str, ...] = ()
+    #: Claude kapsamları dışındaki ajan kaynakları (Codex `~/.codex/agents`, `fusion yetenek
+    #: kur` repoları, Claude'da olmayan yerleşik roller). `false` = yalnız Claude kapsamları.
+    extra_agent_sources: bool = True
     default_agent: str = ""
 
     def __post_init__(self) -> None:

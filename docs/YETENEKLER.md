@@ -55,8 +55,7 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
   etkisizdir; ajan belleğine Read/Write/Edit yerine `remember`/`memory_read` ile erişilir;
   Türkçe ekip rolleri (`kodcu`, `mimar`...) hâlâ yerleşiktir; masaüstünde `@` öneri listesinde
   ajan yok, sohbet geçişinde oturum ajanı geri yüklenmez ve Kişilik seçicisi oturum ortasında
-  değiştirmeye izin verir (`/persona` kullanımdan kalkıyor); ek ajan kaynaklarını (Codex,
-  kurulu repolar) tümden kapatan ayar yok.
+  değiştirmeye izin verir (`/persona` kullanımdan kalkıyor).
 
 ## Bilerek yapılmayanlar
 

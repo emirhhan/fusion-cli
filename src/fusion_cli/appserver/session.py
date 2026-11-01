@@ -609,6 +609,7 @@ class AppSession:
             root,
             managed_roots=tuple(Path(value) for value in config.agent_launch.managed_agent_roots),
             working_directory=root,
+            extra_agent_sources=getattr(config.agent_launch, "extra_agent_sources", True),
         )
         self._disabled_skills: set[str] = set()
         self._disabled_agents: set[str] = set()
@@ -1785,6 +1786,9 @@ class AppSession:
                     Path(value) for value in self._state.config.agent_launch.managed_agent_roots
                 ),
                 working_directory=self._root,
+                extra_agent_sources=getattr(
+                    self._state.config.agent_launch, "extra_agent_sources", True
+                ),
             )
             self._disabled_skills.clear()
             self._disabled_agents.clear()
@@ -2608,6 +2612,9 @@ class AppSession:
                 Path(value) for value in self._state.config.agent_launch.managed_agent_roots
             ),
             working_directory=self._root,
+            extra_agent_sources=getattr(
+                self._state.config.agent_launch, "extra_agent_sources", True
+            ),
         )
         self._disabled_skills.clear()
         self._disabled_agents.clear()

@@ -242,6 +242,7 @@ def resolve_agent(
     root: Path,
     managed_roots: tuple[Path, ...] = (),
     session_agents: tuple[Capability, ...] = (),
+    extra_agent_sources: bool = True,
 ) -> Persona:
     """`--agent <ad>` tanımını (.claude/agents/<ad>.md) kişiliğe çevir; yoksa `ValueError`."""
     library = CapabilityRegistry(
@@ -250,6 +251,7 @@ def resolve_agent(
         managed_roots=managed_roots,
         session_agents=session_agents,
         working_directory=root,
+        extra_agent_sources=extra_agent_sources,
     )
     persona = resolve_persona(library, name)
     if persona is GENERIC_PERSONA:

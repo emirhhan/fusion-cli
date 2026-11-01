@@ -383,6 +383,10 @@ Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`,
 Öncelik Claude Code'daki gibi yönetilen > `--agents` > proje (çalışma dizinine en yakın) >
 kullanıcı; Codex (`~/.codex/agents`), `fusion yetenek kur` repoları ve yerleşik roller bunların
 ALTINDADIR: aynı ad hiçbir zaman belirsizlik üretmez, önce gelen tanım kazanır.
+Claude Code ile birebir katalog için `config.yaml` › `agent_launch.extra_agent_sources: false`
+bu ek kaynakları tümden kapatır: Codex (`.md` ve `.toml`) ve kurulu repo ajanları taranmaz,
+yerleşik rosterdan yalnız Claude'un yerleşikleri (`general-purpose`, `Explore`, `Plan`,
+`statusline-setup`, `claude-code-guide`) kalır.
 Claude Code'daki gibi şu dosyalar sessizce atlanır (yalnız hata ayıklama günlüğüne düşer):
 `name` yok (dosya belge sayılır), açılış `---` ilk satırda değil, `name` `-` ile başlıyor,
 `:` içeriyor ya da 256 karakteri aşıyor, `description` yok. Kimlik dosya adından değil `name`

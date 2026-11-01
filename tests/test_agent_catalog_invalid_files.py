@@ -103,3 +103,43 @@ def test_yerlesik_roller_claude_color_yazimini_kullanir() -> None:
     for path in bundled_roster_dir().glob("*.md"):
         text = path.read_text(encoding="utf-8")
         assert "\nrenk:" not in text, path.name
+
+
+def _extra_source_home(tmp_path: Path) -> Path:
+    home = tmp_path / "ev"
+    codex = home / ".codex" / "agents"
+    codex.mkdir(parents=True)
+    (codex / "codexci.md").write_text(
+        "---\nname: codexci\ndescription: codex\n---\nCodex.", encoding="utf-8"
+    )
+    return home
+
+
+def test_ek_ajan_kaynaklari_ayarla_tumden_kapatilir(tmp_path: Path) -> None:
+    """`agent_launch.extra_agent_sources: false` yalnız Claude kapsamlarını bırakır (#38)."""
+    home = _extra_source_home(tmp_path)
+
+    acik = {item.name for item in CapabilityRegistry(home, tmp_path).agents()}
+    kapali_registry = CapabilityRegistry(home, tmp_path, extra_agent_sources=False)
+    kapali = {item.name for item in kapali_registry.agents()}
+
+    assert "codexci" in acik and "kodcu" in acik
+    assert "codexci" not in kapali and "kodcu" not in kapali
+    assert {"explore", "plan", "general-purpose"} <= kapali
+    assert kapali_registry.with_extra_roots(()).get_agent("codexci") is None
+
+
+def test_ek_ajan_kaynaklari_ayari_yapilandirmadan_kataloga_gecer(tmp_path: Path) -> None:
+    import dataclasses
+
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.tools.capability_overrides import registry_from_config
+
+    home = _extra_source_home(tmp_path)
+    config = load_config()
+    launch = dataclasses.replace(config.agent_launch, extra_agent_sources=False)
+    config = dataclasses.replace(config, agent_launch=launch)
+
+    registry = registry_from_config(config, home, tmp_path)
+
+    assert registry.get_agent("codexci") is None
