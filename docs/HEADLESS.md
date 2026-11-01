@@ -143,6 +143,12 @@ ana konuşmanın doğrudan çocukları iletilir. `--forward-subagent-text` ya da
 `CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1` metin bloklarını da ekler ve her derinlikteki alt ajanı
 iletir.
 
+İstem `/<beceri>` ile `context: fork` taşıyan bir beceriyi başlatıyorsa tur Claude'daki gibi
+ana bağlamı devralan fork alt ajanda koşar (REPL `/subtask` yolu; `agent:` alanı o alt ajan
+tanımını seçer). Bu alt ajanın mesajlarında `parent_tool_use_id` `forked-command-<beceri adı>`
+olur ve mesajlar beceri bitince toplu ve sırayla yazılır; eşleştirmeyi `forked-command-`
+önekine göre yap (ad yazdığından farklı olabilir).
+
 `--exclude-dynamic-system-prompt-sections` kişiye/makineye özgü bölümleri (proje
 talimatları, bellek bloğu ve konumu, depo haritası) sistem isteminden ilk kullanıcı mesajına
 taşır; böylece aynı görevi koşan farklı kullanıcı ve makinelerde sistem istemi aynı kalır.

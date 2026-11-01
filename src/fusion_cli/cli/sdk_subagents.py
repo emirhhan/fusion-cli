@@ -10,6 +10,10 @@ alt ajan iletilir (varsayılanda yalnız ana konuşmanın doğrudan çocukları)
 Fusion'da alt ajan olayları `agent_id` ile işaretlenir; Agent çağrısı (`spawn_agent`,
 `invoke_agent`) başlayınca kimliği sıraya alınır, ardından gelen `SubAgentStarted`
 (aynı üst ajandan) bu çağrıya bağlanır. Paralel grup (`group_size`) aynı çağrıyı paylaşır.
+
+İstemden `/<beceri>` ile başlatılan `context: fork` becerisinin (Claude "forked command")
+mesajlarında kimlik `forked-command-<beceri adı>` olur; bu mesajlar beceri bitince toplu ve
+sırayla yazılır (`expect_forked_command`).
 """
 
 from __future__ import annotations
@@ -30,6 +34,8 @@ from ..core.events import (
 
 FORWARD_TEXT_ENV = "CLAUDE_CODE_FORWARD_SUBAGENT_TEXT"
 _AGENT_TOOLS = frozenset({"spawn_agent", "invoke_agent"})
+#: İstemden başlatılan fork becerisinin `parent_tool_use_id` öneki (Claude ile aynı).
+FORKED_COMMAND_PREFIX = "forked-command-"
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
 
@@ -41,6 +47,7 @@ def forward_text_enabled(flag: bool) -> bool:
 class _Call:
     call_id: str
     claimed: int = 0
+    buffered: bool = False
 
 
 @dataclass(slots=True)
@@ -48,6 +55,8 @@ class _Sub:
     parent_tool_use_id: str
     depth: int
     text: str = ""
+    #: Doluysa mesajlar burada birikir ve alt ajan bitince sırayla yazılır.
+    buffer: list[tuple[bool, list[dict[str, object]]]] | None = None
 
 
 #: (içerik blokları, parent_tool_use_id) → mesaj yazan geri çağırımlar.
@@ -63,6 +72,23 @@ class SubagentForwarder:
         self._forward_text = forward_text
         self._calls: dict[str, list[_Call]] = {}
         self._subs: dict[str, _Sub] = {}
+
+    def expect_forked_command(self, name: str) -> None:
+        """Sıradaki kök alt ajan istemden çalışan fork becerisidir (`/<ad>`)."""
+        self._calls.setdefault("", []).append(
+            _Call(f"{FORKED_COMMAND_PREFIX}{name}", buffered=True)
+        )
+
+    def clear_forked_command(self) -> None:
+        """Başlamayan (reddedilen) fork becerisinin bekleyen kaydını at."""
+        queue = self._calls.get("", [])
+        queue[:] = [call for call in queue if not (call.buffered and call.claimed == 0)]
+
+    def _emit(self, sub: _Sub, content: list[dict[str, object]], *, assistant: bool) -> None:
+        if sub.buffer is not None:
+            sub.buffer.append((assistant, content))
+            return
+        (self._assistant if assistant else self._user)(content, sub.parent_tool_use_id)
 
     def observe(self, event: Event) -> bool:
         """Olayı işle; alt ajana aitse `True` (ana akış yazmasın)."""
@@ -94,10 +120,10 @@ class SubagentForwarder:
         call.claimed += 1
         if call.claimed >= max(1, event.group_size):
             queue.pop(0)
-        sub = _Sub(call.call_id, max(1, event.depth))
+        sub = _Sub(call.call_id, max(1, event.depth), buffer=[] if call.buffered else None)
         self._subs[event.sub_id] = sub
         if self._visible(sub) and event.task.strip():
-            self._user([{"type": "text", "text": event.task}], sub.parent_tool_use_id)
+            self._emit(sub, [{"type": "text", "text": event.task}], assistant=False)
 
     def _forward(self, event: Event, sub: _Sub) -> None:
         from .sdk_messages import claude_tool_name
@@ -115,7 +141,7 @@ class SubagentForwarder:
                     "input": dict(event.args),
                 }
             )
-            self._assistant(content, sub.parent_tool_use_id)
+            self._emit(sub, content, assistant=True)
         elif isinstance(event, ToolExecuted):
             block = {
                 "type": "tool_result",
@@ -123,14 +149,17 @@ class SubagentForwarder:
                 "content": event.output,
                 "is_error": event.outcome is not ToolOutcome.OK,
             }
-            self._user([block], sub.parent_tool_use_id)
+            self._emit(sub, [block], assistant=False)
 
     def _finished(self, event: SubAgentFinished, sub: _Sub) -> None:
         content = self._flush(sub)
         if self._forward_text and not content and event.summary.strip():
             content = [{"type": "text", "text": event.summary.strip()}]
         if content:
-            self._assistant(content, sub.parent_tool_use_id)
+            self._emit(sub, content, assistant=True)
+        pending, sub.buffer = sub.buffer or [], None
+        for assistant, blocks in pending:
+            (self._assistant if assistant else self._user)(blocks, sub.parent_tool_use_id)
 
     def _flush(self, sub: _Sub) -> list[dict[str, object]]:
         text, sub.text = sub.text.strip(), ""

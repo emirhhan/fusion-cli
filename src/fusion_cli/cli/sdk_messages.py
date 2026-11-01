@@ -308,6 +308,13 @@ class SdkStream:
                 }
             )
 
+    def expect_forked_command(self, name: str) -> None:
+        """İstemdeki `/<ad>` fork becerisi: alt ajan mesajları `forked-command-<ad>` (#289)."""
+        self._subagents.expect_forked_command(name)
+
+    def clear_forked_command(self) -> None:
+        self._subagents.clear_forked_command()
+
     def hook_event(self, message: Mapping[str, object]) -> None:
         """`--include-hook-events` (#289): `system/hook_started` / `system/hook_response`."""
         self.write({"type": "system", **message, "session_id": self.session_id, "uuid": _uuid()})

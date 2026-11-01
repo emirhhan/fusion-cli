@@ -38,6 +38,11 @@ class SlashExpansion:
     allowed_tools: frozenset[str] | None = None
     denied_tools: frozenset[str] = frozenset()
     error: str = ""
+    #: `context: fork` (#289): tur fork alt ajanda koşar; akışta `forked-command-<ad>`.
+    fork: bool = False
+    #: Fork'u koşacak alt ajan tanımı (`agent:`); boş = genel yardımcı.
+    fork_agent: str = ""
+    skill_name: str = ""
 
 
 def _shell_policy(mode: ApprovalMode, skill: Capability, root: Path) -> tuple[bool, bool]:
@@ -92,4 +97,7 @@ def expand_slash(
             frozenset(invocation.allowed_tools) if invocation.allowed_tools is not None else None
         ),
         denied_tools=invocation.denied_tools,
+        fork=invocation.fork,
+        fork_agent=invocation.agent,
+        skill_name=skill.name,
     )

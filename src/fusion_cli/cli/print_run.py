@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import re
 import sys
@@ -312,6 +313,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         conversation_id=run.session.session_id,
         extra_permission_rules=plan.rules,
         child_runs=child_runs,
+        turn_runner=_fork_runner(run),
     )
     try:
         over = budget_check(observers.cost, request.max_budget_usd)
@@ -321,8 +323,24 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         )
     finally:
         observers.finish()
+        if run.stream is not None:
+            run.stream.clear_forked_command()
     run.history = list(getattr(outcome, "messages", None) or run.history)
     return outcome
+
+
+def _fork_runner(run: _Run) -> Any:  # noqa: ANN401
+    """`/<beceri>` `context: fork` ise tur fork alt ajanda koşar (REPL `/subtask` yolu, #289)."""
+    slash = run.slash
+    if slash is None or not slash.fork:
+        return None
+    from ..engines.agent.team_fork import run_forked_turn
+
+    if run.stream is not None:
+        run.stream.expect_forked_command(slash.skill_name)
+    if slash.fork_agent:
+        return functools.partial(run_forked_turn, persona=slash.fork_agent)
+    return run_forked_turn
 
 
 def _prompter(run: _Run) -> PrintPrompter:
