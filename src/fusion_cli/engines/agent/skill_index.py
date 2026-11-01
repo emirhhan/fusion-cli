@@ -1,50 +1,47 @@
-"""Beceri dizini: skill adlarının ve kısa açıklamalarının sistem bağlamına bütçeli enjeksiyonu.
+"""Beceri listesi: Claude Code'un beceri listeleme kuralları birebir (#164, #181).
 
-Claude Code her istekte tüm skill'lerin `name + description` çiftini sistem istemine koyar
-(progressive disclosure: gövde yalnız kullanımda yüklenir) ve model uygun beceriyi aramadan
-kendisi tetikler. Fusion'da liste modele hiç basılmıyordu; model `find_skill` ile aramak
-zorundaydı ve ölçüm (expertise.py) bunu neredeyse hiç yapmadığını gösterdi (1.696 araç
-çağrısında 0 find_skill).
+Claude Code her istekte modele beceri listesini verir (progressive disclosure: gövde yalnız
+kullanımda yüklenir):
 
-Bu modül dizini üretir: beceri başına tek satır (`ad — açıklama[:150]`), toplam bütçe
-`runtime.skill_index_chars` (varsayılan 4.000; küçük pencereli modelde pencerenin %2'si).
-Sıra keşif sırasıdır (kaynak önceliği: kullanıcı kökleri → proje → dış araçlar → yerleşik).
-Bütçe aşılırsa kalan sayı ve "find_skill ile ara" notu düşer. `disable-model-invocation`
-olan beceriler dizine girmez (yalnız kullanıcı `/ad` ile çağırır).
+- Listede HER beceri adı her zaman bulunur.
+- Bütçe model penceresinin %1'idir (`skillListingBudgetFraction`, settings.json); aşılınca
+  açıklamalar düşer. Ortam değişkeni `SLASH_COMMAND_TOOL_CHAR_BUDGET` bütçeyi karakter olarak
+  sabitler.
+- Giriş başına açıklama (`description` + `when_to_use`) 1.536 karakterde kesilir
+  (`skillListingMaxDescChars`).
+- Tek düz listedir; proje becerileri ayrı etiketle ya da güvenilmezlik notuyla işaretlenmez.
 
-Sıkıştırma: dizin sistem bağlamındadır ve her turda yeniden kurulur; `compaction` yalnız
-konuşma mesajlarını özetlediği için dizin kaybolmaz (ayrı bir koruma gerekmez).
-
-Güven: depo kaynaklı beceriler (`proje`, `ek-kok`, `kurulu`, `claude-plugin`) ayrı bir
-`<proje_becerileri>` bloğunda, `UNTRUSTED_NOTE` ile ve etiket kapatmaları nötralize edilerek
-listelenir — açıklama alanı klonlanan deponun metnidir, kullanıcı sözü değildir (ölçüldü
-31 Ekim: etiketsiz basılıyordu).
+Fusion farkı: Claude az çağrılan becerinin açıklamasını önce düşürür; Fusion'da çağrı sayısı
+tutulmadığından açıklama keşif önceliğinin sonundan (en düşük öncelikli kaynak) başlayarak
+düşer. `disable-model-invocation` olan beceriler listeye girmez. `runtime.skill_index_chars: 0`
+listeyi kapatır (eski Fusion ayarı).
 """
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+from ...config import claude_settings
 from ...config.models import Config
 from ...tools.capabilities import Capability, CapabilityRegistry
 from .context_budget import CHARS_PER_TOKEN_ESTIMATE, context_budget
-from .instruction_layers import UNTRUSTED_NOTE, neutralize
 
-#: Depo içeriği sayılan kaynaklar; yalnız bunlardan gelen beceri güvenilmez bloğa girer.
-REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin", "eklenti"})
-
-REPO_OPEN = "<proje_becerileri>"
-REPO_CLOSE = "</proje_becerileri>"
-
-#: Varsayılan dizin bütçesi (karakter); `runtime.skill_index_chars` ile değişir.
+#: Pencere bilinmediğinde kullanılan bütçe (karakter); `runtime.skill_index_chars`.
 SKILL_INDEX_CHARS = 4_000
 
-#: Küçük pencereli modelde dizin pencerenin bu payını aşmaz (harita %3, dizin %2).
-INDEX_WINDOW_SHARE = 0.02
+#: Claude Code varsayılanı: pencerenin %1'i.
+DEFAULT_BUDGET_FRACTION = 0.01
 
-#: Pencere çok dar olsa da en az bu kadar yer ayrılır (birkaç beceri sığsın).
-INDEX_MIN_CHARS = 600
+#: Giriş başına açıklama sınırı (Claude Code: 1.536 karakter).
+DESCRIPTION_CHARS = 1_536
 
-#: Satır başına açıklamanın en fazla uzunluğu.
-DESCRIPTION_CHARS = 150
+BUDGET_ENV = "SLASH_COMMAND_TOOL_CHAR_BUDGET"
+
+#: Geri uyum: eski adlar (ayrı depo bloğu kaldırıldı, #181).
+INDEX_WINDOW_SHARE = DEFAULT_BUDGET_FRACTION
+INDEX_MIN_CHARS = 0
+REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin", "eklenti"})
 
 HEADER = (
     "BECERİ DİZİNİ (ad — ne işe yarar). Görev bunlardan birine uyuyorsa ÖNCE "
@@ -52,71 +49,75 @@ HEADER = (
 )
 
 
-def index_budget_for(config: Config) -> int:
-    """Turun etkin dizin bütçesi: `runtime.skill_index_chars` ve modelin penceresi."""
+def index_budget_for(config: Config, *, root: Path | None = None, home: Path | None = None) -> int:
+    """Turun dizin bütçesi (karakter): ortam değişkeni > pencere × oran > yapılandırma."""
     runtime = getattr(config, "runtime", None)
     configured = int(getattr(runtime, "skill_index_chars", SKILL_INDEX_CHARS))
     if configured <= 0:
         return 0
+    fixed = os.environ.get(BUDGET_ENV, "").strip()
+    if fixed.isdigit():
+        return int(fixed)
+    fraction = DEFAULT_BUDGET_FRACTION
+    if root is not None:
+        fraction = claude_settings.effective_float(
+            root, home, "skillListingBudgetFraction", DEFAULT_BUDGET_FRACTION
+        )
     try:
         window = context_budget(config, config.agent).window_tokens
     except (AttributeError, TypeError, ValueError):
         return configured
     if not window:
         return configured
-    cap = int(window * CHARS_PER_TOKEN_ESTIMATE * INDEX_WINDOW_SHARE)
-    return min(configured, max(INDEX_MIN_CHARS, cap))
+    return max(0, int(window * CHARS_PER_TOKEN_ESTIMATE * fraction))
 
 
-def _line(name: str, description: str) -> str:
+def description_limit(root: Path | None, home: Path | None) -> int:
+    if root is None:
+        return DESCRIPTION_CHARS
+    value = claude_settings.effective_int(root, home, "skillListingMaxDescChars", DESCRIPTION_CHARS)
+    return value if value > 0 else DESCRIPTION_CHARS
+
+
+def _summary(description: str, limit: int) -> str:
     summary = " ".join(description.split())
-    if len(summary) > DESCRIPTION_CHARS:
-        summary = summary[: DESCRIPTION_CHARS - 1].rstrip() + "…"
+    if len(summary) > limit:
+        summary = summary[: limit - 1].rstrip() + "…"
+    return summary
+
+
+def _line(name: str, summary: str) -> str:
     return f"- {name} — {summary}" if summary else f"- {name}"
 
 
 def is_repo_sourced(skill: Capability) -> bool:
-    """Beceri yalnız depo kaynaklarından mı geliyor (kullanıcı kökünde kopyası yok)?"""
+    """Beceri yalnız depo kaynaklarından mı geliyor (geri uyum yardımcısı)?"""
     return set(skill.source.split("+")) <= REPO_SOURCES
 
 
-def skill_index_block(registry: CapabilityRegistry | None, budget: int = SKILL_INDEX_CHARS) -> str:
-    """Dizin bloğu; kütüphane boşsa ya da bütçe 0 ise boş dize.
-
-    Kullanıcı kökündeki beceriler önce ve düz; depo kaynaklılar `<proje_becerileri>` içinde.
-    """
+def skill_index_block(
+    registry: CapabilityRegistry | None,
+    budget: int = SKILL_INDEX_CHARS,
+    *,
+    max_description: int = DESCRIPTION_CHARS,
+) -> str:
+    """Tek düz liste: her ad her zaman; bütçe aşılırsa sondan başlayarak açıklama düşer."""
     if registry is None or budget <= 0:
         return ""
     skills = [item for item in registry.skills() if item.model_invocable]
     if not skills:
         return ""
-    trusted = [item for item in skills if not is_repo_sourced(item)]
-    repo = [item for item in skills if is_repo_sourced(item)]
-    wrapper_cost = sum(len(part) + 1 for part in (REPO_OPEN, UNTRUSTED_NOTE, REPO_CLOSE))
-    lines: list[str] = [HEADER]
-    remaining = budget - len(HEADER) - (wrapper_cost if repo else 0)
-    shown = 0
-    for skill in trusted:
-        line = _line(skill.name, skill.description if skill.describe_in_index else "")
-        if len(line) + 1 > remaining:
+    summaries = [
+        _summary(item.description, max_description) if item.describe_in_index else ""
+        for item in skills
+    ]
+    lines = [_line(item.name, text) for item, text in zip(skills, summaries, strict=True)]
+    total = len(HEADER) + sum(len(line) + 1 for line in lines)
+    for index in range(len(skills) - 1, -1, -1):
+        if total <= budget:
             break
-        lines.append(line)
-        remaining -= len(line) + 1
-        shown += 1
-    repo_lines: list[str] = []
-    for skill in repo:
-        line = neutralize(_line(skill.name, skill.description if skill.describe_in_index else ""))
-        if len(line) + 1 > remaining:
-            break
-        repo_lines.append(line)
-        remaining -= len(line) + 1
-        shown += 1
-    if repo_lines:
-        lines.extend([REPO_OPEN, UNTRUSTED_NOTE, *repo_lines, REPO_CLOSE])
-    hidden = len(skills) - shown
-    if hidden:
-        lines.append(f"[…+{hidden} beceri daha listeye sığmadı; find_skill ile ara.]")
-    if shown == 0 and hidden:
-        # Hiçbir satır sığmadı: en azından aramayı öner (başlık + not).
-        return "\n".join([HEADER, lines[-1]])
-    return "\n".join(lines)
+        if summaries[index]:
+            short = _line(skills[index].name, "")
+            total -= len(lines[index]) - len(short)
+            lines[index] = short
+    return "\n".join([HEADER, *lines])

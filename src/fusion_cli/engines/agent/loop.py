@@ -270,7 +270,7 @@ from .repair_flow import record_failure_evidence
 from .repo_context import RepoMapFocus, map_budget_for, repo_map_with_stats, task_focus
 from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
-from .skill_index import index_budget_for, skill_index_block
+from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -1013,7 +1013,11 @@ async def _run_agent(
     harita = _repo_map_for_turn(deps, task) if depth == 0 and not chat_mode else ""
     # Beceri dizini (P-018): ad + kısa açıklama, bütçeli; gövde yalnız read_skill ile gelir.
     beceri_dizini = (
-        skill_index_block(deps.capabilities, index_budget_for(deps.config))
+        skill_index_block(
+            deps.capabilities,
+            index_budget_for(deps.config, root=deps.tool_context.root, home=deps.home),
+            max_description=description_limit(deps.tool_context.root, deps.home),
+        )
         if depth == 0 and not internal
         else ""
     )
