@@ -77,7 +77,7 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
             return "\n".join(invocation.notes)
         skill_usage.record_invocation(state.config.memory_dir, skill.name)
         # `hooks` (#161): çağrıda oturuma kaydedilir, oturum boyunca etkin.
-        skill_hooks.register(state.hooks(), skill, trusted=model_override_allowed(state, skill))
+        skill_hooks.register(state.hooks(), skill, trusted=skill_tool.hooks_trusted(skill, state.root))
         state.pending_task = invocation.task
         # `context: fork`: tur fork alt ajanda koşar (`/subtask` yolu), ama geçmişsiz.
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE
@@ -146,7 +146,7 @@ def _run_stack(state: ReplState, stack: tuple[Capability, ...], argument: str) -
         return "\n".join(failed)
     for skill, _ in invocations:
         skill_usage.record_invocation(state.config.memory_dir, skill.name)
-        skill_hooks.register(state.hooks(), skill, trusted=model_override_allowed(state, skill))
+        skill_hooks.register(state.hooks(), skill, trusted=skill_tool.hooks_trusted(skill, state.root))
     commands = [inv.task for skill, inv in invocations if skill.kind == "komut"]
     names = ", ".join(skill.name for skill in stack)
     state.pending_task = "\n\n".join(commands) or argument or DEFAULT_SKILL_TASK.format(name=names)

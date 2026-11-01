@@ -61,6 +61,18 @@ def skill_trusted(skill: Capability, root: Path) -> bool:
     return trust.resolve_project_trust(root).trusted
 
 
+def hooks_trusted(skill: Capability, root: Path) -> bool:
+    """Becerinin `hooks:` kabuk komutu kaydedebilir mi (#161)?
+
+    `!`cmd`` ile aynı sınır: kullanıcının kendi dizini ve kurumsal beceri evet; depo becerisi
+    yalnız güvenilen projede; `fusion yetenek kur` ile gelen üçüncü taraf (`kurulu`) hayır.
+    """
+    sources = _sources(skill)
+    if sources & TRUSTED_SOURCES:
+        return True
+    return bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(root).trusted
+
+
 def shell_mode_policy(skill: Capability, mode: ApprovalMode, root: Path) -> tuple[bool, bool]:
     """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`."""
     if mode not in SHELL_CONTEXT_MODES:
@@ -219,7 +231,7 @@ def build_skill_tool(
         skill_usage.record_invocation(getattr(deps.config, "memory_dir", None), found.name)
         # `hooks` (#161): çağrıda oturuma kaydedilir, oturum boyunca etkin.
         skill_hooks.register(
-            getattr(deps, "hooks", None), found, trusted=skill_trusted(found, context.root)
+            getattr(deps, "hooks", None), found, trusted=hooks_trusted(found, context.root)
         )
         if invocation.fork:
             # Fork becerisinin ön onayı/yasağı yalnız alt ajanda geçerli; ana model almaz (#141).

@@ -98,3 +98,43 @@ def test_repl_beceri_komutu_kancayi_kaydeder(tmp_path: Path, monkeypatch) -> Non
     assert skill.qualified_name in skill_hooks.registered_names(state.hooks())
     state.reset_history()
     assert skill_hooks.registered_names(state.hooks()) == ()
+
+
+def test_kurulu_depo_becerisinin_kancasi_guvenilmez(tmp_path: Path) -> None:
+    """`fusion yetenek kur` ile gelen üçüncü taraf beceri: `!`cmd`` gibi kancası da koşmaz."""
+    import dataclasses
+
+    from fusion_cli.engines.agent import skill_tool
+
+    registry, root = _registry(tmp_path)
+    skill = next(s for s in registry.skills() if s.name == "bicim")
+    kurulu = dataclasses.replace(skill, source="kurulu")
+
+    assert skill_tool.hooks_trusted(skill, root)
+    assert not skill_tool.hooks_trusted(kurulu, root)
+
+
+def test_model_skill_araci_kancayi_oturuma_kaydeder(tmp_path: Path) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import skill_tool
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    from .fakes import make_config
+
+    registry, root = _registry(tmp_path)
+    session = HookSession(root, loader=HookSet)
+    deps = SimpleNamespace(
+        config=make_config(),
+        approval_mode=lambda: ApprovalMode.AUTO,
+        home=tmp_path / "ev",
+        hooks=session,
+    )
+    tool = skill_tool.build_skill_tool(registry, deps, depth=0, run_agent=None)  # type: ignore[arg-type]
+
+    result = asyncio.run(tool.run({"skill": "bicim"}, ToolContext(root=root)))
+
+    assert result.ok, result.output
+    assert _commands(session) == ["echo bicimle"]
