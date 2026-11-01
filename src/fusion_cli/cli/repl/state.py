@@ -136,6 +136,8 @@ class ReplState:
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
     #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
     hook_session: HookSession | None = field(default=None, kw_only=True)
+    #: Bir sonraki SessionStart'ın zorunlu kaynağı (`/branch`, `--fork-session` → `fork`).
+    hook_start_source: str = field(default="", kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
@@ -452,7 +454,8 @@ class ReplState:
         tetikleniyor ve ilk oturumun SessionEnd'i hiç gelmiyordu.
         """
         session = self.hook_session
-        source = "resume" if self.history else "startup"
+        source = self.hook_start_source or ("resume" if self.history else "startup")
+        self.hook_start_source = ""
         if session is None:
             session = open_hook_session(
                 self.root,

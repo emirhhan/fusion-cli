@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 async def open_hooks(state: ReplState, console: Console) -> None:
     """Tanımlı SessionStart kancalarını oturum açılırken çalıştır."""
     session = state.hooks()
+    if state.persona is not None:
+        session.agent_type = state.persona.name
     session.refresh()
     if not session.has(HookEvent.SESSION_START):
         return

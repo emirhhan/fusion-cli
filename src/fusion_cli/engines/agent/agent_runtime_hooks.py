@@ -90,6 +90,8 @@ def prepare_main_metadata(deps: AgentDeps) -> None:
     from .agent_launch_runtime import prepare_main_agent
 
     prepare_main_agent(deps, persona)
+    if deps.hooks is not None:
+        deps.hooks.agent_type = persona.name
     deps.definition_base_hooks = deps.hooks
     deps.hooks = scoped_hooks(deps, persona, child=False)
     if persona.memory_scope:

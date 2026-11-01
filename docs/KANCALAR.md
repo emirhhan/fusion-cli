@@ -60,7 +60,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
 | `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
 | `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
-| `SessionStart` | REPL/TUI oturumu açılırken (masaüstü ve `-p`'de ilk turda); bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
+| `SessionStart` | REPL/TUI oturumu açılırken (masaüstü ve `-p`'de ilk turda); bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
 | `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
@@ -149,7 +149,8 @@ ve `duration_ms` (aracın çalışma süresi; onay beklemesi dahil değil);
 `is_interrupt`. `UserPromptSubmit`: `prompt`. `Stop`: `stop_hook_active`,
 `last_assistant_message`, `background_tasks`, `session_crons`; `SubagentStop` ek olarak
 `agent_id`, `agent_type`, `agent_transcript_path`. `SessionStart`: `source`,
-`session_title` (biliniyorsa). `SessionEnd`: `reason`. `Notification`:
+`model` (`/clear` sonrası yok), `agent_type` (`--agent` ile), `session_title` (biliniyorsa);
+resume/fork maliyet alanları (`seconds_since_last_response`, `context_tokens`…) yok. `SessionEnd`: `reason`. `Notification`:
 `notification_type`, `message`, `title`. `PreCompact`: `trigger`, `custom_instructions`
 (elle `/compact`'ta metin, yoksa ve `auto`'da `null`). `PostCompact`: `trigger`,
 `compact_summary`. `CwdChanged`: `old_cwd`, `new_cwd`. Ekip olayları: `team_name`,

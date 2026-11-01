@@ -53,6 +53,7 @@ def open_hook_session(
         hidden_env=lambda: mcp_secret_env_names(_config().mcp_servers),
         project_dir=root,
         effort=lambda: str(getattr(_config().runtime.reasoning_effort, "value", "auto")),
+        model=lambda: str(getattr(getattr(_config(), "agent", None), "model", "") or ""),
         interactive=interactive,
         terminal_writer=tty_writer() if interactive else None,
     )

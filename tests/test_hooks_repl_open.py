@@ -28,3 +28,37 @@ async def test_sessionstart_kancasi_yoksa_oturum_acik_sayilmaz(tmp_path):
     state = _repl_durumu(tmp_path)
     await open_hooks(state, Console(file=io.StringIO()))
     assert state.hook_session is None or state.hook_session.started is False
+
+
+def test_sessionstart_girdisi_model_agent_type_ve_baslik(tmp_path):
+    """Claude SessionStart girdisi: `model`, `agent_type`, `session_title`; /clear'da model yok (#111)."""
+    import asyncio
+
+    from fusion_cli.core.hooks.events import HookSet
+    from fusion_cli.engines.hooks.session import HookSession
+
+    session = HookSession(root=tmp_path, loader=HookSet, model=lambda: "anthropic/claude-x")
+    session.agent_type = "inceleyici"
+    session.session_title = "hata avı"
+    assert session._start_fields("startup") == {
+        "source": "startup",
+        "model": "anthropic/claude-x",
+        "agent_type": "inceleyici",
+        "session_title": "hata avı",
+    }
+    assert "model" not in session._start_fields("clear")
+    asyncio.run(session.start("fork"))
+    assert session.started
+
+
+def test_branch_sonrasi_sessionstart_kaynagi_fork(tmp_path):
+    from fusion_cli.cli.repl import session_resume
+
+    state = type("S", (), {})()
+    state.hook_start_source = ""
+    target = session_resume.ResumeTarget("yeni", (), "başlık", forked_from="eski")
+    try:
+        session_resume.apply_target(state, target)
+    except AttributeError:
+        pass
+    assert state.hook_start_source == "fork"

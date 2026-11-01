@@ -89,6 +89,10 @@ class HookSession:
     terminal_writer: Callable[[str], None] | None = None
     #: `mcp_tool`/`prompt`/`agent` kancalarının model ve MCP erişimi (ajan turu bağlar).
     services: HookServices | None = None
+    #: Etkin model kimliği (SessionStart `model`); verilmezse alan yazılmaz.
+    model: Callable[[], str] | None = None
+    #: `--agent <ad>` ile açılan oturumun ajanı (SessionStart `agent_type`).
+    agent_type: str = ""
     #: `statusMessage` gösterimi (kanca çalışırken arayüze yazılan satır; ajan turu bağlar).
     status_sink: Callable[[str], None] | None = None
     #: Oturum boyu eklenen kancalar (çağrılan becerinin frontmatter'ı; `once` uygulanır).
@@ -392,8 +396,20 @@ class HookSession:
         self.started = True
         source = source or self.next_source
         return await self.emit(
-            HookEvent.SESSION_START, subjects=(source,), fields={"source": source}
+            HookEvent.SESSION_START, subjects=(source,), fields=self._start_fields(source)
         )
+
+    def _start_fields(self, source: str) -> dict[str, object]:
+        """Claude girdisi: `source`, `model`, `agent_type` (`--agent`), `session_title`."""
+        fields: dict[str, object] = {"source": source}
+        model = self.model() if self.model is not None and source != "clear" else ""
+        if model:
+            fields["model"] = model
+        if self.agent_type:
+            fields["agent_type"] = self.agent_type
+        if self.session_title:
+            fields["session_title"] = self.session_title
+        return fields
 
     async def open(self) -> HookVerdict:
         """Yüzey oturumu açtı: SessionStart hemen (ilk istem beklenmez); bağlam ilk isteme."""
