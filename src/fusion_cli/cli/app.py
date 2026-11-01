@@ -72,6 +72,8 @@ from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
 from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
+from .print_argv import INITIAL_PROMPT_OPTION, ClaudeArgsGroup
+from .print_command import print_command
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
@@ -80,6 +82,8 @@ from .session import Observers, build_observers, open_memory, run_agent_task, ru
 from .setup_command import run_setup
 
 app = typer.Typer(
+    # Claude Code kök sözdizimi: `fusion -p "sorgu"` ve `fusion "sorgu"` (#275, #276).
+    cls=ClaudeArgsGroup,
     add_completion=False,
     invoke_without_command=True,
     # Beklenmeyen istisnada zengin traceback YEREL DEĞİŞKENLERİ basmaz: `session.py`
@@ -116,6 +120,8 @@ app.add_typer(sandbox_commands.app, name="sandbox")
 app.command("paperclip")(paperclip_command.paperclip)
 # `fusion import`, `fusion release-notes`, `fusion eklenti` (P-071, P-059).
 register_extension_commands(app)
+# `fusion -p …` bu gizli alt komuta çevrilir (Claude Code `--print`; bkz. print_argv).
+app.command(name="print", hidden=True)(print_command)
 
 console = Console()
 #: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
@@ -195,8 +201,19 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    initial_prompt: Annotated[str, typer.Option(INITIAL_PROMPT_OPTION, hidden=True)] = "",
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-v",
+            is_eager=True,
+            callback=lambda value: _print_version_and_exit(value),
+            help="Sürümü yazdır ve çık (Claude `claude -v`).",
+        ),
+    ] = False,
 ) -> None:
-    """Argümansız çağrıldığında interaktif oturumu başlat."""
+    """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "istem"` ilk turdur."""
     _SESSION.agents_json = agents_json
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
@@ -242,10 +259,18 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                initial_prompt=initial_prompt,
             )
         )
     )
     raise typer.Exit(exit_code)
+
+
+def _print_version_and_exit(value: bool) -> None:
+    """`fusion -v/--version`: Claude gibi yalnız sürüm numarası (#306)."""
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
 
 
 def _print_worktree_notice(tree: Worktree) -> None:

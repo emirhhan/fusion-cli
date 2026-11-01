@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
-from ..config.permission_rules import load_permission_rules
+from ..config.permission_rules import PermissionRule, PermissionRuleSet, load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
@@ -252,6 +252,7 @@ async def run_agent_task(
     browser: BrowserSession | None = None,
     session_persona: Persona | None = None,
     main_config_applied: bool = False,
+    extra_permission_rules: tuple[PermissionRule, ...] = (),
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -411,10 +412,13 @@ async def run_agent_task(
             else (build_plain_memory(config, tool_context.root) if store.enabled else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
-            permission_rules=load_permission_rules(
-                tool_context.root,
-                block_reads_outside_root=config.runtime.block_reads_outside_root,
-                block_writes_outside_root=config.runtime.block_writes_outside_root,
+            permission_rules=_with_session_rules(
+                load_permission_rules(
+                    tool_context.root,
+                    block_reads_outside_root=config.runtime.block_reads_outside_root,
+                    block_writes_outside_root=config.runtime.block_writes_outside_root,
+                ),
+                extra_permission_rules,
             ),
             hooks=hook_session,
             # Otomatik kip denetçisi (P-011): sayaçlar oturum hafızasıyla yaşar.
@@ -550,6 +554,13 @@ async def _run_agent_with_mcp(
     runner = turn_runner or run_agent
 
     async def _run() -> AgentOutcome:
+        nonlocal allowed_tools
+        if allowed_tools is not None and any(name.endswith("__*") for name in allowed_tools):
+            # `fusion -p --tools` MCP araçlarını daraltmaz: `sunucu__*` bağlanınca açılır.
+            from ..tools.capabilities import expand_tool_patterns
+
+            known = cast("ToolRegistry", deps.base_registry).names()
+            allowed_tools = expand_tool_patterns(set(allowed_tools), tuple(known))
         if strict_tool_names:
             # MCP araçları bağlandıktan SONRA denetlenir: `<sunucu>__<araç>` adları ancak
             # o zaman defterdedir.
@@ -619,6 +630,13 @@ async def _run_agent_with_mcp(
         if expansion.context:
             extra_system = "\n\n".join(part for part in (extra_system, expansion.context) if part)
     return await _run()
+
+
+def _with_session_rules(
+    rules: PermissionRuleSet, extra: tuple[PermissionRule, ...]
+) -> PermissionRuleSet:
+    """Oturumluk kuralları (`fusion -p --allowedTools`, `--settings`) katmanlara ekle."""
+    return rules.with_rules((*rules.rules, *extra)) if extra else rules
 
 
 def _reject_unknown_tools(

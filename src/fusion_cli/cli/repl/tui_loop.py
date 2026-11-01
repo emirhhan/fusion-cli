@@ -1084,6 +1084,10 @@ async def run_tui_repl(
     )
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
+    if state.initial_prompt:
+        # `fusion "istem"` (#276): istem ilk satır olarak gönderilir.
+        first, state.initial_prompt = state.initial_prompt, ""
+        session._submit(first)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl

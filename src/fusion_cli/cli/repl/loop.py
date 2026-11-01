@@ -158,6 +158,7 @@ async def run_repl(
     session_agents: tuple[Capability, ...] = (),
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
+    initial_prompt: str = "",
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -213,6 +214,8 @@ async def run_repl(
                 and not state.history
             ):
                 state.pending_task = state.take_persona_initial("")
+        # `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur.
+        state.initial_prompt = initial_prompt.strip()
         return await _run_surface(state, config, console, resume)
     finally:
         await state.child_runs.close()
@@ -305,6 +308,9 @@ async def _run_surface(
     )
 
     try:
+        if state.initial_prompt:
+            first, state.initial_prompt = state.initial_prompt, ""
+            await _handle_safely(first, state, registry, reader, console, background)
         while state.running:
             line = await _read_line(reader, state)
             if line is None:

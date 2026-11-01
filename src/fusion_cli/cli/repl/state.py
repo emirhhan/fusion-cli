@@ -213,6 +213,8 @@ class ReplState:
     config_baseline: Config = field(init=False)
     #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
     pending_task: str = ""
+    #: `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur olarak gönderilir.
+    initial_prompt: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
     #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.
