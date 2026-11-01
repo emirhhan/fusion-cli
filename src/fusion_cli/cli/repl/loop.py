@@ -52,6 +52,7 @@ from ...core.events import (
     TurnFinished,
 )
 from ...core.followups import suggest_followups
+from ...core.hooks.events import HookEvent
 from ...core.session_cron import Source
 from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
@@ -59,6 +60,7 @@ from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
+from ...engines.agent.hook_text import context_reminder
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...engines.hooks.notify import notifying
 from ...memory.factory import Memory
@@ -1033,17 +1035,22 @@ def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
 async def compact_history(state: ReplState) -> str:
     """`/compact`: uzun geçmişi özetleyerek kısalt."""
     before = len(state.history)
-    await state.hooks().pre_compact("manual")
+    gate = await state.hooks().pre_compact("manual")
+    if gate.blocked:
+        # Claude: PreCompact çıkış 2 / `decision: block` özetlemeyi engeller.
+        return messages.HOOKS_COMPACT_BLOCKED.format(reason=gate.reason)
+    previous = list(state.history)
     state.history = await compress(state.history, config=state.config)
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT
+    summary = "\n\n".join(m.content for m in state.history if m not in previous)
+    await state.hooks().post_compact("manual", summary)
     # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
     verdict = await state.hooks().compacted()
     if verdict.context_text:
         prefixes.push_pending_context(
-            state,
-            messages.HOOKS_CONTEXT_NOTE.format(event="SessionStart", context=verdict.context_text),
+            state, context_reminder(HookEvent.SESSION_START, verdict.context_text)
         )
     summary = messages.REPL_COMPACTED.format(before=before, after=after)
     return "\n".join((summary, *hook_events.verdict_lines(verdict)))

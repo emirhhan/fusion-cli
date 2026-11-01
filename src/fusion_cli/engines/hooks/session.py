@@ -5,8 +5,9 @@ Her yüzey (REPL, masaüstü oturumu, tek atışlık `fusion agent`) bir `HookSe
 (`refresh`): masaüstünde "Bu projeye güven" ya da dosya düzenlemesi bir sonraki turda
 etkili olur; tur ORTASINDA değişmez.
 
-`SessionStart` ilk kök turda bir kez tetiklenir (ek bağlamı o tura eklenir); `SessionEnd`
-yalnız başlamış oturumda, kapanışta bir kez. Sohbet sıfırlanınca ya da değişince
+`SessionStart` yüzey oturumu açınca (`open`) ya da en geç ilk kök turda bir kez tetiklenir;
+bağlamı konuşmanın başına, ilk istemden önce eklenir. `SessionEnd` yalnız başlamış
+oturumda, kapanışta bir kez. Sohbet sıfırlanınca ya da değişince
 (`restart`: `/reset`, `/resume`, masaüstünde başka sohbet) eski oturum `SessionEnd` alır ve
 yenisi bir sonraki kök turda `SessionStart` (`source: clear|resume`) ile açılır. Kök değişimi
 (worktree) oturumu YENİLEMEZ: `root` güncellenir, tanımlar yeni kökten okunur.
@@ -20,17 +21,31 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...config.hooks import DISABLE_ALL_KEY, hook_environment, load_hooks
-from ...config.models import Config, mcp_secret_env_names
+from ...config.hooks import DISABLE_ALL_KEY, hook_environment
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
-from ...core.hooks.events import HookEvent, HookSet, HookVerdict
+from ...core.hooks.events import HookCommand, HookEvent, HookSet, HookVerdict
+from . import dispatch
+from .overflow import spill_verdict
 from .runner import run_hook
-from .transcript import HOOK_TRANSCRIPT_DIR, HookTranscript, transcript_for
+from .transcript import HookTranscript, transcript_for
 
 #: Boş karar: hiçbir kanca eşleşmedi.
 NO_VERDICT = HookVerdict()
 #: Özetleme sonrası `SessionStart` kaynağı (Claude Code ile aynı).
 COMPACT_SOURCE = "compact"
+#: Fusion onay kipi → Claude `permission_mode` değeri (Manual kip `default` gelir).
+_CLAUDE_MODES = {
+    "security": "default",
+    "edits": "acceptEdits",
+    "bypass": "bypassPermissions",
+    "auto": "auto",
+    "plan": "plan",
+    "dontAsk": "dontAsk",
+}
+
+
+def claude_permission_mode(mode: str) -> str:
+    return _CLAUDE_MODES.get(mode, mode)
 
 
 @dataclass(slots=True)
@@ -58,7 +73,27 @@ class HookSession:
     hidden_env: Callable[[], frozenset[str]] | None = None
     #: `http` kancası iç ağ adresine gidebilir mi? (`runtime.hook_http_allow_private`)
     http_allow_private: Callable[[], bool] | None = None
+    #: Oturumun BAŞLADIĞI proje kökü: `CLAUDE_PROJECT_DIR` worktree/`/cd` ile değişmez.
+    project_dir: Path | None = None
+    #: Anlık reasoning yoğunluğu (`effort.level`, `CLAUDE_EFFORT`); verilmezse yazılmaz.
+    effort: Callable[[], str] | None = None
+    #: Etkileşimli oturum mu? (`-p`'de `defer`, terminal dizisi ve güven kuralı farklı.)
+    interactive: bool = True
+    #: Tur kimliği (`prompt_id`): her kök istemde yenilenir.
+    prompt_id: str = ""
+    #: Kancanın verdiği oturum başlığı (`sessionTitle`).
+    session_title: str = ""
+    #: PreToolUse `additionalContext`: çağrı kimliği → araç sonucuna eklenecek hatırlatma.
+    pending_tool_context: dict[str, str] = field(default_factory=dict)
+    #: Çağrı kimliği → başlama anı (`duration_ms`).
+    tool_started: dict[str, float] = field(default_factory=dict)
+    #: `asyncRewake` kancalarının bir sonraki tura bıraktığı metinler.
+    rewake_notes: list[str] = field(default_factory=list)
     _loaded: bool = False
+    #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
+    _start_context: str = ""
+    _notices_shown: bool = False
+    _background: set[asyncio.Task[None]] = field(default_factory=set)
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None
     #: Eşzamanlı koddan (slash komutu) kuyruğa alınmış olaylar; `flush_deferred` gönderir.
@@ -111,6 +146,22 @@ class HookSession:
         self.disabled_notified = True
         return reason
 
+    def take_notices(self) -> tuple[str, ...]:
+        """Katman uyarıları (kullanımdan kalkan dosya vb.); oturumda bir kez."""
+        if self._notices_shown:
+            return ()
+        self._notices_shown = True
+        return self.current().notices
+
+    def new_prompt(self) -> str:
+        """Yeni kök istem: `prompt_id` yenilenir."""
+        self.prompt_id = uuid.uuid4().hex
+        return self.prompt_id
+
+    def take_start_context(self) -> str:
+        context, self._start_context = self._start_context, ""
+        return context
+
     def current(self) -> HookSet:
         return self.hooks if self._loaded else self.refresh()
 
@@ -123,28 +174,79 @@ class HookSession:
         *,
         subjects: tuple[str, ...] = (),
         fields: Mapping[str, object] | None = None,
+        target: tuple[str, Mapping[str, object]] | None = None,
     ) -> HookVerdict:
-        """Olayın eşleşen komutlarını paralel çalıştır ve kararlarını birleştir."""
-        commands = self.current().for_event(event, subjects)
+        """Olayın eşleşen komutlarını paralel çalıştır ve kararlarını birleştir.
+
+        `target` (Fusion araç adı, argümanlar) `if` koşulunun değerlendirildiği çağrıdır.
+        """
+        root = self.project_dir or self.root
+        commands = tuple(
+            command
+            for command in self.current().for_event(event, subjects)
+            if dispatch.condition_allows(command, event, target, self.root)
+        )
         if not commands:
             return NO_VERDICT
         payload = self._payload(event, fields or {})
         hidden = self.hidden_env() if self.hidden_env is not None else frozenset()
-        environment = hook_environment(self.root, hidden)
-        private = self.http_allow_private() if self.http_allow_private is not None else False
+        environment = hook_environment(root, hidden, self._extra_env())
+        private = self.http_allow_private() if self.http_allow_private is not None else True
+        subject = subjects[0] if subjects else ""
+        timed = dispatch.with_event_timeout(commands, event)
+        for command in timed:
+            if dispatch.is_background(command):
+                self._run_background(event, command, payload, environment, private)
+        foreground = [command for command in timed if not dispatch.is_background(command)]
         runs = await asyncio.gather(
             *(
                 run_hook(
-                    command,
-                    payload,
-                    cwd=self.root,
-                    environment=environment,
-                    allow_private=private,
+                    command, payload, cwd=self.root, environment=environment, allow_private=private
                 )
-                for command in commands
+                for command in foreground
             )
         )
-        return merge_verdicts(verdict_from_run(event, run) for run in runs)
+        verdicts = [
+            dispatch.apply_on_failure(event, run, verdict_from_run(event, run, subject))
+            for run in runs
+        ]
+        return spill_verdict(merge_verdicts(verdicts), self._output_dir())
+
+    def _run_background(
+        self,
+        event: HookEvent,
+        command: HookCommand,
+        payload: Mapping[str, object],
+        environment: Mapping[str, str],
+        private: bool,
+    ) -> None:
+        """`async`/`asyncRewake`: karar beklenmez; rewake çıkış 2'yi sonraki tura bırakır."""
+
+        async def _run() -> None:
+            run = await run_hook(
+                command, payload, cwd=self.root, environment=environment, allow_private=private
+            )
+            text = dispatch.rewake_text(run)
+            if text:
+                self.rewake_notes.append(f"{event.value} hook (async): {text}")
+
+        task = asyncio.get_running_loop().create_task(_run())
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    def take_rewake_notes(self) -> tuple[str, ...]:
+        notes, self.rewake_notes = tuple(self.rewake_notes), []
+        return notes
+
+    def _output_dir(self) -> Path | None:
+        if self.transcript_dir is None:
+            return None
+        return self.transcript_dir / f"{self.session_id}-hook-output"
+
+    def _extra_env(self) -> dict[str, str]:
+        if self.effort is None:
+            return {}
+        return {"CLAUDE_EFFORT": self.effort()}
 
     def defer(
         self,
@@ -223,6 +325,17 @@ class HookSession:
             HookEvent.SESSION_START, subjects=(source,), fields={"source": source}
         )
 
+    async def open(self) -> HookVerdict:
+        """Yüzey oturumu açtı: SessionStart hemen (ilk istem beklenmez); bağlam ilk isteme."""
+        from ..agent.hook_text import context_reminder
+
+        verdict = await self.start()
+        if verdict.context_text:
+            self._start_context = context_reminder(HookEvent.SESSION_START, verdict.context_text)
+        if verdict.session_title:
+            self.session_title = verdict.session_title
+        return verdict
+
     async def end(self, reason: str = "other") -> HookVerdict:
         """`SessionEnd`: yalnız başlamış oturumda bir kez."""
         await self._flush_pending_end()
@@ -237,20 +350,31 @@ class HookSession:
             transcript.remove()
         return verdict
 
-    async def notify(self, kind: str, message: str) -> HookVerdict:
+    async def notify(self, kind: str, message: str, *, title: str = "") -> HookVerdict:
         """`Notification`: kullanıcının dikkati gerektiğinde (izin istemi vb.)."""
-        return await self.emit(
-            HookEvent.NOTIFICATION,
-            subjects=(kind,),
-            fields={"notification_type": kind, "message": message},
-        )
+        fields: dict[str, object] = {"notification_type": kind, "message": message}
+        if title:
+            fields["title"] = title
+        return await self.emit(HookEvent.NOTIFICATION, subjects=(kind,), fields=fields)
 
-    async def pre_compact(self, trigger: str) -> HookVerdict:
-        """`PreCompact`: bağlam özetlenmeden önce (`manual` = /compact, `auto` = eşik)."""
+    async def pre_compact(self, trigger: str, instructions: str | None = None) -> HookVerdict:
+        """`PreCompact`: özetlemeden önce (`manual` = /compact, `auto` = eşik); engelleyebilir.
+
+        `custom_instructions`: elle `/compact <metin>`'de metin, yoksa ve `auto`'da `null`.
+        """
+        text = instructions.strip() if trigger == "manual" and instructions else None
         return await self.emit(
             HookEvent.PRE_COMPACT,
             subjects=(trigger,),
-            fields={"trigger": trigger, "custom_instructions": ""},
+            fields={"trigger": trigger, "custom_instructions": text or None},
+        )
+
+    async def post_compact(self, trigger: str, summary: str) -> HookVerdict:
+        """`PostCompact`: özetleme bitti (`compact_summary`)."""
+        return await self.emit(
+            HookEvent.POST_COMPACT,
+            subjects=(trigger,),
+            fields={"trigger": trigger, "compact_summary": summary},
         )
 
     async def compacted(self) -> HookVerdict:
@@ -265,56 +389,19 @@ class HookSession:
             "cwd": str(self.root),
             "hook_event_name": event.value,
         }
+        if self.prompt_id:
+            payload["prompt_id"] = self.prompt_id
         if self.permission_mode is not None:
-            payload["permission_mode"] = self.permission_mode()
+            payload["permission_mode"] = claude_permission_mode(self.permission_mode())
+        if self.effort is not None:
+            payload["effort"] = {"level": self.effort()}
         transcript = self.transcript()
         if transcript is not None and "transcript_path" not in fields:
             payload["transcript_path"] = str(transcript.ensure())
         return {**payload, **fields}
 
 
-def open_hook_session(
-    root: Path,
-    config: Config | Callable[[], Config],
-    *,
-    session_id: str | None = None,
-    permission_mode: Callable[[], str] | None = None,
-    home: Path | None = None,
-    source: str = "startup",
-    transcript_dir: Path | None = None,
-) -> HookSession:
-    """Yapılandırmaya göre kanca oturumu kur (dosyalar ilk kullanımda okunur).
+# Geriye uyum: kurucu ayrı modülde (dosya boyu sınırı); eski içe aktarmalar çalışır.
+from .factory import open_hook_session  # noqa: E402
 
-    `config` çağrılabilirse her yüklemede okunur: `/config set runtime.hooks_enabled false`
-    açık oturumda bir sonraki turda etkili olur. Ölçüldü (31 Ekim): `runtime` kapanışla
-    yakalandığı için REPL yeniden başlatılana kadar kancalar çalışmaya devam ediyordu.
-    """
-
-    def _config() -> Config:
-        return config() if callable(config) else config
-
-    def _load() -> HookSet:
-        runtime = _config().runtime
-        return load_hooks(
-            session.root,
-            enabled=runtime.hooks_enabled,
-            include_claude=runtime.claude_hooks,
-            default_timeout_s=runtime.hook_timeout_s,
-            home=home,
-        )
-
-    session = HookSession(
-        root=root,
-        loader=_load,
-        permission_mode=permission_mode,
-        next_source=source,
-        transcript_dir=transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR,
-        hidden_env=lambda: mcp_secret_env_names(_config().mcp_servers),
-        http_allow_private=lambda: bool(
-            getattr(_config().runtime, "hook_http_allow_private", False)
-        ),
-    )
-    if session_id:
-        session.session_id = session_id
-        session.conversation_id = session_id
-    return session
+__all__ = ["HookSession", "claude_permission_mode", "open_hook_session"]

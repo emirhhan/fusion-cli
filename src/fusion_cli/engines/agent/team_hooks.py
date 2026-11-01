@@ -66,8 +66,13 @@ class TeamHooks:
     async def task_created(self, task: TeamTask, creator: str) -> TeamGate:
         return await self._gate(HookEvent.TASK_CREATED, creator, task)
 
-    async def task_completed(self, task: TeamTask, member: str) -> TeamGate:
-        return await self._gate(HookEvent.TASK_COMPLETED, member, task)
+    async def task_completed(
+        self, task: TeamTask, member: str, *, from_tool: bool = True
+    ) -> TeamGate:
+        """Claude: görev aracından (TaskUpdate) gelen TaskCompleted `continue: false`'u yok
+        sayar; yalnız üyenin tur sonu kaynağında üyeyi durdurur. Çıkış 2 her zaman engeller."""
+        gate = await self._gate(HookEvent.TASK_COMPLETED, member, task)
+        return TeamGate(gate.blocked) if from_tool else gate
 
     async def teammate_idle(self, member: str) -> TeamGate:
         return await self._gate(HookEvent.TEAMMATE_IDLE, member)

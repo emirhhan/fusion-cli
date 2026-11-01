@@ -466,7 +466,8 @@ class ReplState:
         if session.conversation_id != self.conversation_id:
             session.restart(
                 source,
-                reason="other",
+                # Claude: etkileşimli /resume ile oturum değişimi `resume` nedenidir.
+                reason="resume",
                 session_id=self.conversation_id,
                 conversation_id=self.conversation_id,
             )

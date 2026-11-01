@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
+from fusion_cli.config.hooks import DEFAULT_STOP_BLOCK_CAP
 from fusion_cli.config.permission_rules import PermissionDecision, PermissionRuleSet, parse_rule
 from fusion_cli.core.events import ErrorOccurred, NarrationPublished
 from fusion_cli.core.hooks.events import HookCommand, HookEvent, HookSet
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalMode, build_policy
-from fusion_cli.engines.agent.hook_bridge import MAX_STOP_CONTINUATIONS
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 from fusion_cli.engines.hooks.notify import notifying
 from fusion_cli.engines.hooks.session import HookSession
@@ -128,7 +128,11 @@ async def test_pretooluse_cikis_2_araci_calistirmaz_gerekce_modele_gider(monkeyp
         session,
     )
     assert not (tmp_path / ".env").exists()
-    assert "KANCA ENGELLEDİ (PreToolUse): .env yazılamaz: .env" in _arac_mesajlari(outcome)[0]
+    # Claude biçimi: `PreToolUse:Write hook error: [komut]: <stderr>`; dosya yolu mutlak (#91).
+    mesaj = _arac_mesajlari(outcome)[0]
+    assert mesaj.startswith("PreToolUse:Write hook error: [")
+    assert f"]: .env yazılamaz: {tmp_path / '.env'}" in mesaj
+    assert "farklı bir yol dene" not in mesaj
     assert provider.calls >= 2  # tur durmadı; model gerekçeyi gördü
 
 
@@ -167,10 +171,14 @@ async def test_pretooluse_updated_input_file_path_ile_hedefi_degistirir(monkeypa
 
 
 _ASK = (
-    "print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'ask',"
+    "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',"
+    " 'permissionDecision': 'ask',"
     " 'permissionDecisionReason': 'gözden geçir'}}))\n"
 )
-_ALLOW = "print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'allow'}}))\n"
+_ALLOW = (
+    "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',"
+    " 'permissionDecision': 'allow'}}))\n"
+)
 
 
 async def test_pretooluse_ask_otomatik_kipte_de_sordurur(monkeypatch, tmp_path):
@@ -247,9 +255,10 @@ async def test_posttooluse_geri_bildirimi_ve_baglami_arac_sonucuna_eklenir(monke
         _kanca(
             tmp_path,
             HookEvent.POST_TOOL_USE,
-            "assert data['tool_response']['success'] is True\n"
+            "assert data['tool_response']['filePath'].endswith('a.py')\n"
             "print(json.dumps({'decision': 'block', 'reason': 'lint hatası: satır 1',"
-            " 'hookSpecificOutput': {'additionalContext': 'stil rehberi: PEP 8'}}))\n",
+            " 'hookSpecificOutput': {'hookEventName': 'PostToolUse',"
+            " 'additionalContext': 'stil rehberi: PEP 8'}}))\n",
             "Edit|Write",
         ),
     )
@@ -260,8 +269,8 @@ async def test_posttooluse_geri_bildirimi_ve_baglami_arac_sonucuna_eklenir(monke
         session,
     )
     govde = _arac_mesajlari(outcome)[0]
-    assert "KANCA GERİ BİLDİRİMİ (PostToolUse): lint hatası: satır 1" in govde
-    assert "stil rehberi: PEP 8" in govde
+    assert "PostToolUse:Write hook error: lint hatası: satır 1" in govde
+    assert "<system-reminder>\nPostToolUse hook additional context: stil rehberi: PEP 8" in govde
     assert (tmp_path / "a.py").exists()  # PostToolUse geri almaz
 
 
@@ -313,8 +322,11 @@ async def test_sessionstart_ve_istem_baglami_sisteme_eklenir_oturum_bir_kez_basl
         _kanca(tmp_path, HookEvent.USER_PROMPT_SUBMIT, "print('saat dilimi: UTC+3')\n"),
     )
     _, provider, _, _ = await _tur(monkeypatch, tmp_path, [model_result("bir")], session)
-    sistem = "\n".join(m.content for m in provider.seen_messages[0] if m.role == "system")
-    assert "açık PR: #42" in sistem and "saat dilimi: UTC+3" in sistem
+    # Claude: bağlam sistem hatırlatması olarak istemle birlikte konuşmada kalır (#92, #134).
+    istem = [m.content for m in provider.seen_messages[0] if m.role == "user"][-1]
+    assert istem.index("açık PR: #42") < istem.index("saat dilimi: UTC+3")
+    assert "<system-reminder>\nSessionStart hook additional context: açık PR: #42" in istem
+    assert "UserPromptSubmit hook additional context: saat dilimi: UTC+3" in istem
     await _tur(monkeypatch, tmp_path, [model_result("iki")], session)
     assert [s["source"] for s in _satirlar(kayit)] == ["startup"]
 
@@ -349,9 +361,12 @@ async def test_stop_kancasi_hep_engellese_de_sinirda_durur(monkeypatch, tmp_path
             tmp_path, HookEvent.STOP, "print(json.dumps({'decision': 'block', 'reason': 'y'}))\n"
         ),
     )
-    results = [model_result(f"cevap {i}") for i in range(MAX_STOP_CONTINUATIONS + 3)]
+    # Claude: art arda 8 sürdürme tavanı; CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ile değişir (#110).
+    assert DEFAULT_STOP_BLOCK_CAP == 8
+    monkeypatch.setenv("CLAUDE_CODE_STOP_HOOK_BLOCK_CAP", "4")
+    results = [model_result(f"cevap {i}") for i in range(10)]
     _, provider, _, _ = await _tur(monkeypatch, tmp_path, results, session)
-    assert provider.calls == MAX_STOP_CONTINUATIONS + 1
+    assert provider.calls == 4 + 1
 
 
 async def test_sessionend_yalniz_baslamis_oturumda_bir_kez(tmp_path):
@@ -368,7 +383,24 @@ async def test_sessionend_yalniz_baslamis_oturumda_bir_kez(tmp_path):
 # --- Notification / hata görünürlüğü --------------------------------------------- #
 
 
-async def test_notification_izin_sorusundan_once_tetiklenir(monkeypatch, tmp_path):
+def _yavas_soru(monkeypatch, gecikme: float = 0.5) -> None:
+    """Yanıtı geciken kullanıcı: bildirim gecikmesi (Claude ~6 sn) testte kısaltılır."""
+    import asyncio
+
+    from fusion_cli.engines.hooks import notify
+
+    monkeypatch.setattr(notify, "PERMISSION_NOTIFY_DELAY_S", 0.01)
+    hizli = _Kaydeden.confirm
+
+    async def confirm(self, request):
+        await asyncio.sleep(gecikme)
+        return await hizli(self, request)
+
+    monkeypatch.setattr(_Kaydeden, "confirm", confirm)
+
+
+async def test_notification_yanitsiz_izin_sorusunda_gecikmeli_tetiklenir(monkeypatch, tmp_path):
+    _yavas_soru(monkeypatch)
     kayit = tmp_path / "kayit.jsonl"
     session = _oturum(
         tmp_path, _kayit_kancasi(tmp_path, HookEvent.NOTIFICATION, kayit, "permission_prompt")
@@ -383,7 +415,19 @@ async def test_notification_izin_sorusundan_once_tetiklenir(monkeypatch, tmp_pat
     assert prompter.soruldu == ["write_file"]
     satirlar = _satirlar(kayit)
     assert satirlar[0]["notification_type"] == "permission_prompt"
-    assert "write_file" in satirlar[0]["message"]
+    assert "write_file" in satirlar[0]["message"] and satirlar[0]["title"] == "Fusion"
+
+
+async def test_notification_hizli_yanitta_iptal_edilir_soruyu_bekletmez(monkeypatch, tmp_path):
+    """Claude: bildirim ~6 sn yanıtsız kalınca; yanıt erken gelirse hiç tetiklenmez (#136)."""
+    kayit = tmp_path / "kayit.jsonl"
+    session = _oturum(
+        tmp_path, _kayit_kancasi(tmp_path, HookEvent.NOTIFICATION, kayit, "permission_prompt")
+    )
+    _, _, prompter, _ = await _tur(
+        monkeypatch, tmp_path, _yaz("a.txt", "x", "ok"), session, mod=ApprovalMode.SECURITY
+    )
+    assert prompter.soruldu == ["write_file"] and not kayit.exists()
 
 
 async def test_bozuk_kanca_turu_bozmaz_kullaniciya_hata_ve_sistem_mesaji_gosterir(
@@ -627,6 +671,7 @@ async def test_yuk_claude_transcript_path_ve_tool_use_id_tasir(monkeypatch, tmp_
 
 
 async def test_tur_basinda_eklenen_notification_kancasi_ayni_turda_calisir(monkeypatch, tmp_path):
+    _yavas_soru(monkeypatch)
     kayit = tmp_path / "bildirim.jsonl"
     tanimlar: list[HookCommand] = []
     session = HookSession(root=tmp_path, loader=lambda: HookSet(tuple(tanimlar)))
@@ -642,7 +687,8 @@ async def test_tur_basinda_eklenen_notification_kancasi_ayni_turda_calisir(monke
 # --- Uçtan uca kapatma anahtarları ve updatedInput kök dışı ----------------------- #
 
 _DENY = (
-    "print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'deny',"
+    "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',"
+    " 'permissionDecision': 'deny',"
     " 'permissionDecisionReason': 'yasak'}}))\n"
 )
 
@@ -669,7 +715,8 @@ def _dosyali_oturum(tmp_path: Path, monkeypatch, *, user_file: Path, **runtime) 
     [
         ({}, "fusion", False),
         ({"hooks_enabled": False}, "fusion", True),
-        ({}, "claude", True),  # claude_hooks varsayılan kapalı
+        ({}, "claude", False),  # Claude gibi kullanıcı kancaları varsayılan açık (#95)
+        ({"claude_hooks": False}, "claude", True),
         ({"claude_hooks": True}, "claude", False),
     ],
 )
@@ -692,7 +739,13 @@ async def test_updated_input_kok_disina_yonlendirirse_onay_ve_engel_yeni_hedefe_
     proje = tmp_path / "proje"
     proje.mkdir()
     dis = tmp_path / "dis.txt"
-    cikti = {"hookSpecificOutput": {"updatedInput": {"file_path": str(dis)}}}
+    # Claude: updatedInput girdinin TAMAMINI değiştirir; değişmeyen alanlar da yazılır (#101).
+    cikti = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "updatedInput": {"file_path": str(dis), "content": "x"},
+        }
+    }
     yonlendiren = f"print(json.dumps({cikti!r}))\n"
     session = _oturum(proje, _kanca(tmp_path, HookEvent.PRE_TOOL_USE, yonlendiren))
     _, _, prompter, _ = await _tur(monkeypatch, proje, _yaz("ic.txt"), session)

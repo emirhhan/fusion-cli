@@ -197,7 +197,6 @@ from .history import needs_compression, total_chars
 from .hook_bridge import (
     ToolNote,
     compacted_context,
-    continue_until_stop_allowed,
     hook_halt_text,
     post_tool_use,
     pre_compact,
@@ -205,6 +204,7 @@ from .hook_bridge import (
     user_prompt_submit,
     with_system_note,
 )
+from .hook_stop import continue_until_stop_allowed
 from .instruction_layers import InstructionLoad
 from .instruction_rules import discover_rules
 from .lesson_attribution import LessonTurnState
@@ -769,8 +769,9 @@ async def run_agent(
             blocked = AgentOutcome(prompt_gate.blocked, [*(history or [])], ok=False)
             blocked.budget_stopped = True
             return blocked
-        if prompt_gate is not None and prompt_gate.context:
-            extra_system = "\n\n".join(part for part in (extra_system, prompt_gate.context) if part)
+        # Kanca bağlamı (P-009) istemle birlikte geçmişte kalır (Claude: SessionStart başta,
+        # UserPromptSubmit istemin yanında); sistem mesajı her turda yeniden kurulur.
+        model_task = prompt_gate.model_prompt(task) if prompt_gate is not None else task
         turn = partial(
             _run_agent,
             deps=deps,
@@ -789,7 +790,7 @@ async def run_agent(
             workflow=workflow,
             denied_tools=denied_tools,
         )
-        outcome = await turn(task, history=history)
+        outcome = await turn(model_task, history=history)
         subagent = depth > 0 and not internal and deps.channel is Channel.SUBAGENT
         if root_turn or subagent:
             # Stop/SubagentStop engellerse ajan gerekçeyi yeni istem olarak alıp sürdürür.
@@ -4920,11 +4921,14 @@ async def _compact_before_call(
         return True
     before = len(messages)
     before_chars = total_chars(gorunur)
-    await pre_compact(deps, "auto")
+    if await pre_compact(deps, "auto"):
+        # PreCompact kancası engelledi (Claude): özetleme atlanır, konuşma sürer.
+        return True
     compacted = await compact_context(messages, deps, threshold)
     after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
     if after_chars < before_chars:
-        note = await compacted_context(deps)
+        summary = "\n\n".join(m.content for m in compacted if m not in messages)
+        note = await compacted_context(deps, "auto", summary)
         messages[:] = with_system_note(compacted, note)
         if deps.agent_transcript is not None:
             deps.agent_transcript.reset(messages)

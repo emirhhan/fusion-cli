@@ -1649,6 +1649,8 @@ HOOKS_STOP_CONTINUE = (
 )
 HOOKS_ERROR = "Kanca hatası — {detail}"
 HOOKS_SYSTEM = "Kanca: {text}"
+#: PreCompact kancası `/compact`'ı engelledi (stderr ya da `reason`).
+HOOKS_COMPACT_BLOCKED = "Özetleme bir kanca tarafından engellendi (PreCompact): {reason}"
 HOOKS_LIST_EMPTY = (
     "Tanımlı kanca yok. Biçim ve örnekler: docs/KANCALAR.md — Fusion: {path}, "
     'Claude: ~/.claude/settings.json, proje: .claude/settings.json ("hooks" bloğu).'
