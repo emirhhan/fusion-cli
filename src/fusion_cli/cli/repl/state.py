@@ -7,6 +7,7 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 from __future__ import annotations
 
 import functools
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 from enum import Enum
@@ -138,6 +139,8 @@ class ReplState:
     hook_session: HookSession | None = field(default=None, kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
+    #: Oturumun başladığı an (`time.monotonic`); durum satırı `cost.total_duration_ms` (#191).
+    started_at: float = field(default_factory=time.monotonic, kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
     worktree: Worktree | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).

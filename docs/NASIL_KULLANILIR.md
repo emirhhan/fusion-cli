@@ -1067,10 +1067,10 @@ Proje dizinindeki stil (`.claude/output-styles`, `.fusion/cikti-stilleri`) yerle
 `runtime.status_line_command` kabuk komutu çalıştırır; güven kaydı olmayan projenin `config.yaml`'ından gelirse (`verification_commands` gibi) `fusion trust` verilene kadar düşürülür.
 
 ```
-/statusline jq -r '.model.id + " · %" + (.context_window.percent|tostring)'
+/statusline jq -r '.model.display_name + " · %" + ((.context_window.used_percentage // 0)|tostring)'
 /statusline kapat
 ```
-Betik her tur sonunda stdin'den JSON alır (`model`, `workspace`, `cost`, `context_window`, `session`, `version`), bastığı ilk satır durum çubuğunda gösterilir; 1 sn sınırı, hata olursa yerleşik çubuk. Ayar: `runtime.status_line_command`.
+Betik her tur sonunda stdin'den Claude Code statusline şemasında JSON alır (`cwd`, `session_id`, `session_name`, `transcript_path`, `model.{id,display_name}`, `workspace.{current_dir,project_dir,added_dirs,git_worktree}`, `version`, `output_style.name`, `cost.*`, `context_window.*`, `exceeds_200k_tokens`, `effort.level`, `thinking.enabled`, `vim`, `agent`, `pr`, `worktree`; Fusion'a özgü motor/izin kipi/kademe `fusion` altında. Fusion'ın ölçmediği API süresi ve satır sayaçları 0), bastığı ilk satır durum çubuğunda gösterilir; 1 sn sınırı, hata olursa yerleşik çubuk. Ayar: `runtime.status_line_command`.
 
 ### Görünüm: `/theme`, `/tui`, `/search`
 

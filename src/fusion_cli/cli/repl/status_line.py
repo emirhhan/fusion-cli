@@ -2,15 +2,9 @@
 
 Claude Code `statusLine.command` sözleşmesi örnek alınmıştır: komut her tur sonunda
 çalıştırılır, stdin'den tek bir JSON nesnesi alır ve bastığı İLK satır durum çubuğunda
-gösterilir. JSON alanları `/status` ve `/context` verisinden gelir:
-
-    {"model": {"id": ..., "name": ..., "tier": ...},
-     "workspace": {"current_dir": ..., "project_dir": ..., "extra_dirs": [...]},
-     "cost": {"total_cost_usd": ..., "total_tokens": ..., "calls": ...},
-     "context_window": {"percent": ..., "used_tokens": ..., "limit_tokens": ...,
-                        "window_tokens": ...},
-     "session": {"id": ..., "engine": ..., "approval_mode": ..., "output_style": ...},
-     "version": ...}
+gösterilir. JSON şeması Claude Code'unkiyle aynıdır (`status_payload.py`, #191): `cwd`,
+`session_id`, `model.{id,display_name}`, `workspace.*`, `cost.*`, `context_window.*` …;
+Fusion'a özgü alanlar `fusion` anahtarı altındadır.
 
 Komut 1 sn içinde bitmezse ya da hata verirse yerleşik çubuk gösterilir; hata loglanır.
 Sır yok: JSON yalnız model adı, yollar ve sayaçlar taşır.
@@ -26,7 +20,6 @@ from typing import Any
 
 from ...ui import messages
 from .state import ReplState
-from .status_view import context_report
 
 _LOG = logging.getLogger(__name__)
 
@@ -39,41 +32,11 @@ SETTING_PATH = "runtime.status_line_command"
 
 
 def status_payload(state: ReplState) -> dict[str, Any]:
-    """Betiğe stdin'den verilecek JSON; `/status` ve `/context` ile aynı kaynaklar."""
+    """Betiğe stdin'den verilecek JSON: Claude Code şeması (`status_payload.py`, #191)."""
     from ... import __version__
+    from .status_payload import claude_status_payload
 
-    report = context_report(state)
-    tier = next(
-        (item.name for item in state.config.tiers if item.agent.model == state.config.agent.model),
-        "",
-    )
-    total = state.cost.total
-    return {
-        "model": {"id": state.config.agent.model, "name": state.config.agent.name, "tier": tier},
-        "workspace": {
-            "current_dir": str(state.root),
-            "project_dir": str(state.root),
-            "extra_dirs": [str(path) for path in state.extra_roots],
-        },
-        "cost": {
-            "total_cost_usd": round(total.cost_usd, 6),
-            "total_tokens": total.prompt_tokens + total.completion_tokens,
-            "calls": state.cost.calls,
-        },
-        "context_window": {
-            "percent": report.percent,
-            "used_tokens": report.estimated_tokens,
-            "limit_tokens": report.threshold_chars // 3,
-            "window_tokens": report.window_tokens,
-        },
-        "session": {
-            "id": state.conversation_id,
-            "engine": state.engine.value,
-            "approval_mode": state.approval.value,
-            "output_style": getattr(state.config.runtime, "output_style", "varsayilan"),
-        },
-        "version": __version__,
-    }
+    return claude_status_payload(state, version=__version__)
 
 
 def run_status_line(command: str, payload: dict[str, Any], *, cwd: str | None = None) -> str:

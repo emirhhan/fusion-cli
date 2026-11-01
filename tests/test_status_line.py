@@ -16,7 +16,6 @@ from fusion_cli.cli.repl.status_line import (
     status_payload,
     statusline_command,
 )
-from fusion_cli.cli.repl.status_view import context_report
 from fusion_cli.cli.repl.tui import format_status
 from fusion_cli.config.loader import load_config
 from fusion_cli.engines.agent.approval import ApprovalMode
@@ -32,17 +31,56 @@ def state(tmp_path: Path) -> ReplState:
     )
 
 
-def test_json_yuku_belgelenen_alanlari_tasir(state: ReplState):
+def test_json_yuku_claude_semasini_tasir(state: ReplState):
+    """Alan adları Claude Code statusline "Full JSON schema" ile aynı (#191)."""
     payload = status_payload(state)
-    assert set(payload) == {"model", "workspace", "cost", "context_window", "session", "version"}
+    zorunlu = {
+        "cwd",
+        "session_id",
+        "transcript_path",
+        "model",
+        "workspace",
+        "version",
+        "output_style",
+        "cost",
+        "context_window",
+        "exceeds_200k_tokens",
+        "fast_mode",
+        "thinking",
+        "fusion",
+    }
+    assert zorunlu <= set(payload)
     assert payload["model"]["id"] == state.config.agent.model
+    assert set(payload["model"]) == {"id", "display_name"}
     assert payload["workspace"]["project_dir"] == str(state.root)
-    assert payload["session"]["approval_mode"] == "auto"
-    # Ölçüldü (31 Ekim): taze oturumda yüzde 0 değil, tahmini sistem istemini içerir (ilk turdan
-    # sonra geçmişteki gerçek sistem mesajının sayılmasıyla aynı anlam); /context ile aynı kaynak.
-    assert 0 < payload["context_window"]["percent"] <= 100
-    assert payload["context_window"]["percent"] == context_report(state).percent
+    assert payload["workspace"]["added_dirs"] == []
+    assert set(payload["cost"]) == {
+        "total_cost_usd",
+        "total_duration_ms",
+        "total_api_duration_ms",
+        "total_lines_added",
+        "total_lines_removed",
+    }
+    assert set(payload["context_window"]) == {
+        "total_input_tokens",
+        "total_output_tokens",
+        "context_window_size",
+        "used_percentage",
+        "remaining_percentage",
+        "current_usage",
+    }
+    # İlk API çağrısından önce Claude'daki gibi null.
+    assert payload["context_window"]["current_usage"] is None
+    assert payload["session_id"] == state.conversation_id
+    assert payload["fusion"]["approval_mode"] == "auto"
+    # Belgede "may be absent": ad, ajan, PR, worktree yokken yazılmaz.
+    assert not {"session_name", "agent", "pr", "worktree", "vim"} & set(payload)
     json.dumps(payload)
+
+
+def test_adli_sohbet_session_name_tasir(state: ReplState):
+    state.conversation_name = "oyun"
+    assert status_payload(state)["session_name"] == "oyun"
 
 
 def test_betik_stdin_json_alir_ilk_satir_doner(state: ReplState):
