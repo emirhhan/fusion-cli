@@ -132,5 +132,66 @@ async def test_masaustu_uyandirma_turu_vadesi_gelenlerle_verilir(tmp_path, monke
         raise AssertionError(kimlik)
 
     first = await rpc("1")
-    assert first["gorevler"] == [{"id": "", "gorev": texts.HOOK_WAKE_TURN, "kaynak": "ajan"}]
+    assert [(g["gorev"], g["kaynak"]) for g in first["gorevler"]] == [
+        (texts.HOOK_WAKE_TURN, "ajan")
+    ]
+    assert first["gorevler"][0]["id"]  # geri verilebilsin diye boş olmayan kimlik
     assert (await rpc("2"))["gorevler"] == []
+
+
+def _app(tmp_path: Path, monkeypatch):
+    import json
+
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    sayac = iter(range(1000))
+
+    async def rpc(ad: str, veri: dict | None = None) -> dict:
+        kimlik = f"r{next(sayac)}"
+        await oturum.handle(Request(id=kimlik, name=ad, data=veri or {}))
+        for satir in reversed(satirlar):
+            paket = json.loads(satir)
+            if paket.get("tip") == "sonuc" and paket.get("id") == kimlik:
+                return paket["veri"]
+        raise AssertionError(ad)
+
+    return oturum, rpc
+
+
+async def test_masaustu_gonderilemeyen_uyandirma_geri_verilir(tmp_path, monkeypatch):
+    # Arayüz turu gönderemezse (tur başlamış, soru açık) uyandırma kaybolmamalı (#123).
+    oturum, rpc = _app(tmp_path, monkeypatch)
+    hooks = oturum._state.hooks()
+    hooks.rewake_notes.append("PostToolUse hook (async): testler kırıldı")
+    hooks.wake_requested = True
+    verilen = (await rpc("cron.vadesi_gelenler"))["gorevler"]
+    assert len(verilen) == 1
+    assert (await rpc("cron.geri_ver", {"id": verilen[0]["id"]}))["ok"] is True
+    tekrar = (await rpc("cron.vadesi_gelenler"))["gorevler"]
+    assert [g["gorev"] for g in tekrar] == [texts.HOOK_WAKE_TURN]
+    # Arada kullanıcı turu bağlamı tükettiyse geri verilen uyandırma yeniden çıkmaz.
+    assert (await rpc("cron.geri_ver", {"id": tekrar[0]["id"]}))["ok"] is True
+    hooks.rewake_notes.clear()
+    assert (await rpc("cron.vadesi_gelenler"))["gorevler"] == []
+
+
+async def test_masaustu_birden_cok_uyandirma_tek_tek_verilir(tmp_path, monkeypatch):
+    # Arayüz yoklama başına yalnız ilk görevi gönderir; kalanlar düşmemeli.
+    oturum, rpc = _app(tmp_path, monkeypatch)
+    link = agent_link.open_link(oturum._state, kind="masaustu")
+    try:
+        link.queued_turns.extend(["birinci", "ikinci"])
+        ilk = (await rpc("cron.vadesi_gelenler"))["gorevler"]
+        ikinci = (await rpc("cron.vadesi_gelenler"))["gorevler"]
+        assert [g["gorev"] for g in ilk] == ["birinci"]
+        assert [g["gorev"] for g in ikinci] == ["ikinci"]
+        assert (await rpc("cron.vadesi_gelenler"))["gorevler"] == []
+        assert ilk[0]["id"] != ikinci[0]["id"]
+        assert (await rpc("cron.geri_ver", {"id": ikinci[0]["id"]}))["ok"] is True
+        assert [g["gorev"] for g in (await rpc("cron.vadesi_gelenler"))["gorevler"]] == ["ikinci"]
+    finally:
+        agent_link.close_link(oturum._state)
