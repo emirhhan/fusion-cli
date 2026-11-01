@@ -113,3 +113,22 @@ def test_kritik_silme_allow_kuraliyla_acilmaz(tmp_path, ev):
     assert istek.danger is not None
     politika = build_policy(ApprovalMode.ACCEPT_EDITS, _Soran())
     assert asyncio.run(politika.decide(istek)) is not Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    ("komut", "kritik"),
+    [
+        ("rm -rf /Volumes/USB", True),
+        ("rm -rf /Volumes/USB/*", True),
+        ("rm -rf /mnt/disk", True),
+        ("rm -rf /media/ali/USB", True),
+        ("rm -rf /run/media/ali/USB/", True),
+        ("rm -rf 'C:\\'", True),
+        ("rm -rf /Volumes/USB/proje/build", False),
+        ("rm -rf /mnt/disk/tmp/x", False),
+    ],
+)
+def test_bagli_surucu_koku_kritik(tmp_path, ev, komut, kritik):
+    kok = tmp_path / "kok"
+    kok.mkdir()
+    assert (critical_rm_reason(komut, kok, home=ev) is not None) is kritik

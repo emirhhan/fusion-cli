@@ -197,7 +197,10 @@ kural yazar (en çok 5); dosya düzenleme onayı yalnız oturum sonuna dek geçe
 
 Manuel, acceptEdits ve plan kipinde `web_fetch` (önceden onaylı belge alanları hariç),
 `web_search` ve çalışma dizinleri dışından okuma sorulur; dontAsk reddeder, auto ve bypass
-sormaz. Plan kipinde okuma dışı kabuk komutu ve MCP değişikliği engellenmez, sorulur; dosya
+sormaz. Hiçbir kip (bypass dahil) şunları sormadan geçirmez: açık `ask` kuralı ve kritik yol
+`rm`/`rmdir` silmesi (disk kökü ve doğrudan alt dizinleri, ev dizini, çalışma dizini ve üstleri,
+bağlı sürücü kökleri `/Volumes/<ad>`, `/mnt/<ad>`, `/media/…`, `C:\`); bypass'taki kritik yol
+istemini yalnız `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1` kapatır. Plan kipinde okuma dışı kabuk komutu ve MCP değişikliği engellenmez, sorulur; dosya
 düzenlemesi engelli kalır. Henüz yok: plan kipinde `useAutoModeDuringPlan` sınıflandırıcı dalı. Bilinen sınır: `python -c "…"`
 gibi satır içi kodun içi kurallara karşı çözülmez; o yol ayrı risk denetiminden geçer.
 

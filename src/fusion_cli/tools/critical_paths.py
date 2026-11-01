@@ -4,6 +4,8 @@ Claude Code (code.claude.com/docs/en/permission-modes#critical-paths): hedef şu
 kritik yol silmesidir:
 
 * dosya sistemi kökü ve kökün doğrudan alt dizinleri (`/usr`, `/etc`, `/data`);
+* bağlı sürücü kökleri (`/Volumes/<ad>`, `/mnt/<ad>`, `/media/[<kullanıcı>/]<ad>`,
+  `/run/media/<kullanıcı>/<ad>`) ve Windows sürücü kökü (`C:\\`);
 * ev dizini;
 * çalışma dizini ve üst dizinleri;
 * ek çalışma dizinleri ve üst dizinleri, YALNIZ silme bunların altında bir glob ise
@@ -30,6 +32,14 @@ CRITICAL_REASON = "Kritik yolda tehlikeli rm işlemi: {yol}"
 _REMOVERS = frozenset({"rm", "rmdir"})
 _VAR_GLOB = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/\*?$")
 #: Yalnız komut ikamesi: `shell_segments` `$(` önekini `(`e indirir, ikisi de tanınır.
+_DRIVE_ROOT = re.compile(r"^[A-Za-z]:[\\/]*$")
+#: Bağlı sürücülerin üst dizinleri ve sürücü köküne kadar en çok derinlik.
+_MOUNT_PARENTS: tuple[tuple[Path, int], ...] = (
+    (Path("/Volumes"), 1),
+    (Path("/mnt"), 1),
+    (Path("/media"), 2),
+    (Path("/run/media"), 2),
+)
 _SUBSTITUTION_ONLY = re.compile(r"^(?:\$?\(.*\)|`.*`)$", re.DOTALL)
 
 
@@ -81,14 +91,26 @@ def _is_critical(
         return True
     if "$" in text or "`" in text or text.startswith("("):
         return False
+    if _DRIVE_ROOT.match(text.rstrip("*")):
+        return True
     is_glob = text.endswith("*")
     base_text = text.rstrip("*").rstrip("/") if is_glob else text
     target = _absolute(base_text or ("/" if text.startswith("/") else "."), root, home)
     if target == Path("/") or target.parent == Path("/") or target == home:
         return True
+    if _is_mount_root(target):
+        return True
     if root is not None and _is_self_or_parent(target, root):
         return True
     return is_glob and any(_is_self_or_parent(target, extra) for extra in extras)
+
+
+def _is_mount_root(target: Path) -> bool:
+    """Bağlı sürücü kökü mü (`/Volumes/USB`, `/media/ali/USB`)?"""
+    for parent, depth in _MOUNT_PARENTS:
+        if parent in target.parents and len(target.relative_to(parent).parts) <= depth:
+            return True
+    return False
 
 
 def _absolute(text: str, root: Path | None, home: Path) -> Path:
