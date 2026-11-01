@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from ...core.tools import ToolContext
 from ...tools.files import writable_path
@@ -61,10 +62,13 @@ def derive_sub_context(
     ağacı izolasyonu) üye o kökte ve KENDİ değişiklik kümesiyle çalışır: ana projenin
     `/undo` kaydına karışmaz, yazma alanı da o köke göre çözülür.
     """
+    # Alt ajanın arka plan işleri kendi grubunda: ön plan alt ajanı bitince durur (#335).
+    group = uuid4().hex
     if root is not None:
         context = ToolContext(
             root=root,
             job_scope=context.job_scope,
+            job_group=group,
             cancelled=context.cancelled,
             restrict_to_root=context.restrict_to_root,
             block_reads_outside_root=context.block_reads_outside_root,
@@ -87,6 +91,7 @@ def derive_sub_context(
     return ToolContext(
         root=context.root,
         job_scope=context.job_scope,
+        job_group=group,
         cancelled=context.cancelled,
         changes=context.changes,
         restrict_to_root=context.restrict_to_root,

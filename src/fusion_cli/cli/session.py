@@ -25,6 +25,7 @@ from ..config.permission_rules import PermissionRule, PermissionRuleSet, load_pe
 from ..config.permissions import load_allowed_commands
 from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
+from ..core.background_events import BackgroundEvents
 from ..core.browser_session import BrowserSession
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
@@ -45,12 +46,13 @@ from ..core.events import (
 )
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
+from ..core.plan_switch import PlanModeSwitch
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
 from ..core.session_cron import SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
-from ..core.tools import ChromeControl, ToolContext
+from ..core.tools import ChromeControl, TodoList, ToolContext
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
     CompletionRequest,
@@ -254,8 +256,11 @@ async def run_agent_task(
     deadline: TurnDeadline | None = None,
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
     cron: SessionCron | None = None,
+    background_events: BackgroundEvents | None = None,
+    todos: TodoList | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
+    plan_mode_switch: PlanModeSwitch | None = None,
     hooks: HookSession | None = None,
     browser: BrowserSession | None = None,
     session_persona: Persona | None = None,
@@ -338,6 +343,12 @@ async def run_agent_task(
         if cron is not None:
             # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
             tool_context = replace(tool_context, cron=cron)
+        if todos is not None:
+            # Oturum boyu görev listesi (masaüstü sekmesi; #331): turlar arasında kalır.
+            tool_context = replace(tool_context, todos=todos)
+        if background_events is not None:
+            # Biten arka plan işi ve `monitor` satırı sohbete bildirim olarak girer (#336).
+            tool_context = replace(tool_context, background_events=background_events)
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.
@@ -346,6 +357,9 @@ async def run_agent_task(
             # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
             # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
             tool_context = replace(tool_context, worktree_switch=worktree_switch)
+        if plan_mode_switch is not None:
+            # `enter_plan_mode` isteği tur bitince çağıranda kipe uygulanır (#324).
+            tool_context = replace(tool_context, plan_mode_switch=plan_mode_switch)
         if conversation_id:
             tool_context = replace(
                 tool_context, job_scope=conversation_job_scope(config.memory_dir, conversation_id)
@@ -369,7 +383,14 @@ async def run_agent_task(
         confirm_prompter = notifying(prompter, hook_session)
 
         def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
-            policy: ApprovalPolicy = build_policy(active_mode, confirm_prompter, approval_memory)
+            policy: ApprovalPolicy = build_policy(
+                active_mode,
+                confirm_prompter,
+                approval_memory,
+                use_auto_mode_during_plan=getattr(
+                    config.runtime, "use_auto_mode_during_plan", True
+                ),
+            )
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
         # MCP sunucusu görev ortasında girdi isterse bu taraf sorar (#257).

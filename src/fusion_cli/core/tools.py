@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from .artifacts import ArtifactStore
+from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
@@ -31,10 +32,11 @@ from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .localization import LocalizationState
+from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
-from .sandbox_policy import SandboxPolicy
+from .sandbox_policy import SandboxHostGate, SandboxPolicy
 from .session_cron import SessionCron
 from .shell_cwd import ShellCwd
 from .tool_content import ToolContent, ToolContentType
@@ -95,6 +97,8 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "symbol_query": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
     "run_shell": ToolFamily.SHELL,
+    # Claude Monitor komutu Bash izin kurallarına tabidir (#336).
+    "monitor": ToolFamily.SHELL,
     "render_remotion": ToolFamily.SHELL,
     "shell": ToolFamily.SHELL,
     "bash": ToolFamily.SHELL,
@@ -153,6 +157,11 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "invoke_agent": ToolFamily.DELEGATION,
     "council": ToolFamily.DELEGATION,
     "todo_write": ToolFamily.META,
+    "task_stop": ToolFamily.META,
+    "task_create": ToolFamily.META,
+    "task_get": ToolFamily.META,
+    "task_list": ToolFamily.META,
+    "task_update": ToolFamily.META,
     "ask_user": ToolFamily.META,
     "read_session": ToolFamily.META,
     "recent_actions": ToolFamily.META,
@@ -225,6 +234,8 @@ class ToolResult:
     job_completion: JobCompletion | None = None
     #: `run_shell`: komutun proje kökündeki ölçülen etkisi; `None` = ölçülmedi.
     workspace_effect: WorkspaceEffect | None = None
+    #: Araç çıktıyı kendi (Claude Code) sınırına göre biçimledi; genel diske alma atlanır.
+    output_shaped: bool = False
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -265,6 +276,19 @@ class TodoItem:
 
     content: str
     status: TodoStatus
+    #: Claude TodoWrite `activeForm`: madde sürerken gösterilen biçim ("Test yazılıyor").
+    active_form: str = ""
+    #: Claude Task* araçları (#329): kimlik, açıklama ve bağımlılıklar; TodoWrite'ta boş.
+    task_id: str = ""
+    description: str = ""
+    blocked_by: tuple[str, ...] = ()
+
+    @property
+    def label(self) -> str:
+        """Gösterilecek metin: sürmekte olan madde `activeForm` ile görünür (Claude gibi)."""
+        if self.status is TodoStatus.IN_PROGRESS and self.active_form:
+            return self.active_form
+        return self.content
 
 
 class TodoList:
@@ -294,7 +318,7 @@ class TodoList:
         return sum(1 for item in self._items if item.status is not TodoStatus.COMPLETED)
 
     def render(self) -> str:
-        return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)
+        return "\n".join(f"{item.status.icon} {item.label}" for item in self._items)
 
 
 class PendingWrite:
@@ -405,6 +429,10 @@ class ToolContext:
     remotion_contract: KitContractState = field(default_factory=KitContractState)
     #: Oturumun zamanlayıcısı (`cron_*`, `schedule_wakeup`); tek atışlık turda yok (P-038).
     cron: SessionCron | None = None
+    #: Oturumun arka plan olay kuyruğu: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents | None = field(default=None, kw_only=True)
+    #: Ön plan alt ajanının iş grubu: alt ajan bitince başlattığı arka plan işleri durur (#335).
+    job_group: str = field(default="", kw_only=True)
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).
@@ -419,6 +447,8 @@ class ToolContext:
     shell_sandbox: str = field(default="off", kw_only=True)
     #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.
     sandbox_policy: SandboxPolicy | None = field(default=None, kw_only=True)
+    #: Liste dışı ana makine kararı (#323): motor her kabuk çağrısından önce kipe göre kurar.
+    sandbox_hosts: SandboxHostGate = field(default_factory=SandboxHostGate, kw_only=True)
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
     #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
     edit_fuzzy_match: bool = field(default=True, kw_only=True)
@@ -450,6 +480,8 @@ class ToolContext:
     #: `allowed-tools` ön onay, `disallowed-tools` desen yasağıdır; kullanıcının sonraki
     #: mesajında kalkar (Claude Code skills; bkz. `engines/agent/skill_grants`).
     skill_grants: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
+    #: Plan kipi araçlarının isteği (`enter_plan_mode` / `exit_plan_mode`; #317, #324).
+    plan_mode_switch: PlanModeSwitch = field(default_factory=PlanModeSwitch, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

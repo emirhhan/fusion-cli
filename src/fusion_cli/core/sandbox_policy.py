@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import shlex
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = [
@@ -23,12 +22,14 @@ __all__ = [
     "NETWORK_OPEN",
     "PROTECTED_ANCHORS",
     "PROTECTED_WRITE_PATHS",
+    "SandboxHostGate",
     "SandboxPolicy",
     "domain_allowed",
-    "is_excluded_command",
+    "domain_denied",
     "normalize_domain",
     "protected_anchors",
     "protected_write_paths",
+    "read_rules",
 ]
 
 #: Ağ kısıtı yok (eski davranış).
@@ -61,8 +62,6 @@ PROTECTED_WRITE_PATHS: tuple[str, ...] = (
 )
 #: Korumalı yolları içeren dizinler: taşınamaz/silinemez (`mv .git x`, düzenle, geri taşı).
 PROTECTED_ANCHORS: tuple[str, ...] = (".git", ".claude", ".fusion")
-#: Bu işaretlerden biri olan komut bileşiktir; sandbox dışı listesiyle eşleşmez.
-_COMPOUND_MARKERS = (";", "&", "|", "`", "$(", "\n", ">", "<")
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +70,16 @@ class SandboxPolicy:
 
     #: Kök (+ `--add-dir`) ve geçici dizinlere EK yazılabilir dizinler.
     extra_write: tuple[Path, ...] = ()
+    #: Yazılabilir bölgelerin içinde de yazılamayan yollar (Claude `filesystem.denyWrite`, #350).
+    deny_write: tuple[Path, ...] = ()
     #: Sandbox içinde okunamayan yollar (dizin ise altı da).
     deny_read: tuple[Path, ...] = ()
+    #: `deny_read` bölgesinin içini yeniden açan yollar (Claude `allowRead`; dar olan kazanır).
+    allow_read: tuple[Path, ...] = ()
+    #: `allow_read` ile açılamayan engeller (Fusion'ın kendi sır dosyaları).
+    locked_read: tuple[Path, ...] = ()
     #: `open` | `allowlist`.
-    network: str = NETWORK_OPEN
+    network: str = NETWORK_ALLOWLIST
     #: `allowlist` kipinde erişilebilen alan adları (`*.ornek.com` alt alan adları).
     allowed_domains: tuple[str, ...] = ()
     #: Her kipte reddedilen alan adları; izin listesinden üstündür.
@@ -87,17 +92,53 @@ class SandboxPolicy:
     allow_unsandboxed: bool = True
     #: Her zaman sandbox dışında çalışan komut önekleri (`docker`, `git push`).
     excluded_commands: tuple[str, ...] = ()
-    #: Sandbox içinde ve ağ kısıtlıyken komutlar onaysız çalışır (yıkıcı/ask kuralı hariç).
-    auto_allow: bool = False
+    #: Sandbox içindeki komutlar onaysız çalışır (Claude `autoAllowBashIfSandboxed`; yıkıcı,
+    #: deny/ask kuralı ve plan kipi hariç). Claude'da varsayılan açık (#347).
+    auto_allow: bool = True
     #: Sandbox içindeki komutun ortamından sır gibi görünen değişkenler (`*_TOKEN`…) çıkarılır.
-    hide_secret_env: bool = True
+    hide_secret_env: bool = False
+    #: Sandbox ortamından her zaman çıkarılan adlar (Claude `credentials.envVars` deny, #368).
+    deny_env: tuple[str, ...] = ()
     #: Her kipte kapalı loopback portları: Fusion Chrome'larının CDP portu (çalışma anında
     #: `tools.sandbox_cdp` doldurur; yapılandırmadan gelmez). Yalnız macOS Seatbelt uygular.
     denied_local_ports: tuple[int, ...] = ()
+    #: Listede olmayan ana makineye sormadan reddet (Claude `network.strictAllowlist`, #323).
+    strict_allowlist: bool = False
+    #: Bağlanılabilen Unix soket yolları / hepsi (Claude `network.allowUnixSockets`, #350).
+    allow_unix_sockets: tuple[Path, ...] = ()
+    allow_all_unix_sockets: bool = False
+    #: localhost portuna bağlanma (dinleme) izni (Claude `network.allowLocalBinding`).
+    allow_local_binding: bool = False
+    #: Linux araç yolları (Claude `bwrapPath` / `socatPath`); boş = PATH.
+    bwrap_path: str = ""
+    socat_path: str = ""
+    #: Kullanıcının kendi HTTP / SOCKS5 proxy'si (Claude `httpProxyPort`/`socksProxyPort`, #350).
+    http_proxy_port: int = 0
+    socks_proxy_port: int = 0
+    #: Dosya sistemi yalıtımı yok, ağ yalıtımı var (Claude `filesystem.disabled`).
+    filesystem_disabled: bool = False
+    #: Linux: yeni `/proc` bağlanmaz (Claude `enableWeakerNestedSandbox`).
+    enable_weaker_nested_sandbox: bool = False
+    #: Linux: iç içe kullanıcı ad alanına izin (Claude `allowNestedUserNamespaces`).
+    allow_nested_user_namespaces: bool = False
+    #: Linux: iç içe korumalı dosyaları arayan rg komutu ve argümanları (Claude `ripgrep`).
+    ripgrep: tuple[str, ...] = ()
+    #: Claude `credentials.envVars` mode: mask — `AD` / `AD=host1,host2` (#368).
+    mask_env: tuple[str, ...] = ()
+    #: Claude `network.tlsTerminate` ve isteğe bağlı CA yolları; `allowPlaintextInject`.
+    tls_terminate: bool = False
+    tls_ca_cert: str = ""
+    tls_ca_key: str = ""
+    allow_plaintext_inject: bool = False
 
     @property
     def restricts_network(self) -> bool:
         return self.network == NETWORK_ALLOWLIST
+
+    @property
+    def external_proxy(self) -> bool:
+        """Kullanıcının kendi proxy'si verilmiş mi (Fusion proxy'si başlatılmaz)?"""
+        return bool(self.http_proxy_port or self.socks_proxy_port)
 
 
 def normalize_domain(text: str) -> str | None:
@@ -118,6 +159,27 @@ def _matches(host: str, entry: str) -> bool:
     return host == entry
 
 
+def domain_denied(host: str, policy: SandboxPolicy) -> bool:
+    """Ad `deniedDomains`'te mi (ya da geçersiz mi)? Her kipte reddedilir."""
+    normalized = normalize_domain(host)
+    if normalized is None:
+        return True
+    return any(_matches(normalized, entry) for entry in policy.denied_domains)
+
+
+@dataclass(slots=True)
+class SandboxHostGate:
+    """Listede olmayan ana makine için karar veren taraf (motor kurar; #323).
+
+    `decider(host)` proxy thread'inden çağrılır ve True dönerse bağlantı geçer. `session_hosts`
+    kullanıcının "Evet" dediği adları oturum boyunca tutar; `None` karar veren yok demektir
+    (liste dışı ad reddedilir).
+    """
+
+    decider: Callable[[str], bool] | None = None
+    session_hosts: set[str] = field(default_factory=set)
+
+
 def domain_allowed(host: str, policy: SandboxPolicy) -> bool:
     """Proxy bu ana makineye bağlanabilir mi? Yasak listesi her zaman önce gelir."""
     normalized = normalize_domain(host)
@@ -128,24 +190,35 @@ def domain_allowed(host: str, policy: SandboxPolicy) -> bool:
     return any(_matches(normalized, entry) for entry in policy.allowed_domains)
 
 
-def is_excluded_command(command: str, patterns: tuple[str, ...]) -> bool:
-    """Komut sandbox dışı listesindeki bir önekle mi başlıyor?
+def _under(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
 
-    Yalnız TEK ve sade komut eşleşir: `docker ps && curl …` gibi bileşik bir komut
-    listede `docker` olsa bile sandbox içinde kalır; aksi hâlde önek, zincirin geri
-    kalanını da sandbox dışına taşırdı.
+
+def read_rules(policy: SandboxPolicy) -> tuple[tuple[Path, bool], ...]:
+    """Okuma kuralları uygulama sırasıyla: `(yol, izin_mi)`; SONRAKİ kural kazanır (#349).
+
+    Claude (sandboxing, Filesystem): okuma kuralları çakışınca dar yol kazanır — `denyRead
+    ["~/"]` + `allowRead ["~/projects"]` projeyi açar, `allowRead ["~/"]` + `denyRead
+    ["~/.env"]` sırrı kapalı tutar. Geniş yol önce, dar yol sonra yazılır; aynı yolda engel
+    kazanır. Yalnız bir engelin içindeki `allow_read` anlamlıdır (gerisi zaten okunur).
+    `locked_read` en sona eklenir: hiçbir `allow_read` onu açamaz.
     """
-    if not patterns or any(marker in command for marker in _COMPOUND_MARKERS):
-        return False
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return False
-    for pattern in patterns:
-        wanted = [word for word in pattern.split() if word != "*"]
-        if wanted and words[: len(wanted)] == wanted:
-            return True
-    return False
+    locked = tuple(dict.fromkeys(path.resolve() for path in policy.locked_read))
+    denied = tuple(
+        path
+        for path in dict.fromkeys(item.resolve() for item in policy.deny_read)
+        if path not in locked
+    )
+    opened = tuple(
+        path
+        for path in dict.fromkeys(item.resolve() for item in policy.allow_read)
+        if any(_under(path, deny) for deny in denied)
+    )
+    ordered = sorted(
+        [(path, True) for path in opened] + [(path, False) for path in denied],
+        key=lambda item: (len(item[0].parts), not item[1]),
+    )
+    return (*ordered, *((path, False) for path in locked))
 
 
 def protected_write_paths(roots: Sequence[Path]) -> tuple[Path, ...]:

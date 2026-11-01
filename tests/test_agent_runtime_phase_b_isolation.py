@@ -26,14 +26,14 @@ async def _launch(tmp_path, monkeypatch, isolation: str) -> list[str]:
     deps.capabilities = CapabilityRegistry(tmp_path / "ev", tmp_path)
     opened: list[str] = []
 
-    def enter(root, name):
+    def enter(root, name, **_kwargs):
         opened.append(name)
         return None
 
     async def run(task, child, **kwargs):
         return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
 
-    monkeypatch.setattr(team, "enter_worktree", enter)
+    monkeypatch.setattr(team, "enter_configured_worktree", enter)
     await run_subagent(deps, SubTask("yaz", persona="yalitik"), depth=0, run_agent=run)
     return opened
 

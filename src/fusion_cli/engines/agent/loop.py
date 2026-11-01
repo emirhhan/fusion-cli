@@ -187,6 +187,7 @@ from .approval import (
 )
 from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
+from .background_notes import append_background_events
 from .bare_deny import surface_denied
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
@@ -298,6 +299,7 @@ from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
+from .task_availability import hidden_task_tools
 from .teacher_flow import (
     prepare_teacher_plan,
     review_teacher_changes,
@@ -842,7 +844,9 @@ async def run_agent(
             await deps.child_runs.drain()
         if owns_learning:
             await learning_steps.finish_learning(outcome, deps, plan_mode=plan_mode, task=task)
-        if plan_mode and depth == 0 and not internal:
+        if depth == 0 and not internal:
+            # Plan yalnız `exit_plan_mode` ile sunulduysa yazılır (#317); tur içinde
+            # `enter_plan_mode` ile plan kipine girilmiş olabilir (#324).
             from .plan_mode import record_plan
 
             written = record_plan(outcome, deps, plan_mode=plan_mode)
@@ -956,6 +960,14 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("masaustu")
         if is_worktree_task(task):
             deps.tool_context.task_kinds.add("worktree")
+        # Plan kipi araçları (#317, #324): `exit_plan_mode` yalnız plan kipindeki turda sunulur.
+        plan_switch = getattr(deps.tool_context, "plan_mode_switch", None)
+        if plan_switch is not None:
+            plan_switch.begin_turn(plan_mode=plan_mode)
+        if plan_mode:
+            deps.tool_context.task_kinds.add("plan")
+        else:
+            deps.tool_context.task_kinds.discard("plan")
         if is_agent_task_request(task, deps):
             deps.tool_context.task_kinds.add("arka_plan")
         deps.tool_context.task_kinds.update(orchestration_task_kinds(task, deps.tool_context.root))
@@ -1841,6 +1853,8 @@ async def _drive(
                     harness_note=True,
                 )
             )
+        # Biten arka plan işi ve `monitor` satırları sıradaki istekten önce girer (#334, #336).
+        append_background_events(messages, deps.tool_context)
         if budget.stop is BudgetStop.USER_DENIED:
             # Kullanıcı ÖNCEKİ araç turunda GERÇEKTEN "hayır" dedi (`_run_tools`).
             # Bu bir bütçe olayı DEĞİLDİR: `_halt`/`_halt_local`'ın aksine
@@ -2044,6 +2058,8 @@ async def _drive(
             if await settle_mcp_background_calls(
                 deps.tool_context, wait=not deps.child_runs.persistent
             ):
+                continue
+            if append_background_events(messages, deps.tool_context):
                 continue
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
@@ -3143,9 +3159,10 @@ SCOPED_TOOLS: dict[str, str] = {
     "chrome_batch": "masaustu",
     # Claude in Chrome'un çekirdek dışı araçları (#431) yalnız Chrome/tarayıcı işinde.
     **dict.fromkeys(sorted(CLAUDE_CHROME_SCOPED), "masaustu"),
-    # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
-    "enter_worktree": "worktree",
-    "exit_worktree": "worktree",
+    # Çalışma ağacı araçları Claude gibi her turda (#342); emülasyon isteminde imzayla
+    # sunulur (`core.tool_emulation.DEFERRED_TOOL_NAMES`).
+    # Planı onaya sunma aracı yalnız plan kipindeki turda (#317).
+    "exit_plan_mode": "plan",
     # Arka plan görevleri / oturumlar arası mesaj (P-048, P-060): yalnız ilgili turda.
     "list_agents": "arka_plan",
     "send_message": "arka_plan",
@@ -3209,6 +3226,13 @@ def _permitted(
             task=task,
             phase=phase,
         )
+    # Görev araçları modele göre (#329); açıkça istenen ad (`--tools`/`--allowedTools`) kalır.
+    hidden_tasks = hidden_task_tools(getattr(execution, "task_tools", "todo"))
+    names = {
+        name
+        for name in names
+        if name not in hidden_tasks or (allowed_tools is not None and name in allowed_tools)
+    }
     if not execution.allow_mutation:
         names = {
             name
@@ -4197,7 +4221,11 @@ async def _run_tools(
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
             budget.forget_call(signature)
-        if outcome is ToolOutcome.OK and call.name == "todo_write":
+        notice = (result.structured or {}).get("user_notice") if outcome is ToolOutcome.OK else None
+        if isinstance(notice, str) and notice:
+            # Aracın kullanıcıya göstermek istediği tek satır (ör. bekleyen uyanma iptali, #362).
+            deps.publisher.publish(NarrationPublished(text=notice))
+        if outcome is ToolOutcome.OK and call.name in {"todo_write", "task_create", "task_update"}:
             for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
                 deps.publisher.publish(NarrationPublished(text=sentence))
         if len(state.tool_uses) == recorded_uses:
@@ -4486,7 +4514,7 @@ async def _execute(
         or reads_outside(tool.name, args, deps.tool_context)
     ):
         revision = deps.approval_revision() if deps.approval_revision else None
-        policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        policy = _current_policy(deps)
         request = await resolve_request(
             tool,
             deepcopy(args),
@@ -4505,7 +4533,7 @@ async def _execute(
         request = await review_auto_request(request, deps)
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
-            policy = deps.policy_factory() if deps.policy_factory else deps.policy
+            policy = _current_policy(deps)
         switches = guard.mode_switches if guard is not None else 0
         verdict = await policy.decide(request)
         if guard is not None and guard.mode_switches != switches:
@@ -4550,6 +4578,11 @@ async def _execute(
                     deps, call.name, args, call.id, reason=reason, message=message
                 )
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
+        if tool_family(call.name) is ToolFamily.SHELL:
+            from .sandbox_network import install_network_gate
+
+            # Liste dışı ana makine kipe göre (#323): sorulur, verilir ya da reddedilir.
+            install_network_gate(deps.tool_context, policy, getattr(deps, "permission_rules", None))
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
     # araç henüz çalışmadı ama artık kesinlikle çalışacak. Arayüz bu olayı
@@ -5249,3 +5282,13 @@ def _initial_messages(
                 0, Message("user", PROJECT_CONTEXT_HEADER + project_context, harness_note=True)
             )
     return [Message("system", system), *gecmis, Message("user", task, images=images)]
+
+
+def _current_policy(deps: AgentDeps) -> ApprovalPolicy:
+    """Çağrının onay politikası; tur içinde `enter_plan_mode` çağrıldıysa plan kipininki (#324)."""
+    from .plan_mode import entered_plan_policy
+
+    entered = entered_plan_policy(deps)
+    if entered is not None:
+        return entered
+    return deps.policy_factory() if deps.policy_factory else deps.policy

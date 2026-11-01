@@ -290,7 +290,22 @@ kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
 Seatbelt, Linux bubblewrap): yazma proje köküyle sınırlı, `~/.ssh`/`~/.aws` gibi yollar
 okunamaz, ağ istenirse yalnız izinli alan adlarına açık. `/sandbox on`, `/sandbox izin
 github.com`, `fusion sandbox durum`; masaüstünde **Ayarlar › İzinler › Kabuk sandbox'ı**.
-Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrıntı: [SANDBOX.md](SANDBOX.md).
+Sandbox dışında çalıştırma isteği (`dangerouslyDisableSandbox`) Claude gibi kipe göre sorulur ya da reddedilir. Ayrıntı: [SANDBOX.md](SANDBOX.md).
+
+### Başlangıç izin kipi — `--permission-mode`, `permissions.defaultMode`
+
+Claude Code ile aynı sıra: `fusion --permission-mode <kip>` (`default`/`manual`, `acceptEdits`,
+`plan`, `auto`, `dontAsk`, `bypassPermissions`) > Claude `settings.json`'daki
+`permissions.defaultMode` (yönetilen `managed-settings.json` > `--settings` >
+`.claude/settings.local.json` > `.claude/settings.json` > `~/.claude/settings.json`) > eski `runtime.approval_mode` > `auto`. Proje ve yerel dosyada
+`"auto"` yok sayılır (kullanıcı dosyasına düşülmez), `"bypassPermissions"` yok sayılır ve
+oturum Manual açılır. Bayrakla ya da kullanıcı dosyasıyla bypass verilirse oturum bypass
+kipinde başlar (root olarak reddedilir); otomatik kip kullanılamıyorsa Manual açılır.
+
+`--dangerously-skip-permissions` `--permission-mode bypassPermissions` ile aynıdır;
+`--allow-dangerously-skip-permissions` oturumu bypass'ta başlatmaz ama bypass'ı Shift+Tab
+döngüsüne ekler (ikisi de root olarak reddedilir). `fusion agent` (Claude `-p`) da aynı sırayı
+izler; ayarda kip yoksa varsayılan Manual'dir ve onay gerektiren çağrı sorulmadan reddedilir.
 
 ### Onay kartında "bir daha sorma" ve ret gerekçesi
 
@@ -421,29 +436,51 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 ## 7b) İzole çalışma ağacı → `--worktree`, `/worktree`
 
 Riskli ya da paralel bir işi ana projeye dokunmadan denemek için Fusion git çalışma ağacı
-(worktree) açar: `.fusion/worktrees/<ad>` dizini, `worktree-<ad>` dalı. `.fusion/` git
+(worktree) açar: `.claude/worktrees/<ad>` dizini, `worktree-<ad>` dalı. `.fusion/` git
 durumunda görünmez (`.git/info/exclude`).
 
 | Yaz | Ne yapar |
 |-----|----------|
-| `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse kaldırır, iş kaldıysa korur ve yolu söyler |
+| `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse ağacı ve dalı kaldırır; iş (değişiklik, izlenmeyen dosya, yeni commit) varsa, durum doğrulanamıyorsa ya da oturum adlıysa "Sakla / Sil" sorar. Sakla → `fusion --worktree <ad> --resume <kimlik>` basılır; Sil → ağaç ve dal commit'lerle birlikte silinir. Etkileşimsiz çıkışta iş varsa korunur |
+| `fusion -w` (adsız) | `bright-running-fox` biçiminde ad üretir |
+| `fusion -w "#1234"` / PR ya da MR adresi | Adresten yalnız numara okunur; `origin` github.com ise `pull/<n>/head`, gitlab.com ise `merge-requests/<n>/head`, başka sunucuda önce biri sonra öteki çekilir; `.claude/worktrees/pr-<n>` açılır. Çekme parola/SSH onayı beklemez, gerekirse `PR/MR #<n> çekilemedi` der |
 | `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |
-| `/worktree <ad>` | Oturum kökünü ağaca taşır (yoksa oluşturur) |
+| `/worktree <ad>` | (Kullanımdan kalkıyor: Claude Code'da yok; `--worktree` ya da ajandan iste. Oturumda bir kez uyarır.) Oturum kökünü ağaca taşır (yoksa oluşturur) |
 | `/worktree cik` | Ana depoya döner; temiz ağaç kaldırılır (dalı dahil), iş varsa `git merge worktree-<ad>` ipucu verir |
 | `/worktree liste` | Depodaki Fusion çalışma ağaçları |
 
-- `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
-  ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz. Depo kökü dışına çıkan
-  desenler (`../x`, mutlak yol) ve symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
+- Taban dal: Claude Code `worktree.baseRef` (`~/.claude/settings.json`, güvenilen projede
+  `.claude/settings.json` / `.claude/settings.local.json`). `"fresh"` (varsayılan) uzak
+  varsayılan daldan (`origin/HEAD`) dallanır; depo 24 saattir çekilmediyse varsayılan dal en
+  çok 5 sn'de çekilir, uzak yoksa yerel `HEAD`'e düşülür. `"head"` bulunulan checkout'un
+  `HEAD`'inden dallanır (gönderilmemiş commit'ler de gelir). `--worktree`, `/worktree`,
+  `enter_worktree` ve alt ajan ağaçları aynı ayarı kullanır.
+- `worktree.symlinkDirectories` (ör. `["node_modules", ".cache"]`): ana depodaki bu dizinler
+  yeni ağaca sembolik bağ olarak konur, kopyalanmaz; bağlar çıkışta "iş" sayılmaz.
+  `worktree.sparsePaths` (ör. `["src", "docs"]`): yeni ağaca git sparse-checkout (cone kipi)
+  ile yalnız bu dizinler ve kök dosyaları yazılır. İki liste ayar dosyaları boyunca birleşir.
+  Git dışı VCS için `WorktreeCreate`/`WorktreeRemove` kancaları henüz yok.
+- Aynı adla yeniden açılan ağaç (`"fresh"` tabanda): commit'lenmemiş/izlenmeyen dosyası yoksa,
+  kendi dalındaysa ve kendi commit'i yoksa varsayılan dala ileri sarılır; aksi hâlde (ya da
+  `"head"` tabanda, PR/MR adında) eski ucunda açılır.
+- `.worktreeinclude` (depo kökünde, Claude Code gibi `.gitignore` söz dizimi): desene uyan VE
+  gitignored olan dosyalar (`.env` her derinlikte, `!` dışarıda bırakır) yeni ağaca kopyalanır;
+  izlenmeyen ama yok sayılmayan dosya kopyalanmaz. Bunlar "iş" sayılmaz, temizlik ölçümünü
+  bozmaz. Depo dışına işaret eden symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
 - Ağaç, bulunduğun kökün son commit'inden açılır: commit edilmemiş değişiklikler ağaçta görünmez.
   Bir ağacın içinden açılan ağaç o ağacın dalından dallanır.
 - Sohbet projeye aittir: ağaca geçmek konuşmayı bölmez; `fusion -w <ad> --continue` de projenin
   son sohbetini bulur.
 - Ajan araçları `enter_worktree` / `exit_worktree`: model bir ağaç açar, aynı turda
-  `.fusion/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
+  `.claude/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
   masaüstünde). `fusion agent "…"` tek atışta kök değişmez; açılan ağaç bildirilir ve korunur.
-  Bu araçlar yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur
-  (istem bütçesi).
+  `name` verilmezse rastgele ad üretilir; `path` ile deponun VAR OLAN bir ağacına geçilir
+  (`.claude/worktrees` dışındaysa her kipte sorulur, yalnız bypass sormaz; oturumun yaratmadığı
+  ağaç çıkışta kaldırılmaz). Bir ağacın içindeyken başka ağaca doğrudan geçilir (Claude Code
+  EnterWorktree). Araçlar Claude gibi her turda kullanılabilir; Claude'un ertelediği araçlar
+  gibi (EnterWorktree, ExitWorktree, Monitor, TaskStop) metin araç isteminde tek imza satırında
+  (`enter_worktree(name?,path?)`) sunulur, yerel araç çağrısında şema tam gider. Claude adları
+  (`EnterWorktree`, `TaskStop`…) da aynı araca çözülür.
 - Alt ajan: `Agent` çağrısına `isolation: "worktree"` verilirse (ya da tanımda `isolation: worktree` varsa) üye kendi ağacında
   (`ajan-<kimlik>`) yazar; ana proje değişmez. Üye dosya değiştirmediyse ağaç ve dal kaldırılır,
   iş kaldıysa korunur ve yolu özetine yazılır.
@@ -1386,7 +1423,7 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 { "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
   "tui":   { "c-q": null, "c-g": "kes", "f2": "komut:status" } }
 ```
-Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`, `gorev_listesi` (Ctrl+T), `dongu_durdur` (Esc); `tui`: `cik`, `dongu_ya_da_cik` (Ctrl+C), `kes`, `kip_dongusu`, `gorev_listesi` (Ctrl+T), `arka_plana_al` (Ctrl+B), `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
 
 ---
 
@@ -1448,7 +1485,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
 | `/model` | Model değiştir |
-| `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
+| `/plan [açıklama]` | Plan kipine geç; açıklama verilirse (`/plan giriş hatasını düzelt`) o görevle hemen başla. Eski `/plan goster` / `/plan ac` tek sözcük olarak hâlâ çalışır |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
 | `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |
@@ -1467,7 +1504,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/debug [belirti]` | Fusion'ın kendi sorununu teşhis et (doctor + son eylemler) |
 | `/batch <talimat>` | Talimatı bağımsız parçalara bölüp paralel alt ajanlarla uygula |
 | `/doctor` | Kurulum denetimi (`fusion doctor` ile aynı çıktı) |
-| `/loop 5m <görev>` · `/loop list` · `/loop stop [id]` | Görevi aralıkla yinele (oturum boyunca) |
+| `/loop 5m <görev>` | Görevi aralıkla yinele (oturum boyunca); listeleme/iptal ajandan doğal dille istenir |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |
 | `/good` · `/bad` | Fusion'a geri bildirim |
@@ -1515,23 +1552,72 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 
 ---
 
+## Görev listesi (`task_create` … / `todo_write`)
+
+Claude Code'daki gibi görev araçları modele göre sunulur: Claude Opus 4.7, Sonnet 4.6,
+Haiku 4.5 ve daha eski Claude modellerinde `task_create`/`task_get`/`task_list`/`task_update`
+(Claude TaskCreate/TaskGet/TaskList/TaskUpdate; bu adlarla da çağrılır) varsayılandır,
+`CLAUDE_CODE_ENABLE_TASKS=0` (ya da `false`) ile yerine `todo_write` gelir. Diğer modellerde
+(Opus 4.8, Sonnet 5 ve sonrası; Claude dışı modeller) görev aracı yoktur;
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` her modelde açar, `--tools`/`--allowedTools` ile adı verilen
+araç da sunulur. `task_update` `status` (`pending`/`in_progress`/`completed`/`deleted`),
+`subject`, `description`, `activeForm`, `addBlocks`/`addBlockedBy` alır; `owner` ve `metadata`
+kabul edilir ama saklanmaz (Fusion'da ekip görev panosu yok).
+
+Liste oturum boyunca yaşar (terminal, TUI ve masaüstü sekmesi): turlar arasında kalır ve sohbet
+`--resume`/`--continue` ile sürdürülünce geri gelir (`<bellek dizini>/tasks/<sohbet>.json`).
+`CLAUDE_CODE_TASK_LIST_ID=<ad>` verilirse liste `~/.claude/tasks/<ad>/fusion-todos.json`
+üzerinden oturumlar arasında paylaşılır. Otomatik devam yalnız o turda yazılan listeye bakar.
+
+**Ctrl+T** (Claude Code ile aynı) listeyi açar/kapatır: tam ekran TUI'de durum alanının üstünde,
+satır içi REPL'de istemin üstünde ve açıkken her turdan sonra en çok 5 madde (süren ve bekleyen
+önce, taşan sayı "… +N görev daha"). Liste açık bırakılırsa `--resume`/`--continue` sonrası açık
+gelir. Tuş `~/.fusion/keybindings.json`'da `gorev_listesi` eylemidir.
+
 ## Plan kipi: plan dosyası ve kabul kartı
 
-`/plan` ile plan kipine geçince agent yalnız okur ve planlar. Tur bitince plan
-`~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
-ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
-ve "Plan hazır — uygulansın mı?" kartı çıkar:
+`/plan` ile plan kipine geçince agent okur, keşif için kabuk komutu çalıştırır ve planlar;
+kaynak dosyaları düzenlemez. Ajan da kendini `enter_plan_mode` aracıyla (Claude
+`EnterPlanMode`) plan kipine geçirebilir. Salt okunur olmayan kabuk komutuna
+`runtime.use_auto_mode_during_plan: true` (Claude `useAutoModeDuringPlan`, varsayılan)
+iken plan kipi sınıflandırıcısı karar verir: salt okunur komut ve bilinen kurulum/derleme/test
+komutu (`npm install`, `pytest`, `cargo test`, `make test`…) sorulmadan çalışır; dosya yazan,
+silen ya da git çalışma ağacını değiştiren komut (`git -C . reset --hard`, `sed --in-place`,
+`sh -c 'rm …'`, `curl -o`) engellenir; geri kalanı (`python -c`, `node -e`, alt kabuk,
+bilinmeyen araç) sorulur. `false` iken salt okunur olmayan her komut sorulur. Açık `ask`
+kuralı ve yıkıcı komut her durumda sorulur.
 
-- **Evet, otomatik kipte uygula** → `auto` kipine geçer ve planı uygulamaya başlar.
-- **Evet, düzenlemeleri kabul ederek uygula** → `edits` kipi.
-- **Evet, her adımda sor** → `security` (manuel) kipi.
+**Claude Code'dan farklar:** Claude'un sınıflandırıcısı plan kipini bilen bir modeldir; Fusion
+açık listeli bir sezgi kullanır, bu yüzden emin olamadığını sorar. Claude planı modelin
+yazdığı plan dosyasından alabilir; Fusion'da plan kipi her dosya yazımını engellediği için plan
+`exit_plan_mode(plan)` argümanıyla gelir ve dosyayı Fusion yazar (argümansız çağrı hata döner).
+Araç adları Fusion'ın snake_case adlarıdır (`exit_plan_mode`, `enter_plan_mode`).
+
+Plan hazır olunca ajan planı `exit_plan_mode(plan)` aracıyla (Claude `ExitPlanMode`) sunar;
+plan Claude Code ile aynı yerde, `~/.claude/plans/<sohbet>.md` dosyasına yazılır (`plansDirectory`
+ayarıyla değişir; göreli yol proje köküne göre; eski `~/.config/fusion-cli/plans` okunmaya devam eder; dosya yazılamazsa kart çıkmaz, plan
+sohbette durur; eski `runtime.plan_files: false` Claude'da olmadığından yok sayılır ve bir kez
+uyarılır) ve "Plan hazır — uygulansın mı?" kartı çıkar:
+
+- **Evet, ve otomatik kipi kullan** (Claude "Yes, and use auto mode") → `auto` kipine geçer ve
+  planı uygulamaya başlar. Otomatik kip kapalıysa (`disableAutoMode`) bu seçenek **Evet,
+  düzenlemeleri otomatik kabul et** (`edits`) olur; oturum bypass kullanılabilir başladıysa
+  **Evet, ve bu oturum için İZİNLERİ ATLA kipine geç** (`bypass`) olur.
+- **Evet, düzenlemeleri elle onayla** → `security` (manuel) kipi.
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
+- Claude `settings.json`'da `"showClearContextOnPlanAccept": true` ise (varsayılan `false`) başa
+  **Evet, bağlamı temizle ve …** seçeneği gelir: planı onaylar, planlama konuşmasını siler ve
+  uygulama yalnız plan dosyasıyla başlar.
 
-Plan kipindeki her cevap plan sayılmaz: soruyla biten ya da başlıksız/listesiz kısa cevap
-("Hangi veritabanı?") dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
-yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum boyunca verilen
-izinler sıfırlanır; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
-(Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
+Masaüstü kartı aynı seçenekleri çekirdekten alır (`plan.kart` / `plan.kabul`): otomatik kip
+kullanılamıyorsa, bypass açıksa ya da temizleme seçeneği açıksa terminaldeki kartla aynıdır ve
+yalnız `exit_plan_mode` ile plan sunulduğunda açılır.
+
+Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
+başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan Claude'daki gibi eskisinin
+üzerine yazılır (eski `.onceki.md` yedeği kalktı). Kabulde oturum izinleri korunur;
+adsız oturuma plandan başlık verilir; uygulama görevi plan dosyasının yolunu taşır. Kart açıkken **Ctrl+G** (Claude Code ile aynı) planı `VISUAL`/`EDITOR` ile açar; editör
+kapanınca kart düzenlenmiş planla yeniden gelir. Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
 yalnız yol basılır.
 
@@ -1544,25 +1630,49 @@ Görevler **oturumla yaşar**: en çok 50 görev, en az 1 dakika aralık, 7 gün
 Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tur** olarak
 gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
 
-- `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
-- `/loop <görev>` → **kendi tempolu**: görev hemen (boşta) çalışır; sıradaki çalışmayı ajan
-  `schedule_wakeup(in, loop_id)` ile 1 dk–1 sa arasında kendisi seçer, seçmezse 10 dk sonra
-  yine çalışır; gerek kalmayınca `cron_delete` ile döngüyü kendisi kapatabilir. Aralıksız
-  `/loop /verify` gibi komut görevleri sabit 10 dk'dır. Argümansız `/loop` → `.claude/loop.md`
-  (proje ya da ev), yoksa yerleşik bakım görevi (o da kendi tempolu).
-- `/loop list`, `/loop stop <id>`, `/loop stop all`.
+- `/loop 5m testleri koştur` · `/loop 30m /inceleme` (slash görevi de olabilir)
+- Claude Code gibi vadesi gelen slash görevi yalnız **modelin kendiliğinden çağırabildiği bir
+  beceriyse** komut olarak çalışır. Yerleşik komutlar (`/model`, `/clear`, `/bypass`…),
+  `disable-model-invocation` becerileri (`/verify` dahil) ve MCP istemleri ajana düz metin
+  olarak gider; kurulurken reddedilmezler, ama zamanlayıcı onay kipini, modeli ya da oturumu
+  değiştiremez.
+- Aralık baştaki belirteçle (`/loop 30m …`) ya da sondaki ifadeyle (`/loop … every 2 hours`,
+  `her 2 saatte`) verilir. Saniye üst dakikaya yuvarlanır; temiz bir cron adımına denk gelmeyen
+  aralık (7m, 90m) en yakın adıma yuvarlanır ve bildirilir.
+- `/loop <görev>` → **kendi tempolu** (görev `/verify` gibi bir komut olsa da): görev hemen
+  (boşta) çalışır; sıradaki çalışmayı ajan `schedule_wakeup(in, loop_id)` ile 1 dk–1 sa arasında
+  kendisi seçer. Seçmezse ~20 dk sonra tek bir yedek uyanma kurulur; o yinelemede de seçmezse
+  döngü biter. Argümansız `/loop` → `.claude/loop.md` (proje ya da ev; her çalışmada yeniden
+  okunur, 25.000 baytta kesilir), yoksa yerleşik bakım görevi: yarım işi sürdür → dalın PR'ına
+  bak (yorumlar, CI, çakışma) → başka iş yoksa temizlik; yeni girişim başlatılmaz.
+  Kendi tempolu döngü sıradaki uyanmayı beklerken (tur yokken) **Esc** ya da **Ctrl+C** onu
+  durdurur (TUI ve satır içi REPL'de boş istemde; vim INSERT kipinde Esc NORMAL'e geçer);
+  sabit aralıklı görevler kalır. Durduracak döngü yokken Ctrl+C eskisi gibi çıkar.
+- Yineleyen görev 7 gün dolunca son bir kez çalışır ve silinir. `--resume` ile sürdürülen
+  sohbette kendi tempolu döngü ve vakti geçmiş tek seferlik görev geri gelmez; kaçırılan
+  çalışmalar telafi edilmez.
+- Claude Code gibi çalışma saati kaydırılır (jitter): yineleyen görev sıradaki çalışmaya kalan
+  aralığın en çok yarısı ve en çok 30 dk geç başlar (eşit aralıkta her seferinde aynı kadar);
+  `/loop 5m` (`*/5`) geciktirilmez, her çalışma 4 dk 45 sn sonra başlar; :00 ya da :30'a
+  kurulmuş tek seferlik görev en çok 90 sn erken çalışır. Liste satırı sıradaki saati gösterir.
+- Listeleme ve iptal Claude Code gibi ajandan doğal dille istenir (`cron_list`, `cron_delete`).
+  `/loop list`, `/loop stop <id>`, `/loop stop all` Claude'da yoktur; kullanımdan kalkan takma
+  ad olarak bir sürüm daha çalışır ve oturumda bir kez uyarır.
 - Zamanlanamayan komutlar (takma adlarıyla birlikte): onay kipi (`/auto`, `/bypass`, `/mode`…),
   model/sağlayıcı, `/clear`, `/exit`, `/loop`, `/cd`, `/voice` (`/dikte`) ve `/rc`
   (`/remote-control`): kök, mikrofon ve uzaktan erişim yalnız kullanıcının elinden açılır.
-- Ajan araçları: `cron_create {prompt, every|cron|in}`, `cron_list`, `cron_delete {id}`,
-  `schedule_wakeup {in, note}` (uzun dış iş için kendini uyandırma). Cron 5 alanlıdır:
-  `*/15 9-18 * * 1-5`.
+- Ajan araçları (Claude `CronCreate/CronList/CronDelete/ScheduleWakeup`): `cron_create {cron,
+  prompt, recurring}` (`recurring=false` bir sonraki eşleşmede bir kez çalışır; eski `every`/`in`
+  alanları da okunur), `cron_list`, `cron_delete {id}`, `schedule_wakeup {loop_id, in, stop}`
+  (yalnız kendi tempolu döngü; `stop=true` döngüyü bitirir ve kullanıcı ekranında Claude gibi
+  "Bekleyen uyanma iptal edildi" bildirimi çıkar: terminal, TUI ve masaüstü).
+  Cron 5 alanlıdır: `*/15 9-18 * * 1-5`. `CLAUDE_CODE_DISABLE_CRON=1` araçları ve `/loop`'u kapatır.
 - Kayıt: `memory_dir/oturum-cron/<sohbet>.json`; masaüstü sekmesi aynı kimlikle açılınca
   süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği
   üretir (P-014 `--resume` gelince aynı dosya devralınır).
 - Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
-  `cron.sil` de var). Kullanıcının kurduğu `/loop 30m /verify` masaüstünde de komut olarak
-  çalışır; ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
+  `cron.sil` de var). Kullanıcının kurduğu, modelin çağırabildiği beceri görevi masaüstünde de
+  komut olarak çalışır (çekirdek diğerlerini `duz_metin` ile işaretler); ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
   tur olur, slash komutu olarak çalışmaz. Gönderilemeyen görev `cron.geri_ver` ile geri
   verilir, vade boşa gitmez. İstemde yarım yazılmış satır varken vade beklenir, yazılan silinmez.
   Sohbet kimliği gelmeden kurulan görevler kimlik gelince o sohbete taşınır; 7 günden eski
@@ -1598,7 +1708,8 @@ sekmenin kökünü taşır (tur sürerken reddedilir).
   İzin dosyası güvenilmiyorsa uyarı çıkar (`fusion trust`).
 - İzin kuralı: `"deny": ["Cd(//etc/**)"]` o dizinlere geçişi engeller (glob kuralı `Edit` ile aynı).
 - Model sonraki turda "çalışma dizini değişti" notunu görür. Proje `config.yaml` ve `.mcp.json`
-  açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile `/cd` zamanlanamaz.
+  açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile kurulan `/cd`
+  görevi komut olarak çalışmaz, ajana düz metin gider.
 
 ## Turlar arası hedef: `/goal`
 

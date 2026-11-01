@@ -53,7 +53,7 @@ def test_kullanici_dosyasi_ezer_null_kaldirir_bilinmeyen_uyarir(tmp_path: Path):
     keymap = keybindings.load_keymap(path)
     tui = keymap.bindings("tui")
     assert "c-q" not in tui and tui["c-g"] == "kes" and tui["f2"] == "komut:status"
-    assert tui["c-c"] == "cik"  # varsayılan korunur
+    assert tui["c-c"] == "dongu_ya_da_cik"  # varsayılan korunur (#365: önce döngü, yoksa çıkış)
     assert keymap.bindings("giris")["c-t"] == "kip_dongusu"
     assert any("yapısal" in w for w in keymap.warnings)
     assert any("ucmak" in w for w in keymap.warnings)

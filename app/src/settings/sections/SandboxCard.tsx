@@ -36,6 +36,8 @@ export interface SandboxStatus {
   disari_komutlar: string[];
   /** Eski çekirdek göndermeyebilir; yoksa anahtar gizlenir. */
   sir_ortami_gizli?: boolean;
+  /** Etkin ek Claude anahtarları (kendi proxy, tlsTerminate, mask…); eski çekirdek göndermez. */
+  ek_ayarlar?: string[];
   /** Yalnız `sandbox.ayarla` yanıtında: değişikliğin yan etkileri (ağ kipi değişti…). */
   notlar?: string[];
 }
@@ -240,6 +242,11 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
               </p>
             )}
           </details>
+          {(status.ek_ayarlar ?? []).length > 0 && (
+            <ul className="settings__hint" aria-label="Ek sandbox ayarları">
+              {(status.ek_ayarlar ?? []).map((satir) => <li key={satir}>{satir}</li>)}
+            </ul>
+          )}
           <p className="settings__hint">
             Ek yazma dizini, okuma listesi ve sandbox dışı komutlar: <code>/config sandbox.allow_write=~/.npm</code>,{" "}
             <code>/config sandbox.deny_read=~/ozel</code> (varsayılana eklenir),{" "}

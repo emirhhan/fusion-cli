@@ -248,7 +248,7 @@ def validate_conversation_move(
 def _workspace_digest(root: Path) -> str:
     """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın.
 
-    Git çalışma ağacı (`.fusion/worktrees/<ad>`) ana projenin anahtarını kullanır: `/worktree`
+    Git çalışma ağacı (`.claude/worktrees/<ad>`) ana projenin anahtarını kullanır: `/worktree`
     ve `--worktree` konuşmayı bölmez, `--continue` ağacın içinden de projenin sohbetini bulur.
     """
     return hashlib.sha256(str(project_root_of(root.expanduser().resolve())).encode()).hexdigest()[

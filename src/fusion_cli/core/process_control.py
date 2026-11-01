@@ -9,7 +9,7 @@ import platform
 import signal
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -22,7 +22,7 @@ from .constants import (
     PROCESS_TERMINATE_GRACE_S,
     SHELL_CAPTURE_CHARS,
 )
-from .errors import CleanupFailedError, ProcessCancelledError
+from .errors import CleanupFailedError, FusionError, ProcessCancelledError
 from .protocols import Clock
 
 
@@ -215,6 +215,25 @@ def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
             time.sleep(min(PROCESS_POLL_S, remaining))
 
 
+class MovedToBackgroundError(FusionError):
+    """Zaman aşımında süreç öldürülmedi; sahipliği çağırana devredildi (#319)."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        captures: tuple[BoundedCapture, BoundedCapture],
+        timeout_s: float,
+        *,
+        by_user: bool = False,
+    ) -> None:
+        super().__init__(f"Komut {timeout_s:.0f}s içinde bitmedi; arka plana taşındı.")
+        self.process = process
+        self.captures = captures
+        self.timeout_s = timeout_s
+        #: Ctrl+B ile mi (True) yoksa zaman aşımında mı (False) taşındı?
+        self.by_user = by_user
+
+
 def run_foreground(
     command: str,
     *,
@@ -224,6 +243,9 @@ def run_foreground(
     timeout_s: float,
     clock: Clock | None = None,
     argv_prefix: Sequence[str] = (),
+    adopt_on_timeout: Callable[[], bool] | None = None,
+    handoff: Event | None = None,
+    ownership_marker: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
 
@@ -233,14 +255,21 @@ def run_foreground(
     Çıktı bellekte SINIRLIDIR (`SHELL_CAPTURE_CHARS`: akış başına baş + son kesit, C1-16).
     Kabuk normal çıkınca borular `PROCESS_TERMINATE_GRACE_S` içinde kapanmazsa (boruyu tutan
     `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
-    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür.
+    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür;
+    yalnız `adopt_on_timeout()` doğruysa zaman aşımında süreç öldürülmez,
+    `MovedToBackgroundError` ile sahipliği çağırana geçer (Claude Code, #319). `handoff` olayı
+    kurulursa (Ctrl+B, #320) süreç aynı yolla hemen devredilir. `ownership_marker` verilirse
+    betiğin başına `: <işaret>` eklenir; `trap : EXIT` kabuğun son komutu `exec` ile
+    değiştirmesini engeller, işaret süreç satırında kalır (devredilen işin sahiplik kanıtı).
+    Davranış ve çıkış kodu değişmez.
     """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
     timing = clock or SystemClock()
     deadline = timing.monotonic() + timeout_s
+    script = f"trap : EXIT; : {ownership_marker}\n{command}\n" if ownership_marker else command
     process = subprocess.Popen(
-        [*argv_prefix, "/bin/sh", "-c", command] if argv_prefix else command,
+        [*argv_prefix, "/bin/sh", "-c", script] if argv_prefix else script,
         shell=not argv_prefix,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -253,31 +282,67 @@ def run_foreground(
         BoundedCapture(process.stdout, limit=SHELL_CAPTURE_CHARS),
         BoundedCapture(process.stderr, limit=SHELL_CAPTURE_CHARS),
     )
-    cleanup_started = False
     try:
-        while True:
-            if cancelled.is_set():
-                cleanup_started = True
-                _drain(process, captures, force=False)
-                raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
-            remaining = deadline - timing.monotonic()
-            if remaining <= 0:
-                cleanup_started = True
-                stdout, stderr = _drain(process, captures, force=True)
-                raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
-            try:
-                process.wait(timeout=min(PROCESS_POLL_S, remaining))
-            except subprocess.TimeoutExpired:
-                continue
-            for capture in captures:
-                capture.wait_eof(PROCESS_TERMINATE_GRACE_S)
-            return subprocess.CompletedProcess(
-                command, process.returncode, captures[0].text(), captures[1].text()
-            )
+        return _supervise(
+            process,
+            captures,
+            command=command,
+            cancelled=cancelled,
+            deadline=deadline,
+            timing=timing,
+            timeout_s=timeout_s,
+            adopt_on_timeout=adopt_on_timeout,
+            handoff=handoff,
+        )
+    except _SETTLED:
+        raise  # temizlik ya da devir zaten yapıldı
     except BaseException:
-        if not cleanup_started:
-            _drain(process, captures, force=True)
+        _drain(process, captures, force=True)
         raise
+
+
+#: `_supervise` bu istisnaları süreci temizledikten (ya da devrettikten) sonra yükseltir.
+_SETTLED = (
+    ProcessCancelledError,
+    CleanupFailedError,
+    subprocess.TimeoutExpired,
+    MovedToBackgroundError,
+)
+
+
+def _supervise(
+    process: subprocess.Popen[bytes],
+    captures: tuple[BoundedCapture, BoundedCapture],
+    *,
+    command: str,
+    cancelled: Event,
+    deadline: float,
+    timing: Clock,
+    timeout_s: float,
+    adopt_on_timeout: Callable[[], bool] | None,
+    handoff: Event | None,
+) -> subprocess.CompletedProcess[str]:
+    while True:
+        if cancelled.is_set():
+            _drain(process, captures, force=False)
+            raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
+        if handoff is not None and handoff.is_set():
+            raise MovedToBackgroundError(process, captures, timeout_s, by_user=True)
+        remaining = deadline - timing.monotonic()
+        if remaining <= 0:
+            if adopt_on_timeout is not None and adopt_on_timeout():
+                raise MovedToBackgroundError(process, captures, timeout_s)
+            stdout, stderr = _drain(process, captures, force=True)
+            raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
+        try:
+            process.wait(timeout=min(PROCESS_POLL_S, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        for capture in captures:
+            capture.wait_eof(PROCESS_TERMINATE_GRACE_S)
+        return subprocess.CompletedProcess(
+            command, process.returncode, captures[0].text(), captures[1].text()
+        )
 
 
 async def terminate_async_process_tree(process: asyncio.subprocess.Process) -> None:

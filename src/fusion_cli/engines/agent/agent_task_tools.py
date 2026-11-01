@@ -167,7 +167,7 @@ _NO_DELIVERY_OWNERS = frozenset({"", "cli"})
 
 def _inherited_limits(deps: AgentDeps, subtask: SubTask) -> tuple[Path, TaskOptions]:
     """Üst turun araç tavanı/yasakları ve yazma alanı; izolasyon istendiyse çalışma ağacı."""
-    from ...core.worktree import enter_worktree
+    from ...config.worktree_settings import enter_configured_worktree
     from ..hooks.worktree_hooks import worktree_hook_calls
     from .team_scope import derive_sub_context
 
@@ -182,7 +182,7 @@ def _inherited_limits(deps: AgentDeps, subtask: SubTask) -> tuple[Path, TaskOpti
     if subtask.isolation == "worktree" and not subtask.read_only:
         name = "arka-" + uuid.uuid4().hex[:8]
         hooks = worktree_hook_calls(getattr(deps, "hooks", None))
-        root = enter_worktree(context.root, name, hooks=hooks).path
+        root = enter_configured_worktree(context.root, name, hooks=hooks).path
         # Yazma alanı ana köke göre çözüldü; izole ağaçta aynı göreli yollara çevrilir.
         scope = tuple(_rebase(path, context.root, root) for path in scope) if scope else scope
     from .evidence_handoff import compile_handoff

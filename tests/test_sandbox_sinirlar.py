@@ -29,76 +29,100 @@ from fusion_cli.config.sandbox_config import (
 )
 from fusion_cli.core import shell_sandbox
 from fusion_cli.core.errors import ConfigError
-from fusion_cli.core.sandbox_policy import SandboxPolicy
+from fusion_cli.core.sandbox_policy import SandboxPolicy, read_rules
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import sandbox_runtime, shell
 from fusion_cli.tools.jobs import job_status
 from tests.fakes import make_config
 
-# --- inceleme-8: okuma engeli varsayılanı her zaman uygulanır --------------- #
+# --- #348/#349: Claude gibi yerleşik okuma engeli yok; allowRead'de dar yol kazanır -- #
 
 
-def test_kullanicinin_okuma_engeli_varsayilani_ezmez_eklenir(tmp_path):
+def test_yerlesik_okuma_engeli_yok_yalniz_kullanici_listesi_ve_fusion_sirlari(tmp_path):
     ev = tmp_path / "ev"
-    config = validate_sandbox(SandboxConfig(deny_read=("~/ozel",)))
+    policy = sandbox_policy(
+        SandboxConfig(deny_read=("~/ozel",)),
+        home=ev,
+        root=tmp_path,
+        extra_deny=(tmp_path / "kasa",),
+    )
+    assert DEFAULT_DENY_READ == ()
+    assert policy.deny_read == (ev / "ozel", tmp_path / "kasa")
+    assert ev / ".ssh" not in policy.deny_read
 
+
+def test_allow_read_engelli_bolgenin_icini_acar_dar_yol_kazanir(tmp_path):
+    ev = tmp_path / "ev"
+    config = validate_sandbox(
+        SandboxConfig(deny_read=("~/", "~/projeler/gizli"), allow_read=("~/projeler", "/baska"))
+    )
+    policy = sandbox_policy(config, home=ev, root=tmp_path, extra_deny=(ev / "projeler/.env",))
+    kurallar = read_rules(policy)
+    # Geniş → dar; engelin dışındaki /baska yok sayılır; Fusion sırrı en sonda (açılamaz).
+    assert kurallar == (
+        (ev.resolve(), False),
+        ((ev / "projeler").resolve(), True),
+        ((ev / "projeler/gizli").resolve(), False),
+        ((ev / "projeler/.env").resolve(), False),
+    )
+
+
+def test_ayni_yolda_engel_kazanir(tmp_path):
+    policy = SandboxPolicy(deny_read=(tmp_path / "a",), allow_read=(tmp_path / "a",))
+    assert read_rules(policy)[-1] == ((tmp_path / "a").resolve(), False)
+
+
+def test_seatbelt_profili_okuma_kurallarini_sirayla_yazar(tmp_path):
+    ev = tmp_path / "ev"
+    policy = SandboxPolicy(deny_read=(ev,), allow_read=(ev / "projeler",))
+    prefix = shell_sandbox._darwin_prefix((tmp_path,), policy, "/usr/bin/sandbox-exec", None)
+    profil = prefix[-1]
+    engel = profil.index('(deny file-read* (subpath (param "R0")))')
+    izin = profil.index('(allow file-read* (subpath (param "R1")))')
+    assert engel < izin and f"R1={(ev / 'projeler').resolve()}" in prefix
+
+
+def test_linux_bwrap_engelin_icini_yeniden_baglar(tmp_path):
+    from fusion_cli.core.shell_sandbox_linux import _mounts
+
+    ev = tmp_path / "ev"
+    (ev / "projeler").mkdir(parents=True)
+    argv = _mounts((), ((ev, False), (ev / "projeler", True)))
+    tmpfs = argv.index("--tmpfs")
+    baglama = argv.index(str(ev / "projeler"))
+    assert argv[tmpfs + 1] == str(ev) and baglama > tmpfs and argv[baglama - 1] == "--ro-bind"
+
+
+def test_credentials_envvars_ortamdan_cikar_files_okunamaz(tmp_path):
+    from fusion_cli.config.sandbox_claude_keys import normalize_claude_sandbox
+
+    data, _ = normalize_claude_sandbox(
+        {
+            "credentials": {
+                "envVars": [{"name": "GITHUB_TOKEN", "mode": "deny"}],
+                "files": [{"path": "~/.aws/credentials", "mode": "deny"}],
+            }
+        }
+    )
+    config = SandboxConfig(
+        credential_env=tuple(data["credential_env"]),
+        credential_files=tuple(data["credential_files"]),
+    )
+    ev = tmp_path / "ev"
     policy = sandbox_policy(config, home=ev, root=tmp_path)
-
-    assert ev / "ozel" in policy.deny_read
-    assert ev / ".ssh" in policy.deny_read and ev / ".aws" in policy.deny_read
-
-
-def test_allow_read_varsayilandan_yolu_bilerek_cikarir(tmp_path):
-    ev = tmp_path / "ev"
-    config = validate_sandbox(SandboxConfig(allow_read=("~/.kube/",)))
-
-    policy = sandbox_policy(config, home=ev, root=tmp_path, extra_deny=(tmp_path / "kasa",))
-
-    assert ev / ".kube" not in policy.deny_read
-    assert ev / ".ssh" in policy.deny_read and tmp_path / "kasa" in policy.deny_read
+    assert policy.deny_env == ("GITHUB_TOKEN",) and ev / ".aws/credentials" in policy.deny_read
+    assert SandboxConfig().hide_secret_env is False  # Claude: yerleşik sır listesi yok (#368)
+    with pytest.raises(ConfigError, match="deny ya da mask"):
+        normalize_claude_sandbox({"credentials": {"envVars": [{"name": "X", "mode": "gizle"}]}})
 
 
-def test_allow_read_listede_olmayan_yolu_reddeder():
-    with pytest.raises(ConfigError, match=r"sandbox\.allow_read"):
-        validate_sandbox(SandboxConfig(allow_read=("~/.sshh",)))
-
-
-def test_allow_read_kullanicinin_ekledigi_yolu_da_cikarabilir(tmp_path):
-    config = validate_sandbox(SandboxConfig(deny_read=("~/ozel",), allow_read=("$HOME/ozel",)))
-    policy = sandbox_policy(config, home=tmp_path, root=tmp_path)
-    assert tmp_path / "ozel" not in policy.deny_read
-
-
-def test_durum_etkin_okuma_engelini_ve_cikarilanlari_gosterir(tmp_path):
-    sandbox = validate_sandbox(SandboxConfig(deny_read=("~/ozel",), allow_read=("~/.kube",)))
+def test_durum_etkin_okuma_engelini_ve_acilanlari_gosterir(tmp_path):
+    sandbox = validate_sandbox(SandboxConfig(deny_read=("~/",), allow_read=("~/projeler",)))
     status = sandbox_status(replace(make_config(), sandbox=sandbox), tmp_path, platform="win32")
 
-    assert "~/ozel" in status.deny_read and "~/.ssh" in status.deny_read
-    assert "~/.kube" not in status.deny_read
-    assert status.allow_read == ("~/.kube",)
-    assert status.as_dict()["okuma_izni"] == ["~/.kube"]
-    assert "Okuma izni   : ~/.kube" in format_status(status)
-
-
-def test_varsayilan_okuma_engeli_tek_kaynakta_ve_eski_yollari_kapsar():
-    for yol in ("~/.ssh", "~/.aws", "~/.config/gh", "~/.pypirc", "~/Library/Keychains"):
-        assert yol in DEFAULT_DENY_READ
-    assert SandboxConfig().deny_read == () and SandboxConfig().allow_read == ()
-
-
-def _yukle(tmp_path: Path, metin: str):
-    from fusion_cli.config.loader import load_config
-
-    yol = tmp_path / "config.yaml"
-    yol.write_text(metin, encoding="utf-8")
-    return load_config(yol)
-
-
-def test_eski_tam_liste_yazan_yapilandirma_ayni_engeli_uretir(tmp_path):
-    satirlar = "".join(f"    - '{yol}'\n" for yol in DEFAULT_DENY_READ)
-    config = _yukle(tmp_path, f"sandbox:\n  deny_read:\n{satirlar}")
-    policy = sandbox_policy(config.sandbox, home=tmp_path, root=tmp_path)
-    assert len(policy.deny_read) == len(DEFAULT_DENY_READ)
+    assert "~/" in status.deny_read and "~/.ssh" not in status.deny_read
+    assert status.allow_read == ("~/projeler",)
+    assert "Okuma izni   : ~/projeler" in format_status(status)
 
 
 # --- inceleme-11: proxy komut başına; sahibi bitince kapanır ------------------ #
@@ -309,8 +333,9 @@ def test_linux_open_kipinde_cdp_korumasi_olmadigini_durum_soyler(tmp_path):
     assert "ad alanı" in debug_port_guard("linux", "allowlist")
     assert "her kipte" in debug_port_guard("darwin", "open")
     assert debug_port_guard("win32", "open") == ""
+    # Varsayılan ağ proxy'li (Claude, #323): Linux'ta komut ayrı ağ ad alanında.
     durum = sandbox_status(make_config(), tmp_path, platform="linux")
-    assert "Tarayıcı CDP : Fusion Chrome'unun hata ayıklama portu korunmaz" in format_status(durum)
+    assert "kapalı (komut ayrı ağ ad alanında" in format_status(durum)
     assert durum.as_dict()["cdp_korumasi"] == durum.debug_ports
 
 

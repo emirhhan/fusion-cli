@@ -37,11 +37,12 @@ from typing import Any
 from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
-from ..cli.repl.loop_command import fire_prompt
+from ..cli.repl.loop_command import fire_prompt, runs_as_command
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.skill_commands import model_override_allowed
 from ..cli.repl.state import Engine, ReplState
+from ..cli.repl.task_list import session_todos
 from ..cli.repl.transcript_store import (
     TranscriptStore,
     delete_conversation,
@@ -71,6 +72,7 @@ from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
 from ..core.errors import ConfigError
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.owned_thread import await_owned_thread
+from ..core.plan_switch import PlanModeSwitch
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
@@ -110,6 +112,7 @@ from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
 from . import auto_memory, computer_routes, intelligence, pr_archive, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
+from .background_wake import BACKGROUND_WAKE_ID, background_wake_tasks
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
 from .browser_panel import BrowserPanel
@@ -206,6 +209,7 @@ from .mcp_project_routes import MCP_PROJECT_ROUTES, dispatch_mcp_project
 from .model_catalog import list_selectable_models
 from .orchestration_routes import ORCHESTRATION_ROUTES, dispatch_orchestration
 from .personal_memory import PersonalMemory
+from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
@@ -1539,6 +1543,10 @@ class AppSession:
             return self._cron_due()
         if request.name == "cron.geri_ver":
             return self._cron_give_back(request.data)
+        if request.name == "plan.kart":
+            return plan_card_payload(self._state)
+        if request.name == "plan.kabul":
+            return plan_accept(self._state, request.data)
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
@@ -2344,14 +2352,23 @@ class AppSession:
         now = time.time()
         due = self._state.cron.due(now)
         if not due:
-            return {"ok": True, "gorevler": self._wake.give(self._state)}
+            # Önce kanca/zamanlayıcı uyandırması, yoksa biten arka plan işi (#371); tek seferde bir.
+            gorevler = self._wake.give(self._state) or background_wake_tasks(
+                self._state.background_events
+            )
+            return {"ok": True, "gorevler": gorevler}
         verilen = []
         for task in due[:1]:
             # Gönderilemezse `cron.geri_ver` bu hâli geri koyar; vade boşa gitmez.
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
-            verilen.append({"id": task.id, "gorev": fire_prompt(task), "kaynak": task.source.value})
-            self._cron_fire_prompt = fire_prompt(task).strip()
+            gorev = fire_prompt(task, root=self._state.root, home=self._state.home)
+            # Claude (#371): yalnız modelin çağırabildiği beceri komut olur; gerisi düz metin.
+            duz_metin = not runs_as_command(task.prompt, self._state.capabilities)
+            verilen.append(
+                {"id": task.id, "gorev": gorev, "kaynak": task.source.value, "duz_metin": duz_metin}
+            )
+            self._cron_fire_prompt = gorev.strip()
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 
@@ -2363,6 +2380,10 @@ class AppSession:
         """
         task_id = data.get("id")
         if isinstance(task_id, str) and self._wake.give_back(self._state, task_id):
+            return {"ok": True}
+        if task_id == BACKGROUND_WAKE_ID:
+            # Olaylar kuyrukta kalır; sonraki yoklama yeniden uyandırır.
+            self._state.background_events.release_wake()
             return {"ok": True}
         task = self._cron_given.get(task_id) if isinstance(task_id, str) else None
         if task is None:
@@ -3248,6 +3269,8 @@ class AppSession:
                 home=self._state.home,
                 history=history,
                 cron=None if browser_only else self._state.cron,
+                background_events=None if browser_only else self._state.background_events,
+                todos=None if browser_only else session_todos(self._state),
                 chrome_bridge=self._chrome,
                 skill_grants=pending_extras.grants,
                 allowed_tools=pending_extras.merged_tools(
@@ -3301,6 +3324,7 @@ class AppSession:
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
+                plan_mode_switch=plan_switch,
                 hooks=self._state.hooks(),
                 browser=self._browser_panel.turn_browser(),
             )
@@ -3309,6 +3333,7 @@ class AppSession:
         # burada uygulanır (REPL `apply_switch` ile aynı). Ölçüldü (31 Ekim): masaüstü
         # anahtarı hiç okumuyordu; araç "tur bitince kök değişir" diyor, kök değişmiyordu.
         switch = WorktreeSwitch()
+        plan_switch = PlanModeSwitch()
         # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
         # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
         # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
@@ -3375,6 +3400,11 @@ class AppSession:
         # çıkarımı korumalıdır, tur kaydını düşürmez.
         linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
         switched = await self._state.apply_worktree_switch(switch)
+        # `enter_plan_mode` (#324): model kendini plan kipine geçirdiyse sekme kipi PLAN olur.
+        self._state.apply_plan_mode_switch(plan_switch)
+        # `exit_plan_mode` planı yazdıysa kart `plan.kart` ile açılır (#325; REPL ile aynı).
+        if getattr(outcome, "plan_path", None) is not None:
+            self._state.pending_plan = outcome.plan_path
         self._child_runs = self._state.child_runs
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.

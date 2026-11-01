@@ -24,6 +24,7 @@ from fusion_cli.engines.agent.team import SubTask, _parse_subtask, derive_sub_co
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.tools.builtin import build_registry as build_tools
 from fusion_cli.tools.worktree_tools import enter_worktree_tool, exit_worktree_tool
+from fusion_cli.ui import messages
 
 from .fakes import make_config
 
@@ -44,7 +45,9 @@ def repo(tmp_path: Path) -> Path:
     (root / "app.txt").write_text("taban\n", encoding="utf-8")
     (root / ".env").write_text("GIZLI=1\n", encoding="utf-8")
     (root / ".worktreeinclude").write_text("# izlenmeyen ayarlar\n.env\n", encoding="utf-8")
-    _git(root, "add", "app.txt", ".worktreeinclude")
+    # Claude: yalnız gitignored dosyalar kopyalanır (#359).
+    (root / ".gitignore").write_text(".env\n*.local\n", encoding="utf-8")
+    _git(root, "add", "app.txt", ".worktreeinclude", ".gitignore")
     _git(root, "commit", "-qm", "taban")
     return root
 
@@ -55,7 +58,7 @@ def repo(tmp_path: Path) -> Path:
 def test_create_worktree_dizin_dal_kunye_ve_include(repo):
     tree = core_worktree.enter_worktree(repo, "deneme")
 
-    assert tree.path == repo / ".fusion" / "worktrees" / "deneme"
+    assert tree.path == repo / ".claude" / "worktrees" / "deneme"
     assert tree.branch == "worktree-deneme"
     assert tree.base_commit == _git(repo, "rev-parse", "HEAD")
     assert _git(tree.path, "rev-parse", "--abbrev-ref", "HEAD") == "worktree-deneme"
@@ -69,8 +72,25 @@ def test_create_worktree_dizin_dal_kunye_ve_include(repo):
     assert core_worktree.enter_worktree(tree.path, "deneme") == tree, "içinden tekrar girilir"
 
 
+def test_worktreeinclude_gitignore_soz_dizimi_ve_yalniz_yok_sayilan_dosyalar(repo):
+    """#359: `.env` her derinlikte eşler, `!` dışarıda bırakır; gitignored olmayan kopyalanmaz."""
+    (repo / "alt").mkdir()
+    (repo / "alt" / ".env").write_text("ALT=1", encoding="utf-8")
+    (repo / "notlar.local").write_text("N", encoding="utf-8")
+    (repo / "izlenmeyen.txt").write_text("I", encoding="utf-8")
+    (repo / ".worktreeinclude").write_text(
+        ".env\n*.local\n!notlar.local\nizlenmeyen.txt\n", encoding="utf-8"
+    )
+
+    tree = core_worktree.enter_worktree(repo, "desen")
+
+    assert set(tree.included) == {".env", "alt/.env"}, tree.included
+    assert not (tree.path / "izlenmeyen.txt").exists(), "gitignored değil, kopyalanmaz"
+    assert not (tree.path / "notlar.local").exists(), "! ile dışarıda"
+
+
 def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):
-    """Ölçüldü (31 Ekim): `../outside.txt` deseni `.fusion/worktrees/outside.txt` olarak ağaç
+    """Ölçüldü (31 Ekim): `../outside.txt` deseni `.claude/worktrees/outside.txt` olarak ağaç
     DIŞINA yazılıyor, `/etc/hosts`'a işaret eden symlink'in içeriği ağaçta düz dosya oluyordu.
     `.worktreeinclude` depoyla gelen güvenilmeyen bir dosyadır."""
     (tmp_path / "outside.txt").write_text("DIŞ SIR", encoding="utf-8")
@@ -91,7 +111,7 @@ def test_worktreeinclude_kok_disi_desen_ve_symlink_kopyalanmaz(repo, tmp_path):
     tree = core_worktree.enter_worktree(repo, "guvenli")
 
     assert set(tree.included) == {"ic/ayar.local", ".env"}, tree.included
-    assert not (repo / ".fusion" / "worktrees" / "outside.txt").exists(), "ağaç dışına yazıldı"
+    assert not (repo / ".claude" / "worktrees" / "outside.txt").exists(), "ağaç dışına yazıldı"
     assert not (tree.path / "baglanti.txt").exists(), "symlink hedefi kopyalandı"
     assert not (tree.path / "outside.txt").exists()
     assert not (tree.path / "disa-dizin").exists()
@@ -149,15 +169,17 @@ def _run(state: ReplState, line: str) -> str:
 
 
 def test_worktree_komutu_girer_listeler_cikar(state, repo):
-    assert (
-        _run(state, "/worktree") == "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
+    # Claude'da /worktree yok (#360): kullanımdan kalkan komut, oturumda bir kez uyarır.
+    assert _run(state, "/worktree") == (
+        f"{messages.WORKTREE_COMMAND_DEPRECATED}\n"
+        "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
     )
     assert "yok" in _run(state, "/worktree liste")
 
     giris = _run(state, "/worktree ozellik")
 
     assert "Çalışma ağacı:" in giris and "worktree-ozellik" in giris
-    assert state.root == repo / ".fusion" / "worktrees" / "ozellik"
+    assert state.root == repo / ".claude" / "worktrees" / "ozellik"
     assert state.worktree is not None and state.worktree.origin == repo
     assert "ozellik" in _run(state, "/worktree")
     assert "worktree-ozellik" in _run(state, "/worktree liste")
@@ -181,7 +203,7 @@ def test_worktree_cikista_is_kalmissa_korur_ve_yolu_soyler(state, repo):
 def test_masaustu_koprusu_worktree_calistirir(state, repo):
     sonuc = run_command(build_registry(), state, "worktree", "masa")
     assert sonuc["ok"] and "worktree-masa" in sonuc["metin"]
-    assert state.root == repo / ".fusion" / "worktrees" / "masa"
+    assert state.root == repo / ".claude" / "worktrees" / "masa"
 
 
 # --- Ajan araçları ------------------------------------------------------------------- #
@@ -195,7 +217,7 @@ def test_enter_worktree_araci_kurar_ve_tur_sonunda_kok_degisir(state, repo):
     result = asyncio.run(enter_worktree_tool({"name": "ajan"}, context))
 
     assert result.ok, result.output
-    assert ".fusion/worktrees/ajan" in result.output
+    assert ".claude/worktrees/ajan" in result.output
     requested, exit_requested = (
         context.worktree_switch.requested,
         context.worktree_switch.exit_requested,
@@ -206,7 +228,10 @@ def test_enter_worktree_araci_kurar_ve_tur_sonunda_kok_degisir(state, repo):
     assert context.worktree_switch.requested is None, "istek bir kez uygulanır"
 
     ic = ToolContext(root=state.root)
-    assert not asyncio.run(enter_worktree_tool({"name": "icice"}, ic)).ok, "iç içe ağaç açılmaz"
+    # Claude (#342): ağacın içindeyken başkasına doğrudan geçilir; yeni ağaç ana depoda açılır.
+    ikinci = asyncio.run(enter_worktree_tool({"name": "ikinci"}, ic))
+    assert ikinci.ok and str(repo / ".claude" / "worktrees" / "ikinci") in ikinci.output
+    ic.worktree_switch.take()
     cikis = asyncio.run(exit_worktree_tool({}, ic))
     assert cikis.ok and ic.worktree_switch.exit_requested
     assert "kaldırıldı" in worktrees.apply_switch(state, ic)
@@ -217,7 +242,7 @@ def test_exit_worktree_agacta_degilken_bilgi_verir(repo):
     context = ToolContext(root=repo)
     result = asyncio.run(exit_worktree_tool({}, context))
     assert result.ok and not context.worktree_switch.exit_requested
-    assert not asyncio.run(enter_worktree_tool({"name": ""}, context)).ok
+    assert not asyncio.run(enter_worktree_tool({"name": "../kacak"}, context)).ok
 
 
 # --- Alt ajan izolasyonu ---------------------------------------------------------------- #
@@ -288,7 +313,7 @@ def test_alt_ajan_degisiklik_yapmazsa_agaci_kaldirir_yaparsa_korur(repo, tmp_pat
         return SimpleNamespace(final_text="yazdım", ok=True, tool_calls_made=1)
 
     temiz = asyncio.run(_run_isolated_member(repo, tmp_path, bos))
-    assert temiz.ok and roots[0].parent == repo / ".fusion" / "worktrees"
+    assert temiz.ok and roots[0].parent == repo / ".claude" / "worktrees"
     assert not roots[0].exists(), "değişiklik yok: ağaç kaldırılır"
     assert core_worktree.list_worktrees(repo) == ()
     assert "[Çalışma ağacı]" not in temiz.text
@@ -299,20 +324,17 @@ def test_alt_ajan_degisiklik_yapmazsa_agaci_kaldirir_yaparsa_korur(repo, tmp_pat
     assert not (repo / "uye.txt").exists(), "ana proje değişmez"
 
 
-def test_worktree_araclari_yalniz_ilgili_istekte_sunulur():
-    """Ölçüldü (31 Ekim): iki aracın şeması emülasyon istem bütçesini (11.400) aşıyordu."""
+def test_worktree_araclari_claude_gibi_her_turda_sunulur():
+    """Claude EnterWorktree her zaman vardır (#342); istem bütçesi için imza satırında gider."""
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
     from fusion_cli.engines.agent.expertise import is_worktree_task
     from fusion_cli.engines.agent.loop import SCOPED_TOOLS, _permitted
 
     registry = build_tools()
     sirada = _permitted(None, registry, ExecutionPolicy(is_web=False))
-    assert sirada is not None and "enter_worktree" not in sirada
-    acik = _permitted(None, registry, ExecutionPolicy(is_web=False), frozenset({"worktree"}))
-    assert acik is not None and {"enter_worktree", "exit_worktree"} <= acik
-    assert SCOPED_TOOLS["enter_worktree"] == "worktree"
+    assert sirada is not None and {"enter_worktree", "exit_worktree"} <= sirada
+    assert "enter_worktree" not in SCOPED_TOOLS and "exit_worktree" not in SCOPED_TOOLS
     assert is_worktree_task("bunu ayrı bir dalda, worktree içinde dene")
-    assert is_worktree_task("izole bir dalda çalış, ana projeye dokunma")
     assert not is_worktree_task("CSS arka plan rengini değiştir")
 
 

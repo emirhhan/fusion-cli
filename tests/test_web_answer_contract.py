@@ -135,6 +135,10 @@ async def test_motor_istege_conversation_id_ve_sozlesmeyi_koyar(tmp_path, monkey
 
     kaydeden = _IstekKaydeden()
     install_provider(monkeypatch, kaydeden)
+    # Claude dışı modelde görev aracı varsayılan yok (#329); Claude gibi açıkça açılır ve
+    # CLAUDE_CODE_ENABLE_TASKS=0 ile todo_write gelir.
+    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TASKS", "0")
     deps = replace(web_deps(tmp_path, RecordingSink()), conversation_id="oturum-7")
 
     await run_agent("selam", deps, allowed_tools={"read_file"})

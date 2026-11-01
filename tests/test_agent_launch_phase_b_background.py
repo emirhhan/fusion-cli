@@ -151,7 +151,7 @@ async def test_repl_oturumu_tek_dongude_ayni_gorev_sahibini_turlara_tasir(tmp_pa
             assert deps.child_runs.running("denetci") and not cleaned.is_set()
         return AgentOutcome("bitti", [], 0, ok=True)
 
-    async def surface(state, config, console, resume):
+    async def surface(state, config, console, resume, setup_trigger=""):
         background = BackgroundTasks()
         await repl_loop._agent_turn("İlk tur", state, console, background)
         await repl_loop._agent_turn("İkinci tur", state, console, background)

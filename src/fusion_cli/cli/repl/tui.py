@@ -138,6 +138,10 @@ class FusionTui:
         keymap: KeyMap | None = None,
         on_rewind: Callable[[], None] | None = None,
         on_background: Callable[[], None] | None = None,
+        on_toggle_tasks: Callable[[], bool] | None = None,
+        on_stop_loops: Callable[[], bool] | None = None,
+        task_lines: Callable[[], list[str]] | None = None,
+        tasks_visible: bool = False,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
@@ -146,6 +150,12 @@ class FusionTui:
         self._on_transcript_change = on_transcript_change
         self._on_rewind = on_rewind
         self._on_background = on_background
+        # Ctrl+T görev listesi (#330): durum alanının üstünde en çok 5 madde.
+        self._on_toggle_tasks = on_toggle_tasks
+        #: Ctrl+C (#365): bekleyen kendi tempolu döngü varsa onu durdurur, yoksa çıkış.
+        self._on_stop_loops = on_stop_loops
+        self._task_lines = task_lines
+        self._tasks_visible = tasks_visible
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
         self._last_escape_at = 0.0
         # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
@@ -168,9 +178,9 @@ class FusionTui:
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
         self._choices: list[Choice] = []
         self._choice_all: list[Choice] = []
+        self._choice_hotkeys: dict[str, str] = {}
         self._choice_index = 0
         self._choice_title = ""
-        self._choice_hotkeys: dict[str, str] = {}
         self._choice_filterable = False
         self._choice_filter = ""
         self._choice_space = False
@@ -212,6 +222,10 @@ class FusionTui:
             Window(FormattedTextControl(self._work_fragments), height=1, style="class:work"),
             filter=Condition(lambda: bool(self._work_now())),
         )
+        tasks_window = ConditionalContainer(
+            Window(FormattedTextControl(self._task_fragments), style="class:work"),
+            filter=Condition(lambda: self._tasks_visible and self._task_lines is not None),
+        )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
         # Seçim modalı: yalnızca "choice" modunda, girdinin hemen üstünde ok-tuşlu liste.
@@ -221,7 +235,15 @@ class FusionTui:
         )
         # Konuşma alanı tüm boşluğu kaplar; alt-chrome (çizgi + girdi + durum) en altta pinli.
         root = HSplit(
-            [conversation, work_window, choice_window, rule, Frame(self._input), status_window],
+            [
+                conversation,
+                work_window,
+                tasks_window,
+                choice_window,
+                rule,
+                Frame(self._input),
+                status_window,
+            ],
             height=Dimension(),
         )
         self.application: Application[None] = Application(
@@ -617,6 +639,16 @@ class FusionTui:
         self._unread_lines = 0
         self._refresh_status()
 
+    def _bind_choice_hotkey(self, kb: KeyBindings, key: str, choice: Condition) -> None:
+        """Seçim kipinde `key` basılınca seçicinin `hotkeys` değerini döndür (#326, #352)."""
+        active = Condition(lambda: self._mode == "choice" and key in self._choice_hotkeys)
+
+        @kb.add(key, filter=choice & active, eager=True)
+        def _hotkey(_event: object) -> None:
+            value = self._choice_hotkeys.get(key)
+            if value is not None:
+                self._resolve(value)
+
     def _bindings(self) -> KeyBindings:
         """Tuş bağları: yapısal olanlar sabit, eylemler tablodan (P-067)."""
         from prompt_toolkit.keys import Keys
@@ -648,6 +680,10 @@ class FusionTui:
         @kb.add("enter", filter=choice, eager=True)
         def _pick(_event: object) -> None:
             self._pick_current()
+
+        # Seçicinin istediği kısayollar (plan kartı Ctrl+G, /sandbox sekmeleri ←/→/Tab).
+        for key in ("c-g", "left", "right", "tab"):
+            self._bind_choice_hotkey(kb, key, choice)
 
         # Onay/seçim açıkken BAŞKA hiçbir tuş girdi kutusuna ulaşmaz.
         #
@@ -690,10 +726,12 @@ class FusionTui:
         # `c-r` tarihsel olarak en başa gider (End ile canlı akışa dönülür).
         actions: dict[str, tuple[Callable[[], None], Filter | None]] = {
             "cik": (self._on_exit, None),
+            "dongu_ya_da_cik": (self._stop_loops_or_exit, None),
             "kes": (self._cancel_or_interrupt, None),
             # Yalnız tur sürerken: boştayken Ctrl+B satır düzenlemesinde (geri karakter) kalır.
             "arka_plana_al": (self._request_background, Condition(self._can_background)),
             "kip_dongusu": (self._on_cycle_mode, None),
+            "gorev_listesi": (self._toggle_tasks, None),
             "sayfa_yukari": (lambda: self._scroll_by(_SCROLL_PAGE), scrollable),
             "sayfa_asagi": (lambda: self._scroll_by(-_SCROLL_PAGE), scrollable),
             "en_bas": (self._scroll_home, scrollable),
@@ -746,6 +784,24 @@ class FusionTui:
             kb.add(key, eager=True)(_run)
         else:
             kb.add(key, filter=condition, eager=True)(_run)
+
+    def _stop_loops_or_exit(self) -> None:
+        if self._mode == "idle" and self._on_stop_loops is not None and self._on_stop_loops():
+            return
+        self._on_exit()
+
+    def _toggle_tasks(self) -> None:
+        """Ctrl+T: görev listesini aç/kapat (durum oturumla saklanır)."""
+        if self._on_toggle_tasks is not None:
+            self._tasks_visible = self._on_toggle_tasks()
+        else:
+            self._tasks_visible = not self._tasks_visible
+        self.application.invalidate()
+
+    def _task_fragments(self) -> StyleAndTextTuples:
+        if self._task_lines is None:
+            return []
+        return [("class:work", "\n".join(f"  {line}" for line in self._task_lines()))]
 
     def _can_background(self) -> bool:
         return self._on_background is not None and self._work_source is not None

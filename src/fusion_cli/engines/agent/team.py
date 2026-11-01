@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...config.models import McpServerConfig
+from ...config.worktree_settings import enter_configured_worktree
 from ...core.clock import SystemClock
 from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
@@ -29,10 +30,10 @@ from ...core.worktree import (
     LeaveOutcome,
     Worktree,
     WorktreeHookCalls,
-    enter_worktree,
     leave_worktree,
 )
 from ...memory.plain_memory import AGENT_MEMORY_SCOPES
+from ...tools import job_lifetime
 from ...tools.capabilities import (
     CapabilityRegistry,
     agent_prompt,
@@ -381,6 +382,8 @@ async def run_subagent(
             outcome = await owned
         finally:
             deps.child_runs.detach(sub_id, owned)
+            # Claude: ön plan alt ajanının başlattığı komut, alt ajanın koşusu bitince durur.
+            await asyncio.to_thread(job_lifetime.stop_group, context.job_group)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
         if worktree is not None:
             text += await asyncio.to_thread(_settle_worktree, worktree, tree_hooks)
@@ -756,7 +759,7 @@ async def run_team(
 async def _isolated_worktree(
     context: ToolContext, subtask: SubTask, sub_id: str, hooks: WorktreeHookCalls | None = None
 ) -> Worktree | None:
-    """`izolasyon: "worktree"` ise üyeye `.fusion/worktrees/ajan-<kimlik>` ağacı aç.
+    """`izolasyon: "worktree"` ise üyeye `.claude/worktrees/ajan-<kimlik>` ağacı aç.
 
     Ağaç oturumun KENDİ kökünün HEAD'inden dallanır (oturum bir ağaçtaysa o dalından).
     Üye bitince `_settle_worktree` karar verir: iş kaldıysa ağaç kalır, kalmadıysa
@@ -765,7 +768,9 @@ async def _isolated_worktree(
     if subtask.isolation != "worktree" or subtask.read_only:
         return None
     name = "ajan-" + re.sub(r"[^A-Za-z0-9._-]", "-", sub_id)[:48]
-    return await asyncio.to_thread(enter_worktree, context.root, name, hooks=hooks)
+    return await asyncio.to_thread(
+        lambda: enter_configured_worktree(context.root, name, hooks=hooks)
+    )
 
 
 def _settle_worktree(worktree: Worktree, hooks: WorktreeHookCalls | None = None) -> str:

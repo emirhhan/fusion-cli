@@ -284,7 +284,8 @@ Alttaki durum çubuğu ekrana sabittir ve onay modu değişince kendiliğinden g
 İpucu çalışma dizinine göre seçilir: aynı projede hep aynı, farklı projede farklı.
 Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte taşma olmaz.
 
-**shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
+**shift-tab** onay modunu döndürür (Claude sırası: auto → default → acceptEdits → plan →
+bypass yalnız bu oturumda `/bypass` ile seçildiyse ya da `defaultMode` bypass ise) · **Ctrl-C** çalışan turu durdurur (oturumdan
 çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.
 
 | Grup | Komutlar |
@@ -407,6 +408,10 @@ Kütüphanede içerik yoksa bu araçlar modele hiç sunulmaz.
 
 `fusion -p` Claude Code `claude -p` ile aynı bayrakları ve çıktı alanlarını kullanır (bkz.
 `docs/HEADLESS.md`). Eski `fusion agent "..." --mode …` bir sürüm daha çalışır.
+
+Claude Code'daki `claude -p` gibi kip verilmezse `fusion agent` **Manual** (`default`) başlar:
+onay gerektiren çağrı sorulmadan reddedilir; izin kuralı (`allow`) ya da kanca onaylarsa
+çalışır, `--permission-prompt-tool stdin` verilirse sorulur. `--mode` eski addır.
 
 Agent dosya okur/yazar, komut çalıştırır, web'de arar, görev listesi tutar, zor
 kararlarda çoklu modele danışır (`council`) ve büyük işleri alt-ajana devreder.

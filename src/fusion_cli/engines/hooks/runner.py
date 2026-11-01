@@ -22,6 +22,7 @@ import signal
 from collections.abc import Mapping
 from pathlib import Path
 
+from ...core.env_scrub import scrubbed_env
 from ...core.hooks.events import (
     HTTP_HANDLER,
     MCP_TOOL_HANDLER,
@@ -69,7 +70,8 @@ async def run_hook(
     posix = os.name == "posix"
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     try:
-        process = await _spawn(command, cwd=cwd, environment=environment, posix=posix)
+        # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1: kanca süreci kimlik bilgilerini görmez (#368).
+        process = await _spawn(command, cwd=cwd, environment=scrubbed_env(environment), posix=posix)
     except OSError as error:
         return HookRun(command, None, error=str(error))
     try:

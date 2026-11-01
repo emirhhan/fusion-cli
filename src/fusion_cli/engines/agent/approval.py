@@ -58,8 +58,10 @@ from ...tools.outside_reads import read_roots
 from ...tools.permission_match import RuleMatch, evaluate
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safety import danger_reason
+from ...tools.sandbox_runtime import asks_unsandboxed
 from ...tools.shell_cwd_check import checked_command, context_cwd
 from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
+from ...tools.ws_watch import is_ws_watch, ws_url
 from .approval_modes import (
     CYCLE_MODES as CYCLE_MODES,
 )
@@ -109,6 +111,7 @@ from .shell_approval import (
     _shell_request as _shell_request,
 )
 from .web_approval import adjust_web_request, web_scope
+from .worktree_approval import apply_worktree_path_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -454,6 +457,11 @@ class _AskingApproval:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
+    @property
+    def prompter(self) -> Prompter | None:
+        """Soru soran taraf (sandbox ağ kararı da buradan sorar, #323)."""
+        return self._prompter
+
     def _allows(self, request: ApprovalRequest) -> bool:
         raise NotImplementedError
 
@@ -505,6 +513,9 @@ class AcceptEditsApproval(_AskingApproval):
     _offers_auto = True
 
     def _allows(self, request: ApprovalRequest) -> bool:
+        if asks_unsandboxed(request.args):
+            # Sandbox dışı yeniden deneme acceptEdits'te de ayrıca sorulur (#351).
+            return False
         # Kabukta Claude kapsamı (#53): 7 dosya sistemi komutu çalışma dizinlerinde + salt okuma.
         if request.accept_edits_ok is not None:
             return request.accept_edits_ok
@@ -588,7 +599,12 @@ class BypassApproval:
 
 
 def build_policy(
-    mode: ApprovalMode, prompter: Prompter, memory: ApprovalMemory | None = None
+    mode: ApprovalMode,
+    prompter: Prompter,
+    memory: ApprovalMemory | None = None,
+    *,
+    use_auto_mode_during_plan: bool = True,
+    bypass_available: bool = False,
 ) -> ApprovalPolicy:
     """Moda karşılık gelen politikayı üret.
 
@@ -598,7 +614,12 @@ def build_policy(
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval(prompter, memory)
+        return PlanApproval(
+            prompter,
+            memory,
+            use_auto_mode=use_auto_mode_during_plan,
+            bypass_available=bypass_available,
+        )
     if mode is ApprovalMode.BYPASS:
         return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:
@@ -643,7 +664,8 @@ async def resolve_request(
         blocked=bool(getattr(context, "block_reads_outside_root", False)),
     )
     # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
-    request = apply_sandbox_policy(request, context)
+    request = apply_sandbox_policy(request, context, rules)
+    request = apply_worktree_path_policy(request, context)  # #342
     # Model Claude adlı Chrome araçlarını görür (#431); Chrome katmanları iç adla çalışır (#435).
     chrome_name, chrome_args = legacy_view(tool.name, args)
     if plan_prompt_call(chrome_name, chrome_args):
@@ -692,6 +714,8 @@ def build_request(
     # karşılaştırması `bash`/`shell`/`execute_command` takma adıyla çağrılan bir
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
     effect = effect or tool.effect
+    if is_ws_watch(tool.name, args):
+        return _ws_watch_request(tool, args, effect, rules, root)
     match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
         checked = checked_command(command, shell_cwd, root)
@@ -750,6 +774,35 @@ def build_request(
         claude_dir=claude_dir,
     )
     return adjust_web_request(_apply_rule(request, match))
+
+
+def _ws_watch_request(
+    tool: Tool,
+    args: ToolArgs,
+    effect: ToolEffect,
+    rules: PermissionRuleSet | None,
+    root: Path | None,
+) -> ApprovalRequest:
+    """`monitor(ws=…)`: Claude'da WebSocket izlemesi Bash kurallarından geçmez, ayrıca sorulur.
+
+    `Bash` kuralları (çıplak `Bash` izni dahil) uygulanmaz; `Monitor` kuralı uygulanır.
+    """
+    url = ws_url(args) or "?"
+    reason = f"WebSocket izlemesi açıyor: {url}"
+    request = ApprovalRequest(
+        tool=tool,
+        args=args,
+        danger=None,
+        unattended_safe=False,
+        effect=effect,
+        risk=reason,
+        read_only=False,
+        note=reason,
+    )
+    if rules is None:
+        return request
+    own = rules.with_rules(rule for rule in rules.rules if rule.tool != "Bash")
+    return _apply_rule(request, evaluate(own, tool.name, args, root))
 
 
 def _apply_rule(request: ApprovalRequest, match: RuleMatch | None) -> ApprovalRequest:
@@ -840,8 +893,14 @@ def _scope(request: ApprovalRequest) -> str | None:
     """
     if request.claude_dir is not None:
         return request.claude_dir
+    if is_ws_watch(request.tool.name, request.args):
+        # WebSocket izlemesinin oturum izni yalnız aynı adres içindir (#336).
+        return f"monitor:ws:{ws_url(request.args) or ''}"
     if tool_family(request.tool.name) is ToolFamily.SHELL:
-        return f"run_shell:{str(request.args.get('command', '')).strip()}"
+        key = f"run_shell:{str(request.args.get('command', '')).strip()}"
+        # Sandbox dışı yeniden deneme ayrı izindir: sandbox'lı komuta verilen oturum izni
+        # onun sandbox'sız denemesini kapsamaz (#351).
+        return f"{key} [unsandboxed]" if asks_unsandboxed(request.args) else key
     web = web_scope(request)
     if web is not None:
         # WebFetch alan başına, WebSearch araç başına (#55).

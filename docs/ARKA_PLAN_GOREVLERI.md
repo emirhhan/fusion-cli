@@ -34,7 +34,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 |---|---|
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
-| REPL (tam ekran ve satır içi) | Tur sürerken **Ctrl+B**: beklenen ön plan alt ajanı kesilmeden arka plana geçer; alt ajan yoksa tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| REPL (tam ekran ve satır içi) | Tur sürerken **Ctrl+B**: süren kabuk komutu ya da ön plan alt ajanı kesilmeden arka plana geçer, tur sürer; devredilecek komut ya da alt ajan yoksa tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -44,12 +44,11 @@ REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan 
 açık seçimidir ve korunur. Alt ajanlar ve arka plan görevinin kendisi yeni arka plan görevi
 açamaz.
 
-**Ctrl+B:** ön planda beklenen bir `Agent` alt ajanı varsa Claude Code'daki gibi o alt ajan
-kesilmeden arka plana alınır, tur sürer ve sonuç bitince bildirim olur. Bekleyen alt ajan
-yoksa süren ana tur (ör. uzun bir araç çağrısı) devredilemez; tur iptal edilir ve
-görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
-("yeniden yapma, önce oku" notuyla) devredilir; yarım kalan komut (ör. `npm test`) işçide
-gerekirse yeniden koşar.
+**Ctrl+B:** süren `run_shell` komutu (Claude Code Bash gibi) durdurulmadan `.fusion/is`
+iş kaydına devredilir; model iş kimliğini ve çıktı dosyasını alır, tur sürer. Beklenen ön
+plan alt ajanı da aynı şekilde arka plana geçer. O anda devredilecek komut ya da alt ajan
+yoksa (model yanıt yazıyorsa) tur kesilir ve görev işçide konuşma bağlamı ve düzenlenen
+dosyaların listesiyle ("yeniden yapma, önce oku" notuyla) sürer.
 
 ### Kısıtlar işçiye taşınır
 
@@ -140,17 +139,58 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
 Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırılabilir ya da
-başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır içi REPL (`FUSION_INLINE=1`,
-`runtime.tui: inline`) aynı bağı okur; orada yalnız `c-<harf>` biçimli tuşlar çalışır
-(`c-c`, `c-d`, `c-h`, `c-i`, `c-j`, `c-m`, `c-q`, `c-s`, `c-z` terminale ayrılmış). Satır
-içinde tur sürerken terminal kanonik olmayan kipe geçer (Ctrl+C yine turu keser); yazılan
-metin kaybolmaz: Enter'la biten satır sıradaki mesaj olur, yarım satır istemi doldurur.
-Onay sorusu sorulurken terminal eski kipine döner.
+başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır içi REPL'de de tur sürerken Ctrl+B
+çalışır: tur boyunca terminal tuş okur (yankısız), Ctrl+B süren kabuk komutunu ya da ön plan
+alt ajanını kesmeden arka plana alır, tur sürer; bu sırada yazılan metin sonraki istemin
+taslağı olur, onay/soru istemi açılınca okuma durur. tmux'ta Ctrl+B önek tuşu olduğu için
+Claude Code'daki gibi iki kez basılır (tmux ikincisini uygulamaya iletir). Satır içinde yalnız
+`c-<harf>` biçimli tuşlar bağlanabilir (`c-c`, `c-d`, `c-h`, `c-i`, `c-j`, `c-m`, `c-q`, `c-s`,
+`c-z` terminale ayrılmış).
+
+## Kabuk komutu ayarları (Claude Code Bash ile aynı)
+
+- `run_shell(timeout=<ms>)`: çağrı başına zaman aşımı. Varsayılan `BASH_DEFAULT_TIMEOUT_MS`
+  (120000), tavan `BASH_MAX_TIMEOUT_MS` (600000).
+- Zaman aşımına uğrayan ön plan komutu durdurulmaz, **arka plana taşınır**: sonuç iş
+  kimliğini ve `.fusion/is/<kimlik>.log` çıktı dosyasını verir. `sleep` ile başlayan komutlar ve `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  iken komut eskisi gibi durdurulur.
+- `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
+- Claude Code gibi arka plan işi bitince (ya da durdurulunca) yoklama gerekmez: bildirim
+  ("Arka plan işi <kimlik> bitti (çıkış kodu N) … Çıktı dosyası: …") sıradaki model isteğine
+  girer; oturum boştaysa (terminal, TUI, masaüstü) yeni bir tur başlar. Çıktı `read_file` ile
+  okunur, iş `task_stop(task_id)` ile durdurulur (Claude TaskStop; eski `shell_id` ve
+  `job_status(id, stop=true)` kullanımdan kalkan takma ad, `job_status` şemada sunulmaz).
+- `monitor(description, command? | ws?, timeout_ms?)` (Claude Monitor): tam olarak biri verilir.
+  `command` arka planda çalışır, her stdout satırı bildirim olarak gelir; `ws: {url, protocols?}`
+  bir WebSocket (`ws://`/`wss://`) açar, her metin iletisi bildirim olur (parçalı ileti
+  birleşir, ping yanıtlanır, ikili çerçeve atlanır). Süre varsayılan 5 dk, en çok 1 sa kabul
+  edilir, etkin tavan 30 dk; süre dolunca izleme durdurulur ve bir kez haber verilir. Komut Bash
+  izin kurallarından ve sandbox'tan geçer; WebSocket izlemesi Claude'daki gibi Bash
+  kurallarından geçmez, ayrıca onay ister (`Monitor` kuralı uygulanır; oturum izni yalnız aynı
+  adres için). İkisi de `task_stop` ile erken biter. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
+  iken çalışmaz.
+- `/tasks` (`/bashes`) kabuk arka plan işlerini de listeler (`kabuk <kimlik> · sürüyor · komut`);
+  `/tasks stop <kimlik>` işi durdurur (süreç başlangıç kimliği doğrulanır).
+- Arka plan işinin ömrü: Fusion kapanırken o oturumun başlattığı işler durdurulur; çıktısı
+  5 GB'ı geçen iş durdurulur ve nedeni günlüğe yazılır. Yalnız gözetimsiz koşuda
+  (`fusion agent`) süre sınırı vardır: 10 dk (metin istem) ya da `timeout` (en çok 2 sa);
+  `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` sınırı yükseltir, kısaltmaz. Terminal ve
+  masaüstü oturumunda süre sınırı yoktur. `fusion agent` (Claude `-p`) sonucu verdikten sonra
+  çıkmadan önce süren arka plan işini bekler (iş çıkana ya da süre sınırına ulaşana kadar);
+  biten işin bildirimi modele yeni bir tur olarak gider ve son cevap o turun cevabıdır.
+  `--bare` ve `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken beklenmez. Ön plan alt ajanının
+  başlattığı arka plan komutu alt ajanın koşusu bitince durdurulur (ana konuşmanınki sürer).
+- Çıktı (Claude Code Bash ile aynı): geçerli sonuç ~30.000 karaktere kadar satır içi; aşınca
+  oturumun çıktı dizinindeki dosyanın yolu ve ilk 2.000 karakter. Hatalı sonuç ~10.000
+  karaktere kadar; aşınca baş+son kesit (dosya yolu yok). Çıkış kodu 1 yalnız `grep`, `rg`,
+  `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff`, `git grep` için geçerli sayılır.
+  `BASH_MAX_OUTPUT_LENGTH` geri okuma penceresi (tavan 150.000); Claude `settings.json`'daki
+  `bashOutputMaxChars` (≤128.000) satır içi sınırı ve pencereyi birlikte ayarlar.
 
 ## Bilinen sınırlar
 
 - Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
-- `/tasks` kabuk arka plan işlerini (`run_shell(background=true)`, `job_status`) listelemez.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u

@@ -21,6 +21,7 @@ from enum import Enum
 from itertools import pairwise
 from uuid import uuid4
 
+from .cron_jitter import is_five_minute, once_offset, recurring_offset
 from .errors import FusionError
 
 #: Oturum başına en çok görev (Claude Code ile aynı tavan).
@@ -37,7 +38,7 @@ MAX_PROMPT_CHARS = 8000
 SELF_PACED_MIN_S = 60
 SELF_PACED_MAX_S = 3600
 #: Ajan sıradaki çalışmayı seçmezse döngü bu kadar sonra yine çalışır (eski sabit 10 dk).
-SELF_PACED_FALLBACK_S = 600
+SELF_PACED_FALLBACK_S = 1200
 
 _INTERVAL = re.compile(r"^\s*(\d+)\s*([smhd]?)\s*$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "": 60}
@@ -52,8 +53,12 @@ class Kind(Enum):
     CRON = "cron"
     ONCE = "bir_kez"
     #: Kendi tempolu döngü (aralıksız `/loop <görev>`): sıradaki çalışmayı ajan seçer
-    #: (`schedule_wakeup loop_id`); seçmezse `SELF_PACED_FALLBACK_S` sonra yine çalışır.
+    #: (`schedule_wakeup loop_id`); seçmezse `SELF_PACED_FALLBACK_S` sonra bir kez daha çalışır.
     SELF_PACED = "kendi_tempolu"
+
+
+#: Yineleyen türler (7 gün dolunca son bir kez çalışır; #364).
+_RECURRING = frozenset({Kind.INTERVAL, Kind.CRON})
 
 
 class Source(Enum):
@@ -217,6 +222,26 @@ def cron_min_gap_minutes(spec: CronSpec) -> int:
 # --- Görevler ------------------------------------------------------------------- #
 
 
+def _loop_abandoned(task: CronTask, now: float) -> bool:
+    """Yedek uyanması harcanmış ve yine zamanlanmamış kendi tempolu döngünün vakti geldi mi?"""
+    return (
+        task.kind is Kind.SELF_PACED
+        and task.fallback_armed
+        and task.fallback_spent
+        and task.next_due <= now
+    )
+
+
+def _next_future_due(task: CronTask, now: float) -> float:
+    """Kaçırılan çalışmayı telafi etmeden sıradaki gelecek vade (#372)."""
+    if task.next_due > now:
+        return task.next_due
+    if task.kind is Kind.INTERVAL and task.every_s > 0:
+        missed = int((now - task.next_due) // task.every_s) + 1
+        return task.next_due + missed * task.every_s
+    return cron_next_local(parse_cron(task.cron), now)
+
+
 @dataclass(frozen=True, slots=True)
 class CronTask:
     """Oturum içi zamanlanmış tek görev."""
@@ -234,6 +259,12 @@ class CronTask:
     last_run_at: float | None = None
     #: Kullanıcı (`/loop`) ya da ajan (`cron_create`, `schedule_wakeup`).
     source: Source = Source.USER
+    #: Yalnız `SELF_PACED`: sıradaki çalışma ajanın değil yedek uyanmanın (#343).
+    fallback_armed: bool = False
+    #: Yalnız `SELF_PACED`: yedek uyanma bir kez kullanıldı; yine zamanlanmazsa döngü biter.
+    fallback_spent: bool = False
+    #: `next_due`'ya eklenmiş Claude gecikmesi (sn; erken çalışmada negatif, #363).
+    jitter_s: float = 0.0
 
     @property
     def expires_at(self) -> float:
@@ -249,7 +280,8 @@ class CronTask:
             zaman = "kendi tempolu"
         else:
             zaman = "bir kez"
-        return f"{self.id} · {zaman} · {self.runs} çalışma · {self.prompt[:80]}"
+        sirada = datetime.fromtimestamp(self.next_due).strftime("%H:%M")
+        return f"{self.id} · {zaman} · sıradaki {sirada} · {self.runs} çalışma · {self.prompt[:80]}"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -263,7 +295,42 @@ class CronTask:
             "runs": self.runs,
             "last_run_at": self.last_run_at,
             "source": self.source.value,
+            "fallback_armed": self.fallback_armed,
+            "fallback_spent": self.fallback_spent,
+            "jitter_s": self.jitter_s,
         }
+
+
+def _cron_offset(task: CronTask, base: float) -> float:
+    spec = parse_cron(task.cron)
+    gap = cron_next_local(spec, base) - base
+    return recurring_offset(task.id, gap, five_minute=is_five_minute(cron=task.cron))
+
+
+def _with_jitter(task: CronTask) -> CronTask:
+    """Yeni görevin ilk vadesine Claude gecikmesini uygula (#363)."""
+    if task.kind is Kind.INTERVAL:
+        offset = recurring_offset(
+            task.id, task.every_s, five_minute=is_five_minute(every_s=task.every_s)
+        )
+    elif task.kind is Kind.CRON:
+        offset = _cron_offset(task, task.next_due)
+    elif task.kind is Kind.ONCE:
+        offset = once_offset(task.id, task.next_due)
+    else:
+        return task
+    return replace(task, next_due=task.next_due + offset, jitter_s=offset)
+
+
+def _next_cron_run(task: CronTask, now: float) -> tuple[float, float]:
+    """Sıradaki cron çalışması (gecikmeli) ve gecikmesi; kaçırılan çalışma telafi edilmez."""
+    spec = parse_cron(task.cron)
+    base = cron_next_local(spec, task.next_due - task.jitter_s)
+    offset = _cron_offset(task, base)
+    while base + offset <= now:
+        base = cron_next_local(spec, base)
+        offset = _cron_offset(task, base)
+    return base + offset, offset
 
 
 def _human_interval(seconds: int) -> str:
@@ -306,6 +373,13 @@ class SessionCron:
             prompt, Kind.CRON, now, due, cron=" ".join(expression.split()), source=source
         )
 
+    def create_cron_once(
+        self, prompt: str, expression: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
+        """Cron ifadesinin sıradaki eşleşmesinde BİR kez çalışan görev (recurring=false)."""
+        due = cron_next_local(parse_cron(expression), now)
+        return self._add(prompt, Kind.ONCE, now, due, source=source)
+
     def create_once(
         self, prompt: str, delay: str, *, now: float, source: Source = Source.USER
     ) -> CronTask:
@@ -325,7 +399,7 @@ class SessionCron:
         if task is None or task.kind is not Kind.SELF_PACED:
             raise SessionCronError(f"Kendi tempolu döngü bulunamadı: {task_id}")
         delay = min(max(delay_s, SELF_PACED_MIN_S), SELF_PACED_MAX_S)
-        updated = replace(task, next_due=now + delay)
+        updated = replace(task, next_due=now + delay, fallback_armed=False, fallback_spent=False)
         self._tasks[task_id] = updated
         return updated
 
@@ -347,11 +421,38 @@ class SessionCron:
         return count
 
     def prune(self, now: float) -> tuple[CronTask, ...]:
-        """Süresi dolan görevleri düşür ve düşenleri döndür."""
-        expired = tuple(task for task in self._tasks.values() if task.expires_at <= now)
-        for task in expired:
-            del self._tasks[task.id]
-        return expired
+        """Süresi dolan görevleri düşür ve düşenleri döndür.
+
+        Claude: yineleyen görev 7 gün dolunca SON BİR KEZ çalışır, sonra kendini siler (#364);
+        bu yüzden süresi dolan yineleyen görev düşürülmez, hemen vadesi gelir ve `complete`
+        onu siler. Yedek uyanması da harcanmış ve yine zamanlanmamış kendi tempolu döngü biter
+        (#343).
+        """
+        expired: list[CronTask] = []
+        for task in tuple(self._tasks.values()):
+            if task.expires_at <= now and task.kind in _RECURRING:
+                self._tasks[task.id] = replace(task, next_due=min(task.next_due, now))
+            elif task.expires_at <= now or _loop_abandoned(task, now):
+                del self._tasks[task.id]
+                expired.append(task)
+        return tuple(expired)
+
+    def restored(self, now: float) -> SessionCron:
+        """`--resume` ile geri yüklenecek görevler (#372; yeni nesne).
+
+        Claude: kendi tempolu `/loop` hiç geri gelmez; süresi dolmuş yineleyen ve vakti geçmiş
+        tek seferlik görev düşer; kaçırılan çalışmalar telafi edilmez (sıradaki vade ileri alınır).
+        """
+        kept: list[CronTask] = []
+        for task in self._tasks.values():
+            if task.kind is Kind.SELF_PACED or task.expires_at <= now:
+                continue
+            if task.kind is Kind.ONCE:
+                if task.next_due > now:
+                    kept.append(task)
+                continue
+            kept.append(replace(task, next_due=_next_future_due(task, now)))
+        return SessionCron(tuple(kept))
 
     def due(self, now: float) -> tuple[CronTask, ...]:
         """Vadesi gelen görevler (vade sırasıyla). Durumu DEĞİŞTİRMEZ; `complete` ilerletir."""
@@ -368,17 +469,31 @@ class SessionCron:
         task = self._tasks.get(task_id)
         if task is None:
             return None
-        if task.kind is Kind.ONCE:
+        if task.kind is Kind.ONCE or (task.kind in _RECURRING and task.expires_at <= now):
             del self._tasks[task_id]
             return replace(task, runs=task.runs + 1, last_run_at=now)
+        if task.kind is Kind.SELF_PACED:
+            # Ajan bu yinelemede zamanlamazsa ~20 dk sonra TEK yedek uyanma; o yinelemede de
+            # zamanlanmazsa döngü biter (#343). `reschedule_self_paced` ikisini de sıfırlar.
+            updated = replace(
+                task,
+                runs=task.runs + 1,
+                last_run_at=now,
+                next_due=now + SELF_PACED_FALLBACK_S,
+                fallback_armed=True,
+                fallback_spent=task.fallback_armed,
+            )
+            self._tasks[task_id] = updated
+            return updated
         if task.kind is Kind.INTERVAL:
-            next_due = now + task.every_s
-        elif task.kind is Kind.SELF_PACED:
-            next_due = now + SELF_PACED_FALLBACK_S
+            # Aralık çalışmadan sayılır: ilk çalışmadaki gecikme sonrakilere de taşınır (Claude:
+            # eşit aralıklı görev her seferinde aynı kadar geç); 5 dakikalık 15 sn erken (#363).
+            next_due, jitter = now + task.every_s + min(task.jitter_s, 0.0), task.jitter_s
         else:
-            spec = parse_cron(task.cron)
-            next_due = cron_next_local(spec, now)
-        updated = replace(task, runs=task.runs + 1, last_run_at=now, next_due=next_due)
+            next_due, jitter = _next_cron_run(task, now)
+        updated = replace(
+            task, runs=task.runs + 1, last_run_at=now, next_due=next_due, jitter_s=jitter
+        )
         self._tasks[task_id] = updated
         return updated
 
@@ -411,6 +526,9 @@ class SessionCron:
                         ),
                         # Eski kayıtta alan yok: kullanıcı görevi sayılır (geri uyum).
                         source=Source(item.get("source", Source.USER.value)),
+                        fallback_armed=item.get("fallback_armed") is True,
+                        fallback_spent=item.get("fallback_spent") is True,
+                        jitter_s=float(item.get("jitter_s", 0.0)),
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -444,5 +562,6 @@ class SessionCron:
             cron=cron,
             source=source,
         )
+        task = _with_jitter(task)
         self._tasks[task.id] = task
         return task

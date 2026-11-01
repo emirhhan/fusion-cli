@@ -486,8 +486,11 @@ runtime:
   # Eski "auto" değeri off olarak okunur.
   workflow_mode: "off"
   workflow_max_model_calls: 12
-  # Plan kipinde biten turun planı plans/<sohbet>.md dosyasına yazılır (/plan goster, /plan ac).
+  # Kullanımdan kalktı (Claude Code'da yok): plan her zaman plansDirectory altına yazılır; false yok sayılır.
   plan_files: true
+  # Claude useAutoModeDuringPlan: plan kipinde salt okunur olmayan kabuk komutuna otomatik
+  # kip sınıflandırıcısı karar verir (onaylanan çalışır, reddedilen engellenir); false = sorulur.
+  use_auto_mode_during_plan: true
   # /goal <koşul>: her tur sonunda hakem modeli koşulu değerlendirir; "henüz değil" ise
   # tur kendiliğinden sürer. Uzun koşu bu kadar dakikada bir durup danışır (/goal devam;
   # aralık her seferinde ikiye katlanır; 0 = danışma yok). Otomatik tur tavanı ayrıca var.
@@ -1077,20 +1080,23 @@ sandbox:
   # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
   # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
   allow_write: []
-  # Sandbox içindeki komutun OKUYAMADIĞI EK yollar (dizinse altı da). Bu liste varsayılan
-  # okuma engeline EKLENİR (1 Kasım'dan önce yerine geçiyordu): ~/.ssh, ~/.aws, ~/.gnupg,
-  # ~/.azure, ~/.kube, ~/.config/gcloud, ~/.docker/config.json, ~/.netrc, ~/.git-credentials,
-  # ~/.password-store, ~/Library/Keychains, ~/.config/gh, ~/.config/git/credentials, ~/.pypirc
-  # her zaman engellidir; Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum
-  # profilleri de. ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur).
+  # Yazılabilir bölgelerin (proje kökü, allow_write) içinde de YAZILAMAYAN yollar (Claude
+  # filesystem.denyWrite). Örn: ["./dist/imzali", "~/.npmrc"].
+  deny_write: []
+  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da; Claude filesystem.denyRead).
+  # Claude gibi yerleşik bir liste yoktur: ~/.ssh ve ~/.aws/credentials da yazılmazsa okunur.
+  # Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum profilleri her zaman engelli.
   deny_read: []
-  # Varsayılan listeden (ya da deny_read'den) BİLEREK açılan yollar, örn. ["~/.kube"].
-  # Listede olmayan yol yazılırsa yapılandırma hata verir; Fusion sır dosyaları açılamaz.
+  # Engellenmiş bir bölgenin içini yeniden açan yollar (Claude filesystem.allowRead); çakışan
+  # kurallarda dar yol kazanır: deny_read ["~/"] + allow_read ["~/projects"]. Fusion sırları
+  # açılamaz.
   allow_read: []
-  # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
-  # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
-  # ortamı verilir; iç ağ adresine çözülen ad reddedilir).
-  network: "open"
+  # Claude gibi: komutun doğrudan çıkışı yok, trafik Fusion'ın yerel proxy'sinden geçer
+  # (HTTP_PROXY/HTTPS_PROXY verilir; iç ağ adresine çözülen ad reddedilir). Listede olmayan
+  # ad izin kipine göre: Manual/acceptEdits/plan'da sorulur, bypass'ta izin, auto/dontAsk'ta
+  # red ("Evet, bir daha sorma" yerel ayara WebFetch(domain:…) yazar). "open" (kısıtsız)
+  # kullanımdan kalkan Fusion uzantısıdır (sandbox.network.mode: open).
+  network: "allowlist"
   # allowlist kipinde izinli alan adları: tam ad ya da "*.ornek.com" (alt alan adları).
   # Örn: ["github.com", "*.githubusercontent.com", "pypi.org", "files.pythonhosted.org",
   # "registry.npmjs.org"]. Boş liste = dış ağ tamamen kapalı.
@@ -1111,12 +1117,57 @@ sandbox:
   # Her zaman sandbox dışında (normal onayla) çalışan komut önekleri, örn. ["docker", "git push"].
   # Yalnız tek ve sade komut eşleşir; `docker ps && curl …` sandbox içinde kalır.
   excluded_commands: []
-  # true: sandbox içinde VE network=allowlist iken komutlar sorulmadan çalışır (Claude
-  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları ve plan kipi yine geçerli.
-  auto_allow: false
-  # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
-  # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
-  hide_secret_env: true
+  # true (Claude varsayılanı): sandbox içinde çalışan komutlar sorulmadan çalışır (Claude
+  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları, plan kipi ve
+  # FOO=bar cmd / make VAR=x / eval biçimleri yine olağan izin akışından geçer.
+  auto_allow: true
+  # true: listede olmayan ana makine sorulmadan reddedilir (Claude network.strictAllowlist).
+  strict_allowlist: false
+  # Claude sandbox.credentials.envVars (mode: deny): bu adlar sandbox ortamından çıkarılır.
+  # Claude'daki gibi varsayılan boş; ortam Fusion'dan miras alınır.
+  credential_env: []
+  # Claude credentials.envVars (mode: mask): komut gerçek değer yerine aynı uzunlukta bir yer
+  # tutucu görür; proxy giden istekte gerçek değeri koyar (izinli adlara ya da "AD=host1,host2"
+  # injectHosts'a). HTTPS için tls_terminate, düz HTTP için allow_plaintext_inject gerekir.
+  # Aynı ad deny'da da varsa deny uygulanır. Proje ayarından okunmaz.
+  credential_mask: []
+  allow_plaintext_inject: false
+  # Claude sandbox.credentials.files (mode: deny): sandbox içinde okunamayan dosya/dizinler.
+  credential_files: []
+  # Claude network.allowUnixSockets: bağlanılabilen Unix soket yolları (macOS Seatbelt);
+  # allowAllUnixSockets hepsini açar. allowLocalBinding: localhost portunda dinleme.
+  allow_unix_sockets: []
+  allow_all_unix_sockets: false
+  allow_local_binding: false
+  # Claude bwrapPath / socatPath: Linux araçlarının yolu (boş = PATH'te ara).
+  bwrap_path: ""
+  socat_path: ""
+  # Claude network.httpProxyPort / socksProxyPort: trafik kullanıcının localhost'taki kendi
+  # HTTP / SOCKS5 proxy'sine gider; Fusion proxy başlatmaz, alan adı listeleri ve ağ soruları
+  # o trafiğe uygulanmaz (süzme o proxy'dedir). 0 = kapalı.
+  http_proxy_port: 0
+  socks_proxy_port: 0
+  # Claude network.tlsTerminate: proxy HTTPS'i sonlandırır (mask için). CA yolları boşsa oturum
+  # başına geçici CA üretilir; sandbox'a SSL_CERT_FILE/NODE_EXTRA_CA_CERTS… ile güvenilir kılınır.
+  # Yalnız kullanıcı, managed ya da --settings ayarından.
+  tls_terminate: false
+  tls_ca_cert: ""
+  tls_ca_key: ""
+  # Claude filesystem.disabled: dosya sistemi yalıtımı atlanır, ağ yalıtımı kalır (Fusion
+  # sırları ve .git/config gibi korumalı yollar yine kapalı). Proje ayarından okunmaz.
+  filesystem_disabled: false
+  # Claude enableWeakerNestedSandbox (Linux): yetkisiz Docker içinde yeni /proc bağlanmaz.
+  enable_weaker_nested_sandbox: false
+  # Claude allowNestedUserNamespaces (Linux): false iken sandbox içinde yeni kullanıcı ad alanı
+  # açılamaz (bwrap --disable-userns; destekleyen bwrap'te). Proje ayarından okunmaz.
+  allow_nested_user_namespaces: false
+  # Claude ripgrep {command, args} (Linux): alt dizinlerdeki korumalı dosyaları bulan rg; boş =
+  # PATH'teki rg (yoksa yalnız kök düzeyi korunur). Proje ayarından okunmaz.
+  ripgrep_command: ""
+  ripgrep_args: []
+  # Kullanımdan kalkan Fusion uzantısı: true iken adı sır gibi görünen değişkenler (*_API_KEY,
+  # *_TOKEN, *_SECRET, *PASSWORD*) de çıkarılır. Claude'da yok; varsayılan false.
+  hide_secret_env: false
 
 # Ajan başlatma: boş ayarlar mevcut anahtarsız modeli korur.
 agent_launch:

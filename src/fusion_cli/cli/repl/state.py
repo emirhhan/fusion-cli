@@ -18,6 +18,7 @@ from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
 from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
+from ...core.background_events import BackgroundEvents
 from ...core.changeset import ChangeSet
 from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
@@ -163,6 +164,8 @@ class ReplState:
     conversation_name: str = field(default="", kw_only=True)
     #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
     worktree: Worktree | None = field(default=None, kw_only=True)
+    #: Oturum boyu yaşayan görev listesi (#331; `task_list.session_todos` kurar).
+    todos: object | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
@@ -221,6 +224,8 @@ class ReplState:
     persona_initial_prompt_applied: bool = field(default=False, kw_only=True)
     #: `/persona` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#34).
     persona_command_warned: bool = field(default=False, kw_only=True)
+    #: Bu oturumda kullanımdan kalkma uyarısı basılmış Fusion'a özgü komutlar (#360, #365).
+    deprecation_warned: set[str] = field(default_factory=set, kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
     _configured_persona: Persona | None = field(default=None, init=False, repr=False)
     _persona_base_config: Config | None = field(default=None, init=False, repr=False)
@@ -327,6 +332,14 @@ class ReplState:
         await self.child_runs.close()
         self.child_runs = ChildRuns(persistent=True)
         self.persona_initial_prompt_applied = bool(self.history)
+
+    def apply_plan_mode_switch(self, switch: object) -> bool:
+        """`enter_plan_mode` (Claude EnterPlanMode) tur bitince kipi PLAN yapar (#324)."""
+        take = getattr(switch, "take_enter", None)
+        if take is None or not take():
+            return False
+        self.approval = ApprovalMode.PLAN
+        return True
 
     async def apply_worktree_switch(self, switch: WorktreeSwitch | None) -> str:
         """Kök değişmeden eski görevleri bekle; aynı kökte sürekliliği koru."""
@@ -459,6 +472,8 @@ class ReplState:
     reminders: list[Reminder] = field(default_factory=list)
     #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
     cron: SessionCron = field(default_factory=SessionCron)
+    #: Arka plan olayları: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents = field(default_factory=BackgroundEvents)
     #: `/goal <koşul>` ile kurulan turlar arası hedef (P-058); yoksa None.
     goal: SessionGoal | None = None
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
@@ -644,6 +659,8 @@ class ReplState:
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
+        if self.approval is ApprovalMode.BYPASS:
+            self.bypass_available = True
         self.approval = next_mode(
             self.approval,
             bypass_available=getattr(self, "bypass_available", False),

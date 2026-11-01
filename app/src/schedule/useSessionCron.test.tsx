@@ -87,4 +87,11 @@ it("görevin kaynağını gönderime iletir; eski yanıtta kullanıcı sayılır
   renderHook(() => useSessionCron({ session: { id: "s2", status: "ready", running: false, client: { request: ajan } }, send: send2, pollMs: 1000 }));
   await vi.advanceTimersByTimeAsync(1000);
   expect(send2).toHaveBeenCalledWith("s2", "/bypass", "ajan");
+
+  // Claude (#371): kullanıcının kurduğu yerleşik komut ya da model çağıramayan beceri düz metindir.
+  const duz = vi.fn(async () => ({ ok: true, gorevler: [{ id: "a3", gorev: "/model x", kaynak: "kullanici", duz_metin: true }] }));
+  const send3 = vi.fn(() => true);
+  renderHook(() => useSessionCron({ session: { id: "s3", status: "ready", running: false, client: { request: duz } }, send: send3, pollMs: 1000 }));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(send3).toHaveBeenCalledWith("s3", "/model x", "ajan");
 });

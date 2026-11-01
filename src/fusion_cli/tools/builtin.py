@@ -30,6 +30,7 @@ from . import (
     github_cli,
     jobs,
     kits,
+    plan_tools,
     planning,
     remotion_render,
     remotion_revision,
@@ -40,8 +41,11 @@ from . import (
     web,
     worktree_tools,
 )
+from .monitor_tool import MONITOR_TOOL
 from .registry import ToolRegistry
 from .symbol_query import SymbolQuery, SymbolQuerySettings
+from .task_stop import TASK_STOP_TOOL
+from .task_tools import TASK_TOOLS
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
@@ -623,14 +627,15 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="run_shell",
-        description="Proje kökünde kabuk komutu (onaylı); test/lint/build ile doğrula. "
-        "120 sn'den uzun işi background=true ile başlat.",
+        description="Kökte kabuk komutu (onaylı); test/lint/build ile doğrula.",
         parameters=_schema(
             {
                 "command": _STRING,
-                "background": {"type": "boolean"},
-                # Sandbox dışı istek (P-010): her seferinde açık onay; açıklama bütçe için kısa.
-                "unsandboxed": {"type": "boolean", "description": "sandbox dışı (onaylı)"},
+                # Claude Code Bash parametreleri (#332, #351, #356); eski `background` /
+                # `unsandboxed` adları çalıştırıcıda takma ad olarak okunur.
+                "timeout": {**_INTEGER, "description": "ms (varsayılan 120000, en çok 600000)"},
+                "run_in_background": {"type": "boolean"},
+                "dangerouslyDisableSandbox": {"type": "boolean", "description": "sandbox dışı"},
                 "expected_outputs": {
                     "type": "array",
                     "items": _STRING,
@@ -659,11 +664,17 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=jobs.job_status,
         mutating=True,
+        # Claude'da karşılığı yok (TaskOutput kaldırıldı): kullanımdan kalkan takma ad;
+        # şemada sunulmaz, çağrılırsa çalışır. Durdurma `task_stop`, okuma `read_file` (#334).
+        advertised=False,
     ),
+    TASK_STOP_TOOL,
+    MONITOR_TOOL,
+    *TASK_TOOLS,
     Tool(
         name="todo_write",
-        description="Görev listesini TAMAMEN güncelle; çok adımlı işte plan çıkar, "
-        "ilerledikçe durumları güncelle. Tek adımlı işte kullanma.",
+        description="Çok adımlı işte görev listesini TAMAMEN yaz, ilerledikçe güncelle. "
+        "Tek adımlı işte kullanma.",
         parameters=_schema(
             {
                 "todos": {
@@ -675,6 +686,7 @@ _TOOLS: tuple[Tool, ...] = (
                                 **_STRING,
                                 "enum": ["pending", "in_progress", "completed"],
                             },
+                            "activeForm": _STRING,
                         },
                         ["content", "status"],
                     ),
@@ -890,7 +902,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="enter_worktree",
-        description="İzole git çalışma ağacı aç (.fusion/worktrees/<ad>, dal worktree-<ad>); "
+        description="İzole git çalışma ağacı aç (.claude/worktrees/<ad>, dal worktree-<ad>); "
         "tur bitince oturum kökü oraya geçer. Ana proje değişmez.",
         parameters=worktree_tools.ENTER_WORKTREE_SCHEMA,
         run=worktree_tools.enter_worktree_tool,
@@ -903,6 +915,18 @@ _TOOLS: tuple[Tool, ...] = (
         parameters=worktree_tools.EXIT_WORKTREE_SCHEMA,
         run=worktree_tools.exit_worktree_tool,
         mutating=True,
+    ),
+    Tool(
+        name="enter_plan_mode",
+        description="Kodlamadan önce plan kipine geç.",
+        parameters=plan_tools.ENTER_PLAN_MODE_SCHEMA,
+        run=plan_tools.enter_plan_mode_tool,
+    ),
+    Tool(
+        name="exit_plan_mode",
+        description="Plan hazırken planı kullanıcının onayına sun ve turu bitir.",
+        parameters=plan_tools.EXIT_PLAN_MODE_SCHEMA,
+        run=plan_tools.exit_plan_mode_tool,
     ),
 )
 

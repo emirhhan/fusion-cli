@@ -14,10 +14,10 @@ import json
 import logging
 import logging.handlers
 import sys
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar, cast
 
 import typer
 from rich.console import Console
@@ -32,17 +32,21 @@ from ..config.paths import user_data_dir
 from ..config.permission_rules import set_session_rules
 from ..config.permission_settings import working_directories
 from ..config.readiness import Readiness, evaluate
+from ..core.background_events import BackgroundEvents
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
-from ..core.types import ModelSpec, VerdictSource
+from ..core.types import Message, ModelSpec, VerdictSource
 from ..core.worktree import Worktree, WorktreeHookCalls, WorktreeSwitch
+from ..engines.agent import AgentOutcome
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..engines.agent.team import Persona
 from ..engines.agent.team_settings import validate_agent_hooks
 from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
+from ..tools import job_lifetime
 from ..tools.agent_catalog_launch import session_agents_from_json
 from ..tools.agent_tasks import WORKER_COMMAND
+from ..tools.bash_settings import background_disabled
 from ..tools.capabilities import Capability
 from ..tools.capability_overrides import registry_from_config
 from ..ui import background_messages as bg_texts
@@ -81,12 +85,15 @@ from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .print_argv import INITIAL_PROMPT_OPTION, ClaudeArgsGroup
 from .print_command import print_command
+from .print_jobs import run_with_background
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
+from .unprompted import UnpromptedPrompter
+from .worktree_argv import fill_missing_worktree_name
 
 app = typer.Typer(
     # Claude Code kök sözdizimi: `fusion -p "sorgu"` ve `fusion "sorgu"` (#275, #276).
@@ -210,7 +217,8 @@ def main_callback(
         typer.Option(
             "--worktree",
             "-w",
-            help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
+            help="Git çalışma ağacında çalış: .claude/worktrees/<ad>, dal worktree-<ad>; "
+            "ad verilmezse üretilir.",
         ),
     ] = "",
     initial_prompt: Annotated[str, typer.Option(INITIAL_PROMPT_OPTION, hidden=True)] = "",
@@ -717,6 +725,10 @@ def uninstall(
         raise typer.Exit(1)
 
 
+#: `fusion agent` varsayılan izin kipi: Claude -p'deki Manual (`default`; #353).
+HEADLESS_DEFAULT_MODE = "default"
+
+
 @app.command()
 def agent(
     task: str = typer.Argument(
@@ -841,7 +853,7 @@ def agent(
         typer.Option(
             "--worktree",
             "-w",
-            help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
+            help="Görevi izole git çalışma ağacında koş (.claude/worktrees/<ad>); ağaç korunur.",
         ),
     ] = "",
     background: bool = typer.Option(
@@ -914,6 +926,8 @@ def agent(
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
     streaming = options.output_format is headless.OutputFormat.STREAM_JSON
+    # Gözetimsiz koşu: arka plan komutlarına Claude `-p` süre sınırı (metin istem: 10 dk, #335).
+    job_lifetime.set_unattended(text_prompt=True)
     text_output = options.output_format is headless.OutputFormat.TEXT
     silent = quiet or not text_output
     # json/stream-json'da stdout makine çıktısıdır: bildirimler yalnız metin kipinde basılır.
@@ -943,7 +957,7 @@ def agent(
 
     def _prompter(
         flush: Callable[[], Awaitable[None]],
-    ) -> ConsolePrompter | headless.JsonLinesPrompter:
+    ) -> ConsolePrompter | headless.JsonLinesPrompter | UnpromptedPrompter:
         if options.channel is headless.PermissionChannel.STDIN:
             # Olay satırları yalnız stream-json'da stdout'a gider; json/text'te stdout
             # sonuç içindir, istekler stderr'e yazılır (cevaplar yine stdin'den okunur).
@@ -953,7 +967,10 @@ def agent(
             )
         # "Her zaman reddet" (`r`, P-007) tek atışta da ret listesine yazar.
         denials = AppDenials(config_persist(lambda: config))
-        return ConsolePrompter(console, tool_context, flush=flush, denials=denials)
+        console_prompter = ConsolePrompter(console, tool_context, flush=flush, denials=denials)
+        if options.deny_unprompted:
+            return UnpromptedPrompter(console_prompter)
+        return console_prompter
 
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
@@ -962,39 +979,55 @@ def agent(
     # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
     # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
     approval_memory = attach_rule_writer(ApprovalMemory(), root)
-    outcome = _run_observed(
-        with_web_cleanup(
-            run_agent_task(
-                options.task,
+    # Claude `-p`: biten arka plan işi/`monitor` satırı bildirimle yeni tur açar (#335).
+    events = BackgroundEvents()
+
+    def _turn(task: str, history: Sequence[Message]) -> Awaitable[AgentOutcome]:
+        return run_agent_task(
+            task,
+            config,
+            history=list(history) or None,
+            background_events=events,
+            sinks=observers.sinks,
+            prompter_factory=_prompter,
+            mode=options.approval,
+            root=root,
+            home=Path.home(),
+            memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
+            extra_roots=working_directories(root, tuple(add_dir or ())),
+            extra_system=options.extra_system,
+            system_prompt=options.system_prompt,
+            session_persona=options.session_persona,
+            capabilities=registry_from_config(
                 config,
-                sinks=observers.sinks,
-                prompter_factory=_prompter,
-                mode=options.approval,
-                root=root,
-                home=Path.home(),
-                memory=open_memory(config, root=root, enabled=not (no_memory or bare)),
+                Path.home(),
+                root,
+                session_agents=options.session_agents,
                 extra_roots=working_directories(root, tuple(add_dir or ())),
-                extra_system=options.extra_system,
-                system_prompt=options.system_prompt,
-                session_persona=options.session_persona,
-                capabilities=registry_from_config(
-                    config,
-                    Path.home(),
-                    root,
-                    session_agents=options.session_agents,
-                    extra_roots=working_directories(root, tuple(add_dir or ())),
-                    headless=options.channel is None,
-                ),
-                allowed_tools=options.allowed_tools,
-                denied_tools=options.denied_tools,
-                strict_tool_names=True,
-                interactive=True if options.channel is not None else None,
-                approval_memory=approval_memory,
-                worktree_switch=switch,
-            )
+                headless=options.channel is None,
+            ),
+            allowed_tools=options.allowed_tools,
+            denied_tools=options.denied_tools,
+            strict_tool_names=True,
+            interactive=True if options.channel is not None else None,
+            approval_memory=approval_memory,
+            worktree_switch=switch,
+        )
+
+    outcome = cast(
+        "AgentOutcome",
+        _run_observed(
+            with_web_cleanup(
+                run_with_background(
+                    _turn,
+                    options.task,
+                    events,
+                    enabled=not bare and not background_disabled(),
+                )
+            ),
+            renderer,
+            observers,
         ),
-        renderer,
-        observers,
     )
     observers.finish()
     # Kural bildirimi kaybolmasın ama makine çıktısını da bozmasın: metin dışı kipte stderr.
@@ -1091,6 +1124,8 @@ class _HeadlessOptions:
     channel: headless.PermissionChannel | None
     session_persona: Persona | None = None
     session_agents: tuple[Capability, ...] = ()
+    #: Onay gerektiren çağrı kimseye sorulmadan reddedilir (Claude -p varsayılanı; #353).
+    deny_unprompted: bool = False
 
     @property
     def channel_name(self) -> str | None:
@@ -1181,6 +1216,9 @@ def _headless_options(
     return _HeadlessOptions(
         task=task,
         approval=_parse_mode(mode),
+        # Claude -p (v2.1.302+): kip verilmezse Manual; onay gerektiren çağrı sorulmaz,
+        # reddedilir (#353). Açık izin kanalı (`--permission-prompt-tool stdin`) yine sorar.
+        deny_unprompted=mode == HEADLESS_DEFAULT_MODE and channel is None,
         output_format=fmt,
         schema=schema,
         extra_system="\n\n".join(parts),
@@ -1993,7 +2031,8 @@ def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     configure_file_logging()
     try:
-        app(obj=host_dependencies)
+        # `-w` tek başına: Claude Code gibi rastgele ad üretilir (#339).
+        app(args=fill_missing_worktree_name(sys.argv[1:]), obj=host_dependencies)
     except FusionError as exc:
         error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "

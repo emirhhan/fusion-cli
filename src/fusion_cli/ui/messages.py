@@ -937,16 +937,30 @@ PLAN_NONE = (
 )
 PLAN_SAVED = "Plan dosyası: {path}"
 PLAN_UNTITLED = "Plan"
+PLAN_TOOL_NOT_IN_PLAN_MODE = "Plan kipinde değilsin; exit_plan_mode yalnız plan kipinde çağrılır."
+PLAN_TOOL_EMPTY = "'plan' boş olmayan bir Markdown metni olmalı."
+PLAN_TOOL_SUBMITTED = (
+    "Plan kullanıcının onayına sunuldu. Turu burada bitir; uygulamaya onaydan sonra geçeceksin."
+)
+PLAN_TOOL_ENTERED = (
+    "Plan kipine geçildi: dosya düzenlemesi yok. Keşfet, planı yaz ve exit_plan_mode ile sun."
+)
+PLAN_TOOL_ALREADY = "Zaten plan kipindesin."
+PLAN_MODE_ENTERED_BY_AGENT = "Ajan plan kipine geçti (enter_plan_mode)."
 PLAN_NO_EDITOR = "VISUAL/EDITOR tanımlı değil. Plan dosyası: {path}"
 PLAN_OPENED = "{editor} ile açıldı: {path}"
 PLAN_EDITOR_FAILED = "Editör çalıştırılamadı ({error}). Plan dosyası: {path}"
-PLAN_CARD_TITLE = "Plan hazır — bu plan uygulansın mı?"
-PLAN_CARD_AUTO = "Evet, otomatik kipte uygula"
+PLAN_CARD_TITLE = "Plan hazır — bu plan uygulansın mı? (Ctrl+G: planı editörde düzenle)"
+PLAN_CARD_AUTO = "Evet, ve otomatik kipi kullan"
 PLAN_CARD_AUTO_DESC = "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar."
-PLAN_CARD_EDITS = "Evet, düzenlemeleri kabul ederek uygula"
+PLAN_CARD_EDITS = "Evet, düzenlemeleri otomatik kabul et"
 PLAN_CARD_EDITS_DESC = "Dosya düzenlemeleri sorulmaz; komutlar için izin ister."
-PLAN_CARD_SECURITY = "Evet, her adımda sor"
+PLAN_CARD_BYPASS = "Evet, ve bu oturum için İZİNLERİ ATLA kipine geç (başka soru yok)"
+PLAN_CARD_BYPASS_DESC = "Bypass permissions: hiçbir araç çağrısı için izin sorulmaz."
+PLAN_CARD_SECURITY = "Evet, düzenlemeleri elle onayla"
 PLAN_CARD_SECURITY_DESC = "Manuel kipte uygular; her yazma ve komut için izin ister."
+PLAN_CARD_CLEAR = "Evet, bağlamı temizle ve {rest}"
+PLAN_CARD_CLEAR_DESC = "Planlama konuşması silinir; uygulama yalnız planla başlar."
 PLAN_CARD_KEEP = "Hayır, planlamaya devam et"
 PLAN_CARD_KEEP_DESC = "Plan kipinde kalır; planı birlikte düzeltebilirsiniz."
 PLAN_KEEP_PLANNING = "Plan kipinde kalındı; planı düzeltmek için yazmaya devam et."
@@ -1133,9 +1147,18 @@ LOOP_USAGE = "Kullanım: /loop [aralık] <görev|/komut> · /loop list · /loop 
 LOOP_SET = (
     "döngü kuruldu ({id}): her {every} → {prompt}  (en az {min} dk; /loop stop {id} ile durur)"
 )
+WAKEUP_NEEDS_LOOP = (
+    "schedule_wakeup yalnız kendi tempolu /loop döngüsü içindir (loop_id gerekli). "
+    "Tek seferlik görev için cron_create(cron=..., recurring=false) kullan."
+)
+LOOP_DISABLED = "/loop kapalı (CLAUDE_CODE_DISABLE_CRON=1)."
+WAKEUP_CANCELLED = "Bekleyen uyanma iptal edildi; döngü bitti."
+LOOP_ROUNDED = "Aralık {raw} temiz bir cron adımına denk gelmiyor; {every} olarak ayarlandı."
+LOOP_MD_LABEL = "loop.md (her çalışmada yeniden okunur)"
 LOOP_SET_SELF_PACED = (
     "kendi tempolu döngü kuruldu ({id}): {prompt}\n"
-    "Şimdi çalışır; sıradaki çalışmayı ajan seçer (1 dk–1 sa, seçmezse 10 dk). "
+    "Şimdi çalışır; sıradaki çalışmayı ajan seçer (1 dk–1 sa; seçmezse ~20 dk sonra bir kez "
+    "daha çalışır, yine seçmezse biter). "
     "/loop stop {id} ile durur."
 )
 LOOP_SELF_PACED_TASK = (
@@ -1144,7 +1167,7 @@ LOOP_SELF_PACED_TASK = (
     "Bu görev kendi tempolu bir döngüdür. İşi yaptıktan sonra sıradaki çalışmayı kendin seç: "
     'schedule_wakeup aracını loop_id="{id}" ile çağır (1m-1h; değişiklik bekliyorsan kısa, '
     "sakin dönemde uzun). Döngüye artık gerek yoksa cron_delete ile {id} kimliğini sil. "
-    "Seçmezsen 10 dakika sonra yeniden çalışır.\n"
+    "Seçmezsen ~20 dakika sonra bir kez daha çalışır; o zaman da seçmezsen döngü biter.\n"
     "</kendi_tempolu_dongu>"
 )
 LOOP_EMPTY = "Zamanlanmış görev yok."
@@ -1152,6 +1175,12 @@ LOOP_LIST_TITLE = "{count} zamanlanmış görev:"
 LOOP_STOPPED = "döngü durdu: {id}"
 LOOP_STOPPED_ALL = "{count} döngü durdu"
 LOOP_NOT_FOUND = "Görev bulunamadı: {id} (/loop list)"
+CTRL_B_NOTHING = (
+    "Arka plana alınacak süren komut ya da alt ajan yok (tmux'ta Ctrl+B iki kez basılır)."
+)
+TASK_LIST_HIDDEN = "Görev listesi gizlendi (Ctrl+T ile yeniden aç)."
+#: Boştaki oturumu arka plan olayı (biten iş, `monitor` satırı) uyandırınca giren tur (#336).
+BACKGROUND_WAKE = "Arka plan bildirimi geldi; değerlendir ve gerekiyorsa devam et."
 LOOP_FIRED = "⏰ zamanlanmış görev çalışıyor ({id}) · durdurmak için /loop stop {id}"
 LOOP_COMMAND_BLOCKED = (
     "/{name} zamanlanmış görev olamaz: onay kipini, modeli ya da oturumu değiştiren komutlar "
@@ -1215,7 +1244,15 @@ REWIND_CODE_EMPTY = "{index}. turdan itibaren geri alınacak dosya değişikliğ
 REWIND_CONVERSATION_DONE = "Konuşma {index}. turun başına sarıldı ({count} mesaj kaldı)."
 
 #: Git çalışma ağacı izolasyonu (`--worktree`, `/worktree`, enter/exit_worktree).
-CMD_WORKTREE = "git çalışma ağacında çalış: /worktree <ad> · /worktree cik · /worktree liste"
+CMD_WORKTREE = "(kullanımdan kalkıyor) git çalışma ağacı: fusion --worktree <ad> ya da ajandan iste"
+WORKTREE_COMMAND_DEPRECATED = (
+    "/worktree kullanımdan kalkıyor: Claude Code'da bu komut yok. Ağacı oturum başında "
+    "fusion --worktree <ad> (-w) ile aç ya da ajandan iste (enter_worktree / exit_worktree)."
+)
+LOOP_SUBCOMMAND_DEPRECATED = (
+    "/loop {sub} kullanımdan kalkıyor: Claude Code'da döngüler doğal dille listelenir ve "
+    "iptal edilir (ajandan iste: cron_list / cron_delete); bekleyen döngü Esc ile durur."
+)
 WORKTREE_USAGE = "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
 WORKTREE_ENTERED = "Çalışma ağacı: {path} (dal {branch}). Dosya işlemleri artık burada."
 WORKTREE_ALREADY_IN = "Zaten bir çalışma ağacındasın ({name}); önce /worktree cik."
@@ -1232,6 +1269,7 @@ WORKTREE_KEPT_REASON = {
     "degisiklik": "commit'lenmemiş değişiklik var",
     "commit": "dalda yeni commit var",
     "kanca": "ağacı WorktreeCreate kancası kurdu ve kaldıracak WorktreeRemove kancası yok",
+    "harici": "bu oturum yaratmadı (yolu ile girildi)",
 }
 WORKTREE_TOOL_ENTERED_HOOK = (
     "Çalışma ağacı hazır: {path} (WorktreeCreate kancası kurdu). Bu turda dosyalara bu mutlak "
@@ -1783,7 +1821,7 @@ SANDBOX_USAGE = (
     "/sandbox oto|zorunlu|disari|sir|localhost on|off"
 )
 SANDBOX_STATE_ON = "AÇIK (write_root)"
-SANDBOX_STATE_OFF = "kapalı (runtime.shell_sandbox=off)"
+SANDBOX_STATE_OFF = "kapalı (sandbox.enabled=false)"
 SANDBOX_TITLE = "Kabuk sandbox'ı: {state}"
 SANDBOX_PLATFORM = "  Platform     : {platform} — {availability}"
 SANDBOX_AVAILABLE = "kurulabilir"
@@ -1791,7 +1829,7 @@ SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
 SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
 SANDBOX_READ = "  Okuma engeli : {paths}"
 SANDBOX_READ_OPENED = (
-    "  Okuma izni   : {paths} (varsayılan engelden bilerek açıldı: sandbox.allow_read)"
+    "  Okuma izni   : {paths} (engelli bölgenin içi yeniden açıldı: sandbox.filesystem.allowRead)"
 )
 SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
 SANDBOX_NETWORK_ALLOWLIST = (

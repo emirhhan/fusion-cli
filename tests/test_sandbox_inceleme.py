@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.core import shell_sandbox
+from fusion_cli.core import linux_sandbox_tools, shell_sandbox
 from fusion_cli.core.redaction import is_secret_env_name
 from fusion_cli.core.sandbox_policy import SandboxPolicy
 from fusion_cli.core.shell_sandbox_linux import LinuxTools
@@ -78,11 +78,14 @@ def proje(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("kip", "karar", "soru"),
     [
-        # Claude (#52): plan kipinde de sorulur (sandbox auto-allow açık olsa da).
+        # Claude sandboxing › Escape hatch (#351): Manuel ve acceptEdits sorar, auto'da
+        # denetçi (burada yok → sorulur), dontAsk reddeder, bypass sormaz. Salt okunur komut
+        # da sandbox dışında okuma sınırı olmadan çalıştığı için salt okunur sayılmaz.
         (ApprovalMode.PLAN, Decision.ALLOW, 1),
         (ApprovalMode.SECURITY, Decision.ALLOW, 1),
         (ApprovalMode.AUTO, Decision.ALLOW, 1),
         (ApprovalMode.ACCEPT_EDITS, Decision.ALLOW, 1),
+        (ApprovalMode.DONT_ASK, Decision.BLOCKED, 0),
         (ApprovalMode.BYPASS, Decision.ALLOW, 0),
     ],
 )
@@ -94,7 +97,7 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
         root=proje,
         context=_context(proje),
     )
-    assert istek.read_only and istek.pre_ask is not None
+    assert not istek.read_only and istek.pre_ask is None and istek.risk is not None
 
     assert await build_policy(kip, onayci).decide(istek) is karar
     assert len(onayci.sorulan) == soru
@@ -106,7 +109,9 @@ async def test_salt_okunur_sandbox_disi_istek_kip_tablosu(proje, kip, karar, sor
 async def test_linux_socat_yokken_auto_allow_sormadan_onaylamaz(proje, monkeypatch):
     monkeypatch.setattr(shell_sandbox.sys, "platform", "linux")
     monkeypatch.setattr(
-        shell_sandbox.shutil, "which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None
+        linux_sandbox_tools.shutil,
+        "which",
+        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
     policy = SandboxPolicy(network="allowlist", allowed_domains=("github.com",), auto_allow=True)
     context = _context(proje, policy)
@@ -123,7 +128,7 @@ async def test_linux_socat_yokken_auto_allow_sormadan_onaylamaz(proje, monkeypat
 
 def test_linux_socat_varken_prob_ve_gercek_plan_ayni(proje, monkeypatch):
     monkeypatch.setattr(shell_sandbox.sys, "platform", "linux")
-    monkeypatch.setattr(shell_sandbox.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(linux_sandbox_tools.shutil, "which", lambda name: f"/usr/bin/{name}")
     policy = SandboxPolicy(network="allowlist", allowed_domains=("github.com",))
     assert sandbox_runtime.probe_plan(_context(proje, policy)).is_active
 
@@ -245,7 +250,11 @@ def test_siradan_adlar_sir_sayilmaz(ad):
 def test_korumali_yola_yazma_reddi_modele_neden_ve_yol_soyler(proje):
     _git_init(proje)
     sonuc = shell.run_shell({"command": "git config user.name deneme"}, _context(proje))
-    assert not sonuc.ok and ".git/config" in sonuc.output and "unsandboxed=true" in sonuc.output
+    assert (
+        not sonuc.ok
+        and ".git/config" in sonuc.output
+        and "dangerouslyDisableSandbox=true" in sonuc.output
+    )
 
 
 # --- 6. gizlenen ortam adları notu ------------------------------------------ #
@@ -310,11 +319,11 @@ def test_fusion_home_env_ve_temel_dizin_env_her_zaman_okuma_engelinde(tmp_path, 
     assert tmp_path / ".env" not in yollar
 
 
-def test_varsayilan_okuma_engeli_gh_ve_git_kimligini_kapsar():
+def test_yerlesik_okuma_engeli_claude_gibi_bos():
+    """Claude'da yerleşik kimlik bilgisi listesi yok (#348); korumak için denyRead/credentials."""
     from fusion_cli.config.sandbox_config import DEFAULT_DENY_READ
 
-    for yol in ("~/.config/gh", "~/.config/git/credentials", "~/.pypirc"):
-        assert yol in DEFAULT_DENY_READ
+    assert DEFAULT_DENY_READ == ()
 
 
 # --- 9. yüzeyler: notlar, gerçek ayar adı, CLI bayrakları -------------------- #
@@ -337,7 +346,8 @@ def test_izin_ag_kipini_degistirdigini_ve_gercek_ayar_adini_soyler(tmp_path):
     metin = format_change(apply_sandbox_action(config, "izin", "github.com", yol))
 
     assert "sandbox.allowed_domains" in metin and "sandbox.izin" not in metin
-    assert "allowlist'e geçti" in metin and "github.com" in metin
+    # Ağ varsayılan olarak zaten proxy'li (Claude, #323): kip değişikliği notu yok.
+    assert "allowlist'e geçti" not in metin and "github.com" in metin
 
 
 def test_kurulamayan_makinede_ac_uyari_verir(tmp_path, monkeypatch):
@@ -349,20 +359,22 @@ def test_kurulamayan_makinede_ac_uyari_verir(tmp_path, monkeypatch):
     assert any("kurulamıyor" in note for note in degisim.notes)
 
 
-def test_oto_ag_acikken_etkisiz_oldugunu_soyler(tmp_path):
+def test_oto_ag_kipinden_bagimsiz_uyari_yok(tmp_path):
+    """Claude: auto-allow ağ kipinden bağımsızdır (#347)."""
     from fusion_cli.config.sandbox_admin import apply_sandbox_action
 
     config, yol = _config(tmp_path)
     degisim = apply_sandbox_action(config, "oto", "on", yol)
-    assert degisim.config.sandbox.auto_allow and any("allowlist" in n for n in degisim.notes)
+    assert degisim.config.sandbox.auto_allow and degisim.notes == ()
 
 
 @pytest.mark.parametrize(
     ("komut", "anahtar", "deger"),
     [
-        ("oto", "auto_allow", True),
-        ("zorunlu", "fail_if_unavailable", True),
-        ("disari", "allow_unsandboxed", False),
+        # Dosyaya Claude adlarıyla yazılır (#322).
+        ("oto", "autoAllowBashIfSandboxed", True),
+        ("zorunlu", "failIfUnavailable", True),
+        ("disari", "allowUnsandboxedCommands", False),
         ("sir", "hide_secret_env", False),
         ("localhost", "allow_localhost", False),
     ],
@@ -388,7 +400,7 @@ def test_rpc_ayarla_notlari_dondurur(tmp_path):
     _, yanit = dispatch_sandbox(
         "sandbox.ayarla", {"islem": "izin", "deger": "github.com"}, config, tmp_path
     )
-    assert yanit["ok"] and any("allowlist" in note for note in yanit["notlar"])
+    assert yanit["ok"] and not any("allowlist" in note for note in yanit["notlar"])
 
 
 # --- 10. onay kartı: sandbox dışı istek her yüzeyde görünür ------------------ #
@@ -404,8 +416,9 @@ async def test_sandbox_disi_istek_kartta_yalniz_bir_kez_secenegiyle_ve_nedeniyle
         context=_context(proje),
     )
     secenekler = [item["deger"] for item in _approval_options(istek, proje)]
-    assert secenekler == ["once", "deny"]
+    assert secenekler[0] == "once" and secenekler[-1] == "deny"
     assert istek.danger is None and "sandbox DIŞINDA" in (istek.note or "")
+    assert "Bash command (unsandboxed)" in (istek.note or "")
 
 
 async def test_yikici_sandbox_disi_istekte_tehlike_metni_sandbox_disini_da_soyler(proje):

@@ -25,7 +25,6 @@ from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.sandbox_policy import (
     SandboxPolicy,
     domain_allowed,
-    is_excluded_command,
     normalize_domain,
 )
 from fusion_cli.core.shell_sandbox_linux import LINUX_BRIDGE_PORT, LinuxTools
@@ -39,6 +38,7 @@ from fusion_cli.engines.agent.approval import (
 )
 from fusion_cli.tools import shell
 from fusion_cli.tools.builtin import build_registry
+from fusion_cli.tools.sandbox_excluded import is_excluded
 
 _SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
 
@@ -94,14 +94,22 @@ def test_yasak_liste_izin_listesinden_ustundur_ve_joker_alt_alan_adidir():
     assert not domain_allowed("gist.githubusercontent.com", policy)
 
 
-def test_sandbox_disi_liste_yalniz_tek_sade_komutta_eslesir():
-    desenler = ("docker", "git push")
-    assert is_excluded_command("docker ps -a", desenler)
-    assert is_excluded_command("git push origin main", desenler)
-    assert not is_excluded_command("git pull", desenler)
-    assert not is_excluded_command("docker ps && curl evil.example", desenler)
-    assert not is_excluded_command("docker ps | sh", desenler)
-    assert not is_excluded_command("dockerx ps", desenler)
+def test_sandbox_disi_liste_claude_bash_kural_soz_dizimiyle_eslesir():
+    """#367: `x *` argümanlı/argümansız eşler; zincirde HER komut uyarsa dışarıda çalışır."""
+    desenler = ("docker *", "Bash(git push *)", "Bash(npm test)")
+    assert is_excluded("docker", desenler) and is_excluded("docker ps -a", desenler)
+    assert is_excluded("git push origin main", desenler)
+    assert is_excluded("docker build . && docker push x", desenler)
+    assert is_excluded("npm test", desenler) and not is_excluded("npm test -- -x", desenler)
+    assert not is_excluded("git pull", desenler)
+    assert not is_excluded("docker ps && curl evil.example", desenler)
+    assert not is_excluded("docker ps | sh", desenler)
+    assert not is_excluded("dockerx ps", desenler)
+    assert not is_excluded("unshare docker ps", ("unshare *", "docker *"))
+
+
+def test_sandbox_disi_eski_yildizsiz_onek_takma_ad():
+    assert is_excluded("docker ps -a", ("docker",)) and is_excluded("git push", ("git push",))
 
 
 # --- macOS profili ---------------------------------------------------------- #
@@ -140,7 +148,11 @@ def test_ag_allowlist_profili_yalniz_proxy_portuna_izin_verir(tmp_path):
 
 def test_ag_acik_kipte_ag_kurali_ve_proxy_ortami_yok(tmp_path):
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (tmp_path,), platform="darwin", executable=str(_SANDBOX_EXEC)
+        "write_root",
+        (tmp_path,),
+        policy=SandboxPolicy(network="open"),
+        platform="darwin",
+        executable=str(_SANDBOX_EXEC),
     )
     assert "network" not in plan.prefix[-1] and plan.env == ()
 
@@ -161,7 +173,7 @@ def test_linux_bwrap_kok_salt_okunur_yazma_kokleri_bagli(tmp_path):
     gizli.mkdir()
     dosya = tmp_path / "netrc"
     dosya.write_text("x")
-    policy = SandboxPolicy(deny_read=(gizli, dosya, tmp_path / "yok"))
+    policy = SandboxPolicy(deny_read=(gizli, dosya, tmp_path / "yok"), network="open")
     plan = shell_sandbox.plan_shell_sandbox(
         "write_root",
         (tmp_path,),
@@ -257,13 +269,18 @@ def test_sir_ortam_degiskeni_sandbox_icinde_gizlenir(proje, monkeypatch):
     monkeypatch.setenv("SAHTE_API_KEY", "sk-sahte-123")
     monkeypatch.setenv("SIRADAN_DEGISKEN", "gorunur")
 
-    gizli = shell.run_shell({"command": "env"}, _context(proje, SandboxPolicy()))
-    acik = shell.run_shell(
-        {"command": "env"}, _context(proje, SandboxPolicy(hide_secret_env=False))
+    gizli = shell.run_shell(
+        {"command": "env"}, _context(proje, SandboxPolicy(hide_secret_env=True))
+    )
+    acik = shell.run_shell({"command": "env"}, _context(proje, SandboxPolicy()))
+    ad = shell.run_shell(
+        {"command": "env"}, _context(proje, SandboxPolicy(deny_env=("SAHTE_API_KEY",)))
     )
 
     assert "sk-sahte-123" not in gizli.output and "gorunur" in gizli.output
+    # Claude varsayılanı: ortam miras alınır; credentials.envVars adı çıkarır (#368).
     assert "sk-sahte-123" in acik.output
+    assert "sk-sahte-123" not in ad.output and "gorunur" in ad.output
 
 
 def test_sade_rm_kok_disinda_sandbox_acikken_silmez(tmp_path, proje):
@@ -319,19 +336,69 @@ def _run_shell():
     return build_registry().get("run_shell")
 
 
-async def test_sandbox_disi_istek_otomatik_kipte_de_her_seferinde_sorulur(proje):
+async def test_sandbox_disi_istek_otomatik_kipte_denetcisizken_sorulur_oturum_izni_ayri(proje):
+    """Claude (#351): auto'da sınıflandırıcı karar verir; yoksa sorulur. Oturum izni yalnız
+    aynı sandbox dışı komutu kapsar; sandbox'lı komutun izni sandbox dışını kapsamaz."""
     onayci = _Onayci(ApprovalAnswer.SESSION)
-    politika = build_policy(ApprovalMode.AUTO, onayci)
-    context = _context(proje)
-    args = {"command": "ls", "unsandboxed": True}
+    politika = build_policy(ApprovalMode.SECURITY, onayci)
+    context = _context(proje, SandboxPolicy(auto_allow=False))
+    args = {"command": "touch a.txt", "unsandboxed": True}
 
+    sandboxli = await resolve_request(
+        _run_shell(), {"command": "touch a.txt"}, root=proje, context=context
+    )
+    assert await politika.decide(sandboxli) is Decision.ALLOW  # oturum izni (sandbox içi)
     for _ in range(2):
         istek = await resolve_request(_run_shell(), args, root=proje, context=context)
         assert await politika.decide(istek) is Decision.ALLOW
 
-    assert len(onayci.sorulan) == 2
+    assert len(onayci.sorulan) == 2  # sandbox'lı + ilk sandbox dışı; ikincisi oturum izniyle
     assert "sandbox DIŞINDA" in (istek.note or "")
-    assert not istek.can_remember
+    assert istek.can_remember
+
+
+async def test_sandbox_disi_allow_kurali_onaylar_ask_ve_deny_kurali_kipten_bagimsiz(proje):
+    from fusion_cli.config.permission_rules import PermissionDecision, PermissionRuleSet, parse_rule
+
+    def kurallar(*pairs):
+        return PermissionRuleSet(
+            tuple(parse_rule(text, decision, source="test") for text, decision in pairs)
+        )
+
+    context = _context(proje)
+    args = {"command": "npm test", "unsandboxed": True}
+    izin = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(("Bash(npm test)", PermissionDecision.ALLOW)),
+    )
+    assert izin.pre_allowed
+    onayci = _Onayci()
+    assert await build_policy(ApprovalMode.DONT_ASK, onayci).decide(izin) is Decision.ALLOW
+
+    sor = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(
+            ("Bash(npm test)", PermissionDecision.ALLOW),
+            ("Bash(dangerouslyDisableSandbox:true)", PermissionDecision.ASK),
+        ),
+    )
+    assert sor.pre_ask is not None and not sor.pre_allowed
+    assert await build_policy(ApprovalMode.BYPASS, onayci).decide(sor) is not Decision.BLOCKED
+
+    yasak = await resolve_request(
+        _run_shell(),
+        args,
+        root=proje,
+        context=context,
+        rules=kurallar(("Bash(dangerouslyDisableSandbox:true)", PermissionDecision.DENY)),
+    )
+    assert yasak.pre_denied is not None
 
 
 async def test_sandbox_kapaliyken_unsandboxed_arguman_onayi_degistirmez(proje):
@@ -350,15 +417,23 @@ async def test_auto_allow_ag_allowlist_teyken_manuel_kipte_sormaz(proje):
         _run_shell(), {"command": "touch yeni.txt"}, root=proje, context=_context(proje, policy)
     )
     assert await politika.decide(istek) is Decision.ALLOW
-    assert onayci.sorulan == [] and "auto_allow" in (istek.note or "")
+    assert onayci.sorulan == [] and "autoAllowBashIfSandboxed" in (istek.note or "")
 
 
-async def test_auto_allow_ag_acikken_ya_da_yikici_komutta_yine_sorar(proje):
+async def test_auto_allow_ag_kipinden_bagimsiz_yikicida_ve_atamada_yine_sorar(proje):
+    """Claude (#347): ağ şartı yok; yıkıcı ve `FOO=bar cmd` biçimi olağan akıştan geçer."""
     onayci = _Onayci()
     politika = build_policy(ApprovalMode.SECURITY, onayci)
     acik_ag = await resolve_request(
         _run_shell(),
         {"command": "touch yeni.txt"},
+        root=proje,
+        context=_context(proje, SandboxPolicy(auto_allow=True, network="open")),
+    )
+    assert acik_ag.pre_allowed
+    atama = await resolve_request(
+        _run_shell(),
+        {"command": "FOO=bar touch yeni.txt"},
         root=proje,
         context=_context(proje, SandboxPolicy(auto_allow=True)),
     )
@@ -368,7 +443,7 @@ async def test_auto_allow_ag_acikken_ya_da_yikici_komutta_yine_sorar(proje):
         root=proje,
         context=_context(proje, SandboxPolicy(auto_allow=True, network="allowlist")),
     )
-    await politika.decide(acik_ag)
+    await politika.decide(atama)
     await politika.decide(yikici)
     assert len(onayci.sorulan) == 2
 
@@ -450,8 +525,8 @@ def test_politika_tildeyi_ve_goreli_yolu_cozer_fusion_sirlarini_ekler(tmp_path):
     config = SandboxConfig(allow_write=("~/.npm", "build"), deny_read=("gizli",))
     policy = sandbox_policy(config, home=ev, root=kok, extra_deny=(tmp_path / "kasa",))
     assert policy.extra_write == (ev / ".npm", kok / "build")
-    assert policy.deny_read[0] == ev / ".ssh"
-    assert policy.deny_read[-2:] == (kok / "gizli", tmp_path / "kasa")
+    assert policy.deny_read == (kok / "gizli", tmp_path / "kasa")  # yerleşik liste yok (#348)
+    assert policy.locked_read == (tmp_path / "kasa",)
 
 
 def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
@@ -464,7 +539,7 @@ def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
         "github.com",
         "*.npmjs.org",
     ]
-    assert read_setting(guncel, "sandbox.network") == "open"
+    assert read_setting(guncel, "sandbox.network") == "allowlist"  # Claude varsayılanı (#323)
     with pytest.raises(ConfigError, match="geçerli bir alan adı"):
         apply_setting(config, "sandbox.allowed_domains", "a b")
     with pytest.raises(ConfigError, match="İzin verilen"):
@@ -474,3 +549,12 @@ def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
 def test_validate_bos_onek_reddedilir():
     with pytest.raises(ConfigError, match="excluded_commands"):
         validate_sandbox(SandboxConfig(excluded_commands=(" ",)))
+
+
+def test_politikasiz_baglam_varsayilani_da_proxyli_izin_listesi():
+    """Claude: sandbox açıkken ağ her zaman proxy'den geçer (#323). Politikası doldurulmamış
+    bağlamın yedeği (`SandboxPolicy()`) de açık ağ değil (bağımsız inceleme #11)."""
+    from fusion_cli.config.sandbox_config import SandboxConfig
+
+    assert SandboxPolicy().restricts_network
+    assert SandboxPolicy().network == SandboxConfig().network

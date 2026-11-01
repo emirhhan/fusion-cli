@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -86,8 +86,12 @@ def pick(
     title: str,
     gradient_rows: bool = False,
     stream: TextStream | None = None,
+    hotkeys: Mapping[str, str] | None = None,
 ) -> str | None:
     """Bir seçim al. Vazgeçilirse `None` döner.
+
+    `hotkeys` (ör. `{"c-g": "planı-düzenle"}`) etkileşimli seçicide tuşa basılınca o değeri
+    döndürür (plan kartında Ctrl+G, #326); düz listede yok sayılır.
 
     `gradient_rows` açıkken satırlar turuncudan pembeye boyanır (kademe merdiveni);
     kapalıyken tek vurgu rengi kullanılır (kaynak listesi, model listesi).
@@ -96,7 +100,9 @@ def pick(
         return None
     if not sys.stdin.isatty():
         return _pick_plain(choices, title=title, stream=stream)
-    picked = _pick_interactive(choices, title=title, gradient_rows=gradient_rows)
+    picked = _pick_interactive(
+        choices, title=title, gradient_rows=gradient_rows, hotkeys=hotkeys or {}
+    )
     return picked
 
 
@@ -161,7 +167,7 @@ def resolve_plain(choices: Sequence[Choice], answer: str) -> str | None:
 
 
 def _pick_interactive(
-    choices: Sequence[Choice], *, title: str, gradient_rows: bool
+    choices: Sequence[Choice], *, title: str, gradient_rows: bool, hotkeys: Mapping[str, str]
 ) -> str | None:  # pragma: no cover - gerçek terminal gerektirir
     """prompt_toolkit tam-ekran seçim. Kurulamazsa düz listeye düşülür."""
     try:
@@ -194,6 +200,9 @@ def _pick_interactive(
     @bindings.add("c-c")
     def _cancel(event: KeyEvent) -> None:
         event.app.exit(result=None)
+
+    for key, value in hotkeys.items():
+        bindings.add(key)(lambda event, value=value: event.app.exit(result=value))
 
     # Pencere yüksekliği terminalden gelir; başlık, boşluk, ipucu ve iki gösterge
     # satırı için yer ayrılır. Ayrılmasaydı liste ipucu satırını ekrandan iterdi.

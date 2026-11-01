@@ -1,16 +1,14 @@
 """`sandbox:` yapılandırma bölümü ve çalışma anı politikasına çevirisi (P-010).
 
-Kip anahtarı geri uyumlu olarak `runtime.shell_sandbox` (`off` | `write_root`) kalır;
-bu bölüm kip açıkken NEYİN sınırlanacağını söyler. Eski yapılandırmada bölüm yoksa
-varsayılanlar geçerlidir ve `write_root` eskisi gibi yalnız yazmayı sınırlar — artı
-varsayılan okuma engeli listesi (`DEFAULT_DENY_READ`: `~/.ssh`, `~/.aws`…). Fusion'ın
-kendi sır dosyaları (`.env`, şifreli kasa, tarayıcı/web oturum profilleri) listede yazılı
-olmasa da her zaman okuma engeline eklenir.
+Claude Code gibi (sandboxing, Filesystem defaults; #348, #349): sandbox makinenin tamamını
+okuyabilir, yerleşik kimlik bilgisi listesi yoktur; yalnız `filesystem.denyRead` yolları
+engellenir. `filesystem.allowRead` engellenmiş bir bölgenin içini yeniden açar; kurallar
+çakışınca dar yol kazanır (`core.sandbox_policy.read_rules`). Fusion'ın kendi sır dosyaları
+(`.env`, şifreli kasa, tarayıcı/web oturum profilleri) her zaman engellidir ve `allowRead`
+ile açılamaz.
 
-Okuma engeli = `DEFAULT_DENY_READ` + `sandbox.deny_read` − `sandbox.allow_read` + Fusion
-sırları. Ölçüldü (1 Kasım): `deny_read` yazan kullanıcının listesi varsayılanın YERİNE
-geçiyordu; tek yol ekleyen `~/.ssh` korumasını sessizce kaybediyordu. Artık kullanıcı
-listesi eklenir; varsayılandan bir yolu açmak için açıkça `allow_read` yazılır.
+Eski davranış (1 Kasım öncesi): 14 yollu yerleşik okuma engeli (`~/.ssh`, `~/.aws`…) vardı ve
+`allow_read` yalnız bu listedeki bir yolu birebir açabiliyordu.
 """
 
 from __future__ import annotations
@@ -36,23 +34,11 @@ __all__ = [
     "validate_sandbox",
 ]
 
-#: Her zaman uygulanan okuma engeli (kullanıcının `deny_read`'i buna EKLENİR).
-DEFAULT_DENY_READ: tuple[str, ...] = (
-    "~/.ssh",
-    "~/.aws",
-    "~/.gnupg",
-    "~/.azure",
-    "~/.kube",
-    "~/.config/gcloud",
-    "~/.docker/config.json",
-    "~/.netrc",
-    "~/.git-credentials",
-    "~/.password-store",
-    "~/Library/Keychains",
-    "~/.config/gh",
-    "~/.config/git/credentials",
-    "~/.pypirc",
-)
+#: Claude Code'da yerleşik okuma engeli listesi yoktur (sandboxing, "Reads: most of the
+#: machine, including credential files such as ~/.ssh"; #348). Ad, eski içe aktarmalar için
+#: boş demet olarak kalır; Fusion'ın kendi sır dosyaları `fusion_secret_paths` ile ayrıca ve
+#: her zaman engellidir.
+DEFAULT_DENY_READ: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,17 +46,53 @@ class SandboxConfig:
     """`sandbox:` bölümü; alan açıklamaları `defaults.yaml`'da (tek kaynak)."""
 
     allow_write: tuple[str, ...] = ()
+    #: Claude `filesystem.denyWrite`: yazılabilir bölgenin içinde de yazılamayan yollar (#350).
+    deny_write: tuple[str, ...] = ()
     deny_read: tuple[str, ...] = ()
     allow_read: tuple[str, ...] = ()
-    network: str = "open"
+    network: str = "allowlist"
     allowed_domains: tuple[str, ...] = ()
     denied_domains: tuple[str, ...] = ()
     allow_localhost: bool = True
     fail_if_unavailable: bool = False
     allow_unsandboxed: bool = True
     excluded_commands: tuple[str, ...] = ()
-    auto_allow: bool = False
-    hide_secret_env: bool = True
+    auto_allow: bool = True
+    hide_secret_env: bool = False
+    strict_allowlist: bool = False
+    #: Claude `sandbox.credentials.envVars` (deny): sandbox ortamından çıkarılan adlar (#368).
+    credential_env: tuple[str, ...] = ()
+    #: Claude `sandbox.credentials.files` (deny): sandbox içinde okunamayan yollar.
+    credential_files: tuple[str, ...] = ()
+    #: Claude `network.allowUnixSockets` / `allowAllUnixSockets` / `allowLocalBinding` (#350).
+    allow_unix_sockets: tuple[str, ...] = ()
+    allow_all_unix_sockets: bool = False
+    allow_local_binding: bool = False
+    #: Claude `bwrapPath` / `socatPath`: Linux araçlarının yolu (boş = PATH'te ara).
+    bwrap_path: str = ""
+    socat_path: str = ""
+    #: Claude `network.httpProxyPort` / `socksProxyPort`: kullanıcının kendi proxy'si (#350).
+    #: Verilirse Fusion proxy başlatmaz; alan adı listeleri ve ağ soruları o trafiğe uygulanmaz.
+    http_proxy_port: int = 0
+    socks_proxy_port: int = 0
+    #: Claude `network.tlsTerminate` (#350, #368): proxy HTTPS'i sonlandırır (mask için gerekli).
+    #: CA yolları boşsa oturum başına geçici CA üretilir. Yalnız kullanıcı/managed/--settings.
+    tls_terminate: bool = False
+    tls_ca_cert: str = ""
+    tls_ca_key: str = ""
+    #: Claude `credentials.envVars` mode: mask — `AD` ya da `AD=host1,host2` (injectHosts).
+    credential_mask: tuple[str, ...] = ()
+    #: Claude `credentials.allowPlaintextInject`: düz HTTP isteğinde de yerine koy.
+    allow_plaintext_inject: bool = False
+    #: Claude `filesystem.disabled`: dosya sistemi yalıtımı atlanır, ağ yalıtımı kalır.
+    filesystem_disabled: bool = False
+    #: Claude `enableWeakerNestedSandbox` (Linux): yeni `/proc` bağlanmaz (yetkisiz Docker).
+    enable_weaker_nested_sandbox: bool = False
+    #: Claude `allowNestedUserNamespaces` (Linux): sandbox içinde yeni kullanıcı ad alanı.
+    allow_nested_user_namespaces: bool = False
+    #: Claude `ripgrep: {command, args}` (Linux): iç içe korumalı dosyaları bulan rg.
+    ripgrep_command: str = ""
+    ripgrep_args: tuple[str, ...] = ()
 
 
 def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
@@ -91,43 +113,21 @@ def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
                 )
             cleaned.append(value)
         domains[name] = tuple(dict.fromkeys(cleaned))
+    for name in ("http_proxy_port", "socks_proxy_port"):
+        port = getattr(config, name)
+        if not 0 <= port <= 65_535:
+            raise ConfigError(f"sandbox.{name}: 1-65535 arasında bir port olmalı.")
     for command in config.excluded_commands:
         if not command.strip():
             raise ConfigError("sandbox.excluded_commands: boş önek olamaz.")
-    _validate_allow_read(config)
     return replace(
         config, allowed_domains=domains["allowed_domains"], denied_domains=domains["denied_domains"]
     )
 
 
-def _read_key(raw: str) -> str:
-    """Yol girdisinin karşılaştırma biçimi: `$HOME` → `~`, sondaki `/` atılır."""
-    text = raw.strip()
-    if text.startswith("$HOME"):
-        text = "~" + text.removeprefix("$HOME")
-    return text.rstrip("/") or text
-
-
-def _validate_allow_read(config: SandboxConfig) -> None:
-    """`allow_read` yalnız okuma engelindeki bir yolu açabilir (yazım hatası sessiz kalmasın).
-
-    Fusion'ın kendi sır dosyaları (`fusion_secret_paths`) bu listeyle açılamaz.
-    """
-    known = {_read_key(raw) for raw in (*DEFAULT_DENY_READ, *config.deny_read)}
-    for raw in config.allow_read:
-        if _read_key(raw) not in known:
-            raise ConfigError(
-                f"sandbox.allow_read: {raw!r} okuma engelinde değil; yalnız varsayılan listeden "
-                f"ya da sandbox.deny_read'den bir yol açılabilir (varsayılan: "
-                f"{', '.join(DEFAULT_DENY_READ)})."
-            )
-
-
 def effective_deny_read(config: SandboxConfig) -> tuple[str, ...]:
-    """Varsayılan + kullanıcı listesi − `allow_read` (ham yazımla; Fusion sırları hariç)."""
-    opened = {_read_key(raw) for raw in config.allow_read}
-    merged = {_read_key(raw): raw for raw in (*DEFAULT_DENY_READ, *config.deny_read)}
-    return tuple(raw for key, raw in merged.items() if key not in opened)
+    """Kullanıcının `denyRead` listesi (Fusion sırları hariç; yinelenenler birleşir)."""
+    return tuple(dict.fromkeys(config.deny_read))
 
 
 def fusion_secret_paths() -> tuple[Path, ...]:
@@ -173,11 +173,18 @@ def sandbox_policy(
     """Yapılandırmayı çalışma anı politikasına çevir (`~`/göreli yollar çözülür)."""
     return SandboxPolicy(
         extra_write=tuple(_expand(raw, home, root) for raw in config.allow_write),
+        deny_write=tuple(dict.fromkeys(_expand(raw, home, root) for raw in config.deny_write)),
         deny_read=tuple(
             dict.fromkeys(
-                (*(_expand(raw, home, root) for raw in effective_deny_read(config)), *extra_deny)
+                (
+                    *(_expand(raw, home, root) for raw in effective_deny_read(config)),
+                    *(_expand(raw, home, root) for raw in config.credential_files),
+                    *extra_deny,
+                )
             )
         ),
+        allow_read=tuple(_expand(raw, home, root) for raw in config.allow_read),
+        locked_read=tuple(dict.fromkeys(extra_deny)),
         network=config.network,
         allowed_domains=config.allowed_domains,
         denied_domains=config.denied_domains,
@@ -187,4 +194,27 @@ def sandbox_policy(
         excluded_commands=tuple(item.strip() for item in config.excluded_commands),
         auto_allow=config.auto_allow,
         hide_secret_env=config.hide_secret_env,
+        strict_allowlist=config.strict_allowlist,
+        deny_env=tuple(dict.fromkeys(config.credential_env)),
+        allow_unix_sockets=tuple(_expand(raw, home, root) for raw in config.allow_unix_sockets),
+        allow_all_unix_sockets=config.allow_all_unix_sockets,
+        allow_local_binding=config.allow_local_binding,
+        bwrap_path=config.bwrap_path,
+        socat_path=config.socat_path,
+        http_proxy_port=config.http_proxy_port,
+        socks_proxy_port=config.socks_proxy_port,
+        filesystem_disabled=config.filesystem_disabled,
+        enable_weaker_nested_sandbox=config.enable_weaker_nested_sandbox,
+        allow_nested_user_namespaces=config.allow_nested_user_namespaces,
+        ripgrep=(config.ripgrep_command, *config.ripgrep_args) if config.ripgrep_command else (),
+        # Claude: aynı ad iki kipte de yazılmışsa deny uygulanır.
+        mask_env=tuple(
+            entry
+            for entry in dict.fromkeys(config.credential_mask)
+            if entry.partition("=")[0].strip() not in config.credential_env
+        ),
+        tls_terminate=config.tls_terminate,
+        tls_ca_cert=str(_expand(config.tls_ca_cert, home, root)) if config.tls_ca_cert else "",
+        tls_ca_key=str(_expand(config.tls_ca_key, home, root)) if config.tls_ca_key else "",
+        allow_plaintext_inject=config.allow_plaintext_inject,
     )

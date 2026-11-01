@@ -6,6 +6,7 @@ masaüstü sandbox kartı yoktu; kip yalnız config.yaml elle düzenlenerek aç�
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -43,7 +44,7 @@ def test_durum_kapali_kipte_de_platformu_ve_kurallari_soyler(tmp_path):
     status = sandbox_status(make_config(), tmp_path, platform="win32")
     assert not status.enabled and not status.available
     assert "macOS ve Linux" in status.reason
-    assert "~/.ssh" in status.deny_read
+    assert "~/.ssh" not in status.deny_read  # Claude: yerleşik liste yok (#348)
     assert any(item.endswith(".env") for item in status.deny_read)
 
 
@@ -58,7 +59,8 @@ def test_izin_eylemi_yasaktan_cikarir_ve_agi_allowlist_e_alir(tmp_path):
     assert degisim.config.sandbox.allowed_domains == ("github.com",)
     assert degisim.config.sandbox.denied_domains == ()
     assert degisim.config.sandbox.network == "allowlist"
-    assert _yaml(yol)["sandbox"]["allowed_domains"] == ["github.com"]
+    # Dosyaya Claude adıyla yazılır (#322).
+    assert _yaml(yol)["sandbox"]["network"]["allowedDomains"] == ["github.com"]
 
 
 def test_gecersiz_eylem_ve_alan_adi_reddedilir(tmp_path):
@@ -95,12 +97,17 @@ def test_repl_sandbox_on_oturuma_ve_dosyaya_yazar(tmp_path):
     izin = sandbox_command(state, "izin pypi.org")
     hatali = sandbox_command(state, "izin")
 
-    assert "runtime.shell_sandbox = write_root" in sonuc
+    assert "sandbox.enabled = true" in sonuc
     assert state.config.runtime.shell_sandbox == "write_root"
     assert state.config.sandbox.allowed_domains == ("pypi.org",)
     assert "pypi.org" in izin
     assert "Kullanım: /sandbox" in hatali
-    assert _yaml(yol)["runtime"]["shell_sandbox"] == "write_root"
+    # Claude /sandbox (#321, #352): kip seçimi projenin .claude/settings.local.json'ına
+    # sandbox.enabled olarak yazılır; alan adı listeleri kullanıcı dosyasında kalır.
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"] == {"enabled": True}
+    assert "enabled" not in _yaml(yol)["sandbox"]
+    assert "shell_sandbox" not in (_yaml(yol).get("runtime") or {})
 
 
 # --- CLI -------------------------------------------------------------------- #
@@ -116,7 +123,7 @@ def test_cli_durum_ve_izin(tmp_path, monkeypatch):
     izin = runner.invoke(sandbox_commands.app, ["izin", "registry.npmjs.org"])
 
     assert durum.exit_code == 0 and "AÇIK" in durum.output
-    assert izin.exit_code == 0 and _yaml(yol)["sandbox"]["allowed_domains"] == [
+    assert izin.exit_code == 0 and _yaml(yol)["sandbox"]["network"]["allowedDomains"] == [
         "registry.npmjs.org"
     ]
     assert runner.invoke(sandbox_commands.app, ["izin", "a b"]).exit_code == 1
@@ -187,6 +194,49 @@ def test_rpc_durum_ve_ayarla(tmp_path):
 
     assert yok is None and durum["ok"] is True and "okuma_engeli" in durum
     assert yeni is not None and yeni.sandbox.auto_allow and sonuc["oto_izin"] is True
-    assert sonuc["dosya"].endswith("config.yaml")
+    # Masaüstü /sandbox paneli Claude gibi kip seçimini proje yerel ayarına yazar (#352).
+    assert sonuc["dosya"].endswith(".claude/settings.local.json")
     assert hata["ok"] is False and "alan adı" in hata["metin"]
     assert tip["ok"] is False
+
+
+def test_sandbox_paneli_kip_ve_gecersiz_kilma_yerel_ayara_yazar(tmp_path):
+    """Claude `/sandbox` paneli (#352): Kip / Geçersiz kılmalar / Yapılandırma / Bağımlılıklar."""
+    from fusion_cli.cli.repl import sandbox_panel as panel
+
+    state = _state(tmp_path, tmp_path / "config.yaml")
+    seen: list[list[str]] = []
+
+    def picker(value):
+        def _pick(choices, *, title="", **_):
+            seen.append([choice.label for choice in choices])
+            return value
+
+        return _pick
+
+    sonuc = panel.sandbox_panel(
+        state.config, tmp_path, picker=picker(panel.MODE_REGULAR), platform="darwin"
+    )
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"]["enabled"] is True
+    assert yerel["sandbox"]["autoAllowBashIfSandboxed"] is False
+    assert sonuc.config.runtime.shell_sandbox == "write_root"
+    assert not sonuc.config.sandbox.auto_allow
+    # Claude: ilk sekme Kip; diğer sekmelere geçiş satırı; macOS'ta Bağımlılıklar yok.
+    gecisler = [label for label in seen[0] if label.startswith("Sekme › ")]
+    assert gecisler == ["Sekme › Geçersiz kılmalar", "Sekme › Yapılandırma"]
+
+    kati = panel.sandbox_panel(sonuc.config, tmp_path, picker=picker(panel.OVERRIDE_STRICT))
+    yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert yerel["sandbox"]["allowUnsandboxedCommands"] is False
+    assert not kati.config.sandbox.allow_unsandboxed
+    secili = [label for label in seen[-1] if "●" in label]
+    assert any("normal izinlerle" in label for label in secili)
+
+    durum = panel.sandbox_panel(kati.config, tmp_path, picker=picker(panel.SHOW_CONFIG))
+    assert durum.config is kati.config and "sandbox" in durum.message.lower()
+    deps = panel.dependency_report("linux")
+    assert "bwrap" in deps and "socat" in deps
+    assert "sandbox-exec" in panel.dependency_report("darwin")
+    # Etkileşimsiz ortamda (test) argümansız komut durum metnini basar, panel açılmaz.
+    assert "sandbox" in sandbox_command(state, "").lower()

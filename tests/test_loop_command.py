@@ -58,25 +58,42 @@ def test_loop_aralikli_gorev_kurar(state: ReplState) -> None:
     assert tasks[0].id in cikti and "5m" in cikti
 
 
-def test_loop_araliksiz_gorev_varsayilan_aralikla_kurulur(state: ReplState) -> None:
+def test_loop_araliksiz_komut_gorevi_de_kendi_tempolu(state: ReplState) -> None:
+    """Claude: aralık verilmezse (görev beceri olsa da) aralığı ajan seçer (#344)."""
+    from fusion_cli.core.session_cron import Kind
+
     _loop(state, "/verify")
     (task,) = state.cron.list()
-    assert task.prompt == "/verify"
-    assert task.every_s == 600
+    assert task.prompt == "/verify" and task.kind is Kind.SELF_PACED
 
 
-def test_loop_argumansiz_bakim_dosyasini_okur_yoksa_yerlesik(state: ReplState) -> None:
+def test_loop_argumansiz_bakim_dosyasi_her_calismada_okunur(state: ReplState) -> None:
+    """Claude: loop.md her yinelemede yeniden okunur ve 25.000 baytta kesilir (#346)."""
     _loop(state, "")
-    assert state.cron.list()[0].prompt == loop_command.DEFAULT_MAINTENANCE_PROMPT
-    state.cron.clear()
+    (task,) = state.cron.list()
+    yeniden = lambda: loop_command.fire_prompt(task, root=state.root, home=state.home)  # noqa: E731
+    assert loop_command.DEFAULT_MAINTENANCE_PROMPT in yeniden()
     (state.root / ".claude").mkdir()
     (state.root / ".claude" / "loop.md").write_text("Projeye özel bakım.\n", encoding="utf-8")
-    _loop(state, "")
-    assert state.cron.list()[0].prompt == "Projeye özel bakım."
+    assert "Projeye özel bakım." in yeniden()
+    (state.root / ".claude" / "loop.md").write_text("x" * 30_000, encoding="utf-8")
+    assert yeniden().count("x") == loop_command.LOOP_MD_MAX_BYTES
+
+
+def test_yerlesik_bakim_istemi_claude_sirasinda() -> None:
+    metin = loop_command.DEFAULT_MAINTENANCE_PROMPT
+    assert metin.index("yarım") < metin.index("PR") < metin.index("temizlik")
+    assert "Yeni bir girişim başlatma" in metin
 
 
 def test_loop_list_ve_stop(state: ReplState) -> None:
+    """#365: Claude'da yok; kullanımdan kalkan takma ad, her alt komutta bir kez uyarır."""
+    ilk = _loop(state, "list")
+    assert ilk == f"{messages.LOOP_SUBCOMMAND_DEPRECATED.format(sub='list')}\n{messages.LOOP_EMPTY}"
     assert _loop(state, "list") == messages.LOOP_EMPTY
+    assert _loop(state, "stop yok").startswith(
+        messages.LOOP_SUBCOMMAND_DEPRECATED.format(sub="stop")
+    )
     _loop(state, "5m a")
     _loop(state, "10m b")
     liste = _loop(state, "list")
@@ -88,10 +105,30 @@ def test_loop_list_ve_stop(state: ReplState) -> None:
     assert state.cron.list() == ()
 
 
-def test_loop_kisa_aralik_turkce_hata_ve_kullanim(state: ReplState) -> None:
+def test_loop_saniye_ust_dakikaya_yuvarlanir_ve_bildirilir(state: ReplState) -> None:
+    """Claude: saniye üst dakikaya yuvarlanır; temiz adıma denk gelmeyen değer bildirilir (#345)."""
     cikti = _loop(state, "30s a")
-    assert "en az 1 dakika" in cikti and messages.LOOP_USAGE in cikti
-    assert state.cron.list() == ()
+    (task,) = state.cron.list()
+    assert task.every_s == 60 and "1m" in cikti and "30s" in cikti
+
+
+@pytest.mark.parametrize(
+    ("girdi", "dakika", "gorev", "yuvarlandi"),
+    [
+        ("5m testleri koştur", 5, "testleri koştur", False),
+        ("testleri koştur every 2 hours", 120, "testleri koştur", False),
+        ("PR'a bak every 30 minutes", 30, "PR'a bak", False),
+        ("7m a", 6, "a", True),
+        ("90m a", 60, "a", True),
+        ("raporu yaz her 2 saatte", 120, "raporu yaz", False),
+        ("sadece görev", None, "sadece görev", False),
+    ],
+)
+def test_aralik_bastaki_belirtecten_ya_da_sondaki_ifadeden(girdi, dakika, gorev, yuvarlandi):
+    from fusion_cli.cli.repl.loop_interval import split_loop_interval
+
+    sonuc = split_loop_interval(girdi)
+    assert (sonuc.minutes, sonuc.prompt, bool(sonuc.rounded_from)) == (dakika, gorev, yuvarlandi)
 
 
 # --- Araçlar ---------------------------------------------------------------------- #
@@ -116,7 +153,8 @@ async def test_cron_create_list_delete_araclari(tmp_path: Path) -> None:
     sonuc = await _run(create, {"prompt": "stok kontrol", "every": "15m"}, context)
     assert sonuc.ok and "her 15 dk" in sonuc.output
     (task,) = cron.list()
-    assert task.next_due == 1_000_000.0 + 900
+    # Claude gecikmesi (#363): planlanan vade + göreve sabit gecikme (≤ aralığın yarısı).
+    assert task.next_due - task.jitter_s == 1_000_000.0 + 900 and 0 <= task.jitter_s <= 450
 
     listed = await _run(list_tool, {}, context)
     assert task.id in listed.output
@@ -136,18 +174,49 @@ async def test_cron_create_tek_zamanlama_ister_ve_cron_ifadesi_kabul_eder(tmp_pa
     assert not (await _run(create, {"prompt": "x", "cron": "bozuk"}, context)).ok
 
 
-async def test_schedule_wakeup_tek_seferlik_not_kurar(tmp_path: Path) -> None:
-    clock = _Clock(1_000_000.0)
+async def test_schedule_wakeup_loop_id_siz_kullanilamaz(tmp_path: Path) -> None:
+    """Claude ScheduleWakeup yalnız kendi tempolu /loop içindir (#362)."""
     cron = SessionCron()
     sonuc = await _run(
-        _tool("schedule_wakeup", clock),
+        _tool("schedule_wakeup", _Clock(1_000_000.0)),
         {"in": "10m", "note": "CI bitti mi bak"},
         _context(tmp_path, cron),
     )
-    assert sonuc.ok
-    (task,) = cron.list()
-    assert task.prompt == "CI bitti mi bak" and task.next_due == 1_000_000.0 + 600
-    assert cron.due(1_000_000.0 + 600) == (task,)
+    assert not sonuc.ok and "loop_id" in sonuc.output and cron.list() == ()
+
+
+async def test_schedule_wakeup_stop_dongu_bitirir(tmp_path: Path) -> None:
+    from fusion_cli.ui import messages
+
+    cron = SessionCron()
+    dongu = cron.create_self_paced("bak", now=1_000_000.0)
+    sonuc = await _run(
+        _tool("schedule_wakeup", _Clock(1_000_000.0)),
+        {"loop_id": dongu.id, "stop": True},
+        _context(tmp_path, cron),
+    )
+    assert sonuc.ok and sonuc.output == messages.WAKEUP_CANCELLED and cron.list() == ()
+
+
+async def test_cron_create_claude_semasi_cron_prompt_recurring(tmp_path: Path) -> None:
+    """Claude CronCreate (#366): cron + prompt + recurring; recurring=false bir kez çalışır."""
+    from fusion_cli.core.session_cron import Kind
+
+    cron = SessionCron()
+    arac = _tool("cron_create", _Clock(1_000_000.0))
+    assert arac.parameters["required"] == ["cron", "prompt"]
+    await _run(arac, {"cron": "*/15 * * * *", "prompt": "a"}, _context(tmp_path, cron))
+    await _run(
+        arac, {"cron": "0 9 * * *", "prompt": "b", "recurring": False}, _context(tmp_path, cron)
+    )
+    assert sorted(t.kind.value for t in cron.list()) == sorted([Kind.CRON.value, Kind.ONCE.value])
+
+
+def test_claude_code_disable_cron_loop_u_kapatir(state: ReplState, monkeypatch) -> None:
+    from fusion_cli.ui import messages
+
+    monkeypatch.setenv("CLAUDE_CODE_DISABLE_CRON", "1")
+    assert _loop(state, "5m a") == messages.LOOP_DISABLED and state.cron.list() == ()
 
 
 async def test_zamanlayici_yoksa_araclar_aciklayici_hata_verir(tmp_path: Path) -> None:
@@ -166,7 +235,9 @@ async def _run(tool, args, context):
 
 def test_kayit_yazilir_okunur_bos_listede_silinir(tmp_path: Path) -> None:
     cron = SessionCron()
-    task = cron.create_interval("a", "5m", now=100.0)
+    import time
+
+    task = cron.create_interval("a", "5m", now=time.time())
     cron_store.save(tmp_path, "sohbet/1", cron)
     yol = cron_store.store_path(tmp_path, "sohbet/1")
     assert yol.exists() and yol.parent == tmp_path / "oturum-cron"
@@ -220,7 +291,7 @@ async def test_vadesi_gelen_gorev_istem_beklerken_satir_olarak_girer(
 
     assert reader.injected == ["testleri koştur"]
     guncel = state.cron.get(task.id)
-    assert guncel is not None and guncel.runs == 1 and guncel.next_due == 601.0
+    assert guncel is not None and guncel.runs == 1 and guncel.next_due == 301.0 + 285
     assert task.id in console.export_text()
 
 
@@ -308,7 +379,9 @@ async def test_masaustu_cron_rpc_listeler_siler_ve_vadesi_gelenleri_bir_kez_veri
 
     monkeypatch.setattr("fusion_cli.appserver.session.time.time", lambda: baslangic + 301)
     vade = await rpc("2", "cron.vadesi_gelenler")
-    assert vade["gorevler"] == [{"id": task.id, "gorev": "stok kontrol", "kaynak": "kullanici"}]
+    assert vade["gorevler"] == [
+        {"id": task.id, "gorev": "stok kontrol", "kaynak": "kullanici", "duz_metin": True}
+    ]
     assert (await rpc("3", "cron.vadesi_gelenler"))["gorevler"] == []
 
     sil = await rpc("4", "cron.sil", {"id": task.id})
@@ -319,22 +392,27 @@ async def test_masaustu_cron_rpc_listeler_siler_ve_vadesi_gelenleri_bir_kez_veri
 # --- Ajan görevi komut değil turdur (inceleme bulgusu, yüksek) --------------------- #
 
 
-def test_loop_onay_kipini_degistiren_komutu_zamanlamaz(state: ReplState) -> None:
-    for satir in ("5m /bypass", "/auto", "10m /mode hizli", "/loop 5m x"):
-        cikti = _loop(state, satir)
-        assert "zamanlanmış görev olamaz" in cikti, satir
-    assert len(state.cron) == 0
-    # `/verify` gibi zararsız komutlar zamanlanabilir.
-    assert "döngü kuruldu" in _loop(state, "5m /verify")
+def test_yerlesik_komut_kurulur_ama_duz_metin_tur_olur(state: ReplState) -> None:
+    """Claude (scheduled-tasks, #371): `/model`, `/clear` gibi yerleşik komutlar ve
+    disable-model-invocation becerileri reddedilmez; vadesi gelince düz metin olarak gider."""
+    for satir in ("5m /bypass", "10m /mode hizli", "5m /dikte", "5m /verify"):
+        assert "döngü kuruldu" in _loop(state, satir), satir
+    for gorev in ("/bypass", "/mode hizli", "/dikte", "/verify", "düz görev"):
+        assert not loop_command.runs_as_command(gorev, state.capabilities), gorev
 
 
-def test_loop_yasakli_komutun_takma_adini_da_zamanlamaz(state: ReplState) -> None:
-    """Ölçüldü (31 Ekim): yasak ham ada bakıyordu; `/loop 5m /dikte` (voice takma adı)
-    kuruluyor, mikrofon zamanlayıcıdan açılabiliyordu (`/q`, `/dev`, `/manuel` de geçiyordu)."""
-    for satir in ("5m /dikte", "/q", "5m /dev", "5m /manuel", "5m /rc", "5m /remote-control"):
-        cikti = _loop(state, satir)
-        assert "zamanlanmış görev olamaz" in cikti, satir
-    assert len(state.cron) == 0
+def test_yalniz_modelin_cagirabildigi_beceri_komut_olarak_calisir() -> None:
+    from types import SimpleNamespace
+
+    beceriler = {
+        "inceleme": SimpleNamespace(model_invocable=True),
+        "dogrula": SimpleNamespace(model_invocable=False),
+    }
+    katalog = SimpleNamespace(get_skill=beceriler.get)
+    assert loop_command.runs_as_command("/inceleme src", katalog)
+    assert not loop_command.runs_as_command("/dogrula", katalog)
+    assert not loop_command.runs_as_command("/model", katalog)
+    assert not loop_command.runs_as_command("/inceleme", None)
 
 
 async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) -> None:
@@ -343,9 +421,8 @@ async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) ->
     cron = SessionCron()
     context = _context(tmp_path, cron)
     create = _tool("cron_create", _Clock(0.0))
-    wakeup = _tool("schedule_wakeup", _Clock(0.0))
     create.run({"prompt": "/bypass", "in": "1m"}, context)
-    wakeup.run({"in": "2m", "note": "/auto"}, context)
+    create.run({"prompt": "/auto", "cron": "*/5 * * * *"}, context)
     assert [task.source for task in cron.list()] == [Source.AGENT, Source.AGENT]
     # Kullanıcının `/loop`u ise kullanıcı kaynaklıdır.
     assert cron.create_interval("a", "5m", now=0.0).source is Source.USER
@@ -384,9 +461,14 @@ async def test_ajan_gorevi_vadesi_gelince_yalniz_tur_isareti_koyar(
     await asyncio.wait_for(watcher, 1)
     assert reader.injected == ["/bypass"] and reader.isaretler == [True]
 
-    # Kullanıcı görevi işaret koymaz.
+    # Kullanıcının kurduğu, modelin çağırabildiği beceri işaret koymaz (komut olarak çalışır).
+    from types import SimpleNamespace
+
     state.running = True
-    state.cron.create_once("/verify", "1m", now=0.0)
+    state.capabilities = SimpleNamespace(  # type: ignore[assignment]
+        get_skill={"inceleme": SimpleNamespace(model_invocable=True)}.get
+    )
+    state.cron.create_once("/inceleme", "1m", now=0.0)
     reader2 = _Reader()
     watcher = asyncio.ensure_future(
         repl_loop._cron_watcher(state, reader2, Console(record=True, force_terminal=False))
@@ -688,3 +770,60 @@ def test_schedule_wakeup_loop_id_yalniz_kendi_tempolu_gorevde(state: ReplState) 
         {"in": "3m", "loop_id": sabit.id}, ToolContext(root=state.root, cron=state.cron)
     )
     assert not sonuc.ok
+
+
+def test_tui_esc_beklemedeki_kendi_tempolu_donguyu_durdurur(state: ReplState) -> None:
+    """Claude (scheduled-tasks, #365): kendi tempolu döngü beklerken Esc onu durdurur;
+    sabit aralıklı görev kalır. Tur sürerken Esc yalnız turu keser."""
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+    from fusion_cli.core.session_cron import Kind
+
+    kendi = state.cron.create_self_paced("testleri izle", now=0.0)
+    aralik = state.cron.create_interval("rapor", "5m", now=0.0)
+    session = _TuiSession(state)
+    session._echo = lambda _metin: None  # type: ignore[method-assign]
+    assert not session._busy  # yeni oturumda tur yok
+    session._interrupt()
+    kalan = state.cron.list()
+    assert [task.id for task in kalan] == [aralik.id]
+    assert kendi.id not in {task.id for task in kalan}
+    assert all(task.kind is not Kind.SELF_PACED for task in kalan)
+
+
+def test_yerlesik_komutla_ayni_adli_beceri_komut_olarak_calismaz() -> None:
+    """Yerleşik komut beceriyi gölgeler (`CommandRegistry.get`): `/bypass` adlı beceri olsa da
+    zamanlanan satır yerleşik `/bypass`'ı çalıştırmamalı (bağımsız inceleme #6)."""
+    from types import SimpleNamespace
+
+    beceriler = {ad: SimpleNamespace(model_invocable=True) for ad in ("bypass", "mode", "model")}
+    katalog = SimpleNamespace(get_skill=beceriler.get)
+    for gorev in ("/bypass", "/mode hizli", "/MODEL x"):
+        assert not loop_command.runs_as_command(gorev, katalog), gorev
+
+
+def test_satir_ici_repl_esc_ve_ctrl_c_bekleyen_kendi_tempolu_donguyu_durdurur(
+    state: ReplState, monkeypatch
+) -> None:
+    """Claude (#365): döngü beklerken Esc ya da Ctrl+C durdurur; satır içi REPL'de de."""
+    import time
+
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.config import keybindings
+
+    now = time.time()
+    loop_task = state.cron.create_self_paced("/loop kontrol", now=now)
+    state.cron.create_interval("rapor", "10m", now=now)
+    table = keybindings.load_keymap(Path("/yok/keybindings.json"))
+    assert table.bindings(keybindings.CONTEXT_INPUT)["escape"] == "dongu_durdur"
+
+    class _Reader:
+        mode = state.approval
+
+        async def prompt(self, default: str = "") -> str:
+            raise KeyboardInterrupt
+
+    assert asyncio.run(repl_loop._read_line(_Reader(), state)) == ""
+    assert [task.kind.value for task in state.cron.list()] == ["aralik"]
+    assert loop_task.id not in {task.id for task in state.cron.list()}
+    # Durduracak döngü kalmadıysa Ctrl+C eskisi gibi çıkar.
+    assert asyncio.run(repl_loop._read_line(_Reader(), state)) is None

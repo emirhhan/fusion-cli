@@ -251,6 +251,11 @@ def background_key_action(state: ReplState) -> BackgroundKey:
         return BackgroundKey.NONE
     if state.child_runs.request_background():
         return BackgroundKey.SUBAGENT
+    from ...core import foreground_handoff
+
+    if foreground_handoff.request_background():
+        # Süren kabuk komutu kesilmeden `.fusion/is` işine devredilir, tur sürer (#320).
+        return BackgroundKey.SUBAGENT
     return BackgroundKey.TURN
 
 

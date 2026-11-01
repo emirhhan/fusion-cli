@@ -70,5 +70,5 @@ def test_olmayan_pr_acik_git_hatasi(tmp_path):
     _git(origin, "commit", "-qm", "1")
     clone = tmp_path / "k"
     _git(tmp_path, "clone", "-q", str(origin), str(clone))
-    with pytest.raises(WorktreeError, match="fetch"):
+    with pytest.raises(WorktreeError, match=r"çekilemedi|fetch"):
         resolve_launch_root(clone, "#99")

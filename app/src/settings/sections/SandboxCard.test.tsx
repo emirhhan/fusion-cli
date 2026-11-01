@@ -112,6 +112,11 @@ describe("SandboxCard — kabuk sandbox'ı (P-010)", () => {
     expect(screen.getByText("~/.kube")).toBeTruthy();
   });
 
+  it("etkin ek Claude anahtarlarını listeler", async () => {
+    render(<SandboxCard client={client({ ek_ayarlar: ["TLS sonlandırma (tlsTerminate): oturum başına geçici CA"] })} />);
+    await waitFor(() => expect(screen.getByText(/TLS sonlandırma \(tlsTerminate\)/)).toBeTruthy());
+  });
+
   it("tarayıcı hata ayıklama portu korumasının kapsamını gösterir", async () => {
     render(<SandboxCard client={client({ cdp_korumasi: "korunmaz: Linux'ta ağ open iken" })} />);
     await waitFor(() => expect(screen.getByText(/Tarayıcı hata ayıklama portu: korunmaz/)).toBeTruthy());

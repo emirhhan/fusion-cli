@@ -27,6 +27,7 @@ from pathlib import Path
 from threading import Thread
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.background_events import BackgroundEvents
 from ..core.constants import (
     JOB_LOG_TAIL_CHARS,
     JOB_MAX_WAIT_S,
@@ -42,6 +43,8 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
 from .job_delivery import observe_delivery, save_completion, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
+from .job_lifetime import own as own_job
+from .job_notify import events_of, notify_job_done, started_hint
 from .job_owner import process_identity, save_owner, verified_owner
 from .remotion_shell_guard import check_shell_result
 
@@ -82,6 +85,8 @@ def start_job(
     outputs: tuple[ArtifactReceipt, ...] = (),
     argv_prefix: tuple[str, ...] = (),
     on_exit: Callable[[], str] | None = None,
+    limit_s: float | None = None,
+    notify: bool = True,
 ) -> ToolResult:
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner.
 
@@ -136,12 +141,23 @@ def start_job(
     Thread(
         target=_watch_job,
         args=(surec, klasor, context.root, kimlik, host_writes_receipt, on_exit),
+        kwargs={"events": events_of(context) if notify else None, "command": command},
         name=f"fusion-job-{kimlik}",
         daemon=True,
     ).start()
     try:
         save_owner(klasor, kimlik, surec.pid, token, context, lambda: surec.poll() is not None)
         atomic_replace_text(klasor / f"{kimlik}.pid", str(surec.pid))
+        # Oturum kapanınca durdurulur; 5 GB ve (gözetimsizse) süre sınırı (#335).
+        own_job(
+            kimlik,
+            surec.pid,
+            klasor,
+            log=gunluk,
+            command=command,
+            limit_s=limit_s,
+            group=getattr(context, "job_group", ""),
+        )
     except (OSError, ValueError, subprocess.SubprocessError):
         terminate_process_tree(surec.pid, force=True)
         try:
@@ -151,10 +167,10 @@ def start_job(
         ensure_process_group_exit(surec.pid)
         return ToolResult.failure("İş sahipliği kaydedilemedi; yeni süreç kapatıldı.")
     return ToolResult(
-        f"Arka plan işi başladı: {kimlik}\nKomut: {command}\nÇıktı: {gunluk}\n"
-        f"Durumu ve son çıktıyı görmek için job_status(id='{kimlik}', wait_s=...) çağır; "
-        "bitmesini beklemek için wait_s ver. Gerekirse job_status(id, stop=true) ile durdur.",
+        f"Arka plan işi başladı: {kimlik}\nKomut: {command}\nÇıktı dosyası: {gunluk}\n"
+        + started_hint(kimlik),
         job_completion=delivery,
+        structured={"task_id": kimlik, "output_file": str(gunluk)},
     )
 
 
@@ -178,6 +194,9 @@ def _watch_job(
     kimlik: str,
     host_writes_receipt: bool,
     on_exit: Callable[[], str] | None = None,
+    *,
+    events: BackgroundEvents | None = None,
+    command: str = "",
 ) -> None:
     """Sarmalayıcıyı bekle (zombi kalmasın); dondurulmuş uygulamada makbuzu burada yaz.
 
@@ -189,9 +208,11 @@ def _watch_job(
     surec.wait()
     if on_exit is not None:
         _finish_owned(on_exit, klasor / f"{kimlik}.log", kimlik)
+    code = _read_exit(klasor, kimlik)
+    # Claude gibi biten (ya da durdurulan) iş oturuma bildirilir (#334).
+    notify_job_done(events, kimlik, command, klasor / f"{kimlik}.log", code)
     if not host_writes_receipt:
         return
-    code = _read_exit(klasor, kimlik)
     if code is None:
         _LOG.warning("İş çıkış kodu okunamadı; makbuz yazılmadı", extra={"is": kimlik})
         return

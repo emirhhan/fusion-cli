@@ -74,10 +74,16 @@ class ReplInput:
         tamamlamada görünmüyordu.
         """
         self.mode = mode
+        #: Shift+Tab döngüsünde bypass yuvası (Claude "when available"; #370).
+        self.bypass_available = mode is ApprovalMode.BYPASS
         #: `@yol` tamamlamasının gezineceği kökler (proje kökü + `--add-dir`).
         self.roots = roots
         #: Vim düzenleme kipi (P-067); REPL `runtime.vim_mode`'dan eşler.
         self.vim_mode = False
+        #: Ctrl+T (#330): görev listesini aç/kapat; gösterilecek satırları döndürür.
+        self.task_toggle: Callable[[], list[str]] | None = None
+        #: Boş istemde Esc (#365): bekleyen kendi tempolu döngüleri durdurur; bildirim satırları.
+        self.loop_stopper: Callable[[], list[str]] | None = None
         #: `komut:<ad>` tuş bağı gönderilen komutu buraya bırakır; `prompt()` onu satır yapar.
         self._bound_command: str | None = None
         #: Tuş tablosu (P-067): dosya değişince `prompt()` yeniden yükler.
@@ -107,6 +113,9 @@ class ReplInput:
     auto_available: bool = True
 
     def cycle_mode(self) -> ApprovalMode:
+        if self.mode is ApprovalMode.BYPASS:
+            # Kullanıcı bypass'ı bu oturumda açıkça seçti: döngüde yeri olur (#370).
+            self.bypass_available = True
         self.mode = next_mode(
             self.mode, bypass_available=self.bypass_available, auto_available=self.auto_available
         )
@@ -320,16 +329,39 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         owner.toggle_fold()
         event.app.invalidate()
 
+    def _tasks(event: Any) -> None:
+        if owner.task_toggle is None:
+            return
+        from prompt_toolkit.application import run_in_terminal
+
+        lines = owner.task_toggle()
+        run_in_terminal(lambda: print("\n".join(f"  {line}" for line in lines)))
+
+    def _stop_loops(event: Any) -> None:
+        if owner.loop_stopper is None or event.current_buffer.text:
+            return
+        from prompt_toolkit.application import run_in_terminal
+
+        lines = owner.loop_stopper()
+        if lines:
+            run_in_terminal(lambda: print("\n".join(lines)))
+
     actions: dict[str, Callable[[Any], None]] = {
         "kip_dongusu": _cycle,
         "yapistirma_katla": _fold,
+        "gorev_listesi": _tasks,
+        "dongu_durdur": _stop_loops,
     }
+    from prompt_toolkit.filters import vi_insert_mode
+
     for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
         handler = _resolve_action(owner, action, actions)
         if handler is None:
             continue
+        # Vim kipinde Esc INSERT'ten NORMAL'e geçmeli; döngü durdurma onu ezmez.
+        condition = ~vi_insert_mode if action == "dongu_durdur" else True
         try:
-            bindings.add(key)(handler)
+            bindings.add(key, filter=condition)(handler)
         except ValueError:
             # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
             continue

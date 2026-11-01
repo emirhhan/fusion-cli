@@ -176,6 +176,9 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     )
     # Computer use bildirimi (#447) testte gerçek macOS bildirimi göstermesin.
     monkeypatch.setenv("FUSION_NO_OS_NOTIFY", "1")
+    # Geliştiricinin gerçek `~/.claude/settings.json` değerleri (defaultMode, worktree.baseRef,
+    # bashOutputMaxChars…) testlere sızmasın (Claude Code `CLAUDE_CONFIG_DIR`).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path.parent / f".{tmp_path.name}-claude"))
     # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
     # kanca testleri bu değişkeni kendileri kaldırır.
     monkeypatch.setenv("FUSION_HOOKS", "off")
@@ -292,3 +295,31 @@ def _eklenti_ayar_dosyalari_yalitilir(monkeypatch, tmp_path):
     monkeypatch.setattr(
         plugin_scopes, "managed_settings_file", lambda: ayar / "managed-settings.json"
     )
+
+
+@pytest.fixture(autouse=True)
+def izole_yonetilen_ayarlar(monkeypatch):
+    """Testler sistemdeki Claude managed-settings dizinini okumasın (#321)."""
+    from fusion_cli.config import claude_top_layers
+
+    monkeypatch.setattr(claude_top_layers, "MANAGED_DIRS", {})
+
+
+@pytest.fixture(autouse=True)
+def git_ortamini_temizle(monkeypatch):
+    """Test depoları (`git init` + `git config user.name "Fusion Test"`) gerçek depoya yazmasın.
+
+    Ölçüldü (1 Kasım): `GIT_DIR`/`GIT_WORK_TREE` ortamdan miras kalınca (git kancası, başka
+    çalışma ağacından başlatılan koşu) geçici dizindeki `git init` ve `git config` ana deponun
+    `.git/config`'ine `user.name = Fusion Test` ve `core.worktree` yazmıştı.
+    """
+    for degisken in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+    ):
+        monkeypatch.delenv(degisken, raising=False)

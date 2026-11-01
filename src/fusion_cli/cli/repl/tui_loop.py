@@ -23,6 +23,7 @@ from ...config import keybindings
 from ...config.models import Config
 from ...config.permission_warnings import skipped_rule_warnings
 from ...config.permissions import has_untrusted_permissions
+from ...core import foreground_handoff
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
@@ -66,6 +67,7 @@ from . import (
     session_resume,
     status_line,
     status_view,
+    task_view,
     verify_flow,
     view_commands,
 )
@@ -82,12 +84,41 @@ from .completion import ReplCompleter, agent_names
 from .loop import CRON_POLL_S, apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
+from .sandbox_panel import sandbox_panel
 from .state import Engine, Reminder, ReplState
+from .task_list import session_todos
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
+#: Çok adımlı seçici akışında sorulabilecek en çok modal (döngü güvencesi).
+_MAX_FLOW_STEPS = 24
+_PendingPick = tuple[Sequence[Choice], str, dict[str, str]]
+
+
+def _replay_picker(
+    answers: Sequence[str | None], pending: list[_PendingPick]
+) -> Callable[..., str | None]:
+    """Önceki cevapları sırayla veren, ilk cevapsız çağrıyı `pending`'e yazan seçici."""
+    calls = iter(answers)
+
+    def picker(
+        choices: Sequence[Choice],
+        *,
+        title: str = "",
+        hotkeys: dict[str, str] | None = None,
+        **_: object,
+    ) -> str | None:
+        try:
+            return next(calls)
+        except StopIteration:
+            if not pending:
+                pending.append((choices, title, dict(hotkeys or {})))
+            return None
+
+    return picker
+
 
 #: Argümansız çağrıldığında uygulama-İÇİ seçim modalıyla çözülen komutlar (nested picker YOK):
 #: seçenek üreticisi + başlık. Seçilen değer handler'a ARGÜMAN olarak verilir (handler
@@ -325,6 +356,11 @@ class _TuiSession:
             on_rewind=lambda: self._submit("/rewind"),
             # Ctrl+B: süren turu arka plan görevine taşı (P-048).
             on_background=self._background_turn,
+            # Ctrl+T: görev listesi (#330); açık bırakılırsa sürdürmede açık gelir.
+            on_toggle_tasks=lambda: task_view.toggle_visible(state),
+            on_stop_loops=self._stop_waiting_loops,
+            task_lines=lambda: task_view.task_lines(state),
+            tasks_visible=task_view.is_visible(state),
         )
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
@@ -372,9 +408,15 @@ class _TuiSession:
             now = time.time()
             due = self._state.cron.due(now)
             if not due:
+                # Biten arka plan işi / `monitor` satırı boştaki oturumu uyandırır (#336).
+                if self._state.background_events.claim_wake():
+                    self._state.scheduled_turn_only = True
+                    self._submit(messages.BACKGROUND_WAKE)
                 continue
             task = due[0]
-            self._state.scheduled_turn_only = task.source is Source.AGENT
+            self._state.scheduled_turn_only = task.source is Source.AGENT or not (
+                loop_command.runs_as_command(task.prompt, self._state.capabilities)
+            )
             self._state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
             self._state.cron.complete(task.id, now=now)
             self._echo(
@@ -383,19 +425,30 @@ class _TuiSession:
             cron_store.save(
                 self._state.config.memory_dir, self._state.conversation_id, self._state.cron
             )
-            self._submit(loop_command.fire_prompt(task))
+            self._submit(
+                loop_command.fire_prompt(task, root=self._state.root, home=self._state.home)
+            )
 
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
             self._task.cancel()
+            return
+        # Claude: kendi tempolu /loop sıradaki uyanmayı beklerken Esc döngüyü durdurur (#365).
+        for task_id in loop_command.stop_waiting_self_paced(self._state):
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_STOPPED.format(id=task_id))}[/{theme.DIM}]"
+            )
 
     def _background_turn(self) -> None:
-        """Ctrl+B: beklenen ön plan alt ajanı varsa onu arka plana al (Claude Code, #12);
-        yoksa turu kes, iptal yakalayıcısı aynı görevi arka planda sürdürür."""
+        """Ctrl+B: beklenen ön plan alt ajanı ya da süren kabuk komutu varsa onu kesmeden
+        arka plana al (Claude Code, #12, #320); yoksa turu kes, iptal yakalayıcısı aynı görevi
+        arka planda sürdürür."""
         if self._state.config.agent_launch.disable_background_tasks:
             return
         if self._busy and self._state.child_runs.request_background():
             return
+        if self._busy and foreground_handoff.request_background():
+            return  # süren kabuk komutu kesilmeden arka plana geçer, tur sürer (#320)
         if self._busy and self._task is not None and self._current_line:
             self._to_background = True
             self._task.cancel()
@@ -416,6 +469,17 @@ class _TuiSession:
             inject=_inject,
             is_busy=lambda: self._busy,
         )
+
+    def _stop_waiting_loops(self) -> bool:
+        """Ctrl+C (tur yokken): bekleyen kendi tempolu döngüleri durdur; durdurduysa True."""
+        if self._busy:
+            return False
+        stopped = loop_command.stop_waiting_self_paced(self._state)
+        for task_id in stopped:
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.LOOP_STOPPED.format(id=task_id))}[/{theme.DIM}]"
+            )
+        return bool(stopped)
 
     def _exit(self) -> None:
         self._state.running = False
@@ -693,6 +757,12 @@ class _TuiSession:
                 lambda picker: provider_flow.choose_provider(self._state.config, picker=picker)
             )
             return
+        elif command.name == "sandbox" and not argument.strip():
+            # Claude `/sandbox` paneli (#352): uygulama-içi modalla.
+            await self._apply_flow(
+                lambda picker: sandbox_panel(self._state.config, self._state.root, picker=picker)
+            )
+            return
         elif command.name == "verify":
             await self._apply_flow(
                 lambda picker: verify_flow.choose_verification(
@@ -779,6 +849,22 @@ class _TuiSession:
             publisher=goal_flow.SinkPublisher(sinks),
         )
 
+    async def _plan_choice(self) -> str | None:
+        """Plan kartı seçimi; Ctrl+G planı editörde açar ve kartı yeniden gösterir (#326)."""
+        from prompt_toolkit.application import run_in_terminal
+
+        for _ in range(20):
+            selected = await self._tui.await_choice(
+                messages.PLAN_CARD_TITLE,
+                list(plan_card.choices(self._state)),
+                hotkeys=plan_card.PLAN_HOTKEYS,
+            )
+            if selected != plan_card.CHOICE_EDIT_PLAN:
+                return selected
+            note = await run_in_terminal(lambda: plan_card.open_in_editor(self._state))
+            self._echo(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        return None
+
     async def _offer_plan_card(self) -> None:
         """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025).
 
@@ -788,12 +874,12 @@ class _TuiSession:
         if pending is None:
             return
         self._echo(f"[{theme.DIM}]{escape(messages.PLAN_SAVED.format(path=pending))}[/{theme.DIM}]")
-        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices()))
+        selected = await self._plan_choice()
         mode = plan_card.mode_for(selected)
         if mode is None:
             self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")
             return
-        task = plan_card.accept(self._state, mode)
+        task = plan_card.accept(self._state, mode, clear=plan_card.clears_context(selected))
         self._echo(
             f"[{theme.DIM}]{messages.REPL_MODE_CHANGED.format(mode=mode.value)}[/{theme.DIM}]"
         )
@@ -810,17 +896,18 @@ class _TuiSession:
         değer hazır bir seçici olarak verilir. Seçici hiç çağrılmazsa (zaten kurulu,
         bulunamadı…) ilk geçişin sonucu doğrudan kullanılır.
         """
-        captured: list[tuple[Sequence[Choice], str]] = []
-
-        def probe(choices: Sequence[Choice], *, title: str = "", **_: object) -> str | None:
-            captured.append((choices, title))
-            return None
-
-        result = flow(probe)
-        if captured:
-            choices, title = captured[0]
-            selected = await self._tui.await_choice(title, list(choices))
-            result = flow(lambda *_a, **_k: selected)
+        answers: list[str | None] = []
+        pending: list[_PendingPick] = []
+        result = flow(_replay_picker(answers, pending))
+        # Çok adımlı akış (ör. /sandbox sekmeleri, #352): her yeni seçici çağrısı modalda
+        # sorulur, akış o ana kadarki cevaplarla baştan yeniden sürülür.
+        for _ in range(_MAX_FLOW_STEPS):
+            if not pending:
+                break
+            choices, title, hotkeys = pending[0]
+            answers.append(await self._tui.await_choice(title, list(choices), hotkeys=hotkeys))
+            pending = []
+            result = flow(_replay_picker(answers, pending))
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
@@ -1015,12 +1102,14 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                     cron=self._state.cron,
+                    background_events=self._state.background_events,
                     browser=browser_command.turn_browser(self._state),
                     local_origins=browser_command.turn_origins(self._state),
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
                     chrome=chrome_cli.bridge_of(self._state.chrome),
+                    todos=session_todos(self._state),  # oturum boyu liste (#331)
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
@@ -1106,6 +1195,10 @@ class _TuiSession:
                 # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
                 print_rule_notices(self._tui.console, self._state.approval_memory)
                 # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır.
+                if self._state.apply_plan_mode_switch(
+                    getattr(tool_context, "plan_mode_switch", None)
+                ):
+                    self._echo(f"[{theme.DIM}]{messages.PLAN_MODE_ENTERED_BY_AGENT}[/{theme.DIM}]")
                 switched = await self._state.apply_worktree_switch(tool_context.worktree_switch)
                 if switched:
                     self._echo(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")

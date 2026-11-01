@@ -33,7 +33,7 @@ def dispatch_sandbox(
         return None, {"ok": False, "metin": "islem metin, deger metin ya da boolean olmalı."}
     raw = ("on" if value else "off") if isinstance(value, bool) else value
     try:
-        change = apply_sandbox_action(config, action, raw, root=root)
+        change = apply_sandbox_action(config, action, raw, root=root, local=True)
     except ConfigError as error:
         return None, {"ok": False, "metin": str(error)}
     return change.config, {

@@ -101,8 +101,10 @@ from . import (
     session_agent,
     session_resume,
     status_line,
+    task_list,
+    task_view,
     view_commands,
-    worktrees,
+    worktree_exit,
 )
 from .background_commands import interrupted_to_background, route_at_message
 from .commands import (
@@ -176,6 +178,8 @@ async def run_repl(
     launch_prompts: object = None,
     setup_trigger: str = "",
     chrome: bool | None = None,
+    permission_mode: str = "",
+    allow_bypass: bool = False,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
@@ -261,11 +265,11 @@ async def run_repl(
         await state.child_runs.close()
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
-        # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
-        if worktree is not None and state.worktree is not None:
-            console.print(
-                f"[{theme.DIM}]{escape(worktrees.leave_session_worktree(state))}[/{theme.DIM}]"
-            )
+        # Çalışma ağacındaki oturum (`--worktree`, `/worktree`, `enter_worktree`): temiz ağaç
+        # kaldırılır; iş varsa ya da adlı oturumsa sorulur; `path` ile girilene dokunulmaz (#340).
+        if state.worktree is not None:
+            closing = worktree_exit.finish_session_worktree(state, interactive=sys.stdin.isatty())
+            console.print(f"[{theme.DIM}]{escape(closing)}[/{theme.DIM}]")
 
 
 async def _run_surface(
@@ -348,6 +352,14 @@ async def _run_surface(
     state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
     # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
     # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
+    # Ctrl+T (#330): görev listesini aç/kapat; açıkken her turdan sonra en çok 5 madde basılır.
+    reader.task_toggle = lambda: (
+        task_view.task_lines(state)
+        if task_view.toggle_visible(state)
+        else [messages.TASK_LIST_HIDDEN]
+    )
+    # Boş istemde Esc / Ctrl+C bekleyen kendi tempolu döngüyü durdurur (#365).
+    reader.loop_stopper = lambda: _stopped_loop_lines(state)
     cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
     # Arka plan görevleri + oturumlar arası mesaj (P-048/P-060): bildirim ve gelen kutusu.
     link_watcher = agent_link.start_watch(
@@ -380,6 +392,9 @@ async def _run_surface(
                 await _handle_safely(line.strip(), state, registry, reader, console, background)
             finally:
                 handling.clear()
+            if task_view.is_visible(state):
+                for task_line in task_view.task_lines(state):
+                    console.print(f"[{theme.DIM}]  {escape(task_line)}[/{theme.DIM}]")
             cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
         cron_watcher.cancel()
@@ -410,11 +425,20 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
         now = time.time()
         due = state.cron.due(now)
         if not due:
+            # Biten arka plan işi / `monitor` satırı boştaki oturumu uyandırır (#334, #336).
+            if state.background_events.claim_wake():
+                state.scheduled_turn_only = True
+                if not reader.inject(messages.BACKGROUND_WAKE):
+                    # İstem açık değil: sıradaki yoklama yeniden dener.
+                    state.scheduled_turn_only = False
+                    state.background_events.release_wake()
             continue
         task = due[0]
-        state.scheduled_turn_only = task.source is Source.AGENT
+        state.scheduled_turn_only = task.source is Source.AGENT or not (
+            loop_command.runs_as_command(task.prompt, state.capabilities)
+        )
         state.scheduled_fire = True  # zamanlanmış `/beceri` fork'u beklenir (#141)
-        if not reader.inject(loop_command.fire_prompt(task)):
+        if not reader.inject(loop_command.fire_prompt(task, root=state.root, home=state.home)):
             state.scheduled_turn_only = state.scheduled_fire = False
             continue
         state.cron.complete(task.id, now=now)
@@ -470,8 +494,19 @@ async def _warm_up(state: ReplState) -> None:
         _logger.debug("ısıtma çağrısı başarısız", exc_info=True)
 
 
+def _stopped_loop_lines(state: ReplState) -> list[str]:
+    """Bekleyen kendi tempolu döngüleri durdur; kullanıcıya basılacak satırlar."""
+    return [
+        messages.LOOP_STOPPED.format(id=task_id)
+        for task_id in loop_command.stop_waiting_self_paced(state)
+    ]
+
+
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
-    """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
+    """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış).
+
+    Ctrl+C bekleyen kendi tempolu döngü varsa önce onu durdurur (Claude, #365); yoksa çıkış.
+    """
     typed = take_typed_line(state)
     if typed is not None:
         # Tur sürerken yazılıp Enter'lanan satır sıradaki mesajdır (Claude Code kuyruğu, #12).
@@ -479,7 +514,13 @@ async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     try:
         default = state.take_pending_input() + take_typed_partial(state)
         line = await reader.prompt(default=default)
-    except (EOFError, KeyboardInterrupt):
+    except KeyboardInterrupt:
+        stopped = _stopped_loop_lines(state)
+        if stopped:
+            print("\n".join(stopped))
+            return ""
+        return None
+    except EOFError:
         return None
     # shift-tab girişte modu değiştirmiş olabilir; durumu senkronla.
     state.approval = reader.mode
@@ -965,10 +1006,20 @@ async def _agent_turn(
             child_runs=state.child_runs,
             interactive=True,
             publisher=bus,
-            policy=build_policy(state.approval, confirm_prompter, state.approval_memory),
+            policy=build_policy(
+                state.approval,
+                confirm_prompter,
+                state.approval_memory,
+                use_auto_mode_during_plan=_plan_auto(state.config),
+                bypass_available=state.bypass_available,
+            ),
             approval_mode=lambda: state.approval,
             policy_for_mode=lambda wanted: build_policy(
-                wanted, confirm_prompter, state.approval_memory
+                wanted,
+                confirm_prompter,
+                state.approval_memory,
+                use_auto_mode_during_plan=_plan_auto(state.config),
+                bypass_available=state.bypass_available,
             ),
             tool_context=tool_context,
             asker=prompter,
@@ -1092,6 +1143,8 @@ async def _agent_turn(
     switched = await state.apply_worktree_switch(tool_context.worktree_switch)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+    if state.apply_plan_mode_switch(getattr(tool_context, "plan_mode_switch", None)):
+        console.print(f"[{theme.DIM}]{messages.PLAN_MODE_ENTERED_BY_AGENT}[/{theme.DIM}]")
 
 
 def _config_setter(state: ReplState) -> Callable[[Config], None]:
@@ -1120,6 +1173,8 @@ def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> To
             changes=changes if changes is not None else ChangeSet(),
             cron=state.cron,
             chrome=chrome_cli.bridge_of(state.chrome),
+            background_events=state.background_events,
+            todos=task_list.session_todos(state),  # oturum boyu liste (#331)
         ),
         state.config,
     )
@@ -1265,3 +1320,8 @@ def _register_elicitation(asker: object) -> None:
     except ImportError:  # `mcp` paketi kurulu değil
         return
     register_elicitation_asker(asker)  # type: ignore[arg-type]
+
+
+def _plan_auto(config: object) -> bool:
+    """Claude `useAutoModeDuringPlan` karşılığı; eski yapılandırmada alan yoksa açık."""
+    return bool(getattr(getattr(config, "runtime", None), "use_auto_mode_during_plan", True))

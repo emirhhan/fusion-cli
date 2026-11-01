@@ -1,29 +1,33 @@
 """Plan kipi dosyası: planın nereye yazıldığı ve ne zaman yazıldığı (P-025).
 
 Claude Code plan kipinde planı `~/.claude/plans/` altında Markdown tutar ve tur
-bitince "uygulansın mı?" kartı gösterir. Fusion'da plan kipindeki turun SON cevabı
-plandır (bkz. `prompts/plan_mode.md`); tur bitince `record_plan` onu
+bitince "uygulansın mı?" kartı gösterir. Fusion'da plan `exit_plan_mode`
+aracıyla sunulur (bkz. `prompts/plan_mode.md`); tur bitince `record_plan` onu
 `plans_dir()/<sohbet>.md` dosyasına yazar ve `PlanDrafted` yayınlar. Kabul kartı
 yüzeylerde yaşar: REPL `cli/repl/plan_card.py`, masaüstü `SessionApplication.tsx`.
 
 Ölçüldü (31 Ekim): plan kipinde tur bitince plan hiçbir yere yazılmıyordu; kullanıcı
 planı ancak sohbet geçmişinden geri kaydırarak bulabiliyordu.
 
-Claude Code'un açık `ExitPlanMode` adımı burada yok; bu yüzden plan kipindeki HER
-cevap plan sayılmaz: soru ("Hangi veritabanı?") ve kısa sohbet cevapları
-`looks_like_plan` ile ayrılır, önceki plan dosyasına dokunulmaz ve kart açılmaz.
-Yeni plan eskisinin üzerine yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır.
+Claude Code'daki gibi plan `exit_plan_mode` aracıyla açıkça sunulur (#317); araç
+çağrılmayan tur (soru, sohbet) plan dosyasına dokunmaz ve kart açılmaz. Yeni plan
+Claude'daki gibi eskisinin üzerine yazılır (#354). Eski Fusion davranışı (1 Kasım öncesi):
+eski plan `<sohbet>.onceki.md` olarak saklanıyordu ve `runtime.plan_files: false` dosyayı
+kapatıyordu; Claude'da ikisi de yok — ayar kullanımdan kalktı, okunur ve bir kez uyarılır.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ...config.paths import plans_dir
+from ...config.plans_location import legacy_directory, plans_directory
 from ...core.events import PlanDrafted
 from ...ui import messages
+from .approval import ApprovalMode, ApprovalPolicy
+from .plan_approval import PlanApproval
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .loop import AgentDeps, AgentOutcome
@@ -32,64 +36,50 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 #: Sohbet kimliği boşsa (tek atışlık `fusion agent`) kullanılan dosya adı.
 _DEFAULT_STEM = "oturum"
-#: Üzerine yazılan önceki planın saklandığı dosya eki.
-_PREVIOUS_SUFFIX = ".onceki.md"
-#: Markdown liste ögesi: `- a`, `* a`, `1. a`, `1) a`.
-_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
-#: Bir planı "plan" saymak için gereken en az liste ögesi (başlık yoksa).
-_MIN_LIST_ITEMS = 2
+_LOG = logging.getLogger(__name__)
+_PLAN_FILES_WARNED = False
 
 
-def plan_path(conversation_id: str) -> Path:
-    """Sohbetin plan dosyası. Kimlik dosya adına indirgenir, dizin daima `plans_dir()`."""
-    stem = _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
-    return plans_dir() / f"{stem}.md"
+def _stem(conversation_id: str) -> str:
+    return _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
 
 
-def previous_plan_path(conversation_id: str) -> Path:
-    """Üzerine yazılan önceki planın yedeği (`<sohbet>.onceki.md`)."""
-    path = plan_path(conversation_id)
-    return path.with_name(path.stem + _PREVIOUS_SUFFIX)
+def plan_path(conversation_id: str, root: Path | None = None) -> Path:
+    """Sohbetin plan dosyası: `plansDirectory` (varsayılan `~/.claude/plans`) altında (#354)."""
+    return plans_directory(root) / f"{_stem(conversation_id)}.md"
 
 
-def save_plan(conversation_id: str, markdown: str) -> Path:
-    """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır, eskisi `.onceki.md`ye alınır."""
-    path = plan_path(conversation_id)
+def save_plan(conversation_id: str, markdown: str, root: Path | None = None) -> Path:
+    """Planı dosyaya yaz; aynı sohbetin planı tek dosyadır ve üzerine yazılır (Claude)."""
+    path = plan_path(conversation_id, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        previous = path.read_text(encoding="utf-8")
-    except OSError:
-        previous = None
-    if previous is not None and previous != markdown:
-        previous_plan_path(conversation_id).write_text(previous, encoding="utf-8")
     path.write_text(markdown, encoding="utf-8")
     return path
 
 
-def looks_like_plan(markdown: str) -> bool:
-    """Cevap plan mı, yoksa soru/sohbet mi?
-
-    Plan: Markdown başlığı var (istem başlıkla başlamasını ister) YA DA en az iki liste
-    ögesi var ve hiçbir satır soruyla bitmiyor. Soruyla biten ya da düz tek paragraf
-    cevaplar plan değildir; önceki plan korunur, kart açılmaz.
-    """
-    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
-    if not lines:
-        return False
-    if any(line.startswith("#") for line in lines):
-        return True
-    if any(line.endswith("?") for line in lines):
-        return False
-    return sum(1 for line in lines if _LIST_ITEM.match(line)) >= _MIN_LIST_ITEMS
+def _warn_plan_files_once(deps: AgentDeps) -> None:
+    """`runtime.plan_files: false` Claude'da yok (#354): yok sayılır, süreçte bir kez uyarılır."""
+    global _PLAN_FILES_WARNED
+    if deps.config.runtime.plan_files or _PLAN_FILES_WARNED:
+        return
+    _PLAN_FILES_WARNED = True
+    _LOG.warning(
+        "runtime.plan_files kullanımdan kalktı ve yok sayılıyor: Claude Code planı her zaman "
+        "plansDirectory altına yazar."
+    )
 
 
-def read_plan(conversation_id: str) -> str | None:
-    """Sohbetin kayıtlı planı; yoksa None."""
-    path = plan_path(conversation_id)
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
+def read_plan(conversation_id: str, root: Path | None = None) -> str | None:
+    """Sohbetin kayıtlı planı; yoksa eski Fusion dizinine bakılır, orada da yoksa None."""
+    for path in (
+        plan_path(conversation_id, root),
+        legacy_directory() / f"{_stem(conversation_id)}.md",
+    ):
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+    return None
 
 
 def plan_title(markdown: str) -> str:
@@ -107,20 +97,35 @@ def plan_title(markdown: str) -> str:
 
 
 def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> Path | None:
-    """Plan kipindeki başarılı turun cevabını plan dosyasına yaz ve olayını yayınla.
+    """`exit_plan_mode` ile onaya sunulan planı plan dosyasına yaz ve olayını yayınla.
 
-    Plan kipi dışında, başarısız ya da boş turda ve `runtime.plan_files` kapalıyken
-    hiçbir şey yapılmaz; plana benzemeyen cevap (soru, kısa sohbet) da yazılmaz
-    (`looks_like_plan`). Yazma hatası turu düşürmez: plan sohbette zaten duruyor.
+    Claude Code'daki gibi plan YALNIZ araçla sunulur (#317): araç çağrılmadıysa (soru,
+    sohbet, yarım keşif) dosyaya dokunulmaz ve kart açılmaz. Başarısız turda da yazılmaz.
+    Yazma hatası turu düşürmez.
     """
-    text = outcome.final_text.strip()
-    if not plan_mode or not outcome.ok or not text or not deps.config.runtime.plan_files:
+    switch = getattr(deps.tool_context, "plan_mode_switch", None)
+    if switch is None:
         return None
-    if not looks_like_plan(text):
+    submitted = switch.take_plan()
+    if submitted is None or not submitted.strip():
         return None
+    if not (plan_mode or switch.entered) or not outcome.ok:
+        return None
+    _warn_plan_files_once(deps)
     try:
-        path = save_plan(deps.conversation_id, outcome.final_text)
+        path = save_plan(deps.conversation_id, submitted, deps.tool_context.root)
     except OSError:
         return None
-    deps.publisher.publish(PlanDrafted(path=str(path), title=plan_title(text)))
+    deps.publisher.publish(PlanDrafted(path=str(path), title=plan_title(submitted)))
     return path
+
+
+def entered_plan_policy(deps: AgentDeps) -> ApprovalPolicy | None:
+    """Tur içinde `enter_plan_mode` çağrıldıysa kalan çağrılar plan kipinin kurallarıyla (#324)."""
+    switch = getattr(deps.tool_context, "plan_mode_switch", None)
+    if switch is None or not switch.entered:
+        return None
+    builder = deps.policy_for_mode
+    if builder is not None:
+        return builder(ApprovalMode.PLAN)
+    return PlanApproval()

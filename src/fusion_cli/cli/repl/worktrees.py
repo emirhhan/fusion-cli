@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...config.worktree_settings import enter_configured_worktree
 from ...core.errors import WorktreeError
 from ...core.tools import ToolContext
 from ...core.worktree import (
@@ -17,7 +18,6 @@ from ...core.worktree import (
     Worktree,
     WorktreeHookCalls,
     WorktreeSwitch,
-    enter_worktree,
     leave_worktree,
     list_worktrees,
     worktree_for_path,
@@ -34,6 +34,16 @@ def _hook_calls(state: ReplState) -> WorktreeHookCalls | None:
 
 
 def worktree_command(state: ReplState, argument: str) -> str:
+    """`/worktree` kullanımdan kalkan Fusion komutu (#360); oturumda bir kez uyarır."""
+    result = _worktree_command(state, argument)
+    warned = getattr(state, "deprecation_warned", None)
+    if warned is None or "worktree" in warned:
+        return result
+    warned.add("worktree")
+    return f"{messages.WORKTREE_COMMAND_DEPRECATED}\n{result}"
+
+
+def _worktree_command(state: ReplState, argument: str) -> str:
     """`/worktree <ad>` girer, `/worktree cik` çıkar, `/worktree liste` listeler."""
     word, _, rest = argument.strip().partition(" ")
     action = word.casefold()
@@ -60,7 +70,7 @@ def enter_session_worktree(state: ReplState, name: str) -> str:
     if state.worktree is not None:
         return messages.WORKTREE_ALREADY_IN.format(name=state.worktree.name)
     try:
-        worktree = enter_worktree(state.root, name, hooks=_hook_calls(state))
+        worktree = enter_configured_worktree(state.root, name, hooks=_hook_calls(state))
     except WorktreeError as error:
         return str(error)
     _switch_root(state, worktree)
@@ -127,14 +137,7 @@ def resolve_launch_root(
     """
     if not name.strip():
         return cwd, worktree_for_path(cwd)
-    from ..worktree_pr import enter_pull_worktree, parse_pull_ref
-
-    pull = parse_pull_ref(name)
-    worktree = (
-        enter_pull_worktree(cwd, pull, hooks=hooks)
-        if pull is not None
-        else enter_worktree(cwd, name, hooks=hooks)
-    )
+    worktree = enter_configured_worktree(cwd, name, hooks=hooks)
     return worktree.path, worktree
 
 

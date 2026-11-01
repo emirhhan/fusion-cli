@@ -24,14 +24,21 @@ from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome, run_agent
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.ui import messages
 
-from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, make_config, model_result
+from .fakes import (
+    AlwaysApprove,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
 
 
 @pytest.fixture(autouse=True)
 def plans_in_tmp(tmp_path: Path, monkeypatch) -> Path:
     """Plan dosyaları kullanıcı dizinine değil tmp'ye yazılsın."""
     hedef = tmp_path / "planlar"
-    monkeypatch.setattr(plan_mode, "plans_dir", lambda: hedef)
+    monkeypatch.setattr(plan_mode, "plans_directory", lambda root=None: hedef)
     return hedef
 
 
@@ -89,14 +96,21 @@ def test_plan_basligi_ilk_baslik_yoksa_ilk_satirdir() -> None:
     assert plan_mode.plan_title("   ") == messages.PLAN_UNTITLED
 
 
-# --- record_plan ---------------------------------------------------------------- #
+# --- record_plan: plan yalnız exit_plan_mode ile sunulur (#317) ---------------- #
 
 
-def test_plan_kipinde_basarili_tur_plani_yazar_ve_olay_yayinlar(tmp_path: Path) -> None:
+def _sun(deps: AgentDeps, plan: str) -> None:
+    """Modelin `exit_plan_mode(plan)` çağrısının tura bıraktığı istek."""
+    deps.tool_context.plan_mode_switch.begin_turn(plan_mode=True)
+    deps.tool_context.plan_mode_switch.submit(plan)
+
+
+def test_plan_kipinde_sunulan_plan_yazilir_ve_olay_yayinlanir(tmp_path: Path) -> None:
     sink = RecordingSink()
     deps = _deps(tmp_path, sink)
+    _sun(deps, "# Plan\n1. a")
 
-    yol = plan_mode.record_plan(_outcome("# Plan\n1. a"), deps, plan_mode=True)
+    yol = plan_mode.record_plan(_outcome("Plan sunuldu."), deps, plan_mode=True)
 
     assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan\n1. a"
     olaylar = [e for e in sink.events if isinstance(e, PlanDrafted)]
@@ -105,129 +119,119 @@ def test_plan_kipinde_basarili_tur_plani_yazar_ve_olay_yayinlar(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    ("text", "ok", "plan_flag"),
-    [("# Plan", True, False), ("", True, True), ("# Plan", False, True)],
+    "text",
+    ["# Plan\n1. a\n2. b", "1. Oku\n2. Yaz\n3. Test et", "Hangi veritabanını tercih edersin?"],
 )
-def test_plan_kipi_disi_bos_ya_da_basarisiz_tur_plan_yazmaz(
-    tmp_path: Path, text: str, ok: bool, plan_flag: bool
-) -> None:
-    sink = RecordingSink()
-    assert (
-        plan_mode.record_plan(_outcome(text, ok=ok), _deps(tmp_path, sink), plan_mode=plan_flag)
-        is None
-    )
-    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
-
-
-@pytest.mark.parametrize(
-    ("text", "plan"),
-    [
-        ("# Plan\n1. a", True),
-        ("## Giriş ekranı\nRiskler: cache mi, db mi?\n1. a\n2. b", True),
-        ("1. Oku\n2. Yaz\n3. Test et", True),
-        ("Hangi veritabanını tercih edersin?", False),
-        ("İki seçenek var:\n1. Postgres\n2. SQLite\nHangisi?", False),
-        ("Tamam, devam edelim.", False),
-    ],
-)
-def test_plan_metni_soru_ve_sohbetten_ayrilir(text: str, plan: bool) -> None:
-    assert plan_mode.looks_like_plan(text) is plan
-
-
-def test_soru_cevabi_onceki_plani_silmez_ve_kart_acmaz(tmp_path: Path) -> None:
-    """İnceleme bulgusu (orta): plan kipindeki her cevap plan sayılıp dosyayı eziyordu.
-
-    Ölçüldü (31 Ekim): "Hangi veritabanını tercih edersin?" cevabı plans/<sohbet>.md'yi
-    gerçek planın üzerine yazıyor ve "uygulansın mı?" kartı açıyordu.
-    """
+def test_arac_cagrilmadan_cevap_plan_sayilmaz(tmp_path: Path, text: str) -> None:
+    """Claude: kart YALNIZ ExitPlanMode çağrısında açılır; başlıklı cevap bile plan değildir."""
     sink = RecordingSink()
     deps = _deps(tmp_path, sink)
-    plan_mode.record_plan(_outcome("# Plan\n1. a\n2. b"), deps, plan_mode=True)
+    deps.tool_context.plan_mode_switch.begin_turn(plan_mode=True)
 
-    yol = plan_mode.record_plan(
-        _outcome("Hangi veritabanını tercih edersin?"), deps, plan_mode=True
-    )
-
-    assert yol is None
-    assert plan_mode.read_plan(deps.conversation_id) == "# Plan\n1. a\n2. b"
-    assert len([e for e in sink.events if isinstance(e, PlanDrafted)]) == 1
+    assert plan_mode.record_plan(_outcome(text), deps, plan_mode=True) is None
+    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
+    assert plan_mode.read_plan(deps.conversation_id) is None
 
 
-def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
-    deps = _deps(tmp_path, RecordingSink())
-    plan_mode.record_plan(_outcome("# Plan v1\n1. a"), deps, plan_mode=True)
-    yol = plan_mode.record_plan(_outcome("# Plan v2\n1. b"), deps, plan_mode=True)
-
-    assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan v2\n1. b"
-    yedek = plan_mode.previous_plan_path(deps.conversation_id)
-    assert yedek.read_text(encoding="utf-8") == "# Plan v1\n1. a"
-
-
-def test_plan_dosyasi_ayarla_kapatilabilir(tmp_path: Path) -> None:
+def test_basarisiz_tur_sunulan_plani_yazmaz(tmp_path: Path) -> None:
     sink = RecordingSink()
-    deps = _deps(tmp_path, sink, runtime={"plan_files": False})
-    assert plan_mode.record_plan(_outcome("# Plan"), deps, plan_mode=True) is None
+    deps = _deps(tmp_path, sink)
+    _sun(deps, "# Plan")
+    assert plan_mode.record_plan(_outcome("x", ok=False), deps, plan_mode=True) is None
     assert not any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
-async def test_run_agent_plan_kipinde_plani_dosyaya_yazar(monkeypatch, tmp_path: Path) -> None:
-    from fusion_cli.engines.agent import loop as agent_loop
+def test_yeni_plan_eskisinin_uzerine_yazilir_yedek_yok(tmp_path: Path) -> None:
+    """Claude (#354): plan dosyası üzerine yazılır; `.onceki.md` yedeği yok."""
+    deps = _deps(tmp_path, RecordingSink())
+    _sun(deps, "# Plan v1\n1. a")
+    plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
+    _sun(deps, "# Plan v2\n1. b")
+    yol = plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
 
-    provider = ScriptedProvider([model_result("# Oturum planı\n1. Oku\n2. Yaz")])
-    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
+    assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan v2\n1. b"
+    assert sorted(item.name for item in yol.parent.iterdir()) == [yol.name]
+
+
+def test_plan_files_kapali_ayari_yok_sayilir(tmp_path: Path) -> None:
+    """`runtime.plan_files` Claude'da yok (#354): kullanımdan kalkan ayar, plan yine yazılır."""
     sink = RecordingSink()
-
-    await run_agent("planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True)
-
-    assert plan_mode.read_plan("s-9") == "# Oturum planı\n1. Oku\n2. Yaz"
+    deps = _deps(tmp_path, sink, runtime={"plan_files": False})
+    _sun(deps, "# Plan")
+    assert plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True) is not None
     assert any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
-async def test_run_agent_sonucu_plan_yolunu_tasir_dosya_kapaliyken_tasimaz(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """İnceleme bulgusu (orta): yüzeyler kartı yalnız plan GERÇEKTEN yazıldıysa açmalı.
+def _plan_sunan_saglayici(plan: str) -> ScriptedProvider:
+    return ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("exit_plan_mode", plan=plan)]),
+            model_result("Plan onayına sunuldu."),
+        ]
+    )
 
-    Ölçüldü (31 Ekim): REPL/TUI plan kipinde biten her başarılı turda pending_plan'ı
-    `plan_path()` ile kuruyordu; `runtime.plan_files=false` iken ya da yazma hatasında
-    kart yine çıkıyor, "Plan dosyası: <yol>" basılıyor ve kabulde model olmayan ya da
-    bayat bir dosyayı uygulamaya kalkıyordu.
-    """
+
+async def test_run_agent_exit_plan_mode_plani_dosyaya_yazar(monkeypatch, tmp_path: Path) -> None:
     from fusion_cli.engines.agent import loop as agent_loop
 
-    monkeypatch.setattr(
-        agent_loop,
-        "build_provider",
-        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
-    )
-    acik = await run_agent(
-        "planla", _deps(tmp_path, RecordingSink(), conversation_id="s-11"), plan_mode=True
-    )
-    assert acik.plan_path == plan_mode.plan_path("s-11") and acik.plan_path.exists()
-
-    monkeypatch.setattr(
-        agent_loop,
-        "build_provider",
-        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
-    )
-    kapali = await run_agent(
-        "planla",
-        _deps(tmp_path, RecordingSink(), conversation_id="s-12", runtime={"plan_files": False}),
-        plan_mode=True,
-    )
-    assert kapali.ok and kapali.final_text and kapali.plan_path is None
-
-
-async def test_run_agent_plan_kipi_kapaliyken_plan_yazmaz(monkeypatch, tmp_path: Path) -> None:
-    from fusion_cli.engines.agent import loop as agent_loop
-
-    provider = ScriptedProvider([model_result("cevap")])
+    provider = _plan_sunan_saglayici("# Oturum planı\n1. Oku\n2. Yaz")
     monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
     sink = RecordingSink()
 
-    await run_agent("yap", _deps(tmp_path, sink, conversation_id="s-10"), plan_mode=False)
+    sonuc = await run_agent("planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True)
 
-    assert plan_mode.read_plan("s-10") is None
+    assert plan_mode.read_plan("s-9") == "# Oturum planı\n1. Oku\n2. Yaz\n"
+    assert any(isinstance(e, PlanDrafted) for e in sink.events)
+    assert sonuc.plan_path == plan_mode.plan_path("s-9")
+
+
+async def test_run_agent_basliklı_cevap_araçsız_kart_acmaz(monkeypatch, tmp_path: Path) -> None:
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    provider = ScriptedProvider([model_result("# Soru\nHangi veritabanı?")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
+
+    sonuc = await run_agent(
+        "planla", _deps(tmp_path, RecordingSink(), conversation_id="s-13"), plan_mode=True
+    )
+
+    assert sonuc.plan_path is None and plan_mode.read_plan("s-13") is None
+
+
+async def test_exit_plan_mode_plan_kipi_disinda_hata_verir(tmp_path: Path) -> None:
+    from fusion_cli.tools.plan_tools import exit_plan_mode_tool
+
+    context = ToolContext(root=tmp_path)
+    sonuc = await exit_plan_mode_tool({"plan": "# P"}, context)
+    assert not sonuc.ok and context.plan_mode_switch.submitted_plan is None
+
+
+async def test_enter_plan_mode_kalan_cagrilarda_duzenlemeyi_engeller(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Claude EnterPlanMode (#324): model kendini plan kipine geçirir, sonra düzenleme yok."""
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("enter_plan_mode")]),
+            model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+            model_result("Plan kipindeyim."),
+        ]
+    )
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+        conversation_id="s-14",
+    )
+
+    await run_agent("önce planla sonra yap", deps)
+
+    assert not (tmp_path / "a.txt").exists()
+    assert deps.tool_context.plan_mode_switch.take_enter() is True
 
 
 # --- Kabul kartı (REPL) --------------------------------------------------------- #
@@ -244,34 +248,120 @@ def state(tmp_path: Path) -> ReplState:
     return durum
 
 
-def test_kabul_karti_secenekleri_masaustu_kartiyla_ayni_sirada() -> None:
-    etiketler = [choice.value for choice in plan_card.choices()]
+def test_kabul_karti_claude_uclusu(state: ReplState) -> None:
+    """Claude Code üçlüsü: 'Yes, and use auto mode' / 'Yes, manually approve edits' /
+    'No, keep planning' (#325)."""
+    etiketler = [choice.value for choice in plan_card.choices(state)]
     assert etiketler == [
         plan_card.CHOICE_AUTO,
-        plan_card.CHOICE_EDITS,
         plan_card.CHOICE_SECURITY,
         plan_card.CHOICE_KEEP_PLANNING,
     ]
     assert plan_card.mode_for(plan_card.CHOICE_AUTO) is ApprovalMode.AUTO
     assert plan_card.mode_for(plan_card.CHOICE_EDITS) is ApprovalMode.ACCEPT_EDITS
+    assert plan_card.mode_for(plan_card.CHOICE_BYPASS) is ApprovalMode.BYPASS
     assert plan_card.mode_for(plan_card.CHOICE_SECURITY) is ApprovalMode.SECURITY
     assert plan_card.mode_for(plan_card.CHOICE_KEEP_PLANNING) is None
     assert plan_card.mode_for(None) is None
 
 
-def test_kabul_kipi_degistirir_izinleri_sifirlar_ve_uygulama_gorevi_doner(state: ReplState) -> None:
+def test_otomatik_kip_yoksa_duzenlemeleri_kabul_secenegi(state: ReplState) -> None:
+    from dataclasses import replace
+
+    state.config = replace(
+        state.config, agent_launch=replace(state.config.agent_launch, disable_auto_mode=True)
+    )
+    ilk = plan_card.choices(state)[0]
+    assert ilk.value == plan_card.CHOICE_EDITS and ilk.label == messages.PLAN_CARD_EDITS
+
+
+def test_bypass_kullanilabilirse_bypass_secenegi(state: ReplState) -> None:
+    state.bypass_available = True
+    ilk = plan_card.choices(state)[0]
+    assert ilk.value == plan_card.CHOICE_BYPASS and ilk.label == messages.PLAN_CARD_BYPASS
+
+
+def test_kabul_kipi_degistirir_izinleri_sifirlamaz_ve_ad_verir(state: ReplState) -> None:
     sifirlandi: list[bool] = []
-    monkeypatch_revoke = state.approval_memory.revoke
-    state.approval_memory.revoke = lambda: (sifirlandi.append(True), monkeypatch_revoke())  # type: ignore[method-assign]
-    yol = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+    state.approval_memory.revoke = lambda: sifirlandi.append(True)  # type: ignore[method-assign]
+    yol = plan_mode.save_plan(state.conversation_id, "# Giriş sayfası yenileme\n1. a")
     state.pending_plan = yol
 
     gorev = plan_card.accept(state, ApprovalMode.ACCEPT_EDITS)
 
     assert state.approval is ApprovalMode.ACCEPT_EDITS
-    assert sifirlandi == [True]
+    assert sifirlandi == [], "Claude belgesinde onayda izin sıfırlama yok"
     assert state.pending_plan is None
     assert gorev == messages.PLAN_IMPLEMENT_TASK.format(path=yol)
+    assert state.conversation_name == "Giriş sayfası yenileme"
+
+
+def test_adli_oturumun_adi_degismez(state: ReplState) -> None:
+    state.conversation_name = "benim"
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Başka")
+    plan_card.accept(state, ApprovalMode.AUTO)
+    assert state.conversation_name == "benim"
+
+
+def _claude_settings(data: dict) -> None:
+    import json
+    import os
+
+    folder = Path(os.environ["CLAUDE_CONFIG_DIR"])
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_baglami_temizleme_secenegi_yalniz_ayar_acikken_basta(state: ReplState) -> None:
+    """Claude `showClearContextOnPlanAccept` (varsayılan false) başa "bağlamı temizle" ekler."""
+    assert all(not plan_card.clears_context(c.value) for c in plan_card.choices(state))
+    _claude_settings({"showClearContextOnPlanAccept": True})
+
+    secenekler = plan_card.choices(state)
+
+    assert secenekler[0].value == plan_card.CLEAR_PREFIX + plan_card.CHOICE_AUTO
+    assert secenekler[0].label == "Evet, bağlamı temizle ve otomatik kipi kullan"
+    assert [c.value for c in secenekler[1:]] == [
+        plan_card.CHOICE_AUTO,
+        plan_card.CHOICE_SECURITY,
+        plan_card.CHOICE_KEEP_PLANNING,
+    ]
+    assert plan_card.mode_for(secenekler[0].value) is ApprovalMode.AUTO
+
+
+def test_baglami_temizleyerek_kabul_gecmisi_siler(state: ReplState) -> None:
+    from fusion_cli.core.types import Message
+
+    state.history = [Message("user", "planla"), Message("assistant", "plan")]
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+
+    gorev = plan_card.accept(state, ApprovalMode.AUTO, clear=True)
+
+    assert state.history == [] and state.approval is ApprovalMode.AUTO
+    assert "Plan" in gorev or str(plan_mode.plan_path(state.conversation_id, state.root)) in gorev
+
+
+def test_masaustu_plan_karti_ayni_secenekler_ve_kabul(state: ReplState) -> None:
+    from dataclasses import replace
+
+    from fusion_cli.appserver.plan_routes import plan_accept, plan_card_payload
+
+    assert plan_card_payload(state)["bekliyor"] is False
+    state.config = replace(
+        state.config, agent_launch=replace(state.config.agent_launch, disable_auto_mode=True)
+    )
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+
+    kart = plan_card_payload(state)
+
+    assert kart["bekliyor"] is True
+    assert kart["secenekler"][0]["deger"] == plan_card.CHOICE_EDITS
+    assert kart["onerilen"] == messages.PLAN_CARD_EDITS
+    assert plan_accept(state, {"deger": plan_card.CHOICE_AUTO})["ok"] is False  # kartta yok
+    sonuc = plan_accept(state, {"deger": plan_card.CHOICE_EDITS})
+    assert sonuc["ok"] and sonuc["kip"] == ApprovalMode.ACCEPT_EDITS.value
+    assert sonuc["temizle"] is False and "gorev" in sonuc
+    assert state.approval is ApprovalMode.ACCEPT_EDITS and state.pending_plan is None
 
 
 def test_planlamaya_devam_kipi_degistirmez(state: ReplState) -> None:
@@ -371,6 +461,14 @@ def test_plan_aciklamasi_plan_kipinde_gorevi_baslatir(state: ReplState) -> None:
     assert state.pending_task == "giriş akışını yeniden tasarla"
 
 
+def test_plan_tek_sozcuk_aciklama_da_gorev_olur(state: ReplState) -> None:
+    """Eski "bilinmeyen alt komut → kullanım" davranışı Claude'da yok (#327)."""
+    command = build_registry().get("plan")
+    assert command is not None
+    command.handler(state, "sil")
+    assert state.pending_task == "sil" and state.approval is ApprovalMode.PLAN
+
+
 # --- TUI kabul kartı ---------------------------------------------------------- #
 
 
@@ -425,3 +523,75 @@ async def test_tui_kartta_vazgecilince_plan_kipinde_kalinir(tmp_path: Path) -> N
 
     assert durum.approval is ApprovalMode.PLAN
     assert messages.PLAN_KEEP_PLANNING in session.tui.transcript
+
+
+def test_plan_aciklama_plan_kipine_gecip_gorevi_baslatir(state: ReplState) -> None:
+    """Claude Code `/plan fix the auth bug`: plan kipine geçer ve görevle hemen başlar (#327)."""
+    state.approval = ApprovalMode.AUTO
+    cikti = plan_card.command(state, "giriş hatasını düzelt")
+    assert state.approval is ApprovalMode.PLAN
+    assert state.pending_task == "giriş hatasını düzelt"
+    assert ApprovalMode.PLAN.value in cikti
+
+
+def test_plan_argumansiz_yalniz_kipe_gecer(state: ReplState) -> None:
+    state.approval = ApprovalMode.AUTO
+    plan_card.command(state, "")
+    assert state.approval is ApprovalMode.PLAN and not state.pending_task
+
+
+async def test_kartta_ctrl_g_plani_editorde_acar_ve_karti_yeniden_gosterir(
+    state: ReplState, monkeypatch
+) -> None:
+    """Claude Code: onay kartı açıkken Ctrl+G planı varsayılan editörde açar (#326)."""
+    console = Console(record=True, width=400, force_terminal=False, no_color=True)
+    yol = plan_mode.save_plan(state.conversation_id, "# Plan")
+    state.pending_plan = yol
+    secimler = iter([plan_card.CHOICE_EDIT_PLAN, plan_card.CHOICE_AUTO])
+    gorulen: list[dict] = []
+
+    def _sec(*_a, hotkeys=None, **_k):
+        gorulen.append(dict(hotkeys or {}))
+        return next(secimler)
+
+    acilan: list[list[str]] = []
+    monkeypatch.setattr(plan_card, "pick", _sec)
+    monkeypatch.setattr(plan_card, "preferred_editor", lambda: "nano")
+    monkeypatch.setattr(plan_card, "_launch", acilan.append)
+
+    gorev = await plan_card.offer(state, console, interactive=True)
+
+    assert acilan == [["nano", str(yol)]]
+    assert gorulen == [{"c-g": plan_card.CHOICE_EDIT_PLAN}] * 2
+    assert gorev == messages.PLAN_IMPLEMENT_TASK.format(path=yol)
+    assert state.approval is ApprovalMode.AUTO
+
+
+def test_plan_dosyalari_claude_plans_altinda_ve_plansdirectory(tmp_path, monkeypatch) -> None:
+    """Claude Code: varsayılan ~/.claude/plans; `plansDirectory` proje köküne göre (#354)."""
+    import json
+
+    from fusion_cli.config import plans_location
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    assert plans_location.plans_directory(proje) == tmp_path / "claude" / "plans"
+    monkeypatch.setattr(
+        "fusion_cli.config.claude_settings.is_project_settings_trusted", lambda _r: True
+    )
+    (proje / ".claude").mkdir()
+    (proje / ".claude" / "settings.json").write_text(
+        json.dumps({"plansDirectory": "./planlar"}), encoding="utf-8"
+    )
+    assert plans_location.plans_directory(proje) == proje / "planlar"
+
+
+def test_eski_fusion_plan_dizini_okuma_yedegi(tmp_path, monkeypatch) -> None:
+    from fusion_cli.config.paths import plans_dir
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    eski = plans_dir() / "eski.md"
+    eski.parent.mkdir(parents=True, exist_ok=True)
+    eski.write_text("# Eski plan", encoding="utf-8")
+    assert plan_mode.read_plan("eski", tmp_path) == "# Eski plan"

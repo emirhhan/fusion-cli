@@ -3,7 +3,9 @@
 Claude Code `--worktree <ad>` ile `.claude/worktrees/<ad>` altında `worktree-<ad>` dalında
 çalışır; çıkışta temizse kaldırır, iş kaldıysa korur. Fusion'da karşılığı:
 
-- `fusion --worktree <ad>` / `fusion agent -w <ad>`: oturum `.fusion/worktrees/<ad>` kökünde.
+- `fusion --worktree <ad>` / `fusion agent -w <ad>`: oturum `.claude/worktrees/<ad>` kökünde
+  (Claude Code ile aynı yer, #337). Eski `.fusion/worktrees/<ad>` ağacı ilk erişimde
+  `git worktree move` ile taşınır; künyeler Fusion'a özgüdür, `.fusion/worktrees/.meta`ta kalır.
 - REPL `/worktree <ad>` · `/worktree cik` · `/worktree liste`.
 - Ajan araçları `enter_worktree` / `exit_worktree` (turdan sonra kök değişir).
 - Alt ajan `izolasyon: "worktree"`: üye kendi çalışma ağacında yazar, ana proje değişmez.
@@ -23,19 +25,27 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
+from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
+from .worktree_include import included_files
+from .worktree_layout import WorktreeLayout, add_worktree, link_directories
+from .worktree_pr import parse_pull_request
+from .worktree_reuse import refresh_to
 
 #: Depo kökü altındaki çalışma ağacı dizini (git'e `info/exclude` ile gizlenir).
-WORKTREE_DIR = Path(".fusion") / "worktrees"
+WORKTREE_DIR = Path(".claude") / "worktrees"
+#: Eski (Fusion'a özgü) çalışma ağacı dizini; künyeler hâlâ burada durur.
+LEGACY_WORKTREE_DIR = Path(".fusion") / "worktrees"
 #: Oluşturulan dalın öneki: `worktree-<ad>`.
 BRANCH_PREFIX = "worktree-"
 #: Çalışma ağacına kopyalanacak izlenmeyen dosyaların desen listesi (depo kökünde).
 INCLUDE_FILE = ".worktreeinclude"
-#: Çalışma ağacı künyelerinin durduğu alt dizin (`.fusion/worktrees/.meta/<ad>.json`).
+#: Çalışma ağacı künyelerinin durduğu alt dizin (`.fusion/worktrees/.meta/<ad>.json`;
+#: `LEGACY_WORKTREE_DIR` altında).
 META_DIR = ".meta"
 #: `git` komutu için üst süre (saniye); ağ gerektirmeyen yerel işlemler için bol.
 GIT_TIMEOUT_S = 60.0
@@ -60,6 +70,9 @@ class Worktree:
     #: `WorktreeCreate` kancasının oluşturduğu ağaç: git dalı/künyesi yok, kaldırmayı
     #: `WorktreeRemove` kancası yapar (Claude: kanca git davranışının yerine geçer).
     hooked: bool = False
+    #: Oturumun yaratmadığı, yolu ile girilen ağaç (`enter_worktree path`, #342): çıkışta
+    #: kaldırılmaz.
+    external: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +85,9 @@ class WorktreeHookCalls:
 
     create: Callable[[Path, str], Path | None]
     remove: Callable[[Path], bool]
+    #: Oturumun yaratmadığı, yolu ile girilen ağaç (`enter_worktree path`, #342): çıkışta
+    #: kaldırılmaz.
+    external: bool = False
 
 
 class LeaveOutcome(Enum):
@@ -148,16 +164,24 @@ def project_root_of(path: Path) -> Path:
     """
     for candidate in (path, *path.parents):
         parent = candidate.parent
-        if parent.name == WORKTREE_DIR.name and parent.parent.name == ".fusion":
+        if _is_worktrees_dir(parent):
             return parent.parent.parent
     return path
+
+
+def _is_worktrees_dir(path: Path) -> bool:
+    """`<kök>/.claude/worktrees` ya da eski `<kök>/.fusion/worktrees` mi?"""
+    return path.name == WORKTREE_DIR.name and path.parent.name in {
+        WORKTREE_DIR.parent.name,
+        LEGACY_WORKTREE_DIR.parent.name,
+    }
 
 
 def worktree_for_path(path: Path) -> Worktree | None:
     """`path` bir Fusion çalışma ağacının içindeyse künyesi; değilse `None`."""
     resolved = path.expanduser().resolve()
     for candidate in (resolved, *resolved.parents):
-        if candidate.parent.name == WORKTREE_DIR.name and candidate.parent.parent.name == ".fusion":
+        if _is_worktrees_dir(candidate.parent):
             origin = candidate.parent.parent.parent
             return find_worktree(origin, candidate.name)
     return None
@@ -170,7 +194,7 @@ def find_worktree(origin: Path, name: str) -> Worktree | None:
         payload = json.loads(meta.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    path = origin / WORKTREE_DIR / name
+    path = _migrated_path(origin, name)
     if not isinstance(payload, dict) or not path.is_dir():
         return None
     included = payload.get("included")
@@ -184,9 +208,28 @@ def find_worktree(origin: Path, name: str) -> Worktree | None:
     )
 
 
+def _migrated_path(origin: Path, name: str) -> Path:
+    """Ağacın yeri; eski `.fusion/worktrees/<ad>` varsa `.claude/worktrees/<ad>`'a taşınır.
+
+    Taşıma `git worktree move` ile yapılır (git'in kaydı da güncellenir). Taşınamazsa
+    (kilitli ağaç, izin) eski yol olduğu gibi kullanılır: kullanıcının ağacı bozulmaz.
+    """
+    path = origin / WORKTREE_DIR / name
+    legacy = origin / LEGACY_WORKTREE_DIR / name
+    if path.is_dir() or not legacy.is_dir():
+        return path
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_excluded(origin)
+        _git(origin, "worktree", "move", str(legacy), str(path))
+    except (OSError, WorktreeError):
+        return legacy
+    return path
+
+
 def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
     """Depodaki Fusion çalışma ağaçları, ada göre."""
-    meta_dir = origin / WORKTREE_DIR / META_DIR
+    meta_dir = origin / LEGACY_WORKTREE_DIR / META_DIR
     try:
         names = sorted(entry.stem for entry in meta_dir.iterdir() if entry.suffix == ".json")
     except FileNotFoundError:
@@ -196,7 +239,13 @@ def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
 
 
 def enter_worktree(
-    cwd: Path, name: str, *, base_ref: str = "HEAD", hooks: WorktreeHookCalls | None = None
+    cwd: Path,
+    name: str,
+    *,
+    base_ref: str = "HEAD",
+    base_mode: str = BASE_HEAD,
+    layout: WorktreeLayout | None = None,
+    hooks: WorktreeHookCalls | None = None,
 ) -> Worktree:
     """Adı verilen çalışma ağacını aç: varsa onu, yoksa `base_ref`'ten yenisini.
 
@@ -207,8 +256,13 @@ def enter_worktree(
 
     `WorktreeCreate` kancası tanımlıysa git hiç çağrılmaz: ağacı kanca kurar (git dışı
     sürüm denetimi de olabilir), Fusion yalnız verdiği yolu kullanır.
+
+    `base_mode` Claude Code `worktree.baseRef`'idir (#338): `"head"` yukarıdaki davranış,
+    `"fresh"` uzak varsayılan dal (`origin/HEAD`; yoksa yerel `HEAD`). Varsayılanı çağıran
+    ayardan verir (`config.worktree_settings`); burada geri uyum için `"head"`.
     """
-    name = validate_name(name)
+    pull_request = parse_pull_request(name)
+    name = validate_name(pull_request.worktree_name if pull_request else name)
     hooked = hooks.create(cwd, name) if hooks is not None else None
     if hooked is not None:
         return Worktree(name, hooked, "", project_root_of(cwd.resolve()), "", hooked=True)
@@ -220,13 +274,42 @@ def enter_worktree(
         )
     existing = find_worktree(origin, name)
     if existing is not None:
+        if pull_request is None and base_mode == BASE_FRESH:
+            _refresh_reused(existing, origin)
         return existing
+    if pull_request is not None:
+        # PR/MR başı `origin`'den çekilir (Claude Code, #341); taban FETCH_HEAD'dir.
+        remote = quiet_git(origin, ("remote", "get-url", "origin"), timeout_s=GIT_TIMEOUT_S) or ""
+        fetch_pull_request(origin, pull_request.refspecs(remote), pull_request.number)
+        cwd, base_ref = origin, "FETCH_HEAD"
+    elif base_mode == BASE_FRESH and (fresh := fresh_base(origin)) != "HEAD":
+        cwd, base_ref = origin, fresh  # yedek `HEAD` bulunulan checkout'ta çözülür
     base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
-    return create_worktree(origin, name, base_ref=base_commit)
+    return create_worktree(origin, name, base_ref=base_commit, layout=layout)
 
 
-def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
-    """`origin/.fusion/worktrees/<ad>` altında `worktree-<ad>` dalıyla yeni ağaç kur."""
+def _refresh_reused(worktree: Worktree, origin: Path) -> None:
+    """Temiz, kendi dalında ve kendi commit'i olmayan ağacı varsayılan dala getir (#373)."""
+    target = fresh_base(origin)
+    if target == "HEAD":
+        return
+    resolved = quiet_git(
+        origin, ("rev-parse", "--verify", f"{target}^{{commit}}"), timeout_s=GIT_TIMEOUT_S
+    )
+    if resolved and refresh_to(
+        worktree.path, worktree.branch, resolved.strip(), included=worktree.included
+    ):
+        _write_meta(replace(worktree, base_commit=resolved.strip()))
+
+
+def create_worktree(
+    origin: Path, name: str, *, base_ref: str = "HEAD", layout: WorktreeLayout | None = None
+) -> Worktree:
+    """`origin/.claude/worktrees/<ad>` altında `worktree-<ad>` dalıyla yeni ağaç kur.
+
+    `layout` Claude `worktree.sparsePaths` / `worktree.symlinkDirectories`'dir (#361).
+    """
+    layout = layout or WorktreeLayout()
     name = validate_name(name)
     origin = origin.expanduser().resolve()
     path = origin / WORKTREE_DIR / name
@@ -239,11 +322,16 @@ def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Workt
     base_commit = _git(origin, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
     path.parent.mkdir(parents=True, exist_ok=True)
     _ensure_excluded(origin)
-    if _branch_exists(origin, branch):
-        _git(origin, "worktree", "add", str(path), branch)
-    else:
-        _git(origin, "worktree", "add", "-b", branch, str(path), base_commit)
-    copied = copy_includes(origin, path)
+    add_worktree(
+        _git,
+        origin,
+        path,
+        branch,
+        base_commit,
+        new_branch=not _branch_exists(origin, branch),
+        layout=layout,
+    )
+    copied = (*copy_includes(origin, path), *link_directories(origin, path, layout.symlink_dirs))
     worktree = Worktree(
         name=name,
         path=path,
@@ -257,51 +345,33 @@ def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Workt
 
 
 def copy_includes(origin: Path, target: Path) -> tuple[Path, ...]:
-    """`.worktreeinclude` desenlerine uyan, hedefte OLMAYAN dosyaları kopyala (`.env` gibi).
+    """`.worktreeinclude`'a uyan VE gitignored olan, hedefte OLMAYAN dosyaları kopyala (#359).
 
-    Desenler depo köküne göre glob'dur; `.git` ve `.fusion` altı asla kopyalanmaz.
-    Kopyalanan yolları (hedefe göreli) döndürür.
+    Eşleme `.gitignore` söz dizimiyle git'e bırakılır (`core.worktree_include`); `.git`,
+    `.fusion` ve `.claude/worktrees` altı asla kopyalanmaz. Kopyalanan yolları (hedefe
+    göreli) döndürür.
 
-    Dosya depoyla gelir, yani güvenilmez. Ölçüldü (31 Ekim): `../x` deseni ve depo dışına
-    işaret eden symlink depo DIŞINDAN okunup ağaca (ya da ağacın dışına) yazılıyordu;
-    `restrict_to_root`'un koruduğu sırlar böylece ajanın köküne taşınırdı. Bu yüzden `..`
-    ve mutlak desen reddedilir, symlink'ler atlanır, kaynak da hedef de kendi kökünün içinde
-    kalmak zorundadır.
+    Dosya depoyla gelir, yani güvenilmez. Ölçüldü (31 Ekim): depo dışına işaret eden symlink
+    depo DIŞINDAN okunup ağaca yazılıyordu; `restrict_to_root`'un koruduğu sırlar böylece
+    ajanın köküne taşınırdı. Bu yüzden kaynak da hedef de kendi kökünün içinde kalmak
+    zorundadır (git zaten depo dışını listelemez).
     """
-    include = origin / INCLUDE_FILE
-    try:
-        patterns = [
-            line.strip()
-            for line in include.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-    except OSError:
-        return ()
     origin_real = origin.resolve()
     target_real = target.resolve()
     copied: list[Path] = []
-    for pattern in patterns:
-        if not _is_safe_include_pattern(pattern):
+    for relative in included_files(origin, INCLUDE_FILE):
+        source = origin / relative
+        if relative.parts[0] in {".git", ".fusion"} or relative.parts[:2] == WORKTREE_DIR.parts:
             continue
-        for source in sorted(origin.glob(pattern)):
-            relative = source.relative_to(origin)
-            if relative.parts[0] in {".git", ".fusion"}:
-                continue
-            if not _is_inside(source, origin_real) or not source.is_file():
-                continue
-            destination = target / relative
-            if not _is_inside(destination, target_real, must_exist=False) or destination.exists():
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            copied.append(relative)
+        if not _is_inside(source, origin_real) or not source.is_file():
+            continue
+        destination = target / relative
+        if not _is_inside(destination, target_real, must_exist=False) or destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        copied.append(relative)
     return tuple(copied)
-
-
-def _is_safe_include_pattern(pattern: str) -> bool:
-    """Desen depo kökünün içinde kalır mı? `..` parçası ve mutlak yol dışarı çıkabilir."""
-    parts = Path(pattern).parts
-    return bool(parts) and not Path(pattern).is_absolute() and ".." not in parts
 
 
 def _is_inside(path: Path, root_real: Path, *, must_exist: bool = True) -> bool:
@@ -365,6 +435,8 @@ def leave_worktree(worktree: Worktree, *, hooks: WorktreeHookCalls | None = None
         if removed:
             return LeaveResult(worktree, LeaveOutcome.REMOVED)
         return LeaveResult(worktree, LeaveOutcome.KEPT, "kanca")
+    if worktree.external:
+        return LeaveResult(worktree, LeaveOutcome.KEPT, "harici")
     if is_dirty(worktree):
         return LeaveResult(worktree, LeaveOutcome.KEPT, "degisiklik")
     if has_new_commits(worktree):
@@ -377,11 +449,17 @@ def leave_worktree(worktree: Worktree, *, hooks: WorktreeHookCalls | None = None
     return LeaveResult(worktree, LeaveOutcome.REMOVED)
 
 
-def remove_worktree(worktree: Worktree, *, force: bool = False) -> None:
-    """Ağacı ve (commit'siz kaldıysa) dalını kaldır; künyeyi sil."""
+def remove_worktree(
+    worktree: Worktree, *, force: bool = False, discard_commits: bool = False
+) -> None:
+    """Ağacı ve (commit'siz kaldıysa ya da `discard_commits`) dalını kaldır; künyeyi sil.
+
+    `discard_commits`: kullanıcı çıkışta "sil" dedi (Claude: ağaç ve dalı, commit'lenmemiş
+    değişiklik ve commit'lerle birlikte silinir, #340).
+    """
     args = ["worktree", "remove", *(["--force"] if force else []), str(worktree.path)]
     _git(worktree.origin, *args)
-    if not has_new_commits_on_branch(worktree):
+    if discard_commits or not has_new_commits_on_branch(worktree):
         _git(worktree.origin, "branch", "-D", worktree.branch)
     _meta_path(worktree.origin, worktree.name).unlink(missing_ok=True)
 
@@ -404,8 +482,12 @@ def _branch_exists(origin: Path, branch: str) -> bool:
     return True
 
 
+#: `info/exclude` satırları: Fusion durumu ve Claude Code çalışma ağaçları git'te görünmez.
+_EXCLUDED = (".fusion/", f"{WORKTREE_DIR.as_posix()}/")
+
+
 def _ensure_excluded(origin: Path) -> None:
-    """`.fusion/` git durumunda görünmesin: `info/exclude` dosyasına bir kez yazılır."""
+    """`.fusion/` ve `.claude/worktrees/` git durumunda görünmesin (`info/exclude`, bir kez)."""
     try:
         git_dir = Path(_git(origin, "rev-parse", "--git-common-dir").strip())
         if not git_dir.is_absolute():
@@ -413,16 +495,18 @@ def _ensure_excluded(origin: Path) -> None:
         exclude = git_dir / "info" / "exclude"
         exclude.parent.mkdir(parents=True, exist_ok=True)
         current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-        if ".fusion/" not in current.splitlines():
+        missing = [line for line in _EXCLUDED if line not in current.splitlines()]
+        if missing:
             with exclude.open("a", encoding="utf-8") as stream:
-                stream.write(("" if current.endswith("\n") or not current else "\n") + ".fusion/\n")
+                lead = "" if current.endswith("\n") or not current else "\n"
+                stream.write(lead + "".join(f"{line}\n" for line in missing))
     except (OSError, WorktreeError):
         # Dışlama bir kolaylıktır, ön koşul değil: yazılamazsa `.fusion/` git durumunda görünür.
         return
 
 
 def _meta_path(origin: Path, name: str) -> Path:
-    return origin / WORKTREE_DIR / META_DIR / f"{name}.json"
+    return origin / LEGACY_WORKTREE_DIR / META_DIR / f"{name}.json"
 
 
 def _write_meta(worktree: Worktree) -> None:
