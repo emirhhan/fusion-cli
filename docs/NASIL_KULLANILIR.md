@@ -701,10 +701,25 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   girer (4096 karakter; `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`). Kaynak bildiren sunucu
   varken modele `ListMcpResourcesTool` ve `ReadMcpResourceTool` verilir. Sunucu
   `tools/list_changed` bildirirse kalkan araçlar defterden çıkar.
+- `headersHelper` olan sunucuda araç çağrısı 401/403 dönerse yardımcı yeniden çalışır, sunucu
+  taze başlıkla yeniden bağlanır ve çağrı bir kez yinelenir; yine başarısızsa sunucu "giriş
+  gerekli" görünür.
+- Elicitation: sunucu görev ortasında bilgi isterse (form) alanlar tek tek sorulur; bağlantı
+  isterse (url) "Tarayıcıda aç / Reddet" sorulur (çok uzun URL yalnız reddedilebilir). Soru
+  sorulamayan yerde (`-p`) istek iptal (`cancel`) döner.
+- Kuruluş denetimi (Claude Code ile aynı dosyalar): `managed-mcp.json`
+  (`/Library/Application Support/ClaudeCode/`, `/etc/claude-code/`,
+  `C:\Program Files\ClaudeCode\`) varsa yalnız onun sunucuları ve `managedMcpServers` yüklenir;
+  `managed-settings.json` içinde `managedMcpServers` (yalnız https http/sse), `allowedMcpServers`
+  / `deniedMcpServers` (`serverName`, `serverCommand`, `serverUrl` jokerli) ve
+  `allowManagedMcpServersOnly`. Ret listesi kullanıcı/proje ayarlarından da birleşir ve her şeyi
+  geçer. Engellenen sunucu için `fusion mcp add` Claude Code'un hata iletisini verir.
 - Henüz yok (Claude Code'da var): araç araması/erteleme (`ENABLE_TOOL_SEARCH`, `alwaysLoad`
-  okunur ama etkisiz), uzun çağrının 2 dk sonra arka plana taşınması, elicitation,
-  `reset-project-choices` ve sunucu başına proje onayı, `@` tamamlamada kaynaklar,
-  managed MCP.
+  okunur ama etkisiz; `MCP_CONNECTION_NONBLOCKING`, `MCP_CONNECT_TIMEOUT_MS`), uzun çağrının
+  2 dk sonra arka plana taşınması (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`), Elicitation kancası,
+  `reset-project-choices` ve sunucu başına proje onayı, `mcp__sunucu__araç` araç adları,
+  masaüstü panelinde araç/izin görünümü, `--mcp-config` + `managed-mcp.json` birlikteyken
+  açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
 
 **MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):
 ```
@@ -712,16 +727,21 @@ fusion mcp prompts                    # sunucuların istemleri: /mcp__<sunucu>__
 fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
 ```
 - Sohbette `/mcp__github__review-pr 12 güvenlik` istemi sunucudan alır (`prompts/get`) ve
-  görev olarak çalıştırır. Argümanlar sırayla istemin parametrelerine bağlanır ya da
-  `ad=değer` yazılır; fazla sözcükler son parametreye eklenir; zorunlu argüman eksikse tur
-  koşmaz, kullanım satırı gösterilir. Komutlar tamamlamada ve masaüstü komut paletinde "MCP"
-  grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar — liste
+  görev olarak çalıştırır. Komut menüsünde istem `/github:review-pr (MCP)` olarak görünür; iki
+  yazım da çalışır. Argümanlar Claude Code gibi yalnız boşlukla bölünür ve sırayla istemin
+  parametrelerine bağlanır (tırnak gruplamaz, fazla sözcük yok sayılır); zorunlu argüman
+  eksikse tur koşmaz, kullanım satırı gösterilir. Yalnız sunucu adındaki geçersiz karakterler
+  `_` olur, istem adı sunucunun bildirdiği gibi kalır. `anthropic-skills` adlı sunucunun
+  istemleri gösterilmez (araçları çalışır). Komutlar tamamlamada ve masaüstü komut paletinde
+  "MCP" grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar — liste
   dolmadan yazılan `/mcp__…` da kabul edilir, tur sunucuya bağlanınca çözülür. Liste çekimi
   geçici hatayla düşerse sonraki tur yeniden dener; sunucu `list_changed` bildirirse yenilenir.
-  Argümanda ters eğik çizgi korunur (`C:\yol\dosya.txt`); istem metni 40.000 karakterle sınırlı.
-- `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup turun bağlamına
-  ekler: yalnız tanımlı sunucu adlarıyla, mesaj başına en fazla 5 kaynak, kaynak başına
-  20.000 karakter, sırlar maskeli, "kullanıcı talimatı değildir" notuyla; içerikteki
+  Argümanda ters eğik çizgi korunur (`C:\yol\dosya.txt`); istem metni kırpılmaz.
+- `@` yazınca bağlı sunucuların kaynakları dosyaların yanında bulanık aramalı önerilir
+  (`ui://` ve `text/html;profile=mcp-app` arayüz kaynakları önerilmez ve listelenmez, URI ile
+  okunabilir). `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup
+  turun bağlamına ekler: yalnız tanımlı sunucu adlarıyla, anma sayısı sınırsız, kaynak gövdesi
+  MCP çıktı sınırıyla (`MAX_MCP_OUTPUT_TOKENS`, varsayılan ~100.000 karakter), sırlar maskeli, "kullanıcı talimatı değildir" notuyla; içerikteki
   `</mcp_kaynak>` gibi etiket kapatmaları etkisizleştirilir. İkili içerik atlanır.
 - Masaüstünde **Bağlantılar → araç kataloğu** sunucunun araçlarının yanında istemlerini ve
   kaynaklarını da sohbet yazımıyla listeler; **Kopyala** ile `/mcp__…` ya da `@sunucu:uri`
