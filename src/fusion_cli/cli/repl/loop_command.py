@@ -12,8 +12,10 @@ Görev `ReplState.cron`'a yazılır; vadesi gelince REPL boştayken yeni tur ola
 gönderilir (`loop._cron_watcher`, `tui_loop._TuiSession._cron_watcher`). Slash
 komutu da görev olabilir (`/loop 30m /verify`): satır komut olarak işlenir — yalnız
 KULLANICININ kurduğu görevde; ajanın `cron_create` ile kurduğu görev her zaman tur
-olur. Onay kipini/modeli/oturumu değiştiren komutlar (`/bypass`, `/auto`, `/mode`…)
-zamanlanamaz: `BLOCKED_COMMANDS`.
+olur. Claude gibi (#371) vadesi gelen slash görevi yalnız modelin çağırabildiği bir
+beceriyse komut olarak çalışır; yerleşik komutlar (`/bypass`, `/model`, `/clear`…),
+`disable-model-invocation` becerileri ve MCP istemleri düz metin tur olur
+(`runs_as_command`). `BLOCKED_COMMANDS` artık kurulurken reddedilmez (geri uyum için durur).
 """
 
 from __future__ import annotations
@@ -134,9 +136,6 @@ def command(state: ReplState, argument: str) -> str:
     except SessionCronError as error:
         return f"{error} {messages.LOOP_USAGE}"
     prompt = parsed.prompt or LOOP_MD_PROMPT
-    blocked = blocked_command(prompt)
-    if blocked is not None:
-        return messages.LOOP_COMMAND_BLOCKED.format(name=blocked)
     # Claude: aralık verilmezse (görev beceri olsa da) tempoyu ajan seçer (#344).
     every = f"{parsed.minutes}m" if parsed.minutes is not None else None
     try:
@@ -170,6 +169,26 @@ def fire_prompt(task: CronTask, *, root: Path | None = None, home: Path | None =
     if task.kind is not Kind.SELF_PACED:
         return prompt
     return messages.LOOP_SELF_PACED_TASK.format(prompt=prompt, id=task.id)
+
+
+def runs_as_command(prompt: str, capabilities: object | None) -> bool:
+    """Vadesi gelen slash görevi komut olarak mı çalışır? (Claude, scheduled-tasks; #371)
+
+    Yalnız modelin kendiliğinden çağırabildiği beceri çalışır. Yerleşik komutlar (`/model`,
+    `/clear`, `/bypass`…), `disable-model-invocation` becerileri (`/verify` dahil) ve MCP
+    istemleri ajana düz metin tur olarak gider; böylece zamanlayıcı onay kipini, modeli ya da
+    oturumu değiştiremez.
+    """
+    from .commands import parse
+
+    if not _is_slash(prompt):
+        return False
+    get_skill = getattr(capabilities, "get_skill", None)
+    if get_skill is None:
+        return False
+    name, _argument = parse(prompt)
+    skill = get_skill(name)
+    return skill is not None and bool(getattr(skill, "model_invocable", False))
 
 
 def _is_slash(prompt: str) -> bool:

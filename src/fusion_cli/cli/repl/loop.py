@@ -354,7 +354,9 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
         if not due:
             continue
         task = due[0]
-        state.scheduled_turn_only = task.source is Source.AGENT
+        state.scheduled_turn_only = task.source is Source.AGENT or not (
+            loop_command.runs_as_command(task.prompt, state.capabilities)
+        )
         if not reader.inject(loop_command.fire_prompt(task, root=state.root, home=state.home)):
             state.scheduled_turn_only = False
             continue

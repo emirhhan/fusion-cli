@@ -30,8 +30,8 @@ export type CronSendResult = SubmissionResult | Promise<SubmissionResult>;
  * Çekirdek vadesi gelen görevi yalnız tur sürmüyorken verir ve aynı görevi iki kez vermez
  * (`cron.vadesi_gelenler`); arayüz onu normal gönderim yolundan tur olarak başlatır. Böylece
  * zamanlanmış tur da sohbette kullanıcı mesajı gibi görünür ve aynı onay akışından geçer.
- * Kaynak `send`'e iletilir: kullanıcının `/loop 30m /verify` görevi komut olarak, ajanın
- * kurduğu satır her zaman düz tur olarak gider. Gönderim reddedilirse görev `cron.geri_ver`
+ * Kaynak `send`'e iletilir: kullanıcının kurduğu ve modelin çağırabildiği beceri komut olarak,
+ * ajanın kurduğu satır ve `duz_metin` işaretli satır (`/verify`, `/model`…) düz tur olarak gider. Gönderim reddedilirse görev `cron.geri_ver`
  * ile çekirdeğe geri verilir; ölçüldü (31 Ekim): dönüş değeri denetlenmiyor, vade boşa gidiyordu.
  */
 export function useSessionCron({
@@ -62,12 +62,20 @@ export function useSessionCron({
         const result = await client.request("cron.vadesi_gelenler", {});
         const gorevler = Array.isArray(result.gorevler) ? (result.gorevler as unknown[]) : [];
         for (const item of gorevler) {
-          const task = item as { id?: unknown; gorev?: unknown; kaynak?: unknown };
+          const task = item as {
+            id?: unknown;
+            gorev?: unknown;
+            kaynak?: unknown;
+            duz_metin?: unknown;
+          };
           if (typeof task.gorev !== "string" || !task.gorev.trim()) continue;
           const taskId = typeof task.id === "string" ? task.id : "";
           onFired?.({ id: taskId, gorev: task.gorev });
           // Eski çekirdek kaynak göndermez: o görevler yalnız `/loop` ile kurulabiliyordu.
-          const source: CronSource = task.kaynak === "ajan" ? "ajan" : "kullanici";
+          // Claude (#371): yalnız modelin çağırabildiği beceri komut olur; çekirdek gerisini
+          // `duz_metin` ile işaretler ve satır ajanın satırı gibi düz tur gider.
+          const plainText = task.duz_metin === true;
+          const source: CronSource = task.kaynak === "ajan" || plainText ? "ajan" : "kullanici";
           let accepted = false;
           try {
             accepted = submissionAccepted(await send(id, task.gorev, source));

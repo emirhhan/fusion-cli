@@ -1287,7 +1287,12 @@ Görevler **oturumla yaşar**: en çok 50 görev, en az 1 dakika aralık, 7 gün
 Vadesi gelen görev Fusion boştayken (tur yokken, soru beklemiyorken) **yeni tur** olarak
 gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden geçer.
 
-- `/loop 5m testleri koştur` · `/loop 30m /verify` (slash komutu da görev olabilir)
+- `/loop 5m testleri koştur` · `/loop 30m /inceleme` (slash görevi de olabilir)
+- Claude Code gibi vadesi gelen slash görevi yalnız **modelin kendiliğinden çağırabildiği bir
+  beceriyse** komut olarak çalışır. Yerleşik komutlar (`/model`, `/clear`, `/bypass`…),
+  `disable-model-invocation` becerileri (`/verify` dahil) ve MCP istemleri ajana düz metin
+  olarak gider; kurulurken reddedilmezler, ama zamanlayıcı onay kipini, modeli ya da oturumu
+  değiştiremez.
 - Aralık baştaki belirteçle (`/loop 30m …`) ya da sondaki ifadeyle (`/loop … every 2 hours`,
   `her 2 saatte`) verilir. Saniye üst dakikaya yuvarlanır; temiz bir cron adımına denk gelmeyen
   aralık (7m, 90m) en yakın adıma yuvarlanır ve bildirilir.
@@ -1319,8 +1324,8 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği
   üretir (P-014 `--resume` gelince aynı dosya devralınır).
 - Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
-  `cron.sil` de var). Kullanıcının kurduğu `/loop 30m /verify` masaüstünde de komut olarak
-  çalışır; ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
+  `cron.sil` de var). Kullanıcının kurduğu, modelin çağırabildiği beceri görevi masaüstünde de
+  komut olarak çalışır (çekirdek diğerlerini `duz_metin` ile işaretler); ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
   tur olur, slash komutu olarak çalışmaz. Gönderilemeyen görev `cron.geri_ver` ile geri
   verilir, vade boşa gitmez. İstemde yarım yazılmış satır varken vade beklenir, yazılan silinmez.
   Sohbet kimliği gelmeden kurulan görevler kimlik gelince o sohbete taşınır; 7 günden eski
@@ -1348,7 +1353,8 @@ sekmenin kökünü taşır (tur sürerken reddedilir).
   İzin dosyası güvenilmiyorsa uyarı çıkar (`fusion trust`).
 - İzin kuralı: `"deny": ["Cd(//etc/**)"]` o dizinlere geçişi engeller (glob kuralı `Edit` ile aynı).
 - Model sonraki turda "çalışma dizini değişti" notunu görür. Proje `config.yaml` ve `.mcp.json`
-  açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile `/cd` zamanlanamaz.
+  açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile kurulan `/cd`
+  görevi komut olarak çalışmaz, ajana düz metin gider.
 
 ## Turlar arası hedef: `/goal`
 

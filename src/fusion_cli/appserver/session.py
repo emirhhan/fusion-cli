@@ -37,7 +37,7 @@ from typing import Any
 from ..cli.repl import cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
-from ..cli.repl.loop_command import fire_prompt
+from ..cli.repl.loop_command import fire_prompt, runs_as_command
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.skill_commands import model_override_allowed
@@ -2241,7 +2241,11 @@ class AppSession:
             self._cron_given = {task.id: task}
             self._state.cron.complete(task.id, now=now)
             gorev = fire_prompt(task, root=self._state.root, home=self._state.home)
-            verilen.append({"id": task.id, "gorev": gorev, "kaynak": task.source.value})
+            # Claude (#371): yalnız modelin çağırabildiği beceri komut olur; gerisi düz metin.
+            duz_metin = not runs_as_command(task.prompt, self._state.capabilities)
+            verilen.append(
+                {"id": task.id, "gorev": gorev, "kaynak": task.source.value, "duz_metin": duz_metin}
+            )
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 

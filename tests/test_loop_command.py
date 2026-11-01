@@ -379,7 +379,9 @@ async def test_masaustu_cron_rpc_listeler_siler_ve_vadesi_gelenleri_bir_kez_veri
 
     monkeypatch.setattr("fusion_cli.appserver.session.time.time", lambda: baslangic + 301)
     vade = await rpc("2", "cron.vadesi_gelenler")
-    assert vade["gorevler"] == [{"id": task.id, "gorev": "stok kontrol", "kaynak": "kullanici"}]
+    assert vade["gorevler"] == [
+        {"id": task.id, "gorev": "stok kontrol", "kaynak": "kullanici", "duz_metin": True}
+    ]
     assert (await rpc("3", "cron.vadesi_gelenler"))["gorevler"] == []
 
     sil = await rpc("4", "cron.sil", {"id": task.id})
@@ -390,22 +392,27 @@ async def test_masaustu_cron_rpc_listeler_siler_ve_vadesi_gelenleri_bir_kez_veri
 # --- Ajan görevi komut değil turdur (inceleme bulgusu, yüksek) --------------------- #
 
 
-def test_loop_onay_kipini_degistiren_komutu_zamanlamaz(state: ReplState) -> None:
-    for satir in ("5m /bypass", "/auto", "10m /mode hizli", "/loop 5m x"):
-        cikti = _loop(state, satir)
-        assert "zamanlanmış görev olamaz" in cikti, satir
-    assert len(state.cron) == 0
-    # `/verify` gibi zararsız komutlar zamanlanabilir.
-    assert "döngü kuruldu" in _loop(state, "5m /verify")
+def test_yerlesik_komut_kurulur_ama_duz_metin_tur_olur(state: ReplState) -> None:
+    """Claude (scheduled-tasks, #371): `/model`, `/clear` gibi yerleşik komutlar ve
+    disable-model-invocation becerileri reddedilmez; vadesi gelince düz metin olarak gider."""
+    for satir in ("5m /bypass", "10m /mode hizli", "5m /dikte", "5m /verify"):
+        assert "döngü kuruldu" in _loop(state, satir), satir
+    for gorev in ("/bypass", "/mode hizli", "/dikte", "/verify", "düz görev"):
+        assert not loop_command.runs_as_command(gorev, state.capabilities), gorev
 
 
-def test_loop_yasakli_komutun_takma_adini_da_zamanlamaz(state: ReplState) -> None:
-    """Ölçüldü (31 Ekim): yasak ham ada bakıyordu; `/loop 5m /dikte` (voice takma adı)
-    kuruluyor, mikrofon zamanlayıcıdan açılabiliyordu (`/q`, `/dev`, `/manuel` de geçiyordu)."""
-    for satir in ("5m /dikte", "/q", "5m /dev", "5m /manuel", "5m /rc", "5m /remote-control"):
-        cikti = _loop(state, satir)
-        assert "zamanlanmış görev olamaz" in cikti, satir
-    assert len(state.cron) == 0
+def test_yalniz_modelin_cagirabildigi_beceri_komut_olarak_calisir() -> None:
+    from types import SimpleNamespace
+
+    beceriler = {
+        "inceleme": SimpleNamespace(model_invocable=True),
+        "dogrula": SimpleNamespace(model_invocable=False),
+    }
+    katalog = SimpleNamespace(get_skill=beceriler.get)
+    assert loop_command.runs_as_command("/inceleme src", katalog)
+    assert not loop_command.runs_as_command("/dogrula", katalog)
+    assert not loop_command.runs_as_command("/model", katalog)
+    assert not loop_command.runs_as_command("/inceleme", None)
 
 
 async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) -> None:
@@ -454,9 +461,14 @@ async def test_ajan_gorevi_vadesi_gelince_yalniz_tur_isareti_koyar(
     await asyncio.wait_for(watcher, 1)
     assert reader.injected == ["/bypass"] and reader.isaretler == [True]
 
-    # Kullanıcı görevi işaret koymaz.
+    # Kullanıcının kurduğu, modelin çağırabildiği beceri işaret koymaz (komut olarak çalışır).
+    from types import SimpleNamespace
+
     state.running = True
-    state.cron.create_once("/verify", "1m", now=0.0)
+    state.capabilities = SimpleNamespace(  # type: ignore[assignment]
+        get_skill={"inceleme": SimpleNamespace(model_invocable=True)}.get
+    )
+    state.cron.create_once("/inceleme", "1m", now=0.0)
     reader2 = _Reader()
     watcher = asyncio.ensure_future(
         repl_loop._cron_watcher(state, reader2, Console(record=True, force_terminal=False))
