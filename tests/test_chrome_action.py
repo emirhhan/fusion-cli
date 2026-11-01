@@ -196,7 +196,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     kopru = _EkranKopru("Kampanyalar")
     baglam = SimpleNamespace(chrome=kopru)
     goruntu = await chrome.chrome_action({"action": "screenshot"}, baglam)
-    assert "click_at" in goruntu.output
+    assert "left_click coordinate" in goruntu.output
 
     # Görüntü 2880 px, sayfa 1440 CSS px: (400, 300) → (200, 150).
     assert (

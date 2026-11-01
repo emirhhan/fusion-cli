@@ -51,7 +51,7 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         return ToolResult.failure(
             f"{UNKNOWN_OUTCOME_PREFIX} '{name}' komutu tarayıcıya gönderildi ama sonucu "
             "gelmedi; sayfada etkisi olmuş olabilir. Aynı işlemi tekrar etmeden önce "
-            "chrome_page ile sayfayı yeniden oku ve işlemin olup olmadığını kontrol et."
+            "read_page ile sayfayı yeniden oku ve işlemin olup olmadığını kontrol et."
         )
     except ConnectionError as exc:
         return ToolResult.failure(str(exc))
@@ -88,7 +88,7 @@ async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
 #: YAPILMAZ: "sepete ekle", "gönder" gibi işlemler iki kez çalışabilir.
 NO_CHANGE_NOTE = (
     "NOT: Tıklamadan sonra sayfada görünür bir değişiklik olmadı (adres, metin, açılır "
-    "pencere, seçim aynı). Öğe doğru mu? chrome_page ile yeniden oku; gerekirse farklı "
+    "pencere, seçim aynı). Öğe doğru mu? read_page ile yeniden oku; gerekirse farklı "
     "öğeyi ya da screenshot + click_at dene. Aynı tıklamayı körlemesine tekrarlama."
 )
 
@@ -135,7 +135,7 @@ async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(veri, dict) and veri.get("verified") is False:
             return ToolResult.failure(
                 "Yazılan metin alana oturmadı (iki yöntem denendi). Alandaki değer: "
-                f"{veri.get('value', '')!r}. Alanı chrome_page ile yeniden oku; maskeli ya da "
+                f"{veri.get('value', '')!r}. Alanı read_page ile yeniden oku; maskeli ya da "
                 "özel bir editörse önce tıklayıp odakla, sonra tekrar yaz."
             )
     return result
@@ -149,7 +149,7 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 #: `window` yeni pencere açar ve `open` gibi yalnız gezinir; `record` BURADA DEĞİL.
 _READ_ACTIONS = frozenset(
     {
-        "scroll", "wait", "tabs", "open", "tab", "screenshot",
+        "scroll", "wait", "tabs", "open", "new_tab", "tab", "screenshot",
         "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
         "console", "network", "shortcuts", "shortcut", "window",
     }
@@ -436,6 +436,9 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         if reason is not None:
             return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
         return await _call(context, "tab_open", {"url": url})
+    if action == "new_tab":
+        # Claude `tabs_create_mcp`: oturum grubuna boş sekme (#431).
+        return await _call(context, "tab_open", {"blank": True})
     if action == "tab":
         if not isinstance(value, str) or not value.strip().isdigit():
             return ToolResult.failure(
@@ -603,7 +606,9 @@ async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
     reason = browser_block_reason(url, allowed_local(context))
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
-    return await _call(context, "navigate", {"url": url})
+    tab = args.get("tabId")
+    extra = {"tabId": tab} if isinstance(tab, int) and not isinstance(tab, bool) else {}
+    return await _call(context, "navigate", {"url": url, **extra})
 
 
 async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -633,7 +638,9 @@ async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult
         # click_at görüntü koordinatı alır; köprü onu sayfa ölçeğine çevirir.
         with contextlib.suppress(TypeError):
             _SCREENSHOT_SCALES[context.chrome] = css_width / size[0]
-        note += f" Görüntü {size[0]}x{size[1]} px; tıklamak için chrome_action click_at 'x,y'."
+        note += (
+            f" Görüntü {size[0]}x{size[1]} px; tıklamak için computer left_click coordinate [x,y]."
+        )
     return ToolResult(note, content=(ToolContent.image("image/jpeg", encoded),))
 
 

@@ -9,12 +9,15 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..core.tools import Tool, ToolEffect
 from . import (
     archive,
     browser,
     chrome,
     chrome_script,
+    claude_chrome,
     desktop,
     desktop_access,
     desktop_background,
@@ -51,10 +54,18 @@ def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> Schem
 
 #: `chrome_action` eylem adları (şemadaki `enum`).
 _CHROME_ACTIONS = (
-    "scroll", "wait", "key", "select", "tabs", "open", "tab", "close", "screenshot",
+    "scroll", "wait", "key", "select", "tabs", "open", "new_tab", "tab", "close", "screenshot",
     "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
     "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
     "upload", "assets", "console", "network", "record", "shortcuts", "shortcut", "window", "group",
+)  # fmt: skip
+
+#: Claude adlı araçların (#431) arkasındaki iç araçlar: modele sunulmaz, çağrılırsa çalışır.
+_LEGACY_CHROME = frozenset(
+    {
+        "chrome_page", "chrome_action", "chrome_javascript", "chrome_batch",
+        "chrome_click", "chrome_type", "chrome_navigate",
+    }
 )  # fmt: skip
 
 _STRING: SchemaFragment = {"type": "string"}
@@ -68,6 +79,9 @@ def build_registry(
     """Yerleşik araçların tamamını içeren yeni bir kayıt defteri üret."""
     registry = ToolRegistry()
     for tool in _TOOLS:
+        # Eski `chrome_*` adları gizli kalır ve çalışır; model Claude adlarını görür (#431).
+        registry.register(replace(tool, advertised=False) if tool.name in _LEGACY_CHROME else tool)
+    for tool in claude_chrome.claude_chrome_tools():
         registry.register(tool)
     for alias, target in _ALIASES.items():
         registry.register_alias(alias, target)

@@ -1,5 +1,32 @@
 # Fusion Browser ↔ Claude in Chrome parite matrisi
 
+## Araç adları (#431)
+
+Model Claude in Chrome'un araçlarını Claude'un adı ve argüman şemasıyla görür:
+`claude-in-chrome__navigate`, `read_page`, `find`, `form_input`, `computer`, `get_page_text`,
+`tabs_context_mcp` her istekte; `tabs_create_mcp`, `tabs_close_mcp`, `read_console_messages`,
+`read_network_requests`, `gif_creator`, `shortcuts_list`, `shortcuts_execute`, `javascript_tool`,
+`file_upload`, `upload_image`, `resize_window`, `browser_batch`, `list_connected_browsers`,
+`select_browser`, `switch_browser` yalnız Chrome/tarayıcı/masaüstü işinde (istem bütçesi).
+Fusion MCP araçlarını `sunucu__araç` biçiminde adlandırdığı için izin kuralı ve kanca
+eşleştiricisi Claude'daki `mcp__claude-in-chrome__computer` adını aynen tanır
+(`--disallowedTools`, `permissions.deny`, PreToolUse `matcher`).
+
+Ajan döngüsü çağrıyı onaydan önce iç `chrome_*` çağrısına çevirir (`tools/claude_chrome_translate.py`,
+`engines/agent/claude_chrome_call.py`); yasak eylemler (#422), yükleme kuralları (#437), plan kipi
+(#450) ve panel akışı aynı kalır. Claude adına yazılmış izin kuralı o çağrı için iç ada da
+uygulanır (toplu çağrıda yalnız deny/ask). `tabId` verilirse işlemden önce o sekme bağlanır;
+`navigate` boş sekmede de (`tabs_create_mcp`) adrese gider. Eski `chrome_page`, `chrome_action`,
+`chrome_click`, `chrome_type`, `chrome_navigate`, `chrome_javascript`, `chrome_batch` adları modele
+sunulmaz, çağrılırsa çalışır.
+
+Kalan farklar: `computer` değiştiricili tıklama (`modifiers`) ve koordinatla hover yok;
+`left_click_drag` kaynak için `ref` ister; `upload_image` Fusion ekran görüntülerine kimlik
+vermediği için `file_upload`'a yönlendirir; `gif_creator stop_recording` GIF'i hemen yazar
+(`export` ayrı adım değil), `clear` yok; `list_connected_browsers` tek yerel köprüyü
+(`fusion-local`) gösterir, `switch_browser` çoklu tarayıcı bağlantısı olmadığı için hata verir.
+Aşağıdaki tablo iç adlarla eşlemeyi gösterir.
+
 Karşılaştırma `mcp__claude-in-chrome__*` araç adlarına dayanır (şemalarını tek tek açmadım,
 adlardan ve bilinen davranıştan çıkardım). Doğrulama: `cd app && npx playwright test -c
 playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test sitesi, 9 test).
@@ -30,7 +57,7 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 | `tabs_create` pencere, sekme grubu | `chrome_action window=URL`, `group=id,id:başlık` (`tabGroups` izni) | Var (P-073) |
 | Kit'ten (Kits) tarayıcıya erişim | `fusion_browser` (Kit aracı) → `chrome.kit_komut` RPC; okuma bir kez, etkileşim her seferinde onaylı; yalnız metin | Var (P-063); bkz. `docs/KITS_KOPRUSU.md` |
 | `browser_batch` | `chrome_batch` (`actions=[{name, input}]`) | Var (#432): en çok 20 Chrome eylemi sırayla, ilk hatada durur; her öğenin izin denetimi (deny/ask kuralı, yasak eylem, yükleme `Read(...)` kuralı) ayrı uygulanır, en sıkı öğe sorulur; yalnız okuyan öğelerden oluşan toplu çağrı okuma sayılır |
-| `list/select/switch_browser` | — | **Henüz yok** (birebir hedefi, #432); yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
+| `list/select/switch_browser` | `list_connected_browsers` tek yerel köprüyü gösterir, `select_browser fusion-local` | Kısmi (#431/#432): aynı anda tek tarayıcı; `switch_browser` hata verir; yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
 
 ## Konsol, ağ, ağaç, kayıt ve kısayollar (31 Ekim, parite turu)
 

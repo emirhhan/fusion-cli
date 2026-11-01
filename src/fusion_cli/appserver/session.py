@@ -61,6 +61,7 @@ from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
 from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
+from ..core.claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
@@ -226,27 +227,30 @@ from .workspace import (
 #: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
 CHROME_NOTE = (
     "Bu bir tarayıcı ajanı görevidir: 'siteye gir', 'kayıt ol', 'formu doldur', 'sayfadan çıkar', "
-    "'hesabımı incele' gibi isteklerde HEMEN chrome_navigate (ya da chrome_action open) ile "
-    "siteyi kullanıcının Chrome'unda aç, chrome_page ile oku, tıkla, yaz, kaydır. Sunucu "
+    "'hesabımı incele' gibi isteklerde HEMEN navigate ile siteyi kullanıcının "
+    "Chrome'unda aç, read_page/find ile oku, computer ile tıkla, yaz, kaydır. Sunucu "
     "tarafında sayfa getirme ya da arama aracı YOKTUR ve kullanıcının girişli oturumunu "
     "görmez; adres bilinmiyorsa Chrome'da arama sitesini aç. Çift tıklama, sağ tıklama, "
-    "sürükleme ve fare tekerleği chrome_action'ın double_click, right_click, drag ve wheel "
-    "işlemleridir. İzin kartı açıldıysa kullanıcıya söyle ve onay gelene kadar bekle. "
+    "sürükleme ve kaydırma computer'ın double_click, right_click, left_click_drag ve scroll "
+    "eylemleridir. İzin kartı açıldıysa kullanıcıya söyle ve onay gelene kadar bekle. "
     "Kullanıcı AÇIKÇA dosya, kod ya da proje isterse çalışma alanı araçlarını kullan; "
     "aksi halde iş tarayıcıdadır. "
     "İnternet sitelerindeki işler (Google Ads, Instagram, Meta, mağaza paneli, herhangi bir "
-    "site) kullanıcının kendi Chrome'unda chrome_* araçlarıyla yapılır; Chrome kapalıysa Fusion "
+    "site) kullanıcının kendi Chrome'unda claude-in-chrome araçlarıyla yapılır; "
+    "Chrome kapalıysa Fusion "
     "onu kendisi açar. browser_* ayrı ve oturumsuz bir tarayıcıdır, yalnız yerel projeyi "
     "(localhost) denemek içindir; orada giriş sayfası görmen oturumun kapalı olduğu anlamına "
     "gelmez. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
     "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
     "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "
-    "chrome_page'i query olmadan çağırıp sayfayı oku; adresi biliyorsan menüde arama yerine "
-    "doğrudan git. Uzun sayfanın tamamı için chrome_action text (value: sayfa no); ref'i olmayan "
-    "öğede screenshot alıp click_at 'x,y' kullan. Tanıtım ya da giriş sayfasına düşersen "
+    "read_page ile sayfayı oku; adresi biliyorsan menüde arama yerine "
+    "doğrudan git. Uzun sayfanın metni için get_page_text; ref'i olmayan "
+    "öğede computer screenshot alıp left_click coordinate [x,y] kullan. "
+    "Tanıtım ya da giriş sayfasına düşersen "
     "hemen 'oturum kapalı' deme: önce "
-    "'tabs' ile açık sekmelere bak, sonra sitenin uygulama adresini dene (ör. Google Ads: "
+    "tabs_context_mcp ile açık sekmelere bak, sonra sitenin uygulama adresini dene "
+    "(ör. Google Ads: "
     "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle. "
     "Kullanıcı bir siteden component alıp projeye uygulamanı isterse önce sayfayı Chrome "
     "eklentisiyle incele, sonra çalışma alanındaki dosyaları okuyup düzenle ve sonucu "
@@ -254,13 +258,15 @@ CHROME_NOTE = (
     "ask_teacher ile tek net soru sor; yanıtı değerlendirip işe devam et. "
     # P-042/P-043/P-044: geliştirici araçları. Model bunları bilmezse hata ayıklama
     # isteğinde ekran görüntüsüyle tahmin yürütür.
-    "Sayfa hatası ya da istek sorunu araştırırken chrome_action console (errors) ve network "
-    "(url deseni; id:N ile gövde) kullan; sayfanın yapısı için chrome_page tree=interactive, "
-    "yükleme bitmesi için chrome_action wait 'network_idle'. Kullanıcı kayıt/GIF isterse "
-    "chrome_action record start … stop."
+    "Sayfa hatası ya da istek sorunu araştırırken read_console_messages (onlyErrors) ve "
+    "read_network_requests (urlPattern) kullan; sayfanın yapısı için read_page "
+    "filter=interactive. Kullanıcı kayıt/GIF isterse gif_creator start_recording … "
+    "stop_recording."
 )
 
 CHROME_TURN_TOOLS = {
+    # Claude in Chrome adları (#431); eski `chrome_*` adları gizli takma ad olarak çalışır.
+    *CLAUDE_CHROME_TOOL_NAMES,
     "chrome_page",
     "chrome_action",
     "chrome_click",

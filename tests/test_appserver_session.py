@@ -52,7 +52,10 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert result == {"ok": True, "metin": "bitti"}
     assert kwargs_seen["chat_mode"] is False
     assert kwargs_seen["system_prompt"] is None
+    from fusion_cli.core.claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
+
     assert kwargs_seen["allowed_tools"] == {
+        *CLAUDE_CHROME_TOOL_NAMES,
         "chrome_page",
         "chrome_action",
         "chrome_click",

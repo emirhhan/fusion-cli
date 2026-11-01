@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..core.redaction import redact
+from ..tools.claude_chrome import legacy_view
 
 #: Adım metnindeki alıntıların üst sınırı; panel dar bir sütundur.
 MAX_QUOTE = 60
@@ -41,8 +42,12 @@ def panel_item(line: str) -> dict[str, Any] | None:
         return {"tur": "dusunuyor"}
     if event == "ErrorOccurred":
         return {"tur": "hata", "metin": str(data.get("message", ""))[:MAX_ERROR]}
-    if event == "ToolExecuted" and str(data.get("name", "")) in _VISIBLE_TOOLS:
-        return _step(data)
+    if event == "ToolExecuted":
+        # Claude in Chrome adı (#431) panel metni için iç `chrome_*` adına çevrilir.
+        raw = data.get("args")
+        name, args = legacy_view(str(data.get("name", "")), raw if isinstance(raw, Mapping) else {})
+        if name in _VISIBLE_TOOLS:
+            return _step({**data, "name": name, "args": dict(args)})
     return None
 
 

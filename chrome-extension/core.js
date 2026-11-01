@@ -1484,6 +1484,24 @@ export async function execute(command) {
     }
     return { ok: true, url };
   }
+  if (command.islem === "tab_open" && veri.blank === true) {
+    // Claude `tabs_create_mcp` (#431): oturum grubuna boş sekme; adres sonra navigate ile.
+    const tab = await chrome.tabs.create({ active: true });
+    await addToSessionGroup(tab).catch(() => null);
+    return { opened: tab.id, url: "" };
+  }
+  if (command.islem === "navigate" && Number.isSafeInteger(veri.tabId) && veri.tabId > 0) {
+    // Claude `navigate` tabId'si: o sekmede git (boş sekme dahil); sekme sonra bağlı olur.
+    const target = await chrome.tabs.get(veri.tabId);
+    const destination = new URL(veri.url);
+    if (!await permitted(destination.origin)) {
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
+    }
+    await chrome.tabs.update(target.id, { url: destination.href });
+    await waitForLoad(target.id);
+    await setSelected(await chrome.tabs.get(target.id));
+    return { url: destination.href };
+  }
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {

@@ -26,6 +26,7 @@ from uuid import uuid4
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
@@ -108,6 +109,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "chrome_action": ToolFamily.BROWSER,
     "chrome_javascript": ToolFamily.BROWSER,
     "chrome_batch": ToolFamily.BROWSER,
+    **dict.fromkeys(CLAUDE_CHROME_TOOL_NAMES, ToolFamily.BROWSER),
     "desktop_apps": ToolFamily.DESKTOP,
     "desktop_windows": ToolFamily.DESKTOP,
     "desktop_background_windows": ToolFamily.DESKTOP,

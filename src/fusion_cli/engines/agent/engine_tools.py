@@ -295,7 +295,7 @@ def _clone(registry: ToolRegistry, *, chrome: bool = True) -> ToolRegistry:
     """Temel defteri kopyala; çalışma-anı eklemeleri paylaşılan defteri kirletmesin."""
     clone = ToolRegistry()
     for tool in registry:
-        if not chrome and tool.name.startswith("chrome_"):
+        if not chrome and tool.name.startswith(("chrome_", "claude-in-chrome__")):
             continue
         if registry.is_remote(tool.name):
             # Uzak araç işareti kopyada da kalmalı: sıkı araç yüzeyi (T1-63/M1-12) sayar.

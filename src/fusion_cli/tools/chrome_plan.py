@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 #: `chrome_action` eylemleri: `record` (GIF), `open`/`window` (yeni sekme/pencere), `shortcut`.
-PLAN_PROMPT_ACTIONS = frozenset({"record", "open", "window", "shortcut"})
+PLAN_PROMPT_ACTIONS = frozenset({"record", "open", "new_tab", "window", "shortcut"})
 
 
 def plan_prompt_call(tool_name: str, args: Mapping[str, object]) -> bool:
