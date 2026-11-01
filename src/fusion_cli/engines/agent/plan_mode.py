@@ -37,6 +37,8 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _DEFAULT_STEM = "oturum"
 _LOG = logging.getLogger(__name__)
 _PLAN_FILES_WARNED = False
+
+
 def _stem(conversation_id: str) -> str:
     return _UNSAFE.sub("_", conversation_id).strip("._") or _DEFAULT_STEM
 

@@ -19,9 +19,9 @@ from datetime import datetime
 __all__ = [
     "FIVE_MINUTES_S",
     "FIVE_MINUTE_EARLY_S",
-    "is_five_minute",
     "MAX_DELAY_S",
     "ONCE_EARLY_MAX_S",
+    "is_five_minute",
     "once_offset",
     "recurring_offset",
     "task_fraction",

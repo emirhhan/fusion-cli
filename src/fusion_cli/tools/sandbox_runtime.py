@@ -32,7 +32,6 @@ from ..core.sandbox_policy import (
     normalize_domain,
 )
 from ..core.sandbox_proxy import DomainProxy, HostDecider
-from .sandbox_excluded import is_excluded
 from ..core.shell_sandbox import (
     SHELL_SANDBOX_WRITE_ROOT,
     ProxyEndpoint,
@@ -42,6 +41,7 @@ from ..core.shell_sandbox import (
 )
 from ..core.tools import ToolArgs, ToolContext
 from .sandbox_cdp import fusion_debug_ports
+from .sandbox_excluded import is_excluded
 
 __all__ = [
     "OUTSIDE_EXCLUDED",

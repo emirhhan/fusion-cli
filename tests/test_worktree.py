@@ -15,7 +15,6 @@ from typer.testing import CliRunner
 
 from fusion_cli.appserver.commands import run_command
 from fusion_cli.cli.repl import worktrees
-from fusion_cli.ui import messages
 from fusion_cli.cli.repl.commands import build_registry, parse
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.core import worktree as core_worktree
@@ -25,6 +24,7 @@ from fusion_cli.engines.agent.team import SubTask, _parse_subtask, derive_sub_co
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.tools.builtin import build_registry as build_tools
 from fusion_cli.tools.worktree_tools import enter_worktree_tool, exit_worktree_tool
+from fusion_cli.ui import messages
 
 from .fakes import make_config
 

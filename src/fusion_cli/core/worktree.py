@@ -29,8 +29,8 @@ from enum import Enum
 from pathlib import Path
 
 from .errors import WorktreeError
-from .worktree_include import included_files
 from .worktree_fetch import BASE_FRESH, BASE_HEAD, fetch_pull_request, fresh_base, quiet_git
+from .worktree_include import included_files
 from .worktree_pr import parse_pull_request
 from .worktree_reuse import refresh_to
 

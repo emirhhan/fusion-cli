@@ -1178,9 +1178,7 @@ REWIND_CODE_EMPTY = "{index}. turdan itibaren geri alınacak dosya değişikliğ
 REWIND_CONVERSATION_DONE = "Konuşma {index}. turun başına sarıldı ({count} mesaj kaldı)."
 
 #: Git çalışma ağacı izolasyonu (`--worktree`, `/worktree`, enter/exit_worktree).
-CMD_WORKTREE = (
-    "(kullanımdan kalkıyor) git çalışma ağacı: fusion --worktree <ad> ya da ajandan iste"
-)
+CMD_WORKTREE = "(kullanımdan kalkıyor) git çalışma ağacı: fusion --worktree <ad> ya da ajandan iste"
 WORKTREE_COMMAND_DEPRECATED = (
     "/worktree kullanımdan kalkıyor: Claude Code'da bu komut yok. Ağacı oturum başında "
     "fusion --worktree <ad> (-w) ile aç ya da ajandan iste (enter_worktree / exit_worktree)."

@@ -28,17 +28,19 @@ if TYPE_CHECKING:
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 __all__ = [
+    "SANDBOX_AUTO_ALLOWED",
+    "SANDBOX_EXCLUDED",
+    "SANDBOX_OUTSIDE",
+    "apply_sandbox_policy",
     "changes_program",
-    "SANDBOX_AUTO_ALLOWED", "SANDBOX_EXCLUDED", "SANDBOX_OUTSIDE", "apply_sandbox_policy"]
+]
 
 SANDBOX_OUTSIDE = (
     "sandbox DIŞINDA çalıştırma isteniyor (dangerouslyDisableSandbox=true): yazma, okuma ve "
     "ağ sınırı olmadan çalışır; her seferinde sorulur"
 )
 SANDBOX_EXCLUDED = "sandbox dışı listesinde (sandbox.excluded_commands); sandbox'sız çalışır"
-SANDBOX_AUTO_ALLOWED = (
-    "sandbox içinde: sorulmadan çalışır (sandbox.autoAllowBashIfSandboxed)"
-)
+SANDBOX_AUTO_ALLOWED = "sandbox içinde: sorulmadan çalışır (sandbox.autoAllowBashIfSandboxed)"
 
 
 def changes_program(command: str) -> bool:

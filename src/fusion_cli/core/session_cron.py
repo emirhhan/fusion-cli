@@ -281,9 +281,7 @@ class CronTask:
         else:
             zaman = "bir kez"
         sirada = datetime.fromtimestamp(self.next_due).strftime("%H:%M")
-        return (
-            f"{self.id} · {zaman} · sıradaki {sirada} · {self.runs} çalışma · {self.prompt[:80]}"
-        )
+        return f"{self.id} · {zaman} · sıradaki {sirada} · {self.runs} çalışma · {self.prompt[:80]}"
 
     def to_dict(self) -> dict[str, object]:
         return {

@@ -36,9 +36,9 @@ from fusion_cli.engines.agent.approval import (
     build_policy,
     resolve_request,
 )
-from fusion_cli.tools.sandbox_excluded import is_excluded
 from fusion_cli.tools import shell
 from fusion_cli.tools.builtin import build_registry
+from fusion_cli.tools.sandbox_excluded import is_excluded
 
 _SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
 

@@ -4356,9 +4356,7 @@ async def _execute(
             from .sandbox_network import install_network_gate
 
             # Liste dışı ana makine kipe göre (#323): sorulur, verilir ya da reddedilir.
-            install_network_gate(
-                deps.tool_context, policy, getattr(deps, "permission_rules", None)
-            )
+            install_network_gate(deps.tool_context, policy, getattr(deps, "permission_rules", None))
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
     # araç henüz çalışmadı ama artık kesinlikle çalışacak. Arayüz bu olayı

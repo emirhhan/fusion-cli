@@ -67,7 +67,9 @@ def network_choice(policy: ApprovalPolicy) -> NetworkChoice:
         return NetworkChoice.ALLOW if policy.bypass_available else NetworkChoice.ASK
     if isinstance(policy, (AutoApproval, DontAskApproval)):
         return NetworkChoice.DENY
-    return NetworkChoice.ASK if getattr(policy, "prompter", None) is not None else NetworkChoice.DENY
+    return (
+        NetworkChoice.ASK if getattr(policy, "prompter", None) is not None else NetworkChoice.DENY
+    )
 
 
 def _no_run(_args: object, _context: ToolContext) -> ToolResult:
@@ -177,5 +179,6 @@ def install_network_gate(
         return None
     running = loop or asyncio.get_running_loop()
     prompter = getattr(policy, "prompter", None)
-    gate.decider = _Decider(context, network_choice(policy), prompter, running, rules)
-    return gate.decider
+    decider = _Decider(context, network_choice(policy), prompter, running, rules)
+    gate.decider = decider
+    return decider

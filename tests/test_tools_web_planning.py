@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from fusion_cli.core.tools import TodoStatus, ToolContext
+from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import build_registry, web
 from fusion_cli.tools.planning import parse_todos
 from fusion_cli.tools.web import (

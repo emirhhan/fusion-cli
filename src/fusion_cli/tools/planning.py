@@ -37,7 +37,9 @@ def parse_todos(raw: object) -> tuple[TodoItem, ...]:
         content = entry.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ArgumentError(f"{position}. madde: 'content' boş olamaz.")
-        items.append(TodoItem(content=content.strip(), status=_status(entry.get("status"), position)))
+        items.append(
+            TodoItem(content=content.strip(), status=_status(entry.get("status"), position))
+        )
     return tuple(items)
 
 

@@ -120,7 +120,7 @@ def resolve_start_mode(
     start = _resolve(root, flag, legacy, auto_available, home, is_root)
     if not allow_bypass or start.bypass_available:
         return start
-    if (is_root() if is_root is not None else _is_root()):
+    if is_root() if is_root is not None else _is_root():
         return replace(start, note=_ROOT_ALLOW_NOTE)
     return replace(start, bypass_available=True)
 

@@ -6,8 +6,7 @@ import pytest
 
 from fusion_cli.core.tools import TodoStatus, ToolContext
 from fusion_cli.tools import desktop_background
-from fusion_cli.tools.args import coerce_int
-from fusion_cli.tools.args import ArgumentError
+from fusion_cli.tools.args import ArgumentError, coerce_int
 from fusion_cli.tools.planning import parse_todos, todo_write
 
 
