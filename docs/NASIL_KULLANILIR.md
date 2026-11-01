@@ -336,7 +336,7 @@ durumunda görünmez (`.git/info/exclude`).
 
 | Yaz | Ne yapar |
 |-----|----------|
-| `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse kaldırır, iş kaldıysa korur ve yolu söyler |
+| `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse ağacı ve dalı kaldırır; iş (değişiklik, izlenmeyen dosya, yeni commit) varsa, durum doğrulanamıyorsa ya da oturum adlıysa "Sakla / Sil" sorar. Sakla → `fusion --worktree <ad> --resume <kimlik>` basılır; Sil → ağaç ve dal commit'lerle birlikte silinir. Etkileşimsiz çıkışta iş varsa korunur |
 | `fusion -w` (adsız) | `bright-running-fox` biçiminde ad üretir |
 | `fusion -w "#1234"` / PR ya da MR adresi | Adresten yalnız numara okunur; `origin` github.com ise `pull/<n>/head`, gitlab.com ise `merge-requests/<n>/head`, başka sunucuda önce biri sonra öteki çekilir; `.claude/worktrees/pr-<n>` açılır. Çekme parola/SSH onayı beklemez, gerekirse `PR/MR #<n> çekilemedi` der |
 | `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |

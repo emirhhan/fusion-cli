@@ -99,6 +99,7 @@ from . import (
     session_resume,
     status_line,
     view_commands,
+    worktree_exit,
     worktrees,
 )
 from .background_commands import route_at_message
@@ -224,11 +225,10 @@ async def run_repl(
         await state.child_runs.close()
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
-        # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
+        # `--worktree`: temiz ağaç kaldırılır; iş varsa ya da adlı oturumsa sorulur (#340).
         if worktree is not None and state.worktree is not None:
-            console.print(
-                f"[{theme.DIM}]{escape(worktrees.leave_session_worktree(state))}[/{theme.DIM}]"
-            )
+            closing = worktree_exit.finish_session_worktree(state, interactive=sys.stdin.isatty())
+            console.print(f"[{theme.DIM}]{escape(closing)}[/{theme.DIM}]")
 
 
 async def _run_surface(

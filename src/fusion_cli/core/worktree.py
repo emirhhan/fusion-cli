@@ -410,11 +410,17 @@ def leave_worktree(worktree: Worktree) -> LeaveResult:
     return LeaveResult(worktree, LeaveOutcome.REMOVED)
 
 
-def remove_worktree(worktree: Worktree, *, force: bool = False) -> None:
-    """Ağacı ve (commit'siz kaldıysa) dalını kaldır; künyeyi sil."""
+def remove_worktree(
+    worktree: Worktree, *, force: bool = False, discard_commits: bool = False
+) -> None:
+    """Ağacı ve (commit'siz kaldıysa ya da `discard_commits`) dalını kaldır; künyeyi sil.
+
+    `discard_commits`: kullanıcı çıkışta "sil" dedi (Claude: ağaç ve dalı, commit'lenmemiş
+    değişiklik ve commit'lerle birlikte silinir, #340).
+    """
     args = ["worktree", "remove", *(["--force"] if force else []), str(worktree.path)]
     _git(worktree.origin, *args)
-    if not has_new_commits_on_branch(worktree):
+    if discard_commits or not has_new_commits_on_branch(worktree):
         _git(worktree.origin, "branch", "-D", worktree.branch)
     _meta_path(worktree.origin, worktree.name).unlink(missing_ok=True)
 
