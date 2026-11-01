@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from ...core.desktop_settings import DesktopLevel
+from ...core.desktop_settings import DesktopLevel, DesktopTarget
 from ...core.tools import ToolEffect
 from ...tools.desktop_policy import DesktopAssessment
 
@@ -116,8 +116,16 @@ def apply_desktop(
         read_only=False,
         note=note,
         consent_key=consent_key(target.key),
+        consent_alias=_name_alias(target),
         desktop_target=target,
     )
+
+
+def _name_alias(target: DesktopTarget) -> str | None:
+    """Paketli hedefin ad anahtarı: toplu onay (#426) uygulamayı adla kaydeder."""
+    if not target.bundle or not target.app:
+        return None
+    return consent_key(target.app.casefold())
 
 
 def consent_description(request: ApprovalRequest) -> str | None:

@@ -143,3 +143,24 @@ def test_arac_sonucu_izinlileri_ve_engellileri_soyler(tmp_path):
     result = tool.run({"apps": ["Mail", "Slack"]}, _context(tmp_path, denied_apps=("Slack",)))
     assert result.ok and "Mail" in result.output and "Slack" in result.output
     assert not tool.run({"apps": []}, _context(tmp_path)).ok
+
+
+async def test_toplu_onay_paket_kimligiyle_cozulen_hedefte_de_gecerli(tmp_path, probe):
+    """Gerçek eylemde hedef AX'ten paket kimliğiyle çözülür; adla verilen izin yine eşleşir."""
+    context = _context(tmp_path)
+    memory = ApprovalMemory()
+    prompter = _Prompter()
+    request = await resolve_request(
+        _REGISTRY.get("desktop_request_access"), {"apps": ["Mail"]}, root=tmp_path,
+        context=context,
+    )  # fmt: skip
+    assert await build_policy(ApprovalMode.AUTO, prompter, memory).decide(request) is (
+        Decision.ALLOW
+    )
+    probe["answer"] = {"ok": True, "app": "Mail", "bundle": "com.apple.mail", "pid": 41}
+    click = await resolve_request(
+        _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, root=tmp_path, context=context
+    )
+    assert await build_policy(ApprovalMode.AUTO, prompter, memory).decide(click) is Decision.ALLOW
+    assert len(prompter.asked) == 1
+    assert click.consent_key == "desktop:com.apple.mail"

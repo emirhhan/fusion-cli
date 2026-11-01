@@ -257,6 +257,10 @@ class ApprovalRequest:
     consent_key: str | None = None
     #: Toplu uygulama onayının diğer anahtarları (#426): onay hepsini birlikte hatırlar.
     extra_consent_keys: tuple[str, ...] = ()
+    #: Paket kimliğiyle çözülen hedefin ad anahtarı (#426): `desktop_request_access` uygulamayı
+    #: adla ister ("Mail" → `desktop:mail`), eylemde hedef `desktop:com.apple.mail` çıkar.
+    #: Yalnız hatırlama denetiminde okunur; yeni izin her zaman `consent_key`e yazılır.
+    consent_alias: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
     #: Plan kipinde bile sorulup onaylanırsa çalışan çağrı (#450: Chrome'da GIF kaydı, yeni
@@ -356,10 +360,11 @@ class ApprovalMemory:
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
         scope = _scope(request)
+        alias = request.consent_alias
         return (
             request.danger is None
             and scope is not None
-            and scope in self._scopes
+            and (scope in self._scopes or (alias is not None and alias in self._scopes))
             and all(key in self._scopes for key in request.extra_consent_keys)
         )
 
