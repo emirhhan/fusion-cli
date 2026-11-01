@@ -50,6 +50,7 @@ from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
+from ...tools.critical_paths import critical_rm_reason, skip_critical_prompt
 from ...tools.permission_match import RuleMatch, evaluate, writes_files
 from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
@@ -254,6 +255,8 @@ class ApprovalRequest:
     consent_key: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
+    #: Tanınan kritik yol `rm`/`rmdir` silmesi (#42): bypass dahil hiçbir kip sormadan geçirmez.
+    critical: str | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -492,7 +495,15 @@ class BypassApproval:
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
         if request.pre_denied is not None:
             return Decision.BLOCKED
-        if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
+        # Claude: açık `ask` kuralı ve kritik yol silmesi bypass'ta da sorulur (#42).
+        # Sandbox dışı çalıştırma isteği de `pre_ask` taşır ama kural değildir: bypass sormaz.
+        explicit_ask = (
+            request.pre_ask is not None and request.rule is not None and not request.pre_allowed
+        )
+        must_ask = explicit_ask or (request.critical is not None and not skip_critical_prompt())
+        if self._prompter is None:
+            return Decision.BLOCKED if must_ask else Decision.ALLOW
+        if not must_ask and request.effect is not ToolEffect.REMOTE_DESTRUCTIVE:
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
@@ -580,6 +591,10 @@ def build_request(
         request = _shell_request(
             tool, args, command, allowed_commands, effect, root, touched, rules=rules
         )
+        critical = critical_rm_reason(command, root, extra_roots) if root is not None else None
+        if critical is not None:
+            # Allow kuralı ve oturum izni kritik yol silmesini açmaz (#42, #84).
+            request = replace(request, critical=critical, danger=request.danger or critical)
         return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
