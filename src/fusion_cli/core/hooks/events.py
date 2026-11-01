@@ -63,7 +63,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.SUBAGENT_START: "ajan türü",
     HookEvent.SESSION_START: "kaynak (startup|resume|clear|compact)",
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
-    HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
+    HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt|auth_success)",
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
     HookEvent.POST_COMPACT: "tetik (manual|auto)",
     HookEvent.CWD_CHANGED: None,

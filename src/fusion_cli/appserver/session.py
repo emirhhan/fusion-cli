@@ -646,6 +646,8 @@ class AppSession:
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
+        # Claude: kimlik doğrulama başarıyla bitince `Notification(auth_success)` (#125).
+        self._mcp_connections.on_login_success = lambda server: _notify_auth(self, server)
         from .accounts import AccountService
 
         #: Hesap uçları. Depo hesaptan BAĞIMSIZ bir dosyadadır; etkin hesap
@@ -3770,3 +3772,9 @@ class AppSession:
                 errors.append(error)
         if errors:
             raise errors[0]
+
+
+def _notify_auth(session: AppSession, server: str) -> None:
+    from ..engines.hooks.notify import notify_auth_success
+
+    notify_auth_success(session._state.hooks(), server)

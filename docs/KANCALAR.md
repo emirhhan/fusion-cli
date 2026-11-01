@@ -63,7 +63,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
 | `SessionStart` | oturum açılırken: REPL/TUI'de açılışta, masaüstünde `oturum.baslat` sonrası arka planda (ilk tur bekler), `-p`'de ilk turda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
-| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme | `permission_prompt`, `idle_prompt` | — |
+| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme; masaüstünde MCP OAuth girişi bağlanarak bitince (girdi `notification_type`, `message`, `title`; kanca beklenmez, çıkış kodu/stderr yok sayılır) | `permission_prompt`, `idle_prompt`, `auth_success` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
@@ -279,6 +279,8 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - Olaylar: `PermissionDenied`, `MessageDisplay`, `Elicitation`, `ElicitationResult`
   tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
+- `Notification` türlerinden `elicitation_dialog`, `elicitation_complete`,
+  `elicitation_response` gönderilmez: Fusion'ın MCP istemcisi elicitation desteklemiyor.
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli
   `fusion --init`/`--init-only`/`--maintenance` tetikler.
 - `WorktreeCreate` kancasının kurduğu ağaçta `exit_worktree` aracı ağacı tanımaz

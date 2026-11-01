@@ -39,6 +39,9 @@ class McpConnectionService:
         self._sources: dict[str, McpServerConfig] = {}
         self._generations: dict[str, int] = {}
         self._retired: set[asyncio.Task[McpConnectionStatus]] = set()
+        #: Kullanıcının başlattığı giriş bağlanarak bitince (sunucu adıyla); kanca katmanı
+        #: `Notification(auth_success)` gönderir.
+        self.on_login_success: Callable[[str], None] | None = None
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
@@ -108,7 +111,7 @@ class McpConnectionService:
         self._admit(config)
         current = self._tasks.get(config.name)
         if current is None or current.done():
-            self._tasks[config.name] = asyncio.create_task(self._run_probe(config))
+            self._tasks[config.name] = asyncio.create_task(self._run_login(config))
         pending = McpConnectionStatus(
             server=config.name, state="giris_bekleniyor", observed_at=self._clock()
         )
@@ -173,6 +176,12 @@ class McpConnectionService:
 
     async def _run_probe(self, config: McpServerConfig) -> McpConnectionStatus:
         return await self._probe(config)
+
+    async def _run_login(self, config: McpServerConfig) -> McpConnectionStatus:
+        status = await self._probe(config)
+        if status.state == STATE_CONNECTED and self.on_login_success is not None:
+            self.on_login_success(config.name)
+        return status
 
     @staticmethod
     async def _probe_server(

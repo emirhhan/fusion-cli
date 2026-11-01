@@ -54,6 +54,16 @@ class NotifyingPrompter:
         await self._session.notify(PERMISSION_PROMPT, message, title=NOTIFICATION_TITLE)
 
 
+#: Kimlik doğrulama başarıyla bitince (MCP OAuth girişi) bildirim türü.
+AUTH_SUCCESS = "auth_success"
+
+
+def notify_auth_success(session: HookSession, server: str) -> None:
+    """`Notification(auth_success)`: giriş bitti; kanca beklenmez (arka planda)."""
+    message = messages.HOOKS_AUTH_SUCCESS_NOTICE.format(server=server)
+    session.spawn(lambda: session.notify(AUTH_SUCCESS, message, title=NOTIFICATION_TITLE))
+
+
 def notifying(prompter: Prompter, session: HookSession | None) -> Prompter:
     """Kanca oturumu varsa sarmala; tanım soru anında aranır (eşleşme yoksa süreç açılmaz).
 
