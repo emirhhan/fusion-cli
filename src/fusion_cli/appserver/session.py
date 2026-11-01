@@ -108,6 +108,7 @@ from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
 from .browser_panel import BrowserPanel
+from .bypass_policy import bypass_policy_disabled
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
@@ -1896,6 +1897,13 @@ class AppSession:
                 "ok": False,
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
+        if (
+            mode is ApprovalMode.BYPASS
+            and self._state.approval is not ApprovalMode.BYPASS
+            and bypass_policy_disabled(self._state.root, self._state.home)
+        ):
+            # Claude: `disableBypassPermissionsMode: "disable"` (kurum politikası) kapatır (#442).
+            return {"ok": False, "metin": messages.BYPASS_POLICY_DISABLED}
         if mode is not self._state.approval:
             self._state.approval_memory.revoke()
         self._state.approval = mode
@@ -2318,6 +2326,8 @@ class AppSession:
             "model": self._state.config.agent.model,
             "kip": self._workspace_mode,
             "mod": self._state.approval.value,
+            # Ayar/kurum politikası İzinleri atla'yı kapattıysa arayüz anahtarı kilitler (#442).
+            "bypass_kapali": bypass_policy_disabled(self._state.root, self._state.home),
             "motor": self._state.engine.value,
             # Oturum kişiliği (P-053); yoksa None. Composer'daki seçici bunu gösterir.
             "kisilik": (
@@ -2469,6 +2479,12 @@ class AppSession:
         if command is not None and command.name == "cd" and turn_running:
             # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
             return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
+        if (
+            command is not None
+            and command.name == "bypass"
+            and bypass_policy_disabled(self._state.root, self._state.home)
+        ):
+            return {"ok": False, "metin": messages.BYPASS_POLICY_DISABLED}
         if command is not None and command.name == "clear":
             # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;

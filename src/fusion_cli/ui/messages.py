@@ -630,6 +630,10 @@ APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.
 APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
 #: Panelden `mod=bypass` onaysız gelirse: kip değişmez, panel kullanıcıya sorup yeniden dener.
+BYPASS_POLICY_DISABLED = (
+    "İzinleri atla (bypassPermissions) kipi ayarla kapatılmış: bir ayar dosyasında "
+    '`"disableBypassPermissionsMode": "disable"` var (kurum politikası ya da Claude ayarı).'
+)
 CHROME_BYPASS_CONFIRM_REQUIRED = (
     '"İzinleri atla" hiçbir şey sormaz; açmak için panelde onay gerekir.'
 )

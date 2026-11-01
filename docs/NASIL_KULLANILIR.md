@@ -148,6 +148,16 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
 - Yıkıcı bir komutta (`rm -rf` gibi) Fusion zaten durup sana sorar.
 
+### İzin modu — varsayılan Manuel (Claude Code gibi)
+
+Kayıtlı seçim ve `permissions.defaultMode` yoksa oturum **Manuel** (`default`) kipinde açılır
+(eskiden Otomatik'ti). Seçtiğin kip kalıcıdır; İzinleri atla bilerek kaydedilmez, kayıttan
+açılış yine Manuel'dir. Masaüstünde İzinleri atla ancak Ayarlar › İzinler › **İzinleri atla
+modunu etkinleştir** açıkken menüde görünür. Bir Claude ayar dosyası (kullanıcı, proje, yerel
+ya da yönetilen `managed-settings.json`) `"permissions": {"disableBypassPermissionsMode":
+"disable"}` içeriyorsa (kurum politikası) anahtar kilitlenir, menüde İzinleri atla görünmez ve
+çekirdek `oturum.baslat {mod: bypass}` ile `/bypass` isteğini reddeder.
+
 ### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
 
 Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek liste:

@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { bypassAllowed, setBypassPolicyDisabled } from "./bypassGate";
 import { modlariOku, useSessionModes } from "./useSessionModes";
 
 type Cevap = Record<string, unknown>;
@@ -165,6 +166,20 @@ describe("useSessionModes — klasör başına mod (#451)", () => {
     });
     renderHook(() => useSessionModes({ id: "y", client: acik, root: "/x" }, vi.fn()));
     await waitFor(() => expect(acik.request).toHaveBeenCalledWith("oturum.baslat", { mod: "bypass" }));
+    window.localStorage.removeItem("fusion.folderApprovalModes");
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
+  });
+
+  it("ayar/kurum politikası (disableBypassPermissionsMode) anahtarı ezer (#442)", async () => {
+    window.localStorage.setItem("fusion.folderApprovalModes", JSON.stringify({ "/z": "bypass" }));
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "true");
+    const c = istemci({ "oturum.durum": { ok: true, mod: "security", kip: "kod", bypass_kapali: true } });
+    const { result } = renderHook(() => useSessionModes({ id: "z", client: c, root: "/z" }, vi.fn()));
+    await waitFor(() => expect(bypassAllowed()).toBe(false));
+    expect(result.current.approval).toBe("security");
+    expect(c.request).not.toHaveBeenCalledWith("oturum.baslat", { mod: "bypass" });
+    setBypassPolicyDisabled(false);
+    expect(bypassAllowed()).toBe(true);
     window.localStorage.removeItem("fusion.folderApprovalModes");
     window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
   });

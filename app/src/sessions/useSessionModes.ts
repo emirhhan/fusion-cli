@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { APPROVAL_MODES, type ApprovalMode } from "../screens/ApprovalModeMenu";
+import { setBypassPolicyDisabled } from "./bypassGate";
 import { folderMode, rememberFolderMode } from "./folderModes";
 import { saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./useSessions";
 
@@ -65,6 +66,8 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
       // Yanıt gelirken kullanıcı mod değiştirdiyse bayat durum onu ezmesin.
       if (cancelled || result.ok === false || changes.current !== stamp) return;
       const { approval, workspace, persona } = modlariOku(result);
+      // Kurum politikası (disableBypassPermissionsMode) klasör hatırlamasından önce (#442).
+      if (typeof result.bypass_kapali === "boolean") setBypassPolicyDisabled(result.bypass_kapali);
       if (approval) setApprovals((current) => ({ ...current, [id]: approval }));
       // Klasörde hatırlanan mod (Plan hariç) `defaultMode`'u ezer (#451).
       const remembered = folderMode(root);

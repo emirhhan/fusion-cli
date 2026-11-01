@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../../protocol/client";
 import { errorMessage, operationResult } from "../../protocol/result";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
-import { bypassAllowed, setBypassAllowed } from "../../sessions/bypassGate";
+import { bypassAllowed, bypassPolicyDisabled, onBypassGateChange, setBypassAllowed } from "../../sessions/bypassGate";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
 import { HookList } from "./Hooks";
@@ -106,6 +106,12 @@ export function Permissions({
   // "İzinleri atla" hiçbir şey sormaz; tek tıkla açılmasın, önce açık onay istenir (U2-51).
   const [confirmBypass, setConfirmBypass] = useState(false);
   const [allowBypass, setAllowBypass] = useState(bypassAllowed);
+  const [bypassLocked, setBypassLocked] = useState(bypassPolicyDisabled);
+  // Kurum politikası (disableBypassPermissionsMode) sonradan gelebilir: anahtar onu izler (#442).
+  useEffect(() => onBypassGateChange(() => {
+    setBypassLocked(bypassPolicyDisabled());
+    setAllowBypass(bypassAllowed());
+  }), []);
   const [rules, setRules] = useState<RulesPayload | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -215,9 +221,13 @@ export function Permissions({
         )}
         <ToggleRow
           checked={allowBypass}
-          description="Açıkken İzinleri atla modu sohbetteki izin menüsünde görünür. Yalnız korumalı (sandbox) bir kapta ya da sanal makinede kullan."
+          description={bypassLocked
+            ? "Kurum politikası ya da bir Claude ayar dosyası (disableBypassPermissionsMode: \"disable\") bu modu kapattı; buradan açılamaz."
+            : "Açıkken İzinleri atla modu sohbetteki izin menüsünde görünür. Yalnız korumalı (sandbox) bir kapta ya da sanal makinede kullan."}
+          disabled={bypassLocked}
           onChange={(value) => { setBypassAllowed(value); setAllowBypass(value); }}
           title="İzinleri atla modunu etkinleştir"
+          warning={bypassLocked ? "Politikayla kapalı" : undefined}
         />
         <p className="settings__hint">
           Sohbet ekranında Cmd/Ctrl+Shift+M ile izin modu menüsünü açabilirsin.
