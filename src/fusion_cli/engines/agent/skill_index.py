@@ -106,7 +106,14 @@ def skill_index_block(
     """Tek düz liste: her ad her zaman; bütçe aşılırsa az çağrılanın açıklaması önce düşer."""
     if registry is None or budget <= 0:
         return ""
-    skills = [item for item in registry.skills() if item.model_invocable]
+    from .skill_paths import visible_in_listing
+
+    # `paths` alanı olan beceri eşleşen dosyaya erişilene kadar listeye girmez (#161).
+    skills = [
+        item
+        for item in registry.skills()
+        if item.model_invocable and visible_in_listing(registry, item)
+    ]
     if not skills:
         return ""
     summaries = [

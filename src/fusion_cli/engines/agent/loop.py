@@ -159,6 +159,7 @@ from . import (
     reflexion,
     review,
     skill_grants,
+    skill_paths,
     skill_usage,
 )
 from .action_evidence import claimed_effects
@@ -3319,6 +3320,10 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
     beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
     if beceri_notu is not None:
         messages.append(beceri_notu)
+    # `paths` alanlı beceriler eşleşen dosyaya erişilince etkinleşir (#161).
+    yol_notu = skill_paths.activate_for(deps.capabilities, kok, tuple(hedefler))
+    if yol_notu is not None:
+        messages.append(yol_notu)
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
