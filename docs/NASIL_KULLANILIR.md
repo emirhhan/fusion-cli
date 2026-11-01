@@ -181,8 +181,9 @@ kısıtlayıcı olduğu için korunur). Yönetilen `defaultMode` ve `disable…M
 katmanı ezer. Parantezli `mcp__…(…)` kuralı yüklenmez;
 başlangıçta ve `fusion doctor`da bildirilir.
 
-Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,
-`~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
+Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` ayar kaynağına bağlı:
+proje/yerel dosyada proje kökü, `~/.claude/settings.json`'da `~/.claude`, `--settings <dosya>`'da o dosyanın
+dizini; `//` disk kökü, `~` ev; yalın ad `.env` her derinlikte), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
 `mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
 **deny → ask → allow → çalışma modu** (Claude Code ile aynı). Allow kuralı yalnız korumalı yolları
 (`.git/`, `.claude/`…) ve kritik yol silmelerini açmaz; Fusion'ın yıkıcı komut sezgisi
@@ -215,7 +216,11 @@ sormaz. Hiçbir kip (bypass dahil) şunları sormadan geçirmez: açık `ask` ku
 `rm`/`rmdir` silmesi (disk kökü ve doğrudan alt dizinleri, ev dizini, çalışma dizini ve üstleri,
 bağlı sürücü kökleri `/Volumes/<ad>`, `/mnt/<ad>`, `/media/…`, `C:\`); bypass'taki kritik yol
 istemini yalnız `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1` kapatır. Plan kipinde okuma dışı kabuk komutu ve MCP değişikliği engellenmez, sorulur; dosya
-düzenlemesi engelli kalır. Henüz yok: plan kipinde `useAutoModeDuringPlan` sınıflandırıcı dalı. Bilinen sınır: `python -c "…"`
+düzenlemesi engelli kalır. Claude gibi `useAutoModeDuringPlan` (varsayılan `true`) açıkken ve auto kullanılabiliyorsa
+(`disableAutoMode` yok, denetçi `off` değil) planlama komutunu denetçi modeli inceler: "güvenli" → sorulmaz, "riskli" →
+gerekçeyle sorulur; kritik yol silmesi ve sabit riskler hep sorulur, model yoksa komut sorulur. `false` kullanıcı, yerel ve
+yönetilen dosyada geçerlidir; `.claude/settings.json`'daki `false` yok sayılır. Plan kipindeki riskli kararlar auto kipinin
+engel sayacına yazılmaz. Bilinen sınır: `python -c "…"`
 gibi satır içi kodun içi kurallara karşı çözülmez; o yol ayrı risk denetiminden geçer.
 
 Güvenilmeyen proje dosyasından (klasöre `fusion trust` verilmemiş) yalnız
@@ -310,10 +315,11 @@ eylemi (komut, yol) görür; araç çıktısı, web sayfası ve yazılacak dosya
 - Alt ajanların çağrıları denetçiye girmez (niyetleri model yazımıdır); kurallar geçerlidir.
 
 Ayar `runtime.auto_classifier` (`/auto-mode ac` ya da `fusion auto-mode ayar ask_only`):
-`off` (varsayılan: yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (ek olarak
-salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur, yavaşlatır).
-Varsayılan kapalıdır: açıkken son 3 mesajın ve eylem denetçi modelinin sağlayıcısına gider ve
-onun (ücretsiz) günlük kotasını kullanır; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
+`off` (yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (varsayılan; ek olarak
+salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur).
+Varsayılan Claude Code gibi açıktır (auto kipte eylemi sınıflandırıcı inceler): son 3 mesajın ve
+eylem denetçi modelinin sağlayıcısına gider ve onun (ücretsiz) günlük kotasını kullanır; anahtar
+yoksa ağa çıkılmaz, kurallar geçerli olur; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
 Model `runtime.auto_classifier_model` (boş = hakem rolü ve yedekleri; web oturumu olamaz),
 süre sınırı `runtime.auto_classifier_timeout_s` (12 sn).
 
