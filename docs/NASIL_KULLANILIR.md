@@ -487,7 +487,8 @@ değişkeni Claude Code'daki gibi okumaz.
 - `/persona` → durum · `/persona Plan` → seç · `/persona off` → kapat (`/kisilik` eş anlamlı).
   **Kullanımdan kalkıyor:** Claude Code'da oturum ortasında ajan değiştiren komut yoktur;
   `/persona` bu sürüm boyunca çalışır, oturumda ilk kullanımda bir kez uyarır. Ajanı oturum
-  başında `--agent` ya da `agent` ayarıyla seç. Masaüstü Kişilik seçicisi henüz değişmedi.
+  başında `--agent` ya da `agent` ayarıyla seç. Masaüstündeki ajan seçicisi de yalnız boş
+  sohbette değişir; konuşma başlayınca kilitlenir, başka ajan için yeni sohbet açılır.
 - Masaüstü: mesaj kutusunun altındaki **Kişilik** seçici (etkin ajanlar listelenir);
   RPC: `oturum.baslat {kisilik: "<ad>" | ""}`, `oturum.durum.kisilik → {ad, unvan} | null`.
 

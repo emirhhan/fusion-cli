@@ -30,6 +30,13 @@ describe("Composer", () => {
     expect(onPersonaChange).toHaveBeenLastCalledWith(null);
   });
 
+  it("ajan seçici konuşma başladıktan sonra kilitlenir; ajan oturum başında seçilir (#34)", () => {
+    render(<Composer onSend={vi.fn()} persona="explore" personaLocked personaOptions={[{ ad: "explore" }]} onPersonaChange={vi.fn()} />);
+    const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
+    expect(secici.disabled).toBe(true);
+    expect(secici.title).toContain("yeni sohbet");
+  });
+
   it("alt görev düğmesi yalnız /subtask destekleniyorsa ve taslak varken çıkar, /subtask ile gönderir (P-054)", () => {
     const onSend = vi.fn(() => true);
     const subtask = { ad: "subtask", aciklama: "Alt ajanda çalıştır", grup: "Oturum", kullanim: "/subtask <görev>", destekleniyor: true };

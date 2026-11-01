@@ -51,9 +51,9 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
-- Alt ajan / oturum ajanı (Claude Code farkları):
-  Türkçe ekip rolleri (`kodcu`, `mimar`...) hâlâ yerleşiktir; masaüstünde Kişilik seçicisi oturum ortasında
-  değiştirmeye izin verir (`/persona` kullanımdan kalkıyor).
+- Alt ajan / oturum ajanı (Claude Code farkları): Türkçe ekip rolleri (`kodcu`, `mimar`...)
+  hâlâ yerleşiktir (`agent_launch.extra_agent_sources: false` ile kalkar); `/persona` bu sürüm
+  boyunca kullanımdan kalkmış takma ad olarak çalışır.
 
 ## Bilerek yapılmayanlar
 

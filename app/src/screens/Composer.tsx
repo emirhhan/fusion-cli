@@ -91,6 +91,8 @@ interface ComposerProps {
   persona?: string | null;
   personaOptions?: PersonaOption[];
   onPersonaChange?: (persona: string | null) => void;
+  /** Konuşma başladıysa seçici kilitli: Claude Code'da ajan oturum başında seçilir (#34). */
+  personaLocked?: boolean;
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
   commandError?: string | null;
@@ -172,6 +174,7 @@ export function Composer({
   persona = null,
   personaOptions = [],
   onPersonaChange,
+  personaLocked = false,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
   onFileQuery,
@@ -537,8 +540,13 @@ export function Composer({
                 aria-label="Oturum kişiliği"
                 className="composer__persona"
                 data-active={persona ? "true" : undefined}
+                disabled={personaLocked}
                 onChange={(event) => onPersonaChange(event.target.value || null)}
-                title="Oturumu bir ajan tanımıyla sür (explore, plan…); boş = varsayılan Fusion"
+                title={
+                  personaLocked
+                    ? "Ajan oturum başında seçilir; başka ajanla sürmek için yeni sohbet aç"
+                    : "Oturumu bir ajan tanımıyla sür (explore, plan…); boş = varsayılan Fusion"
+                }
                 value={persona ?? ""}
               >
                 <option value="">Kişilik yok</option>

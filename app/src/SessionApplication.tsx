@@ -1868,6 +1868,7 @@ export function SessionUygulama({
           approvalExtra={<AutoReviewIndicator approval={approval} client={active.client} onResumed={() => adoptApproval("auto")} />}
           persona={persona?.ad ?? null}
           personaOptions={personaOptions}
+          personaLocked={active.messages.length > 0}
           onPersonaChange={(next) => void changePersona(next)}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
