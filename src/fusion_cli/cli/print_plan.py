@@ -7,6 +7,7 @@ nesnesi olarak stdout'a düşer (bkz. `print_run`).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -251,3 +252,15 @@ def _with_agent(plan: PrintPlan, *, root: Path) -> PrintPlan:
         system_prompt=plan.system_prompt or turn.system_prompt,
         extra_system=extra,
     )
+
+
+def plan_extra_system(plan: PrintPlan) -> str:
+    """Planın ek sistem metni + `--json-schema` talimatı."""
+    if plan.schema is None:
+        return plan.extra_system
+    from ..ui import messages
+
+    note = messages.HEADLESS_SCHEMA_INSTRUCTION.format(
+        schema=json.dumps(plan.schema, ensure_ascii=False)
+    )
+    return "\n\n".join(part for part in (plan.extra_system, note) if part)

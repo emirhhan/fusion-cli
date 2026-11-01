@@ -16,7 +16,9 @@ import signal
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 from types import FrameType
+from typing import TYPE_CHECKING, Any
 
 from ..config.models import Config
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
@@ -24,6 +26,9 @@ from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
 from ..ui import print_messages as texts
+
+if TYPE_CHECKING:
+    from ..tools.capabilities import CapabilityRegistry
 
 #: `--bare` kipinde modele sunulan yerleşik araçlar (Claude: Bash, dosya okuma, düzenleme).
 BARE_TOOLS = frozenset(
@@ -169,3 +174,33 @@ def _category_match(name: str, wanted: list[str]) -> bool:
     if any(item in name for item in excluded):
         return False
     return not included or any(item in name for item in included)
+
+
+#: `--bare` kataloğunun kökü: hiçbir zaman var olmayan bir yol (keşif boş döner).
+_BARE_ROOT = Path("/nonexistent/fusion-bare")
+
+
+def bare_catalog(
+    config: Config, extra_roots: tuple[Path, ...], session_agents: tuple[Any, ...] = ()
+) -> CapabilityRegistry:
+    """`--bare` (#298): kullanıcı/proje becerileri, komutları, ajanları ve eklentileri keşfedilmez.
+
+    Claude'daki gibi yalnız `--add-dir` dizinlerinin becerileri yüklenir; yerleşik alt ajanlar
+    ve ek ajan kaynakları da kapalıdır.
+    """
+    from ..tools.capability_overrides import registry_from_config
+
+    launch = replace(
+        config.agent_launch,
+        disable_builtin_agents=True,
+        extra_agent_sources=False,
+        managed_agent_roots=(),
+    )
+    return registry_from_config(
+        replace(config, agent_launch=launch),
+        _BARE_ROOT,
+        _BARE_ROOT,
+        extra_roots=extra_roots,
+        session_agents=session_agents,
+        headless=True,
+    )

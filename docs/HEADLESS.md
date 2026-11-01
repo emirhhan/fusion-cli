@@ -113,7 +113,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `permissions.defaultMode` (`--permission-mode` öncelikli), `permissions.additionalDirectories`, `model`, `env`, `disableAllHooks`. |
 | `--setting-sources user,project,local` | Değerler doğrulanır (geçersiz kaynak hata); kaynak süzme henüz etkisiz (uyarı). |
 | `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
-| `--bare` | Kancalar, bellek, MCP, proje talimatı kapalı; araçlar Bash + dosya okuma/düzenleme. |
+| `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. Yalnız `-p`'de. |
 | `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |
 | `--agent <ad>` / `--agents '<json>'` | Baş ajan ve oturumluk ajan tanımları. |
 | `-w/--worktree [ad]` | Çalışma ağacında koş; ad verilmezse üretilir. |

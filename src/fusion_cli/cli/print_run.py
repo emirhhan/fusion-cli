@@ -38,7 +38,7 @@ from . import sdk_messages as sdk
 from .cleanup import with_web_cleanup
 from .headless import OutputFormat
 from .print_options import read_print_prompt, schema_errors
-from .print_plan import PrintPlan, PrintRequest, build_plan
+from .print_plan import PrintPlan, PrintRequest, build_plan, plan_extra_system
 from .print_runtime import (
     SIGTERM_EXIT_CODE,
     PrintPrompter,
@@ -199,6 +199,10 @@ def _start(plan: PrintPlan, cwd: Path) -> int:
 
 def _catalog(run: _Run) -> CapabilityRegistry:
     plan = run.plan
+    if plan.request.bare:
+        from .print_runtime import bare_catalog
+
+        return bare_catalog(plan.config, plan.request.add_dir, plan.session_agents)
     return registry_from_config(
         plan.config,
         Path.home(),
@@ -292,7 +296,7 @@ def _run_once(run: _Run, task: str) -> AgentOutcome:
         memory=run.memory,
         extra_roots=request.add_dir,
         history=list(run.history),
-        extra_system="\n\n".join(p for p in (_extra_system(plan), slash_system) if p),
+        extra_system="\n\n".join(p for p in (plan_extra_system(plan), slash_system) if p),
         system_prompt=plan.system_prompt,
         session_persona=plan.persona,
         capabilities=run.capabilities or _catalog(run),
@@ -332,17 +336,6 @@ def _prompter(run: _Run) -> PrintPrompter:
     from .print_prompt_tool import PromptToolPrompter, mcp_tool_loader
 
     return PromptToolPrompter(name, mcp_tool_loader(run.plan.config), root=run.root)
-
-
-def _extra_system(plan: PrintPlan) -> str:
-    if plan.schema is None:
-        return plan.extra_system
-    from ..ui import messages
-
-    note = messages.HEADLESS_SCHEMA_INSTRUCTION.format(
-        schema=json.dumps(plan.schema, ensure_ascii=False)
-    )
-    return "\n\n".join(part for part in (plan.extra_system, note) if part)
 
 
 def _finish(
