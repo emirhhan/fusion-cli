@@ -43,8 +43,12 @@ benim-eklentim/
   eski sürümün bu dosyadaki değerleri okunur ve ilk yazımda şifreli depoya taşınır. Kaydetme kilit
   altındadır (CLI ve masaüstü aynı anda yazınca değer kaybolmaz). `${user_config.KEY}` MCP yapılandırmasında ve
   beceri/ajan içeriğinde çözülür (içerikte hassas değer yer tutucu olur); kanca süreçleri her seçeneği
-  `CLAUDE_PLUGIN_OPTION_<KEY>` olarak alır. Henüz yok: etkinleştirmede soru penceresi, `install
-  --config`, `channels`, `/config` satırları.
+  `CLAUDE_PLUGIN_OPTION_<KEY>` olarak alır. `plugin install --config key=value` (tekrarlanabilir)
+  değerleri kurulumda aynı yoldan doğrulayıp kaydeder; biri geçersizse kurulum geri alınır;
+  `<sunucu>.<anahtar>` (.mcpb) Fusion'da yoktur. Ayarlanmamış zorunlu seçenek kalırsa kurulum
+  `fusion plugin configure <id>` ipucu verir. `plugin validate` geçersiz `userConfig` şemasını hata
+  sayar. Eklenti son kapsamından kaldırılınca seçenekleri ve sırları da silinir. Henüz yok:
+  etkinleştirmede soru penceresi, `channels`, `/config` satırları.
 - Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).
@@ -90,10 +94,13 @@ olmalıdır. Eklenti kaynağındaki `git` türü kullanımdan kalktı (Claude ad
 ## Komutlar
 
 ```
-fusion plugin install rapor@ekip [--yes] [--scope user|project|local] [--json]  # kayıtlı pazardan
+fusion plugin install rapor@ekip [--scope user|project|local] [--config k=v] [--json]  # kayıtlı pazardan
 fusion plugin install rapor --marketplace <yol|sahip/repo|https…>  # pazar yoksa önce eklenir
 fusion plugin install <kaynak> --dry-run       # yalnız doğrula ve özetle
-fusion plugin list [--json] [--available]      # --available: pazarlardaki kurulmamışlar (JSON nesnesi)
+fusion plugin list [--json] [--available] [--data-size [ad]]  # --data-size: dataDirSize {bytes,human}
+fusion plugin init|new <ad> [--author] [--author-email] [--description] [-f] [--with skills agents hooks mcp lsp output-style channel]
+fusion plugin tag [yol] [--dry-run] [-f] [-m "%s"] [--push] [--remote origin]   # <ad>--v<sürüm> etiketi
+fusion plugin configure <ad@pazar> [--values-stdin] [--json]
 fusion plugin details <ad|ad@pazar>            # bileşen envanteri + öngörülen token maliyeti
 fusion plugin prune [--dry-run] [-y]           # (autoremove) Fusion bağımlılık kurmaz: "Nothing to prune"
 fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
@@ -101,13 +108,15 @@ fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  dis
 fusion plugin uninstall <ad|ad@pazar> [--keep-data] [--scope user|project|local]  # kopya .orphaned_at ile 14 gün kalır
 fusion plugin update <ad|ad@pazar>             # önce pazar yenilenir; sürüm aynıysa değişmez
 fusion eklenti kesfet [pazar]                  # kullanımdan kalktı → plugin list --json --available
-fusion plugin marketplace add <./klasör|./pazar.json|sahip/repo[#ref|@ref]|https://….git[#ref]|resmi>
-fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
+fusion plugin marketplace add <./klasör|./pazar.json|owner/repo[#ref|@ref]|user@host:yol|http(s)://…> [--scope user|project|local] [--sparse <yollar…>] [--json]
+fusion plugin marketplace list  ·  marketplace update [ad]   # ad yoksa hepsi
 fusion plugin marketplace remove <ad>          # o pazardan kurulan eklentiler de kaldırılır
 ```
 
-`fusion --plugin-dir <yol> …` (tekrarlanabilir; ortam değişkeni `CLAUDE_CODE_PLUGIN_DIRS`) eklentiyi
-kurmadan yalnız o oturum için `<ad>@inline` olarak yükler; eklenti klasörlerini tutan bir klasör
+`fusion --plugin-dir <yol|x.zip> …` (tekrarlanabilir; ortam değişkeni `CLAUDE_CODE_PLUGIN_DIRS`) ve
+`fusion --plugin-url <adres>` (.zip indirir) eklentiyi kurmadan yalnız o oturum için `<ad>@inline`
+olarak yükler (arşiv içerik karmasıyla `<veri>/eklentiler/.gecici/oturum/` altına güvenli açılır;
+`..`, mutlak yol ve sembolik bağ reddedilir, sınır 20.000 girdi / 256 MiB); eklenti klasörlerini tutan bir klasör
 verilirse her `.claude-plugin/plugin.json` içeren çocuk yüklenir. Aynı adlı kurulu eklenti o oturumda
 atlanır. `plugin list` bunları `Session-only plugins (--plugin-dir / --plugin-url):` başlığında,
 `--json`'da `scope: "session"` ile gösterir. Güvenlik notu: yolu kullanıcı açıkça verdiği için
@@ -127,12 +136,17 @@ verilmezse local, project, user sırasıyla eklentiyi anan ilk kapsam kullanıl�
 öncelikli kapsam "… kapsamında kurulu, … değil" hatası verir, yüksek öncelikli kapsama geçersiz
 kılma yazılır. Güvenlik: `fusion trust` sonrası değişmiş (güvenilmeyen) proje dosyasındaki `true`
 eklenti açmaz; `false` her zaman uygulanır. Fusion'ın yazdığı güvenilir dosya güvenilir kalır.
-Kaldırma eklentinin `${CLAUDE_PLUGIN_DATA}` klasörünü siler (`--keep-data` korur).
-`install --scope project|local` dosyaları ortak depoya kurar, user kaydını kapalı başlatır ve yalnız
-o kapsamın dosyasına `enabledPlugins["ad@pazar"] = true` yazar. `install`, `uninstall`, `enable`,
+Kurulum kapsamları kayıtta izlenir (`user`, `project:<kök>`, `local:<kök>`). `install --scope
+project|local` dosyaları ortak depoya kurar, user kaydını kapalı başlatır ve o kapsamın dosyasına
+`enabledPlugins["ad@pazar"] = true` yazar; yalnız projede kurulu eklenti `install` (user) ile user
+kapsamına da kurulur. `uninstall` (varsayılan user; eklenti yalnız bu projede kuruluysa o kapsam)
+kapsamı düşürür; eklenti SON kapsamından kalkınca Claude gibi kopya `.orphaned_at` ile emekliye
+ayrılır, userConfig değerleri ve sırları silinir, `${CLAUDE_PLUGIN_DATA}` klasörü silinir
+(`--keep-data` yalnız veriyi korur). Başka kapsam kullanıyorsa paylaşılan kopya ve veri kalır. `install`, `uninstall`, `enable`,
 `disable` `--json` ile son satıra `{"command","outcome":"ok|failed","message",…}` nesnesini basar.
-Yerel klasör/https/sahip-repo kaynağından doğrudan kurulum bir sürüm boyunca çalışır ama
-kullanımdan kalktı uyarısı verir (Claude `install` yalnız pazardan kurar; `--marketplace` kullan).
+`install <yol|URL|owner/repo>` Claude gibi kurmaz: `… yapılandırılmış hiçbir pazarda yok` (çıkış 1);
+yerel deneme için `--plugin-dir`, pazar için `--marketplace`. Eski `kur` adı doğrudan kaynak kurulumunu
+bir sürüm boyunca uyarıyla sürdürür.
 
 **Bildirilen pazarlar (`extraKnownMarketplaces`):** depo `.claude/settings.json` ya da
 `.claude/settings.local.json` içinde `{"extraKnownMarketplaces": {"ad": {"source": {...}}}}`
@@ -141,7 +155,10 @@ bilinmeyen pazar, klasöre güvenildiyse Claude Code gibi kaydedilir: REPL açı
 `plugin install`/`plugin list`/`plugin marketplace list` öncesinde. Güvenilmeyen klasörde girdiler
 sessizce yok sayılır; aynı adlı girdide local, project'in girdisini bütünüyle ezer. Kaynak türleri:
 `github` (`repo`, isteğe bağlı `ref`), `git` (`url`), `directory`/`file` (`path`, göreli ise depo
-köküne göre). `url` ve `settings` türleri Fusion'da yok, uyarıyla atlanır.
+köküne göre), `url` (`url`: marketplace.json adresi). `settings` türü Fusion'da yok, uyarıyla atlanır.
+`marketplace add --scope project|local` pazarı o kapsamın dosyasına
+`extraKnownMarketplaces[<ad>] = {"source": {...}}` olarak bildirir ("project ayarlarında
+bildirildi"); `marketplace remove` bildirimi project/local dosyalarından da siler.
 Projenin güvenilen `.claude/settings.json`/`.claude/settings.local.json` dosyasında
 `enabledPlugins["ad@pazar"] = true` olan ama bu makinede kurulmamış eklenti, pazar girdisi göreli
 yollu ise kurulum kaydı yazılmadan pazarın kendisinden yüklenir; dış kaynaklı girdi yüklenmez ve
@@ -160,26 +177,50 @@ remove (rm)`; `fusion plugins` da aynı gruptur. Yukarıdaki Türkçe adlar (`ek
 bir sürüm boyunca gizli, kullanımdan kalkmış takma addır; kullanılınca stderr'e Claude adını söyleyen
 uyarı basılır. `marketplace add|remove|update --json` aynı sonuç nesnesini (`command`:
 `marketplace-add|remove|update`, `marketplace`) basar. Eski `FUSION_PLUGINS=off` ortam değişkeni bir
-sürüm boyunca okunur ve süreç başına bir kez uyarır (Claude karşılığı `disable --all`). `details`, `prune` (`autoremove`) var; henüz yok:
-`configure`, `init`, `tag`, `eval`, `test`. REPL'de `/plugin` (`/plugins`, `/eklenti`) aynı alt
-komutları alır; kanca ya da MCP içeren eklenti önce önizlenir, `--yes` ile kurulur (araya giren
-değişiklik varsa kurulmaz). Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
+sürüm boyunca okunur ve süreç başına bir kez uyarır (Claude karşılığı `disable --all`). `details`, `prune`
+(`autoremove`), `configure`, `init` (`new`), `tag` var. `test` Claude Code modları içindir (Fusion'da mod
+sistemi yok; açık hata). Henüz yok: `eval`.
+
+`plugin init <ad>` Claude Code gibi `~/.claude/skills/<ad>/` altına `.claude-plugin/plugin.json`
+(`$schema`, `version: 0.1.0`, `author`, `skills: ["./"]`) ve kök `SKILL.md` yazar; `--with` ek iskelet
+kurar; var olan `.claude-plugin/` `--force` ister; ayrılmış ad, yol ayırıcı ve boşluk reddedilir.
+Bu klasörler kurulmadan `<ad>@skills-dir` olarak yüklenir (`plugin list`: "Skills-directory plugins
+(.claude/skills/*):"; `disable <ad>@skills-dir` `~/.claude/settings.json` `enabledPlugins`'e yazar);
+düz beceri olarak taranmazlar. `plugin tag` plugin.json sürümünü ve onu gösteren pazar girdisini
+karşılaştırır, kirli çalışma ağacını ve var olan etiketi `--force` olmadan reddeder, `<ad>--v<sürüm>`
+açıklamalı etiketini HEAD'e koyar (`--push` ile gönderir).
+
+REPL'de argümansız `/plugin` (`/plugins`) Claude gibi paneli **Discover** sekmesinde açar:
+Discover (eklenti seç → ayrıntı + "Senin için / bu depodaki herkes için / yalnız senin için, bu depoda"
+kapsam seçimi → kurulum), Installed (aç/kapat, yapılandır, güncelle, ayrıntı, kaldır), Marketplaces
+(güncelle, kaldır, **Enable/Disable auto-update**), Errors (yüklenemeyen eklentiler). TUI'de
+uygulama-içi modal, satır-içi REPL'de ok tuşlu seçici; terminal değilse kurulu liste basılır.
+Alt komutlar: `help`, `list [--enabled|--disabled]` (`ls`), `manage`, `install <ad>` (bayraksız
+panel açar; `--scope` ile doğrudan), `enable|disable|uninstall`, `configure`, `validate`, `details`,
+`update`, `tag`, `marketplace` (`market`) `add|list|update|remove|rm`; `/marketplace` takma adı.
+Türkçe alt komutlar (`kur`, `ac`, `kapat`, `kaldir`, `guncelle`, `dogrula`, `kesfet`, `pazar`)
+kullanımdan kalktı uyarısıyla bir sürüm daha çalışır. Masaüstünde Beceriler ekranındaki **Eklentiler** düğmesi Kurulu · Keşfet ·
 Pazarlar sekmelerini açar; her eklentide Güncelle/Doğrula; pazar kaldırma önce o pazardan kurulan
 bütün eklentilerin, ayarlarının ve verilerinin de silineceğini söyleyip onay ister ve kaldırılanları
 bildirir (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`, `eklenti.pazar_kaldir` →
-`kaldirilan`). Masaüstünde henüz yok: `--scope` seçici, `/reload-plugins` karşılığı, otomatik güncelleme
-ve bildirilen pazar eşitlemesi (ikisi yalnız REPL açılışında çalışır).
+`kaldirilan`; `eklenti.pazar_guncelle` `renames` bildirimlerini `notlar` alanında döndürür). Masaüstünde
+henüz yok: `--scope` seçici, `/reload-plugins` karşılığı, auto-update anahtarı, otomatik güncelleme ve
+bildirilen pazar eşitlemesi (yalnız REPL açılışında çalışır).
 
 Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentileri Claude Code gibi
 kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki
 oturumda ya da `/reload-plugins`'te geçerli olur, `CLAUDE_PLUGIN_ROOT` kaynak klasörü gösterir,
 `plugin list --json` `readFromFolder`/`folderVersion` verir; kaldırma kaynak klasöre dokunmaz.
 
-Pazar kaynağı Claude Code tablosuyla çözülür: `owner/repo`, `owner/repo#ref`/`@ref` (GitHub),
-`.git` ile biten ya da `/_git/` içeren https adresi, github.com/gitlab.com adresi, klasör ya da `.json`
-dosyası (dosya türü yerinde okunur). Claude'da olup Fusion'da açıkça reddedilenler: SSH
-(`user@host:path`), düz `http://`, `.git`'siz başka https adresinin marketplace.json olarak
-indirilmesi (url türü) ve `--sparse`; Fusion yalnız genel https adreslerini iç ağa çıkmadan klonlar.
+Pazar kaynağı Claude Code tablosuyla çözülür: `owner/repo`, `owner/repo#ref`/`@ref` (GitHub), SSH
+(`user@host:path`), `.git` ile biten ya da `/_git/` içeren http(s) adresi, github.com/gitlab.com
+adresi, başka her http(s) adresi doğrudan `marketplace.json` (url türü; indirilir, göreli yollu
+eklentileri kurulamaz), klasör ya da `.json` dosyası (dosya türü yerinde okunur). `--sparse <yollar…>`
+git sparse-checkout ile yalnız o klasörleri çeker ve güncellemede korunur. **Güvenlik davranışı
+değişti:** kullanıcının verdiği pazar kaynağı Claude gibi yerel git kimlik bilgileri ve SSH
+anahtarlarıyla, iç ağ adresleri dahil klonlanır (etkileşimsiz: `BatchMode=yes`, yönlendirme
+izlenmez). Pazar GİRDİSİNDEKİ eklenti kaynakları hâlâ yalnız genel https ile klonlanır.
+`--claudeai` claude.ai hesabı gerektirir; Fusion'da açık hata verir.
 
 Pazar girdisinin kaynağı göreli yol (`./…`), `github` (`repo`), `url` ve `git-subdir` (`url` tam git
 adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör kurulur) olabilir; `npm`,
@@ -189,8 +230,9 @@ adresi ya da `owner/repo`, `path` depodaki eklenti klasörü; yalnız o klasör 
 izlenir): yeniden adlandırılan kurulum yeni girdi adıyla sürer, project/local `enabledPlugins`
 anahtarı yeni ada yazılır ve `Renamed to "<yeni>" in the "<pazar>" marketplace` basılır; `null`
 eşlemede anahtar düşer (`Removed from the "<pazar>" marketplace`). `forceRemoveDeletedPlugins: true`
-iken girdilerde ve `renames`'te olmayan kurulum kaldırılır. Claude bunu her oturum başında yapar;
-Fusion yalnız pazar güncellemesinde (REPL/masaüstü güncellemesinde henüz değil).
+iken girdilerde ve `renames`'te olmayan kurulum kaldırılır. Claude gibi her oturum başında (REPL
+açılışında arka planda; bildirim sonraki turda basılır) ve CLI/REPL/masaüstü pazar güncellemesinden
+sonra uygulanır. Yerinde yüklenen eklentinin klasörü yeni girdinin kaynağına taşınır.
 
 Girdi her `plugin.json` alanını taşıyabilir (Claude "Strict mode"): eklentide `plugin.json` yoksa girdi
 bildirimdir; varsa o otoritedir ve `strict: true` (varsayılan) iken girdinin `commands`, `agents`,
@@ -203,19 +245,23 @@ kayıtta saklanıp her taramada bellekte birleştirilir (`plugin update` değiş
 göreli yollu girdinin `version`'ı plugin.json'dakiyle çelişirse Claude'un `Entry declares version "x"
 but <yol>/plugin.json says "y". At install time, plugin.json wins` uyarısını verir.
 
-`resmi` kısa adı `https://github.com/anthropics/claude-plugins-official` pazarıdır. Keşfet ağa
+Resmî pazar `claude-plugins-official` Claude gibi ilk etkileşimli (terminal) oturumda kendiliğinden
+eklenir; sonra kaldırılırsa yeniden eklenmez. Eski `resmi` kısa adı kullanımdan kalktı uyarısıyla
+`anthropics/claude-plugins-official`'a çözülür. Keşfet ağa
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.
 
 Claude'un `workflows/` iş akışları ve `hooks.json` `modules` (mod) bileşenleri desteklenmez; bulunursa
-yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
+yükleme/doğrulamada "desteklenmiyor" uyarısı verilir. Etkin eklentinin `bin/` klasörü Claude gibi
+ajanın kabuk aracının (`run_shell`) PATH'ine eklenir.
 
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
-`~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır; `uninstall --scope project|local`
-yalnız o kapsamın `enabledPlugins` girdisini siler, paylaşılan kopyaya dokunmaz. `--plugin-url` ve `.zip` arşivli `--plugin-dir` yok. Managed
-kapsam okunmaz; `extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` user
-ayarına yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
-commit pinidir.
+`~/.claude/settings.json`'ına yazılmaz; dosyalar tek (user) depodadır. Managed kapsam okunmaz;
+`extraKnownMarketplaces` yalnız project/local'den okunur, `marketplace add` (user) user ayarına
+yazmaz, bildirimin kaynağı sonradan değişirse pazar yeniden çekilmez. Bağımlılık (`dependencies`)
+kurulumu, `lspServers`/`monitors`/`themes`/`channels`, `plugin eval`, `npm`/`archive`/`command`
+eklenti kaynakları ve `.mcpb` paketleri yok. Kriptografik imza yok: bütünlük sha256 karma + commit
+pinidir.
 
 ## Sürüm ve güncelleme
 
@@ -230,13 +276,13 @@ saniyede yenilenen pazar ve `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` atlanır;
 `<eklentiler>/.orphaned/` altına `.orphaned_at` işaretiyle taşınır ve 14 gün sonra silinir.
 **Otomatik güncelleme:** REPL açıldıktan sonra rastgele en çok 10 dakikalık gecikmeyle auto-update'i
 açık pazarlar arka planda yenilenir ve onlardan kurulan eklentiler güncellenir (açık oturum yüklediği
-sürümle sürer; günlüğe `Plugin updated: <ad> · Run /reload-plugins to apply` yazılır). Açık mı:
-önce `extraKnownMarketplaces` girdisindeki `autoUpdate`, yoksa varsayılan (Anthropic'in resmî
+sürümle sürer; `Plugin updated: <ad> · Run /reload-plugins to apply` günlüğe yazılır ve REPL/TUI'de
+sonraki turda basılır). Açık mı: önce `extraKnownMarketplaces` girdisindeki `autoUpdate`, sonra
+`/plugin` Marketplaces'teki Enable/Disable auto-update anahtarının kaydı, yoksa varsayılan (Anthropic'in resmî
 pazarlarında açık, `knowledge-work-plugins`/`first-party-plugins` ve diğerlerinde kapalı).
 `DISABLE_UPDATES`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` kapatır,
 `FORCE_AUTOUPDATE_PLUGINS=1` yeniden açar. Güvenlik notu: Claude'daki gibi otomatik güncelleme onay
-sormaz. Henüz yok: `/plugin` Marketplaces'teki Enable auto-update anahtarı, resmî pazarın ilk
-oturumda kendiliğinden eklenmesi, bildirimin TUI'de gösterilmesi (#394).
+sormaz.
 
 ## Güven ve bütünlük
 
