@@ -1157,7 +1157,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/mode` · `/mode high` | Model gücü profili |
 | `/effort high` | Düşünme yoğunluğu |
 | `/model` | Model değiştir |
-| `/plan` · `/plan goster` · `/plan ac` | Plan kipine geç · kayıtlı planı yaz · planı editörde aç |
+| `/plan [açıklama]` | Plan kipine geç; açıklama verilirse (`/plan giriş hatasını düzelt`) o görevle hemen başla. Eski `/plan goster` / `/plan ac` tek sözcük olarak hâlâ çalışır |
 | `/persona explore` · `/persona off` | Oturumu bir ajan kişiliğiyle sür |
 | `/subtask <görev>` | Görevi bağlamı devralan izole alt ajanda koştur |
 | `/memory` · `/memory ajan <ad>` | Düz metin bellek / alt ajan belleği |

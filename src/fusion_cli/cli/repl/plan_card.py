@@ -164,16 +164,21 @@ def _launch(argv: list[str]) -> None:
 
 
 def command(state: ReplState, argument: str) -> str:
-    """`/plan [goster|ac]`: argümansız plan kipine geçer (eski davranış korunur)."""
-    sub = argument.strip().casefold()
-    if not sub:
-        state.approval = ApprovalMode.PLAN
-        return messages.REPL_MODE_CHANGED.format(mode=ApprovalMode.PLAN.value)
+    """`/plan [açıklama]` (Claude Code, #327): plan kipine geç; açıklama varsa onunla başla.
+
+    Fusion'ın eski `goster` / `ac` alt komutları tek sözcük olarak yazılınca çalışmaya devam
+    eder (yardımda gösterilmez).
+    """
+    text = argument.strip()
+    sub = text.casefold()
     if sub in {"goster", "göster"}:
         return show(state)
     if sub in {"ac", "aç"}:
         return open_in_editor(state)
-    return messages.PLAN_USAGE
+    state.approval = ApprovalMode.PLAN
+    if text:
+        state.pending_task = text
+    return messages.REPL_MODE_CHANGED.format(mode=ApprovalMode.PLAN.value)
 
 
 __all__ = [

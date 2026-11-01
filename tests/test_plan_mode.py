@@ -401,10 +401,12 @@ def test_plan_ac_editoru_plan_dosyasiyla_calistirir(state: ReplState, monkeypatc
     assert calistirilan == [["nano", str(yol)]]
 
 
-def test_plan_bilinmeyen_alt_komut_kullanimi_soyler(state: ReplState) -> None:
+def test_plan_tek_sozcuk_aciklama_da_gorev_olur(state: ReplState) -> None:
+    """Eski "bilinmeyen alt komut → kullanım" davranışı Claude'da yok (#327)."""
     command = build_registry().get("plan")
     assert command is not None
-    assert command.handler(state, "sil") == messages.PLAN_USAGE
+    command.handler(state, "sil")
+    assert state.pending_task == "sil" and state.approval is ApprovalMode.PLAN
 
 
 # --- TUI kabul kartı ---------------------------------------------------------- #
@@ -461,3 +463,18 @@ async def test_tui_kartta_vazgecilince_plan_kipinde_kalinir(tmp_path: Path) -> N
 
     assert durum.approval is ApprovalMode.PLAN
     assert messages.PLAN_KEEP_PLANNING in session.tui.transcript
+
+
+def test_plan_aciklama_plan_kipine_gecip_gorevi_baslatir(state: ReplState) -> None:
+    """Claude Code `/plan fix the auth bug`: plan kipine geçer ve görevle hemen başlar (#327)."""
+    state.approval = ApprovalMode.AUTO
+    cikti = plan_card.command(state, "giriş hatasını düzelt")
+    assert state.approval is ApprovalMode.PLAN
+    assert state.pending_task == "giriş hatasını düzelt"
+    assert ApprovalMode.PLAN.value in cikti
+
+
+def test_plan_argumansiz_yalniz_kipe_gecer(state: ReplState) -> None:
+    state.approval = ApprovalMode.AUTO
+    plan_card.command(state, "")
+    assert state.approval is ApprovalMode.PLAN and not state.pending_task

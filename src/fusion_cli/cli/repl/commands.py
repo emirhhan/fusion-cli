@@ -992,7 +992,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Onay modu",
     ),
     SlashCommand(
-        "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[goster|ac]"
+        "plan", messages.CMD_PLAN, plan_card.command, group="Onay modu", usage="[açıklama]"
     ),
     SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
     SlashCommand(
