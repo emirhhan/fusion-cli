@@ -284,8 +284,8 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
         return PromptGate(blocked=expansion.blocked)
     verdict = await session.emit(HookEvent.USER_PROMPT_SUBMIT, fields={"prompt": prompt})
     _publish(deps, verdict)
-    if verdict.session_title or started.session_title:
-        session.session_title = verdict.session_title or started.session_title
+    if verdict.session_title:
+        session.adopt_title(verdict.session_title)
     if verdict.blocked or verdict.halt:
         reason = verdict.reason or verdict.stop_reason or messages.HOOKS_NO_REASON
         text = hook_text.prompt_blocked(reason, prompt, suppress=verdict.suppress_original_prompt)

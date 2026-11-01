@@ -55,7 +55,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
-| `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
+| `UserPromptSubmit` | kök tur başında (zamanlanmış `/loop`/`cron_*` görevinin turu dahil) | — | istem düşer, model çağrılmaz |
 | `UserPromptExpansion` | kullanıcının yazdığı `/beceri`, `/komut` ya da `/mcp__sunucu__istem` açılırken, `UserPromptSubmit`'ten önce (girdi `expansion_type` `slash_command`/`mcp_prompt`, `command_name`, `command_args`, `command_source`, `prompt`); modelin `Skill` çağrısı tetiklemez | `command_name` | komut açılmaz, gerekçe kullanıcıya; `additionalContext` ve düz stdout açılan istemin yanına |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (art arda en çok 8) |
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
@@ -200,6 +200,9 @@ ile bitirir. `PostToolUse`: `updatedToolOutput` / `updatedMCPToolOutput` (metin 
 şeklinde nesne), `classifierContext`. `UserPromptSubmit`: `sessionTitle`,
 `suppressOriginalPrompt` (engel mesajı varsayılan olarak `Original prompt: <metin>` ile
 biter). `SessionStart`: `sessionTitle`, `initialUserMessage`, `watchPaths`, `reloadSkills`.
+`sessionTitle` `/rename` ile aynı etkidedir (sohbete ad verir, `--resume <ad>` ile bulunur);
+SessionStart'ta yalnız `startup`/`resume`/`fork` kaynağında uygulanır. Mevcut ad
+(`--name`, `/rename`, kanca) SessionStart girdisinde `session_title` olarak gelir.
 `Stop`/`SubagentStop`: `additionalContext` turu hata göstermeden sürdürür ("Stop hook
 feedback"). `allow` bir `deny`/`ask` izin kuralını, yıkıcı komut onayını ve plan kipini
 **geçemez**.

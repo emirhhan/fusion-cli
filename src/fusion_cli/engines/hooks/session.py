@@ -34,6 +34,8 @@ from .transcript import HookTranscript, transcript_for
 NO_VERDICT = HookVerdict()
 #: Özetleme sonrası `SessionStart` kaynağı (Claude Code ile aynı).
 COMPACT_SOURCE = "compact"
+#: SessionStart `sessionTitle`'ın uygulandığı kaynaklar (Claude: startup, resume, fork).
+TITLE_SOURCES = frozenset({"startup", "resume", "fork"})
 #: Fusion onay kipi → Claude `permission_mode` değeri (Manual kip `default` gelir).
 _CLAUDE_MODES = {
     "security": "default",
@@ -128,6 +130,8 @@ class HookSession:
     opening: object | None = None
     #: SessionStart `reloadSkills`: beceri/komut kataloğunu yeniden taratan geri çağırım.
     skills_reloader: Callable[[], None] | None = None
+    #: Kanca `sessionTitle`'ı `/rename` gibi uygulayan geri çağırım (yüzey bağlar).
+    title_sink: Callable[[str], None] | None = None
     #: Sürdürülen konuşmanın karakter boyu (SessionStart `resume` maliyet alanları).
     context_chars: Callable[[], int] | None = None
     _loaded: bool = False
@@ -406,6 +410,7 @@ class HookSession:
             self._pending_end = (self.session_id, reason)
         self.started = False
         self.ended = False
+        self.session_title = ""
         self.session_id = session_id or uuid.uuid4().hex
         if conversation_id is not None:
             self.conversation_id = conversation_id
@@ -437,7 +442,15 @@ class HookSession:
         )
         if verdict.reload_skills and self.skills_reloader is not None:
             self.skills_reloader()
+        if verdict.session_title and source in TITLE_SOURCES:
+            self.adopt_title(verdict.session_title)
         return verdict
+
+    def adopt_title(self, title: str) -> None:
+        """Kancanın `sessionTitle`'ı: `/rename` ile aynı etki (yüzey kaydeder)."""
+        self.session_title = title
+        if self.title_sink is not None:
+            self.title_sink(title)
 
     def _start_fields(self, source: str) -> dict[str, object]:
         """Claude girdisi: `source`, `model`, `agent_type` (`--agent`), `session_title`."""
@@ -464,8 +477,6 @@ class HookSession:
         verdict = await self.start()
         if verdict.context_text:
             self._start_context = context_reminder(HookEvent.SESSION_START, verdict.context_text)
-        if verdict.session_title:
-            self.session_title = verdict.session_title
         return verdict
 
     async def end(self, reason: str = "other") -> HookVerdict:

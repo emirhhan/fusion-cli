@@ -465,6 +465,7 @@ class ReplState:
                 source=source,
             )
             session.skills_reloader = self._reload_skills
+            session.title_sink = self._adopt_hook_title
             session.context_chars = lambda: sum(len(m.content or "") for m in self.history)
             self.hook_session = session
         session.root = self.root
@@ -476,7 +477,15 @@ class ReplState:
                 session_id=self.conversation_id,
                 conversation_id=self.conversation_id,
             )
+        if self.conversation_name:
+            session.session_title = self.conversation_name
         return session
+
+    def _adopt_hook_title(self, title: str) -> None:
+        """Kanca `sessionTitle` (#123): `/rename` gibi sohbete ad verir."""
+        from .session_resume import rename_command
+
+        rename_command(self, title)
 
     def _reload_skills(self) -> None:
         """SessionStart `reloadSkills` (#111): kanca kurduğu beceriler hemen görünsün."""
