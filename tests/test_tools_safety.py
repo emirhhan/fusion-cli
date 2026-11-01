@@ -240,10 +240,11 @@ def test_replace_all_onizlemesi_tum_degisiklikleri_gosterir(tmp_path):
 
 
 def test_uzun_kabuk_ciktisi_kirpildigini_soyler():
-    from fusion_cli.core.constants import MAX_OUTPUT_CHARS
+    from fusion_cli.tools.bash_settings import DEFAULT_OUTPUT_CHARS
     from fusion_cli.tools.shell import _combine
 
-    sonuc = _combine("x" * (MAX_OUTPUT_CHARS + 500), "")
+    # Claude Code'daki satır içi sınır (#357).
+    sonuc = _combine("x" * (DEFAULT_OUTPUT_CHARS + 500), "")
 
     assert "KIRPILDI" in sonuc
 

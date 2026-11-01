@@ -61,6 +61,13 @@ _LOG = logging.getLogger(__name__)
 
 #: `run_shell` argümanı: sandbox dışında çalıştırma isteği.
 UNSANDBOXED_ARG = "unsandboxed"
+#: Claude Code'daki parametre adı (#351); eski `unsandboxed` takma ad olarak okunur.
+DISABLE_SANDBOX_ARG = "dangerouslyDisableSandbox"
+
+
+def asks_unsandboxed(args: ToolArgs) -> bool:
+    """Çağrı sandbox dışında yeniden deneme istiyor mu (Claude adı ya da eski ad)?"""
+    return args.get(DISABLE_SANDBOX_ARG) is True or args.get(UNSANDBOXED_ARG) is True
 #: Prob planındaki sahte proxy soketi (açılmaz; yalnız "proxy gerekir" bilgisini taşır).
 _PROBE_SOCKET = Path(tempfile.gettempdir()) / "fusion-sandbox-prob" / "proxy.sock"
 OUTSIDE_REQUESTED = "istek"
@@ -109,7 +116,7 @@ def outside_reason(command: str, args: ToolArgs, context: ToolContext) -> str | 
     if getattr(context, "shell_sandbox", "off") != SHELL_SANDBOX_WRITE_ROOT:
         return None
     policy = getattr(context, "sandbox_policy", None) or SandboxPolicy()
-    if args.get(UNSANDBOXED_ARG) is True and policy.allow_unsandboxed:
+    if asks_unsandboxed(args) and policy.allow_unsandboxed:
         return OUTSIDE_REQUESTED
     if is_excluded_command(command, policy.excluded_commands):
         return OUTSIDE_EXCLUDED
@@ -142,9 +149,10 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
     run = SandboxRun(plan=SandboxPlan(), policy=policy, outside=outside)
     if mode != SHELL_SANDBOX_WRITE_ROOT or outside is not None:
         return run
-    if args.get(UNSANDBOXED_ARG) is True:
+    if asks_unsandboxed(args):
         run.notices.append(
-            "unsandboxed=true yok sayıldı: sandbox.allow_unsandboxed kapalı; komut sandbox içinde."
+            "dangerouslyDisableSandbox=true yok sayıldı: sandbox.allowUnsandboxedCommands "
+            "kapalı; komut sandbox içinde."
         )
     # Fusion Chrome'larının CDP portları her kipte kapalı (Seatbelt; proxy her bağlantıda bakar).
     policy = replace(policy, denied_local_ports=fusion_debug_ports())
@@ -318,7 +326,7 @@ def _denied_hint(policy: SandboxPolicy, stderr: str = "") -> str:
         )
     if policy.allow_unsandboxed:
         hint += (
-            " Gerçekten gerekiyorsa run_shell(unsandboxed=true) ile yeniden dene "
+            " Gerçekten gerekiyorsa run_shell(dangerouslyDisableSandbox=true) ile yeniden dene "
             "(kullanıcı onaylar)."
         )
     return hint

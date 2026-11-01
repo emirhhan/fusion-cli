@@ -245,7 +245,7 @@ def test_siradan_adlar_sir_sayilmaz(ad):
 def test_korumali_yola_yazma_reddi_modele_neden_ve_yol_soyler(proje):
     _git_init(proje)
     sonuc = shell.run_shell({"command": "git config user.name deneme"}, _context(proje))
-    assert not sonuc.ok and ".git/config" in sonuc.output and "unsandboxed=true" in sonuc.output
+    assert not sonuc.ok and ".git/config" in sonuc.output and "dangerouslyDisableSandbox=true" in sonuc.output
 
 
 # --- 6. gizlenen ortam adları notu ------------------------------------------ #

@@ -66,7 +66,7 @@ yok sayılır ve uyarılır.
   Neden: Fusion'ın `git` aracı sandbox dışında çalışır ve `core.fsmonitor`'u ya da hook'ları
   yürütür. `git add/commit/checkout/fetch` çalışır; `git init`, `git remote add`,
   `git push -u`, `git config` bu dosyalara yazdığı için sandbox içinde düşer — gerekirse
-  `unsandboxed=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
+  `dangerouslyDisableSandbox=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
 - **Okuma:** varsayılan okuma engeli her zaman uygulanır: `~/.ssh`, `~/.aws`, `~/.gnupg`,
   `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.password-store`, `~/Library/Keychains`, `~/.config/gh`,
@@ -138,10 +138,10 @@ geçerlidir; çalışan arka plan işi başladığı politikayla sürer.
 
 ## Sandbox dışında çalıştırma
 
-- Model gerektiğinde `run_shell(command=…, unsandboxed=true)` ister. Bu istek **her seferinde**
+- Model gerektiğinde `run_shell(command=…, dangerouslyDisableSandbox=true)` (eski ad `unsandboxed` de okunur) ister. Bu istek **her seferinde**
   ayrıca sorulur (Otomatik kipte de; "bu oturumda sorma" sunulmaz). Yalnız "İzinleri atla"
   kipi sormaz; plan kipi soru soramadığı için isteği **engeller** (salt okunur komutta da).
-  `sandbox.allow_unsandboxed: false` ise istek yok sayılır, komut sandbox içinde kalır.
+  `sandbox.allowUnsandboxedCommands: false` ise istek yok sayılır, komut sandbox içinde kalır.
 - `sandbox.excluded_commands: ["docker", "git push"]` önekleri her zaman sandbox dışında, normal
   onayla çalışır. Yalnız tek ve sade komut eşleşir: `docker ps && curl …` sandbox içinde kalır.
 
@@ -176,7 +176,7 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
 - macOS profili Seatbelt'in desteklenmeyen (ama sistemde hâlâ çalışan) arayüzüdür.
 - Allowlist kipinde Unix soketleri (Docker soketi, `ssh-agent`) ve DNS (mDNSResponder) kapalıdır;
   proxy kullanmayan araçlar ağa çıkamaz. Böyle komutlar için `excluded_commands` ya da
-  `unsandboxed=true` (onaylı) kullanın.
+  `dangerouslyDisableSandbox=true` (onaylı) kullanın.
 - Paket önbellekleri (`~/.npm`, `~/.cache`) `allow_write`'a eklenmedikçe yazılamaz.
 - **localhost ve yerel dinleyiciler:** ağ `open` iken ya da `allow_localhost: true` ile sandbox
   içindeki komut 127.0.0.1 portlarına (dev sunucusu, veritabanı) bağlanabilir. İstisna: Fusion'ın

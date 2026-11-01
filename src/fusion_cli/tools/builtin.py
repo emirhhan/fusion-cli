@@ -565,14 +565,15 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="run_shell",
-        description="Proje kökünde kabuk komutu (onaylı); test/lint/build ile doğrula. "
-        "120 sn'den uzun işi background=true ile başlat.",
+        description="Kökte kabuk komutu (onaylı); test/lint/build ile doğrula.",
         parameters=_schema(
             {
                 "command": _STRING,
-                "background": {"type": "boolean"},
-                # Sandbox dışı istek (P-010): her seferinde açık onay; açıklama bütçe için kısa.
-                "unsandboxed": {"type": "boolean", "description": "sandbox dışı (onaylı)"},
+                # Claude Code Bash parametreleri (#332, #351, #356); eski `background` /
+                # `unsandboxed` adları çalıştırıcıda takma ad olarak okunur.
+                "timeout": {**_INTEGER, "description": "ms (varsayılan 120000, en çok 600000)"},
+                "run_in_background": {"type": "boolean"},
+                "dangerouslyDisableSandbox": {"type": "boolean", "description": "sandbox dışı"},
                 "expected_outputs": {
                     "type": "array",
                     "items": _STRING,

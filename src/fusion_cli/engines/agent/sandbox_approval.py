@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 __all__ = ["SANDBOX_AUTO_ALLOWED", "SANDBOX_EXCLUDED", "SANDBOX_OUTSIDE", "apply_sandbox_policy"]
 
 SANDBOX_OUTSIDE = (
-    "sandbox DIŞINDA çalıştırma isteniyor (unsandboxed=true): yazma, okuma ve ağ sınırı "
+    "sandbox DIŞINDA çalıştırma isteniyor (dangerouslyDisableSandbox=true): yazma, okuma ve ağ sınırı "
     "olmadan çalışır; her seferinde sorulur"
 )
 SANDBOX_EXCLUDED = "sandbox dışı listesinde (sandbox.excluded_commands); sandbox'sız çalışır"

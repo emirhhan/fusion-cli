@@ -141,10 +141,18 @@ Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırı
 başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
 okunmadığı için orada `/bg` kullanılır.
 
+## Kabuk komutu ayarları (Claude Code Bash ile aynı)
+
+- `run_shell(timeout=<ms>)`: çağrı başına zaman aşımı. Varsayılan `BASH_DEFAULT_TIMEOUT_MS`
+  (120000), tavan `BASH_MAX_TIMEOUT_MS` (600000).
+- `run_shell(run_in_background=true)`: komut arka plan işi olur (eski ad `background` de okunur).
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` iken arka plan isteği yok sayılır, komut ön planda çalışır.
+- Satır içi çıktı sınırı 30.000 karakter; `BASH_MAX_OUTPUT_LENGTH` ile değişir.
+
 ## Bilinen sınırlar
 
 - Ajan tanımındaki `background: true` alanı, bekleme istense de ajanı arka planda tutar.
-- `/tasks` kabuk arka plan işlerini (`run_shell(background=true)`, `job_status`) listelemez.
+- `/tasks` kabuk arka plan işlerini (`run_shell(run_in_background=true)`, `job_status`) listelemez.
 - Çalışan görevin olay günlüğü (`olaylar.jsonl`) görev sürerken budanmaz; görev kaydı
   saklama süresi dolunca günlükleriyle birlikte silinir.
 - Masaüstü oturumu yalnız Ajanlar sekmesindeki panel açıkken (panel `arkaplan.durum`'u

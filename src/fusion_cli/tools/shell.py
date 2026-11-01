@@ -17,7 +17,6 @@ from ..config.paths import trash_dir
 from ..core.constants import (
     EXIT_CODE_PREFIX,
     GIT_TIMEOUT_S,
-    MAX_OUTPUT_CHARS,
     SHELL_TIMEOUT_S,
     truncate_notice,
 )
@@ -33,6 +32,7 @@ from ..core.workspace_fingerprint import (
 )
 from .args import require_str
 from .auto_policy import is_read_only_command
+from .bash_settings import output_limit, timeout_seconds, wants_background
 from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
 from .files import invented_path_reason
 from .job_delivery import prepare_outputs
@@ -98,7 +98,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     # önceki içeriği korur ama shell farkından otomatik geri alma yetkisi doğmaz.
     for path in backup_paths(command, context.root):
         context.changes.record(path)
-    if args.get("background") is True:
+    if wants_background(args):
         try:
             manifest = prepare_manifest(args, context.root)
             outputs = prepare_outputs(args, context.root)
@@ -129,13 +129,17 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         return replace(started, output=f"{started.output}{notes}") if notes else started
     run = prepare_sandbox(command, args, context)
     try:
-        return _run_foreground(command, context, run, integrity_error)
+        return _run_foreground(command, context, run, integrity_error, timeout_seconds(args))
     finally:
         release_sandbox(run)
 
 
 def _run_foreground(
-    command: str, context: ToolContext, run: SandboxRun, integrity_error: str | None
+    command: str,
+    context: ToolContext,
+    run: SandboxRun,
+    integrity_error: str | None,
+    timeout_s: float = SHELL_TIMEOUT_S,
 ) -> ToolResult:
     """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır)."""
     if run.plan.refused:
@@ -146,7 +150,7 @@ def _run_foreground(
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
         process = run_foreground(
             command,
-            timeout_s=SHELL_TIMEOUT_S,
+            timeout_s=timeout_s,
             cancelled=context.cancelled,
             cwd=context.root,
             env=sandbox_env(_shell_env(context), run),
@@ -155,7 +159,7 @@ def _run_foreground(
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
     except subprocess.TimeoutExpired as timeout:
-        return ToolResult.failure(_timeout_message(timeout))
+        return ToolResult.failure(_timeout_message(timeout, timeout_s))
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
@@ -271,7 +275,7 @@ def _shell_env(context: ToolContext) -> dict[str, str]:
     return {name: value for name, value in php_env().items() if name not in context.hidden_env}
 
 
-def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
+def _timeout_message(timeout: subprocess.TimeoutExpired, timeout_s: float = SHELL_TIMEOUT_S) -> str:
     """Zaman aşımını ELDE OLAN kanıtla anlat.
 
     Ölçüldü: model `npm run start:all` çalıştırdı — üç servisi birlikte ayağa
@@ -286,10 +290,11 @@ def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
     """
     partial = _combine(_as_text(timeout.output), _as_text(timeout.stderr)).strip()
     lead = (
-        f"Komut {SHELL_TIMEOUT_S:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
+        f"Komut {timeout_s:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
         "süreç (dev sunucusu, izleyici) olabilir: böyle bir komut zaten hiç bitmez.\n"
         "Yapılacak: aynı komutu tekrar çalıştırma (ön planda). Uzun ama BİTEN bir iş "
-        "(npm install, render, build, export) ise run_shell(command=..., background=true) "
+        "(npm install, render, build, export) ise run_shell(command=..., "
+        "run_in_background=true) "
         "ile arka planda başlat ve job_status(id, wait_s) ile bekle. Hiç bitmeyen bir "
         "sunucuysa (dev sunucusu) start_preview kullan ya da arka planda başlatıp "
         "doğrulama için biten bir komut (build, test, lint) çalıştır."
@@ -341,4 +346,4 @@ def _combine(stdout: str, stderr: str) -> str:
     text = stdout or ""
     if stderr:
         text += f"\n[stderr]\n{stderr}"
-    return truncate_notice(text, MAX_OUTPUT_CHARS, ne="komut çıktısı")
+    return truncate_notice(text, output_limit(), ne="komut çıktısı")
