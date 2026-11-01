@@ -34,7 +34,8 @@ class ChoiceSearch:
         return [
             choice
             for choice in self._all
-            if needle in f"{choice.label} {choice.description} {choice.value}".casefold()
+            if needle
+            in f"{choice.label} {choice.description} {choice.value} {choice.keywords}".casefold()
         ]
 
     def starts_search(self, char: str) -> bool:
@@ -42,7 +43,9 @@ class ChoiceSearch:
         return len(char) == 1 and char.isprintable() and char not in _NAVIGATION
 
     def type(self, char: str) -> bool:
-        """Karakteri işle; liste değiştiyse True."""
+        """Karakteri işle; liste değiştiyse True. Çok karakterli girdi yapıştırmadır."""
+        if len(char) > 1:
+            return self._paste(char)
         if not self.active:
             if not self.starts_search(char):
                 return False
@@ -52,6 +55,14 @@ class ChoiceSearch:
             self.query = f"{self.query}{char}"
             return True
         return False
+
+    def _paste(self, text: str) -> bool:
+        """Claude Code: yapıştırmanın ilk karakteri arama kipini açar; metin tek satıra iner."""
+        cleaned = " ".join(text.split())
+        if not cleaned or not cleaned.isprintable():
+            return False
+        self.query = f"{self.query or ''}{cleaned}"
+        return True
 
     def backspace(self) -> bool:
         if not self.query:

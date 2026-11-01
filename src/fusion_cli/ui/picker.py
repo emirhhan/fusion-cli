@@ -78,6 +78,8 @@ class Choice:
     label: str
     #: Adın yanında sönük yazılan açıklama. Boş olabilir.
     description: str = ""
+    #: Satırda görünmeyen ama aramada eşleşen metin (ör. oturumun PR adresi, #202).
+    keywords: str = ""
 
 
 def pick(
@@ -341,7 +343,11 @@ class SearchView:
             if search.backspace():
                 self._refresh(state)
 
+        from prompt_toolkit.keys import Keys
+
         bindings.add("<any>")(_char)
+        # Yapıştırma tek olaydır (Claude Code: PR adresi yapıştırmak aramayı açar).
+        bindings.add(Keys.BracketedPaste)(_char)
         bindings.add("backspace")(_back)
 
 

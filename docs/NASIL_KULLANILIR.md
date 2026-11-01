@@ -321,7 +321,8 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 - Oturum seçicisi (`/resume`, argümansız `fusion --resume`) Claude Code tuşlarıyla gezilir: Up/Down,
   J/K, Home/End, 1-9 doğrudan seçer; `/` ya da yazdırılabilir karakter arama kipine geçip listeyi
   ad/açıklamaya göre süzer, Backspace siler, ilk Esc aramadan çıkar, ikincisi seçiciyi kapatır (tam
-  ekran ve satır içi). Satırda zaman, git dalı, boyut ve mesaj sayısı görünür. Space oturumun son
+  ekran ve satır içi). PR adresini yapıştırmak (ilk karakter aramayı açar) o PR'a bağlı oturumu
+  bulur; adres satırda görünmez. Satırda zaman, git dalı, boyut ve mesaj sayısı görünür. Space oturumun son
   mesajlarını önizler, Ctrl+R yeniden adlandırır, Ctrl+W bütün çalışma ağaçlarının, Ctrl+A bütün
   projelerin oturumlarını gösterir, Ctrl+B yalnız geçerli git dalının oturumlarını bırakır;
   varsayılan liste geçerli dizinin (çalışma ağacının) oturumlarıdır. Dal ve dizin her kullanıcı

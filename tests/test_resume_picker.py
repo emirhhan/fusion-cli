@@ -159,3 +159,22 @@ def test_dallar_kok_oturumun_altinda_gruplanir(ortam) -> None:
     assert [row.ref.conversation_id for row in found] == ["s-yeni", "s-kok", "s-dal"]
     labels = {c.value: c.label for c in resume_picker.choices(found)}
     assert labels["s-dal"].startswith("  ↳ ") and not labels["s-kok"].startswith(" ")
+
+
+def test_pr_adresi_yapistirilinca_o_pr_a_bagli_oturum_suzulur(ortam) -> None:
+    # Claude Code: /resume seçicisine PR adresi yapıştırılır; ilk karakter arama kipini açar,
+    # liste o PR'ı açan oturuma süzülür (başlıkta PR geçmese de).
+    from fusion_cli.cli.repl import linked_pr
+    from fusion_cli.core.pull_request import PullRequestLink
+    from fusion_cli.ui.choice_search import ChoiceSearch
+
+    memory, root = ortam
+    _sohbet(memory, root, "s-1", "giriş hatası")
+    _sohbet(memory, root, "s-2", "readme")
+    url = "https://github.com/o/r/pull/12"
+    linked_pr.save(memory, "s-1", PullRequestLink("o/r", 12, url))
+    choices = resume_picker.choices(resume_picker.rows(memory, root, resume_picker.PickerView()))
+    assert all(url not in f"{c.label} {c.description}" for c in choices)  # satırda görünmez
+    arama = ChoiceSearch(choices)
+    assert arama.type(url) and arama.active  # yapıştırma tek parça gelir
+    assert [c.value for c in arama.visible()] == ["s-1"]

@@ -2,7 +2,8 @@
 
 Claude Code: satırda zaman, git dalı ve boyut görünür; Space önizler, Ctrl+R yeniden adlandırır,
 Ctrl+A bütün projeleri, Ctrl+W bütün çalışma ağaçlarını gösterir, Ctrl+B yalnız geçerli dalın
-oturumlarını bırakır; `/` ya da yazmak arar (`ChoiceSearch`), 1-9 doğrudan seçer. Varsayılan
+oturumlarını bırakır; `/` ya da yazmak arar (`ChoiceSearch`; PR adresi yapıştırmak o PR'a
+bağlı oturumu bulur), 1-9 doğrudan seçer. Varsayılan
 liste geçerli çalışma ağacının (dizinin) oturumlarıdır. Yüzeyden bağımsız durum ve satırlar
 burada; seçiciyi TUI (`FusionTui.await_choice`) ya da satır içi `ui.picker.pick` sürer.
 """
@@ -18,6 +19,7 @@ from pathlib import Path
 from ...core.redaction import redact
 from ...ui import messages
 from ...ui.picker import Choice
+from . import linked_pr
 from .resume_lookup import _other_projects
 from .transcript_store import (
     _NAME_EVENT,
@@ -61,6 +63,13 @@ class PickerView:
 class Row:
     ref: ConversationRef
     events_path: Path
+    #: Oturuma bağlı PR adresi (`linked_pr`); aramada eşleşir, satırda görünmez.
+    pr_url: str = ""
+
+
+def _pr_url(memory_dir: Path, conversation_id: str) -> str:
+    link = linked_pr.load(memory_dir, conversation_id)
+    return link.url if link is not None else ""
 
 
 def rows(memory_dir: Path, root: Path, view: PickerView) -> list[Row]:
@@ -68,7 +77,7 @@ def rows(memory_dir: Path, root: Path, view: PickerView) -> list[Row]:
     current = transcript_events_path(memory_dir, root)
     paths = [current, *(_other_projects(memory_dir, root) if view.all_projects else ())]
     found = [
-        Row(ref, path)
+        Row(ref, path, _pr_url(memory_dir, ref.conversation_id))
         for path in paths
         for ref in list_conversations(memory_dir, root, events_path=path)
     ]
@@ -141,6 +150,7 @@ def choices(found: list[Row]) -> list[Choice]:
                 if is_branch(row, found)
                 else ref.title,
                 messages.SESSION_PICKER_DETAIL.format(detail=detail, count=ref.message_count),
+                keywords=row.pr_url,
             )
         )
     return result
