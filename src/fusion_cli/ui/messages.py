@@ -460,6 +460,7 @@ WELCOME_GREETING = "hoş geldin"
 WELCOME_FIELD_ENGINE = "motor"
 WELCOME_FIELD_APPROVAL = "onay"
 WELCOME_FIELD_MODEL = "model"
+WELCOME_FIELD_AGENT = "ajan"
 WELCOME_FIELD_DIR = "dizin"
 WELCOME_FIELD_MEMORY = "bellek"
 WELCOME_MEMORY_ON = "açık · {count} ders"
@@ -1417,6 +1418,9 @@ MENTION_FILE_BLOCK = (
 MENTION_DIR_BLOCK = PREFIX_UNTRUSTED_NOTE + "\n[Kullanıcının andığı dizin: {path}]\n{listing}"
 MENTION_TRUNCATED = " (ilk {limit} karakter)"
 MENTION_ADDED = "@{path} bağlama eklendi"
+SESSION_AGENT_MISSING = (
+    "Bu oturumun ajanı '{name}' artık bulunamıyor; varsayılan araçlarla devam ediliyor."
+)
 AGENT_MENTION_ADDED = "@agent-{name}: bu tur {name} alt ajanını çalıştırır"
 AGENT_MENTION_UNKNOWN = "@agent-{name}: böyle bir alt ajan yok"
 AGENT_MENTION_BLOCK = (

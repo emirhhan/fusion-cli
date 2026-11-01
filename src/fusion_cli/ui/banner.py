@@ -58,6 +58,8 @@ class SessionInfo:
     working_dir: str
     #: Bellek açıksa ders sayısı, kapalıysa None.
     lesson_count: int | None
+    #: Oturum ajanı (`--agent`, `agent` ayarı); Claude Code başlıkta `@<ad>` gösterir.
+    agent: str = ""
 
 
 def gradient(text: str, start: str | None = None, end: str | None = None) -> Text:
@@ -234,6 +236,8 @@ def _facts_line(info: SessionInfo) -> Text:
         (messages.WELCOME_FIELD_MEMORY, _memory_text(info.lesson_count), theme.OK),
         (messages.WELCOME_FIELD_DIR, info.working_dir, theme.DIM),
     ]
+    if info.agent:
+        fields.insert(0, (messages.WELCOME_FIELD_AGENT, f"@{info.agent}", theme.ACCENT))
     line = Text()
     for index, (label, value, color) in enumerate(fields):
         if index:

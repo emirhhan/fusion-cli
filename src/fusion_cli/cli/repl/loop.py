@@ -92,6 +92,7 @@ from . import (
     plan_card,
     prefixes,
     remote_control,
+    session_agent,
     session_resume,
     status_line,
     view_commands,
@@ -185,10 +186,20 @@ async def run_repl(
     )
     # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
     state.usage_log = open_usage_log(config)
+    restored_note = ""
     if resume is not None:
         session_resume.apply_target(state, resume)
+        if not persona.strip():
+            # Claude Code: sürdürülen oturum kendi ajanıyla açılır (#16).
+            restored_note = session_agent.restore(state)
+            if restored_note:
+                console.print(f"[{theme.WARN}]{escape(restored_note)}[/{theme.WARN}]")
     try:
-        requested_persona = persona.strip() or config.agent_launch.default_agent
+        requested_persona = persona.strip() or (
+            ""
+            if resume is not None and (state.persona or restored_note)
+            else config.agent_launch.default_agent
+        )
         if requested_persona:
             notice = persona_commands.persona(state, requested_persona)
             if state.persona is None:
@@ -1106,6 +1117,7 @@ def session_info(state: ReplState) -> banner.SessionInfo:
         model=state.config.agent.model,
         working_dir=_short_path(state.root),
         lesson_count=state.memory.lessons.count() if state.memory.enabled else None,
+        agent=state.persona.name if state.persona is not None else "",
     )
 
 

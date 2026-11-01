@@ -461,6 +461,10 @@ değişkeni Claude Code'daki gibi okumaz.
   `fusion agent "şunu bul" --agent Explore` → tek atış.
 - Proje varsayılanı: `.claude/settings.json` içinde `{"agent": "kod-denetci"}`; `--agent`
   bayrağı ayarı ezer.
+- Seçilen ajan sohbete bağlanır (`<bellek>/oturum-ajan/<sohbet>.json`): `fusion --resume` /
+  `/resume` sohbeti araç kısıtları ve modeliyle aynı ajanla açar; ajan artık yoksa uyarı verip
+  varsayılan araçlarla devam eder. Karşılama kutusunda ajan `@<ad>` olarak görünür.
+  **Henüz yok:** masaüstünde sohbet değiştirince ajan geri yüklenmez.
 - Oturumluk tanım: `fusion --agents '{"denetci": {"description": "Kodu inceler", "prompt": "..."}}'`
   (dosya yazılmaz, en fazla 128 KiB). Aynı ad için öncelik: yönetilen (`agent_launch.managed_agent_roots`)
   > `--agents` > proje `.claude/agents` (çalışma dizinine en yakın) > `~/.claude/agents` > eklenti;

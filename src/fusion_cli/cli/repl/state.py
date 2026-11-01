@@ -291,6 +291,11 @@ class ReplState:
         except ConfigError:
             self.persona = previous
             raise
+        from . import session_agent
+
+        session_agent.save(
+            self.config.memory_dir, self.conversation_id, persona.name if persona else ""
+        )
 
     def prepare_persona_config(self) -> None:
         """Kişilik ayarlarını seçimde uygula; sonraki model/efor/MCP tercihini koru."""

@@ -176,7 +176,14 @@ def resume_command(state: ReplState, argument: str) -> str:
         state.config.memory_dir, state.root, conversation_id=ref.conversation_id
     )
     apply_target(state, ResumeTarget(ref.conversation_id, tuple(history), ref.title, name=ref.name))
-    return messages.SESSION_RESUMED.format(title=ref.title, count=len(history))
+    from . import session_agent
+
+    if session_agent.load(state.config.memory_dir, state.conversation_id):
+        note = session_agent.restore(state)
+    else:
+        note = ""
+    resumed = messages.SESSION_RESUMED.format(title=ref.title, count=len(history))
+    return f"{resumed}\n{note}" if note else resumed
 
 
 def rename_command(state: ReplState, argument: str) -> str:
