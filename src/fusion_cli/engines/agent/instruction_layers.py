@@ -161,6 +161,8 @@ class InstructionFile:
     chars: int
     trimmed: int
     trusted: bool
+    #: `@import` ile gelen dosyada onu içe aktaran dosya (`InstructionsLoaded`).
+    parent: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,7 +344,9 @@ def _follow_imports(
         note = TRUSTED_NOTE if trusted else UNTRUSTED_NOTE
         ek = TRIM_NOTE if trimmed else ""
         budget.blocks.append(f'<{tag} kaynak="{label}">\n{note}\n{neutralize(text)}{ek}\n</{tag}>')
-        budget.files.append(InstructionFile(label, resolved, "import", len(text), trimmed, trusted))
+        budget.files.append(
+            InstructionFile(label, resolved, "import", len(text), trimmed, trusted, origin)
+        )
         _follow_imports(budget, text, origin=resolved, base=base, trusted=trusted, depth=depth + 1)
 
 

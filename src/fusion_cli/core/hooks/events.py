@@ -40,6 +40,7 @@ class HookEvent(Enum):
     PERMISSION_REQUEST = "PermissionRequest"
     STOP_FAILURE = "StopFailure"
     POST_TOOL_BATCH = "PostToolBatch"
+    INSTRUCTIONS_LOADED = "InstructionsLoaded"
 
 
 #: Olay başına eşleştiricinin (`matcher`) neye bakacağı; `None` = eşleştirici yok sayılır.
@@ -62,6 +63,9 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.TEAMMATE_IDLE: None,
     HookEvent.PERMISSION_REQUEST: "araç adı",
     HookEvent.POST_TOOL_BATCH: None,
+    HookEvent.INSTRUCTIONS_LOADED: (
+        "yükleme nedeni (session_start|nested_traversal|path_glob_match|include|compact)"
+    ),
     HookEvent.STOP_FAILURE: "hata türü (rate_limit|authentication_failed|server_error|…)",
 }
 
@@ -97,7 +101,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "UserPromptExpansion",
         "PermissionDenied",
         "MessageDisplay",
-        "InstructionsLoaded",
         "ConfigChange",
         "DirectoryAdded",
         "FileChanged",

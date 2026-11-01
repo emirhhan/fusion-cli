@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -109,6 +109,9 @@ class HookSession:
     tool_existed: dict[str, bool] = field(default_factory=dict)
     #: `asyncRewake` kancalarının bir sonraki tura bıraktığı metinler.
     rewake_notes: list[str] = field(default_factory=list)
+    #: `InstructionsLoaded` bildirilmiş talimat dosyaları ve sıradaki yükleme nedeni.
+    instructions_seen: set[str] = field(default_factory=set)
+    instructions_reason: str = "session_start"
     _loaded: bool = False
     #: Açılışta çalışmış SessionStart'ın henüz istemle birleşmemiş bağlamı.
     _start_context: str = ""
@@ -290,6 +293,19 @@ class HookSession:
         self._background.add(task)
         task.add_done_callback(self._background.discard)
 
+    def spawn(self, work: Callable[[], Awaitable[object]]) -> None:
+        """Beklenmeyen (gözlem) kanca çalıştırması; çalışan döngü yoksa atlanır."""
+
+        async def _run() -> None:
+            await work()
+
+        try:
+            task = asyncio.get_running_loop().create_task(_run())
+        except RuntimeError:
+            return
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
     def take_rewake_notes(self) -> tuple[str, ...]:
         notes, self.rewake_notes = tuple(self.rewake_notes), []
         return notes
@@ -464,7 +480,12 @@ class HookSession:
         )
 
     async def compacted(self) -> HookVerdict:
-        """`SessionStart(source: compact)`: bağlam özetlendi (oturum yaşam döngüsü değişmez)."""
+        """`SessionStart(source: compact)`: bağlam özetlendi (oturum yaşam döngüsü değişmez).
+
+        Talimatlar yeniden yüklenir: sonraki `InstructionsLoaded` `compact` nedenlidir.
+        """
+        self.instructions_seen.clear()
+        self.instructions_reason = "compact"
         return await self.emit(
             HookEvent.SESSION_START, subjects=(COMPACT_SOURCE,), fields={"source": COMPACT_SOURCE}
         )

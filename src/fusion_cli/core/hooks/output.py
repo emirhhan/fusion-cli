@@ -30,7 +30,7 @@ DISCARDS_CONTINUE = DISCARDS_SYSTEM_MESSAGE | frozenset(
     {HookEvent.CWD_CHANGED, HookEvent.TASK_CREATED}
 )
 #: JSON alanlarının TAMAMI atılan olaylar (SessionEnd karar denetimi yoktur).
-DISCARDS_ALL_JSON = frozenset({HookEvent.SESSION_END})
+DISCARDS_ALL_JSON = frozenset({HookEvent.SESSION_END, HookEvent.INSTRUCTIONS_LOADED})
 #: Çıkış kodu ve stderr'i yok sayılan olaylar (Notification hataları kullanıcıya basılmaz).
 IGNORES_EXIT_CODE = frozenset({HookEvent.NOTIFICATION, HookEvent.STOP_FAILURE})
 

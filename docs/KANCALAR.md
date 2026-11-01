@@ -66,6 +66,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
 | `PostCompact` | bağlam özetlendikten sonra | `manual`, `auto` | — |
 | `CwdChanged` | `/cd` oturum kökünü değiştirince | — | — |
+| `InstructionsLoaded` | `CLAUDE.md`/`AGENTS.md`, `CLAUDE.local.md`, `@import` ya da `.claude/rules/*.md` bağlama ilk girince (dosya başına oturumda bir kez; girdi `file_path`, `memory_type`, `load_reason`, `globs`, `trigger_file_path`, `parent_file_path`) | `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact` | — (beklenmez; JSON çıktısı yok sayılır) |
 | `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
 | `TaskCompleted` | ekip üyesi görevi "tamam" yapmadan önce | — | görev üyede kalır, gerekçe üyeye |
 | `TeammateIdle` | ekip üyesi boşa düşmeden önce | — | üye gerekçeyle yeniden koşar |
@@ -242,7 +243,7 @@ Tanımlar her kök turun başında yeniden okunur.
   kurulmadığı için engellemeyen hata verir; ilk turdan sonra çalışır.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - Olaylar: `Setup`, `UserPromptExpansion`, `PermissionDenied`,
-  `MessageDisplay`, `InstructionsLoaded`, `ConfigChange`,
+  `MessageDisplay`, `ConfigChange`,
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
   `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").
