@@ -9,6 +9,7 @@ from ...config.hooks import load_hooks
 from ...config.models import Config, mcp_secret_env_names
 from ...core.hooks.events import HookSet
 from .session import HookSession
+from .terminal import tty_writer
 from .transcript import HOOK_TRANSCRIPT_DIR
 
 
@@ -53,6 +54,7 @@ def open_hook_session(
         project_dir=root,
         effort=lambda: str(getattr(_config().runtime.reasoning_effort, "value", "auto")),
         interactive=interactive,
+        terminal_writer=tty_writer() if interactive else None,
     )
     if session_id:
         session.session_id = session_id

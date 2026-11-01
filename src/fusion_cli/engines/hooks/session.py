@@ -84,6 +84,8 @@ class HookSession:
     effort: Callable[[], str] | None = None
     #: Etkileşimli oturum mu? (`-p`'de `defer`, terminal dizisi ve güven kuralı farklı.)
     interactive: bool = True
+    #: `terminalSequence` yazıcısı (yalnız gerçek terminalde kurulur; `terminal.tty_writer`).
+    terminal_writer: Callable[[str], None] | None = None
     #: Tur kimliği (`prompt_id`): her kök istemde yenilenir.
     prompt_id: str = ""
     #: Kancanın verdiği oturum başlığı (`sessionTitle`).
@@ -217,7 +219,16 @@ class HookSession:
             dispatch.apply_on_failure(event, run, verdict_from_run(event, run, subject))
             for run in runs
         ]
-        return spill_verdict(merge_verdicts(verdicts), self._output_dir())
+        verdict = spill_verdict(merge_verdicts(verdicts), self._output_dir())
+        self._write_terminal(verdict)
+        return verdict
+
+    def _write_terminal(self, verdict: HookVerdict) -> None:
+        """İzinli `terminalSequence` dizileri: yalnız etkileşimli oturumda (Claude `-p`'de yok)."""
+        if not self.interactive or self.terminal_writer is None:
+            return
+        for sequence in verdict.terminal_sequences:
+            self.terminal_writer(sequence)
 
     def _run_background(
         self,

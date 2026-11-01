@@ -150,7 +150,9 @@ komutu (`run_shell`, arka plan dahil) dosyayı komuttan önce kabuk kodu olarak 
   yanlış `hookSpecificOutput` şema hatasıdır: engellemez, bağlama eklenmez.
 
 JSON alanları: `continue: false` + `stopReason`, `systemMessage`, `terminalSequence`
-(izinli OSC 0/1/2/9/99/777 ve BEL; başka dizi alanı geçersiz kılar), `decision: "block"` +
+(izinli OSC 0/1/2/9/99/777 ve BEL; başka dizi alanı geçersiz kılar; dizi yalnız
+etkileşimli oturumda ve çıktı gerçek bir terminalse basılır, `-p`'de ve masaüstünde yok
+sayılır), `decision: "block"` +
 `reason`, `hookSpecificOutput` (`hookEventName` zorunlu) içinde `additionalContext`.
 `PreToolUse`: `permissionDecision` (`allow` | `deny` | `ask` | `defer`; öncelik deny > defer >
 ask > allow), `permissionDecisionReason` (`ask`'ta onay kartında, `deny`'de modele),
@@ -220,8 +222,8 @@ Tanımlar her kök turun başında yeniden okunur.
 - Eklenti `hooks/hooks.json` ve beceri frontmatter kancaları çalıştırılmaz (ajan
   frontmatter kancaları çalışır: alt ajanda `Stop` → `SubagentStop`).
 - Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);
-  `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması,
-  `terminalSequence`'in terminale basılması yok (alanlar okunur).
+  `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması yok
+  (alanlar okunur).
 - `CwdChanged` yalnız `/cd` ile tetiklenir (kabuk aracındaki `cd` ile değil).
 - `transcript_path` kanca için üretilen ayrı, maskeli JSONL'dir (oturum bitince silinir).
 - `/hooks` etkileşimli tarayıcı ("All events") yok; düz liste.
