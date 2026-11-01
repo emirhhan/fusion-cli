@@ -66,15 +66,34 @@ def test_erisim_sonrasi_katalog_buyur_ve_duyuru_bir_kez_duser(tmp_path: Path):
     assert registry.with_extra_roots(()).get_skill("alt-becerisi") is not None
 
 
-def test_ayni_adda_kok_becerisi_kazanir(tmp_path: Path):
+def test_ayni_adda_ikisi_de_kalir_ic_ice_dizin_nitelikli(tmp_path: Path):
+    """Claude Code (#158): `/ortak` kök beceri, `/paket:ortak` iç içe beceri."""
     kok = tmp_path
     _skill(kok / ".claude" / "skills", "ortak", description="kökteki")
     _skill(kok / "paket" / ".claude" / "skills", "ortak", description="paketteki")
     (kok / "paket" / "a.py").write_text("", "utf-8")
     registry = CapabilityRegistry(tmp_path / "ev", kok)
 
-    assert discover_nested_skills(registry, kok, (kok / "paket" / "a.py",)) is None
+    note = discover_nested_skills(registry, kok, (kok / "paket" / "a.py",))
+    assert note is not None and "paket:ortak" in note.content
     assert registry.get_skill("ortak").description == "kökteki"  # type: ignore[union-attr]
+    nested = registry.get_skill("paket:ortak")
+    assert nested is not None and "paket/" in nested.description and "paketteki" in nested.description
+
+
+def test_ust_dizin_becerileri_depo_kokune_kadar_yuklenir(tmp_path: Path):
+    """Claude Code (#158): `packages/frontend`'de başlasa da kökün becerileri gelir."""
+    depo = tmp_path / "depo"
+    (depo / ".git").mkdir(parents=True)
+    _skill(depo / ".claude" / "skills", "kok-becerisi", description="kök")
+    _skill(tmp_path / ".claude" / "skills", "depo-disi", description="dış")
+    baslangic = depo / "packages" / "frontend"
+    baslangic.mkdir(parents=True)
+
+    registry = CapabilityRegistry(tmp_path / "ev", baslangic)
+
+    assert registry.get_skill("kok-becerisi") is not None
+    assert registry.get_skill("depo-disi") is None
 
 
 async def test_dongu_alt_paket_okumasindan_sonra_beceriyi_duyurur(monkeypatch, tmp_path: Path):

@@ -40,6 +40,7 @@ def skill_roots(
     installed: Path,
     bundled: Path,
     nested: tuple[Path, ...] = (),
+    ancestors: tuple[Path, ...] = (),
 ) -> Roots:
     """SKILL.md aranan kökler ve kaynak etiketleri, öncelik sırasıyla.
 
@@ -53,6 +54,8 @@ def skill_roots(
         (root / ".fusion" / "skills", "proje"),
         # Codex/ChatGPT "Agent Skills" açık standardı: ~/.agents/skills ve depo .agents/skills.
         (root / ".agents" / "skills", "proje"),
+        # Claude Code (#158): başlangıç dizininden depo köküne kadar her üst dizin.
+        *((folder, "proje") for folder in ancestors),
         *((folder, "proje") for folder in nested),
         (home / ".codex" / "skills", "codex"),
         (home / ".agents" / "skills", "codex"),
@@ -168,3 +171,22 @@ def roots_signature(
 
 #: İçeriği izlenen ajan kapsamları: kullanıcı, proje, yönetilen ve `--add-dir` kökleri.
 _WATCHED_AGENT_SOURCES = frozenset({"claude", "proje", "managed", "ek-kok"})
+
+
+def ancestor_skill_dirs(root: Path) -> tuple[Path, ...]:
+    """Başlangıç dizininin üstlerinden depo köküne (dahil) `.claude/skills` dizinleri (#158).
+
+    Belge (skills, "Load skills in monorepos and subdirectories"): proje becerileri başlangıç
+    dizininde ve depo köküne kadar her üst dizinde yüklenir. Depo dışında üst dizin taranmaz.
+    """
+    try:
+        start = root.resolve()
+    except OSError:
+        return ()
+    chain: list[Path] = []
+    for parent in start.parents:
+        chain.append(parent / ".claude" / "skills")
+        if (parent / ".git").exists():
+            return tuple(chain)
+    return ()
+

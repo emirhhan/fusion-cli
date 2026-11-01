@@ -23,7 +23,7 @@ import functools
 import hashlib
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..config.models import McpServerConfig, SkillVisibility
@@ -43,7 +43,7 @@ from .agent_file_rules import agent_file_problem, log_skipped
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
 from .capability_overrides import apply_overrides
-from .capability_roots import agent_roots, roots_signature, skill_roots
+from .capability_roots import agent_roots, ancestor_skill_dirs, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
@@ -512,6 +512,7 @@ class CapabilityRegistry:
             installed=capabilities_dir(),
             bundled=bundled_skills_dir(),
             nested=self._nested_roots,
+            ancestors=ancestor_skill_dirs(self._root),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -546,8 +547,9 @@ class CapabilityRegistry:
                 if root in self._nested_roots and any(
                     item.name == capability.name for item in found.values()
                 ):
-                    # Alt paket becerisi kök/kullanıcı becerisini belirsizleştirmez (P-052).
-                    continue
+                    # Claude Code (#158): ikisi de kalır; `/ad` kök beceriyi, `/<dizin>:ad`
+                    # iç içe olanı çalıştırır, açıklaması uygulandığı dizini söyler.
+                    capability = qualify_nested(capability, root, self._root)
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)
@@ -751,6 +753,17 @@ def _read_head(path: Path, limit: int | None = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
+
+
+def qualify_nested(capability: Capability, folder: Path, root: Path) -> Capability:
+    """Aynı adlı iç içe beceriyi `<dizin>:<ad>` adıyla ve dizinini anan açıklamayla sun (#158)."""
+    owner = folder.parent.parent  # <dizin>/.claude/skills → <dizin>
+    try:
+        prefix = owner.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        prefix = owner.name
+    description = f"{prefix}/ altındaki dosyalar için. {capability.description}".strip()
+    return replace(capability, name=f"{prefix}:{capability.name}", description=description)
 
 
 def _select(
