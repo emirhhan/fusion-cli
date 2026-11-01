@@ -51,7 +51,7 @@ async def run_hook(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
-            env=dict(environment),
+            env={**environment, **dict(command.env)},
             start_new_session=posix,
         )
     except OSError as error:

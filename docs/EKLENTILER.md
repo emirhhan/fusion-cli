@@ -18,13 +18,27 @@ benim-eklentim/
   .mcp.json                    MCP sunucuları (süreç başlatır)
 ```
 
-- `plugin.json` `commands`, `agents`, `skills`, `outputStyles` alanlarıyla ek yol verebilir (varsayılanı
-  tamamlar); `hooks` ve `mcpServers` dosya yolu ya da satır içi nesne olabilir. Yollar eklenti kökü
-  dışına çıkamaz. `.fusion-plugin/plugin.json` de okunur. Tanınmayan alanlar (ör. `lspServers`)
-  uyarı olur.
-- `${CLAUDE_PLUGIN_ROOT}` (ya da `${FUSION_PLUGIN_ROOT}`) eklentinin kurulu klasörüne çözülür:
-  kanca ve MCP tanımlarında, komut/beceri gövdesinde (`/eklenti:komut`, `read_skill`) ve alt ajan
-  isteminde.
+- Yol kuralları Claude Code ile aynıdır: her bileşen yolu `./` ile başlar (`skills` ayrıca `.`/`./`
+  ile eklenti kökünü alır) ve kök dışına çıkamaz. `commands`, `agents`, `outputStyles` varsayılan
+  klasörün **yerine** geçer (klasör varsa "Varsayılan commands/ klasörü yok sayıldı" uyarısı);
+  `skills` varsayılana eklenir; `hooks` ve `mcpServers` varsayılan dosyayla birleşir.
+- `commands` düz `.md` dosyası, klasör ya da `{ad: {source|content, description, argumentHint}}`
+  haritası; `agents` yalnız `.md` dosyaları; `outputStyles` dosya ya da klasör; `hooks`/`mcpServers`
+  dosya, satır içi nesne ya da ikisini karıştıran dizi alır. `skills/` ve `skills` anahtarı yoksa
+  kökteki `SKILL.md` tek beceri olarak yüklenir. Var olmayan yol "yol bulunamadı" hatasıdır.
+- Aynı eklentide aynı adlı MCP sunucusu birden çok kez tanımlanırsa sonraki öncekinin yerine geçer.
+- Ad kuralı: boş olmayan, boşluk, `@`, `:`, yol ayırıcı ve denetim karakteri içermeyen ad (büyük
+  harf serbest); kebab-case dışı ad ve Anthropic'e benzeyen ad doğrulamada uyarı, `claude-…`,
+  `anthropic-…` gibi ayrılmış adlar hatadır. Tanınan alanlar Claude'un `plugin.json` alan tablosudur
+  (`displayName`, `defaultEnabled`, `dependencies`, `userConfig`, `lspServers`… uyarı vermez); gerçekten
+  bilinmeyen üst düzey alan atılır ve uyarı olur.
+- Eski Fusion adları bir sürüm boyunca kullanımdan kalkmış takma addır ve uyarı verir:
+  `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
+  (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).
+- `${CLAUDE_PLUGIN_ROOT}` eklentinin kurulu klasörüne, `${CLAUDE_PLUGIN_DATA}` güncellemelerde korunan
+  kalıcı veri klasörüne (`<veri>/eklentiler/.veri/<id>/`, ilk başvuruda oluşur),
+  `${CLAUDE_PROJECT_DIR}` proje köküne çözülür: kanca ve MCP tanımlarında, komut/beceri/ajan
+  gövdesinde.
 - Bütün adlar eklenti adıyla öneklenir: üçüncü taraf bir eklenti kendi `ozet` becerini gölgeleyemez.
   **Claude Code'dan sapma:** eklenti beceri/komutlarında `` !`komut` `` bağlamı çalıştırılmaz
   (yerinde "komut çalıştırılmadı" notu kalır).
@@ -35,10 +49,25 @@ benim-eklentim/
   Authorization dışı başlık…) uyarıyla atlanır, eklentinin geri kalanı kurulur;
   `Authorization: Bearer ${VAR}` başlığı desteklenir. İki eklentinin sunucu adı çakışırsa ada göre
   ilk eklenti kazanır.
-- **Kancalar bu sürümde çalıştırılmaz.** Kanca blokları onaylanır ve
-  `config/plugin_store.plugin_hook_blocks()` ile kanca yükleyicisine (P-009) hazır bekler (kaynak adı
-  `eklenti:<ad>`); yükleyici bağlanana dek önizleme ve liste "kancalar tetiklenmez" der
-  (`PLUGIN_HOOKS_ACTIVE`).
+- Kancalar Claude Code'daki gibi çalışır: etkin eklentinin `hooks/hooks.json` ve `plugin.json` `hooks`
+  girdileri kanca kümesine `eklenti:<ad>` kaynağıyla katılır; süreçler `CLAUDE_PLUGIN_ROOT`,
+  `CLAUDE_PLUGIN_DATA` ve `CLAUDE_PROJECT_DIR` alır. `FUSION_HOOKS=off`, `runtime.hooks_enabled:
+  false` ve `disableAllHooks` eklenti kancalarını da kapatır.
+- Claude Code'un kendi kurduğu eklentiler (`~/.claude/plugins/installed_plugins.json`) ham beceri kökü
+  olarak taranmaz: yalnız kullanıcı kapsamında kurulu ve `~/.claude/settings.json` `enabledPlugins`'te
+  kapatılmamış olanların beceri/komut/ajanları `<eklenti>:<ad>` önekiyle yüklenir; eski sürümler
+  (`.orphaned_at`) ve pazar klonları yüklenmez. Bunların kanca/MCP bileşenleri Claude Code'un
+  oturumunda çalışır, Fusion başlatmaz.
+
+## Pazar bildirimi
+
+`marketplace.json`'da `name`, `owner.name` ve `plugins` zorunludur. Her girdi ayrı doğrulanır; bozuk
+girdi atlanır ve uyarı olur, pazarın geri kalanı eklenir; yinelenen eklenti adı hatadır. Pazar adı
+harf/rakamla başlar ve harf, rakam, `.`, `_`, `-` içerir; resmî adlar (`claude-plugins-official`…),
+taklitleri, `inline`, `skills-dir`, `synced`, `npm`, `github`, `claudeai-…` gibi ayrılmış adlar
+reddedilir. Göreli kaynak `./` ile başlar (`.` tek başına pazar köküdür); çıplak ad yalnız
+`metadata.pluginRoot` altında ve `/` içermeden geçerlidir. `sha` tam 40 karakter küçük harf commit
+olmalıdır. Eklenti kaynağındaki `git` türü kullanımdan kalktı (Claude adı `url`).
 
 ## Komutlar
 

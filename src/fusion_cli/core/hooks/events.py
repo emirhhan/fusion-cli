@@ -140,6 +140,8 @@ class HookCommand:
     shell: str = ""
     on_failure: str = ""
     status_message: str = ""
+    #: Bu komuta özgü ek ortam (eklenti kancası: `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`).
+    env: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

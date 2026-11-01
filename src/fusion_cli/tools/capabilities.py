@@ -550,7 +550,11 @@ class CapabilityRegistry:
             if isinstance(command, Capability) and command.name not in found:
                 found[command.name] = command
         # Etkin eklentiler (P-059): adlar `eklenti:ad` önekli, kimseyi gölgelemez.
-        for capability in (*plugin_skills(_to_capability), *plugin_commands(_to_capability)):
+        home = self._home
+        for capability in (
+            *plugin_skills(_to_capability, home),
+            *plugin_commands(_to_capability, home),
+        ):
             _merge(found, capability)
         return tuple(found.values())
 
@@ -578,7 +582,7 @@ class CapabilityRegistry:
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     shadow_agent(found, toml_capability)
-        for capability in plugin_agents(_to_agent_capability):
+        for capability in plugin_agents(_to_agent_capability, self._home):
             shadow_agent(found, capability)
         return tuple(found.values())
 
