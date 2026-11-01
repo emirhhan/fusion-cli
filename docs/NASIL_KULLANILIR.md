@@ -756,8 +756,12 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   araçlarını baştan yükler, `false` hepsini (aracın `_meta["anthropic/alwaysLoad"]` işareti
   dahil) erteler; yazılmamışsa işaretli araç baştan yüklenir. Baştan yüklenen açıklama 4096,
   aramayla yüklenen 16384 karakterde kesilir (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` ikisini
-  de değiştirir). Fusion çok sağlayıcılı olduğu için arama sağlayıcının `defer_loading`
-  alanıyla değil istemci tarafında yapılır; bu yüzden her modelde çalışır.
+  de değiştirir). Claude gibi yalnız aramayı destekleyen modellerde erteler: değişken boşken
+  4. nesil ve sonrası Claude modelleri (Opus 4, Sonnet 4, Haiku 4.5…) erteler; eski Claude
+  modelleri `true` ile bile araçları baştan alır. Claude dışı modeller (Gemini, yerel…)
+  değişken boşken araçları baştan alır; `ENABLE_TOOL_SEARCH=true`/`auto` açıkça verilirse
+  onlarda da ertelenir (Fusion aramayı sağlayıcının `defer_loading` alanıyla değil istemci
+  tarafında yaptığı için).
 - Henüz yok (Claude Code'da var): Elicitation kancası,
   `--mcp-config` + `managed-mcp.json` birlikteyken
   açılışta çıkış.

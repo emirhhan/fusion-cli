@@ -211,7 +211,10 @@ async def test_motor_ertelenen_semayi_toolsearch_sonrasi_ayni_turda_sunar(monkey
         policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
         tool_context=ToolContext(root=tmp_path),
     )
-    kaynak = await _defter(ToolSearchMode(True), _Arac("create_issue", "Opens a GitHub issue"))
+    # Sahte sağlayıcının modeli Claude değil: erteleme açıkça açılır (ENABLE_TOOL_SEARCH=true).
+    kaynak = await _defter(
+        ToolSearchMode(True, explicit=True), _Arac("create_issue", "Opens a GitHub issue")
+    )
     for tool in kaynak:
         deps.base_registry.register_or_replace(tool)
 
@@ -223,3 +226,44 @@ async def test_motor_ertelenen_semayi_toolsearch_sonrasi_ayni_turda_sunar(monkey
     assert TOOL_SEARCH in _adlar(provider.seen_requests[0])
     assert "mcp__gh__create_issue" not in _adlar(provider.seen_requests[0])
     assert "mcp__gh__create_issue" in _adlar(provider.seen_requests[1])
+
+
+def _model_gorunen(registry: ToolRegistry, model: str) -> set[str]:
+    names = visible_tool_names(None, registry, _pencere, model=model)
+    return set(registry.names()) if names is None else names
+
+
+async def test_varsayilan_kipte_claude_disi_modelde_erteleme_yok():
+    """Claude: araç araması desteklemeyen model araçları baştan yükler (Fusion: Claude dışı)."""
+    registry = await _defter(tool_search_mode({}), _Arac("create_issue", "Opens"))
+
+    gorunen = _model_gorunen(registry, "gemini/gemini-2.5-flash")
+
+    assert "mcp__gh__create_issue" in gorunen and TOOL_SEARCH not in gorunen
+
+
+async def test_varsayilan_kipte_claude_4_modelinde_ertelenir():
+    registry = await _defter(tool_search_mode({}), _Arac("create_issue", "Opens"))
+
+    gorunen = _model_gorunen(registry, "anthropic/claude-sonnet-4-5")
+
+    assert "mcp__gh__create_issue" not in gorunen and TOOL_SEARCH in gorunen
+
+
+async def test_eski_claude_modelinde_true_bile_ertelemez():
+    """Claude: eski modeller araçları baştan yükler; `ENABLE_TOOL_SEARCH=true` bunu ezmez."""
+    mode = tool_search_mode({"ENABLE_TOOL_SEARCH": "true"})
+    registry = await _defter(mode, _Arac("create_issue", "Opens"))
+
+    gorunen = _model_gorunen(registry, "anthropic/claude-3-5-haiku-20241022")
+
+    assert "mcp__gh__create_issue" in gorunen and TOOL_SEARCH not in gorunen
+
+
+async def test_acikca_acilan_aramada_claude_disi_model_de_erteler():
+    mode = tool_search_mode({"ENABLE_TOOL_SEARCH": "true"})
+    registry = await _defter(mode, _Arac("create_issue", "Opens"))
+
+    gorunen = _model_gorunen(registry, "gemini/gemini-2.5-flash")
+
+    assert "mcp__gh__create_issue" not in gorunen and TOOL_SEARCH in gorunen

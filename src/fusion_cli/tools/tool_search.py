@@ -14,6 +14,12 @@ araç listesinde yoksa MCP araçları baştan yüklenir. Sunucu `alwaysLoad: tru
 araçları ertelenmez; aracın `_meta["anthropic/alwaysLoad"]` işareti de öyle (sunucu
 `alwaysLoad: false` diyorsa o da ertelenir).
 
+Model desteği (Claude: Opus 4 / Sonnet 4 / Haiku 4.5 ve sonrası aramayı kullanır, eski
+modeller araçları baştan yükler ve `true` bunu ezmez): değişken boşken Fusion yalnız 4.
+nesil ve sonrası Claude modellerinde erteler; Claude dışı modeller (Gemini, yerel…)
+araçları baştan alır. `ENABLE_TOOL_SEARCH` açıkça verilmişse Claude dışı modelde de
+ertelenir (arama istemci tarafında yapıldığı için her model kullanabilir).
+
 Fusion çok sağlayıcılıdır: arama sağlayıcının `defer_loading` alanıyla değil istemci
 tarafında yapılır; ertelenen aracın şeması model çağrısına eklenmez, `ToolSearch`
 sonucunda tanımı döner ve aynı turun sonraki isteğinden itibaren şemayla sunulur.
@@ -23,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -58,6 +65,8 @@ class ToolSearchMode:
 
     enabled: bool
     threshold_pct: int | None = None
+    #: `ENABLE_TOOL_SEARCH` açıkça verildi mi (Claude dışı modelde de ertelemeyi açar).
+    explicit: bool = field(default=False, compare=False)
 
 
 def tool_search_mode(environ: Mapping[str, str] | None = None) -> ToolSearchMode:
@@ -66,18 +75,32 @@ def tool_search_mode(environ: Mapping[str, str] | None = None) -> ToolSearchMode
     if env.get(DISABLE_BETAS_ENV, "").strip():
         return ToolSearchMode(enabled=False)
     raw = env.get(ENABLE_ENV, "").strip().lower()
+    explicit = bool(raw)
     if raw in _FALSE_WORDS:
-        return ToolSearchMode(enabled=False)
+        return ToolSearchMode(enabled=False, explicit=explicit)
     if raw == "auto":
-        return ToolSearchMode(enabled=True, threshold_pct=DEFAULT_THRESHOLD_PCT)
+        return ToolSearchMode(True, DEFAULT_THRESHOLD_PCT, explicit=True)
     if raw.startswith("auto:"):
         value = raw[len("auto:") :]
-        if value.isdigit() and 0 <= int(value) <= 100:
-            return ToolSearchMode(enabled=True, threshold_pct=int(value))
-        return ToolSearchMode(enabled=True, threshold_pct=DEFAULT_THRESHOLD_PCT)
-    if raw in _TRUE_WORDS:
-        return ToolSearchMode(enabled=True)
-    return ToolSearchMode(enabled=True)
+        pct = int(value) if value.isdigit() and 0 <= int(value) <= 100 else DEFAULT_THRESHOLD_PCT
+        return ToolSearchMode(True, pct, explicit=True)
+    return ToolSearchMode(enabled=True, explicit=explicit)
+
+
+#: Araç aramasını kullanmayan eski Claude nesilleri (`claude-3-5-haiku`, `claude-2.1`…).
+_OLD_CLAUDE = re.compile(r"claude-(?:instant|[123](?:[.-]\d+)?-)|claude-[123](?:\.\d+)?$")
+
+
+def model_defers(mode: ToolSearchMode, model: str | None) -> bool:
+    """Bu modelde MCP araçları ertelenir mi (model bilinmiyorsa kip belirler)?"""
+    if not mode.enabled:
+        return False
+    if not model:
+        return True
+    lowered = model.lower()
+    if "claude" in lowered:
+        return _OLD_CLAUDE.search(lowered) is None
+    return mode.explicit
 
 
 @dataclass(slots=True)
@@ -101,11 +124,17 @@ class ToolSearchState:
             self.deferrable[name] = owner
 
     def hidden(
-        self, offered: set[str], registry: ToolRegistry, context_tokens: Callable[[], int | None]
+        self,
+        offered: set[str],
+        registry: ToolRegistry,
+        context_tokens: Callable[[], int | None],
+        model: str | None = None,
     ) -> set[str]:
         """Bu istekte şeması gönderilmeyecek araçlar."""
         if not self.mode.enabled or TOOL_SEARCH not in offered:
             return set()
+        if not model_defers(self.mode, model):
+            return {TOOL_SEARCH}
         pending = {name for name in self.deferrable if name in offered}
         if not pending:
             return set()
@@ -158,6 +187,8 @@ def visible_tool_names(
     names: set[str] | None,
     registry: ToolRegistry,
     context_tokens: Callable[[], int | None],
+    *,
+    model: str | None = None,
 ) -> set[str] | None:
     """Model isteğine şeması eklenecek adlar: ertelenmiş ve yüklenmemiş MCP araçları düşer.
 
@@ -167,7 +198,7 @@ def visible_tool_names(
     if state is None:
         return names
     offered = set(registry.names()) if names is None else set(names)
-    hidden = state.hidden(offered, registry, context_tokens)
+    hidden = state.hidden(offered, registry, context_tokens, model)
     if not hidden:
         return names
     return offered - hidden

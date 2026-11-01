@@ -2887,6 +2887,7 @@ async def _call_model(
                     ),
                     registry,
                     lambda: input_window_tokens(spec.model),
+                    model=spec.model,
                 ),
                 edit_format=execution.edit_format,
             )
