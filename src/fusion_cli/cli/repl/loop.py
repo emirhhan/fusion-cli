@@ -159,8 +159,11 @@ async def run_repl(
     session_agents: tuple[Capability, ...] = (),
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
+    initial_prompt: str = "",
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `initial_prompt` (`fusion "query"`, #204) oturum açılınca ilk mesaj olarak gönderilir.
 
     `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
     geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
@@ -188,6 +191,7 @@ async def run_repl(
     )
     # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
     state.usage_log = open_usage_log(config)
+    state.initial_prompt = initial_prompt.strip()
     restored_note = ""
     if resume is not None:
         session_resume.apply_target(state, resume)
@@ -306,6 +310,9 @@ async def _run_surface(
     )
 
     try:
+        if first := state.take_initial_prompt():
+            # `fusion "query"` (#204): ilk satır kullanıcı yazmış gibi işlenir.
+            await _handle_safely(first, state, registry, reader, console, background)
         while state.running:
             line = await _read_line(reader, state)
             if line is None:

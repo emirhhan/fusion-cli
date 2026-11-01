@@ -1132,6 +1132,9 @@ async def run_tui_repl(
     _print_startup(session, state, resume)
     # Oturum başında (sürdürmede de) durum satırı betiği bir kez çalışır (#192).
     session._request_status_line()
+    if first := state.take_initial_prompt():
+        # `fusion "query"` (#204): uygulama açılınca ilk mesaj olarak gönderilir.
+        session._submit(first)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl

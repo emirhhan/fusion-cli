@@ -198,8 +198,20 @@ def main_callback(
             help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
         ),
     ] = "",
+    session_id: Annotated[
+        str,
+        typer.Option(
+            "--session-id",
+            help="Sohbete bu UUID'yi kimlik olarak ver (yeni sohbet ya da --fork-session).",
+        ),
+    ] = "",
+    prompt_arg: Annotated[
+        str,
+        # `fusion "query"` (#204): giriş noktası konum argümanını bu gizli seçeneğe çevirir.
+        typer.Option("--prompt-arg", hidden=True),
+    ] = "",
 ) -> None:
-    """Argümansız çağrıldığında interaktif oturumu başlat."""
+    """Argümansız çağrıldığında interaktif oturumu başlat; `fusion "query"` ilk istemle açar."""
     _SESSION.agents_json = agents_json
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
@@ -227,6 +239,7 @@ def main_callback(
             resume=resume,
             fork=fork_session,
             name=name,
+            session_id=session_id,
         )
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
@@ -245,6 +258,7 @@ def main_callback(
                 worktree=tree,
                 persona=persona,
                 session_agents=_cli_session_agents(agents_json, root),
+                initial_prompt=prompt_arg,
             )
         )
     )
@@ -1570,13 +1584,26 @@ def configure_file_logging() -> None:
     kok.addHandler(handler)
 
 
+def subcommand_names() -> frozenset[str]:
+    """Kayıtlı alt komut ve grup adları (`fusion "query"` ayrımı için, #204)."""
+    names = {
+        command.name or (command.callback.__name__.replace("_", "-") if command.callback else "")
+        for command in getattr(app, "registered_commands", ())
+    }
+    names.update(group.name or "" for group in getattr(app, "registered_groups", ()))
+    names.discard("")
+    return frozenset(names)
+
+
 def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     configure_file_logging()
+    from .repl.launch_prompt import normalize_prompt_argv
     from .repl.resume_launch import normalize_resume_argv
 
+    argv = normalize_prompt_argv(normalize_resume_argv(sys.argv[1:]), subcommand_names())
     try:
-        app(args=normalize_resume_argv(sys.argv[1:]), obj=host_dependencies)
+        app(args=argv, obj=host_dependencies)
     except FusionError as exc:
         error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "

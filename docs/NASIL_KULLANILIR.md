@@ -299,6 +299,8 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 | `fusion --continue` (`-c`) | Bu projedeki SON sohbeti geçmişiyle açar |
 | `fusion --resume <kimlik\|ad>` (`-r`) | Kimliği, adı ya da kimlik önekiyle seçtiğin sohbeti açar |
 | `fusion --resume <ad> --fork-session` | Seçilen sohbetin KOPYASINI yeni kimlikle açar; özgün sohbet değişmez |
+| `fusion "soru"` · `fusion -r <ad> "soru"` · `fusion -c "soru"` | Etkileşimli oturumu açar (ya da sürdürür) ve istemi ilk mesaj olarak gönderir (Claude Code `claude "query"`); ilk sözcük bir alt komut adıysa (`run`, `agent`…) alt komut çalışır |
+| `fusion --session-id <uuid>` | Yeni sohbete bu UUID'yi kimlik olarak verir (`session-<hex>` olarak saklanır); kullanılmış kimlik reddedilir; `--continue`/`--resume` ile yalnız `--fork-session` birlikte |
 | `fusion --name "Ödeme akışı"` (`-n`) | Yeni (ya da sürdürülen) sohbete ad verir |
 | `/resume` (`/continue`) | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
 | `/rename [ad]` | Açık sohbete ad verir (`--resume <ad>` ile bulunur); argümansız ad ilk istemden üretilir |

@@ -64,6 +64,7 @@ def resolve_launch(
     resume: str = "",
     fork: bool = False,
     name: str = "",
+    session_id: str = "",
 ) -> ResumeTarget | None:
     """CLI bayraklarını açılış hedefine çevir. Hiçbiri verilmediyse `None` (yeni sohbet).
 
@@ -73,7 +74,15 @@ def resolve_launch(
     `SessionNotFoundError` ile bildirilir; sessizce yeni sohbet açılmaz.
     """
     name = name.strip()
+    from .launch_prompt import ensure_unused, session_id_value
     from .resume_launch import RESUME_PICKER, pick_conversation
+
+    # Claude Code `--session-id <uuid>` (#204): yeni sohbet ya da `--fork-session` kopyası.
+    wanted_id = session_id_value(session_id) if session_id.strip() else ""
+    if wanted_id:
+        if (continue_last or resume.strip()) and not fork:
+            raise SessionNotFoundError(messages.SESSION_ID_NEEDS_FORK)
+        ensure_unused(memory_dir, root, wanted_id)
 
     if resume == RESUME_PICKER:
         # Argümansız `--resume` (#188): seçilen sohbetin kimliğiyle devam.
@@ -82,10 +91,11 @@ def resolve_launch(
         if fork:
             # Ölçüldü (31 Ekim): bayrak sessizce yok sayılıp yeni boş sohbet açılıyordu.
             raise SessionNotFoundError(messages.SESSION_FORK_NEEDS_SOURCE)
-        if not name:
+        if not name and not wanted_id:
             return None
-        conversation_id = new_conversation_id()
-        TranscriptStore(memory_dir, root, conversation_id=conversation_id).record_name(name)
+        conversation_id = wanted_id or new_conversation_id()
+        if name:
+            TranscriptStore(memory_dir, root, conversation_id=conversation_id).record_name(name)
         return ResumeTarget(conversation_id, (), name, name=name)
     if continue_last:
         refs = list_conversations(memory_dir, root)
@@ -99,7 +109,9 @@ def resolve_launch(
         ref = found
     history = tuple(load_transcript_messages(memory_dir, root, conversation_id=ref.conversation_id))
     if fork:
-        target_id = fork_conversation(memory_dir, root, history, name=name or ref.name)
+        target_id = fork_conversation(
+            memory_dir, root, history, name=name or ref.name, target_id=wanted_id
+        )
         linked_pr.save(memory_dir, target_id, linked_pr.load(memory_dir, ref.conversation_id))
         return ResumeTarget(
             target_id, history, ref.title, name=name or ref.name, forked_from=ref.conversation_id
@@ -110,10 +122,15 @@ def resolve_launch(
 
 
 def fork_conversation(
-    memory_dir: Path, root: Path, history: Sequence[Message], *, name: str = ""
+    memory_dir: Path,
+    root: Path,
+    history: Sequence[Message],
+    *,
+    name: str = "",
+    target_id: str = "",
 ) -> str:
     """Konuşmayı yeni bir kimliğe kopyala ve kimliği döndür (`ValueError`: kopya doğrulanamadı)."""
-    target_id = new_conversation_id()
+    target_id = target_id or new_conversation_id()
     copy_conversation(memory_dir, root, history, target_id=target_id, name=name)
     return target_id
 

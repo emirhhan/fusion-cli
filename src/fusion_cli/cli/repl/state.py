@@ -205,6 +205,8 @@ class ReplState:
     doctor_prompt_warned: bool = field(default=False, kw_only=True)
     #: `/vim` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#217).
     vim_command_warned: bool = field(default=False, kw_only=True)
+    #: `fusion "query"` ile verilen ilk istem (#204); yüzey açılınca bir kez gönderilir.
+    initial_prompt: str = field(default="", kw_only=True)
     main_config_applied: bool = field(default=False, kw_only=True)
     _configured_persona: Persona | None = field(default=None, init=False, repr=False)
     _persona_base_config: Config | None = field(default=None, init=False, repr=False)
@@ -337,6 +339,11 @@ class ReplState:
             return task
         self.persona_initial_prompt_applied = True
         return task if self.history else initial_persona_task(self.persona, task)
+
+    def take_initial_prompt(self) -> str:
+        """`fusion "query"` istemini bir kez döndür ve temizle (#204)."""
+        text, self.initial_prompt = self.initial_prompt, ""
+        return text
 
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""

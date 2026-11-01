@@ -1421,6 +1421,11 @@ CMD_EXPORT = (
 )
 CMD_COPY = "son asistan cevabını panoya kopyala: /copy [N] (sondan N.)"
 EXPORT_DEFAULT_TITLE = "Fusion sohbeti"
+SESSION_ID_INVALID = "--session-id geçerli bir UUID olmalı: {value}"
+SESSION_ID_IN_USE = "Bu oturum kimliği zaten kullanılıyor: {value} (sürdürmek için --resume)"
+SESSION_ID_NEEDS_FORK = (
+    "--session-id --continue/--resume ile yalnız --fork-session birlikte verilince kullanılır."
+)
 EXPORT_DIALOG_TITLE = "Konuşmayı dışa aktar"
 EXPORT_CHOICE_CLIPBOARD = "Panoya kopyala"
 EXPORT_CHOICE_CLIPBOARD_HINT = "düz metin, sırlar maskeli"
