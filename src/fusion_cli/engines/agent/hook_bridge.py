@@ -341,6 +341,18 @@ def publish_verdict(publisher: EventPublisher, verdict: HookVerdict) -> None:
         publisher.publish(ErrorOccurred(messages.HOOKS_ERROR.format(detail=detail)))
 
 
+def mcp_server_field(server: str, deps: AgentDeps | None) -> dict[str, object]:
+    """Claude `mcp_server`: `name` ve tanımın geldiği yer (`source`: user|project|plugin)."""
+    field: dict[str, object] = {"name": server}
+    config = getattr(deps, "config", None) if deps is not None else None
+    for entry in getattr(config, "mcp_servers", ()) or ():
+        if getattr(entry, "name", None) == server:
+            scope = getattr(entry, "scope", None)
+            field["source"] = str(getattr(scope, "value", scope) or "user")
+            break
+    return field
+
+
 def tool_hook_fields(
     tool_name: str,
     args: Mapping[str, object],
@@ -363,7 +375,7 @@ def tool_hook_fields(
         fields["tool_use_id"] = call_id
     if name.startswith(_MCP_PREFIX):
         server = name[len(_MCP_PREFIX) :].split("__", 1)[0]
-        fields["mcp_server"] = {"name": server}
+        fields["mcp_server"] = mcp_server_field(server, deps)
     if deps is not None and not records_tools(deps):
         fields["agent_id"] = str(getattr(deps, "runtime_agent_id", "") or "")
         fields["agent_type"] = str(getattr(deps, "agent_type", "") or "")

@@ -66,3 +66,19 @@ async def test_duration_ms_onay_beklemesini_icermez(monkeypatch, tmp_path):
     satirlar = _satirlar(kayit)
     assert onay.soruldu == 1 and len(satirlar) == 1
     assert satirlar[0]["duration_ms"] < 500
+
+
+def test_mcp_server_kaynagi_yapilandirmadan(tmp_path):
+    """Claude `mcp_server.source`: sunucu tanımının geldiği yer (#135)."""
+    from types import SimpleNamespace
+
+    from fusion_cli.config.models import McpScope
+    from fusion_cli.engines.agent.hook_bridge import mcp_server_field
+
+    config = SimpleNamespace(
+        mcp_servers=(SimpleNamespace(name="plugin_x_db", scope=McpScope.PLUGIN),)
+    )
+    deps = SimpleNamespace(config=config)
+    assert mcp_server_field("plugin_x_db", deps) == {"name": "plugin_x_db", "source": "plugin"}
+    assert mcp_server_field("bilinmeyen", deps) == {"name": "bilinmeyen"}
+    assert mcp_server_field("a", None) == {"name": "a"}

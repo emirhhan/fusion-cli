@@ -141,7 +141,7 @@ bulunmaz, Fusion oturumlarında böyle bir klasör yoktur.
 Araç olaylarında `tool_name` (Claude adı), `tool_use_id`, `tool_input` Claude aracının
 şeklinde: Bash `{command, run_in_background}`, Write `{file_path, content}`, Edit
 `{file_path, old_string, new_string, replace_all}`, Read `{file_path, offset, limit}`;
-dosya araçlarında `file_path` **mutlaktır**. MCP araçlarında `mcp_server: {name}`.
+dosya araçlarında `file_path` **mutlaktır**. MCP araçlarında `mcp_server: {name, source}` (`source`: `user`, `project`, `plugin`).
 `PostToolUse`'ta `tool_response` (Bash `{stdout, stderr, interrupted, isImage}`, Write
 `{type: "create" | "update", filePath, content}`, Edit `{filePath, …}`, Read `{type, file}`)
 ve `duration_ms` (aracın çalışma süresi; onay beklemesi dahil değil);
