@@ -21,6 +21,7 @@ from ..core.constants import (
     truncate_notice,
 )
 from ..core.errors import ProcessCancelledError
+from ..core.foreground_handoff import handoff_slot
 from ..core.process_control import MovedToBackground, run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
@@ -163,15 +164,17 @@ def _run_foreground(
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
-        process = run_foreground(
-            marked_command(command, token) if token else command,
-            timeout_s=timeout_s,
-            cancelled=context.cancelled,
-            cwd=context.root,
-            env=sandbox_env(_shell_env(context), run),
-            argv_prefix=run.plan.prefix,
-            adopt_on_timeout=(lambda: True) if token else None,
-        )
+        with handoff_slot() as slot:
+            process = run_foreground(
+                marked_command(command, token) if token else command,
+                timeout_s=timeout_s,
+                cancelled=context.cancelled,
+                cwd=context.root,
+                env=sandbox_env(_shell_env(context), run),
+                argv_prefix=run.plan.prefix,
+                adopt_on_timeout=(lambda: True) if token else None,
+                handoff=slot if token else None,
+            )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
     except subprocess.TimeoutExpired as timeout:

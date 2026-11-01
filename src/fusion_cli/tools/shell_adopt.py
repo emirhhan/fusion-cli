@@ -79,9 +79,13 @@ def adopt(
         daemon=True,
     ).start()
     partial = "".join(so_far).strip()
+    lead = (
+        "Komut kullanıcı isteğiyle (Ctrl+B) arka plana taşındı"
+        if moved.by_user
+        else f"Komut {moved.timeout_s:.0f} sn zaman aşımında bitmedi ve arka plana taşındı"
+    )
     text = (
-        f"Komut {moved.timeout_s:.0f} sn zaman aşımında bitmedi ve arka plana taşındı "
-        f"(iş kimliği: {job_id}).\nÇıktı dosyası: {log}\n"
+        f"{lead} (iş kimliği: {job_id}).\nÇıktı dosyası: {log}\n"
         f"Durum ve son çıktı için job_status(id='{job_id}', wait_s=...) çağır; "
         "gerekirse job_status(id, stop=true) ile durdur."
     )

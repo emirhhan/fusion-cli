@@ -64,3 +64,32 @@ def test_arka_plan_kapaliysa_tasinmaz(tmp_path, monkeypatch):
     sonuc = shell.run_shell({"command": "echo a; sleep 5", "timeout": 400}, context)
     assert not sonuc.ok and "durduruldu" in sonuc.output
     assert not (tmp_path / ".fusion" / "is").exists()
+
+
+def test_ctrl_b_suren_komutu_kesmeden_arka_plana_alir(tmp_path, monkeypatch):
+    """Claude Code Ctrl+B: süren Bash komutu kesilmeden arka plana geçer (#320)."""
+    import threading
+
+    from fusion_cli.core import foreground_handoff
+
+    monkeypatch.delenv("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", raising=False)
+    context = ToolContext(root=tmp_path, shell_fingerprint=False)
+
+    def _bas() -> None:
+        bitis = time.monotonic() + 5
+        while time.monotonic() < bitis and not foreground_handoff.request_background():
+            time.sleep(0.05)
+
+    threading.Thread(target=_bas, daemon=True).start()
+    basla = time.monotonic()
+    sonuc = shell.run_shell({"command": "echo once; sleep 2; echo sonra"}, context)
+    assert time.monotonic() - basla < 1.9, "komut bitene kadar beklendi"
+    assert sonuc.ok and "Ctrl+B" in sonuc.output, sonuc.output
+    durum = job_status({"id": _kimlik(sonuc.output), "wait_s": 10}, context)
+    assert "BİTTİ (çıkış kodu 0)" in durum.output and "sonra" in durum.output
+
+
+def test_devir_istegi_suren_komut_yoksa_false():
+    from fusion_cli.core import foreground_handoff
+
+    assert foreground_handoff.request_background() is False

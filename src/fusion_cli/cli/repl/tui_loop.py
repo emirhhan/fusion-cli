@@ -22,6 +22,7 @@ from rich.markup import escape
 from ...config import keybindings
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
+from ...core import foreground_handoff
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
@@ -379,12 +380,14 @@ class _TuiSession:
             self._task.cancel()
 
     def _background_turn(self) -> None:
-        """Ctrl+B: beklenen ön plan alt ajanı varsa onu arka plana al (Claude Code, #12);
-        yoksa turu kes, iptal yakalayıcısı aynı görevi arka planda sürdürür."""
+        """Ctrl+B: beklenen ön plan alt ajanı ya da süren kabuk komutu varsa onu kesmeden
+        arka plana al (Claude Code, #12, #320); yoksa turu kes, iptal yakalayıcısı aynı görevi arka planda sürdürür."""
         if self._state.config.agent_launch.disable_background_tasks:
             return
         if self._busy and self._state.child_runs.request_background():
             return
+        if self._busy and foreground_handoff.request_background():
+            return  # süren kabuk komutu kesilmeden arka plana geçer, tur sürer (#320)
         if self._busy and self._task is not None and self._current_line:
             self._to_background = True
             self._task.cancel()

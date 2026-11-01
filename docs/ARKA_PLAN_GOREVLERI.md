@@ -34,7 +34,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 |---|---|
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
-| Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
+| Tam ekran REPL | Tur sürerken **Ctrl+B**: süren kabuk komutu ya da ön plan alt ajanı kesilmeden arka plana geçer, tur sürer (aşağıya bkz.) |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
 
@@ -44,10 +44,11 @@ REPL ve masaüstünden başlayan görev konuşmanın son 12 kullanıcı/asistan 
 açık seçimidir ve korunur. Alt ajanlar ve arka plan görevinin kendisi yeni arka plan görevi
 açamaz.
 
-**Ctrl+B Claude Code'dan farklıdır:** süren araç çağrısı devredilemez; tur iptal edilir ve
-görev işçide yeniden başlar. Kesilen turun konuşması ve düzenlediği dosyaların listesi
-("yeniden yapma, önce oku" notuyla) devredilir; yarım kalan komut (ör. `npm test`) işçide
-gerekirse yeniden koşar.
+**Ctrl+B:** süren `run_shell` komutu (Claude Code Bash gibi) durdurulmadan `.fusion/is`
+iş kaydına devredilir; model iş kimliğini ve çıktı dosyasını alır, tur sürer. Beklenen ön
+plan alt ajanı da aynı şekilde arka plana geçer. O anda devredilecek komut ya da alt ajan
+yoksa (model yanıt yazıyorsa) tur kesilir ve görev işçide konuşma bağlamı ve düzenlenen
+dosyaların listesiyle ("yeniden yapma, önce oku" notuyla) sürer.
 
 ### Kısıtlar işçiye taşınır
 
