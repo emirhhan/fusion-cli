@@ -114,3 +114,14 @@ def test_managed_dosya_yolu_claude_ile_ayni(monkeypatch, platform):
         "linux": "/etc/claude-code/managed-settings.json",
     }[platform]
     assert str(plugin_scopes.managed_settings_file()) == expected
+
+
+def test_managed_drop_in_parcalari_okunur():
+    managed = plugin_scopes.managed_settings_file()
+    (managed.parent / "managed-settings.d").mkdir(parents=True)
+    managed.write_text(json.dumps({"enabledPlugins": {"a@m": True, "b@m": True}}), "utf-8")
+    (managed.parent / "managed-settings.d" / "10-ek.json").write_text(
+        json.dumps({"enabledPlugins": {"b@m": False}}), "utf-8"
+    )
+
+    assert plugin_scopes.managed_values() == {"a@m": True, "b@m": False}

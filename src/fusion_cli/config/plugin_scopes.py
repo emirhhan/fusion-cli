@@ -85,7 +85,14 @@ def _bool_map(raw: object) -> dict[str, bool]:
 
 
 def managed_values() -> dict[str, bool]:
-    return _bool_map(_read(managed_settings_file()).get(ENABLED_KEY))
+    """`managed-settings.json` ve yanındaki `managed-settings.d/*.json` parçaları (ad sırasıyla,
+    sonraki parça aynı anahtarı ezer; Claude drop-in dizini)."""
+    base = managed_settings_file()
+    found = _bool_map(_read(base).get(ENABLED_KEY))
+    drop_in = base.parent / "managed-settings.d"
+    for path in sorted(drop_in.glob("*.json")) if drop_in.is_dir() else ():
+        found = {**found, **_bool_map(_read(path).get(ENABLED_KEY))}
+    return found
 
 
 def user_values() -> dict[str, bool]:
