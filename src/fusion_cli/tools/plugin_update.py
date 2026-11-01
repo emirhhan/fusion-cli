@@ -71,7 +71,7 @@ def update_plugin(
     resolved = _resolve(update_source(record), state)
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
-        report = validate_plugin(folder)
+        report = validate_plugin(folder, record.name)
         if not report.ok or report.layout is None:
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
         if report.layout.name != record.name:

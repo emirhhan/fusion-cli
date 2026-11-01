@@ -400,3 +400,33 @@ def test_claude_komut_adlari_birincil_ve_takma_adlar():
     for alias in (["i", "--help"], ["rm", "--help"], ["remove", "--help"], ["kur", "--help"]):
         assert runner.invoke(app, alias).exit_code == 0
     assert runner.invoke(app, ["marketplace", "rm", "--help"]).exit_code == 0
+
+
+# --- #389, #390: defaultEnabled ve bildirimsiz eklentinin adı -------------------- #
+
+
+def test_bildirimsiz_eklenti_adi_klasorden_ve_pazar_girdisinden_gelir(tmp_path):
+    from fusion_cli.config import plugin_store
+
+    local = tmp_path / "Benim-Araclarim"
+    _write(local / "commands" / "k.md", "k")
+    assert plugin_install.install_plugin(str(local), approve=lambda _p: True).record.name == (
+        "Benim-Araclarim"
+    )
+    market = tmp_path / "pazar"
+    _write(market / "eklentiler" / "klasor" / "commands" / "k.md", "k")
+    _write(
+        market / ".claude-plugin" / "marketplace.json",
+        json.dumps(_market([{"name": "girdi-adi", "source": "./eklentiler/klasor"}])),
+    )
+    plugin_install.add_marketplace(str(market))
+    item = plugin_install.install_plugin("girdi-adi@ekip", approve=lambda _p: True)
+    assert item.record.name == "girdi-adi"
+    assert plugin_store.load_state().plugin("girdi-adi") is not None
+
+
+def test_default_enabled_false_kapali_kurulur(tmp_path):
+    root = _manifest(tmp_path / "kapali", {"name": "kapali", "defaultEnabled": False})
+    _write(root / "commands" / "k.md", "k")
+    item = plugin_install.install_plugin(str(root), approve=lambda _p: True)
+    assert item.record.enabled is False

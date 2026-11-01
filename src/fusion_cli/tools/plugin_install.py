@@ -119,6 +119,16 @@ class _Resolved:
     marketplace: str = ""
     ref: str = ""
     sha: str = ""
+    #: Pazar girdisinin adı (bildirimsiz eklentinin adı buradan gelir, #390).
+    entry: str = ""
+
+    @property
+    def fallback_name(self) -> str:
+        """Claude: bildirim yoksa ad pazar girdisinden, yoksa özgün klasör adından gelir."""
+        if self.entry:
+            return self.entry
+        tail = self.location.rstrip("/").rsplit("/", 1)[-1]
+        return tail.removesuffix(".git")
 
 
 #: Klonda git'in kendi başına iç ağa ya da başka protokole gitmesini engelleyen ayarlar.
@@ -180,8 +190,8 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         location = str((Path(record.path) / source.location).resolve())
         if not Path(location).is_relative_to(Path(record.path).resolve()):
             raise PluginError(ERR_SOURCE.format(spec=f"{name}@{record.name}"))
-        return _Resolved("yerel", location, record.name)
-    return _Resolved("git", source.location, record.name, source.ref, source.sha)
+        return _Resolved("yerel", location, record.name, entry=entry.name)
+    return _Resolved("git", source.location, record.name, source.ref, source.sha, entry.name)
 
 
 def _check_url(url: str) -> str | None:
@@ -295,7 +305,7 @@ def preview_plugin(spec: str, *, base: Path | None = None) -> PluginPreview:
     resolved = _resolve(spec, load_state(root))
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
-        report = validate_plugin(folder)
+        report = validate_plugin(folder, resolved.fallback_name)
         tokens = context_cost(report.layout) if report.layout else 0
         # Geçici klasör silinir; özet yalnız sayı/ad/uyarı olarak gösterilir.
         return PluginPreview(report, spec, tokens, _safe_digest(folder, report), commit)
@@ -329,7 +339,7 @@ def install_plugin(
     resolved = _resolve(spec, state)
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
-        report = validate_plugin(folder)
+        report = validate_plugin(folder, resolved.fallback_name)
         if not report.ok or report.layout is None:
             raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
         name = report.layout.name
@@ -351,7 +361,8 @@ def install_plugin(
         marketplace=resolved.marketplace,
         commit=commit,
         digest=tree_digest(destination),
-        enabled=True,
+        # Claude: `defaultEnabled: false` eklenti kapalı başlar (#389).
+        enabled=report.layout.manifest.default_enabled,
         exec_approved=executable,
         installed_at=time.time(),
     )
