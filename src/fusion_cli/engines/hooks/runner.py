@@ -18,6 +18,7 @@ import signal
 from collections.abc import Mapping
 from pathlib import Path
 
+from ...core.env_scrub import scrubbed_env
 from ...core.hooks.events import HTTP_HANDLER, HookCommand, HookRun
 
 #: stdout/stderr'den okunan en fazla karakter (karar ve bağlam bundan çıkar).
@@ -51,7 +52,8 @@ async def run_hook(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
-            env=dict(environment),
+            # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1: kanca süreci kimlik bilgilerini görmez (#368).
+            env=scrubbed_env(environment),
             start_new_session=posix,
         )
     except OSError as error:

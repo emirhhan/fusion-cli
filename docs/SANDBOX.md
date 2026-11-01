@@ -145,7 +145,10 @@ yok sayılır ve uyarılır.
   `run_shell` komutlarının ortamından Anthropic ve bulut sağlayıcı kimlik bilgilerini
   (`ANTHROPIC_API_KEY`, `AWS_*` anahtarları, `GOOGLE_APPLICATION_CREDENTIALS`…) ve Fusion'ın
   sağlayıcı anahtarlarını (`OPENROUTER_API_KEY`, `NVIDIA_NIM_API_KEY`, `OPENAI_API_KEY`,
-  `GEMINI_API_KEY`) çıkarır; Fusion'ın kendisi onları API çağrıları için tutar.
+  `GEMINI_API_KEY`) çıkarır; aynı temizlik kanca komutlarının ortamına da uygulanır. MCP stdio
+  sunucuları zaten yalnız güvenli ortam adlarını (HOME, PATH, USER…) devralır; sunucuya `env`
+  ile açıkça verilen değer kullanıcının seçimidir. Fusion'ın kendisi anahtarları API çağrıları
+  için tutar.
 - **Başka süreçlerin ortamı:** Linux'ta komut kendi PID ad alanında ve taze `/proc` ile çalışır;
   başka süreçlerin `/proc/<pid>/environ`'ı görünmez. macOS'ta aynı kullanıcının Apple imzalı
   olmayan süreçlerinin (Fusion'ın Python'u, node, VS Code/iTerm gibi uygulamalar) **başlangıç**
