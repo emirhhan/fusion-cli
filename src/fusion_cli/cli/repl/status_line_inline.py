@@ -24,7 +24,9 @@ POLL_S = 0.3
 
 
 class _Reader(Protocol):
-    mode: object
+    @property
+    def mode(self) -> object: ...
+
     vim_mode: bool
     custom_status: str
 

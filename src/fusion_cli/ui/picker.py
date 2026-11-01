@@ -334,14 +334,15 @@ class SearchView:
             return
         search = self._search
 
-        @bindings.add("<any>")
         def _char(event: Any) -> None:  # noqa: ANN401
             self.type(str(getattr(event, "data", "") or ""), state)
 
-        @bindings.add("backspace")
         def _back(_event: Any) -> None:  # noqa: ANN401
             if search.backspace():
                 self._refresh(state)
+
+        bindings.add("<any>")(_char)
+        bindings.add("backspace")(_back)
 
 
 @dataclass(slots=True)

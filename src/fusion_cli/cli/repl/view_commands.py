@@ -2,7 +2,7 @@
 
 - `/theme [ad]` — terminal paletini ANINDA uygular ve `runtime.terminal_theme`'e yazar.
   Masaüstü temasından (`runtime.theme`, system/light/dark) ayrıdır.
-- `/tui [default|fullscreen]` — REPL görünümünü `runtime.tui`'ye yazar ve konuşmayı koruyarak hemen yeniden açar
+- `/tui [default|fullscreen]` — `runtime.tui`'ye yazar, konuşmayı koruyarak hemen yeniden açar
   (çalışan tam-ekran uygulamayı yerinde değiştirmek konuşmayı kaybettirirdi).
 - `/search <metin>` — tam-ekran konuşmasında son eşleşmeye kaydır (yalnız TUI; `tui_loop`
   uygular, burada yalnız satır-içi yüzeyin cevabı vardır).

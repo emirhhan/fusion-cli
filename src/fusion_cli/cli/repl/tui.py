@@ -578,6 +578,14 @@ class FusionTui:
             self.picked_by_number = True
             self._resolve(self._choices[position].value)
 
+    def _alt_key_condition(self, key: str) -> Condition:
+        """Bu ek tuş etkin seçicinin `alt_keys`'inde mi (#202, #211)?"""
+
+        def _active() -> bool:
+            return key in self._choice_alt_keys
+
+        return Condition(_active)
+
     def _pick_alt(self, key: str) -> None:
         """Seçim kipinde ek tuş: imlecin üzerindeki seçeneği `<tuş>:<değer>` olarak döndür."""
         if self._choices and key in self._choice_alt_keys:
@@ -812,22 +820,16 @@ class FusionTui:
                     return
                 self._pick_alt(special)
 
-            kb.add(
-                special,
-                filter=modal & Condition(lambda special=special: special in self._choice_alt_keys),
-                eager=True,
-            )(_select_special)
+            kb.add(special, filter=modal & self._alt_key_condition(special), eager=True)(
+                _select_special
+            )
 
         for arrow in ("left", "right"):
 
             def _select_arrow(_event: object, arrow: str = arrow) -> None:
                 self._pick_alt(arrow)
 
-            kb.add(
-                arrow,
-                filter=modal & Condition(lambda arrow=arrow: arrow in self._choice_alt_keys),
-                eager=True,
-            )(_select_arrow)
+            kb.add(arrow, filter=modal & self._alt_key_condition(arrow), eager=True)(_select_arrow)
 
         # Enter gönderir, `\`+Enter yeni satır; Ctrl+J, Option+Enter, Shift+Enter yeni satır
         # (#197). Seçim kipinin Enter'ı yukarıda ayrıca bağlı.
