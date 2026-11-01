@@ -49,6 +49,7 @@ from .hook_parse import (
 )
 from .paths import user_config_dir
 from .permission_rules import LAYER_FUSION, LAYER_LOCAL, LAYER_PROJECT, LAYER_USER
+from .plugin_hooks import plugin_hooks
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
@@ -206,8 +207,12 @@ def load_hooks(
     default_timeout_s: float = DEFAULT_HOOK_TIMEOUT_S,
     home: Path | None = None,
     interactive: bool = True,
+    include_plugins: bool = True,
 ) -> HookSet:
-    """Tüm katmanları oku. Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez."""
+    """Tüm katmanları ve etkin eklentilerin kancalarını oku.
+
+    Bozuk dosya kanca AÇMAZ ve ötekileri düşürmez.
+    """
     if not enabled:
         return HookSet(disabled_reason="runtime.hooks_enabled: false")
     if hooks_disabled_by_environment():
@@ -217,6 +222,10 @@ def load_hooks(
         data = _read_json(layer.path)
         if data is not None:
             _read_layer(found, layer, data, root, include_claude, default_timeout_s, interactive)
+    if include_plugins:
+        plugin_commands, plugin_skips = plugin_hooks(default_timeout_s)
+        found.commands.extend(plugin_commands)
+        found.skipped.extend(plugin_skips)
     return _finish(found)
 
 

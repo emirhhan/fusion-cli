@@ -24,7 +24,7 @@ from pathlib import Path
 from ...config.hooks import DISABLE_ALL_KEY, hook_environment
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookCommand, HookEvent, HookSet, HookVerdict
-from . import dispatch
+from . import dispatch, scope
 from .handlers import HookServices
 from .overflow import spill_verdict
 from .runner import run_hook
@@ -89,6 +89,8 @@ class HookSession:
     terminal_writer: Callable[[str], None] | None = None
     #: `mcp_tool`/`prompt`/`agent` kancalarının model ve MCP erişimi (ajan turu bağlar).
     services: HookServices | None = None
+    #: Oturum boyu eklenen kancalar (çağrılan becerinin frontmatter'ı; `once` uygulanır).
+    session_commands: tuple[HookCommand, ...] = ()
     #: Tur kimliği (`prompt_id`): her kök istemde yenilenir.
     prompt_id: str = ""
     #: Kancanın verdiği oturum başlığı (`sessionTitle`).
@@ -175,7 +177,12 @@ class HookSession:
         return context
 
     def current(self) -> HookSet:
-        return self.hooks if self._loaded else self.refresh()
+        base = self.hooks if self._loaded else self.refresh()
+        return scope.merged(base, self.session_commands)
+
+    def add_session_commands(self, commands: tuple[HookCommand, ...]) -> None:
+        """Beceri frontmatter kancaları oturumun geri kalanında etkin (Claude)."""
+        self.session_commands = scope.added(self.session_commands, commands)
 
     def has(self, event: HookEvent) -> bool:
         return any(command.event is event for command in self.current().commands)
@@ -228,6 +235,8 @@ class HookSession:
             dispatch.apply_on_failure(event, run, verdict_from_run(event, run, subject))
             for run in runs
         ]
+        if self.session_commands:
+            self.session_commands = scope.after_once(self.session_commands, runs, verdicts)
         verdict = spill_verdict(merge_verdicts(verdicts), self._output_dir())
         self._write_terminal(verdict)
         return verdict

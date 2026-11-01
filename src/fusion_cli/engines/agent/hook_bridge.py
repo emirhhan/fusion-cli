@@ -33,6 +33,7 @@ from ...ui import messages
 from ..hooks.session import HookSession
 from . import hook_text
 from .hook_input import claude_tool_input, claude_tool_response, fusion_tool_args
+from .skill_hooks import after_skill_tool
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -219,6 +220,7 @@ async def post_tool_use(
         event, subjects=(claude_name,), fields=fields, target=(tool_name, args)
     )
     _publish(deps, verdict)
+    after_skill_tool(deps, session, tool_name, args, ok=ok)
     notes = [session.pending_tool_context.pop(call_id, "")]
     if verdict.blocked:
         notes.append(hook_text.block_error(event, claude_name, verdict))

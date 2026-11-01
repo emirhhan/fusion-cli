@@ -18,6 +18,7 @@ from ...core.errors import FusionError
 from ...core.types import CompletionRequest, Message, ModelSpec
 from ...mcp_bridge.tool_name import fusion_tool_name
 from ..hooks.handlers import EVALUATOR_SYSTEM, HookServices
+from .skill_hooks import activate_selected_skill
 
 if TYPE_CHECKING:
     from ...config.models import Config
@@ -57,6 +58,7 @@ def bind_hook_services(deps: AgentDeps, run_agent: Callable[..., Awaitable[Any]]
     hooks = getattr(deps, "hooks", None)
     if hooks is None:
         return
+    activate_selected_skill(deps)
     hooks.services = HookServices(
         model_call=_model_call(deps),
         agent_call=_agent_call(deps, run_agent),
@@ -123,12 +125,24 @@ def _agent_call(
     return call
 
 
+def fusion_server_name(server: str) -> str:
+    """Claude'un eklenti sunucusu adı `plugin:<eklenti>:<sunucu>` → Fusion kayıt adı."""
+    prefix, _, rest = server.partition(":")
+    plugin, _, name = rest.partition(":")
+    if prefix != "plugin" or not plugin or not name:
+        return server
+    from ...config.plugin_layout import server_name
+
+    return server_name(plugin, name)
+
+
 def _mcp_call(
     deps: AgentDeps,
 ) -> Callable[[str, str, Mapping[str, object]], Awaitable[tuple[str, bool]]]:
     async def call(server: str, tool: str, args: Mapping[str, object]) -> tuple[str, bool]:
         registry = getattr(deps, "base_registry", None)
-        found = registry.get(fusion_tool_name(server, tool)) if registry is not None else None
+        name = fusion_tool_name(fusion_server_name(server), tool)
+        found = registry.get(name) if registry is not None else None
         if found is None:
             raise LookupError(server)
         try:

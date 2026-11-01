@@ -44,7 +44,7 @@ _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})
 #: Eklenti kancaları çalıştırılıyor mu? Kanca yükleyicisi (P-009, `config/hooks.py`)
 #: `plugin_hook_blocks()`'u tükettiğinde True olur. O zamana dek önizleme ve liste kancanın
 #: TETİKLENMEDİĞİNİ açıkça söyler: "etkin" görünen kancanın çalıştığı sanılmasın.
-PLUGIN_HOOKS_ACTIVE = False
+PLUGIN_HOOKS_ACTIVE = True
 
 #: Kayıt durumları (kullanıcıya bu adlarla görünür).
 STATUS_ACTIVE = "etkin"

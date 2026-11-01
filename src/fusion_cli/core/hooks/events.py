@@ -162,6 +162,9 @@ class HookCommand:
     #: `prompt`/`agent`: `model` (boş = arka plan modeli) ve `continueOnBlock` (yalnız prompt).
     model: str = ""
     continue_on_block: bool = False
+    #: Eklenti kancası: `CLAUDE_PLUGIN_ROOT` ve `CLAUDE_PLUGIN_DATA` (boş = eklenti değil).
+    plugin_root: str = ""
+    plugin_data: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,6 +15,9 @@ gövdesi stdout gibi okunur). Biçim, olay adları ve karar kuralları Claude Co
 | Proje | `.claude/settings.json` | etkileşimli: `fusion trust` + içerik o günden beri aynı; `-p`: her zaman |
 | Proje (yerel) | `.claude/settings.local.json` | proje ile aynı |
 | Yönetilen | macOS `/Library/Application Support/ClaudeCode/managed-settings.json`, Linux `/etc/claude-code/managed-settings.json` | her zaman |
+| Eklenti | etkin eklentinin `hooks/hooks.json` ya da `plugin.json` `hooks` alanı | eklenti etkin ve çalıştırma onaylı (`fusion eklenti guven`); süreç `CLAUDE_PLUGIN_ROOT` ve kalıcı `CLAUDE_PLUGIN_DATA` alır; mcp_tool'da sunucu `plugin:<eklenti>:<sunucu>` |
+| Beceri | SKILL.md frontmatter `hooks:` | beceri çağrılınca (`Skill` aracı ya da `/ad`) oturumun geri kalanında; `once: true` ilk başarılı çalışmadan sonra kalkar; proje içindeki beceri etkileşimli oturumda dosya güveni ister |
+| Alt ajan | ajan frontmatter `hooks:` | ajan çalışırken; alt ajanda `Stop` → `SubagentStop` |
 | Fusion (eski) | `<yapılandırma dizini>/hooks.json` | **kullanımdan kalktı**: bu sürümde okunur, oturumda bir kez uyarılır |
 
 Kanca **kod çalıştırır**. Etkileşimli oturumda (REPL, TUI, masaüstü) indirilen bir deponun
@@ -236,8 +239,6 @@ Tanımlar her kök turun başında yeniden okunur.
   `DirectoryAdded`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`,
   `PostModelSwitch`, `Elicitation`, `ElicitationResult` tetiklenmez (listede "Fusion bu
   olayı tetiklemiyor").
-- Eklenti `hooks/hooks.json` ve beceri frontmatter kancaları çalıştırılmaz (ajan
-  frontmatter kancaları çalışır: alt ajanda `Stop` → `SubagentStop`).
 - Ayar dosyası izleyicisi yok (değişiklik bir sonraki kök turda alınır);
   `watchPaths` ile dosya izleme, `initialUserMessage`/`reloadSkills`'in uygulanması yok
   (alanlar okunur).
