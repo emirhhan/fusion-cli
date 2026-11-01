@@ -34,6 +34,7 @@ from mcp.types import CallToolResult
 from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..core.mcp_tool_names import claude_mcp_tool_name
+from ..core.tool_schema_variants import forget_raw_schema, remember_raw_schema
 from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from ..tools.mcp_background import run_mcp_call
@@ -57,7 +58,7 @@ from .references import (
     resource_block,
 )
 from .resource_tools import register_resource_tools
-from .schema import clean_description, description_limit, simplify_schema
+from .schema import clean_description, clean_raw_schema, description_limit, simplify_schema
 from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .tool_effect import effect_from_annotations
 from .tool_limits import select_remote_tools
@@ -422,6 +423,7 @@ class McpClient:
                     tool.description or "", limit=description_limit(deferred=True)
                 ),
                 schema=simplify_schema(tool.inputSchema or {}),
+                raw_schema=_raw_schema(tool.inputSchema),
                 # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
                 effect=self._trusted_effect(
                     server, effect_from_annotations(getattr(tool, "annotations", None))
@@ -536,6 +538,7 @@ class McpClient:
             previous = self._registered.get(server, set())
             for stale in previous - current_names:
                 registry.unregister_remote(stale)
+                forget_raw_schema(stale)
             self._registered[server] = current_names
             server_config = next((item for item in self._configs if item.name == server), None)
             self._stale_tools.discard(server)
@@ -554,6 +557,8 @@ class McpClient:
                         effect_resolver=resolver if remote.name == EXECUTE_ABILITY else None,
                     )
                 )
+                # Anthropic modellerine sunucunun ham şeması gider (#262).
+                remember_raw_schema(fusion_name, remote.schema, remote.raw_schema)
                 added.append(fusion_name)
             self._tool_search.apply(registry, server, server_config, named, previous)
         added.extend(register_resource_tools(self, registry))
@@ -642,6 +647,14 @@ class McpClient:
             return result
 
         return _run
+
+
+def _raw_schema(schema: object) -> dict[str, object] | None:
+    """Sunucunun `inputSchema`'sı (açıklamaları temizlenmiş); nesne değilse None."""
+    if not isinstance(schema, Mapping):
+        return None
+    cleaned = clean_raw_schema(schema)
+    return cleaned if isinstance(cleaned, dict) else None
 
 
 def _named_tools(server: str, tools: Sequence[RemoteTool]) -> list[tuple[str, RemoteTool]]:

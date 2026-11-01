@@ -22,6 +22,7 @@ __all__ = [
     "MAX_SCHEMA_DEPTH",
     "MAX_TOOL_DESCRIPTION_CHARS",
     "clean_description",
+    "clean_raw_schema",
     "simplify_schema",
 ]
 
@@ -99,6 +100,24 @@ def simplify_schema(schema: Mapping[str, object]) -> dict[str, object]:
         # Üst düzey nesne olmayan şema araç parametresi olamaz; boş nesneye düş.
         return {"type": "object", "properties": {}}
     return simplified
+
+
+def clean_raw_schema(schema: object) -> object:
+    """Ham şemanın yapısına dokunmadan her `description` metnini temizle (gizli blok, sınır).
+
+    Ham şema yalnız eksiksiz JSON Schema kabul eden sağlayıcıya gider (#262); araç
+    zehirlenmesine karşı açıklama temizliği orada da uygulanır.
+    """
+    if isinstance(schema, Mapping):
+        return {
+            key: clean_description(value)
+            if key == "description" and isinstance(value, str)
+            else clean_raw_schema(value)
+            for key, value in schema.items()
+        }
+    if isinstance(schema, list):
+        return [clean_raw_schema(item) for item in schema]
+    return schema
 
 
 def _collect_definitions(schema: Mapping[str, object]) -> dict[str, Mapping[str, object]]:

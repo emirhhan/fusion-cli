@@ -26,3 +26,64 @@ def test_alan_aciklamasi_ortam_sinirina_uyar(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH", "500")
 
     assert len(_field("c" * 800)) == 500
+
+
+# --- Ham şema Anthropic'e, sade şema diğer sağlayıcılara (#262) -----------------------------
+
+_HAM = {
+    "type": "object",
+    "$defs": {"Kisi": {"type": "object", "properties": {"ad": {"type": "string"}}}},
+    "properties": {
+        "kim": {"$ref": "#/$defs/Kisi"},
+        "deger": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+        "not": {"type": "string", "description": "<important>gizli</important>açık"},
+    },
+}
+
+
+def _istek_araclari(model: str):
+    from dataclasses import replace
+
+    from fusion_cli.core.tool_schema_variants import remember_raw_schema
+    from fusion_cli.mcp_bridge.client import _raw_schema
+    from fusion_cli.providers.litellm_provider import LiteLlmProvider
+
+    from .fakes import request
+
+    sade = simplify_schema(_HAM)
+    remember_raw_schema("mcp__s__ara", sade, _raw_schema(_HAM))
+    araclar = (
+        {"type": "function", "function": {"name": "mcp__s__ara", "parameters": sade}},
+        {"type": "function", "function": {"name": "Read", "parameters": {"type": "object"}}},
+    )
+    provider = LiteLlmProvider(model, role="agent")
+    kwargs = provider._call_kwargs(replace(request(), tools=araclar), stream=False)
+    return {tool["function"]["name"]: tool["function"]["parameters"] for tool in kwargs["tools"]}
+
+
+def test_anthropic_modeline_ham_sema_gider_aciklama_temizlenir():
+    params = _istek_araclari("anthropic/claude-sonnet-4-5")["mcp__s__ara"]
+
+    assert params["properties"]["kim"] == {"$ref": "#/$defs/Kisi"}
+    assert "$defs" in params
+    assert "anyOf" in params["properties"]["deger"]
+    assert params["properties"]["not"]["description"] == "açık"
+
+
+def test_diger_saglayicilara_sade_sema_gider():
+    params = _istek_araclari("gemini/gemini-2.5-pro")["mcp__s__ara"]
+
+    assert "$defs" not in params
+    assert "anyOf" not in params["properties"]["deger"]
+
+
+def test_sema_degisirse_eski_ham_sema_kullanilmaz():
+    from fusion_cli.core.tool_schema_variants import remember_raw_schema, with_raw_schemas
+
+    remember_raw_schema("mcp__s__b", {"type": "object", "properties": {}}, _HAM)
+    yeni = {"type": "object", "properties": {"x": {"type": "string"}}}
+    tools = with_raw_schemas(
+        [{"type": "function", "function": {"name": "mcp__s__b", "parameters": yeni}}]
+    )
+
+    assert tools[0]["function"]["parameters"] == yeni

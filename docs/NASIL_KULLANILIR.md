@@ -756,7 +756,11 @@ fusion mcp serve                      # Fusion'ı stdio MCP sunucusu olarak aç 
   alanıyla değil istemci tarafında yapılır; bu yüzden her modelde çalışır.
 - Henüz yok (Claude Code'da var): Elicitation kancası,
   `--mcp-config` + `managed-mcp.json` birlikteyken
-  açılışta çıkış. Araç şeması sağlayıcı uyumu için sadeleştirilerek gönderilir.
+  açılışta çıkış.
+- Araç şeması: Anthropic/Claude modellerine sunucunun `inputSchema`'sı olduğu gibi gider
+  (yalnız açıklamalardaki gizli talimat blokları temizlenir). JSON Schema'yı eksik destekleyen
+  sağlayıcılara (Gemini, Mistral, bazı OpenRouter modelleri) `$ref`/`anyOf`/derinlik
+  sadeleştirilmiş kopya gönderilir; Fusion çok sağlayıcılı olduğu için bu bir uyum katmanıdır.
 
 **MCP istemleri ve kaynakları** (Claude Code ile aynı yazım):
 ```

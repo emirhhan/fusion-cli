@@ -28,6 +28,9 @@ class RemoteTool:
     effect: ToolEffect = ToolEffect.REMOTE_WRITE
     #: Aracın `_meta["anthropic/alwaysLoad"]` işareti (#258); yoksa None.
     always_load: bool | None = None
+    #: Sunucunun yazdığı `inputSchema` (açıklamaları temizlenmiş); Anthropic modellerine
+    #: sadeleştirilmiş `schema` yerine bu gider (#262). None = bilinmiyor.
+    raw_schema: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
