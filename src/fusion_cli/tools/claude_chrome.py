@@ -31,8 +31,10 @@ _XY: SchemaFragment = {"type": "array", "items": _N}
 _TAB = {"tabId": _N}
 #: `computer wait` üst sınırı (Claude: en çok 10 sn).
 MAX_WAIT_S = 10.0
-#: Fusion'da tek köprü vardır; Claude'un `deviceId`'si buna karşılık gelir.
+#: Kimlik göndermeyen eklentinin (ya da çoklu cihaz bilmeyen köprünün) `deviceId`'si.
 LOCAL_DEVICE_ID = "fusion-local"
+#: `switch_browser`: kullanıcının başka tarayıcıda "Bu tarayıcıyı kullan"a basması için süre.
+SWITCH_WAIT_S = 60.0
 
 _COMPUTER_ACTIONS = [
     "left_click", "right_click", "type", "screenshot", "wait", "scroll", "key",
@@ -174,24 +176,48 @@ async def _local(short: str, args: ToolArgs, context: ToolContext) -> ToolResult
         seconds = float(duration) if isinstance(duration, int | float) else 1.0
         await asyncio.sleep(max(0.0, min(seconds, MAX_WAIT_S)))
         return ToolResult(f"{seconds:g} sn beklendi.")
-    connected = context.chrome is not None
-    if short == "list_connected_browsers":
-        browsers = [{"deviceId": LOCAL_DEVICE_ID, "name": "Chrome", "isLocal": True, "inUse": True}]
-        return ToolResult(json.dumps(browsers if connected else [], ensure_ascii=False))
-    if short == "select_browser":
-        if not connected:
-            return ToolResult.failure("Bağlı Chrome yok; /chrome ile bağlan.")
-        if args.get("deviceId") != LOCAL_DEVICE_ID:
-            return ToolResult.failure(
-                f"Bilinmeyen deviceId; bağlı tek tarayıcı: {LOCAL_DEVICE_ID}."
-            )
-        return ToolResult(f"{LOCAL_DEVICE_ID} seçildi.")
-    if short == "switch_browser":
-        return ToolResult.failure(
-            "Fusion aynı anda tek Chrome'a bağlanır; başka tarayıcı için o tarayıcıda Fusion "
-            "eklentisini açıp /chrome reconnect çalıştır."
-        )
+    if short in ("list_connected_browsers", "select_browser", "switch_browser"):
+        return await _browser_choice(short, args, context)
     return ToolResult.failure(f"{short} çevrilemedi.")
+
+
+def _browsers(chrome: object) -> list[dict[str, object]]:
+    lister = getattr(chrome, "browsers", None)
+    if callable(lister):
+        return list(lister())
+    return [{"deviceId": LOCAL_DEVICE_ID, "name": "Chrome", "isLocal": True, "inUse": True}]
+
+
+async def _browser_choice(short: str, args: ToolArgs, context: ToolContext) -> ToolResult:
+    """#432: bağlı tarayıcıları listele, seç ya da kullanıcıdan başka tarayıcı seçmesini iste."""
+    chrome = context.chrome
+    if short == "list_connected_browsers":
+        browsers = _browsers(chrome) if chrome is not None else []
+        return ToolResult(json.dumps(browsers, ensure_ascii=False))
+    if chrome is None:
+        return ToolResult.failure("Bağlı Chrome yok; /chrome ile bağlan.")
+    if short == "select_browser":
+        device_id = args.get("deviceId")
+        selector = getattr(chrome, "select_browser", None)
+        if not callable(selector):
+            if device_id == LOCAL_DEVICE_ID:
+                return ToolResult(f"{LOCAL_DEVICE_ID} seçildi.")
+            return ToolResult.failure(f"Bilinmeyen deviceId; bağlı tek tarayıcı: {LOCAL_DEVICE_ID}.")
+        chosen = selector(device_id) if isinstance(device_id, str) else None
+        if chosen is None:
+            ids = ", ".join(str(b["deviceId"]) for b in _browsers(chrome)) or "yok"
+            return ToolResult.failure(f"Bu deviceId bağlı değil. Bağlı tarayıcılar: {ids}.")
+        return ToolResult(f"{chosen['name']} ({chosen['deviceId']}) seçildi.")
+    switcher = getattr(chrome, "request_switch", None)
+    if not callable(switcher):
+        return ToolResult.failure("Bu köprü başka tarayıcıya geçişi desteklemiyor.")
+    chosen = await switcher(SWITCH_WAIT_S)
+    if chosen is None:
+        return ToolResult.failure(
+            "Hiçbir tarayıcıda 'Bu tarayıcıyı kullan' seçilmedi. Kullanmak istediğin tarayıcıda "
+            "Fusion yan panelini açıp seçimi yap ya da terminalde /chrome select çalıştır."
+        )
+    return ToolResult(f"{chosen['name']} ({chosen['deviceId']}) seçildi.")
 
 
 def _runner(short: str) -> Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]:

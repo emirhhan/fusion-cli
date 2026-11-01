@@ -63,11 +63,14 @@ STATUS_OFF_HINT = (
 )
 
 RECONNECTED = "Chrome bağlantısı yeniden başlatıldı; eklenti birkaç saniye içinde yeniden eşleşir."
-SELECT_SINGLE = (
-    "Fusion köprüsü bir tarayıcıya bağlanır: en son eşleşen Chromium tarayıcısı (Chrome, Edge, "
-    "Brave, Arc, Vivaldi, Opera) kullanılır. Başka tarayıcıyı seçmek için o tarayıcıdaki "
-    "Fusion Browser eklentisini açıp /chrome reconnect çalıştır."
-)
+SELECT_NONE = "Bağlı tarayıcı yok; tarayıcıda Fusion Browser eklentisini açıp /chrome reconnect çalıştır."
+SELECT_LIST_TITLE = "Bağlı tarayıcılar (seçmek için /chrome select <numara|deviceId>):"
+SELECT_ITEM = "  {index}. {name} ({device}){mark}"
+SELECT_IN_USE = " · kullanılıyor"
+SELECT_DONE = "{name} ({device}) seçildi; başka tarayıcı bağlansa da bu seçim korunur."
+SELECT_UNKNOWN = "Bağlı tarayıcılarda yok: {argument}."
+SELECT_OFF = "Bu oturumda Chrome kapalı; önce --chrome ile başlat."
+BROWSER_SELECTED = "Selected browser: {name} ({device})"
 DEFAULT_SET_ON = "Enabled by default açıldı; sonraki oturumlar Chrome'a bağlanarak başlar."
 DEFAULT_SET_OFF = "Enabled by default kapandı; Chrome yalnız --chrome ile açılır."
 DEFAULT_USAGE = "Kullanım: /chrome default on|off"

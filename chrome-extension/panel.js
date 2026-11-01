@@ -7,6 +7,7 @@ import { setGlow } from "./pageGlow.js";
 import { MONITOR_KEY, PERMISSION_KEY, SHORTCUTS_KEY, monitorEnabled } from "./core.js";
 import { controlSummary, renderAsk, renderMessage, renderShortcuts, renderSites } from "./panelView.js";
 import { handleRecord } from "./recorder.js";
+import { deviceIdentity } from "./device.js";
 import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -182,6 +183,7 @@ async function applyItem(item) {
     return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: step.metin || "Çalışıyor…" }));
   }
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
+  if (item.tur === "tarayici_sec") return { ...thread, soru: BROWSER_CHOICE };
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
   if (item.tur === "bitti" && !inflight) {
     void setGlow(false);
@@ -321,11 +323,25 @@ async function cancel() {
   }
 }
 
+/** switch_browser (#432): Fusion bütün panellere sorar; kullanıcı istediği tarayıcıda seçer. */
+const BROWSER_CHOICE = {
+  id: "tarayici-sec",
+  veri: {
+    tur: "soru",
+    soru: "Fusion bu tarayıcıyı kullansın mı?",
+    secenekler: [{ etiket: "Bu tarayıcıyı kullan", aciklama: "Komutlar bundan sonra bu tarayıcıya gider" }],
+  },
+};
+
 async function answer(veri) {
   const soru = thread.soru;
   if (!soru) return;
   await saveThread({ ...thread, soru: null });
   try {
+    if (soru.id === BROWSER_CHOICE.id) {
+      if (veri?.metin) await request("/select", { cihaz: await deviceIdentity() });
+      return;
+    }
     await request("/answer", { id: soru.id, veri });
   } catch (cause) {
     // Cevap gitmediyse kart geri gelir; kullanıcı yeniden seçebilir.

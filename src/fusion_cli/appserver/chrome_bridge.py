@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
 
+from .chrome_devices import LOCAL_DEVICE_ID, BrowserDevices, parse_device
 from .chrome_feed import panel_item
 from .chrome_host import (
     candidate_extension_ids,
@@ -87,7 +88,8 @@ class ChromeBridge:
         extension_installed: Callable[[], bool] | None = None,
     ) -> None:
         self._server: asyncio.AbstractServer | None = None
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        #: Bağlı tarayıcılar ve her birinin komut kuyruğu (#432).
+        self._devices = BrowserDevices()
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._token = ""
         self._port = 0
@@ -133,9 +135,13 @@ class ChromeBridge:
             "anahtar": self._token if self.running and reveal_token else None,
             # Yeni açılan panel eski turları baştan oynatmasın diye akışın ucu.
             "son": self._feed_seq,
+            "tarayicilar": self._devices.describe(),
+            "secili": self._devices.selected,
         }
 
-    def _mark_command_channel_alive(self) -> None:
+    def _mark_command_channel_alive(
+        self, device_id: str = LOCAL_DEVICE_ID, name: str = "Chrome"
+    ) -> None:
         """Bağlılık YALNIZ komut kanalından (`/poll`, `/result`) türetilir.
 
         Yan panelin trafiği (`/events`, `/status`, `/turn`) komutları işleyen arka plan
@@ -143,8 +149,26 @@ class ChromeBridge:
         `invoke` Chrome'u açıp eklentiyi kurma akışını atlar ve komut 30 sn sonra
         zaman aşımına uğrardı.
         """
+        self._devices.touch(device_id, name)
         self._connected = True
         self._last_seen = time.monotonic()
+
+    def browsers(self) -> list[dict[str, Any]]:
+        """Bağlı tarayıcılar (Claude `list_connected_browsers` biçimi, #432)."""
+        return self._devices.describe()
+
+    def select_browser(self, device_id: str) -> dict[str, Any] | None:
+        """Komutların gideceği tarayıcıyı seç; bağlı değilse `None`. Seçim korunur."""
+        device = self._devices.select(device_id)
+        return None if device is None else {"deviceId": device.device_id, "name": device.name}
+
+    async def request_switch(self, timeout: float) -> dict[str, Any] | None:
+        """Claude `switch_browser`: bütün panellere bağlanma isteği yayar, seçimi bekler."""
+        self.publish({"tur": "tarayici_sec", "metin": "Fusion'ın kullanacağı tarayıcıyı seç."})
+        chosen = await self._devices.wait_switch(timeout)
+        if chosen is None:
+            return None
+        return next((b for b in self._devices.describe() if b["deviceId"] == chosen), None)
 
     async def start(self) -> dict[str, Any]:
         # Başlatma ve kapatma sıralanır. Ölçüldü (27 Eylül): sekmeler geri yüklenirken
@@ -197,9 +221,7 @@ class ChromeBridge:
             if not future.done():
                 future.set_exception(ConnectionError("Chrome bağlantısı kapandı."))
         self._pending.clear()
-        while not self._queue.empty():
-            self._queue.get_nowait()
-        self._queue.put_nowait({})
+        self._devices.close()
         self._connected = False
         self._last_seen = 0.0
         self._token = ""
@@ -290,11 +312,15 @@ class ChromeBridge:
             async with self._connect_lock:
                 if not self.status()["bagli"]:
                     await self._connect_browser()
+        target = self._devices.target()
         identifier = secrets.token_urlsafe(12)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
         args = self._with_ref_doc(args)
-        await self._queue.put({"id": identifier, "islem": operation, "veri": args})
+        device_id = target.device_id if target is not None else LOCAL_DEVICE_ID
+        await self._devices.queue(device_id).put(
+            {"id": identifier, "islem": operation, "veri": args}
+        )
         try:
             result = await asyncio.wait_for(future, COMMAND_TIMEOUT_SECONDS)
         finally:
@@ -425,18 +451,9 @@ class ChromeBridge:
             if method == "GET" and target == "/status":
                 result: dict[str, Any] = self.status()
             elif method == "POST" and target == "/poll":
-                self._mark_command_channel_alive()
-                try:
-                    result = await asyncio.wait_for(self._queue.get(), 20)
-                except TimeoutError:
-                    result = {}
-                while result.get("id") and result["id"] not in self._pending:
-                    try:
-                        result = self._queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        result = {}
+                result = await self._poll(*parse_device(body))
             elif method == "POST" and target == "/result":
-                self._mark_command_channel_alive()
+                self._mark_command_channel_alive(*parse_device(body))
                 identifier = body.get("id")
                 future = self._pending.get(identifier) if isinstance(identifier, str) else None
                 if future is None or future.done():
@@ -462,9 +479,14 @@ class ChromeBridge:
                     if key in body
                 }
                 result = await self._on_settings(allowed)
+            elif method == "POST" and target == "/select":
+                chosen = self.select_browser(parse_device(body)[0])
+                result = {"ok": chosen is not None, "tarayici": chosen}
             elif method == "POST" and target == "/disconnect":
-                self._connected = False
-                self._last_seen = 0.0
+                self._devices.forget(parse_device(body)[0])
+                if not self._devices.connected():
+                    self._connected = False
+                    self._last_seen = 0.0
                 result = {"ok": True}
             else:
                 await self._reply(writer, 404, {"hata": "Uç bulunamadı."}, origin)
@@ -482,6 +504,21 @@ class ChromeBridge:
             writer.close()
             with contextlib.suppress(OSError):
                 await writer.wait_closed()
+
+    async def _poll(self, device_id: str, name: str) -> dict[str, Any]:
+        """Cihazın kendi kuyruğundan bir komut (yoksa 20 sn sonra boş yanıt)."""
+        self._mark_command_channel_alive(device_id, name)
+        queue = self._devices.queue(device_id)
+        try:
+            result = await asyncio.wait_for(queue.get(), 20)
+        except TimeoutError:
+            result = {}
+        while result.get("id") and result["id"] not in self._pending:
+            try:
+                result = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                result = {}
+        return result
 
     @staticmethod
     async def _reply(

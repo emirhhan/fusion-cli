@@ -42,6 +42,9 @@ def status_lines(session: ChromeSession | None, *, extension_installed: bool) ->
         connected = bool(session.bridge.status().get("bagli"))
         browser = text.BROWSER_CONNECTED if connected else text.BROWSER_WAITING
         lines.append(text.BROWSER_LINE.format(browser=browser))
+        in_use = next((b for b in _browsers(session) if b.get("inUse")), None)
+        if in_use is not None:
+            lines.append(text.BROWSER_SELECTED.format(name=in_use["name"], device=in_use["deviceId"]))
     default = text.DEFAULT_ON if prefs.enabled_by_default else text.DEFAULT_OFF
     lines.append(text.DEFAULT_LINE.format(value=default))
     lines.append("")
@@ -55,6 +58,41 @@ async def reconnect(session: ChromeSession | None) -> str:
     await session.bridge.close()
     await session.bridge.start()
     return text.RECONNECTED
+
+
+def _browsers(session: ChromeSession) -> list[dict[str, Any]]:
+    """Köprünün bağlı tarayıcıları (çoklu cihaz bilmeyen köprüde boş)."""
+    lister = getattr(session.bridge, "browsers", None)
+    return list(lister()) if callable(lister) else []
+
+
+def select(session: ChromeSession | None, argument: str) -> str:
+    """Select browser… (#432): bağlı tarayıcıları listeler; numara ya da deviceId ile seçer."""
+    if session is None:
+        return text.SELECT_OFF
+    browsers = _browsers(session)
+    if not browsers:
+        return text.SELECT_NONE
+    choice = argument.strip()
+    if not choice:
+        items = [
+            text.SELECT_ITEM.format(
+                index=index,
+                name=browser["name"],
+                device=browser["deviceId"],
+                mark=text.SELECT_IN_USE if browser.get("inUse") else "",
+            )
+            for index, browser in enumerate(browsers, start=1)
+        ]
+        return "\n".join([text.SELECT_LIST_TITLE, *items])
+    device = choice
+    if choice.isdigit() and 1 <= int(choice) <= len(browsers):
+        device = str(browsers[int(choice) - 1]["deviceId"])
+    selector = getattr(session.bridge, "select_browser", None)
+    chosen = selector(device) if callable(selector) else None
+    if chosen is None:
+        return text.SELECT_UNKNOWN.format(argument=choice)
+    return text.SELECT_DONE.format(name=chosen["name"], device=chosen["deviceId"])
 
 
 def set_default(argument: str) -> str:
@@ -90,7 +128,7 @@ async def run(session: ChromeSession | None, argument: str, console: Console) ->
     if action in ("reconnect", "yeniden-bagla"):
         message = await reconnect(session)
     elif action in ("select", "sec", "seç"):
-        message = text.SELECT_SINGLE
+        message = select(session, rest)
     elif action in ("default", "varsayilan"):
         message = set_default(rest)
     elif action in ("install", "kur"):

@@ -4,6 +4,8 @@ import { handleRecord } from "./recorder.js";
 
 const RETRY_MS = 5000;
 let connection = null;
+/** Bu tarayıcının köprüdeki kimliği (#432); her komut isteğiyle gider. */
+let device = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -15,7 +17,7 @@ async function request(path, data) {
   const response = await fetch(`http://127.0.0.1:${connection.port}${path}`, {
     method: path === "/status" ? "GET" : "POST",
     headers: { Authorization: `Bearer ${connection.token}`, "Content-Type": "application/json" },
-    body: path === "/status" ? undefined : JSON.stringify(data || {}),
+    body: path === "/status" ? undefined : JSON.stringify({ ...(data || {}), ...(device ? { cihaz: device } : {}) }),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.hata || `Fusion yanıtı: ${response.status}`);
@@ -26,6 +28,7 @@ async function pair() {
   const answer = await chrome.runtime.sendMessage({ type: "fusion.pair" });
   if (!answer?.ok) return null;
   connection = { port: answer.port, token: answer.anahtar };
+  device = await chrome.runtime.sendMessage({ type: "fusion.device" }).catch(() => null);
   await request("/status");
   await report({ bagli: true, port: connection.port, token: connection.token });
   return connection;

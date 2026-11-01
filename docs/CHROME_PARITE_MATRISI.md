@@ -29,8 +29,17 @@ gruba boş sekme açar. `gif_creator` Claude gibi üç adımdır: `stop_recordin
 yalnız bellekte) taşır; `upload_image` onu dosya alanına (`ref`) ya da sürükle-bırak hedefine
 (`coordinate`) koyar.
 
-Kalan farklar: `list_connected_browsers` tek yerel köprüyü (`fusion-local`) gösterir,
-`switch_browser` çoklu tarayıcı bağlantısı olmadığı için hata verir; `gif_creator` `download`
+Birden çok tarayıcı (#432): her tarayıcıdaki Fusion Browser eklentisi köprüye kendi kalıcı
+kimliğiyle (`deviceId`, ör. `edge-…`) bağlanır ve yalnız kendi komut kuyruğunu yoklar.
+`list_connected_browsers` bağlı tarayıcıları listeler, `select_browser` birini seçer,
+`switch_browser` bütün açık panellere "Fusion bu tarayıcıyı kullansın mı?" kartını yayar ve
+kullanıcının seçtiği tarayıcıya geçer (60 sn). Terminalde `/chrome select` listeler,
+`/chrome select <numara|deviceId>` seçer. Seçim başka tarayıcı bağlansa ve köprü yeniden
+bağlansa da korunur. Birden çok tarayıcı bağlıyken seçim yoksa tarayıcı eylemi çalışmaz;
+model kullanıcıya hangi tarayıcının kullanılacağını sohbette sorar. Kimlik göndermeyen eski
+eklenti `fusion-local` sayılır.
+
+Kalan farklar: `gif_creator` `download`
 yok sayılır (GIF her zaman proje içine yazılır). Değiştirici tuşlar sayfa içi olay bayraklarıdır,
 gerçek tuş basımı değildir.
 Aşağıdaki tablo iç adlarla eşlemeyi gösterir.
@@ -65,7 +74,7 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 | `tabs_create` pencere, sekme grubu | `chrome_action window=URL`, `group=id,id:başlık` (`tabGroups` izni) | Var (P-073) |
 | Kit'ten (Kits) tarayıcıya erişim | `fusion_browser` (Kit aracı) → `chrome.kit_komut` RPC; okuma bir kez, etkileşim her seferinde onaylı; yalnız metin | Var (P-063); bkz. `docs/KITS_KOPRUSU.md` |
 | `browser_batch` | `chrome_batch` (`actions=[{name, input}]`) | Var (#432): en çok 20 Chrome eylemi sırayla, ilk hatada durur; her öğenin izin denetimi (deny/ask kuralı, yasak eylem, yükleme `Read(...)` kuralı) ayrı uygulanır, en sıkı öğe sorulur; yalnız okuyan öğelerden oluşan toplu çağrı okuma sayılır |
-| `list/select/switch_browser` | `list_connected_browsers` tek yerel köprüyü gösterir, `select_browser fusion-local` | Kısmi (#431/#432): aynı anda tek tarayıcı; `switch_browser` hata verir; yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
+| `list/select/switch_browser` | Köprü cihaz kayıtları (`appserver/chrome_devices.py`), `/chrome select` | Var (#432): birden çok tarayıcı, kalıcı seçim, `switch_browser` paneldeki "Bu tarayıcıyı kullan" kartıyla; yerel mesajlaşma kaydı artık Chrome, Chromium, Edge, Brave, Arc, Vivaldi, Opera ve Linux dizinlerine yazılır (#433) |
 
 ## Konsol, ağ, ağaç, kayıt ve kısayollar (31 Ekim, parite turu)
 
