@@ -242,6 +242,9 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
   sözcüğü düz olmayan komutlarda kural komutun **kendisidir** (`Bash(python -m pytest)`), genel
   `python *` yazılmaz. Yıkıcı işlemlerde ve `ask` kurallı istekte bu seçenek çıkmaz. Terminalde
   (`fusion`, `fusion run`) `k` tuşu; kural yazıldı/yazılamadı bildirimi tur sonunda basılır.
+  Claude Code gibi kabuk komutunda kartta yalnız bu kalıcı seçenek vardır; "bu oturumda sorma"
+  kalıcı kural yazılamayan isteklerde (web, uzak araç, masaüstü) çıkar. Henüz yok: "Yes, and
+  switch to auto mode" seçeneği ve `.claude/` yazımı için oturumluk seçenek.
 - Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
   modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
   Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar. Bilinen sınır: **evet**

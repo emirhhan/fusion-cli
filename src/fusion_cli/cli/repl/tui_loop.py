@@ -166,7 +166,7 @@ class TuiPrompter:
                 Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)
             )
             target = request.desktop_target
-            if request.can_remember:
+            if request.offers_session:
                 choices.append(
                     Choice(
                         "session",

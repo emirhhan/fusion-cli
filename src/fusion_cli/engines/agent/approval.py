@@ -305,6 +305,14 @@ class ApprovalRequest:
         return self.danger is None and self.pre_ask is None and _scope(self) is not None
 
     @property
+    def offers_session(self) -> bool:
+        """Kartta "bu oturumda sorma" seçeneği var mı (#82)? Claude'da kabuk komutunda
+        yalnız kalıcı "Yes, and don't ask again" sunulur; kalıcı kural yazılamıyorsa oturum."""
+        if not self.can_remember:
+            return False
+        return not (tool_family(self.tool.name) is ToolFamily.SHELL and self.can_persist)
+
+    @property
     def can_persist(self) -> bool:
         """ "Bir daha sorma" kalıcı kuralı sunulabilir mi? (P-003)
 

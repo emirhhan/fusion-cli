@@ -78,7 +78,7 @@ async def test_prompter_confirm_sonrasi_onceki_calisma_satirini_geri_getirir():
     assert "hazırlanıyor…" in tui._work_now()
 
 
-async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
+async def test_prompter_kabukta_yalniz_kalici_secenek_sunar():
     tui = _noop_tui()
     prompter = TuiPrompter(tui, None)
 
@@ -88,8 +88,24 @@ async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
     await asyncio.sleep(0)
 
     assert tui._mode == "choice"
-    # P-003: tehlikesiz yerel istekte "bir daha sorma" (always) kalıcı kuralı da sunulur.
-    assert [choice.value for choice in tui._choices] == ["once", "session", "always", "deny"]
+    # #82: Claude kabuk komutunda oturumluk seçenek sunmaz, yalnız "bir daha sorma".
+    assert [choice.value for choice in tui._choices] == ["once", "always", "deny"]
+    tui._resolve("always")
+    assert await task is ApprovalAnswer.ALWAYS
+
+
+async def test_prompter_kabuk_disi_istekte_oturum_secimi_sunar():
+    class _Web:
+        name = "web_fetch"
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+    request = ApprovalRequest(tool=_Web(), args={"url": "https://example.com"}, danger=None)
+    task = asyncio.ensure_future(prompter.confirm(request))
+    await asyncio.sleep(0)
+
+    values = [choice.value for choice in tui._choices]
+    assert "session" in values
     tui._resolve("session")
     assert await task is ApprovalAnswer.SESSION
 

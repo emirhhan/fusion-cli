@@ -380,7 +380,7 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
     """
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     target = request.desktop_target
-    if request.can_remember:
+    if request.offers_session:
         label = (
             messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
             if target is not None and request.consent_key is not None
