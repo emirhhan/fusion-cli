@@ -139,8 +139,11 @@ deftere yazabilir; bu yüzden gelen mesaj hiçbir zaman güvenilir sayılmaz.
 | `cross_session_inbound` | `hold` | `accept` \| `hold` \| `refuse` |
 
 Ctrl+B `~/.fusion/keybindings.json` içinde `"tui": {"c-b": null}` ile kaldırılabilir ya da
-başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır-içi REPL'de tur sürerken tuş
-okunmadığı için orada `/bg` kullanılır.
+başka tuşa (`"arka_plana_al"` eylemi) bağlanabilir. Satır içi REPL'de de tur sürerken Ctrl+B
+çalışır: tur boyunca terminal tuş okur (yankısız), Ctrl+B süren kabuk komutunu ya da ön plan
+alt ajanını kesmeden arka plana alır, tur sürer; bu sırada yazılan metin sonraki istemin
+taslağı olur, onay/soru istemi açılınca okuma durur. tmux'ta Ctrl+B önek tuşu olduğu için
+Claude Code'daki gibi iki kez basılır (tmux ikincisini uygulamaya iletir).
 
 ## Kabuk komutu ayarları (Claude Code Bash ile aynı)
 

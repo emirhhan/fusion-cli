@@ -1117,6 +1117,9 @@ LOOP_LIST_TITLE = "{count} zamanlanmış görev:"
 LOOP_STOPPED = "döngü durdu: {id}"
 LOOP_STOPPED_ALL = "{count} döngü durdu"
 LOOP_NOT_FOUND = "Görev bulunamadı: {id} (/loop list)"
+CTRL_B_NOTHING = (
+    "Arka plana alınacak süren komut ya da alt ajan yok (tmux'ta Ctrl+B iki kez basılır)."
+)
 TASK_LIST_HIDDEN = "Görev listesi gizlendi (Ctrl+T ile yeniden aç)."
 #: Boştaki oturumu arka plan olayı (biten iş, `monitor` satırı) uyandırınca giren tur (#336).
 BACKGROUND_WAKE = "Arka plan bildirimi geldi; değerlendir ve gerekiyorsa devam et."

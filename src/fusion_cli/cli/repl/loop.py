@@ -22,6 +22,7 @@ import signal
 import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -100,6 +101,7 @@ from . import (
     status_line,
     task_list,
     task_view,
+    turn_keys,
     view_commands,
     worktree_exit,
 )
@@ -710,14 +712,37 @@ async def _run_turn(
     apply_auto_profile(line, state, console)
     task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
     completed = True
-    with _cancel_on_interrupt(task):
+    # Tur sürerken Ctrl+B süren komutu/alt ajanı kesmeden arka plana alır (Claude, #320).
+    keys = turn_keys.TurnKeys(lambda: _ctrl_b(state, console))
+    with _cancel_on_interrupt(task), keys.watching():
         try:
             await task
         except asyncio.CancelledError:
             completed = False
             console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
+    if keys.typed.strip():
+        # Tur sırasında yazılan metin kaybolmaz: sonraki istemin taslağı olur.
+        state.pending_input = (state.pending_input + keys.typed).strip()
     console.print()
     return completed
+
+
+def _ctrl_b(state: ReplState, console: Console) -> None:
+    """Satır içi REPL'de Ctrl+B: süren alt ajan ya da kabuk komutu arka plana geçer."""
+    from ...core import foreground_handoff
+
+    if state.config.agent_launch.disable_background_tasks:
+        return
+    if state.child_runs.request_background() or foreground_handoff.request_background():
+        return
+    console.print(f"[{theme.DIM}]{messages.CTRL_B_NOTHING}[/{theme.DIM}]")
+
+
+@contextlib.contextmanager
+def _suspend_all(inner: AbstractContextManager[None]) -> Iterator[None]:
+    """Onay sırasında canlı göstergeyi ve tur tuş izleyicisini birlikte duraklat."""
+    with inner, turn_keys.paused():
+        yield
 
 
 async def _continue_goal(state: ReplState, console: Console, background: BackgroundTasks) -> None:
@@ -917,7 +942,7 @@ async def _agent_turn(
             flush=bus.drain,
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
-            suspend=renderer.suspended,
+            suspend=lambda: _suspend_all(renderer.suspended()),
             # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
             denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
