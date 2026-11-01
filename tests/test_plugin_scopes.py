@@ -274,3 +274,46 @@ def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
     assert result.exit_code == 0, result.output
     assert 'Entry declares version "2.0.0" but' in result.output
     assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in result.output
+
+
+def _two_plugin_market(tmp_path):
+    market = tmp_path / "pazar"
+    _plugin(market / "plugins" / "rapor")
+    _plugin(market / "plugins" / "ozet", "ozet")
+    (market / ".claude-plugin").mkdir(parents=True)
+    entries = [
+        {"name": "rapor", "source": "./plugins/rapor"},
+        {"name": "ozet", "source": "./plugins/ozet"},
+    ]
+    (market / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps({"name": "ekip", "owner": {"name": "Ekip"}, "plugins": entries}),
+        encoding="utf-8",
+    )
+    plugin_install.add_marketplace(str(market))
+    plugin_install.install_plugin("rapor@ekip", approve=_yes)
+    plugin_install.install_plugin("ozet@ekip", approve=_yes)
+
+
+def test_pazar_kaldirmada_biri_basarisiz_olursa_pazar_kalir_ve_yeniden_denenebilir(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.core.plugins import PluginError
+
+    _two_plugin_market(tmp_path)
+    real = plugin_install.uninstall_plugin
+
+    def flaky(name, **kwargs):
+        if name.startswith("rapor"):
+            raise PluginError("kilitli")
+        return real(name, **kwargs)
+
+    monkeypatch.setattr(plugin_install, "uninstall_plugin", flaky)
+    with pytest.raises(PluginError, match="rapor"):
+        plugin_install.remove_marketplace("ekip")
+    state = plugin_store.load_state()
+    assert state.marketplace("ekip") is not None  # yeniden denenebilir
+    assert [r.name for r in state.plugins] == ["rapor"]  # öteki yine kaldırıldı
+
+    monkeypatch.setattr(plugin_install, "uninstall_plugin", real)
+    assert plugin_install.remove_marketplace("ekip") == ("rapor",)
+    assert plugin_store.load_state().marketplace("ekip") is None

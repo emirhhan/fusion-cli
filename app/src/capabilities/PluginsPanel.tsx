@@ -129,6 +129,7 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
   const [marketSource, setMarketSource] = useState("");
   const [preview, setPreview] = useState<PendingPreview | null>(null);
   const [confirmRemove, setConfirmRemove] = useState("");
+  const [confirmMarket, setConfirmMarket] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +156,13 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
       if (payload.yenile === true) onChanged?.();
       return payload;
     } catch (reason) { setError(errorMessage(reason)); return null; } finally { setBusy(false); }
+  };
+
+  /** #396: pazar ondan kurulan eklentilerle birlikte gider; kaldırılanlar bildirilir. */
+  const removeMarket = async (ad: string) => {
+    const payload = await run("eklenti.pazar_kaldir", { ad }, `${ad} pazarı kaldırıldı.`);
+    const removed = Array.isArray(payload?.kaldirilan) ? payload.kaldirilan.map(String) : [];
+    if (removed.length > 0) setNotice(`${ad} pazarı kaldırıldı. Ayrıca bu pazardan ${removed.length} eklenti kaldırıldı: ${removed.join(", ")}`);
   };
 
   const askPreview = async (kaynak: string) => {
@@ -304,7 +312,13 @@ export function PluginsPanel({ client, onChanged }: { client: ProtocolClient; on
                 <div className="plugins-panel__text"><strong>{market.ad}</strong><small>{market.tur} · {market.kaynak}</small></div>
                 <div className="plugins-panel__actions">
                   <button aria-label={`${market.ad} pazarını güncelle`} disabled={busy} onClick={() => void run("eklenti.pazar_guncelle", { ad: market.ad }, `${market.ad} pazarı güncellendi.`)} type="button">Güncelle</button>
-                  <button disabled={busy} onClick={() => void run("eklenti.pazar_kaldir", { ad: market.ad }, `${market.ad} pazarı kaldırıldı.`)} type="button">Kaldır</button>
+                  {confirmMarket === market.ad ? (
+                    <>
+                      <small className="plugins-panel__warn">Claude Code gibi: bu pazardan kurulan bütün eklentiler, ayarları ve verileri de silinir.</small>
+                      <button disabled={busy} onClick={() => { setConfirmMarket(""); void removeMarket(market.ad); }} type="button">Evet, pazarı kaldır</button>
+                      <button onClick={() => setConfirmMarket("")} type="button">Vazgeç</button>
+                    </>
+                  ) : <button aria-label={`${market.ad} pazarını kaldır`} disabled={busy} onClick={() => setConfirmMarket(market.ad)} type="button">Kaldır</button>}
                 </div>
               </li>
             ))}

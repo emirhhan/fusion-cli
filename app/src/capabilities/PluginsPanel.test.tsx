@@ -109,3 +109,20 @@ it("güncelle önce yeni içeriği gösterir, doğrula sonucu bildirir, pazar g�
   fireEvent.click(screen.getByRole("button", { name: "ekip pazarını güncelle" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.pazar_guncelle", { ad: "ekip" }));
 });
+
+it("pazar kaldırma onay ister, eklentilerin ve verilerinin de silineceğini söyler, kaldırılanları bildirir", async () => {
+  const pazar = { ad: "ekip", kaynak: "o/r", tur: "git" };
+  const request = vi.fn(async (name: string) => {
+    if (name === "eklenti.listele") return { ok: true, eklentiler: [], pazarlar: [pazar] };
+    if (name === "eklenti.pazar_kaldir") return { ok: true, eklentiler: [], pazarlar: [], kaldirilan: ["rapor", "ozet"] };
+    return { ok: false };
+  });
+  render(<PluginsPanel client={{ request } as unknown as ProtocolClient} />);
+  fireEvent.click(await screen.findByRole("tab", { name: /Pazarlar/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "ekip pazarını kaldır" }));
+  expect(request).not.toHaveBeenCalledWith("eklenti.pazar_kaldir", expect.anything());
+  expect(screen.getByText(/bu pazardan kurulan bütün eklentiler, ayarları ve verileri de silinir/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Evet, pazarı kaldır" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("eklenti.pazar_kaldir", { ad: "ekip" }));
+  expect(await screen.findByText("ekip pazarı kaldırıldı. Ayrıca bu pazardan 2 eklenti kaldırıldı: rapor, ozet")).toBeTruthy();
+});

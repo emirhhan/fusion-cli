@@ -80,6 +80,10 @@ ERR_CHANGED = (
 ERR_SHA = "Commit uyuşmuyor: pazar {expected} bekliyor, klon {actual}. Kurulmadı."
 ERR_SHA_FORMAT = "Pazar sha pini en az 7 onaltılık karakter olmalı: {sha!r}. Kurulmadı."
 ERR_NO_MARKET = "Pazar yok: {name}"
+ERR_MARKET_PARTIAL = (
+    "'{name}' pazarı kaldırılmadı; şu eklentiler kaldırılamadı: {errors}. "
+    "Sorunu giderip yeniden deneyin (kaldırılanlar geri gelmez)."
+)
 ERR_MARKET_TAKEN = (
     "'{name}' adlı pazar zaten kayıtlı ({source}); kaynak değişmedi. Değiştirmek için önce "
     "kaldır: fusion eklenti pazar kaldir {name}"
@@ -625,7 +629,10 @@ def _check_market_name(name: str, source: str, root: Path) -> None:
 
 
 def remove_marketplace(name: str, *, base: Path | None = None) -> tuple[str, ...]:
-    """Pazarı ve ondan kurulan BÜTÜN eklentileri kaldır (Claude, #396); kaldırılan eklentiler."""
+    """Pazarı ve ondan kurulan BÜTÜN eklentileri (verileriyle) kaldır (Claude, #396).
+
+    Bir eklenti kaldırılamazsa ötekiler yine kaldırılır, pazar kaydı kalır ve hata verilir.
+    """
     from .plugin_toggle import plugins_from_marketplace
 
     root = base or plugins_dir()
@@ -634,8 +641,15 @@ def remove_marketplace(name: str, *, base: Path | None = None) -> tuple[str, ...
     if record is None:
         raise PluginError(ERR_NO_MARKET.format(name=name))
     removed = plugins_from_marketplace(name, root)
+    failed: list[str] = []
     for plugin in removed:
-        uninstall_plugin(f"{plugin}@{name}", base=root)
+        try:
+            uninstall_plugin(f"{plugin}@{name}", base=root)
+        except PluginError as error:
+            failed.append(f"{plugin}: {error}")
+    if failed:
+        # Pazar kaydı kalır: yeniden denendiğinde yalnız kalan eklentiler kaldırılır.
+        raise PluginError(ERR_MARKET_PARTIAL.format(name=name, errors="; ".join(failed)))
     clones = markets_dir(root).resolve()
     folder = Path(record.path).resolve()
     # Yalnız Fusion'ın kendi klonu silinir: elle bozulmuş kayıttaki `~/Belgeler` silinmez.

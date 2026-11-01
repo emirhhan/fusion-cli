@@ -232,5 +232,6 @@ def test_pazar_ekle_kesfet_ve_kaldir_rpcleri(tmp_path):
         {"ad": "bicimci", "pazar": "ekip", "surum": "", "aciklama": "", "kurulu": False}
     ]
     assert _call("eklenti.pazar_guncelle", {"ad": "ekip"}, context)["ok"] is True
-    assert _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)["pazarlar"] == []
+    removed = _call("eklenti.pazar_kaldir", {"ad": "ekip"}, context)
+    assert removed["pazarlar"] == [] and removed["kaldirilan"] == []
     assert _call("eklenti.kesfet", {"pazar": "ekip"}, context)["ok"] is False

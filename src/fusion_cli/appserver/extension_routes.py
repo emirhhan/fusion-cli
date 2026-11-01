@@ -288,7 +288,10 @@ def _market(name: str, data: Mapping[str, object]) -> dict[str, Any]:
     elif name == "eklenti.pazar_guncelle":
         plugin_update.update_marketplace(_text(data, "ad"))
     else:
-        plugins.remove_marketplace(_text(data, "ad"))
+        # Claude gibi pazar, ondan kurulan eklentiler ve verileri birlikte gider (#396);
+        # arayüz onay ister ve kaldırılanları bildirir.
+        removed = plugins.remove_marketplace(_text(data, "ad"))
+        return {**_list(), "yenile": bool(removed), "kaldirilan": list(removed)}
     return _list()
 
 
