@@ -1346,9 +1346,9 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   döngü biter. Argümansız `/loop` → `.claude/loop.md` (proje ya da ev; her çalışmada yeniden
   okunur, 25.000 baytta kesilir), yoksa yerleşik bakım görevi: yarım işi sürdür → dalın PR'ına
   bak (yorumlar, CI, çakışma) → başka iş yoksa temizlik; yeni girişim başlatılmaz.
-  Kendi tempolu döngü sıradaki uyanmayı beklerken (tur yokken) TUI'de **Esc** onu durdurur;
-  sabit aralıklı görevler kalır (klasik satır içi REPL'de henüz yok, orada `/loop` durdurma
-  isteğini doğal dille söyleyin).
+  Kendi tempolu döngü sıradaki uyanmayı beklerken (tur yokken) **Esc** ya da **Ctrl+C** onu
+  durdurur (TUI ve satır içi REPL'de boş istemde; vim INSERT kipinde Esc NORMAL'e geçer);
+  sabit aralıklı görevler kalır. Durduracak döngü yokken Ctrl+C eskisi gibi çıkar.
 - Yineleyen görev 7 gün dolunca son bir kez çalışır ve silinir. `--resume` ile sürdürülen
   sohbette kendi tempolu döngü ve vakti geçmiş tek seferlik görev geri gelmez; kaçırılan
   çalışmalar telafi edilmez.

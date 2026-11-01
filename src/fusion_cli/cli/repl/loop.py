@@ -301,6 +301,8 @@ async def _run_surface(
         if task_view.toggle_visible(state)
         else [messages.TASK_LIST_HIDDEN]
     )
+    # Boş istemde Esc / Ctrl+C bekleyen kendi tempolu döngüyü durdurur (#365).
+    reader.loop_stopper = lambda: _stopped_loop_lines(state)
     cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
     # Arka plan görevleri + oturumlar arası mesaj (P-048/P-060): bildirim ve gelen kutusu.
     link_watcher = agent_link.start_watch(
@@ -454,11 +456,28 @@ async def _warm_up(state: ReplState) -> None:
         _logger.debug("ısıtma çağrısı başarısız", exc_info=True)
 
 
+def _stopped_loop_lines(state: ReplState) -> list[str]:
+    """Bekleyen kendi tempolu döngüleri durdur; kullanıcıya basılacak satırlar."""
+    return [
+        messages.LOOP_STOPPED.format(id=task_id)
+        for task_id in loop_command.stop_waiting_self_paced(state)
+    ]
+
+
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
-    """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
+    """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış).
+
+    Ctrl+C bekleyen kendi tempolu döngü varsa önce onu durdurur (Claude, #365); yoksa çıkış.
+    """
     try:
         line = await reader.prompt(default=state.take_pending_input())
-    except (EOFError, KeyboardInterrupt):
+    except KeyboardInterrupt:
+        stopped = _stopped_loop_lines(state)
+        if stopped:
+            print("\n".join(stopped))
+            return ""
+        return None
+    except EOFError:
         return None
     # shift-tab girişte modu değiştirmiş olabilir; durumu senkronla.
     state.approval = reader.mode

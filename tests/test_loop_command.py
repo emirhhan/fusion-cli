@@ -798,3 +798,31 @@ def test_yerlesik_komutla_ayni_adli_beceri_komut_olarak_calismaz() -> None:
     katalog = SimpleNamespace(get_skill=beceriler.get)
     for gorev in ("/bypass", "/mode hizli", "/MODEL x"):
         assert not loop_command.runs_as_command(gorev, katalog), gorev
+
+
+def test_satir_ici_repl_esc_ve_ctrl_c_bekleyen_kendi_tempolu_donguyu_durdurur(
+    state: ReplState, monkeypatch
+) -> None:
+    """Claude (#365): döngü beklerken Esc ya da Ctrl+C durdurur; satır içi REPL'de de."""
+    import time
+
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.config import keybindings
+
+    now = time.time()
+    loop_task = state.cron.create_self_paced("/loop kontrol", now=now)
+    state.cron.create_interval("rapor", "10m", now=now)
+    table = keybindings.load_keymap(Path("/yok/keybindings.json"))
+    assert table.bindings(keybindings.CONTEXT_INPUT)["escape"] == "dongu_durdur"
+
+    class _Reader:
+        mode = state.approval
+
+        async def prompt(self, default: str = "") -> str:
+            raise KeyboardInterrupt
+
+    assert asyncio.run(repl_loop._read_line(_Reader(), state)) == ""
+    assert [task.kind.value for task in state.cron.list()] == ["aralik"]
+    assert loop_task.id not in {task.id for task in state.cron.list()}
+    # Durduracak döngü kalmadıysa Ctrl+C eskisi gibi çıkar.
+    assert asyncio.run(repl_loop._read_line(_Reader(), state)) is None
