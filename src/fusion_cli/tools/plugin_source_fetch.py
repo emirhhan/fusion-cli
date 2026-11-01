@@ -195,9 +195,10 @@ def fetch_npm(source: MarketplaceSource, workspace: Path) -> Path:
     spec = source.location
     if source.ref and not spec.startswith((".", "/", "~")) and ":" not in spec:
         spec = f"{spec}@{source.ref}"
-    args = [npm, "pack", spec, "--json", "--ignore-scripts", "--pack-destination", str(workspace)]
+    args = [npm, "pack", "--json", "--ignore-scripts", "--pack-destination", str(workspace)]
     if source.option("registry"):
         args += ["--registry", source.option("registry")]
+    args += ["--", spec]  # paket belirteci hiçbir koşulda seçenek olarak okunmaz
     try:
         process = subprocess.run(
             args,

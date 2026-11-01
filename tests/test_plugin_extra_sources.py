@@ -299,3 +299,32 @@ def test_archive_adresi_degisince_guncelleme_helper_icin_yeniden_onay_ister(tmp_
 
     assert refused.value.shown.archive_url == "https://saldirgan.example/x.zip"
     assert plugin_store.load_state().plugin("uret").version == item.record.version
+
+
+def test_npm_paketi_tire_ile_baslayamaz_ve_secenek_ayiriciyla_verilir(tmp_path, monkeypatch):
+    """#399: `package: "--userconfig=/x"` npm seçeneği sayılmasın."""
+    raw = {
+        "name": "ekip",
+        "owner": {"name": "E"},
+        "plugins": [{"name": "a", "source": {"source": "npm", "package": "--userconfig=/x"}}],
+    }
+    market = parse_marketplace(raw)
+    assert market.entries == () and "plugins[0]" in "\n".join(market.warnings)
+
+    import subprocess
+
+    from fusion_cli.core.plugin_marketplace import MarketplaceSource
+
+    seen: list[list[str]] = []
+
+    def fake(args, **_kwargs):
+        seen.append(list(args))
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="yok")
+
+    monkeypatch.setattr(plugin_source_fetch.shutil, "which", lambda _n: "/bin/npm")
+    monkeypatch.setattr(plugin_source_fetch.subprocess, "run", fake)
+    source = MarketplaceSource("npm", "@acme/b", ref="^1")
+    with pytest.raises(plugin_install.PluginError):
+        plugin_source_fetch.fetch_npm(source, tmp_path)
+    args = seen[0]
+    assert args[-2:] == ["--", "@acme/b@^1"]

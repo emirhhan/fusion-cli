@@ -110,7 +110,9 @@ def npm_options(
 ) -> tuple[str, str, tuple[tuple[str, str], ...]]:
     """(package, version, seçenekler)."""
     package = _text(raw, "package")
-    if not package or (not _URLISH.match(package) and ".." in package.split("/")):
+    # `-` ile başlayan değer `npm pack`'te seçenek sayılırdı (`--userconfig=…`).
+    bad = not package or package.startswith("-")
+    if bad or (not _URLISH.match(package) and ".." in package.split("/")):
         raise PluginError(ERR_NPM_PACKAGE.format(name=name, value=raw.get("package")))
     registry = _text(raw, "registry")
     if registry and not re.match(r"^https?://[^/\s]+", registry):
