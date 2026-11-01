@@ -76,12 +76,11 @@
         <form id="composer" class="composer">
           <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
           <div class="composer__bar">
-            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik: Fusion karar verir, yalnız riskli işlemde sorar.">
-              <option value="auto" title="Fusion karar verir; yalnız gönder/sil/satın al gibi riskli işlemde sorar.">Otomatik</option>
-              <option value="security" title="Okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel</option>
-              <option value="edits" title="Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.">Düzenlemeleri kabul et</option>
-              <option value="plan" title="Sayfayı yalnız okur, plan çıkarır; tıklamaz, yazmaz.">Plan</option>
-              <option value="bypass" title="Gönderme ve silmeyi sormaz. Satın alma her kipte yasak; yetki verme ve hassas bilgi yine sorulur.">İzinleri atla</option>
+            <!-- Claude in Chrome'un üç modu (#434): Manually approve / Automatically approve / Skip all approvals. -->
+            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik onay (Automatically approve): her eylem güvenlik için denetlenir, yalnız riskli işlem sorulur.">
+              <option value="security" title="Manually approve: okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel onay</option>
+              <option value="auto" title="Automatically approve: her eylem güvenlik için denetlenir; yalnız gönder/sil gibi riskli işlem sorulur.">Otomatik onay</option>
+              <option value="bypass" title="Skip all approvals: gönderme ve silmeyi sormaz. Satın alma her kipte yasak; yetki verme ve hassas bilgi yine sorulur.">Tüm onayları atla</option>
             </select>
             <select id="model" class="model-chip" aria-label="Model" title="Model"></select>
             <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">

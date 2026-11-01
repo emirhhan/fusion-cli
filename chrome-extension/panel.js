@@ -91,6 +91,9 @@ function renderThread() {
 }
 
 /** Mod seçimine göre "güvenli mi" satırı: kullanıcı hangi işlemin sorulduğunu görür. */
+/** Panelin Claude in Chrome modları (#434): Manually approve, Automatically approve, Skip all approvals. */
+const PANEL_MODES = ["security", "auto", "bypass"];
+
 const GUARD_TEXT = {
   auto: "Gönderme ve silme sana sorulur; satın alma ve hesap oluşturma hiç yapılmaz.",
   security: "Her tıklama ve yazma önce sana sorulur.",
@@ -249,7 +252,8 @@ async function autoUpdate(version) {
 
 function renderSettings(settings) {
   if (!settings?.ok) return;
-  const mode = settings.mod || "auto";
+  // Eski kayıtlı kipler (edits/plan) üç moddan birine gösterilir; Manuel en sıkı karşılıktır (#434).
+  const mode = PANEL_MODES.includes(settings.mod) ? settings.mod : settings.mod ? "security" : "auto";
   const chip = $("mode");
   chip.value = mode;
   chip.dataset.mode = mode;

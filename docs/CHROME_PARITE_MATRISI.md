@@ -60,6 +60,14 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 - **Windows/Linux**: Fusion Chrome kapalıyken `chrome_launch_command` ile açar (`start chrome`, PATH'teki
   `google-chrome`/`chromium`). Kılavuzlu kurulum hâlâ macOS/Windows.
 
+## Panel izin modları (#434)
+
+Yan paneldeki seçici Claude in Chrome'un üç modudur: **Manuel onay** (Manually approve; okuma dışındaki her
+işlem sorulur), **Otomatik onay** (Automatically approve; varsayılan, her eylem güvenlik için denetlenir,
+yalnız riskli işlem sorulur) ve **Tüm onayları atla** (Skip all approvals; açılırken onay ister; satın alma her
+kipte yasak). Seçim sonraki panel oturumlarında hatırlanır; eski kayıtlı `edits`/`plan` Manuel onay olarak
+gösterilir. Terminal ve masaüstü sohbetinden gelen Chrome eylemleri o oturumun kendi izin kipini kullanır.
+
 ## Oturum sekme grubu (#436)
 
 Fusion'ın açtığı sekmeler (`tab_open`, yeni pencere) pencere başına tek bir **Fusion** sekme grubunda
