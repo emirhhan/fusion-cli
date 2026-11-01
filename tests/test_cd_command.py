@@ -225,3 +225,24 @@ async def test_masaustu_cd_sekme_kokunu_tasir_ve_kok_dondurur(tmp_path: Path, ev
     )
     assert sonuc["kok"] == str(yeni.resolve())
     assert oturum._state.root.resolve() == yeni.resolve()
+
+
+def test_cd_allow_kurali_izin_listesi_kipine_sokar(tmp_path: Path, ev: Path):
+    """Claude (#81): Cd allow kuralı varsa hedef bir allow kuralına uymalı."""
+    izinli = tmp_path / "kod" / "app"
+    izinli.mkdir(parents=True)
+    baska = tmp_path / "baska"
+    baska.mkdir()
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (ev / ".claude").mkdir()
+    (ev / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": [f"Cd(/{(tmp_path / 'kod').as_posix()}/*)"]}}),
+        encoding="utf-8",
+    )
+    state = _state(proje, ev)
+
+    assert _cd(state, str(baska)).startswith("Cd izin listesi açık")
+    assert state.root == proje
+    _cd(state, str(izinli))
+    assert state.root == izinli.resolve()

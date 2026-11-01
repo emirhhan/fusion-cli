@@ -1518,6 +1518,7 @@ CD_NOT_FOUND = "Klasör bulunamadı. Var olan bir klasör ver: /cd ../diger-proj
 CD_SAME = "Zaten bu dizindesin: {path}"
 CD_TOO_BROAD = "Diskin ya da ev dizininin tamamı çalışma dizini yapılamaz; bir proje klasörü seç."
 CD_DENIED = "Bu dizine geçiş izin kuralıyla engelli: {rule}"
+CD_NOT_ALLOWED = "Cd izin listesi açık; {path} hiçbir Cd(...) allow kuralına uymuyor."
 CD_CHANGED = (
     "Çalışma dizini değişti: {old} → {new}\n"
     "Ek klasörler ve oturumluk izinler sıfırlandı; konuşma aynı sohbette sürüyor."

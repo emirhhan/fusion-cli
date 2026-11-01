@@ -79,6 +79,16 @@ def target_problem(state: ReplState, target: Path, *, written: Path | None = Non
         match = evaluate(rules, CD_RULE_TOOL, {"path": str(path)}, state.root)
         if match is not None and match.decision is PermissionDecision.DENY:
             return messages.CD_DENIED.format(rule=match.rule.pattern)
+    # Claude (#81): herhangi bir `Cd` allow kuralı `/cd`'yi izin listesi kipine sokar.
+    allows = [
+        r for r in rules.rules if r.tool == CD_RULE_TOOL and r.decision is PermissionDecision.ALLOW
+    ]
+    if (
+        allows
+        and evaluate(rules.with_rules(allows), CD_RULE_TOOL, {"path": str(target)}, state.root)
+        is None
+    ):
+        return messages.CD_NOT_ALLOWED.format(path=target)
     return ""
 
 
