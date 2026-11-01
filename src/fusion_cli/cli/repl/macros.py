@@ -127,7 +127,7 @@ MACROS: dict[str, Macro] = {
         mode=Mode.WORKFLOW,
         argument_required=True,
     ),
-    # --- PR/CI makroları (P-057; Claude Code "create a pr", /autofix-pr; /pr-comments kaldırıldı #226) --- #
+    # --- PR/CI makroları (P-057; "create a pr", /autofix-pr; /pr-comments yok, #226) --- #
     "pr": Macro(
         task="Mevcut dalın değişikliklerini `git` ile incele (log, diff --stat), hedef dalı "
         "`gh repo view --json defaultBranchRef` ile bul; başlık ve gövdeyi (ne/neden, test "
