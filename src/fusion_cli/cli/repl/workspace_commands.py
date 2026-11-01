@@ -75,8 +75,14 @@ def add_dir(state: ReplState, argument: str) -> str:
     if hedef is None or not hedef.is_dir():
         return "Klasör bulunamadı. Tam yolu ver: /add-dir /Users/sen/proje"
     kok = state.root.expanduser().resolve()
-    if hedef == kok or kok in hedef.parents:
-        return "Bu klasör zaten proje kökünün içinde."
+    if hedef == kok:
+        return "Bu klasör zaten proje kökü."
+    if kok in hedef.parents:
+        # Claude (#77): alt dizin zaten okunabilir; yalnız beceri/komut/ajan tanımları yüklenir.
+        if hedef not in state.extra_roots:
+            state.extra_roots = (*state.extra_roots, hedef)
+            state.refresh_capability_roots()
+        return f"Alt klasörün beceri, komut ve ajan tanımları yüklendi: {hedef}"
     if hedef in kok.parents:
         # Proje kökünün ÜST dizini (`~/Desktop`) yalnız disk kökü ve ev dizini engellenince
         # geçiyordu; bu, tek komutla kardeş projelerin hepsine erişim açardı (L2-32).
