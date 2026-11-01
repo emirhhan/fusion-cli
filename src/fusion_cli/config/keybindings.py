@@ -40,7 +40,8 @@ DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarla
 
 #: Varsayılan tablo — `input.py` ve `tui.py` eskiden sabit kodladığı bağların tamamı.
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
-    CONTEXT_INPUT: {"s-tab": "kip_dongusu", "c-v": "yapistirma_katla"},
+    # Ctrl+T görev listesini açar/kapatır (Claude Code, #330).
+    CONTEXT_INPUT: {"s-tab": "kip_dongusu", "c-v": "yapistirma_katla", "c-t": "gorev_listesi"},
     CONTEXT_TUI: {
         "c-c": "cik",
         "c-q": "cik",
@@ -59,11 +60,12 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "c-r": "en_bas",
         # Süren turu arka plan görevine taşı (P-048; Claude Code Ctrl+B).
         "c-b": "arka_plana_al",
+        "c-t": "gorev_listesi",
     },
 }
 #: Bağlam başına geçerli eylemler (`komut:*` hepsinde geçerli).
 ACTIONS: dict[str, frozenset[str]] = {
-    CONTEXT_INPUT: frozenset({"kip_dongusu", "yapistirma_katla"}),
+    CONTEXT_INPUT: frozenset({"kip_dongusu", "yapistirma_katla", "gorev_listesi"}),
     CONTEXT_TUI: frozenset(
         {
             "cik",
@@ -76,6 +78,7 @@ ACTIONS: dict[str, frozenset[str]] = {
             "kaydir_yukari",
             "kaydir_asagi",
             "arka_plana_al",
+            "gorev_listesi",
         }
     ),
 }

@@ -42,6 +42,7 @@ from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.skill_commands import model_override_allowed
 from ..cli.repl.state import Engine, ReplState
+from ..cli.repl.task_list import session_todos
 from ..cli.repl.transcript_store import (
     TranscriptStore,
     delete_conversation,
@@ -194,6 +195,7 @@ from .mcp_catalog import list_tool_catalog, pin_tools_digest
 from .model_catalog import list_selectable_models
 from .orchestration_routes import ORCHESTRATION_ROUTES, dispatch_orchestration
 from .personal_memory import PersonalMemory
+from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
@@ -1465,6 +1467,10 @@ class AppSession:
             return self._cron_due()
         if request.name == "cron.geri_ver":
             return self._cron_give_back(request.data)
+        if request.name == "plan.kart":
+            return plan_card_payload(self._state)
+        if request.name == "plan.kabul":
+            return plan_accept(self._state, request.data)
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
@@ -3124,6 +3130,7 @@ class AppSession:
                 history=history,
                 cron=None if browser_only else self._state.cron,
                 background_events=None if browser_only else self._state.background_events,
+                todos=None if browser_only else session_todos(self._state),
                 chrome_bridge=self._chrome,
                 allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
@@ -3254,6 +3261,9 @@ class AppSession:
         switched = await self._state.apply_worktree_switch(switch)
         # `enter_plan_mode` (#324): model kendini plan kipine geçirdiyse sekme kipi PLAN olur.
         self._state.apply_plan_mode_switch(plan_switch)
+        # `exit_plan_mode` planı yazdıysa kart `plan.kart` ile açılır (#325; REPL ile aynı).
+        if getattr(outcome, "plan_path", None) is not None:
+            self._state.pending_plan = outcome.plan_path
         self._child_runs = self._state.child_runs
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.

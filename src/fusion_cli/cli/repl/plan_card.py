@@ -28,6 +28,8 @@ CHOICE_EDITS = "edits"
 CHOICE_BYPASS = "bypass"
 CHOICE_SECURITY = "security"
 CHOICE_KEEP_PLANNING = "plan"
+#: `showClearContextOnPlanAccept` seçeneğinin değeri: önek + birincil seçeneğin değeri.
+CLEAR_PREFIX = "clear:"
 #: Ctrl+G (Claude Code): planı varsayılan editörde aç, kartı düzenlenmiş planla yeniden göster.
 CHOICE_EDIT_PLAN = "edit-plan"
 PLAN_HOTKEYS = {"c-g": CHOICE_EDIT_PLAN}
@@ -45,12 +47,46 @@ _MODES: dict[str, ApprovalMode | None] = {
 
 
 def choices(state: ReplState | None = None) -> tuple[Choice, ...]:
-    """Kartın seçenekleri (Claude sırası); ilk seçenek oturumun durumuna göre değişir."""
-    return (
-        _primary(state),
+    """Kartın seçenekleri (Claude sırası); ilk seçenek oturumun durumuna göre değişir.
+
+    `showClearContextOnPlanAccept: true` (Claude settings.json) başa "bağlamı temizle ve …"
+    seçeneğini ekler: planı onaylar, planlama konuşmasını siler, uygulama yalnız planla başlar.
+    """
+    primary = _primary(state)
+    base = (
+        primary,
         Choice(CHOICE_SECURITY, messages.PLAN_CARD_SECURITY, messages.PLAN_CARD_SECURITY_DESC),
         Choice(CHOICE_KEEP_PLANNING, messages.PLAN_CARD_KEEP, messages.PLAN_CARD_KEEP_DESC),
     )
+    if state is None or not show_clear_context(state):
+        return base
+    clear = Choice(
+        CLEAR_PREFIX + primary.value,
+        messages.PLAN_CARD_CLEAR.format(rest=_rest(primary.label)),
+        messages.PLAN_CARD_CLEAR_DESC,
+    )
+    return (clear, *base)
+
+
+def _rest(label: str) -> str:
+    """'Evet, ve otomatik kipi kullan' → 'otomatik kipi kullan' (temizleme etiketinin devamı)."""
+    rest = label.removeprefix("Evet,").strip()
+    return rest.removeprefix("ve ").strip()
+
+
+def show_clear_context(state: ReplState) -> bool:
+    """Claude `showClearContextOnPlanAccept` (varsayılan false; managed > … > kullanıcı)."""
+    from ...config.claude_settings import claude_setting
+
+    try:
+        return claude_setting(state.root, "showClearContextOnPlanAccept") is True
+    except OSError:
+        return False
+
+
+def clears_context(choice: str | None) -> bool:
+    """Seçim bağlamı temizleyerek onaylıyor mu?"""
+    return bool(choice) and str(choice).startswith(CLEAR_PREFIX)
 
 
 def _primary(state: ReplState | None) -> Choice:
@@ -83,14 +119,20 @@ def _title_from_plan(text: str | None) -> str:
 
 def mode_for(choice: str | None) -> ApprovalMode | None:
     """Seçimin kipi; vazgeçme ve "planlamaya devam" için None."""
-    return _MODES.get(choice or "")
+    return _MODES.get((choice or "").removeprefix(CLEAR_PREFIX))
 
 
-def accept(state: ReplState, mode: ApprovalMode) -> str:
-    """Planı kabul et: kipi değiştir, adsız oturuma başlık ver, uygulama görevini döndür."""
+def accept(state: ReplState, mode: ApprovalMode, *, clear: bool = False) -> str:
+    """Planı kabul et: kipi değiştir, adsız oturuma başlık ver, uygulama görevini döndür.
+
+    `clear` (Claude "Yes, clear context and …"): planlama konuşması silinir; uygulama turu
+    yalnız plan dosyasıyla başlar.
+    """
     path = state.pending_plan or plan_mode.plan_path(state.conversation_id, state.root)
     state.pending_plan = None
     state.approval = mode
+    if clear:
+        state.reset_history()
     if not state.conversation_name.strip():
         title = _title_from_plan(plan_mode.read_plan(state.conversation_id, state.root))
         if title:
@@ -137,7 +179,7 @@ async def offer(state: ReplState, console: Console, *, interactive: bool) -> str
     if mode is None:
         console.print(f"[{theme.DIM}]{decline(state)}[/{theme.DIM}]")
         return None
-    task = accept(state, mode)
+    task = accept(state, mode, clear=clears_context(selected))
     console.print(
         f"[{theme.DIM}]{messages.REPL_MODE_CHANGED.format(mode=mode.value)}[/{theme.DIM}]"
     )
@@ -198,12 +240,15 @@ __all__ = [
     "CHOICE_EDIT_PLAN",
     "CHOICE_KEEP_PLANNING",
     "CHOICE_SECURITY",
+    "CLEAR_PREFIX",
     "accept",
     "choices",
+    "clears_context",
     "command",
     "decline",
     "mode_for",
     "offer",
     "open_in_editor",
     "show",
+    "show_clear_context",
 ]

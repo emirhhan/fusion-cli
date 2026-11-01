@@ -62,6 +62,7 @@ from . import (
     session_resume,
     status_line,
     status_view,
+    task_view,
     verify_flow,
     view_commands,
 )
@@ -317,6 +318,10 @@ class _TuiSession:
             on_rewind=lambda: self._submit("/rewind"),
             # Ctrl+B: süren turu arka plan görevine taşı (P-048).
             on_background=self._background_turn,
+            # Ctrl+T: görev listesi (#330); açık bırakılırsa sürdürmede açık gelir.
+            on_toggle_tasks=lambda: task_view.toggle_visible(state),
+            task_lines=lambda: task_view.task_lines(state),
+            tasks_visible=task_view.is_visible(state),
         )
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
@@ -772,7 +777,7 @@ class _TuiSession:
         if mode is None:
             self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")
             return
-        task = plan_card.accept(self._state, mode)
+        task = plan_card.accept(self._state, mode, clear=plan_card.clears_context(selected))
         self._echo(
             f"[{theme.DIM}]{messages.REPL_MODE_CHANGED.format(mode=mode.value)}[/{theme.DIM}]"
         )

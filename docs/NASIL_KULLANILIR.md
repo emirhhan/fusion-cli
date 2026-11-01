@@ -1253,14 +1253,27 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 
 ---
 
-## Görev listesi (`todo_write`)
+## Görev listesi (`task_create` … / `todo_write`)
 
-Claude Code'daki gibi görev listesi oturum boyunca yaşar: turlar arasında kalır ve sohbet
+Claude Code'daki gibi görev araçları modele göre sunulur: Claude Opus 4.7, Sonnet 4.6,
+Haiku 4.5 ve daha eski Claude modellerinde `task_create`/`task_get`/`task_list`/`task_update`
+(Claude TaskCreate/TaskGet/TaskList/TaskUpdate; bu adlarla da çağrılır) varsayılandır,
+`CLAUDE_CODE_ENABLE_TASKS=0` (ya da `false`) ile yerine `todo_write` gelir. Diğer modellerde
+(Opus 4.8, Sonnet 5 ve sonrası; Claude dışı modeller) görev aracı yoktur;
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` her modelde açar, `--tools`/`--allowedTools` ile adı verilen
+araç da sunulur. `task_update` `status` (`pending`/`in_progress`/`completed`/`deleted`),
+`subject`, `description`, `activeForm`, `addBlocks`/`addBlockedBy` alır; `owner` ve `metadata`
+kabul edilir ama saklanmaz (Fusion'da ekip görev panosu yok).
+
+Liste oturum boyunca yaşar (terminal, TUI ve masaüstü sekmesi): turlar arasında kalır ve sohbet
 `--resume`/`--continue` ile sürdürülünce geri gelir (`<bellek dizini>/tasks/<sohbet>.json`).
 `CLAUDE_CODE_TASK_LIST_ID=<ad>` verilirse liste `~/.claude/tasks/<ad>/fusion-todos.json`
 üzerinden oturumlar arasında paylaşılır. Otomatik devam yalnız o turda yazılan listeye bakar.
-Claude'dan fark (henüz): TaskCreate/TaskGet/TaskList/TaskUpdate araçları yok, yalnız
-`todo_write` var; masaüstü sekmesinde liste hâlâ tur bazlıdır.
+
+**Ctrl+T** (Claude Code ile aynı) listeyi açar/kapatır: tam ekran TUI'de durum alanının üstünde,
+satır içi REPL'de istemin üstünde ve açıkken her turdan sonra en çok 5 madde (süren ve bekleyen
+önce, taşan sayı "… +N görev daha"). Liste açık bırakılırsa `--resume`/`--continue` sonrası açık
+gelir. Tuş `~/.fusion/keybindings.json`'da `gorev_listesi` eylemidir.
 
 ## Plan kipi: plan dosyası ve kabul kartı
 
@@ -1293,6 +1306,13 @@ uyarılır) ve "Plan hazır — uygulansın mı?" kartı çıkar:
   **Evet, ve bu oturum için İZİNLERİ ATLA kipine geç** (`bypass`) olur.
 - **Evet, düzenlemeleri elle onayla** → `security` (manuel) kipi.
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
+- Claude `settings.json`'da `"showClearContextOnPlanAccept": true` ise (varsayılan `false`) başa
+  **Evet, bağlamı temizle ve …** seçeneği gelir: planı onaylar, planlama konuşmasını siler ve
+  uygulama yalnız plan dosyasıyla başlar.
+
+Masaüstü kartı aynı seçenekleri çekirdekten alır (`plan.kart` / `plan.kabul`): otomatik kip
+kullanılamıyorsa, bypass açıksa ya da temizleme seçeneği açıksa terminaldeki kartla aynıdır ve
+yalnız `exit_plan_mode` ile plan sunulduğunda açılır.
 
 Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
 başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan Claude'daki gibi eskisinin

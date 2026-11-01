@@ -303,6 +303,67 @@ def test_adli_oturumun_adi_degismez(state: ReplState) -> None:
     assert state.conversation_name == "benim"
 
 
+def _claude_settings(data: dict) -> None:
+    import json
+    import os
+
+    folder = Path(os.environ["CLAUDE_CONFIG_DIR"])
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_baglami_temizleme_secenegi_yalniz_ayar_acikken_basta(state: ReplState) -> None:
+    """Claude `showClearContextOnPlanAccept` (varsayılan false) başa "bağlamı temizle" ekler."""
+    assert all(not plan_card.clears_context(c.value) for c in plan_card.choices(state))
+    _claude_settings({"showClearContextOnPlanAccept": True})
+
+    secenekler = plan_card.choices(state)
+
+    assert secenekler[0].value == plan_card.CLEAR_PREFIX + plan_card.CHOICE_AUTO
+    assert secenekler[0].label == "Evet, bağlamı temizle ve otomatik kipi kullan"
+    assert [c.value for c in secenekler[1:]] == [
+        plan_card.CHOICE_AUTO,
+        plan_card.CHOICE_SECURITY,
+        plan_card.CHOICE_KEEP_PLANNING,
+    ]
+    assert plan_card.mode_for(secenekler[0].value) is ApprovalMode.AUTO
+
+
+def test_baglami_temizleyerek_kabul_gecmisi_siler(state: ReplState) -> None:
+    from fusion_cli.core.types import Message
+
+    state.history = [Message("user", "planla"), Message("assistant", "plan")]
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+
+    gorev = plan_card.accept(state, ApprovalMode.AUTO, clear=True)
+
+    assert state.history == [] and state.approval is ApprovalMode.AUTO
+    assert "Plan" in gorev or str(plan_mode.plan_path(state.conversation_id, state.root)) in gorev
+
+
+def test_masaustu_plan_karti_ayni_secenekler_ve_kabul(state: ReplState) -> None:
+    from dataclasses import replace
+
+    from fusion_cli.appserver.plan_routes import plan_accept, plan_card_payload
+
+    assert plan_card_payload(state)["bekliyor"] is False
+    state.config = replace(
+        state.config, agent_launch=replace(state.config.agent_launch, disable_auto_mode=True)
+    )
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+
+    kart = plan_card_payload(state)
+
+    assert kart["bekliyor"] is True
+    assert kart["secenekler"][0]["deger"] == plan_card.CHOICE_EDITS
+    assert kart["onerilen"] == messages.PLAN_CARD_EDITS
+    assert plan_accept(state, {"deger": plan_card.CHOICE_AUTO})["ok"] is False  # kartta yok
+    sonuc = plan_accept(state, {"deger": plan_card.CHOICE_EDITS})
+    assert sonuc["ok"] and sonuc["kip"] == ApprovalMode.ACCEPT_EDITS.value
+    assert sonuc["temizle"] is False and "gorev" in sonuc
+    assert state.approval is ApprovalMode.ACCEPT_EDITS and state.pending_plan is None
+
+
 def test_planlamaya_devam_kipi_degistirmez(state: ReplState) -> None:
     state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Plan")
     assert plan_card.decline(state) == messages.PLAN_KEEP_PLANNING

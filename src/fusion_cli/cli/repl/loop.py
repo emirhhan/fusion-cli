@@ -99,6 +99,7 @@ from . import (
     session_resume,
     status_line,
     task_list,
+    task_view,
     view_commands,
     worktree_exit,
 )
@@ -294,6 +295,12 @@ async def _run_surface(
     state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
     # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
     # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
+    # Ctrl+T (#330): görev listesini aç/kapat; açıkken her turdan sonra en çok 5 madde basılır.
+    reader.task_toggle = lambda: (
+        task_view.task_lines(state)
+        if task_view.toggle_visible(state)
+        else [messages.TASK_LIST_HIDDEN]
+    )
     cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
     # Arka plan görevleri + oturumlar arası mesaj (P-048/P-060): bildirim ve gelen kutusu.
     link_watcher = agent_link.start_watch(
@@ -323,6 +330,9 @@ async def _run_surface(
                 await _handle_safely(line.strip(), state, registry, reader, console, background)
             finally:
                 handling.clear()
+            if task_view.is_visible(state):
+                for task_line in task_view.task_lines(state):
+                    console.print(f"[{theme.DIM}]  {escape(task_line)}[/{theme.DIM}]")
             cron_store.save(state.config.memory_dir, state.conversation_id, state.cron)
     finally:
         cron_watcher.cancel()

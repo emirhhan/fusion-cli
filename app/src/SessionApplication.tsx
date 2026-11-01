@@ -145,6 +145,7 @@ import { useCrashReporter } from "./feedback/useCrashReporter";
 import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
 import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
 import { readStorage, writeStorage } from "./platform/storage";
+import { planKartiOku, type PlanKarti } from "./plan/planCard";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
 const FOLDER_COMMAND = {
@@ -1308,17 +1309,28 @@ export function SessionUygulama({
   // öteki eskirdi.
   // Plan kipi: tur bitince Claude'daki gibi "planı uygula?" kartı. Kart yalnız
   // plan kipinde, turun GERÇEKTEN bittiği anda ve son yanıt hata değilse çıkar.
+  // Seçenekler çekirdekten gelir (`plan.kart`, #325): REPL/TUI ile aynı kaynak — otomatik kip
+  // kullanılamıyorsa "düzenlemeleri otomatik kabul et", bypass açık başladıysa "İZİNLERİ ATLA",
+  // `showClearContextOnPlanAccept` açıksa "bağlamı temizle ve …". Kart yalnız plan sunulduysa.
   const [planHazir, setPlanHazir] = useState<string | null>(null);
+  const [planKarti, setPlanKarti] = useState<PlanKarti | null>(null);
   const oncekiCalisiyor = useRef(false);
   useEffect(() => {
     if (!activeMessages || !activeSessionId) return;
     const bitti = oncekiCalisiyor.current && !Boolean(activeRunning);
     oncekiCalisiyor.current = Boolean(activeRunning);
     const son = activeMessages[activeMessages.length - 1];
-    if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && son.metin.trim()) {
-      setPlanHazir(activeSessionId);
+    const client = active?.client;
+    if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && client) {
+      const sekme = activeSessionId;
+      void client.request("plan.kart", {}).then((kart) => {
+        const okunan = planKartiOku(kart);
+        if (!okunan) return;
+        setPlanKarti(okunan);
+        setPlanHazir(sekme);
+      }).catch(() => undefined);
     }
-  }, [activeRunning, activeSessionId, activeMessages, approval]);
+  }, [activeRunning, activeSessionId, activeMessages, approval, active?.client]);
   // Chrome eklentisi Fusion'ı yerel mesajlaşmayla kendisi bulur; köprü ETKİN sohbet
   // sekmesinde açık tutulur. Sekme değişince önceki köprü kapanır, eklenti yeni
   // sekmenin köprüsüne kendiliğinden geçer (bkz. chrome_host.py, offscreen.js).
@@ -2025,31 +2037,29 @@ export function SessionUygulama({
               title={active.title}
             />
           )}
-          {planHazir === active.id && !active.question && !active.running && (
+          {planHazir === active.id && planKarti && !active.question && !active.running && (
             <Approval
               eyebrow="Plan hazır"
               serbestCevap={false}
               soru={{
                 tur: "soru",
                 soru: "Bu plan uygulansın mı?",
-                // Claude Code plan onayı üçlüsü (#325): auto / elle onay / planlamaya devam.
-                secenekler: [
-                  { etiket: "Evet, ve otomatik kipi kullan", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
-                  { etiket: "Evet, düzenlemeleri elle onayla", aciklama: "Manuel kipte uygular; her yazma ve komut için izin ister." },
-                  { etiket: "Hayır, planlamaya devam et", aciklama: "Plan kipinde kalır; planı birlikte düzeltebilirsiniz." },
-                ],
-                onerilen: "Evet, ve otomatik kipi kullan",
+                secenekler: planKarti.secenekler.map(({ etiket, aciklama }) => ({ etiket, aciklama })),
+                onerilen: planKarti.onerilen,
               }}
               onCevap={(cevap) => {
                 setPlanHazir(null);
                 const metin = String(cevap.metin ?? "");
-                const yeniKip: ApprovalMode | null = metin.startsWith("Evet, ve otomatik") ? "auto"
-                  : metin.startsWith("Evet, düzenlemeleri elle") ? "security" : null;
-                if (!yeniKip) return;
-                // Mod çekirdekte değişmediyse plan "uygulanmış" sayılmaz: hata görünür, mesaj gitmez.
-                void changeApproval(yeniKip).then((degisti) => {
-                  if (degisti) send("Planı onaylıyorum. Şimdi bu planı adım adım uygula ve her adımdan sonra doğrula.");
-                });
+                const secim = planKarti.secenekler.find((item) => item.etiket === metin);
+                const client = active.client;
+                if (!secim || !client) return;
+                // Kip çekirdekte `plan.kabul` ile değişir; sonra arayüz aynı kipi benimser.
+                void client.request("plan.kabul", { deger: secim.deger }).then((sonuc) => {
+                  if (sonuc.ok !== true || typeof sonuc.kip !== "string") return;
+                  adoptApproval(sonuc.kip as ApprovalMode);
+                  if (sonuc.temizle === true) controller.clear(active.id);
+                  if (typeof sonuc.gorev === "string") send(sonuc.gorev);
+                }).catch(() => undefined);
               }}
             />
           )}

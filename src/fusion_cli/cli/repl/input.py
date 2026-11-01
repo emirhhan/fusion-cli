@@ -80,6 +80,8 @@ class ReplInput:
         self.roots = roots
         #: Vim düzenleme kipi (P-067); REPL `runtime.vim_mode`'dan eşler.
         self.vim_mode = False
+        #: Ctrl+T (#330): görev listesini aç/kapat; gösterilecek satırları döndürür.
+        self.task_toggle: Callable[[], list[str]] | None = None
         #: `komut:<ad>` tuş bağı gönderilen komutu buraya bırakır; `prompt()` onu satır yapar.
         self._bound_command: str | None = None
         #: Tuş tablosu (P-067): dosya değişince `prompt()` yeniden yükler.
@@ -319,9 +321,18 @@ def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
         owner.toggle_fold()
         event.app.invalidate()
 
+    def _tasks(event: Any) -> None:
+        if owner.task_toggle is None:
+            return
+        from prompt_toolkit.application import run_in_terminal
+
+        lines = owner.task_toggle()
+        run_in_terminal(lambda: print("\n".join(f"  {line}" for line in lines)))
+
     actions: dict[str, Callable[[Any], None]] = {
         "kip_dongusu": _cycle,
         "yapistirma_katla": _fold,
+        "gorev_listesi": _tasks,
     }
     for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
         handler = _resolve_action(owner, action, actions)
