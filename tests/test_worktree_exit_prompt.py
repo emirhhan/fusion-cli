@@ -108,3 +108,35 @@ def test_etkilesimsiz_cikista_eski_kural(repo, tmp_path):
         state, interactive=False, choose=_secici("sil", [])
     )
     assert "korundu" in satir and (repo / ".claude" / "worktrees" / "boru").is_dir()
+
+
+async def test_oturum_icinde_girilen_agac_da_cikista_kapatilir(repo, tmp_path, monkeypatch):
+    """`--worktree` olmadan, oturumda (`/worktree`, `enter_worktree`) girilen ağaç da çıkışta
+    Claude kuralıyla kapanır (bağımsız inceleme #5)."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop as repl_loop
+
+    agac = core_worktree.enter_worktree(repo, "oturumda")
+    kapatilan: list[str] = []
+
+    async def surface(state, config, console, resume):
+        state.worktree = agac
+        state.root = agac.path
+        return 0
+
+    def kapat(state, *, interactive, choose=None):
+        kapatilan.append(state.worktree.name)
+        return "kapandı"
+
+    monkeypatch.setattr(repl_loop, "_run_surface", surface)
+    monkeypatch.setattr(worktree_exit, "finish_session_worktree", kapat)
+    sonuc = await repl_loop.run_repl(
+        make_config(memory_dir=tmp_path / "memory"),
+        memory=null_memory(),
+        root=repo,
+        console=Console(file=io.StringIO()),
+    )
+    assert sonuc == 0 and kapatilan == ["oturumda"]

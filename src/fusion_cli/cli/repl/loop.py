@@ -225,8 +225,9 @@ async def run_repl(
         await state.child_runs.close()
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
-        # `--worktree`: temiz ağaç kaldırılır; iş varsa ya da adlı oturumsa sorulur (#340).
-        if worktree is not None and state.worktree is not None:
+        # Çalışma ağacındaki oturum (`--worktree`, `/worktree`, `enter_worktree`): temiz ağaç
+        # kaldırılır; iş varsa ya da adlı oturumsa sorulur; `path` ile girilene dokunulmaz (#340).
+        if state.worktree is not None:
             closing = worktree_exit.finish_session_worktree(state, interactive=sys.stdin.isatty())
             console.print(f"[{theme.DIM}]{escape(closing)}[/{theme.DIM}]")
 
