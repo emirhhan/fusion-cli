@@ -162,10 +162,16 @@ def get_server(name: str) -> None:
     missing = missing_variables(server)
     if missing:
         console.print(escape(mcp_messages.MISSING_VAR.format(name=name, names=", ".join(missing))))
-    console.print(
-        f"\n[{theme.DIM}]Kaldırmak için: "
-        f'fusion mcp remove "{name}" -s {server.scope.value}[/{theme.DIM}]'
-    )
+    hint = remove_hint(server)
+    if hint is not None:
+        console.print(f"\n[{theme.DIM}]Kaldırmak için: {escape(hint)}[/{theme.DIM}]")
+
+
+def remove_hint(server: McpServerConfig) -> str | None:
+    """`mcp get` kaldırma ipucu; kuruluşun sağladığı sunucu kaldırılamadığı için yok (#274)."""
+    if server.scope is McpScope.MANAGED:
+        return None
+    return f'fusion mcp remove "{server.name}" -s {server.scope.value}'
 
 
 def _find_any(config: Config, name: str) -> McpServerConfig:
@@ -195,7 +201,10 @@ def _candidates(config: Config, root: Path) -> list[McpServerConfig]:
         if not any(item.name == name and item.scope is McpScope.USER for item in config.mcp_servers)
     )
     found.extend(
-        item for item in config.mcp_servers if item.scope in (McpScope.USER, McpScope.PLUGIN)
+        item
+        for item in config.mcp_servers
+        # MANAGED da aday: kaldırma `remove_refusal` ile Claude iletisiyle reddedilir (#274).
+        if item.scope in (McpScope.USER, McpScope.PLUGIN, McpScope.MANAGED)
     )
     return found
 
