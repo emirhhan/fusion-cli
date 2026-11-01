@@ -8,7 +8,8 @@ bağlanır.
 `--settings` kuralları süreç ortamında taşınır (`config.flag_settings`, katman adı
 `bayrak`); dosyanın dizini de aynı yolla taşınır ki aynı süreçteki alt ajanlar ve oturumdan
 başlatılan alt süreçler aynı dayanak noktasını görsün. `--settings` dosyasını okuyan taraf
-`set_flag_settings_dir(dosya)` çağırır; satır içi JSON'da `None`.
+`record_settings_flag(ham_deger)` (ya da `set_flag_settings_dir(dosya)`) çağırır; satır içi
+JSON'da kayıt silinir.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from pathlib import Path
 FLAG_SETTINGS_DIR_ENV = "FUSION_FLAG_SETTINGS_DIR"
 #: `--settings` izin katmanının kaynak adı (`config.flag_settings.LAYER_FLAG` ile aynı).
 FLAG_LAYER_NAME = "bayrak"
+#: `--settings` kurallarının taşıyabileceği kaynak adları: kök komut katmanı (`bayrak`) ve
+#: `fusion -p` yolunun oturumluk kuralları (`cli/print_options.settings_rules`, `--settings`).
+FLAG_LAYER_SOURCES = (FLAG_LAYER_NAME, "--settings")
 
 
 def set_flag_settings_dir(settings_file: Path | None) -> None:
@@ -28,6 +32,16 @@ def set_flag_settings_dir(settings_file: Path | None) -> None:
         os.environ.pop(FLAG_SETTINGS_DIR_ENV, None)
         return
     os.environ[FLAG_SETTINGS_DIR_ENV] = str(Path(settings_file).expanduser().resolve().parent)
+
+
+def record_settings_flag(raw: str | None) -> None:
+    """`--settings` bayrağının ham değerini kaydet: dosya yolu → dizini, satır içi JSON → yok.
+
+    `load_settings` ile aynı ayrım: `{` ile başlayan değer JSON'dur. Bayrağı okuyan taraf
+    (kök komut ve `-p`) bu tek çağrıyı yapar.
+    """
+    text = (raw or "").strip()
+    set_flag_settings_dir(None if not text or text.startswith("{") else Path(text))
 
 
 def flag_settings_dir() -> Path | None:

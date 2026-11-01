@@ -71,3 +71,24 @@ def test_baska_kaynak_settings_dizinini_kullanmaz(tmp_path):
     assert _karar(kume, "secrets/a", kok) is PermissionDecision.DENY
     set_flag_settings_dir(None)
     assert flag_settings_dir() is None
+
+
+def test_print_kipi_settings_kaynagi_da_dosyaya_baglanir(tmp_path):
+    """`fusion -p --settings` kuralları `--settings` kaynağıyla gelir; aynı dayanak (#45)."""
+    from fusion_cli.config.flag_settings_anchor import FLAG_LAYER_SOURCES, record_settings_flag
+
+    assert FLAG_LAYER_NAME in FLAG_LAYER_SOURCES and "--settings" in FLAG_LAYER_SOURCES
+    kok = tmp_path / "proje"
+    kok.mkdir()
+    dosya = tmp_path / "ayarlar" / "izinler.json"
+    dosya.parent.mkdir()
+    dosya.write_text("{}", encoding="utf-8")
+    record_settings_flag(str(dosya))
+    kume = _kume("Read(/secrets/**)", "--settings")
+    assert _karar(kume, str(dosya.parent / "secrets" / "a"), kok) is PermissionDecision.DENY
+    # Satır içi JSON (`{` ile başlar) dosya değildir: kayıt silinir, kalıp köke bağlanır.
+    record_settings_flag('{"permissions": {}}')
+    assert flag_settings_dir() is None
+    assert _karar(kume, str(kok / "secrets" / "a"), kok) is PermissionDecision.DENY
+    record_settings_flag(None)
+    assert flag_settings_dir() is None

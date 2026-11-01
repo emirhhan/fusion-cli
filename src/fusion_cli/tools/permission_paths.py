@@ -23,7 +23,7 @@ from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
-from ..config.flag_settings_anchor import FLAG_LAYER_NAME, flag_settings_dir
+from ..config.flag_settings_anchor import FLAG_LAYER_SOURCES, flag_settings_dir
 from ..config.permission_rules import LAYER_USER, PermissionDecision, PermissionRule
 
 #: Kullanıcı ayarındaki `/yol` kalıbının dayanağı (`~/.claude`).
@@ -111,7 +111,7 @@ def glob_base(spec: str, root: Path | None, source: str = "") -> tuple[tuple[Pat
         return ((Path.home(), spec[1:].lstrip("/")),)
     if spec.startswith("/") and source == LAYER_USER:
         return ((Path.home() / _USER_ANCHOR, spec.lstrip("/")),)
-    if spec.startswith("/") and source == FLAG_LAYER_NAME:
+    if spec.startswith("/") and source in FLAG_LAYER_SOURCES:
         # `--settings <dosya>` kuralı o dosyanın dizinine bağlanır (#45); satır içi JSON köke.
         anchor = flag_settings_dir()
         if anchor is not None:
