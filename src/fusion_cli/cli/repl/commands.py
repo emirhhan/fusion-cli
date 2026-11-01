@@ -1281,7 +1281,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[görev]",
     ),
     SlashCommand(
-        "tasks", bg_texts.CMD_TASKS, background_commands.tasks_command, group="Agent", usage="[…]"
+        "tasks",
+        bg_texts.CMD_TASKS,
+        background_commands.tasks_command,
+        group="Agent",
+        usage="[…]",
+        # Claude Code: `/bashes` aynı komutun diğer adı (#333).
+        aliases=("bashes",),
     ),
     SlashCommand(
         "list-agents",

@@ -64,3 +64,12 @@ def test_run_shell_timeout_parametresini_uygular(tmp_path, monkeypatch):
     monkeypatch.setattr(shell, "run_foreground", _sahte)
     sonuc = shell.run_shell({"command": "echo a", "timeout": 3000}, ToolContext(root=tmp_path))
     assert sonuc.ok and gorulen == [3.0]
+
+
+def test_bashes_tasks_komutunun_diger_adi():
+    """Claude Code: /bashes, /tasks'ın diğer adı (#333)."""
+    from fusion_cli.cli.repl.commands import build_registry as build_commands
+
+    komutlar = build_commands()
+    assert komutlar.get("bashes") is not None
+    assert komutlar.get("bashes").name == "tasks"
