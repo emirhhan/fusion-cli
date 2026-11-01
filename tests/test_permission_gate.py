@@ -180,7 +180,8 @@ async def test_kural_yokken_eski_davranis_korunur(tmp_path):
 @pytest.mark.parametrize(
     ("arac", "args"),
     [
-        ("write_file", {"path": ".claude/settings.local.json", "content": "{}"}),
+        # `.claude/` dosya yazımı Claude gibi oturum izni sunar (#82, test_claude_dir_session).
+        ("write_file", {"path": ".vscode/settings.json", "content": "{}"}),
         ("edit_file", {"path": ".git/config", "old": "a", "new": "b"}),
         ("write_file", {"path": ".fusion/tools/x.py", "content": ""}),
         ("run_shell", {"command": "rm -rf .git"}),

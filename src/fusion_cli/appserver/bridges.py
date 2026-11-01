@@ -384,7 +384,7 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
         label = (
             messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
             if target is not None and request.consent_key is not None
-            else messages.TUI_APPROVAL_SESSION
+            else request.session_label or messages.TUI_APPROVAL_SESSION
         )
         session = {"deger": "session", "etiket": label}
         description = request.remembered_scope_description

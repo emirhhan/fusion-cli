@@ -253,8 +253,11 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
   `python *` yazılmaz. Yıkıcı işlemlerde ve `ask` kurallı istekte bu seçenek çıkmaz. Terminalde
   (`fusion`, `fusion run`) `k` tuşu; kural yazıldı/yazılamadı bildirimi tur sonunda basılır.
   Claude Code gibi kabuk komutunda kartta yalnız bu kalıcı seçenek vardır; "bu oturumda sorma"
-  kalıcı kural yazılamayan isteklerde (web, uzak araç, masaüstü) çıkar. Henüz yok: "Yes, and
-  switch to auto mode" seçeneği ve `.claude/` yazımı için oturumluk seçenek.
+  kalıcı kural yazılamayan isteklerde (web, uzak araç, masaüstü) çıkar. Korumalı `.claude/`
+  klasörüne dosya aracıyla yazımda Claude gibi "Evet, ve bu oturumda projenin .claude
+  klasöründeki dosyaları düzenlemeye izin ver" (ev dizini için `~/.claude` sürümü) çıkar; izin
+  yalnız o klasörü kapsar, `.git/` gibi öteki korumalı yollar yine sorulur. Henüz yok: "Yes, and
+  switch to auto mode" seçeneği.
 - Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
   modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
   Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar. Bilinen sınır: **evet**
@@ -265,7 +268,8 @@ Sandbox dışında çalıştırma isteği her seferinde ayrıca sorulur. Ayrınt
 
 - `.git/`, `.claude/`, `.fusion/tools/`, `.codex/`, `.cursor/rules/`, `.github/workflows/`
   altına yazan her çağrı (dosya aracı, indirme/arşiv/görsel aracı ya da kabuk komutu) **her
-  modda** sorulur ve oturum iznine dönüşmez; okumak serbesttir. Kabukta `cd .git && …` sonrası
+  modda** sorulur ve oturum iznine dönüşmez (tek istisna Claude gibi: dosya aracıyla `.claude/`
+  yazımında kartın "bu oturumda .claude klasöründe izin ver" seçeneği); okumak serbesttir. Kabukta `cd .git && …` sonrası
   göreli hedefler, `tar -C`, `curl -o`, `unzip -d` de yakalanır; karşılaştırma büyük/küçük harf
   duyarsızdır (`.GIT/config`). Bilinen sınır: `python -c "open('.git/x','w')"` statik olarak
   çözülmez.

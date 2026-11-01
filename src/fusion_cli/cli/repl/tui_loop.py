@@ -172,7 +172,7 @@ class TuiPrompter:
                         "session",
                         messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
                         if target is not None and offers_never(request)
-                        else messages.TUI_APPROVAL_SESSION,
+                        else request.session_label or messages.TUI_APPROVAL_SESSION,
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )

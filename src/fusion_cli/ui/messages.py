@@ -436,6 +436,13 @@ TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
 #: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
 TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
+#: Korumalı `.claude/` yazımında oturumluk seçenek (Claude metni, #82).
+CLAUDE_DIR_SESSION_PROJECT = (
+    "Evet, ve bu oturumda projenin .claude klasöründeki dosyaları düzenlemeye izin ver"
+)
+CLAUDE_DIR_SESSION_USER = (
+    "Evet, ve bu oturumda ~/.claude klasöründeki dosyaları düzenlemeye izin ver"
+)
 TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
 #: Yerel dosya güvenilmiyor: kural yazılır ama klasöre güvenilene dek uygulanmaz (#68).
 TUI_APPROVAL_ALWAYS_DESC_HELD = (

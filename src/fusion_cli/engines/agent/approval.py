@@ -62,6 +62,7 @@ from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import FILE_WRITE_TOOLS, write_targets
 from .auto_guard import AutoReviewState
+from .claude_dir_session import claude_dir_key, claude_dir_label
 from .desktop_approval import apply_desktop, consent_description
 from .plan_approval import PlanApproval
 from .read_approval import mark_outside_read
@@ -281,6 +282,9 @@ class ApprovalRequest:
     accept_edits_ok: bool | None = None
     #: Korumalı yol gerekçesi (`.git/`, `.claude/`…); allow kuralı bunu açmaz (#84).
     protected: str | None = None
+    #: Dosya aracı yalnız `.claude/` klasörüne yazıyor (#82): kart Claude gibi o klasör için
+    #: oturumluk izin sunar (`claude_dir_session.PROJECT_KEY` / `USER_KEY`).
+    claude_dir: str | None = None
 
     @property
     def rule_opens(self) -> bool:
@@ -302,7 +306,15 @@ class ApprovalRequest:
         ask daima sorar). Ölçüldü (31 Ekim): kart 'bu oturumda tekrar sorma' sunuyor ve
         ikinci `git push` sorulmadan geçiyordu.
         """
+        if self.claude_dir is not None:
+            # Korumalı `.claude/` yazımı (#82): tek tehlike korumalı yol olduğunda.
+            return self.pre_ask is None and self.critical is None
         return self.danger is None and self.pre_ask is None and _scope(self) is not None
+
+    @property
+    def session_label(self) -> str | None:
+        """Oturum seçeneğinin isteğe özgü etiketi (`.claude/` için Claude metni, #82)."""
+        return claude_dir_label(self.claude_dir)
 
     @property
     def offers_session(self) -> bool:
@@ -399,12 +411,12 @@ class ApprovalMemory:
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
         scope = _scope(request)
-        return request.danger is None and scope is not None and scope in self._scopes
+        return _rememberable(request) and scope is not None and scope in self._scopes
 
     def remember(self, request: ApprovalRequest) -> None:
         """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
         scope = _scope(request)
-        if request.danger is None and scope is not None:
+        if _rememberable(request) and scope is not None:
             self._scopes.add(scope)
 
 
@@ -635,6 +647,7 @@ def build_request(
         danger = REMOTE_DESTRUCTIVE_REASON
     # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
     protected = protected_path_reason(tool.name, args, root)
+    claude_dir = claude_dir_key(tool.name, args, root) if protected and not danger else None
     danger = danger or protected
     risk = None if effect in _UNATTENDED_EFFECTS else _remote_risk(effect)
     unattended_safe = effect in _UNATTENDED_EFFECTS
@@ -664,6 +677,7 @@ def build_request(
         outside_dir=outside_dir,
         pre_denied=pre_denied,
         protected=protected,
+        claude_dir=claude_dir,
     )
     return adjust_web_request(_apply_rule(request, match))
 
@@ -835,6 +849,11 @@ async def _ask_and_remember(
     return Decision.DENIED
 
 
+def _rememberable(request: ApprovalRequest) -> bool:
+    """Oturum izni saklanabilir mi? Yıkıcı çağrı hayır; korumalı `.claude/` yazımı evet (#82)."""
+    return request.danger is None or (request.claude_dir is not None and request.critical is None)
+
+
 def _scope(request: ApprovalRequest) -> str | None:
     """Oturum izninin dar kapsamı: araç, aynı shell komutu ya da dışarıdaki dizin.
 
@@ -844,6 +863,8 @@ def _scope(request: ApprovalRequest) -> str | None:
     farklı bir anahtara düşer, komuta özgü daralma kaybolur ve izin aracın TÜM
     komutlarını kapsayacak kadar genişler.
     """
+    if request.claude_dir is not None:
+        return request.claude_dir
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
     web = web_scope(request)
