@@ -29,7 +29,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..config import plugin_layout, plugin_store
-from ..config.paths import trash_dir
 from ..config.plugin_layout import ValidationReport, context_cost, tree_digest, validate_plugin
 from ..config.plugin_store import (
     InstalledPlugin,
@@ -50,7 +49,7 @@ from ..core.plugins import (
     parse_marketplace,
 )
 from . import capability_install
-from .safe_delete import DeleteRefusedError, move_to_trash
+from .plugin_version import orphan, resolve_version, sweep_orphans
 
 #: Resmi Claude Code pazarı için kısa ad (`fusion eklenti pazar ekle resmi`).
 _TEMP_DIRNAME = ".gecici"
@@ -122,6 +121,9 @@ class _Resolved:
     entry: str = ""
     #: `git-subdir` kaynağında depodaki eklenti klasörü (#399).
     subdir: str = ""
+    #: Pazar girdisinin `version`'ı ve git pazarının klonu (göreli eklentinin commit'i, #393).
+    entry_version: str = ""
+    commit_dir: str = ""
 
     @property
     def fallback_name(self) -> str:
@@ -194,9 +196,24 @@ def _from_marketplace(name: str, market: str, state: PluginState) -> _Resolved:
         location = str((base_dir / source.location).resolve())
         if not Path(location).is_relative_to(base_dir.resolve()):
             raise PluginError(ERR_SOURCE.format(spec=f"{name}@{record.name}"))
-        return _Resolved("yerel", location, record.name, entry=entry.name)
+        commit_dir = record.path if record.kind == "git" else ""
+        return _Resolved(
+            "yerel",
+            location,
+            record.name,
+            entry=entry.name,
+            entry_version=entry.version,
+            commit_dir=commit_dir,
+        )
     return _Resolved(
-        "git", source.location, record.name, source.ref, source.sha, entry.name, source.subdir
+        "git",
+        source.location,
+        record.name,
+        source.ref,
+        source.sha,
+        entry.name,
+        source.subdir,
+        entry_version=entry.version,
     )
 
 
@@ -349,7 +366,12 @@ def install_plugin(
 ) -> InstalledPlugin:
     """Kur. `expected_digest` verildiyse çekilen içerik önizlemedekiyle aynı olmalıdır."""
     root = base or plugins_dir()
+    sweep_orphans(root)
     state = load_state(root)
+    from .plugin_update import refresh_marketplace_for
+
+    if refresh_marketplace_for(spec, state.marketplaces, base=root):  # Claude: ad@pazar (#393)
+        state = load_state(root)
     resolved = _resolve(spec, state)
     if _loads_in_place(resolved, state):
         from .plugin_in_place import install_in_place
@@ -373,7 +395,7 @@ def install_plugin(
         shutil.move(str(folder), destination)
     record = PluginRecord(
         name=name,
-        version=report.layout.manifest.version,
+        version=version_of(resolved, report.layout.manifest.version, commit),
         source=f"{resolved.entry or name}@{resolved.marketplace}"
         if resolved.marketplace
         else resolved.location,
@@ -395,6 +417,20 @@ def install_plugin(
     return inspect_plugin(record, root)
 
 
+def version_of(resolved: _Resolved, manifest_version: str, commit: str) -> str:
+    """Claude sürüm sırası (#393); göreli eklentide git pazarının commit'i kullanılır."""
+    if not commit and resolved.commit_dir:
+        commit = directory_commit(Path(resolved.commit_dir))
+    return resolve_version(manifest_version, resolved.entry_version, commit, subdir=resolved.subdir)
+
+
+def directory_commit(folder: Path) -> str:
+    try:
+        return capability_install._git(["rev-parse", "HEAD"], cwd=folder, timeout=GIT_TIMEOUT_S)
+    except capability_install.CapabilityInstallError:
+        return ""
+
+
 def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
     """Yerel klasörden eklenmiş pazarın göreli (path) eklentisi mi? (Claude: yerinde yüklenir)"""
     market = state.marketplace(resolved.marketplace) if resolved.marketplace else None
@@ -405,7 +441,8 @@ def _loads_in_place(resolved: _Resolved, state: PluginState) -> bool:
 def uninstall_plugin(
     name: str, *, base: Path | None = None, keep_data: bool = False, scope: str = ""
 ) -> Path:
-    """Klasörü Fusion çöpüne taşı (`fusion cop geri-al`), kaydı ve veri klasörünü sil (#408).
+    """Kopyayı `.orphaned_at` işaretiyle eski sürümlere taşı (14 gün sonra silinir), kaydı ve
+    veri klasörünü sil (#408).
 
     Claude gibi `ad@pazar` kabul eder; `--keep-data` verilmezse `${CLAUDE_PLUGIN_DATA}` silinir.
     """
@@ -417,12 +454,10 @@ def uninstall_plugin(
     name = found.name
     folder = plugin_store.plugin_folder(found, root)
     # Yerinde yüklenen eklentinin klasörü kullanıcının pazar kaynağıdır: asla taşınmaz (#403).
-    if not found.folder and folder.is_dir():
-        try:
-            move_to_trash((name,), cwd=root, root=root, home=Path.home(), trash_root=trash_dir())
-        except DeleteRefusedError as error:
-            raise PluginError(str(error)) from error
+    if not found.folder and folder.is_dir() and found.kind != "inline":
+        orphan(folder, root)
     plugin_store.update_state(lambda current: current.without_plugin(name), root)
+    sweep_orphans(root)
     if not keep_data:
         remove_plugin_data(name)
     return folder
@@ -476,7 +511,7 @@ def trust_plugin(
     base: Path | None = None,
     expected_digest: str = "",
 ) -> PluginRecord:
-    """Değişmiş eklentinin güncel içeriğini yeniden onayla (karma ve çalıştırma onayı yenilenir)."""
+    """Kullanımdan kalktı (#392): Claude'da karma kilidi yok; yalnız karma kaydını yeniler."""
     root = base or plugins_dir()
     state = load_state(root)
     record = state.plugin(name)
@@ -499,7 +534,7 @@ def trust_plugin(
     updated = replace(
         record,
         digest=digest,
-        version=report.layout.manifest.version,
+        version=resolve_version(report.layout.manifest.version, "", record.commit),
         exec_approved=report.layout.is_executable,
     )
     plugin_store.update_state(lambda current: current.with_plugin(updated), root)

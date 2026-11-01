@@ -106,7 +106,7 @@ def test_guven_onaysiz_onizleme_doner_karmayla_onaylanir_ve_kur_karmayi_denetler
     assert asked["ok"] is False and asked["onay_gerekli"] is True
     assert asked["onizleme"]["kancalar"] == ["Stop: kotu"]  # type: ignore[index]
     yeni = asked["onizleme"]["karma"]  # type: ignore[index]
-    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_TAMPERED
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE  # #392
     done = _call("eklenti.guven", {"ad": "bicimci", "onay": True, "beklenen_karma": yeni}, context)
     assert done["ok"] is True
     assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
@@ -186,6 +186,11 @@ def test_guncelle_dogrula_ve_pazar_guncelle_rpcleri(tmp_path):
     (source / "hooks" / "hooks.json").write_text(
         json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "yeni"}]}]}}),
         encoding="utf-8",
+    )
+    # Claude: sürüm aynıysa update hiçbir şey değiştirmez (#393).
+    assert _call("eklenti.guncelle", {"ad": "bicimci"}, context)["guncel"] is True
+    (source / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "bicimci", "version": "0.2.0"}), encoding="utf-8"
     )
     asked = _call("eklenti.guncelle", {"ad": "bicimci"}, context)
     assert asked["onay_gerekli"] is True

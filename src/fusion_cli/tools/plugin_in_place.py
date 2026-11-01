@@ -16,6 +16,7 @@ from ..config import plugin_store
 from ..config.plugin_layout import context_cost, tree_digest, validate_plugin
 from ..config.plugin_store import InstalledPlugin, PluginRecord, PluginState, inspect_plugin
 from ..core.plugins import PluginError
+from .plugin_version import resolve_version
 
 if TYPE_CHECKING:
     from .plugin_install import ApprovalCallback, _Resolved
@@ -56,7 +57,7 @@ def install_in_place(
         raise PluginError(ERR_DECLINED)
     record = PluginRecord(
         name=name,
-        version=report.layout.manifest.version,
+        version=resolve_version(report.layout.manifest.version, resolved.entry_version, ""),
         source=f"{resolved.entry or name}@{resolved.marketplace}",
         kind="pazar",
         marketplace=resolved.marketplace,

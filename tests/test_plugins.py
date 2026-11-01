@@ -186,7 +186,7 @@ def test_ortam_degiskeni_butun_eklentileri_kapatir(tmp_path, monkeypatch):
     assert plugin_store.active_plugins() == ()
 
 
-def test_kurulumdan_sonra_degisen_eklenti_yuklenmez_guven_ile_doner(tmp_path):
+def test_kurulumdan_sonra_degisen_eklenti_yine_yuklenir_karma_kilidi_yok(tmp_path):
     plugin_install.install_plugin(str(_plugin(tmp_path / "kaynak")), approve=_yes)
     installed = plugin_store.plugins_dir() / "rapor-araclari"
     (installed / "skills" / "ozet" / "SKILL.md").write_text(
@@ -194,8 +194,8 @@ def test_kurulumdan_sonra_degisen_eklenti_yuklenmez_guven_ile_doner(tmp_path):
     )
 
     (item,) = plugin_store.installed_plugins()
-    assert item.status == plugin_store.STATUS_TAMPERED
-    assert plugin_store.active_plugins() == ()
+    assert item.status == plugin_store.STATUS_ACTIVE  # Claude: karma kilidi yok (#392)
+    assert len(plugin_store.active_plugins()) == 1
 
     plugin_install.trust_plugin("rapor-araclari", approve=_yes)
     assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
@@ -354,11 +354,8 @@ def test_cli_kur_listele_kapat_kaldir(tmp_path):
     runner = CliRunner()
     source = _plugin(tmp_path / "kaynak", hooks=True)
 
-    refused = runner.invoke(plugin_app, ["kur", str(source)])
-    assert refused.exit_code == 1
-    assert "--yes" in refused.output
-
-    assert runner.invoke(plugin_app, ["kur", str(source), "--yes"]).exit_code == 0
+    # Claude CLI `plugin install` ek soru sormaz; TTY'siz ortamda da --yes gerekmez (#392).
+    assert runner.invoke(plugin_app, ["kur", str(source)]).exit_code == 0
     listed = runner.invoke(plugin_app, ["listele"])
     assert "rapor-araclari 1.2.0 — etkin" in listed.output
     assert runner.invoke(plugin_app, ["dogrula", "rapor-araclari"]).exit_code == 0
@@ -454,7 +451,7 @@ def test_guven_beklenen_karma_uyusmazsa_onaylamaz(tmp_path):
 
     with pytest.raises(PluginError, match="değişti"):
         plugin_install.trust_plugin("rapor-araclari", approve=_yes, expected_digest="0" * 64)
-    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_TAMPERED
+    assert plugin_store.installed_plugins()[0].status == plugin_store.STATUS_ACTIVE
 
 
 def test_repl_onizleme_ile_yes_arasinda_degisen_eklenti_kurulmaz(tmp_path):
@@ -803,7 +800,7 @@ def test_cli_ve_repl_guncelle_komutlari(tmp_path):
     source = _plugin(tmp_path / "kaynak")
     assert runner.invoke(plugin_app, ["kur", str(source)]).exit_code == 0
     up = runner.invoke(plugin_app, ["guncelle", "rapor-araclari"])
-    assert up.exit_code == 0 and "güncel" in up.output
+    assert up.exit_code == 0 and "already at the latest version (1.2.0)" in up.output
     assert runner.invoke(plugin_app, ["update", "rapor-araclari"]).exit_code == 0
 
     home, root = tmp_path / "ev", tmp_path / "proje"

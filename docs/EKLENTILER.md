@@ -80,9 +80,8 @@ fusion plugin details <ad|ad@pazar>            # bileşen envanteri + öngörül
 fusion plugin prune [--dry-run] [-y]           # (autoremove) Fusion bağımlılık kurmaz: "Nothing to prune"
 fusion plugin validate <yol|ad> [--strict] [--json]   # plugin.json ya da marketplace.json; çıkış 0/1/2
 fusion plugin enable|disable <ad|ad@pazar> [--scope user|project|local]  ·  disable --all
-fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # Fusion çöpüne; veri klasörü silinir
-fusion eklenti guven <ad>                      # değişmiş eklentiyi yeniden onayla
-fusion eklenti guncelle <ad> [--yes] [--karma]  # kaydedildiği kaynaktan yeniden çek
+fusion plugin uninstall <ad|ad@pazar> [--keep-data]   # kopya .orphaned_at ile 14 gün kalır; veri silinir
+fusion plugin update <ad|ad@pazar>             # önce pazar yenilenir; sürüm aynıysa değişmez
 fusion eklenti kesfet [pazar]                  # kullanımdan kalktı → plugin list --json --available
 fusion plugin marketplace add <./klasör|./pazar.json|sahip/repo[#ref|@ref]|https://….git[#ref]|resmi>
 fusion eklenti pazar ekle <yol|sahip/repo|https…|resmi>  ·  pazar liste  ·  pazar guncelle [ad]  # ad yoksa hepsi
@@ -139,7 +138,6 @@ Yerel klasörden eklenmiş bir pazarın göreli yollu (`./plugins/x`) eklentiler
 kopyalanmaz, kaynak klasöründen yerinde yüklenir: kaynakta yapılan düzenleme sürüm artırmadan sonraki
 oturumda ya da `/reload-plugins`'te geçerli olur, `CLAUDE_PLUGIN_ROOT` kaynak klasörü gösterir,
 `plugin list --json` `readFromFolder`/`folderVersion` verir; kaldırma kaynak klasöre dokunmaz.
-Güvenlik notu: bu eklentilere karma ("değişmiş") kilidi uygulanmaz; kanca/MCP onayı kurulumda alınır.
 
 Pazar kaynağı Claude Code tablosuyla çözülür: `owner/repo`, `owner/repo#ref`/`@ref` (GitHub),
 `.git` ile biten ya da `/_git/` içeren https adresi, github.com/gitlab.com adresi, klasör ya da `.json`
@@ -164,20 +162,36 @@ yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
 kapsam okunmaz; `marketplace remove --scope` yok. Kriptografik imza yok: bütünlük sha256 karma +
 commit pinidir.
 
+## Sürüm ve güncelleme
+
+Sürüm Claude Code sırasıyla hesaplanır: `plugin.json` `version`, pazar girdisinin `version`'ı, ikisi
+de yoksa kaynağın commit SHA'sının ilk 12 karakteri (`git-subdir`'de alt klasör yolu karması eklenir;
+git pazarındaki göreli eklentide pazar klonunun commit'i), yerel klasörde `unknown`. `plugin update`
+sürümü yeniden hesaplar; kayıttakiyle aynıysa kopyaya dokunmaz ve
+`<ad> is already at the latest version (<sürüm>).` der (manifest sürümünü sabitlemek kullanıcıyı o
+sürümde tutar). `ad@pazar` kurulum ve güncellemesinden önce git pazarı yenilenir (yerel pazar, son 30
+saniyede yenilenen pazar ve `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` atlanır; yenileme başarısızsa
+önbellekteki katalogla sürer). Güncellenen ya da kaldırılan eklentinin önceki kopyası
+`<eklentiler>/.orphaned/` altına `.orphaned_at` işaretiyle taşınır ve 14 gün sonra silinir.
+Henüz yok: otomatik güncelleme (#394).
+
 ## Güven ve bütünlük
 
-- Kurulumda klasörün sha256 içerik karması kaydedilir (`<veri>/eklentiler/kayit.json`, süreçler arası
-  kilitle yazılır). Dosyalar sonradan değişirse eklenti **değişmiş** görünür ve hiçbir bileşeni
-  yüklenmez; `fusion eklenti guven` (masaüstü "İncele ve yeniden onayla") güncel içeriği gösterip
-  yeniden onay ister. Bildirim adı değişmiş eklenti yeniden onaylanmaz.
+- Claude Code gibi karma kilidi yoktur (güvenlik davranışı değişti, #392): kurulumda kaydedilen sha256
+  karma yalnız bilgidir; kopya sonradan değişse de eklenti yüklenir. `trust`/`guven` kullanımdan
+  kalktı (yalnız karma kaydını yeniler, uyarı verir).
+- Kullanıcı kapsamında etkin eklentinin kanca ve MCP sunucuları ek onay istemeden yüklenir (#419).
+  Proje kapsamında (`.claude/settings.json`) açılan eklenti yalnız o dosya güvenildiyse (`fusion
+  trust`) yüklenir; eklenti MCP kayıtları `unreviewed` güvenle girer.
+- CLI `plugin install`/`update` ek soru sormaz (Claude gibi; `--yes` etkisiz kabul edilir). Masaüstü
+  ve REPL panelde önizler, kanca/MCP içeren eklentide "Onaylıyorum, kur" / `--yes` ister.
 - Onay ekranı kanca satırlarını (`Olay [eşleşen]: komut`), MCP sunucularının tam komutunu (sırlar
   maskeli) ve içerik karmasını gösterir. Onay o karmaya bağlıdır: `fusion eklenti kur X --dry-run`
   karmayı basar, `kur X --yes --karma <karma>` içerik değiştiyse kurmaz; masaüstü ve REPL bunu
   kendiliğinden yapar.
 - Pazar girdisi `sha` bildiriyorsa en az 7 onaltılık karakter olmalıdır. Tam (40 karakter) sha o
   commit'i doğrudan çeker (dal ucu ilerlese de); kısa sha dal ucuyla eşleşmelidir.
-- Kanca/MCP içeren eklenti açık onay olmadan kurulmaz (CLI `--yes` ya da TTY sorusu, masaüstü
-  "Onaylıyorum, kur"). Git adresleri yalnız genel https sunucularıdır (iç ağ, kimlik bilgili adres
+- Git adresleri yalnız genel https sunucularıdır (iç ağ, kimlik bilgili adres
   yok); klon yönlendirme izlemez, https dışı protokole geçmez ve denetlenen IP'ye sabitlenir.
   Yerel klasör 5 000 dosya / 50 MB sınırını aşıyorsa kopyalanmadan reddedilir.
 - Hepsini kapatma: `fusion eklenti kapat --hepsi` ya da `FUSION_PLUGINS=off`.

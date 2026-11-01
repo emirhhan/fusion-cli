@@ -42,12 +42,12 @@ console = Console()
 
 CONFIRM = "Bu eklenti kurulsun mu?"
 CONFIRM_TRUST = "Güncel içerik onaylansın mı?"
-NEEDS_YES = "Bu eklenti komut çalıştırabilir; etkileşimsiz terminalde onay için --yes ekle."
+TRUST_DEPRECATED = "trust/guven kullanımdan kalktı: Claude Code'da karma kilidi yok"
 INSTALLED = (
     "Kuruldu: {name} (kapsam: {scope} · {status}). "
     "Açık oturuma uygulamak için /reload-plugins çalıştır."
 )
-REMOVED = "Eklenti kaldırıldı: {name} (kapsam: user; klasör çöpte{data})"
+REMOVED = "Eklenti kaldırıldı: {name} (kapsam: user{data})"
 DATA_KEPT = ", veri korundu"
 TOGGLED = "Eklenti {verb}: {name} (kapsam: {scope})"
 ALL_TOGGLED = "Bütün eklentiler: {state}"
@@ -55,7 +55,7 @@ DISABLED_ALL = "{count} eklenti kapatıldı"
 ENABLE_ALL_DEPRECATED = "enable --all kullanımdan kalktı; Claude Code'da yok"
 TRUSTED = "Onaylandı: {name} (karma yenilendi)"
 UPDATED = "Güncellendi: {name}{version}. Bileşenler yeni turda/oturumda etkin olur."
-UP_TO_DATE = "Zaten güncel: {name}"
+UP_TO_DATE = "{name} is already at the latest version ({version})."
 MARKET_UPDATED = "Pazar güncellendi: {name}. Eklentileri gör: fusion eklenti kesfet {name}"
 MARKETS_UPDATED = "{count} pazar güncellendi"
 MARKET_ADDED = "Pazar eklendi: {name} ({kind}). Eklentileri gör: fusion eklenti kesfet {name}"
@@ -80,16 +80,12 @@ def _run(action: Callable[[], str]) -> None:
 
 
 def approver(yes: bool) -> plugins.ApprovalCallback:
-    """Önizlemeyi bas; çalıştırılabilir eklentide onay iste (`--yes` ya da TTY'de soru)."""
+    """Önizlemeyi bas ve kur: Claude CLI `plugin install` ek soru sormaz (#392, güvenlik
+    davranışı değişti). `--yes` bir sürüm boyunca etkisiz kabul edilir."""
 
     def approve(preview: plugins.PluginPreview) -> bool:
         console.print(escape(format_preview(preview)))
-        if not preview.is_executable or yes:
-            return True
-        if not sys.stdin.isatty():
-            console.print(NEEDS_YES)
-            return False
-        return typer.confirm(CONFIRM, default=False)
+        return True
 
     return approve
 
@@ -282,7 +278,8 @@ def trust(
     name: str = typer.Argument(..., help="Eklenti adı"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Sormadan onayla."),
 ) -> None:
-    """Kurulumdan sonra değişen eklentinin güncel içeriğini incele ve yeniden onayla."""
+    """Kullanımdan kalktı (#392): karma kaydını yeniler; Claude'da karşılığı yok."""
+    typer.echo(TRUST_DEPRECATED, err=True)
 
     def approve(preview: plugins.PluginPreview) -> bool:
         console.print(escape(format_preview(preview)))
@@ -304,7 +301,7 @@ def update(
     def act() -> str:
         result = plugin_update.update_plugin(name, approve=approver(yes), expected_digest=digest)
         if not result.changed:
-            return UP_TO_DATE.format(name=name)
+            return UP_TO_DATE.format(name=name, version=result.record.version or "unknown")
         version = f" {result.record.version}" if result.record.version else ""
         return UPDATED.format(name=name, version=version)
 

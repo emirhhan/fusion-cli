@@ -2,10 +2,12 @@
 `marketplace update` karşılığı: `fusion eklenti guncelle <ad>`,
 `fusion eklenti pazar guncelle <ad>`.
 
-Eklenti kaydedildiği kaynaktan (yerel klasör, git adresi ya da `ad@pazar`) yeniden çekilir ve
-kurulumla AYNI kapılardan geçer: doğrulama, ad eşleşmesi, önizleme karması (`expected_digest`),
-kanca/MCP için açık onay. İçerik aynıysa hiçbir şey yazılmaz. Eski kopya Fusion çöpüne gider
-(`fusion cop geri-al`); kayıt yazılamazsa geri konur. Açık/kapalı durumu korunur.
+Claude gibi (#393): `ad@pazar` kaydında önce git pazarı yenilenir (son 30 sn'de yenilendiyse
+ya da yerel pazarsa atlanır; yenileme başarısızsa önbellekteki katalogla sürer), sonra eklenti
+çekilir ve sürüm Claude sırasıyla hesaplanır. Sürüm kayıttakiyle aynıysa hiçbir şey yazılmaz
+("already at the latest version"). Doğrulama, ad eşleşmesi ve önizleme karması
+(`expected_digest`) kurulumla aynıdır. Eski kopya `.orphaned_at` ile 14 gün kalır (#408);
+kayıt yazılamazsa geri konur. Açık/kapalı durumu korunur.
 
 Pazar güncellemesi git pazarını yeniden klonlar (yerel pazar zaten diskten okunur); pazarın
 adı değişmişse güncellenmez — `ad@pazar` kurulumları başka bir pazara kaymasın.
@@ -13,13 +15,14 @@ adı değişmişse güncellenmez — `ad@pazar` kurulumları başka bir pazara k
 
 from __future__ import annotations
 
+import logging
 import shutil
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..config import plugin_store
-from ..config.paths import trash_dir
 from ..config.plugin_layout import context_cost, tree_digest, validate_plugin
 from ..config.plugin_store import MarketplaceRecord, PluginRecord, load_state, plugins_dir
 from ..core.plugins import PluginError
@@ -38,9 +41,14 @@ from .plugin_install import (
     _workspace,
     markets_dir,
     read_marketplace,
+    version_of,
 )
 from .plugin_market_source import split_ref
-from .safe_delete import DeleteRefusedError, move_to_trash
+from .plugin_version import orphan, sweep_orphans
+
+_LOG = logging.getLogger(__name__)
+#: Claude: son 30 saniyede yenilenen pazar kurulum/güncelleme öncesi yeniden yenilenmez.
+REFRESH_GRACE_S = 30.0
 
 ERR_MARKET_RENAMED = "Pazarın adı değişti ({old} → {new}); güncellenmedi. Kaldırıp yeniden ekle."
 
@@ -67,12 +75,15 @@ def update_plugin(
     expected_digest: str = "",
 ) -> UpdateResult:
     root = base or plugins_dir()
+    sweep_orphans(root)
     state = load_state(root)
     record = state.plugin(name)
     if record is None:
         raise PluginError(ERR_NOT_INSTALLED.format(name=name))
     if record.folder:
         return _refresh_in_place(record, root)
+    if refresh_marketplace_for(update_source(record), state.marketplaces, base=root):
+        state = load_state(root)
     resolved = _resolve(update_source(record), state)
     with _workspace(root) as workspace:
         folder, commit = _fetch(resolved, workspace)
@@ -83,7 +94,8 @@ def update_plugin(
             raise PluginError(ERR_RENAMED.format(old=record.name, new=report.layout.name))
         digest = tree_digest(folder)
         _check_expected(expected_digest, digest)
-        if digest == record.digest:
+        version = version_of(resolved, report.layout.manifest.version, commit)
+        if version == record.version:
             return UpdateResult(record, changed=False)
         preview = PluginPreview(report, update_source(record), context_cost(report.layout))
         preview = replace(preview, digest=digest, commit=commit)
@@ -91,7 +103,7 @@ def update_plugin(
             raise PluginError(ERR_DECLINED)
         updated = replace(
             record,
-            version=report.layout.manifest.version,
+            version=version,
             commit=commit,
             digest=digest,
             exec_approved=report.layout.is_executable,
@@ -106,7 +118,7 @@ def _refresh_in_place(record: PluginRecord, root: Path) -> UpdateResult:
     report = validate_plugin(Path(record.folder), record.name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
-    version = report.layout.manifest.version
+    version = report.layout.manifest.version or record.version
     if version == record.version:
         return UpdateResult(record, changed=False)
     updated = replace(record, version=version)
@@ -114,21 +126,46 @@ def _refresh_in_place(record: PluginRecord, root: Path) -> UpdateResult:
     return UpdateResult(updated, changed=True)
 
 
-def _swap(destination: Path, folder: Path, record: PluginRecord, root: Path) -> None:
-    """Eski kopyayı çöpe, yenisini yerine koy; kayıt yazılamazsa eskisini geri getir."""
+def refresh_marketplace_for(
+    source: str, marketplaces: Iterable[MarketplaceRecord], *, base: Path | None = None
+) -> bool:
+    """`ad@pazar` için git pazarını yenile (Claude, #393); yenilendiyse True.
+
+    Yerel pazar, son 30 sn'de yenilenen pazar ve `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+    atlanır. Yenileme başarısızsa önbellekteki katalogla sürer ("marketplace not refreshed").
+    """
+    import os
+
+    name, sep, market = source.partition("@")
+    if not sep or not name or "/" in market or os.environ.get(_NO_TRAFFIC_ENV):
+        return False
+    record = next((m for m in marketplaces if m.name == market), None)
+    if record is None or record.kind != "git":
+        return False
+    if time.time() - record.added_at < REFRESH_GRACE_S:
+        return False
     try:
-        moved, _missing = move_to_trash(
-            (str(destination),), cwd=root, root=root, home=Path.home(), trash_root=trash_dir()
-        )
-    except DeleteRefusedError as error:
-        raise PluginError(str(error)) from error
+        update_marketplace(market, base=base)
+    except PluginError as error:
+        _LOG.warning("marketplace not refreshed (%s): %s", market, error)
+        return False
+    return True
+
+
+_NO_TRAFFIC_ENV = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
+
+
+def _swap(destination: Path, folder: Path, record: PluginRecord, root: Path) -> None:
+    """Eski kopyayı `.orphaned_at` ile ayır, yenisini koy; kayıt yazılamazsa eskisini geri getir."""
+    previous = orphan(destination, root) if destination.is_dir() else None
     shutil.move(str(folder), destination)
     try:
         plugin_store.update_state(lambda current: current.with_plugin(record), root)
     except BaseException:
         shutil.rmtree(destination, ignore_errors=True)
-        for entry in moved:
-            shutil.move(str(entry.stored), destination)
+        if previous is not None:
+            (previous / ".orphaned_at").unlink(missing_ok=True)
+            shutil.move(str(previous), destination)
         raise
 
 

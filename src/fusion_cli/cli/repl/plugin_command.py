@@ -187,8 +187,8 @@ def _remove(rest: list[str], confirmed: bool) -> str:
         return USAGE
     keep = "--keep-data" in rest
     plugins.uninstall_plugin(names[0], keep_data=keep, scope=scope)
-    kept = ", veri korundu" if keep else ""
-    return DONE.format(name=names[0], state=f"kaldırıldı (çöpte{kept})")
+    kept = " (veri korundu)" if keep else ""
+    return DONE.format(name=names[0], state=f"kaldırıldı{kept}")
 
 
 def _scope_flag(words: list[str]) -> tuple[list[str], str]:

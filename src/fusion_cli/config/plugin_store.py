@@ -7,12 +7,13 @@ Yerleşim: `<veri>/eklentiler/<ad>/` (eklentinin kopyası) ve `<veri>/eklentiler
                             "etkin", "calistirma_onayi", "kurulum"}},
      "pazarlar": {"<ad>": {"kaynak", "tur", "yol", "eklendi"}}}
 
-Güven sözleşmesi:
-- Kurulumda içerik karması (`tree_digest`) kaydedilir. Yüklemede yeniden hesaplanır; dosyalar
-  kurulumdan sonra değiştiyse eklentinin HİÇBİR bileşeni yüklenmez ("değişmiş") — yeniden
-  onay `fusion eklenti guven <ad>` ya da yeniden kurulum ister.
-- Kanca ve MCP (Fusion dışında süreç başlatan bileşenler) yalnız kurulumda açıkça onaylandıysa
-  (`calistirma_onayi`) yüklenir; MCP kayıtları `unreviewed` güvenle girer.
+Güven sözleşmesi (Claude Code, loading.md "Trust check …", #392/#419; güvenlik davranışı
+değişti):
+- Kurulumda içerik karması (`tree_digest`) yalnız bilgi olarak kaydedilir; Claude'daki gibi
+  kopyanın sonradan değişmesi yüklemeyi durdurmaz (karma kilidi ve `guven` onayı kalktı).
+- Kullanıcı kapsamlı etkin eklentinin kanca ve MCP sunucuları ek onay istemeden yüklenir
+  (`calistirma_onayi` artık kapı değil). Yalnız proje kapsamında açılan eklenti çalışma alanı
+  güveni ister (`plugin_scopes.resolve_enabled`); MCP kayıtları `unreviewed` güvenle girer.
 - Kapatma: eklenti başına `etkin: false`, hepsi için `hepsi_kapali: true`
   (`fusion eklenti kapat --hepsi`) ya da `FUSION_PLUGINS=off` ortam değişkeni.
 """
@@ -30,7 +31,7 @@ from ..core.atomic_file import atomic_replace_text
 from ..core.plugins import NAME_PATTERN, PluginError
 from .models import McpServerConfig
 from .paths import user_data_dir
-from .plugin_layout import PluginLayout, hook_blocks, mcp_servers, scan_plugin, tree_digest
+from .plugin_layout import PluginLayout, hook_blocks, mcp_servers, scan_plugin
 
 _LOG = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ PLUGIN_HOOKS_ACTIVE = True
 #: Kayıt durumları (kullanıcıya bu adlarla görünür).
 STATUS_ACTIVE = "etkin"
 STATUS_DISABLED = "kapalı"
+#: Kullanımdan kalktı (#392): artık hiçbir kayıt bu durumu almaz; içe aktaranlar için duruyor.
 STATUS_TAMPERED = "değişmiş"
 STATUS_BROKEN = "bozuk"
 
@@ -261,16 +263,13 @@ def inspect_plugin(record: PluginRecord, base: Path | None = None) -> InstalledP
     """Kaydı diskle karşılaştır: etkin / kapalı / değişmiş / bozuk.
 
     Yerinde yüklenen eklentide (#403) karma kilidi yok: kaynaktaki düzenleme Claude'daki gibi
-    sonraki oturumda ya da /reload-plugins'te geçerli olur.
+    sonraki oturumda ya da /reload-plugins'te geçerli olur. Kopyada da karma kilidi yok (#392).
     """
     folder = plugin_folder(record, base)
     try:
         layout = scan_plugin(folder)
-        digest = "" if record.folder else tree_digest(folder)
     except (PluginError, OSError) as error:
         return InstalledPlugin(record, None, STATUS_BROKEN, str(error))
-    if record.digest and not record.folder and digest != record.digest:
-        return InstalledPlugin(record, layout, STATUS_TAMPERED, "dosyalar kurulumdan sonra değişti")
     return InstalledPlugin(record, layout, STATUS_ACTIVE if record.enabled else STATUS_DISABLED)
 
 
@@ -343,7 +342,7 @@ def active_plugins(
 
 
 def plugin_mcp_servers(base: Path | None = None) -> tuple[McpServerConfig, ...]:
-    """Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları.
+    """Etkin eklentilerin MCP sunucuları (Claude: kullanıcı kapsamında ek onay yok, #419).
 
     Ölçüldü (31 Ekim): ad slug'ı (`plugin_<eklenti>_<sunucu>`) iki eklentide çakışabiliyordu
     (`foo`/`bar-baz` ile `foo-bar`/`baz`); ikisi de yükleniyor, araç adları birbirini eziyordu.
@@ -352,7 +351,7 @@ def plugin_mcp_servers(base: Path | None = None) -> tuple[McpServerConfig, ...]:
     servers: list[McpServerConfig] = []
     owners: dict[str, str] = {}
     for item in active_plugins(base):
-        if item.layout is None or not item.record.exec_approved:
+        if item.layout is None:
             continue
         try:
             found = mcp_servers(item.layout)
@@ -378,11 +377,11 @@ def plugin_hook_blocks(
 ) -> tuple[tuple[str, Path, Mapping[str, object]], ...]:
     """`(kaynak adı, dosya, {"hooks": …})`: kanca yükleyicisinin (P-009) okuyacağı katmanlar.
 
-    Kaynak adı `eklenti:<ad>`; yalnız çalıştırma onaylı etkin eklentiler.
+    Kaynak adı `eklenti:<ad>`; bütün etkin eklentiler (#419).
     """
     blocks: list[tuple[str, Path, Mapping[str, object]]] = []
     for item in active_plugins(base):
-        if item.layout is None or not item.record.exec_approved:
+        if item.layout is None:
             continue
         try:
             blocks.extend(
