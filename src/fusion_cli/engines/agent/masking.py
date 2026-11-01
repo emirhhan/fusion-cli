@@ -52,8 +52,9 @@ LEDGER_PRUNE_FACTOR = 2
 
 #: Sonucu hiçbir zaman maskelenmeyen araçlar: çıktıları yeniden üretilemez ya da
 #: kullanıcıdan / öğretmenden / alt ajandan gelen bilgidir.
+#: `Skill`: çağrılan becerinin gövdesi sonraki turlarda da bağlamda kalır (#139, #140).
 EXEMPT_TOOLS = frozenset(
-    {"ask_user", "ask_teacher", "spawn_agents", "recall_lessons", "todo_write", "plan"}
+    {"ask_user", "ask_teacher", "spawn_agents", "recall_lessons", "todo_write", "plan", "Skill"}
 )
 #: Proje / kullanıcı kuralı taşıyan dosyalar (yol sonu, küçük harf): okumaları maskelenmez.
 RULE_FILE_NAMES = frozenset(

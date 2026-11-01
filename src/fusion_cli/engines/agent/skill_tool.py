@@ -243,6 +243,10 @@ def build_skill_tool(
             "required": ["skill"],
         },
         run=_run,
+        # İşlenmiş SKILL.md konuşmaya TAM girer (Claude Code, "Skill content lifecycle"):
+        # 20.000 karakter üstü gövde diske alınmaz, kullanıcının becerisi "veri" diye
+        # etiketlenmez; `/ad` yoluyla aynı içerik (#139).
+        verbatim_output=True,
     )
 
 

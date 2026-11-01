@@ -183,7 +183,7 @@ class ToolRegistry:
         try:
             if _is_async(tool.run):
                 outcome = cast("Awaitable[ToolResult]", tool.run(args, context))
-                return _finish(await outcome, name, context)  # coroutine ToolResult döndürür
+                return _finish(await outcome, tool, context)  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
             # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i
             # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
@@ -192,7 +192,7 @@ class ToolRegistry:
             sonuc = await await_cancellable_thread(
                 _run_sync, invocation_context.cancelled.set, tool.run, args, invocation_context
             )
-            return _finish(sonuc, name, context)
+            return _finish(sonuc, tool, context)
         except CleanupFailedError:
             raise
         except (ArgumentError, PathAccessError) as exc:
@@ -218,14 +218,17 @@ def _is_async(run: ToolExecutor) -> bool:
     )
 
 
-def _finish(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
+def _finish(result: ToolResult, tool: Tool, context: ToolContext) -> ToolResult:
     """Araç sonucunu modele gitmeye hazırla: diske al, enjeksiyon notunu ekle.
 
     Not her araç için eklenir: dosya, web sayfası, komut çıktısı ve uzak araç
     yanıtı aynı güvensiz veridir. Tarama TAM çıktı üzerinde, not ise diske alma
-    SONRASINDA yapılır — kısaltılan önizlemede de görünsün diye.
+    SONRASINDA yapılır — kısaltılan önizlemede de görünsün diye. `verbatim_output`
+    araçları (beceri gövdesi, #139) bu iki adımın dışındadır.
     """
-    return flag_injection(_offload(result, name, context), result.output)
+    if tool.verbatim_output:
+        return result
+    return flag_injection(_offload(result, tool.name, context), result.output)
 
 
 def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:

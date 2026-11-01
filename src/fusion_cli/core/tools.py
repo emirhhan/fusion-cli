@@ -496,6 +496,10 @@ class Tool:
     # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
     # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
     advertised: bool = True
+    #: True ise sonuç modele OLDUĞU GİBİ gider: diske alma (offload) ve enjeksiyon notu
+    #: uygulanmaz. Yalnız içeriği kullanıcının kendi talimatı olan araçlar içindir
+    #: (`Skill`: işlenmiş SKILL.md, Claude Code'da konuşmaya tam girer; #139).
+    verbatim_output: bool = False
     #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
     effect: ToolEffect = ToolEffect.LOCAL
     #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran
