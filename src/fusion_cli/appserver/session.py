@@ -106,6 +106,7 @@ from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .background_routes import BACKGROUND_ROUTES, dispatch_background
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .browser_panel import RPC_PREFIX as BROWSER_PANEL_RPC
+from .chrome_group import schedule_group_close
 from .browser_panel import BrowserPanel
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
@@ -1798,6 +1799,9 @@ class AppSession:
         transcript_rebound = capability_roots_changed or conversation_changed
         if transcript_rebound:
             self._rebind_transcript()
+        if conversation_changed:
+            # Oturum değişti (Claude: /resume): grup yalnız boş yeni sekmelerdense kapanır (#436).
+            schedule_group_close(self._chrome, only_empty=True)
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)
@@ -2465,6 +2469,9 @@ class AppSession:
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             self._state.history.clear()
             linked_pr.forget(self._state)
+            # Claude in Chrome: /clear oturum sekme grubunu kapatır (#436); tur sürüyorsa
+            # yalnız boş grup kapanır, süren işin sekmesi elinden alınmaz.
+            schedule_group_close(self._chrome, only_empty=turn_running)
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
             return {

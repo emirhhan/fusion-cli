@@ -73,10 +73,11 @@ gösterilir. Terminal ve masaüstü sohbetinden gelen Chrome eylemleri o oturumu
 
 Fusion'ın açtığı sekmeler (`tab_open`, yeni pencere) pencere başına tek bir **Fusion** sekme grubunda
 toplanır; kullanıcının gruba sürüklediği http(s) sekmeleri `tabs` listesinde görünür ve seçilebilir.
-Kapanış Claude in Chrome kuralıyla: terminalde `/clear` grubu açık sayfalarıyla kapatır; `/resume` ile
-oturum değişince, çıkışta ve masaüstü oturumu kapanınca grup yalnız boş yeni sekmelerden oluşuyorsa
-kapanır. Kapanış Chrome'u açmaz ve en çok 3 sn bekler. **Henüz yok**: masaüstü sohbetinde `/clear`
-ve oturum değiştirme kapanışı; "/clear sonrası süren iş" istisnası.
+Kapanış Claude in Chrome kuralıyla: terminalde ve masaüstü sohbetinde `/clear` grubu açık
+sayfalarıyla kapatır (masaüstünde tur sürüyorsa yalnız boş grup kapanır, süren işin sekmesi
+alınmaz); `/resume` ya da masaüstünde başka sohbete geçince, çıkışta ve masaüstü oturumu kapanınca
+grup yalnız boş yeni sekmelerden oluşuyorsa kapanır. Kapanış Chrome'u açmaz ve en çok 3 sn bekler.
+Gerçek Chrome'da elle denenmedi (sahte köprüyle sınandı).
 
 ## Terminalde Chrome (`--chrome`, `/chrome`; #421)
 
