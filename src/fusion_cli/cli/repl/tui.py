@@ -46,6 +46,7 @@ from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 from .status_line_runner import ansi_for_tui
 from .tui_input_keys import (
     DOUBLE_PRESS_SECONDS,
+    KILL_AGENTS_WINDOW_S,
     MAX_INPUT_ROWS,
     DoublePress,
     register_shift_enter,
@@ -169,6 +170,8 @@ class FusionTui:
         self._is_busy = is_busy or (lambda: self._work_source is not None)
         self._ctrl_c = DoublePress()
         self._ctrl_d = DoublePress()
+        self._kill_press = DoublePress(KILL_AGENTS_WINDOW_S)
+        self._kill_agents: Callable[[], None] | None = None
         #: Durum satırında geçici ipucu ("çıkmak için tekrar Ctrl+C").
         self._flash = ""
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
@@ -870,6 +873,11 @@ class FusionTui:
             "kaydir_yukari": (lambda: self._scroll_by(_SCROLL_STEP), scrollable),
             "kaydir_asagi": (lambda: self._scroll_by(-_SCROLL_STEP), scrollable),
             "simdi_gonder": (self._send_queue_now, typing),
+            "ajanlari_durdur": (self._kill_agents_pressed, None),
+            "kisayollar": (
+                self._show_shortcuts,
+                typing & Condition(lambda: not self._input.buffer.text),
+            ),
             "dis_editor": (
                 lambda: input_actions.open_external_editor(self._input.buffer),
                 typing,
@@ -928,6 +936,27 @@ class FusionTui:
             kb.add(*keys, eager=True)(_run)
         else:
             kb.add(*keys, filter=condition, eager=True)(_run)
+
+    def set_agent_hooks(self, kill_agents: Callable[[], None]) -> None:
+        """Ctrl+X Ctrl+K (#216): arka plan alt ajanlarını durduran kanca."""
+        self._kill_agents = kill_agents
+
+    def _kill_agents_pressed(self) -> None:
+        """İlk basış uyarır, 3 sn içindeki ikinci basış arka plan ajanlarını durdurur."""
+        if self._kill_agents is None:
+            return
+        if self._kill_press.press():
+            self._kill_agents()
+            return
+        self._console.print(messages.KILL_AGENTS_CONFIRM, style=theme.DIM, highlight=False)
+        self.sync_conversation()
+
+    def _show_shortcuts(self) -> None:
+        """Boş girdide `?`: kısayol paneli konuşma alanına basılır (Claude Code, #216)."""
+        self._console.print(
+            messages.SHORTCUTS_PANEL, style=theme.DIM, markup=False, highlight=False
+        )
+        self.sync_conversation()
 
     def set_queue_hooks(
         self, take_back: Callable[[], list[str]], send_now: Callable[[str], None]

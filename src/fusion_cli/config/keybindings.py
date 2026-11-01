@@ -73,6 +73,10 @@ DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
         "c-x c-s": "simdi_gonder",
         # Ctrl+Enter (CSI-u / modifyOtherKeys açık terminallerde; bkz. tui_input_keys).
         "f24": "simdi_gonder",
+        # Claude Code chat:killAgents (#216): arka plan alt ajanlarını durdur (çift basış).
+        "c-x c-k": "ajanlari_durdur",
+        # Boş girdide `?` kısayol paneli (#216).
+        "?": "kisayollar",
         "c-g": "dis_editor",
         "c-x c-e": "dis_editor",
         "c-_": "geri_al",
@@ -100,6 +104,8 @@ ACTIONS: dict[str, frozenset[str]] = {
             "kaydir_asagi",
             "arka_plana_al",
             "simdi_gonder",
+            "ajanlari_durdur",
+            "kisayollar",
             *_EDIT_ACTIONS,
         }
     ),

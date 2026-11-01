@@ -762,3 +762,33 @@ def test_import_history_oturumsuz_kaynagi_ayiklar():
     assert _history_source("history claude") == "claude"
     assert _history_source("history claude s1") is None
     assert _history_source("claude --yes") is None
+
+
+async def test_ctrl_x_ctrl_k_cift_basista_arka_plan_ajanlarini_durdurur(tmp_path):
+    """Claude Code chat:killAgents (#216): ilk basış uyarır, ikincisi durdurur."""
+    session = _TuiSession(_state(tmp_path))
+    runs = session._state.child_runs
+    task = asyncio.ensure_future(asyncio.sleep(10))
+    runs._background["ajan-1"] = task
+    session._tui._kill_agents_pressed()
+    assert "yeniden bas" in session.tui.transcript and not task.cancelled()
+    session._tui._kill_agents_pressed()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if "durduruldu" in session.tui.transcript:
+            break
+    assert task.cancelled()
+    assert "1 arka plan alt ajanı durduruldu" in session.tui.transcript
+
+
+def test_bos_girdide_soru_isareti_kisayol_panelini_basar(tmp_path):
+    from fusion_cli.config.claude_keybindings import translate_action
+    from fusion_cli.config.keybindings import load_keymap
+
+    session = _TuiSession(_state(tmp_path))
+    session._tui._show_shortcuts()
+    assert "Ctrl+X Ctrl+K" in session.tui.transcript
+    keymap = load_keymap(tmp_path / "yok.json", tmp_path / "yok-claude.json")
+    assert keymap.contexts["tui"]["?"] == "kisayollar"
+    assert keymap.contexts["tui"]["c-x c-k"] == "ajanlari_durdur"
+    assert translate_action("chat:killAgents") == "ajanlari_durdur"

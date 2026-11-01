@@ -1646,6 +1646,21 @@ SHELL_PREFIX_TIMEOUT = (
 SHELL_PREFIX_TRUNCATED = "\n[çıktı kısaltıldı; tamamı: {path}]"
 SHELL_JOBS_TITLE = "Kabuk komutları (! · Ctrl+B):"
 INLINE_QUEUED = "↳ sıraya alındı: {text}"
+KILL_AGENTS_CONFIRM = (
+    "Arka plan ajanlarını durdurmak için 3 sn içinde Ctrl+X Ctrl+K'ya yeniden bas."
+)
+KILL_AGENTS_DONE = "{count} arka plan alt ajanı durduruldu."
+SHORTCUTS_PANEL = (
+    "Kısayollar\n"
+    "  ! kabuk kipi · / komutlar · @ dosya/kaynak/oturum anması\n"
+    "  Enter gönder · \\+Enter, Shift+Enter, Option+Enter, Ctrl+J yeni satır\n"
+    "  Shift+Tab izin kipi · Esc kes · Esc Esc geri sar · Ctrl+C temizle/çık · Ctrl+D çık\n"
+    "  Ctrl+B arka plana al · Ctrl+X Ctrl+K arka plan ajanlarını durdur\n"
+    "  Ctrl+X Ctrl+S / Ctrl+Enter kuyruğu şimdi yolla · Up kuyruğu geri al\n"
+    "  Ctrl+G / Ctrl+X Ctrl+E dış editör · Ctrl+_ geri al · Ctrl+S taslağı sakla\n"
+    "  Ctrl+L yeniden çiz · Ctrl+R geçmişte ara · PageUp/PageDown kaydır\n"
+    "  /keybindings tuşları düzenler"
+)
 PEER_MENTION_TURN = (
     "Kullanıcı @{name} anmasıyla açık öteki oturum `{name}`'e şu mesajı göndermek istiyor. "
     'Mesajı SendMessage aracıyla (to: "{name}") ilet, sonra kısaca bildir:\n\n{text}'

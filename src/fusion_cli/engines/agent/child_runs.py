@@ -101,6 +101,13 @@ class ChildRuns:
         await self.set_status(identifier, "cancelled")
         return True
 
+    async def cancel_background(self) -> int:
+        """Arka plandaki bütün alt ajanları durdur (Claude Code Ctrl+X Ctrl+K, #216)."""
+        running = [key for key, task in self._background.items() if not task.done()]
+        for identifier in running:
+            await self.cancel(identifier)
+        return len(running)
+
     async def close(self) -> None:
         tasks = (*self._tasks.values(), *self._background.values())
         for task in tasks:

@@ -353,6 +353,7 @@ class _TuiSession:
             on_background=self._background_turn,
         )
         self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
+        self._tui.set_agent_hooks(self._kill_agents)
         self._tui.set_vim_remaps(vim_remaps.load_remaps(state.home))
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
@@ -497,6 +498,20 @@ class _TuiSession:
         taken.extend(line for line in self._queue if not line.lstrip().startswith("!"))
         self._queue[:] = shell
         return taken
+
+    def _kill_agents(self) -> None:
+        """Ctrl+X Ctrl+K (#216): bu oturumun arka plan alt ajanlarını durdur."""
+
+        async def _stop() -> None:
+            count = await self._state.child_runs.cancel_background()
+            self._out.print(
+                messages.KILL_AGENTS_DONE.format(count=count), style=theme.DIM, highlight=False
+            )
+            self._tui.sync_conversation()
+
+        future = asyncio.ensure_future(_stop())
+        self._immediate.add(future)
+        future.add_done_callback(self._immediate.discard)
 
     def _send_now(self, draft: str) -> None:
         """chat:sendNow (Ctrl+X Ctrl+S, #190): kuyruğu hemen yolla, taslak arkasına girer.

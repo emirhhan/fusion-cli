@@ -26,6 +26,8 @@ from prompt_toolkit.keys import Keys
 
 #: Ctrl+C / Ctrl+D çift basış penceresi (Claude Code: 800 ms).
 DOUBLE_PRESS_SECONDS = 0.8
+#: Ctrl+X Ctrl+K arka plan ajanlarını durdurma onay penceresi (#216).
+KILL_AGENTS_WINDOW_S = 3.0
 #: Girdi kutusunun en çok kaç satıra uzayacağı; fazlası kutu içinde kayar.
 MAX_INPUT_ROWS = 10
 #: Shift+Enter'ı ayrı dizi olarak gönderen terminaller (kitty/CSI-u, xterm modifyOtherKeys).
