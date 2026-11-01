@@ -89,9 +89,18 @@ uyarılır. Eski adlar (`runtime.shell_sandbox`,
 düz `allow_write`, `deny_read`, `allow_read`, `allowed_domains`, `denied_domains`, `auto_allow`,
 `excluded_commands`, `allow_unsandboxed`, `fail_if_unavailable`, `network: open|allowlist`)
 bir sürüm boyunca okunur ve bir kez uyarılır; ikisi birden yazılmışsa Claude adı kazanır.
-`/sandbox` bir ayarı yazınca dosyadaki eski adlar Claude adlarına taşınır. Henüz desteklenmeyen
-Claude anahtarları (`network.allowUnixSockets`, `allowLocalBinding`, `httpProxyPort`…)
-yok sayılır ve uyarılır.
+`/sandbox` bir ayarı yazınca dosyadaki eski adlar Claude adlarına taşınır.
+
+Ek Claude anahtarları: `network.allowUnixSockets` (bağlanılabilen Unix soket yolları; göreli yol
+ayar dosyasının kapsamına göre) ve `network.allowAllUnixSockets` macOS Seatbelt'te soket
+bağlantısını açar (Linux'ta dosya sistemi soketleri zaten erişilebilir); `network.allowLocalBinding`
+localhost portunda dinlemeye izin verir (Fusion uzantısı `allow_localhost` kapalıyken anlamlıdır);
+`bwrapPath` / `socatPath` Linux araçlarının yolunu verir. `allowMachLookup`, `allowAppleEvents` ve
+`enableWeakerNetworkIsolation` okunur ama etkisizdir: Fusion'ın Seatbelt profili `(allow default)`
+olduğu için Mach araması ve Apple Events zaten açıktır (Claude'da varsayılan kapalıdır).
+Henüz desteklenmeyen anahtarlar (`network.httpProxyPort`, `socksProxyPort`, `tlsTerminate`,
+`filesystem.disabled`, `enableWeakerNestedSandbox`, `allowNestedUserNamespaces`, `ripgrep`…)
+yok sayılır ve bir kez uyarılır.
 
 ## Ne sınırlanır?
 

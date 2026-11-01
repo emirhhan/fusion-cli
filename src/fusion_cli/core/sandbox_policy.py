@@ -104,6 +104,14 @@ class SandboxPolicy:
     denied_local_ports: tuple[int, ...] = ()
     #: Listede olmayan ana makineye sormadan reddet (Claude `network.strictAllowlist`, #323).
     strict_allowlist: bool = False
+    #: Bağlanılabilen Unix soket yolları / hepsi (Claude `network.allowUnixSockets`, #350).
+    allow_unix_sockets: tuple[Path, ...] = ()
+    allow_all_unix_sockets: bool = False
+    #: localhost portuna bağlanma (dinleme) izni (Claude `network.allowLocalBinding`).
+    allow_local_binding: bool = False
+    #: Linux araç yolları (Claude `bwrapPath` / `socatPath`); boş = PATH.
+    bwrap_path: str = ""
+    socat_path: str = ""
 
     @property
     def restricts_network(self) -> bool:

@@ -110,7 +110,25 @@ def _network_rules(policy: SandboxPolicy, proxy: ProxyEndpoint | None) -> str:
             '\n(allow network* (remote ip "localhost:*"))'
             '\n(allow network-bind network-inbound (local ip "localhost:*"))'
         )
-    return rules
+    elif policy.allow_local_binding:
+        # Claude `network.allowLocalBinding` (#350): localhost portunda dinleme.
+        rules += '\n(allow network-bind network-inbound (local ip "localhost:*"))'
+    return rules + _unix_socket_rules(policy)
+
+
+def _unix_socket_rules(policy: SandboxPolicy) -> str:
+    """Claude `allowUnixSockets` / `allowAllUnixSockets` (#350); `(deny network*)` sonrası."""
+    if policy.allow_all_unix_sockets:
+        return "\n(allow network* (remote unix-socket))"
+    return "".join(
+        # Seatbelt gerçek yolu eşler (`/tmp` → `/private/tmp`): yol çözülür.
+        f'\n(allow network* (remote unix-socket (path-literal "{_sbpl_quote(path.resolve())}")))'
+        for path in policy.allow_unix_sockets
+    )
+
+
+def _sbpl_quote(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _local_port_rules(ports: Sequence[int]) -> str:
@@ -245,7 +263,9 @@ def plan_shell_sandbox(
             hide_secret_env=hide,
         )
     if system.startswith("linux"):
-        tools = linux_tools or LinuxTools(shutil.which("bwrap"), shutil.which("socat"))
+        tools = linux_tools or LinuxTools(
+            shutil.which(rules.bwrap_path or "bwrap"), shutil.which(rules.socat_path or "socat")
+        )
         socket_path = proxy.unix_path if proxy is not None else None
         argv = linux_sandbox_argv(
             roots, rules, tools, proxy_socket=socket_path, protected_roots=guarded

@@ -64,6 +64,13 @@ class SandboxConfig:
     credential_env: tuple[str, ...] = ()
     #: Claude `sandbox.credentials.files` (deny): sandbox içinde okunamayan yollar.
     credential_files: tuple[str, ...] = ()
+    #: Claude `network.allowUnixSockets` / `allowAllUnixSockets` / `allowLocalBinding` (#350).
+    allow_unix_sockets: tuple[str, ...] = ()
+    allow_all_unix_sockets: bool = False
+    allow_local_binding: bool = False
+    #: Claude `bwrapPath` / `socatPath`: Linux araçlarının yolu (boş = PATH'te ara).
+    bwrap_path: str = ""
+    socat_path: str = ""
 
 
 def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
@@ -163,4 +170,9 @@ def sandbox_policy(
         hide_secret_env=config.hide_secret_env,
         strict_allowlist=config.strict_allowlist,
         deny_env=tuple(dict.fromkeys(config.credential_env)),
+        allow_unix_sockets=tuple(_expand(raw, home, root) for raw in config.allow_unix_sockets),
+        allow_all_unix_sockets=config.allow_all_unix_sockets,
+        allow_local_binding=config.allow_local_binding,
+        bwrap_path=config.bwrap_path,
+        socat_path=config.socat_path,
     )

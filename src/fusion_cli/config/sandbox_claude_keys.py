@@ -36,6 +36,8 @@ _TOP_LEVEL = {
     "excludedCommands": "excluded_commands",
     "allowUnsandboxedCommands": "allow_unsandboxed",
     "failIfUnavailable": "fail_if_unavailable",
+    "bwrapPath": "bwrap_path",
+    "socatPath": "socat_path",
 }
 #: `sandbox.filesystem.*` → Fusion iç alanı.
 _FILESYSTEM = {
@@ -49,7 +51,14 @@ _NETWORK = {
     "allowedDomains": "allowed_domains",
     "deniedDomains": "denied_domains",
     "strictAllowlist": "strict_allowlist",
+    "allowUnixSockets": "allow_unix_sockets",
+    "allowAllUnixSockets": "allow_all_unix_sockets",
+    "allowLocalBinding": "allow_local_binding",
 }
+#: Fusion'ın Seatbelt profili `(allow default)` olduğundan zaten verilen izinler: okunur, uyarı
+#: verilmez (Claude'da varsayılan kapalı olup bu anahtarlarla açılırlar; #350).
+_ALREADY_ALLOWED_TOP = ("allowAppleEvents", "enableWeakerNetworkIsolation")
+_ALREADY_ALLOWED_NETWORK = ("allowMachLookup",)
 #: Fusion'ın eski adları → Claude'daki karşılığı (uyarı metni için).
 _LEGACY_NAMES = {
     "allow_write": "sandbox.filesystem.allowWrite",
@@ -118,6 +127,8 @@ def _network(raw: object, result: dict[str, object]) -> list[str]:
     network = _section(raw, "sandbox.network")
     _move(network, _NETWORK, result)
     network.pop(MANAGED_DOMAINS_ONLY_KEY, None)
+    for key in _ALREADY_ALLOWED_NETWORK:
+        network.pop(key, None)
     # Claude: sandbox içindeki komutun doğrudan çıkışı yok, trafik proxy'den geçer. Fusion'ın
     # eski kısıtsız ağı (`open`) geçiş süresince `network.mode` uzantısıyla korunur.
     result["network"] = network.pop(NETWORK_MODE_KEY, "allowlist")
@@ -183,6 +194,8 @@ def normalize_claude_sandbox(section: object) -> tuple[dict[str, object], bool |
     unsupported += _network(data.pop("network", None), result)
     unsupported += _credentials(data.pop("credentials", None), result)
     _move(data, _TOP_LEVEL, result)
+    for key in _ALREADY_ALLOWED_TOP:
+        data.pop(key, None)
     for key in unsupported:
         _warn_unsupported(f"sandbox.{key}")
     result.update(data)  # kalan (bilinmeyen ya da iç) anahtarlar doğrulamaya bırakılır

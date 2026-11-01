@@ -1131,6 +1131,14 @@ sandbox:
   credential_env: []
   # Claude sandbox.credentials.files (mode: deny): sandbox içinde okunamayan dosya/dizinler.
   credential_files: []
+  # Claude network.allowUnixSockets: bağlanılabilen Unix soket yolları (macOS Seatbelt);
+  # allowAllUnixSockets hepsini açar. allowLocalBinding: localhost portunda dinleme.
+  allow_unix_sockets: []
+  allow_all_unix_sockets: false
+  allow_local_binding: false
+  # Claude bwrapPath / socatPath: Linux araçlarının yolu (boş = PATH'te ara).
+  bwrap_path: ""
+  socat_path: ""
   # Kullanımdan kalkan Fusion uzantısı: true iken adı sır gibi görünen değişkenler (*_API_KEY,
   # *_TOKEN, *_SECRET, *PASSWORD*) de çıkarılır. Claude'da yok; varsayılan false.
   hide_secret_env: false
