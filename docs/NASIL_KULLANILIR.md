@@ -1248,8 +1248,8 @@ ve "Plan hazır — uygulansın mı?" kartı çıkar:
 Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
 başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
 yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum izinleri korunur;
-adsız oturuma plandan başlık verilir; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
-(Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
+adsız oturuma plandan başlık verilir; uygulama görevi plan dosyasının yolunu taşır. Kart açıkken **Ctrl+G** (Claude Code ile aynı) planı `VISUAL`/`EDITOR` ile açar; editör
+kapanınca kart düzenlenmiş planla yeniden gelir. Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
 yalnız yol basılır.
 

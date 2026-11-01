@@ -728,6 +728,22 @@ class _TuiSession:
             publisher=goal_flow.SinkPublisher(sinks),
         )
 
+    async def _plan_choice(self) -> str | None:
+        """Plan kartı seçimi; Ctrl+G planı editörde açar ve kartı yeniden gösterir (#326)."""
+        from prompt_toolkit.application import run_in_terminal
+
+        for _ in range(20):
+            selected = await self._tui.await_choice(
+                messages.PLAN_CARD_TITLE,
+                list(plan_card.choices(self._state)),
+                hotkeys=plan_card.PLAN_HOTKEYS,
+            )
+            if selected != plan_card.CHOICE_EDIT_PLAN:
+                return selected
+            note = await run_in_terminal(lambda: plan_card.open_in_editor(self._state))
+            self._echo(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
+        return None
+
     async def _offer_plan_card(self) -> None:
         """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025).
 
@@ -737,7 +753,7 @@ class _TuiSession:
         if pending is None:
             return
         self._echo(f"[{theme.DIM}]{escape(messages.PLAN_SAVED.format(path=pending))}[/{theme.DIM}]")
-        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices(self._state)))
+        selected = await self._plan_choice()
         mode = plan_card.mode_for(selected)
         if mode is None:
             self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")

@@ -167,6 +167,7 @@ class FusionTui:
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
         self._choices: list[Choice] = []
+        self._choice_hotkeys: dict[str, str] = {}
         self._choice_index = 0
         self._choice_title = ""
         # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
@@ -423,10 +424,16 @@ class FusionTui:
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
-    async def await_choice(self, title: str, choices: list[Choice]) -> str | None:
-        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None."""
+    async def await_choice(
+        self, title: str, choices: list[Choice], *, hotkeys: dict[str, str] | None = None
+    ) -> str | None:
+        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None.
+
+        `hotkeys` tuşu basılınca o değeri döndürür (plan kartında Ctrl+G, #326).
+        """
         if not choices:
             return None
+        self._choice_hotkeys = dict(hotkeys or {})
         self._choices = list(choices)
         self._choice_index = 0
         self._choice_title = title
@@ -577,6 +584,12 @@ class FusionTui:
         @kb.add("enter", filter=choice, eager=True)
         def _pick(_event: object) -> None:
             self._pick_current()
+
+        @kb.add("c-g", filter=choice, eager=True)
+        def _choice_hotkey(_event: object) -> None:
+            value = self._choice_hotkeys.get("c-g")
+            if value is not None:
+                self._resolve(value)
 
         # Onay/seçim açıkken BAŞKA hiçbir tuş girdi kutusuna ulaşmaz.
         #

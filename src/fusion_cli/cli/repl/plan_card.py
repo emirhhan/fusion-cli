@@ -28,6 +28,11 @@ CHOICE_EDITS = "edits"
 CHOICE_BYPASS = "bypass"
 CHOICE_SECURITY = "security"
 CHOICE_KEEP_PLANNING = "plan"
+#: Ctrl+G (Claude Code): planı varsayılan editörde aç, kartı düzenlenmiş planla yeniden göster.
+CHOICE_EDIT_PLAN = "edit-plan"
+PLAN_HOTKEYS = {"c-g": CHOICE_EDIT_PLAN}
+#: Kart en çok bu kadar kez yeniden gösterilir (sonsuz düzenleme döngüsüne karşı).
+_MAX_EDIT_ROUNDS = 20
 
 #: Seçim değeri → kabul sonrası kip. Planlamaya devam kip değiştirmez (None).
 _MODES: dict[str, ApprovalMode | None] = {
@@ -122,7 +127,12 @@ async def offer(state: ReplState, console: Console, *, interactive: bool) -> str
     if not interactive:
         state.pending_plan = None
         return None
-    selected = pick(list(choices(state)), title=messages.PLAN_CARD_TITLE)
+    selected = None
+    for _ in range(_MAX_EDIT_ROUNDS):
+        selected = pick(list(choices(state)), title=messages.PLAN_CARD_TITLE, hotkeys=PLAN_HOTKEYS)
+        if selected != CHOICE_EDIT_PLAN:
+            break
+        console.print(f"[{theme.DIM}]{escape(open_in_editor(state))}[/{theme.DIM}]")
     mode = mode_for(selected)
     if mode is None:
         console.print(f"[{theme.DIM}]{decline(state)}[/{theme.DIM}]")
@@ -184,6 +194,7 @@ def command(state: ReplState, argument: str) -> str:
 __all__ = [
     "CHOICE_AUTO",
     "CHOICE_BYPASS",
+    "CHOICE_EDIT_PLAN",
     "CHOICE_EDITS",
     "CHOICE_KEEP_PLANNING",
     "CHOICE_SECURITY",

@@ -478,3 +478,30 @@ def test_plan_argumansiz_yalniz_kipe_gecer(state: ReplState) -> None:
     state.approval = ApprovalMode.AUTO
     plan_card.command(state, "")
     assert state.approval is ApprovalMode.PLAN and not state.pending_task
+
+
+async def test_kartta_ctrl_g_plani_editorde_acar_ve_karti_yeniden_gosterir(
+    state: ReplState, monkeypatch
+) -> None:
+    """Claude Code: onay kartı açıkken Ctrl+G planı varsayılan editörde açar (#326)."""
+    console = Console(record=True, width=400, force_terminal=False, no_color=True)
+    yol = plan_mode.save_plan(state.conversation_id, "# Plan")
+    state.pending_plan = yol
+    secimler = iter([plan_card.CHOICE_EDIT_PLAN, plan_card.CHOICE_AUTO])
+    gorulen: list[dict] = []
+
+    def _sec(*_a, hotkeys=None, **_k):
+        gorulen.append(dict(hotkeys or {}))
+        return next(secimler)
+
+    acilan: list[list[str]] = []
+    monkeypatch.setattr(plan_card, "pick", _sec)
+    monkeypatch.setattr(plan_card, "preferred_editor", lambda: "nano")
+    monkeypatch.setattr(plan_card, "_launch", acilan.append)
+
+    gorev = await plan_card.offer(state, console, interactive=True)
+
+    assert acilan == [["nano", str(yol)]]
+    assert gorulen == [{"c-g": plan_card.CHOICE_EDIT_PLAN}] * 2
+    assert gorev == messages.PLAN_IMPLEMENT_TASK.format(path=yol)
+    assert state.approval is ApprovalMode.AUTO
