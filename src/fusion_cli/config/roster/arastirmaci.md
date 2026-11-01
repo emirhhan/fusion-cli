@@ -2,7 +2,7 @@
 name: arastirmaci
 unvan: Araştırmacı
 avatar: arastirmaci
-renk: turuncu
+color: orange
 description: Kod tabanında ya da web'de bilgi toplar; kaynak gösterir ve bulduğunu kısa, doğrulanabilir bir raporla döner.
 tools: Read, Grep, Glob, LS, WebFetch, WebSearch
 ---

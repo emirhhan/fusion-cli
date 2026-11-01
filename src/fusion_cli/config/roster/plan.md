@@ -2,7 +2,7 @@
 name: plan
 unvan: Planlayıcı
 avatar: mimar
-renk: mor
+color: purple
 description: Değişiklik yapmadan uygulama planı çıkarır; dosyaları okur, adımları, dokunulacak dosyaları ve riskleri sıralar. Dosya değiştirmez, komut çalıştırmaz.
 tools: Read, Grep, Glob, LS, WebFetch, WebSearch
 permissionMode: plan

@@ -82,3 +82,24 @@ def test_codex_ve_kurulu_ajanlar_claude_kapsamini_belirsizlestirmez(tmp_path: Pa
     agent = CapabilityRegistry(home, tmp_path).get_agent("denetci")
 
     assert agent is not None and agent.description == "kullanıcı"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("orange", "turuncu"), ("purple", "mor"), ("cyan", "camgobegi"), ("mor", "mor"), ("gold", "")],
+)
+def test_color_claude_degerlerini_alir_gecersizi_duser(tmp_path: Path, value, expected) -> None:
+    """Claude Code `color`: red, blue, green, yellow, purple, orange, pink, cyan (#25)."""
+    _write(tmp_path, "renkli.md", f"---\nname: renkli\ndescription: d\ncolor: {value}\n---\nG.")
+
+    agent = CapabilityRegistry(tmp_path / "ev", tmp_path).get_agent("renkli")
+
+    assert agent is not None and agent.color == expected
+
+
+def test_yerlesik_roller_claude_color_yazimini_kullanir() -> None:
+    from fusion_cli.config.paths import bundled_roster_dir
+
+    for path in bundled_roster_dir().glob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        assert "\nrenk:" not in text, path.name

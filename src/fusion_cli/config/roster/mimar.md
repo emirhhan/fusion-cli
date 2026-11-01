@@ -2,7 +2,7 @@
 name: mimar
 unvan: Mimar
 avatar: mimar
-renk: mor
+color: purple
 description: Kodu değiştirmeden önce yapıyı inceler; dosya düzeni, bağımlılık yönü ve adım adım uygulama planı çıkarır.
 tools: Read, Grep, Glob, LS, WebFetch, WebSearch
 ---

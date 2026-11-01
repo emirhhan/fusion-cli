@@ -2,7 +2,7 @@
 name: tarayici
 unvan: Tarayıcı Operatörü
 avatar: tarayici
-renk: camgobegi
+color: cyan
 description: Kullanıcının Chrome'unda ya da tarayıcı oturumunda sayfa açar, okur, form doldurur ve sayfadan görsel/metin toplar.
 ---
 Sen ekibin tarayıcı operatörüsün.

@@ -2,7 +2,7 @@
 name: explore
 unvan: Kâşif
 avatar: arastirmaci
-renk: turuncu
+color: orange
 description: Kod tabanını SALT OKUR biçimde hızla keşfeder; dosya, sembol ve akış arar, bulduğu yerleri yol ve satırla raporlar. Write ve Edit kullanmaz; kabukta yalnız okuyan komutlar çalıştırır. Çağırırken görevde derinliği belirt - quick (hedefli arama), medium (dengeli keşif) ya da very thorough (kapsamlı inceleme).
 tools: Read, Grep, Glob, LS, Bash, WebFetch, WebSearch
 ---

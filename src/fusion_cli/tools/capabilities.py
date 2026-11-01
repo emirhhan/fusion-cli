@@ -38,6 +38,7 @@ from ..core.proposal_invocation import (
     visible_proposal,
 )
 from .agent_catalog_metadata import apply_agent_metadata, bind_agent_source
+from .agent_colors import normalize_agent_color
 from .agent_file_rules import agent_file_problem, log_skipped
 from .capability_merge import merge_capability as _merge
 from .capability_merge import shadow_agent
@@ -660,7 +661,7 @@ def _capability_from_fields(
         tools=_tuple_field(fields, "tools"),
         title=str(fields.get("title") or ""),
         avatar=str(fields.get("avatar") or ""),
-        color=str(fields.get("color") or ""),
+        color=normalize_agent_color(str(fields.get("color") or "")),
         allowed_tools=tuple(allowed) if isinstance(allowed, tuple) and allowed != NO_TOOLS else (),
         model=str(fields.get("model") or ""),
         effort=str(fields.get("effort") or "").lower(),
