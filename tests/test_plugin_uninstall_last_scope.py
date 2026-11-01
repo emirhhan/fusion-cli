@@ -62,17 +62,17 @@ def test_user_kaldirma_ayar_ve_sirlari_da_siler(tmp_path):
     )
     assert done.exit_code == 0, done.output
     base = plugin_store.plugins_dir()
-    assert plugin_user_config.saved_values("rapor", base) == {
+    assert plugin_user_config.saved_values("rapor@ekip", base) == {
         "api_url": "https://x",
         "api_token": "g",
     }
-    (plugin_data_dir("rapor", create=True) / "d.json").write_text("{}", "utf-8")
+    (plugin_data_dir("rapor@ekip", create=True) / "d.json").write_text("{}", "utf-8")
 
     gone = runner.invoke(app, ["uninstall", "rapor@ekip", "--keep-data"])
 
     assert gone.exit_code == 0, gone.output
-    assert plugin_user_config.saved_values("rapor", base) == {}
-    assert (plugin_data_dir("rapor") / "d.json").is_file()  # --keep-data yalnız veriyi korur
+    assert plugin_user_config.saved_values("rapor@ekip", base) == {}
+    assert (plugin_data_dir("rapor@ekip") / "d.json").is_file()  # --keep-data yalnız veriyi korur
 
 
 def test_baska_kapsam_kullaniyorsa_kopya_ve_ayar_kalir(tmp_path, monkeypatch):
@@ -88,14 +88,15 @@ def test_baska_kapsam_kullaniyorsa_kopya_ve_ayar_kalir(tmp_path, monkeypatch):
     assert first.exit_code == 0, first.output
     left = plugin_store.load_state().plugin("rapor")
     assert left is not None and left.scopes == (f"project:{project.resolve()}",)
-    assert plugin_user_config.saved_values("rapor", plugin_store.plugins_dir()) == {"api_url": "u"}
+    saved = plugin_user_config.saved_values("rapor@ekip", plugin_store.plugins_dir())
+    assert saved == {"api_url": "u"}
     assert [i.record.name for i in plugin_store.active_plugins(root=project)] == ["rapor"]
 
     last = runner.invoke(app, ["uninstall", "rapor@ekip", "--scope", "project"])
 
     assert last.exit_code == 0, last.output
     assert plugin_store.load_state().plugin("rapor") is None
-    assert plugin_user_config.saved_values("rapor", plugin_store.plugins_dir()) == {}
+    assert plugin_user_config.saved_values("rapor@ekip", plugin_store.plugins_dir()) == {}
 
 
 def test_kapsamsiz_kaldirma_yalniz_bu_projedeki_kurulumu_bulur(tmp_path, monkeypatch):

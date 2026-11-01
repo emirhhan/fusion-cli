@@ -319,7 +319,9 @@ def _configure(state: ReplState, rest: list[str], confirmed: bool, legacy: bool)
     schema = user_config.read_schema(plugin_folder(record, base))
     if not schema:
         return "Bu eklentinin userConfig seçeneği yok."
-    saved = set(user_config.saved_values(record.name, base))
+    from ...config.plugin_storage import storage_key
+
+    saved = set(user_config.saved_values(storage_key(record), base))
     rows = [f"{rest[0]} seçenekleri (değer gir: fusion plugin configure {rest[0]} --values-stdin):"]
     for option in schema:
         flags = ["required" if option.required else "optional"]

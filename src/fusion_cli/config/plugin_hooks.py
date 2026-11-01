@@ -27,8 +27,13 @@ _LOG = logging.getLogger(__name__)
 
 def _blocks(
     base: Path | None, project: Path | None
-) -> Iterator[tuple[str, Path, Mapping[str, object], Path]]:
-    """`(kaynak, dosya, blok, eklenti kökü)`; kök kayıt yazılmayan proje eklentisinde de doğru."""
+) -> Iterator[tuple[str, str, Path, Mapping[str, object], Path]]:
+    """`(kaynak, depolama anahtarı, dosya, blok, eklenti kökü)`.
+
+    Kök kayıt yazılmayan proje eklentisinde de doğru; anahtar `ad@pazar` kimliğidir (#391).
+    """
+    from .plugin_storage import storage_key
+
     for item in active_plugins(base, project):
         if item.layout is None:
             continue
@@ -38,8 +43,9 @@ def _blocks(
             _LOG.warning("eklenti '%s' kancaları yüklenmedi: %s", item.record.name, error)
             continue
         source = f"{PLUGIN_SOURCE_PREFIX}{item.record.name}"
+        key = storage_key(item.record)
         for path, block in found:
-            yield source, path, block, plugin_root_of(path, base) or item.layout.root
+            yield source, key, path, block, plugin_root_of(path, base) or item.layout.root
 
 
 def plugin_hooks(
@@ -54,12 +60,11 @@ def plugin_hooks(
 
     commands: list[HookCommand] = []
     skipped: list[HookSkip] = []
-    for source, path, block, plugin_root in _blocks(base, root):
-        name = source.removeprefix(PLUGIN_SOURCE_PREFIX)
-        _schema, values = plugin_values(plugin_root, name)
+    for source, key, path, block, plugin_root in _blocks(base, root):
+        _schema, values = plugin_values(plugin_root, key)
         env = (
             ("CLAUDE_PLUGIN_ROOT", str(plugin_root)),
-            ("CLAUDE_PLUGIN_DATA", str(plugin_data_dir(name, create=True))),
+            ("CLAUDE_PLUGIN_DATA", str(plugin_data_dir(key, create=True))),
             *option_env(values),  # #388: CLAUDE_PLUGIN_OPTION_<KEY>
         )
         found, skips = parse_hooks_block(

@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -272,27 +272,79 @@ def save_values(
     return tuple(parsed)
 
 
+def _owned(key: str, name: str) -> bool:
+    """Eklentinin kendi anahtarı ya da `.mcpb` paketlerinin `<ad>/<sunucu>` anahtarları."""
+    return key == name or key.startswith(name + "/")
+
+
 def forget_values(name: str, base: Path) -> bool:
     """Eklentinin kayıtlı seçeneklerini ve sırlarını sil (son kapsamdan kaldırma, #408/#388).
 
     Claude: son kapsamdan kaldırılınca `pluginConfigs` girdisi ve güvenli depodaki sırlar gider.
-    Şifreli depo yalnız orada bu eklentiye ait kayıt varsa açılır. Bir şey silindiyse True.
+    `.mcpb` paket seçenekleri (`<ad>/<sunucu>`) de gider. Şifreli depo yalnız dosyası varsa
+    açılır. Bir şey silindiyse True.
     """
     removed = False
     with config_lock(_store(base, False)):
         for secret in (False, True):
             path = _store(base, secret)
             current = _read_all(path)
-            if name in current:
-                _write(path, {k: v for k, v in current.items() if k != name}, secret)
+            if any(_owned(k, name) for k in current):
+                _write(path, {k: v for k, v in current.items() if not _owned(k, name)}, secret)
                 removed = True
         if (base / VAULT_FILE).is_file():
-            store = _vault(base)
-            try:
-                removed = bool(store and store.delete(_VAULT_PREFIX + name)) or removed
-            except ConfigError as error:
-                _LOG.warning("eklenti '%s' hassas değerleri silinemedi: %s", name, error)
+            removed = _forget_vault(name, base) or removed
     return removed
+
+
+def _forget_vault(name: str, base: Path) -> bool:
+    store = _vault(base)
+    if store is None:
+        return False
+    try:
+        owned = [k for k in store.names() if _owned(k.removeprefix(_VAULT_PREFIX), name)]
+        deleted = [store.delete(key) for key in owned if key.startswith(_VAULT_PREFIX)]
+        return any(deleted)
+    except ConfigError as error:
+        _LOG.warning("eklenti '%s' hassas değerleri silinemedi: %s", name, error)
+        return False
+
+
+def rename_values(old: str, new: str, base: Path) -> None:
+    """Eski (adla yazılmış) değerleri yeni anahtara taşı; hedef zaten varsa o girdi kalır (#391)."""
+
+    def renamed(key: str) -> str:
+        return new + key[len(old) :]
+
+    with config_lock(_store(base, False)):
+        for secret in (False, True):
+            path = _store(base, secret)
+            current = _read_all(path)
+            moved = {renamed(k): v for k, v in current.items() if _owned(k, old)}
+            if moved:
+                kept = {k: v for k, v in current.items() if not _owned(k, old)}
+                _write(path, {**moved, **kept}, secret)
+        if (base / VAULT_FILE).is_file():
+            _rename_vault(old, renamed, base)
+
+
+def _rename_vault(old: str, renamed: Callable[[str], str], base: Path) -> None:
+    store = _vault(base)
+    if store is None:
+        return
+    try:
+        names = store.names()
+        for key in names:
+            short = key.removeprefix(_VAULT_PREFIX)
+            if key == short or not _owned(short, old):
+                continue
+            target = _VAULT_PREFIX + renamed(short)
+            value = store.get(key)
+            if target not in names and value is not None:
+                store.set(target, value)
+            store.delete(key)
+    except ConfigError as error:
+        _LOG.warning("eklenti '%s' hassas değerleri taşınamadı: %s", old, error)
 
 
 def effective_values(name: str, schema: tuple[UserOption, ...], base: Path) -> dict[str, object]:

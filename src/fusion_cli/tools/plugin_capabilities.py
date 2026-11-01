@@ -48,6 +48,19 @@ _SUMMARY_CHARS = 120
 Converter = Callable[..., "Capability"]
 
 
+def _storage_key(root: Path, name: str = "") -> str:
+    """Veri/ayar anahtarı: kurulu kaydın `ad@pazar` kimliği; kayıtsızsa bildirim adı (#391)."""
+    from ..config.plugin_scan import read_manifest
+    from ..config.plugin_storage import storage_key_for_root
+
+    if not name:
+        try:
+            name = read_manifest(root)[0].name
+        except PluginError:
+            name = root.name
+    return storage_key_for_root(root, name)
+
+
 def with_plugin_root(text: str, path: Path, project: Path | None = None) -> str:
     """Kurulu eklenti dosyasının gövdesinde `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`
     ve `${CLAUDE_PROJECT_DIR}`'ı çöz (#387); eklenti dışındaki dosyaya dokunma."""
@@ -58,7 +71,7 @@ def with_plugin_root(text: str, path: Path, project: Path | None = None) -> str:
     root = plugin_root_of(path, project=folder)
     if root is None:
         return text
-    data = str(plugin_data_dir(root.name, create=True)) if DATA_VARIABLE in text else ""
+    data = str(plugin_data_dir(_storage_key(root), create=True)) if DATA_VARIABLE in text else ""
     text = substitute_root(text, str(root), data, str(folder))
     return _with_user_config(text, root)
 
@@ -101,7 +114,7 @@ def _with_user_config(text: str, root: Path) -> str:
         schema = user_config.read_schema(root)
     except PluginError:
         return text
-    values = user_config.effective_values(name, schema, plugins_dir())
+    values = user_config.effective_values(_storage_key(root, name), schema, plugins_dir())
     return user_config.substitute(text, schema, values, content=True)
 
 

@@ -39,7 +39,7 @@ _LOG = logging.getLogger(__name__)
 PLUGINS_DIRNAME = "eklentiler"
 STATE_NAME = "kayit.json"
 #: 2: karma kilidi kalktı (#392); sürüm 1 kaydı bir kez geçirilir (`plugin_state_migrate`).
-STATE_VERSION = 2
+STATE_VERSION = 3
 #: Bütün eklentileri kapatan ortam değişkeni ve kapalı sayılan değerler.
 PLUGINS_ENV = "FUSION_PLUGINS"
 _OFF_VALUES = frozenset({"0", "off", "false", "no", "kapali", "kapalı"})

@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ...config import plugin_user_config as user_config
+from ...config.plugin_storage import storage_key
 from ...config.plugin_store import PluginRecord, plugin_folder, plugins_dir
 from ...core.plugins import PluginError
 
@@ -62,7 +63,7 @@ def unset_options(record: PluginRecord, base: Path) -> tuple[user_config.UserOpt
         return ()
     if not schema:
         return ()
-    saved = set(user_config.saved_values(record.name, base))
+    saved = set(user_config.saved_values(storage_key(record), base))
     return tuple(o for o in schema if o.key not in saved and o.default is None)
 
 
@@ -90,7 +91,7 @@ def _save(record: PluginRecord, ident: str, answers: dict[str, str], store: Path
         return SKIPPED
     schema = user_config.read_schema(plugin_folder(record, store))
     try:
-        user_config.save_values(record.name, schema, answers, store)
+        user_config.save_values(storage_key(record), schema, answers, store)
     except PluginError as error:
         return FAILED.format(reason=error)
     return CONFIGURED.format(name=ident)

@@ -192,10 +192,10 @@ def human_size(size: int) -> str:
     return f"{size}B" if unit == "B" else f"{value:.1f}{unit}"
 
 
-def _data_size(record_name: str) -> dict[str, object] | None:
+def _data_size(plugin_ident: str) -> dict[str, object] | None:
     from ..config.plugin_data import plugin_data_dir
 
-    folder = plugin_data_dir(record_name)
+    folder = plugin_data_dir(plugin_ident)
     if not folder.is_dir():
         return None
     total = sum(p.stat().st_size for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
@@ -214,7 +214,7 @@ def _with_sizes(
         wanted = {hits[0]: wanted[hits[0]]}
     sized: list[dict[str, object]] = []
     for row in rows:
-        size = _data_size(wanted[str(row["id"])]) if row["id"] in wanted else None
+        size = _data_size(str(row["id"])) if row["id"] in wanted else None  # #391: kimlikle
         sized.append({**row, "dataDirSize": size} if size is not None else row)
     return sized
 

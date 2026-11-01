@@ -611,6 +611,7 @@ def uninstall_plugin(
 
 def remove_installation(record: PluginRecord, root: Path, *, keep_data: bool) -> None:
     """Kopya, kayıt, userConfig değerleri/sırları ve (istenirse) veri klasörü (#408)."""
+    from ..config.plugin_storage import storage_key
     from ..config.plugin_user_config import forget_values
     from .plugin_toggle import remove_plugin_data
 
@@ -623,9 +624,9 @@ def remove_installation(record: PluginRecord, root: Path, *, keep_data: bool) ->
 
     write_user_enabled(plugin_store.plugin_id(record), None)  # #376
     sweep_orphans(root)
-    forget_values(record.name, root)
+    forget_values(storage_key(record), root)  # #391: aynı adlı öteki kurulumunkine dokunmaz
     if not keep_data:
-        remove_plugin_data(record.name)
+        remove_plugin_data(storage_key(record))
 
 
 def set_plugin_enabled(

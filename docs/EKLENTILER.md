@@ -65,7 +65,10 @@ benim-eklentim/
   `.fusion-plugin/plugin.json` (→ `.claude-plugin/plugin.json`), `output-styles` anahtarı
   (→ `outputStyles`), `${FUSION_PLUGIN_ROOT}` (→ `${CLAUDE_PLUGIN_ROOT}`).
 - `${CLAUDE_PLUGIN_ROOT}` eklentinin kurulu klasörüne, `${CLAUDE_PLUGIN_DATA}` güncellemelerde korunan
-  kalıcı veri klasörüne (`<veri>/eklentiler/.veri/<id>/`, ilk başvuruda oluşur),
+  kalıcı veri klasörüne (`<veri>/eklentiler/.veri/<id>/`, ilk başvuruda oluşur; `<id>` Claude gibi
+  `ad@pazar` kimliğidir, harf/rakam/`_`/`-` dışı `-` olur — aynı adlı iki kurulumun verisi,
+  userConfig değerleri ve sırları ayrıdır; eski sürümün adla yazdığı veri o adı ilk alan kuruluma
+  bir kez taşınır),
   `${CLAUDE_PROJECT_DIR}` proje köküne çözülür: kanca ve MCP tanımlarında, komut/beceri/ajan
   gövdesinde.
 - Bütün adlar eklenti adıyla öneklenir: üçüncü taraf bir eklenti kendi `ozet` becerini gölgeleyemez.

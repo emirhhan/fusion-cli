@@ -8,6 +8,7 @@ import sys
 import typer
 
 from ..config import plugin_user_config as user_config
+from ..config.plugin_storage import storage_key
 from ..config.plugin_store import load_state, plugin_folder, plugins_dir
 from ..core.plugins import PluginError
 from ..tools.plugin_toggle import find_record
@@ -55,7 +56,7 @@ def configure(
         raise typer.Exit(1) from error
     if values_stdin:
         try:
-            saved = user_config.save_values(record.name, schema, _read_stdin(), base)
+            saved = user_config.save_values(storage_key(record), schema, _read_stdin(), base)
         except PluginError as error:
             typer.echo(FAILED.format(reason=error))
             if as_json:
@@ -63,7 +64,7 @@ def configure(
             raise typer.Exit(1) from error
         typer.echo(json.dumps({"saved": list(saved)}) if as_json else SAVED)
         return
-    stored = set(user_config.saved_values(record.name, base))
+    stored = set(user_config.saved_values(storage_key(record), base))
     if as_json:
         configured = [o.key for o in schema if o.key in stored]
         unconfigured = [o.key for o in schema if o.key not in stored]

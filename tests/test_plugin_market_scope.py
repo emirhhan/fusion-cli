@@ -169,7 +169,7 @@ def test_list_data_size_veri_klasorunu_olcer(tmp_path):
     _market_files(tmp_path / "pazar")
     plugin_install.add_marketplace(str(tmp_path / "pazar"))
     plugin_install.install_plugin("rapor@ekip", approve=lambda _p: True)
-    (plugin_data_dir("rapor", create=True) / "b.bin").write_bytes(b"\0" * 5000)
+    (plugin_data_dir("rapor@ekip", create=True) / "b.bin").write_bytes(b"\0" * 5000)
 
     rows = json.loads(runner.invoke(app, ["list", "--json", "--data-size"]).output)
     assert rows[0]["dataDirSize"] == {"bytes": 5000, "human": "4.9KB"}

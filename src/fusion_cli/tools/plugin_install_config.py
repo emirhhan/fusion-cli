@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..config import plugin_user_config as user_config
 from ..config.plugin_mcpb import bundle_schema, config_name, is_mcpb, is_url
+from ..config.plugin_storage import storage_key
 from ..config.plugin_store import PluginRecord, plugin_folder
 from ..config.plugin_user_config import UserOption
 from ..core.plugins import PluginError
@@ -54,9 +55,9 @@ def apply_config(record: PluginRecord, pairs: Sequence[str], base: Path) -> tupl
         _check(options, chosen)
     if plain:
         _check(schema, plain)
-    saved = user_config.save_values(record.name, schema, plain, base) if plain else ()
+    saved = user_config.save_values(storage_key(record), schema, plain, base) if plain else ()
     for server, (options, chosen) in grouped.items():
-        name = config_name(record.name, server)
+        name = config_name(storage_key(record), server)
         saved += tuple(
             f"{server}.{k}" for k in user_config.save_values(name, options, chosen, base)
         )
@@ -85,7 +86,7 @@ def _bundle_schemas(record: PluginRecord, root: Path) -> dict[str, tuple[UserOpt
     found: dict[str, tuple[UserOption, ...]] = {}
     for ref in refs:
         try:
-            server, options = bundle_schema(ref, record.name, root)
+            server, options = bundle_schema(ref, storage_key(record), root)
         except PluginError:
             continue
         found[server] = options
@@ -124,10 +125,10 @@ def missing_required(record: PluginRecord, base: Path) -> tuple[str, ...]:
         schema = user_config.read_schema(plugin_folder(record, base))
     except PluginError:
         return ()
-    saved = user_config.saved_values(record.name, base, secrets=False)
+    saved = user_config.saved_values(storage_key(record), base, secrets=False)
     secret_saved: set[str] = set()
     if any(option.sensitive and option.required for option in schema):
-        secret_saved = set(user_config.saved_values(record.name, base))
+        secret_saved = set(user_config.saved_values(storage_key(record), base))
     return tuple(
         option.key
         for option in schema

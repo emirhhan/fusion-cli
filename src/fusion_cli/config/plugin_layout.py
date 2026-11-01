@@ -194,19 +194,27 @@ def _substituted(raw: object, root: str, plugin: str = "") -> object:
     return raw
 
 
+def _storage_key(layout: PluginLayout) -> str:
+    """Veri/ayar anahtarı: kurulu kaydın `ad@pazar` kimliği, kayıtsızsa ad (#391)."""
+    from .plugin_storage import storage_key_for_root
+
+    return storage_key_for_root(layout.root, layout.name)
+
+
 def hook_blocks(layout: PluginLayout) -> tuple[tuple[Path, Mapping[str, object]], ...]:
     """`{"hooks": {...}}` blokları (kök değişkeni çözülmüş); kanca yükleyicisine verilir."""
     root = str(layout.root)
+    key = _storage_key(layout)
     blocks: list[tuple[Path, Mapping[str, object]]] = []
     for path in layout.hook_files:
         raw = _load_json(path, ERR_HOOKS)
-        blocks.append((path, _as_block(_substituted(raw, root, layout.name), path)))
+        blocks.append((path, _as_block(_substituted(raw, root, key), path)))
     manifest_path = layout.root / MANIFEST_PATHS[0]
     for inline in _inline(layout.manifest.inline_hooks):
         blocks.append(
             (
                 manifest_path,
-                _as_block(_substituted({"hooks": inline}, root, layout.name), manifest_path),
+                _as_block(_substituted({"hooks": inline}, root, key), manifest_path),
             )
         )
     return tuple(blocks)
@@ -254,7 +262,8 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     atlanır. `Authorization: Bearer ${VAR}` başlığı Fusion'ın `token_env` alanına iner.
     """
     root = str(layout.root)
-    schema, values = plugin_values(layout.root, layout.name)
+    key = _storage_key(layout)
+    schema, values = plugin_values(layout.root, key)
     from .plugin_mcpb import is_mcpb
 
     documents: list[tuple[str, object]] = [
@@ -263,13 +272,13 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
         if not is_mcpb(path.name)
     ]
     skipped: list[str] = []
-    documents.extend(_mcpb_documents(layout, skipped))  # #400: .mcpb/.dxt paketleri
+    documents.extend(_mcpb_documents(layout, key, skipped))  # #400: .mcpb/.dxt paketleri
     inline = _inline(layout.manifest.inline_mcp)
     documents.extend(("plugin.json", {"mcpServers": item}) for item in inline)
     #: Sonra tanımlanan aynı adlı sunucu öncekinin yerine geçer (Claude, #418).
     servers: dict[str, McpServerConfig] = {}
     for label, raw in documents:
-        data = _substituted(raw, root, layout.name)
+        data = _substituted(raw, root, key)
         if schema:  # #388: `${user_config.KEY}` MCP yapılandırmasında çözülür
             data = substitute_tree(data, schema, values)
         if isinstance(data, Mapping) and "mcpServers" in data:
@@ -291,7 +300,7 @@ def _mcp_servers(layout: PluginLayout) -> tuple[tuple[McpServerConfig, ...], tup
     return tuple(servers.values()), tuple(skipped)
 
 
-def _mcpb_documents(layout: PluginLayout, skipped: list[str]) -> list[tuple[str, object]]:
+def _mcpb_documents(layout: PluginLayout, key: str, skipped: list[str]) -> list[tuple[str, object]]:
     """Yerel `./x.mcpb` ve `.mcpb` adresleri; açılamayan ya da yapılandırılmamış paket atlanır."""
     from .plugin_mcpb import bundle_server, is_mcpb, is_url
     from .plugin_store import plugins_dir
@@ -301,7 +310,7 @@ def _mcpb_documents(layout: PluginLayout, skipped: list[str]) -> list[tuple[str,
     found: list[tuple[str, object]] = []
     for ref in refs:
         try:
-            name, entry = bundle_server(ref, layout.name, layout.root, plugins_dir())
+            name, entry = bundle_server(ref, key, layout.root, plugins_dir())
         except PluginError as error:
             skipped.append(WARN_MCP_SKIPPED.format(path=ref, server=ref, error=error))
             continue

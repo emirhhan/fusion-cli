@@ -1,4 +1,4 @@
-"""Eklenti kaydı sürüm 1 → 2 geçişi (#419, #392).
+"""Eklenti kaydı sürüm geçişleri: 1 → 2 (#419, #392), 2 → 3 (#391 depolama anahtarı).
 
 Sürüm 1'de kopyası kurulumdan sonra değişen eklenti 'değişmiş' sayılır ve yeniden onaylanana
 dek hiç yüklenmezdi. Claude Code'da bu kilit yok (#392); kaldırılınca kullanıcının daha önce
@@ -29,6 +29,11 @@ WARN_MIGRATED = (
 )
 
 
+#: Kayıt sürümleri: 2'de 'değişmiş' kilidi kalktı (#392); 3'te veri/ayar kimlikle anahtarlanır.
+_TAMPER_LOCK_DROPPED = 2
+_STORAGE_BY_ID = 3
+
+
 def _changed(record: PluginRecord, base: Path | None) -> bool:
     from .plugin_store import plugin_folder
 
@@ -44,18 +49,32 @@ def _changed(record: PluginRecord, base: Path | None) -> bool:
 
 
 def migrated(state: PluginState, base: Path | None = None) -> PluginState:
-    """Sürüm 1 kaydında değişmiş kopyaları kapat; güncel kayda dokunma."""
+    """Eski kaydı güncel sürüme getir (1→2 değişmiş kopyalar, 2→3 depolama anahtarı)."""
     from .plugin_store import STATE_VERSION
 
     if state.schema >= STATE_VERSION:
         return state
     plugins = []
     for record in state.plugins:
-        if _changed(record, base):
+        if state.schema < _TAMPER_LOCK_DROPPED and _changed(record, base):
             _LOG.warning(WARN_MIGRATED.format(name=record.name))
             record = replace(record, enabled=False)
         plugins.append(record)
+    if state.schema < _STORAGE_BY_ID:
+        _adopt_storage(tuple(plugins), base)
     return replace(state, plugins=tuple(plugins), schema=STATE_VERSION)
+
+
+def _adopt_storage(records: tuple[PluginRecord, ...], base: Path | None) -> None:
+    """Sürüm 3 (#391): adla yazılmış veri/ayar o adı ilk alan kurulumun kimliğine taşınır."""
+    from .plugin_storage import adopt_legacy_storage
+    from .plugin_store import plugins_dir
+
+    for record in records:
+        try:
+            adopt_legacy_storage(record, base or plugins_dir())
+        except OSError as error:
+            _LOG.warning("eklenti '%s' verisi taşınamadı: %s", record.name, error)
 
 
 def ensure_migrated(state: PluginState, base: Path | None = None) -> PluginState:
