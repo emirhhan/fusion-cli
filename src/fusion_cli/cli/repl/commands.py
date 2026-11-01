@@ -37,6 +37,7 @@ from . import (
     config_command,
     doctor_command,
     export_commands,
+    fork_command,
     goal_command,
     hooks_command,
     import_command,
@@ -1288,6 +1289,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    # Claude Code (#229): `/fork [istem]` konuşmayı arka plan kopyasına verir.
+    SlashCommand(
+        "fork", messages.CMD_FORK, fork_command.fork_command, group="Agent", usage="[istem]"
     ),
     SlashCommand(
         "background",

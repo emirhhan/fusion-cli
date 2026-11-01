@@ -1426,6 +1426,16 @@ SESSION_ID_IN_USE = "Bu oturum kimliği zaten kullanılıyor: {value} (sürdürm
 SESSION_ID_NEEDS_FORK = (
     "--session-id --continue/--resume ile yalnız --fork-session birlikte verilince kullanılır."
 )
+CMD_FORK = "konuşmayı yeni bir arka plan oturumuna kopyala, burada devam et"
+FORK_EMPTY = "Kopyalanacak konuşma yok: önce bir mesaj gönder."
+FORK_STARTED = "↗ kopya arka planda çalışıyor: {id} ({name}) · /tasks ile izle; bu sohbet değişmedi."
+FORK_WAITING = (
+    "Kopya hazır, ilk istemini bekliyor: {id} · /resume {id} ya da fusion -r {id}; "
+    "bu sohbet değişmedi."
+)
+FORK_COPY_FAILED = "Kopya oluşturulamadı: {error}"
+FORK_WORKTREE = " Kopya kendi çalışma ağacında: {path}"
+FORK_IN_PLACE = " Git deposu yok; kopya aynı dizinde çalışıyor."
 EXPORT_DIALOG_TITLE = "Konuşmayı dışa aktar"
 EXPORT_CHOICE_CLIPBOARD = "Panoya kopyala"
 EXPORT_CHOICE_CLIPBOARD_HINT = "düz metin, sırlar maskeli"

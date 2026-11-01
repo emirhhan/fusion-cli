@@ -34,6 +34,7 @@ bağımlılıkları yerine içe aktarılamaz (güvenilmeyen depoda kod yürütme
 |---|---|
 | Terminal | `fusion agent --bg [--name ad] [--agent ajan] [-m kip] "görev"` — hemen döner |
 | REPL | `/bg <görev>` (`/background`); argümansız `/bg` son görevi konuşma bağlamıyla sürdürür |
+| REPL | `/fork [istem]` (Claude Code): konuşmayı arka plan kopyasına verir, bu sohbette çalışmaya devam edilir. İstemle kopya hemen başlar; git deposunda kendi çalışma ağacında (`fork-<kısa kimlik>`) çalışır. İstemsiz `/fork` yeni kimlikli kayıtlı kopya açar; ilk istemi `/resume <kimlik>` ya da `fusion -r <kimlik>` ile verilir |
 | Tam ekran REPL | Tur sürerken **Ctrl+B**: tur kesilir, görev arka planda **baştan** başlar (aşağıya bkz.) |
 | Model | `Agent(prompt=…)` ana konuşmada varsayılan olarak arka planda başlar, kimliği (`agentId`) hemen döner; sonuç sonraki tura bildirimle gelir (`run_in_background: false` beklemeyi ister; etkileşimli oturumda fork kipi açıkken Claude Code'daki gibi yine arka planda kalır). Eski `spawn_agent(arka_plan=true)` ayrı süreçte koşar |
 | Masaüstü | Ajanlar sekmesi › Arka plan görevleri › "Arka planda başlat" ya da sohbette `/bg` |
