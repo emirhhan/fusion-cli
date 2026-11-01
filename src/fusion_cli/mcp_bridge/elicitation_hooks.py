@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 from mcp import types
-from mcp.client.session import ElicitationFnT
+from mcp.client.session import ElicitationFnT, MessageHandlerFnT
 
 _LOG = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ class ElicitationHooks(Protocol):
 
     def dialog(self, request: ElicitationRequest) -> None:
         """Soru kullanıcıya gösterilmek üzere (`Notification(elicitation_dialog)`)."""
+
+    def completed(self, server: str, elicitation_id: str) -> None:
+        """Sunucu url kipindeki isteğin bittiğini bildirdi (`elicitation_complete`)."""
 
     async def after(
         self, request: ElicitationRequest, answer: ElicitationAnswer
@@ -139,3 +142,16 @@ def with_elicitation_hooks(server: str, inner: Callback | None = None) -> Elicit
         return _result(final)
 
     return cast(ElicitationFnT, _callback)
+
+
+def with_completion_notice(server: str, inner: MessageHandlerFnT) -> MessageHandlerFnT:
+    """`ClientSession(message_handler=…)`: `notifications/elicitation/complete` kancaya da gider."""
+
+    async def _handle(message: object) -> None:
+        root = getattr(message, "root", None)
+        hooks = _HOOKS[0]
+        if isinstance(root, types.ElicitCompleteNotification) and hooks is not None:
+            hooks.completed(server, str(root.params.elicitationId))
+        await inner(message)  # type: ignore[arg-type]
+
+    return cast(MessageHandlerFnT, _handle)

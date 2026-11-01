@@ -5,7 +5,8 @@ Eşleştirici MCP sunucusunun adıdır. Girdi: `mcp_server_name`, `message`, `mo
 ElicitationResult'ta ek olarak kullanıcının `action`'ı ve `content`'i. Çıktı:
 `hookSpecificOutput.action` (+ `content`); `action`'sız çıktı yok sayılır, çıkış 2 isteği
 (ya da yanıtı) `decline` yapar. Soru kullanıcıya açılırken `Notification(elicitation_dialog)`,
-kullanıcı yanıtlayınca `Notification(elicitation_response)` arka planda çalışır.
+kullanıcı yanıtlayınca `Notification(elicitation_response)`, sunucu url kipindeki isteğin
+bittiğini bildirince `Notification(elicitation_complete)` arka planda çalışır.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from .session import HookSession
 #: Claude bildirim türleri.
 ELICITATION_DIALOG = "elicitation_dialog"
 ELICITATION_RESPONSE = "elicitation_response"
+ELICITATION_COMPLETE = "elicitation_complete"
 _DECLINE = ElicitationAnswer("decline")
 
 
@@ -60,12 +62,18 @@ class SessionElicitationHooks:
         return _answer(verdict)
 
     def dialog(self, request: ElicitationRequest) -> None:
-        self._notify(ELICITATION_DIALOG, messages.HOOKS_ELICITATION_NOTICE, request)
+        self._notify(ELICITATION_DIALOG, messages.HOOKS_ELICITATION_NOTICE, request.server)
+
+    def completed(self, server: str, elicitation_id: str) -> None:
+        del elicitation_id  # bildirim girdisinde yeri yok (notification_type/message/title)
+        self._notify(ELICITATION_COMPLETE, messages.HOOKS_ELICITATION_COMPLETE_NOTICE, server)
 
     async def after(
         self, request: ElicitationRequest, answer: ElicitationAnswer
     ) -> ElicitationAnswer:
-        self._notify(ELICITATION_RESPONSE, messages.HOOKS_ELICITATION_RESPONSE_NOTICE, request)
+        self._notify(
+            ELICITATION_RESPONSE, messages.HOOKS_ELICITATION_RESPONSE_NOTICE, request.server
+        )
         if not self._session.has(HookEvent.ELICITATION_RESULT):
             return answer
         fields = {**_fields(request), "action": answer.action}
@@ -76,9 +84,9 @@ class SessionElicitationHooks:
         )
         return _answer(verdict) or answer
 
-    def _notify(self, kind: str, template: str, request: ElicitationRequest) -> None:
+    def _notify(self, kind: str, template: str, server: str) -> None:
         session = self._session
         if not session.has(HookEvent.NOTIFICATION):
             return
-        message = template.format(server=request.server)
+        message = template.format(server=server)
         session.spawn(lambda: session.notify(kind, message, title=NOTIFICATION_TITLE))

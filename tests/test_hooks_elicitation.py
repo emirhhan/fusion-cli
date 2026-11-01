@@ -188,3 +188,33 @@ def test_kok_tur_kanca_oturumunu_elicitation_danismani_olarak_kaydeder(tmp_path)
         assert isinstance(registered_elicitation_hooks(), SessionElicitationHooks)
     finally:
         register_elicitation_hooks(None)
+
+
+def test_sunucunun_tamamlandi_bildirimi_elicitation_complete_bildirimi_olur(tmp_path):
+    from fusion_cli.mcp_bridge.elicitation_hooks import with_completion_notice
+
+    notice = _script(tmp_path, "bildirim", None)
+    session = _session(tmp_path, {"Notification": _entry(notice, matcher="elicitation_complete")})
+    seen: list[object] = []
+
+    async def inner(message: object) -> None:
+        seen.append(message)
+
+    message = types.ServerNotification(
+        types.ElicitCompleteNotification(
+            params=types.ElicitCompleteNotificationParams(elicitationId="e1")
+        )
+    )
+
+    async def run() -> None:
+        register_elicitation_hooks(SessionElicitationHooks(session))
+        try:
+            await with_completion_notice("db", inner)(message)
+            await asyncio.sleep(0.5)
+        finally:
+            register_elicitation_hooks(None)
+
+    asyncio.run(run())
+    assert seen == [message]
+    bildirim = _read(tmp_path, "bildirim")
+    assert bildirim["notification_type"] == "elicitation_complete" and "db" in bildirim["message"]

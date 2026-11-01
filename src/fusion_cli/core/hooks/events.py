@@ -68,7 +68,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
     HookEvent.NOTIFICATION: (
         "bildirim türü (permission_prompt|idle_prompt|auth_success|elicitation_dialog|"
-        "elicitation_response)"
+        "elicitation_response|elicitation_complete)"
     ),
     HookEvent.PRE_COMPACT: "tetik (manual|auto)",
     HookEvent.POST_COMPACT: "tetik (manual|auto)",

@@ -1649,6 +1649,7 @@ HOOKS_PERMISSION_NOTICE = "Fusion izin istiyor: {tool}"
 HOOKS_AUTH_SUCCESS_NOTICE = "{server} için kimlik doğrulama başarılı"
 HOOKS_ELICITATION_NOTICE = "MCP sunucusu {server} bilgi istiyor"
 HOOKS_ELICITATION_RESPONSE_NOTICE = "MCP sunucusu {server} isteği yanıtlandı"
+HOOKS_ELICITATION_COMPLETE_NOTICE = "MCP sunucusu {server} isteği tamamlandı"
 HOOKS_TOOL_BLOCKED = (
     "KANCA ENGELLEDİ ({event}): {reason}\n"
     "Bu çağrı çalışmadı; gerekçeye göre farklı bir yol dene ya da kullanıcıya sor."

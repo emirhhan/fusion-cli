@@ -37,7 +37,7 @@ from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_reso
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .elicitation_hooks import with_elicitation_hooks
+from .elicitation_hooks import with_completion_notice, with_elicitation_hooks
 from .failures import STATE_CONNECTED
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
@@ -216,8 +216,11 @@ class McpClient:
                     ClientSession(
                         read,
                         self._tracker.wrap(config.name, write),
-                        message_handler=catalog_change_handler(
-                            functools.partial(self._stale_catalogs.add, config.name)
+                        message_handler=with_completion_notice(
+                            config.name,
+                            catalog_change_handler(
+                                functools.partial(self._stale_catalogs.add, config.name)
+                            ),
                         ),
                         # Elicitation/ElicitationResult kancaları; soru varsa kullanıcıya (#90).
                         elicitation_callback=with_elicitation_hooks(config.name),

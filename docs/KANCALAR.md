@@ -64,7 +64,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `StopFailure` | tur API hatasıyla bitince `Stop` yerine (girdi `error`, `error_details`, `last_assistant_message`) | `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `unknown` | — (çıktı ve çıkış kodu yok sayılır; yalnız `terminalSequence`) |
 | `SessionStart` | oturum açılırken: REPL/TUI'de açılışta, masaüstünde `oturum.baslat` sonrası arka planda (ilk tur bekler), `-p`'de ilk turda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact`, `fork` (`/branch`, `--fork-session`) | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, `/resume` geçişi | `prompt_input_exit`, `clear`, `resume`, `other` | — |
-| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme; masaüstünde MCP OAuth girişi bağlanarak bitince; MCP elicitation sorusu kullanıcıya açılırken ve kullanıcı yanıtlayınca (girdi `notification_type`, `message`, `title`; kanca beklenmez, çıkış kodu/stderr yok sayılır) | `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`, `elicitation_response` | — |
+| `Notification` | izin sorusu ~6 sn yanıtsız kalınca; boşta bekleme; masaüstünde MCP OAuth girişi bağlanarak bitince; MCP elicitation sorusu kullanıcıya açılırken, kullanıcı yanıtlayınca ve sunucu url kipindeki isteğin bittiğini bildirince (girdi `notification_type`, `message`, `title`; kanca beklenmez, çıkış kodu/stderr yok sayılır) | `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`, `elicitation_response`, `elicitation_complete` | — |
 | `Elicitation` | MCP sunucusu araç çalışırken kullanıcıdan girdi isteyince, soru gösterilmeden önce (girdi `mcp_server_name`, `message`, `mode` `form`/`url`, formda `requested_schema`, url kipinde `url`, `elicitation_id`) | MCP sunucusunun adı | istek reddedilir (`decline`); `hookSpecificOutput.action` (`accept`/`decline`/`cancel`, accept'te `content`) soruyu sormadan yanıtlar, `action`'sız çıktı yok sayılır |
 | `ElicitationResult` | kullanıcı elicitation sorusunu yanıtlayınca (reddetse/vazgeçse de), yanıt sunucuya gitmeden (girdi ek olarak `action`, `content`) | MCP sunucusunun adı | yanıt `decline` olur; `action`/`content` kullanıcının yanıtının yerine geçer |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | özetleme atlanır |
@@ -286,9 +286,7 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
 - `PermissionRequest` `updatedInput` ve `updatedPermissions` alanları okunur ama uygulanmaz.
 - `MessageDisplay` tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
 - Elicitation sorusunu kullanıcıya soran taraf (form/url iletişimi) yoksa `Elicitation`
-  kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz.
-  `Notification(elicitation_complete)` (url kipinde sunucunun tamamlandı bildirimi)
-  gönderilmez. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
+  kancası karar vermediğinde istek `cancel` ile döner ve `ElicitationResult` çalışmaz. Kanca oturumu süreç başına tektir: masaüstünde son tur başlatan sohbetin
   kancaları kullanılır.
 - `defer` ile ertelenen çağrı sürdürülen oturumda yeniden değerlendirilmez (`fusion agent`
   sohbet sürdürmez; `-p --resume` geldiğinde bağlanacak).
