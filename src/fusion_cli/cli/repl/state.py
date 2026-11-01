@@ -271,6 +271,14 @@ class ReplState:
         self.child_runs = ChildRuns(persistent=True)
         self.persona_initial_prompt_applied = bool(self.history)
 
+    def apply_plan_mode_switch(self, switch: object) -> bool:
+        """`enter_plan_mode` (Claude EnterPlanMode) tur bitince kipi PLAN yapar (#324)."""
+        take = getattr(switch, "take_enter", None)
+        if take is None or not take():
+            return False
+        self.approval = ApprovalMode.PLAN
+        return True
+
     async def apply_worktree_switch(self, switch: WorktreeSwitch | None) -> str:
         """Kök değişmeden eski görevleri bekle; aynı kökte sürekliliği koru."""
         from .worktrees import apply_switch_request

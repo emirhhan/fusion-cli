@@ -803,7 +803,9 @@ async def run_agent(
             await deps.child_runs.drain()
         if owns_learning:
             await learning_steps.finish_learning(outcome, deps, plan_mode=plan_mode, task=task)
-        if plan_mode and depth == 0 and not internal:
+        if depth == 0 and not internal:
+            # Plan yalnız `exit_plan_mode` ile sunulduysa yazılır (#317); tur içinde
+            # `enter_plan_mode` ile plan kipine girilmiş olabilir (#324).
             from .plan_mode import record_plan
 
             written = record_plan(outcome, deps, plan_mode=plan_mode)
@@ -916,6 +918,14 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("masaustu")
         if is_worktree_task(task):
             deps.tool_context.task_kinds.add("worktree")
+        # Plan kipi araçları (#317, #324): `exit_plan_mode` yalnız plan kipindeki turda sunulur.
+        plan_switch = getattr(deps.tool_context, "plan_mode_switch", None)
+        if plan_switch is not None:
+            plan_switch.begin_turn(plan_mode=plan_mode)
+        if plan_mode:
+            deps.tool_context.task_kinds.add("plan")
+        else:
+            deps.tool_context.task_kinds.discard("plan")
         if is_agent_task_request(task, deps):
             deps.tool_context.task_kinds.add("arka_plan")
         deps.tool_context.task_kinds.update(orchestration_task_kinds(task, deps.tool_context.root))
@@ -3033,6 +3043,8 @@ SCOPED_TOOLS: dict[str, str] = {
     # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
     "enter_worktree": "worktree",
     "exit_worktree": "worktree",
+    # Planı onaya sunma aracı yalnız plan kipindeki turda (#317).
+    "exit_plan_mode": "plan",
     # Arka plan görevleri / oturumlar arası mesaj (P-048, P-060): yalnız ilgili turda.
     "list_agents": "arka_plan",
     "send_message": "arka_plan",
@@ -4301,7 +4313,7 @@ async def _execute(
         tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
     ):
         revision = deps.approval_revision() if deps.approval_revision else None
-        policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        policy = _current_policy(deps)
         request = await resolve_request(
             tool,
             deepcopy(args),
@@ -4318,7 +4330,7 @@ async def _execute(
         request = await review_auto_request(request, deps)
         if guard is not None and guard.trips != trips:
             revision = deps.approval_revision() if deps.approval_revision else None
-            policy = deps.policy_factory() if deps.policy_factory else deps.policy
+            policy = _current_policy(deps)
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
@@ -5035,3 +5047,13 @@ def _initial_messages(
                 0, Message("user", PROJECT_CONTEXT_HEADER + project_context, harness_note=True)
             )
     return [Message("system", system), *gecmis, Message("user", task, images=images)]
+
+
+def _current_policy(deps: AgentDeps) -> ApprovalPolicy:
+    """Çağrının onay politikası; tur içinde `enter_plan_mode` çağrıldıysa plan kipininki (#324)."""
+    from .plan_mode import entered_plan_policy
+
+    entered = entered_plan_policy(deps)
+    if entered is not None:
+        return entered
+    return deps.policy_factory() if deps.policy_factory else deps.policy

@@ -1218,8 +1218,15 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 
 ## Plan kipi: plan dosyası ve kabul kartı
 
-`/plan` ile plan kipine geçince agent yalnız okur ve planlar. Tur bitince plan
-`~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
+`/plan` ile plan kipine geçince agent okur, keşif için kabuk komutu çalıştırır ve planlar;
+kaynak dosyaları düzenlemez. Ajan da kendini `enter_plan_mode` aracıyla (Claude
+`EnterPlanMode`) plan kipine geçirebilir. Salt okunur olmayan kabuk komutuna
+`runtime.use_auto_mode_during_plan: true` (Claude `useAutoModeDuringPlan`, varsayılan)
+iken otomatik kip denetçisi karar verir (onaylanan çalışır, reddedilen engellenir);
+`false` iken sorulur. Açık `ask` kuralı ve yıkıcı komut her durumda sorulur.
+
+Plan hazır olunca ajan planı `exit_plan_mode(plan)` aracıyla (Claude `ExitPlanMode`) sunar;
+plan `~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
 ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
 ve "Plan hazır — uygulansın mı?" kartı çıkar:
 
@@ -1228,8 +1235,8 @@ ve "Plan hazır — uygulansın mı?" kartı çıkar:
 - **Evet, her adımda sor** → `security` (manuel) kipi.
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
 
-Plan kipindeki her cevap plan sayılmaz: soruyla biten ya da başlıksız/listesiz kısa cevap
-("Hangi veritabanı?") dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
+Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
+başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
 yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum boyunca verilen
 izinler sıfırlanır; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
 (Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:

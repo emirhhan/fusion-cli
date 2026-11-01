@@ -37,6 +37,7 @@ from .sandbox_policy import SandboxPolicy
 from .session_cron import SessionCron
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
+from .plan_switch import PlanModeSwitch
 from .worktree import WorktreeSwitch
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
@@ -433,6 +434,8 @@ class ToolContext:
     #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
     #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
     worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)
+    #: Plan kipi araçlarının isteği (`enter_plan_mode` / `exit_plan_mode`; #317, #324).
+    plan_mode_switch: PlanModeSwitch = field(default_factory=PlanModeSwitch, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

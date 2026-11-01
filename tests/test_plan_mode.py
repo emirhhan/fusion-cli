@@ -24,7 +24,14 @@ from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome, run_agent
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.ui import messages
 
-from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, make_config, model_result
+from .fakes import (
+    AlwaysApprove,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -89,14 +96,21 @@ def test_plan_basligi_ilk_baslik_yoksa_ilk_satirdir() -> None:
     assert plan_mode.plan_title("   ") == messages.PLAN_UNTITLED
 
 
-# --- record_plan ---------------------------------------------------------------- #
+# --- record_plan: plan yalnız exit_plan_mode ile sunulur (#317) ---------------- #
 
 
-def test_plan_kipinde_basarili_tur_plani_yazar_ve_olay_yayinlar(tmp_path: Path) -> None:
+def _sun(deps: AgentDeps, plan: str) -> None:
+    """Modelin `exit_plan_mode(plan)` çağrısının tura bıraktığı istek."""
+    deps.tool_context.plan_mode_switch.begin_turn(plan_mode=True)
+    deps.tool_context.plan_mode_switch.submit(plan)
+
+
+def test_plan_kipinde_sunulan_plan_yazilir_ve_olay_yayinlanir(tmp_path: Path) -> None:
     sink = RecordingSink()
     deps = _deps(tmp_path, sink)
+    _sun(deps, "# Plan\n1. a")
 
-    yol = plan_mode.record_plan(_outcome("# Plan\n1. a"), deps, plan_mode=True)
+    yol = plan_mode.record_plan(_outcome("Plan sunuldu."), deps, plan_mode=True)
 
     assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan\n1. a"
     olaylar = [e for e in sink.events if isinstance(e, PlanDrafted)]
@@ -105,58 +119,34 @@ def test_plan_kipinde_basarili_tur_plani_yazar_ve_olay_yayinlar(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    ("text", "ok", "plan_flag"),
-    [("# Plan", True, False), ("", True, True), ("# Plan", False, True)],
+    "text",
+    ["# Plan\n1. a\n2. b", "1. Oku\n2. Yaz\n3. Test et", "Hangi veritabanını tercih edersin?"],
 )
-def test_plan_kipi_disi_bos_ya_da_basarisiz_tur_plan_yazmaz(
-    tmp_path: Path, text: str, ok: bool, plan_flag: bool
-) -> None:
-    sink = RecordingSink()
-    assert (
-        plan_mode.record_plan(_outcome(text, ok=ok), _deps(tmp_path, sink), plan_mode=plan_flag)
-        is None
-    )
-    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
-
-
-@pytest.mark.parametrize(
-    ("text", "plan"),
-    [
-        ("# Plan\n1. a", True),
-        ("## Giriş ekranı\nRiskler: cache mi, db mi?\n1. a\n2. b", True),
-        ("1. Oku\n2. Yaz\n3. Test et", True),
-        ("Hangi veritabanını tercih edersin?", False),
-        ("İki seçenek var:\n1. Postgres\n2. SQLite\nHangisi?", False),
-        ("Tamam, devam edelim.", False),
-    ],
-)
-def test_plan_metni_soru_ve_sohbetten_ayrilir(text: str, plan: bool) -> None:
-    assert plan_mode.looks_like_plan(text) is plan
-
-
-def test_soru_cevabi_onceki_plani_silmez_ve_kart_acmaz(tmp_path: Path) -> None:
-    """İnceleme bulgusu (orta): plan kipindeki her cevap plan sayılıp dosyayı eziyordu.
-
-    Ölçüldü (31 Ekim): "Hangi veritabanını tercih edersin?" cevabı plans/<sohbet>.md'yi
-    gerçek planın üzerine yazıyor ve "uygulansın mı?" kartı açıyordu.
-    """
+def test_arac_cagrilmadan_cevap_plan_sayilmaz(tmp_path: Path, text: str) -> None:
+    """Claude: kart YALNIZ ExitPlanMode çağrısında açılır; başlıklı cevap bile plan değildir."""
     sink = RecordingSink()
     deps = _deps(tmp_path, sink)
-    plan_mode.record_plan(_outcome("# Plan\n1. a\n2. b"), deps, plan_mode=True)
+    deps.tool_context.plan_mode_switch.begin_turn(plan_mode=True)
 
-    yol = plan_mode.record_plan(
-        _outcome("Hangi veritabanını tercih edersin?"), deps, plan_mode=True
-    )
+    assert plan_mode.record_plan(_outcome(text), deps, plan_mode=True) is None
+    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
+    assert plan_mode.read_plan(deps.conversation_id) is None
 
-    assert yol is None
-    assert plan_mode.read_plan(deps.conversation_id) == "# Plan\n1. a\n2. b"
-    assert len([e for e in sink.events if isinstance(e, PlanDrafted)]) == 1
+
+def test_basarisiz_tur_sunulan_plani_yazmaz(tmp_path: Path) -> None:
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    _sun(deps, "# Plan")
+    assert plan_mode.record_plan(_outcome("x", ok=False), deps, plan_mode=True) is None
+    assert not any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
 def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
     deps = _deps(tmp_path, RecordingSink())
-    plan_mode.record_plan(_outcome("# Plan v1\n1. a"), deps, plan_mode=True)
-    yol = plan_mode.record_plan(_outcome("# Plan v2\n1. b"), deps, plan_mode=True)
+    _sun(deps, "# Plan v1\n1. a")
+    plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
+    _sun(deps, "# Plan v2\n1. b")
+    yol = plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True)
 
     assert yol is not None and yol.read_text(encoding="utf-8") == "# Plan v2\n1. b"
     yedek = plan_mode.previous_plan_path(deps.conversation_id)
@@ -166,68 +156,96 @@ def test_yeni_plan_eskisini_yedekler(tmp_path: Path) -> None:
 def test_plan_dosyasi_ayarla_kapatilabilir(tmp_path: Path) -> None:
     sink = RecordingSink()
     deps = _deps(tmp_path, sink, runtime={"plan_files": False})
-    assert plan_mode.record_plan(_outcome("# Plan"), deps, plan_mode=True) is None
+    _sun(deps, "# Plan")
+    assert plan_mode.record_plan(_outcome("ok"), deps, plan_mode=True) is None
     assert not any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
-async def test_run_agent_plan_kipinde_plani_dosyaya_yazar(monkeypatch, tmp_path: Path) -> None:
+def _plan_sunan_saglayici(plan: str) -> ScriptedProvider:
+    return ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("exit_plan_mode", plan=plan)]),
+            model_result("Plan onayına sunuldu."),
+        ]
+    )
+
+
+async def test_run_agent_exit_plan_mode_plani_dosyaya_yazar(monkeypatch, tmp_path: Path) -> None:
     from fusion_cli.engines.agent import loop as agent_loop
 
-    provider = ScriptedProvider([model_result("# Oturum planı\n1. Oku\n2. Yaz")])
+    provider = _plan_sunan_saglayici("# Oturum planı\n1. Oku\n2. Yaz")
     monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
     sink = RecordingSink()
 
-    await run_agent("planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True)
+    sonuc = await run_agent(
+        "planla", _deps(tmp_path, sink, conversation_id="s-9"), plan_mode=True
+    )
 
-    assert plan_mode.read_plan("s-9") == "# Oturum planı\n1. Oku\n2. Yaz"
+    assert plan_mode.read_plan("s-9") == "# Oturum planı\n1. Oku\n2. Yaz\n"
     assert any(isinstance(e, PlanDrafted) for e in sink.events)
+    assert sonuc.plan_path == plan_mode.plan_path("s-9")
 
 
-async def test_run_agent_sonucu_plan_yolunu_tasir_dosya_kapaliyken_tasimaz(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """İnceleme bulgusu (orta): yüzeyler kartı yalnız plan GERÇEKTEN yazıldıysa açmalı.
-
-    Ölçüldü (31 Ekim): REPL/TUI plan kipinde biten her başarılı turda pending_plan'ı
-    `plan_path()` ile kuruyordu; `runtime.plan_files=false` iken ya da yazma hatasında
-    kart yine çıkıyor, "Plan dosyası: <yol>" basılıyor ve kabulde model olmayan ya da
-    bayat bir dosyayı uygulamaya kalkıyordu.
-    """
+async def test_run_agent_basliklı_cevap_araçsız_kart_acmaz(monkeypatch, tmp_path: Path) -> None:
     from fusion_cli.engines.agent import loop as agent_loop
 
-    monkeypatch.setattr(
-        agent_loop,
-        "build_provider",
-        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
-    )
-    acik = await run_agent(
-        "planla", _deps(tmp_path, RecordingSink(), conversation_id="s-11"), plan_mode=True
-    )
-    assert acik.plan_path == plan_mode.plan_path("s-11") and acik.plan_path.exists()
+    provider = ScriptedProvider([model_result("# Soru\nHangi veritabanı?")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
 
-    monkeypatch.setattr(
-        agent_loop,
-        "build_provider",
-        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
+    sonuc = await run_agent(
+        "planla", _deps(tmp_path, RecordingSink(), conversation_id="s-13"), plan_mode=True
     )
+
+    assert sonuc.plan_path is None and plan_mode.read_plan("s-13") is None
+
+
+async def test_run_agent_dosya_kapaliyken_plan_yolu_tasimaz(monkeypatch, tmp_path: Path) -> None:
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    provider = _plan_sunan_saglayici("# Plan\n1. a")
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
     kapali = await run_agent(
         "planla",
         _deps(tmp_path, RecordingSink(), conversation_id="s-12", runtime={"plan_files": False}),
         plan_mode=True,
     )
-    assert kapali.ok and kapali.final_text and kapali.plan_path is None
+    assert kapali.ok and kapali.plan_path is None
 
 
-async def test_run_agent_plan_kipi_kapaliyken_plan_yazmaz(monkeypatch, tmp_path: Path) -> None:
+async def test_exit_plan_mode_plan_kipi_disinda_hata_verir(tmp_path: Path) -> None:
+    from fusion_cli.tools.plan_tools import exit_plan_mode_tool
+
+    context = ToolContext(root=tmp_path)
+    sonuc = await exit_plan_mode_tool({"plan": "# P"}, context)
+    assert not sonuc.ok and context.plan_mode_switch.submitted_plan is None
+
+
+async def test_enter_plan_mode_kalan_cagrilarda_duzenlemeyi_engeller(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Claude EnterPlanMode (#324): model kendini plan kipine geçirir, sonra düzenleme yok."""
     from fusion_cli.engines.agent import loop as agent_loop
 
-    provider = ScriptedProvider([model_result("cevap")])
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("enter_plan_mode")]),
+            model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+            model_result("Plan kipindeyim."),
+        ]
+    )
     monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: provider)
-    sink = RecordingSink()
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+        conversation_id="s-14",
+    )
 
-    await run_agent("yap", _deps(tmp_path, sink, conversation_id="s-10"), plan_mode=False)
+    await run_agent("önce planla sonra yap", deps)
 
-    assert plan_mode.read_plan("s-10") is None
+    assert not (tmp_path / "a.txt").exists()
+    assert deps.tool_context.plan_mode_switch.take_enter() is True
 
 
 # --- Kabul kartı (REPL) --------------------------------------------------------- #

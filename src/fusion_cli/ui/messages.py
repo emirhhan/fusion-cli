@@ -901,6 +901,16 @@ PLAN_NONE = (
 )
 PLAN_SAVED = "Plan dosyası: {path}"
 PLAN_UNTITLED = "Plan"
+PLAN_TOOL_NOT_IN_PLAN_MODE = "Plan kipinde değilsin; exit_plan_mode yalnız plan kipinde çağrılır."
+PLAN_TOOL_EMPTY = "'plan' boş olmayan bir Markdown metni olmalı."
+PLAN_TOOL_SUBMITTED = (
+    "Plan kullanıcının onayına sunuldu. Turu burada bitir; uygulamaya onaydan sonra geçeceksin."
+)
+PLAN_TOOL_ENTERED = (
+    "Plan kipine geçildi: dosya düzenlemesi yok. Keşfet, planı yaz ve exit_plan_mode ile sun."
+)
+PLAN_TOOL_ALREADY = "Zaten plan kipindesin."
+PLAN_MODE_ENTERED_BY_AGENT = "Ajan plan kipine geçti (enter_plan_mode)."
 PLAN_NO_EDITOR = "VISUAL/EDITOR tanımlı değil. Plan dosyası: {path}"
 PLAN_OPENED = "{editor} ile açıldı: {path}"
 PLAN_EDITOR_FAILED = "Editör çalıştırılamadı ({error}). Plan dosyası: {path}"

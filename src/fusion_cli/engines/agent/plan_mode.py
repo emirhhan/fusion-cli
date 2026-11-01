@@ -1,18 +1,17 @@
 """Plan kipi dosyası: planın nereye yazıldığı ve ne zaman yazıldığı (P-025).
 
 Claude Code plan kipinde planı `~/.claude/plans/` altında Markdown tutar ve tur
-bitince "uygulansın mı?" kartı gösterir. Fusion'da plan kipindeki turun SON cevabı
-plandır (bkz. `prompts/plan_mode.md`); tur bitince `record_plan` onu
+bitince "uygulansın mı?" kartı gösterir. Fusion'da plan `exit_plan_mode`
+aracıyla sunulur (bkz. `prompts/plan_mode.md`); tur bitince `record_plan` onu
 `plans_dir()/<sohbet>.md` dosyasına yazar ve `PlanDrafted` yayınlar. Kabul kartı
 yüzeylerde yaşar: REPL `cli/repl/plan_card.py`, masaüstü `SessionApplication.tsx`.
 
 Ölçüldü (31 Ekim): plan kipinde tur bitince plan hiçbir yere yazılmıyordu; kullanıcı
 planı ancak sohbet geçmişinden geri kaydırarak bulabiliyordu.
 
-Claude Code'un açık `ExitPlanMode` adımı burada yok; bu yüzden plan kipindeki HER
-cevap plan sayılmaz: soru ("Hangi veritabanı?") ve kısa sohbet cevapları
-`looks_like_plan` ile ayrılır, önceki plan dosyasına dokunulmaz ve kart açılmaz.
-Yeni plan eskisinin üzerine yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır.
+Claude Code'daki gibi plan `exit_plan_mode` aracıyla açıkça sunulur (#317); araç
+çağrılmayan tur (soru, sohbet) plan dosyasına dokunmaz ve kart açılmaz. Yeni plan
+eskisinin üzerine yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır.
 """
 
 from __future__ import annotations
@@ -25,6 +24,8 @@ from ...config.paths import plans_dir
 from ...core.events import PlanDrafted
 from ...ui import messages
 
+from .approval import ApprovalMode, ApprovalPolicy, PlanApproval
+
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .loop import AgentDeps, AgentOutcome
 
@@ -34,10 +35,6 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _DEFAULT_STEM = "oturum"
 #: Üzerine yazılan önceki planın saklandığı dosya eki.
 _PREVIOUS_SUFFIX = ".onceki.md"
-#: Markdown liste ögesi: `- a`, `* a`, `1. a`, `1) a`.
-_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
-#: Bir planı "plan" saymak için gereken en az liste ögesi (başlık yoksa).
-_MIN_LIST_ITEMS = 2
 
 
 def plan_path(conversation_id: str) -> Path:
@@ -66,23 +63,6 @@ def save_plan(conversation_id: str, markdown: str) -> Path:
     return path
 
 
-def looks_like_plan(markdown: str) -> bool:
-    """Cevap plan mı, yoksa soru/sohbet mi?
-
-    Plan: Markdown başlığı var (istem başlıkla başlamasını ister) YA DA en az iki liste
-    ögesi var ve hiçbir satır soruyla bitmiyor. Soruyla biten ya da düz tek paragraf
-    cevaplar plan değildir; önceki plan korunur, kart açılmaz.
-    """
-    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
-    if not lines:
-        return False
-    if any(line.startswith("#") for line in lines):
-        return True
-    if any(line.endswith("?") for line in lines):
-        return False
-    return sum(1 for line in lines if _LIST_ITEM.match(line)) >= _MIN_LIST_ITEMS
-
-
 def read_plan(conversation_id: str) -> str | None:
     """Sohbetin kayıtlı planı; yoksa None."""
     path = plan_path(conversation_id)
@@ -107,20 +87,34 @@ def plan_title(markdown: str) -> str:
 
 
 def record_plan(outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> Path | None:
-    """Plan kipindeki başarılı turun cevabını plan dosyasına yaz ve olayını yayınla.
+    """`exit_plan_mode` ile onaya sunulan planı plan dosyasına yaz ve olayını yayınla.
 
-    Plan kipi dışında, başarısız ya da boş turda ve `runtime.plan_files` kapalıyken
-    hiçbir şey yapılmaz; plana benzemeyen cevap (soru, kısa sohbet) da yazılmaz
-    (`looks_like_plan`). Yazma hatası turu düşürmez: plan sohbette zaten duruyor.
+    Claude Code'daki gibi plan YALNIZ araçla sunulur (#317): araç çağrılmadıysa (soru,
+    sohbet, yarım keşif) dosyaya dokunulmaz ve kart açılmaz. `runtime.plan_files`
+    kapalıyken ya da başarısız turda da yazılmaz. Yazma hatası turu düşürmez.
     """
-    text = outcome.final_text.strip()
-    if not plan_mode or not outcome.ok or not text or not deps.config.runtime.plan_files:
+    switch = getattr(deps.tool_context, "plan_mode_switch", None)
+    if switch is None:
         return None
-    if not looks_like_plan(text):
+    submitted = switch.take_plan()
+    if submitted is None or not submitted.strip():
+        return None
+    if not (plan_mode or switch.entered) or not outcome.ok or not deps.config.runtime.plan_files:
         return None
     try:
-        path = save_plan(deps.conversation_id, outcome.final_text)
+        path = save_plan(deps.conversation_id, submitted)
     except OSError:
         return None
-    deps.publisher.publish(PlanDrafted(path=str(path), title=plan_title(text)))
+    deps.publisher.publish(PlanDrafted(path=str(path), title=plan_title(submitted)))
     return path
+
+
+def entered_plan_policy(deps: AgentDeps) -> ApprovalPolicy | None:
+    """Tur içinde `enter_plan_mode` çağrıldıysa kalan çağrılar plan kipinin kurallarıyla (#324)."""
+    switch = getattr(deps.tool_context, "plan_mode_switch", None)
+    if switch is None or not switch.entered:
+        return None
+    builder = getattr(deps, "policy_for_mode", None)
+    if builder is not None:
+        return builder(ApprovalMode.PLAN)
+    return PlanApproval()

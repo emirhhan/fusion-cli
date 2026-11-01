@@ -999,6 +999,8 @@ async def _agent_turn(
     switched = await state.apply_worktree_switch(tool_context.worktree_switch)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+    if state.apply_plan_mode_switch(getattr(tool_context, "plan_mode_switch", None)):
+        console.print(f"[{theme.DIM}]{messages.PLAN_MODE_ENTERED_BY_AGENT}[/{theme.DIM}]")
 
 
 def _config_setter(state: ReplState) -> Callable[[Config], None]:

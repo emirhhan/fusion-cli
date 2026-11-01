@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
+from ..core.plan_switch import PlanModeSwitch
 from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
@@ -248,6 +249,7 @@ async def run_agent_task(
     cron: SessionCron | None = None,
     strict_tool_names: bool = False,
     worktree_switch: WorktreeSwitch | None = None,
+    plan_mode_switch: PlanModeSwitch | None = None,
     hooks: HookSession | None = None,
     browser: BrowserSession | None = None,
     session_persona: Persona | None = None,
@@ -340,6 +342,9 @@ async def run_agent_task(
             # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
             # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
             tool_context = replace(tool_context, worktree_switch=worktree_switch)
+        if plan_mode_switch is not None:
+            # `enter_plan_mode` isteği tur bitince çağıranda kipe uygulanır (#324).
+            tool_context = replace(tool_context, plan_mode_switch=plan_mode_switch)
         if conversation_id:
             tool_context = replace(
                 tool_context,

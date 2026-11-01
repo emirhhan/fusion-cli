@@ -25,6 +25,7 @@ from . import (
     github_cli,
     jobs,
     kits,
+    plan_tools,
     planning,
     remotion_render,
     remotion_revision,
@@ -840,6 +841,18 @@ _TOOLS: tuple[Tool, ...] = (
         parameters=worktree_tools.EXIT_WORKTREE_SCHEMA,
         run=worktree_tools.exit_worktree_tool,
         mutating=True,
+    ),
+    Tool(
+        name="enter_plan_mode",
+        description="Kodlamadan önce plan kipine geç.",
+        parameters=plan_tools.ENTER_PLAN_MODE_SCHEMA,
+        run=plan_tools.enter_plan_mode_tool,
+    ),
+    Tool(
+        name="exit_plan_mode",
+        description="Plan hazırken planı kullanıcının onayına sun ve turu bitir.",
+        parameters=plan_tools.EXIT_PLAN_MODE_SCHEMA,
+        run=plan_tools.exit_plan_mode_tool,
     ),
 )
 

@@ -1030,6 +1030,10 @@ class _TuiSession:
                 # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
                 print_rule_notices(self._tui.console, self._state.approval_memory)
                 # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır.
+                if self._state.apply_plan_mode_switch(
+                    getattr(tool_context, "plan_mode_switch", None)
+                ):
+                    self._echo(f"[{theme.DIM}]{messages.PLAN_MODE_ENTERED_BY_AGENT}[/{theme.DIM}]")
                 switched = await self._state.apply_worktree_switch(tool_context.worktree_switch)
                 if switched:
                     self._echo(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")

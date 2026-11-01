@@ -77,6 +77,7 @@ from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
+from ..core.plan_switch import PlanModeSwitch
 from ..core.worktree import WorktreeSwitch, worktree_for_path
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.child_runs import ChildRuns
@@ -3164,6 +3165,7 @@ class AppSession:
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
+                plan_mode_switch=plan_switch,
                 hooks=self._state.hooks(),
                 browser=self._browser_panel.turn_browser(),
             )
@@ -3172,6 +3174,7 @@ class AppSession:
         # burada uygulanır (REPL `apply_switch` ile aynı). Ölçüldü (31 Ekim): masaüstü
         # anahtarı hiç okumuyordu; araç "tur bitince kök değişir" diyor, kök değişmiyordu.
         switch = WorktreeSwitch()
+        plan_switch = PlanModeSwitch()
         # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
         # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
         # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
@@ -3238,6 +3241,8 @@ class AppSession:
         # çıkarımı korumalıdır, tur kaydını düşürmez.
         linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
         switched = await self._state.apply_worktree_switch(switch)
+        # `enter_plan_mode` (#324): model kendini plan kipine geçirdiyse sekme kipi PLAN olur.
+        self._state.apply_plan_mode_switch(plan_switch)
         self._child_runs = self._state.child_runs
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
