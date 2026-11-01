@@ -1124,7 +1124,7 @@ Claude Code'daki gibi terminali tanır ve tek seferlik ayarı yazar: VS Code, Cu
 
 ### Tuş bağları ve vim: `/keybindings`, `editorMode`
 
-Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
+Vim kipi Claude Code'daki gibi `/config editorMode=vim` (kapatmak: `editorMode=normal`) ile açılır; `/vim` Claude'da v2.1.92'de kaldırıldı, Fusion'da bir sürüm boyunca kullanımdan kalkmış takma ad olarak çalışır ve bir kez uyarır. Vim kipi yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Claude Code'daki gibi `~/.claude/settings.json` içinde `"vimInsertModeRemaps": {"jj": "<Esc>"}` iki tuşluk diziyi Escape'e eşler (tam ekran TUI): ikinci tuş bir saniye içinde gelirse iki karakter de yazılmaz ve NORMAL kipe geçilir; ayar yalnız kullanıcı dosyasından okunur. Durum satırı betiğine giden JSON'daki `vim.mode` gerçek kipi (`INSERT`/`NORMAL`/`VISUAL`) taşır. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
 
 `/keybindings` Claude Code'daki gibi `~/.claude/keybindings.json` dosyasını gösterir (yoksa `$schema`/`$docs` iskeletiyle yazar; `CLAUDE_CONFIG_DIR` verilmişse orada):
 ```json

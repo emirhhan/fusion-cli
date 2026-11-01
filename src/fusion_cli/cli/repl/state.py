@@ -207,6 +207,8 @@ class ReplState:
     vim_command_warned: bool = field(default=False, kw_only=True)
     #: `/resume<kaynak>` kullanımdan kalkmış takma ad uyarısı verildi mi (#223)?
     legacy_resume_warned: bool = field(default=False, kw_only=True)
+    #: Tam ekran TUI'nin vim kipi (`INSERT`/`NORMAL`/`VISUAL`); durum satırı JSON'u (#217).
+    vim_state: str = field(default="", kw_only=True)
     #: `fusion "query"` ile verilen ilk istem (#204); yüzey açılınca bir kez gönderilir.
     initial_prompt: str = field(default="", kw_only=True)
     #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.

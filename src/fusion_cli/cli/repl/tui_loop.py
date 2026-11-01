@@ -56,6 +56,7 @@ from . import (
     output_style_command,
     plan_card,
     queue_steer,
+    vim_remaps,
     prefixes,
     profiles_flow,
     provider_flow,
@@ -331,6 +332,7 @@ class _TuiSession:
             on_background=self._background_turn,
         )
         self._tui.set_queue_hooks(self._take_back_queue, self._send_now)
+        self._tui.set_vim_remaps(vim_remaps.load_remaps(state.home))
         #: İşlenmekte olan satır ve Ctrl+B isteği (iptal yakalayıcısı okur).
         self._current_line = ""
         self._to_background = False
@@ -490,6 +492,8 @@ class _TuiSession:
 
     def _sync_status(self) -> None:
         vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
+        # Durum satırı JSON'unun `vim.mode` alanı gerçek kipi taşır (#217).
+        self._state.vim_state = self._tui.vim_mode_name() if vim else ""
         self._tui.set_vim(vim)
         spec = resolve_status_line(self._state.config, self._state.root, self._state.home)
         self._tui.set_status(

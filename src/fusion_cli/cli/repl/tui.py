@@ -38,7 +38,7 @@ from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
 from rich.console import Console
 
 from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
-from . import input_actions
+from . import input_actions, vim_remaps
 from ...ui import messages, theme
 from ...ui.picker import Choice
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
@@ -188,6 +188,8 @@ class FusionTui:
         self._stash = input_actions.PromptStash()
         self._take_back: Callable[[], list[str]] | None = None
         self._send_now: Callable[[str], None] | None = None
+        #: `vimInsertModeRemaps` dizileri (#217); `set_vim_remaps` ile verilir.
+        self._vim_remaps: tuple[str, ...] = ()
         #: Tuş tablosu (P-067); `rebind` dosya değişince yeniler.
         self._keymap = keymap or load_keymap()
         self._kb = self._bindings()
@@ -417,6 +419,22 @@ class FusionTui:
         from prompt_toolkit.enums import EditingMode
 
         self.application.editing_mode = EditingMode.VI if enabled else EditingMode.EMACS
+
+    def set_vim_remaps(self, remaps: tuple[str, ...]) -> None:
+        """`vimInsertModeRemaps` dizilerini uygula (bağlar yeniden kurulur)."""
+        if remaps != self._vim_remaps:
+            self._vim_remaps = remaps
+            self.rebind(self._keymap)
+
+    def vim_mode_name(self) -> str:
+        """Durum satırı JSON'u için `INSERT` / `NORMAL` / `VISUAL` (#217)."""
+        from prompt_toolkit.key_binding.vi_state import InputMode
+
+        state = self.application.vi_state
+        if getattr(state, "input_mode", None) == InputMode.NAVIGATION:
+            return "NORMAL"
+        selection = self._input.buffer.selection_state
+        return "VISUAL" if selection is not None else "INSERT"
 
     @property
     def keymap(self) -> KeyMap:
@@ -723,6 +741,9 @@ class FusionTui:
         from prompt_toolkit.filters import vi_insert_mode
 
         vi_typing = vi_insert_mode & Condition(lambda: self._mode != "choice")
+        # Claude Code `vimInsertModeRemaps` (#217): `jj` gibi dizi INSERT'ten NORMAL'e geçer.
+        if self._vim_remaps:
+            vim_remaps.add_remap_bindings(kb, self._vim_remaps)
         for key, action in self._keymap.bindings(CONTEXT_TUI).items():
             if action.startswith(COMMAND_PREFIX):
                 command = action[len(COMMAND_PREFIX) :].strip().lstrip("/")
