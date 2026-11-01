@@ -102,12 +102,8 @@ def add_dir(state: ReplState, argument: str) -> str:
             state.extra_roots = (*state.extra_roots, hedef)
             state.refresh_capability_roots()
         return f"Alt klasörün beceri, komut ve ajan tanımları yüklendi: {hedef}"
-    if hedef in kok.parents:
-        # Proje kökünün ÜST dizini (`~/Desktop`) yalnız disk kökü ve ev dizini engellenince
-        # geçiyordu; bu, tek komutla kardeş projelerin hepsine erişim açardı (L2-32).
-        return "Proje kökünün üst klasörü eklenemez; yalnız ihtiyaç duyduğun klasörü seç."
-    if hedef in (Path(hedef.anchor), Path.home().resolve()):
-        return "Diskin ya da ev dizininin tamamı eklenemez; bir proje klasörü seç."
+    # Claude Code (#77, kullanıcı kararı 2 Kasım): üst dizin, ev dizini ve disk kökü de
+    # eklenebilir; Fusion'ın eski yasağı kaldırıldı (güvenlik davranışı değişti).
     if hedef in state.extra_roots:
         return f"Zaten açık: {hedef}"
     state.extra_roots = (*state.extra_roots, hedef)

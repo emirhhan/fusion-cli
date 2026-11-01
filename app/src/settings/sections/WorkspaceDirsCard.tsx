@@ -64,7 +64,7 @@ export function WorkspaceDirsCard({ client }: { client: Pick<ProtocolClient, "re
       <h3>Çalışma dizinleri</h3>
       <p className="settings__hint">
         Birincil: <code>{payload?.kok ?? "—"}</code>. Eklenen dizinler yalnız bu oturum içindir
-        (<code>/add-dir</code> ile aynı); ev dizini, disk kökü ve projenin üst klasörü eklenemez.
+        (<code>/add-dir</code> ile aynı).
       </p>
       {dizinler.length > 0 && (
         <ul aria-label="Eklenen dizinler" className="permissions__dirs">

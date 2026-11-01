@@ -1793,15 +1793,13 @@ konuşma, `/rewind` noktaları ve `/loop` görevleri aynı sohbette kalır, ara�
 itibaren yeni kökte çalışır. Argümansız `/cd` mevcut dizini yazar. Masaüstünde de aynı komut
 sekmenin kökünü taşır (tur sürerken reddedilir).
 
-- Göreli yol mevcut köke göredir, `~` ev dizinidir. Disk kökü ve ev dizininin tamamı reddedilir.
+- Göreli yol mevcut köke göredir, `~` ev dizinidir. Claude Code gibi ev dizini ve disk kökü de
+  hedef olabilir; `/add-dir` proje kökünün üst dizinini, ev dizinini ve disk kökünü de ekler.
 - Herhangi bir `Cd(...)` **allow** kuralı Claude gibi `/cd`'yi izin listesi kipine sokar: hedef bir
   allow kuralına uymuyorsa `/cd` reddeder.
-- **Claude Code'dan fark (kullanıcı kararı bekliyor):** Claude belgesi `/cd` ve `/add-dir` için
-  disk kökü, ev dizini ya da (`/add-dir`'de) proje kökünün üst dizini yasağı belgelemiyor. Fusion bu
-  üç hedefi güvenlik gereği reddeder (tek komutla bütün ev dizinine ya da kardeş projelere sorgusuz
-  okuma açılmasın). Belge bu hedeflere açıkça izin vermediği için yasak, kullanıcı açıkça karar
-  verene dek korunur. `/add-dir` proje kökünün alt dizininde Claude gibi yalnız o dizinin beceri,
-  komut ve ajan tanımlarını yükler.
+- `/add-dir` proje kökünün alt dizininde Claude gibi yalnız o dizinin beceri, komut ve ajan
+  tanımlarını yükler. Geniş bir dizin eklemek (ev dizini, disk kökü) o oturumda oradaki her
+  dosyaya okuma erişimi açar; yalnız ihtiyaç duyduğun klasörü eklemen önerilir.
 - Eski projenin `/add-dir` klasörleri ve "oturum boyunca izin ver" kararları yeni köke taşınmaz;
   yeni kökün becerileri, düz belleği ve `.claude/settings.local.json` onaysız komutları yüklenir.
   İzin dosyası güvenilmiyorsa uyarı çıkar (`fusion trust`).

@@ -1251,9 +1251,8 @@ def test_mcp_listesi_arguman_icindeki_tokeni_gostermez(state):
     assert "gh" in cikti and "npx" in cikti
 
 
-def test_add_dir_proje_kokunun_ust_klasorunu_reddeder(tmp_path):
-    """Ölçüldü (30 Ekim): ev dizini ve disk kökü dışında her üst klasör (`~/Desktop`) kabul
-    ediliyor, kardeş projelerin hepsine erişim açılıyordu (L2-32)."""
+def test_add_dir_proje_kokunun_ust_klasorunu_claude_gibi_ekler(tmp_path):
+    """Claude Code (#77, kullanıcı kararı 2 Kasım): üst klasör de eklenebilir."""
     from fusion_cli.cli.repl.workspace_commands import add_dir
 
     ust = tmp_path / "Desktop"
@@ -1263,8 +1262,8 @@ def test_add_dir_proje_kokunun_ust_klasorunu_reddeder(tmp_path):
 
     mesaj = add_dir(state, str(ust))
 
-    assert "üst klasörü eklenemez" in mesaj
-    assert state.extra_roots == ()
+    assert "Erişim açıldı" in mesaj
+    assert state.extra_roots == (ust.resolve(),)
 
 
 def test_add_dir_kardes_klasoru_kabul_eder(tmp_path):

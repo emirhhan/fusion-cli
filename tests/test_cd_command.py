@@ -90,18 +90,19 @@ def test_cd_yeni_kokun_becerilerini_yukler(tmp_path: Path, ev: Path):
     assert "yerel" in {skill.name for skill in state.capabilities.skills()}
 
 
-@pytest.mark.parametrize("hedef", ["yok-boyle-klasor", "~"])
-def test_cd_olmayan_ya_da_genis_hedefi_reddeder(tmp_path: Path, ev: Path, hedef: str):
+def test_cd_olmayan_hedefi_reddeder(tmp_path: Path, ev: Path):
     state = _state(tmp_path, ev)
-    mesaj = _cd(state, hedef)
+    assert _cd(state, "yok-boyle-klasor") == messages.CD_NOT_FOUND
     assert state.root == tmp_path
-    assert mesaj in {messages.CD_NOT_FOUND, messages.CD_TOO_BROAD}
 
 
-def test_cd_disk_kokunu_reddeder(tmp_path: Path, ev: Path):
-    state = _state(tmp_path, ev)
-    assert _cd(state, "/") == messages.CD_TOO_BROAD
-    assert state.root == tmp_path
+def test_cd_ev_dizinini_claude_gibi_kabul_eder(tmp_path: Path, ev: Path):
+    """Claude Code (#81, kullanıcı kararı 2 Kasım): ev dizini de çalışma dizini olabilir."""
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    state = _state(proje, ev)
+    _cd(state, "~")
+    assert state.root == ev.resolve()
 
 
 def test_cd_deny_kurali_hedefi_engeller(tmp_path: Path, ev: Path):
@@ -179,9 +180,14 @@ def test_loop_cd_komutunu_zamanlamaz(tmp_path: Path, ev: Path):
     state = _state(tmp_path, ev)
     command = build_registry().get("loop")
     assert command is not None
-    mesaj = command.handler(state, "5m /cd ..")
-    assert "cd" in mesaj
-    assert len(state.cron) == 0
+    command.handler(state, "5m /cd ..")
+    # Claude (#371): zamanlanan istem yalnız modelin çağırabildiği bir beceriyse komut olarak
+    # çalışır; `/cd` hiçbir zaman komut olarak koşmaz (kök döngüyle değişmez, P-072).
+    from fusion_cli.cli.repl import loop_command
+
+    for task in state.cron.list():
+        assert not loop_command.runs_as_command(task.prompt, state.capabilities)
+    assert state.root == tmp_path
 
 
 def test_tamamlayici_kokleri_her_cagrida_yeniden_okur(tmp_path: Path):

@@ -4,8 +4,8 @@ Claude Code `/cd` ve Codex `/cd` karşılığı. Konuşma aynı sohbettir: geçm
 checkpoint'ler ve zamanlanmış görevler korunur; araçlar sonraki turdan itibaren yeni
 kökte çalışır. Kök kuralları:
 
-- hedef var olan bir klasör olmalı; disk kökü ya da ev dizininin tamamı olamaz
-  (`/add-dir` ile aynı sınır);
+- hedef var olan bir klasör olmalı; Claude Code gibi ev dizini ve disk kökü de olabilir
+  (#81, kullanıcı kararı 2 Kasım; güvenlik davranışı değişti);
 - kullanıcının izin kurallarındaki `Cd(<glob>)` DENY kuralı hedefi engeller
   (ör. `"deny": ["Cd(//etc/**)"]`);
 - eski projenin ek klasörleri ve "oturum boyunca izin ver" kararları taşınmaz
@@ -72,8 +72,6 @@ def target_problem(state: ReplState, target: Path, *, written: Path | None = Non
         return messages.CD_NOT_FOUND
     if target == state.root.expanduser().resolve():
         return messages.CD_SAME.format(path=target)
-    if target in (Path(target.anchor), Path.home().resolve()):
-        return messages.CD_TOO_BROAD
     rules = state.permission_rules()
     for path in dict.fromkeys((target, written or target)):
         match = evaluate(rules, CD_RULE_TOOL, {"path": str(path)}, state.root)
