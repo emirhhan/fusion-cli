@@ -123,6 +123,9 @@ onayla" (RPC: `eklenti.*`, `eklenti.guncelle|dogrula|pazar_guncelle`).
 çıkmaz; git pazarları son ekleme/güncelleme anındaki klondan okunur (`pazar guncelle`). Aynı adlı
 başka kaynaklı bir pazar eskisinin yerine geçemez.
 
+Claude'un `workflows/` iş akışları ve `hooks.json` `modules` (mod) bileşenleri desteklenmez; bulunursa
+yükleme/doğrulamada "desteklenmiyor" uyarısı verilir.
+
 **Claude Code'dan farklar (Hâlâ eksik):** user kapsamı Fusion'ın kaydıdır (`kayit.json`), Claude'un
 `~/.claude/settings.json`'ına yazılmaz; kurulum yalnız user kapsamındadır (`install --scope`
 yok), `uninstall --scope project|local` "kurulu değil" der. `extraKnownMarketplaces` ve managed

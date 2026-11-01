@@ -31,6 +31,9 @@ WARN_DEFAULT_IGNORED = (
     'Varsayılan {folder}/ klasörü yok sayıldı: bildirim "{key}" alanını ayarlıyor'
 )
 ERR_PATH_MISSING = "{key} yolu bulunamadı: ./{path}"
+#: Claude Code'da olan ama Fusion'ın yüklemediği bileşenler açıkça raporlanır (#416).
+WARN_WORKFLOWS = "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor; yüklenmez"
+WARN_MODS = "hooks.json 'modules' (Claude mod'ları) Fusion'da desteklenmiyor; yüklenmez"
 ERR_AGENT_DIR = "agents girdisi .md dosyası olmalı (klasör kabul edilmez): ./{path}"
 _DEFAULTS = {
     "commands": DEFAULT_COMMANDS,
@@ -105,6 +108,7 @@ def scan_plugin(root: Path, fallback_name: str = "") -> PluginLayout:
         for key in manifest.replaced_defaults
         if (root / _DEFAULTS[key]).is_dir() and not _uses_default(manifest, key)
     ]
+    notes.extend(_unsupported(root))
     commands = _commands(root, manifest, problems)
     inline, meta = _command_map(root, manifest, problems)
     return PluginLayout(
@@ -128,6 +132,17 @@ def scan_plugin(root: Path, fallback_name: str = "") -> PluginLayout:
         tuple(problems),
         tuple(notes),
     )
+
+
+def _unsupported(root: Path) -> list[str]:
+    found = [WARN_WORKFLOWS] if (root / "workflows").is_dir() else []
+    try:
+        hooks = json.loads((root / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return found
+    if isinstance(hooks, dict) and "modules" in hooks:
+        found.append(WARN_MODS)
+    return found
 
 
 def _uses_default(manifest: PluginManifest, key: str) -> bool:

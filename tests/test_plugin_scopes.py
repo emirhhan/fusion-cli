@@ -240,3 +240,19 @@ def test_validate_olmayan_yol_cikis_2_stdout_bos(tmp_path):
     result = runner.invoke(app, ["validate", str(tmp_path / "yok")])
     assert result.exit_code == 2
     assert "beklenmeyen hata" in result.output
+
+
+# --- #416: mods ve workflows açıkça desteklenmiyor ------------------------------ #
+
+
+def test_workflows_ve_mods_desteklenmiyor_diye_raporlanir(tmp_path):
+    root = _plugin(tmp_path / "p")
+    (root / "workflows").mkdir()
+    (root / "workflows" / "yayinla.js").write_text("export default 1", encoding="utf-8")
+    (root / "hooks").mkdir()
+    (root / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {}, "modules": ["./mod.js"]}), encoding="utf-8"
+    )
+    result = runner.invoke(app, ["validate", str(root)])
+    assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in result.output
+    assert "'modules' (Claude mod'ları) Fusion'da desteklenmiyor" in result.output
