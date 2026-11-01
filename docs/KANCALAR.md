@@ -55,7 +55,7 @@ gözden geçir ya da `FUSION_HOOKS=off` kullan.
 | `PostToolUse` | araç başarıyla bitince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolUseFailure` | araç hata verince | `tool_name` | gerekçe araç sonucunun yanına |
 | `PostToolBatch` | bir araç grubunun hepsi bitince, sonraki model çağrısından önce (grup başına bir kez; girdi `tool_calls`) | — | döngü durur, gerekçe uyarı olarak konuşmada kalır; `additionalContext` sonraki çağrıya bir kez eklenir |
-| `UserPromptSubmit` | kök tur başında (zamanlanmış `/loop`/`cron_*` görevinin turu dahil) | — | istem düşer, model çağrılmaz |
+| `UserPromptSubmit` | kök tur başında (zamanlanmış `/loop`/`cron_*` görevinin turu, kabul edilen oturumlar arası mesaj ve REPL/TUI'de boştaki oturumu uyandıran arka plan görevi raporu/`asyncRewake` turu dahil) | — | istem düşer, model çağrılmaz |
 | `UserPromptExpansion` | kullanıcının yazdığı `/beceri`, `/komut` ya da `/mcp__sunucu__istem` açılırken, `UserPromptSubmit`'ten önce (girdi `expansion_type` `slash_command`/`mcp_prompt`, `command_name`, `command_args`, `command_source`, `prompt`); modelin `Skill` çağrısı tetiklemez | `command_name` | komut açılmaz, gerekçe kullanıcıya; `additionalContext` ve düz stdout açılan istemin yanına |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (art arda en çok 8) |
 | `SubagentStart` | alt ajan modele ilk kez gitmeden önce | ajan türü | alt ajan başlamaz |
@@ -105,7 +105,8 @@ ilk başarılı çalışmadan sonra kanca kalkar; ayar dosyasında yok sayılır
   `${CLAUDE_PROJECT_DIR}` düz metin olarak yerleşir); `shell` (`bash` | `powershell`);
   `async: true` arka planda çalışır, kararı beklenmez (JSON'daki `systemMessage`/
   `additionalContext` bir sonraki turda modele gider); `asyncRewake: true` çıkış 2'de
-  stderr'i (boşsa stdout'u) bir sonraki tura sistem hatırlatması olarak bırakır;
+  stderr'i (boşsa stdout'u) sistem hatırlatması olarak modele verir: oturum boştaysa REPL/TUI
+  kendi başına yeni tur başlatır (Claude gibi uyandırır), tur sürüyorsa bir sonraki tura gider;
   `onFailure: "block"` başarısızlıkta (başlatılamadı, 0/2 dışı çıkış, zaman aşımı, şema
   hatası) çıkış 2 gibi engeller (Stop/SubagentStop/TaskCompleted/TeammateIdle ve arka plan
   kancalarında etkisiz).
@@ -281,6 +282,8 @@ izleme listesinin yerine geçer; boş dizi listeyi temizler.
   tetiklenmez (listede "Fusion bu olayı tetiklemiyor").
 - `Notification` türlerinden `elicitation_dialog`, `elicitation_complete`,
   `elicitation_response` gönderilmez: Fusion'ın MCP istemcisi elicitation desteklemiyor.
+- Masaüstünde biten arka plan görevi ve `asyncRewake` boştaki sohbeti uyandırmaz; metin
+  bir sonraki turun bağlamına girer.
 - `fusion -p --init`/`--maintenance` (başsız giriş) `Setup`'ı henüz tetiklemez; etkileşimli
   `fusion --init`/`--init-only`/`--maintenance` tetikler.
 - `WorktreeCreate` kancasının kurduğu ağaçta `exit_worktree` aracı ağacı tanımaz

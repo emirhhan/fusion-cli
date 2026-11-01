@@ -117,6 +117,8 @@ class HookSession:
     tool_existed: dict[str, bool] = field(default_factory=dict)
     #: `asyncRewake` kancalarının bir sonraki tura bıraktığı metinler.
     rewake_notes: list[str] = field(default_factory=list)
+    #: `asyncRewake` çıkış 2 ile bitti: boştaki oturum yeni tur başlatır (yüzey gözcüsü).
+    wake_requested: bool = False
     #: `InstructionsLoaded` bildirilmiş talimat dosyaları ve sıradaki yükleme nedeni.
     instructions_seen: set[str] = field(default_factory=set)
     instructions_reason: str = "session_start"
@@ -325,9 +327,12 @@ class HookSession:
                 event=event,
                 services=self.services,
             )
-            text = dispatch.rewake_text(run) or dispatch.async_context(event, run)
+            rewake = dispatch.rewake_text(run)
+            text = rewake or dispatch.async_context(event, run)
             if text:
                 self.rewake_notes.append(f"{event.value} hook (async): {text}")
+            if rewake:
+                self.wake_requested = True
 
         task = asyncio.get_running_loop().create_task(_run())
         self._background.add(task)
