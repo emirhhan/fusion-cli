@@ -2,7 +2,9 @@
 
 Claude Code (code.claude.com/docs/en/skills, Frontmatter reference; hooks "Hooks in skills
 and agents"): becerinin `hooks:` bloğu beceri çağrıldığında oturumun kancalarına eklenir ve
-oturum bitene kadar çalışır. Fusion'da kayıt, oturumun `HookSession.loader`'ını saran
+oturum bitene kadar çalışır (belge: "registered when the skill is invoked and persist until the
+session ends"; bileşen yaşam döngüsüyle sınırlı değildir).
+Fusion'da kayıt, oturumun `HookSession.loader`'ını saran
 `SkillHookLoader` ile yapılır: küresel tanımlar her tur yine dosyadan okunur, becerinin
 kancaları üstüne eklenir. Aynı beceri ikinci kez çağrılınca kancası çiftlenmez.
 

@@ -5,8 +5,10 @@ Claude Code (code.claude.com/docs/en/skills, Frontmatter reference): `allowed-to
 ya da `Bash(git *)` deseni beceri etkinken onaysız kullanılır, diğer araçlar KALDIRILMAZ ve
 izin kurallarına göre davranır. Kullanıcının sonraki mesajında kalkar. `disallowed-tools`
 ise yasaktır: belge yalnız "Tools removed from Claude's available pool" diyor; desenli girdi
-(`Bash(rm *)`) Fusion'da aracın TAMAMINI yasaklar (güvenli taraf; desen anlamı belgeyle
-doğrulanana kadar, #180).
+(`Bash(rm *)`) aracın TAMAMINI yasaklar. Belge (sub-agents, `disallowedTools`) aynı alanın alt
+ajan karşılığı için bunu açıkça söyler: "A disallowedTools entry with a specifier, such as
+Bash(git push *), still removes the whole tool"; yalnız eşleşen komutu engellemek için
+`permissions.deny` kuralı önerilir (#180).
 
 Fusion'da tur sahibi turun başında `begin_turn` ile kullanıcının `/beceri` çağrısının
 kurallarını `ToolContext.skill_grants`'a yazar; modelin `Skill` aracı aynı listeye ekler.

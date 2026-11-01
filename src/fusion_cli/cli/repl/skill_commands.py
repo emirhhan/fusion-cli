@@ -85,7 +85,8 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         state.pending_mode = Mode.SUBTASK if invocation.fork else Mode.NONE
         state.pending_context = invocation.context
         # `allowed-tools` araçları daraltmaz, bu turda ön onaylar (#142). `disallowed-tools`
-        # desenli girdide (`Bash(rm *)`) aracın tamamı bu tur sunulmaz (#180, güvenli taraf).
+        # desenli girdide (`Bash(rm *)`) aracın tamamı bu tur sunulmaz (#180; Claude Code'un
+        # alt ajan `disallowedTools`'u gibi: desen aracın tamamını kaldırır).
         state.pending_tools = None
         state.pending_grants = skill_tool.grant_entries(skill, state.root)
         # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.

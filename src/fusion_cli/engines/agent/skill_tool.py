@@ -110,7 +110,7 @@ def grant_entries(skill: Capability, root: Path) -> tuple[tuple[str, str], ...]:
     """Becerinin tur kuralları: ön onay yalnız güvenilen kaynakta, yasak her zaman.
 
     `disallowed-tools` belgede "Tools removed from Claude's available pool": desenli girdi
-    (`Bash(rm *)`) de aracın TAMAMINI yasaklar (güvenli taraf; desen anlamı belgede yok).
+    (`Bash(rm *)`) de aracın TAMAMINI yasaklar (belge, sub-agents `disallowedTools`, #180).
     Model tur ortasında çağırınca araç listesi değişmez; yasak bu yüzden araç adı düzeyinde
     `deny` kuralıdır.
     """
