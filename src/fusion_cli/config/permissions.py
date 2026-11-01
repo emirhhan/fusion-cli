@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 
+from .setting_sources import SOURCE_LOCAL, source_enabled
 from .trust import PROJECT_PERMISSIONS_PATH, is_permissions_trusted
 
 #: Claude Code'un proje-yerel izin dosyası.
@@ -41,7 +42,7 @@ def has_untrusted_permissions(root: Path) -> bool:
 def load_allowed_commands(root: Path) -> frozenset[str]:
     """İzin verilen kabuk komutlarını oku (yalnız güvenilen projede)."""
     path = root / SETTINGS_PATH
-    if not is_permissions_trusted(root):
+    if not source_enabled(SOURCE_LOCAL) or not is_permissions_trusted(root):
         return frozenset()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

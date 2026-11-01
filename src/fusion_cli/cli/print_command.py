@@ -96,7 +96,6 @@ def print_command(
         "--include-hook-events": include_hooks,
         "--prompt-suggestions": prompt_suggestions,
         "--plugin-dir": bool(plugin_dir),
-        "--setting-sources": setting_sources is not None,
     }
     request = PrintRequest(
         prompt=prompt,

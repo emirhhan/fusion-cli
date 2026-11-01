@@ -111,7 +111,7 @@ düşürmez; stderr'e uyarı yazılır ve kural yalnız eşleşen çağrıya uyg
 | `--system-prompt-snapshot on\|off` | Bayraklardan gelen istem metni sohbetin ilk koşusunda kaydedilir; `-r/-c` ile sürdürülen sohbet kayıtlı metni kullanır (`off` her koşuda yeniden kurar; `--bare`'de kayıt `on` verilmedikçe kapalı). Dört istem bayrağı ve bu bayrak kök komutta (etkileşimli oturum) da geçerlidir. |
 | `--json-schema '<şema>'\|dosya` | Satır içi JSON ya da dosya; geçersiz şemada `Error: --json-schema is not a valid JSON Schema`. Tam JSON Schema denetimi; uymayan cevap iki kez yeniden denenir. |
 | `--settings <dosya\|json>` | Oturumluk ayar: `permissions.allow/ask/deny`, `permissions.defaultMode` (`--permission-mode` öncelikli), `permissions.additionalDirectories`, `model`, `env`, `disableAllHooks`. |
-| `--setting-sources user,project,local` | Değerler doğrulanır (geçersiz kaynak hata); kaynak süzme henüz etkisiz (uyarı). |
+| `--setting-sources user,project,local` | Yalnız adı geçen ayar kaynakları yüklenir: `user` (`~/.claude/settings.json` ve Fusion'ın kullanıcı `permissions.json`/`hooks.json`'ı), `project` (`.claude/settings.json`), `local` (`.claude/settings.local.json`). İzin kuralları, kancalar ve ajan ayarları için geçerlidir; `--settings` her zaman yüklenir, proje güven denetimi sürer. Liste `FUSION_SETTING_SOURCES` ile aynı süreçteki alt ajanlara ve başlatılan alt süreçlere geçer. Geçersiz kaynak hatadır. |
 | `--mcp-config <dosya\|json>…` / `--strict-mcp-config` | `.mcp.json` biçiminde ek sunucular; strict'te yalnız bunlar. Bozuk girdi atlanır, init'te `mcp_server_errors`. |
 | `--bare` | Kancalar, bellek, MCP (yalnız `--mcp-config`), proje talimatı kapalı; kullanıcı/proje becerileri, komutları, ajanları, yerleşik alt ajanlar ve eklentiler keşfedilmez (`--add-dir` becerileri ve `--agents` yüklenir); araçlar Bash + dosya okuma/düzenleme. `CLAUDE_CODE_SIMPLE=1` ayarlanır. Kök komutta (etkileşimli `fusion --bare`) da geçerlidir. |
 | `--add-dir <dizin>…` | Ek erişim kökleri; var olan dizin olmalı. |
@@ -142,7 +142,7 @@ başlığı olarak ekler (virgülle ya da boşlukla birden çok değer). Yalnız
 giden (`anthropic/…`) modellere uygulanır; başka sağlayıcıya başlık gönderilmez.
 
 Kabul edilip Fusion'da henüz etkisi olmayan bayraklar (`--include-hook-events`,
-`--prompt-suggestions`, `--plugin-dir`, `--setting-sources` kaynak süzmesi)
+`--prompt-suggestions`, `--plugin-dir`)
 stderr'e "etkisiz" uyarısı yazar; sessizce düşmez.
 
 `--permission-prompt-tool mcp__<sunucu>__<araç>` onay gereken her çağrıyı o MCP aracına

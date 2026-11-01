@@ -14,6 +14,7 @@ from pathlib import Path
 from ..config.loader import load_config
 from ..config.models import Config
 from ..config.permission_rules import PermissionRule
+from ..config.setting_sources import set_setting_sources
 from ..core.errors import ConfigError
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.team import Persona
@@ -188,7 +189,10 @@ def build_plan(request: PrintRequest, *, root: Path) -> PrintPlan:
     fmt, stream_input = _check_formats(request)
     schema = opts.parse_json_schema(request.json_schema)
     check_snapshot(request.system_prompt_snapshot)
-    check_setting_sources(request.setting_sources)
+    sources = check_setting_sources(request.setting_sources)
+    if sources is not None:
+        # Yükleyiciler (`load_config` dahil) okumadan önce ayarlanmalı (#296).
+        set_setting_sources(sources)
     session_id = opts.checked_session_id(request.session_id)
     config, mcp_errors, settings = _build_config(request)
     session = read_settings(settings)

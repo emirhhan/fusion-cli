@@ -36,6 +36,7 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from .paths import user_config_dir
+from .setting_sources import layer_enabled
 from .trust import (
     PROJECT_PERMISSIONS_PATH,
     PROJECT_SETTINGS_PATH,
@@ -195,6 +196,8 @@ def load_permission_rules(
     rules: list[PermissionRule] = []
     untrusted: list[str] = []
     for layer in rule_layers(root):
+        if not layer_enabled(layer.name):  # `--setting-sources` (#296)
+            continue
         found = read_rules_file(layer.path, source=layer.name)
         if layer.requires_trust and layer.path.is_file() and not _layer_trusted(layer, root):
             untrusted.append(layer.name)

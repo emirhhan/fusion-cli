@@ -10,7 +10,8 @@ karşılığı olan anahtarlar:
 - `env` → koşunun ortam değişkenleri,
 - `disableAllHooks: true` → kancalar kapalı.
 
-`--setting-sources user,project,local` değerleri doğrulanır; geçersiz kaynak hatadır.
+`--setting-sources user,project,local` değerleri doğrulanır (geçersiz kaynak hatadır) ve
+yalnız adı geçen katmanlar yüklenir (bkz. `config/setting_sources.py`).
 """
 
 from __future__ import annotations
