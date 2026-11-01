@@ -111,6 +111,7 @@ from .browser_panel import BrowserPanel
 from .bypass_policy import bypass_policy_disabled
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
+from .side_chat import SIDE_CHAT_ROUTE, ask_side
 from .chrome_bridge import ChromeBridge
 from .chrome_group import schedule_group_close
 from .chrome_install import install_status
@@ -993,6 +994,9 @@ class AppSession:
             return await dispatch_desktop(
                 self._desktop_dock, self._desktop_activity, request.name, request.data
             )
+        if request.name == SIDE_CHAT_ROUTE:
+            # Yan sohbet (#444): ana geçmişi okur, değiştirmez; araç yok.
+            return await ask_side(self._state.config, list(self._state.history), request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name in CHROME_SETTINGS_ROUTES:

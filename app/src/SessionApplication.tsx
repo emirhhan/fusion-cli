@@ -89,6 +89,8 @@ import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { HelpScreen } from "./help/HelpScreen";
 import { Notification, insanDogrulamasiGerekiyor } from "./notify/Notification";
 import { Settings } from "./settings/Settings";
+import { useViewMode } from "./settings/viewMode";
+import { SideChat } from "./sidechat/SideChat";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
@@ -595,6 +597,9 @@ export function SessionUygulama({
   // Ajanın çalıştırdığı site (`PreviewReady`): önizleme panelinde açılır.
   const [requestedPreview, setRequestedPreview] = useState<{ url: string; seq: number } | null>(null);
   const showSteps = useShowSteps();
+  const viewMode = useViewMode();
+  // Yan sohbet (#444, ⌘;): ana sohbete eklemeden soru sorma bölmesi.
+  const [sideChatOpen, setSideChatOpen] = useState(false);
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
@@ -1004,6 +1009,7 @@ export function SessionUygulama({
       },
       closePane: () => { if (layout.inspectorOpen) layout.closeInspector(); else split.close(); },
       runCommand: (input) => commandRunner.current(input),
+      toggleSideChat: active?.status === "ready" ? () => setSideChatOpen((open) => !open) : undefined,
     },
     chats: [
       ...controller.sessions.map((session) => ({ id: session.id, title: session.title, project: projectName(session.root) })),
@@ -1708,6 +1714,7 @@ export function SessionUygulama({
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
+      viewMode={viewMode}
       onReadAloud={async (text) => {
         const generation = ++manualVoiceGeneration.current;
         await manualVoiceTurn.current?.cancel();
@@ -2058,6 +2065,9 @@ export function SessionUygulama({
               onClose={() => setKitSendText(null)}
               request={requestKitsHost}
             />
+          )}
+          {sideChatOpen && active.status === "ready" && (
+            <SideChat client={active.client} key={active.id} onClose={() => setSideChatOpen(false)} />
           )}
           {shareOpen && (
             <ShareDialog

@@ -1,3 +1,4 @@
+import { cycleViewMode } from "../settings/viewMode";
 import { COMMAND_PREFIX } from "./keys";
 
 /**
@@ -27,6 +28,8 @@ export interface AppActionDeps {
   closeActiveSession: () => boolean;
   toggleDiff: () => void;
   closePane: () => void;
+  /** Yan sohbeti aç/kapat (Claude Desktop ⌘;, #444); etkin oturum yoksa verilmez. */
+  toggleSideChat?: () => void;
   /** `komut:<ad>` bağı: slash komutunu çalıştır. */
   runCommand: (command: string) => void;
 }
@@ -62,10 +65,17 @@ export function runAppAction(action: string, deps: AppActionDeps): boolean {
     bolmeyi_kapat: deps.closeSplit,
     fark_paneli: deps.toggleDiff,
     paneli_kapat: deps.closePane,
+    // Claude Desktop Ctrl+O: Verbose / Normal / Summary (#444).
+    gorunum_kipi: () => { cycleViewMode(); },
   };
   if (action === "sonraki_oturum") return deps.cycleChat(1);
   if (action === "onceki_oturum") return deps.cycleChat(-1);
   if (action === "oturumu_kapat") return deps.closeActiveSession();
+  if (action === "yan_sohbet") {
+    if (!deps.toggleSideChat) return false;
+    deps.toggleSideChat();
+    return true;
+  }
   const run = simple[action];
   if (!run) return false;
   run();

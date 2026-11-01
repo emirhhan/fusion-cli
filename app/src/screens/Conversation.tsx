@@ -11,6 +11,7 @@ import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
 import { PlanCard } from "./PlanCard";
 import { DiffCard } from "../markdown/DiffCard";
+import { VIEW_MODE_LABELS, type ViewMode } from "../settings/viewMode";
 import { ActivityLine, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
 import { AgentActivity } from "./AgentActivity";
@@ -250,6 +251,8 @@ export interface ConversationProps {
   onOpenFile?: (path: string) => void;
   /** Ayarlardaki "adımları göster" tercihi. */
   showSteps?: boolean;
+  /** Görünüm kipi (#444, Ctrl+O): Ayrıntılı tüm adımları açar, Özet biten çalışmayı gizler. */
+  viewMode?: ViewMode;
   /** Takip önerisine tıklanınca çağrılır. Verilmezse rozetler çizilmez. */
   onOneriSec?: (gorev: string) => void;
   /** Başarısız yanıtın "Hatayı bildir" düğmesi. Verilmezse düğme çizilmez. */
@@ -315,7 +318,9 @@ export function Conversation({
   onOpenPreview,
   running = true,
   showSteps = false,
+  viewMode = "normal",
 }: ConversationProps) {
+  const stepsVisible = showSteps || viewMode === "verbose";
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   const sonCalisanOlay = mesajlar.reduce((last, message, index) => (
@@ -436,7 +441,7 @@ export function Conversation({
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
                   tokenSayisi={message.tokenSayisi}
-                  showSteps={showSteps}
+                  showSteps={stepsVisible}
                 />
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
@@ -468,8 +473,10 @@ export function Conversation({
           };
           return workGroups(mesajlar, running).map((group) => {
             if (!group.work) return renderMessage(group.entries[0].message, group.entries[0].index);
+            // Özet kipinde biten çalışma görünmez; yalnız sonuç kalır (Claude Desktop Summary).
+            if (viewMode === "summary" && group.completed) return null;
             const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => renderMessage(message, index))}</div>;
-            return group.completed ? <details className="conversation__work-details" key={group.entries[0].index}>
+            return group.completed ? <details className="conversation__work-details" key={group.entries[0].index} open={viewMode === "verbose" || undefined}>
               <summary>{workDuration(group.turn)}</summary>{content}
             </details> : <div className="conversation__work" key={group.entries[0].index}>{content}</div>;
           });
@@ -483,6 +490,9 @@ export function Conversation({
       {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek
           gürültüdür ve görsel tarafta da kaldırıldı. */}
+      {viewMode !== "normal" && (
+        <p className="conversation__view-mode" data-mode={viewMode}>Görünüm: {VIEW_MODE_LABELS[viewMode]} · Ctrl+O değiştirir</p>
+      )}
       <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
         {sonDurum === "running" && running ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
       </div>

@@ -173,6 +173,14 @@
 /* Adım satırları anlatım metniyle aynı sol çizgiden başlar. */
 .conversation__message--event { padding: 0 8px; }
 
+/* Görünüm kipi (#444, Ctrl+O): Normal dışındaki kipte akışın altında küçük bir not. */
+.conversation__view-mode {
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  margin: 4px auto 0;
+  text-align: center;
+}
+
 /* Canlı durum yalnız ekran okuyucuya duyurulur; görsel durum ActivityLine'da
    zaten bir kez gösterilir. Bu kural eksik olduğunda sayfanın solunda ikinci
    bir “Çalışıyor” satırı beliriyordu. */

@@ -13,7 +13,10 @@
     "ctrl+`": "terminal",
     "mod+\\": "paneli_kapat",
     "mod+[": "geri",
-    "mod+]": "ileri"
+    "mod+]": "ileri",
+    "mod+ctrl+w": "bolmeyi_kapat",
+    "ctrl+o": "gorunum_kipi",
+    "mod+;": "yan_sohbet"
   },
   "eski_varsayilan": {
     "mod+k": "palet",
@@ -52,6 +55,8 @@
     "paylas": "Sohbeti dışa aktar",
     "yardim": "Yardım",
     "bolmeyi_kapat": "Yan bölmeyi kapat",
+    "yan_sohbet": "Yan sohbeti aç/kapat",
+    "gorunum_kipi": "Görünüm kipini değiştir (Normal / Ayrıntılı / Özet)",
     "sohbet_1": "1. sohbete geç",
     "sohbet_2": "2. sohbete geç",
     "sohbet_3": "3. sohbete geç",
