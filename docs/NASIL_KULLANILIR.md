@@ -1238,15 +1238,17 @@ plan `~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.pla
 ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
 ve "Plan hazır — uygulansın mı?" kartı çıkar:
 
-- **Evet, otomatik kipte uygula** → `auto` kipine geçer ve planı uygulamaya başlar.
-- **Evet, düzenlemeleri kabul ederek uygula** → `edits` kipi.
-- **Evet, her adımda sor** → `security` (manuel) kipi.
+- **Evet, ve otomatik kipi kullan** (Claude "Yes, and use auto mode") → `auto` kipine geçer ve
+  planı uygulamaya başlar. Otomatik kip kapalıysa (`disableAutoMode`) bu seçenek **Evet,
+  düzenlemeleri otomatik kabul et** (`edits`) olur; oturum bypass kullanılabilir başladıysa
+  **Evet, ve bu oturum için İZİNLERİ ATLA kipine geç** (`bypass`) olur.
+- **Evet, düzenlemeleri elle onayla** → `security` (manuel) kipi.
 - **Hayır, planlamaya devam et** → plan kipinde kalır.
 
 Kart YALNIZ `exit_plan_mode` çağrısında açılır: araç çağrılmayan cevap (soru, sohbet,
 başlıklı ara not) dosyayı değiştirmez ve kart açmaz; yeni plan eskisinin üzerine
-yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum boyunca verilen
-izinler sıfırlanır; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
+yazılırken eskisi `<sohbet>.onceki.md` olarak saklanır. Kabulde oturum izinleri korunur;
+adsız oturuma plandan başlık verilir; uygulama görevi plan dosyasının yolunu taşır. Terminalde `/plan goster` planı basar, `/plan ac` `VISUAL`/`EDITOR` ile açar
 (Claude Code'daki Ctrl+G karşılığı). Masaüstünde sohbette "Plan dosyası" kartı durur:
 "Editörde aç" ve "Konumunu göster". Boru/CI gibi etkileşimsiz ortamda kart açılmaz,
 yalnız yol basılır.

@@ -1,9 +1,11 @@
 """Plan kipi kabul kartı ve `/plan` alt komutları (P-025, REPL yüzeyi).
 
-Masaüstündeki "Plan hazır" kartıyla (`SessionApplication.tsx`) AYNI dört seçenek ve
-aynı sıra: otomatik kip / düzenlemeleri kabul / her adımda sor / planlamaya devam.
-Kabul edilen kip `ReplState.approval`'a yazılır, oturum izinleri sıfırlanır ve
-uygulama görevi sonraki tur olarak döner (`loop.py`/`tui_loop.py` çalıştırır).
+Claude Code (permission-modes, "Review and approve a plan") üç seçenek sunar (#325):
+"Yes, and use auto mode" (otomatik kip yoksa "Yes, auto-accept edits"; bypass açık
+başladıysa "Yes, and switch to BYPASS PERMISSIONS…") / "Yes, manually approve edits" /
+"No, keep planning". Masaüstü kartı (`SessionApplication.tsx`) aynı üçlüdür. Kabul edilen kip
+`ReplState.approval`'a yazılır; oturum izinleri korunur (belgede sıfırlama yok). Adsız oturuma
+plandan başlık verilir. Uygulama görevi sonraki tur olarak döner.
 """
 
 from __future__ import annotations
@@ -19,9 +21,11 @@ from ...engines.agent.approval import ApprovalMode
 from ...ui import messages, theme
 from ...ui.picker import Choice, pick
 from .state import ReplState
+from .transcript_store import TranscriptStore
 
 CHOICE_AUTO = "auto"
 CHOICE_EDITS = "edits"
+CHOICE_BYPASS = "bypass"
 CHOICE_SECURITY = "security"
 CHOICE_KEEP_PLANNING = "plan"
 
@@ -29,19 +33,47 @@ CHOICE_KEEP_PLANNING = "plan"
 _MODES: dict[str, ApprovalMode | None] = {
     CHOICE_AUTO: ApprovalMode.AUTO,
     CHOICE_EDITS: ApprovalMode.ACCEPT_EDITS,
+    CHOICE_BYPASS: ApprovalMode.BYPASS,
     CHOICE_SECURITY: ApprovalMode.SECURITY,
     CHOICE_KEEP_PLANNING: None,
 }
 
 
-def choices() -> tuple[Choice, ...]:
-    """Kartın seçenekleri; masaüstü kartıyla aynı metin ve sıra."""
+def choices(state: ReplState | None = None) -> tuple[Choice, ...]:
+    """Kartın seçenekleri (Claude sırası); ilk seçenek oturumun durumuna göre değişir."""
     return (
-        Choice(CHOICE_AUTO, messages.PLAN_CARD_AUTO, messages.PLAN_CARD_AUTO_DESC),
-        Choice(CHOICE_EDITS, messages.PLAN_CARD_EDITS, messages.PLAN_CARD_EDITS_DESC),
+        _primary(state),
         Choice(CHOICE_SECURITY, messages.PLAN_CARD_SECURITY, messages.PLAN_CARD_SECURITY_DESC),
         Choice(CHOICE_KEEP_PLANNING, messages.PLAN_CARD_KEEP, messages.PLAN_CARD_KEEP_DESC),
     )
+
+
+def _primary(state: ReplState | None) -> Choice:
+    if state is not None and getattr(state, "bypass_available", False):
+        return Choice(CHOICE_BYPASS, messages.PLAN_CARD_BYPASS, messages.PLAN_CARD_BYPASS_DESC)
+    if state is not None and not _auto_available(state):
+        return Choice(CHOICE_EDITS, messages.PLAN_CARD_EDITS, messages.PLAN_CARD_EDITS_DESC)
+    return Choice(CHOICE_AUTO, messages.PLAN_CARD_AUTO, messages.PLAN_CARD_AUTO_DESC)
+
+
+def _auto_available(state: ReplState) -> bool:
+    """Otomatik kip bu oturumda kullanılabilir mi (`disableAutoMode`, desteklenen modeller)?"""
+    settings = getattr(state.config, "agent_launch", None)
+    if settings is None:
+        return True
+    supported = getattr(settings, "auto_supported_models", ())
+    return not settings.disable_auto_mode and (
+        not supported or state.config.agent.model in supported
+    )
+
+
+def _title_from_plan(text: str | None) -> str:
+    """Plandan oturum başlığı: ilk başlık ya da ilk dolu satır (en çok 60 karakter)."""
+    for line in (text or "").splitlines():
+        cleaned = line.strip().lstrip("#").strip().strip("*").strip()
+        if cleaned:
+            return cleaned[:60].rstrip()
+    return ""
 
 
 def mode_for(choice: str | None) -> ApprovalMode | None:
@@ -50,13 +82,25 @@ def mode_for(choice: str | None) -> ApprovalMode | None:
 
 
 def accept(state: ReplState, mode: ApprovalMode) -> str:
-    """Planı kabul et: kipi değiştir, oturum izinlerini sıfırla, uygulama görevini ver."""
+    """Planı kabul et: kipi değiştir, adsız oturuma başlık ver, uygulama görevini döndür."""
     path = state.pending_plan or plan_mode.plan_path(state.conversation_id)
     state.pending_plan = None
-    if mode is not state.approval:
-        state.approval_memory.revoke()
     state.approval = mode
+    if not state.conversation_name.strip():
+        title = _title_from_plan(plan_mode.read_plan(state.conversation_id))
+        if title:
+            _name_session(state, title)
     return messages.PLAN_IMPLEMENT_TASK.format(path=path)
+
+
+def _name_session(state: ReplState, title: str) -> None:
+    try:
+        TranscriptStore(
+            state.config.memory_dir, state.root, conversation_id=state.conversation_id
+        ).record_name(title)
+    except OSError:
+        return
+    state.conversation_name = title
 
 
 def decline(state: ReplState) -> str:
@@ -78,7 +122,7 @@ async def offer(state: ReplState, console: Console, *, interactive: bool) -> str
     if not interactive:
         state.pending_plan = None
         return None
-    selected = pick(list(choices()), title=messages.PLAN_CARD_TITLE)
+    selected = pick(list(choices(state)), title=messages.PLAN_CARD_TITLE)
     mode = mode_for(selected)
     if mode is None:
         console.print(f"[{theme.DIM}]{decline(state)}[/{theme.DIM}]")
@@ -134,6 +178,7 @@ def command(state: ReplState, argument: str) -> str:
 
 __all__ = [
     "CHOICE_AUTO",
+    "CHOICE_BYPASS",
     "CHOICE_EDITS",
     "CHOICE_KEEP_PLANNING",
     "CHOICE_SECURITY",

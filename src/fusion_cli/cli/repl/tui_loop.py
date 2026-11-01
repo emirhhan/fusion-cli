@@ -737,7 +737,7 @@ class _TuiSession:
         if pending is None:
             return
         self._echo(f"[{theme.DIM}]{escape(messages.PLAN_SAVED.format(path=pending))}[/{theme.DIM}]")
-        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices()))
+        selected = await self._tui.await_choice(messages.PLAN_CARD_TITLE, list(plan_card.choices(self._state)))
         mode = plan_card.mode_for(selected)
         if mode is None:
             self._echo(f"[{theme.DIM}]{plan_card.decline(self._state)}[/{theme.DIM}]")

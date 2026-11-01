@@ -260,34 +260,58 @@ def state(tmp_path: Path) -> ReplState:
     return durum
 
 
-def test_kabul_karti_secenekleri_masaustu_kartiyla_ayni_sirada() -> None:
-    etiketler = [choice.value for choice in plan_card.choices()]
+def test_kabul_karti_claude_uclusu(state: ReplState) -> None:
+    """Claude Code: 'Yes, and use auto mode' / 'Yes, manually approve edits' / 'No, keep planning' (#325)."""
+    etiketler = [choice.value for choice in plan_card.choices(state)]
     assert etiketler == [
         plan_card.CHOICE_AUTO,
-        plan_card.CHOICE_EDITS,
         plan_card.CHOICE_SECURITY,
         plan_card.CHOICE_KEEP_PLANNING,
     ]
     assert plan_card.mode_for(plan_card.CHOICE_AUTO) is ApprovalMode.AUTO
     assert plan_card.mode_for(plan_card.CHOICE_EDITS) is ApprovalMode.ACCEPT_EDITS
+    assert plan_card.mode_for(plan_card.CHOICE_BYPASS) is ApprovalMode.BYPASS
     assert plan_card.mode_for(plan_card.CHOICE_SECURITY) is ApprovalMode.SECURITY
     assert plan_card.mode_for(plan_card.CHOICE_KEEP_PLANNING) is None
     assert plan_card.mode_for(None) is None
 
 
-def test_kabul_kipi_degistirir_izinleri_sifirlar_ve_uygulama_gorevi_doner(state: ReplState) -> None:
+def test_otomatik_kip_yoksa_duzenlemeleri_kabul_secenegi(state: ReplState) -> None:
+    from dataclasses import replace
+
+    state.config = replace(
+        state.config, agent_launch=replace(state.config.agent_launch, disable_auto_mode=True)
+    )
+    ilk = plan_card.choices(state)[0]
+    assert ilk.value == plan_card.CHOICE_EDITS and ilk.label == messages.PLAN_CARD_EDITS
+
+
+def test_bypass_kullanilabilirse_bypass_secenegi(state: ReplState) -> None:
+    state.bypass_available = True
+    ilk = plan_card.choices(state)[0]
+    assert ilk.value == plan_card.CHOICE_BYPASS and ilk.label == messages.PLAN_CARD_BYPASS
+
+
+def test_kabul_kipi_degistirir_izinleri_sifirlamaz_ve_ad_verir(state: ReplState) -> None:
     sifirlandi: list[bool] = []
-    monkeypatch_revoke = state.approval_memory.revoke
-    state.approval_memory.revoke = lambda: (sifirlandi.append(True), monkeypatch_revoke())  # type: ignore[method-assign]
-    yol = plan_mode.save_plan(state.conversation_id, "# Plan\n1. a")
+    state.approval_memory.revoke = lambda: sifirlandi.append(True)  # type: ignore[method-assign]
+    yol = plan_mode.save_plan(state.conversation_id, "# Giriş sayfası yenileme\n1. a")
     state.pending_plan = yol
 
     gorev = plan_card.accept(state, ApprovalMode.ACCEPT_EDITS)
 
     assert state.approval is ApprovalMode.ACCEPT_EDITS
-    assert sifirlandi == [True]
+    assert sifirlandi == [], "Claude belgesinde onayda izin sıfırlama yok"
     assert state.pending_plan is None
     assert gorev == messages.PLAN_IMPLEMENT_TASK.format(path=yol)
+    assert state.conversation_name == "Giriş sayfası yenileme"
+
+
+def test_adli_oturumun_adi_degismez(state: ReplState) -> None:
+    state.conversation_name = "benim"
+    state.pending_plan = plan_mode.save_plan(state.conversation_id, "# Başka")
+    plan_card.accept(state, ApprovalMode.AUTO)
+    assert state.conversation_name == "benim"
 
 
 def test_planlamaya_devam_kipi_degistirmez(state: ReplState) -> None:

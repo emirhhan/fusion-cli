@@ -2032,20 +2032,19 @@ export function SessionUygulama({
               soru={{
                 tur: "soru",
                 soru: "Bu plan uygulansın mı?",
+                // Claude Code plan onayı üçlüsü (#325): auto / elle onay / planlamaya devam.
                 secenekler: [
-                  { etiket: "Evet, otomatik kipte uygula", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
-                  { etiket: "Evet, düzenlemeleri kabul ederek uygula", aciklama: "Dosya düzenlemeleri sorulmaz; komutlar için izin ister." },
-                  { etiket: "Evet, her adımda sor", aciklama: "Manuel kipte uygular; her yazma ve komut için izin ister." },
+                  { etiket: "Evet, ve otomatik kipi kullan", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
+                  { etiket: "Evet, düzenlemeleri elle onayla", aciklama: "Manuel kipte uygular; her yazma ve komut için izin ister." },
                   { etiket: "Hayır, planlamaya devam et", aciklama: "Plan kipinde kalır; planı birlikte düzeltebilirsiniz." },
                 ],
-                onerilen: "Evet, otomatik kipte uygula",
+                onerilen: "Evet, ve otomatik kipi kullan",
               }}
               onCevap={(cevap) => {
                 setPlanHazir(null);
                 const metin = String(cevap.metin ?? "");
-                const yeniKip: ApprovalMode | null = metin.startsWith("Evet, otomatik") ? "auto"
-                  : metin.startsWith("Evet, düzenlemeleri") ? "edits"
-                  : metin.startsWith("Evet, her") ? "security" : null;
+                const yeniKip: ApprovalMode | null = metin.startsWith("Evet, ve otomatik") ? "auto"
+                  : metin.startsWith("Evet, düzenlemeleri elle") ? "security" : null;
                 if (!yeniKip) return;
                 // Mod çekirdekte değişmediyse plan "uygulanmış" sayılmaz: hata görünür, mesaj gitmez.
                 void changeApproval(yeniKip).then((degisti) => {
