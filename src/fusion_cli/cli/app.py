@@ -255,6 +255,10 @@ def main_callback(
         raise typer.Exit(1) from None
     if tree is not None and worktree.strip():
         _print_worktree_notice(tree)
+    from .startup_trust import offer_startup_trust
+
+    # Claude gibi açılışta klasör güveni (#71): güvenilmeyen proje ayarı varsa sorulur.
+    offer_startup_trust(root, lambda line: console.print(escape(line)))
     exit_code = asyncio.run(
         with_web_cleanup(
             run_repl(

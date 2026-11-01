@@ -167,7 +167,9 @@ Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek 
 
 Güven Claude Code'daki gibi **klasöre** bağlıdır: depoda git köküne (alt dizinler dahil, iç
 içe depo hariç), depo dışında başlatılan dizine ve alt dizinlerine. Dosya sonradan değişse de
-güven düşmez. Ayar dosyalarındaki `permissions.additionalDirectories` ek çalışma dizini olur
+güven düşmez. Etkileşimli `fusion` açılışında proje ayarı var ama klasöre güvenilmiyorsa Claude
+Code gibi güven sorulur ve güvenince etkin olacak allow kuralları listelenir (`e` = `fusion trust`;
+etkileşimsiz girişte sorulmaz). Ayar dosyalarındaki `permissions.additionalDirectories` ek çalışma dizini olur
 (proje/yerel dosyada güven ister); `permissions.blockReadsOutsideWorkingDirectories: true`
 herhangi bir dosyada kök dışı okumayı kapatır. Yönetilen dosyadaki
 `allowManagedPermissionRulesOnly: true` kullanıcı/proje/yerel dosyaların ve `--allowedTools`'un
