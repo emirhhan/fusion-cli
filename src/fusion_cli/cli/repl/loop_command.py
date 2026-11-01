@@ -202,8 +202,19 @@ def runs_as_command(prompt: str, capabilities: object | None) -> bool:
     if get_skill is None:
         return False
     name, _argument = parse(prompt)
+    if _is_builtin(name):
+        # Yerleşik komut aynı adlı beceriyi gölgeler (`CommandRegistry.get`): satır enjekte
+        # edilirse beceri değil yerleşik komut çalışırdı.
+        return False
     skill = get_skill(name)
     return skill is not None and bool(getattr(skill, "model_invocable", False))
+
+
+def _is_builtin(name: str) -> bool:
+    from .commands import build_registry
+
+    registry = build_registry()
+    return registry.get(name) is not None and not registry.is_dynamic(name)
 
 
 def _is_slash(prompt: str) -> bool:

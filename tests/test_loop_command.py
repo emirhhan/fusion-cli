@@ -787,3 +787,14 @@ def test_tui_esc_beklemedeki_kendi_tempolu_donguyu_durdurur(state: ReplState) ->
     assert [task.id for task in kalan] == [aralik.id]
     assert kendi.id not in {task.id for task in kalan}
     assert all(task.kind is not Kind.SELF_PACED for task in kalan)
+
+
+def test_yerlesik_komutla_ayni_adli_beceri_komut_olarak_calismaz() -> None:
+    """Yerleşik komut beceriyi gölgeler (`CommandRegistry.get`): `/bypass` adlı beceri olsa da
+    zamanlanan satır yerleşik `/bypass`'ı çalıştırmamalı (bağımsız inceleme #6)."""
+    from types import SimpleNamespace
+
+    beceriler = {ad: SimpleNamespace(model_invocable=True) for ad in ("bypass", "mode", "model")}
+    katalog = SimpleNamespace(get_skill=beceriler.get)
+    for gorev in ("/bypass", "/mode hizli", "/MODEL x"):
+        assert not loop_command.runs_as_command(gorev, katalog), gorev
