@@ -2023,13 +2023,9 @@ class AppSession:
                 tarayici = self._state.config.browser
                 deger = bool(sonuc["deger"])
                 anahtar = sonuc["anahtar"]
-                yeni_tarayici = (
-                    replace(tarayici, headless=deger)
-                    if anahtar == "headless"
-                    else replace(tarayici, panel_agent=deger)
-                    if anahtar == "panel_agent"
-                    else replace(tarayici, profiles_enabled=deger)
-                )
+                # Anahtar `browser_profiles._BOOL_SETTINGS` içindedir (headless, profiles_enabled,
+                # panel_agent, tools #439).
+                yeni_tarayici = replace(tarayici, **{anahtar: deger})
                 self._state.config = replace(self._state.config, browser=yeni_tarayici)
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}

@@ -33,6 +33,7 @@ interface ProfilesResponse {
   varsayilan?: string;
   headless?: boolean;
   panel_ajan?: boolean;
+  araclar?: boolean;
   etkin?: boolean;
   anahtar_var?: boolean;
   metin?: string;
@@ -64,6 +65,7 @@ export function WebSessions({ client }: { client: ProtocolClient }) {
   const [enabled, setEnabled] = useState(true);
   const [headless, setHeadless] = useState(true);
   const [panelAgent, setPanelAgent] = useState(true);
+  const [browserTools, setBrowserTools] = useState(true);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,6 +85,7 @@ export function WebSessions({ client }: { client: ProtocolClient }) {
       setEnabled(result.etkin !== false);
       setHeadless(result.headless !== false);
       setPanelAgent(result.panel_ajan !== false);
+      setBrowserTools(result.araclar !== false);
       setError(result.anahtar_var === false ? result.metin ?? "" : "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Profiller okunamadı.");
@@ -120,7 +123,7 @@ export function WebSessions({ client }: { client: ProtocolClient }) {
     await run("tarayici.varsayilan", { ad: name }, "Varsayılan profil ayarlanamadı.");
   };
 
-  const setSetting = async (key: "headless" | "profiles_enabled" | "panel_agent", value: boolean) => {
+  const setSetting = async (key: "headless" | "profiles_enabled" | "panel_agent" | "tools", value: boolean) => {
     await run("tarayici.ayar", { anahtar: key, deger: value }, "Tarayıcı ayarı yazılamadı.");
   };
 
@@ -200,6 +203,16 @@ export function WebSessions({ client }: { client: ProtocolClient }) {
             type="checkbox"
           />
           <span>Ajan uygulama içi Tarayıcı panelini kullansın; tarayıcı turlar arasında açık kalır (browser.panel_agent)</span>
+        </label>
+        <label className="settings__row settings__row--check">
+          <input
+            checked={browserTools}
+            disabled={busy}
+            id="websession-browser-tools"
+            onChange={(event) => void setSetting("tools", event.target.checked)}
+            type="checkbox"
+          />
+          <span>Browser tools: ajan yerleşik tarayıcı araçlarını kullanabilsin; kapalıyken panel yalnız senin içindir (browser.tools)</span>
         </label>
         {!enabled && <p className="settings__inline-error" role="status">Profiller kapalı: ajan hiçbir oturumu yüklemez; açık istek bile reddedilir.</p>}
         {profiles.length === 0 ? (

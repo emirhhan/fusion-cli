@@ -1063,6 +1063,9 @@ browser:
   # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
   # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
   panel_agent: true
+  # Ayarlar › Browser tools (Claude Desktop): false ise ajan `browser_*` araçlarını görmez;
+  # Tarayıcı paneli kullanıcı için çalışmaya devam eder.
+  tools: true
 
 # run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
 # runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,

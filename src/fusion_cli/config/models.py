@@ -607,6 +607,9 @@ class BrowserConfig:
     #: Masaüstü Tarayıcı paneli (P-045): ajanın `browser_*` araçları paneldeki paylaşılan
     #: tarayıcıda çalışır (canlı izlenir, devralınır). false: tur başına ayrı başsız tarayıcı.
     panel_agent: bool = True
+    #: Claude Desktop Ayarlar › "Browser tools" (#439): false ise ajan `browser_*` araçlarını
+    #: görmez; Tarayıcı paneli kullanıcı için çalışmaya devam eder.
+    tools: bool = True
 
 
 @dataclass(frozen=True, slots=True)

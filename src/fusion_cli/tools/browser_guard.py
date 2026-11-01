@@ -21,6 +21,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from ..core.constants import MAX_WEB_REDIRECTS
+from .browser_policy import navigation_blocked
 from .web import browser_block_reason
 
 #: Playwright nesneleri (`core`/RULES gereği playwright burada import edilmez; tip gevşek).
@@ -65,6 +66,10 @@ class RequestGuard:
         """`context.route` geri çağırımı: geçenleri sürdür, kalanları iptal et."""
         url = str(route.request.url)
         reason = await self.reason_for(url)
+        if reason is None and _is_navigation(route):
+            # Yönetici ayarı (#439): tık/yönlendirme ile dış siteye gezinme de kapalı; alt
+            # kaynaklar (localhost sayfasının CDN betiği) etkilenmez.
+            reason = navigation_blocked(url)
         if reason is not None:
             self.blocked.append(f"{url} ({reason})")
             await route.abort(BLOCKED_ERROR)
@@ -114,6 +119,13 @@ async def install_request_guard(
     guard = RequestGuard(allowed_local)
     await context.route("**/*", guard.handle)
     return guard
+
+
+def _is_navigation(route: PlaywrightObject) -> bool:
+    try:
+        return bool(route.request.is_navigation_request())
+    except Exception:  # sahte/eski Playwright nesnesi: gezinme sayılmaz
+        return False
 
 
 def blocked_hint(exc: Exception) -> str:
