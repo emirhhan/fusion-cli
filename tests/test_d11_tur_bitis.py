@@ -13,7 +13,7 @@ import asyncio
 from dataclasses import replace
 
 from fusion_cli.core.events import StatusChanged
-from fusion_cli.core.types import ModelResult
+from fusion_cli.core.types import Message, ModelResult
 from fusion_cli.engines.agent import compaction
 from fusion_cli.engines.agent import history as agent_history
 from fusion_cli.engines.agent.loop import run_agent
@@ -88,10 +88,16 @@ async def test_bitis_ogretmeni_dusup_ozet_asilsa_da_tur_kanitlarla_biter(
     saglayici = _AsiliSaglayici()
     monkeypatch.setattr(compaction, "build_provider", lambda *a, **k: saglayici)
     monkeypatch.setattr(agent_history, "needs_compression", lambda *a, **k: True)
-    monkeypatch.setattr(agent_history, "safe_cut", lambda messages: 4)
+    monkeypatch.setattr(agent_history, "safe_cut", lambda messages: len(messages) - 1)
     monkeypatch.setattr(compaction, "SUMMARY_TIMEOUT_S", 0.05)
+    # Kök tur (sistem + ilk gerçek kullanıcı turu, "MAVİ-KEDİ") hiç özetlenmez; tek turlu
+    # konuşmada tur sonu özetine girecek bir şey kalmaz. Özetin gerçekten denenmesi için
+    # önceki bir tur verilir; bu tur ikinci gerçek kullanıcı turu olur.
+    onceki = [Message("user", "Önceki iş: README'yi oku."), Message("assistant", "Okudum.")]
 
-    sonuc = await asyncio.wait_for(run_agent("src/app.py dosyasını oluştur", deps), timeout=5.0)
+    sonuc = await asyncio.wait_for(
+        run_agent("src/app.py dosyasını oluştur", deps, history=onceki), timeout=5.0
+    )
 
     assert teacher.calls >= 2
     assert (tmp_path / "src" / "app.py").read_text(encoding="utf-8") == "x = 1\n"
