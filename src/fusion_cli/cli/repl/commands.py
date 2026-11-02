@@ -413,16 +413,23 @@ def _model(state: ReplState, argument: str) -> str:
             # Borulu girdide seçici sonraki satırı yutardı; liste basılır.
             return model_select.format_models(state.config)
         return model_picker_command(state, pick)
-    result = model_command_result(state, parts)
-    state.config = result.config
+    from .model_switch_hooks import apply_model_result
+
+    # PreModelSwitch/PostModelSwitch (#90) `/model`'in her biçiminde çalışır; #211 `/model`'i
+    # yeniden yazınca kapı yalnız `/models`'ta kalmıştı. Doğrudan ad, kapı izin verince yazılır.
+    direct = model_switch.is_direct_model(parts)
+    result = model_command_result(state, parts, save=not direct)
+    text = apply_model_result(
+        state, parts, result, persist=model_switch.save_agent_model if direct else None
+    )
     action = parts[0].lower()
     if action in model_switch.FUSION_SUBCOMMANDS and not getattr(
         state, "model_subcommand_warned", False
     ):
         # Claude'da `/model <ad>` model adı alır (#211); Fusion rol alt komutları /models'ta.
         state.model_subcommand_warned = True
-        return f"{result.message}\n{messages.MODEL_SUBCOMMAND_LEGACY.format(action=action)}"
-    return result.message
+        return f"{text}\n{messages.MODEL_SUBCOMMAND_LEGACY.format(action=action)}"
+    return text
 
 
 def _config(state: ReplState, argument: str) -> str:
@@ -486,19 +493,26 @@ class ModelCommandResult:
     ok: bool
 
 
-def model_command_result(state: ReplState, parts: list[str]) -> ModelCommandResult:
+def model_command_result(
+    state: ReplState, parts: list[str], *, save: bool = True
+) -> ModelCommandResult:
     try:
-        config, message = _apply_model_command(state, parts)
+        config, message = _apply_model_command(state, parts, save=save)
     except ConfigError as error:
         return ModelCommandResult(state.config, str(error), False)
     return ModelCommandResult(config, message, config is not state.config)
 
 
-def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
+def _apply_model_command(
+    state: ReplState, parts: list[str], *, save: bool = True
+) -> tuple[Config, str]:
     action, arguments = parts[0].lower(), parts[1:]
     config = state.config
     if model_switch.is_direct_model(parts):
-        return model_switch.switch_and_save(config, parts[0])
+        if save:
+            return model_switch.switch_and_save(config, parts[0])
+        updated = model_switch.switch_model(config, parts[0])
+        return updated, messages.REPL_MODEL_SET.format(role="agent", model=updated.agent.model)
 
     if action == "agent" and len(arguments) == 1:
         return model_select.set_agent_model(config, arguments[0]), messages.REPL_MODEL_SET.format(

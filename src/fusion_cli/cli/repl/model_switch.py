@@ -47,18 +47,29 @@ def resolve_model(config: Config, word: str) -> str | None:
     return None
 
 
-def switch_and_save(config: Config, word: str) -> tuple[Config, str]:
-    """Agent modelini değiştir ve kullanıcı yapılandırmasına yaz.
-
-    Yazma başarısız olursa değişiklik bu oturumda yine geçerlidir; mesaj bunu söyler.
-    """
+def switch_model(config: Config, word: str) -> Config:
+    """Agent modelini yalnız bellekte değiştir; ad çözülemezse `ConfigError`."""
     model = resolve_model(config, word)
     if model is None:
         raise ConfigError(messages.REPL_MODEL_UNRESOLVED.format(model=word))
-    updated = set_agent_model(config, model)
+    return set_agent_model(config, model)
+
+
+def save_agent_model(updated: Config) -> str:
+    """Değişmiş agent modelini kullanıcı yapılandırmasına yaz; gösterilecek metni döndür.
+
+    Yazma başarısız olursa değişiklik bu oturumda yine geçerlidir; mesaj bunu söyler.
+    """
+    model = updated.agent.model
     try:
         path = write_model_section(updated)
     except (OSError, FusionError) as error:
         _LOG.warning("model varsayılanı yazılamadı: %s", type(error).__name__)
-        return updated, messages.REPL_MODEL_SESSION_ONLY.format(model=model)
-    return updated, messages.REPL_MODEL_SAVED.format(model=model, path=path)
+        return messages.REPL_MODEL_SESSION_ONLY.format(model=model)
+    return messages.REPL_MODEL_SAVED.format(model=model, path=path)
+
+
+def switch_and_save(config: Config, word: str) -> tuple[Config, str]:
+    """Agent modelini değiştir ve kullanıcı yapılandırmasına yaz."""
+    updated = switch_model(config, word)
+    return updated, save_agent_model(updated)
