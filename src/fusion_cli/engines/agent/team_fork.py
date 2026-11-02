@@ -27,6 +27,16 @@ FORK_BRIEF = (
     "konuşmadır, onları yeniden yapma; yalnız verilen alt görevi yap ve kısa bir sonuç döndür."
 )
 
+#: Ön plan `/subtask` turunda fork'un son metni kullanıcıya CEVAP olarak gösterilir
+#: (`run_forked_turn` → `final_text`). Ölçüldü (2 Kasım 2026, yerel 9B): yalnız
+#: `FORK_BRIEF` ("kısa bir sonuç döndür") görünce model ana ajana rapor yazar gibi
+#: cevaba "Kullanıcı, seninle etkileşime giriyor ve … soruyor" diye başlıyordu.
+FORK_USER_FACING = (
+    "Son mesajın kullanıcıya DOĞRUDAN cevap olarak gösterilir: kullanıcıya ikinci tekil "
+    "şahısla doğrudan cevap ver. Kullanıcıyı ya da isteğini üçüncü şahısla anlatma, "
+    "isteği yorumlayan bir giriş cümlesi yazma."
+)
+
 LiveHistory = Callable[[], Sequence[Message]]
 
 
@@ -129,12 +139,16 @@ async def run_forked_turn(
         else:
             seed.insert(0, Message("system", system_prompt))
     deps.live_history = lambda: seed
+    waits = skill_fork_runs.previous_running(deps, skill_key)
+    foreground = not (background and getattr(deps, "interactive", False) and not waits)
     subtask = SubTask(
         task=task.strip(),
         persona=persona,
         read_only=plan_mode,
         inherit_context=inherit_context,
-        brief=extra_system,
+        brief="\n\n".join(
+            part for part in (extra_system.strip(), FORK_USER_FACING if foreground else "") if part
+        ),
         tool_cap=frozenset(allowed_tools) if allowed_tools is not None else None,
         tool_deny=frozenset(denied_tools),
         images=tuple(images),
@@ -142,8 +156,7 @@ async def run_forked_turn(
         # `/ad` fork turunun beceri kuralları (`begin_turn`) alt ajanın bağlamına geçer (#141).
         skill_grants=tuple(getattr(getattr(deps, "tool_context", None), "skill_grants", ()) or ()),
     )
-    waits = skill_fork_runs.previous_running(deps, skill_key)
-    if background and getattr(deps, "interactive", False) and not waits:
+    if not foreground:
         text, ok = await _launch_background(deps, subtask, run_agent, skill_key)
         return AgentOutcome(
             final_text=text,

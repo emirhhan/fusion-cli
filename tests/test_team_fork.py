@@ -125,6 +125,9 @@ async def test_run_forked_turn_ana_gecmise_yalniz_ozeti_ekler(tmp_path, monkeypa
     # araç kısıtını ve görselleri atıyordu; salt-okur kişilik fork içinde yazabiliyordu.
     assert "yalnız oku" in str(gorulen["extra_system"])
     assert team_fork.FORK_BRIEF in str(gorulen["extra_system"])
+    # Ölçüldü (2 Kasım 2026): son metin kullanıcıya gösterildiği hâlde fork ana ajana rapor
+    # yazar gibi "Kullanıcı, seninle etkileşime giriyor…" diye başlıyordu.
+    assert team_fork.FORK_USER_FACING in str(gorulen["extra_system"])
     assert gorulen["allowed_tools"] == {"read_file", "write_file"}
     assert gorulen["images"] == ("data:image/png;base64,AAAA",)
     assert gorulen["step_limit"] == 5
