@@ -5,6 +5,50 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
 ## Yayımlanmamış
 
+## 0.8.0 — 2026-11-02
+
+### Claude Code ile birebir uyum (453 maddelik sadakat denetimi)
+
+1 Kasım sadakat denetiminin 453 farkı ele alındı: 435 yapıldı, 6'sı belgeyle doğrulanınca
+geçersiz çıktı (Fusion zaten Claude gibiydi), 10'u kalıcı kısmi (Anthropic hesabı/sunucusu
+gerektiren parçalar). Güvenlik davranışı değişen 110 madde ayrı işaretli; commit
+mesajlarında "güvenlik davranışı değişti" notu var. Eski Fusion adları (ayar, bayrak, komut)
+bir sürüm boyunca kullanımdan kalkmış takma ad olarak okunur ve bir kez uyarır.
+
+- Alt ajanlar ve kişilik: yerleşik ajanlar Claude Code altılısı (general-purpose, Explore,
+  Plan, statusline-setup, claude-code-guide…); Türkçe ekip rolleri isteğe bağlı `fusion-ekip`
+  eklentisine taşındı. Tek `Agent` aracı, `@agent-<ad>`, `isolation: worktree`, ajan belleği
+  Claude yollarında, derinlik 3 / eşzamanlılık 20, Ctrl+B ile alt ajanı kesmeden arka plana alma;
+  `/persona` kullanımdan kalktı.
+- İzinler: Claude kural eşlemesi (araç adı globu, yol dayanağı, `!` olumsuzlama, Read deny →
+  Edit/Write), `--permission-mode`/`--dangerously-skip-permissions`/`--allow-dangerously-skip-permissions`,
+  Shift+Tab döngüsü (default → acceptEdits → plan → [bypass] → auto), varsayılan kip Manuel,
+  dontAsk, "Evet, ve auto'ya geç"; `/add-dir` ve `/cd` ev dizini/disk kökü/üst dizini de kabul eder.
+- Kancalar: Claude'un bütün olayları tetiklenir (Setup, InstructionsLoaded, WorktreeCreate/Remove,
+  Elicitation/ElicitationResult, ConfigChange, FileChanged, DirectoryAdded, PreModelSwitch…);
+  beceri ve eklenti kancaları, `once`, `asyncRewake`, klasör güveni kapısı, yönetilen ayarlar.
+- Talimat, beceri, komut: CLAUDE.md ve otomatik bellek sistem isteminden sonra ayrı kullanıcı
+  mesajı; `~/.claude/projects/<kök>/memory/MEMORY.md`; beceri `hooks`, `context: fork`,
+  `/skills` paneli, `/skill-doctor`, `/doctor prompt-audit`.
+- Oturum ve REPL: `fusion "istem"`, Ctrl+O döküm görünümü, Ctrl+V görsel, Ctrl+T görev listesi,
+  istem önerileri, `/code-review` bulgu kartları, `/diff`, `/resume` arama, `/terminal-setup`.
+- MCP: `mcp__<sunucu>__<araç>` adları, `--mcp-config`/`--strict-mcp-config`, managed-mcp.json,
+  elicitation (form/url), bloklamayan açılış, `/mcp` paneli, `.mcp.json` onayı.
+- Başsız kullanım: `-p` Claude SDK sonuç nesnesi, `--settings`/`--setting-sources`,
+  `--restricted`, `--init`/`--init-only`/`--maintenance`, `--exclude-dynamic-system-prompt-sections`.
+- Plan, görev, sandbox: plan kipinde `useAutoModeDuringPlan`, `exit_plan_mode` onayı, arka plan
+  kabuk işleri (`run_in_background`, `monitor`, zaman aşımında arka plana taşıma, Ctrl+B devri),
+  sandbox dışı yeniden deneme ayrı izin, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, PR çalışma ağaçları.
+- Eklentiler: proje/yerel `enabledPlugins`, `ad@pazar` ile aynı adlı eklentiler, userConfig ve
+  `CLAUDE_PLUGIN_OPTION_*`, bağımlılık sürüm aralıkları, `plugin eval`, `bin/` PATH.
+- Masaüstü ve tarayıcı: izin kipi menüsü Claude Desktop sırasıyla, computer use uygulama onayı
+  her kipte ilk kullanımda, Chrome site izni ve üç kip (Manuel onay / Otomatik onay / Tüm onayları atla).
+
+### Bilinen kalıcı kısmiler
+`/fast` ve `/code-review ultra` (Anthropic sunucusu), Chrome Web Store yayını, `channels`,
+`plugin eval --publish-report`, LSP/monitors/themes eklenti bileşenleri, Option+T'nin model
+düşünmesini kapatması (sağlayıcılarda ortak parametre yok).
+
 ### Kancalar
 
 - Değişti: kanca `transcript_path` dökümü artık kanca tanımı olmasa da oturum boyu
