@@ -101,7 +101,8 @@ async def test_cok_turlu_teslim_istegi_uc_sikistirmada_ozetleyiciye_ulasir(
     ]
     traces = []
 
-    async def summarize(trace, *args):
+    # Elle /compact odağı (#186) özetleyiciye `focus=` anahtar sözcüğüyle gider.
+    async def summarize(trace, *args, **kwargs):
         traces.append(trace)
         return requirement if requirement in trace else "Özet."
 
