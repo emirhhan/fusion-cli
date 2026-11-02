@@ -55,6 +55,45 @@ def test_nim_modeli_secmeden_once_arac_cagrisi_dogrulanir(
     assert bool(reason) is not expected
 
 
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (
+            404,
+            {"detail": "Function 'abc': Not found for account 'GIZLI-HESAP'"},
+            ["z-ai/glm-5.3 NIM'de bu hesap için sunulmuyor (404)", "Function 'abc': Not found"],
+        ),
+        (401, {}, ["anahtarı reddedildi (401)"]),
+        (500, {}, ["NIM doğrulaması başarısız (500)."]),
+    ],
+)
+def test_nim_sondasi_hatasi_nedenini_soyler_hesap_kimligini_sizdirmaz(
+    monkeypatch, status, body, expected
+):
+    """Ölçüldü (2 Kasım 2026): yalın "NIM doğrulaması başarısız (404)" nedeni söylemiyordu."""
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "test-key")
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, *, headers, json):
+            return httpx.Response(status, json=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(catalog.httpx, "Client", Client)
+    ok, reason = catalog.probe_nim_tools("nvidia_nim/z-ai/glm-5.3")
+
+    assert ok is False
+    assert all(part in reason for part in expected)
+    assert "GIZLI-HESAP" not in reason
+
+
 def _sahte_yanit(monkeypatch, payload, *, hata=None):
     class _Client:
         def __init__(self, **kwargs):
