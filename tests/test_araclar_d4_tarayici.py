@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -95,7 +96,9 @@ async def test_es_zamanli_ilk_cagrilar_tek_tarayici_baslatir(monkeypatch):
         return None
 
     monkeypatch.setattr(browser, "install_request_guard", _guard)
-    context = ToolContext(root=".", browser=BrowserSession())
+    # `ToolContext.root` bir `Path`; #438'den beri oturum başlatma kökün çalışan önizleme
+    # kökenlerini de okur (`root.resolve()`), dize kök bu yolda geçersizdir.
+    context = ToolContext(root=Path("."), browser=BrowserSession())
 
     sonuclar = await asyncio.gather(browser._sayfa(context), browser._sayfa(context))
 
