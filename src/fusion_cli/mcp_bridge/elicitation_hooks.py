@@ -84,7 +84,17 @@ _URL_OWNER_LIMIT = 32
 
 
 def register_elicitation_hooks(hooks: ElicitationHooks | None) -> None:
-    """Bu oturum bağlamının kanca danışmanını kaydet (None: kaldır)."""
+    """Bu oturum bağlamının kanca danışmanını kaydet (None: kaldır).
+
+    Kaldırılan (None) danışmanın bekleyen URL elicitation sahiplikleri de düşer: modül
+    düzeyindeki `_URL_OWNERS` kapanmış oturumu tutarsa, aynı kimlikli sonraki
+    `elicitation/complete` bildirimi o eski oturumun kancalarına (eski köke) gidiyordu.
+    Yeni danışmanla değiştirmede sahiplik korunur (tur değişse de URL akışı sürebilir).
+    """
+    previous = _CURRENT.get()
+    if hooks is None and previous is not None:
+        for elicitation_id in [key for key, owner in _URL_OWNERS.items() if owner is previous]:
+            _URL_OWNERS.pop(elicitation_id, None)
     _CURRENT.set(hooks)
 
 

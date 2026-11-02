@@ -213,12 +213,14 @@ def test_sunucunun_tamamlandi_bildirimi_elicitation_complete_bildirimi_olur(tmp_
         try:
             with elicitation_scope("db"):
                 await with_completion_notice("db", inner)(message)
-            # Bildirim kancası beklenmez (arka planda koşar): dosya yazılana dek bekle; sabit
-            # bekleme paralel test yükünde yetmiyordu.
+            # Bildirim kancası beklenmez (`HookSession.spawn`, arka planda koşar): görev bitene
+            # dek bekle. Dosyanın var olması yetmiyordu: betik dosyayı açıp boş yaratır, yazmayı
+            # bitirmeden döngü çıkarsa asyncio.run görevi (ve alt süreci) iptal ediyor, test
+            # yükte boş/yarım JSON okuyordu.
             for _ in range(200):
-                if (tmp_path / "bildirim.json").is_file():
+                if not session._background:
                     break
-                await asyncio.sleep(0.05)
+                await asyncio.wait(set(session._background), timeout=0.05)
         finally:
             register_elicitation_hooks(None)
 
