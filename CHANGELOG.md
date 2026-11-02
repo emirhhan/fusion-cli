@@ -5,6 +5,14 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
 ## Yayımlanmamış
 
+## 0.8.1 — 2026-11-02
+
+### Düzeltmeler
+- Uzun turlar artık yanlışlıkla "bağlam her sıkıştırmadan hemen sonra yeniden doldu" diye
+  kesilmez: sıkıştırma eşiği yalnız geçmişi ölçer, küçültülemeyen sistem istemini saymaz.
+- NIM modeli bağlanamazsa neden söylenir (404: model bu hesapta sunulmuyor; 401/403/429 ayrı).
+- `/subtask` cevabı kullanıcıya doğrudan yazılır; model kullanıcıyı üçüncü şahısla anlatmaz.
+
 ## 0.8.0 — 2026-11-02
 
 ### Claude Code ile birebir uyum (453 maddelik sadakat denetimi)
