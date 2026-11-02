@@ -54,9 +54,15 @@ def mcp_tool_loader(config: Config) -> ToolLoader:
 Answer = ApprovalAnswer | ApprovalReply
 
 
-def claude_request(request: ApprovalRequest) -> tuple[str, dict[str, object], str]:
-    """Onay sorusunun Claude alanları: (`tool_name`, `input` Claude adlarıyla, `tool_use_id`)."""
-    tool_input = tool_hook_fields(request.tool.name, dict(request.args))["tool_input"]
+def claude_request(
+    request: ApprovalRequest, *, root: Path | None = None
+) -> tuple[str, dict[str, object], str]:
+    """Onay sorusunun Claude alanları: (`tool_name`, `input` Claude adlarıyla, `tool_use_id`).
+
+    Claude dosya araçlarında `file_path` mutlaktır (#91); göreli yol oturumun köküne göre
+    çözülür (`root` yoksa süreç dizini, `-p` koşusunun kökü).
+    """
+    tool_input = tool_hook_fields(request.tool.name, dict(request.args), root=root)["tool_input"]
     return (
         claude_tool_name(request.tool.name),
         dict(tool_input) if isinstance(tool_input, Mapping) else {},
@@ -130,7 +136,7 @@ class PromptToolPrompter(PrintPrompter):
         if tool is None:
             return ApprovalAnswer.UNAVAILABLE
         try:
-            name, tool_input, call_id = claude_request(request)
+            name, tool_input, call_id = claude_request(request, root=self._root)
             args = {"tool_name": name, "input": tool_input, "tool_use_id": call_id}
             outcome = tool.run(args, ToolContext(root=self._root))
             result = await outcome if inspect.isawaitable(outcome) else outcome

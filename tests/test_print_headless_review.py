@@ -257,7 +257,9 @@ async def test_onay_aracina_gercek_cagri_kimligi_ve_claude_girdisi_gider(monkeyp
     await _loop_with(monkeypatch, tmp_path, prompter, _write_then_done("a.txt"))
     assert seen[0]["tool_use_id"] == "call_write_file"
     assert seen[0]["tool_name"] == "Write"
-    assert seen[0]["input"]["file_path"] == "a.txt"
+    # Claude Write girdisinde `file_path` mutlaktır (kancalar alanı #91); kök onaylayıcının
+    # köküdür, süreç dizini değil.
+    assert seen[0]["input"]["file_path"] == str((tmp_path / "a.txt").resolve())
     assert (tmp_path / "a.txt").exists()
 
 
