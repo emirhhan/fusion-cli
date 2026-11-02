@@ -16,6 +16,7 @@
       "../../chrome-extension/panel.css": "chrome-extension/panel.css",
       "../../chrome-extension/panel.js": "chrome-extension/panel.js",
       "../../chrome-extension/core.js": "chrome-extension/core.js",
+      "../../chrome-extension/device.js": "chrome-extension/device.js",
       "../../chrome-extension/offscreen.html": "chrome-extension/offscreen.html",
       "../../chrome-extension/offscreen.js": "chrome-extension/offscreen.js",
       "../../chrome-extension/panelView.js": "chrome-extension/panelView.js",
