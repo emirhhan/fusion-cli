@@ -39,12 +39,11 @@ def _tam_defter():
     """Motorun gerçekte kurduğu defter: yerleşikler + motora bağlı araçlar (preview, site...)."""
     from pathlib import Path
 
+    from fusion_cli.core.desktop_settings import DesktopSettings
     from fusion_cli.core.tools import ToolContext
     from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
     from fusion_cli.engines.agent.engine_tools import build_agent_registry
     from fusion_cli.engines.agent.loop import AgentDeps
-
-    from fusion_cli.core.desktop_settings import DesktopSettings
 
     from .agent_harness import Publisher
     from .fakes import AlwaysApprove, RecordingSink

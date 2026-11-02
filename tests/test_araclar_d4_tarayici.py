@@ -98,7 +98,7 @@ async def test_es_zamanli_ilk_cagrilar_tek_tarayici_baslatir(monkeypatch):
     monkeypatch.setattr(browser, "install_request_guard", _guard)
     # `ToolContext.root` bir `Path`; #438'den beri oturum başlatma kökün çalışan önizleme
     # kökenlerini de okur (`root.resolve()`), dize kök bu yolda geçersizdir.
-    context = ToolContext(root=Path("."), browser=BrowserSession())
+    context = ToolContext(root=Path(), browser=BrowserSession())
 
     sonuclar = await asyncio.gather(browser._sayfa(context), browser._sayfa(context))
 
