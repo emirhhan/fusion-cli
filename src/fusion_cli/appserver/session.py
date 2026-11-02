@@ -2637,6 +2637,12 @@ class AppSession:
             # `/reset`, `/new` artık `/clear` takma adı (#185). Masaüstü sohbet kimliğini
             # kendi sekmesi yönetir; geçmiş ve hook oturumu Claude `/clear` gibi yenilenir.
             self._state.reset_history()
+            if not turn_running:
+                # REPL/TUI'de `/clear` yeni sohbet kimliği açtığı için eski sohbetin arka plan
+                # ajanları kapanır ve görev sahibi yenilenir; masaüstünde kimlik sekmede kalır,
+                # aynı sonuç burada açıkça kurulur (`/reset` artık `/clear` takma adı, #185).
+                await self._state.reset_child_runs()
+                self._child_runs = self._state.child_runs
             # Claude in Chrome: /clear oturum sekme grubunu kapatır (#436); tur sürüyorsa
             # yalnız boş grup kapanır, süren işin sekmesi elinden alınmaz.
             schedule_group_close(self._chrome, only_empty=turn_running)
