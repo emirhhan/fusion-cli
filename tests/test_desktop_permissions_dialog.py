@@ -65,14 +65,20 @@ async def test_workspace_rpc_dizin_listeler_ekler_kaldirir(proje, tmp_path):
         assert yenilenen == [1]
         tekrar = await _rpc(session, lines, "izin.dizin_ekle", {"yol": str(ek)})
         assert tekrar["degisti"] is False and "Zaten açık" in tekrar["metin"]
-        ev = await _rpc(session, lines, "izin.dizin_ekle", {"yol": str(Path.home())})
-        assert ev["degisti"] is False and ev["dizinler"] == [str(ek.resolve())]
+        # Kullanıcı kararı (#77, #81): `/add-dir` Claude gibi ev dizinini de kabul eder;
+        # masaüstü RPC'si aynı işleyiciyi kullanır.
+        ev_dizini = Path.home().resolve()
+        ev = await _rpc(session, lines, "izin.dizin_ekle", {"yol": str(ev_dizini)})
+        assert ev["degisti"] is True and ev["dizinler"] == [str(ek.resolve()), str(ev_dizini)]
+        assert yenilenen == [1, 1]
+        ev_kaldir = await _rpc(session, lines, "izin.dizin_kaldir", {"yol": str(ev_dizini)})
+        assert ev_kaldir["degisti"] is True and ev_kaldir["dizinler"] == [str(ek.resolve())]
         bos_yol = await _rpc(session, lines, "izin.dizin_ekle", {"yol": ""})
         assert bos_yol["ok"] is False
         kaldirildi = await _rpc(session, lines, "izin.dizin_kaldir", {"yol": str(ek)})
         assert kaldirildi["degisti"] is True and kaldirildi["dizinler"] == []
         assert ek.resolve() not in session._state.extra_roots
-        assert yenilenen == [1, 1]
+        assert yenilenen == [1, 1, 1, 1]
     finally:
         await session.close()
 
