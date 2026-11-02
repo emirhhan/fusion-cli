@@ -83,7 +83,7 @@ def test_tui_ctrl_t_listeyi_acar_kapatir():
 
 def test_tui_ctrl_c_once_bekleyen_donguyu_durdurur_yoksa_cikar():
     exits: list[bool] = []
-    stops = iter([True, False])
+    stops = iter([True, False, False, False])
     tui = FusionTui(
         on_submit=lambda _line: None,
         on_interrupt=lambda: None,
@@ -91,8 +91,16 @@ def test_tui_ctrl_c_once_bekleyen_donguyu_durdurur_yoksa_cikar():
         on_cycle_mode=lambda: None,
         on_stop_loops=lambda: next(stops),
     )
-    assert keybindings.load_keymap(Path("/yok.json")).bindings("tui")["c-c"] == "dongu_ya_da_cik"
-    tui._stop_loops_or_exit()
-    assert exits == []
-    tui._stop_loops_or_exit()
+    # Oturum alanı (#195) Ctrl+C'yi Claude'un çift basışına (`kes_temizle_cik`) bağladı;
+    # bekleyen döngüyü durdurma (#365) o eylemin boşta adımıdır. `dongu_ya_da_cik` eylemi
+    # yeniden bağlanabilir olarak kalır.
+    bindings = keybindings.load_keymap(Path("/yok.json")).bindings("tui")
+    assert bindings["c-c"] == "kes_temizle_cik"
+    tui._ctrl_c_pressed()
+    assert exits == []  # bekleyen döngü durdu, çıkılmadı
+    tui._ctrl_c_pressed()
+    assert exits == []  # döngü yok: Claude gibi ilk basış uyarır
+    tui._ctrl_c_pressed()
     assert exits == [True]
+    tui._stop_loops_or_exit()  # yeniden bağlanabilir eylem: döngü yoksa doğrudan çıkar
+    assert exits == [True, True]
