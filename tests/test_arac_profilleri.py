@@ -44,11 +44,16 @@ def _tam_defter():
     from fusion_cli.engines.agent.engine_tools import build_agent_registry
     from fusion_cli.engines.agent.loop import AgentDeps
 
+    from fusion_cli.core.desktop_settings import DesktopSettings
+
     from .agent_harness import Publisher
     from .fakes import AlwaysApprove, RecordingSink
 
+    # Computer use Claude Code gibi varsayılan kapalı (#420); kapalıyken `desktop_*` ailesi
+    # defterde hiç olmaz ve sıkı yüzeyin gizlediği tek yerleşik aile ölçüden düşer. Tam
+    # yüzeyi ölçmek için açık kurulur.
     deps = AgentDeps(
-        config=make_config(),
+        config=make_config(desktop=DesktopSettings(enabled=True)),
         publisher=Publisher(RecordingSink()),
         policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
         tool_context=ToolContext(root=Path()),
