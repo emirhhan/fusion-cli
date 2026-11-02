@@ -62,6 +62,10 @@ def test_branch_sonrasi_sessionstart_kaynagi_fork(tmp_path):
 
     state = type("S", (), {})()
     state.hook_start_source = ""
+    # Oturum alanı (#189, #205) apply_target'ın ilk satırında açılmış sohbetleri işaretler; sahte
+    # durum bunu taşımazsa kaynak atanmadan AttributeError ile çıkılıyordu.
+    state.opened_conversations = frozenset()
+    state.conversation_id = "eski"
     target = session_resume.ResumeTarget("yeni", (), "başlık", forked_from="eski")
     # Sahte durum yalnız kaynağı taşır; sonraki adımlar (PR künyesi) burada önemsiz.
     with contextlib.suppress(AttributeError):
