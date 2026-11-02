@@ -311,9 +311,9 @@ async def compact_context(
 def record_protection(messages: list[Message], deps: AgentDeps, threshold: int) -> None:
     """Koruma bütçeyi aşıyorsa açık olay üret; geçmişi zorla bozma."""
     from ...core.events import ContextProtectionMeasured
-    from .history import total_chars, unseen_tool_indexes
+    from .history import history_chars, total_chars, unseen_tool_indexes
 
-    visible = total_chars(messages)
+    visible = history_chars(messages)
     projection = deps.active_context
     if visible < threshold and not projection.omitted_pins:
         return

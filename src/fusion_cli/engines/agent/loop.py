@@ -214,7 +214,7 @@ from .expertise import (
     is_remotion_task,
     is_worktree_task,
 )
-from .history import needs_compression, total_chars
+from .history import history_chars, needs_compression, total_chars
 from .hook_batch import batch_hook
 from .hook_bridge import (
     ToolNote,
@@ -1997,7 +1997,7 @@ async def _drive(
             from .context_budget import learned_threshold_chars
 
             state.overflow_relearns += 1
-            learned = learned_threshold_chars(result.error, total_chars(messages))
+            learned = learned_threshold_chars(result.error, history_chars(messages))
             deps.learned_compression_chars = (
                 learned
                 if deps.learned_compression_chars is None
@@ -5158,9 +5158,14 @@ async def _compact_before_call(
     if deps.agent_transcript is not None:
         deps.agent_transcript.reset(messages)
     selected = _context_spec(deps)
-    from .context_budget import context_budget
+    from .context_budget import context_budget, fixed_prefix_cap
 
-    threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
+    budget_spec = context_budget(deps.config, selected)
+    threshold = fixed_prefix_cap(
+        _effective_threshold(budget_spec.compression_chars, deps),
+        budget_spec.window_tokens,
+        len(messages[0].content) if messages and messages[0].role == "system" else 0,
+    )
     # Eşik, modelin GERÇEKTE göreceği (maskeli) görünüme göre ölçülür: maskeleme zaten
     # küçülttüyse geçmişi özetleyip bilgi kaybetmek gereksiz.
     gorunur = _masked_view(messages, deps, selected, commit=False).messages

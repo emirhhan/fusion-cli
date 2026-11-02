@@ -112,6 +112,22 @@ def _base_budget(config: Config, spec: ModelSpec) -> ContextBudget:
     return ContextBudget(calculated, smallest, spec.model)
 
 
+def fixed_prefix_cap(threshold: int, window_tokens: int | None, system_chars: int) -> int:
+    """Geçmiş eşiğini sistem isteminin GERÇEK boyuna göre daralt (pencere biliniyorsa).
+
+    Eşik geçmişi ölçer (`history.history_chars`); sistem istemi pay tahmininden
+    büyükse geçmişe kalan yer de küçülür. Pencere: çıktı payı, ölçülen sistem istemi
+    ve araç şeması payı (`SYSTEM_AND_TOOLS_RESERVE_TOKENS`) düşüldükten sonra kalan.
+    """
+    if window_tokens is None:
+        return threshold
+    room = (
+        (window_tokens - OUTPUT_RESERVE_TOKENS - SYSTEM_AND_TOOLS_RESERVE_TOKENS)
+        * CHARS_PER_TOKEN_ESTIMATE
+    ) - system_chars
+    return max(LEARNED_FLOOR_CHARS, min(threshold, room))
+
+
 def is_context_overflow(error: str | None) -> bool:
     """Sağlayıcı hatası "istem modelin bağlam penceresine sığmadı" mı diyor?"""
     lowered = (error or "").lower()

@@ -89,9 +89,23 @@ def total_chars(messages: Sequence[Message]) -> int:
     )
 
 
+def history_chars(messages: Sequence[Message]) -> int:
+    """Sıkıştırma eşiğiyle ölçülen büyüklük: baştaki sistem istemi HARİÇ geçmiş.
+
+    Eşik, pencereden sistem/araç payı düşüldükten sonra GEÇMİŞE ayrılan paydır
+    (`context_budget`). Ölçüldü (2 Kasım 2026, 64k pencereli yerel 9B): sistem istemi
+    52 bin karakterdi, eşik 65 bin; geçmiş 56 binken toplam 108 bin sayılıyor, özet
+    sistem istemine dokunamadığı için eşik hiç inmiyor ve tur iki çağrıda "bağlam her
+    sıkıştırmadan hemen sonra yeniden doldu" ile bitiyordu — model 40 bin token'lık
+    istemi sorunsuz işlerken.
+    """
+    start = 1 if messages and messages[0].role == "system" else 0
+    return total_chars(messages[start:])
+
+
 def needs_compression(messages: Sequence[Message], threshold_chars: int | None = None) -> bool:
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
-    return total_chars(messages) >= limit
+    return history_chars(messages) >= limit
 
 
 def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGES) -> int:
@@ -178,7 +192,7 @@ def clear_old_tool_outputs(
         for index, message in enumerate(sonuc)
         if message.role == "tool" and index not in unseen
     ]
-    toplam = total_chars(sonuc)
+    toplam = history_chars(sonuc)
     for index in temizlenebilir:
         if toplam < limit:
             break

@@ -239,3 +239,44 @@ def test_pin_butcesi_sifir_ve_asiri_degerlerde_de_sinirlidir(pin_chars):
     )
     assert len(result[3].content) <= 1_500
     assert result[-1] == messages[-1]
+
+
+def test_esik_sistem_istemini_saymaz_yalniz_gecmisi_olcer():
+    """Ölçüldü (2 Kasım 2026, yerel 9B, 64k pencere): sistem istemi 52 bin, eşik 65 bin,
+    geçmiş 56 bin; toplam 108 bin sayıldığı için özet eşiği hiç indiremiyor ve tur
+    iki çağrıda `context_thrash` ile bitiyordu."""
+    mesajlar = [Message("system", "s" * 52_000), Message("user", "u" * 56_000)]
+
+    assert history.history_chars(mesajlar) == 56_000
+    assert not history.needs_compression(mesajlar, threshold_chars=65_766)
+    assert history.needs_compression(mesajlar[1:] * 2, threshold_chars=65_766)
+
+
+def test_pencere_biliniyorsa_buyuk_sistem_istemi_gecmis_esigini_daraltir():
+    from fusion_cli.engines.agent.context_budget import LEARNED_FLOOR_CHARS, fixed_prefix_cap
+
+    # 64k pencerede 52 bin karakterlik sistem istemi geçmiş eşiğini (65.766) daraltmaz.
+    assert fixed_prefix_cap(65_766, 65_536, 52_000) == 65_766
+    # 48k pencerede aynı sistem istemi geçmişe daha az yer bırakır.
+    assert fixed_prefix_cap(65_766, 49_152, 52_000) == (49_152 - 8_192 - 13_500) * 3 - 52_000
+    # Sistem istemi pencereyi tek başına dolduruyorsa taban korunur; pencere yoksa eşik aynen.
+    assert fixed_prefix_cap(65_766, 16_384, 52_000) == LEARNED_FLOOR_CHARS
+    assert fixed_prefix_cap(65_766, None, 52_000) == 65_766
+
+
+async def test_buyuk_sistem_istemi_turu_baglam_doldu_diye_kesmez(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                *[model_result(tool_calls=[tool_call("list_dir", path=".")]) for _ in range(5)],
+                model_result("tarama bitti"),
+            ]
+        ),
+    )
+    _dar_esik(monkeypatch, 20_000)
+
+    sonuc = await run_agent("siteleri tara", _deps(tmp_path, sink), system_prompt="kural " * 6_000)
+
+    assert sonuc.stop_reason != BudgetStop.CONTEXT_THRASH.value
+    assert sonuc.final_text.startswith("tarama bitti")
