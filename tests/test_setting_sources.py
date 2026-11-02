@@ -71,7 +71,10 @@ def test_yalniz_adi_gecen_kaynaklar_yuklenir(home, tmp_path, monkeypatch):
     assert _tools(root) == set()
 
 
+@pytest.mark.usefixtures("guvenilir_klasor")
 def test_fusion_kullanici_kancalari_user_kaynagina_baglidir(home, tmp_path, monkeypatch):
+    # Kancalar alanı (#108) kancaları klasör güvenine bağladı; bu test yalnız
+    # `--setting-sources` (#296) daraltmasını sınar, güven kapısı ayrıca sınanır.
     monkeypatch.delenv("FUSION_HOOKS", raising=False)
     hook = {"type": "command", "command": "echo x"}
     _write(user_hooks_file(), {"hooks": {"Stop": [{"hooks": [hook]}]}})
