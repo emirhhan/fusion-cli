@@ -148,18 +148,28 @@ def test_kok_restricted_bare_ile_kesisir(monkeypatch):
 
 
 def test_kok_restricted_bypass_komutu_acik_ret_verir(monkeypatch):
-    from fusion_cli.cli.repl import commands
+    from fusion_cli.cli.repl import mode_commands
     from fusion_cli.engines.agent.approval import ApprovalMode
 
     seen, result = _root(monkeypatch, ["--restricted"])
     assert result.exit_code == 0, result.output
-    state = SimpleNamespace(config=seen["config"], conversation_id="", approval=ApprovalMode.AUTO)
+    # İzinler alanı `/bypass`'ı `mode_commands.legacy_mode`'a taşıdı ve Claude gibi yalnız
+    # bypass'a izinli başlatılmış oturumda (`bypass_available`) açar; kısıtlı kök reddi bunun
+    # önünde gelir (izinli başlatılmış olsa bile).
+    state = SimpleNamespace(
+        config=seen["config"],
+        conversation_id="",
+        approval=ApprovalMode.AUTO,
+        bypass_available=True,
+    )
     state.launch_prompts = lp.bind(state, seen["launch_prompts"], resumed=None)
-    bypass = commands._set_mode(ApprovalMode.BYPASS)
+    bypass = mode_commands.legacy_mode("bypass", ApprovalMode.BYPASS)
     reply = bypass(state, "")
     assert state.approval is ApprovalMode.AUTO
     assert "--restricted" in str(reply) and "bypassPermissions" in str(reply)
-    # Kısıtsız oturumda /bypass olağan biçimde açılır.
-    plain = SimpleNamespace(config=seen["config"], approval=ApprovalMode.AUTO)
+    # Kısıtsız ve bypass'a izinli oturumda /bypass olağan biçimde açılır.
+    plain = SimpleNamespace(
+        config=seen["config"], approval=ApprovalMode.AUTO, bypass_available=True
+    )
     bypass(plain, "")
     assert plain.approval is ApprovalMode.BYPASS
