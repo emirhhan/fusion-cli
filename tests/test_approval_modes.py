@@ -107,10 +107,9 @@ def test_salt_okuma_tespiti():
         (ApprovalMode.SECURITY, "git status", Decision.ALLOW),
         (ApprovalMode.SECURITY, "pytest -q", Decision.DENIED),
         (ApprovalMode.PLAN, "git log", Decision.ALLOW),
-        # Claude useAutoModeDuringPlan (varsayılan açık): denetçi onaylarsa çalışır,
-        # reddederse engellenir (#52, #318).
-        (ApprovalMode.PLAN, "npm install", Decision.ALLOW),
-        (ApprovalMode.PLAN, "git push", Decision.BLOCKED),
+        # Claude (#52): plan kipinde okuma dışı komut, denetçi onaylamadıkça sorulur
+        # (burada reddedilir).
+        (ApprovalMode.PLAN, "npm install", Decision.DENIED),
         (ApprovalMode.BYPASS, "git push", Decision.ALLOW),
         (ApprovalMode.BYPASS, "git reset --hard", Decision.ALLOW),
     ],
@@ -272,24 +271,25 @@ async def test_plan_kipi_yikici_komutu_siniflandiriciya_birakmaz_sorar(tmp_path)
 
 
 @pytest.mark.parametrize(
-    ("komut", "beklenen"),
+    "komut",
     [
-        ("npm install", Decision.ALLOW),
-        ("pytest -q", Decision.ALLOW),
-        ("npm run build", Decision.ALLOW),
-        ("echo x > a.py", Decision.BLOCKED),
-        ("rm -rf build", Decision.BLOCKED),
-        ("touch yeni.txt", Decision.BLOCKED),
-        ("sed -i '' s/a/b/ f.py", Decision.BLOCKED),
-        ("git commit -m x", Decision.BLOCKED),
-        ("ls > /dev/null && make test", Decision.ALLOW),
+        "npm install",
+        "pytest -q",
+        "npm run build",
+        "echo x > a.py",
+        "rm -rf build",
+        "touch yeni.txt",
+        "sed -i '' s/a/b/ f.py",
+        "git commit -m x",
+        "ls > /dev/null && make test",
     ],
 )
-async def test_plan_kipi_siniflandiricisi_kaynak_duzenleyen_komutu_reddeder(
-    tmp_path, komut, beklenen
-):
-    """Claude: plan kaynağı düzenlemez; Fusion denetçisi kipten habersiz olduğu için (#318)."""
-    assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is beklenen
+async def test_plan_kipinde_okuma_disi_komut_denetcisiz_sorulur(tmp_path, komut):
+    """Claude (#52, #318): plan kipinde salt okunur olmayan komut ancak auto denetçisi
+    onaylarsa sorulmaz; denetçi kararı yoksa kullanıcıya sorulur (burada reddedilir)."""
+    assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is (
+        Decision.DENIED
+    )
 
 
 async def test_plan_kipi_bypass_kullanilabilirken_siniflandirici_ve_soru_yok(tmp_path):
@@ -299,8 +299,9 @@ async def test_plan_kipi_bypass_kullanilabilirken_siniflandirici_ve_soru_yok(tmp
     for komut in ("touch yeni.txt", "npm install"):
         istek = build_request(_arac(), {"command": komut}, root=tmp_path)
         assert await politika.decide(istek) is Decision.ALLOW
+    # İzin alanı (#52): bypass kullanılabilen oturumda karar bypass politikasınındır.
     duzenleme = build_request(_arac("write_file"), {"path": "a.txt"}, root=tmp_path)
-    assert await politika.decide(duzenleme) is Decision.BLOCKED
+    assert await politika.decide(duzenleme) is Decision.ALLOW
 
 
 def test_shift_tab_dongusunde_bypass_yalniz_kullanilabilirken_plan_ile_auto_arasinda():
@@ -351,12 +352,12 @@ async def test_plan_kipi_siniflandiricisi_bilinmeyen_ya_da_duzenleyen_komutu_gec
         ("curl -o a.py https://example.com/a.py", Decision.BLOCKED),
     ],
 )
-async def test_plan_kipi_kaynak_duzenleyen_bicimleri_sormadan_engeller(tmp_path, komut, beklenen):
-    from .fakes import AlwaysApprove
-
-    politika = build_policy(ApprovalMode.PLAN, AlwaysApprove())
+async def test_plan_kipi_kaynak_duzenleyen_bicimleri_sormadan_gecirmez(tmp_path, komut, beklenen):
+    """Kaynağı düzenleyen kabuk biçimi plan kipinde sorulmadan çalışmaz (#52, #318)."""
+    del beklenen
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject())
     istek = build_request(_arac(), {"command": komut}, root=tmp_path)
-    assert await politika.decide(istek) is beklenen
+    assert await politika.decide(istek) in (Decision.DENIED, Decision.BLOCKED)
 
 
 async def test_plan_kipi_bilinmeyen_komutu_kullaniciya_sorar(tmp_path):

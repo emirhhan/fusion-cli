@@ -26,7 +26,7 @@ from ...tools.outside_reads import is_read_tool
 from ...tools.sandbox_runtime import asks_unsandboxed
 
 if TYPE_CHECKING:
-    from .approval import ApprovalMemory, ApprovalRequest, Decision, Prompter, Verdict
+    from .approval import ApprovalMemory, ApprovalRequest, Prompter, Verdict
 
 
 class PlanApproval:
@@ -63,6 +63,9 @@ class PlanApproval:
 
         if request.pre_denied is not None:
             return Decision.BLOCKED
+        if self.bypass_available:
+            # Bypass kullanılabilen oturumda plan kipi sormaz (#52, #318).
+            return await BypassApproval(self._prompter, self._memory).decide(request)
         must_ask = request.danger is not None or request.pre_ask is not None
         if not must_ask and request.read_only and not request.plan_prompt:
             return Decision.ALLOW
@@ -70,18 +73,16 @@ class PlanApproval:
             # Claude Code: plan kipinde bu tarayıcı araçları izin istemi çıkarır (#450).
             return await _ask_and_remember(self._prompter, request, self._memory)
         if _edits_files(request):
-            # Bypass kullanılabilen oturumda da plan kipi dosya düzenlemez (#52, #318).
             return Decision.BLOCKED
-        if self.bypass_available:
-            return await BypassApproval(self._prompter, self._memory).decide(request)
-        if self._use_auto_mode and not must_ask and not asks_unsandboxed(request.args):
-            # `useAutoModeDuringPlan` (varsayılan açık; Fusion'da auto kullanılabilir): denetçi
-            # karar verir (#52, #318). Sandbox dışı yeniden deneme Claude'daki gibi sorulur.
-            if request.classifier_allowed:
-                return Decision.ALLOW
-            verdict = _plan_classifier_verdict(request)
-            if verdict is not None:
-                return verdict
+        if (
+            self._use_auto_mode
+            and request.classifier_allowed
+            and not must_ask
+            and not asks_unsandboxed(request.args)
+        ):
+            # `useAutoModeDuringPlan` (#318): auto denetçisi planlama komutunu güvenli buldu
+            # (#52). Sandbox dışı yeniden deneme Claude'daki gibi her durumda sorulur.
+            return Decision.ALLOW
         if _rule_allowed(request) and request.rule_opens:
             # Allow kuralı yalnız korumalı yol/kritik silmeyi açmaz (#84).
             return Decision.ALLOW
@@ -90,23 +91,6 @@ class PlanApproval:
         if not must_ask and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
-
-
-def _plan_classifier_verdict(request: ApprovalRequest) -> Decision | None:
-    """Plan kipinde kabuk denetçisi (#318): salt okunur ya da bilinen derleme/test komutu
-    çalışır, kaynağı düzenleyen ya da riskli komut engellenir; geri kalanı (`None`) sorulur."""
-    from .approval import Decision
-    from .plan_shell_guard import PlanVerdict, plan_verdict
-
-    if tool_family(request.tool.name) is not ToolFamily.SHELL:
-        return None
-    command = request.args.get("command")
-    if request.risk is not None or not isinstance(command, str):
-        return Decision.BLOCKED
-    verdict = plan_verdict(command)
-    if verdict is PlanVerdict.ALLOW:
-        return Decision.ALLOW
-    return Decision.BLOCKED if verdict is PlanVerdict.BLOCK else None
 
 
 def _edits_files(request: ApprovalRequest) -> bool:
