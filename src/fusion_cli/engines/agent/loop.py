@@ -313,7 +313,7 @@ from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
-from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
+from .turn_hints import date_hint, design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import (
     TurnReport,
     build_turn_report,
@@ -1164,6 +1164,7 @@ async def _run_agent(
                 teacher_hint,
                 netlestirme,
                 identity_hint(deps.config.agent.model),
+                date_hint(deps.clock),
                 f"Çalışma dizini: {deps.tool_context.root}" if depth > 0 else "",
                 *istek_notlari,
                 extra_system,
@@ -5291,7 +5292,17 @@ def _initial_messages(
             gecmis.insert(
                 0, Message("user", PROJECT_CONTEXT_HEADER + project_context, harness_note=True)
             )
-    return [Message("system", system), *gecmis, Message("user", task, images=images)]
+    return [
+        Message("system", system),
+        *gecmis,
+        Message(
+            "user",
+            task,
+            images=images,
+            harness_note=inherit_system
+            and any(message.role == "user" and not message.harness_note for message in gecmis),
+        ),
+    ]
 
 
 def _current_policy(deps: AgentDeps) -> ApprovalPolicy:

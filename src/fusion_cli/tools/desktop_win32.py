@@ -56,6 +56,7 @@ VK_CODES: dict[str, int] = {
     "capslock": 0x14,
     ";": 0xBA, "=": 0xBB, "+": 0xBB, ",": 0xBC, "-": 0xBD, ".": 0xBE, "/": 0xBF, "`": 0xC0,
     "[": 0xDB, "\\": 0xDC, "]": 0xDD, "'": 0xDE,
+    "*": 0x6A,  # VK_MULTIPLY: sayısal takımın çarpma tuşu.
     **{chr(code).lower(): code for code in range(0x41, 0x5B)},
     **{str(digit): 0x30 + digit for digit in range(10)},
     **{f"f{number}": 0x6F + number for number in range(1, 21)},

@@ -56,10 +56,11 @@ def _is_small_edit(task: str) -> bool:
 
 def classify_teacher_task(task: str) -> TeacherTaskDecision:
     """Mevcut etki kararı ile görevin yapısal kapsamını birlikte kullan."""
-    effect = required_effect_for(task)
+    mutation = EffectKind.WORKSPACE_MUTATION.value
+    has_mutation = any(required_effect_for(part) == mutation for part in (task, *task.split(";")))
     reasons: list[str] = []
-    if effect == EffectKind.WORKSPACE_MUTATION.value and not _is_small_edit(task):
-        reasons.append(f"istenen etki: {effect}")
+    if has_mutation and not _is_small_edit(task):
+        reasons.append(f"istenen etki: {mutation}")
     # Dış API bağımlılığı ad listesinden tahmin edilmez: istek açıkça API
     # entegrasyonu söylüyorsa öğretmenin yapılabilirlik planı gereklidir.
     if re.search(r"\bAPI\b", task, re.IGNORECASE) and not task.strip().endswith("?"):
@@ -67,16 +68,9 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
     # Birden fazla numaralı madde, sözcük tahmini olmadan açık bir iş dizisidir.
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         reasons.append("birden fazla açık adım")
-    # Noktalı virgül yapıştırılmış kodu ve noktalı cümleleri de ayırır (A4-34): yalnız
-    # kod belirtisi (`{ } = ( ) < >`) taşımayan ve her parçası en az iki sözcük olan
-    # görev "ayrı adımlar" sayılır.
-    parts = [part.split() for part in task.split(";") if part.strip()]
-    if (
-        len(parts) > 1
-        and all(len(words) > 1 for words in parts)
-        and not re.search(r"[{}=()<>]", task)
-    ):
-        reasons.append("noktalı virgülle ayrılmış adımlar")
+    # Noktalama kapsam kanıtı değildir: "tarihi yaz; web araştırması yapma" gibi
+    # kısa sorular da noktalı virgül taşır. Gerçek değişiklik etkisi ve açık
+    # numaralı adımlar yukarıda bağımsız olarak değerlendirilir.
     return TeacherTaskDecision(
         size="orta-buyuk" if reasons else "basit",
         reasons=tuple(reasons),

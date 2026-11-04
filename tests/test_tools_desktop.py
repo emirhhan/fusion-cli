@@ -161,6 +161,15 @@ def test_tus_dizgisi_sirayla_gonderilir(tmp_path, monkeypatch) -> None:
     ]
 
 
+def test_carpma_tusu_hesap_makinesine_gonderilir(tmp_path, monkeypatch) -> None:
+    alinan = _izinli(monkeypatch)
+
+    sonuc = desktop.desktop_key({"key": "*"}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok, sonuc.output
+    assert [(key["code"], key["shift"]) for key in alinan] == [(0x43, False)]
+
+
 def test_tekrar_sayisi_ve_basili_tutma(tmp_path, monkeypatch) -> None:
     alinan = _izinli(monkeypatch)
 

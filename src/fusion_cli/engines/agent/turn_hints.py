@@ -17,6 +17,9 @@ için isteğe ÖZEL not eklenir (bkz. `clarify` — aynı desen).
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
+
+from ...core.protocols import Clock
 
 #: Açık önizleme istekleri.
 _PREVIEW = re.compile(
@@ -76,6 +79,12 @@ DESIGN_NOTE = (
     "kullanıcıya söyle: logo ve ürün görselleri başka markaya ait, yerel çalışma için "
     "alındı; siteyi yayına almadan önce kendi içerikleriyle değiştirmeli."
 )
+
+
+def date_hint(clock: Clock) -> str:
+    """Gün bilgisini enjekte edilen saatten üret; saniyeler istem önekini bozmasın."""
+    local = datetime.fromtimestamp(clock.now(), UTC).astimezone()
+    return f"Yerel tarih: {local.date().isoformat()} (UTC{local:%z})."
 
 
 def identity_hint(model: str) -> str | None:

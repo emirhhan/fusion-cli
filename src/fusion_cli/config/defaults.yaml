@@ -589,7 +589,7 @@ candidates:
   # `LiteLlmProvider` ile canlı ölçüldü (gerçek araç şeması + 200x200 düz kırmızı PNG):
   #   nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning        → araç çağrısı 6.13s (doğru), görsel 3.11s ("kırmızı", doğru)
   #   openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free  → araç çağrısı 6.34s (doğru), görsel 3.51s ("kırmızı", doğru)
-  # Ayrı `vision:` rolündeki `llama-3.2-11b-vision-instruct` yalnızca `view_image`
+  # Ayrı `vision:` rolü yalnızca `view_image`
   # aracı için kullanılır ve araç çağırmaz; bu aday AGENT turunda hem araç hem
   # görsel gerektiren işi tek modelle karşılar.
   - name: goz-cirak
@@ -620,18 +620,13 @@ judge:
 
 # Görme yetenekli model — `view_image` aracı ve görsel doğrulama kapısı için.
 #
-# Ölçüm (2026-09-04): önceki varsayılan `nvidia/nemotron-nano-12b-v2-vl`
-# 2026-08-26'da EOL oldu ve 410 Gone dönüyor; yedeği de AYNI modelin başka
-# sağlayıcıdaki hâliydi, o da ölüydü. Yani görsel kapısı sessizce çalışmıyordu.
-# Yerine geçen model gerçek bir asset üzerinde denendi ve doğru cevap verdi
-# (bir uygulama ikonunu "logo ve metin ikonu" diye tanıdı).
-#
-# Yedek YAZILMADI: denenen OpenRouter görsel modellerinin hiçbiri erişilebilir
-# değildi ("No endpoints found") ve 90b sürümü 90 sn sınırında zaman aşımına
-# uğradı. Uydurulmuş bir yedek, kapıyı sessizce yeniden bozardı.
+# 4 Kasım 2026 canlı bilgisayar testinde eski llama-3.2-11b-vision-instruct
+# bu hesap için 404 döndü. Aynı sağlayıcıdaki Nano Omni, gerçek describe_image
+# çağrısında 64x64 kırmızı PNG'nin rengini doğru bildirdi. Bu, genel görsel
+# doğruluk veya masaüstü görev başarısı ölçümü değildir. Doğrulanmamış yedek yok.
 vision:
   name: goz
-  model: nvidia_nim/meta/llama-3.2-11b-vision-instruct
+  model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 
 # Öğretmen — `ask_teacher` aracının danıştığı web oturumu (Faz 4, 22 Eylül).
 #

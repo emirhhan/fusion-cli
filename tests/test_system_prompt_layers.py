@@ -7,6 +7,7 @@ ek olarak `system_api.md`'yi alır.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fusion_cli.core.tools import ToolContext
@@ -80,3 +81,20 @@ async def test_web_modeli_yalniz_dar_cekirdegi_alir(monkeypatch, tmp_path) -> No
 
     system = provider.seen_messages[0][0].content
     assert "<api-calisma-ilkeleri>" not in system
+
+
+async def test_ajan_guncel_tarihi_enjekte_edilen_saatten_alir(monkeypatch, tmp_path) -> None:
+    from fusion_cli.engines.agent import loop
+
+    from .test_turn_deadline import FakeClock
+
+    provider = ScriptedProvider([model_result("Tamam.")])
+    monkeypatch.setattr(loop, "build_provider", lambda _spec, **_kwargs: provider)
+    deps = _deps(tmp_path, "nvidia_nim/ornek-model")
+    # Her saat diliminde yerel 4 Kasım öğlenini temsil eden sabit test saati.
+    deps.clock = FakeClock(datetime(2026, 11, 4, 12).timestamp())
+
+    await run_agent("Güncel bir rapor hazırla", deps)
+
+    system = provider.seen_messages[0][0].content
+    assert "2026-11-04" in system

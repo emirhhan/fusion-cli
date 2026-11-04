@@ -28,12 +28,12 @@ async function platformFonts(page: Page, selector: string) {
   } finally { await cdp.detach(); }
 }
 
-test("asistan yerel roman ve italik serif ile çizilir; kullanıcı ve kontroller korunur", async ({ page }) => {
+test("asistan yerel Inter ile çizilir; kullanıcı ve kontroller korunur", async ({ page }) => {
   await openTypography(page);
   for (const selector of [`${answerSelector} > p`, `${answerSelector} em`, `${answerSelector} h4`]) {
     const fonts = await platformFonts(page, selector);
-    expect(fonts.some(font => font.isCustomFont && font.familyName.includes("Source Serif") && font.glyphCount > 0)).toBe(true);
-    if (selector.endsWith(" em")) expect(fonts.some(font => /italic/i.test(font.postScriptName))).toBe(true);
+    expect(fonts.some(font => font.isCustomFont && font.familyName.includes("Inter") && font.glyphCount > 0)).toBe(true);
+    if (selector.endsWith(" em")) await expect(page.locator(selector)).toHaveCSS("font-style", "italic");
   }
   await expect(page.locator(answerSelector)).toContainText("İ ı Ğ ğ Ş ş Ç ç Ö ö Ü ü");
   for (const prose of await page.locator(proseSelector).all()) {
@@ -143,7 +143,7 @@ test("erişilebilir ölçek yüzde 125 büyür", async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test("akış sırasında ara anlatım ve büyüyen yanıt serif kalır", async ({ page }) => {
+test("akış sırasında ara anlatım ve büyüyen yanıt Inter kalır", async ({ page }) => {
   await page.clock.install();
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto("/e2e/preview.html?state=typography&streaming=1&inspector=0&sidebar=0");

@@ -45,6 +45,7 @@ KEY_CODES = {
     # Noktalama (ANSI): `cmd+-`/`cmd+=` yakınlaştırma, `cmd+,` ayarlar, `cmd+/` yorum.
     "-": 27, "=": 24, "[": 33, "]": 30, ";": 41, "'": 39, ",": 43, ".": 47, "/": 44,
     "\\": 42, "`": 50, "+": 24,
+    "*": 0x43,  # Sayısal takımın çarpma tuşu; klavye düzeninden bağımsız.
     "f13": 105, "f14": 107, "f15": 113, "f16": 106, "f17": 64, "f18": 79, "f19": 80, "f20": 90,
     "capslock": 57,
 }  # fmt: skip

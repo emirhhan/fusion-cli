@@ -16,6 +16,13 @@ from fusion_cli.engines.agent.teacher_plan import (
     ("task", "expected"),
     [
         ("Merhaba", "basit"),
+        (
+            "Bugünün yerel tarihini, kullandığın modeli ve 17 × 23 sonucunu üç kısa "
+            "cümleyle yaz. Web araştırması yapma; tarih için sana verilen çalışma "
+            "bağlamını esas al.",
+            "basit",
+        ),
+        ("Bu kavramı açıkla; cevabını üç cümleyle sınırla", "basit"),
         ("README dosyasını oku ve özetle", "basit"),
         ("src/app.py dosyasındaki hatayı düzelt", "orta-buyuk"),
         ("src/app.py içindeki add hatasını düzelt; mevcut testi çalıştır", "orta-buyuk"),
