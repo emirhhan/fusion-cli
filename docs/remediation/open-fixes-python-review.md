@@ -1,5 +1,92 @@
 # Independent Python review — open fixes
 
+## Identifier-label destructive-gate correction — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `1c938ca0`**. No remaining CRITICAL,
+HIGH or MEDIUM finding identified in this two-file risk correction.
+
+The parallel review identified a valid HIGH/P1 producer/consumer gap after the
+preceding `e0b61cd2` review: native inspection could expose an identifier-only
+button label while `_ref_label` ignored its identity slot. The earlier approval
+alone was insufficient for that action-label risk contract. This corrective
+verdict includes the aligned consumer.
+
+The identity layout remains role/title/identifier/description. `_ref_label` first
+returns the exact prior joined title-plus-description result, preserving its
+priority. Only when that human label is empty and the role is `AXButton` does it
+use the identifier slot, matching the newly exported button-label contract.
+Other roles, human-label behavior, malformed-reference handling and action
+validation remain unchanged. The existing risk-word classifier then applies the
+same destructive gate to identifier-only Delete, Send and Pay labels.
+
+Independent verification: **45 tests passed on the final commit** in
+`test_desktop_risk.py`. The new tests drive actual `resolve_request` and approval
+policy in AUTO and BYPASS, seed remembered app consent, press twice and assert
+`REMOTE_DESTRUCTIVE`, `can_remember=False` and a fresh prompt each time. They also
+cover Turkish destructive identifiers, harmless identifiers, nonbutton scope and
+the stronger title/description priority cases with a genuinely risky `Delete`
+identifier. The earlier related risk/policy/background/display/effect invocation
+passed 113 cases (overlapping scopes, not an aggregate count). Final scoped Ruff
+passed; mypy passed for the changed source. No existing risk assertion was removed.
+
+No production edit, real UI/helper action, private chat scan, shell/model/network
+request, secret access, environment creation, packaging or installation was
+performed. This is source/risk-contract approval; physical 0→391 acceptance is
+still a separate gate.
+
+## UI-label and asynchronous-focus addendum — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `e0b61cd2`** (delta from `a2137bba`).
+No remaining CRITICAL, HIGH or MEDIUM finding identified in the reviewed Python
+source and its immediate diagnostic/payload handoff. Native API behavior is
+separately reviewed; no live acceptance result is inferred here.
+
+- **UI label versus filesystem predicate:** the new exception removes a
+  mutation-looking word only when it immediately names a button/control followed
+  by an explicit press/click predicate. The public `Tümünü Sil düğmesine bas`
+  request no longer becomes filesystem deletion work. Independent deletion,
+  removal, output-file writing and UI-building predicates remain covered by
+  positive mutation tests. Destructive-click risk policy is unchanged and tested
+  with delete/send/payment labels; this exception does not grant UI permissions.
+- **Initial review issue resolved:** the first candidate still read the front
+  window immediately after raising a named window, allowing the old title to be
+  rejected before polling. The committed script instead captures the selected
+  window object as its activation target. Separate bounded foreground observation
+  must then match that target's PID **and title**. The staged named-window test
+  supplies a same-PID wrong-title window before the requested window and verifies
+  the first observation does not finish focus.
+- **Identity and stale-frame controls:** activation exit status alone is not
+  success. The old screenshot is invalidated and required-refocus remains set
+  before activation; timeout/malformed/mismatching observations keep it set.
+  Success still requires positive native window ID and matching PID, title and
+  bounds. Poll subprocess timeouts use the remaining two-second settling budget.
+  The existing native-helper phase remains separate from that polling budget.
+- **Diagnostics/public metadata:** failure diagnostics request only the intended
+  target PID and expected title/bounds; output contains comparison booleans,
+  counts and bounded role/subrole metadata rather than raw window titles/values.
+  These observations never satisfy a failed identity check. Updated tool wording
+  treats absent main/focused/subrole hints as unknown, preserving the distinction
+  between a same-process auxiliary window and the selected target. Button label
+  and window metadata serialization/native privacy gates are also covered by the
+  separately owned native review.
+
+Independent verification: the final focus/display/effect invocation passed
+**48 tests**, including the named-window staged case. Earlier bounded interaction
+invocations passed 187 effect/policy/agent cases and 71 desktop cases; these are
+overlapping scopes, not an aggregate count. Mypy passed for the three changed
+Python source files. Final commit Ruff checks passed for changed Python source
+and tests after the worker corrected one line-length issue. Test fixture edits
+accommodate the timeout keyword and add assertions; existing denial assertions
+remain in force, with timeout diagnostics now explicitly tested as read-only
+requests to the intended PID.
+
+No production source was edited by this reviewer. Tests use synthetic observations,
+fake clocks/adapters and pure extracted native-policy helpers; no actual UI,
+native desktop probe, private chat scan, network/model/secret access, build,
+virtual-environment creation or installation was performed. Physical Calculator
+clear-to-0 followed by an observed 17×23 result of 391 remains a separate live
+acceptance gate after installation.
+
 ## Corrective browser bootstrap/security re-review — APPROVE
 
 Latest bounded Python verdict: **APPROVE at `be28b603`**. No remaining CRITICAL,

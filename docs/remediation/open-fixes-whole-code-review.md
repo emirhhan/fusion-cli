@@ -1,6 +1,33 @@
 # Whole-wave code/spec review
 
-**Final bounded verdict at `be28b603`: APPROVE — zero open findings.** Initial retry/build findings, native display-export findings, and the browser credential-environment regression are resolved. Historical findings below retain their original reviewed snapshots and evidence.
+**Final bounded verdict at `1c938ca0`: APPROVE — zero open findings.** The `e0b61cd2` identifier-label risk handoff is resolved by its narrow follow-up. Initial retry/build findings, native display-export findings, and the browser credential-environment regression are also resolved. Historical findings below retain their original reviewed snapshots and evidence.
+
+## Final label/focus/window-metadata delta
+
+Corrective closeout at `1c938ca0`: APPROVE. Reviewed its exact two-file diff after the bounded `e0b61cd2` inspection. `_ref_label` preserves the existing title/description risk source, then falls back to identity slot 2 only when that human label is empty and the role is AXButton. Thus identifier-only exported Delete/Send/Pay labels reach the same mandatory destructive gate, without treating a human Cancel label as destructive because its internal identifier says Delete or DeleteCancel. Native current-reference checks, model-visible labels, application permissions and confirmation semantics are unchanged. Regression tests exercise the actual effect/approval path under AUTO and BYPASS with pre-existing application consent, proving REMOTE_DESTRUCTIVE, no remembered consent, and a new prompt for every press. Reviewer independently ran all 45 `test_desktop_risk.py` cases (exit 0); follow-up whitespace checks passed. No native UI/helper, real operation, secrets, model or network calls were used.
+
+Reviewed the seven-file `a2137bba..e0b61cd2` change and immediate safety consumers only. The UI-label mutation disambiguation preserves independent filesystem mutations. Focus activation resolves the requested process/window, waits on the observed foreground PID/title within the two-second poll deadline, and still requires native positive window identity, exact title and current bounds; failures retain the old-frame/refocus lock. Window selection metadata is advisory and requires exact CG/AX mapping. The icon-free, per-PID bounded metadata pass and failure diagnostics preserve unknowns and do not export unrelated window titles or values. The standalone Swift source hash matches the independently approved `native-window-review.md` snapshot (`0bddd0050e596feba344f1a0417602fa010c233d5fd54a7343ceff1133f5be61`).
+
+### HIGH / P1 — identifier-only action labels are omitted from destructive press classification
+
+Historical finding (resolved by `1c938ca0`). File: `src/fusion_cli/tools/data/desktop_host.swift:116`; safety consumer `src/fusion_cli/tools/desktop_risk.py:161` (`_ref_label`, existing code).
+
+```swift
+if labels["label"] == nil {
+    labels["label"] = labels["identifier"]
+    labels["label_source"] = "AXIdentifier"
+}
+```
+
+The new inspector makes an AXButton with empty title/description and `AXIdentifier="Delete"` actionable as `label="Delete"`. Its existing current-reference identity contains that identifier in slot 2. However, `_ref_label` reads only slots 1 and 3 (title and description); the background `press` risk path therefore sees no label and does not request its mandatory destructive-action confirmation. Native identity/current-reference checks establish which element receives AXPress; they do not classify its destructive meaning. Noneditable/AXPress/safe-ancestor checks also do not distinguish a Delete button from a harmless button. This is a cross-contract gap exposed by the new identifier fallback, rather than a claim that the existing risk helper changed in this commit.
+
+Confirmed with the actual risk helper and entirely synthetic identities: a base64 JSON ref containing `AXButton` + empty title + `Delete` identifier + empty description returns no risk reason for `desktop_background_action(action="press")` on Finder; placing `Delete` in description returns a risk reason. Output: `identifier_only_press_risky= False`, `description_press_risky= True`. No native helper, actual button, application content or destructive operation was used.
+
+Fix: align background-press risk classification with the same authoritative native identity fields used to produce the model-visible action label. Include the identifier fallback conservatively when title/description are absent (or classify identifier-only unknown buttons conservatively). Preserve current-reference validation and existing per-action confirmation behavior. Add identifier-only delete/send/pay fixtures through the actual assessment/effect resolver, alongside harmless identifier and description/title cases; the current label tests do not cover this safety handoff.
+
+Reviewer validation: focused planning, focus, static-display/action-label and background-helper suites passed together (four files, exit 0). Range diff whitespace checks passed. No additional actionable finding was established in this bounded delta. No native helper/UI, model/network, real secrets or private chat reads, build or installation were used. Live display values 0 then 391 remain pending acceptance and are not proven by these tests.
+
+Current summary at `1c938ca0`: CRITICAL 0; HIGH 0; MEDIUM 0; LOW 0. Verdict: APPROVE for the bounded source scope; live display acceptance and package integration remain separate gates.
 
 ## Browser-only MCP startup delta
 
