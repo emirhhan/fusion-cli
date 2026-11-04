@@ -92,7 +92,7 @@ async def test_gorsel_okunur_ve_model_aciklamasi_donulur(tmp_path, goren):
 
     assert sonuc.ok is True
     assert "uygulama ikonu" in sonuc.output
-    mesaj = goren.seen[0].messages[0]
+    mesaj = goren.seen[0].messages[-1]
     assert mesaj.images and mesaj.images[0].startswith("data:image/png;base64,")
 
 
@@ -104,7 +104,7 @@ async def test_soru_verilirse_modele_iletilir(tmp_path, goren):
         "view_image", {"path": "a.png", "question": "Bu bir karakter mi?"}, deps.tool_context
     )
 
-    assert "Bu bir karakter mi?" in goren.seen[0].messages[0].content
+    assert "Bu bir karakter mi?" in goren.seen[0].messages[-1].content
 
 
 async def test_gorsel_olmayan_dosya_anlasilir_hata_verir(tmp_path, goren):

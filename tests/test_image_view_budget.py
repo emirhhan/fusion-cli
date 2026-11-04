@@ -53,7 +53,7 @@ async def test_thinking_budget_exhaustion_gets_one_larger_attempt(tmp_path, monk
 
     text, error = await _describe(tmp_path, monkeypatch, provider)
 
-    assert text == "Ekranda 391 yazıyor."
+    assert text == image_view.VISION_OBSERVATION_LABEL + "Ekranda 391 yazıyor."
     assert error is None
     assert [request.max_tokens for request in provider.seen] == [200, 4096]
     assert all(request.max_retries == 0 for request in provider.seen)
@@ -65,7 +65,7 @@ async def test_successful_short_vision_does_not_expand_budget(tmp_path, monkeypa
 
     text, error = await _describe(tmp_path, monkeypatch, provider)
 
-    assert (text, error) == ("Kırmızı kare.", None)
+    assert (text, error) == (image_view.VISION_OBSERVATION_LABEL + "Kırmızı kare.", None)
     assert len(provider.seen) == 1
     assert provider.seen[0].max_tokens == 200
 
@@ -86,7 +86,10 @@ async def test_partial_description_is_never_accepted_as_complete(tmp_path, monke
         _result(text="Ekranda 0 var.", ok=True),
     )
 
-    assert await _describe(tmp_path, monkeypatch, provider) == ("Ekranda 0 var.", None)
+    assert await _describe(tmp_path, monkeypatch, provider) == (
+        image_view.VISION_OBSERVATION_LABEL + "Ekranda 0 var.",
+        None,
+    )
     assert len(provider.seen) == 2
 
 
@@ -113,7 +116,10 @@ async def test_retry_uses_remaining_time_not_fresh_timeout(tmp_path, monkeypatch
     )
     monkeypatch.setattr(image_view, "VISION_TIMEOUT_S", 1.0)
 
-    assert await _describe(tmp_path, monkeypatch, provider) == ("0", None)
+    assert await _describe(tmp_path, monkeypatch, provider) == (
+        image_view.VISION_OBSERVATION_LABEL + "0",
+        None,
+    )
     assert 0 < provider.seen[1].timeout_s < provider.seen[0].timeout_s <= 1.0
 
 
@@ -138,3 +144,24 @@ async def test_cancellation_propagates_without_retry(tmp_path, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await _describe(tmp_path, monkeypatch, provider)
     assert len(provider.seen) == 1
+
+
+async def test_observation_has_provenance_and_preserves_incomplete_expression(
+    tmp_path, monkeypatch
+):
+    provider = _Provider(
+        _result(text="visible_text: 17×23−\ndescription: calculator\nuncertainty: none", ok=True)
+    )
+
+    text, error = await _describe(tmp_path, monkeypatch, provider)
+
+    assert error is None
+    assert text.startswith(image_view.VISION_OBSERVATION_LABEL)
+    assert "17×23−" in text
+    assert "391" not in text
+    system, user = provider.seen[0].messages
+    assert system.role == "system"
+    assert not system.images
+    assert user.role == "user"
+    assert user.content == "Ekrandaki sayıyı oku."
+    assert user.images[0].startswith("data:image/png;base64,")

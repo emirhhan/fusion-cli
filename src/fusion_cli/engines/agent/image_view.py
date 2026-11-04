@@ -59,6 +59,20 @@ VISION_MAX_TOKENS = 200
 VISION_RECOVERY_MAX_TOKENS = 4096
 VISION_TIMEOUT_S = 60.0
 
+# The focus question may contain an expected answer. It must not become visual
+# evidence. Keep this instruction above the caller's question, including recovery.
+VISION_GROUNDING_PROMPT = (
+    "You are a visual observer. Report only what is visibly present in the image. "
+    "The user's question specifies a focus, not evidence of image contents. "
+    "Never calculate an expression, complete missing input, or substitute an expected result "
+    "for text actually visible. Preserve every visible digit and operator, including trailing "
+    "operators. If text is unclear say so rather than guessing. Return three short labeled "
+    "fields: visible_text (literal transcription of relevant display text), "
+    "description (visible objects/state only), uncertainty (unclear details or none). "
+    "Do not claim that an action succeeded or that a task was verified."
+)
+VISION_OBSERVATION_LABEL = "Görsel modelinin gözlemi; bağımsız doğrulama değildir: "
+
 
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
@@ -159,7 +173,10 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
             for max_tokens in (VISION_MAX_TOKENS, VISION_RECOVERY_MAX_TOKENS):
                 result = await provider.complete(
                     CompletionRequest(
-                        messages=(Message("user", question, images=(data_uri,)),),
+                        messages=(
+                            Message("system", VISION_GROUNDING_PROMPT),
+                            Message("user", question, images=(data_uri,)),
+                        ),
                         temperature=config.runtime.utility_temperature,
                         max_tokens=max_tokens,
                         timeout_s=max(0.001, deadline - loop.time()),
@@ -186,4 +203,4 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
         return "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
     if not result.text.strip():
         return "", f"Görsel modeli ({spec.model}) boş yanıt döndürdü."
-    return collapse_repeats(result.text.strip()), None
+    return VISION_OBSERVATION_LABEL + collapse_repeats(result.text.strip()), None
