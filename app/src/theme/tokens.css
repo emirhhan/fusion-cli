@@ -100,13 +100,19 @@
   --space-10: 40px;
   --bosluk-birim: var(--space-2);
 
-  /* Asistan anlatımı kullanıcı balonundan ve arayüz rollerinden ayrıdır. */
-  --assistant-font-family: var(--font-sans);
-  --assistant-font-size: 1rem;
-  --assistant-line-height: 1.5;
-  --assistant-font-size-narrow: 1rem;
-  --assistant-line-height-narrow: 1.5;
-  --assistant-font-weight: 400;
+  /* Kullanıcı, ara anlatım ve yanıt aynı kompakt metin ölçüsünü paylaşır.
+     rem, erişilebilir yazı ölçeğini bütün konuşmada birlikte korur. */
+  --chat-font-family: var(--font-sans);
+  --chat-font-size: .8125rem;
+  --chat-line-height: 1.5;
+  --chat-font-weight: 400;
+  --assistant-font-family: var(--chat-font-family);
+  --assistant-font-size: var(--chat-font-size);
+  --assistant-line-height: var(--chat-line-height);
+  --assistant-font-size-narrow: var(--chat-font-size);
+  --assistant-line-height-narrow: var(--chat-line-height);
+  --assistant-font-weight: var(--chat-font-weight);
+  --assistant-emphasis-weight: 600;
   --assistant-tracking: normal;
   --assistant-prose-width: 72ch;
   --assistant-heading-1-size: 1.5em;
@@ -121,7 +127,7 @@
   --assistant-paragraph-gap: 1em;
   --assistant-list-indent: 1.5em;
   --assistant-list-gap: .4em;
-  --assistant-table-font-size: .875rem;
+  --assistant-table-font-size: var(--chat-font-size);
   --assistant-table-line-height: 1.5;
   --assistant-code-font-size: .8125rem;
   --assistant-code-line-height: 1.6;

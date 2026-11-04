@@ -278,6 +278,7 @@
   width: min(100%, var(--assistant-prose-width));
   white-space: normal;
 }
+.conversation__message--assistant .markdown strong { font-weight: var(--assistant-emphasis-weight); }
 .conversation__message--assistant .markdown :is(h1, h2, h3, h4, h5, h6) {
   font-family: var(--assistant-font-family);
   font-weight: var(--assistant-heading-weight);

@@ -2,11 +2,10 @@
 .conversation__jump { position: absolute; bottom: 16px; right: 16px; z-index: 1; background: var(--surface-raised); }
 
 .conversation {
-  /* Sohbet tipografisi: sistem yazı tipi, 13px sohbet metni, 12px kod. */
-  --chat-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  --chat-font-size: 13px;
-  --chat-line-height: 1.5;
-  font-family: var(--chat-font-family, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  font-family: var(--chat-font-family);
+  font-size: var(--chat-font-size);
+  font-weight: var(--chat-font-weight);
+  line-height: var(--chat-line-height);
   flex: 1;
   min-height: 0;
   overflow: hidden auto;
