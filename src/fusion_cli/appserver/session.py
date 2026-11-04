@@ -215,6 +215,7 @@ from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .visible_transcript import VisibleToolRecorder, load_visible_transcript
 
 if TYPE_CHECKING:
     from ..cli.repl.prefixes import ShellPrefixResult
@@ -602,6 +603,8 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             config.memory_dir, root, conversation_id=FALLBACK_CONVERSATION_ID
         )
+        self._visible_generation = 0
+        self._visible_history_imported = False
         #: "sohbet" ya da "kod". Varsayılan artık KOD (Faz 5, Görev 5 — "tek
         #: kutu"): arayüzdeki manuel kip düğmesi kaldırıldı, kullanıcı artık
         #: hiçbir seçim yapmıyor. Eski gerekçe ("merhaba"da proje taranmasın)
@@ -1089,9 +1092,18 @@ class AppSession:
         if request.name == "oturum.durum":
             return self._status()
         if request.name == "oturum.gecmis":
+            if self._visible_history_imported:
+                return {"ok": True, "mesajlar": visible_history(self._state.history)}
+            store, generation = self._transcript_store, self._visible_generation
+            history = await asyncio.to_thread(
+                load_visible_transcript, store, tuple(self._state.history)
+            )
+            if store is not self._transcript_store or generation != self._visible_generation:
+                return {"ok": False, "metin": "Sohbet değişti; geçmişi yeniden yükleyin."}
             return {
                 "ok": True,
-                "mesajlar": visible_history(self._state.history),
+                "mesajlar": history.rows,
+                **({"gecmis_kirpildi": True} if history.truncated else {}),
             }
         if request.name == "sohbet.sil":
             return await self._delete_conversation(request.data)
@@ -1160,6 +1172,11 @@ class AppSession:
         if request.name == "gecmis.surdur":
             prepared = prepare_resume(self._home, self._state.root, request.data)
             if isinstance(prepared, PreparedResume):
+                # Imported context replaces the current view, rather than mixing
+                # the previous conversation's persisted tool rows into it.
+                self._visible_generation += 1
+                self._visible_history_imported = True
+                self._transcript_store.record_visible_clear()
                 self._state.pending_digest = prepared.digest
                 # Kullanıcının kendi devralma eylemi, o oturumun klasörlerine açık izindir.
                 self._state.extra_roots = tuple(
@@ -1669,6 +1686,7 @@ class AppSession:
             conversation_id,
         )
         if root == current_root and conversation_id == self._transcript_store.session_id:
+            self._visible_generation += 1
             self._cancel_turn()
             self._state.history = []
         return {"ok": True, "sohbet_id": conversation_id}
@@ -1795,6 +1813,8 @@ class AppSession:
         Okuma ve yazma TEK yerden bağlanır; ayrı ayrı bağlanırsa biri kimliği
         alıp öteki almadığında sekme yazdığını geri okuyamaz.
         """
+        self._visible_generation += 1
+        self._visible_history_imported = False
         self._state.history = load_transcript_messages(
             self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
         )
@@ -2648,6 +2668,9 @@ class AppSession:
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             # `/reset`, `/new` artık `/clear` takma adı (#185). Masaüstü sohbet kimliğini
             # kendi sekmesi yönetir; geçmiş ve hook oturumu Claude `/clear` gibi yenilenir.
+            self._visible_generation += 1
+            self._visible_history_imported = False
+            self._transcript_store.record_visible_clear()
             self._state.reset_history()
             if not turn_running:
                 # REPL/TUI'de `/clear` yeni sohbet kimliği açtığı için eski sohbetin arka plan
@@ -3268,7 +3291,28 @@ class AppSession:
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
-        protocol_sink = ProtocolSink(writer, receipt=receipt, sequence=event_sequence)
+        turn_store = self._transcript_store
+        visible_generation = self._visible_generation
+        recorder = (
+            None
+            if browser_only
+            else VisibleToolRecorder(
+                turn_store,
+                active=lambda: (
+                    self._turn is owned_turn
+                    and self._transcript_store is turn_store
+                    and self._visible_generation == visible_generation
+                ),
+                turn_id=receipt.attempt_id if receipt else None,
+            )
+        )
+
+        def public_writer(line: str) -> None:
+            if recorder is not None:
+                recorder.record(line)
+            writer(line)
+
+        protocol_sink = ProtocolSink(public_writer, receipt=receipt, sequence=event_sequence)
         effect_sink = _RetryEffectSink(protocol_sink)
         sink = LibrarySink(
             _MeteredSink(

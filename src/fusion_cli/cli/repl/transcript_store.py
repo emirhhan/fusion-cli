@@ -622,6 +622,25 @@ class TranscriptStore:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
 
+    def record_visible_tool(self, payload: dict[str, object], *, identifier: str) -> None:
+        """Append a pre-sanitized public UI record; the model loader ignores this type."""
+        self._append(
+            {
+                "event": "VisibleToolExecuted",
+                "visible_version": 1,
+                "visible_id": identifier,
+                "payload": payload,
+            }
+        )
+
+    def record_visible_limit(self) -> None:
+        """Expose the bounded per-turn UI history limit without inventing a tool."""
+        self._append({"event": "VisibleHistoryLimited", "visible_version": 1})
+
+    def record_visible_clear(self) -> None:
+        """A UI reset also fences old persisted work rows on reopening."""
+        self._append({"event": "VisibleHistoryCleared", "visible_version": 1})
+
     def record_requirement(self, text: str) -> None:
         """Persist only the explicitly typed original-requirement note for a branch."""
         self._append({"event": _REQUIREMENT_EVENT, "text": text[:_REQUIREMENT_NOTE_CHARS]})
