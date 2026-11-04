@@ -191,3 +191,66 @@ def test_metin_kutusu_aciklamasi_riskli_sayilmaz_rol_oneki_aranmaz():
     assert risky_reason("desktop_click", {}, button, "")
     # Rol adı ("Button") tek başına riskli değil; ad yoksa eşleşme yapılmaz.
     assert risky_reason("desktop_click", {}, DesktopTarget("Notes", element="Button"), "") is None
+
+
+def _label_ref(*, title="", identifier="", description="", role="AXButton"):
+    token = {
+        "path": [0],
+        "identity": "\x1f".join((role, title, identifier, description)),
+        "fingerprint": "current",
+        "id": 100,
+        "pid": 9,
+    }
+    return base64.b64encode(json.dumps(token).encode()).decode()
+
+
+@pytest.mark.parametrize("identifier", ["Delete", "Gönder", "Öde"])
+def test_identifier_only_exported_button_label_requires_destructive_gate(identifier):
+    args = {"action": "press", "ref": _label_ref(identifier=identifier)}
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is not None
+
+
+@pytest.mark.parametrize(
+    "title,description,identifier",
+    [
+        ("Cancel", "", "DeleteCancel"),
+        ("Cancel", "", "Delete"),
+        ("", "Cancel", "Delete"),
+        ("", "", "Archive"),
+    ],
+)
+def test_human_label_priority_and_harmless_identifier_remain_ordinary(
+    title, description, identifier
+):
+    args = {
+        "action": "press",
+        "ref": _label_ref(title=title, description=description, identifier=identifier),
+    }
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is None
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+@pytest.mark.parametrize("identifier", ["Delete", "Send", "Pay"])
+async def test_identifier_only_press_is_destructive_and_never_reuses_session_consent(
+    tmp_path,
+    probe,
+    mode,
+    identifier,
+):
+    memory = ApprovalMemory()
+    context = _context(tmp_path)
+    probe["answer"] = _answer("Mail", "com.apple.mail", "Arşivle")
+    await _decide("desktop_click", {"x": 1, "y": 1}, context, ApprovalMode.AUTO, memory)
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": _label_ref(identifier=identifier)}
+    for _ in range(2):
+        request, decision, prompter = await _decide(
+            "desktop_background_action", args, context, mode, memory
+        )
+        assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+        assert not request.can_remember
+        assert decision is Decision.ALLOW and len(prompter.asked) == 1
+
+
+def test_identifier_fallback_applies_only_to_exported_button_role():
+    args = {"action": "press", "ref": _label_ref(identifier="Delete", role="AXTextField")}
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is None

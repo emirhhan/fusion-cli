@@ -158,4 +158,11 @@ def _ref_label(ref: object) -> str:
     if not isinstance(identity, str):
         return ""
     parts = identity.split("\u001f")
-    return " ".join(part for index, part in enumerate(parts) if index in (1, 3) and part).strip()
+    human_label = " ".join(
+        part for index, part in enumerate(parts) if index in (1, 3) and part
+    ).strip()
+    if human_label:
+        return human_label
+    # safeActionLabels exposes identifier-only AXButton labels when no human
+    # title/description exists. Apply the same fallback to their risk gate.
+    return parts[2].strip() if len(parts) > 2 and parts[0] == "AXButton" else ""
