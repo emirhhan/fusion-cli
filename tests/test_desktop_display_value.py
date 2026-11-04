@@ -253,3 +253,57 @@ print("action-checks-passed")
     action = content[content.index("func action(") : content.index("// Eylem hedefi")]
     assert "checks.values.allSatisfy" in action
     assert '"action_checks": checks' in action
+
+
+async def test_system_calculator_proof_requires_actual_pid_bundle_and_resolved_urls(tmp_path):
+    swift = shutil.which("swift")
+    if swift is None or sys.platform != "darwin":
+        pytest.skip("Swift runtime is not available.")
+    source = Path(__file__).parents[1] / "src/fusion_cli/tools/data/desktop_host.swift"
+    content = source.read_text()
+    start = content.index("func isSystemCalculator(")
+    end = content.index("\nfunc appInfo(", start)
+    fake = tmp_path / "Calculator.app"
+    fake.mkdir()
+    link = tmp_path / "linked.app"
+    link.symlink_to(fake, target_is_directory=True)
+    program = (
+        "import Foundation\n"
+        + content[start:end]
+        + """
+let bundle = URL(fileURLWithPath: "/System/Applications/Calculator.app")
+let executable = bundle.appendingPathComponent("Contents/MacOS/Calculator")
+precondition(isSystemCalculator(1396, "com.apple.calculator", bundle, executable))
+precondition(!isSystemCalculator(0, "com.apple.calculator", bundle, executable))
+precondition(!isSystemCalculator(-1, "com.apple.calculator", bundle, executable))
+precondition(!isSystemCalculator(1396, "other", bundle, executable))
+precondition(!isSystemCalculator(1396, nil, bundle, executable))
+precondition(!isSystemCalculator(1396, "com.apple.calculator", nil, executable))
+precondition(!isSystemCalculator(1396, "com.apple.calculator", bundle, nil))
+precondition(!isSystemCalculator(1396, "com.apple.calculator",
+    URL(fileURLWithPath: "/Applications/Calculator.app"), executable))
+precondition(!isSystemCalculator(1396, "com.apple.calculator", bundle,
+    URL(fileURLWithPath: "/tmp/Calculator")))
+precondition(!isSystemCalculator(1396, "com.apple.calculator",
+    URL(string: "https://example.com/System/Applications/Calculator.app"), executable))
+let impersonator = URL(fileURLWithPath: CommandLine.arguments[1])
+precondition(!isSystemCalculator(1396, "com.apple.calculator", impersonator,
+    impersonator.appendingPathComponent("Contents/MacOS/Calculator")))
+print("calculator-proof-passed")
+"""
+    )
+    target = tmp_path / "calculator.swift"
+    target.write_text(program)
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [swift, str(target), str(link)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "calculator-proof-passed"
+    app_info = content[content.index("func appInfo(") : content.index("// A process can own")]
+    assert '"system_calculator": isSystemCalculator(pid, app.bundleIdentifier,' in app_info
+    assert "app.bundleURL, app.executableURL" in app_info

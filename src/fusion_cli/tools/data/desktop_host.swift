@@ -243,9 +243,22 @@ func elementInfo(_ element: AXUIElement) -> [String: Any] {
         "description": attribute(chosen, kAXDescriptionAttribute) as? String ?? "",
         "help": attribute(chosen, kAXHelpAttribute) as? String ?? ""]
 }
+// Native process metadata only; this proof is never accepted from tool arguments.
+func isSystemCalculator(_ pid: pid_t, _ bundleIdentifier: String?,
+    _ bundleURL: URL?, _ executableURL: URL?) -> Bool {
+    guard pid > 0, bundleIdentifier == "com.apple.calculator",
+        let bundleURL = bundleURL, bundleURL.isFileURL,
+        let executableURL = executableURL, executableURL.isFileURL else { return false }
+    return bundleURL.resolvingSymlinksInPath().standardizedFileURL.path ==
+        "/System/Applications/Calculator.app" &&
+        executableURL.resolvingSymlinksInPath().standardizedFileURL.path ==
+        "/System/Applications/Calculator.app/Contents/MacOS/Calculator"
+}
 func appInfo(_ pid: pid_t) -> [String: Any]? {
     guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
-    return ["app": app.localizedName ?? "", "bundle": app.bundleIdentifier ?? "", "pid": Int(pid)]
+    return ["app": app.localizedName ?? "", "bundle": app.bundleIdentifier ?? "", "pid": Int(pid),
+        "system_calculator": isSystemCalculator(pid, app.bundleIdentifier,
+            app.bundleURL, app.executableURL)]
 }
 // A process can own many windows: pin a CG identity as well as AX title/geometry.
 func windowInfo(_ window: AXUIElement, _ pid: pid_t) -> [String: Any]? {
