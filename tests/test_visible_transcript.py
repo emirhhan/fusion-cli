@@ -15,7 +15,7 @@ async def test_completed_tool_turn_survives_close_reload_without_model_context(
 ):
     secret = "sk-or-v1-" + "x" * 48
     diff = "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-old\n+new"
-    command = "echo " + "x" * 5000 + " api_key=" + secret
+    command = "echo " + "x" * 5000
 
     async def run(task, _config, **kwargs):
         sink = kwargs["sinks"][0]
@@ -132,7 +132,8 @@ def test_public_projection_redacts_before_clipping_and_drops_unknown_private_arg
     secret = "sk-or-v1-" + "a" * 48
     raw = _public_event(
         args={
-            "command": "echo api_key=" + secret + "\n" + "é" * 5000,
+            "command": "echo " + "é" * 5000,
+            "query": "api_key=" + secret,
             "private_blob": "DO_NOT_PERSIST",
             "x": 10**500,
         },
@@ -491,9 +492,15 @@ def test_command_utf8_boundary_masking_preserves_noncredential_controls(tmp_path
     payload = public_tool_payload(_public_event(args={"command": command}), session_id="a")
     assert payload is not None
     assert "BOUNDARY_AUTH" not in str(payload)
-    assert payload["history_redacted"] == ["args.command"]
-    assert payload["history_truncated"] == ["args.command"]
+    assert payload["history_redacted"] == ["args", "output"]
+    assert "history_truncated" not in payload  # Sensitive content is concealed, not clipped.
     assert len(payload["args"]["command"]) <= 4000
+    benign = public_tool_payload(
+        _public_event(args={"command": "echo " + "ü" * 5000}), session_id="a"
+    )
+    assert benign["history_truncated"] == ["args.command"]
+    assert benign["args"]["command"].endswith("…")
+    assert "history_redacted" not in benign
     plain = "curl --user-agent 'Mozilla Test' https://example.test"
     control = public_tool_payload(
         _public_event(args={"command": plain}, output="public output"), session_id="a"
@@ -506,3 +513,189 @@ def test_command_utf8_boundary_masking_preserves_noncredential_controls(tmp_path
     ):
         masked = public_tool_payload(_public_event(output=value), session_id="a")
         assert value not in masked["output"]
+
+
+def test_shell_punctuation_curl_clusters_and_traces_never_reach_history(tmp_path):
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.appserver.visible_transcript import VisibleToolRecorder, load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    recorder = VisibleToolRecorder(store, active=lambda: True)
+    sink = ProtocolSink(recorder.record)
+    commands = [
+        "cat .env; echo done",
+        "cat <.env",
+        "cat .env|head",
+        "cat<.env",
+        'cat ".env.production"|head',
+        'cat<".env.local";echo done',
+        "bash -c 'cat .env|head'",
+        "bash -lc 'curl -su user:SYNTHAUTHOPAQUE https://example.test'",
+        "bash -c '$OPAQUE_SCRIPT'",
+        "bash -c 'unterminated",
+        "curl -su user:SYNTHAUTHOPAQUE https://example.test",
+        "curl -sUuser:SYNTHAUTHOPAQUE https://example.test",
+        "curl -svu=user:SYNTHAUTHOPAQUE https://example.test",
+        "curl --proxy-user='user:SYNTHAUTHOPAQUE' https://example.test",
+        "set -x; curl -u user:SYNTHAUTHOPAQUE https://example.test",
+    ]
+    for command in commands:
+        event = ToolExecuted(
+            name="run_shell",
+            args={"command": command, "path": "ARGPATHOPAQUE", "text": "ARGTEXTOPAQUE"},
+            outcome=ToolOutcome.OK,
+            output="+ curl -u user:TRACEAUTHOPAQUE\nSESSION_COOKIE=FILEOPAQUE",
+            diff="+ DIFFOPAQUE",
+        )
+        sink.handle(event)
+        assert event.args == {"command": command, "path": "ARGPATHOPAQUE", "text": "ARGTEXTOPAQUE"}
+    disk = store.events_path.read_text()
+    rows = load_visible_transcript(store, []).rows
+    assert len(rows) == len(commands)
+    for sentinel in (
+        "SYNTHAUTHOPAQUE",
+        "TRACEAUTHOPAQUE",
+        "FILEOPAQUE",
+        "DIFFOPAQUE",
+        "$OPAQUE_SCRIPT",
+        "ARGPATHOPAQUE",
+        "ARGTEXTOPAQUE",
+    ):
+        assert sentinel not in disk and sentinel not in str(rows)
+    assert all(row["olay"]["diff"] is None for row in rows)
+    assert all(row["olay"].get("history_redacted") for row in rows)
+
+
+def test_nonsecret_shell_and_public_file_controls_keep_preview_output_and_diff(tmp_path):
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.appserver.visible_transcript import VisibleToolRecorder, load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    sink = ProtocolSink(VisibleToolRecorder(store, active=lambda: True).record)
+    commands = [
+        "printf hello; echo done",
+        "cat public.txt|head",
+        "cat<public.txt",
+        "bash -c 'printf hello'",
+        "curl -sS -o public.txt https://example.test",
+        "curl -opublic.txt --user-agent Mozilla https://example.test",
+    ]
+    for command in commands:
+        sink.handle(
+            ToolExecuted(
+                name="run_shell",
+                args={"command": command},
+                outcome=ToolOutcome.OK,
+                output="public result",
+                diff="public diff",
+            )
+        )
+    sink.handle(
+        ToolExecuted(
+            name="read_file",
+            args={"path": "public.txt"},
+            outcome=ToolOutcome.OK,
+            output="public file",
+            diff="public file diff",
+        )
+    )
+    rows = load_visible_transcript(store, []).rows
+    assert [row["olay"]["args"]["command"] for row in rows[:-1]] == commands
+    assert all(
+        row["olay"]["output"] == "public result" and row["olay"]["diff"] == "public diff"
+        for row in rows[:-1]
+    )
+    assert rows[-1]["olay"]["output"] == "public file"
+    assert rows[-1]["olay"]["diff"] == "public file diff"
+    assert all("history_redacted" not in row["olay"] for row in rows)
+
+
+def test_environment_and_curl_credential_sources_conceal_entire_record_content(tmp_path):
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.appserver.visible_transcript import VisibleToolRecorder, load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    sink = ProtocolSink(VisibleToolRecorder(store, active=lambda: True).record)
+    commands = [
+        "printenv",
+        "printenv SESSION_COOKIE",
+        "env",
+        "env -0|head",
+        "env -u PUBLIC_VAR",
+        "set",
+        "export -p",
+        "python -c \"import os; print(os.environ['SESSION_COOKIE'])\"",
+        "python -c \"import os; print(os.getenv('OPAQUE_VAR'))\"",
+        "node -p 'process.env.SESSION_COOKIE'",
+        "node -e 'console.log(process.env)'",
+        "curl --netrc https://example.test",
+        "curl -sn https://example.test",
+        "curl --netrc-file /synthetic/public-name https://example.test",
+        "curl --config=/synthetic/public-name https://example.test",
+        "curl -K/synthetic/public-name https://example.test",
+        "curl --url https://user:SYNTHURLAUTH@host.test",
+        "curl -xhttp://user:SYNTHPROXYAUTH@proxy.test https://example.test",
+        "cat .curlrc; echo done",
+        "cat<.netrc",
+        "curl -H 'Authorization: Basic AUTHOPAQUE' https://example.test",
+    ]
+    for command in commands:
+        event = ToolExecuted(
+            name="run_shell",
+            args={"command": command},
+            outcome=ToolOutcome.OK,
+            output="SESSION_COOKIE=ENVOPAQUE",
+            diff="+ DIFFENVOPAQUE",
+        )
+        sink.handle(event)
+        assert event.args["command"] == command
+    disk = store.events_path.read_text()
+    rows = load_visible_transcript(store, []).rows
+    assert len(rows) == len(commands)
+    for sentinel in ("ENVOPAQUE", "DIFFENVOPAQUE", "AUTHOPAQUE", "SYNTHURLAUTH", "SYNTHPROXYAUTH"):
+        assert sentinel not in disk and sentinel not in str(rows)
+    assert all(row["olay"]["diff"] is None and row["olay"].get("history_redacted") for row in rows)
+
+
+def test_finite_shell_inspection_fails_closed_and_benign_execution_controls_remain(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.appserver import visible_transcript as module
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    sink = ProtocolSink(module.VisibleToolRecorder(store, active=lambda: True).record)
+    controls = ["npm test", "ls -la", "cat public.html", "env -i npm test", "bash -c 'npm test'"]
+    for command in controls:
+        sink.handle(
+            ToolExecuted(
+                name="run_shell",
+                args={"command": command},
+                outcome=ToolOutcome.OK,
+                output="benign stdout",
+                diff="benign diff",
+            )
+        )
+    monkeypatch.setattr(module, "MAX_COMMAND_TOKENS", 3)
+    sink.handle(
+        ToolExecuted(
+            name="run_shell",
+            args={"command": "echo one two three four"},
+            outcome=ToolOutcome.OK,
+            output="UNINSPECTEDOPAQUE",
+            diff="DIFFUNINSPECTEDOPAQUE",
+        )
+    )
+    monkeypatch.setattr(module, "MAX_COMMAND_TOKENS", 1024)
+    rows = module.load_visible_transcript(store, []).rows
+    assert [row["olay"]["args"]["command"] for row in rows[:-1]] == controls
+    assert all(
+        row["olay"]["output"] == "benign stdout" and row["olay"]["diff"] == "benign diff"
+        for row in rows[:-1]
+    )
+    assert "UNINSPECTEDOPAQUE" not in store.events_path.read_text()
+    assert rows[-1]["olay"]["diff"] is None

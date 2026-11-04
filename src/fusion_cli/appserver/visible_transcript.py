@@ -17,7 +17,7 @@ from ..cli.repl.transcript_store import (
     _deleted_conversations,
 )
 from ..core.leak_filter import is_harness_note, strip_harness_leaks
-from ..core.redaction import redact
+from ..core.redaction import contains_sensitive, redact
 from ..core.types import Message
 from .history_view import _text_row, visible_history
 
@@ -68,34 +68,126 @@ def _version_matches(record: dict[str, object]) -> bool:
     return type(value) is int and value == VERSION
 
 
-def _history_command(command: str) -> tuple[str, bool]:
-    """Mask curl authentication operands without changing the executable model input."""
+MAX_COMMAND_TOKENS = 1024
+_MAX_NESTED_SHELLS = 3
+_RAW_CREDENTIAL_FILE = re.compile(
+    r"(?i)(?:\.env(?:\b|[._-])|\.(?:netrc|curlrc|npmrc|pypirc|git-credentials)\b|"
+    r"\b(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|application_default_credentials\.json)\b|"
+    r"\.(?:pem|key|p12|pfx)\b)"
+)
+_ENV_SOURCE = re.compile(
+    r"(?i)\b(?:os\s*\.\s*(?:environ|getenv)|"
+    r"process\s*\.\s*env|deno\s*\.\s*env)\b|\$ENV\b"
+)
+_CREDENTIAL_VALUE = re.compile(
+    r"(?i)(?:\$\{?[A-Z0-9_]{0,128}(?:TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|CREDENTIAL|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z0-9_]{0,128}|"
+    r"\b[A-Z0-9_-]{0,128}(?:TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|CREDENTIAL|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTHORIZATION)[A-Z0-9_-]{0,128}\s*[:=])"
+)
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"})
+_CURL_CREDENTIAL_OPTIONS = (
+    "--user",
+    "--proxy-user",
+    "--netrc",
+    "--netrc-file",
+    "--netrc-optional",
+    "--config",
+    "--cookie",
+    "--oauth2-bearer",
+    "--aws-sigv4",
+    "--key",
+    "--cert",
+    "--pass",
+)
+# Stop at an option which consumes the remainder as its value, such as -opublic.txt.
+_CURL_VALUE_OPTIONS = frozenset("AbcCdDeEFHIKmNoPQrTtwxXyYz")
+
+
+def _shell_tokens(command: str) -> list[str] | None:
+    """Lex punctuation and quotes, without expanding or executing any shell syntax."""
+    if len(command) > MAX_CAPTURE_CHARS:
+        return None
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens: list[str] = []
     try:
-        tokens = shlex.split(command)
+        for token in lexer:
+            if len(tokens) >= MAX_COMMAND_TOKENS or len(token) > 16000:
+                return None
+            tokens.append(token)
     except ValueError:
-        if re.search(r"(?i)\bcurl(?:\.exe)?\b", command) and re.search(
-            r"--(?:proxy-)?user|-[uU]", command
-        ):
-            return "[Kimlik bilgisi içeren komut geçmişten gizlendi.]", True
-        return redact(command), False
-    if not any(
-        token.replace("\\", "/").rsplit("/", 1)[-1].casefold() in {"curl", "curl.exe"}
-        for token in tokens
+        return None
+    return tokens
+
+
+def _command_sensitive(command: str, depth: int = 0) -> bool:
+    if len(command) > MAX_CAPTURE_CHARS:
+        return True
+    if (
+        contains_sensitive(command)
+        or _RAW_CREDENTIAL_FILE.search(command)
+        or _ENV_SOURCE.search(command)
+        or _CREDENTIAL_VALUE.search(command)
     ):
-        return redact(command), False
-    masked = False
+        return True
+    tokens = _shell_tokens(command)
+    if tokens is None:
+        return True  # Malformed or over-budget commands have no safe history preview.
+    if any(_credential_path(token) for token in tokens):
+        return True
     for index, token in enumerate(tokens):
-        if token in {"-u", "-U", "--user", "--proxy-user"}:
-            if index + 1 < len(tokens):
-                tokens[index + 1] = "[gizlendi]"
-                masked = True
-        elif token.startswith(("--user=", "--proxy-user=")):
-            tokens[index] = token.split("=", 1)[0] + "=[gizlendi]"
-            masked = True
-        elif token.startswith(("-u", "-U")) and len(token) > 2:
-            tokens[index] = token[:2] + "[gizlendi]"
-            masked = True
-    return redact(shlex.join(tokens)) if masked else redact(command), masked
+        name = token.replace("\\", "/").rsplit("/", 1)[-1].casefold().removesuffix(".exe")
+        rest: list[str] = []
+        for value in tokens[index + 1 :]:
+            if value and all(char in ";|&()<>" for char in value):
+                break
+            rest.append(value)
+        if name == "printenv" or (name == "set" and not rest):
+            return True
+        if name == "export" and (not rest or "-p" in rest):
+            return True
+        if name == "env":
+            remaining = iter(rest)
+            found_command = False
+            for value in remaining:
+                if value in {"-u", "--unset", "-C", "--chdir", "-a", "--argv0"}:
+                    next(remaining, None)
+                elif value in {"-S", "--split-string"}:
+                    return True
+                elif not value.startswith("-") and "=" not in value:
+                    found_command = True
+                    break
+            if not found_command:
+                return True
+        if name in _SHELLS:
+            for offset, value in enumerate(rest):
+                command_option = (
+                    value.startswith("-") and not value.startswith("--") and "c" in value[1:]
+                ) or value.casefold() in {"--command", "-command", "/c"}
+                if command_option:
+                    if offset + 1 >= len(rest) or depth >= _MAX_NESTED_SHELLS:
+                        return True
+                    script = rest[offset + 1]
+                    if "$" in script or "`" in script or _command_sensitive(script, depth + 1):
+                        return True
+        if name != "curl":
+            continue
+        for value in rest:
+            if "$" in value or "`" in value:
+                return True
+            if value.startswith("--"):
+                option = value.split("=", 1)[0].casefold()
+                if len(option) >= 3 and any(
+                    credential.startswith(option) for credential in _CURL_CREDENTIAL_OPTIONS
+                ):
+                    return True
+            elif value.startswith("-"):
+                for option in value[1:]:
+                    if option in {"u", "U", "n", "K", "b", "E"}:
+                        return True
+                    if option in _CURL_VALUE_OPTIONS:
+                        break
+    return False
 
 
 def _credential_path(path: str) -> bool:
@@ -106,6 +198,7 @@ def _credential_path(path: str) -> bool:
             ".env",
             ".envrc",
             ".netrc",
+            ".curlrc",
             ".npmrc",
             ".pypirc",
             ".git-credentials",
@@ -124,11 +217,13 @@ def _credential_path(path: str) -> bool:
     )
 
 
-def _credential_target(args: dict[str, object]) -> bool:
+def _credential_target(args: dict[str, object]) -> tuple[bool, bool]:
+    """Return (sensitive content, sensitive command), without evaluating arguments."""
     pending: list[object] = [args]
+    sensitive_file = False
     for _ in range(64):
         if not pending:
-            return False
+            return sensitive_file, False
         value = pending.pop()
         if isinstance(value, dict):
             for key, item in value.items():
@@ -136,21 +231,19 @@ def _credential_target(args: dict[str, object]) -> bool:
                     item, str
                 ):
                     if _credential_path(item):
-                        return True
+                        sensitive_file = True
                 elif key in {"command", "komut"} and isinstance(item, str):
-                    try:
-                        parts = shlex.split(item)
-                    except ValueError:
-                        parts = item.split()
-                    if any(_credential_path(part) for part in parts):
-                        return True
+                    if _command_sensitive(item):
+                        return True, True
                 elif isinstance(item, dict | list):
                     pending.append(item)
         elif isinstance(value, list):
             pending.extend(value[:64])
             if len(value) > 64:
-                return True
-    return bool(pending)  # Uninspectably complex arguments fail closed for content.
+                return True, True
+    if pending:
+        return True, True  # Uninspectably complex arguments fail closed for all content.
+    return sensitive_file, False
 
 
 def public_tool_payload(raw: object, *, session_id: str) -> dict[str, object] | None:
@@ -169,23 +262,25 @@ def public_tool_payload(raw: object, *, session_id: str) -> dict[str, object] | 
         return None
     truncated: list[str] = []
     hidden: list[str] = []
-    sensitive_target = _credential_target(args)
+    sensitive_target, sensitive_command = _credential_target(args)
     safe_args: dict[str, object] = {}
+    if sensitive_command:
+        hidden.append("args")
+        for key in ("command", "komut"):
+            if key in args:
+                safe_args[key] = "[Hassas komut geçmişten gizlendi.]"
     budget = 8000
     for key, value in args.items():
+        if sensitive_command:
+            break
         if key not in _ARG_KEYS:
             continue
         if isinstance(value, str):
             if sensitive_target and key not in {"path", "yol", "file_path"}:
-                safe_args[key] = "[Hassas dosya ayrıntısı gizlendi.]"
+                safe_args[key] = "[Hassas ayrıntı geçmişten gizlendi.]"
                 hidden.append(f"args.{key}")
                 continue
-            if key in {"command", "komut"}:
-                safe, command_hidden = _history_command(value)
-                if command_hidden:
-                    hidden.append(f"args.{key}")
-            else:
-                safe = redact(value)
+            safe = redact(value)
             limit = min(MAX_FIELD, budget)
             if limit <= 0:
                 truncated.append("args")
@@ -215,7 +310,7 @@ def public_tool_payload(raw: object, *, session_id: str) -> dict[str, object] | 
         if isinstance(value, str):
             if sensitive_target:
                 payload[field] = (
-                    "[Hassas dosya içeriği geçmişe kaydedilmedi.]" if field == "output" else None
+                    "[Hassas içerik geçmişe kaydedilmedi.]" if field == "output" else None
                 )
                 hidden.append(field)
                 continue
