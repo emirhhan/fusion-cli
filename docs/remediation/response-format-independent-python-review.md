@@ -23,3 +23,7 @@ Final log: task workspace `work/reliability-v2/python-response-review-final.log`
 Historical failed probes are retained. The first external streaming-test invocation omitted the repository pytest configuration and failed async setup; rerunning with `-c pyproject.toml` produced two passing marker cases and the genuine thinking-data failure before the fix. After correction all three streamed cases passed, then passed again in the final 60-test run. Initial independent format tests also reproduced the negation and thinking-data failures rather than treating their later green results as proof that no bug had existed.
 
 The reviewer did not edit production source. This approval is not a claim of exhaustive language recognition, provider-wide live acceptance, or completion of the full AI-quality goal.
+
+## Follow-up: skip cosmetic calls for explicit compact replies
+
+**APPROVE** the early `requested_response_format(task) is not None` return in `narration.intro_paragraph`. The check runs before building or calling the cosmetic provider and leaves normal introductions, invalid-intro filtering, tool execution and failure handling intact. Independent Ruff and mypy passed; **23 narration tests passed in 4.15 seconds**, including both new no-provider-call cases. Reviewed `narration.py` SHA-256: `b6f5f0fdd4fa6d4326165f76bfb141231931cf94f1bc2ec632e4290325b046ec`. Log: `work/reliability-v2/python-intro-format-guard-review.log`. Unfinished game-state changes were excluded.
