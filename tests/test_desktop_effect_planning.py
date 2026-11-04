@@ -177,3 +177,51 @@ def test_ui_label_disambiguation_does_not_remove_destructive_action_risk(app, la
         )
         is not None
     )
+
+
+@pytest.mark.parametrize("context", ["uygulamasında", "uygulamada", "uygulamanın içinde"])
+def test_existing_application_context_is_not_a_build_object(context):
+    task = (
+        f"Şimdi Hesap Makinesi {context} 17 × 23 işlemini yap. "
+        "Gerçek ekran değerini erişilebilirlik ağacından doğrula ve yalnız sonucu yaz. "
+        "Terminal ve tarayıcı kullanma."
+    )
+    assert is_desktop_task(task)
+    assert required_effect_for(task) is None
+    assert classify_teacher_task(task).size == "basit"
+    policy = policy_for(make_config(), ModelSpec(name="test", model="fake/test"), task)
+    assert policy.required_effect is None
+    assert not policy.complex_task
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Bir uygulama yap.",
+        "Uygulamayı yap.",
+        "Uygulamasını oluştur.",
+        "Uygulamanı düzenle.",
+        "Uygulamanın aynısını yap.",
+        "Uygulamasının benzerini yap.",
+        "Hesap Makinesi uygulamasında kodu değiştir.",
+        "Uygulamada bir HTML sayfa oluştur.",
+        "Uygulamanın bileşenini güncelle.",
+        "Uygulamasında src/app.py dosyasını düzenle.",
+        "Uygulamada dosyayı sil.",
+        "Uygulamanın dosyalarını kaldır.",
+    ],
+)
+def test_application_context_does_not_erase_real_mutation_objects(task):
+    assert required_effect_for(task) == "workspace_mutation"
+
+
+@pytest.mark.parametrize(
+    "task,effect",
+    [
+        ("Uygulamada git push yap.", "git_push"),
+        ("Uygulamanın kodu için git commit oluştur.", "git_commit"),
+        ("Uygulamasında npm test çalıştır.", "shell_action"),
+    ],
+)
+def test_application_context_keeps_external_effect_priority(task, effect):
+    assert required_effect_for(task) == effect

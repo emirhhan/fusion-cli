@@ -177,9 +177,16 @@ _UI_CONTROL_LABEL_VERB = re.compile(
 # görev `workspace_read` sanılıp beş turluk keşif bütçesine düşüyordu — oysa
 # istek açıkça bir öğe EKLEMEYİ söylüyor. Arayüz öğeleri ve metin parçaları da
 # dosya değiştirir.
+# An existing application's location is context, not the object of "yap".
+# Keep genitives as build objects unless they explicitly introduce an inside
+# location: "uygulamanın aynısını yap" still requests an application.
+_APPLICATION_BUILD_OBJECT = (
+    r"uygulama(?!(?:s[ıi])?(?:nda|nde|da|de)"
+    r"|(?:s[ıi])?n[ıi]n\s+(?:içinde|icinde|içerisinde|icerisinde)\b)"
+)
 _MUTATION_OBJECTS = (
     r"(?:dosya|klasör|klasor|dizin|kod|proje|site|websit[a-zçğıöşü]*|sayfa|"
-    r"uygulama|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik|"
+    rf"{_APPLICATION_BUILD_OBJECT}|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik|"
     r"metin|satır|satir|alan|buton|span|div|eleman|element|etiket|rozet|başlık|baslik|"
     r"import|bağımlılık|bagimlilik|ayar|seçenek|secenek|kural|komut)"
 )
