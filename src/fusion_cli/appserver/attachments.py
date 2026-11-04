@@ -27,8 +27,8 @@ def attachment_context(value: object) -> tuple[str, str | None]:
         path = raw.get("path")
         if not isinstance(path, str) or not path.strip() or len(path) > 4096:
             return "", "Geçersiz ek dosyası yolu."
-        local = Path(path).expanduser()
         try:
+            local = Path(path).expanduser()
             if not local.is_absolute() or not local.is_file():
                 return "", f"Ek açılamadı veya artık mevcut değil: {local.name[:200]}"
             if raw.get("kind") == "image":
@@ -36,8 +36,8 @@ def attachment_context(value: object) -> tuple[str, str | None]:
                     return "", "Desteklenmeyen görsel türü."
                 if local.stat().st_size > MAX_IMAGE_BYTES:
                     return "", "Görsel en fazla 5 MiB olabilir."
-        except OSError:
-            return "", "Ek dosyası okunamadı."
+        except (OSError, RuntimeError):
+            return "", "Ek dosyası yolu çözülemedi veya dosya okunamadı."
         items.append(
             {
                 "path": str(local),
@@ -61,18 +61,18 @@ def attachment_images(value: object) -> tuple[str, ...]:
         return ()
     _, error = attachment_context(value)
     if error:
-        return ()  # Admission reports this error before starting the turn.
+        raise ValueError(error)  # Revalidation can detect a race after metadata admission.
     images = []
     for raw in value:
         if raw.get("kind") != "image":
             continue
-        path = Path(raw["path"]).expanduser()
         try:
+            path = Path(raw["path"]).expanduser()
             with path.open("rb") as stream:
                 data = stream.read(MAX_IMAGE_BYTES + 1)
             if len(data) > MAX_IMAGE_BYTES:
                 raise ValueError("Görsel okuma sırasında büyüdü; yeniden ekleyin.")
-        except OSError as read_error:
+        except (OSError, RuntimeError) as read_error:
             raise ValueError("Görsel okunamadı; yeniden ekleyin.") from read_error
         images.append(
             f"data:{IMAGE_MIMES[path.suffix.casefold()]};base64,"

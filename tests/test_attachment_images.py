@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 
+import pytest
+
 from fusion_cli.appserver.session import _attachment_context, _attachment_images
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import _initial_messages
@@ -36,7 +38,8 @@ def test_gorsel_olmayan_ek_gorsel_olarak_gitmez(tmp_path):
 
 
 def test_olmayan_dosya_cokertmez(tmp_path):
-    assert _attachment_images([{"path": str(tmp_path / "yok.png"), "kind": "image"}]) == ()
+    with pytest.raises(ValueError, match=r"yok\.png"):
+        _attachment_images([{"path": str(tmp_path / "yok.png"), "kind": "image"}])
 
 
 def test_asiri_buyuk_gorsel_gonderilmez(tmp_path):
@@ -46,7 +49,8 @@ def test_asiri_buyuk_gorsel_gonderilmez(tmp_path):
     buyuk = tmp_path / "buyuk.png"
     buyuk.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * (MAX_GORSEL_BAYT + 1))
 
-    assert _attachment_images([{"path": str(buyuk), "kind": "image"}]) == ()
+    with pytest.raises(ValueError, match="5 MiB"):
+        _attachment_images([{"path": str(buyuk), "kind": "image"}])
 
 
 def test_gorseller_kullanici_mesajina_ilistirilir():

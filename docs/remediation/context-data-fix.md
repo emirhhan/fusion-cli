@@ -19,3 +19,11 @@ No build, install, push, real user transcript or network-dependent test was run 
 ## React review follow-up
 
 The reviewer found that browser capture retained an old overflow alert after a successful retry. The new App integration test reproduces eight selected PNGs, rejected screenshot capture, removal of one PNG, and successful recapture. It failed with the obsolete alert still present. Browser image admission now clears the previous attachment error before the shared helper validates the selection; a new rejection can replace it. Clearing occurs only in this browser route, preserving the DOM drop route's warning about unresolved files. A separate integration test confirms that a valid dropped image is accepted while an unresolved-file warning remains visible.
+
+## Python review follow-up
+
+Three additional regressions were reproduced before correction. Home expansion can raise `RuntimeError`; attachment metadata now returns a bounded error without including exception details. Image revalidation now raises `ValueError` instead of returning an empty image tuple when a previously admitted image disappears; the existing session error handlers return this error before launching the agent. A session integration test deletes the image immediately after successful metadata admission and verifies rejection.
+
+The original-requirement note now has an explicit producer-assigned `Message.name` marker. Branching recognizes only that marker together with the user role and harness flag, writes one bounded `ConversationOriginalRequirement` metadata event, and restores it as context rather than a user turn. Ordinary internal harness notes remain excluded. Repeated branching retains one original requirement and at most 100 messages. Branch metadata is listable even when the recent tail contains no user turn; rewind counts actual user messages and preserves the requirement context.
+
+The direct image-helper missing/oversized tests now require an explicit exception instead of accepting silent omission. This contract change is intentional: session callers already catch `ValueError` and report it. No session source changes were needed.

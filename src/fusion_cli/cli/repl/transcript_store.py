@@ -27,6 +27,9 @@ from ...core.worktree import project_root_of
 
 _MAX_SNAPSHOT_BYTES = 1_500_000
 _MAX_HISTORY_MESSAGES = 100
+_REQUIREMENT_EVENT = "ConversationOriginalRequirement"
+_REQUIREMENT_NAME = "transcript.original_requirement"
+_REQUIREMENT_NOTE_CHARS = 8400
 
 #: Sohbete ad verme olayı (`/rename`, `--name`). Mesaj değildir; listede başlık olur.
 _NAME_EVENT = "ConversationNamed"
@@ -86,7 +89,16 @@ def load_transcript_messages(
         safe_text = strip_harness_leaks(redact(text))
         if not safe_text or (event.get("event") == "UserMessage" and is_harness_note(text)):
             continue
-        if event.get("event") == "UserMessage":
+        if event.get("event") == _REQUIREMENT_EVENT:
+            messages.append(
+                Message(
+                    "user",
+                    safe_text[:_REQUIREMENT_NOTE_CHARS],
+                    harness_note=True,
+                    name=_REQUIREMENT_NAME,
+                )
+            )
+        elif event.get("event") == "UserMessage":
             _upsert_message(
                 messages, Message("user", safe_text, message_id=event.get("message_id"))
             )
@@ -102,6 +114,12 @@ def _bounded_history(messages: list[Message]) -> list[Message]:
     if len(messages) <= _MAX_HISTORY_MESSAGES:
         return messages
     tail = messages[-(_MAX_HISTORY_MESSAGES - 1) :]
+    requirement = next((m for m in messages if _is_requirement_note(m)), None)
+    if requirement is not None:
+        return [
+            dataclasses.replace(requirement, content=requirement.content[:_REQUIREMENT_NOTE_CHARS]),
+            *tail,
+        ]
     omitted = messages[: len(messages) - len(tail)]
     first = next((m for m in omitted if m.role == "user" and not m.harness_note), None)
     text = "Geçmişin eski bölümü bağlam sınırı nedeniyle kısaltıldı."
@@ -109,7 +127,11 @@ def _bounded_history(messages: list[Message]) -> list[Message]:
         text += "\nİlk kullanıcı isteği (en fazla 8000 karakter):\n" + first.content[:8000]
         if len(first.content) > 8000:
             text += "\n[İlk istek kısaltıldı; tam metin transcript kaydında.]"
-    return [Message("user", text, harness_note=True), *tail]
+    return [Message("user", text, harness_note=True, name=_REQUIREMENT_NAME), *tail]
+
+
+def _is_requirement_note(message: Message) -> bool:
+    return message.role == "user" and message.harness_note and message.name == _REQUIREMENT_NAME
 
 
 #: Konuşmayı değiştiren olaylar; `last_turn_timestamp` yalnız bunlara bakar (ad vermek sayılmaz).
@@ -183,7 +205,7 @@ def _truncate_after_users(messages: list[Message], keep_users: int) -> None:
     """Listeyi `keep_users + 1`. kullanıcı mesajından itibaren kes (yerinde)."""
     seen = 0
     for index, message in enumerate(messages):
-        if message.role != "user":
+        if message.role != "user" or message.harness_note:
             continue
         if seen == keep_users:
             del messages[index:]
@@ -389,11 +411,18 @@ def copy_conversation(
     `ValueError` fırlatılır — kullanıcı "dallandı" sanıp boş bir sohbette kalmasın.
     """
     prefix = conversation_prefix(messages)
-    if not any(message.role == "user" for message in prefix):
+    requirement = next((message for message in messages if _is_requirement_note(message)), None)
+    if requirement is not None:
+        requirement = dataclasses.replace(
+            requirement, content=redact(requirement.content[:_REQUIREMENT_NOTE_CHARS])
+        )
+    if not any(message.role == "user" for message in prefix) and requirement is None:
         raise ValueError("Kopyalanacak kullanıcı mesajı yok.")
     store = TranscriptStore(base_dir, root, conversation_id=target_id)
     if name.strip():
         store.record_name(name.strip())
+    if requirement is not None:
+        store.record_requirement(requirement.content)
     for message in prefix:
         record = store.record_user if message.role == "user" else store.record_assistant
         record(message.content, message_id=str(uuid.uuid4()))
@@ -401,7 +430,13 @@ def copy_conversation(
     expected = [
         message.content
         for message in _bounded_history(
-            [dataclasses.replace(message, content=redact(message.content)) for message in prefix]
+            [
+                *([requirement] if requirement is not None else []),
+                *[
+                    dataclasses.replace(message, content=redact(message.content))
+                    for message in prefix
+                ],
+            ]
         )
     ]
     if [message.content for message in restored] != expected:
@@ -472,6 +507,12 @@ def list_conversations(
             keep = event.get("keep_users")
             if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 0:
                 _truncate_roles(roles.setdefault(conversation, []), keep)
+            continue
+        if event.get("event") == _REQUIREMENT_EVENT and isinstance(conversation, str):
+            # Requirement metadata is preserved without becoming a user turn.
+            if isinstance(event.get("text"), str) and event["text"].strip():
+                titles.setdefault(conversation, "Devralınan görev")
+                roles.setdefault(conversation, []).append("context")
             continue
         if event.get("event") not in {"UserMessage", "TurnAnswered"}:
             continue
@@ -580,6 +621,10 @@ class TranscriptStore:
     def record_name(self, name: str) -> None:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
+
+    def record_requirement(self, text: str) -> None:
+        """Persist only the explicitly typed original-requirement note for a branch."""
+        self._append({"event": _REQUIREMENT_EVENT, "text": text[:_REQUIREMENT_NOTE_CHARS]})
 
     def record_fork(self, source_id: str) -> None:
         """Bu sohbet `source_id`'nin kopyasıdır (oturum seçicisi gruplaması, #202)."""
