@@ -48,7 +48,7 @@ _RESULT_NEGATED = re.compile(
 _FILE_REFERENCE = r"(?<![\w.-])[\w./@~:\\-]+\.[a-z0-9]{1,8}\b"
 _FILE_TARGET = re.compile(
     rf"\b(?:dosya\w*|file\w*)\b|{_FILE_REFERENCE}"
-    r"(?:['’](?:a|e|ya|ye|da|de|ta|te)\b|\s+(?:içine|icine|içerisine|icerisine|to)\b)"
+    r"(?:\s*['’](?:a|e|ya|ye|da|de|ta|te)\b|\s+(?:içine|icine|içerisine|icerisine|to)\b)"
 )
 _REPLY_TARGET = re.compile(r"\b(?:yanıt\w*|yanit\w*|cevap\w*|return|respond|answer|reply)\b")
 _THINK_CLOSE = re.compile(rf"</(?:{'|'.join(THINK_TAG_NAMES)})>", re.I)
