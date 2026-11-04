@@ -44,6 +44,7 @@ from .mirror import (
     rewrite_links,
 )
 from .preview_origins import allowed_local
+from .url_input import has_explicit_scheme
 from .web import access_wall_notice, browser_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
@@ -76,7 +77,7 @@ def normalize_url(raw: str) -> str:
 
     Ölçüldü (30 Ekim): `localhost:3000` otomatik `https://` alıp TLS hatası veriyordu.
     """
-    if raw.startswith(("http://", "https://")):
+    if has_explicit_scheme(raw):
         return raw
     return f"http://{raw}" if raw.lower().startswith(_LOCAL_PREFIXES) else f"https://{raw}"
 

@@ -35,6 +35,7 @@ from ..core.protocols import Clock
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .pinned_http import PinnedTransport
+from .url_input import has_explicit_scheme
 from .web_evidence import (
     CONTENT_SUMMARY_CHARS,
     DATE_UNKNOWN,
@@ -376,7 +377,13 @@ def url_block_reason(url: str) -> str | None:
     """
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
-        return f"yalnızca http/https desteklenir (verilen: {parsed.scheme or 'şema yok'})"
+        reason = f"yalnızca http/https desteklenir (verilen: {parsed.scheme or 'şema yok'})"
+        if parsed.scheme == "file":
+            reason += (
+                "; yerel HTML için start_preview kullan, ardından dönen HTTP adresini "
+                "browser_open ile aç"
+            )
+        return reason
     host = parsed.hostname
     if not host:
         return "adreste host yok"
@@ -443,7 +450,7 @@ def _is_blocked_ip(address: str) -> bool:
 
 
 def _normalize_url(url: str) -> str:
-    return url if url.startswith(("http://", "https://")) else f"https://{url}"
+    return url if has_explicit_scheme(url) else f"https://{url}"
 
 
 def _looks_like_html(content_type: str, body: str) -> bool:
