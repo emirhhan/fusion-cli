@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ...core.artifact_kind import artifact_only
 from ...core.evidence import summarize_criteria
+from .verify_discovery import is_behavioral_command
 
 if TYPE_CHECKING:
     from ...core.evidence import CriterionEvidence
@@ -52,11 +53,12 @@ def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
         return None
     if (
         not report.changed_paths
-        and not report.command_runs
+        and not any(is_behavioral_command(run.command) for run in report.command_runs)
         and not report.criteria
         and not report.job_deliveries
         and not report.test_tamper
         and not report.blocks_success
+        and not report.false_claim
         and (report.gate is None or (not report.gate.has_notes and not report.gate.evidence))
     ):
         return None

@@ -34,7 +34,7 @@ def test_pencere_adi_kabuga_girmeden_ayri_arguman_olur(tmp_path, monkeypatch) ->
 
     def fake_run(command, **kwargs):
         calls.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(command, 0, f"TextEdit\t42\t{name}\t0\t0\t100\t100", "")
 
     monkeypatch.setattr(desktop_inspect.subprocess, "run", fake_run)
     name = "Pencere; $(touch /tmp/yan-etki)"
@@ -99,10 +99,34 @@ def test_pencere_null_kabul_edilir(monkeypatch):
     from fusion_cli.core.tools import ToolContext
     from fusion_cli.tools import desktop_inspect
 
-    monkeypatch.setattr(desktop_inspect, "_run", lambda *a: desktop_inspect.ToolResult("ok"))
+    monkeypatch.setattr(
+        desktop_inspect,
+        "_run",
+        lambda *a: desktop_inspect.ToolResult("Safari\t42\tPage\t0\t0\t100\t100"),
+    )
 
     sonuc = desktop_inspect.desktop_window_focus(
         {"app": "Safari", "window": None}, ToolContext(root=".")
     )
 
     assert sonuc.ok
+
+
+def test_focus_requires_observed_identity_and_bounds(tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop_inspect, "_run", lambda *a: desktop_inspect.ToolResult("ok"))
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok
+
+
+def test_focus_binds_verified_window_and_requires_new_frame(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        desktop_inspect,
+        "_run",
+        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+    )
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert result.ok
+    assert context.desktop.focused_window == (42, 350.0, 260.0, 210.0, 380.0)
+    assert context.desktop.frame is None

@@ -165,9 +165,26 @@ async def _ogren(monkeypatch, bellek, *, kullanimlar, guven=0.5, yeni=None):
     monkeypatch.setattr(learning_steps, "lesson_tags", lambda deps: ())
     olaylar: list = []
     deps = _deps(bellek, olaylar, guven)
+    from fusion_cli.core.clock import SystemClock
+    from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.lesson_attribution import LessonTurnState
+
+    deps.clock = SystemClock()
+    deps.lesson_state = LessonTurnState(
+        verification=VerificationResult(
+            ok=True,
+            evidence=(
+                CriterionEvidence(
+                    "observed", VerificationCheckKind.COMMAND, EvidenceStatus.PASSED, "observed"
+                ),
+            ),
+        )
+    )
     sonuc = AgentOutcome(
         final_text="ok",
-        messages=[Message("tool", "ok", tool_call_id="1")],
+        messages=[Message("tool", "ok", tool_call_id="1", ok=True)],
         ok=True,
         tool_calls_made=len(kullanimlar),
         tool_uses=tuple(kullanimlar),
@@ -213,7 +230,7 @@ async def test_dis_kaynakli_ders_guvenilir_eski_dersi_curutemez(monkeypatch) -> 
     assert bellek.reinforce_cagrilari == []
 
 
-async def test_pekistirme_dis_icerikli_basaride_external_turn_gecer(monkeypatch) -> None:
+async def test_dis_icerikli_retrieval_tek_basina_pekistirmez(monkeypatch) -> None:
     bellek = _Bellek()
     deps = _deps(bellek, [])
     deps.recalled_lessons.append(_ders(external=True))
@@ -221,13 +238,12 @@ async def test_pekistirme_dis_icerikli_basaride_external_turn_gecer(monkeypatch)
 
     await learning_steps.reinforce_recalled(sonuc, deps, plan_mode=False)
 
-    assert bellek.reinforce_cagrilari == [
-        (("pip yerine uv kullan",), {"success": True, "external_turn": True})
-    ]
+    assert bellek.reinforce_cagrilari == []
+    assert not deps.recalled_lessons
 
 
-async def test_pekistirme_dis_iceriksiz_turda_eski_cagri_bicimini_korur(monkeypatch) -> None:
-    """Eski sahte bellekler `external_turn` kabul etmez: bayrak yalnız gerekince geçilir."""
+async def test_dis_iceriksiz_retrieval_tek_basina_pekistirmez(monkeypatch) -> None:
+    """Başarılı tur bile dersin kullanıldığını göstermez."""
     bellek = _Bellek()
     deps = _deps(bellek, [])
     deps.recalled_lessons.append(_ders())
@@ -235,4 +251,5 @@ async def test_pekistirme_dis_iceriksiz_turda_eski_cagri_bicimini_korur(monkeypa
 
     await learning_steps.reinforce_recalled(sonuc, deps, plan_mode=False)
 
-    assert bellek.reinforce_cagrilari == [(("pip yerine uv kullan",), {"success": True})]
+    assert bellek.reinforce_cagrilari == []
+    assert not deps.recalled_lessons

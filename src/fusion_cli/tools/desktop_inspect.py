@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 
 from ..core.desktop_settings import DesktopSettings
@@ -36,6 +37,19 @@ on run argv
                 perform action "AXRaise" of (first window whose name is windowName)
             end if
         end tell
+        set frontProcess to first application process whose frontmost is true
+        if name of frontProcess is not appName then error "Requested app is not frontmost"
+        set frontWindow to front window of frontProcess
+        if windowName is not "" and name of frontWindow is not windowName then
+            error "Requested window is not frontmost"
+        end if
+        set xy to position of frontWindow
+        set wh to size of frontWindow
+        set identityRow to (name of frontProcess) & tab & (unix id of frontProcess)
+        set identityRow to identityRow & tab & (name of frontWindow)
+        set geometryRow to (item 1 of xy) & tab & (item 2 of xy)
+        set geometryRow to geometryRow & tab & (item 1 of wh) & tab & (item 2 of wh)
+        return identityRow & tab & geometryRow
     end tell
 end run
 """
@@ -55,7 +69,17 @@ tell application "System Events"
             set roleName to role of element
             set elementName to name of element
             if elementName is missing value then set elementName to ""
-            set output to output & roleName & tab & elementName & linefeed
+            set elementBounds to ""
+            try
+                set elementPosition to position of element
+                set elementSize to size of element
+                set elementBounds to tab & (item 1 of elementPosition)
+                set elementBounds to elementBounds & "," & (item 2 of elementPosition)
+                set elementBounds to elementBounds & "," & (item 1 of elementSize)
+                set elementBounds to elementBounds & "," & (item 2 of elementSize)
+                set elementBounds to elementBounds & " ekran noktası"
+            end try
+            set output to output & roleName & tab & elementName & elementBounds & linefeed
         end try
     end repeat
     return output
@@ -129,7 +153,7 @@ def desktop_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulama ve varsa pencere adına göre pencereyi öne getir."""
-    del context
+    context.desktop.focused_window = None
     app = require_str(args, "app")
     window = args.get("window")
     window = "" if window is None else window  # `null` gönderen model "metin olmalı" hatası almasın
@@ -138,7 +162,32 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     result = _run(FOCUS_SCRIPT, app, window)
     if not result.ok:
         return result
-    return ToolResult(f"Öne getirildi: {app}" + (f" — {window}" if window else ""))
+    try:
+        observed_app, raw_pid, observed_window, *geometry = result.output.split("\t")
+        pid = int(raw_pid)
+        x, y, width, height = map(float, geometry)
+        if (
+            observed_app.casefold() != app.casefold()
+            or pid <= 0
+            or (window and observed_window != window)
+            or not all(math.isfinite(value) for value in (x, y, width, height))
+            or width <= 0
+            or height <= 0
+        ):
+            raise ValueError("identity or bounds mismatch")
+    except (ValueError, TypeError):
+        return ToolResult.failure(
+            "Ön pencerenin kimliği ve sınırları doğrulanamadı; "
+            "desktop_background_windows ile hedefi yeniden seç."
+        )
+    context.desktop.focused_window = (pid, x, y, width, height)
+    context.desktop.frame = None
+    return ToolResult(
+        f"Öne getirildi ve doğrulandı: {observed_app} — {observed_window}; "
+        f"pid={pid}, sınırlar=({x:g},{y:g},{width:g},{height:g}) ekran noktası. "
+        "Yeni desktop_screenshot al; hedef içindeki koordinatları kullan. "
+        "İşlemden sonra uygulama sonucunu yeniden incele."
+    )
 
 
 def _front_app(output: str) -> tuple[str, str]:

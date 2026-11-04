@@ -90,6 +90,8 @@ class DesktopView:
         self.turn: DesktopTurnHooks | None = None
         #: Son masaüstü çağrısının politika hedefi (pid); gizlemede görünür kalır (P-033).
         self.target_pid = 0
+        # Explicit focus binds subsequent coordinates to the observed window.
+        self.focused_window: tuple[int, float, float, float, float] | None = None
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""

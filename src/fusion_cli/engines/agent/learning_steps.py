@@ -24,7 +24,6 @@ from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult
 from . import learning, lesson_attribution
-from .verification import resolve_turn_success
 
 logger = logging.getLogger(__name__)
 
@@ -103,33 +102,18 @@ async def reinforce_recalled(
     plan_mode: bool,
     verification: VerificationResult | None = None,
 ) -> None:
-    """Bu turda hatırlanan derslerin güvenini turun sonucuna göre güncelle.
+    """Geri çağırma güven üretmez; yalnız ilişkili ve doğrulanmış kullanım pekişir.
 
-    Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
-    devredeyse) kapı geçti. Böylece "doğrulamadan bitirme" gibi kurallar dekoratif
-    kalmaz, gerçekten uygulanır. Aynı ders turda iki kez istendiyse bir kez
-    pekiştirilir.
-
-    `verification` DIŞARIDAN gelir: kapı tur başına bir kez çalışır ve aynı sonuç hem
-    modele düzeltme talimatı olur hem buraya sinyal olarak düşer.
+    Aynı kök turun operasyon/kriter bağları lesson_state içinde tutulur.
+    Salt başarılı kapanış, okunan web içeriği veya prose kullanım beyanı yeterli değildir.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
-    if deps.config.runtime.lesson_attributed_feedback:
-        lesson_attribution.settle(outcome, deps)
+    if plan_mode:
         return
-    if plan_mode or not deps.recalled_lessons:
-        return
-    success = resolve_turn_success(
-        outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
-    )
-    texts = tuple(dict.fromkeys(lesson.text for lesson in deps.recalled_lessons))
-    deps.recalled_lessons.clear()
-    if success and learning.reads_external_content(outcome.tool_uses):
-        # Dış içerik okunan başarılı tur "dış kaynaklı" dersi doğrulamaz (MINJA).
-        deps.lessons.reinforce(texts, success=True, external_turn=True)
-    else:
-        deps.lessons.reinforce(texts, success=success)
+    # Retrieval is exposure, not operational use. The same proof contract applies
+    # with attribution telemetry disabled; outcome.ok alone cannot reward memory.
+    lesson_attribution.settle(outcome, deps)
 
 
 def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True) -> bool:
@@ -245,28 +229,27 @@ async def _extract_and_store(
     lessons = tuple(
         replace(lesson, source_split=deps.lesson_context.policy.source_split) for lesson in lessons
     )
-    if deps.config.runtime.lesson_attributed_feedback:
-        from ...core.evidence import EvidenceStatus
+    from ...core.evidence import EvidenceStatus
 
-        refs = (
-            tuple(
-                item.criterion_id
-                for item in verification.evidence
-                if item.status is EvidenceStatus.PASSED and item.applicable
-            )
-            if verification
-            else ()
+    refs = (
+        tuple(
+            item.criterion_id
+            for item in verification.evidence
+            if item.status is EvidenceStatus.PASSED and item.applicable
         )
-        is_verified = bool(
-            verification and verification.ok and not verification.failure_evidence and refs
-        )
-        lessons = tuple(
-            replace(lesson, verified_at=str(deps.clock.now()), evidence_refs=refs)
-            if lesson.kind is LessonKind.SUCCESS
-            else lesson
-            for lesson in lessons
-            if lesson.kind is not LessonKind.SUCCESS or is_verified
-        )
+        if verification
+        else ()
+    )
+    is_verified = bool(
+        verification and verification.ok and not verification.failure_evidence and refs
+    )
+    lessons = tuple(
+        replace(lesson, verified_at=str(deps.clock.now()), evidence_refs=refs)
+        if lesson.kind is LessonKind.SUCCESS
+        else lesson
+        for lesson in lessons
+        if lesson.kind is not LessonKind.SUCCESS or is_verified
+    )
     if external:
         lessons = learning.mark_external(
             lessons, getattr(deps.config.runtime, "external_lesson_confidence", 0.5)
@@ -278,6 +261,7 @@ async def _extract_and_store(
         lessons,
         existing,
         has_evidence=learning.has_measurable_evidence(messages),
+        has_failure_evidence=any(m.role == "tool" and m.ok is False for m in messages),
     )
     # Ders görev-türü kapsamı olmadan (genel) saklanır: tür artık hesaplanmıyor.
     # Proje ve teknoloji süzgeci `workspace` ve `tags` ile zaten korunuyor.

@@ -20,10 +20,12 @@ from typing import Literal
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
+from ...core.tools import ToolFamily
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
 from .edit_profiles import EditFormat
 from .task_availability import task_tool_mode
+from .tool_constraints import forbidden_families
 from .tool_profiles import conversation_tool_profiles
 from .tool_surface import uses_compact_surface
 
@@ -102,6 +104,7 @@ class ExecutionPolicy:
     mutation_blocked_by_capability: bool = False
     #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
     allowed_tool_names: frozenset[str] | None = None
+    forbidden_tool_families: frozenset[ToolFamily] = frozenset()
     #: Bu adım kaçıncı kez deneniyor; yedek zinciri o kadar yukarı kaydırır.
     escalation: int = 0
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
@@ -154,6 +157,7 @@ def policy_for(
         # başarıya bütün sağlayıcılarda izin verilmez.
         return ExecutionPolicy(
             is_web=False,
+            forbidden_tool_families=forbidden_families(task),
             edit_format=spec.recommended_edit_format,
             allow_mutation=mutation.ok,
             mutation_block_reason=mutation.reason,
@@ -173,6 +177,7 @@ def policy_for(
     simple_chat = _is_genuine_simple_chat(task, required_effect)
     return ExecutionPolicy(
         is_web=True,
+        forbidden_tool_families=forbidden_families(task),
         edit_format=spec.recommended_edit_format,
         allow_mutation=mutation.ok,
         mutation_block_reason=mutation.reason,

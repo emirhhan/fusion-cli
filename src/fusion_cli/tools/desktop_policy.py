@@ -338,8 +338,19 @@ async def assess(
         # Arka plan araçları zaten yardımcıyla çalışır: hedef doğrulanamıyorsa kapat (fail-closed).
         return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     if resolved is None:
+        if tool_name in _POINT_TOOLS and context.desktop.focused_window is not None:
+            return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
         return DesktopAssessment(required)
     app, bundle, pid, element = resolved
+    focused = context.desktop.focused_window
+    if tool_name in _POINT_TOOLS and focused is not None and pid != focused[0]:
+        return DesktopAssessment(
+            required,
+            blocked=(
+                "Koordinattaki uygulama doğrulanmış odak hedefiyle uyuşmuyor; "
+                "desktop_window_focus ve yeni desktop_screenshot ile hedefi yeniden doğrula."
+            ),
+        )
     # Gizleme (desktop.background=false) değerlendirilen hedefi korur (`desktop_turn`).
     context.desktop.target_pid = pid
     settings = context.desktop_settings

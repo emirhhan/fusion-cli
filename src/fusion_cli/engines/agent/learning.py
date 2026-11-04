@@ -218,7 +218,7 @@ def has_measurable_evidence(messages: list[Message]) -> bool:
     bir davranış kuralı gelecekteki turları yanlış yönlendirebilir.
     """
 
-    return any(message.role == "tool" for message in messages)
+    return any(message.role == "tool" and message.ok is True for message in messages)
 
 
 def screen_lesson(
@@ -239,14 +239,19 @@ def screen_lesson(
 
 
 def screen_lessons(
-    candidates: tuple[Lesson, ...], existing: tuple[Lesson, ...], *, has_evidence: bool
+    candidates: tuple[Lesson, ...],
+    existing: tuple[Lesson, ...],
+    *,
+    has_evidence: bool,
+    has_failure_evidence: bool = False,
 ) -> tuple[Lesson, ...]:
     """Adayları kapıdan geçir; kabul edilenler sonrakiler için de "mevcut" sayılır."""
 
     accepted: list[Lesson] = []
     known = existing
     for lesson in candidates:
-        if screen_lesson(lesson, known, has_evidence=has_evidence).accepted:
+        observed = has_evidence or (lesson.kind is LessonKind.MISTAKE and has_failure_evidence)
+        if screen_lesson(lesson, known, has_evidence=observed).accepted:
             accepted.append(lesson)
             known = (*known, lesson)
     return tuple(accepted)

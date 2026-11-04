@@ -194,7 +194,16 @@ def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, 
             f"Koordinat görüntünün dışında: son ekran görüntüsü {frame.image_width}x"
             f"{frame.image_height} px. x,y bu görüntünün pikseli olmalı."
         )
-    return context.desktop.to_point(*pixel)
+    point = context.desktop.to_point(*pixel)
+    target = context.desktop.focused_window
+    if target is not None:
+        _pid, x, y, width, height = target
+        if not (x <= point[0] < x + width and y <= point[1] < y + height):
+            return (
+                "Koordinat doğrulanmış hedef pencerenin dışında; "
+                "yeni pencere incelemesi ve ekran görüntüsüyle hedefi yeniden seç."
+            )
+    return point
 
 
 def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:

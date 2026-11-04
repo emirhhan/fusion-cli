@@ -558,6 +558,8 @@ class AgentDeps:
     #: `--disallowed-tools` (P-026): bu araçlar modele HİÇ sunulmaz, çağrılırsa `BLOCKED`.
     #: Salt-okunur araçları da kapsar; onay politikası yalnız değiştiricilere bakar.
     denied_tools: frozenset[str] = frozenset()
+    # Parsed only from the original root request; replans cannot erase this cap.
+    turn_forbidden_families: frozenset[ToolFamily] = frozenset()
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
@@ -776,6 +778,10 @@ async def run_agent(
     try:
         # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
         root_turn = depth == 0 and not internal
+        if root_turn:
+            from .tool_constraints import forbidden_families
+
+            deps.turn_forbidden_families = forbidden_families(task)
         owns_learning = not internal and (depth == 0 or deps.channel is Channel.SUBAGENT)
         if owns_learning:
             if deps.capabilities is not None:
@@ -1029,7 +1035,7 @@ async def _run_agent(
     # workflow'u post-condition (local HEAD == remote HEAD) kanıtını kendisi üretir.
     effect_result = (
         None
-        if chat_mode
+        if chat_mode or deps.turn_forbidden_families
         else await maybe_run_effect_workflow(task, deps, registry, plan_mode=plan_mode, depth=depth)
     )
     if effect_result is not None:
@@ -1232,7 +1238,12 @@ async def _run_agent(
         if handed:
             # Öğretmen bu tur eklendiyse `ask_teacher` aracı defterde olmalı.
             registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    execution = deps.execution
+    execution = replace(
+        deps.execution,
+        forbidden_tool_families=(
+            deps.execution.forbidden_tool_families | deps.turn_forbidden_families
+        ),
+    )
     if chat_mode:
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
         execution = chat_execution(execution)
@@ -1246,6 +1257,7 @@ async def _run_agent(
         # bir yetenek kısıtına (`allow_mutation=False`) çarpmışsa o kısıt
         # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
+    deps.execution = execution
     if denied_tools:
         # Oturum kişiliğinin `disallowedTools`u (P-053): izin kümesi verilmemişse defterin
         # tamamından, verilmişse ondan düşer; `sunucu__*` deseni defter adlarına açılır.
@@ -1355,7 +1367,7 @@ async def _run_agent(
         # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
         # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
         # dönüştü ve ajan cevap yerine dosya yazdı.
-        if execution.allow_mutation:
+        if execution.allow_mutation and execution.complex_task:
             await prepare_teacher_plan(task, messages, deps, registry)
         await run_platform_check(task, messages, deps, registry)
 
@@ -1390,7 +1402,7 @@ async def _run_agent(
         step_limit=step_limit,
         execution=execution,
         internal=internal,
-        auto_teacher=depth == 0 and not internal,
+        auto_teacher=depth == 0 and not internal and execution.complex_task,
         require_local_mutation=require_local_mutation,
     )
 
@@ -2261,14 +2273,11 @@ async def _drive(
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
         teacher_stall = _plateau_reason(state, deps, exploration_note=exploration_note)
-        # Gerçek takılma (aynı hata, tekrar koruması, ilerleme yok) görev BÜYÜKLÜĞÜNE
-        # bakmaz. Ölçüldü (2 Ekim, kabul koşusu): görev "basit" sınıflandırıldı, model
-        # aynı "Access denied" hatasını üç kez aldı ve öğretmen hazır olduğu halde
-        # hiç sorulmadı. Yalnız "okuma uzun sürdü" nedeni karmaşık işe özeldir.
-        gercek_takilma = _teacher_stall_reason(state) is not None
+        # A failed observation is not a request for an operational plan. Automatic
+        # teacher recovery is reserved for tasks with an affirmative change effect.
         if (
             auto_teacher
-            and (execution.complex_task or gercek_takilma)
+            and execution.complex_task
             and teacher_stall is not None
             and not deps.auto_teacher_used
             and teacher_is_ready(deps, registry)
@@ -2287,7 +2296,11 @@ async def _drive(
                 ),
                 "",
             )
-            execution = policy_for(deps.config, takeover, original_task)
+            execution = replace(
+                policy_for(deps.config, takeover, original_task),
+                forbidden_tool_families=execution.forbidden_tool_families,
+                allowed_tool_names=execution.allowed_tool_names,
+            )
             deps.execution = execution
             if deps.tool_context.read_window is None:
                 deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
@@ -2329,6 +2342,7 @@ async def _drive(
             deps.publisher.publish(StatusChanged(STALL_STATUS))
             if (
                 auto_teacher
+                and execution.complex_task
                 and not deps.auto_teacher_used
                 and teacher_is_ready(deps, registry)
                 and (allowed_tools is None or "ask_teacher" in allowed_tools)
@@ -3229,6 +3243,7 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    names = {name for name in names if tool_family(name) not in execution.forbidden_tool_families}
     if denied:
         # Yasak liste (`--disallowed-tools`) şema yüzeyinden düşer: salt-okunur araçta onay
         # politikası hiç çalışmadığı için tek güvenilir kapı burasıdır (31 Ekim).
@@ -4476,6 +4491,11 @@ async def _execute(
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
+    if tool_family(call.name) in (execution.forbidden_tool_families | deps.turn_forbidden_families):
+        return ToolResult.failure(
+            "Kullanıcının bu turdaki açık araç sınırı bu araç ailesine izin vermiyor. "
+            "İzin verilen gözlemlerle yanıtla; mümkün değilse sınırlamayı açıkla."
+        ), ToolOutcome.BLOCKED
     tool = registry.get(call.name)
     if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
         # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
