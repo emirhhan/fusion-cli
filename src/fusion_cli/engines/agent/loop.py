@@ -1079,18 +1079,7 @@ async def _run_agent(
         getattr(deps, "hooks", None),
         instructions_hook.after_compact(
             getattr(deps, "hooks", None),
-            [
-                *instructions_hook.startup_events(instruction_load.files),
-                *(
-                    instructions_hook.rule_startup_events(
-                        discover_rules(deps.tool_context.root, deps.home)
-                    )
-                    if deps.config.runtime.project_instructions
-                    and not deps.omit_initial_instructions
-                    and getattr(deps.config.runtime, "instruction_merge", True)
-                    else ()
-                ),
-            ],
+            instructions_hook.startup_events(instruction_load.files),
         ),
     )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde

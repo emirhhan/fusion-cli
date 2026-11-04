@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 
 from .instruction_layers import (
@@ -274,25 +276,85 @@ def scoped_rules_for(rules: tuple[RuleFile, ...], relative: str) -> tuple[RuleFi
 # --- Bloklar -------------------------------------------------------------------- #
 
 
-def rule_block(rule: RuleFile, limit: int = MAX_RULE_FILE_CHARS) -> tuple[str, int]:
-    """Tek kuralın bağlam bloğu ve eklenen karakter; okunamıyorsa boş."""
+def _rule_content_span(chunks: Iterable[str]) -> tuple[int, int]:
+    """Find the stripped body start and character count, using bounded stream memory."""
+    first = last = body_first = body_last = -1
+    position = 0
+    state = "leading"
+    prefix = marker = ""
+    for chunk in chunks:
+        for char in chunk:
+            if not char.isspace():
+                if first < 0:
+                    first = position
+                last = position
+                if state == "body":
+                    if body_first < 0:
+                        body_first = position
+                    body_last = position
+            position += 1
+            if state == "leading":
+                if char.isspace():
+                    continue
+                state = "opening"
+            if state == "opening":
+                prefix += char
+                if prefix == "---\n":
+                    state = "frontmatter"
+                elif not "---\n".startswith(prefix):
+                    state = "plain"
+            elif state == "frontmatter":
+                marker = (marker + char)[-4:]
+                if marker == "\n---":
+                    state = "body"
+    if state == "body":
+        return (body_first, body_last - body_first + 1) if body_first >= 0 else (position, 0)
+    return (first, last - first + 1) if first >= 0 else (position, 0)
+
+
+def _rule_block(rule: RuleFile, limit: int, *, measure: bool = False) -> tuple[str, int, int]:
+    """Render using the existing prefix limit; optionally count all omitted body characters."""
+    content_span: tuple[int, int] | None = None
     try:
-        text = read_text_limited(rule.path, limit)
+        with rule.path.open(encoding="utf-8", errors="replace") as handle:
+            prefix = handle.read(limit + 1)
+            if measure and len(prefix) > limit:
+                content_span = _rule_content_span(
+                    chain((prefix,), iter(lambda: handle.read(65_536), ""))
+                )
+        text = prefix.strip()
     except OSError:
-        return "", 0
-    text = _FRONTMATTER.sub("", text, count=1).strip()
+        return "", 0, 0
+    frontmatter = _FRONTMATTER.match(text)
+    start = len(prefix) - len(prefix.lstrip())
+    if frontmatter is not None:
+        start += frontmatter.end()
+        text = text[frontmatter.end() :]
+    start += len(text) - len(text.lstrip())
+    text = text.strip()
     if not text:
-        return "", 0
+        return "", 0, 0
     trimmed = len(text) > limit
     text = text[:limit]
     ek = TRIM_NOTE if trimmed else ""
-    # Claude Code biçimi: kural da uyulacak talimattır (güvenilmezlik uyarısı yok, #149).
     desc = (
         "user's private global instructions for all projects"
         if rule.trusted
         else "project instructions, checked into the codebase"
     )
-    return f"Contents of {rule.path} ({desc}):\n\n{text}{ek}", len(text)
+    block = f"Contents of {rule.path} ({desc}):\n\n{text}{ek}"
+    omitted = 0
+    if content_span is not None:
+        body_start, total = content_span
+        included = max(0, min(body_start + total, start + len(text)) - max(body_start, start))
+        omitted = total - included
+    return block, len(text), omitted
+
+
+def rule_block(rule: RuleFile, limit: int = MAX_RULE_FILE_CHARS) -> tuple[str, int]:
+    """Tek kuralın bağlam bloğu ve eklenen karakter; okunamıyorsa boş."""
+    block, used, _ = _rule_block(rule, limit)
+    return block, used
 
 
 def load_unscoped_rules(
@@ -309,11 +371,11 @@ def load_unscoped_rules(
         if remaining <= 0:
             skipped.append(rule.label)
             continue
-        block, used = rule_block(rule, min(MAX_RULE_FILE_CHARS, remaining))
+        block, used, trimmed = _rule_block(rule, min(MAX_RULE_FILE_CHARS, remaining), measure=True)
         if not block:
             continue
         blocks.append(block)
-        files.append(InstructionFile(rule.label, rule.path, "kural", used, 0, rule.trusted))
+        files.append(InstructionFile(rule.label, rule.path, "kural", used, trimmed, rule.trusted))
         remaining -= used
     if skipped:
         blocks.append(

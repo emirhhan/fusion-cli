@@ -56,20 +56,27 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
             "kirpilan": item.trimmed,
             "guvenilir": item.trusted,
         }
-        for item in yuk.files if item.layer != "kural"
+        for item in yuk.files
+        if item.layer != "kural"
     ]
     # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
     # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
     from ..engines.agent.instruction_rules import MAX_RULE_FILE_CHARS, discover_rules, rule_block
 
+    loaded_rules = {item.label: item for item in yuk.files if item.layer == "kural"}
     for kural in discover_rules(root, home):
-        _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+        loaded = loaded_rules.get(kural.label)
+        if loaded is not None:
+            karakter, kirpilan = loaded.chars, loaded.trimmed
+        else:
+            _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+            kirpilan = 0
         sonuc["katmanlar"].append(
             {
                 "kaynak": kural.label,
                 "katman": "kural",
                 "karakter": karakter,
-                "kirpilan": 0,
+                "kirpilan": kirpilan,
                 "guvenilir": kural.trusted,
                 "kapsam": list(kural.paths),
             }
