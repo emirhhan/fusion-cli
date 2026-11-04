@@ -116,7 +116,10 @@ def narrow_to_compact_surface(
     external = [
         name
         for name in registry.names()
-        if name in kept and registry.is_remote(name) and name != TOOL_SEARCH
+        if name in kept
+        and name not in requested
+        and registry.is_remote(name)
+        and name != TOOL_SEARCH
     ]
     if external_tool_selection == "relevance":
         query = f"{task} {phase}"
@@ -130,9 +133,10 @@ def narrow_to_compact_surface(
     if state is not None:
         state.result_limit = max(1, min(max_external_tools, 12))
     recent = {name: index for index, name in enumerate(state.recent)} if state is not None else {}
-    # Recently discovered tools take the existing slots before registration-order defaults.
-    external.sort(key=lambda name: (name not in requested, recent.get(name, len(recent))))
-    over_limit = {name for name in external[max_external_tools:] if name not in requested}
+    # Explicit tools bypass the exploration cap. Recent discoveries take the remaining
+    # slots; stable sorting preserves relevance/registration order for the defaults.
+    external.sort(key=lambda name: recent.get(name, len(recent)))
+    over_limit = set(external[max_external_tools:])
     return kept - over_limit
 
 
