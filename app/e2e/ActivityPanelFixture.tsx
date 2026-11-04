@@ -10,7 +10,14 @@ export function ActivityPanelFixture() {
   const messages: Mesaj[] = [
     { id: "earlier-user", rol: "kullanici", metin: "Önceki görev" },
     { id: "earlier-answer", rol: "asistan", metin: Array.from({ length: 20 }, (_, i) => `Önceki açıklama ${i + 1}.`).join("\n\n") },
-    { id: "user", rol: "kullanici", metin: "Dosyaları incele ve sonucu doğrula" },
+    { id: "user", rol: "kullanici", metin: new URLSearchParams(location.search).get("longPrompt") === "1" ? [
+      "Uygulamaya odaklan ve yeni ekran görüntüsü al.",
+      "İşlemi tek dizide doğru klavye tuşlarıyla yap.",
+      "Aynı pencerenin gerçek ekran değerini incele.",
+      "Sonucu erişilebilirlik ağacından doğrula.",
+      "Bütün işlemleri ve mevcut kodu açabilmeliyim.",
+      "Yalnız işlem paneli kendi içinde kaymalıdır.",
+    ].join("\n") : "Dosyaları incele ve sonucu doğrula" },
     ...Array.from({ length: count }, (_, i): Mesaj => ({ id: `event-${i}`, rol: "olay", metin: "", adimlar: [{
       metin: `İşlem ${i + 1}`, arac: "run_shell", durum: "ok", ...(!empty ? { komut: `python kontrol_${i + 1}.py`,
       cikti: Array.from({ length: 60 }, (_, n) => `Kontrol ${i + 1} · çıktı satırı ${n + 1}`).join("\n"),

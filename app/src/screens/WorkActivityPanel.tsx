@@ -1,4 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useActivityPanelPlacement } from "./useActivityPanelPlacement";
 import type { OlayAdimi } from "../protocol/olayMetni";
 import { ActivityStep } from "./ActivityLine";
 import "./WorkActivityPanel.css";
@@ -21,6 +23,7 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
   const countLabel = `${entries.length} işlem${runningCount ? ` · ${runningCount} sürüyor` : ""}${failedCount ? ` · ${failedCount} başarısız` : ""}`;
   // İki açık satıra üçüncüsü eklenirse seçilen ayrıntı panelin içinde açık kalır.
   const open = many && (requested || expanded.size > 0);
+  const { placement, placeholderHeight, refresh } = useActivityPanelPlacement(wrapper, open, expanded.size > 0);
   const previousOpen = useRef(false);
   useLayoutEffect(() => {
     if (open === previousOpen.current) return;
@@ -33,7 +36,7 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
     // geçici odak boşluğudur. Yalnız açık kullanıcı isteği dış odağı devralır.
     const focused = document.activeElement;
     if (!userRequested && focused?.isConnected && focused !== document.body
-      && focused !== document.documentElement && !wrapper.current?.contains(focused)) return;
+      && focused !== document.documentElement && !wrapper.current?.contains(focused) && !panel.current?.contains(focused)) return;
     const scope = open ? panel.current : wrapper.current;
     const rows = scope?.querySelectorAll<HTMLDetailsElement>("details[data-step-id]");
     const row = Array.from(rows ?? []).find(item => item.dataset.stepId === selected.current) ?? rows?.[0];
@@ -68,19 +71,13 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
   const close = () => { explicitFocus.current = true; focusWithin.current = true; onInteract(); setRequested(false); setExpanded(new Set()); };
   const rows = (open ? entries : entries.slice(0, 2)).map(({ id, step }) => <ActivityStep key={id} stepId={id} adim={step} showThinking={showThinking}
     expanded={expanded.has(id)} onExpandedChange={next => {
-      if (many && !open) explicitFocus.current = true;
+      if (many && !open) { refresh(); explicitFocus.current = true; }
       focusWithin.current = true; onInteract(); selected.current = id;
       setExpanded(current => { const result = new Set(current); if (next) result.add(id); else result.delete(id); return result; });
       if (many) setRequested(true);
     }} />);
-  return <div className="work-activity" ref={wrapper}
-    onFocusCapture={() => { focusWithin.current = true; }}
-    onBlurCapture={event => {
-      // İç satır yeniden bağlanırken relatedTarget null olabilir. Gerçek bir dış
-      // odak hedefi varsa sahiplik bırakılır; sonraki akış onu geri alamaz.
-      if (event.relatedTarget && (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))) focusWithin.current = false;
-    }}>
-    {open ? <section ref={panel} className="work-activity-panel" aria-label="İşlem ayrıntıları" role="region" id={panelId}
+  const pane = <section ref={panel} className="work-activity-panel" aria-label="İşlem ayrıntıları" role="region" id={panelId}
+      style={placement ? { position: "absolute", top: placement.top, left: placement.left, width: placement.width, maxHeight: placement.maxHeight } : undefined}
       onPointerDownCapture={onInteract} onKeyDownCapture={event => {
         onInteract();
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
@@ -88,7 +85,15 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
       <div className="work-activity-panel__header"><span>{countLabel}</span>
         <button type="button" aria-label="İşlem panelini kapat" onClick={close}>Kapat</button></div>
       <div className="work-activity-panel__scroll" tabIndex={0} aria-label="İşlemleri kaydır"><ol className="activity__trail">{rows}</ol></div>
-    </section> : <><ol className="activity__trail work-activity__preview">{rows}</ol>
+    </section>;
+  return <div className="work-activity" ref={wrapper} style={open && placement ? { height: placeholderHeight } : undefined}
+    onFocusCapture={() => { focusWithin.current = true; }}
+    onBlurCapture={event => {
+      // İç satır yeniden bağlanırken relatedTarget null olabilir. Gerçek bir dış
+      // odak hedefi varsa sahiplik bırakılır; sonraki akış onu geri alamaz.
+      if (event.relatedTarget && (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget) && !panel.current?.contains(event.relatedTarget))) focusWithin.current = false;
+    }}>
+    {open ? (placement ? createPortal(<div className="work-activity-overlay">{pane}</div>, placement.host) : pane) : <><ol className="activity__trail work-activity__preview">{rows}</ol>
       {many && <p className="work-activity__count">{countLabel} · tümünü görmek için bir satırı aç</p>}</>}
   </div>;
 }
