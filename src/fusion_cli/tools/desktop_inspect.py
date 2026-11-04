@@ -41,7 +41,8 @@ on run argv
                 set selectedWindow to first window whose name is windowName
                 perform action "AXRaise" of selectedWindow
             else
-                set selectedWindow to front window
+                set selectedWindow to value of attribute "AXFocusedWindow" of targetProcess
+                if selectedWindow is missing value then error "Actual focused window is unavailable"
             end if
         end tell
         set frontProcess to targetProcess
@@ -60,7 +61,8 @@ end run
 FOCUS_OBSERVATION_SCRIPT = """
 tell application "System Events"
     set frontProcess to first application process whose frontmost is true
-    set frontWindow to front window of frontProcess
+    set frontWindow to value of attribute "AXFocusedWindow" of frontProcess
+    if frontWindow is missing value then error "Actual focused window is unavailable"
     set xy to position of frontWindow
     set wh to size of frontWindow
     set identityRow to (name of frontProcess) & tab & (unix id of frontProcess)
@@ -193,11 +195,19 @@ def _window_observation(output: str) -> tuple[str, int, str, float, float, float
 
 def _settled_foreground(
     target: tuple[str, int, str, float, float, float, float],
+    checks: dict[str, bool] | None = None,
 ) -> tuple[str, int, str, float, float, float, float] | None:
     deadline = time.monotonic() + _FOCUS_SETTLE_S
     while (remaining := deadline - time.monotonic()) > 0:
         result = _run(FOCUS_OBSERVATION_SCRIPT, timeout_s=remaining)
         observed = _window_observation(result.output) if result.ok else None
+        if checks is not None:
+            checks.clear()
+            checks.update(observation_ok=result.ok, focused_window_known=observed is not None)
+            if observed is not None:
+                checks.update(
+                    pid_matches=observed[1] == target[1], title_matches=observed[2] == target[2]
+                )
         # Names may be localized aliases. The activation target's real PID and
         # selected window title are authoritative; native window ID follows.
         if observed is not None and observed[1:3] == target[1:3]:
@@ -246,12 +256,16 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
             "Ön pencerenin kimliği ve sınırları doğrulanamadı; "
             "desktop_background_windows ile hedefi yeniden seç."
         )
-    foreground = _settled_foreground(target)
+    settle_checks: dict[str, bool] = {}
+    foreground = _settled_foreground(target, settle_checks)
     if foreground is None:
         return ToolResult.failure(
             "İstenen süreç/pencere süre sınırında gerçekten öne gelmedi; "
             "hedefi yeniden incele. Eski ekran görüntüsü kullanılamaz.",
-            structured={"focus_window_diagnostics": _focus_diagnostics(target)},
+            structured={
+                "focus_settle": settle_checks,
+                "focus_window_diagnostics": _focus_diagnostics(target),
+            },
         )
     observed_app, pid, observed_window, x, y, width, height = foreground
     observation = invoke_sync("target", {"kind": "probe", "request": {}})

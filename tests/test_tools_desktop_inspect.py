@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import desktop_inspect
 from fusion_cli.tools.builtin import build_registry
@@ -394,3 +396,118 @@ def test_named_focus_waits_through_same_pid_wrong_window_before_native_validatio
         {"app": "Calculator", "window": "Hesap Makinesi"}, context
     )
     assert result.ok and len(seen) == 2 and context.desktop.focused_window_title == "Hesap Makinesi"
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_focused_attribute_selects_main_when_unfocused_overlay_is_first(
+    tmp_path, monkeypatch, named
+):
+    main = "Calculator\t42\tHesap Makinesi\t350\t260\t230\t408"
+    overlay = "Calculator\t42\tWindow\t350\t260\t30\t30"
+
+    # Distinct API semantics: AXWindows[0] is overlay, AXFocusedWindow is main.
+    def run(script, *args, **kwargs):
+        if script == desktop_inspect.FOCUS_SCRIPT:
+            uses_focused = 'set selectedWindow to value of attribute "AXFocusedWindow"' in script
+            return desktop_inspect.ToolResult(main if named or uses_focused else overlay)
+        uses_focused = 'set frontWindow to value of attribute "AXFocusedWindow"' in script
+        return desktop_inspect.ToolResult(main if uses_focused else overlay)
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    _fake_focus_probe(monkeypatch, "Hesap Makinesi", [350.0, 260.0, 230.0, 408.0])
+    context = ToolContext(root=tmp_path)
+    args = {"app": "Calculator", **({"window": "Hesap Makinesi"} if named else {})}
+    result = desktop_inspect.desktop_window_focus(args, context)
+    assert result.ok and context.desktop.focused_window_title == "Hesap Makinesi"
+    assert context.desktop.focused_window_id == 101
+
+
+def test_settle_failure_reports_other_foreground_pid_as_boolean_only(tmp_path, monkeypatch):
+    target = "Calculator\t42\tHesap Makinesi\t350\t260\t230\t408"
+    other = "Private other application\t99\tHesap Makinesi\t350\t260\t230\t408"
+
+    def run(script, *args, **kwargs):
+        return desktop_inspect.ToolResult(
+            target if script == desktop_inspect.FOCUS_SCRIPT else other
+        )
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(
+        desktop_inspect,
+        "invoke_sync",
+        lambda *a: {"ok": True, "window_diagnostics": {"ax_trusted": True, "windows_count": 2}},
+    )
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus(
+        {"app": "Calculator", "window": "Hesap Makinesi"}, context
+    )
+    assert not result.ok and context.desktop.focus_required and context.desktop.frame is None
+    assert result.structured is not None
+    assert result.structured["focus_settle"] == {
+        "observation_ok": True,
+        "focused_window_known": True,
+        "pid_matches": False,
+        "title_matches": True,
+    }
+    assert "Private other application" not in str(result.structured) + result.output
+
+
+@pytest.mark.parametrize("phase", ["activation", "poll"])
+def test_unavailable_focused_attribute_never_falls_back_to_front_order(
+    tmp_path,
+    monkeypatch,
+    phase,
+):
+    from fusion_cli.core.desktop_frame import DesktopFrame
+
+    target = "Calculator\t42\tHesap Makinesi\t350\t260\t230\t408"
+
+    def run(script, *args, **kwargs):
+        if script == desktop_inspect.FOCUS_SCRIPT:
+            assert 'set selectedWindow to value of attribute "AXFocusedWindow"' in script
+            assert "set selectedWindow to front window" not in script
+            if phase == "activation":
+                return desktop_inspect.ToolResult.failure("AXFocusedWindow unavailable")
+            return desktop_inspect.ToolResult(target)
+        assert 'set frontWindow to value of attribute "AXFocusedWindow"' in script
+        assert "set frontWindow to front window" not in script
+        return desktop_inspect.ToolResult.failure("AXFocusedWindow unavailable")
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    native_calls = []
+
+    def native(operation, target):
+        native_calls.append(target)
+        assert target["request"].get("pid") == 42  # own-target diagnostic only
+        return {"ok": True, "window_diagnostics": {}}
+
+    monkeypatch.setattr(desktop_inspect, "invoke_sync", native)
+    context = ToolContext(root=tmp_path)
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok and context.desktop.focus_required and context.desktop.frame is None
+    assert context.desktop.focused_window is None
+    if phase == "poll":
+        assert result.structured is not None
+        assert result.structured["focus_settle"] == {
+            "observation_ok": False,
+            "focused_window_known": False,
+        }
+        assert len(native_calls) == 1
+    else:
+        assert native_calls == []
