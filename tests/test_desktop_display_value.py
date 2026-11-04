@@ -29,6 +29,14 @@ async def test_native_display_helper_excludes_secure_unknown_and_editable_values
         "import Foundation\nimport ApplicationServices\n"
         + content[start:end]
         + """
+precondition(fingerprintValueKind(nil) == "absent")
+precondition(fingerprintValueKind("text" as CFString) == "string")
+precondition(fingerprintValueKind(NSNumber(value: true)) == "boolean")
+precondition(fingerprintValueKind(NSNumber(value: 391)) == "number")
+precondition(fingerprintValueKind([] as CFArray) == "array")
+precondition(fingerprintValueKind(Data([1, 2]) as CFData) == "other")
+var point = CGPoint(x: 1, y: 2)
+precondition(fingerprintValueKind(AXValueCreate(.cgPoint, &point)) == "ax_value")
 precondition(displayEditability(.success, false) == .readOnly)
 precondition(displayEditability(.success, true) == .editable)
 precondition(displayEditability(.attributeUnsupported, false) == .unsupported)
@@ -167,3 +175,81 @@ async def test_unsupported_press_is_not_retried_with_another_reference(tmp_path,
     assert not result.ok and "AXPress" in result.output
     assert invoke.await_count == 1
     assert invoke.await_args.args[1]["request"]["ref"] == "chosen-current-ref"
+
+
+async def test_action_failure_preserves_only_boolean_guard_diagnostics(tmp_path, monkeypatch):
+    checks = {
+        "tree_complete": True,
+        "fingerprint_matches": False,
+        "identity_unique": True,
+        "path_identity_matches": True,
+    }
+    invoke = AsyncMock(
+        return_value={
+            "ok": False,
+            "metin": "Hedef öğe değişti veya kimliği belirsiz.",
+            "action_checks": {**checks, "private_title": "private", "raw_value": "secret"},
+            "raw_value": "secret",
+            "value_kinds": {"string": 4, "other": 2, "private": 1, "array": -1, "number": True},
+        }
+    )
+    monkeypatch.setattr(native_desktop.SwiftDesktop, "invoke", invoke)
+    result = await desktop_background.desktop_background_action(
+        {"window_id": 101, "pid": 42, "action": "press", "ref": "current"},
+        ToolContext(tmp_path),
+    )
+    assert not result.ok
+    assert result.structured == {
+        "ok": False,
+        "metin": "Hedef öğe değişti veya kimliği belirsiz.",
+        "action_checks": checks,
+        "value_kinds": {"string": 4, "other": 2},
+    }
+    assert json.loads(result.output) == result.structured
+    assert "secret" not in result.output and "private" not in result.output
+    assert invoke.await_count == 1
+
+
+async def test_swift_action_guard_diagnostics_preserve_every_rejection(tmp_path):
+    swift = shutil.which("swift")
+    if swift is None or sys.platform != "darwin":
+        pytest.skip("Swift runtime is not available.")
+    source = Path(__file__).parents[1] / "src/fusion_cli/tools/data/desktop_host.swift"
+    content = source.read_text()
+    start = content.index("func actionGuardChecks(")
+    end = content.index("\nfunc valueKindCounts(", start)
+    program = (
+        "import Foundation\n"
+        + content[start:end]
+        + """
+let good = actionGuardChecks(36, true, 1, true)
+precondition(good.values.allSatisfy { $0 })
+for (count, fingerprint, identities, path, failed) in [
+    (500, true, 1, true, "tree_complete"),
+    (36, false, 1, true, "fingerprint_matches"),
+    (36, true, 0, true, "identity_unique"),
+    (36, true, 2, true, "identity_unique"),
+    (36, true, 1, false, "path_identity_matches")
+] {
+    let checks = actionGuardChecks(count, fingerprint, identities, path)
+    precondition(checks[failed] == false)
+    precondition(!checks.values.allSatisfy { $0 })
+}
+print("action-checks-passed")
+"""
+    )
+    target = tmp_path / "guard.swift"
+    target.write_text(program)
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [swift, str(target)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "action-checks-passed"
+    action = content[content.index("func action(") : content.index("// Eylem hedefi")]
+    assert "checks.values.allSatisfy" in action
+    assert '"action_checks": checks' in action

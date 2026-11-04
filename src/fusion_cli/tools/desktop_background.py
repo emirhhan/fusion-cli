@@ -92,7 +92,43 @@ async def _invoke(
         target["request"] = {"ref": ref, "action": action, "value": value}
     result = await SwiftDesktop().invoke(operation, target)
     if not result.get("ok"):
-        return ToolResult.failure(str(result.get("metin", "Hedef pencereye erişilemedi.")))
+        message = str(result.get("metin", "Hedef pencereye erişilemedi."))
+        checks = result.get("action_checks")
+        if operation == "action" and isinstance(checks, dict):
+            safe_checks = {
+                key: checks[key]
+                for key in (
+                    "tree_complete",
+                    "fingerprint_matches",
+                    "identity_unique",
+                    "path_identity_matches",
+                )
+                if type(checks.get(key)) is bool
+            }
+            raw_kinds = result.get("value_kinds")
+            kinds = raw_kinds if isinstance(raw_kinds, dict) else {}
+            safe_kinds = {
+                key: kinds[key]
+                for key in (
+                    "absent",
+                    "string",
+                    "boolean",
+                    "number",
+                    "ax_value",
+                    "element",
+                    "array",
+                    "other",
+                )
+                if type(kinds.get(key)) is int and 0 <= kinds[key] <= 500
+            }
+            payload = {
+                "ok": False,
+                "metin": message,
+                "action_checks": safe_checks,
+                "value_kinds": safe_kinds,
+            }
+            return ToolResult.failure(json.dumps(payload, ensure_ascii=False), structured=payload)
+        return ToolResult.failure(message)
     if settings is not None:
         _visible_windows(result, settings)
     image = result.pop("image", None)

@@ -54,6 +54,7 @@ struct Entry {
     let path: [Int]
     let identity: String
     let valueDigest: String
+    let valueKind: String
     let displayValue: String?
     let displayValueTruncated: Bool
     let actionLabels: [String: String]
@@ -128,6 +129,17 @@ func safeWindowSelectionMetadata(_ mappingVerified: Bool, _ role: String?,
     if let isFocused = isFocused { metadata["is_focused"] = isFocused }
     return metadata
 }
+func fingerprintValueKind(_ value: CFTypeRef?) -> String {
+    guard let value = value else { return "absent" }
+    let kind = CFGetTypeID(value)
+    if kind == CFStringGetTypeID() { return "string" }
+    if kind == CFBooleanGetTypeID() { return "boolean" }
+    if kind == CFNumberGetTypeID() { return "number" }
+    if kind == AXValueGetTypeID() { return "ax_value" }
+    if kind == AXUIElementGetTypeID() { return "element" }
+    if kind == CFArrayGetTypeID() { return "array" }
+    return "other"
+}
 func tree(_ window: AXUIElement) -> [Entry] {
     var queue: [(AXUIElement, [Int], Bool)] = [(window, [], true)], entries: [Entry] = []
     while !queue.isEmpty && entries.count < 500 {
@@ -152,7 +164,7 @@ func tree(_ window: AXUIElement) -> [Entry] {
                 attribute(element, kAXDescriptionAttribute), attribute(element, kAXIdentifierAttribute))
         }
         entries.append(Entry(element: element, path: path, identity: identity(element),
-            valueDigest: digest(value), displayValue: display,
+            valueDigest: digest(value), valueKind: fingerprintValueKind(rawValue), displayValue: display,
             displayValueTruncated: display != nil && (stringValue?.count ?? 0) > 1000, actionLabels: labels))
         let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
         for (index, child) in children.enumerated() {
@@ -168,6 +180,14 @@ func reference(_ entry: Entry, _ fingerprint: String, _ id: Int, _ pid: Int32) -
     let payload: [String: Any] = ["path": entry.path, "identity": entry.identity, "fingerprint": fingerprint, "id": id, "pid": Int(pid)]
     return (try? JSONSerialization.data(withJSONObject: payload).base64EncodedString()) ?? ""
 }
+func actionGuardChecks(_ count: Int, _ fingerprintMatches: Bool,
+    _ identityCount: Int, _ pathMatches: Bool) -> [String: Bool] {
+    ["tree_complete": count < 500, "fingerprint_matches": fingerprintMatches,
+        "identity_unique": identityCount == 1, "path_identity_matches": pathMatches]
+}
+func valueKindCounts(_ entries: [Entry]) -> [String: Int] {
+    entries.reduce(into: [:]) { $0[$1.valueKind, default: 0] += 1 }
+}
 func action(_ window: AXUIElement, _ id: Int, _ pid: Int32) {
     let input = FileHandle.standardInput.readDataToEndOfFile()
     guard input.count <= 100_000,
@@ -178,10 +198,14 @@ func action(_ window: AXUIElement, _ id: Int, _ pid: Int32) {
         let path = token["path"] as? [Int], let expectedIdentity = token["identity"] as? String,
         let fingerprint = token["fingerprint"] as? String else { fail("Öğe başvurusu geçersiz; pencereyi yeniden incele."); return }
     let entries = tree(window)
-    guard entries.count < 500, treeDigest(entries) == fingerprint,
-        entries.filter({ $0.identity == expectedIdentity }).count == 1,
-        let entry = entries.first(where: { $0.path == path && $0.identity == expectedIdentity }) else {
-        fail("Hedef öğe değişti veya kimliği belirsiz; pencereyi yeniden incele."); return
+    let entry = entries.first(where: { $0.path == path && $0.identity == expectedIdentity })
+    let checks = actionGuardChecks(entries.count, treeDigest(entries) == fingerprint,
+        entries.filter({ $0.identity == expectedIdentity }).count, entry != nil)
+    guard checks.values.allSatisfy({ $0 }), let entry = entry else {
+        emit(["ok": false, "status": "unavailable",
+            "metin": "Hedef öğe değişti veya kimliği belirsiz; pencereyi yeniden incele.",
+            "action_checks": checks, "value_kinds": valueKindCounts(entries)])
+        return
     }
     let result: AXError
     if request["action"] as? String == "press" {
@@ -546,7 +570,7 @@ if args.count > 1 && args[1] == "list" {
                 }
                 return info
             }
-            emit(["ok": true, "elements": elements, "fingerprint": fingerprint, "id": id, "pid": Int(pid)])
+            emit(["ok": true, "elements": elements, "fingerprint": fingerprint, "id": id, "pid": Int(pid), "value_kinds": valueKindCounts(entries)])
         } else { fail("Arka plan değiştirme işlemi desteklenmiyor.") }
     }
 } else { fail("Masaüstü hedefi geçersiz.") }
