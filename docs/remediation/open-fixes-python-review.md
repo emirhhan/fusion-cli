@@ -1,5 +1,109 @@
 # Independent Python review — open fixes
 
+## Explicit short-reply variants and final backend closeout — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `20b10260`**, covering the combined
+backend delta from `14627ecf` through `20b10260`. No remaining CRITICAL, HIGH or
+MEDIUM finding identified in this reviewed scope. Concurrent frontend/native
+work and application packaging are separate review gates.
+
+The final two-file correction recognizes a reply noun between counted locative
+formatting and `yaz` (`3 kısa satırda yanıt yaz`). The adjectival `satırlık` form
+requires an explicit `yanıt`/`cevap` noun (`Üç satırlık kısa cevap yaz`), preventing
+code/line content from being mistaken for reply formatting. Neither branch masks
+the write verb or file/code object. Added tests preserve file-targeted answers,
+plain line changes and `Üç satırlık kod yaz`. All three scripted WebFetch formats
+finalize successfully with two provider calls, no teacher preparation and no
+false mutation-evidence reprompt.
+
+Independent final checks: **129 tests passed** across four focused research,
+desktop-planning, effect-development and intent-admission files. Scoped Ruff and
+detector mypy passed. The prior 265-test research/recovery/focus and 435-test
+recovery/focus validations below remain applicable to the unchanged portions;
+these overlapping invocations are not a full-suite aggregate. No gate/counter or
+permission/identity setting was weakened. No production edit, real UI/helper,
+private-chat/journal scan, model/network/secret access, uv/environment creation,
+application build or installation was performed by this reviewer. This is source
+approval, with no claim of measured latency improvement or full-App green status.
+
+## Counted research-reply formatting and final backend scope — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `035c45da`**, covering the combined
+seven-file backend delta from `14627ecf` through `035c45da`, including the
+previously reviewed recovery/focus commits. No remaining CRITICAL, HIGH or MEDIUM
+finding identified in this scope. Concurrent React/Rust work and full-App test
+status are outside this verdict.
+
+The new detector cleanup masks only a counted locative line-format span (for
+example `3 kısa satırda`) immediately before `yaz` or its existing supported
+request suffix. It retains the write verb, so explicit file/code targets still
+bind to it. Plain line creation/editing, `Üç satırda değişiklik yap`, independent
+UI/HTML/app building and deletion remain mutations. Earlier source-clone and
+external-effect protections remain covered. No counter, teacher, permission or
+evidence gate was disabled: this removes a false required effect at its source.
+
+The new actual scripted `run_agent` regression uses a synthetic official-page
+WebFetch result and final three-line response. It asserts the requested fetch,
+exact successful final text, two provider calls, no teacher preparation, no
+mutation-evidence reprompt and no changed paths. It would fail with the previous
+false workspace classification; it does not fetch a real page or establish any
+current Python release fact. Related tests preserve affirmative file/code/UI,
+deletion and genuine line-editing requests.
+
+Independent final verification: **265 tests passed** across eight selected
+research, effect/planning/admission/policy, agent-behavior, recovery and focus
+files. New detector/source-test Ruff and detector mypy passed. The earlier
+435-test combined recovery/focus validation and static checks remain applicable
+to those unchanged files; these overlapping invocations are not an aggregate
+suite count. The fixed note-routing, bounded PID-stable focus capture and strict
+native identity checks remain as recorded below.
+
+No production edit, live UI/helper/private-journal/chat scan, shell/network/model
+request, secret access, uv/environment creation, application build or installation
+was performed. This is source approval with synthetic regression evidence, not a
+claim of full-App green status, live web accuracy or measured latency improvement.
+
+## Recovery guidance and focused-window capture race — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `0762d3c3`**, reviewing the five-file
+combined delta from `14627ecf` (`210c2c62` recovery plus `0762d3c3` focus).
+No CRITICAL, HIGH or MEDIUM finding identified in this scope.
+
+- **Recovery contract:** error and idle notes use the execution policy's required
+  effect and desktop task kind. Only affirmative `workspace_mutation` retains the
+  existing repository exploration/first-file-change guidance. Desktop recovery
+  asks for current authorized application/window observation and result checks;
+  other contexts and default callers get neutral, task-bounded guidance.
+  Persistent-goal text remains unchanged. Notes remain harness messages and do
+  not add tool calls. The two call-site edits leave counters, idle thresholds,
+  teacher conditions, permission/identity gates and dispatch unchanged.
+- **Meaningful routing tests:** the new scripted `run_agent` regression drives an
+  actual failed tool call and idle path, then checks both injected notes for
+  desktop versus workspace tasks. Other-effect/default tests ensure reading,
+  lookup, push and shell tasks do not become instructions to change files.
+- **Activation capture:** app-only activation captures the original PID and makes
+  at most 40 reads of its `AXFocusedWindow`, separated by 50 ms delays when absent.
+  PID is checked during the loop and again before using the selected window.
+  This bounded nil-window wait remains within the existing subprocess timeout;
+  it does not replace the separate bounded foreground-settle/native validation
+  phases. Missing focus or a restarted process fails with the frame invalidated
+  and refocus required. Exact named-window selection is unchanged; neither front
+  window order nor AXMainWindow is used as fallback. Subsequent native PID,
+  positive window ID, title and bounds checks remain mandatory.
+
+Independent verification: **435 tests passed** across nine selected recovery,
+agent loop/behavior, teacher, effect-planning, focus/inspect, policy, mouse and
+risk scopes. One existing Pydantic TypedDict ReadOnly warning was emitted; no test
+failed. Scoped Ruff passed, and mypy passed for all three changed source files.
+Reviewed the exact committed source against those checks.
+
+No production source edit, real AppleScript/helper/AX/UI action, private-journal
+or chat scan, model/network/secret access, uv/environment creation, application
+build or installation was performed by this reviewer. Script fixtures establish
+selection/state behavior, not native timing or physical application success.
+This approval does not claim that all actual keypress failures are fixed or that
+response latency improved; those remain separate runtime acceptance questions.
+
 ## Corrected application-location/source-clone classification — APPROVE
 
 Latest bounded Python verdict: **APPROVE at `b72e05be`**, reviewing the combined
