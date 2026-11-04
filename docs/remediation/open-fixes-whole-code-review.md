@@ -1,6 +1,26 @@
 # Whole-wave code/spec review
 
-**Final bounded verdict at `f94ea25b`: APPROVE — zero open findings.** The diagnostic/native-attestation producer and Calculator-consent consumer are approved within their bounded scope. The focused-window semantic correction, identifier-label risk handoff, initial retry/build findings, native display-export findings, and browser credential-environment regression are also resolved. Historical findings below retain their original reviewed snapshots and evidence.
+**Final bounded verdict at `b72e05be`: APPROVE — zero open findings.** Reviewed the exact two-file follow-up to `ecad2886`. Explicit application-source copy/clone requests now reuse the existing bounded Turkish polite-request suffix grammar, preserving their workspace-mutation and planning contract. Removing the duplicate Turkish predicate from the English-only pattern tuple does not change its reach: the same predicate is evaluated earlier in the Turkish/file-mutation branch. The affirmative source/object/creation requirements, negative/explanatory filtering, Calculator location-only classification, real mutation gates and external-effect priority remain intact.
+
+Independent closeout verification: all 58 `test_desktop_effect_planning.py` cases passed using the existing project venv with worktree `PYTHONPATH=src` and `MYPYPATH=src`; commit whitespace checks passed. No production code was edited, and no `uv`, native UI/helper, private-chat read, model/network, build or installation action was used. This is bounded source/classification approval, not a model-quality or latency claim. Current summary: CRITICAL 0; HIGH 0; MEDIUM 0; LOW 0. Earlier findings below remain resolved review history.
+
+## Application-context grammar review
+
+Corrective closeout at `ecad2886`: APPROVE for the combined two-file `80fa..ecad2886` delta. The follow-up recognizes an application as an explicit source only when the same positive clause also contains a bounded copy/clone/equivalent object and affirmative creation verb. Both reproduced source-copy cases now retain `workspace_mutation`, the teacher/effect contract, and complex-task planning. Added regressions distinguish informative, negative and explanatory source references. The Calculator location-only request remains `required_effect=None`, teacher `basit`, and non-complex; direct/genitive creation, concrete file/code/UI mutations and git/shell priority remain covered. No native/UI, permission or model-setting code changed. The source fix addresses mandatory classification/planning; it is not a general model-quality or speed claim.
+
+Reviewer independently reran the focused planning plus effect-development/admission/policy-boundary suites on the final combined source: all passed, exit 0. Combined range whitespace checks passed. Exact final production/test diff reviewed; no further actionable finding. No actual UI/helper/private-chat reads, model/network calls, credentials, build or install were used. Final runtime acceptance remains separately owned. Current summary: CRITICAL 0; HIGH 0; MEDIUM 0; LOW 0. Verdict: APPROVE.
+
+Historical review at `64ca8566` follows; its P2 finding is resolved above.
+
+Reviewed only the two-file `64ca8566` delta and immediate mutation/planning contracts. Locative Calculator requests now correctly avoid borrowing `uygulama` as the object of `işlemini yap`, so the tested operation has no required workspace effect and is classified `basit` without mandatory teacher planning. This supports a bounded classification correction, not a model-quality or latency benchmark. Native/UI behavior is unchanged by this commit.
+
+### MEDIUM / P2 — ablative application copy/clone requests lose mutation intent
+
+File: `src/fusion_cli/engines/effects/detect.py:184` (new `_APPLICATION_BUILD_OBJECT` negative lookahead).
+
+The negative lookahead excludes every `uygulamadan`/`uygulamasından` noun from the build-object pattern, including requests where the application is the explicit source of a new clone. `Mevcut uygulamadan bir kopya yap.` and `Bu uygulamadan bir klon yap.` previously returned `workspace_mutation`; at this commit both return `None` and teacher classification `basit`. Thus a clear application-creation task loses its workspace-effect/verification and planning contract. The added genitive-clone regression (`Uygulamanın aynısını yap`) does not cover these source-copy forms.
+
+Confirmed with actual `required_effect_for`/`classify_teacher_task` at that snapshot and the previous committed detector loaded in memory from `git show 64ca8566^`; no code files were changed and no model/UI/network operation was used. Requested a bounded affirmative copy/clone creation predicate, preserving locative informational Calculator cases and external-effect priority. Historical disposition: WARNING for one MEDIUM/P2; superseded by the `ecad2886` approval above.
 
 ## Action diagnostics and attested Calculator reset closeout
 

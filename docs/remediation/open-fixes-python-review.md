@@ -1,5 +1,82 @@
 # Independent Python review — open fixes
 
+## Corrected application-location/source-clone classification — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `b72e05be`**, reviewing the combined
+two-file delta from `80fa5986`. The `64ca8566` source-clone regression and the
+follow-up polite-request gap are resolved. No remaining CRITICAL, HIGH or MEDIUM
+finding identified in this bounded correction.
+
+The detector distinguishes an existing application's location from a direct build
+object, and separately recognizes an application as the source of an explicit
+new copy/clone. That source predicate requires a copy/clone/same/similar object
+and an affirmative creation verb. It now reuses the existing `_REQUEST_SUFFIX`
+contract, restoring `bir kopya yapmanı istiyorum` and `bir klon yapabilir misin`
+as well as direct imperatives. The initially duplicated Turkish regex in the
+English-only pattern list was removed; one source predicate remains.
+
+The predicate is still evaluated within the existing positive-clause and
+explanation gates. Negated clone requests and informational questions remain
+nonmutation, as do the exact Calculator location task and informational source
+contexts. Genitive/direct app creation, code/HTML/component/source-file edits,
+deletion/removal and git/shell priority remain covered. Corresponding assertions
+check not just detection but execution-policy `complex_task` and teacher-task
+size: actual clones restore their mutation/teacher contract, while the Calculator
+task avoids the false workspace-building plan. No permission or global teacher
+gate was disabled.
+
+Independent final verification: **232 tests passed** across the seven bounded
+desktop-planning, effect-development/admission/policy, ability, agent-behavior and
+expertise files. Scoped Ruff and detector mypy passed. Reviewed exact final source
+and retained tests; no production edits, live UI/helper/private-chat/network/model
+or secret access, build or installation were performed by this reviewer.
+
+This supersedes the incomplete approval recorded below. It establishes source
+classification and preserved safety contracts, not measured latency improvement.
+The parent's prior physical 0→391 result and the new candidate's post-install
+timing/acceptance work remain distinct from this offline review.
+
+## Application-location effect classification — historical approval superseded
+
+**The `64ca8566` approval is superseded pending corrective review.** The parallel
+review confirmed a source-clone regression: `Mevcut uygulamadan bir kopya yap.`
+and `Bu uygulamadan bir klon yap.` changed from workspace mutation to no required
+effect. The suffix exclusion also catches the ablative source form. This review
+missed that affirmative source-clone case; `64ca8566` alone is not approved for
+packaging. The following records the earlier, incomplete bounded review.
+
+Initial bounded Python verdict: **APPROVE at `64ca8566` versus `80fa5986`**.
+Reviewed only the nine-line effect-detector change and its planning regressions;
+no CRITICAL, HIGH or MEDIUM finding identified in this delta.
+
+The application build-object pattern excludes existing-app location contexts
+(`uygulamasında`, `uygulamada`) and genitives only when followed by an explicit
+inside marker. It does not globally remove application creation: direct objects
+and `uygulamanın aynısını yap` / `uygulamasının benzerini yap` remain workspace
+mutations. Independent code, HTML, component, source-file, deletion and removal
+objects still trigger mutation evidence. Git push/commit and shell-action priority
+remain unchanged.
+
+Traced the downstream contract: `policy_for` derives `complex_task` from the
+required effect; the automatic teacher-preparation hook is guarded by that flag.
+The exact Calculator prompt now has no false workspace effect and classifies as
+a simple teacher task, without disabling mutation policy or desktop permissions.
+An additional scripted exact-prompt root run confirmed `required_effect=None`,
+`complex_task=False`, no `prepare_teacher_plan` call, and retained original shell
+and browser family prohibitions. Its provider was synthetic; no actual model or
+desktop request was made.
+
+Independent verification: **220 tests passed** across seven desktop-planning,
+effect-detection/admission/policy, ability, agent-behavior and expertise files.
+Scoped Ruff and detector mypy passed. No production edits, UI/helper/native AX
+execution, private-chat scan, network/model/secret access, build or installation
+were performed by this reviewer.
+
+This approves the source classification and preserved safety contracts, not a
+latency improvement. The parent reports physical 0→391 acceptance on the preceding
+installed candidate; this reviewer did not perform or repeat it. A post-install
+run must separately measure the new candidate's behavior and response latency.
+
 ## System Calculator consent and bounded diagnostics — APPROVE
 
 Latest bounded Python/security verdict: **APPROVE at `f94ea25b`**, including the
