@@ -468,19 +468,38 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 ///
 /// Temizlik en çok `TEMIZLIK_UST_SINIRI` sürer; aşılırsa bekçi süreci sonlandırır (R2-14).
 #[tauri::command]
-async fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
-    let donus = app
-        .state::<KapanisDurumu>()
-        .onayla(std::time::Instant::now());
-    if donus.bekci_gerekli() {
-        kapatma_bekcisi_baslat(app.clone());
-    }
-    engelleyen(move || {
-        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-        app.exit(0);
-        Ok(())
-    })
-    .await
+fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
+    kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
+    Ok(())
+}
+
+/// Yerel ana pencere düğmesi, onaylanmış çıkış ve yanıtsız arayüz aynı kapanış
+/// sahibini kullanır. Hiçbiri temizlik sırasında pencereyi/JS yanıtını beklemez.
+fn kapatmayi_baslat(app: &tauri::AppHandle, route: ShutdownRoute) {
+    kapanis::baslat_tam_kapanis(
+        app.state::<KapanisDurumu>().inner(),
+        std::time::Instant::now(),
+        || kapatma_bekcisi_baslat(app.clone()),
+        || {
+            let gizlenecek = app.clone();
+            // Yerel pencere olayında ana iş parçacığındayız: anında uygulanır.
+            // Bekçi/IPC yolunda yalnız ana iş parçacığına iletilir; bekçi bloklanmaz.
+            if let Err(error) = app.run_on_main_thread(move || {
+                for window in gizlenecek.webview_windows().into_values() {
+                    let _ = window.hide();
+                }
+            }) {
+                eprintln!("[fusion][kapanis] pencere gizleme isteği iletilemedi: {error}");
+            }
+        },
+        || {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                cleanup_route_from_app(route, &app);
+                app.exit(0);
+            });
+        },
+    );
 }
 
 /// Kapatma sorusu açıkken arayüzün canlı olduğunu bildirir (R2-14). Arayüz soruyu gösterdiği
@@ -496,7 +515,7 @@ fn kapatma_vazgec(durum: tauri::State<KapanisDurumu>) {
     durum.vazgec();
 }
 
-/// Kapatmayı arayüze sordurur (ana pencere kapatma düğmesi, `ExitRequested`, macOS Cmd+Q menüsü).
+/// Kapatmayı arayüze sordurur (`ExitRequested`, macOS Cmd+Q menüsü ve tepsi).
 ///
 /// Ana pencere simge durumundaysa (konuşma kipi) önce geri açılır; görünmeyen bir soru kimseden
 /// yanıt alamazdı. İlk istekte bekçi başlar: arayüz yanıtsızsa kapanış onaysız sürer (R2-14).
@@ -527,14 +546,7 @@ fn kapatma_bekcisi_baslat(app: tauri::AppHandle) {
             Karar::Bekle => {}
             Karar::ArayuzYanitsiz => {
                 eprintln!("[fusion][kapanis] arayüz nabız vermiyor; kapanış onaysız sürdürülüyor");
-                let donus = durum.onayla(std::time::Instant::now());
-                if donus != kapanis::OnayDonusu::ZatenOnayli {
-                    let app = app.clone();
-                    std::thread::spawn(move || {
-                        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-                        app.exit(0);
-                    });
-                }
+                kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
             }
             Karar::TemizlikAsildi => {
                 eprintln!("[fusion][kapanis] temizlik süre sınırını aştı; süreç sonlandırılıyor");
@@ -582,6 +594,7 @@ enum ShutdownScope {
 
 #[derive(Clone, Copy)]
 enum ShutdownRoute {
+    NativeMainClose,
     ConfirmedMainClose,
     ExitRequested,
     Exit,
@@ -591,9 +604,10 @@ enum ShutdownRoute {
 
 fn shutdown_scope_for_route(route: ShutdownRoute) -> ShutdownScope {
     match route {
-        ShutdownRoute::ConfirmedMainClose | ShutdownRoute::ExitRequested | ShutdownRoute::Exit => {
-            ShutdownScope::Application
-        }
+        ShutdownRoute::NativeMainClose
+        | ShutdownRoute::ConfirmedMainClose
+        | ShutdownRoute::ExitRequested
+        | ShutdownRoute::Exit => ShutdownScope::Application,
         ShutdownRoute::TalkClose | ShutdownRoute::TalkDestroyed => ShutdownScope::Talk,
     }
 }
@@ -1067,13 +1081,12 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Kapatma ONAYSIZ yapılmaz: çalışan tur ve açık sohbetler
-                // kaybolur. Yanlışlıkla kapatmak (Cmd+Q, Alt+F4, kırmızı düğme)
-                // iş kaybettiriyordu. Karar arayüzde sorulur; onaylanırsa
-                // arayüz `kapatmayi_onayla` çağırır.
+                // Yerel ana pencere kapatma düğmesi tam kapanışı doğrudan
+                // başlatır. Pencere anında gizlenir; mevcut sınırlı temizlik
+                // oturumların EOF/journal kapanışına fırsat verir. JS gerekmez.
                 if window.label() == "main" {
                     api.prevent_close();
-                    kapatma_iste(window.app_handle());
+                    kapatmayi_baslat(window.app_handle(), ShutdownRoute::NativeMainClose);
                     return;
                 }
                 if window.label() == SES_PENCERESI {
@@ -1341,6 +1354,7 @@ mod shutdown_tests {
     #[test]
     fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
         for route in [
+            ShutdownRoute::NativeMainClose,
             ShutdownRoute::ConfirmedMainClose,
             ShutdownRoute::ExitRequested,
             ShutdownRoute::Exit,

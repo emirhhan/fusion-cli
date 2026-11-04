@@ -1,7 +1,8 @@
 //! Kapanış isteğinin durumu ve zaman aşımı kararları (R2-14).
 //!
-//! Ana pencere kapatılırken (kırmızı düğme, Cmd+Q menüsü, `ExitRequested`) Rust kapatmayı
-//! DURDURUR ve onayı arayüze sordurur. Ölçüldü (30 Ekim): arayüz yanıt vermiyorsa (donmuş
+//! Ana pencerenin yerel kapatma düğmesi kapanışı doğrudan başlatır. Cmd+Q menüsü ve
+//! `ExitRequested` için Rust kapatmayı durdurup onayı arayüze sordurur. Ölçüldü
+//! (30 Ekim): arayüz yanıt vermiyorsa (donmuş
 //! web görünümü, çöken sayfa) bu bekleme sonsuzdu; kullanıcı uygulamayı yalnız süreci öldürerek
 //! kapatabiliyordu. Burada iki sınır vardır:
 //!
@@ -156,6 +157,28 @@ impl OnayDonusu {
     }
 }
 
+/// Tam kapanışı yalnız bir çağrı sahiplenir. Yerel gizleme temizlik işinden önce
+/// istenir; temizlik ayrı iş parçacığında başlatılır. Arayüz onayı/nabzı gerekmez.
+/// Bekçi önce başlatılır: gizleme veya temizlikteki bir sorun süre sınırını kaldıramaz.
+pub(crate) fn baslat_tam_kapanis(
+    durum: &KapanisDurumu,
+    simdi: Instant,
+    bekci_baslat: impl FnOnce(),
+    gizle: impl FnOnce(),
+    temizlik_baslat: impl FnOnce(),
+) -> bool {
+    let donus = durum.onayla(simdi);
+    if donus == OnayDonusu::ZatenOnayli {
+        return false;
+    }
+    if donus.bekci_gerekli() {
+        bekci_baslat();
+    }
+    gizle();
+    temizlik_baslat();
+    true
+}
+
 /// `ExitRequested` olayında kapanış arayüze sorulmalı mı?
 ///
 /// Yalnız KULLANICI kaynaklı çıkış (`code == None`) sorulur; `app.exit(kod)` ve yeniden başlatma
@@ -266,5 +289,108 @@ mod tests {
         assert!(!cikis_sorulmali(None, false, false));
         // Zaten onaylandı.
         assert!(!cikis_sorulmali(None, true, true));
+    }
+
+    #[test]
+    fn yerel_kapatma_arayuz_onayi_beklemeden_gizler_ve_temizligi_baslatir() {
+        let durum = KapanisDurumu::new();
+        let simdi = Instant::now();
+        let sira = std::cell::RefCell::new(Vec::new());
+        assert!(baslat_tam_kapanis(
+            &durum,
+            simdi,
+            || sira.borrow_mut().push("bekci"),
+            || sira.borrow_mut().push("gizle"),
+            || sira.borrow_mut().push("temizlik"),
+        ));
+        assert_eq!(*sira.borrow(), ["bekci", "gizle", "temizlik"]);
+        assert!(durum.onayli_mi());
+        assert!(!cikis_sorulmali(None, true, durum.onayli_mi()));
+        assert_eq!(durum.karar(simdi), Karar::Bekle);
+        assert_eq!(
+            durum.karar(simdi + TEMIZLIK_UST_SINIRI),
+            Karar::TemizlikAsildi
+        );
+    }
+
+    #[test]
+    fn tekrarlanan_yerel_kapatma_temizligi_ve_bekciyi_yeniden_baslatmaz() {
+        let durum = KapanisDurumu::new();
+        let sira = std::cell::RefCell::new(Vec::new());
+        for _ in 0..2 {
+            baslat_tam_kapanis(
+                &durum,
+                Instant::now(),
+                || sira.borrow_mut().push("bekci"),
+                || sira.borrow_mut().push("gizle"),
+                || sira.borrow_mut().push("temizlik"),
+            );
+        }
+        assert_eq!(*sira.borrow(), ["bekci", "gizle", "temizlik"]);
+    }
+
+    #[test]
+    fn acik_onay_sorusundan_yerel_kapatma_ikinci_bekci_baslatmaz() {
+        let durum = KapanisDurumu::new();
+        let simdi = Instant::now();
+        assert!(durum.iste(simdi));
+        let sira = std::cell::RefCell::new(Vec::new());
+        assert!(baslat_tam_kapanis(
+            &durum,
+            simdi,
+            || sira.borrow_mut().push("bekci"),
+            || sira.borrow_mut().push("gizle"),
+            || sira.borrow_mut().push("temizlik"),
+        ));
+        assert_eq!(*sira.borrow(), ["gizle", "temizlik"]);
+        durum.vazgec();
+        assert!(durum.onayli_mi());
+    }
+
+    #[test]
+    fn eszamanli_yerel_kapatmalardan_yalniz_biri_temizlik_sahibi_olur() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let durum = Arc::new(KapanisDurumu::new());
+        let sayaclar = Arc::new([
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+        ]);
+        let basla = Arc::new(Barrier::new(8));
+        let mut isler = Vec::new();
+        for _ in 0..8 {
+            let durum = Arc::clone(&durum);
+            let sayaclar = Arc::clone(&sayaclar);
+            let basla = Arc::clone(&basla);
+            isler.push(std::thread::spawn(move || {
+                basla.wait();
+                baslat_tam_kapanis(
+                    &durum,
+                    Instant::now(),
+                    || {
+                        sayaclar[0].fetch_add(1, Ordering::SeqCst);
+                    },
+                    || {
+                        sayaclar[1].fetch_add(1, Ordering::SeqCst);
+                    },
+                    || {
+                        sayaclar[2].fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+            }));
+        }
+        assert_eq!(
+            isler
+                .into_iter()
+                .map(|is| is.join().unwrap())
+                .filter(|basladi| *basladi)
+                .count(),
+            1
+        );
+        for sayac in sayaclar.iter() {
+            assert_eq!(sayac.load(Ordering::SeqCst), 1);
+        }
     }
 }
