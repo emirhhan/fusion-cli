@@ -306,11 +306,11 @@ def _named_target(raw: str) -> tuple[str, str, int, str]:
 
 async def resolve_target(
     tool_name: str, args: ToolArgs, context: ToolContext, probe: TargetProbe | None = None
-) -> tuple[str, str, int, str] | None:
-    """(uygulama, paket, pid, öğe) — çözülemezse None."""
+) -> tuple[str, str, int, str, bool] | None:
+    """(uygulama, paket, pid, öğe, sistem Calculator kanıtı); çözülemezse None."""
     if tool_name in _NAMED_TOOLS:
         app = args.get("app")
-        return _named_target(app) if isinstance(app, str) and app.strip() else None
+        return (*_named_target(app), False) if isinstance(app, str) and app.strip() else None
     if tool_name.startswith("desktop_background_") and background_pid(args) is None:
         # Geçersiz pid'de öndeki uygulamayı yoklamak yanlış hedefi değerlendirirdi.
         return None
@@ -335,6 +335,10 @@ async def resolve_target(
         str(answer.get("bundle") or ""),
         pid if type(pid) is int else 0,
         _element_label(answer.get("element")),
+        answer.get("system_calculator") is True
+        and answer.get("bundle") == "com.apple.calculator"
+        and type(pid) is int
+        and pid > 0,
     )
 
 
@@ -356,7 +360,7 @@ async def assess(
         if tool_name in _INTERACTIVE_TOOLS and context.desktop.focused_window is not None:
             return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
         return DesktopAssessment(required)
-    app, bundle, pid, element = resolved
+    app, bundle, pid, element, system_calculator = resolved
     focused = context.desktop.focused_window
     if tool_name in _INTERACTIVE_TOOLS and focused is not None and pid != focused[0]:
         return DesktopAssessment(
@@ -372,7 +376,13 @@ async def assess(
     level, category, reason = app_level(settings, app, bundle)
     warning = category.warning if category is not None else ""
     target = DesktopTarget(
-        app or bundle, bundle, pid, level or DesktopLevel.OBSERVE, warning, element
+        app or bundle,
+        bundle,
+        pid,
+        level or DesktopLevel.OBSERVE,
+        warning,
+        element,
+        system_calculator=system_calculator,
     )
     if level is None:
         return DesktopAssessment(required, target, blocked=reason)

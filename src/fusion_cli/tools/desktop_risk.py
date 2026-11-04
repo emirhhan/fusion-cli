@@ -26,9 +26,11 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 
 from ..core.desktop_settings import DesktopTarget
 from ..core.tools import ToolArgs
+from .args import coerce_int
 from .key_spec import KeyChord, parse_key_sequence
 from .risk_words import is_risky_label
 
@@ -55,6 +57,30 @@ _TEXT_ROLES = frozenset({"TextField", "TextArea", "SearchField", "ComboBox", "Se
 _ENTER = frozenset({"enter", "numpadenter"})
 _DELETE = frozenset({"backspace", "forwarddelete"})
 _SHELL_CATEGORIES = frozenset({"terminal", "ide"})
+# These existing ordinary keypad IDs only distinguish a known control from an
+# unlabelled unknown reference; they never skip the generic destructive-label gate.
+_CALCULATOR_MATH_IDS = frozenset(
+    [
+        "Zero",
+        "One",
+        "Two",
+        "Three",
+        "Four",
+        "Five",
+        "Six",
+        "Seven",
+        "Eight",
+        "Nine",
+        "Decimal",
+        "Add",
+        "Subtract",
+        "Multiply",
+        "Divide",
+        "Equals",
+        "Negate",
+        "Percent",
+    ]
+)
 
 
 def risky_reason(
@@ -69,6 +95,18 @@ def risky_reason(
     if _is_click(tool_name, args) and _risky_element(target.element, clicking=True):
         return CLICK_REASON.format(app=app, element=target.element)
     if tool_name == "desktop_background_action" and args.get("action") == "press":
+        if target.system_calculator is True and target.bundle == "com.apple.calculator":
+            identity = _bound_calculator_identity(args, target)
+            if identity is None or identity[0] != "AXButton":
+                return UNVERIFIED_CLICK_REASON.format(app=app)
+            # Only this native system app's exact math-reset control is exempt.
+            # The native executor still checks the full current tree and reference.
+            if identity[2] == "AllClear":
+                return None
+            if identity[2] == "ClearHistory" or not (
+                identity[1].strip() or identity[3].strip() or identity[2] in _CALCULATOR_MATH_IDS
+            ):
+                return UNVERIFIED_CLICK_REASON.format(app=app)
         label = _ref_label(args.get("ref"))
         if label and is_risky_label(label):
             return CLICK_REASON.format(app=app, element=f"'{label}'")
@@ -165,4 +203,50 @@ def _ref_label(ref: object) -> str:
         return human_label
     # safeActionLabels exposes identifier-only AXButton labels when no human
     # title/description exists. Apply the same fallback to their risk gate.
-    return parts[2].strip() if len(parts) > 2 and parts[0] == "AXButton" else ""
+    if len(parts) <= 2 or parts[0] != "AXButton":
+        return ""
+    # Identifiers are often CamelCase or underscore-delimited rather than prose.
+    # Split only this fallback; human labels retain their existing precedence.
+    identifier = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", parts[2])
+    identifier = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", identifier)
+    return re.sub(r"[_\W]+", " ", identifier).strip()
+
+
+def _bound_calculator_identity(
+    args: ToolArgs, target: DesktopTarget
+) -> tuple[str, str, str, str] | None:
+    """Check the reference binding, never treat caller-provided app names as proof."""
+    ref = args.get("ref")
+    if not isinstance(ref, str) or not ref or len(ref) > 16_384:
+        return None
+    try:
+        token = json.loads(base64.b64decode(ref, validate=True))
+    except (binascii.Error, ValueError, RecursionError):
+        return None
+    if not isinstance(token, dict):
+        return None
+    pid, window = token.get("pid"), token.get("id")
+    if (
+        type(pid) is not int
+        or pid <= 0
+        or pid != target.pid
+        or pid != coerce_int(args.get("pid"))
+        or type(window) is not int
+        or window <= 0
+        or window != coerce_int(args.get("window_id"))
+    ):
+        return None
+    path, fingerprint, identity = token.get("path"), token.get("fingerprint"), token.get("identity")
+    if (
+        not isinstance(path, list)
+        or not path
+        or len(path) >= 500
+        or any(type(index) is not int or index < 0 for index in path)
+        or not isinstance(fingerprint, str)
+        or len(fingerprint) != 64
+        or any(char not in "0123456789abcdef" for char in fingerprint)
+        or not isinstance(identity, str)
+    ):
+        return None
+    parts = identity.split("\x1f")
+    return (parts[0], parts[1], parts[2], parts[3]) if len(parts) == 4 and parts[0] else None
