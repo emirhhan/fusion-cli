@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ...core.text_fold import lower_tr_aware
+from .current_facts import current_fact_text, needs_current_lookup
 from .model import CONTRACTS, EffectContract, EffectKind
 
 _EXPLICIT_NO_TOOL_MARKERS = (
@@ -428,6 +429,36 @@ def explicitly_disallows_tools(task: str) -> bool:
     return any(marker in lowered for marker in _EXPLICIT_NO_TOOL_MARKERS)
 
 
+def requested_web_urls(task: str) -> tuple[str, ...]:
+    """Keep the case-sensitive URLs in affirmative source requests, without fetching them."""
+    prefix = "fusion_source_url_"
+    while prefix in lower_tr_aware(task):
+        prefix = "_" + prefix
+    references: list[tuple[str, str]] = []
+
+    def protect(match: re.Match[str]) -> str:
+        raw = match.group()
+        url = raw.rstrip(".,;")
+        for closing, opening in ((")", "("), ("]", "["), ("}", "{")):
+            while url.endswith(closing) and url.count(closing) > url.count(opening):
+                url = url[:-1]
+        token = f"{prefix}{len(references)}_end"
+        references.append((token, url))
+        return token + raw[len(url) :]
+
+    # URL punctuation belongs to the URL. In particular '?' must not terminate a
+    # request clause before its query has been associated with source evidence.
+    protected = re.sub(r"https?://[^\s<>\"'`]+", protect, task, flags=re.IGNORECASE)
+    positive = " ".join(
+        clause
+        for clause in _positive_action_parts(lower_tr_aware(protected))
+        if not re.search(
+            r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse)\b", clause
+        )
+    )
+    return tuple(dict.fromkeys(url for token, url in references if token in positive))
+
+
 def required_effect_for(task: str, kind: object | None = None) -> str | None:
     """İstek gerçek bir araç etkisi istiyorsa kararlı effect kimliğini döndür."""
 
@@ -441,7 +472,12 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     lowered = " ".join(clauses)
     if not lowered:
         return None
-    if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
+    research_clauses = _positive_action_parts(current_fact_text(lower_tr_aware(task)))
+    current_fact = any(needs_current_lookup(clause) for clause in research_clauses)
+    explicit_web = any(_matches(clause, _WEB_LOOKUP_PATTERNS) for clause in research_clauses)
+    if not (current_fact or explicit_web) and any(
+        marker in f" {lowered}" for marker in _EXPLANATION_MARKERS
+    ):
         return None
     if is_history_question(lowered):
         return EffectKind.WORKSPACE_READ.value
@@ -462,7 +498,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
         return _BULK_COUNT_EFFECT
-    if _matches(lowered, _WEB_LOOKUP_PATTERNS):
+    if current_fact or explicit_web:
         return EffectKind.WEB_LOOKUP.value
     if _matches(lowered, _WORKSPACE_READ_PATTERNS):
         return EffectKind.WORKSPACE_READ.value

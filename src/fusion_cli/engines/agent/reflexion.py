@@ -243,6 +243,30 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
     """
 
     label = _EFFECT_LABELS.get(effect or "", "kullanıcının istediği gerçek işlem")
+    if effect == "web_lookup":
+        last = (
+            " Bu son deneme; kanıt yoksa güncelliğin doğrulanamadığını bildir."
+            if attempt >= 3
+            else ""
+        )
+        return Message(
+            "user",
+            "[eylem-kanıtı-zorunlu] Bu araştırma için yeterli kaynak okuması doğrulanmadı. "
+            "Kullanıcının belirttiği URL'leri web_fetch ile oku; URL yoksa web_search ile "
+            "ilgili birincil kaynağı bul ve oku. Başka bir sayfayı okumuş olmak istenen "
+            "kaynağı doğrulamaz. Erişim tarihi ile yayın tarihini ayır; eski bir sayfayı "
+            "bugün çekmek bilginin güncel olduğunu kanıtlamaz. "
+            "Erişim yoksa bilgiyi tahmin etme ve yapılmış gibi sunma." + last,
+            harness_note=True,
+        )
+    if effect == "workspace_read":
+        return Message(
+            "user",
+            "[eylem-kanıtı-zorunlu] İstenen çalışma alanı incelemesi henüz doğrulanmadı. "
+            "İlgili yolu list_dir, read_file veya search_code ile incele ve bulguyu bildir. "
+            "Bu bir okuma görevi; kanıt üretmek için dosya değiştirme.",
+            harness_note=True,
+        )
     if attempt >= 2:
         son = " Bu SON uyarı: bundan sonra tur başarısız kapanır." if attempt >= 3 else ""
         return Message(
@@ -270,6 +294,11 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
 def unverified_action_message(effect: str | None) -> str:
     """İki araçsız denemeden sonra kullanıcıya dürüst ve kesin sonuç ver."""
 
+    if effect == "web_lookup":
+        return (
+            "İşlem tamamlanmadı: araştırma için gerekli kaynak okuması doğrulanmadı. "
+            "Bilgi kaynağa dayanarak doğrulanmış kabul edilemez."
+        )
     label = _EFFECT_LABELS.get(effect or "", "istenen işlem")
     return (
         f"İşlem tamamlanmadı: {label} için başarılı bir araç çağrısı doğrulanamadı. "

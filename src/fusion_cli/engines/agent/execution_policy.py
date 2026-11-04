@@ -22,7 +22,8 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
 from ...core.tools import ToolFamily
 from ...core.types import Message, ModelSpec
-from .action_evidence import task_effect
+from ..effects.detect import requested_web_urls
+from .action_evidence import effect_request, task_effect
 from .edit_profiles import EditFormat
 from .task_availability import task_tool_mode
 from .tool_constraints import forbidden_families
@@ -87,6 +88,8 @@ class ExecutionPolicy:
     # doğrulanır; kanıt yoksa model bir kez araç çağrısına zorlanır.
     requires_tool_evidence: bool = False
     required_effect: str | None = None
+    #: Explicitly requested pages must actually be read; an unrelated lookup is insufficient.
+    required_web_urls: tuple[str, ...] = ()
     #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
     complex_task: bool = False
     max_evidence_reprompts: int = 3
@@ -165,6 +168,9 @@ def policy_for(
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
+            required_web_urls=requested_web_urls(effect_request(task, history))
+            if required_effect == "web_lookup"
+            else (),
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
             compact_tool_surface=compact,
@@ -201,6 +207,9 @@ def policy_for(
         offer_tools=not explicit_no_tools and (requires_evidence or not simple_chat),
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
+        required_web_urls=requested_web_urls(effect_request(task, history))
+        if required_effect == "web_lookup"
+        else (),
         max_evidence_reprompts=0 if explicit_no_tools else 3,
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,

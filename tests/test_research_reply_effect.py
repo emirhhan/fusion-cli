@@ -36,11 +36,12 @@ TASK = (
     ],
 )
 def test_counted_reply_format_does_not_request_workspace_changes(task):
-    assert required_effect_for(task) is None
+    expected = "web_lookup" if task == TASK else None
+    assert required_effect_for(task) == expected
     assert classify_teacher_task(task).size == "basit"
     policy = policy_for(make_config(), ModelSpec(name="test", model="fake/test"), task)
     assert not policy.complex_task
-    assert policy.required_effect is None
+    assert policy.required_effect == expected
 
 
 @pytest.mark.parametrize(

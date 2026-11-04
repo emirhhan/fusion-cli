@@ -2620,6 +2620,10 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     if effect == "workspace_mutation":
         return any(mutating for _, _, mutating in evidence)
     if effect == "web_lookup":
+        if execution.required_web_urls:
+            from .research_scope import requested_sources_read
+
+            return requested_sources_read(execution.required_web_urls, evidence)
         # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
         # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
         return any(
