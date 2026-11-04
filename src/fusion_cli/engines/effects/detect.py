@@ -201,6 +201,13 @@ _REQUEST_SUFFIX = (
 )
 
 _FILE_MUTATION_PATTERNS = (
+    # An application can be the source of a new copy, rather than its location.
+    # Require both an explicit clone object and an affirmative creation verb.
+    (
+        r"\buygulama(?:s[ıi]n|n)?dan\b.{0,40}\b"
+        r"(?:kopya(?:s[ıi]n[ıi])?|klon(?:unu)?|ayn[ıi]s[ıi]n[ıi]|benzerini)\s+"
+        r"(?:yap|oluştur|olustur|hazırla|hazirla)\b"
+    ),
     rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}\b",
     rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}{_REQUEST_SUFFIX}\b",
     # Dosya adı fiilden ÖNCE ya da SONRA gelebilir: "index.html yaz" / "yaz index.html".
@@ -265,6 +272,13 @@ _FILE_MUTATION_PATTERNS = (
 # koşusundaki "Implement a coherent stock import flow" hiçbir Türkçe fiile
 # uymadığı için mutasyon gereksinimi kurulmamış, ajan salt keşifte oyalanmıştı.
 _EN_FILE_MUTATION_PATTERNS = (
+    # An application can be the source of a new copy, rather than its location.
+    # Require both an explicit clone object and an affirmative creation verb.
+    (
+        r"\buygulama(?:s[ıi]n|n)?dan\b.{0,40}\b"
+        r"(?:kopya(?:s[ıi]n[ıi])?|klon(?:unu)?|ayn[ıi]s[ıi]n[ıi]|benzerini)\s+"
+        r"(?:yap|oluştur|olustur|hazırla|hazirla)\b"
+    ),
     r"\b(?:implement|repair|fix|create|modify|update|add)\b.{0,80}"
     r"\b(?:module|route|service|test|file|integration|feature|flow|bug|code|"
     r"website|app|import|authorization|authentication|access control|"

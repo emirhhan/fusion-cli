@@ -225,3 +225,35 @@ def test_application_context_does_not_erase_real_mutation_objects(task):
 )
 def test_application_context_keeps_external_effect_priority(task, effect):
     assert required_effect_for(task) == effect
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Mevcut uygulamadan bir kopya yap.",
+        "Bu uygulamadan bir klon yap.",
+        "Bu uygulamasından bir kopya oluştur.",
+        "Bu uygulamadan bir benzerini yap.",
+        "Bu uygulamadan aynısını yap.",
+    ],
+)
+def test_explicit_application_source_clone_keeps_teacher_and_effect_contract(task):
+    assert required_effect_for(task) == "workspace_mutation"
+    assert classify_teacher_task(task).size == "orta-buyuk"
+    policy = policy_for(make_config(), ModelSpec(name="test", model="fake/test"), task)
+    assert policy.complex_task
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Hesap Makinesi uygulamasından sonucu oku ve yalnız sonucu yaz.",
+        "Hesap Makinesi uygulamadan 17 × 23 işlemini yap ve sonucu yaz.",
+        "Hesap Makinesi uygulamasında bir kopya var mı?",
+        "Bu uygulamadan bir klon yapma.",
+        "Uygulamadan kopya yapmak nasıl yapılır?",
+    ],
+)
+def test_application_context_does_not_imply_clone_creation(task):
+    assert required_effect_for(task) is None
+    assert classify_teacher_task(task).size == "basit"
