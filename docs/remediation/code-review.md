@@ -223,3 +223,65 @@ ayrıca incelendi; başka kapsama yayılınmadı.
 
 Bu scoped delta önceki genel code/spec APPROVE kararını korur. Son web/deadlock
 koşuları ve bütünleşik kaynak-sürüm kaydı controller tarafından ayrıca tutulur.
+
+# Son scoped test fixture / metin uyumu incelemesi
+
+Paket: `/tmp/fusion-fixture-review.diff`; yalnız iki test satırı, üretim kodu
+farkı yok. Testlerin çevresindeki gerçek dosya üretimi ve negatif kontroller
+okundu.
+
+**Scoped kabul verdict: APPROVE.**
+**Scoped kod kalitesi verdict: APPROVE — anlamsal test zayıflatması yok.**
+
+- `test_tamper_check.py` yalnız `SAYILMAZ` büyük harf biçimine bağlı kontrolü
+  `"sayılmaz" in metin.casefold()` yapıyor. Aynı testte temiz raporun doğrulanmış,
+  şüpheli raporun doğrulanmamış olması, açık `ŞÜPHELİ TEST DEĞİŞİKLİĞİ` uyarısı
+  ve `✓ Doğrulandı` yokluğu aynen korunuyor. Davranış sözleşmesi daralmıyor;
+  yalnız aynı Türkçe anlamın harf biçimi bağımlılığı kaldırılıyor.
+- `test_creative_verification_contract.py::_baglam`, fixture'ın hemen önce
+  tmp dizininde gerçekten ürettiği/yazdığı `out/video.mp4` yolunu touched
+  kümesine ekliyor. Bu fixture gerçek üretimin sahipliğini doğru ifade ediyor;
+  format, çözünürlük, süre, kesilmiş video ve video olmayan dosya negatif
+  kontrolleri atlanmıyor. Tüm dosyaları genel olarak sahipli sayan bir bypass
+  veya üretim freshness kuralı gevşetmesi eklenmiyor.
+
+Controller'ın bu iki satır sonrası **82 passed in 44.44s** ve temiz Ruff kanıtı
+uygulamayla tutarlı; reviewer testleri yeniden koşturmadı. Ayrı Rich/COLUMNS
+ortam bulgusu bu iki dosyalık delta kapsamında değiştirilmedi veya bu onayla
+ürün düzeltmesi sayılmadı. Önceki genel code/spec APPROVE kararı korunur.
+
+# Son scoped test sözleşmesi / ağsız fixture bütçesi incelemesi
+
+Paket: `/tmp/fusion-final-test-policy-review.diff`; yalnız beş test dosyası.
+Üretim kaynakları bu deltada değişmiyor. Yeni fixture'ın kullanıldığı iki testin
+çevresindeki gerçek politika/SSRF/Chrome batch denetimleri, manual compact
+fikstürü ve emulation prompt bütçe testleri okundu.
+
+**Scoped kabul verdict: APPROVE.**
+**Scoped kod kalitesi verdict: APPROVE — anlamsal test zayıflatması yok.**
+
+- Manual compact artık ara kullanıcı mesajının kaybolmasını beklemiyor.
+  Kök mesajlar ve özet/odak kontrolleri korunuyor; `harness_note` summary olduğu
+  ve kalan gerçek `Message("user", "testleri ekle")` mesajının birebir taşındığı
+  açıkça ölçülüyor. Bu değişiklik B03'ün yeni güvenlik/koruma sözleşmesini test
+  ediyor; yalnız mesaj sayısı beklentisini gevşeten bir yeşile boyama değil.
+- `public_example_dns` autouse değildir ve yalnız iki ilgili testte isteniyor.
+  Harici DNS sınırı sentetik literal genel IPv4 ile karşılanıyor; beklenmeyen
+  host assertion ile düşüyor. Politika kapısı veya `is_public_ip` denetimi
+  mocklanmıyor. Managed dış gezinme reddi, Chrome batch sırasında parola alanını
+  yeniden görme ve gerçek `type` eyleminin çalışmaması assertion'ları aynı.
+  Bu testlerin amacı canlı DNS doğruluğu değil ilgili politika/batch kararı;
+  yeni fixture onları ağ kararsızlığından ayırıyor.
+- Full emulation test tavanı `14600`→`14704` bilinçli özellik maliyeti kararı
+  olarak belgelenmiş. Controller'ın bağımsız baseline/yeni ölçümü
+  `14578`→`14682`, yeni üç tarih filtresi şemasının +104 karakter maliyetiyle
+  örtüşüyor; aynı 22 karakter pay korunuyor. Kompakt tavan 10000 değişmiyor.
+  Gerçek production renderer, property description'ları atma, tüm araçların
+  görünürlüğü ve payload/araç sözleşmesi assertion'ları korunuyor. Bu küçük ve
+  açıklanmış şema bütçesi artışı sessiz sınırsız bound gevşetmesi değil.
+
+İnceleme sırasında `/tmp/fusion-final-fixture-regressions.log` okundu:
+**113 passed in 38.44s**. Reviewer testleri tekrar koşturmadı. Adayın eski dört
+shard'ındaki baseline ortam/metadata başarısızlıkları burada ürün düzeltmesi veya
+son üretim kaynağının tümünde tam yeşil sonuç sayılmıyor; controller bunları ayrı
+kanıt kaydında tutuyor. Önceki genel code/spec APPROVE kararı korunur.

@@ -34,7 +34,10 @@ def rendered() -> str:
 # ailesini gizler ve ayrı, daha sıkı bütçeyle korunur (`COMPACT_PROMPT_BUDGET`, ölçüldü 9_623).
 # 1 Kas 2026 (#334/#336/#342): job_status şemadan çıktı (takma ad), task_stop/monitor ve
 # enter/exit_worktree Claude'un ertelenmiş araçları gibi tek imza satırında: 14_541.
-PROMPT_BUDGET = 14_600
+# 4 Kas 2026 (B06): recency_days/date_from/date_to zorunlu araştırma filtre şemaları
+# bağımsız ölçümde tam 104 karakter ekledi: full14578→14682, compact9711→9815.
+# Full sınır aynı 22 karakter payını korur; compact 10k sınırı aynen kalır.
+PROMPT_BUDGET = 14_704
 COMPACT_PROMPT_BUDGET = 10_000
 
 

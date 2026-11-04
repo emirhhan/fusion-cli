@@ -1,0 +1,40 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil _________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-232/test_vim_kipinde_esc_ardindan_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f654f90>
+
+    async def test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil(tmp_path, monkeypatch):
+        # Elle basılan Esc ayrı okumada gelir (ayrıştırıcı ~0,5 sn sonra salar); hemen ardından
+        # gelen `o` vim'in "alta satır aç" komutudur, Option+O (hızlı kip) değil.
+        sent, calls = await _vi_prompt(
+            tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("o", 0.1), ("x\r", 0.2)]
+        )
+>       assert calls == [] and sent == "abc\nx"
+E       AssertionError: assert (['hizli_kip'] == []
+E
+E         Left contains one more item: 'hizli_kip'
+E         Use -v to get more diff)
+
+tests/test_keybindings.py:211: AssertionError
+______________ test_vim_normal_kipinde_soru_isareti_geri_aramadir ______________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-232/test_vim_normal_kipinde_soru_i0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f351a50>
+
+    async def test_vim_normal_kipinde_soru_isareti_geri_aramadir(tmp_path, monkeypatch):
+        sent, calls = await _vi_prompt(
+            tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("?", 0.3), ("b\r", 0.2), ("\r", 0.2)]
+        )
+>       assert calls == [] and sent == "abc"
+E       AssertionError: assert (['kisayollar'] == []
+E
+E         Left contains one more item: 'kisayollar'
+E         Use -v to get more diff)
+
+tests/test_keybindings.py:218: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_keybindings.py::test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil
+FAILED tests/test_keybindings.py::test_vim_normal_kipinde_soru_isareti_geri_aramadir
+2 failed, 10 deselected in 4.44s

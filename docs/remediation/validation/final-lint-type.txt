@@ -1,0 +1,6 @@
+/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/ruff format --check src tests evals prompt_opt desktop_build
+2684 files already formatted
+/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/ruff check src tests evals prompt_opt desktop_build
+All checks passed!
+/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/mypy
+Success: no issues found in 1407 source files

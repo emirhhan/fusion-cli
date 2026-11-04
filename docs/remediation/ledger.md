@@ -4,26 +4,26 @@ Temel: 8b4e97b8 + önceki 22 dosyalık değişiklik 2b2c8fe4; yeni düzeltme de�
 
 | Madde | Durum | Kanıt / test / commit / açık kabul |
 |---|---|---|
-| A01 | Uygulandı; final kabul bekliyor | Hedef/pending/cevap ownership regresyonları yeşil; final JS review bekliyor |
-| A02 | Uygulandı; final kabul bekliyor | Hedef/pending/cevap ownership regresyonları yeşil; final JS review bekliyor |
-| A03 | Uygulandı; final kabul bekliyor | Hedef/pending/cevap ownership regresyonları yeşil; final JS review bekliyor |
-| A04 | Uygulama sürüyor | permission_ux worker; A04/A05 ilk scoped red/green, A07 ownership protokolü |
-| A05 | Uygulama sürüyor | permission_ux worker; A04/A05 ilk scoped red/green, A07 ownership protokolü |
-| A06 | Uygulama sürüyor | permission_ux worker; A04/A05 ilk scoped red/green, A07 ownership protokolü |
-| A07 | Uygulama sürüyor | permission_ux worker; A04/A05 ilk scoped red/green, A07 ownership protokolü |
-| B01 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B02 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B03 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B04 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B05 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B06 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| B07 | Uygulandı; final kabul bekliyor | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
-| C01 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
-| C02 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
-| C03 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
-| C04 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
-| C05 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
-| C06 | Uygulandı; final kabul bekliyor | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| A01 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A02 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A03 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A04 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A05 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A06 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| A07 | Yerel düzeltme doğrulandı | permission-ux-report.md; A01–A07 regresyonları, code/Python/React/TS review APPROVE; gerçek Chrome kabulü açık |
+| B01 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B02 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B03 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B04 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B05 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B06 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| B07 | Yerel düzeltme doğrulandı; canlı kalite kabulü açık | model-context-report.md; 348+97 scoped test, Ruff/mypy temiz; Python snapshot review ek blocker yok, canlı kabul açık |
+| C01 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| C02 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| C03 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| C04 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| C05 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
+| C06 | Yerel düzeltme doğrulandı | Controller red/green + Python PR01–PR04 fix wave; final bütünleşik kontrol/review bekliyor |
 | D01 | Yerel sözleşme uygulandı; gerçek kabul kısmen açık | eval-release-report.md; 162+5 scoped test; canlı/platform/insan kabulü yapılmadı |
 | D02 | Yerel sözleşme uygulandı; gerçek kabul kısmen açık | eval-release-report.md; 162+5 scoped test; canlı/platform/insan kabulü yapılmadı |
 | D03 | Yerel sözleşme uygulandı; gerçek kabul kısmen açık | eval-release-report.md; 162+5 scoped test; canlı/platform/insan kabulü yapılmadı |
@@ -98,3 +98,17 @@ Parent, tüm üretim incelemeleri/statik/app kapıları yeşil ve kaynak sabitke
 - E08 yeniP3aday: Chrome paneli/remotePWA asistan fontu anaappInter değişikliğinden farklı; ilk24 kapsamına katılmadı.
 
 - Webdelta fresh `make deadlock`:181passed121.06s; önceki3kırmızı tümü kapandı. Aynı3dosya genelcode vePython scopedreviewAPPROVE.
+
+## Son geniş test sonucu ve ayrım
+- İlkaday283cc3bd dörtshard:15.643passed/15failed/5skipped/67slowdeselected; rawlogs ve exactfailureids validation/summary.json'da.
+- İlgilidokuzvaka freshweb82/deadlock181/fixture113/compaction38kontrolleriyle kapandı; source5f2'denberi değişmedi. Son test-only güvenlikfixture ve bütçepolitikası genelcode/PythonreviewAPPROVE.
+- Baseline2bRich3CLItest darterminalde3fail, COLUMNS2000'de3pass; baselineVimEsc2test2fail. Bu kodlar değiştirilmedi.
+- Paketversiyon testinde baselinekaynak0.8.1/devenvmetadata0.7.18; Parent frozen pakette de eskiPKGINFO doğruladı. Parent originalvenv'yi offline/no-deps yenileyip paket üretecek; builderversionguard ayrıE09adayı, bu24'e sessizceeklenmedi.
+- DiskENOSPC sonrası setup1error tekrarında82pass; source/testfixturekatılımı dışında gerçek kullanıcıverisine dokunulmadı. Tamamlanmış worktreeRusttarget2.9GiB temizlendi, parentda kendiartıklarını temizledi.
+
+## Nihai test-only teslim
+- Üretim kaynakları5f2f9d7a'danberi sabit; son test-only delta genelcode vePythonreviewAPPROVE.
+- FinalRuff2684format/lint temiz, mypy1407kaynak temiz; fresh113fixture/38compaction/82web/181deadlocktestleri geçti (örtüşenaltkümeler).
+- Parent originalvenv metadataoffline0.8.1 yeniledi; worktree/src importu korunarak test_packaging::test_surum_tek_kaynaktan_gelir fresh1passed.
+- Son açık baseline5test: RichCLIwrap3 + VimEsc2; orijinal2b üzerinde reprodü var. Tam makecheckgreen iddiası yok;67slow userkısıtından hariç.
+- Ayrı E09 buildermetadata guard gelecekkapsam; gerçekplatform/notarization ve eski desktopfocus/Calculator/Playwrightkurulum kabulü açık.

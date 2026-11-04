@@ -1,0 +1,5 @@
+/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/pytest tests/test_deadlock_property.py tests/test_gate_matrix.py tests/test_web_build_runs.py tests/test_eval_criteria_sound.py tests/test_measured_is_told.py
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+.....................................                                    [100%]
+181 passed in 121.06s (0:02:01)

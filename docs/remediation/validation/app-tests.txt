@@ -1,0 +1,16 @@
+
+> app@0.1.0 test
+> node scripts/check-runtime.mjs app-tests && vitest run --environment jsdom --maxWorkers=2
+
+
+ RUN  v4.1.11 /Users/motogate/.codex/worktrees/fusion-deep-fixes/fusion-cli/app
+
+Warning: A vi.mock("../platform/assetUrl") call in "/Users/motogate/.codex/worktrees/fusion-deep-fixes/fusion-cli/app/src/markdown/Markdown.test.tsx" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ Test Files  301 passed (301)
+      Tests  2362 passed (2362)
+   Start at  12:22:02
+   Duration  200.59s (transform 6.07s, setup 0ms, import 32.69s, tests 101.63s, environment 206.85s)

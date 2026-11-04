@@ -195,3 +195,66 @@ Controller'ın fresh `/tmp/fusion-web-delta-tests.log` çıktısı okundu:
 **Son delta Python stil/tip/semantik güvenlik verdict: APPROVE.**
 Bu üç dosyalık farkta kalan actionable P1/P2 bulgu yok. Tam adayın tüm testleri
 ve sonraki deadlock koşusu için controller'ın ayrı fresh kanıtı gereklidir.
+
+# Son test fixture deltası — yalnız iki satır
+
+Kapsam: `/tmp/fusion-fixture-review.diff`, SHA256
+`d31355ddcbac084f75de7c78c63391486bbd66ce68679dab4ce17b5b73f01375`.
+Üretim kaynağı değişmiyor; yalnız creative doğrulama ve tamper raporu testleri.
+
+- `test_creative_verification_contract._baglam`: ilgili testler `out/video.mp4`
+  dosyasını gerçek ffmpeg ile veya açık `write_bytes` ile kendi tmp_path'inde
+  zaten üretiyor. Touched kaydına bu gerçek çıktının eklenmesi fixture ile
+  yaptığı işi eşliyor; çıktı/güncellik kontrolünü mock etmiyor veya atlamıyor.
+  Yanlış çözünürlük, yanlış süre, video olmayan dosya, kesilmiş video ve
+  ffprobe-yok ölçülmedi assertion'ları korunmuş.
+- `test_tamper_check`: yalnız vurgulu büyük harf bağımlılığı kaldırılıyor.
+  `is_verified is False`, şüpheli test uyarısı ve doğrulandı başarı metninin
+  yokluğu assertion'ları aynen duruyor. Casefold ile “sayılmaz” kontrolü aynı
+  anlamı doğruluyor; zayıflatılmış testin kabul edilmesine izin vermiyor.
+
+Bu iki dosyada `ruff check`: **All checks passed!**;
+`ruff format --check`: **2 files already formatted**. Controller fresh koşuda
+**82 passed in 44.44s** bildirdi; bu inceleme testleri yeniden çalıştırmadı.
+
+**Test dürüstlüğü/kapsamı verdict: APPROVE.**
+Bu iki satırlık farkta actionable P1/P2 yok. Ayrı CLI terminal genişliği/baseline
+başarısızlıkları bu farkın kapsamına alınmadı; onlar için kaynak veya assertion
+gevşetmesi yapılmadı.
+
+# Son beş test dosyası — politika/fixture uyumu incelemesi
+
+Kapsam yalnız `/tmp/fusion-final-test-policy-review.diff` içindeki conftest,
+browser_admin_policy, chrome_script_batch, manual_compact ve tool_emulation_diet
+testleri. Paket SHA256:
+`0ee66cfe507742c6b26d623d3b149538d2899dd397ea44db8d03135f74197580`.
+Üretim kodu değiştirilmedi; inceleme başka başarısızlık alanlarına genişletilmedi.
+
+- **Manual compact:** eski “dört mesaj, ara kullanıcı talimatı düşer” beklentisi
+  B03 kabulüne aykırıydı. Yeni kontrol kök mesajların birebir korunmasını,
+  özetin harness_note olmasını ve gerçek ara kullanıcı `testleri ekle` mesajının
+  tam rol/içerikle kalmasını birlikte ölçüyor. Assertion gevşetilmiyor;
+  açık preservation sözleşmesine uyarlanıyor.
+- **DNS fixture:** optional, yalnız iki açık birim testinde kullanılıyor;
+  autouse değil. Sadece literal `example.com` için sentetik genel IP veriyor,
+  beklenmeyen host'u assertion ile reddediyor. SSRF/browser/admin politika
+  mantığı monkeypatch edilmiyor; dış gezinme engeli ve batch sonrası parola
+  alanının ayrı onay istemesi gerçek kod yoluyla denetleniyor. `type` çağrısının
+  gerçekleşmediği güvenlik assertion'ı korunmuş.
+- **Prompt bütçesi:** bu açık B06 özellik maliyetine bağlı bir bütçe kararı.
+  Bağımsız, ağsız ölçümde gerçek registry şemalarından yalnız yeni üç filtre
+  alanı çıkarılarak full **14578→14682 (+104)** ve compact
+  **9711→9815 (+104)** bulundu. Full cap **14600→14704** aynı **22 karakter**
+  payını koruyor; compact cap **10000** değişmiyor. Renderer/araç/schema bilgisi
+  budanmamış; registry tamlığı ve yapı assertion'ları aynı dosyada korunuyor.
+
+Bu beş dosyada çalıştırılan `ruff check`: **All checks passed!**;
+`ruff format --check`: **5 files already formatted**.
+Fresh `/tmp/fusion-final-fixture-regressions.log` okundu:
+**113 passed in 38.44s**. Review bu testleri tekrar çalıştırmadı; yukarıdaki
+prompt alanı maliyeti bağımsız olarak ayrıca hesaplandı.
+
+**Final beş dosyalık test dürüstlüğü ve güvenlik kapsamı verdict: APPROVE.**
+Bu farkta actionable P1/P2 bulgu yok. Bu karar ayrı CLI/Vim/model-metadata
+baseline başarısızlıklarını geçmiş saymaz ve tüm adayın bütün testlerinin
+geçtiği iddiası değildir.

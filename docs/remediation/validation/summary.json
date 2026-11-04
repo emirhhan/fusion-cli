@@ -1,0 +1,39 @@
+{
+  "full_run_snapshot": "283cc3bd0e8ed0cd9732e0d63728f660e41506de",
+  "production_followup_commit": "5f2f9d7ac826f497201a1a751a14fe2eac7529cd",
+  "passed": 15643,
+  "failed": 15,
+  "skipped": 5,
+  "slow_deselected": 67,
+  "failure_ids": [
+    "tests/test_eval_criteria_sound.py::test_olcut_dogru_cozumu_kabul_eder[production:mcp-stdio-listele-cagir]",
+    "tests/test_eval_criteria_sound.py::test_olcut_dogru_cozumu_kabul_eder[production:buyuk-artifact-korumali-duzenleme]",
+    "tests/test_keybindings.py::test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil",
+    "tests/test_keybindings.py::test_vim_normal_kipinde_soru_isareti_geri_aramadir",
+    "tests/test_browser_admin_policy.py::test_dis_gezinme_kapali_localhost_acik",
+    "tests/test_tool_emulation_diet.py::test_emulated_tool_prompt_budgeti",
+    "tests/test_tamper_check.py::test_zayiflatma_varken_gecen_test_dogrulama_sayilmaz",
+    "tests/test_creative_verification_contract.py::test_plana_uyan_gercek_video_kanit_ozeti_tasir",
+    "tests/test_plugin_scopes.py::test_validate_eklenti_uyari_strict_ve_json",
+    "tests/test_plugin_scopes.py::test_workflows_ve_mods_desteklenmiyor_diye_raporlanir",
+    "tests/test_plugin_scopes.py::test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir",
+    "tests/test_web_build_runs.py::test_kosu_sifre_duvarli_site_uydurulmadan_raporlanir",
+    "tests/test_manual_compact.py::test_elle_compact_esik_altinda_da_ozetler_ve_odagi_iletir",
+    "tests/test_chrome_script_batch.py::test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler",
+    "tests/test_packaging.py::test_surum_tek_kaynaktan_gelir"
+  ],
+  "warning": "İlk adayın cacheli shardları son web kaynağı için birebir full-pass değildir; fresh kontroller ayrı.",
+  "followup_fresh": {
+    "web": 82,
+    "deadlock": 181,
+    "fixture_regressions": 113,
+    "compaction": 38,
+    "package_version": 1
+  },
+  "known_baseline": {
+    "rich_cli_wrap_failures": 3,
+    "vim_esc_failures": 2,
+    "distribution_metadata": "Parent original venv metadata offline0.8.1 olarak yeniledi; kaynak worktree/src iken fresh sürüm testi1passed. Builder guard ayrıE09."
+  },
+  "remaining_baseline_failures": 5
+}
