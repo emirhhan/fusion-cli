@@ -40,7 +40,9 @@ _SINGLE_FILE = re.compile(
     r"\b(?:tek(?:\s+bir)?|bir)\s+(?:[\w+#-]+\s+){0,2}dosya(?:s[ıi])?\b|"
     r"\b(?:single|one)[-\s]+(?:[\w+#-]+[-\s]+){0,2}file\b"
 )
-_REJECTED_SINGLE_FILE = re.compile(r"\s+(?:olmasın|değil|yazma|oluşturma|kullanma)\b")
+_REJECTED_SINGLE_FILE = re.compile(
+    r"\s+(?:olmasın|değil|yazma|oluşturma|kullanma|olsun\s+istemiyorum|is\s+not)\b"
+)
 _NO_EXTERNAL_DEPENDENCIES = re.compile(
     r"\b(?:harici|dış)\s+(?:hiçbir\s+)?(?:bağımlılık|kütüphane|paket)\w*\s+"
     r"(?:kullanma(?:dan)?|olmasın|yok)\b|"
@@ -49,14 +51,53 @@ _NO_EXTERNAL_DEPENDENCIES = re.compile(
     r"\b(?:only|just)\s+(?:the\s+)?standard\s+library\b"
 )
 _EXTERNAL_OR_EXPANDED_SCOPE = re.compile(
-    r"\bapi\b|https?://|\bwww\.|entegrasyon|entegre|integrat|veritaban|"
-    r"\bdatabase\b|\bbackend\b|\bdeploy\w*|\bpublish\w*|"
-    r"\byayına\s+(?:al|çıkar)\b|\byay(?:ınla|ımla)\w*\b|"
+    r"\bapi\b|\bcdn\b|\bruntime\b|\bfetch\b|\bscript\b|\bstylesheet\b|"
+    r"çalışma\s+zaman|her\s+açılış|veri\w*\s+(?:çek|getir|yükle)|"
+    r"entegrasyon|entegre|integrat|veritaban|"
+    r"\bdatabase\b|\bbackend\b|\bdeploy\w*|\bpublish(?:ing)?\b|"
+    r"\byayına\s+(?:al|çıkar)\b|"
+    r"\byay(?:ınla|ımla)(?:yın|yin|yalım|yalim|mak|mayı|mayi)?\b|"
+    r"\byay(?:ınla|ımla)n(?:sın|sin|masını|masini)\b|"
     r"kimlik\s+doğrula|\bauthentication\b|\bauthorization\b|\blogin\b|"
     r"\bdosyalar\w*\b|\b(?:iki|üç|dört|two|three|multiple|several|[2-9])\s+"
     r"(?:[\w+#-]+\s+){0,2}(?:dosya|files?)\w*\b"
 )
 _EXPLICIT_TEACHER = re.compile(r"\bask_teacher\b|\böğretmen\w*|\bteacher\b|\bmentor\b")
+
+# Source domains and document paths are not workspace filenames.
+_SOURCE_URL = re.compile(r"(?:https?://|www\.)[^\s<>\"'`]+", re.IGNORECASE)
+_QUOTED_SCOPE = re.compile(
+    r"```.*?```|`[^`]*`|\"[^\"\n]*\"|“[^”\n]*”|"
+    r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
+    re.S | re.M,
+)
+_SOURCE_READ = re.compile(
+    r"\b(?:oku\w*|incele\w*|doğrula\w*|araştır\w*|başvur\w*|"
+    r"read|consult|verify|check|research|cite)\b"
+)
+_SCOPE_CLAUSE = re.compile(r"[;!?\n]|\.(?=\s|$)")
+_REJECTED_DEPENDENCY_SCOPE = re.compile(r"\s+(?:demiyorum|demedim|istemi(?:yorum|yoruz)|değil)\b")
+
+
+def _scope_text(task: str) -> str:
+    """Quoted examples cannot supply affirmative scope; quoted paths still count."""
+
+    def quoted(match: re.Match[str]) -> str:
+        inner = match.group().strip("`\"“”'")
+        if _FILE_REF.fullmatch(inner) or _SOURCE_URL.fullmatch(inner):
+            return inner
+        return " "
+
+    return _QUOTED_SCOPE.sub(quoted, fold_tr(task))
+
+
+def _source_urls_are_read_only(scope: str) -> bool:
+    for match in _SOURCE_URL.finditer(scope):
+        before = _SCOPE_CLAUSE.split(scope[: match.start()])[-1][-160:]
+        after = _SCOPE_CLAUSE.split(scope[match.end() :])[0][:160]
+        if not _SOURCE_READ.search(before + " " + after):
+            return False
+    return True
 
 
 def is_bounded_single_file_task(task: str) -> bool:
@@ -67,14 +108,20 @@ def is_bounded_single_file_task(task: str) -> bool:
     """
     if len(task) > _BOUNDED_TASK_CHARS:
         return False
-    folded = fold_tr(task)
+    folded = _scope_text(task)
     single_file_scopes = tuple(_SINGLE_FILE.finditer(folded))
-    if not single_file_scopes or not _NO_EXTERNAL_DEPENDENCIES.search(folded):
+    dependency_scopes = tuple(_NO_EXTERNAL_DEPENDENCIES.finditer(folded))
+    if not single_file_scopes or not dependency_scopes:
+        return False
+    if any(_REJECTED_DEPENDENCY_SCOPE.match(folded, scope.end()) for scope in dependency_scopes):
+        return False
+    if not _source_urls_are_read_only(folded):
         return False
     # These common direct rejections contradict the affirmative scope required
     # by the fast route, even if an earlier sentence mentioned a single file.
     if any(_REJECTED_SINGLE_FILE.match(folded, scope.end()) for scope in single_file_scopes):
         return False
+    folded = _SOURCE_URL.sub(" ", folded)
     if _EXTERNAL_OR_EXPANDED_SCOPE.search(folded) or _EXPLICIT_TEACHER.search(folded):
         return False
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
@@ -93,7 +140,7 @@ def _is_small_edit(task: str) -> bool:
     """
     if len(task) > _SMALL_TASK_CHARS or len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         return False
-    files = {ref for ref in _FILE_REF.findall(task) if "." in ref.strip(".")}
+    files = {ref for ref in _FILE_REF.findall(_SOURCE_URL.sub(" ", task)) if "." in ref.strip(".")}
     names_readme = bool(re.search(r"\b(?:readme|changelog)\b", task, re.IGNORECASE))
     if files:
         if all(_DOC_FILE.search(ref) for ref in files):
@@ -112,7 +159,9 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
         reasons.append(f"istenen etki: {mutation}")
     # Dış API bağımlılığı ad listesinden tahmin edilmez: istek açıkça API
     # entegrasyonu söylüyorsa öğretmenin yapılabilirlik planı gereklidir.
-    if re.search(r"\bAPI\b", task, re.IGNORECASE) and not task.strip().endswith("?"):
+    if re.search(
+        r"\bAPI\b", _SOURCE_URL.sub(" ", task), re.IGNORECASE
+    ) and not task.strip().endswith("?"):
         reasons.append("dış API bağımlılığı")
     # Birden fazla numaralı madde, sözcük tahmini olmadan açık bir iş dizisidir.
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
