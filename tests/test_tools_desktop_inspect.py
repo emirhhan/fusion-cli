@@ -219,3 +219,31 @@ async def test_failed_or_malformed_focus_blocks_event_until_valid_refocus_and_fr
     context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
     assert desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
     assert len(plans) == 1
+
+
+async def test_focus_exposes_verified_identity_consumable_by_background_inspect(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.tools import desktop_background
+
+    context = ToolContext(root=tmp_path)
+    monkeypatch.setattr(
+        desktop_inspect,
+        "_run",
+        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+    )
+    _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert result.ok and "window_id=101" in result.output and "pid=42" in result.output
+    assert result.structured is not None
+    target = result.structured["target"]
+    assert target == {"window_id": 101, "pid": 42}
+    calls = []
+
+    async def invoke(self, operation, arguments):
+        calls.append((operation, arguments))
+        return {"ok": True, "elements": []}
+
+    monkeypatch.setattr(desktop_background.SwiftDesktop, "invoke", invoke)
+    inspection = await desktop_background.desktop_background_inspect(target, context)
+    assert inspection.ok and calls == [("inspect", {"kind": "window", "id": 101, "pid": 42})]

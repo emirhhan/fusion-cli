@@ -134,7 +134,13 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_background_inspect",
-        description=("Pencereyi öne getirmeden AX öğelerini incele; eylem için güncel ref kullan."),
+        description=(
+            "window_id/pid kaynağı: desktop_window_focus veya desktop_background_windows. "
+            "AX öğelerini ve güvenli, düzenlenemez AXStaticText display.value oku "
+            "(en çok 1000 karakter). "
+            "desktop_windows kimlik vermez; "
+            "value_truncated varsa tam değer değildir. Eylem için güncel ref kullan."
+        ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_inspect"],
         run=desktop_background.desktop_background_inspect,
         effect_resolver=desktop_policy.observe_effect,
@@ -159,20 +165,29 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_windows",
-        description="macOS pencerelerini uygulama ve adla listele.",
+        description=(
+            "macOS pencere uygulama adını ve başlığını listele; window_id/pid vermez. "
+            "Kimlik gerektiren araçlar için desktop_background_windows kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_windows,
     ),
     Tool(
         name="desktop_window_focus",
-        description="macOS penceresini adına göre öne getir.",
+        description=(
+            "macOS penceresini öne getir ve gözlenen window_id/pid kimliğini doğrula. "
+            "Sonuçtaki kimliği arka plan incelemesine taşı; koordinat için yeni screenshot al."
+        ),
         parameters=_schema({"app": _STRING, "window": _STRING}, ["app"]),
         run=desktop_inspect.desktop_window_focus,
         mutating=True,
     ),
     Tool(
         name="desktop_accessibility",
-        description="Öndeki macOS penceresinin erişilebilir öğelerini oku.",
+        description=(
+            "Öndeki macOS penceresinde yalnız rol, ad ve geometri oku; AXValue doğrulamaz. "
+            "Literal display.value için desktop_background_inspect kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_accessibility,
     ),

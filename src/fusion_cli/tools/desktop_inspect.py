@@ -207,9 +207,12 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.desktop.frame = None
     return ToolResult(
         f"Öne getirildi ve doğrulandı: {observed_app} — {observed_window}; "
-        f"pid={pid}, sınırlar=({x:g},{y:g},{width:g},{height:g}) ekran noktası. "
+        f"window_id={observed['id']}, pid={pid}, "
+        f"sınırlar=({x:g},{y:g},{width:g},{height:g}) ekran noktası. "
         "Yeni desktop_screenshot al; hedef içindeki koordinatları kullan. "
-        "İşlemden sonra uygulama sonucunu yeniden incele."
+        "Arka plan incelemesi için bu window_id ve pid değerlerini aynen kullan. "
+        "İşlemden sonra uygulama sonucunu yeniden incele.",
+        structured={"target": {"window_id": observed["id"], "pid": pid}},
     )
 
 

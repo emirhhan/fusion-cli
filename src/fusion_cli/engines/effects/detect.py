@@ -51,7 +51,7 @@ _CLAUSE_FINAL_POLITE = r"(?:\s+(?:lütfen|lutfen|sakın|sakin|asla))?\s*$"
 # istek açıkça "span ekle, edit_file kullan" diyordu. Dosya adı geçen hemen her
 # gerçek görev bu yoldan geçiyor.
 _ACTION_CLAUSE_SPLIT = re.compile(
-    r"(?:[.!?;](?=\s|$)|[!?;\n]+"
+    r"(?:[.!?;](?=\s|$)|[!?;,\n]+"
     r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b)",
     re.IGNORECASE,
 )
@@ -133,9 +133,8 @@ _SHELL_ACTION_PATTERNS = (
 #: hiç araç çağırmadan "dosyayı oluşturdum" diyebiliyor ve kanıt kapısı hiç
 #: kurulmadığı için tur BAŞARILI sayılıyordu.
 #
-# Ayraç nokta VEYA boşluktur: `_positive_action_clauses` noktalama işaretlerini
-# siliyor ve normalize edilmiş metinde "index.html" → "index html" oluyor. Yalnızca
-# noktayı arayan bir desen bu yüzden HİÇ eşleşmez — ölçüldü.
+# Dosya adındaki nokta cümle sınırı değildir; geçmişte normalize edilmiş
+# "index html" biçimiyle de uyumlu kalmak için nokta veya boşluk kabul edilir.
 _FILENAME = (
     r"\b[\w/-]+[\s.](?:py|js|mjs|ts|tsx|jsx|html?|css|scss|json|ya?ml|md|txt|toml|ini|cfg|"
     r"sh|sql|go|rs|java|kt|rb|php|swift|c|cc|cpp|h|hpp)\b"
@@ -399,11 +398,15 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     """İstek gerçek bir araç etkisi istiyorsa kararlı effect kimliğini döndür."""
 
     del kind  # Eski çağrı imzasıyla uyumluluk; karar tamamen metinden çıkarılır.
-    lowered = " ".join(lower_tr_aware(task).split())
-    lowered = _positive_action_clauses(lowered)
+    # Preserve sentence/newline/conjunction boundaries for object→verb binding.
+    # External-effect priority still consumes the complete positive request.
+    clauses = tuple(
+        _ANSWER_FORMAT_PATTERN.sub(" ", clause)
+        for clause in _positive_action_parts(lower_tr_aware(task))
+    )
+    lowered = " ".join(clauses)
     if not lowered:
         return None
-    lowered = _ANSWER_FORMAT_PATTERN.sub(" ", lowered)
     if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
         return None
     if is_history_question(lowered):
@@ -414,14 +417,14 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         return EffectKind.GIT_COMMIT.value
     if _matches(lowered, _SHELL_ACTION_PATTERNS):
         return EffectKind.SHELL_ACTION.value
-    if _matches(lowered, _FILE_MUTATION_PATTERNS):
+    if any(_matches(clause, _FILE_MUTATION_PATTERNS) for clause in clauses):
         return EffectKind.WORKSPACE_MUTATION.value
     if not re.match(
         r"^(?:how\b|what\b|why\b|when\b|where\b|should i\b|can i\b|"
         r"could i\b|would i\b|is it\b|do you think\b|explain\b|describe\b|"
         r"tell me how\b)",
         lowered,
-    ) and _matches(lowered, _EN_FILE_MUTATION_PATTERNS):
+    ) and any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses):
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
         return _BULK_COUNT_EFFECT
@@ -517,22 +520,49 @@ def _is_negated_clause(clause: str) -> bool:
     )
 
 
-def _positive_action_clauses(text: str) -> str:
+def _positive_action_parts(text: str) -> tuple[str, ...]:
     """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
     ``repoyu pushla ama araç kullanma`` gerçek bir push isteği olarak KALIR: kullanıcı
     aracı yasaklamış olabilir ama istediği etki ortadan kalkmaz. Buna karşılık
     ``git kullanma; dosya oluştur`` yalnızca dosya cümleciğini bırakır.
     """
-    clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
-    positive = [
-        clause
-        for clause in clauses
-        # Tam sözcük aranır: alt dize araması "website yapmanı istiyorum" isteğini
-        # "yapma" sanıp atıyordu (ölçüldü, 2 Ekim).
-        if not _is_negated_clause(clause) and not _EN_NEGATED_MUTATION.search(clause)
-    ]
-    return " ".join(positive)
+    positive: list[str] = []
+    start = 0
+    previous_separator = ""
+    previous_positive = False
+    for boundary in [*_ACTION_CLAUSE_SPLIT.finditer(text), None]:
+        end = boundary.start() if boundary is not None else len(text)
+        clause = " ".join(text[start:end].split())
+        keep = (
+            bool(clause)
+            and not _is_negated_clause(clause)
+            and not _EN_NEGATED_MUTATION.search(clause)
+        )
+        if keep:
+            # Coordinated objects keep their shared verb ("uygulama ve oyun yap").
+            # A completed predicate ("uygulamayı aç ve ... yap") cannot lend its
+            # object to the next predicate. Sentence boundaries never merge.
+            if (
+                previous_positive
+                and previous_separator in {"ve", "veya", ","}
+                and _ends_with_build_object(positive[-1])
+            ):
+                positive[-1] = f"{positive[-1]} {clause}"
+            else:
+                positive.append(clause)
+        previous_positive = keep
+        if boundary is not None:
+            previous_separator = boundary.group().strip().lower()
+            start = boundary.end()
+    return tuple(positive)
+
+
+def _ends_with_build_object(clause: str) -> bool:
+    tail = clause.rsplit(maxsplit=1)[-1]
+    return bool(re.fullmatch(rf"{_MUTATION_OBJECTS}[a-zçğıöşü]*", tail)) or (
+        tail.rsplit(".", 1)[-1] in _FILE_EXTENSIONS
+    )
 
 
 def _matches(text: str, patterns: tuple[str, ...]) -> bool:

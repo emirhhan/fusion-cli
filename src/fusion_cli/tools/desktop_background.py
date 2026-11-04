@@ -12,8 +12,14 @@ from .desktop_visibility import is_hidden_app
 from .native_desktop import SwiftDesktop
 
 WINDOW_PROPERTIES: dict[str, object] = {
-    "window_id": {"type": "integer", "description": "Pencere listesindeki kararlı kimlik."},
-    "pid": {"type": "integer", "description": "Pencereyi tutan uygulamanın süreç kimliği."},
+    "window_id": {
+        "type": "integer",
+        "description": "desktop_window_focus / desktop_background_windows ile doğrulanan kimlik.",
+    },
+    "pid": {
+        "type": "integer",
+        "description": "Aynı gözlemde window_id ile birlikte dönen süreç kimliği; birlikte kullan.",
+    },
 }
 BACKGROUND_TOOL_SCHEMAS: dict[str, dict[str, object]] = {
     "desktop_background_windows": {

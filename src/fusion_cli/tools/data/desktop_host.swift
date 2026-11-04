@@ -43,6 +43,8 @@ struct Entry {
     let path: [Int]
     let identity: String
     let valueDigest: String
+    let displayValue: String?
+    let displayValueTruncated: Bool
 }
 func digest(_ text: String) -> String {
     SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -52,14 +54,49 @@ func identity(_ element: AXUIElement) -> String {
         attribute(element, $0) as? String ?? ""
     }.joined(separator: "\u{001f}")
 }
+// Unsupported/no-value subroles are explicitly absent; failed reads stay unknown.
+func displaySecurityString(_ element: AXUIElement, _ name: String) -> String? {
+    var result: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(element, name as CFString, &result)
+    if status == .attributeUnsupported || status == .noValue { return "" }
+    guard status == .success else { return nil }
+    return result as? String
+}
+// Pure policy helpers: unknown security metadata and editable ancestors deny export.
+func displayBranchIsSafe(_ role: String?, _ subrole: String?, _ ancestorsSafe: Bool,
+    _ editable: Bool?) -> Bool {
+    guard ancestorsSafe, let role = role, !role.isEmpty, role != "AXUnknown",
+        let subrole = subrole, editable != true else { return false }
+    let security = (role + " " + subrole).lowercased()
+    guard !security.contains("secure"), !security.contains("password"),
+        !["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(role) else { return false }
+    return role != "AXStaticText" || editable != nil
+}
+func safeDisplayValue(_ role: String?, _ branchSafe: Bool, _ editable: Bool?,
+    _ value: String?) -> String? {
+    guard branchSafe, role == "AXStaticText", editable == false, let value = value else { return nil }
+    return String(value.prefix(1000))
+}
 func tree(_ window: AXUIElement) -> [Entry] {
-    var queue: [(AXUIElement, [Int])] = [(window, [])], entries: [Entry] = []
+    var queue: [(AXUIElement, [Int], Bool)] = [(window, [], true)], entries: [Entry] = []
     while !queue.isEmpty && entries.count < 500 {
-        let (element, path) = queue.removeFirst()
-        let value = attribute(element, kAXValueAttribute).map { String(describing: $0) } ?? ""
-        entries.append(Entry(element: element, path: path, identity: identity(element), valueDigest: digest(value)))
+        let (element, path, ancestorsSafe) = queue.removeFirst()
+        let role = displaySecurityString(element, kAXRoleAttribute)
+        let subrole = displaySecurityString(element, kAXSubroleAttribute)
+        var settable = DarwinBoolean(false)
+        let editableStatus = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        let editable: Bool? = editableStatus == .success ? settable.boolValue : nil
+        let branchSafe = displayBranchIsSafe(role, subrole, ancestorsSafe, editable)
+        let observedValue = attribute(element, kAXValueAttribute).map { String(describing: $0) }
+        let value = observedValue ?? ""
+        let display = safeDisplayValue(role, branchSafe, editable, observedValue)
+        entries.append(Entry(element: element, path: path, identity: identity(element),
+            valueDigest: digest(value), displayValue: display,
+            displayValueTruncated: display != nil && value.count > 1000))
         let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
-        for (index, child) in children.enumerated() { queue.append((child, path + [index])) }
+        for (index, child) in children.enumerated() {
+            queue.append((child, path + [index], branchSafe))
+        }
     }
     return entries
 }
@@ -340,11 +377,17 @@ if args.count > 1 && args[1] == "list" {
                 AXUIElementCopyActionNames(entry.element, &actions)
                 var settable = DarwinBoolean(false)
                 AXUIElementIsAttributeSettable(entry.element, kAXValueAttribute as CFString, &settable)
-                return ["role": attribute(entry.element, kAXRoleAttribute) as? String ?? "",
+                var info: [String: Any] = ["role": attribute(entry.element, kAXRoleAttribute) as? String ?? "",
                     "title": attribute(entry.element, kAXTitleAttribute) as? String ?? "",
                     "ref": reference(entry, fingerprint, id, pid),
                     "actions": actions as? [String] ?? [], "can_set_value": settable.boolValue,
                     "unique": entries.count < 500 && entries.filter { $0.identity == entry.identity }.count == 1]
+                if let value = entry.displayValue {
+                    info["value"] = value
+                    info["value_source"] = "AXValue"
+                    info["value_truncated"] = entry.displayValueTruncated
+                }
+                return info
             }
             emit(["ok": true, "elements": elements, "fingerprint": fingerprint, "id": id, "pid": Int(pid)])
         } else { fail("Arka plan değiştirme işlemi desteklenmiyor.") }
