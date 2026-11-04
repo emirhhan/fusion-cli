@@ -554,6 +554,7 @@ async def _warm_up(state: ReplState) -> None:
     Amaç yalnızca sağlayıcı tarafındaki soğuk başlangıcı tetiklemektir. Hata
     olursa sessizce geçilir: ısıtma bir iyileştirmedir, oturumu etkilememeli.
     """
+    from ...config.model_lookup import configured_model_specs
     from ...core.types import CompletionRequest, Message
     from ...providers.factory import build_provider
     from ...providers.web_registry import web_registry_for
@@ -577,6 +578,7 @@ async def _warm_up(state: ReplState) -> None:
             publisher=None,
             retry_delays_s=state.config.runtime.retry_delays_s,
             web_sessions=web_registry_for(state.config),
+            model_specs=configured_model_specs(state.config),
         ).complete(request)
     except Exception:
         # Belgenin söylediği gibi sessiz: aksi hâlde hata `background.failures`a düşüp

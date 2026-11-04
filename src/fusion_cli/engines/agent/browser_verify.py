@@ -83,7 +83,19 @@ def _not_measured(reason: str) -> VerificationResult:
     uğradığında (sayfa HİÇ açılmıyor) kapı hata yutup `ok=True` ve boş sonuç
     dönüyordu; rapor "ölçülemedi" hiç demiyordu. Artık uyarı taşır.
     """
-    return VerificationResult(ok=True, warnings=(f"{NOT_MEASURED_PREFIX} {reason}",))
+    warning = f"{NOT_MEASURED_PREFIX} {reason}"
+    return VerificationResult(
+        ok=True,
+        warnings=(warning,),
+        evidence=(
+            CriterionEvidence(
+                criterion_id="tarayici_sayfalari",
+                kind=VerificationCheckKind.TOOL,
+                status=EvidenceStatus.UNVERIFIED,
+                summary=warning,
+            ),
+        ),
+    )
 
 
 def touches_layout(paths: Sequence[Path]) -> bool:

@@ -200,6 +200,7 @@ def patch_providers(monkeypatch, module, by_name):
         health=None,
         key_pools=None,
         web_sessions=None,
+        model_specs=(),
     ):
         provider = by_name[spec.name]
         if publisher is None:

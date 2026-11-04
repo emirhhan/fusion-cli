@@ -498,16 +498,19 @@ async def _start(root: Path, config: LaunchConfig) -> RunningPreview:
             f"'{config.name}' başlatılamadı: {error} (komut: {config.command_text})"
         ) from error
     preview = RunningPreview(root, PreviewKind.LAUNCH, url, process=process, log_path=log_path)
-    if not await preview_server.wait_until_serving(url, process=process):
-        tail = _log_tail(preview)
-        preview_server.terminate(preview)
-        raise PreviewError(
-            f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
-            f"yanıt vermedi. Komut: {config.command_text}"
-            + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
-            + (f"\n{PORT_MOVED_HINT}" if config.port != requested.port else "")
-        )
-    return preview
+    try:
+        if not await preview_server.wait_until_serving(url, process=process):
+            tail = _log_tail(preview)
+            raise PreviewError(
+                f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
+                f"yanıt vermedi. Komut: {config.command_text}"
+                + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
+                + (f"\n{PORT_MOVED_HINT}" if config.port != requested.port else "")
+            )
+        return preview
+    except BaseException:
+        await preview_server.dispose(preview)
+        raise
 
 
 def _with_free_port(config: LaunchConfig) -> LaunchConfig:

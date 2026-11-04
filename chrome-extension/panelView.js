@@ -160,7 +160,7 @@ export function renderAsk(container, question, onAnswer) {
   else if (data.neden) container.append(el("p", "ask__reason", data.neden));
   const options = (data.secenekler || []).map((option) => isQuestion
     ? { label: option.etiket, hint: option.aciklama, answer: { metin: option.etiket }, deny: false }
-    : { label: option.etiket, answer: { secim: option.deger }, deny: option.deger === "deny" });
+    : { label: option.etiket, hint: option.aciklama, answer: { secim: option.deger }, deny: option.deger === "deny" });
   const group = el("div", "ask__options");
   options.forEach((option, index) => {
     const button = el("button", "ask__option");
@@ -227,12 +227,24 @@ export function renderShortcuts(list, empty, shortcuts, onRemove) {
 export function renderSites(list, empty, origins, onRemove) {
   list.replaceChildren(...origins.map((origin) => {
     const item = el("li", "sites__row");
-    item.append(el("span", "sites__name", new URL(origin.replace("/*", "/")).hostname));
+    const row = typeof origin === "string" ? { id: origin, label: originLabel(origin), scope: "Chrome erişimi · kaldırılana kadar" } : origin;
+    const label = el("span", "sites__name", row.label);
+    if (row.scope) label.append(el("small", "", ` · ${row.scope}`));
+    item.append(label);
     const remove = el("button", "chip-button chip-button--quiet", "Kaldır");
     remove.type = "button";
-    remove.addEventListener("click", () => onRemove(origin));
+    remove.addEventListener("click", () => onRemove(row.id));
     item.append(remove);
     return item;
   }));
   empty.hidden = origins.length > 0;
+}
+
+
+/** Chrome eşleşme desenleri URL değildir; geniş erişimler de açıkça görünür. */
+function originLabel(origin) {
+  if (origin === "<all_urls>") return "Tüm siteler";
+  if (origin === "https://*/*") return "Tüm HTTPS siteleri";
+  if (origin === "http://*/*") return "Tüm HTTP siteleri";
+  return origin.replace(/^[a-z]+:\/\//i, "").replace(/\/\*$/, "");
 }

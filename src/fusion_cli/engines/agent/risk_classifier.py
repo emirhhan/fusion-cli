@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ...config.keys import detect
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...config.readiness import is_usable
 from ...core.auto_review import (
@@ -404,6 +405,10 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
     # denetçi beklenirse kullanıcı da bekler; başarısızlık kurallı yedeğe düşer. Web
     # oturumu bağlanmaz (tarayıcı sohbeti her komutta açılmamalı).
     provider = build_provider(
-        classifier_spec(config), publisher=publisher, retry_delays_s=(), background=True
+        classifier_spec(config),
+        publisher=publisher,
+        retry_delays_s=(),
+        background=True,
+        model_specs=configured_model_specs(config),
     )
     return await provider.complete(request)

@@ -77,6 +77,7 @@ def bind_hook_services(deps: AgentDeps, run_agent: Callable[..., Awaitable[Any]]
 
 def _model_call(deps: AgentDeps) -> Callable[[str, str, float], Awaitable[str]]:
     async def call(prompt: str, model: str, timeout_s: float) -> str:
+        from ...config.model_lookup import configured_model_specs
         from ...providers.factory import build_provider
         from ...providers.web_registry import web_registry_for
 
@@ -95,6 +96,7 @@ def _model_call(deps: AgentDeps) -> Callable[[str, str, float], Awaitable[str]]:
                 retry_delays_s=config.runtime.retry_delays_s,
                 background=True,
                 web_sessions=web_registry_for(config),
+                model_specs=configured_model_specs(config),
             )
             result = await provider.complete(request)
         except (FusionError, OSError) as error:

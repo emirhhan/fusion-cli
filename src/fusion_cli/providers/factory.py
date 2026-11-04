@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..config.eligibility import capability_from_spec
+from ..config.model_lookup import model_spec_for
 from ..core.events import Channel, EventPublisher, StatusChanged
 from ..core.health import HealthRegistry
 from ..core.model_capability import ModelCapability
@@ -50,6 +51,7 @@ def build_provider(
     health: HealthRegistry | None = None,
     key_pools: KeyPoolRegistry | None = None,
     web_sessions: WebSessionRegistry | None = None,
+    model_specs: Sequence[ModelSpec] = (),
 ) -> LlmProvider:
     """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
 
@@ -65,6 +67,10 @@ def build_provider(
     beklendiği ürün kararıdır, kütüphane varsayılanı değil. Değer `defaults.yaml`'dan
     (`runtime.retry_delays_s`) gelir. Boş liste "hiç yeniden deneme" demektir.
     """
+
+    def _capability(model: str) -> ModelCapability:
+        known = spec if model == spec.model else model_spec_for(model, model_specs)
+        return capability_from_spec(known) if known is not None else ModelCapability()
 
     def _leaf(model: str) -> LlmProvider:
         if is_codex_model(model):
@@ -102,9 +108,7 @@ def build_provider(
                         role=spec.name,
                         clock=clock,
                         api_key=key,
-                        capability=capability_from_spec(spec)
-                        if model == spec.model
-                        else ModelCapability(),
+                        capability=_capability(model),
                     ),
                     keyed_label(model, key),
                 ),
@@ -116,7 +120,7 @@ def build_provider(
                 model,
                 role=spec.name,
                 clock=clock,
-                capability=capability_from_spec(spec) if model == spec.model else ModelCapability(),
+                capability=_capability(model),
             ),
             model,
         )

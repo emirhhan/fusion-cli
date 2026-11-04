@@ -82,6 +82,8 @@ def test_kits_icin_kanit_ozeti_rapordan_uretilir(tmp_path):
     kanit = evidence_payload(outcome.completion_report)
     assert kanit == {
         "schema_version": 1,
+        "teslim_turu": "code",
+        "uyarilar": [],
         "criteria": [],
         "criteria_count": 0,
         "criteria_truncated": False,

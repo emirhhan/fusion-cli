@@ -692,6 +692,7 @@ async def _consult_candidates(
     Kalıp ret veren ilk adaya bu yüzden BİR kez daha sorulur.
     """
     # Sağlayıcı katmanı yalnız gerektiğinde yüklenir; testler de bu adı yamalar.
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
     from ...providers.web_registry import web_registry_for
 
@@ -703,6 +704,7 @@ async def _consult_candidates(
             publisher=deps.publisher,
             retry_delays_s=runtime.retry_delays_s,
             web_sessions=web_registry_for(deps.config),
+            model_specs=configured_model_specs(deps.config),
         )
         return await provider.complete(request)
 

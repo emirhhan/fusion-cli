@@ -700,7 +700,22 @@ _TOOLS: tuple[Tool, ...] = (
         name="web_search",
         description="Web'de ara (ücretsiz). Güncel bilgi, sürüm ya da hata çözümü "
         "gerektiğinde kullan; ezberden emin konuşma.",
-        parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
+        parameters=_schema(
+            {
+                "query": {**_STRING, "description": "arama sorgusu"},
+                "recency_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Son kaç gün; tarih aralığıyla birlikte verilmez",
+                },
+                "date_from": {
+                    **_STRING,
+                    "description": "Başlangıç YYYY-MM-DD; date_to ile birlikte",
+                },
+                "date_to": {**_STRING, "description": "Bitiş YYYY-MM-DD; date_from ile birlikte"},
+            },
+            ["query"],
+        ),
         run=web.web_search,
         # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
         effect_resolver=_gate_only,

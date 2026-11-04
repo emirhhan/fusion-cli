@@ -21,6 +21,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
@@ -129,6 +130,7 @@ async def extract_lessons(
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         result = await provider.complete(request)
     except (ConfigError, ProviderError, WebBrowserError, OSError) as error:

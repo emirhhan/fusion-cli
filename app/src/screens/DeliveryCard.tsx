@@ -8,10 +8,14 @@ export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence
     evidence.falseClaim ? "Başarı iddiası kanıtla uyuşmuyor" :
     evidence.blocking ? "Doğrulama geçmedi" :
     evidence.kind === "legacy" ? "Eski ve sınırlı kanıt kaydı" :
+    evidence.deliveryKind === "artifact" && evidence.verified !== true ? "Görsel / belge sonucu ölçülmedi" :
     evidence.verified === true ? "Bildirilen kontroller geçti" : "Teslim doğrulanmadı";
   return <section aria-label="Kanıt özeti" className="delivery-card">
     <strong>{title}</strong>
     {evidence.problems.length > 0 && <ul>{evidence.problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul>}
+    {(evidence.warnings?.length ?? 0) > 0 && <ul aria-label="Ölçüm eksikleri ve uyarılar">
+      {evidence.warnings?.map((warning, index) => <li key={index}>{warning}</li>)}
+    </ul>}
     {evidence.changed.length > 0 && <details>
       <summary>Değişen dosyalar ({evidence.changed.length})</summary>
       <ul>{evidence.changed.map((path) => <li key={path}>{onOpenFile ? <Button variant="ghost" onClick={() => onOpenFile(path)} aria-label={`${path} dosyasını aç`}><code>{path}</code></Button> : <code>{path}</code>}</li>)}</ul>

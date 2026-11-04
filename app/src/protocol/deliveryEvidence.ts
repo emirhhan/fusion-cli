@@ -6,6 +6,8 @@ export interface DeliveryEvidence {
   falseClaim: boolean;
   changed: string[];
   problems: string[];
+  warnings?: string[];
+  deliveryKind?: "code" | "artifact";
   changedTotal: number | null;
 }
 
@@ -41,6 +43,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
       !data.sorunlar.every((problem): problem is string => typeof problem === "string")) {
     return invalid(data);
   }
+  if (data.uyarilar !== undefined && (!Array.isArray(data.uyarilar) ||
+      !data.uyarilar.every((warning): warning is string => typeof warning === "string"))) return invalid(data);
   const total = data.degisen_sayisi;
   if (data.schema_version === 1 && (typeof total !== "number" || !Number.isSafeInteger(total) || total < data.degisen.length)) {
     return invalid(data);
@@ -48,5 +52,7 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   return {kind: data.schema_version === 1 ? "supported" : "legacy",
     verified: data.dogrulandi, blocking: data.engelliyor, falseClaim: data.yanlis_iddia,
     changed: data.degisen.slice(0, MAX_PATHS), problems: data.sorunlar.slice(0, MAX_PROBLEMS),
+    deliveryKind: data.teslim_turu === "artifact" ? "artifact" : "code",
+    warnings: Array.isArray(data.uyarilar) ? data.uyarilar.slice(0, MAX_PROBLEMS) : [],
     changedTotal: typeof total === "number" ? total : null};
 }

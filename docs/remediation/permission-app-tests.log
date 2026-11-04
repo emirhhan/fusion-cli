@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/motogate/.codex/worktrees/fusion-deep-fixes/fusion-cli/app
+
+
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+   Start at  12:18:39
+   Duration  1.22s (transform 90ms, setup 0ms, import 107ms, tests 478ms, environment 511ms)
+

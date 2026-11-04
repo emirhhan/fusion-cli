@@ -128,9 +128,9 @@ async def test_kart_secenekleri_claude_adlariyla(tmp_path) -> None:
     request = await _request(tmp_path, "https://example.com")
     options = _approval_options(request)
     assert [o["etiket"] for o in options] == [
-        "Allow this action",
-        "Always allow actions on this site",
-        "Decline",
+        "Yalnız bu eyleme izin ver",
+        "Bu oturumda bu siteye izin ver",
+        "Reddet",
     ]
     choices = relabel_choices(
         request, [Choice("once", "Evet"), Choice("session", "Oturum"), Choice("deny", "Hayır")]
@@ -167,9 +167,9 @@ async def test_yerlesik_tarayici_dis_site_her_kipte_bir_kez_sorulur(tmp_path) ->
     request = await resolve_request(tool, {"url": "example.com"}, root=tmp_path, context=context)
     assert request.consent_key == "browser-site:example.com" and not request.read_only
     assert [o["etiket"] for o in _approval_options(request)] == [
-        "Allow once",
-        "Always allow",
-        "Deny",
+        "Yalnız bu kez izin ver",
+        "Bu siteye kalıcı izin ver",
+        "Reddet",
     ]
     for policy_type in (BypassApproval, AutoApproval):
         memory, prompter = ApprovalMemory(), _Prompter()
@@ -243,3 +243,22 @@ async def test_claude_adli_okuma_eylemi_site_sormaz(tmp_path) -> None:
     shot = {"action": "screenshot"}
     request = await _request(tmp_path, "https://example.com", "claude-in-chrome__computer", shot)
     assert request.consent_key is None and request.pre_denied is None
+
+
+async def test_site_permission_labels_explain_session_vs_persistent_scope(tmp_path) -> None:
+    from dataclasses import replace
+
+    from fusion_cli.ui.chrome_site_labels import site_options
+
+    request = await _request(tmp_path, "https://example.com")
+    chrome_options = site_options(request)
+    assert "oturum" in chrome_options[1]["etiket"].lower()
+    builtin = replace(
+        request,
+        chrome_site=replace(request.chrome_site, builtin=True),
+        consent_key="browser-site:example.com",
+    )
+    builtin_options = site_options(builtin)
+    assert "kalıcı" in builtin_options[1]["etiket"].lower()
+    choices = relabel_choices(builtin, [Choice("session", "Oturum")])
+    assert "kalıcı" in choices[0].description.lower()

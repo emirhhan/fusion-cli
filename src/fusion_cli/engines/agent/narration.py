@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
@@ -74,6 +75,7 @@ async def intro_paragraph(
             retry_delays_s=(),
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         async with asyncio.timeout(INTRO_TIMEOUT_S):
             result = await provider.complete(request)

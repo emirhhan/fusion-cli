@@ -28,6 +28,7 @@ from typing import Protocol
 
 from evals.acceptance_command import AcceptanceCommand, plan_acceptance
 from evals.execution import ModelCallIdentity, TaskExecution
+from evals.interactions import InteractionMetrics
 from evals.research_evidence import prepare_acceptance_evidence
 from evals.research_runtime import RUNTIME_RECEIPT, RuntimeReceipt
 from evals.tasks import CriterionKind, EvalTask
@@ -83,6 +84,7 @@ class AgentRunObservation:
     runtime_receipt: RuntimeReceipt | None = None
     environments: tuple[EvidenceEnvironment, ...] = ()
     effective_config_digest: str | None = None
+    interactions: InteractionMetrics | None = None
 
 
 class AgentRunner(Protocol):
@@ -181,6 +183,7 @@ class AgentTaskExecutor:
 
         execution = TaskExecution(
             sample_index=sample_index if sample_index is not None else 1,
+            interactions=observation.interactions,
             effective_config_digest=observation.effective_config_digest,
             environments=observation.environments + ((environment,) if environment else ()),
             runtime_receipt=observation.runtime_receipt,

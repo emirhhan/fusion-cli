@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.artifact_kind import artifact_only
 from ...core.events import (
     StatusChanged,
     TeacherLessonRecorded,
@@ -453,7 +454,11 @@ async def review_teacher_changes(
     göremedi, gizli testte düşen hatayı temiz buldu ve tur sahte başarıyla bitti.
     Belirsiz yanıt temiz sayılmaz.
     """
-    if not outcome.ok or not deps.tool_context.changes.paths:
+    if (
+        not outcome.ok
+        or not deps.tool_context.changes.paths
+        or artifact_only(deps.tool_context.changes.paths)
+    ):
         return None
     if not teacher_is_ready(deps, registry):
         return None

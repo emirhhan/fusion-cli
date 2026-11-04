@@ -49,9 +49,11 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     return true;
   }
   if (message?.type === "fusion.exec") {
-    execute(message.command)
+    execute(message.command, {
+      onPermissionProgress: (progress) => chrome.runtime.sendMessage({type: "fusion.permissionProgress", progress}),
+    })
       .then((veri) => reply({ ok: true, veri }))
-      .catch((cause) => reply({ ok: false, hata: String(cause?.message || cause) }));
+      .catch((cause) => reply({ ok: false, hata: String(cause?.message || cause), neden_kodu: cause?.code || "" }));
     return true;
   }
   if (message?.type === "fusion.pair") {

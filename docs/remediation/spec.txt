@@ -1,0 +1,348 @@
+FUSION — DERİN ÜRÜN VE MİMARİ DENETİMİ
+4 Kasım 2026
+
+KAPSAM VE KANIT SINIRI
+
+Önceki canlı kullanıcı testlerinin üzerine üç bağımsız salt okunur kod
+incelemesi, ağsız/sentetik yeniden üretimler ve mevcut testlerin kapsam
+incelemesi yapıldı. Bu turda üretim kodu, kullanıcı izinleri veya kurulu
+uygulama değiştirilmedi. Önceki Inter/tarih/görsel model düzeltmeleri duruyor.
+Yeni gerçek model performans karşılaştırması yapılmadı. Aşağıdaki mekanizmalar
+belirli kötü yanıtların olası açıklamalarıdır; her birinin nedensel payı ölçülmedi.
+
+24 bulgu var: bunların hepsi ayrı bir canlı hata değildir. Çalıştırılmış
+sentetik repro, doğrudan kod kanıtı, tasarım sınırlaması ve yayın kabulü
+eksikliği her bulguda ayrılmıştır. P1 önce ele alınması gereken güvenilirlik
+veya hedef güvenliği sorunu; P2 ürün kalitesi/kapsam boşluğudur. Puanlar sektör
+standardından alınmış sayısal bir risk skoru değildir.
+
+Kaynak kökü:
+/Users/motogate/Desktop/all/01-Projeler/fusion-cli
+Satır numaraları incelenen çalışma ağacına aittir; sonraki değişikliklerde kayabilir.
+engines/, tools/, providers/, config/ ve core/ ile kısaltılan yollar
+src/fusion_cli/ altındadır; chrome-extension/, app/ ve evals/ repo kökünden başlar.
+
+A — TARAYICI, İZİN VE KULLANICI KONTROLÜ
+
+A01 | P1 | Seçilen tarayıcı kopunca başka tarayıcıya sessiz geçiş
+Kaynak: src/fusion_cli/appserver/chrome_devices.py:83-95
+Kanıt: Çalıştırılmış ağsız repro. work ve personal cihazları bağlıyken work
+seçildi; work kopuk işaretlenince selected hâlâ work, actual_target personal.
+Etki: Kullanıcı iş hesabını seçmişken sonraki komut kişisel tarayıcıya gidebilir.
+Bu, gerçek hesaba işlem yapılarak denenmedi; hedef seçimi bellekte doğrulandı.
+Kabul koşulu: Açıkça seçilmiş cihaz koparsa durmalı; başka cihaz için kullanıcı
+seçimi olmadan komut gönderilmemeli. Hiç seçim yapılmamış tek-cihaz durumu ayrı.
+
+A02 | P1 | İlk açılan panel bekleyen onay sorusunu kaçırabilir
+Kaynak: chrome-extension/panel.js:200-203;
+src/fusion_cli/appserver/chrome_bridge.py:262-268
+Kanıt: Kod yolu. seq=null iken status.son başlangıç imleci yapılıyor; eski ama
+hâlâ bekleyen soru yeni olay sayılmıyor. Bekleyen soru snapshot/replay yolu yok.
+Etki: Görev kullanıcıyı beklerken yeni panelde cevaplanacak kart görünmeyebilir.
+Kabul: Panel açılışı/yeniden bağlantı, bekleyen soruyu kimliğiyle geri getirmeli;
+bitmiş soruyu yeniden göstermemeli. Yeni canlı UI repro yapılmadı.
+
+A03 | P1/P2 | Sunucu cevabı kabul etmese de onay kartı kayboluyor
+Kaynak: chrome-extension/panel.js:336-349, :50-52;
+src/fusion_cli/appserver/chrome_bridge.py:270-282
+Kanıt: Kod yolu. Kart önce kaldırılıyor; HTTP 200 içindeki ok:false okunmuyor.
+pending.resolve başarısızlığı bu şekilde dönüyor. select yolunda da benzer durum.
+Etki: Eski soru/iki yüzey yarışı sırasında kullanıcı onay verdiğini sanabilir.
+Kabul: Taşıma başarısı ile işlemin kabulü ayrılmalı; ret sebebi görünmeli,
+gerekirse güncel soru geri yüklenmeli. Canlı yarış koşulu denenmedi.
+
+A04 | P2 | Chrome'daki sürekli izin yalnız oturumluk
+Kaynak: src/fusion_cli/ui/chrome_site_labels.py:16-17;
+src/fusion_cli/engines/agent/approval.py:388-389, :436-443;
+src/fusion_cli/engines/agent/chrome_site_approval.py:158-161
+Kanıt: Kod ve mevcut testler. chrome-site:<host>, ApprovalMemory setinde;
+kalıcı yazıcı yalnız browser-site:<host> kabul ediyor. Chrome açıklaması
+oturumluk olduğunu söylüyor; bu gizli veri kaybı diye sunulmamalı.
+Etki: Benzer “Always allow” seçimi yerleşik Browser'da kalıcı, Chrome'da değil.
+Yeniden açılışta tekrar sorulmasının somut nedenlerinden biri bu tasarım.
+Kabul: “Bu görev / bu oturum / bu site için kalıcı” kapsamları açık olmalı;
+verilen izin görünmeli ve aynı yerden geri alınabilmeli.
+
+A05 | P2 | İzin yönetimi bütün izinleri göstermiyor
+Kaynak: chrome-extension/panel.js:126, :139-144, :497-503
+Kanıt: Kod. Liste Chrome host grant'lerini gösteriyor; motor consent'leri ayrı.
+<all_urls>, https://*/* ve http://*/* listeden filtreleniyor.
+Etki: Panelden tüm sitelere verilen erişim sonradan panel listesinde görünmüyor;
+oradan geri alınamıyor. Chrome'un kendi ayarlarından kaldırılması hâlâ mümkün.
+Kabul: Geniş izin ve motor izni kapsamıyla gösterilmeli; geri alma yolu olmalı.
+
+A06 | P2 | Yeniden bağlantıdan sonra eski hata metni kalabiliyor
+Kaynak: chrome-extension/panel.js:148-156, :207-218
+Kanıt: Önceki canlı gözlem ve kod. Bağlı rozeti storage'dan; hata ayrı alandan.
+Başarılı events çağrısı yalnız listenFailures değerini sıfırlıyor.
+Etki: Gerçek bağlantı düzelse de “Bağlı” yanında “Failed to fetch” kalabiliyor.
+Bu, ilk kopuşun bütün nedenlerini açıklamaz; çelişkili UI için somut yoldur.
+Kabul: Tek bağlantı durumu; iyileşmede eski hata silinmeli, son kontrol zamanı
+görünmeli. Yeniden bağlantı ve yetki eksikliği ayrı gösterilmeli.
+
+A07 | P2 | İnsan onayı 25 saniyede zaman aşımına uğruyor
+Kaynak: chrome-extension/core.js:1152-1176
+Kanıt: Kod. permissionWaitMs=25000; süre dolunca “kullanıcı izin vermedi”
+deniyor, izin kartının kaydı kaldırılmıyor.
+Etki: Kullanıcı okumaya devam ederken komut biter; sonra onaylasa bile aynı
+komutu yeniden denemek gerekir. Zaman aşımı ile açık ret birbirine karışır.
+Kabul: İnsan bekleme durumu komutun ağ zaman aşımından ayrılmalı; geç yanıt,
+iptal, ret ve süre sonu farklı sonuçlar olmalı. Gerçek 25 sn UI koşusu yapılmadı.
+
+Önemli ayrım: Chrome host erişimi, motor site izni, yerleşik Browser kalıcı
+listesi ve AI reviewer kararı ayrı katmanlar. Hatırlanmış consent reviewer'ı
+atlayabiliyor (risk_classifier.py:127). Her soru reviewer unutkanlığı değildir;
+yanlış hedefe tıklama gibi yeni risklerde sormak gerekli korumadır.
+
+B — MODEL, BAĞLAM, ARAŞTIRMA VE CEVAP KALİTESİ
+
+B01 | P1/P2 | Araştırma kaynakları bağlam dolmadan modelden gizleniyor
+Kaynak: src/fusion_cli/engines/agent/masking.py:160-175, :195-207;
+src/fusion_cli/config/defaults.yaml:163; engines/agent/loop.py:5134-5145
+Kanıt: Ağsız repro: 12 başarılı uzun web_fetch sonucu, window=8; toplam geçmiş
+yalnız 7.752 karakterken ilk dört içerik yer tutucuya dönüştü.
+Gözlem: MASK=4, KAYNAK0_VISIBLE=False. 177k sıkıştırma eşiğine bağlı değil.
+Etki: Çok kaynaklı karşılaştırmada ilk kaynağın dayanağı görünmez olabilir.
+Özgün içerik başka yerde bulunabilir ve yeniden okunabilir; tamamen silindiği
+iddia edilmiyor. Yeniden okuma ek çağrı gerektirir.
+Kabul: Görev için gerekli kaynak kanıtı bütçeli kaynak defteri/özetle korunmalı;
+12+ kaynaklı sentezin bilgi doğruluğu ölçülmeli. Sadece maskeleme testi yetmez.
+
+B02 | P1/P2 | Özetleyiciye verilmeden önce araç kanıtı temizleniyor
+Kaynak: engines/agent/compaction.py:149-163;
+engines/agent/history.py:185-220; config/defaults.yaml:75-77
+Kanıt: Ağsız repro ve akış. clear_old_tool_outputs önce çalışıyor; gerekirse
+özetleyiciye bu temizlenmiş eski geçmiş gidiyor. Reproda ilk kaynak özetleyici
+transcript'inde yok. Özgün iz/kanıt pinleri varsayılan kapalı.
+Etki: Özetleyici kendisine hiç verilmeyen kaynak içeriğini koruyamaz.
+Kabul: Temizleme öncesi gerekli bilgi çıkarılmalı veya özgün izden erişilmeli.
+Koruma bayraklarını topluca açmak yerine doğruluk/gecikme/maliyet ölçülmeli.
+
+B03 | P1/P2 | Uzun ara kullanıcı mesajının sonundaki koşul kesiliyor
+Kaynak: engines/agent/history.py:388-394;
+engines/agent/compaction.py:65-73, :257-269
+Kanıt: Ağsız repro. İlk kök görevden sonraki kullanıcı mesajında 2.100 karakter
+sonrasına konan GEREKSINIM_SONDA, transcript'e ulaşmadı. Mesaj başı payı en çok
+2.000 karakter; ayrı kural koruması belirli sözcükleri ve sınırlı bütçeyi kullanıyor.
+Etki: Teslim şartı veya kapsam düzeltmesi model unuttuğu için değil, modele
+gönderilmeden kesildiği için kaybolabilir. İlk kök görevin korunması ayrı.
+Kabul: Uzun ara düzeltmenin sonundaki teslim koşulu ardışık sıkıştırmalarda
+korunmalı; yalnız “yasak” anahtar sözcüğü içeren cümlelerle sınırlı olmamalı.
+
+B04 | P1/P2 | Bazı model seçimi yolları aynı modelin metadata'sını siliyor
+Kaynak: config/model_select.py:168-186; cli/repl/model_flows.py:260;
+config/eligibility.py:89-103
+Kanıt: Sentetik repro. apply_single_model ile aynı model tekrar seçildiğinde
+agent/reasoning/vision ve doğrulanmış high desteği yerine yalnız strict kaldı;
+reasoning_efforts_verified=False, uygulanan effort=None oldu.
+Etki: Model kimliği değişmeden kullanıcının düşünme yoğunluğu isteği iletilmeyebilir.
+Bu bulgu bütün UI model seçimlerinin aynı hatayı taşıdığı anlamına gelmez.
+Kabul: Aynı kimliği yeniden seçme metadata'yı korumalı; kimlik değişince yeni
+modelin kendi doğrulanmış kaydı çözülmeli. set_agent_model için koruma zaten var.
+
+B05 | P2 | Yedek modelin kendi düşünme yeteneği kaydı çözülmüyor
+Kaynak: providers/factory.py:104-119; core/reasoning.py:89-94
+Kanıt: Kod ve test_model_execution_contract.py:148. Fallback yaprağına boş
+ModelCapability veriliyor; high talebi ilk çağrıda varken yedekte yok.
+Etki: Dayanıklılık sağlanırken talep edilen düşünme yoğunluğu düşebilir.
+Birincilin metadata'sını körlemesine yedeğe kopyalamamak doğrudur; eksik olan
+yedeğin kendi doğrulanmış yeteneğini bulmaktır. Kalite kaybı oranı ölçülmedi.
+Kabul: Yedek modelin kimliğine ait yetenek kaydı ve uygulanan effort açık olmalı.
+
+B06 | P2 | Arama çıktısı güncellik kanıtını taşımıyor
+Kaynak: tools/builtin.py:700-704; tools/web.py:321-335, :446-466
+Kanıt: Saf HTML ayrıştırıcı repro. Yayın tarihi ve snippet içeren sonuçtan yalnız
+başlık ve URL döndü. Araç şemasında tarih aralığı/recency alanı yok, yalnız query var.
+Etki: Yeni sürüm/haber araştırmasında ilk sonuçları tarihe göre elemek zorlaşıyor.
+Model sorguya yıl yazabilir ve sayfayı açabilir; “hep eski araştırır” sonucu çıkmaz.
+Kabul: Arama tarihi, varsa yayın tarihi/snippet, tarih filtresi ve belirsizlik
+taşınmalı. Tarihi olmayan sonuç için uydurma tarih üretilmemeli.
+
+B07 | P2 | Kaynak okuması erişim zamanı ve son URL'yi kaybediyor
+Kaynak: tools/web.py:73-91; engines/agent/prompts/system.md:17
+Kanıt: Sahte yönlendirme ile repro. Fetch final_url biliyor; normal başarı
+yalnız “Veri: 42” gövdesi, structured=None döndürdü. Kaynak/erişim zamanı yok.
+Etki: Sistem kuralı çekilme saatini istese de araç bunu vermiyor. İstenen URL
+araç argümanında kalsa da yönlendirme sonrası kaynak ve okuma zamanı ayrı kanıt.
+Kabul: URL, final URL, fetched_at, varsa yayın/güncelleme tarihi ve içerik özeti
+kaynak kaydına bağlanmalı; sayfa metninden tahmin edilen tarih ayrı işaretlenmeli.
+
+C — DOĞRULAMA, TESLİM VE HATA KURTARMA
+
+C01 | P1 | Düzelen test hem doğrulanmış hem engelleyici sayılabiliyor
+Kaynak: engines/agent/turn_report.py:241-244, :272-292
+Kanıt: Bellek içi repro. Aynı pytest -q önce exit=1 sonra exit=0:
+is_verified=True, blocks_success=True. Eski hata bir dalda ayıklanıyor,
+diğer dalda ham listeden tekrar engelliyor. _apply_turn_report ok=False yapabilir.
+Etki: Doğru toparlanan görev yanlış başarısızlık ve yanlış öğrenme sinyali üretir.
+Kabul: Güncel ve aynı kapsamda geçen kontrol eski hatayı bütün karar dallarında
+aynı şekilde aşmalı. Farklı komut/kapsam başarısı eski hatayı örtmemeli.
+
+C02 | P1 | Son öz-denetim değişikliğine eski doğrulama bağlanabiliyor
+Kaynak: engines/agent/loop.py:1519, :1547, :4874;
+engines/agent/turn_report.py:252
+Kanıt: Doğrudan kontrol akışı. _self_review, ana kapılardan sonra verify=False
+düzeltici tur açabiliyor. Sonrasında kapı yeniden koşulmuyor; eski verification
+nihai rapora veriliyor. Gate kanıtının kaynak digest güncelliği burada ölçülmüyor.
+Etki: Önce geçen HTML, son düzeltmede bozulsa bile eski kontrol başarı sayılabilir.
+Bu yeni uçtan uca model koşusuyla denenmedi; kod yolu yüksek güvenle doğrulandı.
+Kabul: Son mutasyondan önceki kanıt geçersizleşmeli; etkilenen kontroller yeniden
+ölçülmeli. Değişiklik yapmayan öz-denetim gereksiz yeniden çalışmaya yol açmamalı.
+
+C03 | P1/P2 | Yapılamayan tarayıcı kontrolü başarı kartında kayboluyor
+Kaynak: engines/agent/browser_verify.py:86;
+engines/agent/turn_report.py:241; engines/agent/completion_evidence.py:53;
+app/src/protocol/deliveryEvidence.ts:48; app/src/screens/DeliveryCard.tsx:11
+Kanıt: Bellek içi repro. index.html değişmiş, pytest geçmiş, tarayıcı yok:
+dogrulandi=True, engelliyor=False, sorunlar=[], kriterler boş.
+_not_measured ok=True ve warning dönüyor; warning yapılandırılmış karta taşınmıyor.
+Etki: Genel test geçti diye eksik görsel/davranış kontrolü görünmez olabiliyor.
+Metin raporunda uyarı bulunması yapılandırılmış kanıt kaybını gidermiyor.
+Kabul: Ölçülmedi, geçti ve başarısız ayrı durum olmalı; ilgisiz test başka bir
+kabul ölçütünü tamamlamamalı. Uyarı backend→payload→kart boyunca korunmalı.
+
+C04 | P2 | İstenen çıktı dosyasını anlama ters tırnak kullanımına bağlı
+Kaynak: engines/agent/output_verify.py:35, :95-106; loop.py:943
+Kanıt: Saf fonksiyon repro:
+Raporu report.pdf olarak kaydet → ()
+Raporu `report.pdf` olarak kaydet → ('report.pdf',)
+Save `/tmp/report.pdf` → ()
+Etki: Aynı niyet farklı yazılınca teslim kontrolü devreye girmiyor.
+Kabul: İzinli çıktı hedefi açık bir teslim sözleşmesine çevrilmeli; doğal dilde
+dosya isteyen kullanıcıdan Markdown noktalaması beklenmemeli. Yetkisiz kök dışı
+yollar otomatik kabul edilmemeli; kapsam kontrolü korunmalı.
+
+C05 | P2 | Genel dosya doğrulaması yalnız exists() ile sınırlı
+Kaynak: engines/agent/output_verify.py:117-127
+Kanıt: Kod ve kısmi ağsız repro. requested_outputs içinde mevcut src klasörü ve
+touched içinde RULES.md olduğunda kapı ok=True. Video olmayan genel çıktılarda
+is_file, boş olmama, formatın açılabilirliği ve bu turda üretilme kontrolü yok.
+Hiç touched yoksa istenen dosya yok olsa bile kapı doğrudan ok=True dönüyor.
+Etki: Eski/boş/yanlış biçimli dosya teslimi yeterince ölçülmüyor. Bu tek başına
+nihai bütün raporun her durumda başarı vereceği iddiası değildir; yerel kapı boşluğu.
+Kabul: Türüne göre açılabilir dosya, güncel üretim ve beklenen içerik kontrolü.
+PDF adlı klasör örneği kod dalından çıkarım; ayrıca diskte üretilmedi.
+
+C06 | P1/P2 | Önizleme başlarken durdurma süreci sahipsiz bırakabiliyor
+Kaynak: tools/preview_server.py:186-194, :397
+Kanıt: Sahte süreçle CancelledError repro; terminate=0, kill=0, registered=False.
+Süreç başlatılıyor, readiness bekleniyor, _RUNNING kaydı ancak sonra yazılıyor.
+Aradaki iptalde cleanup yok; stop_all henüz kaydedilmeyen süreci bulamıyor.
+Benzer sahiplik aralığı statik sunucu ve npm install beklemesinde de var.
+Etki: Durdurulan iş port/CPU kullanan veya dosya yazan süreç bırakabilir.
+Kabul: Süreç oluştuğu andan itibaren sahipli olmalı; iptal ve readiness hatasında
+process tree sonlandırılıp wait edilmeli; yeni deneme eski işi çoğaltmamalı.
+
+D — KALİTE ÖLÇÜMÜ VE YAYIN HAZIRLIĞI
+
+D01 | P1/P2 | Production setinin isimleri gerçekte ölçtüğünden geniş
+Kaynak: evals/suite/production.yaml:16-26, :39-62
+Kanıt: Parent tarafından çalıştırılmış ağsız repro. Hiç oauth_mcp_server.py
+olmadan smoke_test.py yalnız print('ping pong') yazınca OAuth/MCP kriteri geçti.
+“Büyük artifact” fikstürü 47 bayt; “sohbet izolasyonu” iki JSON dosyasını düzenleme.
+Etki: Bunlar yararlı küçük dosya görevleri olabilir; gerçek OAuth yaşam döngüsü,
+büyük dosya baskısı ve uygulama sohbet izolasyonu için başarı kanıtı değiller.
+Başka testlerde gerçek yerel HTTP MCP fikstürü var; depoda hiç MCP testi yok denmiyor.
+Kabul: Gerçek protokol çağrısı ve oturum state'i gözlenmeli; büyük fikstür büyük
+olmalı; sahte çıktıyla geçen kriter engellenmeli. İsimler ölçülen kapsamla eşleşmeli.
+
+D02 | P2 | Belgelenen canlı production ölçümü yayın zincirinde zorunlu değil
+Kaynak: evals/suite/production.yaml:1; docs/YETENEKLER.md:43;
+.github/workflows/ci.yml:25-43; .github/workflows/desktop.yml:296-298; Makefile:75-91
+Kanıt: Workflow/Makefile incelemesi. Release quality, macos, windows, terminal
+işlerine bağlı. quality make check çalıştırıyor; incelenen workflow'larda
+production.yaml için gerçek model koşusu yok. Birim/yerel davranış testleri var.
+PTY işi ayrı çalışıyor fakat release.needs dışında; bu açıkça belgelenmiş bir karar.
+Etki: Derleme/birim testleri yeşil olsa da gerçek ajan görev kalitesi düşebilir.
+Kabul: Tekrarlanabilir, maliyeti sınırlı canlı kabul raporu belirli model/config/
+paket kimliğiyle bağlanmalı; eksik kanıt “ölçülmedi” olarak görünmeli. Canlı model
+hizmetinin kararsızlığı ile ürün regresyonu ayrı raporlanmalı.
+
+D03 | P2 | Yetenek eval'ı tekrar tekrar sorulan izinleri ölçmüyor
+Kaynak: evals/agent_runner.py:64-89; evals/tasks.py:76
+Kanıt: Kod. Varsayılan permissive politika tehlike dışı istekleri doğrudan kabul
+ediyor; strict politika ayrı ret senaryosu. Bu iki modun ayrı olması makul.
+Etki: “Sonunda yaptı” sonucu kullanıcıdan kaç onay/kaç müdahale istediğini göstermez.
+Aşırı soru sorma kabiliyeti testten geçerken gerçek kullanıcıyı yorabilir.
+Kabul: Onay sayısı, gereksiz tekrar, kullanıcının yanıt süresi, yeni panelde pending
+soru ve restart sonrası izin devamlılığı ayrı ürün ölçütleri olmalı.
+
+D04 | P2 | Paket ve platform kabulünde açık kanıt boşlukları var
+Kaynak: release/known-gaps.json:3-9
+Kanıt: Deponun kendi açık eksik listesi. Temiz profilde macOS kurulum/yükseltme,
+gerçek Windows izin/DPI/giriş, Developer ID/notarization, mağaza yayını, gerçek
+telefon akışları, canlı OAuth ve 8/24/72 saat dayanıklılık doğrulanmamış yazıyor.
+Etki: Özellik mevcudiyeti yaygın kullanıcı ortamında hazır olma kanıtı değildir.
+Bu bir açık güvenlik istismarı kanıtı veya mevcut imzanın bozuk olduğu iddiası değil.
+Önceki turda kurulu uygulamanın codesign doğrulaması geçti; notarization ayrı konu.
+Kabul: Hedeflenen dağıtım/platform kapsamı daraltılmalı veya temiz ortam kabulü
+tamamlanmalı; yapılmayan platform için profesyonel hazır olma iddiası verilmemeli.
+
+ÖNCEKİ CANLI BULGULARLA BİRLEŞEN SONUÇ
+
+Bu yeni inceleme, önceki screenshot→kod incelemesi yanlış yönlendirmesinin,
+Playwright kurulum döngüsünün, yanlış pencere odağının ve iç araç metni
+sızıntısının yerine geçmez. Daha alttaki karar zincirlerini görünür kılar.
+
+Önceki “kaliteyi ölçememe” ifadesi fazla geneldi: depoda eval altyapısı,
+profesyonel yürütme metrikleri ve kabul eşikleri VAR. Sorun yokluk değil;
+ölçütün temsiliyeti, canlı akışla bağlantısı ve yayını gerçekten engelleyip
+engellemediği. 52k sistem istemi de tek başına kök neden olarak gösterilmedi.
+
+DOĞRULAMA KAYDI
+
+- Model/context grubunda 5 mevcut dosya, 41 test geçti:
+  test_model_execution_contract.py, test_model_identity_invalidation.py,
+  test_output_masking.py, test_context_invariants.py,
+  test_original_trace_runtime.py.
+- Parent ölçüm/yayın grubunda 4 dosya, 42 test geçti:
+  test_professional_execution_eval.py (5), test_production_eval.py (12),
+  test_release_gate_contract.py (6), test_eval_acceptance.py (19).
+  Yerel HTTP MCP fikstüründe eski SDK adı için bir DeprecationWarning çıktı.
+- Tarayıcı grubunda test_chrome_site_izni.py ve
+  test_chrome_coklu_tarayici.py başarılı çıktı.
+- Sentetik repro'lar: tarayıcı hedef kayması; araç kaynağı maskeleme;
+  temizleme sonrası kaynak kaybı; uzun kullanıcı koşulu kesilmesi;
+  model metadata kaybı; arama/fetch provenance kaybı; çelişkili doğrulama;
+  ölçülmeyen browser kanıtının örtülmesi; çıktı yolu ayrıştırma;
+  kısmi exists-kapısı; iptal edilen preview sahipliği; zayıf OAuth eval ölçütü.
+- Yeni model çağrısı, genel benchmark veya tam Python test takımı yapılmadı.
+- Testlerin geçmesi bu rapordaki kusurların giderildiği anlamına gelmez.
+  Bazı testler mevcut dar davranışı özellikle doğru kabul ediyor.
+
+ÖNERİLEN UYGULAMA SIRASI VE ÖLÇÜLEBİLİR KABUL
+
+1. Hedef ve kontrol bütünlüğü: A01-A03, C06. Seçili tarayıcı kopuşunda yanlış
+   hedefe sıfır komut; panel açılışında bekleyen onayın kaybolmaması; iptalde
+   sahipsiz süreç kalmaması. Gerekli onaylar kaldırılmadan düzeltme.
+2. Tek ve güncel başarı kararı: C01-C05 ve önceki screenshot görev türü sorunu.
+   Her kanıt görev/kriter/çıktı sürümüne bağlı; son mutasyondan sonra geçerli;
+   ölçülmedi ile başarısız farklı; eski hata toparlanınca bütün dallar tutarlı.
+3. Model ve bağlam sözleşmesi: B01-B05. Aynı model seçiminde yetenek kaybı yok;
+   uzun ara talimatın sonundaki koşul ve çok kaynaklı sentez bilgisi korunuyor;
+   gerçek uygulanan effort kullanıcı tarafından görülebiliyor.
+4. Araştırma ve teslim: B06-B07. Kaynak zamanı, yönlendirme sonrası URL ve
+   kaynak-kapsam ilişkisi; dosyanın yalnız varlığı değil açılabilirliği ve içeriği.
+5. İzin deneyimi ve bağlantı: A04-A07. Kapsamı görünür, geri alınabilir izin;
+   zaman aşımını ret saymama; başarılı reconnect sonrasında eski hatanın temizlenmesi.
+6. Temsili kabul/yayın: D01-D04. Sorunları gösteren repro'lar regresyon olmalı;
+   aynı görev seti mevcut ve yeni pakette birden çok tekrar çalıştırılmalı.
+   Ölçümler: doğru teslim, yanlış başarı, gereksiz başarısızlık, kullanıcı onayı,
+   müdahale sayısı, süre, model/araç çağrısı ve maliyet. Tek toplam puan yetmez.
+
+KARŞILAŞTIRMA İÇİN BİRİNCİL KAYNAKLAR
+
+Diğer ürünlerin hatasız olduğu veya Fusion'dan ölçülmüş belirli bir yüzde üstün
+olduğu iddia edilmedi. Aşağıdaki yayınlar mimari karşılaştırma referansıdır:
+
+Chrome — activeTab ve kullanıcı etkileşimiyle geçici erişim:
+https://developer.chrome.com/docs/extensions/develop/concepts/activeTab
+
+Anthropic — sınırlı bağlamı seçme, sıkıştırma ve uzun görevlerde bilgi koruma:
+https://www.anthropic.com/research/effective-context-engineering-for-ai-agents
+
+Anthropic — ajan değerlendirmesinde konuşma ile gerçek sonuç ayrımı:
+https://www.anthropic.com/research/demystifying-evals-for-ai-agents
+
+OpenAI — sonuç doğuran işlemlerde kullanıcı onayı yaklaşımı:
+https://deploymentsafety.openai.com/chatgpt-agent/user-confirmations

@@ -172,6 +172,7 @@ class VisualVerifier:
         return findings
 
     async def _ask(self, check: VisualCheck, image: bytes) -> bool:
+        from ...config.model_lookup import configured_model_specs
         from ...providers.factory import build_provider
         from ...providers.web_registry import web_registry_for
 
@@ -188,6 +189,7 @@ class VisualVerifier:
                 retry_delays_s=self._config.runtime.retry_delays_s,
                 background=True,
                 web_sessions=web_registry_for(self._config),
+                model_specs=configured_model_specs(self._config),
             )
         result = await self._provider.complete(
             CompletionRequest(

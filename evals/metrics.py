@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from evals.candidate_metrics import CandidateMetrics, reduce_candidate_metrics
 from evals.criteria import evaluate_criterion
 from evals.execution import TaskExecution
+from evals.interactions import InteractionMetrics, merge_interactions
 from evals.profiles import RunMetadata
 from evals.tasks import EvalTask
 from fusion_cli.core.events import Event
@@ -44,6 +45,7 @@ class TaskResult:
     # pahalı bulgu sınıfı buydu ve o güne kadar HİÇ ölçülmüyordu.
     false_success: bool = False
     trace_events: tuple[Event, ...] = ()
+    interactions: InteractionMetrics | None = None
 
     @property
     def pass_rate(self) -> float:
@@ -79,6 +81,7 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         # bitirdiğini iddia etmiyor, sağlayıcı turu kesiyor.
         false_success=execution.claimed_success and not success and not execution.rate_limited,
         trace_events=execution.trace_events,
+        interactions=execution.interactions,
     )
 
 
@@ -101,10 +104,14 @@ def merge_runs(results: list[TaskResult]) -> TaskResult:
         runs=len(results),
         passes=gecen,
         rate_limited=any(item.rate_limited for item in results),
+        rate_limit_detail="; ".join(
+            item.rate_limit_detail for item in results if item.rate_limited
+        ),
         # Tek koşuda bile yalan başarı verdiyse görev yalan başarı sayılır:
         # eşiği sıfır olan bir metrik çoğunluğa yuvarlanamaz.
         false_success=any(item.false_success for item in results),
         trace_events=tuple(event for item in results for event in item.trace_events),
+        interactions=merge_interactions(tuple(item.interactions for item in results)),
     )
 
 

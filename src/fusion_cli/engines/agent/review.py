@@ -16,6 +16,7 @@ import logging
 import re
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.events import EventPublisher
 from ...core.evidence import CriterionEvidence
@@ -153,6 +154,7 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     return await provider.complete(request)
 

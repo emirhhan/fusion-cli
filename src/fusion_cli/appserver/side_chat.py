@@ -69,6 +69,7 @@ def build_messages(history: Sequence[Message], side: object, question: str) -> t
 
 
 def _default_provider(config: Config) -> LlmProvider:
+    from ..config.model_lookup import configured_model_specs
     from ..providers.factory import build_provider
     from ..providers.web_registry import web_registry_for
 
@@ -78,6 +79,7 @@ def _default_provider(config: Config) -> LlmProvider:
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
 
 

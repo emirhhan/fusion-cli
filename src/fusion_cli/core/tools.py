@@ -365,6 +365,8 @@ class ToolContext:
     preview_origins: set[str] = field(default_factory=set)
     #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
     requested_outputs: set[str] = field(default_factory=set)
+    #: Kök tur başlangıcında istenen çıktının (boyut, mtime_ns) imzası; yoksa None.
+    output_baselines: dict[str, tuple[int, int] | None] = field(default_factory=dict)
     #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
     probed_games: set[str] = field(default_factory=set)
     #: Bu isteğin türleri (ör. "oyun"): denenmemiş canvas sayfası da kapıda oynatılır.

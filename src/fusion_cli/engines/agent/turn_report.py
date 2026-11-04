@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ...core.artifact_kind import artifact_only
 from ...core.constants import (
     EXIT_CODE_PREFIX,
     TOOL_CALL_BLOCKED_PREFIX,
@@ -287,7 +288,7 @@ class TurnReport:
             return True
         # Çıkış kodu okunamayan (zaman aşımı) davranış komutu da başarı iddiasını engeller:
         # `None` bir başarı kanıtı değildir (A4-26).
-        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence) or any(
+        return any(run.exit_code not in (None, 0) for run in self._unresolved_evidence) or any(
             run.exit_code is None for run in self._unresolved_evidence
         )
 
@@ -390,6 +391,12 @@ class TurnReport:
                 f"ⓘ Yalnız sözdizimi denetlendi: {bicim}.\nDeğişen dosyalar: {dosyalar}\n"
                 "Site çalıştırılıp açılmadı; çalıştığı DOĞRULANMADI (start_preview ile görülür)."
             )
+        if not evidence and artifact_only(self.changed_paths):
+            return (
+                f"ⓘ Görsel / belge çıktıları: {dosyalar}\n"
+                "Dosyanın kaydedilmesi görev sonucunun doğrulandığı anlamına gelmez; "
+                "görsel veya içerik kontrolü ayrıca ölçülmeli."
+            )
         if not evidence:
             return (
                 f"ⓘ Değişen dosyalar: {dosyalar}\n"
@@ -406,6 +413,11 @@ class TurnReport:
         if self.gate is not None and not self.gate.ok:
             return (
                 f"ⓘ Geçen alt kontroller: {komutlar}. Toplam doğrulama başarısız.\n"
+                f"Değişen dosyalar: {dosyalar}"
+            )
+        if self.is_verified is False:
+            return (
+                f"ⓘ Geçen alt kontroller: {komutlar}. Diğer kabul ölçütleri doğrulanmadı.\n"
                 f"Değişen dosyalar: {dosyalar}"
             )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"

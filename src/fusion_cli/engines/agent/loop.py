@@ -33,6 +33,7 @@ from functools import partial
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
+from ...config.model_lookup import configured_model_specs
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
@@ -125,7 +126,7 @@ from ...core.types import (
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_provenance import WebCallContext
 from ...core.web_response import classify_response
-from ...core.workspace_fingerprint import WorkspaceEffect
+from ...core.workspace_fingerprint import WorkspaceEffect, take_fingerprint
 from ...memory.plain_memory import PlainMemory
 from ...providers.capabilities import (
     TaskRequirements,
@@ -189,7 +190,7 @@ from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
 from .background_notes import append_background_events
 from .bare_deny import surface_denied
-from .change_digest import change_digest
+from .change_digest import change_digest, changed_file_versions
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
@@ -280,7 +281,7 @@ from .orchestration_tools import (
     ORCHESTRATION_SCOPED_TOOLS,
     orchestration_task_kinds,
 )
-from .output_verify import requested_outputs_in
+from .output_verify import OutputPathVerifier, capture_output_baselines, requested_outputs_in
 from .parse_feedback import mutation_deferral, partial_repair_note
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -940,7 +941,10 @@ async def _run_agent(
         deps.tool_context.local_origins.update(loopback_origins_in(task))
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
-        deps.tool_context.requested_outputs.update(requested_outputs_in(task))
+        deps.tool_context.requested_outputs.update(
+            requested_outputs_in(task, root=deps.tool_context.root)
+        )
+        await asyncio.to_thread(capture_output_baselines, deps.tool_context)
         deps.tool_context.task_kinds.difference_update(
             {
                 "oyun",
@@ -1516,7 +1520,23 @@ async def _run_agent(
     if outcome.wrong_workspace or is_measurement_failure:
         should_review = False
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
+        before_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
+        before_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
+        previous_mutations = outcome.mutating_tool_calls_made
         outcome = await _self_review(task, outcome, deps, verification=verification)
+        after_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
+        after_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
+        has_new_mutation = outcome.mutating_tool_calls_made > previous_mutations
+        measurement_incomplete = before_review is None or before_versions is None
+        if verify and (
+            before_review != after_review
+            or before_versions != after_versions
+            or (has_new_mutation and (measurement_incomplete or not before_versions))
+        ):
+            # Öz-denetim eski kanıtı sonradan değişen dosyalara taşıyamaz.
+            verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+            if verification is not None and not verification.ok:
+                outcome.ok = False
 
     # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
     # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
@@ -3039,6 +3059,7 @@ async def _call_model(
     )
     provider = build_provider(
         spec,
+        model_specs=configured_model_specs(deps.config),
         publisher=deps.publisher,
         retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
@@ -4900,6 +4921,8 @@ async def _verify(
     if deps.verifier is None or plan_mode or depth > 0:
         return None
     if outcome.mutating_tool_calls_made == 0:
+        if deps.tool_context.requested_outputs:
+            return await OutputPathVerifier(deps.tool_context).verify()
         return None
     return await deps.verifier.verify()
 

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 
 from evals.effective_config import project_effective
 from evals.executor import AgentRunObservation
+from evals.interactions import InteractionMetrics
 from evals.research_budget import CountingPublisher as _CountingPublisher
 from evals.research_budget import TaskBudgetExhaustedError as _TaskBudgetExhaustedError
 from evals.research_runtime import ResearchController
@@ -80,8 +82,32 @@ class _EvalApproval:
 
     def __init__(self, strict: bool = False) -> None:
         self._strict = strict
+        self._requests: set[str] = set()
+        self._count = 0
+        self._repeated = 0
+
+    @property
+    def interactions(self) -> InteractionMetrics:
+        return InteractionMetrics(self._count, self._repeated)
 
     async def decide(self, request: ApprovalRequest) -> Decision:
+        # Ham araç argümanı saklanmaz; aynı karar talebinin özeti yeterlidir.
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                (
+                    request.tool.name,
+                    request.args,
+                    request.consent_key,
+                    request.risk,
+                    request.danger,
+                ),
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        self._count += 1
+        self._repeated += int(fingerprint in self._requests)
+        self._requests.add(fingerprint)
         if request.danger is not None:
             return Decision.DENIED
         if self._strict and not request.unattended_safe:
@@ -159,6 +185,9 @@ class FusionAgentRunner:
                 use.environment for use in outcome.tool_uses if use.environment is not None
             ),
             runtime_receipt=receipt,
+            interactions=deps.policy.interactions
+            if isinstance(deps.policy, _EvalApproval)
+            else None,
             output_text=outcome.final_text,
             model_calls=publisher.model_calls,
             calls=tuple(publisher.calls),
@@ -281,6 +310,9 @@ class MinimalAgentRunner(FusionAgentRunner):
         _ensure_provider_available(outcome.ok, outcome.final_text, publisher.model_calls)
         kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         return AgentRunObservation(
+            interactions=deps.policy.interactions
+            if isinstance(deps.policy, _EvalApproval)
+            else None,
             output_text=outcome.final_text,
             model_calls=publisher.model_calls,
             calls=tuple(publisher.calls),

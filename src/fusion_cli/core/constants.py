@@ -340,3 +340,9 @@ MODEL_SELECTION_CLOSE_WAIT_S = 5.0
 #: Chrome'un `--remote-debugging-port` ile profil dizinine yazdığı port dosyası. Paylaşılan web
 #: profil tarayıcısı okur; kabuk sandbox'ı bu portları sandbox'taki komuta kapatır (P-010).
 DEVTOOLS_PORT_FILE = "DevToolsActivePort"
+
+
+#: Teslim biçim okuyucularının girdi/ZIP-açılım ve piksel bellek bütçeleri.
+ARTIFACT_INSPECTION_MAX_BYTES = 8 * 1024 * 1024
+ARTIFACT_ARCHIVE_MAX_BYTES = 16 * 1024 * 1024
+ARTIFACT_IMAGE_MAX_PIXELS = 16 * 1024 * 1024

@@ -70,6 +70,11 @@ const send = (text: string) => {
   fireEvent.submit($("composer"));
 };
 const autoConnected = () => kit.session.set("fusionAuto", { bagli: true, port: 5000, token: "t" });
+const permissionKey = "fusionPermission:host-request";
+const pendingPermission = (origin: string) => kit.session.set(permissionKey, {
+  id: "host-request", commandId: "command-1", origin, at: Date.now(),
+  expiresAt: Date.now() + 300_000, state: "pending",
+});
 
 describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
   it("elle bağlanır, görevi gönderir, cevabı sohbet olarak gösterir ve bağlantıyı keser", async () => {
@@ -115,7 +120,7 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     fireEvent.keyDown($("ask"), { key: "1" });
     await waitFor(() => expect(paths()).toContain("/answer"));
     expect(calls.find((call) => call.path === "/answer")?.body).toEqual({ id: "9", veri: { secim: "once" } });
-    expect($("ask").hidden).toBe(true);
+    await waitFor(() => expect($("ask").hidden).toBe(true));
 
     tur.resolve({ ok: true, metin: "Paylaşıldı" });
     await waitFor(() => expect($("messages").textContent).toContain("Paylaşıldı"));
@@ -147,9 +152,13 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
 
   it("izin verilmeyen site için panelde izin kartı açılır; tek tıkla izin verilir ve geri alınır", async () => {
     autoConnected();
-    kit.chromeMock.permissions.getAll = vi.fn(async () => ({ origins: ["http://127.0.0.1/*", "https://ads.example.com/*"] }));
-    (kit.chromeMock.permissions as { remove?: unknown }).remove = vi.fn(async () => true);
-    kit.session.set("fusionPermission", { origin: "https://ads.example.com", at: 1 });
+    let origins = ["http://127.0.0.1/*", "https://ads.example.com/*"];
+    kit.chromeMock.permissions.getAll = vi.fn(async () => ({ origins }));
+    (kit.chromeMock.permissions as { remove?: unknown }).remove = vi.fn(async ({origins: removed}: {origins: string[]}) => {
+      origins = origins.filter((origin) => !removed.includes(origin));
+      return true;
+    });
+    pendingPermission("https://ads.example.com");
     await loadPanel();
     await waitFor(() => expect($("perm").hidden).toBe(false));
     expect($("perm-title").textContent).toContain("ads.example.com");
@@ -157,7 +166,7 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     click("perm-allow");
     await waitFor(() => expect($("perm").hidden).toBe(true));
     expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["https://ads.example.com/*"] });
-    expect(kit.session.has("fusionPermission")).toBe(false);
+    expect(kit.session.get(permissionKey)).toMatchObject({ state: "granted" });
 
     click("open-settings");
     await waitFor(() => expect($("sites").textContent).toContain("ads.example.com"));
@@ -165,11 +174,12 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     ($("sites").querySelector("button") as HTMLButtonElement).click();
     await waitFor(() => expect((kit.chromeMock.permissions as { remove: ReturnType<typeof vi.fn> }).remove)
       .toHaveBeenCalledWith({ origins: ["https://ads.example.com/*"] }));
+    await waitFor(() => expect($("sites").textContent).not.toContain("ads.example.com"));
   });
 
   it("'Tüm sitelere izin ver' tek tıkla tüm siteleri kapsar", async () => {
     autoConnected();
-    kit.session.set("fusionPermission", { origin: "https://x.example.com", at: 1 });
+    pendingPermission("https://x.example.com");
     await loadPanel();
     await waitFor(() => expect($("perm").hidden).toBe(false));
     click("perm-all");
@@ -177,14 +187,14 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["<all_urls>"] });
   });
 
-  it("izin kartı 'Şimdi değil' ile kapanır", async () => {
+  it("izin kartı açık ret sonucuyla kapanır", async () => {
     autoConnected();
-    kit.session.set("fusionPermission", { origin: "https://x.example.com", at: 1 });
+    pendingPermission("https://x.example.com");
     await loadPanel();
     await waitFor(() => expect($("perm").hidden).toBe(false));
     click("perm-deny");
     await waitFor(() => expect($("perm").hidden).toBe(true));
-    expect(kit.session.has("fusionPermission")).toBe(false);
+    expect(kit.session.get(permissionKey)).toMatchObject({ state: "denied" });
   });
 
   it("Durdur düğmesi turu keser; ilk açılışta eski turlar oynatılmaz", async () => {
@@ -339,7 +349,9 @@ describe("Çekirdek: sekme yönetimi", () => {
     vi.resetModules();
     const core = await import("../../../chrome-extension/core.js");
     core.setPermissionWait(50);
-    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("kullanıcı izin vermedi");
+    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toMatchObject({code: "permission_timeout"});
+    expect(kit.chromeMock.tabs.create).not.toHaveBeenCalled();
+    expect([...kit.session.keys()].some((key) => key.startsWith("fusionPermission:"))).toBe(false);
   });
 
   it("bağlı sekme yokken adrese gitmek yeni sekme açar; diğer işlemler yine hata verir", async () => {

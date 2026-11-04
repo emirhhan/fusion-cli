@@ -768,6 +768,10 @@ class AppSession:
         Claude in Chrome'daki gibi panel modeli ve izin kipini kendisi seçer. Model
         masaüstündeki `model.sec` ile (eski `/development uygula` ile aynı uygulayıcı) değişir.
         """
+        if data.get("izinler") is True or "izin_sil" in data:
+            from .site_permissions import site_permission_settings
+
+            return await site_permission_settings(self._state.approval_memory, data.get("izin_sil"))
         if data.get("yeni") is True:
             # Paneldeki "temizle": yeni panel konuşması, uygulamanın sohbeti etkilenmez.
             if self._turn is not None and not self._turn.done():

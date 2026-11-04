@@ -127,6 +127,7 @@ def _is_webp(ham: bytes, mime: str) -> bool:
 
 async def describe_image(config: Config, path: Path, question: str) -> tuple[str, str | None]:
     """Görseli yapılandırılmış görsel modeline sor. (açıklama, hata) döndürür."""
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
     spec = config.vision
@@ -143,6 +144,7 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         result = await provider.complete(
             CompletionRequest(
