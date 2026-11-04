@@ -226,9 +226,11 @@ async function renderTab() {
 // --- Canlı akış ---------------------------------------------------------------
 
 async function applyItem(item) {
-  if (item.tur === "basladi" && !running()) {
-    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", adimlar: [], durum: "calisiyor" }] };
+  if (item.tur === "basladi") {
+    if (!item.turnId || thread.mesajlar.some((message) => message.turnId === item.turnId) || running()) return thread;
+    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", turnId: item.turnId, adimlar: [], durum: "calisiyor" }] };
   }
+  if (item.turnId && thread.mesajlar.at(-1)?.turnId !== item.turnId) return thread;
   if (item.tur === "dusunuyor") return withLastAssistant(() => ({ etiket: "Düşünüyor…" }));
   if (item.tur === "adim" || item.tur === "hata") {
     if (running()) void setGlow(true);
@@ -240,7 +242,7 @@ async function applyItem(item) {
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
   if (item.tur === "tarayici_sec") return { ...thread, soru: {id: item.id, veri: item.veri} };
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
-  if (item.tur === "bitti" && !inflight) {
+  if (item.tur === "bitti" && typeof item.turnId === "string" && item.turnId === thread.mesajlar.at(-1)?.turnId) {
     void setGlow(false);
     return { ...withLastAssistant(() => ({ metin: item.metin || "", durum: item.ok ? "bitti" : "hata" })), soru: null };
   }
@@ -351,30 +353,36 @@ async function sendPrompt(text) {
   error();
   $("prompt").value = "";
   autoGrow();
-  inflight = true;
+  const turnId = crypto.randomUUID();
+  inflight = turnId;
   await saveThread({
     ...thread,
-    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", adimlar: [], durum: "calisiyor" }],
+    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", turnId, adimlar: [], durum: "calisiyor" }],
   });
   void setGlow(true);
   try {
-    const result = await request("/turn", { prompt });
+    const result = await request("/turn", { prompt, turnId });
+    if (thread.mesajlar.at(-1)?.turnId !== turnId) return;
     const durum = result.ok ? "bitti" : thread.mesajlar.at(-1)?.durum === "iptal" ? "iptal" : "hata";
     await saveThread({ ...withLastAssistant(() => ({ metin: result.metin || "", durum })), soru: null });
   } catch (cause) {
-    await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
+    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
     throw cause;
   } finally {
-    inflight = false;
-    void setGlow(false);
+    if (inflight === turnId) inflight = false;
+    if (!running()) void setGlow(false);
   }
 }
 
 async function cancel() {
   $("cancel").disabled = true;
   try {
-    await request("/cancel");
-    await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
+    const turnId = thread.mesajlar.at(-1)?.turnId;
+    const result = await request("/cancel", { turnId });
+    if (!result.ok) throw new Error(result.metin || "Durdurma kabul edilmedi.");
+    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) {
+      await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
+    }
   } finally {
     $("cancel").disabled = false;
   }

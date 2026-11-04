@@ -45,3 +45,32 @@ assert.equal(run('thread.soru?.id'),'switch-owned','switch sorusu canlı olay ve
 run('thread={mesajlar:[],seq:null,soru:null};connection=async()=>null;request=async()=>({son:1,sorular:[{tur:"tarayici_sec",id:"switch-owned",veri:{tur:"soru",tarayici_sec:true}}]});');
 await run('listen()');
 assert.equal(run('thread.soru?.id'),'switch-owned','yeni panel switch sorusunu snapshot üzerinden geri alır');
+
+// HTTP and event completion can arrive in either order; old events cannot revive a turn.
+context.setGlow = async () => {};
+run('thread={mesajlar:[{rol:"asistan",turnId:"panel:1",durum:"calisiyor"}],seq:1,soru:null}; inflight=true;');
+await run('applyItem({tur:"bitti",turnId:"panel:1",ok:true,metin:"done"}).then(next=>{thread=next;})');
+assert.equal(run('running()'), false, 'terminal event settles even while HTTP is pending');
+await run('applyItem({tur:"basladi",turnId:"panel:1"}).then(next=>{thread=next;})');
+assert.equal(run('running()'), false, 'delayed started event cannot resurrect completed owner');
+run('thread={mesajlar:[{rol:"asistan",turnId:"panel:2",durum:"calisiyor"}],seq:2,soru:null};');
+await run('applyItem({tur:"bitti",turnId:"panel:1",ok:true}).then(next=>{thread=next;})');
+assert.equal(run('running()'), true, 'old completion cannot settle a newer owner');
+run('request=async(path,data)=>{globalThis.cancelBody=data;return {ok:false,metin:"wrong owner"};};');
+await assert.rejects(run('cancel()'), /wrong owner/);
+assert.equal(run('cancelBody.turnId'), 'panel:2');
+assert.equal(run('running()'), true, 'rejected stop does not claim cancellation');
+
+// Finish over HTTP, then drain queued started+finished events: exactly one final row.
+context.crypto = {randomUUID: () => 'http:1'};
+context.expandShortcut = async (value) => value;
+context.autoGrow = () => {};
+run('thread={mesajlar:[],seq:0,soru:null}; request=async()=>({ok:false,turnId:"http:1",metin:"busy"});');
+await run('sendPrompt("request")');
+assert.equal(run('running()'), false, 'busy HTTP rejection leaves the composer idle');
+run('thread={mesajlar:[],seq:0,soru:null}; request=async()=>({ok:true,turnId:"http:1",metin:"done"});');
+await run('sendPrompt("request")');
+await run('applyItem({tur:"basladi",turnId:"http:1"}).then(next=>{thread=next;})');
+await run('applyItem({tur:"bitti",turnId:"http:1",ok:true,metin:"done"}).then(next=>{thread=next;})');
+assert.equal(run('running()'), false);
+assert.equal(run('thread.mesajlar.length'), 2, 'event replay cannot append a phantom assistant');

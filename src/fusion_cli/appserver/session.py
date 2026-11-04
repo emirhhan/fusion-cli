@@ -33,6 +33,7 @@ from functools import partial
 from itertools import count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from ..cli.repl import code_review_findings, cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
@@ -70,7 +71,7 @@ from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
 from ..core.errors import ConfigError
-from ..core.events import Event, EventSink, StatusChanged
+from ..core.events import Event, EventSink, StatusChanged, ToolExecuted, ToolStarted
 from ..core.owned_thread import await_owned_thread
 from ..core.plan_switch import PlanModeSwitch
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
@@ -353,39 +354,10 @@ def findings_payload(text: str) -> dict[str, Any]:
 
 
 def _attachment_images(value: object) -> tuple[str, ...]:
-    """Görsel ekleri modele iliştirilebilir veri URI'lerine çevir.
+    """Validate and read attachments through the shared bounded adapter."""
+    from .attachments import attachment_images
 
-    Eskiden ek olarak YALNIZ dosya yolu metin bağlamına giriyordu; görebilen bir
-    model bile resmi hiç görmüyordu. Okunamayan, çok büyük ya da tanınmayan
-    türdeki dosyalar sessizce atlanır — yol bilgisi metin bağlamında zaten
-    kalır ve model gerektiğinde dosyayı araçla okuyabilir.
-
-    `read_bytes` + base64 (≈ 53 MB'a kadar) senkron diskte çalışır: çağıranlar bunu
-    `asyncio.to_thread` ile çağırır, olay döngüsü bloklanmaz (ölçüldü 30 Ekim).
-    """
-    if not isinstance(value, list):
-        return ()
-    import base64
-
-    uriler: list[str] = []
-    for raw in value[:8]:
-        if not isinstance(raw, dict) or raw.get("kind") != "image":
-            continue
-        path = raw.get("path")
-        if not isinstance(path, str):
-            continue
-        local_path = Path(path).expanduser()
-        tur = _GORSEL_TURLERI.get(local_path.suffix.casefold())
-        if tur is None:
-            continue
-        try:
-            if local_path.stat().st_size > MAX_GORSEL_BAYT:
-                continue
-            ham = local_path.read_bytes()
-        except OSError:
-            continue
-        uriler.append(f"data:{tur};base64,{base64.b64encode(ham).decode('ascii')}")
-    return tuple(uriler)
+    return attachment_images(value)
 
 
 async def _attachment_images_async(value: object) -> tuple[str, ...]:
@@ -400,47 +372,10 @@ async def _attachment_images_async(value: object) -> tuple[str, ...]:
 
 
 def _attachment_context(value: object) -> tuple[str, str | None]:
-    """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
+    """Validate all attachments before admitting a turn."""
+    from .attachments import attachment_context
 
-    Dosya içeriği burada okunmaz; arayüz mutlak yolu verir ve agent standart
-    dosya araçları/izinleri üzerinden gerektiğinde kendisi okur.
-    """
-    if not isinstance(value, list):
-        return "", None
-    attachments: list[dict[str, str]] = []
-    unavailable: list[str] = []
-    for raw in value[:20]:
-        if not isinstance(raw, dict):
-            continue
-        path = raw.get("path")
-        if not isinstance(path, str) or not path.strip() or len(path) > 4096:
-            continue
-        local_path = Path(path).expanduser()
-        if not local_path.is_absolute() or not local_path.is_file():
-            unavailable.append(str(raw.get("name") or path)[:512])
-            continue
-        attachments.append(
-            {
-                "path": str(local_path),
-                "name": str(raw.get("name", ""))[:512],
-                "kind": "image" if raw.get("kind") == "image" else "file",
-            }
-        )
-    if unavailable:
-        names = ", ".join(unavailable[:3])
-        suffix = "…" if len(unavailable) > 3 else ""
-        return "", f"Ek açılamadı veya artık mevcut değil: {names}{suffix}"
-    if not attachments:
-        return "", None
-    payload = json.dumps(attachments, ensure_ascii=False)
-    return (
-        "<kullanici_ekleri>\n"
-        "Bu yolları kullanıcı bu tur için açıkça ekledi. İçerikleri yalnız görev "
-        "gerektiriyorsa standart izin ve araç kurallarıyla oku.\n"
-        f"{payload}\n"
-        "</kullanici_ekleri>",
-        None,
-    )
+    return attachment_context(value)
 
 
 def _discard_line(_line: str) -> None:
@@ -473,6 +408,26 @@ def _should_auto_continue(outcome: object, auto_continues: int) -> bool:
     return bekleyen and getattr(outcome, "mutating_tool_calls_made", 0) > 0
 
 
+class _RetryEffectSink:
+    """Conservative evidence for graceful cancellation; unknown tools require observation."""
+
+    # Only fixed local readers are eligible. Shell, browser, MCP and dynamic tools
+    # remain unsafe even when a particular invocation looks read-only.
+    READERS = frozenset({"read_file", "list_dir", "search_code"})
+
+    def __init__(self, inner: EventSink) -> None:
+        self.inner = inner
+        self.safe = True
+
+    def handle(self, event: Event) -> None:
+        if isinstance(event, (ToolStarted, ToolExecuted)) and (
+            event.name not in self.READERS
+            or (isinstance(event, ToolExecuted) and event.mutating is True)
+        ):
+            self.safe = False
+        self.inner.handle(event)
+
+
 class _MeteredSink:
     """Olayları yazan sink'i sarar ve tüketimi sayar.
 
@@ -481,7 +436,7 @@ class _MeteredSink:
     """
 
     def __init__(
-        self, inner: ProtocolSink, meter: UsageMeter, usage_log: UsageLog | None = None
+        self, inner: EventSink, meter: UsageMeter, usage_log: UsageLog | None = None
     ) -> None:
         self._inner = inner
         self._meter = meter
@@ -675,9 +630,10 @@ class AppSession:
         self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
+        self._chrome_turn_id: str | None = None
         self._chrome = ChromeBridge(
             self._chrome_turn,
-            self._cancel_turn,
+            self._chrome_cancel,
             self._chrome_answer,
             self._chrome_settings,
             installer=auto_install_async,
@@ -721,6 +677,7 @@ class AppSession:
         #: Son değerlendirmenin ürettiği devam görevi: hedef kipi YALNIZ bu metinle gelen
         #: tura uygulanır, ilgisiz sonraki mesaja sızmaz.
         self._goal_continuation: str | None = None
+        self._goal_turn_id: str | None = None
         #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
         self._fork_requested = False
 
@@ -750,17 +707,41 @@ class AppSession:
             )
         return self._remote
 
-    async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
-        """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
-        self._chrome.publish({"tur": "basladi"})
-        result = await self._run_turn(prompt, browser_only=True)
+    async def _chrome_turn(self, prompt: str, turn_id: str | None = None) -> dict[str, Any]:
+        """Execute only admitted panel work; terminal events share its owner."""
+        owner = turn_id or f"chrome:{uuid4().hex}"
+        try:
+            result = await self._run_turn(prompt, browser_only=True, chrome_turn_id=owner)
+        except (Exception, asyncio.CancelledError):
+            if self._chrome_turn_id == owner:
+                self._chrome.publish(
+                    {
+                        "tur": "bitti",
+                        "turnId": owner,
+                        "ok": False,
+                        "metin": messages.APP_TURN_NO_ANSWER,
+                    }
+                )
+                self._chrome_turn_id = None
+            raise
+        result.pop("_retry_safe", None)
+        result.pop("_cancelled", None)
         answer = result.get("metin")
         if isinstance(answer, str):
-            # Açılışsız `</think>` de `strip_thinking` içinde ayıklanır.
             result["metin"] = strip_thinking(answer).strip()
-        # Panel tur sürerken kapanıp açılabilir: sonuç akışta da durur.
-        self._chrome.publish({"tur": "bitti", "ok": result.get("ok"), "metin": result.get("metin")})
+        if self._chrome_turn_id == owner:
+            self._chrome.publish({"tur": "bitti", "turnId": owner, **result})
+            self._chrome_turn_id = None
+        if turn_id is not None:
+            result["turnId"] = owner
         return result
+
+    def _chrome_cancel(self, turn_id: str | None = None) -> dict[str, Any]:
+        # Old panels without ownership can still run tasks but must reconnect to
+        # the current protocol before stopping one; never stop native work.
+        if not turn_id or turn_id != self._chrome_turn_id:
+            return {"ok": False, "metin": "Durdurma isteği etkin panel göreviyle eşleşmiyor."}
+        return self._cancel_turn()
 
     async def _chrome_settings(self, data: dict[str, Any]) -> dict[str, Any]:
         """Yan panelin model seçici ve "Önce sor / Sormadan yap" anahtarı.
@@ -1622,22 +1603,33 @@ class AppSession:
             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
             if attachment_error:
                 return {"ok": False, "metin": attachment_error}
+            try:
+                attachment_images = await _attachment_images_async(request.data.get("ekler"))
+            except ValueError as error:
+                return {"ok": False, "metin": str(error)}
             direct = await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
-                await _attachment_images_async(request.data.get("ekler")),
+                attachment_images,
                 voice_context=voice_context,
                 deadline=deadline,
             )
+            direct.pop("_retry_safe", None)
             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
             return self._with_steering_leftover(direct)
         if request.name == "tur.kes":
-            if self._goal_task is not None and not self._goal_task.done():
-                # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
+            owner = self._goal_turn_id if self._goal_judging() else self._steering_turn
+            if "turnId" in request.data and (
+                not isinstance(request.data["turnId"], str)
+                or not owner
+                or request.data["turnId"] != owner
+            ):
+                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
+            # Requests without turnId retain the explicit legacy stop-current behavior.
+            if self._goal_judging():
+                assert self._goal_task is not None
                 self._goal_task.cancel()
                 return {"ok": True, "state": "stopping", "metin": messages.GOAL_STOPPED}
-            if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
-                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
 
@@ -3056,6 +3048,10 @@ class AppSession:
                     self._submission_task is not None and not self._submission_task.done()
                 ):
                     return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
+                try:
+                    attachment_images = await _attachment_images_async(request.data.get("ekler"))
+                except ValueError as error:
+                    return {"ok": False, "metin": str(error)}
                 claim = await (
                     self._submission_store.retry(key)
                     if is_retry
@@ -3077,7 +3073,7 @@ class AppSession:
                         claim.receipt,
                         task,
                         attachment_context,
-                        await _attachment_images_async(request.data.get("ekler")),
+                        attachment_images,
                         voice_context,
                         deadline,
                         self._state.config,
@@ -3169,6 +3165,7 @@ class AppSession:
         *,
         voice_context: VoiceTurnContext | None = None,
         browser_only: bool = False,
+        chrome_turn_id: str | None = None,
         auto_continues: int = 0,
         deadline: TurnDeadline | None = None,
         receipt: SubmissionReceipt | None = None,
@@ -3249,9 +3246,10 @@ class AppSession:
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
         protocol_sink = ProtocolSink(writer, receipt=receipt, sequence=event_sequence)
+        effect_sink = _RetryEffectSink(protocol_sink)
         sink = LibrarySink(
             _MeteredSink(
-                protocol_sink,
+                effect_sink,
                 self._usage,
                 self._usage_log,
             ),
@@ -3272,7 +3270,7 @@ class AppSession:
         child_runs = self._state.child_runs
         self._child_runs = child_runs
         self._steering = steering
-        self._steering_turn = receipt.attempt_id if receipt else None
+        self._steering_turn = receipt.attempt_id if receipt else chrome_turn_id
         self._steering_requests.clear()
         config = config_snapshot or self._state.config
         if self._disabled_mcp:
@@ -3427,12 +3425,16 @@ class AppSession:
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
         owned_turn = asyncio.ensure_future(execute_turn())
         self._turn = owned_turn
+        if browser_only:
+            self._chrome_turn_id = chrome_turn_id
+            self._chrome.publish({"tur": "basladi", "turnId": chrome_turn_id})
         self._ensure_idle_watch()
         self._turn_settled.clear()
         try:
             outcome = await owned_turn
         except asyncio.CancelledError:
             self._iptal_bekliyor = True
+            interrupted_entry = journal.load() if journal is not None else None
             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
             if not browser_only:
@@ -3444,16 +3446,38 @@ class AppSession:
                 # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
                 from ..core.turn_resume import interrupted_history
 
-                entry = journal.load() if journal is not None else None
                 preserved = (
-                    list(entry.messages) if entry is not None else [*history, Message("user", task)]
+                    list(interrupted_entry.messages)
+                    if interrupted_entry is not None
+                    else [*history, Message("user", task)]
                 )
                 self._state.history = interrupted_history(
                     preserved, task=task, root=str(self._state.root.resolve())
                 )
                 if journal is not None:
                     await await_owned_thread(journal.save, self._state.history)
-            return {"ok": False, "metin": messages.APP_TURN_CANCELLED, "_cancelled": True}
+            retry_safe = effect_sink.safe
+            if journal is not None:
+                # Snapshot may contain a proposed/incomplete tool call even if the
+                # event was not delivered. Old history is outside this attempt.
+                durable = interrupted_entry
+                previous = {call.id for message in history for call in message.tool_calls}
+                retry_safe = (
+                    retry_safe
+                    and durable is not None
+                    and all(
+                        call.name in _RetryEffectSink.READERS
+                        for message in durable.messages
+                        for call in message.tool_calls
+                        if call.id not in previous
+                    )
+                )
+            return {
+                "ok": False,
+                "metin": messages.APP_TURN_CANCELLED,
+                "_cancelled": True,
+                "_retry_safe": retry_safe,
+            }
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
@@ -3548,7 +3572,11 @@ class AppSession:
                 continued["_retry_safe"] = False
             return {**root_payload, **continued}
         self._cron_save()
-        goal_payload = await self._evaluate_goal(sink)
+        self._goal_turn_id = receipt.attempt_id if receipt else None
+        try:
+            goal_payload = await self._evaluate_goal(sink)
+        finally:
+            self._goal_turn_id = None
         if switched:
             metin = f"{metin}\n\n{switched}".strip()
         cevap: dict[str, Any] = {

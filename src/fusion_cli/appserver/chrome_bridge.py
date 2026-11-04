@@ -85,8 +85,8 @@ ELEMENT_NAME_LIMIT = 120
 class ChromeBridge:
     def __init__(
         self,
-        on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
-        on_cancel: Callable[[], dict[str, Any]] | None = None,
+        on_turn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+        on_cancel: Callable[..., dict[str, Any]] | None = None,
         on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
         on_settings: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         installer: Callable[[], Awaitable[dict[str, Any]]] | None = None,
@@ -111,6 +111,7 @@ class ChromeBridge:
         #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
         self._feed: list[dict[str, Any]] = []
         self._feed_seq = 0
+        self._panel_turn_id: str | None = None
         self._questions: dict[str, dict[str, Any]] = {}
         self._switch_question_id: str | None = None
         self._switch_lock = asyncio.Lock()
@@ -289,6 +290,10 @@ class ChromeBridge:
         self._publish_now(item)
 
     def _publish_now(self, item: dict[str, Any]) -> None:
+        if item.get("tur") == "basladi":
+            self._panel_turn_id = item.get("turnId")
+        if self._panel_turn_id is not None:
+            item = {"turnId": self._panel_turn_id, **item}
         if item.get("tur") in {"soru", "tarayici_sec"} and isinstance(item.get("id"), str):
             self._questions[item["id"]] = dict(item)
         elif item.get("tur") == "soru_kapandi":
@@ -297,6 +302,8 @@ class ChromeBridge:
             self._questions.clear()
         self._feed_seq += 1
         self._feed.append({"seq": self._feed_seq, **item})
+        if item.get("tur") == "bitti" and item.get("turnId") == self._panel_turn_id:
+            self._panel_turn_id = None
         del self._feed[:-FEED_LIMIT]
         changed, self._feed_changed = self._feed_changed, asyncio.Event()
         changed.set()
@@ -616,9 +623,19 @@ class ChromeBridge:
                 prompt = body.get("prompt")
                 if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
                     raise ValueError("Geçersiz görev metni")
-                result = await self._on_turn(prompt.strip())
+                turn_id = body.get("turnId")
+                if turn_id is not None and (
+                    not isinstance(turn_id, str) or not turn_id.strip() or len(turn_id) > 200
+                ):
+                    raise ValueError("Geçersiz görev kimliği")
+                result = (
+                    await self._on_turn(prompt.strip(), turn_id)
+                    if turn_id is not None
+                    else await self._on_turn(prompt.strip())
+                )
             elif method == "POST" and target == "/cancel" and self._on_cancel is not None:
-                result = self._on_cancel()
+                turn_id = body.get("turnId")
+                result = self._on_cancel(turn_id) if isinstance(turn_id, str) else self._on_cancel()
             elif method == "POST" and target == "/events":
                 result = await self._events(body.get("after"))
             elif method == "POST" and target == "/answer":
