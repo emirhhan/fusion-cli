@@ -52,6 +52,12 @@ KEY_CODES = {
 #: Başka araç takımlarının tuş adları (tek kaynak: `key_spec.KEY_NAME_ALIASES`).
 KEY_ALIASES = KEY_NAME_ALIASES
 
+# Logical arithmetic keys use the numeric keypad when no modifier is requested.
+# ANSI punctuation is a physical position: e.g. ANSI '=' emits '-' on Turkish Q.
+# HIToolbox Events.h: kVK_ANSI_Keypad{Multiply,Plus,Divide,Minus,Equals}.
+# Keep KEY_CODES unchanged for shortcuts (cmd+= etc.) and explicit modifiers.
+_ARITHMETIC_KEYPAD_CODES = {"*": 0x43, "+": 0x45, "/": 0x4B, "-": 0x4E, "=": 0x51}
+
 
 def resolve_key(name: str) -> int | None:
     """Tuş adı (takma adlar dahil, büyük/küçük harf duyarsız) -> sanal tuş kodu."""
@@ -299,6 +305,8 @@ def _key_chords(args: ToolArgs) -> tuple[KeyChord, ...] | str:
 def _post_chord(framework: ctypes.CDLL, chord: KeyChord, hold_ms: int) -> None:
     """Akoru `_post_key`'e geçir; yalnız açık olan ek bayraklar iletilir (test sözleşmesi)."""
     code = cast(int, resolve_key(chord.key))
+    if not (chord.command or chord.control or chord.option or chord.shift):
+        code = _ARITHMETIC_KEYPAD_CODES.get(chord.key, code)
     extra: dict[str, Any] = {name: True for name in ("option", "control") if getattr(chord, name)}
     if hold_ms:
         extra["hold_ms"] = hold_ms
