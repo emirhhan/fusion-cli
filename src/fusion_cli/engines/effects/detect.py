@@ -200,6 +200,14 @@ _REQUEST_SUFFIX = (
     r"abilir misin|ebilir misin)"
 )
 
+# A counted locative line span constrains the reply's length. Remove only that
+# span, retaining "yaz" so an explicit file/code object still binds its verb.
+_REPLY_LINE_FORMAT_PATTERN = re.compile(
+    r"\b(?:\d+|bir|iki|üç|uc|dört|dort|beş|bes|altı|alti|yedi|sekiz|dokuz|on)"
+    rf"\s+(?:k[ıi]sa\s+)?sat[ıi]rda\b(?=\s+yaz(?:{_REQUEST_SUFFIX})?\b)",
+    re.IGNORECASE,
+)
+
 _FILE_MUTATION_PATTERNS = (
     # An application can be the source of a new copy, rather than its location.
     # Require both an explicit clone object and an affirmative creation verb.
@@ -423,7 +431,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     # Preserve sentence/newline/conjunction boundaries for object→verb binding.
     # External-effect priority still consumes the complete positive request.
     clauses = tuple(
-        _ANSWER_FORMAT_PATTERN.sub(" ", clause)
+        _ANSWER_FORMAT_PATTERN.sub(" ", _REPLY_LINE_FORMAT_PATTERN.sub(" ", clause))
         for clause in _positive_action_parts(_UI_CONTROL_LABEL_VERB.sub("", lower_tr_aware(task)))
     )
     lowered = " ".join(clauses)
