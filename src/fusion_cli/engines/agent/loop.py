@@ -1866,6 +1866,10 @@ async def _drive(
         require_local_mutation=require_local_mutation,
     )
     budget = deps.require_budget()
+    recovery_context = reflexion.recovery_context(
+        required_effect=execution.required_effect,
+        desktop="masaustu" in deps.tool_context.task_kinds,
+    )
     final_text = ""
     # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
     # bütçeden yer. Buradaki `local_limit` yalnızca BU çağrıyı daha da daraltır
@@ -2341,7 +2345,7 @@ async def _drive(
             # ilerlemesiz dizide bir kez gelsin, her turda değil.
             budget.idle_rounds = 0
             state.stalled = True
-            messages.append(reflexion.stall_rescue_note())
+            messages.append(reflexion.stall_rescue_note(context=recovery_context))
             deps.publisher.publish(StatusChanged(STALL_STATUS))
             if (
                 auto_teacher
@@ -2363,7 +2367,7 @@ async def _drive(
             # sayaca bakıyor ve sayaç yeni sıfırlanmış oluyordu (ölçüldü — tur ölü
             # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
         elif errored and deps.config.runtime.reflexion and not plan_mode:
-            messages.append(reflexion.note(persistent=False))
+            messages.append(reflexion.note(persistent=False, context=recovery_context))
         if _looks_like_wrong_workspace(state):
             state.warned_wrong_workspace = True
             oneri = find_workspace_for(tuple(state.missing_paths), deps.tool_context.root)

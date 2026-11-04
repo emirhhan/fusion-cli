@@ -10,15 +10,37 @@ bir davranış düzeltmesidir.
 from __future__ import annotations
 
 import shlex
+from typing import Literal
 
 from ...core.tool_emulation import PAYLOAD_EXAMPLE, PAYLOAD_RULES, render_call
 from ...core.types import Message
 
-STANDARD_NOTE = (
+WORKSPACE_NOTE = (
     "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Kısaca ne yanlış "
     "gitti düşün ve FARKLI bir yaklaşım dene — aynı çağrıyı birebir tekrarlama. "
     "Gerekirse önce keşif yap (read_file / search_code), sonra hedefli düzelt."
 )
+
+STANDARD_NOTE = (
+    "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Hatayı değerlendir; "
+    "aynı başarısız çağrıyı körlemesine tekrarlama. Kullanıcının istediği ve izin verdiği "
+    "kapsamda uygun gözlemle eksik bilgiyi edin, sonucu doğrula. Bir engel varsa açıkla."
+)
+DESKTOP_NOTE = (
+    "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Hedef uygulama "
+    "ve pencerenin güncel durumunu izinli masaüstü gözlemiyle doğrula. Eski veya belirsiz "
+    "hedefe körlemesine eylem uygulama. Yalnız istenen işlem kapsamında ilerle; "
+    "sonucu gözlemle doğrula. İzin veya kimlik engeli varsa açıkla."
+)
+RecoveryContext = Literal["workspace", "desktop", "observation"]
+
+
+def recovery_context(*, required_effect: str | None, desktop: bool) -> RecoveryContext:
+    """File-changing recovery requires this turn's affirmative workspace contract."""
+    if required_effect == "workspace_mutation":
+        return "workspace"
+    return "desktop" if desktop else "observation"
+
 
 PERSISTENT_NOTE = (
     "[refleksiyon] Son araç çağrısı HATA döndürdü. Pes etme: hatayı dikkatlice oku ve "
@@ -107,9 +129,10 @@ def wrong_workspace_note(root: str, suggestion: str = "") -> Message:
     return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri), harness_note=True)
 
 
-def note(*, persistent: bool) -> Message:
-    """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
-    return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE, harness_note=True)
+def note(*, persistent: bool, context: RecoveryContext = "observation") -> Message:
+    """Araç hatasından sonra görevin yetkili kapsamı içinde yön ver."""
+    text = {"workspace": WORKSPACE_NOTE, "desktop": DESKTOP_NOTE}.get(context, STANDARD_NOTE)
+    return Message("user", PERSISTENT_NOTE if persistent else text, harness_note=True)
 
 
 def auto_continue_note() -> Message:
@@ -132,15 +155,31 @@ def keep_delivery(delivery: str, confirmation: str) -> str:
 # Ölçüldü (28 Eylül, büyük proje görevi): model 13 dakika boyunca yalnız arama ve
 # okuma yaptı, hiçbir görevi tamamlamadan "ilerleme yok" ile cevapsız kesildi.
 # Bekleyen görev varken doğru hamle keşfi bırakıp ilk somut değişikliği yapmaktır.
-STALL_RESCUE_NOTE = (
+WORKSPACE_STALL_RESCUE_NOTE = (
     "[ilerleme-yok] Son turlarda yeni bir şey öğrenmedin ve hiçbir dosyayı "
     "değiştirmedin. Aramayı bırak: elindeki bilgiyle görev listesindeki sıradaki "
     "maddenin İLK somut değişikliğini şimdi yap. Bir engel varsa onu tek cümleyle açıkla."
 )
 
 
-def stall_rescue_note() -> Message:
-    return Message("user", STALL_RESCUE_NOTE, harness_note=True)
+STALL_RESCUE_NOTE = (
+    "[ilerleme-yok] Son turlarda yeni ilerleme doğrulanmadı. Aynı keşfi tekrarlama. "
+    "Kullanıcının istediği kapsamda eksik kanıtı tamamla veya doğrulanmış sonucu sun. "
+    "Bir engel varsa onu açıkla; yeni bir görev uydurma."
+)
+DESKTOP_STALL_RESCUE_NOTE = (
+    "[ilerleme-yok] Son turlarda hedef uygulama üzerinde yeni ilerleme doğrulanmadı. "
+    "Yalnız istenen masaüstü işlemi için güncel hedef uygulama/pencere durumunu gözle. "
+    "Kimlik ve izin doğrulanıyorsa sıradaki yetkili işlemi yap ve gerçek sonucu doğrula. "
+    "Aynı başarısız eylemi körlemesine tekrarlama; engel varsa açıkla."
+)
+
+
+def stall_rescue_note(*, context: RecoveryContext = "observation") -> Message:
+    text = {"workspace": WORKSPACE_STALL_RESCUE_NOTE, "desktop": DESKTOP_STALL_RESCUE_NOTE}.get(
+        context, STALL_RESCUE_NOTE
+    )
+    return Message("user", text, harness_note=True)
 
 
 #: Yanıt bütünlüğü sınıfına göre gönderilecek not.
