@@ -31,6 +31,7 @@ from .teacher_memory import find_reusable_plan, plan_steps_from_lesson, record_p
 from .teacher_plan import (
     TeacherPlanError,
     classify_teacher_task,
+    is_bounded_single_file_task,
     parse_teacher_plan,
     parse_teacher_review,
 )
@@ -445,7 +446,12 @@ _REVIEW_TASK_CHARS = BRIEF_CHAR_BUDGET // 6
 
 
 async def review_teacher_changes(
-    task: str, outcome: AgentOutcome, deps: AgentDeps, registry: ToolRegistry
+    task: str,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    ordinary_self_review_enabled: bool = False,
 ) -> tuple[str, ...] | None:
     """Dosya değişikliğini görev gereksinimlerine karşı öğretmene denetlet.
 
@@ -459,6 +465,15 @@ async def review_teacher_changes(
         or not deps.tool_context.changes.paths
         or artifact_only(deps.tool_context.changes.paths)
     ):
+        return None
+    if (
+        ordinary_self_review_enabled
+        and len(deps.tool_context.changes.paths) == 1
+        and is_bounded_single_file_task(task)
+    ):
+        # One eligible ordinary review is enough for this bounded change. The
+        # caller supplies actual eligibility, including explicit overrides; a
+        # configured flag alone could otherwise skip both review paths.
         return None
     if not teacher_is_ready(deps, registry):
         return None

@@ -1459,6 +1459,8 @@ async def _run_agent(
             outcome, verification, deps, fix_rounds=fix_rounds, plan_mode=plan_mode, depth=depth
         )
 
+    from .self_review_policy import ordinary_self_review_enabled
+
     is_measurement_failure = (
         verification is not None
         and not verification.ok
@@ -1472,7 +1474,22 @@ async def _run_agent(
         and budget.stop is None
         and not is_measurement_failure
     ):
-        teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
+        teacher_findings = await review_teacher_changes(
+            task,
+            outcome,
+            deps,
+            registry,
+            ordinary_self_review_enabled=ordinary_self_review_enabled(
+                outcome,
+                budget,
+                configured=deps.config.runtime.self_review,
+                override=self_review,
+                plan_mode=plan_mode,
+                depth=depth,
+                measurement_failure=is_measurement_failure,
+                browser_prefixes=_BROWSER_TOOL_PREFIXES,
+            ),
+        )
         if teacher_findings:
             teacher_gate = VerificationResult(
                 ok=False,
@@ -1497,43 +1514,20 @@ async def _run_agent(
     if verification is not None and not verification.ok:
         outcome.ok = False
 
-    # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
-    # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
-    # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
-    should_review = deps.config.runtime.self_review if self_review is None else self_review
-    # Öz-denetim yalnız GERÇEK bir dosya mutasyonu olduğunda çalışır. Ölçüldü
-    # (B2 gecikmesi): "Sadece 'merhaba' yaz" gibi araçsız bir tur, eski koşulda
-    # (web taşımasında regex tabanlı `_web_self_review_needed`, API taşımasında
-    # koşulsuz) yine de bir hakem çağrısı harcıyordu. Koşul artık YAPISAL: metne
-    # bakmaz, yalnızca turda GERÇEKTEN mutasyon olup olmadığına bakar.
-    if outcome.mutating_tool_calls_made == 0:
-        should_review = False
-    # Tarayıcı araçları kayıtta "değiştirici" olsa da denetlenecek DOSYA bırakmaz.
-    # Ölçüldü (27 Eylül): Chrome okuma turunda öz-denetim fazladan bir model çağrısı
-    # yapıyor, panel hazır cevabı ancak ondan sonra görüyordu.
-    if all(
-        name.startswith(_BROWSER_TOOL_PREFIXES)
-        for name, _args, mutating in budget.successful_tool_evidence
-        if mutating
-    ):
-        should_review = False
-    # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
-    # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
-    # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
-    # ederdi. Diğer bütçe durdurmaları (sözleşme onarılamadı, zaman aşımı…) bunun
-    # dışındadır: gerçek bir mutasyon olmuşsa öz-denetim yine de çalışmalı — onu
-    # kapatmak `test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz`
-    # ile ölçülen davranışı (geç bir sözleşme hatası yazılmış artefaktı denetimsiz
-    # bırakmamalı) bozardı.
-    if budget.stop is BudgetStop.USER_DENIED:
-        should_review = False
-    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
-    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
-    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
-    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
-    if outcome.wrong_workspace or is_measurement_failure:
-        should_review = False
-    if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
+    # Use the same actual eligibility before consultation deduplication and
+    # again after a possible teacher correction. Overrides and deterministic
+    # gate outcomes must not drift between the two decisions.
+    should_review = ordinary_self_review_enabled(
+        outcome,
+        budget,
+        configured=deps.config.runtime.self_review,
+        override=self_review,
+        plan_mode=plan_mode,
+        depth=depth,
+        measurement_failure=is_measurement_failure,
+        browser_prefixes=_BROWSER_TOOL_PREFIXES,
+    )
+    if should_review:
         before_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
         before_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
         previous_mutations = outcome.mutating_tool_calls_made

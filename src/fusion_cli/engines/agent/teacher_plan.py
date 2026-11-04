@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from ...core.text_fold import fold_tr
 from ..effects.detect import required_effect_for
 from ..effects.model import EffectKind
 
@@ -31,6 +32,47 @@ _SMALL_MARKER = re.compile(
 )
 #: Belge/küçük düzenleme sayılabilecek görevin en çok uzunluğu.
 _SMALL_TASK_CHARS = 240
+
+# The exception needs affirmative scope and dependency constraints, not a task
+# noun (such as "counter") or a model-size guess. Ambiguity keeps the old route.
+_BOUNDED_TASK_CHARS = 1_000
+_SINGLE_FILE = re.compile(
+    r"\b(?:tek(?:\s+bir)?|bir)\s+(?:[\w+#-]+\s+){0,2}dosya(?:s[ıi])?\b|"
+    r"\b(?:single|one)[-\s]+(?:[\w+#-]+[-\s]+){0,2}file\b"
+)
+_NO_EXTERNAL_DEPENDENCIES = re.compile(
+    r"\b(?:harici|dış)\s+(?:hiçbir\s+)?(?:bağımlılık|kütüphane|paket)\w*\s+"
+    r"(?:kullanma(?:dan)?|olmasın|yok)\b|"
+    r"\b(?:sadece|yalnızca|yalnız)\s+standart\s+kütüphane\w*\s+kullan\b|"
+    r"\b(?:no|without)\s+(?:any\s+)?(?:external\s+)?dependenc(?:y|ies)\b|"
+    r"\b(?:only|just)\s+(?:the\s+)?standard\s+library\b"
+)
+_EXTERNAL_OR_EXPANDED_SCOPE = re.compile(
+    r"\bapi\b|https?://|\bwww\.|entegrasyon|entegre|integrat|veritaban|"
+    r"\bdatabase\b|\bbackend\b|\bdeploy\w*|\bpublish\w*|"
+    r"kimlik\s+doğrula|\bauthentication\b|\bauthorization\b|\blogin\b|"
+    r"\bdosyalar\w*\b|\b(?:iki|üç|dört|two|three|multiple|several|[2-9])\s+"
+    r"(?:[\w+#-]+\s+){0,2}(?:dosya|files?)\w*\b"
+)
+_EXPLICIT_TEACHER = re.compile(r"\bask_teacher\b|\böğretmen\w*|\bteacher\b|\bmentor\b")
+
+
+def is_bounded_single_file_task(task: str) -> bool:
+    """Explicit, short, self-contained one-file work can use the main model directly.
+
+    This changes consultation cost only. Tool permissions, actual verification,
+    and optional teacher access are separate and stay unchanged.
+    """
+    if len(task) > _BOUNDED_TASK_CHARS:
+        return False
+    folded = fold_tr(task)
+    if not _SINGLE_FILE.search(folded) or not _NO_EXTERNAL_DEPENDENCIES.search(folded):
+        return False
+    if _EXTERNAL_OR_EXPANDED_SCOPE.search(folded) or _EXPLICIT_TEACHER.search(folded):
+        return False
+    if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
+        return False
+    return len(set(_FILE_REF.findall(folded))) <= 1
 
 
 def _is_small_edit(task: str) -> bool:
@@ -59,7 +101,7 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
     mutation = EffectKind.WORKSPACE_MUTATION.value
     has_mutation = any(required_effect_for(part) == mutation for part in (task, *task.split(";")))
     reasons: list[str] = []
-    if has_mutation and not _is_small_edit(task):
+    if has_mutation and not (_is_small_edit(task) or is_bounded_single_file_task(task)):
         reasons.append(f"istenen etki: {mutation}")
     # Dış API bağımlılığı ad listesinden tahmin edilmez: istek açıkça API
     # entegrasyonu söylüyorsa öğretmenin yapılabilirlik planı gereklidir.
