@@ -146,3 +146,21 @@ test("akış sırasında odaktaki satır taşınınca klavye odağı kendi ayrı
   await expect(selected.locator("xpath=ancestor::details")).toHaveAttribute("open", "");
   await expect(selected.locator("xpath=ancestor::summary")).toBeFocused();
 });
+
+test("kullanıcı isteğiyle panel açma ve kapatma dış taslaktan anlamlı odağa geçer", async ({ page }) => {
+  await open(page, "composer=1");
+  const composer = page.getByRole("textbox", { name: "Mesaj", exact: true });
+  await composer.fill("Dış taslak korunur");
+  await page.getByText("İşlem 1", { exact: true }).click();
+  const panel = page.getByRole("region", { name: "İşlem ayrıntıları" });
+  await expect(panel.getByText("İşlem 1", { exact: true }).locator("xpath=ancestor::summary")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  const preview = page.getByText("İşlem 1", { exact: true }).locator("xpath=ancestor::summary");
+  await expect(preview).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "İşlem panelini kapat" }).click();
+  await expect(preview).toBeFocused();
+  await expect(composer).toHaveValue("Dış taslak korunur");
+});

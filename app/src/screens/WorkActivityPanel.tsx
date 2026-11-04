@@ -11,6 +11,7 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
   const [requested, setRequested] = useState(false);
   const selected = useRef<string | null>(null);
   const focusWithin = useRef(false);
+  const explicitFocus = useRef(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
   const panelId = useId();
@@ -24,8 +25,15 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
   useLayoutEffect(() => {
     if (open === previousOpen.current) return;
     previousOpen.current = open;
-    // Akış üçüncü satırı eklediğinde Composer veya başka bir denetimden odak alma.
-    if (!focusWithin.current) return;
+    const userRequested = explicitFocus.current;
+    explicitFocus.current = false;
+    if (!focusWithin.current && !userRequested) return;
+    // WebKit dış odak geçişinde relatedTarget=null bildirebilir. Eski sahiplik
+    // kaydına güvenme: bağlı dış denetim korunur; body/html ise taşınan satırın
+    // geçici odak boşluğudur. Yalnız açık kullanıcı isteği dış odağı devralır.
+    const focused = document.activeElement;
+    if (!userRequested && focused?.isConnected && focused !== document.body
+      && focused !== document.documentElement && !wrapper.current?.contains(focused)) return;
     const scope = open ? panel.current : wrapper.current;
     const rows = scope?.querySelectorAll<HTMLDetailsElement>("details[data-step-id]");
     const row = Array.from(rows ?? []).find(item => item.dataset.stepId === selected.current) ?? rows?.[0];
@@ -57,9 +65,10 @@ export function WorkActivityPanel({ entries, onInteract, showThinking = false }:
     return () => element.removeEventListener("wheel", wheel);
   }, [open, onInteract]);
   if (!entries.length) return null;
-  const close = () => { focusWithin.current = true; onInteract(); setRequested(false); setExpanded(new Set()); };
+  const close = () => { explicitFocus.current = true; focusWithin.current = true; onInteract(); setRequested(false); setExpanded(new Set()); };
   const rows = (open ? entries : entries.slice(0, 2)).map(({ id, step }) => <ActivityStep key={id} stepId={id} adim={step} showThinking={showThinking}
     expanded={expanded.has(id)} onExpandedChange={next => {
+      if (many && !open) explicitFocus.current = true;
       focusWithin.current = true; onInteract(); selected.current = id;
       setExpanded(current => { const result = new Set(current); if (next) result.add(id); else result.delete(id); return result; });
       if (many) setRequested(true);

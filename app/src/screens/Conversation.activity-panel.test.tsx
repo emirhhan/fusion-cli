@@ -122,3 +122,14 @@ it("araç düşünmesi yalnız açık adım tercihiyle kendi ayrıntısında gö
   rerender(<Conversation running={false} showSteps={false} mesajlar={items} />);
   expect(screen.queryByText("Araç düşünmesi")).toBeNull();
 });
+
+it("yerel olmayan açık tıklama dış girdi odaktayken de kullanıcı odağını panele taşır", () => {
+  render(<><input aria-label="Dış taslak" /><Conversation running={false} mesajlar={messages(3)} /></>);
+  const input = screen.getByRole("textbox", { name: "Dış taslak" });
+  input.focus();
+  fireEvent.click(screen.getByText("İşlem 1"));
+  const panel = screen.getByRole("region", { name: "İşlem ayrıntıları" });
+  expect(document.activeElement).toBe(within(panel).getByText("İşlem 1").closest("summary"));
+  fireEvent.click(within(panel).getByRole("button", { name: "İşlem panelini kapat" }));
+  expect(document.activeElement).toBe(screen.getByText("İşlem 1").closest("summary"));
+});
