@@ -1,5 +1,21 @@
 # Activity panel React review
 
+## Viewport containment closeout
+
+**APPROVE at `59a755d4`**, reviewing its ten-file geometry delta and the React handoffs to the previously approved panel. No remaining actionable CRITICAL, HIGH or MEDIUM React finding was identified in this bounded scope. Concurrent visible-history/backend work is excluded.
+
+The portal stays inside its owning conversation frame. Its noninteractive, frame-sized clipping host prevents stale wide geometry from extending the document during narrow resizing; only the bounded pane receives pointer events. Coordinates use the actual conversation viewport, preserving the Composer area and the measured two-row flow placeholder. Focus/blur ownership includes the portalled pane, while the connected external-focus and explicit-user-request rules remain intact. Placement observers and scroll/resize/visualViewport listeners have matching cleanup and are active only for an open pane or expanded preview. No dispatch, permission, modal/inert or execution policy was changed.
+
+Independent final checks:
+- **2 geometry browser cases passed**, Chromium and WebKit, 5.0 seconds. Both placed the 470px pane at 314.8125–784.8125 inside a conversation ending at 792.8125, while preserving outer scrollTop. Last-row/code scrolling, 430×650 resizing and session cleanup passed.
+- **6 focus browser cases passed**, both engines, 5.1 seconds: external Composer protection, focused-row migration, and explicit opening/closing.
+- **40 targeted React tests passed**, five suites, 4.39 seconds.
+- Canonical hooks lint, strict exhaustive-deps checks on the panel/placement hook, application TypeScript and exact-commit whitespace checks passed. The three production geometry files still byte-match `59a755d4`.
+
+Real installed-native acceptance, the parent's full App suite and final packaging remain separate gates. Production source was not edited.
+
+## Earlier panel closeout
+
 **APPROVE at `897cf4fc`**, covering the React changes from `e7a82910` through `5030a75c`, `1cb2cca2` and the final WebKit correction. No remaining actionable CRITICAL, HIGH or MEDIUM finding was identified in this bounded review. Generic TypeScript, native shutdown and packaging have separate owners.
 
 ## Closed findings

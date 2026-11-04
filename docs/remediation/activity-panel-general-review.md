@@ -1,6 +1,10 @@
 # Activity panel general code review
 
-Final snapshot: `5030a75c`, `1cb2cca2` and exact final WebKit correction `897cf4fc`, restricted to these UI changes and immediate rendering/protocol/session consumers. Verdict: **APPROVE — all tracked P2 findings closed, zero open findings.**
+Final snapshot: `5030a75c`, `1cb2cca2`, WebKit correction `897cf4fc` and geometry correction `59a755d4`, restricted to these UI changes and immediate rendering/protocol/session consumers. Verdict: **APPROVE — all tracked P2 findings closed, zero open findings.**
+
+Geometry closeout at exact `59a755d4`: reviewed all ten changed files, the complete placement hook/panel and the immediate conversation frame, session and scrolling consumers. The pane portal remains inside its own conversation frame; the clip host does not intercept outside pointer events, while the pane remains interactive. The measured preview placeholder preserves document flow. Placement clamps the pane against the actual conversation viewport and window edges; open-panel scroll/resize/visual-viewport listeners and ResizeObserver subscriptions are cleaned up. Closed, unexpanded history panels do not install these subscriptions. Portal focus ownership includes both the wrapper and pane, preserving the prior explicit-intent and connected-outside-focus guards. No permission, protocol payload, session persistence or executable rendering surface is added. No additional actionable finding was established.
+
+Independent geometry-closeout validation: all 13 activity-panel unit tests passed under Node 22; `git diff --check 897cf4fc..59a755d4` passed. Reviewed the new two-engine geometry regression for long prompts, inner code/output wheel scrolling, unchanged outer scroll, narrow resize and session teardown. Worker/specialist browser geometry/focus and snapshot results were read as supplied evidence, not independently rerun here. This review does not claim live native acceptance or full-App completion. The concurrent backend visible-history changes were excluded; only this review report was edited.
 
 Final macOS/WebKit closeout: reviewed the exact four-file `897cf4fc` diff. A connected active element outside the panel now blocks focus transfer during automatic stream-driven opening, independently of a stale/null relatedTarget. Body/html transient focus gaps still allow the selected row to recover focus during reparenting. A one-shot explicit user-intent ref permits deliberate open/close to move focus meaningfully from an outside draft, then is cleared when consumed. No message, draft, session, permission or backend payload is changed by this guard. The dedicated focus configuration runs only the three relevant contracts on Chromium and WebKit, retaining the shared fixture/server settings.
 
@@ -31,4 +35,4 @@ Independent commit whitespace checks passed. Read the changed source, existing p
 | MEDIUM | 0 | 0 |
 | LOW | 0 | 0 |
 
-Verdict: APPROVE at `897cf4fc` — all tracked P2 findings, including the independently reproduced WebKit focus continuation, are resolved; no additional actionable issue established in this bounded general/security scope.
+Verdict: APPROVE at `59a755d4` — all tracked P2 findings and the bounded geometry closeout are resolved; no additional actionable issue established in this bounded general/security scope.

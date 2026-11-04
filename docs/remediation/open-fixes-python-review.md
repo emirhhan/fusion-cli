@@ -1,5 +1,193 @@
 # Independent Python review — open fixes
 
+## Public history final Python closeout — APPROVE at 552ead7d
+
+Final bounded Python verdict for **`2aee489a..552ead7d`: APPROVE, no open Python
+findings in the reviewed scope.** This closes the curl option-arity P1 below;
+the bounds and visible-notice P2 closures remain valid. The independent security
+and general reviews retain their own final approval gates.
+
+The short-option operand set now matches the installed curl help, including
+`-x`'s bracketed proxy operand syntax. `-I` and `-N` continue scanning rather
+than consuming the authentication flag. Independent synthetic checks verify
+`-Iu`, `-Nu`, `-IU`, `-NU`, `-Isu` and `-Nsu` conceal command credentials, shadow
+arguments, stdout and diff while preserving the original input arguments. The
+regression uses the real protocol recorder, checks written JSONL and reloads
+history; it covers all listed no-operand flag prefixes with server and proxy
+authentication. Benign attached/separate output and user-agent values remain
+visible. No curl network request was executed.
+
+The correction changes only the option-arity constant and tests. Previously
+reviewed finite lexical/recursion limits, redaction before persistence, common
+bounded history projection, visible non-tool notice, model-context separation
+and captured store/generation/owned-turn fences are unchanged.
+
+Independent verification: **51 targeted tests passed** across public history,
+session ownership, appserver history and window-list icon projection. Scoped
+Ruff and mypy for all four scoped source files passed. Only this report was
+edited; no private UI/config/journal, native
+helper, model/network, uv, build or installation was used. Earlier blocked
+snapshots below remain as resolved review history.
+
+## Credential-command follow-up — BLOCK at f9c1a6b4
+
+Reviewed exact `f9c1a6b4` over the prior combined history scope. The bounds,
+visible notice, model separation and ownership-fence approvals remain valid.
+**BLOCK:** one independently reproduced HIGH/P1 credential-persistence issue
+remains. The parallel security/general reviews may identify additional findings.
+
+[HIGH / P1] Curl no-operand flags stop authentication-cluster inspection
+
+File: `src/fusion_cli/appserver/visible_transcript.py:102` and line 188.
+
+Issue: `_CURL_VALUE_OPTIONS` includes `I` and `N`, but curl's `--head` and
+`--no-buffer` switches take no operand. The short-option loop therefore stops
+before a subsequent authentication option. Pure synthetic calls to
+`public_tool_payload` with `curl -Iu user:OPAQUE_SENTINEL https://example.test`
+and `curl -Nu user:OPAQUE_SENTINEL https://example.test` returned the original
+credential-bearing command, raw synthetic trace output and diff, with no
+redaction metadata. The recorder appends this projection to durable JSONL.
+Installed `curl --help all` independently confirms the two option arities; no
+curl request was executed.
+
+Fix: remove no-operand flags from the value-consuming stop set, audit the set's
+remaining option arities, and add recorder-to-disk-to-reload regressions for both
+clusters. Preserve the benign `-opublic.txt` value-consumption control and the
+original executable/model arguments.
+
+Independent verification: **51 tests passed** across visible-transcript,
+ownership, appserver-history and icon-projection scopes. Scoped Ruff and mypy
+for three history/session sources passed. Existing tests do not cover the
+clusters above. Lexer budgets, recursive-shell depth limits and the existing
+store/generation/turn fences remain intact on source review. Only this report
+was edited; all repro data was synthetic, with no UI/helper/model/network,
+private transcript/config, uv, build or installation activity.
+
+## Public tool-history corrective closeout — APPROVE at c0c86c2f
+
+Reviewed the bounded Python/history scope **`2aee489a..c0c86c2f`**, including
+`029a79f5`, `b7b5bc95` and the corrective commit. **APPROVE for bounds, visible
+notice and model-isolation scope only:** both P2 findings below are closed.
+**The security/build gate remains BLOCKED:** the parallel security/general review
+found open P1 credential leaks involving shell punctuation/redirection/pipes,
+combined curl authentication flags and curl trace output. Those findings require
+a follow-up fix and fresh review; this verdict does not close them.
+
+Missing/unreadable logs, legacy text-only logs and imported RAM history now use
+`project_visible_history`; durable rows use the same row projection. Field,
+argument, row and total-character limits produce explicit truncation metadata.
+The actual RPC regression covers 301 messages and a 1.1-million-character message
+across missing, legacy and imported histories. Corrupt non-string event types
+are rejected before event dispatch.
+
+The RPC truncation flag and per-tool truncation/redaction metadata now reach a
+dedicated frontend `bildirim` row rendered with `role="note"`. It does not invent
+a tool execution or assistant answer and is never added to model history.
+Source/test inspection verifies clear and stale-history response fencing and
+notice replacement on refresh. Frontend test assertions exercise the actual
+rendered notice; their execution remains part of the parent/frontend validation.
+
+Public event capture still occurs after protocol serialization and validates
+session/attempt identity, child exclusion and the captured store/generation/
+owned-turn fence. Model transcript loading continues to ignore typed public tool,
+limit and clear records. Redaction and credential-target content suppression run
+before append and clipping; sensitive diffs are omitted. Synthetic recorder
+regressions check the written JSONL as well as reloaded rows and preserve the
+original executable arguments. This is a bounded contract review, not a claim
+that arbitrary secret formats can always be recognized. Native icon projection
+remains restricted to window-list text, preserving the Dock's native icon data.
+
+Independent verification: **47 tests passed** across `test_visible_transcript`,
+`test_session_turn_ownership`, `test_appserver_history` and
+`test_desktop_list_projection`. Scoped Ruff passed; mypy passed for all three
+history/session source files. Only this review document was edited. No live UI,
+native helper, private transcript/config, model/network, uv, build or installation
+was used. Earlier `b7b5bc95` findings below are retained as resolved history.
+
+## Public tool-history persistence — WARNING, corrections required
+
+Reviewed exact **`b7b5bc95`** and the already-approved `029a79f5` icon projection.
+Current verdict: **WARNING — two MEDIUM/P2 findings**. Persistence closeout is
+pending the corrections below and the separately scheduled security review.
+Uncommitted UI geometry work was excluded.
+
+[MEDIUM / P2] Fallback and imported history bypass the new public-history bounds
+
+File: `src/fusion_cli/appserver/visible_transcript.py:208` (also line 319),
+`src/fusion_cli/appserver/session.py:1095`.
+
+Issue: missing/unreadable logs and logs without a durable typed marker return
+`visible_history(fallback)` directly. Imported history has a separate direct
+return, and its flag remains active across later turns. Neither path applies the
+new row, field, argument or total-character bounds. Synthetic absent-log probes
+returned **301 rows** and, separately, **1,100,033 serialized characters**, both
+with `truncated=False`. Common old/text-only conversations and imported context
+therefore avoid the resource limits claimed by the new loader.
+
+Fix: route durable, fallback and imported UI history through the same bounded
+public projection and explicit truncation contract. Add helper and actual
+`oturum.gecmis` regressions for missing logs, text-only logs, imported history and
+later imported-context turns; preserve the model-history separation.
+
+[MEDIUM / P2] Dropped work rows have flags but no user-visible truncation notice
+
+File: `src/fusion_cli/appserver/session.py:1106`,
+`src/fusion_cli/appserver/visible_transcript.py:133`.
+
+Issue: the per-turn limit marker, tail/row/character limits and field clipping
+produce `gecmis_kirpildi` / `history_truncated`, but a source search finds no
+consumer in `app/src`. A limit can silently omit tool rows when reopening the
+panel. Per-field ellipses do not explain missing whole records or a truncated
+file tail. This is also confirmed by the parallel general review.
+
+Fix: deliver a genuine non-tool history notice or implement a client banner that
+consumes the flags. It must explain omitted/shortened work without inventing a
+tool execution or adding the notice to model context. Test the displayed notice
+for both field clipping and whole-record/tail limits.
+
+The reviewed durable path otherwise uses typed/versioned public ToolExecuted
+records after protocol serialization, a captured store/generation/owned-turn
+fence, scalar argument allowlisting and redaction before clipping. The model
+loader ignores the new event types; completed and partial-tool reload, late-event
+fencing, receipt IDs, replay, project/tombstone isolation and history-read races
+are covered by the new synthetic suite. No additional actionable owner/retry
+change was established in this batch. The icon projection remains approved and
+continues to exclude native icon blobs from persisted model/event text.
+
+Independent verification: **39 tests passed** across visible-transcript,
+ownership and appserver-history scopes; scoped Ruff and mypy for three source
+files passed. The two bounds probes above also completed successfully. No source
+edits, real UI/config/native helper, private-chat/journal scan, model/network or
+secret access, uv/environment creation, build or installation were performed.
+
+## Native window-list text projection — APPROVE
+
+Latest isolated Python verdict: **APPROVE at `029a79f5`**. Reviewed only
+`desktop_background.py` and its new projection tests; no CRITICAL, HIGH or MEDIUM
+finding identified. Concurrent uncommitted visible-history/session and UI-geometry
+work was excluded from this review.
+
+The list-only projection copies window-row dictionaries and removes only the
+known `icon` field before ToolResult text serialization. Existing window/app
+identities, titles, bounds, visibility and AX selection metadata remain intact;
+hidden-application filtering and the permission/action path are unchanged. The
+icon-removal step does not mutate source rows. The direct native Dock list path
+continues to receive icons, and the existing `structured=None` tool contract is
+preserved. This is not a global base64 scrub: legitimate base64-looking titles
+and inspect AX values are retained, and other operations do not enter the filter.
+
+Independent verification: **158 tests passed** across projection, background,
+display-value, destructive-risk and policy scopes. The new scripted `run_agent`
+regression checks both subsequent model tool messages and actual ToolExecuted
+event text contain the small metadata projection instead of the synthetic 128 KB
+icon. Direct-tool/native-Dock compatibility and unrelated-text preservation are
+also asserted. Scoped Ruff and source mypy passed.
+
+No production edits, real UI/helper/config/private-chat/journal access, model or
+network request, secret access, uv/environment creation, build or installation
+was performed. This is source/output-contract approval; live context-size or
+latency measurements remain separate.
+
 ## Explicit short-reply variants and final backend closeout — APPROVE
 
 Latest bounded Python verdict: **APPROVE at `20b10260`**, covering the combined
