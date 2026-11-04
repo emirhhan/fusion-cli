@@ -59,3 +59,11 @@ also covers bare JSON filenames and explicit negative format requests, alongside
 positive controls. Independent review of real provider streaming remains separate
 from these non-streamed application-protocol checks; an all-path streaming
 guarantee is not claimed here.
+
+Independent review found a further file-content distinction: quoted destinations
+and non-JSON filenames such as `result.txt` must not request JSON chat output.
+Quoted file references now become neutral object tokens, without reintroducing
+quoted instructions. Destination binding handles generic filename extensions;
+an explicit reply target still takes precedence. Five new negative regressions
+failed before this fix, and two positive reply-format controls were added.
+The final eight-file run passed 141 tests; Ruff and mypy checks passed.

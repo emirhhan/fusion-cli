@@ -41,6 +41,8 @@ def _verified_turn(tmp_path, text='{"ok":true,"file":"index.html"}'):
         "Respond only in JSON.",
         "config.json oluştur. Son yanıt yalnız JSON olsun.",
         "Yanıtı yalnız JSON olarak ver; açıklama istemiyorum.",
+        "`config.json` oluştur. Son yanıt yalnız JSON olsun.",
+        '"result.txt" oluştur; yanıtı sadece JSON olarak ver.',
     ],
 )
 def test_verified_mutation_preserves_requested_json_and_publishes_separate_evidence(tmp_path, task):
@@ -112,6 +114,11 @@ def test_invalid_requested_json_is_not_repaired_by_fabricating_requested_values(
         "config.json dosyasına sadece JSON yaz.",
         "config.json'a sadece JSON yaz.",
         "result.json içine yalnız JSON yaz.",
+        "`config.json` içine sadece JSON yaz.",
+        '"result.json" içine yalnız JSON yaz.',
+        "'config.json' içine sadece JSON yaz.",
+        "result.txt içine sadece JSON yaz.",
+        "`result.txt` içine sadece JSON yaz.",
         "Yalnız JSON olsun. Hayır, JSON yazma; açıklama ver.",
         "Sadece JSON ayrıştırmasını açıkla.",
         'Yalnız "JSON" yaz.',

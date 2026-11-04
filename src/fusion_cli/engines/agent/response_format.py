@@ -45,14 +45,32 @@ _RESULT_NEGATED = re.compile(
     r"|\b(?:do not|don't|never)\s+(?:return|output|give)\b"
     r"|\bnot\s+only\s+(?:the\s+)?result\b"
 )
-_FILE_TARGET = re.compile(r"\b(?:dosya\w*|file\w*)\b|(?<![\w.-])[\w./@~:-]+\.json\b")
+_FILE_REFERENCE = r"(?<![\w.-])[\w./@~:\\-]+\.[a-z0-9]{1,8}\b"
+_FILE_TARGET = re.compile(
+    rf"\b(?:dosya\w*|file\w*)\b|{_FILE_REFERENCE}"
+    r"(?:['’](?:a|e|ya|ye|da|de|ta|te)\b|\s+(?:içine|icine|içerisine|icerisine|to)\b)"
+)
 _REPLY_TARGET = re.compile(r"\b(?:yanıt\w*|yanit\w*|cevap\w*|return|respond|answer|reply)\b")
 _THINK_CLOSE = re.compile(rf"</(?:{'|'.join(THINK_TAG_NAMES)})>", re.I)
 
 
+def _quoted_file_reference(match: re.Match[str]) -> str:
+    quoted = match.group()
+    # A quoted destination remains an object reference, not an instruction.
+    # Use a neutral token rather than reintroducing its potentially quoted
+    # prose into the instruction matcher. Both plain and spaced paths fit.
+    if (
+        not quoted.startswith("```")
+        and quoted.startswith(("`", '"', "“", "‘", "'"))
+        and re.fullmatch(r"[\w./@~:\\ -]+\.[a-z0-9]{1,8}", fold_tr(quoted[1:-1]).strip())
+    ):
+        return " fusion-quoted-target.dat "
+    return " "
+
+
 def requested_response_format(task: str) -> Literal["json", "minimal"] | None:
     """Recognize direct affirmative format requests, not examples or file names."""
-    clauses = _CLAUSE.split(fold_tr(_QUOTED.sub(" ", task)))
+    clauses = _CLAUSE.split(fold_tr(_QUOTED.sub(_quoted_file_reference, task)))
     json_allowed, minimal_allowed = True, True
     for clause in reversed(clauses):
         if _JSON_NEGATED.search(clause):
