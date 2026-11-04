@@ -22,6 +22,13 @@ Two regressions failed before implementation and pass now: stale0.7.18 and
 missing distribution cannot reach PyInstaller or delete the old output/work
 sentinels. Direct script invocation with only src on PYTHONPATH also passes.
 
+Whole-code review exposed an imported-package/check-out mismatch: an old import
+and equally old installed metadata could agree while differing from checkout
+source. Both the early guard and manifest now read the checkout's literal source
+version via AST without importing the installed package. Direct .spec invocation
+uses the same reader. Two additional red/green cases preserve old output under
+that mismatch and prevent the manifest from using a stale imported version.
+
 ## Credential blocking
 
 WebProviderAdapter's entire credential-and-transport operation now runs under

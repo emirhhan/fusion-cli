@@ -1,5 +1,6 @@
 """Yanlış proje metadata'sı paketlenmeden ve önceki çıktı silinmeden reddedilir."""
 
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,8 @@ from pathlib import Path
 
 import pytest
 from desktop_build.runtime import build_runtime as builder
+
+from fusion_cli import __version__ as source_version
 
 
 def test_builder_remains_directly_executable(tmp_path):
@@ -25,8 +28,10 @@ def test_builder_remains_directly_executable(tmp_path):
     assert "--output" in result.stdout
 
 
-@pytest.mark.parametrize("installed", ["0.7.18", None])
-def test_metadata_mismatch_preserves_previous_output(tmp_path, monkeypatch, installed):
+@pytest.mark.parametrize(
+    "installed,imported", [("0.7.18", None), (None, None), ("0.7.18", "0.7.18")]
+)
+def test_metadata_mismatch_preserves_previous_output(tmp_path, monkeypatch, installed, imported):
     output = tmp_path / "output"
     output.mkdir()
     previous = output / "fusion-runtime.tar.gz"
@@ -42,6 +47,8 @@ def test_metadata_mismatch_preserves_previous_output(tmp_path, monkeypatch, inst
         return installed
 
     monkeypatch.setattr(metadata, "version", version)
+    if imported is not None:
+        monkeypatch.setattr(builder, "__version__", imported, raising=False)
     monkeypatch.setattr(
         builder, "_run_pyinstaller", lambda *_: pytest.fail("Invalid metadata reached PyInstaller")
     )
@@ -49,3 +56,20 @@ def test_metadata_mismatch_preserves_previous_output(tmp_path, monkeypatch, inst
         builder.build_runtime(output, work)
     assert previous.read_bytes() == b"previous verified package"
     assert sentinel.read_bytes() == b"previous build"
+
+
+def test_manifest_uses_checkout_source_even_if_imported_version_is_stale(tmp_path, monkeypatch):
+    expected = source_version
+    monkeypatch.setattr(builder, "__version__", "0.7.18", raising=False)
+    monkeypatch.setattr(metadata, "version", lambda _: expected)
+    monkeypatch.setattr(builder.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(builder.platform, "machine", lambda: "arm64")
+
+    def fake_pyinstaller(dist, _build):
+        bundle = dist / "fusion-runtime"
+        bundle.mkdir(parents=True)
+        (bundle / "fusion").write_bytes(b"synthetic executable")
+
+    monkeypatch.setattr(builder, "_run_pyinstaller", fake_pyinstaller)
+    _, manifest = builder.build_runtime(tmp_path / "output", tmp_path / "work")
+    assert json.loads(manifest.read_text())["runtime_version"] == expected
