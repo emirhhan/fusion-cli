@@ -37,3 +37,25 @@ all 99 tests. Ruff check/format and mypy on both production modules passed.
 Independent Python/general reviews remain with the parent. Fixed-line formatting
 and correction of a model's verbose result-only answer are outside this bounded
 presentation fix; neither is claimed to be solved by number extraction.
+
+## Final protocol boundary follow-up
+
+Actual `run_agent` → `TurnAnswered` → `ProtocolSink` tests exposed two additional
+places that mistook valid JSON string data for instructions: the integrity
+heuristic retried a literal `FUSION_TOOL_CALL`, and the visible leak/thinking
+filters could remove literal marker or `<think>` data. The shared
+`clean_requested_response` now validates explicitly requested JSON before
+thinking removal, also preserving inner markup when a real leading thinking
+envelope precedes the JSON. Normal prose retains its original filtering.
+
+Only the integrity heuristic is skipped for complete, non-truncated, explicitly
+requested valid JSON. Real action evidence, pending todos and local-mutation
+continuation gates remain active. Regression tests cover each boundary, including
+an unperformed file mutation that must still fail and a truncated response that
+must still be repaired. JSON data is never dispatched as a tool call.
+
+The final eight-file regression run passed all 134 tests. The output-format file
+also covers bare JSON filenames and explicit negative format requests, alongside
+positive controls. Independent review of real provider streaming remains separate
+from these non-streamed application-protocol checks; an all-path streaming
+guarantee is not claimed here.

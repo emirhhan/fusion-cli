@@ -1592,7 +1592,7 @@ async def _run_agent(
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
         _finalize_response_format(outcome, task)
-    await _announce_answer(outcome, deps, depth=depth, internal=internal)
+    await _announce_answer(outcome, deps, depth=depth, internal=internal, task=task)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
     if not is_measurement_failure:
@@ -1716,7 +1716,7 @@ def _publish_evidence(
 
 
 async def _announce_answer(
-    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
+    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool, task: str = ""
 ) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
@@ -1747,8 +1747,16 @@ async def _announce_answer(
         return
     if not outcome.final_text.strip():
         return
+    from .response_format import clean_requested_response, is_valid_json, requested_response_format
+
+    # Valid requested JSON is structured data: a marker inside one of its string
+    # values is not a leaked tool frame. Keep normal prose filtering and the
+    # user's MessageDisplay hook; never dispatch the data as a tool call.
+    response = clean_requested_response(task, outcome.final_text)
+    structured = requested_response_format(task) == "json" and is_valid_json(response)
+    text = response if structured else strip_harness_leaks(response)
     # Görünen metin MessageDisplay süzgecinden geçer (#90); kayıt `outcome`tan yazılır.
-    shown = await display_filter.transform(strip_harness_leaks(outcome.final_text))
+    shown = await display_filter.transform(text)
     if shown:
         deps.publisher.publish(TurnAnswered(channel=deps.channel, text=shown))
 
@@ -2123,7 +2131,10 @@ async def _drive(
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
-            final_text = strip_thinking(result.text).strip()
+            from .response_format import clean_requested_response
+
+            response_task = _surface_task(tuple(m for m in messages if not m.harness_note))
+            final_text = clean_requested_response(response_task, result.text)
             # İstek sınıflandırılmasa bile modelin işlem beyanı kanıt ister.
             # Bu kapı modele/sağlayıcıya değil GERÇEK araç sonuçlarına bakar.
             unsupported_claim = next(
@@ -2221,6 +2232,7 @@ async def _drive(
                 plan_mode=plan_mode,
                 execution=execution,
                 truncated=result.truncated,
+                task=response_task,
             )
             if continue_note is not None:
                 if continue_note.content == reflexion.AUTO_CONTINUE_NOTE:
@@ -3369,6 +3381,7 @@ def _auto_continue_note(
     plan_mode: bool,
     execution: ExecutionPolicy,
     truncated: bool,
+    task: str = "",
 ) -> Message | None:
     """Tur devam ettirilecekse modele enjekte edilecek notu döndür, yoksa `None`.
 
@@ -3385,10 +3398,16 @@ def _auto_continue_note(
     # Taşıma bütünlüğü her teşhisin önündedir: kesilmiş yanıt, kapanmamış blok ve
     # boş yanıt farklı hamleler ister. Üçünü "işi yarım bıraktın" notuna bağlamak
     # ya yapılan işi çöpe atıyor ya da modele yanlış şeyi düzelttiriyordu.
-    butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
-    tasima_notu = reflexion.integrity_note(butunluk)
-    if tasima_notu is not None:
-        return _spend(deps, tasima_notu)
+    from .response_format import is_valid_json, requested_response_format
+
+    structured = (
+        not truncated and requested_response_format(task) == "json" and is_valid_json(final_text)
+    )
+    if not structured:
+        butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
+        tasima_notu = reflexion.integrity_note(butunluk)
+        if tasima_notu is not None:
+            return _spend(deps, tasima_notu)
     # Bloklayan doğrulama düzeltmesi araçsız kapanamaz; bu tek dal korunur (bkz.
     # `_never_acted`). Kapsamı büyüten genel dürtme kapıları (hiç çağrı yapmadan
     # soru sorma, keşifte takılma, "yarım kalmış gibi görünme") kaldırıldı: model

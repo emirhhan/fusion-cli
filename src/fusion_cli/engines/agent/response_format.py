@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn
 
 from ...core.redaction import redact
 from ...core.text_fold import fold_tr
-from ...ui.text import strip_thinking
+from ...ui.text import THINK_TAG_NAMES, strip_thinking
 from .completion_evidence import evidence_payload
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ _QUOTED = re.compile(
     r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
     re.S | re.M,
 )
-_CLAUSE = re.compile(r"[.!?;\n]+|\b(?:ama|ancak|fakat|but|however)\b")
+_CLAUSE = re.compile(r"[!?;\n]+|\.(?=\s|$)|\b(?:ama|ancak|fakat|but|however)\b")
 _ONLY = r"(?:sadece|yalnız|yalnızca|yalniz|yalnizca|only|exclusively|strictly)"
 _JSON_OUTPUT = re.compile(
     rf"\b{_ONLY}\s+(?:in\s+)?(?:(?:geçerli|gecerli|valid)\s+)?json\b"
@@ -30,6 +30,8 @@ _JSON_OUTPUT = re.compile(
 _JSON_NEGATED = re.compile(
     r"\bjson\s+(?:(?:olarak|formatında|formatinda)\s+)?"
     r"(?:yazma|verme|döndürme|dondurme|olmasın|olmasin)\b"
+    r"|\bjson\s+(?:olsun|yaz|ver|döndür|dondur)\s+"
+    r"(?:istemiyorum|demiyorum|demedim|deme|demeyin)\b"
     r"|\b(?:do not|don't|never)\s+(?:return|respond|answer|output|reply)\b"
     r"|\bnot\s+only\s+json\b"
 )
@@ -43,8 +45,9 @@ _RESULT_NEGATED = re.compile(
     r"|\b(?:do not|don't|never)\s+(?:return|output|give)\b"
     r"|\bnot\s+only\s+(?:the\s+)?result\b"
 )
-_FILE_TARGET = re.compile(r"\b(?:dosya\w*|file\w*)\b")
+_FILE_TARGET = re.compile(r"\b(?:dosya\w*|file\w*)\b|(?<![\w.-])[\w./@~:-]+\.json\b")
 _REPLY_TARGET = re.compile(r"\b(?:yanıt\w*|yanit\w*|cevap\w*|return|respond|answer|reply)\b")
+_THINK_CLOSE = re.compile(rf"</(?:{'|'.join(THINK_TAG_NAMES)})>", re.I)
 
 
 def requested_response_format(task: str) -> Literal["json", "minimal"] | None:
@@ -68,6 +71,38 @@ def requested_response_format(task: str) -> Literal["json", "minimal"] | None:
 
 def _non_json_constant(value: str) -> NoReturn:
     raise ValueError(f"Non-JSON constant: {value}")
+
+
+def is_valid_json(text: str) -> bool:
+    """JSON string data can contain protocol-marker words without being a tool call."""
+    try:
+        json.loads(text, parse_constant=_non_json_constant)
+    except (ValueError, RecursionError):
+        return False
+    return True
+
+
+def clean_requested_response(task: str, text: str) -> str:
+    """Remove external thinking, preserving markup inside requested JSON string data."""
+    candidate = text.strip()
+    if requested_response_format(task) == "json":
+        if is_valid_json(candidate):
+            return candidate
+        try:
+            # A valid JSON prefix followed by disclosures is not a thinking
+            # envelope. Keep both intact so format validation exposes the issue.
+            json.JSONDecoder(parse_constant=_non_json_constant).raw_decode(candidate)
+            return candidate
+        except (ValueError, RecursionError):
+            pass
+        # Reuse the canonical thinking-tag names. A real leading reasoning
+        # envelope (including an orphan closing tag) can precede valid JSON;
+        # validate the suffix before scanning inside its string values.
+        for closing in _THINK_CLOSE.finditer(candidate):
+            remainder = candidate[closing.end() :].strip()
+            if is_valid_json(remainder):
+                return remainder
+    return strip_thinking(text).strip()
 
 
 def _json_error(code: str, message: str, report: TurnReport, *, details: str = "") -> str:
@@ -96,7 +131,7 @@ def format_reported_response(
     requested = requested_response_format(task)
     if requested is None:
         return None
-    text = strip_thinking(text).strip()
+    text = clean_requested_response(task, text)
     if not successful or report.blocks_success:
         if requested != "json":
             return None  # A genuine failure must remain visible in ordinary prose.
@@ -115,26 +150,23 @@ def format_reported_response(
             return text, False
         code = "verification_failed" if report.blocks_success else "turn_failed"
         return _json_error(code, "Tur başarıyla tamamlanmış kabul edilemez.", report), False
-    if requested == "json":
+    if requested == "json" and not is_valid_json(text):
+        # Late harness disclosures must not be silently discarded to make
+        # an earlier success object parse again. Retain the actual appended
+        # warning in a bounded error; no result fields are extracted.
+        details = ""
         try:
-            json.loads(text, parse_constant=_non_json_constant)
+            _, end = json.JSONDecoder(parse_constant=_non_json_constant).raw_decode(text)
+            details = text[end:].strip()
         except (ValueError, RecursionError):
-            # Late harness disclosures must not be silently discarded to make
-            # an earlier success object parse again. Retain the actual appended
-            # warning in a bounded error; no result fields are extracted.
-            details = ""
-            try:
-                _, end = json.JSONDecoder(parse_constant=_non_json_constant).raw_decode(text)
-                details = text[end:].strip()
-            except (ValueError, RecursionError):
-                pass
-            return (
-                _json_error(
-                    "invalid_response_format",
-                    "Yanıt istenen geçerli JSON biçiminde değil.",
-                    report,
-                    details=details,
-                ),
-                False,
-            )
+            pass
+        return (
+            _json_error(
+                "invalid_response_format",
+                "Yanıt istenen geçerli JSON biçiminde değil.",
+                report,
+                details=details,
+            ),
+            False,
+        )
     return text, True

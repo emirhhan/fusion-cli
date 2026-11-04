@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -38,6 +39,8 @@ def _verified_turn(tmp_path, text='{"ok":true,"file":"index.html"}'):
         "Return only valid JSON with keys ok and file.",
         "Only JSON.",
         "Respond only in JSON.",
+        "config.json oluştur. Son yanıt yalnız JSON olsun.",
+        "Yanıtı yalnız JSON olarak ver; açıklama istemiyorum.",
     ],
 )
 def test_verified_mutation_preserves_requested_json_and_publishes_separate_evidence(tmp_path, task):
@@ -102,9 +105,13 @@ def test_invalid_requested_json_is_not_repaired_by_fabricating_requested_values(
         "Sadece JSON yazma; açıklama da ekle.",
         "Do not return only JSON.",
         "Yalnız JSON olmasın.",
+        "Yalnız JSON olsun istemiyorum.",
+        "Sadece JSON olsun deme; açıklama yaz.",
         "Sadece JSON dosyasını değiştir.",
         "Only update result.json.",
         "config.json dosyasına sadece JSON yaz.",
+        "config.json'a sadece JSON yaz.",
+        "result.json içine yalnız JSON yaz.",
         "Yalnız JSON olsun. Hayır, JSON yazma; açıklama ver.",
         "Sadece JSON ayrıştırmasını açıkla.",
         'Yalnız "JSON" yaz.',
@@ -218,3 +225,208 @@ async def test_late_disclosure_in_ordinary_prose_keeps_existing_behavior(tmp_pat
     assert outcome.ok
     assert outcome.final_text.startswith("İşte açıklama.")
     assert "TestPlatform kısıtları resmi kaynaktan doğrulanamadı." in outcome.final_text
+
+
+@pytest.mark.parametrize("marker", [None, "FUSION_TOOL_CALL"])
+async def test_actual_mutation_reply_remains_json_on_app_protocol(tmp_path, monkeypatch, marker):
+    from types import SimpleNamespace
+
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.core.types import StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    lines = []
+    deps = _deps(tmp_path, RecordingSink())
+    deps.publisher = SimpleNamespace(publish=ProtocolSink(lines.append).handle)
+    expected = {"ok": True, "file": "a.py"}
+    if marker is not None:
+        expected["literal"] = marker
+    provider = NonStreamingProvider(
+        [
+            model_result("Önce dosyayı oluşturuyorum."),
+            model_result(tool_calls=(tool_call("write_file", path="a.py", content="x = 1\n"),)),
+            model_result(json.dumps(expected)),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.narration.build_provider", lambda *_args, **_kwargs: provider
+    )
+
+    outcome = await loop.run_agent(
+        "a.py dosyasını oluştur. Son yanıtın yalnız JSON olsun.", deps, verify=False
+    )
+
+    assert outcome.ok
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+    events = [json.loads(line)["veri"] for line in lines]
+    answers = [event for event in events if event.get("olay") == "TurnAnswered"]
+    assert len(answers) == 1
+    assert json.loads(answers[0]["text"]) == expected
+    assert sum(event.get("olay") == "VerificationPassed" for event in events) == 1
+
+
+@pytest.mark.parametrize(
+    "literal", ["FUSION_TOOL_CALL", "FUSION_PAYLOAD", "<think>keep this</think>"]
+)
+@pytest.mark.parametrize("prefix", ["", "<think>Private preparation.</think>"])
+async def test_requested_json_tool_marker_string_remains_data_on_app_protocol(
+    tmp_path, monkeypatch, literal, prefix
+):
+    from types import SimpleNamespace
+
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.core.types import StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    lines = []
+    deps = _deps(tmp_path, RecordingSink())
+    deps.publisher = SimpleNamespace(publish=ProtocolSink(lines.append).handle)
+    original = json.dumps({"literal": literal})
+    provider = NonStreamingProvider([model_result(prefix + original)])
+    _kur(monkeypatch, provider)
+
+    outcome = await loop.run_agent("Return only valid JSON.", deps, verify=False)
+
+    assert outcome.ok
+    assert outcome.tool_calls_made == 0
+    assert provider.calls == 1
+    events = [json.loads(line)["veri"] for line in lines]
+    answers = [event for event in events if event.get("olay") == "TurnAnswered"]
+    assert len(answers) == 1
+    assert json.loads(answers[0]["text"]) == {"literal": literal}
+
+
+async def test_normal_prose_still_filters_emulated_tool_markers_on_app_protocol(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.core.types import StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    lines = []
+    deps = _deps(tmp_path, RecordingSink())
+    deps.publisher = SimpleNamespace(publish=ProtocolSink(lines.append).handle)
+    provider = NonStreamingProvider(
+        [model_result('Açıklama.\nFUSION_TOOL_CALL\n{"name":"write_file"}\nFUSION_TOOL_CALL_END')]
+    )
+    _kur(monkeypatch, provider)
+
+    outcome = await loop.run_agent("Konuyu açıkla.", deps, verify=False)
+
+    assert outcome.ok and outcome.tool_calls_made == 0
+    events = [json.loads(line)["veri"] for line in lines]
+    answers = [event for event in events if event.get("olay") == "TurnAnswered"]
+    assert len(answers) == 1
+    assert answers[0]["text"] == "Açıklama."
+
+
+async def test_valid_json_marked_truncated_still_gets_integrity_repair(tmp_path, monkeypatch):
+    from fusion_cli.core.types import StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    provider = NonStreamingProvider(
+        [
+            replace(model_result('{"literal":"FUSION_TOOL_CALL"}'), truncated=True),
+            model_result('{"literal":"tamam"}'),
+        ]
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    _kur(monkeypatch, provider)
+
+    outcome = await loop.run_agent("Return only valid JSON.", deps, verify=False)
+
+    assert outcome.ok
+    assert provider.calls == 2
+    assert json.loads(outcome.final_text) == {"literal": "tamam"}
+
+
+async def test_valid_json_without_requested_mutation_does_not_bypass_action_evidence(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.core.types import StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    provider = NonStreamingProvider(
+        [model_result("Dosyayı oluşturuyorum.")]
+        + [model_result('{"ok":true,"literal":"FUSION_TOOL_CALL"}')] * 5
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    _kur(monkeypatch, provider)
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.narration.build_provider", lambda *_args, **_kwargs: provider
+    )
+
+    outcome = await loop.run_agent(
+        "a.py dosyasını oluştur. Son yanıt yalnız JSON olsun.", deps, verify=False
+    )
+
+    assert not outcome.ok
+    assert outcome.tool_calls_made == 0
+    assert not (tmp_path / "a.py").exists()
+    assert "error" in json.loads(outcome.final_text)
+
+
+@pytest.mark.parametrize("gate", ["pending_todo", "local_mutation"])
+def test_requested_json_keeps_pending_todo_and_local_mutation_continuation_gates(tmp_path, gate):
+    from fusion_cli.core.tools import TodoItem, TodoStatus
+    from fusion_cli.engines.agent import reflexion
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    from .fakes import RecordingSink
+    from .test_agent_loop import _deps
+
+    deps = _deps(tmp_path, RecordingSink())
+    deps.budget = loop._new_budget(deps.config)
+    state = loop._State(require_local_mutation=gate == "local_mutation")
+    if gate == "pending_todo":
+        deps.tool_context.todos.replace((TodoItem("Gerçek işi bitir", TodoStatus.PENDING),))
+
+    note = loop._auto_continue_note(
+        '{"literal":"FUSION_TOOL_CALL"}',
+        deps,
+        state,
+        plan_mode=False,
+        execution=ExecutionPolicy(is_web=False),
+        truncated=False,
+        task="Return only valid JSON.",
+    )
+
+    expected = (
+        reflexion.AUTO_CONTINUE_NOTE
+        if gate == "pending_todo"
+        else reflexion.verification_action_required_note().content
+    )
+    assert note is not None and note.content == expected
