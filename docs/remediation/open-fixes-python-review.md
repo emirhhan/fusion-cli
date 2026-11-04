@@ -1,5 +1,152 @@
 # Independent Python review — open fixes
 
+## Corrective browser bootstrap/security re-review — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `be28b603`**. No remaining CRITICAL,
+HIGH or MEDIUM finding identified in this corrective delta.
+
+**Correction to the earlier review:** the approval of `6954a28a` missed the fact
+that MCP server configuration also supplies secret environment-name exclusions.
+Its configuration-replacement approach was unsafe and is superseded; the earlier
+configuration-capture tests did not exercise that security consumer. The parallel
+review's HIGH/P1 finding was valid. The parent states that candidate was never
+installed. The prior approval below is historical, not an approval to use it.
+
+`be28b603` preserves the full original Config and introduces the keyword-only
+`bootstrap_mcp` flag, defaulting to true at both `run_agent_task` and
+`_run_agent_with_mcp`. AppSession forwards false only for the already checked
+built-in browser surface. The flag gates connector bootstrap, its failure notices
+and MCP reference expansion; it does not remove configured servers or their
+credential metadata. Existing callers retain startup by default, while normal
+main turns and unknown/external browser surfaces explicitly retain it. The
+hosted-connector branch remains independent of the MCP skip flag.
+
+The security regression now goes through actual AppSession → run_agent_task →
+_run_agent_with_mcp plumbing and actual `apply_runtime_settings` / `_shell_env`.
+Only the final model runner, connector starter/reference expander and source
+environment are faked. It checks multiple configured `env_names` and `token_env`
+names are absent from all three resulting child environments, `hidden_env`
+retains those names and a public marker survives. It also checks original Config
+identity, shell/native-alias availability and actual mocked bootstrap counts:
+zero after local browser, one after main, two after external fallback. This
+directly covers the security consumer missed by the earlier review; no shell is
+launched and no values are printed.
+
+Independent verification: **63 tests passed** across browser startup,
+ownership/submission, environment scrub, runtime context and CLI session scopes.
+Ruff passed for both changed source files and the regression file; mypy passed
+for both source files. No production source was edited, and no real secret,
+shell/connector/model/network/UI action, build or installation was used.
+
+## Browser MCP startup addendum — historical approval, superseded above
+
+Bounded review of **`6954a28a`** completed; no CRITICAL, HIGH or MEDIUM finding
+identified. This is the latest reviewed Python delta following the post-live
+approvals below.
+
+The actual runner calls `ensure_mcp_tools` from `config.mcp_servers` before its
+allowed-tool surface takes effect. This change supplies an empty server tuple
+only in a per-runner configuration for a browser-only turn whose complete merged
+allowlist is contained in the built-in registry plus local `ask_teacher`.
+Chrome's MCP-shaped aliases are registered built-ins. Pending skill restrictions
+intersect this surface. Unknown/external allowed names preserve configured MCP
+startup, and the native path does not enter the bypass. The replacement neither
+mutates the session configuration nor changes persisted settings, and hosted
+connectors are outside this change.
+
+The code/chat regressions assert the actual captured runner configuration and
+native alias set, then execute another normal turn and verify its connector
+configuration remains intact. A future external-name fixture verifies conservative
+fallback. The built-in registry check constructs tool definitions without starting
+connectors. No live performance claim is inferred from these tests.
+
+Independent verification: **39 tests passed** across browser-MCP startup,
+session ownership and submission scopes. Scoped Ruff and mypy passed. Tests use
+temporary profiles, synthetic connector settings and mocked agent execution;
+no connector command, UI action, network/model call, secret access, build or
+installation was performed. No production source was edited by this review.
+
+## Final post-live source addendum — APPROVE
+
+Bounded review of **`449813bf`** completed. No CRITICAL, HIGH or MEDIUM finding
+identified in this delta. This extends the preceding approvals for `30ced7fe`
+and `d8c5f6b5` to the requested effect/focus/display follow-up.
+
+- **Effect classification:** file-mutation object/verb matching now operates on
+  positive clauses instead of borrowing a noun across sentences or completed
+  predicates. Coordinated build objects retain their shared verb; filename dots
+  remain intact. The tests retain real application/HTML/source-file mutation and
+  external-effect gates alongside Calculator sentence/comma/newline cases and
+  explicit prohibitions. The desktop-lane inflection change is limited to the
+  additional Turkish application-object form; web/mobile negatives are tested.
+- **Admission boundary:** the scripted Calculator regression uses the real agent
+  schema, permission and semantic-admission paths with a synthetic trusted target.
+  It asserts both delivered click/key operations, the desktop lane, the noncomplex
+  workspace classification and the offered desktop schemas. This is meaningful
+  coverage that a classification fix does not silently prohibit requested GUI
+  interactions. It does not claim the application reached a result.
+- **Focus/public identity:** text and `structured.target` expose the same already
+  cross-validated window ID/PID. A regression passes that exact structured pair
+  to background inspection and asserts the native operation/arguments. Existing
+  failed-focus and target-consistency checks remain covered. Descriptions correctly
+  identify the name-only legacy window list as unsuitable for obtaining IDs.
+- **Display privacy/serialization:** Python preserves the native literal display
+  value without calculation or replacement. Native serialization adds only the
+  gated noneditable static-text value, source label and truncation flag; exported
+  values are capped at 1,000 characters. The pure helper test exercises secure,
+  input, unknown and editable denials, ancestor propagation, nil values and the
+  length cap using extracted production helper functions. Detailed native API
+  behavior/typechecking is also under the separate Swift review; this Python
+  verdict does not claim live accessibility acceptance.
+- **Tests/fixtures:** reviewed changed fixtures and assertions; the added empty
+  `turn_forbidden_families` field supplies the existing default contract rather
+  than bypassing a restriction or weakening an expected denial.
+
+Independent verification: **219 tests passed** across desktop effect planning,
+display value, inspect/background, expertise, effect detect/admission/policy,
+tool contract and agent behavior regression scopes. Ruff passed for changed
+Python source/tests; mypy passed for all five changed Python source files.
+The display test executes only pure extracted Swift helpers with synthetic
+strings; all OS/model/provider interactions are mocked. No real UI action,
+screen/accessibility probe, model/network request, secret access, build or
+installation was performed.
+
+## Post-live bounded addendum — APPROVE
+
+Reviewed only **`30ced7fe`** and **`d8c5f6b5`** for the requested keyboard and
+vision-helper boundaries. No CRITICAL, HIGH or MEDIUM finding identified in these
+two deltas. This addendum does not approve the separate effect/focus/AX work still
+in progress.
+
+- **Arithmetic key events:** the new keypad mapping applies only when the parsed
+  chord has no Command, Control, Option or Shift flag. Explicit modifiers continue
+  through the existing physical keycode/flag path, including shortcuts parsed from
+  key syntax or legacy boolean fields. `_post_key` still sends down/up pairs with
+  the same flags and resource release behavior; repeat and hold are unchanged.
+  Named navigation and Windows dispatch do not enter the new mapping. The fake
+  CoreGraphics tests exercise the actual event-construction boundary, including
+  Turkish ANSI-equals substitution, modifier flags, release order and hold/repeat.
+  They establish event selection, not native keyboard-layout or application-result
+  correctness. The remediation report states that limit accurately.
+- **Vision helper contract:** fixed literal-observation instructions are in a
+  system message above the original user question/image on both attempts. Every
+  successful description gets an explicit model-observation/non-independent-
+  verification label. Output is still a description string rather than a parsed
+  or validated visual result. The existing first 200-token attempt, one 4096-token
+  truncation recovery, shared 60-second completion deadline, zero provider retries,
+  nontruncation error behavior and cancellation propagation remain intact.
+- **Evidence limits:** the vision document explicitly records that baseline and
+  grounded synthetic fixtures both produced correct semantic transcriptions and
+  that the original false positive was not reproduced or proven fixed. The new
+  prompt and provenance label are not a hard task-success verification gate.
+
+Verification performed here: **132 tests passed** across
+`test_desktop_literal_keys`, `test_tools_desktop`, `test_key_spec`,
+`test_desktop_win32`, `test_image_view_budget` and `test_view_image`; Ruff passed
+for changed Python source/tests; mypy passed for the two source files. All tests
+used synthetic data/adapters. No real keyboard/UI event, screenshot inspection,
+provider/model call, credential access, build or installation was performed.
+
 ## Final bounded re-review — APPROVE
 
 Final reviewed snapshot: **`e62c73aa`**, including fixes `bfc2ddda`, `3dd0f22d`,

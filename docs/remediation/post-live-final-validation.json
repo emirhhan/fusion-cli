@@ -1,0 +1,19 @@
+{
+  "production_snapshot": "be28b603",
+  "python_passed": 704,
+  "slow_deselected": 7,
+  "python_files": 33,
+  "mypy_sources": 1261,
+  "ruff": "all pass",
+  "app_unchanged_since_verified_source": "0a8269fe",
+  "app_test_files": 302,
+  "app_tests_passed": 2366,
+  "reviews": {
+    "code": "APPROVE",
+    "python": "APPROVE",
+    "swift": "APPROVE"
+  },
+  "actual_vision_experiment_requests": 6,
+  "vision_limits": "Synthetic baseline3also correct; originalfalsepositive not provenfixed. Need authoritativeAX readback.",
+  "live_native_result": "pending corrected runtime installation"
+}
