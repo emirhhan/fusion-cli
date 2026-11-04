@@ -49,3 +49,9 @@ Executed checks accepted HTTP as proof of an explicitly requested HTTPS page, ba
 - No raw user configuration, prompt contents, credentials, or real private history were captured.
 
 No repository-wide passing claim is made. The current source-proof contract proves only that a named URL was read; it does not establish that every factual assertion is supported or current.
+
+## Follow-up snapshot
+
+The parent's corrections now pass independent checks for query-URL preservation, balanced parentheses, distinct HTTP/HTTPS/host/path resources, English negative source clauses, genuine-history continuation and the originally listed local/history/quoted-data examples. Ruff and mypy passed on the five corrected source modules. The expanded scoped pytest command exited 0 (`work/reliability-v2/python-review-corrections-tests.log`). Identity and intro validation still have no scoped high finding.
+
+**One high structural issue remains before freshness approval:** current-fact detection still runs on the combined clause text. Executed `Bugün Python öğrendim. Sürüm kavramını açıkla.` returns `web_lookup`, borrowing the temporal word from one sentence and a topic from another. Evaluate changing-fact intent on each affirmative clause. The same-clause conceptual request `Bugün öğrendiğim döviz kuru kavramını açıkla.` is also still forced into web lookup; preserve explicit concept/definition scope. These are concrete local intent regressions, not a requirement to prove perfect natural-language understanding.
