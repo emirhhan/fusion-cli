@@ -74,3 +74,27 @@ await run('applyItem({tur:"basladi",turnId:"http:1"}).then(next=>{thread=next;})
 await run('applyItem({tur:"bitti",turnId:"http:1",ok:true,metin:"done"}).then(next=>{thread=next;})');
 assert.equal(run('running()'), false);
 assert.equal(run('thread.mesajlar.length'), 2, 'event replay cannot append a phantom assistant');
+
+// Accepted cancellation survives terminal delivery and HTTP completion in either order.
+for (const eventFirst of [true, false]) {
+  let finishTurn;
+  context.crypto = {randomUUID: () => `cancel:${eventFirst}`};
+  context.cancelTransport = (path) => path === '/cancel'
+    ? Promise.resolve({ok: true})
+    : new Promise((resolve) => { finishTurn = resolve; });
+  run('thread={mesajlar:[],seq:0,soru:null};request=cancelTransport;');
+  const pendingTurn = run('sendPrompt("cancel request")');
+  while (!finishTurn) await new Promise((resolve) => setTimeout(resolve, 0));
+  await run('cancel()');
+  assert.equal(run('thread.mesajlar.at(-1).durum'), 'iptal', 'accepted cancel marks its owner');
+  const terminal = `applyItem({tur:"bitti",turnId:"cancel:${eventFirst}",ok:false,metin:"stopped"}).then(next=>{thread=next;})`;
+  if (eventFirst) await run(terminal);
+  finishTurn({ok: false, metin: 'stopped'});
+  await pendingTurn;
+  if (!eventFirst) await run(terminal);
+  await run(terminal);
+  assert.equal(run('thread.mesajlar.at(-1).durum'), 'iptal', `cancellation survives ${eventFirst ? 'event then HTTP' : 'HTTP then event'} and terminal replay`);
+  assert.equal(run('thread.mesajlar.at(-1).metin'), 'stopped');
+  assert.equal(run('running()'), false);
+  assert.equal(run('thread.mesajlar.length'), 2);
+}

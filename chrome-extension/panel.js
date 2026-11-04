@@ -244,7 +244,7 @@ async function applyItem(item) {
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
   if (item.tur === "bitti" && typeof item.turnId === "string" && item.turnId === thread.mesajlar.at(-1)?.turnId) {
     void setGlow(false);
-    return { ...withLastAssistant(() => ({ metin: item.metin || "", durum: item.ok ? "bitti" : "hata" })), soru: null };
+    return { ...withLastAssistant((last) => ({ metin: item.metin || "", durum: item.ok ? "bitti" : last.durum === "iptal" ? "iptal" : "hata" })), soru: null };
   }
   return thread;
 }

@@ -29,3 +29,7 @@ All tests use synthetic temporary profiles and mocked execution; no live user da
 Independent general, Python and JavaScript reviews are still required; parent will schedule them. No runtime build, installation or publication was performed. The conservative reader allowlist intentionally excludes browser/MCP readers, and unexpected/corrupt durable evidence does not authorize retry. Panel reconnection still relies on the existing stored feed cursor; protocol ownership prevents replay from reviving completed rows. Review should check older extension compatibility and all cancel button/runtime-message consumers.
 
 The accompanying `session-ownership-fix.patch` contains the owned source/test diff; other workers' files are excluded.
+
+## P2 review follow-up
+
+The independent review found that a matching unsuccessful terminal event changed an accepted cancellation row from `iptal` to `hata`. Terminal-event reconciliation now preserves an existing `iptal` state, matching the HTTP completion path. A new regression drives the actual `sendPrompt` and accepted `cancel` handlers with deferred fake HTTP, then delivers unsuccessful terminal events before/after HTTP and replays the terminal event. Both orders retain one cancelled assistant row with its terminal text and an idle composer. The added test failed against the reviewed implementation (`hata` versus `iptal`) and passes with the one-line fix. The full panel ownership VM test, `node --check chrome-extension/panel.js`, and scoped `git diff --check` pass. Independent re-review remains pending.
