@@ -53,3 +53,17 @@ including the real Chromium counter-to-composite case and the existing actual
 game restart/HUD tests. Ruff check/format on both changed modules and both new
 test files passed; mypy on both changed modules passed. Source-scoped independent
 reviews and a new full model turn remain separate acceptance gates.
+
+Python review then found that the initial `not_applicable` branch also omitted
+real page console errors. The correction keeps generic console, browser rAF,
+and resource observations in text and bounded structured metadata. Console
+errors or low measured rAF produce a failed observation even though game
+acceptance remains inapplicable; the target is still not registered as a game.
+Only game-specific enemy, start, and restart findings are omitted. Controls
+cover ReferenceError, failed resources, low rAF, benign favicon notes, loaded
+images, and a real Chromium page with a JavaScript ReferenceError.
+
+After that correction, all 70 game/probe tests passed in 80.74 seconds. Ruff
+check/format on the changed module and test file and mypy on `web_tools.py`
+passed. The independent reviewers must assess this final correction rather
+than treating the earlier 64-test gate as approval of the revised branch.

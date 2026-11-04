@@ -10,6 +10,7 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.verification import build_verifier
 from fusion_cli.engines.agent.web_tools import run_play_probe
 from fusion_cli.tools import play_probe
+from fusion_cli.tools.game_assets import AssetUsage
 from fusion_cli.tools.play_probe import ProbeReport
 from tests.fakes import make_config
 
@@ -66,7 +67,9 @@ async def test_probe_registration_requires_game_context_or_actual_game_observati
     assert result.ok
     assert context.probed_games == ({index.as_uri()} if registered else set())
     if not registered:
-        assert result.structured == {"game_probe": "not_applicable"}
+        assert result.structured["game_probe"] == "not_applicable"
+        assert result.structured["page_diagnostics"]["console_error_count"] == 0
+        assert result.structured["page_diagnostics"]["raf_per_second"] == 60
         assert result.is_observation
         assert "kapsamı dışında" in result.output
         assert "kendiliğinden hareket" not in result.output
@@ -74,6 +77,67 @@ async def test_probe_registration_requires_game_context_or_actual_game_observati
         # Missing hooks on actual game tasks and broken/static canvas games
         # retain the existing measurements and final-verifier registration.
         assert "Oyun sondası" in result.output
+
+
+@pytest.mark.parametrize(
+    ("report", "expected_ok", "visible"),
+    [
+        (
+            replace(
+                NO_GAME_OBSERVATION,
+                console_errors=("ReferenceError: updateCounter is not defined",),
+            ),
+            False,
+            "ReferenceError: updateCounter is not defined",
+        ),
+        (
+            replace(
+                NO_GAME_OBSERVATION,
+                console_errors=("Failed to load resource (https://example.com/data.json)",),
+            ),
+            False,
+            "Failed to load resource",
+        ),
+        (replace(NO_GAME_OBSERVATION, raf_per_second=3), False, "3/sn"),
+        (
+            replace(NO_GAME_OBSERVATION, ignored_resources=("favicon.ico bulunamadı",)),
+            True,
+            "favicon.ico bulunamadı",
+        ),
+        (
+            replace(
+                NO_GAME_OBSERVATION,
+                asset_usage=AssetUsage(loaded=("https://example.com/logo.svg",), canvas2d=False),
+            ),
+            True,
+            "https://example.com/logo.svg",
+        ),
+    ],
+)
+async def test_not_applicable_game_probe_preserves_generic_page_diagnostics(
+    tmp_path, monkeypatch, report, expected_ok, visible
+):
+    index = tmp_path / "index.html"
+    index.write_text(COUNTER_HTML)
+    context = ToolContext(root=tmp_path)
+
+    async def measured_probe(_target, _keys):
+        return report
+
+    monkeypatch.setattr(play_probe, "probe_game", measured_probe)
+    result = await run_play_probe({"target": "index.html"}, context)
+
+    assert result.ok is expected_ok
+    assert visible in result.output
+    assert result.structured["game_probe"] == "not_applicable"
+    diagnostics = result.structured["page_diagnostics"]
+    assert diagnostics["console_error_count"] == len(report.console_errors)
+    assert diagnostics["console_errors"] == list(report.console_errors)
+    assert diagnostics["raf_per_second"] == report.raf_per_second
+    assert diagnostics["resource_notes"] == list(report.ignored_resources)
+    assert diagnostics["loaded_resources"] == list(report.asset_usage.loaded)
+    assert not context.probed_games
+    assert "kendiliğinden hareket" not in result.output
 
 
 async def test_real_counter_mistaken_probe_does_not_add_game_findings_at_closure(tmp_path):
@@ -87,7 +151,8 @@ async def test_real_counter_mistaken_probe_does_not_add_game_findings_at_closure
     # This is the actual short Chromium probe, not a scripted measurement.
     observation = await run_play_probe({"target": "index.html"}, context)
 
-    assert observation.structured == {"game_probe": "not_applicable"}
+    assert observation.structured["game_probe"] == "not_applicable"
+    assert observation.structured["page_diagnostics"]["console_error_count"] == 0
     assert not context.probed_games
     config = make_config(
         runtime={
@@ -103,3 +168,19 @@ async def test_real_counter_mistaken_probe_does_not_add_game_findings_at_closure
     assert result.ok, result.findings
     assert not any(e.criterion_id.startswith("game_probe:") for e in result.evidence)
     assert not any("düşman" in finding or "oyunda" in finding for finding in result.findings)
+
+
+async def test_real_broken_counter_does_not_hide_javascript_failure_when_game_is_not_applicable(
+    tmp_path,
+):
+    pytest.importorskip("playwright.async_api")
+    context = ToolContext(root=tmp_path)
+    (tmp_path / "index.html").write_text(COUNTER_HTML + "<script>updateCounter();</script>")
+
+    observation = await run_play_probe({"target": "index.html"}, context)
+
+    assert observation.ok is False
+    assert observation.structured["game_probe"] == "not_applicable"
+    assert "updateCounter is not defined" in observation.output
+    assert observation.structured["page_diagnostics"]["console_error_count"] >= 1
+    assert not context.probed_games

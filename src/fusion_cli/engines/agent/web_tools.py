@@ -70,7 +70,7 @@ async def run_site_design(args: ToolArgs, context: ToolContext) -> ToolResult:
 async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Tarayıcı oyununu başsız Chromium'da oynatıp tepkisini ölç."""
     from ...tools.files import resolve_path
-    from ...tools.play_probe import parse_keys, probe_game
+    from ...tools.play_probe import MIN_RAF_PER_SECOND, parse_keys, probe_game
 
     hedef = args.get("target")
     if not isinstance(hedef, str) or not hedef.strip():
@@ -100,10 +100,33 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
         # A completed tool call is not evidence that the page is a game. A
         # mistaken counter probe otherwise registered an irrelevant final gate,
         # which waited for game-over and demanded moving enemies on the counter.
-        return ToolResult(
+        diagnostics = {
+            "console_error_count": len(rapor.console_errors),
+            "console_errors": list(rapor.console_errors[:3]),
+            "raf_per_second": rapor.raf_per_second,
+            "resource_notes": list(rapor.ignored_resources[:5]),
+            "loaded_resource_count": len(rapor.asset_usage.loaded),
+            "loaded_resources": [url[:500] for url in rapor.asset_usage.loaded[:20]],
+        }
+        page_ok = not rapor.console_errors and rapor.raf_per_second >= MIN_RAF_PER_SECOND
+        lines = [
             "Bu sayfa oyun sondasının kapsamı dışında. Oyun durumu ve canvas gözlenmedi; "
             "görev de oyun istemiyor. Sayaç ve düğmeleri tarayıcı araçlarıyla doğrula.",
-            structured={"game_probe": "not_applicable"},
+            f"Konsol hatası: {len(rapor.console_errors)}",
+            *rapor.console_errors[:3],
+            f"Tarayıcı rAF (ana iş parçacığı sağlığı): {rapor.raf_per_second}/sn",
+        ]
+        if rapor.raf_per_second < MIN_RAF_PER_SECOND:
+            lines.append("Ana iş parçacığı yavaş: sayfanın tepkiselliği doğrulanamadı.")
+        if rapor.ignored_resources:
+            lines.extend(["Kaynak notları (sayfa hatası değil):", *rapor.ignored_resources[:5]])
+        if rapor.asset_usage.loaded:
+            lines.append(f"Yüklenen görsel kaynak: {len(rapor.asset_usage.loaded)}")
+            lines.extend(url[:500] for url in rapor.asset_usage.loaded[:20])
+        return ToolResult(
+            "\n".join(lines),
+            ok=page_ok,
+            structured={"game_probe": "not_applicable", "page_diagnostics": diagnostics},
             is_observation=True,
         )
     context.probed_games.add(hedef)
