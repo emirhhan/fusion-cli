@@ -1174,7 +1174,6 @@ async def _run_agent(
                 ajan_baslangici,
                 teacher_hint,
                 netlestirme,
-                identity_hint(deps.config.agent.model),
                 date_hint(deps.clock),
                 f"Çalışma dizini: {deps.tool_context.root}" if depth > 0 else "",
                 *istek_notlari,
@@ -2991,6 +2990,38 @@ def _widen_profile_for(
     )
 
 
+_MODEL_IDENTITY_OPEN = "<fusion-model-identity>\n"
+_MODEL_IDENTITY_CLOSE = "\n</fusion-model-identity>"
+
+
+def _refresh_model_identity(messages: list[Message], spec: ModelSpec) -> None:
+    """Bind harness identity to the already resolved provider request, not its default."""
+    hint = identity_hint(spec.model)
+    if spec.fallback:
+        # The chain passes this same request to its leaves. The serving leaf is
+        # known only after a result; calling the primary the current model lies
+        # on a successful fallback, including a strict availability fallback.
+        hint = (
+            f"Bu çağrı için istenen birincil model `{spec.model}`. Yedek zinciri açık; "
+            "isteği gerçekten yanıtlayacak model henüz doğrulanmadı. Kullanıcı model "
+            "kimliğini sorarsa Fusion olduğunu söyle; birincil modeli kesin çalışan "
+            "model diye sunma, teknik ayrıntı uydurma."
+        )
+    system = messages[0].content if messages and messages[0].role == "system" else ""
+    before, separator, previous = system.rpartition("\n\n" + _MODEL_IDENTITY_OPEN)
+    if separator and previous.endswith(_MODEL_IDENTITY_CLOSE):
+        system = before
+    elif system.startswith(_MODEL_IDENTITY_OPEN) and system.endswith(_MODEL_IDENTITY_CLOSE):
+        system = ""
+    if hint:
+        block = _MODEL_IDENTITY_OPEN + hint + _MODEL_IDENTITY_CLOSE
+        system = f"{system}\n\n{block}" if system else block
+    if messages and messages[0].role == "system":
+        messages[0] = replace(messages[0], content=system)
+    elif system:
+        messages.insert(0, Message("system", system))
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -3014,6 +3045,7 @@ async def _call_model(
             ok=False,
             error="Model çağrı bütçesi tükendi veya sabit model sözleşmesi değişti.",
         )
+    _refresh_model_identity(messages, spec)
     offered_tools = (
         tuple(
             registry.schemas(
