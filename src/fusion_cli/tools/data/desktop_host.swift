@@ -62,19 +62,29 @@ func displaySecurityString(_ element: AXUIElement, _ name: String) -> String? {
     guard status == .success else { return nil }
     return result as? String
 }
-// Pure policy helpers: unknown security metadata and editable ancestors deny export.
+// Pure policy helpers: preserve actual query status through every ancestor.
+enum DisplayEditability: Equatable {
+    case readOnly, editable, unsupported, unknown
+}
+func displayEditability(_ status: AXError, _ settable: Bool) -> DisplayEditability {
+    if status == .success { return settable ? .editable : .readOnly }
+    if status == .attributeUnsupported || status == .noValue { return .unsupported }
+    return .unknown
+}
 func displayBranchIsSafe(_ role: String?, _ subrole: String?, _ ancestorsSafe: Bool,
-    _ editable: Bool?) -> Bool {
+    _ editability: DisplayEditability) -> Bool {
     guard ancestorsSafe, let role = role, !role.isEmpty, role != "AXUnknown",
-        let subrole = subrole, editable != true else { return false }
+        let subrole = subrole,
+        editability == .readOnly || editability == .unsupported else { return false }
     let security = (role + " " + subrole).lowercased()
     guard !security.contains("secure"), !security.contains("password"),
         !["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(role) else { return false }
-    return role != "AXStaticText" || editable != nil
+    return true
 }
-func safeDisplayValue(_ role: String?, _ branchSafe: Bool, _ editable: Bool?,
-    _ value: String?) -> String? {
-    guard branchSafe, role == "AXStaticText", editable == false, let value = value else { return nil }
+func safeDisplayValue(_ role: String?, _ branchSafe: Bool,
+    _ editability: DisplayEditability, _ rawValue: Any?) -> String? {
+    guard branchSafe, role == "AXStaticText", editability == .readOnly,
+        let value = rawValue as? String else { return nil }
     return String(value.prefix(1000))
 }
 func tree(_ window: AXUIElement) -> [Entry] {
@@ -85,14 +95,16 @@ func tree(_ window: AXUIElement) -> [Entry] {
         let subrole = displaySecurityString(element, kAXSubroleAttribute)
         var settable = DarwinBoolean(false)
         let editableStatus = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
-        let editable: Bool? = editableStatus == .success ? settable.boolValue : nil
-        let branchSafe = displayBranchIsSafe(role, subrole, ancestorsSafe, editable)
-        let observedValue = attribute(element, kAXValueAttribute).map { String(describing: $0) }
-        let value = observedValue ?? ""
-        let display = safeDisplayValue(role, branchSafe, editable, observedValue)
+        let editability = displayEditability(editableStatus, settable.boolValue)
+        let branchSafe = displayBranchIsSafe(role, subrole, ancestorsSafe, editability)
+        let rawValue = attribute(element, kAXValueAttribute)
+        // Fingerprint compatibility is independent from the stricter display type contract.
+        let value = rawValue.map { String(describing: $0) } ?? ""
+        let display = safeDisplayValue(role, branchSafe, editability, rawValue)
+        let stringValue = rawValue as? String
         entries.append(Entry(element: element, path: path, identity: identity(element),
             valueDigest: digest(value), displayValue: display,
-            displayValueTruncated: display != nil && value.count > 1000))
+            displayValueTruncated: display != nil && (stringValue?.count ?? 0) > 1000))
         let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
         for (index, child) in children.enumerated() {
             queue.append((child, path + [index], branchSafe))
