@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -420,9 +419,20 @@ def _check_file_reference(task, solution, root: Path):
             target.write_bytes(base64.b64decode(content.removeprefix("base64:")))
         else:
             target.write_text(content, encoding="utf-8")
-    command = (task.criterion.command or "").replace("python ", f"{sys.executable} ")
+    from evals.acceptance_command import plan_acceptance
+    from evals.executor import _verification_env
+
+    acceptance = plan_acceptance(task.criterion.command or "")
+    assert acceptance.command is not None, acceptance.unavailable_reason
+    command = acceptance.command
     result = subprocess.run(
-        command, shell=True, cwd=root, capture_output=True, text=True, timeout=120
+        command,
+        shell=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=_verification_env(),
     )
     assert result.returncode == task.criterion.expected_exit_code, (
         task.id,

@@ -132,3 +132,24 @@ def test_fetch_does_not_invent_publication_date_from_body(monkeypatch, tmp_path)
     assert result.structured["source"]["published_at"] is None
     assert result.structured["source"]["updated_at"] is None
     assert result.structured["source"]["date_evidence"] == "unknown"
+
+
+def test_fetch_provenance_preserves_access_wall_protocol_prefix(tmp_path, monkeypatch):
+    from fusion_cli.core.constants import CAPABILITY_WALL_PREFIX
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import web
+
+    monkeypatch.setattr(web, "url_block_reason", lambda _: None)
+    monkeypatch.setattr(
+        web,
+        "fetch_following_redirects",
+        lambda url: (
+            "text/html",
+            "<html><p>This store is password protected</p></html>",
+            url,
+        ),
+    )
+    result = web.web_fetch({"url": "https://shop.test"}, ToolContext(root=tmp_path))
+    assert result.output.startswith(CAPABILITY_WALL_PREFIX)
+    assert result.structured["source"]["final_url"] == "https://shop.test"
+    assert result.structured["source"]["fetched_at"]

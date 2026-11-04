@@ -163,3 +163,35 @@ Bu onay ilk snapshot'ın tanımlı Python kapsamı ve dört düzeltme dalgası i
 A04–A07 yeni worker değişikliklerinin, D eval uygulamasının, tüm repo testlerinin
 ve gerçek platform/canlı model kabullerinin onayı değildir. İlk BLOCK raporu
 geçmiş kanıt olarak korunmuştur; güncel scoped verdict bu bölümdedir.
+
+# Son küçük Python delta incelemesi — aday 283cc3bd sonrası
+
+Kapsam yalnız `/tmp/fusion-web-delta-review.diff` içindeki üç dosya:
+`tools/web.py`, `tests/test_web_provenance_remediation.py`,
+`tests/test_eval_criteria_sound.py`. Paket SHA256:
+`9f56a42d625b50bebb1b23a44077e0747dfa5a17a1700c9839bf1a1e35900ae2`.
+Diğer aday kodu veya tamamlanan shard'lar bu deltanın yeniden test kanıtı sayılmadı.
+
+- `web_fetch`: erişim duvarı varsa protokol öneki tekrar ilk satırda;
+  provenance bunun ardından, gerçek gövde en sonda. Duvar olmayan normal sonuçta
+  provenance bilgisi korunuyor. `structured.source` alanı değişmedi.
+  Yeni regresyon hem prefix davranışını hem final URL/erişim zamanının kalmasını
+  ölçüyor. Başarılı HTTP erişimi erişim duvarının başarı kanıtı haline getirilmemiş.
+- Eval referans helper'ı: raw shell/Python değiştirme yerine üretimdeki
+  `plan_acceptance` ve `_verification_env` yolunu kullanıyor. Scratch cwd içinde
+  evaluator modülünün bulunması ve güvenilir yorumlayıcı başlangıcı aynı
+  sözleşmeye bağlanmış. Exit-code assertion kaldırılmamış veya gevşetilmemiş;
+  testin kontrol ettiği çözüm/kriter değişmemiş.
+
+Statik doğrulama bu üç dosyada çalıştırıldı:
+`ruff check`: **All checks passed!**;
+`ruff format --check`: **3 files already formatted**;
+`MYPYPATH=$PWD/src mypy --follow-imports=silent src/fusion_cli/tools/web.py`:
+**Success: no issues found in 1 source file**.
+Controller'ın fresh `/tmp/fusion-web-delta-tests.log` çıktısı okundu:
+**82 passed in 16.99s**. Bu inceleme testleri ayrıca yeniden çalıştırmadı.
+
+**Son delta kabul verdict: APPROVE.**
+**Son delta Python stil/tip/semantik güvenlik verdict: APPROVE.**
+Bu üç dosyalık farkta kalan actionable P1/P2 bulgu yok. Tam adayın tüm testleri
+ve sonraki deadlock koşusu için controller'ın ayrı fresh kanıtı gereklidir.

@@ -87,3 +87,14 @@ Kullanıcı uygulamayı açıkça yetkilendirdiği için plan onayı beklenmez.
 
 ## Aday kaynak commit yetkisi
 Parent, tüm üretim incelemeleri/statik/app kapıları yeşil ve kaynak sabitken paket HAZIRLAMAYI paralelleştirmek için 2026-11-04 açıkça aday commit+incrementalpatch istedi. Normal RULES commit öncesi tam test kapısından bu aday snapshot için açıkça ayrılıyoruz: Python4shard ve Rusttest SONUÇLARI BEKLENİYOR, bu commit kuruluma veya nihai kabule onay değildir. Yeni test regresyonu olursa aday üzerine ayrı düzeltme commit/delta verilecek. Main/push/publish/kurulum yok.
+
+## Aday sonrası web protokolü düzeltmesi
+- Aday283cc3bd üzerinden finalmake deadlock3failed/178passed: web_build_runs::test_kosu_sifre_duvarli_site_uydurulmadan_raporlanir gerçek B07 prefixregresyonu; production MCP ve large reference2test scratchcwdNoModuleevals testhelperenv eksikliği.
+- Yeni test_web_provenance_remediation::test_fetch_provenance_preserves_access_wall_protocol_prefix adayda kırmızı; erişimduvarı banner'ı tekrar başa, provenance ikinci ve structuredsource aynı.
+- Referanshelper rawcommand yerine gerçek plan_acceptance+_verification_env kullandı; test exitcodeassertları değişmedi.
+- Fresh web/provenance/build/planning/egress82passed16.99s; web.py mypy1source temiz; genelcode+Python scoped rereviewAPPROVE. Freshmake deadlock ayrı koşuyor.
+- Candidate283cc3bd başladıktan sonra yapılan bu web.py kaynakdeğişikliği nedeniyle eskiimportcache ile koşan4shard sonwebkaynağı birebir fullpass diye sunulmayacak; adaykapsamı ve deltafreshkontrolleri ayrı raporlanacak.
+- Rust test:154passed/6ignored, doctest/main0; fmt/clippy de yeşil.
+- E08 yeniP3aday: Chrome paneli/remotePWA asistan fontu anaappInter değişikliğinden farklı; ilk24 kapsamına katılmadı.
+
+- Webdelta fresh `make deadlock`:181passed121.06s; önceki3kırmızı tümü kapandı. Aynı3dosya genelcode vePython scopedreviewAPPROVE.

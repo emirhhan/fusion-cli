@@ -191,3 +191,35 @@ otomatik kapalı sayılmıyor.
 
 Verdict: APPROVE — tanımlı genel code/spec kapsamı; ayrı TS ve son bütünleşik
 çalıştırma kanıtı ayrıca takip edilir.
+
+# Son scoped B07 / kabul referansı entegrasyon delta incelemesi
+
+Paket: `/tmp/fusion-web-delta-review.diff`; aday `283cc3bd` üzerine yalnız
+`tools/web.py`, `tests/test_web_provenance_remediation.py` ve
+`tests/test_eval_criteria_sound.py`. Önceki genel onaydan sonraki bu üç dosya
+ayrıca incelendi; başka kapsama yayılınmadı.
+
+**Scoped kabul verdict: APPROVE.**
+**Scoped kod kalitesi verdict: APPROVE — yeni açık P1/P2 yok.**
+
+- `web_fetch` erişim duvarı bulunduğunda `CAPABILITY_WALL_PREFIX` taşıyan banner'ı
+  çıktı başına koyuyor. `loop.py` içindeki `startswith` protokolü böylece tekrar
+  erişilemedi kararına ulaşabiliyor; provenance erişim duvarını başarı metninin
+  içine gömmüyor. Duvar yokken normal provenance+gövde çıktısı korunuyor.
+  Structured kaynak alanları aynı kalıyor; URL/final URL/erişim zamanı ve tarih
+  beyanı kaybolmuyor. Yeni regresyon hem gerçek protokol önekini hem structured
+  final URL ve fetched_at alanlarını kontrol ediyor.
+- `_check_file_reference` artık ham `python` dizgesi değiştirme yerine gerçek
+  executor'ın da kullandığı `plan_acceptance` komut planını çalıştırıyor.
+  `assert acceptance.command is not None` belirsiz başlatıcıyı sessizce raw shell'e
+  düşürmüyor. Aynı `_verification_env` scratch cwd'de repo `evals` paketini ve
+  çalışan yorumlayıcıyı bulma, `PYTHONOPTIMIZE=0` ve güvenli Python başlangıcı
+  semantiğini koruyor. Referans çözümün beklenen exit-code assertion'ı kaldırılmadı
+  veya gevşetilmedi. Bu küçük helper değişikliği kriterleri atlamıyor.
+- `/tmp/fusion-web-delta-tests.log` inceleme sırasında okundu:
+  **82 passed in 16.99s**. Reviewer testleri tekrar çalıştırmadı. Bu kayıt yalnız
+  bu delta'nın scoped kanıtıdır; aday `283cc3bd` üzerinde başlamış dört shard'ın
+  son değişmiş kaynak ağacının tamamını ölçtüğü şeklinde bir iddia verilmedi.
+
+Bu scoped delta önceki genel code/spec APPROVE kararını korur. Son web/deadlock
+koşuları ve bütünleşik kaynak-sürüm kaydı controller tarafından ayrıca tutulur.

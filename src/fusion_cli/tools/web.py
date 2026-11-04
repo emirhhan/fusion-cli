@@ -112,8 +112,11 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
         "content_summary": text[:CONTENT_SUMMARY_CHARS],
     }
     provenance = f"Kaynak: {final_url}\nİstenen URL: {url}\nErişim zamanı: {fetched_at}"
-    output = f"{duvar}\n\n{govde}" if duvar else govde
-    return ToolResult(f"{provenance}\n\n{output}", structured={"source": source})
+    output = f"{provenance}\n\n{govde}"
+    if duvar:
+        # Kısıt öneki başarı kararının protokolüdür; provenance bunun önüne geçemez.
+        output = f"{duvar}\n\n{output}"
+    return ToolResult(output, structured={"source": source})
 
 
 #: Erişim duvarı işaretleri. Sayfa 200 döner ve METİN gelir; ama gelen metin istenen
