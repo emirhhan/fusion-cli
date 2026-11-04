@@ -98,8 +98,9 @@ _CURL_CREDENTIAL_OPTIONS = (
     "--cert",
     "--pass",
 )
-# Stop at an option which consumes the remainder as its value, such as -opublic.txt.
-_CURL_VALUE_OPTIONS = frozenset("AbcCdDeEFHIKmNoPQrTtwxXyYz")
+# Short options with operands, audited against local `curl --help all`. Stop at
+# their attached value (e.g. -opublic.txt); flags such as -I/-N keep scanning.
+_CURL_VALUE_OPTIONS = frozenset("AbcCdDeEFhHKmoPQrTtUuwxXyYz")
 
 
 def _shell_tokens(command: str) -> list[str] | None:

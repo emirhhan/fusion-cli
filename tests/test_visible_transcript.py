@@ -539,6 +539,13 @@ def test_shell_punctuation_curl_clusters_and_traces_never_reach_history(tmp_path
         "curl -svu=user:SYNTHAUTHOPAQUE https://example.test",
         "curl --proxy-user='user:SYNTHAUTHOPAQUE' https://example.test",
         "set -x; curl -u user:SYNTHAUTHOPAQUE https://example.test",
+        *(
+            f"curl -{flags}{auth} user:SYNTHAUTHOPAQUE https://example.test"
+            # Each documented non-operand short option must allow scanning onward.
+            # Include silent clusters and both server/proxy credentials after I/N.
+            for flags in [*"aqfGgI0ik46jlLM:NZ#pJORSs231BvV", "Is", "Ns"]
+            for auth in ("u", "U")
+        ),
     ]
     for command in commands:
         event = ToolExecuted(
@@ -581,6 +588,8 @@ def test_nonsecret_shell_and_public_file_controls_keep_preview_output_and_diff(t
         "bash -c 'printf hello'",
         "curl -sS -o public.txt https://example.test",
         "curl -opublic.txt --user-agent Mozilla https://example.test",
+        "curl -Auser-agent-value https://example.test",
+        "curl -A user-agent-value https://example.test",
     ]
     for command in commands:
         sink.handle(
