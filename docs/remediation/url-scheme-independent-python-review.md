@@ -47,3 +47,18 @@ Reviewed SHA-256 source fingerprints:
 
 Other instruction-loading work in the shared working tree was excluded. This
 review does not approve integration or claim the installed app contains this change.
+
+## Final re-review: HIGH resolved
+
+Source `1ee40981b2498735282da7e9844b53ab627859d8`, inspected at combined
+HEAD `790b396bae161899b661b13f756f02dc0a92294d`, rejects unsupported schemes
+before the local-origin exception. All 11 independent entrypoint/control cases
+now pass, including no DNS/browser startup for unsupported preview-origin URLs
+and retained uppercase/lowercase HTTP(S) local preview permission.
+
+**URL scope APPROVED.** No HIGH/CRITICAL findings remain in this URL change.
+Shared static checks passed (Ruff; mypy nine source files), and the combined
+instruction/URL regression run passed 171 cases. No reviewer terminal remains
+running (session `11340` completed with exit 0). Final web source SHA-256:
+`2c6eab938825bfcac8ef87f0e1757b1cbc15ae91e4f82dfbcf4e86159749b362`.
+Other URL fingerprints above remain unchanged.
