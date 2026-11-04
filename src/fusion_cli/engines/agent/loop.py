@@ -1597,6 +1597,7 @@ async def _run_agent(
         ensure_limitations_disclosed(outcome, deps)
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
+        _finalize_response_format(outcome, task)
     await _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
@@ -1674,22 +1675,42 @@ def _apply_turn_report(
         # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
         report = replace(report, false_claim=True)
     outcome.completion_report = report
-    outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
-    _publish_evidence(outcome, report, deps)
+    separate = _finalize_response_format(outcome, task)
+    if not separate:
+        outcome.final_text = report.render_with_model_text(outcome.final_text)
+    _publish_evidence(outcome, report, deps, separate=separate)
 
 
-def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps) -> None:
+def _finalize_response_format(outcome: AgentOutcome, task: str) -> bool:
+    """Apply format presentation after reports or disclosures without republishing evidence."""
+    from .response_format import format_reported_response
+
+    if outcome.completion_report is None:
+        return False
+    formatted = format_reported_response(
+        task, outcome.final_text, outcome.completion_report, successful=outcome.ok
+    )
+    if formatted is None:
+        return False
+    outcome.final_text, outcome.ok = formatted
+    return True
+
+
+def _publish_evidence(
+    outcome: AgentOutcome, report: TurnReport, deps: AgentDeps, *, separate: bool = False
+) -> None:
     """Rapor bloğu ekrana ULAŞMAYACAKSA geçen kanıtı ve gerçek farkı olay olarak yay.
 
     Rapor `final_text`'e eklenir; o metin yalnız `TurnAnswered` (akıtılmayan cevap) ya da
     `ErrorOccurred` (başarısız tur) ile ekrana düşer. Cevabı akıtılan BAŞARILI turda
     ikisi de çalışmaz: ölçüldü (30 Ekim, g4), tarayıcı kapısı sayfayı açıp denetlemişti
     ama kullanıcı hiçbir kanıt satırı görmedi. Metin zaten gidecekse olay yayılmaz;
-    aynı bilgi iki kez basılmaz.
+    aynı bilgi iki kez basılmaz. Kullanıcı katı yanıt biçimi istediğinde rapor
+    düzyazısı cevaba eklenmez; gerçek kanıt bu ayrı olaylardan yine görünür.
     """
-    if not (outcome.ok and outcome.answer_streamed and report.changed_paths):
+    if not (outcome.ok and (outcome.answer_streamed or separate) and report.changed_paths):
         return
     summary = summarize_evidence(report)
     if not summary.is_empty:
