@@ -89,6 +89,23 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"Oyun sondası çalışamadı ({type(error).__name__}): {str(error)[:200]}"
         )
+    if (
+        "oyun" not in context.task_kinds
+        and rapor.state_before is None
+        and rapor.state_after is None
+        and rapor.restart_state is None
+        and rapor.canvas_kind is None
+        and rapor.canvas_changed is None
+    ):
+        # A completed tool call is not evidence that the page is a game. A
+        # mistaken counter probe otherwise registered an irrelevant final gate,
+        # which waited for game-over and demanded moving enemies on the counter.
+        return ToolResult(
+            "Bu sayfa oyun sondasının kapsamı dışında. Oyun durumu ve canvas gözlenmedi; "
+            "görev de oyun istemiyor. Sayaç ve düğmeleri tarayıcı araçlarıyla doğrula.",
+            structured={"game_probe": "not_applicable"},
+            is_observation=True,
+        )
     context.probed_games.add(hedef)
     return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}")
 
