@@ -31,6 +31,8 @@ TASK = (
         "Sonucu 3 satırda yaz.",
         "Yanıtı iki kısa satırda yaz.",
         "Yanıtı 3 kısa satırda yazmanı istiyorum.",
+        "3 kısa satırda yanıt yaz.",
+        "Üç satırlık kısa cevap yaz.",
     ],
 )
 def test_counted_reply_format_does_not_request_workspace_changes(task):
@@ -53,14 +55,23 @@ def test_counted_reply_format_does_not_request_workspace_changes(task):
         "Bir satır yaz.",
         "Üç satırda değişiklik yap.",
         "Dosyayı sil. Sonucu 3 kısa satırda yaz.",
+        "rapor.txt dosyasına 3 kısa satırda yanıt yaz.",
+        "rapor.txt dosyasına üç satırlık kısa cevap yaz.",
+        "3 satırda kod yaz.",
+        "3satırda kod yaz.",
+        "Üç satırlık kod yaz.",
     ],
 )
 def test_reply_format_preserves_affirmative_file_code_and_ui_effects(task):
     assert required_effect_for(task) == "workspace_mutation"
 
 
+@pytest.mark.parametrize(
+    "format_instruction",
+    ["3 kısa satırda yaz.", "3 kısa satırda yanıt yaz.", "Üç satırlık kısa cevap yaz."],
+)
 async def test_successful_official_web_fetch_finalizes_without_file_mutation_or_teacher(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, format_instruction
 ):
     deps = _deps(tmp_path)
     registry = ToolRegistry()
@@ -85,7 +96,12 @@ async def test_successful_official_web_fetch_finalizes_without_file_mutation_or_
     monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: provider)
     teacher = AsyncMock()
     monkeypatch.setattr(loop, "prepare_teacher_plan", teacher)
-    result = await loop.run_agent(TASK, deps, verify=False, self_review=False)
+    result = await loop.run_agent(
+        TASK.replace("3 kısa satırda yaz.", format_instruction),
+        deps,
+        verify=False,
+        self_review=False,
+    )
     assert delivered == ["https://www.python.org/downloads/"]
     assert result.ok and result.final_text == answer
     assert provider.calls == 2

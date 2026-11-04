@@ -200,11 +200,15 @@ _REQUEST_SUFFIX = (
     r"abilir misin|ebilir misin)"
 )
 
-# A counted locative line span constrains the reply's length. Remove only that
-# span, retaining "yaz" so an explicit file/code object still binds its verb.
+# Counted response length is formatting, not a line-edit object. A "satırlık"
+# phrase requires an explicit reply noun; locatives may directly qualify "yaz".
+# Retain the write verb so an explicit file/code object still binds to it.
 _REPLY_LINE_FORMAT_PATTERN = re.compile(
     r"\b(?:\d+|bir|iki|üç|uc|dört|dort|beş|bes|altı|alti|yedi|sekiz|dokuz|on)"
-    rf"\s+(?:k[ıi]sa\s+)?sat[ıi]rda\b(?=\s+yaz(?:{_REQUEST_SUFFIX})?\b)",
+    r"\s+(?:k[ıi]sa\s+)?sat[ıi]r(?:"
+    rf"da\b(?=\s+(?:(?:bir\s+)?(?:yan[ıi]t|cevap)\s+)?yaz(?:{_REQUEST_SUFFIX})?\b)"
+    rf"|l[ıi]k\b(?=\s+(?:k[ıi]sa\s+)?(?:bir\s+)?(?:yan[ıi]t|cevap)\s+"
+    rf"yaz(?:{_REQUEST_SUFFIX})?\b))",
     re.IGNORECASE,
 )
 
