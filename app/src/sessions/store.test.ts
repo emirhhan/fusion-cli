@@ -166,3 +166,36 @@ describe("tur bitince bekleyen soru", () => {
     expect(state.sessions.bir.messages.filter((m) => m.rol === "asistan")).toHaveLength(1);
   });
 });
+
+
+it("geç yaratılan geri yükleme kaydı seçili çalışan sohbeti değiştirmez", () => {
+  let state = sessionReducer(initialSessionState, { type: "created", session: {
+    id: "fresh", title: "Yeni iş", source: "fusion", root: "/project", client: client(),
+  } });
+  state = sessionReducer(state, { type: "runningChanged", id: "fresh", running: true });
+  const owner = state.sessions.fresh;
+  state = sessionReducer(state, { type: "created", activate: false, session: {
+    id: "old", title: "Yeni görev", source: "fusion", root: "/outputs", client: client(),
+  } });
+  expect(state.activeId).toBe("fresh");
+  expect(state.sessions.fresh).toBe(owner);
+  expect(state.sessions.old.root).toBe("/outputs");
+});
+
+it("tekrarlanan created çalışan turun kökünü mesajını veya istemcisini ezemez", () => {
+  let state = sessionReducer(initialSessionState, { type: "created", session: {
+    id: "same", title: "Yeni iş", source: "fusion", root: "/project", client: client(),
+  } });
+  state = sessionReducer(state, { type: "submissionStarted", id: "same", requestId: "owner" });
+  state = sessionReducer(state, { type: "messageAdded", id: "same", message: { rol: "kullanici", metin: "Hesabı temizle" } });
+  state = sessionReducer(state, { type: "runningChanged", id: "same", running: true });
+  const owner = state.sessions.same;
+  state = sessionReducer(state, { type: "created", activate: false, session: {
+    id: "same", title: "Yeni görev", source: "fusion", root: "/outputs", client: client(),
+  } });
+  expect(state.sessions.same).toBe(owner);
+  expect(state.sessions.same.requestId).toBe("owner");
+  expect(state.sessions.same.root).toBe("/project");
+  expect(state.sessions.same.running).toBe(true);
+  expect(state.sessions.same.messages[0].metin).toBe("Hesabı temizle");
+});

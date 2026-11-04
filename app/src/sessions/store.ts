@@ -31,7 +31,7 @@ interface SessionSeed {
 export type SessionAction =
   | { type: "submissionCompleted"; id: string; requestId: string }
   | { type: "submissionStarted"; id: string; requestId: string; expectedTurnId?: string }
-  | { type: "created"; session: SessionSeed }
+  | { type: "created"; session: SessionSeed; activate?: boolean }
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
@@ -115,8 +115,10 @@ function akanBalonuKalicilastir(mesajlar: Mesaj[]): Mesaj[] {
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "created": {
-      const exists = Boolean(state.sessions[action.session.id]);
-      const model: SessionModel = {
+      const existing = state.sessions[action.session.id];
+      const exists = Boolean(existing);
+      // Tekrarlanan yayın veya geç bağlanma çalışan turun istemcisini/sahipliğini silemez.
+      const model: SessionModel = existing && (existing.client === action.session.client || existing.running) ? existing : {
         ...action.session,
         updatedAt: action.session.updatedAt ?? Date.now(),
         pid: action.session.pid ?? null,
@@ -134,7 +136,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       };
       return {
         ...state,
-        activeId: action.session.id,
+        activeId: action.activate === false ? state.activeId : action.session.id,
         order: exists ? state.order : [...state.order, action.session.id],
         sessions: { ...state.sessions, [action.session.id]: model },
         connectionError: null,
