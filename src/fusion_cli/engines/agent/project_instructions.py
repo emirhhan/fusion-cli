@@ -49,9 +49,9 @@ from .instruction_rules import (
     MAX_SCOPED_RULE_CHARS,
     RuleFile,
     discover_rules,
+    load_unscoped_rules,
     rule_block,
     scoped_rules_for,
-    unscoped_rules_block,
 )
 
 #: Claude Code (#154): isteğe bağlı kurallarda erişim başına toplam/adet sınırı yoktur; her
@@ -369,6 +369,27 @@ _MEASURED_EXECUTABLES = (
 )  # fmt: skip
 
 
+def load_startup_instruction_files(
+    root: Path,
+    home: Path | None,
+    *,
+    merge: bool = True,
+    max_chars: int = TOTAL_MAX_CHARS,
+    extra_roots: tuple[Path, ...] = (),
+) -> InstructionLoad:
+    """Load startup file instructions and rules with matching diagnostic metadata."""
+    layers = load_instruction_layers(
+        root, home, merge=merge, max_chars=max_chars, extra_roots=extra_roots
+    )
+    rules = load_unscoped_rules(discover_rules(root, home)) if merge else InstructionLoad("")
+    return replace(
+        layers,
+        text="\n".join(part for part in (layers.text, rules.text) if part),
+        files=(*layers.files, *rules.files),
+        notes=(*layers.notes, *rules.notes),
+    )
+
+
 def load_all_instructions(
     root: Path,
     home: Path | None,
@@ -415,7 +436,7 @@ def load_all_instructions(
     if depo:
         ortam = f"{ortam}\n{depo}"
     ozet = workspace_summary(root)
-    instruction_load = load_instruction_layers(
+    instruction_load = load_startup_instruction_files(
         root,
         home,
         merge=instruction_merge,
@@ -423,18 +444,16 @@ def load_all_instructions(
         extra_roots=extra_roots,
     )
     proje_talimati = instruction_load.text
-    # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.
-    kurallar = unscoped_rules_block(discover_rules(root, home)) if instruction_merge else ""
     if home is None or not include_external_memory:
         return replace(
             instruction_load,
-            text="\n".join(part for part in (ortam, ozet, proje_talimati, kurallar) if part),
+            text="\n".join(part for part in (ortam, ozet, proje_talimati) if part),
         )
 
     from ...history.memory_files import read_external_memory
 
     dis_bellek = read_external_memory(home, root)
-    parts = [ortam, ozet, proje_talimati, kurallar, dis_bellek]
+    parts = [ortam, ozet, proje_talimati, dis_bellek]
     return replace(instruction_load, text="\n".join(part for part in parts if part))
 
 

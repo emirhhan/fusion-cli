@@ -25,6 +25,7 @@ from .instruction_layers import (
     read_text_limited,
 )
 from .instruction_rules import discover_rules
+from .project_instructions import load_startup_instruction_files
 
 #: `/init` hedefleri ve varsayılan (CLAUDE.md; #155) `init_prompt`'ta.
 INIT_TARGETS = init_prompt.INIT_TARGETS
@@ -78,7 +79,7 @@ def audit_instructions(
     max_chars: int = TOTAL_MAX_CHARS,
 ) -> InstructionAudit:
     """Tur başında bağlama girecek talimatları ölç ve öneri üret; dosya yazmaz."""
-    load = load_instruction_layers(root, home, merge=merge, max_chars=max_chars)
+    load = load_startup_instruction_files(root, home, merge=merge, max_chars=max_chars)
     rules = discover_rules(root, home) if merge else ()
     total = sum(item.chars for item in load.files)
     suspicious = tuple(_scan_suspicious(item) for item in load.files if not item.trusted)

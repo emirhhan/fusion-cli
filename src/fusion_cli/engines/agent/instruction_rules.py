@@ -22,6 +22,9 @@ from pathlib import Path
 
 from .instruction_layers import (
     TRIM_NOTE,
+    InstructionFile,
+    InstructionLoad,
+    instruction_files_mode,
     read_text_limited,
 )
 
@@ -80,6 +83,8 @@ def discover_rules(root: Path, home: Path | None) -> tuple[RuleFile, ...]:
     from ...config import claude_settings
     from .claude_md_imports import external_import_decision
 
+    if instruction_files_mode(root, home) == "managed-only":
+        return ()
     found: list[RuleFile] = []
     if home is not None:
         for rel in USER_RULE_DIRS:
@@ -290,9 +295,12 @@ def rule_block(rule: RuleFile, limit: int = MAX_RULE_FILE_CHARS) -> tuple[str, i
     return f"Contents of {rule.path} ({desc}):\n\n{text}{ek}", len(text)
 
 
-def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CHARS) -> str:
-    """`paths:` olmayan kuralların tur başı bloğu; bütçe aşımı açıkça bildirilir."""
+def load_unscoped_rules(
+    rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CHARS
+) -> InstructionLoad:
+    """Return the exact startup rule text and the files actually included."""
     blocks: list[str] = []
+    files: list[InstructionFile] = []
     remaining = budget
     skipped: list[str] = []
     for rule in rules:
@@ -305,6 +313,7 @@ def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CH
         if not block:
             continue
         blocks.append(block)
+        files.append(InstructionFile(rule.label, rule.path, "kural", used, 0, rule.trusted))
         remaining -= used
     if skipped:
         blocks.append(
@@ -312,4 +321,9 @@ def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CH
             + ", ".join(skipped)
             + " — tamamı için read_file kullan…]"
         )
-    return "\n".join(blocks)
+    return InstructionLoad("\n".join(blocks), tuple(files))
+
+
+def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CHARS) -> str:
+    """`paths:` olmayan kuralların tur başı bloğu; bütçe aşımı açıkça bildirilir."""
+    return load_unscoped_rules(rules, budget).text

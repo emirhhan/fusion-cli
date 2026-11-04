@@ -233,7 +233,7 @@ from .hook_display import message_display
 from .hook_permission_denied import classifier_reason, permission_denied, review_mark
 from .hook_services import bind_hook_services
 from .hook_stop import continue_until_stop_allowed
-from .instruction_layers import InstructionLoad
+from .instruction_layers import InstructionLoad, instruction_files_mode
 from .instruction_rules import discover_rules
 from .lesson_attribution import LessonTurnState
 from .loop_contract import (
@@ -3538,12 +3538,15 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         sinir = max_chars_for_window(context_budget(deps.config, _context_spec(deps)).window_tokens)
     except (AttributeError, TypeError, ValueError):
         sinir = max_chars_for_window(None)
+    managed_only = instruction_files_mode(kok, deps.home) == "managed-only"
     hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
         hedefler.append(hedef)
+        if managed_only:
+            continue
         # `--add-dir` dizininin `paths` alanlı kuralları (#170; ortam değişkeni açıkken).
         ek_kurallar = extra_dir_rules.hits_for(
             tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),

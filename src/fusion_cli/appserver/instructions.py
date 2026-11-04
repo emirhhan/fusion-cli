@@ -45,9 +45,9 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
     sonuc: dict[str, Any] = {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
     if root is None:
         return sonuc
-    from ..engines.agent.instruction_layers import load_instruction_layers
+    from ..engines.agent.project_instructions import load_startup_instruction_files
 
-    yuk = load_instruction_layers(root, home)
+    yuk = load_startup_instruction_files(root, home)
     sonuc["katmanlar"] = [
         {
             "kaynak": item.label,
@@ -56,7 +56,7 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
             "kirpilan": item.trimmed,
             "guvenilir": item.trusted,
         }
-        for item in yuk.files
+        for item in yuk.files if item.layer != "kural"
     ]
     # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
     # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
