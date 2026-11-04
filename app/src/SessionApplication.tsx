@@ -2244,6 +2244,7 @@ export function SessionUygulama({
           onBrowserPick={(pick) => {
             // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
             if (pick.yol) {
+              setAttachmentError(null);
               const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
               addAttachments(active.id, [image]);
             }
