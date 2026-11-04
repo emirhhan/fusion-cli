@@ -102,10 +102,10 @@
 
   /* Asistan anlatımı kullanıcı balonundan ve arayüz rollerinden ayrıdır. */
   --assistant-font-family: var(--font-sans);
-  --assistant-font-size: 1.0625rem;
-  --assistant-line-height: 1.65;
+  --assistant-font-size: 1rem;
+  --assistant-line-height: 1.5;
   --assistant-font-size-narrow: 1rem;
-  --assistant-line-height-narrow: 1.6;
+  --assistant-line-height-narrow: 1.5;
   --assistant-font-weight: 400;
   --assistant-tracking: normal;
   --assistant-prose-width: 72ch;

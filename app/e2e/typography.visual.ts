@@ -37,18 +37,18 @@ test("asistan yerel Inter ile çizilir; kullanıcı ve kontroller korunur", asyn
   }
   await expect(page.locator(answerSelector)).toContainText("İ ı Ğ ğ Ş ş Ç ç Ö ö Ü ü");
   for (const prose of await page.locator(proseSelector).all()) {
-    await expect(prose).toHaveCSS("font-size", "17px");
-    await expect(prose).toHaveCSS("line-height", "28.05px");
+    await expect(prose).toHaveCSS("font-size", "16px");
+    await expect(prose).toHaveCSS("line-height", "24px");
     await expect(prose).toHaveCSS("white-space", "normal");
   }
   const sizes = await page.locator(`${answerSelector} :is(h1,h2,h3,h4,h5,h6)`).evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
   expect(sizes).toHaveLength(6);
-  expect(sizes[0]).toBeCloseTo(25.5);
+  expect(sizes[0]).toBeCloseTo(24);
   for (let index = 1; index < sizes.length; index++) expect(sizes[index]).toBeLessThanOrEqual(sizes[index - 1]);
   expect(sizes[3]).toBeGreaterThan(sizes[4]);
   await expect(page.locator(`${answerSelector} > h1`)).toHaveCSS("margin-top", "0px");
   const paragraph = page.locator(`${answerSelector} > p`).first();
-  await expect(paragraph).toHaveCSS("margin-bottom", "17px");
+  await expect(paragraph).toHaveCSS("margin-bottom", "16px");
   await expect(paragraph.locator("br")).toHaveCount(0);
   await expect(page.locator(".conversation__bubble")).toHaveCSS("font-size", "13px");
   expect(await page.locator(".conversation__bubble").evaluate(node => getComputedStyle(node).fontFamily)).not.toContain("Source Serif");
@@ -120,7 +120,7 @@ for (const theme of ["light", "dark"]) {
     // Geniş pencere içinde gerçek konuşma konteyneri daraltılır.
     await page.locator(".app-shell__main").evaluate(node => { (node as HTMLElement).style.width = "600px"; });
     await expect(page.locator(answerSelector)).toHaveCSS("font-size", "16px");
-    await expect(page.locator(answerSelector)).toHaveCSS("line-height", "25.6px");
+    await expect(page.locator(answerSelector)).toHaveCSS("line-height", "24px");
     for (const selector of [".markdown__table-scroll", ".code-card__body"]) {
       expect(await page.locator(selector).evaluate(node => node.clientWidth <= node.closest(".markdown")!.clientWidth)).toBe(true);
     }
@@ -138,7 +138,7 @@ for (const theme of ["light", "dark"]) {
 test("erişilebilir ölçek yüzde 125 büyür", async ({ page }) => {
   await openTypography(page);
   await page.evaluate(() => { document.documentElement.style.fontSize = "125%"; });
-  await expect(page.locator(answerSelector)).toHaveCSS("font-size", "21.25px");
+  await expect(page.locator(answerSelector)).toHaveCSS("font-size", "20px");
   await expect(page.locator(".markdown__inline-code")).toHaveCSS("font-size", "16.25px");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
@@ -151,8 +151,8 @@ test("akış sırasında ara anlatım ve büyüyen yanıt Inter kalır", async (
   const initial = (await prose.textContent())!.length;
   await page.clock.runFor(500);
   expect((await prose.textContent())!.length).toBeGreaterThan(initial);
-  await expect(prose).toHaveCSS("font-size", "17px");
-  await expect(page.locator(".conversation__message--narration .markdown")).toHaveCSS("font-size", "17px");
+  await expect(prose).toHaveCSS("font-size", "16px");
+  await expect(page.locator(".conversation__message--narration .markdown")).toHaveCSS("font-size", "16px");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
