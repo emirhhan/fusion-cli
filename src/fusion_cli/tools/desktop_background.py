@@ -131,6 +131,19 @@ async def _invoke(
         return ToolResult.failure(message)
     if settings is not None:
         _visible_windows(result, settings)
+    windows = result.get("windows")
+    if operation == "list" and isinstance(windows, list):
+        # App icons belong to the native dock, not model/event text. Project
+        # fresh rows so native UI consumers retain their binary metadata.
+        result = {
+            **result,
+            "windows": [
+                {key: value for key, value in row.items() if key != "icon"}
+                if isinstance(row, dict)
+                else row
+                for row in windows
+            ],
+        }
     image = result.pop("image", None)
     content: tuple[ToolContent, ...] = ()
     if isinstance(image, str) and image.startswith("data:image/png;base64,"):
