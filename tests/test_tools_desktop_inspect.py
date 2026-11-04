@@ -511,3 +511,109 @@ def test_unavailable_focused_attribute_never_falls_back_to_front_order(
         assert len(native_calls) == 1
     else:
         assert native_calls == []
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_activation_capture_waits_for_delayed_focused_attribute(tmp_path, monkeypatch, named):
+    """The OS may acknowledge frontmost before exposing AXFocusedWindow."""
+    target = "Calculator\t42\tHesap Makinesi\t350\t260\t230\t408"
+    observed_attributes = []
+
+    def run(command, **kwargs):
+        script = command[2]
+        if script == desktop_inspect.FOCUS_SCRIPT:
+            assert command[-2:] == ["Calculator", "Hesap Makinesi" if named else ""]
+            if not named:
+                # Script contract: nil first, real focused window on the second read.
+                focused = iter([None, target])
+                retries = 40 if "repeat with focusAttempt from 1 to 40" in script else 1
+                for _ in range(retries):
+                    value = next(focused)
+                    observed_attributes.append(value is not None)
+                    if value is not None:
+                        break
+                else:
+                    return subprocess.CompletedProcess(
+                        command, 1, "", "Actual focused window is unavailable"
+                    )
+        return subprocess.CompletedProcess(command, 0, target, "")
+
+    monkeypatch.setattr(desktop_inspect, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_inspect, "_framework", lambda: object())
+    monkeypatch.setattr(desktop_inspect, "_trusted", lambda framework: True)
+    monkeypatch.setattr(desktop_inspect.subprocess, "run", run)
+    _fake_focus_probe(monkeypatch, "Hesap Makinesi", [350.0, 260.0, 230.0, 408.0])
+    context = ToolContext(root=tmp_path)
+    args = {"app": "Calculator", **({"window": "Hesap Makinesi"} if named else {})}
+    result = desktop_inspect.desktop_window_focus(args, context)
+    assert result.ok and context.desktop.focused_window_id == 101
+    assert observed_attributes == ([] if named else [False, True])
+
+
+def test_activation_missing_focus_has_bounded_reads_and_never_uses_stale_frame(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.core.desktop_frame import DesktopFrame
+
+    activation_reads = []
+
+    def run(command, **kwargs):
+        script = command[2]
+        assert script == desktop_inspect.FOCUS_SCRIPT
+        assert "repeat with focusAttempt from 1 to 40" in script
+        assert "delay 0.05" in script
+        assert 'set selectedWindow to value of attribute "AXFocusedWindow"' in script
+        assert "set selectedWindow to front window" not in script
+        assert 'attribute "AXMainWindow"' not in script
+        activation_reads.extend([None] * 40)
+        return subprocess.CompletedProcess(command, 1, "", "Actual focused window is unavailable")
+
+    monkeypatch.setattr(desktop_inspect, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_inspect, "_framework", lambda: object())
+    monkeypatch.setattr(desktop_inspect, "_trusted", lambda framework: True)
+    monkeypatch.setattr(desktop_inspect.subprocess, "run", run)
+    monkeypatch.setattr(
+        desktop_inspect, "invoke_sync", lambda *args: pytest.fail("native validation must not run")
+    )
+    context = ToolContext(root=tmp_path)
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok and len(activation_reads) == 40
+    assert context.desktop.focus_required and context.desktop.frame is None
+    assert context.desktop.focused_window_id == 0
+
+
+def test_activation_capture_does_not_switch_to_restarted_process(tmp_path, monkeypatch):
+    changed = "Calculator\t43\tHesap Makinesi\t350\t260\t230\t408"
+
+    def run(command, **kwargs):
+        script = command[2]
+        if (
+            script == desktop_inspect.FOCUS_SCRIPT
+            and "set targetPID to unix id of targetProcess" in script
+        ):
+            assert "if (unix id of targetProcess) is not targetPID then" in script
+            return subprocess.CompletedProcess(command, 1, "", "Target application process changed")
+        return subprocess.CompletedProcess(command, 0, changed, "")
+
+    monkeypatch.setattr(desktop_inspect, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_inspect, "_framework", lambda: object())
+    monkeypatch.setattr(desktop_inspect, "_trusted", lambda framework: True)
+    monkeypatch.setattr(desktop_inspect.subprocess, "run", run)
+    monkeypatch.setattr(
+        desktop_inspect,
+        "invoke_sync",
+        lambda *args: {
+            "ok": True,
+            "pid": 43,
+            "window": {
+                "id": 101,
+                "title": "Hesap Makinesi",
+                "bounds": [350.0, 260.0, 230.0, 408.0],
+            },
+        },
+    )
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok and context.desktop.focus_required
+    assert context.desktop.focused_window is None

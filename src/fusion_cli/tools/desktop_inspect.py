@@ -34,6 +34,7 @@ on run argv
     set windowName to item 2 of argv
     tell application "System Events"
         set targetProcess to application process appName
+        set targetPID to unix id of targetProcess
         tell targetProcess
             set visible to true
             set frontmost to true
@@ -41,10 +42,25 @@ on run argv
                 set selectedWindow to first window whose name is windowName
                 perform action "AXRaise" of selectedWindow
             else
-                set selectedWindow to value of attribute "AXFocusedWindow" of targetProcess
+                set selectedWindow to missing value
+                repeat with focusAttempt from 1 to 40
+                    if (unix id of targetProcess) is not targetPID then
+                        error "Target application process changed"
+                    end if
+                    try
+                        set selectedWindow to value of attribute "AXFocusedWindow" of targetProcess
+                    on error
+                        set selectedWindow to missing value
+                    end try
+                    if selectedWindow is not missing value then exit repeat
+                    delay 0.05
+                end repeat
                 if selectedWindow is missing value then error "Actual focused window is unavailable"
             end if
         end tell
+        if (unix id of targetProcess) is not targetPID then
+            error "Target application process changed"
+        end if
         set frontProcess to targetProcess
         set frontWindow to selectedWindow
         set xy to position of frontWindow
