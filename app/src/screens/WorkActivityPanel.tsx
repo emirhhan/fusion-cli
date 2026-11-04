@@ -6,10 +6,11 @@ import "./WorkActivityPanel.css";
 export interface WorkActivityEntry { id: string; step: OlayAdimi }
 
 /** Bir turun farklı model/olay bloklarından gelen işlemlerin tek görünümü. */
-export function WorkActivityPanel({ entries, onInteract }: { entries: WorkActivityEntry[]; onInteract: () => void }) {
+export function WorkActivityPanel({ entries, onInteract, showThinking = false }: { entries: WorkActivityEntry[]; onInteract: () => void; showThinking?: boolean }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [requested, setRequested] = useState(false);
   const selected = useRef<string | null>(null);
+  const focusWithin = useRef(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
   const panelId = useId();
@@ -23,6 +24,8 @@ export function WorkActivityPanel({ entries, onInteract }: { entries: WorkActivi
   useLayoutEffect(() => {
     if (open === previousOpen.current) return;
     previousOpen.current = open;
+    // Akış üçüncü satırı eklediğinde Composer veya başka bir denetimden odak alma.
+    if (!focusWithin.current) return;
     const scope = open ? panel.current : wrapper.current;
     const rows = scope?.querySelectorAll<HTMLDetailsElement>("details[data-step-id]");
     const row = Array.from(rows ?? []).find(item => item.dataset.stepId === selected.current) ?? rows?.[0];
@@ -54,14 +57,20 @@ export function WorkActivityPanel({ entries, onInteract }: { entries: WorkActivi
     return () => element.removeEventListener("wheel", wheel);
   }, [open, onInteract]);
   if (!entries.length) return null;
-  const close = () => { onInteract(); setRequested(false); setExpanded(new Set()); };
-  const rows = (open ? entries : entries.slice(0, 2)).map(({ id, step }) => <ActivityStep key={id} stepId={id} adim={step}
+  const close = () => { focusWithin.current = true; onInteract(); setRequested(false); setExpanded(new Set()); };
+  const rows = (open ? entries : entries.slice(0, 2)).map(({ id, step }) => <ActivityStep key={id} stepId={id} adim={step} showThinking={showThinking}
     expanded={expanded.has(id)} onExpandedChange={next => {
-      onInteract(); selected.current = id;
+      focusWithin.current = true; onInteract(); selected.current = id;
       setExpanded(current => { const result = new Set(current); if (next) result.add(id); else result.delete(id); return result; });
       if (many) setRequested(true);
     }} />);
-  return <div className="work-activity" ref={wrapper}>
+  return <div className="work-activity" ref={wrapper}
+    onFocusCapture={() => { focusWithin.current = true; }}
+    onBlurCapture={event => {
+      // İç satır yeniden bağlanırken relatedTarget null olabilir. Gerçek bir dış
+      // odak hedefi varsa sahiplik bırakılır; sonraki akış onu geri alamaz.
+      if (event.relatedTarget && (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))) focusWithin.current = false;
+    }}>
     {open ? <section ref={panel} className="work-activity-panel" aria-label="İşlem ayrıntıları" role="region" id={panelId}
       onPointerDownCapture={onInteract} onKeyDownCapture={event => {
         onInteract();

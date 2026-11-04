@@ -92,3 +92,33 @@ it("birçok başarısız olay iki işlem önizlemesi ve tek sonuç satırı bır
   expect(container.querySelector(".activity__result")?.textContent).toBe("Tamamlanamadı");
   expect(screen.getByText("20 işlem · 20 başarısız · tümünü görmek için bir satırı aç")).toBeTruthy();
 });
+
+it("gizlenen olaylar boş grid satırı ve aralık bırakmaz", () => {
+  const items: Mesaj[] = Array.from({ length: 20 }, (_, i) => ({ id: `empty-${i}`, rol: "olay", metin: "",
+    adimlar: [{ ...step(i + 1), durum: "failed" }, { metin: "Tur bitti", sonuc: "failed" }] }));
+  const { container } = render(<Conversation running={false} mesajlar={items} />);
+  // İlk giriş paneli, son giriş tek sonuç satırını taşır; aradakiler grid öğesi değildir.
+  expect(container.querySelector(".conversation__work-content")?.children).toHaveLength(2);
+});
+it("adımları göster eski model düşünmesini korur; araçlar yine iki önizlemedir", () => {
+  const items: Mesaj[] = [{ id: "old-thinking", rol: "olay", metin: "", adimlar: [
+    { metin: "Önceki model adımı", dusunme: "Önceki düşünme kaydı", ayrinti: "model rolü" },
+  ] }, ...messages(4).slice(1, -1)];
+  const { container, rerender } = render(<Conversation running showSteps mesajlar={items} />);
+  expect(screen.getByText("Önceki düşünme kaydı").closest(".activity__steps")).toBeTruthy();
+  expect(container.querySelectorAll(".activity__steps")).toHaveLength(1);
+  expect(container.querySelectorAll(".activity__trail-item")).toHaveLength(2);
+  expect(container.querySelectorAll(".activity__now")).toHaveLength(1);
+  rerender(<Conversation running showSteps={false} mesajlar={items} />);
+  expect(screen.queryByText("Önceki düşünme kaydı")).toBeNull();
+});
+it("araç düşünmesi yalnız açık adım tercihiyle kendi ayrıntısında gösterilir", () => {
+  const items: Mesaj[] = [{ id: "tool-thinking", rol: "olay", metin: "", adimlar: [
+    { ...step(1), dusunme: "Araç düşünmesi" },
+  ] }];
+  const { rerender } = render(<Conversation running={false} showSteps mesajlar={items} />);
+  fireEvent.click(screen.getByText("İşlem 1"));
+  expect(screen.getByText("Araç düşünmesi").closest(".activity__trail-item")).toBeTruthy();
+  rerender(<Conversation running={false} showSteps={false} mesajlar={items} />);
+  expect(screen.queryByText("Araç düşünmesi")).toBeNull();
+});

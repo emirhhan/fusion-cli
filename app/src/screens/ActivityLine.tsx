@@ -58,7 +58,7 @@ export function useElapsedSeconds(running: boolean, baslangicZamani: number | un
   return Math.floor((Date.now() - baslangicZamani) / TICK_MS);
 }
 
-function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
+export function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
   return (
     <details className="activity__steps">
       <summary>{adimlar.length} adım · detaylar</summary>
@@ -95,7 +95,7 @@ const DURUM_ADI: Record<string, string> = {
 };
 
 /** Adımın açılınca gösterdiği kanıt: diff, komut ve çıktı. Akışta görünmez. */
-function StepDetail({ adim }: { adim: OlayAdimi }) {
+function StepDetail({ adim, showThinking = false }: { adim: OlayAdimi; showThinking?: boolean }) {
   return (
     <div className="activity__trail-body">
       {adim.ayrinti && !adim.arac && <p className="activity__trail-note">{adim.ayrinti}</p>}
@@ -108,25 +108,27 @@ function StepDetail({ adim }: { adim: OlayAdimi }) {
         </pre>
       )}
       {adim.cikti && <pre className="activity__trail-output">{adim.cikti}</pre>}
+      {showThinking && adim.dusunme && <pre className="activity__step-thinking">{adim.dusunme}</pre>}
     </div>
   );
 }
 
 /** Her işlem açılabilir; eksik kanıt başarı gibi sunulmaz. */
-export function ActivityStep({ adim, expanded, onExpandedChange, stepId }: {
+export function ActivityStep({ adim, expanded, onExpandedChange, stepId, showThinking = false }: {
   adim: OlayAdimi;
   expanded?: boolean;
   onExpandedChange?: (open: boolean) => void;
   stepId?: string;
+  showThinking?: boolean;
 }) {
-  const hasDetail = Boolean(adim.diff || adim.cikti || adim.komut || (!adim.arac && adim.ayrinti));
+  const hasDetail = Boolean(adim.diff || adim.cikti || adim.komut || (!adim.arac && adim.ayrinti) || (showThinking && adim.dusunme));
   return <li data-state={adim.durum ?? (adim.kalici ? "ok" : "running")}>
     <details className="activity__trail-item" data-step-id={stepId} open={expanded}>
       <summary onClick={onExpandedChange ? event => { event.preventDefault(); onExpandedChange(!expanded); } : undefined}>
         <span className="activity__trail-text">{adim.metin}</span>
         {adim.durum && <span aria-label={DURUM_ADI[adim.durum] ?? adim.durum} className="activity__trail-mark" role="img">{DURUM_ISARETI[adim.durum] ?? "?"}</span>}
       </summary>
-      {hasDetail ? <StepDetail adim={adim} /> : <p className="activity__trail-note activity__trail-body">{adim.basladi
+      {hasDetail ? <StepDetail adim={adim} showThinking={showThinking} /> : <p className="activity__trail-note activity__trail-body">{adim.basladi
         ? "İşlem sürüyor; çıktı henüz gelmedi." : "Bu işlem için ek ayrıntı yok."}</p>}
     </details>
   </li>;

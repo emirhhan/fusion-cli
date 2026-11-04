@@ -109,3 +109,40 @@ test("kaydırılamayacak kadar kısa panelde tekerlek sohbeti devralmaz", async 
   await page.waitForTimeout(180);
   expect(await outerTop(page)).toBe(top);
 });
+
+test("üçüncü işlem gelişi panel dışındaki klavye odağını çalmaz", async ({ page }) => {
+  await open(page, "count=2");
+  await page.getByText("İşlem 2", { exact: true }).click();
+  const append = page.getByRole("button", { name: "İşlem ekle" });
+  await append.click();
+  await expect(page.getByRole("region", { name: "İşlem ayrıntıları" })).toBeVisible();
+  await expect(append).toBeFocused();
+});
+
+test("akıştaki üçüncü işlem gerçek Composer taslağı ve odağını korur", async ({ page }) => {
+  await page.clock.install();
+  await open(page, "count=2&composer=1");
+  await page.getByText("İşlem 2", { exact: true }).click();
+  await page.getByRole("button", { name: "Arka planda işlem ekle" }).click();
+  const composer = page.getByRole("textbox", { name: "Mesaj", exact: true });
+  await composer.fill("Taslağım");
+  await page.clock.runFor(250);
+  const panel = page.getByRole("region", { name: "İşlem ayrıntıları" });
+  await expect(panel).toBeVisible();
+  await expect(composer).toBeFocused();
+  await page.keyboard.type(" korunur");
+  await expect(composer).toHaveValue("Taslağım korunur");
+  await expect(panel.getByText("İşlem 2", { exact: true }).locator("xpath=ancestor::details")).toHaveAttribute("open", "");
+});
+
+test("akış sırasında odaktaki satır taşınınca klavye odağı kendi ayrıntısında kalır", async ({ page }) => {
+  await page.clock.install();
+  await open(page, "count=2");
+  await page.getByText("İşlem 2", { exact: true }).click();
+  await page.getByRole("button", { name: "Arka planda işlem ekle" }).click();
+  await page.getByText("İşlem 2", { exact: true }).locator("xpath=ancestor::summary").focus();
+  await page.clock.runFor(250);
+  const selected = page.getByRole("region", { name: "İşlem ayrıntıları" }).getByText("İşlem 2", { exact: true });
+  await expect(selected.locator("xpath=ancestor::details")).toHaveAttribute("open", "");
+  await expect(selected.locator("xpath=ancestor::summary")).toBeFocused();
+});

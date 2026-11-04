@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Composer } from "../src/screens/Composer";
 import { Conversation, type Mesaj } from "../src/screens/Conversation";
 
 export function ActivityPanelFixture() {
@@ -21,8 +22,10 @@ export function ActivityPanelFixture() {
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--surface-canvas)" }}>
     <div style={{ display: "flex", gap: 12, padding: 12 }}>
       <button onClick={() => setCount(n => n + 1)}>İşlem ekle</button>
+      <button onClick={() => window.setTimeout(() => setCount(n => n + 1), 200)}>Arka planda işlem ekle</button>
       <button onClick={() => setSession(n => n === "first" ? "second" : "first")}>Sohbet değiştir</button>
     </div>
     <Conversation key={session} running mesajlar={messages} />
+    {new URLSearchParams(location.search).get("composer") === "1" && <Composer onSend={() => undefined} />}
   </main>;
 }

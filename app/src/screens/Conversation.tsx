@@ -15,7 +15,7 @@ import { PlanCard } from "./PlanCard";
 import { DiffCard } from "../markdown/DiffCard";
 import { VIEW_MODE_LABELS, type ViewMode } from "../settings/viewMode";
 import { WorkActivityPanel } from "./WorkActivityPanel";
-import { ActivityLine, activityState } from "./ActivityLine";
+import { ActivityLine, StepList, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
 import { AgentActivity } from "./AgentActivity";
 import { OrchestrationBoard } from "../team/OrchestrationBoard";
@@ -443,7 +443,7 @@ export function Conversation({
             const aktif = running && index === sonCalisanOlay;
             const state = activityState(message.adimlar ?? []);
             const statusVisible = (viewMode === "verbose" || index === (running && sonCalisanOlay >= 0 ? sonCalisanOlay : sonOlaySirasi))
-              && (viewMode === "verbose" || stepsVisible || (state !== "completed" && (state !== "running" || aktif)));
+              && (viewMode === "verbose" || (state !== "completed" && (state !== "running" || aktif)));
             // Gizlenen eski olayın boş, marjlı kutusu sohbeti uzatmamalı.
             if (!statusVisible && !changes.has(index)) return null;
             return (
@@ -455,7 +455,7 @@ export function Conversation({
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
                   tokenSayisi={message.tokenSayisi}
-                  showSteps={stepsVisible}
+                  showSteps={viewMode === "verbose"}
                 />}
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
@@ -494,11 +494,18 @@ export function Conversation({
               ? (message.adimlar ?? []).flatMap((step, stepIndex) => step.arac || step.kalici
                 ? [{ id: `${message.id ?? index}:${stepIndex}`, step }] : []) : []);
             const firstEvent = group.entries.find(entry => entry.message.rol === "olay")?.index;
-            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) =>
-              <div key={message.id ?? index}>
-                {index === firstEvent && viewMode !== "verbose" && <WorkActivityPanel entries={entries} onInteract={pauseAutoFollow} />}
-                {renderMessage(message, index)}
-              </div>)}</div>;
+            const reasoning = stepsVisible && viewMode !== "verbose" ? group.entries.flatMap(({message}) => message.rol === "olay"
+              ? (message.adimlar ?? []).filter(step => !step.arac && !step.kalici) : []) : [];
+            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => {
+              const node = renderMessage(message, index);
+              const hasPanel = index === firstEvent && viewMode !== "verbose" && entries.length > 0;
+              // Null olaylar grid öğesi olursa gap her gizlenen çağrı için boşluk bırakır.
+              if (!node && !hasPanel) return null;
+              return <div key={message.id ?? index}>
+                {hasPanel && <WorkActivityPanel entries={entries} onInteract={pauseAutoFollow} showThinking={stepsVisible} />}
+                {node}
+              </div>;
+            })}{reasoning.length > 0 && <StepList adimlar={reasoning} />}</div>;
             return group.completed && viewMode !== "normal" ? <details className="conversation__work-details" key={group.entries[0].message.id ?? group.entries[0].index} open={viewMode === "verbose" || undefined}>
               <summary>{workDuration(group.turn)}</summary>{content}
             </details> : <div className="conversation__work" key={group.entries[0].message.id ?? group.entries[0].index}>{content}</div>;
