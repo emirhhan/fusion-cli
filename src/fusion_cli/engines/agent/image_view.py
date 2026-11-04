@@ -53,6 +53,10 @@ DEFAULT_QUESTION = (
 #: Görsel modeli yanıt sınırı. Kısa tutulur: ölçüldü, 11b model uzun bütçede
 #: aynı cümleyi tekrarlayarak döngüye giriyor.
 VISION_MAX_TOKENS = 200
+#: Yalnız yapılandırılmış `truncated` sonucundan sonra bir kez genişletilir.
+#: Reasoning token'ları da aynı bütçeyi tüketir; bu sınır yeterlilik garantisi değil,
+#: kısa görsel açıklaması için sınırlı bir kurtarma bütçesidir.
+VISION_RECOVERY_MAX_TOKENS = 4096
 VISION_TIMEOUT_S = 60.0
 
 
@@ -146,15 +150,32 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
             web_sessions=web_registry_for(config),
             model_specs=configured_model_specs(config),
         )
-        result = await provider.complete(
-            CompletionRequest(
-                messages=(Message("user", question, images=(data_uri,)),),
-                temperature=config.runtime.utility_temperature,
-                max_tokens=VISION_MAX_TOKENS,
-                timeout_s=VISION_TIMEOUT_S,
-                max_retries=0,
-            )
-        )
+        # Kısa, başarılı çağrının eski bütçesi korunur. Bütçe düşünme sırasında
+        # dolarsa AYNI 200 token isteği tekrarlanmaz; tek kurtarma da ilk çağrının
+        # kalan süresini paylaşır. Kesilmiş metin görsel kanıt diye kullanılmaz.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + VISION_TIMEOUT_S
+        async with asyncio.timeout_at(deadline):
+            for max_tokens in (VISION_MAX_TOKENS, VISION_RECOVERY_MAX_TOKENS):
+                result = await provider.complete(
+                    CompletionRequest(
+                        messages=(Message("user", question, images=(data_uri,)),),
+                        temperature=config.runtime.utility_temperature,
+                        max_tokens=max_tokens,
+                        timeout_s=max(0.001, deadline - loop.time()),
+                        max_retries=0,
+                    )
+                )
+                if not result.truncated:
+                    break
+            else:
+                return "", (
+                    f"Görsel modeli ({spec.model}) {VISION_RECOVERY_MAX_TOKENS} tokenlık "
+                    "görsel açıklama bütçesinde de tamamlanmadı. "
+                    "Görseli veya soruyu daralt ya da başka bir görsel modeli seç."
+                )
+    except TimeoutError:
+        return "", f"Görsel modeli ({spec.model}) için süre sınırı aşıldı."
     except (ConfigError, ProviderError) as error:
         # Kurulamayan görsel sağlayıcısı aracı düşürmez, açıklayıcı hata döner.
         return "", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}"
