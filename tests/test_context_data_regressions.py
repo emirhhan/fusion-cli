@@ -114,3 +114,15 @@ async def test_search_result_limit_matches_smaller_surface_budget():
     )
     result = await _ara(registry, {"query": "select:mcp__gh__a,mcp__gh__b", "max_results": 12})
     assert result.output.count("<function>") == 1
+
+
+def test_corrupt_png_checksum_is_rejected_without_breaking_journal(tmp_path):
+    from fusion_cli.core.image_input import valid_image_uri
+
+    raw = bytearray(base64.b64decode(PNG))
+    raw[45] ^= 1
+    image = "data:image/png;base64," + base64.b64encode(raw).decode()
+    assert not valid_image_uri(image)
+    journal = FileTurnJournal(tmp_path / "journal.json")
+    journal.save([Message("user", "inspect", images=(image,))])
+    assert "yeniden ekleyin" in journal.load().messages[0].content

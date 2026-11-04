@@ -41,6 +41,7 @@ def valid_image_uri(value: object) -> bool:
         return True
     except (
         ValueError,
+        SyntaxError,
         OSError,
         binascii.Error,
         Image.DecompressionBombError,
