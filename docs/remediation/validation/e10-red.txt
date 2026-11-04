@@ -1,0 +1,171 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+____________ test_unmatched_api_model_never_opens_credential_store _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c084dd0>
+
+    def test_unmatched_api_model_never_opens_credential_store(monkeypatch):
+        def forbidden():
+            pytest.fail('API modelinin registry hazırlığı Keychain erişimi başlattı')
+        monkeypatch.setattr(keys, 'secret_key', forbidden)
+>       registry = web_registry.web_registry_for(_config(_browser('cookie')))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_credentials_on_demand.py:38:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/fusion_cli/providers/web_registry.py:171: in web_registry_for
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+                                                             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def forbidden():
+>       pytest.fail('API modelinin registry hazırlığı Keychain erişimi başlattı')
+E       Failed: API modelinin registry hazırlığı Keychain erişimi başlattı
+
+tests/test_web_credentials_on_demand.py:36: Failed
+______ test_http_and_credentialless_browser_never_open_keychain[session0] ______
+
+session = WebSessionConfig(model='http-test', endpoint='https://synthetic.invalid', provider='custom', account='main', transport...revision='', login_verified=False, headless=<WindowMode.HEADLESS: 1>, timeout_s=180.0, enabled=True, selected_model='')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10eecb990>
+
+    @pytest.mark.parametrize('session', [
+        WebSessionConfig(model='http-test', endpoint='https://synthetic.invalid', auth_env='TOKEN'),
+        _browser(),
+    ])
+    def test_http_and_credentialless_browser_never_open_keychain(session, monkeypatch):
+        monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Gereksiz Keychain erişimi'))
+        monkeypatch.setattr(keys, 'environ_snapshot', lambda: {'TOKEN':'synthetic-token'})
+>       registry = web_registry.web_registry_for(_config(session))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_credentials_on_demand.py:49:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/fusion_cli/providers/web_registry.py:171: in web_registry_for
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+                                                             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Gereksiz Keychain erişimi'))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Gereksiz Keychain erişimi
+
+tests/test_web_credentials_on_demand.py:47: Failed
+______ test_http_and_credentialless_browser_never_open_keychain[session1] ______
+
+session = WebSessionConfig(model='browser-test', endpoint='', provider='chatgpt', account='main', transport='browser', auth_env=...revision='', login_verified=False, headless=<WindowMode.HEADLESS: 1>, timeout_s=180.0, enabled=True, selected_model='')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b307590>
+
+    @pytest.mark.parametrize('session', [
+        WebSessionConfig(model='http-test', endpoint='https://synthetic.invalid', auth_env='TOKEN'),
+        _browser(),
+    ])
+    def test_http_and_credentialless_browser_never_open_keychain(session, monkeypatch):
+        monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Gereksiz Keychain erişimi'))
+        monkeypatch.setattr(keys, 'environ_snapshot', lambda: {'TOKEN':'synthetic-token'})
+>       registry = web_registry.web_registry_for(_config(session))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_credentials_on_demand.py:49:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/fusion_cli/providers/web_registry.py:171: in web_registry_for
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+                                                             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Gereksiz Keychain erişimi'))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Gereksiz Keychain erişimi
+
+tests/test_web_credentials_on_demand.py:47: Failed
+______ test_api_success_does_not_read_credentials_of_unused_web_fallback _______
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-235/test_api_success_does_not_read0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b3516d0>
+
+    @pytest.mark.asyncio
+    async def test_api_success_does_not_read_credentials_of_unused_web_fallback(tmp_path, monkeypatch):
+        monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Kullanılmayan yedek Keychain açtı'))
+        monkeypatch.setattr(web_registry, 'build_browser_transport', lambda *a, **k: _transport)
+>       registry = web_registry.web_registry_for(_config(_browser('cookie')))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_credentials_on_demand.py:58:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/fusion_cli/providers/web_registry.py:171: in web_registry_for
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+                                                             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   monkeypatch.setattr(keys, 'secret_key', lambda: pytest.fail('Kullanılmayan yedek Keychain açtı'))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Kullanılmayan yedek Keychain açtı
+
+tests/test_web_credentials_on_demand.py:56: Failed
+______ test_selected_web_reads_fresh_secret_on_use_and_refreshes_registry ______
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-235/test_selected_web_reads_fresh_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ec4c710>
+
+    @pytest.mark.asyncio
+    async def test_selected_web_reads_fresh_secret_on_use_and_refreshes_registry(tmp_path, monkeypatch):
+        path = tmp_path / 'credentials.json'
+        key = Fernet.generate_key().decode()
+        store = FernetSecretStore(path, secret_key=key)
+        store.set('cookie', 'first-cookie')
+        reads = []
+        monkeypatch.setattr(keys, 'secret_key', lambda: reads.append(1) or key)
+        monkeypatch.setattr(web_registry, 'credentials_file', lambda: path)
+        monkeypatch.setattr(web_registry, 'build_browser_transport', lambda *a, **k: _transport)
+        config = _config(_browser('cookie'))
+        registry = web_registry.web_registry_for(config)
+        provider = registry.build('browser-test')
+>       assert reads == []
+E       assert [1] == []
+E
+E         Left contains one more item: 1
+E         Use -v to get more diff
+
+tests/test_web_credentials_on_demand.py:82: AssertionError
+______________ test_credential_factory_exception_is_not_memoized _______________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-235/test_credential_factory_except0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c085250>
+
+    def test_credential_factory_exception_is_not_memoized(tmp_path, monkeypatch):
+        key = Fernet.generate_key().decode()
+        path = tmp_path / 'credentials.json'
+        FernetSecretStore(path, secret_key=key).set('cookie', 'retry-cookie')
+        calls = []
+        def unlock():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError('sentetik erişim hatası')
+            return key
+        monkeypatch.setattr(keys, 'secret_key', unlock)
+        monkeypatch.setattr(web_registry, 'credentials_file', lambda: path)
+        session = _browser('cookie')
+>       registry = web_registry.web_registry_for(_config(session))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_credentials_on_demand.py:105:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/fusion_cli/providers/web_registry.py:171: in web_registry_for
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+                                                             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def unlock():
+        calls.append(1)
+        if len(calls) == 1:
+>           raise RuntimeError('sentetik erişim hatası')
+E           RuntimeError: sentetik erişim hatası
+
+tests/test_web_credentials_on_demand.py:100: RuntimeError
+=========================== short test summary info ============================
+FAILED tests/test_web_credentials_on_demand.py::test_unmatched_api_model_never_opens_credential_store
+FAILED tests/test_web_credentials_on_demand.py::test_http_and_credentialless_browser_never_open_keychain[session0]
+FAILED tests/test_web_credentials_on_demand.py::test_http_and_credentialless_browser_never_open_keychain[session1]
+FAILED tests/test_web_credentials_on_demand.py::test_api_success_does_not_read_credentials_of_unused_web_fallback
+FAILED tests/test_web_credentials_on_demand.py::test_selected_web_reads_fresh_secret_on_use_and_refreshes_registry
+FAILED tests/test_web_credentials_on_demand.py::test_credential_factory_exception_is_not_memoized
+6 failed in 1.36s
