@@ -53,3 +53,9 @@ implementation, all 35 new cases passed. The relevant teacher, loop, narration,
 review, artifact, and research regression run passed 268 tests, with one existing
 Pydantic warning. Ruff check/format and mypy on the three policy/flow modules
 passed. Independent review and post-change live acceptance remain separate gates.
+
+Python review identified ordinary negated single-file instructions and Turkish
+publication requests that still matched the exception. Six additional cases
+failed before the fix. Direct single-file rejections now disqualify the shortcut;
+`yayına al`, `yayınla`, and `yayımla` retain the external-work route. This is a
+bounded correction for the observed forms, not a general natural-language parser.

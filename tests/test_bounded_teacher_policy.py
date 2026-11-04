@@ -9,7 +9,10 @@ import pytest
 from fusion_cli.core.events import SelfReviewFinished, SelfReviewStarted
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent import loop, teacher_flow
-from fusion_cli.engines.agent.teacher_plan import classify_teacher_task
+from fusion_cli.engines.agent.teacher_plan import (
+    classify_teacher_task,
+    is_bounded_single_file_task,
+)
 from tests.fakes import model_result, tool_call
 from tests.test_teacher_first import _setup
 
@@ -33,6 +36,29 @@ COUNTER_TASK = (
 )
 def test_explicit_self_contained_single_file_does_not_force_teacher_plan(task):
     assert classify_teacher_task(task).size == "basit"
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "Tek HTML dosyası olmasın.",
+        "Tek bir dosya yazma.",
+        "Tek dosya değil, modüler bir proje olsun.",
+    ],
+)
+def test_negated_single_file_scope_is_not_an_affirmative_bounded_request(scope):
+    task = "index.html oluştur. Harici bağımlılık kullanma. " + scope
+    assert not is_bounded_single_file_task(task)
+    assert classify_teacher_task(task).size == "orta-buyuk"
+
+
+@pytest.mark.parametrize(
+    "publication", ["Siteyi yayına al.", "Sayfayı yayınla.", "Projeyi yayımla."]
+)
+def test_turkish_publication_keeps_external_work_on_teacher_route(publication):
+    task = COUNTER_TASK + " " + publication
+    assert not is_bounded_single_file_task(task)
+    assert classify_teacher_task(task).size == "orta-buyuk"
 
 
 @pytest.mark.parametrize(

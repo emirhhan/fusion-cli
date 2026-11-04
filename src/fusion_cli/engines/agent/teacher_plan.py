@@ -40,6 +40,7 @@ _SINGLE_FILE = re.compile(
     r"\b(?:tek(?:\s+bir)?|bir)\s+(?:[\w+#-]+\s+){0,2}dosya(?:s[ıi])?\b|"
     r"\b(?:single|one)[-\s]+(?:[\w+#-]+[-\s]+){0,2}file\b"
 )
+_REJECTED_SINGLE_FILE = re.compile(r"\s+(?:olmasın|değil|yazma|oluşturma|kullanma)\b")
 _NO_EXTERNAL_DEPENDENCIES = re.compile(
     r"\b(?:harici|dış)\s+(?:hiçbir\s+)?(?:bağımlılık|kütüphane|paket)\w*\s+"
     r"(?:kullanma(?:dan)?|olmasın|yok)\b|"
@@ -50,6 +51,7 @@ _NO_EXTERNAL_DEPENDENCIES = re.compile(
 _EXTERNAL_OR_EXPANDED_SCOPE = re.compile(
     r"\bapi\b|https?://|\bwww\.|entegrasyon|entegre|integrat|veritaban|"
     r"\bdatabase\b|\bbackend\b|\bdeploy\w*|\bpublish\w*|"
+    r"\byayına\s+(?:al|çıkar)\b|\byay(?:ınla|ımla)\w*\b|"
     r"kimlik\s+doğrula|\bauthentication\b|\bauthorization\b|\blogin\b|"
     r"\bdosyalar\w*\b|\b(?:iki|üç|dört|two|three|multiple|several|[2-9])\s+"
     r"(?:[\w+#-]+\s+){0,2}(?:dosya|files?)\w*\b"
@@ -66,7 +68,12 @@ def is_bounded_single_file_task(task: str) -> bool:
     if len(task) > _BOUNDED_TASK_CHARS:
         return False
     folded = fold_tr(task)
-    if not _SINGLE_FILE.search(folded) or not _NO_EXTERNAL_DEPENDENCIES.search(folded):
+    single_file_scopes = tuple(_SINGLE_FILE.finditer(folded))
+    if not single_file_scopes or not _NO_EXTERNAL_DEPENDENCIES.search(folded):
+        return False
+    # These common direct rejections contradict the affirmative scope required
+    # by the fast route, even if an earlier sentence mentioned a single file.
+    if any(_REJECTED_SINGLE_FILE.match(folded, scope.end()) for scope in single_file_scopes):
         return False
     if _EXTERNAL_OR_EXPANDED_SCOPE.search(folded) or _EXPLICIT_TEACHER.search(folded):
         return False
