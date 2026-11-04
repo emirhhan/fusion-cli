@@ -94,7 +94,22 @@ def load_transcript_messages(
             _upsert_message(
                 messages, Message("assistant", safe_text, message_id=event.get("message_id"))
             )
-    return messages[-_MAX_HISTORY_MESSAGES:]
+    return _bounded_history(messages)
+
+
+def _bounded_history(messages: list[Message]) -> list[Message]:
+    """Keep recent context and one bounded, explicitly identified original requirement."""
+    if len(messages) <= _MAX_HISTORY_MESSAGES:
+        return messages
+    tail = messages[-(_MAX_HISTORY_MESSAGES - 1) :]
+    omitted = messages[: len(messages) - len(tail)]
+    first = next((m for m in omitted if m.role == "user" and not m.harness_note), None)
+    text = "Geçmişin eski bölümü bağlam sınırı nedeniyle kısaltıldı."
+    if first is not None:
+        text += "\nİlk kullanıcı isteği (en fazla 8000 karakter):\n" + first.content[:8000]
+        if len(first.content) > 8000:
+            text += "\n[İlk istek kısaltıldı; tam metin transcript kaydında.]"
+    return [Message("user", text, harness_note=True), *tail]
 
 
 #: Konuşmayı değiştiren olaylar; `last_turn_timestamp` yalnız bunlara bakar (ad vermek sayılmaz).
@@ -211,7 +226,7 @@ def _deleted_conversations(directory: Path) -> set[str]:
 
 
 def delete_conversation(base_dir: Path, root: Path, conversation_id: str) -> None:
-    """Kimliği kalıcı olarak kaldır; geç gelen olaylar sohbeti diriltmesin.
+    """Sohbeti listeden ve model bağlamından kaldır; disk dökümünü koru.
 
     Her kimlik ayrı işaret taşır: eşzamanlı süreçler ortak olay dosyasını
     yeniden yazmaz ve başka sohbetlerin mesajlarını kaybetmez. Denetim
@@ -383,7 +398,12 @@ def copy_conversation(
         record = store.record_user if message.role == "user" else store.record_assistant
         record(message.content, message_id=str(uuid.uuid4()))
     restored = load_transcript_messages(base_dir, root, conversation_id=target_id)
-    expected = [redact(message.content) for message in prefix][-_MAX_HISTORY_MESSAGES:]
+    expected = [
+        message.content
+        for message in _bounded_history(
+            [dataclasses.replace(message, content=redact(message.content)) for message in prefix]
+        )
+    ]
     if [message.content for message in restored] != expected:
         delete_conversation(base_dir, root, target_id)
         raise ValueError("Yeni sohbet geçmişi doğrulanamadı.")

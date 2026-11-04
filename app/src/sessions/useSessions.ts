@@ -983,7 +983,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         try { localStorage.removeItem(`fusion.session-mode.${id}`); } catch { /* Storage is optional. */ }
         setStored((rows) => rows.filter((item) => item.id !== id));
         dispatch({ type: "removed", id });
-        // Diskte silme tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
+        // Listeden kaldırma kaydı tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
         if (session) await close(id).catch(() => undefined);
       } finally {
         if (temporary) await close(temporary.id).catch(() => undefined);

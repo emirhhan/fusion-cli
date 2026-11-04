@@ -112,6 +112,8 @@ class ToolSearchState:
     upfront_limit: int = 4096
     deferrable: dict[str, str] = field(default_factory=dict)
     loaded: set[str] = field(default_factory=set)
+    recent: list[str] = field(default_factory=list)
+    result_limit: int = 12
     #: `auto` kipinde eşik bir kez aşıldı mı (aşıldıysa arama açık kalır).
     latched: bool = False
 
@@ -153,7 +155,9 @@ class ToolSearchState:
         if text.lower().startswith("select:"):
             wanted = [part.strip() for part in text[len("select:") :].split(",") if part.strip()]
             by_name = {tool.name.lower(): tool for tool in tools}
-            return [by_name[name.lower()] for name in wanted if name.lower() in by_name]
+            return [
+                by_name[name.lower()] for name in dict.fromkeys(wanted) if name.lower() in by_name
+            ][:limit]
         terms = [term.lower() for term in text.split() if term.strip("+")]
         required = [term[1:] for term in terms if term.startswith("+")]
         optional = [term.lstrip("+") for term in terms]
@@ -219,11 +223,13 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
         query = str(args.get("query") or "").strip()
         if not query:
             return ToolResult.failure("'query' gerekli: `select:Ad1,Ad2` ya da anahtar sözcükler.")
-        limit = _max_results(args.get("max_results"))
+        limit = min(_max_results(args.get("max_results")), state.result_limit)
         found = state.search(query, registry, limit)
         if not found:
             return ToolResult(output="Eşleşen ertelenmiş araç yok.")
         state.loaded.update(tool.name for tool in found)
+        selected = [tool.name for tool in found]
+        state.recent = (selected + [name for name in state.recent if name not in selected])[:12]
         return ToolResult(output=_functions_block(found))
 
     _run.tool_search_state = state  # type: ignore[attr-defined]
@@ -257,7 +263,7 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
 def _max_results(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int | float) or value < 1:
         return DEFAULT_MAX_RESULTS
-    return int(value)
+    return min(int(value), 12)
 
 
 def _description(state: ToolSearchState) -> str:

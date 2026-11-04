@@ -1,3 +1,4 @@
+import { mergeAttachments } from "./screens/attachmentLimits";
 import { createVoicePlayback } from "./voice/voicePlayback";
 import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory";
 import { dictationSendsOnFinal, isDictationCommand } from "./voice/dictationCommand";
@@ -534,6 +535,18 @@ export function SessionUygulama({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const addAttachments = useCallback((id: string, additions: ComposerAttachment[]) => {
+    try {
+      const merged = mergeAttachments(attachmentsRef.current[id] ?? [], additions);
+      const next = { ...attachmentsRef.current, [id]: merged };
+      attachmentsRef.current = next;
+      setAttachments(next);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "Ek sınırı aşıldı.");
+    }
+  }, []);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
   /** Beceri/MCP kataloğu değişmiş olabilir; slash menüsü listeleri yeniden okunur. */
@@ -1061,11 +1074,7 @@ export function SessionUygulama({
         return;
       }
       setAttachmentError(null);
-      setAttachments((current) => ({
-        ...current,
-        [activeSessionId]: [...(current[activeSessionId] ?? []), ...additions]
-          .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-      }));
+      addAttachments(activeSessionId, additions);
     }).then((stop) => {
       if (alive) unlisten = stop;
       else stop();
@@ -1073,7 +1082,7 @@ export function SessionUygulama({
       if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
     });
     return () => { alive = false; unlisten?.(); };
-  }, [activeSessionId]);
+  }, [activeSessionId, addAttachments]);
 
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
@@ -1962,11 +1971,7 @@ export function SessionUygulama({
                 setAttachmentError("Seçimde geçerli bir dosya yolu bulunamadı.");
                 return;
               }
-              setAttachments((current) => ({
-                ...current,
-                [active.id]: [...(current[active.id] ?? []), ...additions]
-                  .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-              }));
+              addAttachments(active.id, additions);
             }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
           }}
           onDropFiles={(files) => {
@@ -1977,11 +1982,7 @@ export function SessionUygulama({
               return;
             }
             if (unresolved > 0) setAttachmentError(`${unresolved} öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.`);
-            setAttachments((current) => ({
-              ...current,
-              [active.id]: [...(current[active.id] ?? []), ...additions]
-                .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-            }));
+            addAttachments(active.id, additions);
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}
@@ -2244,10 +2245,7 @@ export function SessionUygulama({
             // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
             if (pick.yol) {
               const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
-              setAttachments((current) => ({
-                ...current,
-                [active.id]: [...(current[active.id] ?? []).filter((item) => item.path !== image.path), image],
-              }));
+              addAttachments(active.id, [image]);
             }
             if (pick.metin) {
               setDrafts((current) => {

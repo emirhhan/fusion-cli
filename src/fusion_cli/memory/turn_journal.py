@@ -37,6 +37,8 @@ _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
 _ORIGINAL_SCHEMA = 1
 _ORIGINAL_FILE_BYTES = 2_000_000
+_MAX_JOURNAL_BYTES = 64 * 1024 * 1024
+_MAX_JOURNAL_IMAGE_CHARS = 56 * 1024 * 1024
 #: Günlük kilidi için bekleme: en çok `_LOCK_ATTEMPTS * _LOCK_RETRY_S` ≈ 0,6 sn.
 _LOCK_ATTEMPTS = 12
 _LOCK_RETRY_S = 0.05
@@ -83,7 +85,10 @@ class FileTurnJournal:
 
     def load(self) -> JournalEntry | None:
         try:
-            serialized = self._path.read_text(encoding="utf-8")
+            with self._path.open(encoding="utf-8") as stream:
+                serialized = stream.read(_MAX_JOURNAL_BYTES + 1)
+            if len(serialized) > _MAX_JOURNAL_BYTES:
+                return None
             raw = json.loads(serialized)
         except FileNotFoundError:
             return None
@@ -318,12 +323,31 @@ class FileTurnJournal:
         return False
 
     def _write_payload(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
+        encoded = []
+        image_chars = 0
+        for message in messages:
+            item = message_to(message, include_images=True)
+            images = item.get("gorseller", [])
+            size = (
+                sum(len(image) for image in images if isinstance(image, str))
+                if isinstance(images, list)
+                else 0
+            )
+            if image_chars + size > _MAX_JOURNAL_IMAGE_CHARS:
+                item.pop("gorseller", None)
+                item["icerik"] = (
+                    str(item["icerik"])
+                    + "\n[Günlük görsel bütçesi aşıldı; görselleri yeniden ekleyin.]"
+                )
+            else:
+                image_chars += size
+            encoded.append(item)
         payload = {
             "surum": _SCHEMA,
             "gorev": redact(task),
             "zaman": self._clock.now(),
             "bildirildi": notified,
-            "mesajlar": [message_to(message) for message in messages],
+            "mesajlar": encoded,
         }
         if self.agent_state is not None:
             payload["ajan"] = agent_state_to(self.agent_state)

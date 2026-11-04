@@ -282,7 +282,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         stopError: null,
       }));
     case "removed": {
-      // Silme geri alınamaz: oturum listeden çıkar. Son oturum silinirse
+      // Kaldırılan oturum listeden çıkar; disk kaydı korunur. Son oturum silinirse
       // etkin seçim boşa düşer ve arayüz yeni görev ekranına döner.
       const kalan = { ...state.sessions };
       delete kalan[action.id];

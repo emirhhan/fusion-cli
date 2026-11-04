@@ -355,7 +355,7 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(sil).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "oyun sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-    fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+    fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
     await waitFor(() => expect(sil).toHaveBeenCalledWith("1"));
     await waitFor(() => expect(screen.queryByRole("group", { name: "oyun silinsin mi?" })).toBeNull());
   });
@@ -556,12 +556,12 @@ it("silme hatasını gösterir ve sabitlemeyi yalnız başarılı silmede kaldı
   fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
   fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("alert");
   expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
 });
 

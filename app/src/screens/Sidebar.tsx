@@ -158,7 +158,7 @@ function SessionButton({ session, active, onSelect, onSplit, onNewWindow, onDele
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Sohbet silme geri alınamaz (çöp kutusu yok): menüden "Sil" önce satır içi onay açar (U1-53).
+  // Sohbeti listeden kaldırma (disk kaydı korunur): menüden "Sil" önce satır içi onay açar (U1-53).
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -260,14 +260,14 @@ function SessionButton({ session, active, onSelect, onSplit, onNewWindow, onDele
       {confirmingDelete && onDelete && (
         <div aria-label={`${session.title} silinsin mi?`} className="sidebar__delete-confirm" role="group"
           onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setConfirmingDelete(false); } }}>
-          <span>Bu sohbet kalıcı silinir; geri alınamaz.</span>
+          <span>Bu sohbet listeden kaldırılır. Konuşma kaydı diskte korunur.</span>
           <button autoFocus onClick={() => setConfirmingDelete(false)} type="button">Vazgeç</button>
           <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
             setDeleting(true);
             void Promise.resolve().then(onDelete)
               .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
               .finally(() => { setDeleting(false); setConfirmingDelete(false); });
-          }} type="button">Kalıcı olarak sil</button>
+          }} type="button">Listeden kaldır</button>
         </div>
       )}
       {deleteError && <span role="alert">{deleteError}</span>}

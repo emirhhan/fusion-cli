@@ -887,7 +887,7 @@ it("son sohbet silinince yeni Desktop sohbeti açılabilir ve eski kimlik geri g
   fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
   fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
   expect(screen.queryByText("Hazırlanıyor…")).toBeNull();
@@ -905,7 +905,7 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   await screen.findByRole("button", { name: "Saklı sohbet" });
   fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   // "Görsel ve video üretimi" artık en soldaki rayda yok; ekran komut paletinden açılır.
   expect(screen.queryByRole("button", { name: "Görsel ve video üretimi" })).toBeNull();
@@ -923,7 +923,7 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   expect(screen.queryByRole("heading", { name: "Yakında" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());
   expect(fake.requests.some((request) => request.ad === "sohbet.sil" && request.veri.sohbet_id === "sakli")).toBe(true);
 });
@@ -933,7 +933,7 @@ it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider",
   render(<SessionUygulama transport={fake.transport} />);
   fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));

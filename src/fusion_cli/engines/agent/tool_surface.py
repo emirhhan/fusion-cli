@@ -37,6 +37,7 @@ from ...config.models import Config
 from ...core.types import ModelSpec
 from ...tools.capability_search import relevance_score
 from ...tools.registry import ToolRegistry
+from ...tools.tool_search import TOOL_SEARCH, tool_search_state
 from .tool_profiles import WIDENED_KIND, hidden_tools
 
 #: `ModelSpec.tags` içinde sıkı yüzeyi zorlayan etiket.
@@ -91,7 +92,7 @@ def narrow_to_compact_surface(
     task: str = "",
     phase: str = "",
 ) -> set[str]:
-    """Sıkı yüzeyde sunulacak araç adlarını daralt (saf: girdiyi değiştirmez).
+    """Sıkı yüzeyde adları daralt ve arama sonuç bütçesini sunulan yüzeyle eşle.
 
     `profiles` görev profilleridir (`tool_profiles`); profil gizlemesi yalnız yerleşik
     araçlara uygulanır ve `WIDENED_KIND` işareti varsa atlanır.
@@ -112,7 +113,11 @@ def narrow_to_compact_surface(
     }
     if not max_external_tools:
         return kept
-    external = [name for name in registry.names() if name in kept and registry.is_remote(name)]
+    external = [
+        name
+        for name in registry.names()
+        if name in kept and registry.is_remote(name) and name != TOOL_SEARCH
+    ]
     if external_tool_selection == "relevance":
         query = f"{task} {phase}"
         scores = {
@@ -121,6 +126,12 @@ def narrow_to_compact_surface(
             if tool.name in kept and registry.is_remote(tool.name)
         }
         external.sort(key=lambda name: (-scores[name], name))
+    state = tool_search_state(registry)
+    if state is not None:
+        state.result_limit = max(1, min(max_external_tools, 12))
+    recent = {name: index for index, name in enumerate(state.recent)} if state is not None else {}
+    # Recently discovered tools take the existing slots before registration-order defaults.
+    external.sort(key=lambda name: (name not in requested, recent.get(name, len(recent))))
     over_limit = {name for name in external[max_external_tools:] if name not in requested}
     return kept - over_limit
 
