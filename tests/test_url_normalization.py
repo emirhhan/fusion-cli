@@ -75,3 +75,26 @@ async def test_local_file_rejection_explains_preview_recovery(tmp_path):
         assert "start_preview" in result.output
         assert "HTTP" in result.output
         assert "browser_open" in result.output
+
+
+@pytest.mark.parametrize("scheme", ["file", "ftp", "gopher", "ws", "custom+test"])
+async def test_allowed_local_origin_cannot_authorize_unsupported_protocol(
+    tmp_path, monkeypatch, scheme
+):
+    def unexpected(*args, **kwargs):
+        pytest.fail("preview permission cannot authorize unsupported protocol I/O")
+
+    monkeypatch.setattr(web.socket, "getaddrinfo", unexpected)
+    monkeypatch.setattr(browser, "_sayfa", unexpected)
+    context = ToolContext(tmp_path)
+    context.local_origins.add("localhost:5173")
+    result = await browser.browser_open({"url": f"{scheme}://localhost:5173/private"}, context)
+    assert not result.ok
+    assert "http/https" in result.output
+    if scheme == "file":
+        assert "start_preview" in result.output
+
+
+@pytest.mark.parametrize("scheme", ["http", "https", "HTTP", "HTTPS"])
+def test_allowed_local_origin_remains_available_for_supported_protocols(scheme):
+    assert web.browser_block_reason(f"{scheme}://localhost:5173/", {"localhost:5173"}) is None

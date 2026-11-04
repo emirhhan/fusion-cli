@@ -438,6 +438,9 @@ def browser_block_reason(url: str, allowed_local: Collection[str] = ()) -> str |
     internete açan bir tünel kurdu. Diğer özel ağ adresleri, bulut metadata ucu ve
     izin verilmemiş yerel portlar kapalı kalır.
     """
+    # A preview grants only HTTP(S) access to its origin, never another protocol.
+    if urlparse(url).scheme not in _ALLOWED_SCHEMES:
+        return url_block_reason(url)
     origin = _loopback_origin(url)
     if origin is not None and origin in allowed_local:
         return None

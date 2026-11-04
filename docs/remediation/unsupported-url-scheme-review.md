@@ -32,3 +32,21 @@ Verification:
 Python/general independent reviews are pending integration by the parent agent.
 This source snapshot requires a follow-up native build to reach the installed
 application; the parent's frozen `17a07647` build remains separate.
+
+## Scheme check before preview exception
+
+Independent review (`71aebedc`) found that browser preview permission was applied
+before scheme validation: an allowed `localhost:5173` authority also admitted
+`file`, FTP, gopher, WS and custom protocols. Five product regressions reproduced
+browser startup on those invalid URLs before the fix; four HTTP(S), including
+uppercase, controls passed.
+
+`browser_block_reason` now delegates unsupported schemes to the existing policy
+before considering the loopback exception. Thus the preview permission grants
+HTTP(S) only, and file errors retain the actionable preview guidance. No other
+SSRF, DNS or local-origin policy changed.
+
+Final validation: 127 tests passed in 6.22 seconds across the eight relevant
+product files plus the independent review test file (all 11 external cases
+passed). Ruff check/format and web-module mypy passed. Independent final review
+and any application rebuild remain with the parent integration workflow.
