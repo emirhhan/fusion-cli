@@ -27,7 +27,9 @@
       "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png",
       "resources/kits/kits-manifest.json": "kits/kits-manifest.json",
       "resources/kits/node": "kits/node",
-      "resources/kits/app/": "kits/app/"
+      "resources/kits/app/": "kits/app/",
+      "../../chrome-extension/InterVariable.woff2": "chrome-extension/InterVariable.woff2",
+      "../../chrome-extension/Inter-LICENSE.txt": "chrome-extension/Inter-LICENSE.txt"
     },
     "macOS": {
       "minimumSystemVersion": "12.0",

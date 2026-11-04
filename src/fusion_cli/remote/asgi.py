@@ -27,6 +27,8 @@ _PNG = "image/png"
 _STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/InterVariable.woff2": ("InterVariable.woff2", "font/woff2"),
+    "/Inter-LICENSE.txt": ("Inter-LICENSE.txt", "text/plain; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
     "/icon-192.png": ("icon-192.png", _PNG),

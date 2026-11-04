@@ -3,8 +3,9 @@ const SHELL = [
   "/", "/app.js", "/app.js?v=mobile-workspace-20261017", "/styles.css?v=mobile-workspace-20261017", "/icon.svg?v=mobile-workspace-20261017", "/api.js", "/approvals.js", "/chat.js", "/dom.js", "/media.js", "/pair-link.js", "/screen-stream.js", "/screen-view.js", "/dock.js",
   "/signing.js", "/store.js", "/views-chats.js", "/views-settings.js", "/views-tasks.js", "/voice.js", "/styles.css", "/manifest.webmanifest", "/icon.svg",
   "/icon-192.png", "/icon-192.png?v=logo-20261017", "/icon-512.png", "/apple-touch-icon.png",
+  "/InterVariable.woff2", "/Inter-LICENSE.txt",
 ];
-const CACHE = "fusion-kabuk-v19";
+const CACHE = "fusion-kabuk-v20";
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   // addAll tek bir 404'te bütün kurulumu düşürürdü: dosyalar tek tek eklenir, eksik olan atlanır (R1-34).

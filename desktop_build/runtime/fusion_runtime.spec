@@ -19,6 +19,13 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 # dizinden tetiklenirse tetiklensin aynı sonucu üretir.
 _repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 
+# Tarifi doğrudan çalıştıranlar da build_runtime.py korumasını atlayamaz.
+_metadata_guard = runpy.run_path(os.path.join(SPECPATH, "metadata_guard.py"))  # noqa: F821
+_source_version = runpy.run_path(os.path.join(_repo_root, "src", "fusion_cli", "__init__.py"))[
+    "__version__"
+]
+_metadata_guard["require_project_metadata_version"](_source_version)
+
 datas = []
 binaries = []
 hiddenimports = []

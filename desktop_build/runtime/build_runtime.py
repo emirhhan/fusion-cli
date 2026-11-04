@@ -24,6 +24,12 @@ from typing import Any
 from fusion_cli import __version__
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+if __package__ in {None, ""}:
+    # Doğrudan betik çağrısında sys.path[0] runtime/ olur, depo kökü değil.
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from desktop_build.runtime.metadata_guard import require_project_metadata_version  # noqa: E402
+
 _SPEC_PATH = Path(__file__).resolve().parent / "fusion_runtime.spec"
 _BUNDLE_NAME = "fusion-runtime"
 
@@ -150,6 +156,8 @@ def build_runtime(output_dir: Path, work_dir: Path) -> tuple[Path, Path]:
     gibi depo dosyaları korunur. Smoke testinin doğrudan çalıştırabilmesi için
     `output_dir/unpacked` altına paketin açık kopyası da bırakılır.
     """
+    # Geçersiz ortam, daha önce üretilmiş doğrulanmış paketi bile silmemeli.
+    require_project_metadata_version(__version__)
     for generated in ("runtime-manifest.json", "fusion-runtime.tar.gz", "unpacked"):
         path = output_dir / generated
         if path.is_dir() and not path.is_symlink():
