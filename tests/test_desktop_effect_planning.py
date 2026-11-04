@@ -138,3 +138,42 @@ async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target
     assert all(use.ok for use in outcome.tool_uses if use.name in delivered)
     names = {schema["function"]["name"] for schema in provider.seen_requests[0]}
     assert {"desktop_click", "desktop_key", "desktop_background_inspect"} <= names
+
+
+PUBLIC_CLEAR_TASK = (
+    "Hesap Makinesi uygulamasını açıp penceresine odaklan ve yeni ekran görüntüsü al. "
+    "Tümünü Sil düğmesine bas. Ekrandaki gerçek değeri erişilebilirlik ağacından oku "
+    "ve yalnız değeri yaz. Bu turda başka işlem yapma; terminal kullanma."
+)
+
+
+def test_public_clear_button_label_is_not_a_filesystem_delete_predicate():
+    assert is_desktop_task(PUBLIC_CLEAR_TASK)
+    assert required_effect_for(PUBLIC_CLEAR_TASK) is None
+    assert classify_teacher_task(PUBLIC_CLEAR_TASK).size == "basit"
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Dosyayı sil ve Tümünü Sil düğmesine bas.",
+        "Raporu kaldır. Tümünü Sil düğmesine bas.",
+        "Tümünü Sil düğmesine bas. Sonucu rapor.html dosyasına yaz.",
+        "HTML sayfasına Sil düğmesi ekle.",
+    ],
+)
+def test_ui_label_cannot_hide_an_independent_filesystem_mutation(task):
+    assert required_effect_for(task) == "workspace_mutation"
+
+
+@pytest.mark.parametrize("app,label", [("Finder", "Sil"), ("Mail", "Gönder"), ("Store", "Öde")])
+def test_ui_label_disambiguation_does_not_remove_destructive_action_risk(app, label):
+    from fusion_cli.core.desktop_settings import DesktopTarget
+    from fusion_cli.tools.desktop_risk import risky_reason
+
+    assert (
+        risky_reason(
+            "desktop_click", {"x": 1, "y": 1}, DesktopTarget(app, element=f"Button '{label}'"), ""
+        )
+        is not None
+    )

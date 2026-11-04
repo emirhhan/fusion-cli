@@ -26,16 +26,27 @@ func canUseWindowFallback(_ explicitNumber: Int?, _ candidateFrame: CGRect?, _ c
     _ targetFrame: CGRect, _ targetTitle: String) -> Bool {
     explicitNumber == nil && candidateFrame == targetFrame && candidateTitle == targetTitle
 }
-func targetWindow(_ windows: [AXUIElement], _ row: [String: Any], _ id: Int) -> AXUIElement? {
-    let direct = windows.filter { (attribute($0, "AXWindowNumber") as? NSNumber)?.intValue == id }
+func windowMetadataTimeRemaining(_ deadline: Double?) -> Bool {
+    guard let deadline = deadline else { return true }
+    return ProcessInfo.processInfo.systemUptime < deadline
+}
+func targetWindow(_ windows: [AXUIElement], _ row: [String: Any], _ id: Int,
+    _ deadline: Double? = nil) -> AXUIElement? {
+    let direct = windows.filter {
+        windowMetadataTimeRemaining(deadline) &&
+            (attribute($0, "AXWindowNumber") as? NSNumber)?.intValue == id
+    }
+    guard windowMetadataTimeRemaining(deadline) else { return nil }
     if !direct.isEmpty { return direct.count == 1 ? direct[0] : nil }
     guard let bounds = row[kCGWindowBounds as String] as? NSDictionary,
         let frame = CGRect(dictionaryRepresentation: bounds) else { return nil }
     let title = row[kCGWindowName as String] as? String ?? ""
     let matches = windows.filter {
-        canUseWindowFallback((attribute($0, "AXWindowNumber") as? NSNumber)?.intValue,
-            windowFrame($0), attribute($0, kAXTitleAttribute) as? String ?? "", frame, title)
+        windowMetadataTimeRemaining(deadline) &&
+            canUseWindowFallback((attribute($0, "AXWindowNumber") as? NSNumber)?.intValue,
+                windowFrame($0), attribute($0, kAXTitleAttribute) as? String ?? "", frame, title)
     }
+    guard windowMetadataTimeRemaining(deadline) else { return nil }
     return matches.count == 1 ? matches[0] : nil
 }
 struct Entry {
@@ -45,6 +56,7 @@ struct Entry {
     let valueDigest: String
     let displayValue: String?
     let displayValueTruncated: Bool
+    let actionLabels: [String: String]
 }
 func digest(_ text: String) -> String {
     SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -87,6 +99,35 @@ func safeDisplayValue(_ role: String?, _ branchSafe: Bool,
         let value = rawValue as? String else { return nil }
     return String(value.prefix(1000))
 }
+func safeActionLabels(_ role: String?, _ branchSafe: Bool,
+    _ editability: DisplayEditability, _ actions: [String],
+    _ rawDescription: Any?, _ rawIdentifier: Any?) -> [String: String] {
+    guard branchSafe, role == "AXButton", actions.contains("AXPress"),
+        editability == .readOnly || editability == .unsupported else { return [:] }
+    var labels: [String: String] = [:]
+    if let description = rawDescription as? String, !description.isEmpty {
+        labels["description"] = String(description.prefix(256))
+        labels["label"] = labels["description"]
+        labels["label_source"] = "AXDescription"
+    }
+    if let identifier = rawIdentifier as? String, !identifier.isEmpty {
+        labels["identifier"] = String(identifier.prefix(256))
+        if labels["label"] == nil {
+            labels["label"] = labels["identifier"]
+            labels["label_source"] = "AXIdentifier"
+        }
+    }
+    return labels
+}
+func safeWindowSelectionMetadata(_ mappingVerified: Bool, _ role: String?,
+    _ subrole: String?, _ isMain: Bool?, _ isFocused: Bool?) -> [String: Any] {
+    guard mappingVerified, role == "AXWindow" else { return [:] }
+    var metadata: [String: Any] = ["role": "AXWindow"]
+    if let subrole = subrole, !subrole.isEmpty { metadata["subrole"] = String(subrole.prefix(128)) }
+    if let isMain = isMain { metadata["is_main"] = isMain }
+    if let isFocused = isFocused { metadata["is_focused"] = isFocused }
+    return metadata
+}
 func tree(_ window: AXUIElement) -> [Entry] {
     var queue: [(AXUIElement, [Int], Bool)] = [(window, [], true)], entries: [Entry] = []
     while !queue.isEmpty && entries.count < 500 {
@@ -102,9 +143,17 @@ func tree(_ window: AXUIElement) -> [Entry] {
         let value = rawValue.map { String(describing: $0) } ?? ""
         let display = safeDisplayValue(role, branchSafe, editability, rawValue)
         let stringValue = rawValue as? String
+        var labels: [String: String] = [:]
+        if branchSafe && role == "AXButton" {
+            var actionNames: CFArray?
+            let status = AXUIElementCopyActionNames(element, &actionNames)
+            let actions = status == .success ? (actionNames as? [String] ?? []) : []
+            labels = safeActionLabels(role, branchSafe, editability, actions,
+                attribute(element, kAXDescriptionAttribute), attribute(element, kAXIdentifierAttribute))
+        }
         entries.append(Entry(element: element, path: path, identity: identity(element),
             valueDigest: digest(value), displayValue: display,
-            displayValueTruncated: display != nil && (stringValue?.count ?? 0) > 1000))
+            displayValueTruncated: display != nil && (stringValue?.count ?? 0) > 1000, actionLabels: labels))
         let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
         for (index, child) in children.enumerated() {
             queue.append((child, path + [index], branchSafe))
@@ -187,6 +236,63 @@ func windowInfo(_ window: AXUIElement, _ pid: pid_t) -> [String: Any]? {
     return ["id": id, "title": attribute(window, kAXTitleAttribute) as? String ?? "",
         "bounds": [frame.origin.x, frame.origin.y, frame.width, frame.height]]
 }
+struct AppWindowSnapshot {
+    let windows: [AXUIElement]?
+    let windowCount: Int?
+    let focused: AXUIElement?
+}
+func appWindowSnapshot(_ pid: pid_t, _ deadline: Double) -> AppWindowSnapshot {
+    let app = AXUIElementCreateApplication(pid)
+    guard windowMetadataTimeRemaining(deadline),
+        AXUIElementSetMessagingTimeout(app, 0.01) == .success else {
+        return AppWindowSnapshot(windows: nil, windowCount: nil, focused: nil)
+    }
+    let all = attribute(app, kAXWindowsAttribute) as? [AXUIElement]
+    let rawFocused = windowMetadataTimeRemaining(deadline) ? attribute(app, kAXFocusedWindowAttribute) : nil
+    var focused = rawFocused.flatMap {
+        CFGetTypeID($0) == AXUIElementGetTypeID() ? unsafeBitCast($0, to: AXUIElement.self) : nil
+    }
+    let complete = all.flatMap { windows -> [AXUIElement]? in
+        guard windows.count <= 16 else { return nil }
+        for window in windows {
+            guard windowMetadataTimeRemaining(deadline),
+                AXUIElementSetMessagingTimeout(window, 0.01) == .success else { return nil }
+        }
+        return windows
+    }
+    if let candidate = focused,
+        (!windowMetadataTimeRemaining(deadline) || AXUIElementSetMessagingTimeout(candidate, 0.01) != .success) {
+        focused = nil
+    }
+    return AppWindowSnapshot(windows: complete, windowCount: all?.count, focused: focused)
+}
+func windowBoolean(_ window: AXUIElement, _ name: String) -> Bool? {
+    guard let raw = attribute(window, name), CFGetTypeID(raw) == CFBooleanGetTypeID() else { return nil }
+    return CFBooleanGetValue(unsafeBitCast(raw, to: CFBoolean.self))
+}
+func targetWindowDiagnostics(_ pid: pid_t, _ expectedTitle: String, _ expected: CGRect) -> [String: Any] {
+    guard AXIsProcessTrusted() else { return ["ax_trusted": false] }
+    let deadline = ProcessInfo.processInfo.systemUptime + 0.35
+    let snapshot = appWindowSnapshot(pid, deadline)
+    var result: [String: Any] = ["ax_trusted": true, "windows_known": snapshot.windowCount != nil,
+        "focused_window_known": snapshot.focused != nil]
+    if let count = snapshot.windowCount { result["windows_count"] = count; result["windows_truncated"] = count > 8 }
+    func metadata(_ window: AXUIElement) -> [String: Any] {
+        guard windowMetadataTimeRemaining(deadline) else { return ["query_budget_exhausted": true] }
+        var row: [String: Any] = [:]
+        if let role = attribute(window, kAXRoleAttribute) as? String { row["role"] = String(role.prefix(128)) }
+        if windowMetadataTimeRemaining(deadline), let subrole = attribute(window, kAXSubroleAttribute) as? String { row["subrole"] = String(subrole.prefix(128)) }
+        if windowMetadataTimeRemaining(deadline), let main = windowBoolean(window, kAXMainAttribute) { row["is_main"] = main }
+        if let focused = snapshot.focused { row["is_focused"] = CFEqual(window, focused) }
+        if windowMetadataTimeRemaining(deadline) { row["window_number_known"] = (attribute(window, "AXWindowNumber") as? NSNumber)?.intValue ?? 0 > 0 }
+        if windowMetadataTimeRemaining(deadline), let title = attribute(window, kAXTitleAttribute) as? String { row["title_matches_expected"] = title == expectedTitle }
+        if windowMetadataTimeRemaining(deadline), let frame = windowFrame(window) { row["bounds_match_expected"] = frame == expected }
+        return row
+    }
+    result["windows"] = snapshot.windows.map { Array($0.prefix(8)).map(metadata) } ?? []
+    if let focused = snapshot.focused { result["focused_window"] = metadata(focused) }
+    return result
+}
 func target() {
     let input = FileHandle.standardInput.readDataToEndOfFile()
     let request = (input.count <= 10_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
@@ -207,6 +313,13 @@ func target() {
     } else if let pid = request["pid"] as? Int, pid > 0 {
         guard var info = appInfo(pid_t(pid)) else { fail("Süreç bulunamadı."); return }
         info["ok"] = true
+        if let expected = request["window_diagnostics"] as? [String: Any],
+            let title = expected["title"] as? String, title.count <= 500,
+            let bounds = expected["bounds"] as? [Double], bounds.count == 4,
+            bounds.allSatisfy({ $0.isFinite }), bounds[2] > 0, bounds[3] > 0 {
+            info["window_diagnostics"] = targetWindowDiagnostics(pid_t(pid), title,
+                CGRect(x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3]))
+        }
         emit(info)
     } else {
         guard let front = NSWorkspace.shared.frontmostApplication, var info = appInfo(front.processIdentifier) else { fail("Öndeki uygulama okunamadı."); return }
@@ -278,11 +391,38 @@ func unhideApps() {
 let args = CommandLine.arguments
 let rows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 if args.count > 1 && args[1] == "list" {
-    let windows = rows.compactMap { row -> [String: Any]? in
+    let eligibleRows = rows.filter { row in
         guard (row[kCGWindowLayer as String] as? Int) == 0,
-            let id = row[kCGWindowNumber as String] as? Int,
+            row[kCGWindowNumber as String] is Int,
             let pid = row[kCGWindowOwnerPID as String] as? Int,
-            let app = NSRunningApplication(processIdentifier: pid_t(pid)), app.activationPolicy == .regular else { return nil }
+            let app = NSRunningApplication(processIdentifier: pid_t(pid)) else { return false }
+        return app.activationPolicy == .regular
+    }
+    let metadataDeadline = ProcessInfo.processInfo.systemUptime + 0.35
+    var snapshots: [Int: AppWindowSnapshot] = [:]
+    var metadataByID: [Int: [String: Any]] = [:]
+    if AXIsProcessTrusted() {
+        for row in eligibleRows {
+            guard windowMetadataTimeRemaining(metadataDeadline),
+                let id = row[kCGWindowNumber as String] as? Int,
+                let pid = row[kCGWindowOwnerPID as String] as? Int else { break }
+            if snapshots[pid] == nil { snapshots[pid] = appWindowSnapshot(pid_t(pid), metadataDeadline) }
+            if let snapshot = snapshots[pid], let candidates = snapshot.windows,
+                let window = targetWindow(candidates, row, id, metadataDeadline) {
+                let metadata = safeWindowSelectionMetadata(true,
+                    attribute(window, kAXRoleAttribute) as? String,
+                    attribute(window, kAXSubroleAttribute) as? String,
+                    windowBoolean(window, kAXMainAttribute),
+                    snapshot.focused.map { CFEqual(window, $0) })
+                if windowMetadataTimeRemaining(metadataDeadline) { metadataByID[id] = metadata }
+            }
+        }
+    }
+    // Icon rendering follows the bounded AX prepass; it cannot consume its budget.
+    let windows = eligibleRows.compactMap { row -> [String: Any]? in
+        guard let id = row[kCGWindowNumber as String] as? Int,
+            let pid = row[kCGWindowOwnerPID as String] as? Int,
+            let app = NSRunningApplication(processIdentifier: pid_t(pid)) else { return nil }
         var iconData = ""
         if let icon = app.icon, let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24,
             pixelsHigh: 24, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -296,7 +436,11 @@ if args.count > 1 && args[1] == "list" {
                 iconData = "data:image/png;base64," + png.base64EncodedString()
             }
         }
-        return ["icon": iconData, "kind": "window", "id": id, "pid": pid, "app": app.localizedName ?? "Uygulama", "title": row[kCGWindowName as String] as? String ?? "", "visible": row[kCGWindowIsOnscreen as String] as? Bool ?? false]
+        var info: [String: Any] = ["icon": iconData, "kind": "window", "id": id, "pid": pid, "app": app.localizedName ?? "Uygulama", "title": row[kCGWindowName as String] as? String ?? "", "visible": row[kCGWindowIsOnscreen as String] as? Bool ?? false]
+        if let metadata = metadataByID[id] {
+            for (key, value) in metadata { info[key] = value }
+        }
+        return info
     }
     emit(["ok": true, "windows": windows])
 } else if args.count == 3 && args[1] == "escwatch", let ignored = Int64(args[2]) {
@@ -394,6 +538,7 @@ if args.count > 1 && args[1] == "list" {
                     "ref": reference(entry, fingerprint, id, pid),
                     "actions": actions as? [String] ?? [], "can_set_value": settable.boolValue,
                     "unique": entries.count < 500 && entries.filter { $0.identity == entry.identity }.count == 1]
+                for (key, label) in entry.actionLabels { info[key] = label }
                 if let value = entry.displayValue {
                     info["value"] = value
                     info["value_source"] = "AXValue"

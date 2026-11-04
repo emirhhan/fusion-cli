@@ -103,7 +103,7 @@ def test_pencere_null_kabul_edilir(monkeypatch):
     monkeypatch.setattr(
         desktop_inspect,
         "_run",
-        lambda *a: desktop_inspect.ToolResult("Safari\t42\tPage\t0\t0\t100\t100"),
+        lambda *a, **kwargs: desktop_inspect.ToolResult("Safari\t42\tPage\t0\t0\t100\t100"),
     )
 
     _fake_focus_probe(monkeypatch, "Page", [0.0, 0.0, 100.0, 100.0])
@@ -115,7 +115,9 @@ def test_pencere_null_kabul_edilir(monkeypatch):
 
 
 def test_focus_requires_observed_identity_and_bounds(tmp_path, monkeypatch):
-    monkeypatch.setattr(desktop_inspect, "_run", lambda *a: desktop_inspect.ToolResult("ok"))
+    monkeypatch.setattr(
+        desktop_inspect, "_run", lambda *a, **kwargs: desktop_inspect.ToolResult("ok")
+    )
     context = ToolContext(root=tmp_path)
     result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
     assert not result.ok
@@ -125,7 +127,9 @@ def test_focus_binds_verified_window_and_requires_new_frame(tmp_path, monkeypatc
     monkeypatch.setattr(
         desktop_inspect,
         "_run",
-        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+        lambda *a, **kwargs: desktop_inspect.ToolResult(
+            "Calculator\t42\tCalculator\t350\t260\t210\t380"
+        ),
     )
     context = ToolContext(root=tmp_path)
     _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
@@ -145,7 +149,9 @@ def test_failed_focus_invalidates_old_screenshot_before_any_click(tmp_path, monk
     context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
     context.desktop.focused_window = (42, 350.0, 260.0, 210.0, 380.0)
     monkeypatch.setattr(
-        desktop_inspect, "_run", lambda *args: desktop_inspect.ToolResult.failure("focus failed")
+        desktop_inspect,
+        "_run",
+        lambda *args, **kwargs: desktop_inspect.ToolResult.failure("focus failed"),
     )
     result = desktop_inspect.desktop_window_focus({"app": "Notes"}, context)
     assert not result.ok
@@ -157,7 +163,7 @@ def _fake_focus_probe(monkeypatch, title, bounds):
     monkeypatch.setattr(
         desktop_inspect,
         "invoke_sync",
-        lambda *args: {
+        lambda *args, **kwargs: {
             "ok": True,
             "pid": 42,
             "window": {"id": 101, "title": title, "bounds": bounds},
@@ -172,7 +178,9 @@ async def test_failed_focus_cannot_be_reenabled_by_unbound_screenshot(tmp_path, 
 
     context = ToolContext(root=tmp_path)
     monkeypatch.setattr(
-        desktop_inspect, "_run", lambda *args: desktop_inspect.ToolResult.failure("focus failed")
+        desktop_inspect,
+        "_run",
+        lambda *args, **kwargs: desktop_inspect.ToolResult.failure("focus failed"),
     )
     assert not desktop_inspect.desktop_window_focus({"app": "Notes"}, context).ok
     context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
@@ -200,7 +208,9 @@ async def test_failed_or_malformed_focus_blocks_event_until_valid_refocus_and_fr
         desktop_inspect.ToolResult("malformed observation"),
     ):
         context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
-        monkeypatch.setattr(desktop_inspect, "_run", lambda *a, response=response: response)
+        monkeypatch.setattr(
+            desktop_inspect, "_run", lambda *a, response=response, **kwargs: response
+        )
         assert not desktop_inspect.desktop_window_focus({"app": "Calculator"}, context).ok
         assert not desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
         context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
@@ -210,7 +220,9 @@ async def test_failed_or_malformed_focus_blocks_event_until_valid_refocus_and_fr
     monkeypatch.setattr(
         desktop_inspect,
         "_run",
-        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+        lambda *a, **kwargs: desktop_inspect.ToolResult(
+            "Calculator\t42\tCalculator\t350\t260\t210\t380"
+        ),
     )
     _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
     assert desktop_inspect.desktop_window_focus({"app": "Calculator"}, context).ok
@@ -230,7 +242,9 @@ async def test_focus_exposes_verified_identity_consumable_by_background_inspect(
     monkeypatch.setattr(
         desktop_inspect,
         "_run",
-        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+        lambda *a, **kwargs: desktop_inspect.ToolResult(
+            "Calculator\t42\tCalculator\t350\t260\t210\t380"
+        ),
     )
     _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
     result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
@@ -247,3 +261,136 @@ async def test_focus_exposes_verified_identity_consumable_by_background_inspect(
     monkeypatch.setattr(desktop_background.SwiftDesktop, "invoke", invoke)
     inspection = await desktop_background.desktop_background_inspect(target, context)
     assert inspection.ok and calls == [("inspect", {"kind": "window", "id": 101, "pid": 42})]
+
+
+async def test_focus_waits_for_actual_foreground_pid_and_then_native_identity(
+    tmp_path, monkeypatch
+):
+    target = "Calculator\t42\tCalculator\t350\t260\t210\t380"
+    other = "Other App\t99\tOther\t0\t0\t100\t100"
+    observations = []
+
+    def run(script, *args, **kwargs):
+        if script == desktop_inspect.FOCUS_SCRIPT:
+            return desktop_inspect.ToolResult(target)
+        observations.append(script)
+        return desktop_inspect.ToolResult(other if len(observations) == 1 else target)
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    def native(*args):
+        return {
+            "ok": True,
+            "pid": 42 if len(observations) == 2 else 99,
+            "window": {"id": 101, "title": "Calculator", "bounds": [350.0, 260.0, 210.0, 380.0]},
+        }
+
+    monkeypatch.setattr(desktop_inspect, "invoke_sync", native)
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert result.ok and len(observations) == 2
+    assert context.desktop.focused_window_id == 101
+
+
+async def test_focus_settle_timeout_keeps_refocus_lock_and_never_claims_success(
+    tmp_path, monkeypatch
+):
+    target = "Calculator\t42\tCalculator\t350\t260\t210\t380"
+    other = "Other App\t99\tOther\t0\t0\t100\t100"
+
+    def run(script, *args, **kwargs):
+        return desktop_inspect.ToolResult(
+            target if script == desktop_inspect.FOCUS_SCRIPT else other
+        )
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    native_calls = []
+
+    def native(*args):
+        native_calls.append(args)
+        return {"ok": False}
+
+    monkeypatch.setattr(desktop_inspect, "invoke_sync", native)
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok and context.desktop.focus_required and context.desktop.frame is None
+    assert len(native_calls) == 1
+    assert native_calls[0][1]["request"]["pid"] == 42
+    assert "window_diagnostics" in native_calls[0][1]["request"]
+    assert 0 < clock[0] <= 3
+
+
+def test_focus_uses_actual_pid_instead_of_localized_requested_name(tmp_path, monkeypatch):
+    target = "Calculator\t42\tCalculator\t350\t260\t210\t380"
+    monkeypatch.setattr(desktop_inspect, "_run", lambda *a, **k: desktop_inspect.ToolResult(target))
+    _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Hesap Makinesi"}, context)
+    assert result.ok and context.desktop.focused_window_id == 101
+
+
+def test_native_focus_mismatch_reports_only_boolean_checks_and_stays_locked(tmp_path, monkeypatch):
+    target = "Calculator\t42\tCalculator\t350\t260\t210\t380"
+    monkeypatch.setattr(desktop_inspect, "_run", lambda *a, **k: desktop_inspect.ToolResult(target))
+    monkeypatch.setattr(
+        desktop_inspect,
+        "invoke_sync",
+        lambda *a: {
+            "ok": True,
+            "pid": 42,
+            "window": {
+                "id": 101,
+                "title": "Unexpected private title",
+                "bounds": [350.0, 260.0, 210.0, 380.0],
+            },
+        },
+    )
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
+    assert not result.ok and context.desktop.focus_required
+    assert result.structured is not None
+    assert result.structured["focus_validation"] == {
+        "native_ok": True,
+        "pid_matches": True,
+        "window_known": True,
+        "title_matches": False,
+        "bounds_match": True,
+    }
+    assert "Unexpected private title" not in result.output
+
+
+def test_named_focus_waits_through_same_pid_wrong_window_before_native_validation(
+    tmp_path, monkeypatch
+):
+    target = "Calculator\t42\tHesap Makinesi\t350\t260\t230\t408"
+    overlay = "Calculator\t42\tWindow\t350\t260\t30\t30"
+    seen = []
+
+    def run(script, *args, **kwargs):
+        if script == desktop_inspect.FOCUS_SCRIPT:
+            return desktop_inspect.ToolResult(target)
+        seen.append(script)
+        return desktop_inspect.ToolResult(overlay if len(seen) == 1 else target)
+
+    monkeypatch.setattr(desktop_inspect, "_run", run)
+    clock = [0.0]
+    import time
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    _fake_focus_probe(monkeypatch, "Hesap Makinesi", [350.0, 260.0, 230.0, 408.0])
+    context = ToolContext(root=tmp_path)
+    result = desktop_inspect.desktop_window_focus(
+        {"app": "Calculator", "window": "Hesap Makinesi"}, context
+    )
+    assert result.ok and len(seen) == 2 and context.desktop.focused_window_title == "Hesap Makinesi"

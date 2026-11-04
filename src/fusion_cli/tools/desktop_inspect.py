@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import subprocess
+import time
 
 from ..core.desktop_settings import DesktopSettings
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -32,18 +33,19 @@ on run argv
     set appName to item 1 of argv
     set windowName to item 2 of argv
     tell application "System Events"
-        tell application process appName
+        set targetProcess to application process appName
+        tell targetProcess
+            set visible to true
             set frontmost to true
             if windowName is not "" then
-                perform action "AXRaise" of (first window whose name is windowName)
+                set selectedWindow to first window whose name is windowName
+                perform action "AXRaise" of selectedWindow
+            else
+                set selectedWindow to front window
             end if
         end tell
-        set frontProcess to first application process whose frontmost is true
-        if name of frontProcess is not appName then error "Requested app is not frontmost"
-        set frontWindow to front window of frontProcess
-        if windowName is not "" and name of frontWindow is not windowName then
-            error "Requested window is not frontmost"
-        end if
+        set frontProcess to targetProcess
+        set frontWindow to selectedWindow
         set xy to position of frontWindow
         set wh to size of frontWindow
         set identityRow to (name of frontProcess) & tab & (unix id of frontProcess)
@@ -54,6 +56,24 @@ on run argv
     end tell
 end run
 """
+
+FOCUS_OBSERVATION_SCRIPT = """
+tell application "System Events"
+    set frontProcess to first application process whose frontmost is true
+    set frontWindow to front window of frontProcess
+    set xy to position of frontWindow
+    set wh to size of frontWindow
+    set identityRow to (name of frontProcess) & tab & (unix id of frontProcess)
+    set identityRow to identityRow & tab & (name of frontWindow)
+    set geometryRow to (item 1 of xy) & tab & (item 2 of xy)
+    set geometryRow to geometryRow & tab & (item 1 of wh) & tab & (item 2 of wh)
+    return identityRow & tab & geometryRow
+end tell
+"""
+
+_FOCUS_SETTLE_S = 2.0
+_FOCUS_POLL_S = 0.05
+
 
 ACCESSIBILITY_SCRIPT = """
 tell application "System Events"
@@ -98,7 +118,7 @@ HIDDEN_FRONT_MESSAGE = (
 )
 
 
-def _run(script: str, *values: str) -> ToolResult:
+def _run(script: str, *values: str, timeout_s: float = DESKTOP_COMMAND_TIMEOUT_S) -> ToolResult:
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
@@ -110,12 +130,13 @@ def _run(script: str, *values: str) -> ToolResult:
             ["osascript", "-e", script, *values],
             capture_output=True,
             text=True,
-            timeout=DESKTOP_COMMAND_TIMEOUT_S,
+            timeout=min(timeout_s, DESKTOP_COMMAND_TIMEOUT_S),
             check=False,
         )
     except subprocess.TimeoutExpired:
         return ToolResult.failure(
-            f"Pencere erişimi {DESKTOP_COMMAND_TIMEOUT_S} sn içinde bitmedi (büyük pencerelerde "
+            f"Pencere erişimi {min(timeout_s, DESKTOP_COMMAND_TIMEOUT_S):g} sn içinde bitmedi "
+            "(büyük pencerelerde "
             "AppleScript `entire contents` dakikalar sürer). Daha hızlı ve kısmi sonuç veren "
             "desktop_background_windows + desktop_background_inspect araçlarını kullan."
         )
@@ -152,6 +173,57 @@ def desktop_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(_visible_window_lines(result.output, context.desktop_settings))
 
 
+def _window_observation(output: str) -> tuple[str, int, str, float, float, float, float] | None:
+    try:
+        app, raw_pid, window, *geometry = output.split("\t")
+        pid = int(raw_pid)
+        x, y, width, height = map(float, geometry)
+    except (ValueError, TypeError):
+        return None
+    if (
+        not app.strip()
+        or pid <= 0
+        or width <= 0
+        or height <= 0
+        or not all(math.isfinite(value) for value in (x, y, width, height))
+    ):
+        return None
+    return app, pid, window, x, y, width, height
+
+
+def _settled_foreground(
+    target: tuple[str, int, str, float, float, float, float],
+) -> tuple[str, int, str, float, float, float, float] | None:
+    deadline = time.monotonic() + _FOCUS_SETTLE_S
+    while (remaining := deadline - time.monotonic()) > 0:
+        result = _run(FOCUS_OBSERVATION_SCRIPT, timeout_s=remaining)
+        observed = _window_observation(result.output) if result.ok else None
+        # Names may be localized aliases. The activation target's real PID and
+        # selected window title are authoritative; native window ID follows.
+        if observed is not None and observed[1:3] == target[1:3]:
+            return observed
+        time.sleep(min(_FOCUS_POLL_S, max(0.0, deadline - time.monotonic())))
+    return None
+
+
+def _focus_diagnostics(
+    target: tuple[str, int, str, float, float, float, float],
+) -> dict[str, object]:
+    _app, pid, title, x, y, width, height = target
+    result = invoke_sync(
+        "target",
+        {
+            "kind": "probe",
+            "request": {
+                "pid": pid,
+                "window_diagnostics": {"title": title, "bounds": [x, y, width, height]},
+            },
+        },
+    )
+    summary = result.get("window_diagnostics")
+    return summary if isinstance(summary, dict) else {}
+
+
 def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulama ve varsa pencere adına göre pencereyi öne getir."""
     # A failed focus attempt makes the previous screenshot unusable too.
@@ -168,38 +240,40 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     result = _run(FOCUS_SCRIPT, app, window)
     if not result.ok:
         return result
-    try:
-        observed_app, raw_pid, observed_window, *geometry = result.output.split("\t")
-        pid = int(raw_pid)
-        x, y, width, height = map(float, geometry)
-        if (
-            observed_app.casefold() != app.casefold()
-            or pid <= 0
-            or (window and observed_window != window)
-            or not all(math.isfinite(value) for value in (x, y, width, height))
-            or width <= 0
-            or height <= 0
-        ):
-            raise ValueError("identity or bounds mismatch")
-    except (ValueError, TypeError):
+    target = _window_observation(result.output)
+    if target is None or (window and target[2] != window):
         return ToolResult.failure(
             "Ön pencerenin kimliği ve sınırları doğrulanamadı; "
             "desktop_background_windows ile hedefi yeniden seç."
         )
+    foreground = _settled_foreground(target)
+    if foreground is None:
+        return ToolResult.failure(
+            "İstenen süreç/pencere süre sınırında gerçekten öne gelmedi; "
+            "hedefi yeniden incele. Eski ekran görüntüsü kullanılamaz.",
+            structured={"focus_window_diagnostics": _focus_diagnostics(target)},
+        )
+    observed_app, pid, observed_window, x, y, width, height = foreground
     observation = invoke_sync("target", {"kind": "probe", "request": {}})
     observed = observation.get("window")
-    if (
-        observation.get("ok") is not True
-        or observation.get("pid") != pid
-        or not isinstance(observed, dict)
-        or type(observed.get("id")) is not int
-        or observed["id"] <= 0
-        or observed.get("title") != observed_window
-        or observed.get("bounds") != [x, y, width, height]
-    ):
+    checks = {
+        "native_ok": observation.get("ok") is True,
+        "pid_matches": observation.get("pid") == pid,
+        "window_known": isinstance(observed, dict)
+        and type(observed.get("id")) is int
+        and observed["id"] > 0,
+        "title_matches": isinstance(observed, dict) and observed.get("title") == observed_window,
+        "bounds_match": isinstance(observed, dict)
+        and observed.get("bounds") == [x, y, width, height],
+    }
+    if not all(checks.values()):
+        details = ", ".join(f"{key}={str(value).lower()}" for key, value in checks.items())
+        summary = _focus_diagnostics(foreground)
         return ToolResult.failure(
-            "Ön pencerenin kalıcı kimliği doğrulanamadı; hedefi yeniden incele."
+            "Ön pencerenin kalıcı kimliği doğrulanamadı; hedefi yeniden incele. " + details,
+            structured={"focus_validation": checks, "focus_window_diagnostics": summary},
         )
+    assert isinstance(observed, dict)  # established by the validated checks above
     context.desktop.focused_window = (pid, x, y, width, height)
     context.desktop.focus_required = False
     context.desktop.focused_window_id = observed["id"]

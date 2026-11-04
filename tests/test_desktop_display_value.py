@@ -74,6 +74,33 @@ for value in unexpected {
 }
 let longValue = String(repeating: "x", count: 1200)
 precondition(safeDisplayValue("AXStaticText", true, .readOnly, longValue)?.count == 1000)
+let labels = safeActionLabels("AXButton", true, .unsupported, ["AXPress"],
+    "Tümünü Sil", "AllClear")
+precondition(labels["description"] == "Tümünü Sil")
+precondition(labels["identifier"] == "AllClear")
+precondition(labels["label"] == "Tümünü Sil")
+precondition(labels["label_source"] == "AXDescription")
+precondition(safeActionLabels("AXButton", false, .readOnly, ["AXPress"], "private", "id").isEmpty)
+precondition(safeActionLabels("AXButton", true, .unknown, ["AXPress"], "private", "id").isEmpty)
+precondition(safeActionLabels("AXButton", true, .editable, ["AXPress"], "private", "id").isEmpty)
+precondition(safeActionLabels("AXTextField", true, .readOnly, ["AXPress"], "private", "id").isEmpty)
+precondition(safeActionLabels("AXButton", true, .readOnly, [], "group", "id").isEmpty)
+precondition(safeActionLabels("AXButton", true, .readOnly, ["AXPress"],
+    NSNumber(value: 391), nil).isEmpty)
+let boundedLabels = safeActionLabels("AXButton", true, .readOnly, ["AXPress"],
+    String(repeating: "x", count: 400), String(repeating: "y", count: 400))
+precondition(boundedLabels["description"]?.count == 256)
+precondition(boundedLabels["identifier"]?.count == 256)
+let mainMetadata = safeWindowSelectionMetadata(true, "AXWindow", "AXStandardWindow", true, false)
+precondition(mainMetadata["is_main"] as? Bool == true)
+precondition(mainMetadata["is_focused"] as? Bool == false)
+precondition(mainMetadata["subrole"] as? String == "AXStandardWindow")
+precondition(safeWindowSelectionMetadata(false, "AXWindow", "AXStandardWindow", true, true).isEmpty)
+let unknownMetadata = safeWindowSelectionMetadata(true, "AXWindow", nil, nil, nil)
+precondition(unknownMetadata["is_main"] == nil && unknownMetadata["is_focused"] == nil)
+precondition(unknownMetadata["subrole"] == nil)
+precondition(safeWindowSelectionMetadata(true, "AXWindow", String(repeating: "x", count: 300),
+    nil, nil)["subrole"] as? String == String(repeating: "x", count: 128))
 print("safe-display-values-passed")
 """
     )
@@ -108,3 +135,35 @@ async def test_background_inspect_preserves_literal_native_display_value(tmp_pat
     payload = json.loads(result.output)
     assert payload["elements"][0]["value"] == "17×23−"
     assert "391" not in result.output
+
+
+async def test_native_inspect_preserves_empty_title_button_description_and_identifier(
+    tmp_path, monkeypatch
+):
+    element = {
+        "role": "AXButton",
+        "title": "",
+        "description": "Tümünü Sil",
+        "identifier": "AllClear",
+        "label": "Tümünü Sil",
+        "actions": ["AXPress"],
+        "ref": "chosen-current-ref",
+    }
+    invoke = AsyncMock(return_value={"ok": True, "elements": [element]})
+    monkeypatch.setattr(native_desktop.SwiftDesktop, "invoke", invoke)
+    result = await desktop_background.desktop_background_inspect(
+        {"window_id": 101, "pid": 42}, ToolContext(tmp_path)
+    )
+    assert result.ok and json.loads(result.output)["elements"] == [element]
+
+
+async def test_unsupported_press_is_not_retried_with_another_reference(tmp_path, monkeypatch):
+    invoke = AsyncMock(return_value={"ok": False, "metin": "Öğe AXPress desteklemiyor."})
+    monkeypatch.setattr(native_desktop.SwiftDesktop, "invoke", invoke)
+    result = await desktop_background.desktop_background_action(
+        {"window_id": 101, "pid": 42, "action": "press", "ref": "chosen-current-ref"},
+        ToolContext(tmp_path),
+    )
+    assert not result.ok and "AXPress" in result.output
+    assert invoke.await_count == 1
+    assert invoke.await_args.args[1]["request"]["ref"] == "chosen-current-ref"

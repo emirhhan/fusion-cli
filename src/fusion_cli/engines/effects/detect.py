@@ -163,6 +163,14 @@ _MUTATION_VERBS = (
     r"değiştir|degistir|düzenle|duzenle|güncelle|guncelle|oluştur|olustur|ekle|yaz|"
     r"yap|kur|hazırla|hazirla|dönüştür|donustur)"
 )
+# A mutation-looking word immediately naming a pressed UI control is a label,
+# not a filesystem predicate. Independent mutations remain in the request.
+_UI_CONTROL_LABEL_VERB = re.compile(
+    rf"\b{_MUTATION_VERBS}\b(?=\s+(?:düğme|dugme|buton|button)[a-zçğıöşü]*"
+    r"\s+(?:bas|tıkla|tikla|press|click)\b)",
+    re.IGNORECASE,
+)
+
 #: Kod üretimi istendiği ANLAŞILAN nesneler. "dosya" demeyen ama dosya yazdıran
 #: istekler ("spor sitesi yap", "açılış sayfası hazırla") buradan yakalanır.
 # Ölçüldü: "rozetin yanına ... bir span ekle" isteği hiçbir nesneye uymuyordu ve
@@ -402,7 +410,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     # External-effect priority still consumes the complete positive request.
     clauses = tuple(
         _ANSWER_FORMAT_PATTERN.sub(" ", clause)
-        for clause in _positive_action_parts(lower_tr_aware(task))
+        for clause in _positive_action_parts(_UI_CONTROL_LABEL_VERB.sub("", lower_tr_aware(task)))
     )
     lowered = " ".join(clauses)
     if not lowered:

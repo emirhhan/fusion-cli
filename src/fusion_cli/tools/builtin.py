@@ -127,7 +127,10 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_background_windows",
         description=(
-            "Pencereleri (window_id, pid) listele. Ekranı bozmaz; desktop_open yerine tercih et."
+            "Pencereleri (window_id, pid) listele; is_main/is_focused/subrole varsa "
+            "gözlenen AX ipucudur. "
+            "Eksik alan bilinmiyor demektir. Kullanıcının istediği ana/standard pencereyi seç; "
+            "aynı PID'deki geçici paylaşım/yardımcı pencereyi ana pencere sayma."
         ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_windows"],
         run=desktop_background.desktop_background_windows,
