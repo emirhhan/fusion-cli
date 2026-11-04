@@ -1,0 +1,218 @@
+# Independent Python review — open fixes
+
+## Final bounded re-review — APPROVE
+
+Final reviewed snapshot: **`e62c73aa`**, including fixes `bfc2ddda`, `3dd0f22d`,
+`f1043eae`, `90883a34`, and `351c1c70`. All seven original actionables below are resolved.
+No remaining CRITICAL, HIGH or MEDIUM finding was identified in the requested
+bounded re-review. The earlier BLOCK decision below is retained as review history.
+
+| Original actionable | Resolution verified |
+| --- | --- |
+| E11 reused IDs conceal a new durable write | A frozen serialized history-plus-user prefix establishes the attempt boundary; only appended calls qualify as new evidence. Reused/identical IDs cannot hide writes; absent or changed prefixes require observation. |
+| Failed focus leaves stale coordinates | Focus invalidates the old frame immediately and sets required-refocus state. Neither a failed/malformed observation nor another screenshot re-enables input. Valid focus and a new frame are required. |
+| Another window in the same PID passes | Focus binds a verified CG window ID, title and geometry. Point and foreground keyboard/type/scroll policy checks current window identity, bounds and PID; unresolved/substituted/moved windows are blocked. |
+| Attachment revalidation silently drops images | Revalidation raises a bounded explicit error. Direct and receipt routes reject the race before agent execution or receipt ownership. |
+| Mixed predicates corrupt prohibition scope | The reproduced English positive predicate, Turkish trailing comma instruction, coordinated object bans and inflected computer-control prohibition have regressions. Schema/dispatch restrictions also persist through child tool caps; unbound team/peer routes are blocked under a prohibition. |
+| Branch loses recovered root requirement | A dedicated typed metadata event preserves the bounded requirement through reload, repeated branch and rewind without copying general harness notes or counting it as a user turn. |
+| Home expansion RuntimeError escapes | Expansion is within bounded validation; the synthetic unavailable-home error becomes an explicit rejection without raw detail. |
+
+Additional requested follow-up from the parallel review was also checked:
+
+- **E07 explicit-tool compatibility (`e62c73aa`, three-file delta):** explicitly
+  requested remotes are excluded from exploration-budget candidates before
+  trimming, preserving their existing allowlist exception. Recent discovered
+  nonexplicit tools still take the configured exploration slots, and stable
+  sorting preserves relevance/registration order for the remaining defaults.
+  The new cap-one regression checks that an explicit remote and a newly loaded
+  remote both remain offered with ToolSearch. Existing assertions were unchanged.
+  Bounded re-review found no new issue. Tool-surface, context-regression and MCP
+  ToolSearch suites passed (73 tests); scoped Ruff and mypy passed.
+- **E11 ordinary failed outcomes (`90883a34`):** the original journal entry is
+  captured immediately after execution, before recovery/history replacement. A
+  shared `permits_retry` contract requires both observed safety and exact durable
+  attempt evidence for cancellation and ordinary failure. New tests cover a
+  durable write omitted from returned messages, an observed write with zero
+  returned counters, missing prefix and safe no-tool retry. Unsafe cases retain
+  `executor_failed` and do not execute a second attempt.
+- **E09 checkout/import mismatch (`351c1c70`):** the build guard reads the actual
+  checkout version as an AST string constant before destructive cleanup, compares
+  installed metadata to it and uses that same value in the manifest. Direct spec
+  invocation uses the shared checkout reader. Stale imported-version state cannot
+  authorize replacement or contaminate the manifest. Tests use a mocked packager
+  and temporary output only.
+
+Re-review verification (all exited 0):
+
+- Ownership, context and image attachment regression suites.
+- Transcript store/persistence and submission interaction suites.
+- Focused agent behavior, desktop inspect/mouse/policy suites, including failed
+  focus, same-PID other-window, changed geometry/title and missing identity cases.
+- Final E11 ownership/submission and E09 metadata-guard suites: **41 tests passed**.
+- Ruff passed on reviewed Python source/test scopes. Mypy passed on session,
+  attachment and transcript source (3 files), desktop/agent source (6 files), and
+  final session/build guard source (3 files).
+- An additional synthetic integration check confirmed image-race rejection on
+  **both** direct and receipt routes before model execution or receipt claim.
+
+No implementation edits, broad new bug hunt, live desktop/helper execution,
+network/model/credential action, build, installation or publication was performed.
+Native Swift typechecking and its independent review are recorded by the desktop
+owner/parent, not claimed as execution by this Python reviewer. Approval covers
+the bounded source findings; packaged/live acceptance and the documented bounded
+natural-language grammar limits remain separate.
+
+## Initial review — historical findings, now resolved
+
+Reviewed snapshot: `32c6baba..3a4669fa` (commits c614b1b6, 1c6790b0,
+2e0cd513, 53bbc64d, 496316da, 3a4669fa). Line references below are for that
+snapshot. Read the five requested remediation plans/reports and reviewed changed
+Python source and tests. No implementation edits were made.
+
+**Initial decision: BLOCK (superseded above).** Six HIGH findings and one MEDIUM finding were identified. The
+reproductions below use temporary local data and mocked execution/OS adapters;
+no real tool effects, desktop events, network requests, credentials or model calls.
+
+## Findings
+
+[HIGH / P1] Reused tool-call IDs hide durable incomplete writes from retry classification
+
+File: `src/fusion_cli/appserver/session.py:3472`
+
+Issue: The durable cancellation check excludes every call whose ID occurs in prior
+history, without comparing the call or its position. Tool IDs are provider/model
+input and this path does not establish uniqueness across the history. A new
+incomplete mutating call with an old ID therefore disappears from the evidence.
+Synthetic reproduction through the actual `_dispatch` and `_cancel_turn` paths:
+seed prior history with completed `read_file(id="reused")`; mocked executor saves
+that history plus new `write_file(id="reused")` in the journal, emits no start
+event, and waits; cancel. Receipt error code is **`no_tool_effect`**, authorizing
+retry despite a durable incomplete write. This violates E11's conservative retry
+contract.
+
+Fix: Identify the attempt's appended messages/calls using an established durable
+boundary, or verify an exact unchanged history prefix. Reused IDs, mismatching
+prefixes and ambiguous snapshots must require observation. Add the above
+regression and retain the safe no-tool/reader cases.
+
+[HIGH / P1] Failed focus removes the binding while leaving stale coordinates executable
+
+File: `src/fusion_cli/tools/desktop_inspect.py:156`
+
+Issue: Focus clears `focused_window` immediately but clears `frame` only on success
+at line 184. A failed AppleScript operation or malformed observed identity can
+have changed foreground state, yet the old frame remains usable and the prior
+target restriction disappears. Synthetic check: seed a frame and bound PID 42,
+mock `_run` to return a focus failure, call `desktop_window_focus`; `frame` is
+still present, `focused_window` is `None`, and `_to_point(context, (100, 100))`
+returns a usable point. Policy no longer applies its focused-PID guard.
+
+Fix: Invalidate the old frame before attempting focus, and retain an explicit
+unverified/required-refocus state after any failed identity check. Test native
+failure and malformed successful output through policy and dispatch, asserting
+that no mouse event is delivered until valid focus and a fresh screenshot.
+
+[HIGH / P1] Focus verification binds only the process, allowing another window in it
+
+File: `src/fusion_cli/tools/desktop_policy.py:346`
+
+Issue: The stored tuple omits window identity (`desktop_inspect.py:183`), and the
+point policy compares only PID. The stale stored rectangle is checked by the mouse
+adapter, but neither current window identity nor current geometry is checked. A
+second window/dialog in the same process overlapping that rectangle passes.
+Synthetic probe returning PID 42 for a different window produces
+`DesktopAssessment.blocked is None` for an in-rectangle point. The actual Swift
+point probe currently supplies process/element information, not a verified window
+binding, so Python cannot establish the promised window consistency.
+
+Fix: Bind a stable observed window identity and geometry; resolve the point's
+actual containing window and compare both identity and current bounds before
+event delivery. Unresolved, moved or substituted windows must require renewed
+focus/screenshot. Include same-PID/different-window and moved-window regressions.
+
+[HIGH / P1] Attachment revalidation silently drops an admitted image after a file race
+
+File: `src/fusion_cli/appserver/attachments.py:64`
+
+Issue: Both session routes first call `attachment_context`, then load images in a
+worker. `attachment_images` revalidates, but returns `()` on a newly detected
+error. Its comment assumes admission already reported that error, which is false
+if the image was deleted, grew over the limit or became unreadable between those
+two validations. Reproduction: create an image path, confirm first validation
+returns no error, remove it, then call `attachment_images`: returns `()` rather
+than raising. Session consequently starts with the old metadata and no image.
+
+Fix: Raise a bounded validation error on this second check so the session's
+existing `ValueError` handlers reject visibly before claim/execution. Test the
+race through both receipt and direct submission routes, asserting no model call
+and no durable receipt ownership for rejected input.
+
+[HIGH / P1] Prohibition parser loses direct Turkish bans and extends English bans into positive instructions
+
+File: `src/fusion_cli/engines/agent/tool_constraints.py:23`
+
+Issue: One clause is treated as one prohibition scope. Because commas are not
+clause boundaries and the Turkish matcher requires the ban at the very end,
+`Terminal kullanma, sadece görseli oku.` returns an empty set. Conversely,
+`Do not use terminal and use browser.` returns both SHELL and BROWSER, denying
+the positively requested browser. These are direct imperatives within the stated
+bounded grammar, rather than requests for general language understanding. The
+missing ban reaches both schema offering and execution because both rely on this
+same parser.
+
+Fix: Parse coordinated noun lists separately from coordinated predicates and
+attach negation to its predicate/object scope. Cover both examples while keeping
+`terminal, browser veya desktop kullanma` coordinated bans and quoted/code
+examples correct. Also consider direct Turkish inflection:
+`Bilgisayar kontrolünü kullanma.` currently returns an empty set.
+
+[HIGH / P2] Branching a bounded reloaded conversation discards its recovered root requirement
+
+File: `src/fusion_cli/cli/repl/transcript_store.py:112`
+
+Issue: Root recovery is represented exclusively as `harness_note=True`. The
+existing `conversation_prefix` filter at line 377 drops every harness note, so
+`copy_conversation` removes the only retained root requirement. Verification
+passes against that already-filtered prefix. Synthetic reproduction with 102
+messages: load the source and observe `ROOT_REQUIREMENT` in the recovery note;
+copy those loaded messages to a new conversation; reload the branch and the root
+is absent. E05 works for reload alone but regresses immediately on branching.
+
+Fix: Preserve root-requirement provenance through branch/fork explicitly, while
+continuing to exclude ordinary harness instructions and keeping the 100-message /
+8,000-character bounds. Test reload → branch → reload and repeated branching,
+checking one retained root requirement and no repeated recovery notes.
+
+[MEDIUM / P2] Invalid home expansion escapes attachment validation as RuntimeError
+
+File: `src/fusion_cli/appserver/attachments.py:30`
+
+Issue: `Path(path).expanduser()` runs outside the exception handler. A syntactically
+valid request containing `~definitely_missing_fusion_user/x.png` raises
+`RuntimeError` instead of returning the explicit attachment rejection required
+by E03. This occurs before any file access or model execution.
+
+Fix: Include path construction/expansion in bounded validation and catch the
+relevant `RuntimeError`/`ValueError` cases. Test malformed and nonexistent-user
+home paths through both submission routes without exposing raw exceptions.
+
+## Verification and limits
+
+- `git diff -- '*.py'` was clean at review start; reviewed the explicit commit
+  range instead of relying on the worktree diff.
+- 68 targeted tests passed: `test_session_turn_ownership`,
+  `test_context_data_regressions`, `test_agent_behavior_remediation`,
+  `test_web_credential_wait`, `test_runtime_metadata_guard`, `test_desktop_mouse`,
+  and `test_tools_desktop_inspect`, with `-m 'not slow'`.
+- Ruff passed for the changed source scopes (including agent modules).
+- Mypy passed for 11 scoped source files: attachments, image input, tool
+  constraints, credential worker, journal/codec, desktop inspect/mouse/policy,
+  ToolSearch and metadata guard.
+- Runtime: `/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python`,
+  with worktree `PYTHONPATH`/`MYPYPATH` set to `src`.
+- The synthetic probes described above completed and reproduced each finding.
+  Passing existing tests do not exercise these cases.
+- No additional P1/P2 finding identified in E09 metadata guard or E10 credential
+  worker. No all-suite, packaging, installation or live desktop acceptance run.
+- Bounded re-review should cover these fixes and their new regressions; original
+  model-quality and live acceptance limits remain as documented by the owners.
