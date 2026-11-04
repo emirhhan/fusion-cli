@@ -57,6 +57,21 @@ def _patch(monkeypatch, provider):
     monkeypatch.setattr(narration, "build_provider", lambda _spec, **_kwargs: provider)
 
 
+@pytest.mark.parametrize("instruction", ["Son yanıtın yalnız JSON olsun.", "Yalnız sonucu yaz."])
+async def test_explicit_compact_reply_does_not_start_cosmetic_model_call(monkeypatch, instruction):
+    from fusion_cli.engines.agent import narration
+
+    def forbidden_call(*args, **kwargs):
+        pytest.fail("A strict-format task must not spend a call on unsolicited prose")
+
+    monkeypatch.setattr(narration, "build_provider", forbidden_call)
+    config = make_config()
+    result = await narration.intro_paragraph(
+        "result.txt dosyasını oluştur. " + instruction, config.agent, config, None
+    )
+    assert result == ""
+
+
 def test_yeni_adima_gecis_ara_anlatim_uretir() -> None:
     once = (
         TodoItem("Dosyayı oku", TodoStatus.COMPLETED),

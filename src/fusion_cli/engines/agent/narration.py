@@ -27,6 +27,7 @@ from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from ...ui.text import strip_thinking
+from .response_format import requested_response_format
 
 #: Giriş için üretim sınırı: iki üç cümle ~60-120 token; pay bırakılır.
 INTRO_MAX_TOKENS = 220
@@ -68,6 +69,8 @@ async def intro_paragraph(
     Fusion Browser eklentisini kullanacağını yazdı; bu cümle modele "zaten
     söyledin" notu olarak geri verildiği için sonraki adımları da kirletebilir.
     """
+    if requested_response_format(task) is not None:
+        return ""
     istem = _INTRO_PROMPT.format(task=task[:_TASK_CHARS], tools=", ".join(tool_names) or "yok")
     request = CompletionRequest(
         messages=(Message("user", istem),),
