@@ -1,5 +1,62 @@
 # Independent Python review — open fixes
 
+## System Calculator consent and bounded diagnostics — APPROVE
+
+Latest bounded Python/security verdict: **APPROVE at `f94ea25b`**, including the
+cross-contract changes in `c654f35f` and `9ab97f5f`. No remaining CRITICAL, HIGH or
+MEDIUM finding identified in this reviewed scope. Native API attestation remains
+also subject to the separate Swift review; this is not a live result claim.
+
+- **Producer/trust boundary:** native `appInfo` derives the attestation from the
+  actual positive process ID, exact Apple Calculator bundle identifier and resolved
+  system bundle/executable file URLs. Python accepts only the successful probe's
+  literal boolean `True`, exact bundle and positive integer PID. `DesktopTarget`
+  defaults the flag to false, named targets cannot supply it, tool arguments do
+  not set it, and consent/public payloads do not persist it. Remembered app consent
+  cannot manufacture or preserve a later missing native attestation.
+- **Exact reset scope:** only background `press` for the attested app's exact
+  `AXButton` / `AllClear` identity is exempt from the generic destructive-word
+  classification. Reference PID must match both native target and arguments;
+  window ID must match arguments. The decoder bounds input/path length and
+  validates integer types, nonnegative path indices, SHA-256-format fingerprint
+  and the exact four-part identity layout. This is structural admission, not a
+  substitute for native validation: actual window/PID lookup and every current
+  tree/fingerprint/unique-identity/path-identity check remain mandatory before
+  executing an action. Forging a different button's identity cannot pass them.
+- **Draft findings resolved:** initial code still treated identifier-only
+  `ClearHistory` and unknown/unlabelled controls as ordinary. Synthetic probes
+  exposed both. Final code requires per-action approval for ClearHistory,
+  malformed/nonbutton/unknown controls and unrecognized unlabelled references.
+  Known ordinary numeric/arithmetic IDs remain ordinary and still pass the generic
+  destructive-label check. Non-Calculator gates retain their existing behavior.
+- **Identifier vocabulary:** CamelCase/acronym and underscore/nonword boundaries
+  are normalized only in the identifier-only AXButton fallback. New tests first
+  reproduced 12 failed destructive-gate cases for DeleteAccount, Delete_Account,
+  SendMessage and PayNow before this normalization. Human title/description
+  precedence remains unchanged and has explicit safe-label/risky-identifier tests.
+- **Diagnostic/privacy boundary:** rejected actions remain failures with no retry.
+  Python forwards only four named exact-boolean guard results and eight named
+  exact-integer value-kind counts, each from 0 through 500. Extra fields, raw
+  values, private titles, unknown keys, boolean-as-integer counts and out-of-range
+  counts are excluded. The native four-check admission conjunction is unchanged;
+  the diagnostic result does not override a failed guard.
+
+Independent verification: **204 tests passed** across risk, policy, background,
+display-value, focus/inspect and desktop-effect scopes. Earlier diagnostic-only
+verification passed 12 tests (overlapping scopes). Scoped Ruff passed, and mypy
+passed for four source files. An additional synthetic test drove actual
+`resolve_request` and approval policy for **One, Seven, Two, Three, Multiply,
+Equals and AllClear** in both AUTO and BYPASS: all retained `REMOTE_INTERACT`,
+ALLOW and no extra prompt with remembered app consent. Protected cases exercise
+actual per-action prompts and no-remember behavior for spoofed/missing proof,
+wrong PID/window, ClearHistory, other apps and malformed/unknown references.
+
+No production edit, live helper/AX/UI action, private-chat scan, shell/model/network
+request, secret access, uv/environment creation, application build or installation
+was performed by this review. Pure extracted native-policy tests use synthetic
+values and do not invoke the desktop helper. No all-suite or physical Calculator
+success claim is made; installed 0→391 acceptance remains a separate gate.
+
 ## Actual-focused-window semantics addendum — APPROVE
 
 Latest bounded Python verdict: **APPROVE at `afa1e37b`**. No CRITICAL, HIGH or

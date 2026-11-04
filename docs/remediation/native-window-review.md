@@ -1,3 +1,20 @@
+# Latest review: AX action diagnostics and native Calculator producer
+
+Verdict: **APPROVE** for `481d4da5..9ab97f5f`, including diagnostic commit `c654f35f`. No open critical or high findings in this bounded Swift/native-output scope.
+
+Reviewed final Swift SHA-256: `6e8ddfce671851903744ee0ee77bb856e8faaff9305ababd57fdd1798a3f61ef`.
+
+- The action guard retains all four existing requirements: complete tree, exact fingerprint, unique identity, and matching path/identity. Rejection reports only boolean reasons and a histogram of eight fixed CF type categories over at most 500 entries. No AX values, object descriptions, token contents, or application text are added to diagnostics. The existing fingerprint algorithm is unchanged.
+- The public failure adapter forwards only the four named boolean checks and the eight named integer counters in range 0–500. Wrong types and extra diagnostic fields are omitted.
+- Successful dispatch still performs at most one AX press or set-value operation. Diagnostic generation does not retry an action or choose another reference.
+- `system_calculator` is produced by the native `appInfo` path using `NSRunningApplication(processIdentifier:)` for the actual requested PID. Positive attestation requires the Apple Calculator bundle identifier and both resolved bundle and executable paths at their exact `/System/Applications/Calculator.app` locations. The producer exports only a boolean; it accepts no tool-argument attestation and exposes no URLs. A matching bundle identifier alone is insufficient. The pure helper tests reject wrong/missing IDs and URLs, non-file URLs, an executable outside the system bundle, and a symlink to an impostor bundle.
+
+Verification on this exact native source: full `swiftc -typecheck` passed; **12 synthetic display/background tests passed in 3.70 seconds**. No live native helper, AX probe, application contents, UI, or private chat was accessed by this reviewer. The repository remains standalone Swift without `Package.swift`; SwiftPM build/test and SwiftLint limitations from the earlier review still apply.
+
+This approval excludes the separate Python Calculator-consent consumer and any fingerprint canonicalization change. It does not establish that the live rejected AllClear action is fixed: the diagnostic build is intended to identify the unchanged guard's rejection reason. Parent runtime acceptance must verify actual application state independently.
+
+---
+
 # Native window and action-label review
 
 Verdict: **APPROVE** for the reviewed standalone Swift delta since `a2137bba`. No open critical or high findings in this scope.
