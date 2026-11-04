@@ -92,6 +92,9 @@ class DesktopView:
         self.target_pid = 0
         # Explicit focus binds subsequent coordinates to the observed window.
         self.focused_window: tuple[int, float, float, float, float] | None = None
+        self.focus_required = False
+        self.focused_window_id = 0
+        self.focused_window_title = ""
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""

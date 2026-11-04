@@ -310,6 +310,7 @@ from .teacher_flow import (
 from .teacher_lessons import PendingAdvice
 from .teacher_plan import TeacherPlan, UnworkablePart
 from .team import Persona
+from .tool_constraints import prohibited_tool
 from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
@@ -1263,7 +1264,7 @@ async def _run_agent(
         # tamamından, verilmişse ondan düşer; `sunucu__*` deseni defter adlarına açılır.
         base = set(registry.names()) if allowed_tools is None else set(allowed_tools)
         allowed_tools = base - expand_tool_patterns(set(denied_tools), registry.names())
-    if allowed_tools is not None:
+    if allowed_tools is not None or execution.forbidden_tool_families:
         names = frozenset(
             _permitted(
                 allowed_tools,
@@ -1277,6 +1278,7 @@ async def _run_agent(
             or ()
         )
         execution = replace(execution, allowed_tool_names=names)
+    deps.execution = execution
     # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
     # üretir. SWE-agent'ın ölçümü turda ~100 satırı en iyi pencere olarak veriyor;
     # API yolunda mevcut ölçülmüş davranış (800 satır) korunur.
@@ -1369,7 +1371,8 @@ async def _run_agent(
         # dönüştü ve ajan cevap yerine dosya yazdı.
         if execution.allow_mutation and execution.complex_task:
             await prepare_teacher_plan(task, messages, deps, registry)
-        await run_platform_check(task, messages, deps, registry)
+        if not prohibited_tool("web_search", execution.forbidden_tool_families):
+            await run_platform_check(task, messages, deps, registry)
 
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
@@ -3243,7 +3246,7 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
-    names = {name for name in names if tool_family(name) not in execution.forbidden_tool_families}
+    names = {name for name in names if not prohibited_tool(name, execution.forbidden_tool_families)}
     if denied:
         # Yasak liste (`--disallowed-tools`) şema yüzeyinden düşer: salt-okunur araçta onay
         # politikası hiç çalışmadığı için tek güvenilir kapı burasıdır (31 Ekim).
@@ -4491,7 +4494,7 @@ async def _execute(
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
-    if tool_family(call.name) in (execution.forbidden_tool_families | deps.turn_forbidden_families):
+    if prohibited_tool(call.name, execution.forbidden_tool_families | deps.turn_forbidden_families):
         return ToolResult.failure(
             "Kullanıcının bu turdaki açık araç sınırı bu araç ailesine izin vermiyor. "
             "İzin verilen gözlemlerle yanıtla; mümkün değilse sınırlamayı açıkla."

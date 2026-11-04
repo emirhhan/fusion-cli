@@ -125,6 +125,19 @@ func appInfo(_ pid: pid_t) -> [String: Any]? {
     guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
     return ["app": app.localizedName ?? "", "bundle": app.bundleIdentifier ?? "", "pid": Int(pid)]
 }
+// A process can own many windows: pin a CG identity as well as AX title/geometry.
+func windowInfo(_ window: AXUIElement, _ pid: pid_t) -> [String: Any]? {
+    guard let frame = windowFrame(window) else { return nil }
+    let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let matches = rows.filter { row in
+        guard (row[kCGWindowOwnerPID as String] as? Int) == Int(pid),
+            let id = row[kCGWindowNumber as String] as? Int else { return false }
+        return targetWindow([window], row, id) != nil
+    }
+    guard matches.count == 1, let id = matches[0][kCGWindowNumber as String] as? Int else { return nil }
+    return ["id": id, "title": attribute(window, kAXTitleAttribute) as? String ?? "",
+        "bounds": [frame.origin.x, frame.origin.y, frame.width, frame.height]]
+}
 func target() {
     let input = FileHandle.standardInput.readDataToEndOfFile()
     let request = (input.count <= 10_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
@@ -138,6 +151,9 @@ func target() {
         guard AXUIElementGetPid(hit, &pid) == .success, var info = appInfo(pid) else { fail("Noktadaki uygulama okunamadı."); return }
         info["ok"] = true
         info["element"] = elementInfo(hit)
+        let window = attribute(hit, kAXRoleAttribute) as? String == "AXWindow" ? hit :
+            attribute(hit, kAXWindowAttribute).map { unsafeBitCast($0, to: AXUIElement.self) }
+        if let window = window { info["window"] = windowInfo(window, pid) }
         emit(info)
     } else if let pid = request["pid"] as? Int, pid > 0 {
         guard var info = appInfo(pid_t(pid)) else { fail("Süreç bulunamadı."); return }
@@ -146,6 +162,9 @@ func target() {
     } else {
         guard let front = NSWorkspace.shared.frontmostApplication, var info = appInfo(front.processIdentifier) else { fail("Öndeki uygulama okunamadı."); return }
         info["ok"] = true
+        if trusted, let window = attribute(AXUIElementCreateApplication(front.processIdentifier), kAXFocusedWindowAttribute) {
+            info["window"] = windowInfo(unsafeBitCast(window, to: AXUIElement.self), front.processIdentifier)
+        }
         if trusted, let focused = attribute(AXUIElementCreateApplication(front.processIdentifier), kAXFocusedUIElementAttribute) {
             info["element"] = elementInfo(unsafeBitCast(focused, to: AXUIElement.self))
         }

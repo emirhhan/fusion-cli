@@ -186,6 +186,11 @@ def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, 
     `ToolContext` kurduğu için ikinci turda önceki görüntünün pikseliyle tıklanınca Retina'da
     ~%10 kayarak yanlış öğeye gidiyor ve hata vermiyordu.
     """
+    if context.desktop.focus_required:
+        return (
+            "Önce desktop_window_focus ile hedef kimliğini yeniden doğrula "
+            "ve yeni ekran görüntüsü al."
+        )
     frame = context.desktop.frame
     if frame is None:
         return NO_FRAME_MESSAGE

@@ -216,6 +216,7 @@ _TOOL_LEVELS = {
 _FULL_MOUSE_ACTIONS = frozenset({"drag", "down", "up"})
 _POINT_TOOLS = frozenset({"desktop_mouse", "desktop_click", "desktop_scroll"})
 _NAMED_TOOLS = frozenset({"desktop_open", "desktop_window_focus"})
+_INTERACTIVE_TOOLS = _POINT_TOOLS | {"desktop_type", "desktop_key"}
 
 
 def required_level(tool_name: str, args: ToolArgs) -> DesktopLevel | None:
@@ -316,6 +317,18 @@ async def resolve_target(
     answer = await (probe or _swift_probe)(_probe_request(tool_name, args, context))
     if answer.get("ok") is not True or not isinstance(answer.get("app"), str):
         return None
+    focused = context.desktop.focused_window
+    if tool_name in _INTERACTIVE_TOOLS and focused is not None:
+        window = answer.get("window")
+        if (
+            not isinstance(window, Mapping)
+            or type(window.get("id")) is not int
+            or context.desktop.focused_window_id <= 0
+            or window.get("id") != context.desktop.focused_window_id
+            or window.get("title") != context.desktop.focused_window_title
+            or window.get("bounds") != list(focused[1:])
+        ):
+            return None
     pid = answer.get("pid")
     return (
         str(answer["app"]),
@@ -333,17 +346,19 @@ async def assess(
     if required is None:
         return None
     context.desktop.target_pid = 0
+    if tool_name in _INTERACTIVE_TOOLS and context.desktop.focus_required:
+        return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     resolved = await resolve_target(tool_name, args, context, probe)
     if resolved is None and tool_name.startswith("desktop_background_"):
         # Arka plan araçları zaten yardımcıyla çalışır: hedef doğrulanamıyorsa kapat (fail-closed).
         return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     if resolved is None:
-        if tool_name in _POINT_TOOLS and context.desktop.focused_window is not None:
+        if tool_name in _INTERACTIVE_TOOLS and context.desktop.focused_window is not None:
             return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
         return DesktopAssessment(required)
     app, bundle, pid, element = resolved
     focused = context.desktop.focused_window
-    if tool_name in _POINT_TOOLS and focused is not None and pid != focused[0]:
+    if tool_name in _INTERACTIVE_TOOLS and focused is not None and pid != focused[0]:
         return DesktopAssessment(
             required,
             blocked=(

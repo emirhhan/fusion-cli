@@ -10,6 +10,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .desktop import ACCESSIBILITY_ERROR, DESKTOP_COMMAND_TIMEOUT_S, _framework, _mac_only, _trusted
 from .desktop_visibility import is_hidden_app
+from .native_desktop import invoke_sync
 
 WINDOW_SCRIPT = """
 tell application "System Events"
@@ -153,7 +154,12 @@ def desktop_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulama ve varsa pencere adına göre pencereyi öne getir."""
+    # A failed focus attempt makes the previous screenshot unusable too.
+    context.desktop.frame = None
+    context.desktop.focus_required = True
     context.desktop.focused_window = None
+    context.desktop.focused_window_id = 0
+    context.desktop.focused_window_title = ""
     app = require_str(args, "app")
     window = args.get("window")
     window = "" if window is None else window  # `null` gönderen model "metin olmalı" hatası almasın
@@ -180,7 +186,24 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
             "Ön pencerenin kimliği ve sınırları doğrulanamadı; "
             "desktop_background_windows ile hedefi yeniden seç."
         )
+    observation = invoke_sync("target", {"kind": "probe", "request": {}})
+    observed = observation.get("window")
+    if (
+        observation.get("ok") is not True
+        or observation.get("pid") != pid
+        or not isinstance(observed, dict)
+        or type(observed.get("id")) is not int
+        or observed["id"] <= 0
+        or observed.get("title") != observed_window
+        or observed.get("bounds") != [x, y, width, height]
+    ):
+        return ToolResult.failure(
+            "Ön pencerenin kalıcı kimliği doğrulanamadı; hedefi yeniden incele."
+        )
     context.desktop.focused_window = (pid, x, y, width, height)
+    context.desktop.focus_required = False
+    context.desktop.focused_window_id = observed["id"]
+    context.desktop.focused_window_title = observed_window
     context.desktop.frame = None
     return ToolResult(
         f"Öne getirildi ve doğrulandı: {observed_app} — {observed_window}; "

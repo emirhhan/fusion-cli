@@ -38,6 +38,7 @@ def test_pencere_adi_kabuga_girmeden_ayri_arguman_olur(tmp_path, monkeypatch) ->
 
     monkeypatch.setattr(desktop_inspect.subprocess, "run", fake_run)
     name = "Pencere; $(touch /tmp/yan-etki)"
+    _fake_focus_probe(monkeypatch, name, [0.0, 0.0, 100.0, 100.0])
     result = desktop_inspect.desktop_window_focus(
         {"app": "TextEdit", "window": name}, ToolContext(root=tmp_path)
     )
@@ -105,6 +106,7 @@ def test_pencere_null_kabul_edilir(monkeypatch):
         lambda *a: desktop_inspect.ToolResult("Safari\t42\tPage\t0\t0\t100\t100"),
     )
 
+    _fake_focus_probe(monkeypatch, "Page", [0.0, 0.0, 100.0, 100.0])
     sonuc = desktop_inspect.desktop_window_focus(
         {"app": "Safari", "window": None}, ToolContext(root=".")
     )
@@ -126,7 +128,94 @@ def test_focus_binds_verified_window_and_requires_new_frame(tmp_path, monkeypatc
         lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
     )
     context = ToolContext(root=tmp_path)
+    _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
     result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
     assert result.ok
+    assert context.desktop.focused_window_id == 101
+    assert context.desktop.focused_window_title == "Calculator"
     assert context.desktop.focused_window == (42, 350.0, 260.0, 210.0, 380.0)
     assert context.desktop.frame is None
+
+
+def test_failed_focus_invalidates_old_screenshot_before_any_click(tmp_path, monkeypatch):
+    from fusion_cli.core.desktop_frame import DesktopFrame
+    from fusion_cli.tools.desktop_mouse import _to_point
+
+    context = ToolContext(root=tmp_path)
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    context.desktop.focused_window = (42, 350.0, 260.0, 210.0, 380.0)
+    monkeypatch.setattr(
+        desktop_inspect, "_run", lambda *args: desktop_inspect.ToolResult.failure("focus failed")
+    )
+    result = desktop_inspect.desktop_window_focus({"app": "Notes"}, context)
+    assert not result.ok
+    assert isinstance(_to_point(context, (400, 300)), str)
+    assert context.desktop.frame is None
+
+
+def _fake_focus_probe(monkeypatch, title, bounds):
+    monkeypatch.setattr(
+        desktop_inspect,
+        "invoke_sync",
+        lambda *args: {
+            "ok": True,
+            "pid": 42,
+            "window": {"id": 101, "title": title, "bounds": bounds},
+        },
+    )
+
+
+async def test_failed_focus_cannot_be_reenabled_by_unbound_screenshot(tmp_path, monkeypatch):
+    from fusion_cli.core.desktop_frame import DesktopFrame
+    from fusion_cli.tools.desktop_mouse import _to_point
+    from fusion_cli.tools.desktop_policy import assess
+
+    context = ToolContext(root=tmp_path)
+    monkeypatch.setattr(
+        desktop_inspect, "_run", lambda *args: desktop_inspect.ToolResult.failure("focus failed")
+    )
+    assert not desktop_inspect.desktop_window_focus({"app": "Notes"}, context).ok
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    assert isinstance(_to_point(context, (400, 300)), str)
+
+    async def probe(request):
+        return {"ok": True, "app": "Notes", "pid": 42}
+
+    assessment = await assess("desktop_click", {"x": 400, "y": 300}, context, probe)
+    assert assessment is not None and assessment.blocked
+
+
+async def test_failed_or_malformed_focus_blocks_event_until_valid_refocus_and_frame(
+    tmp_path,
+    monkeypatch,
+):
+    from fusion_cli.core.desktop_frame import DesktopFrame
+    from fusion_cli.tools import desktop_mouse
+    from tests.test_desktop_mouse import _izinli
+
+    plans = _izinli(monkeypatch)
+    context = ToolContext(root=tmp_path)
+    for response in (
+        desktop_inspect.ToolResult.failure("native failure"),
+        desktop_inspect.ToolResult("malformed observation"),
+    ):
+        context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+        monkeypatch.setattr(desktop_inspect, "_run", lambda *a, response=response: response)
+        assert not desktop_inspect.desktop_window_focus({"app": "Calculator"}, context).ok
+        assert not desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
+        context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+        assert not desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
+    assert not plans
+
+    monkeypatch.setattr(
+        desktop_inspect,
+        "_run",
+        lambda *a: desktop_inspect.ToolResult("Calculator\t42\tCalculator\t350\t260\t210\t380"),
+    )
+    _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
+    assert desktop_inspect.desktop_window_focus({"app": "Calculator"}, context).ok
+    assert not desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
+    assert not plans
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    assert desktop_mouse.desktop_click({"x": 400, "y": 300}, context).ok
+    assert len(plans) == 1
