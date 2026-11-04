@@ -1,6 +1,14 @@
 # Whole-wave code/spec review
 
-**Final bounded verdict at `1c938ca0`: APPROVE — zero open findings.** The `e0b61cd2` identifier-label risk handoff is resolved by its narrow follow-up. Initial retry/build findings, native display-export findings, and the browser credential-environment regression are also resolved. Historical findings below retain their original reviewed snapshots and evidence.
+**Final bounded verdict at `afa1e37b`: APPROVE — zero open findings.** The focused-window semantic correction is approved within its two-file scope. The `e0b61cd2` identifier-label risk handoff, initial retry/build findings, native display-export findings, and browser credential-environment regression are also resolved. Historical findings below retain their original reviewed snapshots and evidence.
+
+## Actual-focused-window semantic closeout
+
+APPROVE `afa1e37b` (only `desktop_inspect.py` and its focused tests). App-only activation reads the target process's `AXFocusedWindow`; observation reads the actual foreground process's same attribute. Neither uses AX window-list order as focus. Named activation retains its exact requested selected-window object and AXRaise behavior. Missing/failed focused-window observations fail closed; the existing two-second settle budget is unchanged. Successful settlement still requires target PID/title before the separate native check establishes positive ID, same PID/title and exact current geometry. Failure retains the frame invalidation and required-refocus lock.
+
+New settlement diagnostics expose observation/focused-window availability and PID/title equality as booleans, plus the existing requested-target diagnostics. No other application's names, titles or content are copied into the failure payload. The fixtures distinguish an unfocused first overlay from the actual focused main window, cover app-only/named paths and absent focus at activation/poll, and verify foreign foreground details do not leak. No heuristic target substitution or relaxed native identity check was added.
+
+Reviewer independently ran the 21 focused inspect tests against the reviewed source (all passed, exit 0), then verified the exact committed production diff and its whitespace checks. The final test-only import relocation did not change test behavior. No native helper/UI, real application/private-chat contents, model/network calls, credentials, build or installation were used. This approval is bounded source review; it does not prove that live Calculator clears to 0 or reaches 391. Those actual state observations remain the separate acceptance gate.
 
 ## Final label/focus/window-metadata delta
 

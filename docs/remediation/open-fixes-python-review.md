@@ -1,5 +1,38 @@
 # Independent Python review — open fixes
 
+## Actual-focused-window semantics addendum — APPROVE
+
+Latest bounded Python verdict: **APPROVE at `afa1e37b`**. No CRITICAL, HIGH or
+MEDIUM finding identified in this two-file semantic-focus delta.
+
+App-only activation and foreground polling now explicitly read `AXFocusedWindow`
+rather than `front window` ordering, aligning their source with native validation.
+The exact named-window selected-object/AXRaise path is preserved. Missing or failed
+focused-window reads do not fall back to window-list order: activation fails or
+polling expires with the screenshot invalidated and required-refocus still set.
+The two-second settle budget, polling interval and strict foreground PID/title
+plus native PID/window-ID/title/bounds checks are unchanged.
+
+Failure diagnostics retain only boolean observation/known/PID-match/title-match
+state from the last polling observation, together with the existing diagnostic
+request scoped to the intended target. They do not disclose another foreground
+application's name/title or turn a mismatch into a successful focus result.
+
+Independent verification: **118 tests passed** across focus/inspect, desktop
+policy, mouse and destructive-risk scopes. New fixtures distinguish an unfocused
+overlay first in window order from the actual focused main window for app-only
+and named requests. Separate activation/poll unavailable-attribute cases assert
+no front-order fallback, no successful validation and continued stale-frame lock.
+A different-PID failure verifies boolean-only output. Scoped Ruff and source
+mypy passed. Reviewed final commit against the tested source; no subsequent
+source changes were present.
+
+These script/observation fixtures establish API selection and Python state
+behavior, not native AppleScript execution or physical application success.
+No live UI/helper/AX probe, private-chat scan, model/network/secret access, uv or
+environment creation, build or installation was performed. Installed native
+focus and physical Calculator 0→391 acceptance remain separate pending gates.
+
 ## Identifier-label destructive-gate correction — APPROVE
 
 Latest bounded Python verdict: **APPROVE at `1c938ca0`**. No remaining CRITICAL,
