@@ -74,3 +74,35 @@ describe("useStickToBottom", () => {
     expect(kutu.scrollTop).toBe(5000);
   });
 });
+
+it("panel etkileşimi ResizeObserver ve yeniden yerleşimle aşağı çekmez; yeni gönderim çeker", async () => {
+  const { act, fireEvent } = await import("@testing-library/react");
+  const { vi } = await import("vitest");
+  let resized: (() => void) | undefined;
+  class Observer {
+    constructor(callback: () => void) { resized = callback; }
+    observe() {} disconnect() {} unobserve() {}
+  }
+  vi.stubGlobal("ResizeObserver", Observer);
+  function PanelScene({ content, submission }: { content: string; submission?: string }) {
+    const outer = useRef<HTMLDivElement>(null);
+    const inner = useRef<HTMLDivElement>(null);
+    const { pauseAutoFollow } = useStickToBottom(outer, inner, content, false, { content, ownSubmissionId: submission });
+    return <div data-testid="outer" ref={outer}><div ref={inner}>{content}<button onClick={pauseAutoFollow}>Ayrıntı aç</button></div></div>;
+  }
+  try {
+    const { getByTestId, getByText, rerender } = render(<PanelScene content="ilk" />);
+    const outer = getByTestId("outer");
+    olcuVer(outer, 1600, 400); outer.scrollTop = 1200;
+    fireEvent.scroll(outer);
+    fireEvent.click(getByText("Ayrıntı aç"));
+    act(() => { resized?.(); });
+    expect(outer.scrollTop).toBe(1200);
+    // Panel boyutu değişirken tarayıcının ürettiği scroll sabitlemeyi açamaz.
+    fireEvent.scroll(outer);
+    rerender(<PanelScene content="araç çıktısı geldi" />);
+    expect(outer.scrollTop).toBe(1200);
+    rerender(<PanelScene content="benim yeni mesajım" submission="submission-2" />);
+    expect(outer.scrollTop).toBe(1600);
+  } finally { vi.unstubAllGlobals(); }
+});

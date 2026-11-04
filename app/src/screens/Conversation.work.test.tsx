@@ -8,13 +8,12 @@ const messages: Mesaj[] = [
   { id: "e", rol: "olay", metin: "okundu", adimlar: [{ metin: "main.py okundu", arac: "read_file", durum: "ok" }] },
   { id: "n2", rol: "asistan", metin: "Testleri çalıştırıyorum", ara: true },
 ];
-it("biten geçmiş son cevabın üzerinde kapalıdır", () => {
- const {container}=render(<Conversation running={false} mesajlar={[...messages.map(message=>message.id==="e"?{...message,baslangicZamani:1000}:message),{id:"a",rol:"asistan",metin:"Sonuç hazır",bitisZamani:924000}]} />);
- const history=container.querySelector<HTMLDetailsElement>(".conversation__work-details")!;
- expect(history).toBeTruthy(); expect(history.open).toBe(false);
+it("normal görünüm bitmiş iş satırlarını ve açıklamaları dış kapalı geçmişe saklamaz", () => {
+ const {container}=render(<Conversation running={false} mesajlar={[...messages,{id:"a",rol:"asistan",metin:"Sonuç hazır"}]} />);
+ expect(container.querySelector(".conversation__work-details")).toBeNull();
  expect(screen.getByText("Sonuç hazır").closest("details")).toBeNull();
- expect(screen.getByText("15d 23sn çalıştı")).toBeTruthy();
- fireEvent.click(history.querySelector("summary")!); expect(history.open).toBe(true);
+ expect(screen.getByText("Dosyaları okuyorum").closest("details")).toBeNull();
+ expect(screen.getByText("main.py okundu").closest("details")?.open).toBe(false);
 });
 it("cevapsız durdurulan geçmiş açık kalır",()=>{
  const {container}=render(<Conversation running={false} mesajlar={messages}/>);
@@ -54,8 +53,8 @@ it("geçmiş turların son cevapları ve özgün devam indisi korunur", () => {
  {id:"n3",rol:"asistan",ara:true,metin:"İkinci işlem"},
  {id:"final2",rol:"asistan",metin:"İkinci sonuç"},
  ]}/>);
- expect(container.querySelectorAll(".conversation__work-details")).toHaveLength(2);
- expect(screen.getAllByText("Çalışma geçmişi")).toHaveLength(2);
+ expect(container.querySelectorAll(".conversation__work-details")).toHaveLength(0);
+ expect(screen.getByText("İkinci işlem").closest("details")).toBeNull();
  const answer=screen.getByText("İkinci sonuç").closest("article")!;
  fireEvent.click(answer.querySelector('button[aria-label="Yeni sohbette devam et"]')!);
  expect(onContinue).toHaveBeenCalledWith(7);

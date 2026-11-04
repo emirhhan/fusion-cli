@@ -28,7 +28,7 @@ describe("Conversation — dalga 4 P2/P3", () => {
   });
 
   it("çalışma süresi saati de yazar (U1-34)", () => {
-    const { container } = render(<Conversation running={false} mesajlar={[
+    const { container } = render(<Conversation viewMode="verbose" running={false} mesajlar={[
       { id: "u", rol: "kullanici", metin: "x" },
       { id: "e", rol: "olay", metin: "o", baslangicZamani: 0, adimlar: [{ metin: "o", arac: "read_file", durum: "ok" }] },
       { id: "a", rol: "asistan", metin: "bitti", bitisZamani: 3700_000 },

@@ -1745,6 +1745,7 @@ export function SessionUygulama({
   sendRef.current = send;
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
+      key={active.id}
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
