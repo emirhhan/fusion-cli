@@ -211,3 +211,51 @@ async def test_missing_history_prefix_requires_observation_even_without_tool_eve
     session._cancel_turn()
     result = await waiting
     assert result["makbuz"]["hata_kodu"] == "executor_failed"
+
+
+@pytest.mark.parametrize(
+    "evidence", ["durable_write", "observed_write", "missing_prefix", "no_tool"]
+)
+async def test_normal_failure_retry_requires_original_durable_and_observed_evidence(
+    tmp_path, monkeypatch, evidence
+):
+    from fusion_cli.core.types import Message, ToolCall
+
+    executions = 0
+
+    async def execute(task, config, **kwargs):
+        nonlocal executions
+        executions += 1
+        original = [*kwargs["history"], Message("user", task)]
+        if evidence == "durable_write":
+            kwargs["journal"].save(
+                [
+                    *original,
+                    Message("assistant", "", tool_calls=(ToolCall("pending", "write_file", "{}"),)),
+                ]
+            )
+        elif evidence == "observed_write":
+            kwargs["sinks"][0].handle(ToolStarted(name="write_file", args={}, call_id="started"))
+        elif evidence == "missing_prefix":
+            kwargs["journal"].save([])
+        # Outcome omits the durable proposal; zero counters must not erase it.
+        return SimpleNamespace(
+            ok=False, final_text="failed", messages=original, tool_calls_made=0, tool_uses=()
+        )
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
+    data = {"gorev": "work", "gonderim_id": "failed-evidence"}
+    first = await session._dispatch(Request(id="a", name="tur.calistir", data=data))
+    retry = await session._dispatch(
+        Request(id="b", name="tur.calistir", data={**data, "yeniden_dene": True})
+    )
+    if evidence == "no_tool":
+        assert first["makbuz"]["hata_kodu"] == "no_tool_effect"
+        assert executions == 2
+        assert retry["makbuz"]["tur_id"] != first["makbuz"]["tur_id"]
+    else:
+        assert first["makbuz"]["hata_kodu"] == "executor_failed"
+        assert executions == 1
+        assert retry["makbuz"] == first["makbuz"]
+        assert "dış etkisini doğrula" in retry["metin"]

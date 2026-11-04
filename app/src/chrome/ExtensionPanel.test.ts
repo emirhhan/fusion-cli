@@ -65,6 +65,7 @@ const $ = (id: string) => document.getElementById(id)!;
 const click = (id: string) => fireEvent.click($(id));
 const status = () => $("status").textContent;
 const paths = () => calls.map((call) => call.path);
+const TURN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const send = (text: string) => {
   ($("prompt") as HTMLTextAreaElement).value = text;
   fireEvent.submit($("composer"));
@@ -88,7 +89,7 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await waitFor(() => expect($("messages").textContent).toContain("Görev tamamlandı"));
     expect($("messages").querySelector(".bubble")?.textContent).toBe("Özetle");
     expect($("messages").querySelector("strong")?.textContent).toBe("tamamlandı");
-    expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Özetle" });
+    expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Özetle", turnId: expect.stringMatching(TURN_UUID) });
     expect($("empty").hidden).toBe(true);
 
     click("disconnect");
@@ -203,10 +204,17 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await loadPanel();
     await waitFor(() => expect(calls.find((call) => call.path === "/events")?.body).toEqual({ after: 3 }));
     send("Uzun iş");
+    await waitFor(() => expect(calls.some((call) => call.path === "/turn")).toBe(true));
+    const turnId = calls.find((call) => call.path === "/turn")?.body.turnId;
+    expect(turnId).toEqual(expect.stringMatching(TURN_UUID));
     await waitFor(() => expect($("cancel").hidden).toBe(false));
     click("cancel");
     await waitFor(() => expect(paths()).toContain("/cancel"));
+    expect(calls.find((call) => call.path === "/cancel")?.body).toEqual({ turnId });
     await waitFor(() => expect($("messages").textContent).toContain("Durduruldu."));
+    expect(kit.session.get("fusionThread")).toMatchObject({
+      mesajlar: [{ rol: "kullanici", metin: "Uzun iş" }, { rol: "asistan", turnId, durum: "iptal" }],
+    });
   });
 
   it("Claude gibi panelden model seçer ve Manuel kipe geçer", async () => {
@@ -267,7 +275,7 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     click("select-tab");
     await waitFor(() => expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["https://example.com/*"] }));
     fireEvent.click(document.querySelector(".suggestion")!);
-    await waitFor(() => expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Bu sayfayı kısaca özetle." }));
+    await waitFor(() => expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Bu sayfayı kısaca özetle.", turnId: expect.stringMatching(TURN_UUID) }));
   });
 
   it("arka plan eski sürümde kaldıysa tek tıkla kendini güncelleyen düğme gösterir", async () => {

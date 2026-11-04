@@ -96,7 +96,8 @@ from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
-from ..memory.turn_journal import FileTurnJournal
+from ..memory.turn_journal import FileTurnJournal, JournalEntry
+from ..memory.turn_journal_codec import message_to
 from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
@@ -409,7 +410,7 @@ def _should_auto_continue(outcome: object, auto_continues: int) -> bool:
 
 
 class _RetryEffectSink:
-    """Conservative evidence for graceful cancellation; unknown tools require observation."""
+    """Conservative retry evidence; unknown tools require observation."""
 
     # Only fixed local readers are eligible. Shell, browser, MCP and dynamic tools
     # remain unsafe even when a particular invocation looks read-only.
@@ -426,6 +427,21 @@ class _RetryEffectSink:
         ):
             self.safe = False
         self.inner.handle(event)
+
+    def permits_retry(
+        self, entry: JournalEntry | None, prefix: tuple[dict[str, object], ...]
+    ) -> bool:
+        """Require the original attempt boundary and every observed/durable effect."""
+        if not self.safe or entry is None:
+            return False
+        durable_prefix = tuple(
+            message_to(message, include_images=True) for message in entry.messages[: len(prefix)]
+        )
+        return durable_prefix == prefix and all(
+            call.name in self.READERS
+            for message in entry.messages[len(prefix) :]
+            for call in message.tool_calls
+        )
 
 
 class _MeteredSink:
@@ -3242,8 +3258,6 @@ class AppSession:
             return {"ok": ok, "metin": markdown, "gorsel_komutu": True}
         history = self._chrome_history if browser_only else self._state.history
 
-        from ..memory.turn_journal_codec import message_to
-
         # Capture the attempt boundary before execution can mutate history. Tool
         # call IDs are model input and can repeat, including with identical args.
         retry_prefix = tuple(
@@ -3441,6 +3455,8 @@ class AppSession:
         self._turn_settled.clear()
         try:
             outcome = await owned_turn
+            # Capture before recovery/history replacement can omit durable calls.
+            outcome_entry = journal.load() if journal is not None else None
         except asyncio.CancelledError:
             self._iptal_bekliyor = True
             interrupted_entry = journal.load() if journal is not None else None
@@ -3465,29 +3481,7 @@ class AppSession:
                 )
                 if journal is not None:
                     await await_owned_thread(journal.save, self._state.history)
-            retry_safe = effect_sink.safe
-            if journal is not None:
-                # Snapshot may contain a proposed/incomplete tool call even if the
-                # event was not delivered. Old history is outside this attempt.
-                durable = interrupted_entry
-                durable_prefix = (
-                    tuple(
-                        message_to(message, include_images=True)
-                        for message in durable.messages[: len(retry_prefix)]
-                    )
-                    if durable is not None
-                    else ()
-                )
-                retry_safe = (
-                    retry_safe
-                    and durable is not None
-                    and durable_prefix == retry_prefix
-                    and all(
-                        call.name in _RetryEffectSink.READERS
-                        for message in durable.messages[len(retry_prefix) :]
-                        for call in message.tool_calls
-                    )
-                )
+            retry_safe = effect_sink.permits_retry(interrupted_entry, retry_prefix)
             return {
                 "ok": False,
                 "metin": messages.APP_TURN_CANCELLED,
@@ -3608,6 +3602,7 @@ class AppSession:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
                 and getattr(outcome, "tool_uses", None) == ()
+                and effect_sink.permits_retry(outcome_entry, retry_prefix)
             )
         kanit = evidence_payload(getattr(outcome, "completion_report", None))
         if kanit is not None:
