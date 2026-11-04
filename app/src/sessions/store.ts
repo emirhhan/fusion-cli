@@ -90,7 +90,9 @@ function gecmisiOnePekle(gecmis: Mesaj[], mevcut: Mesaj[], oturumId: string): Me
       }
     }
   }
-  return migrateMessageIds([...kalan, ...mevcut], oturumId);
+  // A history notice describes this response, so a refresh replaces the old notice.
+  const retained = mevcut.filter(message => message.rol !== "bildirim" || message.id !== "history-notice");
+  return migrateMessageIds([...kalan, ...retained], oturumId);
 }
 
 /**

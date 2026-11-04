@@ -215,7 +215,11 @@ from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
-from .visible_transcript import VisibleToolRecorder, load_visible_transcript
+from .visible_transcript import (
+    VisibleToolRecorder,
+    load_visible_transcript,
+    project_visible_history,
+)
 
 if TYPE_CHECKING:
     from ..cli.repl.prefixes import ShellPrefixResult
@@ -1092,12 +1096,13 @@ class AppSession:
         if request.name == "oturum.durum":
             return self._status()
         if request.name == "oturum.gecmis":
-            if self._visible_history_imported:
-                return {"ok": True, "mesajlar": visible_history(self._state.history)}
             store, generation = self._transcript_store, self._visible_generation
-            history = await asyncio.to_thread(
-                load_visible_transcript, store, tuple(self._state.history)
+            loader = (
+                project_visible_history
+                if self._visible_history_imported
+                else load_visible_transcript
             )
+            history = await asyncio.to_thread(loader, store, tuple(self._state.history))
             if store is not self._transcript_store or generation != self._visible_generation:
                 return {"ok": False, "metin": "Sohbet değişti; geçmişi yeniden yükleyin."}
             return {

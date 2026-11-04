@@ -1134,3 +1134,23 @@ it("DOM drop geçerli dosyayı eklerken yolu çözülemeyen öğe uyarısını k
   await screen.findByText("valid.png");
   expect(screen.getByText("1 öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.")).toBeTruthy();
 });
+
+it("RPC geçmiş sınırını görünür araç olmayan bildirimle açıklar ve temizlemede kaldırır", async () => {
+  const fake = composerTransport({
+    "oturum.gecmis": { ok: true, gecmis_kirpildi: true, mesajlar: [
+      { rol: "kullanici", metin: "Önceki görev" },
+      { rol: "olay", olay: { olay: "ToolExecuted", name: "read_file", args: { path: "a.txt" }, outcome: "ok", output: "ok" } },
+      { rol: "asistan", metin: "Bitti" },
+    ] },
+    "komut.calistir": { ok: true, temizle: true, metin: "" },
+  });
+  render(<SessionUygulama transport={fake.transport} />);
+  const note = await screen.findByRole("note", { name: "Geçmiş bildirimi" });
+  expect(note.textContent).toContain("boyut sınırları nedeniyle kısaltıldı");
+  expect(note.closest(".conversation__message--event")).toBeTruthy();
+  expect(within(note).queryByRole("button")).toBeNull();
+  const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+  fireEvent.change(textbox, { target: { value: "/clear" } });
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  await waitFor(() => expect(screen.queryByRole("note", { name: "Geçmiş bildirimi" })).toBeNull());
+});

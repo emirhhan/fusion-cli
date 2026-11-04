@@ -137,6 +137,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const attempts = useRef(new Map<string, string>());
   const retryRequests = useRef(new Set<string>());
   const generations = useRef(new Map<string, number>());
+  const historyVersions = useRef(new Map<string, number>());
   const expectedTurns = useRef(new Map<string, string>());
   const queuedRestores = useRef(new Set<string>());
   const clients = useRef(new Map<string, ProtocolClient>());
@@ -265,11 +266,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         });
         // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
         // sorulursa proje genelindeki başka bir konuşma yüklenir.
+        const historyVersion = historyVersions.current.get(id) ?? 0;
         void baslatildi
           .then((tanitildi) => tanitildi ? client.request("oturum.gecmis", {}) : { mesajlar: null })
           .then((result) => {
-            if (!Array.isArray(result.mesajlar)) return;
-            const messages = historyMessages(result.mesajlar);
+            if (clients.current.get(id) !== client
+              || (historyVersions.current.get(id) ?? 0) !== historyVersion
+              || !Array.isArray(result.mesajlar)) return;
+            const messages = historyMessages(result.mesajlar, result.gecmis_kirpildi === true);
             dispatch({ type: "historyLoaded", id, messages });
             queuedRestores.current.add(id);
           })
@@ -340,9 +344,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             client: connection.client,
           },
         });
+        const historyVersion = historyVersions.current.get(connection.id) ?? 0;
         void connection.client.request("oturum.gecmis", {}).then((history) => {
-          if (!Array.isArray(history.mesajlar)) return;
-          const messages = historyMessages(history.mesajlar);
+          if (clients.current.get(connection.id) !== connection.client
+            || (historyVersions.current.get(connection.id) ?? 0) !== historyVersion
+            || !Array.isArray(history.mesajlar)) return;
+          const messages = historyMessages(history.mesajlar, history.gecmis_kirpildi === true);
           dispatch({ type: "historyLoaded", id: connection.id, messages });
         }).catch(() => undefined);
         olcuyuTazele(connection.id, connection.client, dispatch);
@@ -797,6 +804,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     const current = oturumlarRef.current[id]?.root ?? clientRoots.current.get(id);
     if (typeof result.kok === "string" && result.kok && result.kok !== current) {
       clientRoots.current.set(id, result.kok);
+      historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
       dispatch({ type: "rootChanged", id, root: result.kok });
     }
   };
@@ -837,7 +845,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       kokuDevral(id, result);
       // `/rewind` konuşmayı geri sardı; çekirdek kalan geçmişi `gecmis` ile verir (P-004).
       if (Array.isArray(result.gecmis)) {
-        dispatch({ type: "historyReplaced", id, messages: historyMessages(result.gecmis) });
+        historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
+        dispatch({ type: "historyReplaced", id, messages: historyMessages(result.gecmis, result.gecmis_kirpildi === true) });
       }
       const text = typeof result.metin === "string" ? result.metin : "";
       const preparedTask = typeof result.gorev === "string" && result.gorev.trim()
@@ -1115,7 +1124,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     openStored,
     refreshStored,
     storedConversations: stored,
-    clear: (id: string) => dispatch({ type: "cleared", id }),
+    clear: (id: string) => {
+      historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
+      dispatch({ type: "cleared", id });
+    },
     close,
     create,
     select: (id: string) => {

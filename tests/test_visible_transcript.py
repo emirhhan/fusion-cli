@@ -362,3 +362,147 @@ async def test_import_replaces_existing_tool_view_instead_of_replaying_old_work(
     assert not any(row["rol"] == "olay" for row in rows)
     assert rows[0]["metin"] == "oyun yap"
     await session.close()
+
+
+async def test_rpc_bounds_ram_fallback_legacy_and_imported_views(tmp_path):
+    import json
+
+    for mode in ("missing", "legacy", "import"):
+        lines = []
+        session = _session(tmp_path / mode, lines)
+        if mode == "legacy":
+            session._transcript_store.record_user("legacy disk history")
+        if mode == "import":
+            session._visible_history_imported = True
+        session._state.history = [Message("user", f"{i}:" + "x" * 4000) for i in range(301)]
+        await session.handle(Request("history", "oturum.gecmis", {}))
+        reply = _sonuc(lines, "history")
+        assert len(reply["mesajlar"]) <= 300
+        assert len(json.dumps(reply["mesajlar"], ensure_ascii=False)) <= 1_000_000
+        assert reply["gecmis_kirpildi"] is True
+        session._state.history = [Message("assistant", "a" * 1_100_000)]
+        await session.handle(Request("large", "oturum.gecmis", {}))
+        large = _sonuc(lines, "large")
+        assert len(large["mesajlar"][0]["metin"]) <= 16000
+        assert large["gecmis_kirpildi"] is True
+        await session.close()
+
+
+def test_corrupt_nonstring_event_discriminators_fail_closed(tmp_path):
+    import json
+
+    from fusion_cli.appserver.visible_transcript import load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    store.record_visible_tool(_public_event(), identifier="valid")
+    with store.events_path.open("a") as stream:
+        for value in ([], {}, None, 9, ["VisibleToolExecuted"], "unknown"):
+            stream.write(json.dumps({"session_id": "a", "event": value}) + "\n")
+    assert [row["id"] for row in load_visible_transcript(store, []).rows] == ["valid"]
+
+
+def test_protocol_recorder_masks_curl_credentials_and_credential_file_contents(tmp_path):
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.appserver.visible_transcript import VisibleToolRecorder, load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    recorder = VisibleToolRecorder(store, active=lambda: True)
+    sink = ProtocolSink(recorder.record)
+    commands = [
+        "curl -u user:CURL_SECRET https://example.test",
+        "curl --user user:CURL_SECRET https://example.test",
+        "curl --user='user:CURL_SECRET' https://example.test",
+        'curl --user="üser:CURL_SECRET" https://example.test',
+        "curl -u'user:CURL_SECRET' https://example.test",
+        "curl -u=user:CURL_SECRET https://example.test",
+        "curl '--user' 'user:CURL_SECRET' https://example.test",
+        "curl -u 'user:CURL_SECRET",  # Broken quoting must fail closed.
+    ]
+    for command in commands:
+        event = ToolExecuted(
+            name="run_shell", args={"command": command}, outcome=ToolOutcome.OK, output="ok"
+        )
+        sink.handle(event)
+        assert event.args["command"] == command
+    for path in (
+        ".env",
+        ".env.local",
+        "/synthetic/.env.production",
+        r"C:\synthetic\.env.test",
+        ".netrc",
+        ".aws/credentials",
+        "id_ed25519",
+        "key.pem",
+    ):
+        sink.handle(
+            ToolExecuted(
+                name="read_file",
+                args={"path": path},
+                outcome=ToolOutcome.OK,
+                output="SESSION_COOKIE=FILE_CONTENT_SECRET",
+                diff="FILE_DIFF_SECRET",
+            )
+        )
+    disk = store.events_path.read_text()
+    rows = load_visible_transcript(store, []).rows
+    for secret in ("CURL_SECRET", "FILE_CONTENT_SECRET", "FILE_DIFF_SECRET"):
+        assert secret not in disk and secret not in str(rows)
+    assert all(row["olay"].get("history_redacted") for row in rows)
+    assert all(row["olay"]["name"] in {"run_shell", "read_file"} for row in rows)
+    assert all(row["olay"]["diff"] is None for row in rows if row["olay"]["name"] == "read_file")
+
+
+def test_sensitive_file_write_arguments_and_shell_bodies_are_not_persisted(tmp_path):
+    from fusion_cli.appserver.bridges import ProtocolSink
+    from fusion_cli.appserver.visible_transcript import VisibleToolRecorder, load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path, conversation_id="a")
+    recorder = VisibleToolRecorder(store, active=lambda: True)
+    sink = ProtocolSink(recorder.record)
+    cases = [
+        ("write_file", {"path": ".env.local", "text": "OPAQUE_WRITE_CONTENT"}),
+        ("run_shell", {"command": "printf 'OPAQUE_SHELL_CONTENT' > .env"}),
+        ("multi_edit", {"edits": [{"path": ".env.test", "new_text": "OPAQUE_NESTED_CONTENT"}]}),
+    ]
+    for name, args in cases:
+        sink.handle(
+            ToolExecuted(
+                name=name,
+                args=args,
+                outcome=ToolOutcome.OK,
+                output="OPAQUE_OUTPUT",
+                diff="OPAQUE_DIFF",
+            )
+        )
+    disk = store.events_path.read_text()
+    assert "OPAQUE_" not in disk
+    assert all(
+        row["olay"].get("history_redacted") for row in load_visible_transcript(store, []).rows
+    )
+
+
+def test_command_utf8_boundary_masking_preserves_noncredential_controls(tmp_path):
+    from fusion_cli.appserver.visible_transcript import public_tool_payload
+
+    command = "echo " + "ü" * 3990 + "; curl --user='üser:BOUNDARY_AUTH' https://example.test"
+    payload = public_tool_payload(_public_event(args={"command": command}), session_id="a")
+    assert payload is not None
+    assert "BOUNDARY_AUTH" not in str(payload)
+    assert payload["history_redacted"] == ["args.command"]
+    assert payload["history_truncated"] == ["args.command"]
+    assert len(payload["args"]["command"]) <= 4000
+    plain = "curl --user-agent 'Mozilla Test' https://example.test"
+    control = public_tool_payload(
+        _public_event(args={"command": plain}, output="public output"), session_id="a"
+    )
+    assert control["args"]["command"] == plain
+    assert control["output"] == "public output"
+    for value in (
+        "Authorization: Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "DATABASE_URL=postgres://user:DB_PASSWORD@localhost/test",
+    ):
+        masked = public_tool_payload(_public_event(output=value), session_id="a")
+        assert value not in masked["output"]

@@ -53,7 +53,7 @@ export interface Mesaj {
   /** `/code-review` bulguları (#214, Claude Code ReportFindings): kart olarak çizilir. */
   findings?: ReviewFinding[];
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
+  rol: "kullanici" | "asistan" | "bildirim" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
   /** Yalnız `rol === "plan"` için: plan kipinde yazılan plan dosyası (P-025). */
   plan?: { yol: string; baslik: string };
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
@@ -358,6 +358,11 @@ export function Conversation({
       <div className="conversation__stream" ref={icerikRef}>
         {(() => {
           const renderMessage = (message: Mesaj, index: number) => {
+          if (message.rol === "bildirim") {
+            return <div aria-label="Geçmiş bildirimi" role="note" className="conversation__message conversation__message--event" key={message.id}>
+              <p>{message.metin}</p>
+            </div>;
+          }
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={message.id}>

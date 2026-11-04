@@ -199,3 +199,15 @@ it("tekrarlanan created çalışan turun kökünü mesajını veya istemcisini e
   expect(state.sessions.same.running).toBe(true);
   expect(state.sessions.same.messages[0].metin).toBe("Hesabı temizle");
 });
+
+it("geçmiş bildirimi yeniden yüklemede çoğalmaz ve yeni sonuçta temizlenir", () => {
+  let state = sessionReducer(initialSessionState, {type:"created", session:{id:"a", title:"A", source:"fusion", root:"/a", client:client()}});
+  const messages = [{rol:"bildirim" as const, id:"history-notice", metin:"Geçmiş kısaltıldı"}];
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages});
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages});
+  expect(state.sessions.a.messages.filter(message=>message.rol==="bildirim")).toHaveLength(1);
+  state = sessionReducer(state, {type:"created", session:{id:"b", title:"B", source:"fusion", root:"/b", client:client()}});
+  expect(state.sessions.b.messages).toEqual([]);
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages:[]});
+  expect(state.sessions.a.messages).toEqual([]);
+});

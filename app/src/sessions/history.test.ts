@@ -30,3 +30,13 @@ it('yeniden yüklenen /code-review cevabındaki bulguları kart olarak çözer (
  expect(result[0].findings).toEqual([{file:'a.py',line:3,summary:'s',failureScenario:'f',verdict:'CONFIRMED'}]);
  expect(result[1].findings).toBeUndefined();
 });
+
+it('alan kısaltma ve hassas içerik bayraklarını tek araç olmayan bildirimde sunar', () => {
+ const rows = [{rol:'olay',olay:{olay:'ToolExecuted',name:'read_file',args:{path:'.env'},outcome:'ok',output:'gizlendi',history_truncated:['output'],history_redacted:['output']}}];
+ const messages=historyMessages(rows);
+ expect(messages[0].rol).toBe('bildirim');
+ expect(messages[0].metin).toContain('kısaltıldı');
+ expect(messages[0].metin).toContain('hassas');
+ expect(messages.filter(message=>message.rol==='olay')).toHaveLength(1);
+ expect(messages[0].adimlar).toBeUndefined();
+});

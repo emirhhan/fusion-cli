@@ -1189,3 +1189,23 @@ it("başarısız tek bağlantı kilidi sonraki açma denemesini engellemez", asy
   expect(result.current.activeSession?.id).toBe("retry");
   expect(result.current.activeSession?.status).toBe("ready");
 });
+
+it("temizlemeden sonra geç dönen geçmiş bildirimi ve eski satırları diriltmez", async () => {
+  const fake = fakeTransport();
+  const originalSend = fake.transport.send;
+  let held: { id: string; requestId: string } | null = null;
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line);
+    if (request.ad === "oturum.gecmis") { held = { id, requestId: request.id }; return; }
+    return originalSend(id, line);
+  });
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(held).not.toBeNull());
+  const pending = held! as { id: string; requestId: string };
+  act(() => result.current.clear(pending.id));
+  act(() => fake.emitResult(pending.id, pending.requestId, {
+    ok: true, gecmis_kirpildi: true, mesajlar: [{rol:"asistan", metin:"Eski geçmiş"}],
+  }));
+  await act(async () => { await Promise.resolve(); });
+  expect(result.current.activeSession?.messages).toEqual([]);
+});
