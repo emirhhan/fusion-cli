@@ -3332,6 +3332,22 @@ class AppSession:
             # Köprü açıksa not verilir: eklenti o an bağlı olmasa da chrome_* Chrome'u açar.
             chrome_note = CHROME_NOTE if self._chrome.running else ""
             persona = persona_turn(self._state.persona)
+            allowed_tools = pending_extras.merged_tools(
+                (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
+                if browser_only
+                else persona.allowed_tools
+            )
+            turn_config = config
+            if browser_only and config.mcp_servers and allowed_tools is not None:
+                from ..tools import build_registry as build_builtin_registry
+
+                # Chrome's MCP-shaped aliases are local builtins. Do not await
+                # unrelated connectors before a surface which cannot call them.
+                # ask_teacher is registered by engine_tools rather than the
+                # base registry; it also has no configured MCP dependency.
+                builtin_names = set(build_builtin_registry().names()) | {"ask_teacher"}
+                if allowed_tools <= builtin_names:
+                    turn_config = replace(config, mcp_servers=())
             extra_system = "\n\n".join(
                 part
                 for part in (
@@ -3350,7 +3366,7 @@ class AppSession:
             )
             return await run_agent_task(
                 task,
-                config,
+                turn_config,
                 remotion_transport=self._state.remotion_transport,
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
@@ -3373,11 +3389,7 @@ class AppSession:
                 todos=None if browser_only else session_todos(self._state),
                 chrome_bridge=self._chrome,
                 skill_grants=pending_extras.grants,
-                allowed_tools=pending_extras.merged_tools(
-                    (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
-                    if browser_only
-                    else persona.allowed_tools
-                ),
+                allowed_tools=allowed_tools,
                 denied_tools=(
                     frozenset()
                     if browser_only
