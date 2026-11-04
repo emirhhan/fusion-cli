@@ -380,7 +380,7 @@ async function cancel() {
     const turnId = thread.mesajlar.at(-1)?.turnId;
     const result = await request("/cancel", { turnId });
     if (!result.ok) throw new Error(result.metin || "Durdurma kabul edilmedi.");
-    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) {
+    if (thread.mesajlar.at(-1)?.turnId === turnId && thread.mesajlar.at(-1)?.durum !== "bitti") {
       await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
     }
   } finally {

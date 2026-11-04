@@ -144,3 +144,70 @@ async def test_durable_unfinished_write_blocks_retry_without_start_event(tmp_pat
     session._cancel_turn()
     result = await waiting
     assert result["makbuz"]["hata_kodu"] == "executor_failed"
+
+
+@pytest.mark.parametrize("previous_tool", ["read_file", "write_file"])
+async def test_reused_call_id_cannot_hide_new_durable_write(tmp_path, monkeypatch, previous_tool):
+    from fusion_cli.core.types import Message, ToolCall
+
+    entered = asyncio.Event()
+    previous = [
+        Message("user", "previous"),
+        Message("assistant", "", tool_calls=(ToolCall("reused", previous_tool, "{}"),)),
+        Message("tool", "done", name=previous_tool, tool_call_id="reused", ok=True),
+    ]
+
+    async def execute(task, config, **kwargs):
+        kwargs["journal"].save(
+            [
+                *previous,
+                Message("user", task),
+                Message("assistant", "", tool_calls=(ToolCall("reused", "write_file", "{}"),)),
+            ]
+        )
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
+    session._state.history = previous
+    data = {"gorev": "write", "gonderim_id": "reused"}
+    waiting = asyncio.create_task(
+        session._dispatch(Request(id="a", name="tur.calistir", data=data))
+    )
+    await entered.wait()
+    session._cancel_turn()
+    first = await waiting
+    assert first["makbuz"]["hata_kodu"] == "executor_failed"
+    retry = await session._dispatch(
+        Request(id="b", name="tur.calistir", data={**data, "yeniden_dene": True})
+    )
+    assert retry["makbuz"] == first["makbuz"]
+    assert "dış etkisini doğrula" in retry["metin"]
+
+
+async def test_missing_history_prefix_requires_observation_even_without_tool_events(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.core.types import Message
+
+    entered = asyncio.Event()
+
+    async def execute(task, config, **kwargs):
+        # Compacted/replaced snapshot cannot prove the original attempt boundary.
+        kwargs["journal"].save([Message("user", task)])
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
+    session._state.history = [Message("user", "earlier"), Message("assistant", "earlier answer")]
+    waiting = asyncio.create_task(
+        session._dispatch(
+            Request(id="a", name="tur.calistir", data={"gorev": "read", "gonderim_id": "ambiguous"})
+        )
+    )
+    await entered.wait()
+    session._cancel_turn()
+    result = await waiting
+    assert result["makbuz"]["hata_kodu"] == "executor_failed"

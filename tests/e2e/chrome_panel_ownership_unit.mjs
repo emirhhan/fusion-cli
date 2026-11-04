@@ -98,3 +98,31 @@ for (const eventFirst of [true, false]) {
   assert.equal(run('running()'), false);
   assert.equal(run('thread.mesajlar.length'), 2);
 }
+
+// The terminal event can also beat the cancel HTTP response itself.
+for (const terminalState of ['hata', 'bitti', 'foreign']) {
+  let finishCancel, finishLateTurn;
+  context.crypto = {randomUUID: () => 'cancel:late'};
+  context.delayedCancel = (path) => path === '/cancel'
+    ? new Promise((resolve) => { finishCancel = resolve; })
+    : new Promise((resolve) => { finishLateTurn = resolve; });
+  run('thread={mesajlar:[],seq:0,soru:null};request=delayedCancel;');
+  const lateTurn = run('sendPrompt("late cancellation")');
+  while (!finishLateTurn) await new Promise((resolve) => setTimeout(resolve, 0));
+  const pendingCancel = run('cancel()');
+  while (!finishCancel) await new Promise((resolve) => setTimeout(resolve, 0));
+  await run(`applyItem({tur:"bitti",turnId:"cancel:late",ok:${terminalState === 'bitti'},metin:"terminal text"}).then(next=>{thread=next;})`);
+  if (terminalState === 'foreign') run('thread={...thread,mesajlar:[...thread.mesajlar,{rol:"asistan",turnId:"newer",durum:"calisiyor"}]};');
+  finishCancel({ok: true});
+  await pendingCancel;
+  finishLateTurn({ok: terminalState === 'bitti', metin: 'terminal text'});
+  await lateTurn;
+  if (terminalState === 'hata') {
+    assert.equal(run('thread.mesajlar.at(-1).durum'), 'iptal', 'accepted cancel reconciles after unsuccessful terminal');
+    await run('applyItem({tur:"bitti",turnId:"cancel:late",ok:false,metin:"terminal text"}).then(next=>{thread=next;})');
+    assert.equal(run('thread.mesajlar.at(-1).durum'), 'iptal', 'terminal replay preserves late accepted cancel');
+    assert.equal(run('thread.mesajlar.at(-1).metin'), 'terminal text');
+  } else {
+    assert.equal(run('thread.mesajlar.at(-1).durum'), terminalState === 'bitti' ? 'bitti' : 'calisiyor', 'accepted stop cannot change successful completion or foreign owner');
+  }
+}

@@ -3242,6 +3242,15 @@ class AppSession:
             return {"ok": ok, "metin": markdown, "gorsel_komutu": True}
         history = self._chrome_history if browser_only else self._state.history
 
+        from ..memory.turn_journal_codec import message_to
+
+        # Capture the attempt boundary before execution can mutate history. Tool
+        # call IDs are model input and can repeat, including with identical args.
+        retry_prefix = tuple(
+            message_to(message, include_images=True)
+            for message in [*history, Message("user", task)]
+        )
+
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
@@ -3461,15 +3470,22 @@ class AppSession:
                 # Snapshot may contain a proposed/incomplete tool call even if the
                 # event was not delivered. Old history is outside this attempt.
                 durable = interrupted_entry
-                previous = {call.id for message in history for call in message.tool_calls}
+                durable_prefix = (
+                    tuple(
+                        message_to(message, include_images=True)
+                        for message in durable.messages[: len(retry_prefix)]
+                    )
+                    if durable is not None
+                    else ()
+                )
                 retry_safe = (
                     retry_safe
                     and durable is not None
+                    and durable_prefix == retry_prefix
                     and all(
                         call.name in _RetryEffectSink.READERS
-                        for message in durable.messages
+                        for message in durable.messages[len(retry_prefix) :]
                         for call in message.tool_calls
-                        if call.id not in previous
                     )
                 )
             return {
