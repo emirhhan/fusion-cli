@@ -14,11 +14,13 @@ yazmıyordu; sohbette yalnız alt alta adım satırları görünüyordu. Talimat
 from __future__ import annotations
 
 import asyncio
+import re
 
 from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.tool_emulation import CALL_OPEN, PAYLOAD_OPEN
 from ...core.tools import TodoItem, TodoStatus
 from ...core.types import CompletionRequest, Message, ModelSpec
 from ...providers.factory import build_provider
@@ -33,6 +35,12 @@ INTRO_MAX_TOKENS = 220
 INTRO_TIMEOUT_S = 30.0
 #: Görev metninden girişe verilen kesit: uzun istemin tamamı gerekmez.
 _TASK_CHARS = 2_000
+#: Cosmetic narration is a paragraph, never a place to carry executable output.
+_INTRO_MAX_CHARS = 1_000
+_INTRO_STRUCTURE = re.compile(
+    r"```|~~~|[{}\[\]]|<\s*[!/A-Za-z|]|"
+    r"(?m:^[ \t]*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s))|\n\s*\n"
+)
 
 _INTRO_PROMPT = (
     "Aşağıdaki isteğe işe başlamadan önce kullanıcıya bir iki cümlelik giriş yaz: "
@@ -82,9 +90,21 @@ async def intro_paragraph(
     except (TimeoutError, ConfigError, ProviderError, WebBrowserError):
         # Giriş yardımcı bir çağrıdır; sağlayıcı kurulamazsa ana tur sürer.
         return ""
-    if not result.ok:
+    if not result.ok or result.tool_calls:
         return ""
     metin = strip_thinking(result.text).strip()
+    # A tool-free request is not proof of a tool-free answer. A live intro
+    # contained prose followed by a partial write_file JSON/HTML payload; it
+    # would otherwise be published and fed back to the main agent as its own
+    # prior statement. Reject even incomplete payloads before sentence trimming
+    # can disguise them as a valid intro. This cosmetic call is never retried.
+    if (
+        len(metin) > _INTRO_MAX_CHARS
+        or _INTRO_STRUCTURE.search(metin)
+        or any(marker in metin for marker in (CALL_OPEN, PAYLOAD_OPEN))
+        or any(re.search(rf"(?<!\w){re.escape(name)}\s*\(", metin) for name in tool_names if name)
+    ):
+        return ""
     # Token sınırında kesilen giriş cümle ortasında biter (A2-38): son TAM cümleye kadar kırp.
     return _drop_cut_sentence(metin) if result.truncated else metin
 

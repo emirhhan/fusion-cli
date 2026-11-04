@@ -7,6 +7,10 @@ neye geçildiğini hiç okumuyordu.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from fusion_cli.core.events import NarrationPublished
 from fusion_cli.core.tools import TodoItem, TodoStatus, ToolContext
 from fusion_cli.core.types import ModelSpec
@@ -159,3 +163,107 @@ async def test_giris_paragrafi_ogretmen_ve_platform_isinden_once_gelir(
     await run_agent("a.py dosyasını oluştur ve içine x değişkenini yaz", deps)
 
     assert sira[:3] == ["giris", "ogretmen", "platform"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Önce dosyayı yazıyorum.\n"
+        '{"tool": "write_file", "path": "index.html", "content": "<!DOCTYPE',
+        'Önce dosyayı yazıyorum. {"name": "write_file", "arguments": {"path":',
+        'FUSION_TOOL_CALL\n{"name": "write_file", "arguments": {',
+        'Önce dosyayı yazıyorum.\nFUSION_TOOL_PAYLOAD id="x"\n<html>',
+        "Önce dosyayı yazıyorum.\n```html\n<!DOCTYPE html>",
+        "Önce dosyayı yazıyorum.\n<html><body>Sayaç</body></html>",
+        'Önce dosyayı yazıyorum.\n<tool_call>{"name": "write_file"}</tool_call>',
+        'Önce dosyayı yazıyorum.\nwrite_file(path="a.py", content="x = 1")',
+        "# Plan\nDosyayı yazıyorum.",
+        "Önce dosyayı yazıyorum.\n- Sonra test ediyorum.",
+    ],
+)
+async def test_cosmetic_intro_rejects_tool_or_code_payload_without_retry(
+    tmp_path, monkeypatch, text
+):
+    from fusion_cli.engines.agent.narration import intro_paragraph
+
+    deps, _sink = _deps(tmp_path)
+    provider = ScriptedProvider([model_result(text)])
+    _patch(monkeypatch, provider)
+
+    intro = await intro_paragraph(
+        "Bir sayaç oluştur.", deps.config.agent, deps.config, None, ("write_file",)
+    )
+
+    assert intro == ""
+    assert provider.calls == 1
+
+
+async def test_cosmetic_intro_rejects_native_tool_calls(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.narration import intro_paragraph
+
+    deps, _sink = _deps(tmp_path)
+    provider = ScriptedProvider(
+        [model_result("Dosyayı yazıyorum.", tool_calls=(tool_call("write_file", path="a.py"),))]
+    )
+    _patch(monkeypatch, provider)
+
+    assert await intro_paragraph("Bir dosya oluştur.", deps.config.agent, deps.config, None) == ""
+    assert provider.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (
+            model_result("Önce ilgili dosyayı okuyorum, ardından testi çalıştırıyorum."),
+            "Önce ilgili dosyayı okuyorum, ardından testi çalıştırıyorum.",
+        ),
+        (
+            model_result('<think>{"tool": "write_file"}</think>Önce testi okuyorum.'),
+            "Önce testi okuyorum.",
+        ),
+        (
+            replace(model_result("Önce testi okuyorum. Sonra düzelt"), truncated=True),
+            "Önce testi okuyorum.",
+        ),
+        (replace(model_result('Önce testi okuyorum.\n{"tool": "write_file"'), truncated=True), ""),
+    ],
+)
+async def test_plain_intro_and_truncation_preserve_only_valid_prose(
+    tmp_path, monkeypatch, result, expected
+):
+    from fusion_cli.engines.agent.narration import intro_paragraph
+
+    deps, _sink = _deps(tmp_path)
+    provider = ScriptedProvider([result])
+    _patch(monkeypatch, provider)
+
+    assert await intro_paragraph("Testi düzelt.", deps.config.agent, deps.config, None) == expected
+    assert provider.calls == 1
+
+
+async def test_invalid_intro_is_not_published_or_reinjected_and_main_work_continues(
+    tmp_path, monkeypatch
+):
+    deps, sink = _deps(tmp_path)
+    payload = 'Önce dosyayı yazıyorum.\n{"tool": "write_file", "content": "<!DOCTYPE'
+    provider = ScriptedProvider(
+        [
+            model_result(payload),
+            model_result(tool_calls=(tool_call("write_file", path="a.py", content="x = 1\n"),)),
+            model_result("Modül eklendi."),
+        ]
+    )
+    _patch(monkeypatch, provider)
+
+    outcome = await run_agent("a.py dosyasını oluştur ve içine x değişkenini yaz", deps)
+
+    assert outcome.ok
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+    assert provider.calls == 3
+    assert not any(isinstance(event, NarrationPublished) for event in sink.events)
+    assert all(
+        payload not in message.content
+        for request in provider.seen_messages[1:]
+        for message in request
+    )
