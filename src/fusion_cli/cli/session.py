@@ -245,6 +245,7 @@ async def run_agent_task(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    bootstrap_mcp: bool = True,
     denied_tools: frozenset[str] = frozenset(),
     #: Becerinin tur izin kuralları (`allowed-tools` ön onayı, `disallowed-tools` deseni; #142).
     skill_grants: tuple[tuple[str, str], ...] = (),
@@ -495,6 +496,7 @@ async def run_agent_task(
                 chat_mode=chat_mode,
                 workflow=workflow,
                 allowed_tools=allowed_tools,
+                bootstrap_mcp=bootstrap_mcp,
                 denied_tools=denied_tools,
                 turn_runner=turn_runner,
                 strict_tool_names=strict_tool_names,
@@ -564,6 +566,7 @@ async def _run_agent_with_mcp(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    bootstrap_mcp: bool = True,
     denied_tools: frozenset[str] = frozenset(),
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
     strict_tool_names: bool = False,
@@ -609,7 +612,9 @@ async def _run_agent_with_mcp(
             workflow=workflow,
         )
 
-    if not config.mcp_servers and not config.hosted_connectors:
+    # Startup admission is separate from config: credential/environment caps
+    # must still see every configured server even when its tools are unused.
+    if (not bootstrap_mcp or not config.mcp_servers) and not config.hosted_connectors:
         return await _run()
     try:
         from ..mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
@@ -619,7 +624,7 @@ async def _run_agent_with_mcp(
     # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
     registry = cast("ToolRegistry", deps.base_registry)
     eklenen: tuple[str, ...] = ()
-    if config.mcp_servers:
+    if bootstrap_mcp and config.mcp_servers:
         try:
             # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
             # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
@@ -646,7 +651,7 @@ async def _run_agent_with_mcp(
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
     # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
     deps.tool_context.available_tools.update(eklenen)
-    if config.mcp_servers:
+    if bootstrap_mcp and config.mcp_servers:
         # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantı kurulduktan sonra çözülür (P-049).
         from ..mcp_bridge.reference_service import expand_mcp_references
 

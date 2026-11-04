@@ -2,21 +2,27 @@
 
 ## Root and boundary
 
-The per-turn path is confirmed in `cli/session.py::_run_agent_with_mcp`: configured `mcp_servers` trigger `ensure_mcp_tools` before the runner applies its allowed tool surface. That means an unrelated configured connector can delay a browser task even though its tools cannot be called. `McpConnectionService.__init__` only initializes state; it does not establish these connections. This fix therefore targets the turn's actual connector-startup input.
+The per-turn path is confirmed in `cli/session.py::_run_agent_with_mcp`: configured `mcp_servers` trigger `ensure_mcp_tools` before the runner applies its allowed tool surface. An unrelated configured connector can therefore delay a browser task whose tools cannot be called. `McpConnectionService.__init__` only initializes state; it does not establish these connections.
 
-Chrome's `claude-in-chrome__*` aliases are native tools registered by `tools/builtin.py::build_registry`; their MCP-shaped names do not require an external MCP server. The panel's code-mode surface additionally permits `ask_teacher`, registered locally by `engine_tools.py`. Pending skill tool restrictions intersect the surface and cannot add external tools.
+Chrome's `claude-in-chrome__*` aliases are native tools registered by `tools/builtin.py::build_registry`; their MCP-shaped names do not require an external MCP server. The panel code surface also permits `ask_teacher`, registered locally by `engine_tools.py`. Pending skill restrictions intersect this surface.
 
-## Change
+## Current change
 
-`AppSession._run_turn` computes the allowed tool surface once. For `browser_only` execution with configured MCP servers, it verifies every allowed name against the built-in registry plus the local `ask_teacher` tool. When all names are local, only the runner's configuration is replaced with `replace(config, mcp_servers=())`. The session's persisted/in-memory configuration remains unchanged, as does the next normal main turn. A future surface containing an external or unknown name retains its configured MCP servers. Native Chrome aliases and existing tool restrictions remain intact. Hosted connector settings are outside this change.
+`AppSession._run_turn` computes the allowed tool surface once. Only for a browser-only surface entirely within the built-in registry plus local `ask_teacher`, it passes `bootstrap_mcp=False` to `run_agent_task`. This new flag defaults to true and is forwarded to `_run_agent_with_mcp`, where it controls MCP bootstrap and MCP reference expansion. Normal main turns and future external/unknown tool surfaces retain connector startup. Hosted connector settings are unchanged.
+
+The original full Config, including every configured server's credential environment-name metadata, reaches runtime settings, AgentDeps and model/runner configuration unchanged. The skip decision does not remove or copy credentials. In particular, `apply_runtime_settings` still derives `hidden_env` from all configured `env_names` and `token_env`, so the code-mode panel's `run_shell` child environment retains its credential exclusions.
+
+## Security review correction
+
+Initial commit `6954a28a` implemented the skip by replacing Config with `mcp_servers=()`. The independent review correctly identified that this also removed the metadata used to scrub shell-child environments. That approach is superseded by the separate bootstrap flag. A regression first reproduced the missing exclusion using only synthetic environment names/values; the corrected test now exercises actual AppSession → run_agent_task → _run_agent_with_mcp → fake runner plumbing, actual runtime settings and actual `_shell_env`. It never launches a shell, connector or model.
 
 ## Verification
 
-Tests use temporary synthetic profiles, a fake connector configuration and mocked `run_agent_task`; no connector, model or network call is performed.
+All profiles, connector configuration and environment values are synthetic temporary fixtures. No live secrets, network, model, UI or native desktop action were used.
 
-- `tests/test_session_browser_mcp_startup.py`: code/chat cases first failed because the browser runner still received the fake connector; final **3 passed**. They verify the browser runner receives no MCP servers, keeps native Chrome aliases, retains the persisted config, and leaves the next normal turn's server intact. A synthetic external tool surface verifies the conservative fallback.
-- Combined browser-MCP/ownership/submission suite: **39 passed**.
-- Existing targeted Chrome panel/session integration cases: **5 passed**.
-- Scoped ruff, scoped mypy and source/test `git diff --check` passed.
+- Browser startup suite: **4 passed**. Both code/chat surfaces keep native aliases and the original configured servers while explicitly skipping bootstrap. Normal turns and a synthetic external future surface retain bootstrap.
+- The integration regression uses multiple fake `env_names` and a fake `token_env`, checks every name is excluded from actual shell-child environments for browser/main/external turns, and confirms a public marker survives. It checks original Config identity at the browser runner, shell/native alias availability, and actual mocked connector-start counts of zero after the browser turn, one after main, and two after external fallback. Existing negative startup assertions remain enforced.
+- Combined browser/ownership/submission/CLI session/MCP notice/environment scrub/runtime-context suite: **62 passed**.
+- Scoped ruff, scoped mypy and source/test whitespace checks passed.
 
-The startup bypass follows directly from the confirmed `_run_agent_with_mcp` configuration branch. No new live latency or UI acceptance claim is made. Parent will arrange independent general/Python review. No build, installation or other scope changes were performed.
+No new live latency or UI acceptance claim is made. Parent will arrange independent general/Python re-review. No build, installation or unrelated scope change was performed.

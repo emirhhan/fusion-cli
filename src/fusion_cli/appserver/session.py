@@ -3337,7 +3337,7 @@ class AppSession:
                 if browser_only
                 else persona.allowed_tools
             )
-            turn_config = config
+            bootstrap_mcp = True
             if browser_only and config.mcp_servers and allowed_tools is not None:
                 from ..tools import build_registry as build_builtin_registry
 
@@ -3347,7 +3347,7 @@ class AppSession:
                 # base registry; it also has no configured MCP dependency.
                 builtin_names = set(build_builtin_registry().names()) | {"ask_teacher"}
                 if allowed_tools <= builtin_names:
-                    turn_config = replace(config, mcp_servers=())
+                    bootstrap_mcp = False
             extra_system = "\n\n".join(
                 part
                 for part in (
@@ -3366,7 +3366,8 @@ class AppSession:
             )
             return await run_agent_task(
                 task,
-                turn_config,
+                config,
+                bootstrap_mcp=bootstrap_mcp,
                 remotion_transport=self._state.remotion_transport,
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
