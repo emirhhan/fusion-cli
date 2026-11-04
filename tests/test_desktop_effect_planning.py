@@ -231,6 +231,8 @@ def test_application_context_keeps_external_effect_priority(task, effect):
     "task",
     [
         "Mevcut uygulamadan bir kopya yap.",
+        "Bu uygulamadan bir kopya yapmanı istiyorum.",
+        "Bu uygulamadan bir klon yapabilir misin?",
         "Bu uygulamadan bir klon yap.",
         "Bu uygulamasından bir kopya oluştur.",
         "Bu uygulamadan bir benzerini yap.",
