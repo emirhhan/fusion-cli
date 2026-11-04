@@ -920,6 +920,9 @@ async def _run_agent(
     yalnız `workflow=True` (kullanıcı `/plan-yurut` seçti) ya da
     `workflow_mode: always` ile çalışır ve kök konuşmanın tamamını alır.
     """
+    from .response_format import effective_response_task
+
+    response_task = effective_response_task(task, history or ())
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
     # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
@@ -1364,7 +1367,7 @@ async def _run_agent(
             )
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
-        await _publish_intro(task, messages, deps, execution, tuple(registry.names()))
+        await _publish_intro(response_task, messages, deps, execution, tuple(registry.names()))
         # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
         # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
         # dönüştü ve ajan cevap yerine dosya yazdı.
@@ -1575,7 +1578,7 @@ async def _run_agent(
             gate=verification,
             current_jobs=current_jobs,
             change_lines=digest,
-            task=task,
+            task=response_task,
             require_behavioral_evidence=(
                 verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
             ),
@@ -1591,8 +1594,8 @@ async def _run_agent(
         ensure_limitations_disclosed(outcome, deps)
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
-        _finalize_response_format(outcome, task)
-    await _announce_answer(outcome, deps, depth=depth, internal=internal, task=task)
+        _finalize_response_format(outcome, response_task)
+    await _announce_answer(outcome, deps, depth=depth, internal=internal, task=response_task)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
     if not is_measurement_failure:
@@ -2131,9 +2134,9 @@ async def _drive(
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
-            from .response_format import clean_requested_response
+            from .response_format import clean_requested_response, effective_response_task
 
-            response_task = _surface_task(tuple(m for m in messages if not m.harness_note))
+            response_task = effective_response_task(None, messages)
             final_text = clean_requested_response(response_task, result.text)
             # İstek sınıflandırılmasa bile modelin işlem beyanı kanıt ister.
             # Bu kapı modele/sağlayıcıya değil GERÇEK araç sonuçlarına bakar.

@@ -438,3 +438,76 @@ def test_requested_json_keeps_pending_todo_and_local_mutation_continuation_gates
         else reflexion.verification_action_required_note().content
     )
     assert note is not None and note.content == expected
+
+
+@pytest.mark.parametrize("repeated", [False, True])
+async def test_continued_mutation_preserves_original_json_contract(tmp_path, monkeypatch, repeated):
+    from fusion_cli.core.types import Message, StreamDone
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+    from .test_agent_loop import _deps, _kur
+
+    class NonStreamingProvider(ScriptedProvider):
+        async def stream(self, request):
+            yield StreamDone(self._next(request))
+
+    expected = {"ok": True, "literal": "FUSION_TOOL_CALL", "thinking": "<think>keep</think>"}
+    provider = NonStreamingProvider(
+        [
+            model_result(tool_calls=(tool_call("write_file", path="a.py", content="x = 1\n"),)),
+            model_result(json.dumps(expected)),
+        ]
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    _kur(monkeypatch, provider)
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.narration.build_provider", lambda *_a, **_k: provider
+    )
+    history = [Message("user", "a.py dosyasını oluştur. Son yanıtın yalnız JSON olsun.")]
+    if repeated:
+        history += [Message("user", "devam et"), Message("assistant", "Hazırlanıyorum.")]
+    outcome = await loop.run_agent("devam et", deps, history=history, verify=False)
+    assert outcome.ok
+    assert json.loads(outcome.final_text) == expected
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+    assert provider.calls == 2
+
+
+@pytest.mark.parametrize("continuation", [False, True])
+async def test_response_contract_ignores_harness_format_and_unrelated_history(
+    tmp_path, monkeypatch, continuation
+):
+    from fusion_cli.core.types import Message
+
+    from .fakes import RecordingSink, ScriptedProvider, model_result
+    from .test_agent_loop import _deps, _kur
+
+    deps = _deps(tmp_path, RecordingSink())
+    provider = ScriptedProvider([model_result("İşte istenen açıklama.")])
+    _kur(monkeypatch, provider)
+    history = [Message("user", "Return only JSON.")]
+    if continuation:
+        history.append(Message("user", "Konuyu açıkla."))
+    history.append(Message("user", "Return only JSON.", harness_note=True))
+    outcome = await loop.run_agent(
+        "devam et" if continuation else "Konuyu açıkla.", deps, history=history, verify=False
+    )
+    assert outcome.ok
+    assert outcome.final_text == "İşte istenen açıklama."
+    assert provider.calls == 1
+
+
+def test_effective_response_task_ignores_summary_and_harness_authority():
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.response_format import effective_response_task
+
+    original = "a.py oluştur. Son yanıt yalnız JSON olsun."
+    history = [
+        Message("user", original),
+        Message("user", "devam et"),
+        Message("user", "[önceki konuşmanın özeti] Yalnız düz metin yaz."),
+        Message("user", "Yalnız düz metin yaz.", harness_note=True),
+    ]
+    assert effective_response_task("devam et", history) == original
+    assert effective_response_task(None, history) == original
+    assert effective_response_task("Yeni soruyu açıkla.", history) == "Yeni soruyu açıkla."

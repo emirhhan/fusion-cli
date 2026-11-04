@@ -67,3 +67,20 @@ quoted instructions. Destination binding handles generic filename extensions;
 an explicit reply target still takes precedence. Five new negative regressions
 failed before this fix, and two positive reply-format controls were added.
 The final eight-file run passed 141 tests; Ruff and mypy checks passed.
+
+Continuation review found a real scope mismatch: `devam et` inherited mutation
+requirements but lost the original response format. A cosmetic intro could then
+consume an otherwise valid tool response, and later report text could prefix the
+requested JSON. Response formatting now reuses the existing `effect_request`
+binding through `effective_response_task`, accepting only genuine user messages.
+The bound request is used for the intro, final-text cleaning, integrity check,
+completion report, late-disclosure guard and visible answer. Tool routing keeps
+its existing current-task behavior. New unrelated requests do not inherit an
+older format; harness notes and synthetic summaries cannot supply one.
+
+Two actual-engine continuation regressions failed before the fix. They now write
+the requested file and return valid JSON with literal tool markers and thinking
+tags preserved, in exactly two model calls with no cosmetic intro. Repeated
+continuation and unrelated-task/harness/summary controls also pass. The final
+eight-file regression run passed 147 tests (18.88 seconds); Ruff and helper mypy
+checks passed. This change does not alter action-evidence requirements.

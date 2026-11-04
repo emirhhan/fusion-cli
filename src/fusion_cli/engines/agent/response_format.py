@@ -4,15 +4,32 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 from ...core.redaction import redact
 from ...core.text_fold import fold_tr
+from ...core.types import Message
 from ...ui.text import THINK_TAG_NAMES, strip_thinking
+from .action_evidence import effect_request
 from .completion_evidence import evidence_payload
+from .history import is_summary_message
 
 if TYPE_CHECKING:
     from .turn_report import TurnReport
+
+
+def effective_response_task(task: str | None, history: Sequence[Message] = ()) -> str:
+    """Bind continuation formatting to genuine user history, never harness notes."""
+    genuine = tuple(
+        message
+        for message in history
+        if message.role == "user" and not message.harness_note and not is_summary_message(message)
+    )
+    if task is None:
+        task = genuine[-1].content if genuine else ""
+    return effect_request(task, genuine)
+
 
 _QUOTED = re.compile(
     r"```.*?```|`[^`]*`|\"[^\"\n]*\"|“[^”\n]*”|‘[^’\n]*’|"
