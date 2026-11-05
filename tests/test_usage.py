@@ -17,7 +17,13 @@ def _bitis(model: str, girdi: int, cikti: int, maliyet: float = 0.0) -> ModelCal
             text="x",
             latency_ms=10,
             ok=True,
-            usage=TokenUsage(prompt_tokens=girdi, completion_tokens=cikti, cost_usd=maliyet),
+            usage=TokenUsage(
+                prompt_tokens=girdi,
+                completion_tokens=cikti,
+                cost_usd=maliyet,
+                prompt_measured=True,
+                completion_measured=True,
+            ),
         ),
     )
 

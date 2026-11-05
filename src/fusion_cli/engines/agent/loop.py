@@ -3246,6 +3246,7 @@ async def _call_model(
         publisher=deps.publisher,
         retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
+        purpose="actor" if deps.channel is Channel.MAIN else "other",
         health=deps.health,
         web_sessions=web_registry_for(deps.config),
     )

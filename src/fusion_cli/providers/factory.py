@@ -20,7 +20,7 @@ from collections.abc import Sequence
 
 from ..config.eligibility import capability_from_spec
 from ..config.model_lookup import model_spec_for
-from ..core.events import Channel, EventPublisher, StatusChanged
+from ..core.events import Channel, EventPublisher, ModelCallPurpose, StatusChanged
 from ..core.health import HealthRegistry
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock, LlmProvider, Sleeper
@@ -48,6 +48,7 @@ def build_provider(
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
     background: bool = False,
+    purpose: ModelCallPurpose = "other",
     health: HealthRegistry | None = None,
     key_pools: KeyPoolRegistry | None = None,
     web_sessions: WebSessionRegistry | None = None,
@@ -156,7 +157,12 @@ def build_provider(
     if publisher is None:
         return inner
     return EventingProvider(
-        inner, publisher=publisher, role=spec.name, channel=channel, background=background
+        inner,
+        publisher=publisher,
+        role=spec.name,
+        channel=channel,
+        background=background,
+        purpose=purpose,
     )
 
 

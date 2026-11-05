@@ -21,6 +21,7 @@ from ..core.events import (
     EventPublisher,
     ModelCallAbandoned,
     ModelCallFinished,
+    ModelCallPurpose,
     ModelCallStarted,
     TierDegraded,
     TokenReceived,
@@ -41,6 +42,7 @@ class EventingProvider:
         role: str,
         channel: Channel = Channel.MAIN,
         background: bool = False,
+        purpose: ModelCallPurpose = "other",
         call_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._call_id_factory = call_id_factory or (lambda: uuid4().hex)
@@ -49,6 +51,7 @@ class EventingProvider:
         self._role = role
         self._channel = channel
         self._background = background
+        self._purpose = purpose
 
     @property
     def label(self) -> str:
@@ -136,6 +139,7 @@ class EventingProvider:
                 background=self._background,
                 call_id=call_id,
                 requested_model=self._inner.label,
+                purpose=self._purpose,
             )
         )
         # Yalnızca kullanıcı AÇIKÇA bir web kademesi seçtiyse (bkz. `core.tier`)

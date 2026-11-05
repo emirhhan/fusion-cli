@@ -23,6 +23,8 @@ from .prompt_manifest import PromptManifest
 from .repair_ledger import FailureOrigin
 from .types import FusionResult, ModelResult
 
+ModelCallPurpose = Literal["actor", "other"]
+
 
 class Channel(Enum):
     """Metin akışının hangi konuşmaya ait olduğu."""
@@ -78,6 +80,8 @@ class ModelCallFinished(Event):
 
     call_id: str = field(default="", kw_only=True)
     requested_model: str = field(default="", kw_only=True)
+    #: Çağrının amacı aday adından bağımsızdır; None eski olay kayıtları içindir.
+    purpose: ModelCallPurpose | None = field(default=None, kw_only=True)
 
     role: str
     result: ModelResult

@@ -54,9 +54,11 @@ class UsageMeter:
             self.uncertain_calls += 1
         self.by_model[model] = self.by_model.get(model, TokenUsage()) + usage
         if (
-            event.role == "agent"
+            (event.purpose == "actor" or (event.purpose is None and event.role == "agent"))
+            and not event.agent_id
             and not event.background
             and event.result.ok
+            and usage.prompt_measured
             and usage.prompt_tokens > 0
         ):
             self.last_agent_prompt_tokens = usage.prompt_tokens
