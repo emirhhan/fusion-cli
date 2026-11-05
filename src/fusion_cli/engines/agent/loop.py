@@ -813,7 +813,7 @@ async def run_agent(
                 )
             deps.lesson_state = LessonTurnState()
             deps.recalled_lessons.clear()
-            hint = learning_steps.recall_hints(task, deps)
+            hint = await learning_steps.recall_hints(task, deps)
             if hint:
                 extra_system = "\n\n".join(part for part in (extra_system, hint) if part)
         if root_turn:

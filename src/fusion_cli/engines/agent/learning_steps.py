@@ -13,12 +13,13 @@ import asyncio
 import logging
 from collections.abc import Awaitable
 from dataclasses import replace
+from pathlib import Path
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
 from typing import TYPE_CHECKING
 
 from ...core.events import LessonsLearned, LessonsRecalled
-from ...core.lesson_runtime import HINT_LIMIT, LessonDelivery
+from ...core.lesson_runtime import LessonDelivery
 from ...core.mcp_tool_names import mcp_server_of
 from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
@@ -59,15 +60,17 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
     MCP sunucusu ayrı bir etikettir: bir MCP aracının kuralı, projenin türünden
     bağımsız olarak o sunucu bağlıyken geçerlidir.
     """
+    context = deps.tool_context
+    return _lesson_tags_for(context.root, tuple(context.available_tools), deps.lesson_owner)
+
+
+def _lesson_tags_for(root: Path, tools: tuple[str, ...], owner: str) -> tuple[str, ...]:
+    """Immutable scope inputs shared by manual and automatic reads."""
     from .verify_discovery import project_kinds
 
-    context = deps.tool_context
-    sunucular = {mcp_server_of(ad) for ad in context.available_tools} - {""}
-    # Kendi belleği olan alt ajanın dersi kişilik etiketi taşır (P-055): çıkarımda yazılır,
-    # geri çağırmada süzgeç olur (`core.memory.visible_to`).
-    owner = getattr(deps, "lesson_owner", "")
-    sahip = {agent_lesson_tag(owner)} if owner else set()
-    return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular), *sahip}))
+    servers = {mcp_server_of(name) for name in tools} - {""}
+    owners = {agent_lesson_tag(owner)} if owner else set()
+    return tuple(sorted({*project_kinds(root), *(f"mcp:{s}" for s in servers), *owners}))
 
 
 def recall_lessons(query: str, deps: AgentDeps, *, limit: int = RECALL_LIMIT) -> tuple[Lesson, ...]:
@@ -282,15 +285,77 @@ async def _extract_and_store(
         deps.publisher.publish(LessonsLearned(count=stored, external=stored if external else 0))
 
 
-def recall_hints(task: str, deps: AgentDeps) -> str:
-    """Açık bayrakla en fazla iki dersi gerçek isteme sun."""
-    if not deps.config.runtime.lesson_recall_hints:
-        return ""
-    from ...memory.lessons import as_prompt_block
+def _hint_remaining_s(deps: AgentDeps) -> float | None:
+    limits = []
+    if deps.deadline is not None:
+        limits.append(deps.deadline.remaining_s())
+    if deps.budget is not None and (remaining := deps.budget.remaining_s()) is not None:
+        limits.append(remaining)
+    return min(limits) if limits else None
 
-    lessons = recall_lessons(task, deps, limit=HINT_LIMIT)[:HINT_LIMIT]
-    lesson_attribution.offer(lessons, deps, LessonDelivery.HINT)
-    return as_prompt_block(lessons)
+
+async def recall_hints(task: str, deps: AgentDeps) -> str:
+    """Offer timely automatic hints only on their owning attempt's event loop."""
+    if not deps.config.runtime.lesson_recall_hints or not deps.config.runtime.lessons:
+        return ""
+    if deps.lessons is None:
+        return ""
+    from .automatic_recall import RecallRequest, retrieve
+
+    remaining = _hint_remaining_s(deps)
+    if remaining is not None and remaining <= 0:
+        return ""
+    attempt = deps.attempt_id
+    cursor = deps.original_cursor
+    cursor_turn_id = cursor.turn_id
+    state = deps.lesson_state
+    context = deps.tool_context
+    try:
+        result = await retrieve(
+            RecallRequest(
+                deps.lessons,
+                task,
+                context.root,
+                tuple(context.available_tools),
+                deps.lesson_owner,
+                lesson_attribution.recall_policy(deps),
+            ),
+            max_wait_s=remaining,
+        )
+    except Exception as error:
+        logger.debug("Otomatik ders ipucu atlandı (%s).", type(error).__name__)
+        return ""
+    if (
+        not result.block
+        or not result.lessons
+        or deps.attempt_id != attempt
+        or deps.original_cursor is not cursor
+        or cursor.turn_id != cursor_turn_id
+        or deps.lesson_state is not state
+        or ((remaining := _hint_remaining_s(deps)) is not None and remaining <= 0)
+    ):
+        return ""
+    recalled_count = len(deps.recalled_lessons)
+    offered = dict(state.offered) if state is not None else {}
+    try:
+        deps.recalled_lessons.extend(result.lessons)
+        deps.publisher.publish(
+            LessonsRecalled(
+                count=len(result.lessons),
+                lesson_ids=tuple(lesson.id for lesson in result.lessons if lesson.id),
+            )
+        )
+        lesson_attribution.offer(result.lessons, deps, LessonDelivery.HINT)
+    except Exception as error:
+        # An optional observer cannot abort the actor or leave phantom feedback candidates.
+        del deps.recalled_lessons[recalled_count:]
+        if state is not None:
+            state.offered.clear()
+            state.offered.update(offered)
+        deps.lesson_state = state
+        logger.debug("Otomatik ders bildirimi atlandı (%s).", type(error).__name__)
+        return ""
+    return result.block
 
 
 async def finish_learning(
