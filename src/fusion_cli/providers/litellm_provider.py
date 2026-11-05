@@ -143,6 +143,10 @@ class LiteLlmProvider:
             "timeout": request.timeout_s,
             "num_retries": request.max_retries,
         }
+        if self._model.startswith("nvidia_nim/"):
+            # NIM's LiteLLM mapping drops max_retries, restoring the SDK default
+            # of two retries even when the request explicitly asks for zero.
+            kwargs["allowed_openai_params"] = ["max_retries"]
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             if accepts_raw_schemas(self._model):
