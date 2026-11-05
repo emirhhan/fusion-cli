@@ -30,6 +30,11 @@ const script = template.replaceAll("{listeners_object_name}", "testListeners")
   .replaceAll("{event_arg}", "event").replaceAll("{event_id_arg}", "eventId")
   .replaceAll("{{", "{").replaceAll("}}", "}");
 
+test("installed JS API and locked Rust runtime share the major/minor required by the native CLI", () => {
+  const apiPackage = JSON.parse(readFileSync(new URL("./package.json", import.meta.resolve("@tauri-apps/api/event")), "utf8"));
+  assert.equal(apiPackage.version.split(".").slice(0, 2).join("."), version.split(".").slice(0, 2).join("."));
+});
+
 test("immediate cleanup still removes the backend subscription before its registration eval lands", async () => {
   const previousWindow = globalThis.window;
   const callbacks = new Map();
