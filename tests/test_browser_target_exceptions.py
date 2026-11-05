@@ -61,6 +61,8 @@ def test_exceptions_keep_crowded_targets(browser, width, markup, count):
         '<div role="main">x</div>',
         "<div role=main>x</div>",
         '<div role=" main ">x</div>',
+        "<template><main>sample</main></template><main>actual</main>",
+        '<div hidden><main>hidden</main></div><div role="main">actual</div>',
     ],
 )
 def test_main_landmarks_do_not_produce_recommendations(landmark):
@@ -115,3 +117,62 @@ def test_truncated_candidates_cannot_prove_spacing(browser):
         assert len(page.evaluate(_LAYOUT_PROBE)["smallTargets"]) == 1500
     finally:
         context.close()
+
+
+@pytest.mark.parametrize(
+    "hidden_style",
+    [
+        "hidden",
+        'style="display:none"',
+        'style="visibility:hidden"',
+        'style="opacity:0"',
+        'style="position:absolute;width:1px;height:1px;clip-path:inset(50%)"',
+    ],
+)
+def test_hidden_prose_cannot_exempt_crowded_inline_links(browser, hidden_style):
+    context = browser.new_context()
+    context.route("**/*", lambda route: route.abort())
+    try:
+        page = context.new_page()
+        page.set_content(
+            f'<p><span {hidden_style}>Source:</span><a href="#a">x</a><a href="#b">y</a></p>'
+        )
+        assert len(page.evaluate(_LAYOUT_PROBE)["smallTargets"]) == 2
+    finally:
+        context.close()
+
+
+def test_focus_container_is_not_a_separate_pointer_target(browser):
+    context = browser.new_context()
+    context.route("**/*", lambda route: route.abort())
+    try:
+        page = context.new_page()
+        page.set_content(
+            '<div tabindex="-1" style="padding:40px">'
+            '<button style="width:16px;height:16px;padding:0;border:0">x</button></div>'
+        )
+        assert page.evaluate(_LAYOUT_PROBE)["smallTargets"] == []
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        '<script role="main">const x=1;</script><p>content</p>',
+        '<style role="main">p{color:black}</style><p>content</p>',
+        '<meta role="main"><p>content</p>',
+        "<template><main>example</main></template><p>content</p>",
+        "<main hidden>example</main><p>content</p>",
+        '<div hidden><div role="main">example</div></div><p>content</p>',
+        '<main role="presentation">example</main>',
+        '<main aria-hidden="true">example</main>',
+        '<div style="display:none"><main>example</main></div>',
+    ],
+)
+def test_nonlandmark_markup_retains_optional_advice(fragment):
+    blocking, warnings, advisories = inspect_web_output_by_severity(
+        {"x.html": "<html><body>" + fragment + "</body></html>"}
+    )
+    assert blocking == warnings == ()
+    assert len(advisories) == 1

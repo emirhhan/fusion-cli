@@ -182,18 +182,66 @@ def _bos_baglantilar(html: str) -> list[str]:
 
 
 class _MainLandmarkParser(HTMLParser):
-    """Recognize actual landmarks, ignoring comments and raw-text contents."""
+    """Narrow static landmark hint, not a CSS/ARIA accessibility-tree engine."""
+
+    _NONRENDERED = frozenset(
+        {"head", "script", "style", "template", "title", "meta", "link", "base"}
+    )
+    _VOID = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.found = False
+        self._ancestors: list[tuple[str, bool]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
-        # ARIA role fallback uses the first recognized role. Only the unambiguous
-        # single-token main form is accepted here; this is a narrow quality check.
-        if tag == "main" or (attributes.get("role") or "").strip() == "main":
+        style = attributes.get("style") or ""
+        excluded = (
+            (bool(self._ancestors) and self._ancestors[-1][1])
+            or tag in self._NONRENDERED
+            or "hidden" in attributes
+            or "inert" in attributes
+            or (attributes.get("aria-hidden") or "").strip().lower() == "true"
+            or bool(
+                re.search(
+                    r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b", style, re.I
+                )
+            )
+        )
+        # Only unambiguous role markers: override roles remove implicit main.
+        role = (attributes.get("role") or "").strip()
+        if not excluded and (role == "main" or (tag == "main" and not role)):
             self.found = True
+        if tag not in self._VOID:
+            self._ancestors.append((tag, excluded))
+
+    def handle_endtag(self, tag: str) -> None:
+        for index in range(len(self._ancestors) - 1, -1, -1):
+            if self._ancestors[index][0] == tag:
+                del self._ancestors[index:]
+                break
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
 
 def _eksik_main(html: str) -> list[str]:

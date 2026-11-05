@@ -775,7 +775,7 @@ _LAYOUT_PROBE = """() => {
     const targetSelector = 'a[href],button,input,select,textarea,summary,' +
         '[role="button"],[role="link"],[role="checkbox"],[role="radio"],' +
         '[role="switch"],[role="tab"],[role="menuitem"],[role="slider"],' +
-        '[role="spinbutton"],[role="combobox"],[onclick],[tabindex]';
+        '[role="spinbutton"],[role="combobox"],[onclick]';
     const candidates = document.querySelectorAll(targetSelector);
     const targetLimit = 1500; // bound quadratic geometry; truncation cannot prove spacing
     const complete = candidates.length <= targetLimit;
@@ -792,9 +792,32 @@ _LAYOUT_PROBE = """() => {
         if (e.tagName !== 'A' || !parent || !parent.matches('p,li,dd,dt') ||
             getComputedStyle(e).display !== 'inline' ||
             getComputedStyle(parent).display !== 'block') return false;
-        const prose = parent.cloneNode(true);
-        for (const control of prose.querySelectorAll(targetSelector)) control.remove();
-        return Boolean(prose.textContent.trim());
+        // Prove visible non-target prose in the ORIGINAL DOM. Detached textContent
+        // includes hidden/screen-reader-only text and can exempt crowded controls.
+        const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
+        let text, visited = 0;
+        while ((text = walker.nextNode()) && ++visited <= 2000) {
+            if (!text.textContent.trim()) continue;
+            let visible = true;
+            for (let n = text.parentElement; n; n = n.parentElement) {
+                const style = getComputedStyle(n);
+                if (n.matches(targetSelector) || n.hidden || n.inert ||
+                    style.display === 'none' || style.visibility !== 'visible' ||
+                    Number(style.opacity) === 0 || style.contentVisibility === 'hidden' ||
+                    style.position === 'absolute' || style.position === 'fixed' ||
+                    style.clipPath !== 'none' || style.clip !== 'auto' ||
+                    style.overflowX === 'hidden' || style.overflowY === 'hidden') {
+                    visible = false;
+                    break;
+                }
+            }
+            if (!visible) continue;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            if (Array.from(range.getClientRects()).some(r => r.width > 0 && r.height > 0))
+                return true;
+        }
+        return false;
     };
     const spacingException = target => complete && targets.every(other => {
         if (other === target) return true;
