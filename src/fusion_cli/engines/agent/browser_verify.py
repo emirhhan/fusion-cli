@@ -27,13 +27,14 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
+from .contact_form_probe import ContactObservation, probe_contact_forms
 from .page_audit import (
     AUDIT_PROBE,
     StyleSignature,
@@ -202,6 +203,7 @@ class PageObservation:
     shrunk_media: tuple[tuple[str, int, int], ...] = ()
     #: Sayfanın stil imzası (sayfalar arası tutarlılık için; bkz. `page_audit`).
     style: StyleSignature = field(default_factory=StyleSignature)
+    contact_forms: tuple[ContactObservation, ...] = ()
 
 
 def page_findings_by_severity(
@@ -212,6 +214,19 @@ def page_findings_by_severity(
     warnings: list[str] = []
 
     for page in observations:
+        for contact in page.contact_forms:
+            if contact.status == "false_receipt":
+                blocking.append(
+                    f"{page.name} contact form claims receipt without attempted transport: "
+                    f'"{contact.visible_receipt}". Replace this false promise with a visible, '
+                    "honest demonstration/local draft or a real configured delivery path. "
+                    "Do not invent an endpoint/address or hide the disclosure."
+                )
+            elif contact.status in {"not_measured", "unverified_transport"}:
+                warnings.append(
+                    f"{page.name} contact form {contact.status}: {contact.reason}; "
+                    "delivery unverified."
+                )
         blocking.extend(_console(page))
         blocking.extend(_requests(page))
         blocking.extend(_overflow(page))
@@ -248,7 +263,7 @@ def browser_verification_result(
     blocking, warnings, advisories = page_findings_by_severity(observations)
     # Sayfalar GERÇEKTEN açıldıysa bu bir davranış kanıtıdır: rapor, komut
     # çalıştırılmadı diye turu doğrulanmamış saymamalı (bkz. `turn_report`).
-    kanit = (
+    kanit: tuple[CriterionEvidence, ...] = (
         (
             CriterionEvidence(
                 criterion_id="tarayici_sayfalari",
@@ -261,6 +276,28 @@ def browser_verification_result(
         else ()
     )
 
+    kanit += tuple(
+        CriterionEvidence(
+            criterion_id="contact_receipt_truth",
+            kind=VerificationCheckKind.TOOL,
+            status=EvidenceStatus.FAILED
+            if contact.status == "false_receipt"
+            else EvidenceStatus.UNVERIFIED,
+            summary=f"{page.name}: {contact.status}; bounded offline probe, delivery not verified",
+            artifact=page.name,
+            output=json.dumps(
+                {
+                    "form_index": contact.form_index,
+                    "status": contact.status,
+                    "visible_receipt": contact.visible_receipt,
+                    "transport_attempts": contact.transport_attempts,
+                    "reason": contact.reason,
+                }
+            ),
+        )
+        for page in observations
+        for contact in page.contact_forms
+    )
     if not blocking and not warnings and not advisories:
         return VerificationResult(ok=True, evidence=kanit)
 
@@ -575,7 +612,11 @@ class BrowserVerifier:
             browser = await driver.chromium.launch()
             try:
                 for path in pages:
-                    observations.append(await self._observe_page(browser, path.as_uri(), path.name))
+                    observation = await self._observe_page(browser, path.as_uri(), path.name)
+                    contacts = await probe_contact_forms(
+                        browser, path.read_text(encoding="utf-8", errors="replace")
+                    )
+                    observations.append(replace(observation, contact_forms=contacts))
             finally:
                 await browser.close()
         return observations

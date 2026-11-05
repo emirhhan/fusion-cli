@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kahve Durağı - Türk Kahve Dükkanı</title>
+  <style>
+    :root {
+      --bg: #faf8f5;
+      --bg-alt: #f0ebe3;
+      --text: #2d2825;
+      --text-muted: #6b5e56;
+      --accent: #8b5e3c;
+      --accent-hover: #6d462e;
+      --card-bg: #ffffff;
+      --border: #e0d8cf;
+      --shadow: rgba(45, 40, 37, 0.08);
+    }
+
+    [data-theme="dark"] {
+      --bg: #1a1614;
+      --bg-alt: #241f1c;
+      --text: #f5f0eb;
+      --text-muted: #b8a9a0;
+      --accent: #c9a67a;
+      --accent-hover: #d4b896;
+      --card-bg: #241f1c;
+      --border: #3d342f;
+      --shadow: rgba(0, 0, 0, 0.3);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .skip-link {
+      position: absolute; top: -100%; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #fff; padding: 0.75rem 1.5rem;
+      border-radius: 0 0 8px 8px; z-index: 1000; text-decoration: none;
+    }
+    .skip-link:focus { top: 0; }
+
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+    }
+
+    .nav-container {
+      max-width: 1200px; margin: 0 auto; padding: 1rem 1.5rem;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 1rem; flex-wrap: wrap;
+    }
+
+    .logo {
+      font-size: 1.5rem; font-weight: 700; color: var(--accent);
+      text-decoration: none; letter-spacing: -0.02em;
+    }
+
+    nav ul {
+      display: flex; list-style: none; gap: 0.5rem;
+      flex-wrap: wrap; justify-content: center;
+    }
+
+    nav a {
+      display: block; padding: 0.5rem 1rem; color: var(--text);
+      text-decoration: none; border-radius: 8px; font-weight: 500;
+      transition: background 0.2s, color 0.2s;
+    }
+    nav a:hover, nav a:focus { background: var(--bg-alt); color: var(--accent); }
+    nav a[aria-current="page"] { background: var(--accent); color: #fff; }
+
+    .theme-toggle {
+      display: flex; align-items: center; justify-content: center;
+      width: 44px; height: 44px; border: 1px solid var(--border);
+      background: var(--card-bg); border-radius: 10px; cursor: pointer;
+      color: var(--text); transition: all 0.2s;
+    }
+    .theme-toggle:hover { background: var(--bg-alt); border-color: var(--accent); }
+    .theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .theme-toggle svg { width: 22px; height: 22px; transition: opacity 0.2s, transform 0.2s; }
+    .theme-toggle .sun { display: none; }
+    [data-theme="dark"] .theme-toggle .sun { display: block; }
+    [data-theme="dark"] .theme-toggle .moon { display: none; }
+
+    main { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
+
+    section { padding: 5rem 0; }
+
+    .section-header {
+      text-align: center; margin-bottom: 3rem;
+    }
+    .section-header h2 {
+      font-size: clamp(2rem, 1.5rem + 2vw, 3rem);
+      font-weight: 700; color: var(--text); margin-bottom: 0.5rem;
+    }
+    .section-header p { color: var(--text-muted); font-size: 1.1rem; }
+
+    /* Hero */
+    #hero { padding-top: 6rem; padding-bottom: 4rem; text-align: center; }
+    #hero h1 {
+      font-size: clamp(2.5rem, 2rem + 4vw, 5rem);
+      font-weight: 800; line-height: 1.1; margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #hero .tagline {
+      font-size: clamp(1.1rem, 1rem + 1vw, 1.4rem);
+      color: var(--text-muted); margin-bottom: 2rem; max-width: 600px; margin-left: auto; margin-right: auto;
+    }
+    .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.875rem 1.75rem; border-radius: 10px; font-weight: 600;
+      text-decoration: none; transition: all 0.2s; border: none; cursor: pointer; font-size: 1rem;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 20px var(--shadow); }
+    .btn-secondary { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--bg-alt); border-color: var(--accent); }
+
+    /* Menu */
+    .menu-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .menu-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.5rem; transition: all 0.3s;
+    }
+    .menu-card:hover { transform: translateY(-4px); box-shadow: 0 12px 30px var(--shadow); border-color: var(--accent); }
+    .menu-card h3 { font-size: 1.25rem; margin-bottom: 0.5rem; color: var(--text); }
+    .menu-card .price { color: var(--accent); font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .menu-card p { color: var(--text-muted); font-size: 0.95rem; }
+
+    /* Contact */
+    .contact-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: start;
+    }
+    @media (max-width: 768px) { .contact-grid { grid-template-columns: 1fr; gap: 2rem; } }
+
+    .contact-info h3 { font-size: 1.5rem; margin-bottom: 1rem; }
+    .contact-info p { color: var(--text-muted); margin-bottom: 1.5rem; }
+    .contact-item { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; color: var(--text); }
+    .contact-item svg { width: 22px; height: 22px; color: var(--accent); flex-shrink: 0; }
+
+    .contact-form { background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text); }
+    .form-group input, .form-group textarea {
+      width: 100%; padding: 0.875rem 1rem; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg); color: var(--text);
+      font-family: inherit; font-size: 1rem; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+    .form-group textarea { min-height: 120px; resize: vertical; }
+    .form-status { min-height: 1.5rem; font-size: 0.9rem; margin-top: 0.5rem; }
+
+    footer {
+      background: var(--bg-alt); border-top: 1px solid var(--border);
+      padding: 2.5rem 1.5rem; margin-top: 2rem;
+    }
+    .footer-content { max-width: 1200px; margin: 0 auto; text-align: center; }
+    .footer-content p { color: var(--text-muted); font-size: 0.95rem; }
+
+    @media (max-width: 600px) {
+      .nav-container { padding: 0.75rem 1rem; }
+      nav ul { gap: 0.25rem; }
+      nav a { padding: 0.4rem 0.75rem; font-size: 0.9rem; }
+      section { padding: 3.5rem 0; }
+      #hero { padding-top: 4rem; }
+    }
+  </style>
+</head>
+<body>
+  <a href="#main" class="skip-link">Ana içeriğe atla</a>
+
+  <header>
+    <div class="nav-container">
+      <a href="#hero" class="logo" aria-label="Kahve Durağı - Ana Sayfa">Kahve Durağı</a>
+
+      <nav aria-label="Ana navigasyon">
+        <ul>
+          <li><a href="#hero" aria-current="page">Ana Sayfa</a></li>
+          <li><a href="#menu">Menü</a></li>
+          <li><a href="#contact">İletişim</a></li>
+        </ul>
+      </nav>
+
+      <button class="theme-toggle" id="themeToggle" aria-label="Tema değiştir" type="button">
+        <svg class="moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="hero" aria-labelledby="hero-title">
+      <div class="section-header">
+        <h1 id="hero-title">Türk Kahvesinin Gerçek Tadını Yaşayın</h1>
+        <p class="tagline">Geleneksel yöntemlerle demlenmiş, özenle seçilmiş çekirdeklerden hazırlanan unutulmaz kahve deneyimi.</p>
+        <div class="cta-group">
+          <a href="#menu" class="btn btn-primary">Menüyü Keşfet</a>
+          <a href="#contact" class="btn btn-secondary">Bizi Ziyaret Edin</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="menu" aria-labelledby="menu-title">
+      <div class="section-header">
+        <h2 id="menu-title">Menümüz</h2>
+        <p>Her damlada gelenek, her yudumda lezzet</p>
+      </div>
+      <div class="menu-grid">
+        <article class="menu-card">
+          <h3>Türk Kahvesi</h3>
+          <div class="price">45 ₺</div>
+          <p>Geleneksel cezve usulü, köpüklü ve yoğun. Şekerli, orta veya sade seçenekleriyle.</p>
+        </article>
+        <article class="menu-card">
+          <h3>Dibek Kahvesi</h3>
+          <div class="price">55 ₺</div>
+          <p>El dibeğinde dövülmüş çekirdeklerin yarattığı yumuşak, aromatik ve hafif tatlı lezzet.</p>
+        </article>
+        <article class="menu-card">
+          <h3>Menengiç Kahvesi</h3>
+          <div class="price">60 ₺</div>
+          <p>Kafeinsiz, menengiç meyvesinden yapılan özgün Anadolu lezzeti. Sağlıklı ve aromatik.</p>
+        </article>
+        <article class="menu-card">
+          <h3>Sütlü Türk Kahvesi</h3>
+          <div class="price">50 ₺</div>
+          <p>Klasik Türk kahvesinin sütle buluştuğu hafif ve kremalı versiyonu.</p>
+        </article>
+        <article class="menu-card">
+          <h3>Çikolatalı Kahve</h3>
+          <div class="price">65 ₺</div>
+          <p>Türk kahvesi ile bitter çikolatanın harmanlandığı özel karışımımız.</p>
+        </article>
+        <article class="menu-card">
+          <h3>Damla Sakızı Kahvesi</h3>
+          <div class="price">55 ₺</div>
+          <p>Sakızın o benzersiz aromasıyla zenginleştirilmiş, unutulmaz bir deneyim.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="contact" aria-labelledby="contact-title">
+      <div class="section-header">
+        <h2 id="contact-title">İletişim</h2>
+        <p>Bizimle iletişime geçin, size en yakın şubemizi bulun</p>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-info">
+          <h3>Kahve Durağı</h3>
+          <p>Geleneksel Türk kahve kültürünü modern bir mekanlarda yaşıyoruz. Her gün 08:00 - 23:00 arası sizleri bekliyoruz.</p>
+          <div class="contact-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            <span>İstiklal Cad. No:15, Beyoğlu/İstanbul</span>
+          </div>
+          <div class="contact-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            <span><a href="tel:+902125550101" style="color:inherit;text-decoration:none">+90 212 555 01 01</a></span>
+          </div>
+          <div class="contact-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+            <span><a href="mailto:merhaba@kahveduragi.com" style="color:inherit;text-decoration:none">merhaba@kahveduragi.com</a></span>
+          </div>
+          <div class="contact-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Pazartesi - Pazar: 08:00 - 23:00</span>
+          </div>
+        </div>
+        <form class="contact-form" id="contactForm" novalidate>
+          <div class="form-group">
+            <label for="name">Ad Soyad</label>
+            <input type="text" id="name" name="name" required placeholder="Adınız ve soyadınız" autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label for="email">E-posta</label>
+            <input type="email" id="email" name="email" required placeholder="ornek@email.com" autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label for="subject">Konu</label>
+            <input type="text" id="subject" name="subject" required placeholder="Mesaj konusu" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="message">Mesajınız</label>
+            <textarea id="message" name="message" required placeholder="Bize yazmak istedikleriniz..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%">Gönder</button>
+          <p class="form-status" id="formStatus" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-content">
+      <p>&copy; 2025 Kahve Durağı. Tüm hakları saklıdır. Gelenekle yapıldı.</p>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      const toggle = document.getElementById('themeToggle');
+      const html = document.documentElement;
+      const STORAGE_KEY = 'theme-preference';
+
+      function getInitialTheme() {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) return stored;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      function applyTheme(theme) {
+        html.setAttribute('data-theme', theme);
+        localStorage.setItem(STORAGE_KEY, theme);
+        toggle.setAttribute('aria-label', theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç');
+      }
+
+      function toggleTheme() {
+        const current = html.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+      }
+
+      applyTheme(getInitialTheme());
+
+      toggle.addEventListener('click', toggleTheme);
+
+      toggle.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleTheme();
+        }
+      });
+
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+        if (!localStorage.getItem(STORAGE_KEY)) {
+          applyTheme(e.matches ? 'dark' : 'light');
+        }
+      });
+
+      const form = document.getElementById('contactForm');
+      const status = document.getElementById('formStatus');
+
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const data = new FormData(form);
+        const name = data.get('name').trim();
+        const email = data.get('email').trim();
+        const subject = data.get('subject').trim();
+        const message = data.get('message').trim();
+
+        if (!name || !email || !subject || !message) {
+          status.textContent = 'Lütfen tüm alanları doldurun.';
+          status.style.color = 'var(--accent)';
+          return;
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          status.textContent = 'Geçerli bir e-posta adresi girin.';
+          status.style.color = 'var(--accent)';
+          return;
+        }
+
+        status.textContent = 'Mesajınız gönderiliyor...';
+        status.style.color = 'var(--text-muted)';
+
+        setTimeout(function() {
+          status.textContent = 'Teşekkürler! Mesajınız başarıyla alındı. En kısa sürede size dönüş yapacağız.';
+          status.style.color = 'var(--accent)';
+          form.reset();
+        }, 1000);
+      });
+
+      document.querySelectorAll('nav a[href^="#"]').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+          const targetId = this.getAttribute('href');
+          if (targetId === '#') return;
+          const target = document.querySelector(targetId);
+          if (target) {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            target.focus({ preventScroll: true });
+            history.pushState(null, '', targetId);
+          }
+        });
+      });
+
+      const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute('id');
+            document.querySelectorAll('nav a').forEach(function(link) {
+              link.removeAttribute('aria-current');
+              if (link.getAttribute('href') === '#' + id) {
+                link.setAttribute('aria-current', 'page');
+              }
+            });
+          }
+        });
+      }, { rootMargin: '-20% 0px -70% 0px', threshold: 0 });
+
+      document.querySelectorAll('section[id]').forEach(function(section) {
+        observer.observe(section);
+      });
+    })();
+  </script>
+</body>
+</html>
