@@ -489,7 +489,7 @@ async def test_live_permission_revocation_clears_accepted_consent(tmp_path, monk
     await session.close()
 
 
-@pytest.mark.parametrize("action", ["forget", "after_auto"])
+@pytest.mark.parametrize("action", ["forget", "after_auto", "after_fallback"])
 async def test_live_explicit_permission_change_overrides_snapshot(tmp_path, monkeypatch, action):
     from fusion_cli.engines.agent.approval import ApprovalMode
     from fusion_cli.engines.agent.auto_switch import apply_auto_switch
@@ -502,8 +502,10 @@ async def test_live_explicit_permission_change_overrides_snapshot(tmp_path, monk
     seen = []
 
     async def run(task, config, **kwargs):
-        if action == "after_auto":
+        if action in {"after_auto", "after_fallback"}:
             apply_auto_switch(kwargs["approval_memory"])
+            if action == "after_fallback":
+                kwargs["approval_memory"].auto_review.on_fallback()
         entered.set()
         await release.wait()
         mode = kwargs["current_approval"]()
@@ -521,6 +523,10 @@ async def test_live_explicit_permission_change_overrides_snapshot(tmp_path, monk
     if action == "forget":
         assert (await session._chrome_settings({"izin_sil": scope}))["ok"]
     else:
+        if action == "after_fallback":
+            owner = session._active_accepted.conversation_id
+            await session._dispatch(Request("other", "oturum.baslat", {"sohbet_id": "other"}))
+            await session._dispatch(Request("owner", "oturum.baslat", {"sohbet_id": owner}))
         assert session._state.approval is ApprovalMode.AUTO
         assert session._apply_mode("security", persist=False) is None
     release.set()
@@ -662,3 +668,102 @@ async def test_cached_receipt_preserves_live_hook_identity_and_pending_input(tmp
     await startup
     source._background.clear()
     await session.close()
+
+
+@pytest.mark.parametrize("action", ["unchanged", "security", "forget"])
+async def test_returned_accepted_chat_can_revoke_running_snapshot(tmp_path, monkeypatch, action):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    session = _session(tmp_path, [])
+    await session._dispatch(Request("s", "oturum.baslat", {"sohbet_id": "accepted"}))
+    session._state.approval = ApprovalMode.AUTO
+    scope = "chrome-site:example.com"
+    other_scope = "chrome-site:example.net"
+    session._state.approval_memory._scopes.update((scope, other_scope))
+    entered, release = asyncio.Event(), asyncio.Event()
+    seen = []
+
+    async def run(task, config, **kwargs):
+        entered.set()
+        await release.wait()
+        seen.append(
+            (
+                kwargs["current_approval"](),
+                kwargs["approval_memory"].scopes_with_prefix("chrome-site:"),
+            )
+        )
+        return AgentOutcome("done", [])
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    monkeypatch.setattr("fusion_cli.config.browser_sites.load_allowed", lambda: frozenset())
+    pending = asyncio.create_task(
+        session._dispatch(
+            Request("r", "tur.calistir", {"gorev": "İşi bitir", "gonderim_id": "job"})
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        assert (await session._dispatch(Request("n", "oturum.baslat", {"sohbet_id": "other"})))[
+            "ok"
+        ]
+        assert (await session._dispatch(Request("b", "oturum.baslat", {"sohbet_id": "accepted"})))[
+            "ok"
+        ]
+        assert session._same_accepted_chat(session._active_accepted)
+        if action == "security":
+            assert session._apply_mode("security", persist=False) is None
+        elif action == "forget":
+            assert (await session._chrome_settings({"izin_sil": scope}))["ok"]
+        release.set()
+        await asyncio.wait_for(pending, 5)
+        expected = (
+            (ApprovalMode.SECURITY, [])
+            if action == "security"
+            else (ApprovalMode.AUTO, [other_scope] if action == "forget" else [scope, other_scope])
+        )
+        assert seen == [expected]
+    finally:
+        release.set()
+        await session.close()
+
+
+@pytest.mark.parametrize("surface", ["chat", "browser"])
+async def test_consent_earned_after_roundtrip_survives_next_same_chat_job(
+    tmp_path, monkeypatch, surface
+):
+    session = _session(tmp_path, [])
+    await session._dispatch(Request("s", "oturum.baslat", {"sohbet_id": "accepted"}))
+    entered, release = asyncio.Event(), asyncio.Event()
+    seen = []
+
+    async def run(task, config, **kwargs):
+        memory = kwargs["approval_memory"]
+        seen.append(memory.scopes_with_prefix("chrome-site:"))
+        if len(seen) == 1:
+            entered.set()
+            await release.wait()
+            memory._scopes.add("chrome-site:example.com")
+        return AgentOutcome("done", [])
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    first = (
+        session._chrome_turn("İlk panel işi")
+        if surface == "browser"
+        else session._dispatch(
+            Request("r", "tur.calistir", {"gorev": "İlk iş", "gonderim_id": "one"})
+        )
+    )
+    pending = asyncio.create_task(first)
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        await session._dispatch(Request("new", "oturum.baslat", {"sohbet_id": "other"}))
+        await session._dispatch(Request("old", "oturum.baslat", {"sohbet_id": "accepted"}))
+        release.set()
+        await asyncio.wait_for(pending, 5)
+        await session._dispatch(
+            Request("next", "tur.calistir", {"gorev": "Sıradaki iş", "gonderim_id": "two"})
+        )
+        assert seen == [[], ["chrome-site:example.com"]]
+    finally:
+        release.set()
+        await session.close()

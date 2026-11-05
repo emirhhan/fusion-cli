@@ -814,7 +814,7 @@ class AppSession:
             from .site_permissions import site_permission_settings
 
             accepted = self._active_accepted
-            owns_visible = accepted is not None and self._accepted_is_visible(accepted)
+            owns_visible = accepted is not None and self._same_accepted_chat(accepted)
             memory = (
                 accepted.state.approval_memory
                 if accepted is not None and owns_visible
@@ -824,7 +824,7 @@ class AppSession:
             if (
                 owns_visible
                 and accepted is not None
-                and self._accepted_is_visible(accepted)
+                and self._same_accepted_chat(accepted)
                 and isinstance(data.get("izin_sil"), str)
                 and result.get("ok")
             ):
@@ -2116,7 +2116,7 @@ class AppSession:
         if mode is not self._state.approval:
             self._state.approval_memory.revoke()
         self._state.approval = mode
-        self._sync_active_approval()
+        self._sync_active_approval(explicit_mode=mode)
         if persist:
             self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
@@ -2834,6 +2834,7 @@ class AppSession:
             self._child_runs = self._state.child_runs
         if self._state.approval is not previous_approval:
             self._state.approval_memory.revoke()
+            self._sync_active_approval(explicit_mode=self._state.approval)
             self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
             result = {**result, **self._take_persist_warning()}
         if command is not None and command.name in {"rewind", "undo"}:
@@ -3222,12 +3223,23 @@ class AppSession:
                 self._bind_hook_owner(accepted.state, accepted.hook_source)
             self._hook_lease = accepted
 
-    def _sync_active_approval(self) -> None:
+    def _sync_active_approval(self, *, explicit_mode: ApprovalMode | None = None) -> None:
         accepted = self._active_accepted or self._hook_lease
-        if accepted is None or not self._accepted_is_visible(accepted):
+        if accepted is None:
             return
         memory = accepted.state.approval_memory
         visible = self._state.approval_memory
+        # Explicit user permission changes belong to chat identity even after
+        # old -> new -> old. Incidental mutable deltas still require the exact
+        # generation, so another chat cannot revoke or regrant this turn's scopes.
+        if explicit_mode is not None and self._same_accepted_chat(accepted):
+            if accepted.state.approval is not explicit_mode or memory.revision != visible.revision:
+                memory.revoke()
+            memory.revision = visible.revision
+            accepted.state.approval = explicit_mode
+            return
+        if not self._accepted_is_visible(accepted):
+            return
         memory._scopes.difference_update(accepted.approval_scopes - visible._scopes)
         if visible.revision != accepted.approval_revision and memory.revision != visible.revision:
             memory.revoke()
@@ -3255,6 +3267,7 @@ class AppSession:
         )
 
     def _merge_accepted_result(self, accepted: _AcceptedTurn) -> None:
+        self._merge_accepted_approval(accepted)
         if not self._accepted_is_visible(accepted):
             return
         state = accepted.state
@@ -3273,13 +3286,12 @@ class AppSession:
             "hook_session",
         ):
             setattr(self._state, name, getattr(state, name))
-        self._merge_accepted_approval(accepted)
         self._state.root = state.root
         self._state.child_runs = state.child_runs
         self._child_runs = state.child_runs
 
     def _merge_accepted_approval(self, accepted: _AcceptedTurn) -> None:
-        if not self._accepted_is_visible(accepted):
+        if not self._same_accepted_chat(accepted):
             return
         state = accepted.state
         self._sync_active_approval()
