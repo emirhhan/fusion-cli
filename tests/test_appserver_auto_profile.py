@@ -300,3 +300,85 @@ async def test_late_profile_result_does_not_update_rebound_visible_chat(tmp_path
         release.set()
         assert (await running)["ok"]
     assert session._state.config is original
+
+
+@pytest.mark.parametrize("pause_at", ["running", "claim"])
+@pytest.mark.parametrize("rebind", ["none", "conversation", "round_trip", "root"])
+async def test_accepted_profile_adoption_uses_admission_chat_binding(
+    tmp_path, monkeypatch, rebind, pause_at
+):
+    configs = []
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def execute(task, config, **kwargs):
+        configs.append(config)
+        return _outcome()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
+    session = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "ev")
+    assert (
+        await session._dispatch(Request(id="old", name="oturum.baslat", data={"sohbet_id": "old"}))
+    )["ok"]
+    session._state.config = apply_tier(session._state.config, "high")
+    initial = session._state.config
+    admission_generation = session._visible_generation
+    await _mode(session, "auto")
+    real_finish = session._submission_store.finish
+
+    async def finish(receipt, **kwargs):
+        if pause_at == "running" and kwargs.get("state") == "running":
+            entered.set()
+            await release.wait()
+        return await real_finish(receipt, **kwargs)
+
+    monkeypatch.setattr(session._submission_store, "finish", finish)
+    real_claim = session._submission_store.claim
+
+    async def claim(key):
+        result = await real_claim(key)
+        if pause_at == "claim":
+            entered.set()
+            await release.wait()
+        return result
+
+    monkeypatch.setattr(session._submission_store, "claim", claim)
+    running = asyncio.create_task(session._dispatch(_request()))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert session._turn is None
+        if pause_at == "running":
+            assert not (await session._dispatch(_request(identifier="other-job")))["ok"]
+        if rebind in ("conversation", "round_trip"):
+            assert (
+                await session._dispatch(
+                    Request(id="new", name="oturum.baslat", data={"sohbet_id": "new"})
+                )
+            )["ok"]
+        if rebind == "round_trip":
+            assert (
+                await session._dispatch(
+                    Request(id="back", name="oturum.baslat", data={"sohbet_id": "old"})
+                )
+            )["ok"]
+        if rebind == "root":
+            new_root = tmp_path / "new-root"
+            new_root.mkdir()
+            assert (
+                await session._dispatch(
+                    Request(id="root", name="oturum.baslat", data={"kok": str(new_root)})
+                )
+            )["ok"]
+        rebound_config = session._state.config
+        if rebind != "root":
+            assert rebound_config is initial
+        assert (session._visible_generation == admission_generation) == (rebind == "none")
+    finally:
+        release.set()
+        result = await running
+    assert result["ok"]
+    assert result["makbuz"]["oturum_id"] == "old"
+    assert configs == [apply_tier(initial, "low")]
+    if rebind == "none":
+        assert session._state.config is configs[0]
+    else:
+        assert session._state.config is rebound_config

@@ -3054,6 +3054,9 @@ class AppSession:
             self._state.prepare_persona_config()
         except ConfigError as error:
             return {"ok": False, "metin": str(error)}
+        # Bind profile adoption to the same visible chat as the receipt key,
+        # before lookup/claim or durable running-state writes can yield.
+        profile_generation = self._visible_generation
         key = SubmissionKey(
             str(self._state.config.memory_dir.resolve()),
             str(self._root.resolve()),
@@ -3122,6 +3125,7 @@ class AppSession:
                         deadline,
                         self._state.config,
                         self._state.auto_profile,
+                        profile_generation,
                     )
                 )
                 self._submission_task = owned
@@ -3147,6 +3151,7 @@ class AppSession:
         deadline: TurnDeadline | None,
         config_snapshot: Config | None = None,
         auto_profile_snapshot: bool | None = None,
+        profile_generation_snapshot: int | None = None,
     ) -> dict[str, Any]:
         """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
         import sqlite3
@@ -3172,6 +3177,7 @@ class AppSession:
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
                 auto_profile_snapshot=auto_profile_snapshot,
+                profile_generation_snapshot=profile_generation_snapshot,
             )
             result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
@@ -3219,6 +3225,7 @@ class AppSession:
         event_sequence: Iterator[int] | None = None,
         config_snapshot: Config | None = None,
         auto_profile_snapshot: bool | None = None,
+        profile_generation_snapshot: int | None = None,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -3351,6 +3358,14 @@ class AppSession:
         config = config_snapshot or self._state.config
         profile_state = self._state
         profile_base_config = config
+        # Durable "running" bookkeeping can yield before this method starts.
+        # Adoption belongs to the chat visible at acceptance, even if the same
+        # ReplState/config has since been rebound to another conversation.
+        profile_generation = (
+            visible_generation
+            if profile_generation_snapshot is None
+            else profile_generation_snapshot
+        )
         select_auto_profile = auto_continues == 0 and (
             profile_state.auto_profile if auto_profile_snapshot is None else auto_profile_snapshot
         )
@@ -3392,7 +3407,7 @@ class AppSession:
                 # changed conversation must never overwrite another chat's model.
                 if (
                     self._state is profile_state
-                    and self._visible_generation == visible_generation
+                    and self._visible_generation == profile_generation
                     and profile_state.config is profile_base_config
                 ):
                     profile_state.config = selected_config

@@ -58,3 +58,40 @@ Recorded results on 2026-11-05:
 - Ruff check and format check: passed on all four touched Python files.
 - Mypy with `--follow-imports=silent`: no issues in the three touched source files.
 - `git diff --check`: passed.
+
+## Follow-up: receipt-bound profile adoption
+
+Independent review reproduced a pre-start race: a job could pause while persisting
+its `running` receipt, `oturum.baslat` could bind a different chat using the same
+ReplState/config, and the resumed job would capture that new chat's generation.
+The original guard then incorrectly adopted the old job's low profile into the
+new chat. Checking only the generation captured when classification starts misses
+this earlier window.
+
+Profile adoption now carries the visible generation captured with the receipt key,
+before admission lookup/claim or running-state persistence can yield. Configuration
+and auto-flag snapshots still determine the accepted job's actual executor config.
+The generation only controls whether that job may publish its selected profile
+back into the current session configuration; it does not alter execution routing.
+A monotonic generation also rejects old→new→old chat switches that restore the
+same conversation id, ReplState and config identity.
+
+Eight actual AppSession admission tests pause either after durable claim or before
+persisting `running`, then use `oturum.baslat` to switch chat, switch away and back,
+or change project root. No-rebind controls still adopt the selected profile; all
+variants preserve the expected accepted executor configuration and receipt chat id.
+The running-state variants also check rejection of a second submitted job.
+
+Observed red before the fix: conversation and round-trip running-state variants
+failed. Capturing only after claim additionally left three claim-window variants
+red; capturing beside receipt-key creation makes all eight green. The final
+AppSession auto-profile file passes **18 tests**; existing cancellation, snapshot,
+manual/strict, skill, connector and continuation cases remain included.
+
+Follow-up verification on the final receipt-bound source: **186 passed**, one
+existing Pydantic `ReadOnly` warning, across `test_appserver_auto_profile.py`,
+`test_appserver_submission.py`, `test_appserver_session.py`,
+`test_appserver_commands.py`, `test_appserver_model_picker.py` and
+`test_model_selection_ownership.py`. Ruff check/format, scoped session mypy and
+`git diff --check` pass. No real providers, native applications, full suite,
+packaging or installation were exercised.
