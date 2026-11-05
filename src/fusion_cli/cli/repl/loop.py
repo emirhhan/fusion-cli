@@ -931,16 +931,9 @@ def apply_auto_profile(line: str, state: ReplState, console: Console) -> None:
     """
     if not state.auto_profile:
         return
-    # Hafif ve saf; engines/agent __init__ zincirini import anında çekmemek için tembel.
-    from ...engines.agent.auto_profile import auto_profile
-
-    secim = auto_profile(line)
-    tier_name = profile.resolve_tier_name(state.config, secim.profile)
-    if tier_name is None:
-        return
-    state.config = model_select.apply_tier(state.config, tier_name)
-    mesaj = messages.MODE_AUTO_SELECTED.format(profile=tier_name, reason=secim.reason)
-    console.print(f"[{theme.DIM}]{mesaj}[/{theme.DIM}]")
+    state.config, message = profile.auto_turn_config(state.config, line)
+    if message is not None:
+        console.print(f"[{theme.DIM}]{message}[/{theme.DIM}]")
 
 
 async def _run_turn(

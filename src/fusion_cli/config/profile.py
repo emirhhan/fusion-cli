@@ -31,3 +31,22 @@ def resolve_tier_name(config: Config, name: str) -> str | None:
         if tier.name.casefold() == resolved:
             return tier.name
     return None
+
+
+def auto_turn_config(config: Config, task: str) -> tuple[Config, str | None]:
+    """Choose the shared auto profile without changing session state or preferences.
+
+    Missing tiers preserve the current model, as in the CLI. The returned reason
+    belongs to this turn; callers decide how to display it on their surface.
+    """
+    from ..engines.agent.auto_profile import auto_profile
+    from ..ui import messages
+    from .model_select import apply_tier
+
+    choice = auto_profile(task)
+    tier_name = resolve_tier_name(config, choice.profile)
+    if tier_name is None:
+        return config, None
+    return apply_tier(config, tier_name), messages.MODE_AUTO_SELECTED.format(
+        profile=tier_name, reason=choice.reason
+    )

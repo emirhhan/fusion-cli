@@ -3121,6 +3121,7 @@ class AppSession:
                         voice_context,
                         deadline,
                         self._state.config,
+                        self._state.auto_profile,
                     )
                 )
                 self._submission_task = owned
@@ -3145,6 +3146,7 @@ class AppSession:
         voice_context: VoiceTurnContext | None,
         deadline: TurnDeadline | None,
         config_snapshot: Config | None = None,
+        auto_profile_snapshot: bool | None = None,
     ) -> dict[str, Any]:
         """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
         import sqlite3
@@ -3169,6 +3171,7 @@ class AppSession:
                 receipt=receipt,
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
+                auto_profile_snapshot=auto_profile_snapshot,
             )
             result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
@@ -3215,6 +3218,7 @@ class AppSession:
         receipt: SubmissionReceipt | None = None,
         event_sequence: Iterator[int] | None = None,
         config_snapshot: Config | None = None,
+        auto_profile_snapshot: bool | None = None,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -3345,6 +3349,11 @@ class AppSession:
         self._steering_turn = receipt.attempt_id if receipt else chrome_turn_id
         self._steering_requests.clear()
         config = config_snapshot or self._state.config
+        profile_state = self._state
+        profile_base_config = config
+        select_auto_profile = auto_continues == 0 and (
+            profile_state.auto_profile if auto_profile_snapshot is None else auto_profile_snapshot
+        )
         if self._disabled_mcp:
             config = replace(
                 config,
@@ -3358,7 +3367,8 @@ class AppSession:
         # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
         pending_extras = self._state.take_pending_extras()
         # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
-        config = pending_extras.turn_config(config)
+        if not select_auto_profile:
+            config = pending_extras.turn_config(config)
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
         if not browser_only:
             continuation, self._goal_continuation = self._goal_continuation, None
@@ -3369,6 +3379,30 @@ class AppSession:
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
         async def execute_turn() -> AgentOutcome:
+            nonlocal config
+            if select_auto_profile:
+                from ..config.profile import auto_turn_config
+
+                # Establish _turn ownership before yielding. Classification/imports
+                # cannot block the UI or let another turn enter this session.
+                selected_config, reason = await asyncio.to_thread(
+                    auto_turn_config, profile_base_config, task
+                )
+                # Only the event loop adopts the result. A cancelled worker or a
+                # changed conversation must never overwrite another chat's model.
+                if (
+                    self._state is profile_state
+                    and self._visible_generation == visible_generation
+                    and profile_state.config is profile_base_config
+                ):
+                    profile_state.config = selected_config
+                # The session retains its connector catalogue; this turn retains
+                # the disabled-connector filter captured above.
+                if selected_config.mcp_servers != config.mcp_servers:
+                    selected_config = replace(selected_config, mcp_servers=config.mcp_servers)
+                config = pending_extras.turn_config(selected_config)
+                if reason is not None:
+                    sink.handle(StatusChanged(reason))
             if journal is not None:
                 # Çalışan tur sahipliği kurulduktan sonra I/O yap; paralel
                 # istek ilk turu görünmezken ikinci bir tur başlatamasın.
