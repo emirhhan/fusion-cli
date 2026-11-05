@@ -318,7 +318,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_lessons import PendingAdvice
-from .teacher_plan import TeacherPlan, UnworkablePart
+from .teacher_plan import TeacherPlan, UnworkablePart, classify_teacher_task
 from .team import Persona
 from .tool_constraints import prohibited_tool
 from .tool_filter import is_denied_tool
@@ -2798,7 +2798,11 @@ async def _publish_intro(
     ve her web çağrısı onlarca saniye sürer. Giriş modele de not olarak verilir
     ki aynı cümleleri tekrarlamasın.
     """
-    if not execution.complex_task or execution.is_web:
+    if (
+        not execution.complex_task
+        or execution.is_web
+        or classify_teacher_task(task).size == "basit"
+    ):
         return
     intro = await intro_paragraph(
         task, _active_spec(deps, execution), deps.config, deps.publisher, tool_names

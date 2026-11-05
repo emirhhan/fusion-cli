@@ -78,6 +78,7 @@ async def intro_paragraph(
         max_tokens=INTRO_MAX_TOKENS,
         timeout_s=INTRO_TIMEOUT_S,
         max_retries=0,
+        disable_thinking=True,
     )
     try:
         provider = build_provider(
