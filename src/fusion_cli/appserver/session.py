@@ -1969,7 +1969,11 @@ class AppSession:
         entry = journal.load()
         if entry is None or not entry.messages:
             return
-        from ..core.turn_resume import interrupted_history
+        from ..core.turn_resume import close_pending_tool_results, interrupted_history
+
+        if entry.execution_finished:
+            self._state.history = close_pending_tool_results(entry.messages)
+            return
 
         self._state.history = interrupted_history(
             entry.messages, task=entry.task, root=str(self._state.root.resolve())
@@ -4091,7 +4095,7 @@ class AppSession:
                     preserved, task=task, root=str(turn_state.root.resolve())
                 )
                 if journal is not None:
-                    await await_owned_thread(journal.save, turn_state.history)
+                    await await_owned_thread(journal.save_finished, turn_state.history)
             if browser_only:
                 self._merge_accepted_approval(accepted)
             else:
@@ -4209,7 +4213,7 @@ class AppSession:
                 preserved = list(outcome.messages)
                 if metin and (not preserved or preserved[-1].content != metin):
                     preserved.append(Message("assistant", metin, harness_note=True))
-                await await_owned_thread(journal.save, preserved)
+                await await_owned_thread(journal.save_finished, preserved)
         if _should_auto_continue(outcome, auto_continues) and (
             deadline is None or deadline.remaining_s() > 0
         ):

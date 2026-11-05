@@ -14,12 +14,8 @@ UNKNOWN_TOOL_RESULT = (
 )
 
 
-def interrupted_history(messages: Sequence[Message], *, task: str, root: str) -> list[Message]:
-    """Eksik araç sonuçlarını belirsiz olarak kapat, tek devam notu ekle.
-
-    Eksik sonuç başarı sayılmaz ve otomatik tekrarlanmaz. Kaydedilmiş araç
-    sonuçları aynen korunur; henüz başlamamış çağrılar da belirsiz kabul edilir.
-    """
+def close_pending_tool_results(messages: Sequence[Message]) -> list[Message]:
+    """Close unresolved calls conservatively without asserting why execution ended."""
     history: list[Message] = []
     pending: dict[str, str] = {}
 
@@ -31,8 +27,6 @@ def interrupted_history(messages: Sequence[Message], *, task: str, root: str) ->
         pending.clear()
 
     for message in messages:
-        if message.harness_note and message.content.startswith(RESUME_PREFIX):
-            continue
         if message.role != "tool":
             close_pending()
         elif message.tool_call_id:
@@ -40,6 +34,22 @@ def interrupted_history(messages: Sequence[Message], *, task: str, root: str) ->
         history.append(message)
         pending.update((call.id, call.name) for call in message.tool_calls)
     close_pending()
+    return history
+
+
+def interrupted_history(messages: Sequence[Message], *, task: str, root: str) -> list[Message]:
+    """Eksik araç sonuçlarını belirsiz olarak kapat, tek devam notu ekle.
+
+    Eksik sonuç başarı sayılmaz ve otomatik tekrarlanmaz. Kaydedilmiş araç
+    sonuçları aynen korunur; henüz başlamamış çağrılar da belirsiz kabul edilir.
+    """
+    history = close_pending_tool_results(
+        [
+            message
+            for message in messages
+            if not (message.harness_note and message.content.startswith(RESUME_PREFIX))
+        ]
+    )
     history.append(
         Message(
             "user",
