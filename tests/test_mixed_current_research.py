@@ -26,21 +26,26 @@ def policy(task, history=()):
     )
 
 
-@pytest.mark.parametrize("task", TASKS)
-def test_ordinary_report_requires_both_current_research_and_file_mutation(task):
+def assert_research_and_artifact_required(task):
+    """Every researched artifact fixture proves both obligations, not just lookup."""
     execution = policy(task)
     assert execution.required_effect == "workspace_mutation"
-    write = ("write_file", {"path": "report.html"}, True)
-    lookup = ("web_fetch", {"url": "https://example.org/current"}, False)
-    assert not _tool_evidence_satisfied(
-        execution, SimpleNamespace(successful_tool_evidence=[write])
-    )
-    assert not _tool_evidence_satisfied(
-        execution, SimpleNamespace(successful_tool_evidence=[lookup])
-    )
+    assert execution.requires_web_lookup or execution.required_web_urls
+    writes = [("write_file", {"path": "report.html"}, True)]
+    reads = [
+        ("web_fetch", {"url": url}, False)
+        for url in (execution.required_web_urls or ("https://example.org/current",))
+    ]
+    assert not _tool_evidence_satisfied(execution, SimpleNamespace(successful_tool_evidence=writes))
+    assert not _tool_evidence_satisfied(execution, SimpleNamespace(successful_tool_evidence=reads))
     assert _tool_evidence_satisfied(
-        execution, SimpleNamespace(successful_tool_evidence=[write, lookup])
+        execution, SimpleNamespace(successful_tool_evidence=[*writes, *reads])
     )
+
+
+@pytest.mark.parametrize("task", TASKS)
+def test_ordinary_report_requires_both_current_research_and_file_mutation(task):
+    assert_research_and_artifact_required(task)
 
 
 @pytest.mark.parametrize(

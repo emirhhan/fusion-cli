@@ -3,6 +3,7 @@
 import pytest
 
 from fusion_cli.engines.agent.teacher_plan import classify_teacher_task, is_bounded_single_file_task
+from tests.test_mixed_current_research import assert_research_and_artifact_required
 
 CURRENT_REPORT = (
     "Bu klasörde rapor.html oluştur: Python’ın bugün resmi indirme sayfasında listelenen en güncel "
@@ -30,6 +31,7 @@ CURRENT_REPORT = (
 def test_source_reading_report_is_bounded_without_preflight_teacher(task):
     assert is_bounded_single_file_task(task)
     assert classify_teacher_task(task).size == "basit"
+    assert_research_and_artifact_required(task)
 
 
 @pytest.mark.parametrize(

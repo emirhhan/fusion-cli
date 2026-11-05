@@ -456,10 +456,14 @@ _SOURCE_DATA_QUOTE = re.compile(
     r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
     re.S | re.M,
 )
-_DIRECT_EN_FILE_MUTATION = re.compile(
-    rf"\b{_EN_MUTATION_VERBS}\s+"
-    rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}"
+# A filename object may have arbitrary modifiers. Prepositions/complement
+# boundaries end that object: an input mentioned "using/from X" is not X's output.
+_EN_FILE_OBJECT = (
+    r"(?:(?!(?:from|using|via|about|how|to|as|into|of|with|in|on|for|without|based|"
+    r"that|which|where|whose)\s)[\w-]+\s+){0,8}"
+    rf"{_FILENAME}"
 )
+_DIRECT_EN_FILE_MUTATION = re.compile(rf"\b{_EN_MUTATION_VERBS}\s+{_EN_FILE_OBJECT}")
 _DESTINATION_EN_FILE_MUTATION = re.compile(
     rf"\b{_EN_MUTATION_VERBS}\b.{{0,160}}\b(?:to|as|into)\s+"
     rf"(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}"
@@ -467,8 +471,7 @@ _DESTINATION_EN_FILE_MUTATION = re.compile(
 _OUTPUT_FILE_TARGET = re.compile(
     rf"{_FILENAME}(?:['’]?(?:ya|ye|a|e))?(?:\s+dosya\w*)?\s+"
     r"(?:oluştur|olustur|yaz|kaydet|aktar)\w*\b|"
-    rf"\b(?:create|write|generate|save)\s+"
-    rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}|"
+    rf"\b(?:create|write|generate|save)\s+{_EN_FILE_OBJECT}|"
     rf"\b(?:to|as|into)\s+(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}(?:\s+file)?"
 )
 _LOCAL_RESEARCH_INPUT = re.compile(

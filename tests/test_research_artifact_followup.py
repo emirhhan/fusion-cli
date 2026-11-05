@@ -8,6 +8,7 @@ from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import _tool_evidence_satisfied
 from tests.fakes import make_config
+from tests.test_mixed_current_research import assert_research_and_artifact_required
 
 
 def policy(task):
@@ -61,7 +62,7 @@ def test_research_concept_description_is_not_a_research_directive(description):
     ],
 )
 def test_explicit_research_and_current_facts_remain_required_even_for_static_artifacts(task):
-    assert policy(task).requires_web_lookup
+    assert_research_and_artifact_required(task)
 
 
 @pytest.mark.parametrize(
