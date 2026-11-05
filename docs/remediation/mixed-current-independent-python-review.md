@@ -108,3 +108,38 @@ above remain unchanged from the reviewed 74fcc573 snapshot.
 This approval is finite, not a claim of universal language understanding or
 semantic source relevance/currentness. No production source, original checkout,
 installed app or package was changed by the reviewer.
+
+## Additional modified-filename object follow-up: approved
+
+Reviewed immutable archive: `b9267d240c951937400da9597659d31a79109009`.
+**APPROVE** the bounded detect.py follow-up; no new HIGH/CRITICAL findings.
+
+The exact fixture `Create a static report.html containing the latest stable
+Python version.` now retains both artifact mutation and research obligations.
+The shared filename-object expression permits up to eight modifier words rather
+than a business-adjective allowlist. It stops at input/preposition/complement
+boundaries, and output-target normalization uses the same object grammar.
+Positive researched-artifact fixture groups now assert both obligations, not
+only the lookup flag. This review does not claim arbitrary grammar coverage.
+
+Independent verification against archived source/tests:
+
+- **324 passed in 34.66 seconds**, including both preserved general static-current
+  artifact regressions, earlier Save/static-concept/negated-verb controls, the
+  additional actual Save controls, and twelve modifier × one-sided/both actual
+  engine cases. The engine rejects lookup-only and write-only current artifacts
+  and accepts both; explanation and input-only controls remain non-mutating.
+- Ruff passed for detect.py and all four changed repository test modules.
+- Mypy passed for detect.py.
+- Independent pure heldouts passed: three unseen modifier phrases (`fully
+  self-contained`, `elegant compact data-rich`, `concise independently formatted`)
+  preserve both obligations; three from/using/based-on input references do not
+  become file outputs.
+- Test log: task workspace `work/reliability-v2/python-b926-final-review.log`.
+- Reviewed detect.py SHA-256:
+  `84099581933ab23fcbe1a29eba27c49c69b5443d1d55bc3c8a3923deddd02b6a`.
+- Terminal 55055 completed exit 0; no reviewer terminal handles remain active.
+
+No production source, original checkout, installed application or package was
+changed by this reviewer. Existing non-detect backend fingerprints and their
+separate scoped approvals remain unchanged by this follow-up.
