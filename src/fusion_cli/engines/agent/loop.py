@@ -2693,7 +2693,24 @@ _WORKSPACE_READ_TOOLS = frozenset(
 )
 
 
+def _covered_source_urls(execution: ExecutionPolicy, budget: TurnBudget) -> tuple[str, ...]:
+    allowed = (
+        {"document", "interactive"}
+        if execution.source_read_requirement == "controls"
+        else {"document"}
+    )
+    return tuple(
+        url
+        for url, scope in getattr(budget, "successful_source_read_scopes", ())
+        if scope in allowed
+    )
+
+
 def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
+    if execution.source_read_requirement == "restricted":
+        return True
+    if not execution.required_web_urls and execution.source_read_requirement == "controls":
+        return not _covered_source_urls(execution, budget)
     if not execution.required_web_urls:
         from .research_scope import web_lookup_observed
 
@@ -2705,11 +2722,21 @@ def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> 
     return not requested_sources_read(
         execution.required_web_urls,
         budget.successful_tool_evidence,
-        observed_sources=getattr(budget, "successful_source_reads", ()),
+        observed_sources=_covered_source_urls(execution, budget),
     )
 
 
 def _evidence_recovery_effect(execution: ExecutionPolicy, budget: TurnBudget) -> str | None:
+    if execution.source_read_requirement == "restricted" and _missing_source_evidence(
+        execution, budget
+    ):
+        return "web_scope"
+    if (
+        execution.source_read_requirement == "document"
+        and _missing_source_evidence(execution, budget)
+        and bool(getattr(budget, "successful_source_reads", ()))
+    ):
+        return "web_content"
     return (
         "web_lookup" if _missing_source_evidence(execution, budget) else execution.required_effect
     )
@@ -2751,7 +2778,7 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
             return requested_sources_read(
                 execution.required_web_urls,
                 evidence,
-                observed_sources=getattr(budget, "successful_source_reads", ()),
+                observed_sources=_covered_source_urls(execution, budget),
             )
         # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
         # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
@@ -4597,6 +4624,9 @@ async def _run_tools(
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if result.source_read_url:
                 budget.successful_source_reads.append(result.source_read_url)
+                budget.successful_source_read_scopes.append(
+                    (result.source_read_url, result.source_read_scope)
+                )
             if mutating and _acts_on_remote_state(call.name):
                 budget.remote_epoch += 1
             if mutating and not result.is_observation:

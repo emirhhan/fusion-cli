@@ -25,6 +25,7 @@ from ...core.types import Message, ModelSpec
 from ..effects.detect import requested_web_research, requested_web_urls
 from .action_evidence import effect_request, task_effect
 from .edit_profiles import EditFormat
+from .research_scope import chrome_page_read_urls, source_read_requirement
 from .task_availability import task_tool_mode
 from .tool_constraints import forbidden_families
 from .tool_profiles import conversation_tool_profiles
@@ -90,6 +91,7 @@ class ExecutionPolicy:
     required_effect: str | None = None
     #: Explicitly requested pages must actually be read; an unrelated lookup is insufficient.
     required_web_urls: tuple[str, ...] = ()
+    source_read_requirement: Literal["document", "controls", "restricted"] = "document"
     #: Public/current research stays required alongside an artifact mutation.
     requires_web_lookup: bool = False
     #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
@@ -149,8 +151,16 @@ def policy_for(
         if not explicit_no_tools
         else ()
     )
+    if not source_urls and not explicit_no_tools:
+        source_urls = chrome_page_read_urls(source_request)
     web_lookup = not explicit_no_tools and requested_web_research(source_request)
-    requires_evidence = required_effect is not None or web_lookup or bool(source_urls)
+    read_scope = source_read_requirement(source_request)
+    requires_evidence = (
+        required_effect is not None
+        or web_lookup
+        or bool(source_urls)
+        or read_scope in {"controls", "restricted"}
+    )
     complex_task = required_effect in _MUTATING_EFFECTS
     # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
     # model seçmek güvenlik kapısını atlamak anlamına gelemez.
@@ -178,6 +188,7 @@ def policy_for(
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
             required_web_urls=source_urls,
+            source_read_requirement=read_scope,
             requires_web_lookup=web_lookup,
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
@@ -216,6 +227,7 @@ def policy_for(
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
         required_web_urls=source_urls,
+        source_read_requirement=read_scope,
         requires_web_lookup=web_lookup,
         max_evidence_reprompts=0 if explicit_no_tools else 3,
         compact_tool_surface=compact,

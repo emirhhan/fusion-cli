@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Event
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from .artifacts import ArtifactStore
@@ -53,6 +53,11 @@ from .worktree import WorktreeSwitch
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
 ToolArgs = Mapping[str, object]
+
+
+SourceReadScope = Literal[
+    "none", "document", "interactive", "subtree", "depth_limited", "truncated", "partial"
+]
 
 
 class ChromeControl(Protocol):
@@ -247,6 +252,8 @@ class ToolResult:
     visual_observation: DesktopCapture | None = None
     #: Internal receipt from an authorized Chrome content read, never MCP/model data.
     source_read_url: str = ""
+    #: Trusted coverage; never decoded from page text, MCP or model arguments.
+    source_read_scope: SourceReadScope = "none"
 
     @property
     def images(self) -> tuple[str, ...]:
