@@ -139,3 +139,18 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     assert any(
         schema["function"]["name"] == "ask_teacher" for schema in apprentice.seen_requests[0]
     )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Research https://example.org/news as the source.",
+        "https://example.org/news sayfasını araştır.",
+    ],
+)
+def test_teacher_and_completion_share_source_research_semantics(instruction):
+    task = "Tek HTML dosyası olarak rapor.html oluştur. Harici bağımlılık kullanma. " + instruction
+    assert is_bounded_single_file_task(task)
+    from fusion_cli.engines.effects.detect import requested_web_urls
+
+    assert requested_web_urls(task, source_reads_only=True) == ("https://example.org/news",)

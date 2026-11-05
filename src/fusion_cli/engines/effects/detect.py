@@ -430,12 +430,14 @@ def explicitly_disallows_tools(task: str) -> bool:
 
 
 _SOURCE_READING_ACTION = re.compile(
-    r"\b(?:oku(?:yun|yabilir misin)?|incele|doğrula|kontrol et|"
-    r"read|fetch|open|browse|consult|verify|check)\b"
+    r"\b(?:(?:oku|incele|doğrula|dogrula|araştır|arastir|başvur|basvur)"
+    r"(?:yun|yın|yin|in|ın|iniz|ınız|yabilir misin)?|kontrol et|"
+    r"read|fetch|open|browse|consult|verify|check|research|cite)\b"
 )
 _NEGATED_SOURCE_ACTION = re.compile(
-    r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse)\b|"
-    r"\b(?:okuma|inceleme|doğrulama|açma|acma)\s*(?:lütfen)?$"
+    r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse|"
+    r"research|consult|verify|check|cite)\b|"
+    r"\b(?:okuma|inceleme|doğrulama|açma|acma|araştırma|arastirma)\s*(?:lütfen)?$"
 )
 _SOURCE_DATA_QUOTE = re.compile(
     r"```.*?```|`[^`]*`|\"[^\"\n]*\"|“[^”\n]*”|"
@@ -453,7 +455,7 @@ def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
             continue
         clauses = tuple(
             part
-            for part in _positive_action_parts(sentence)
+            for part in _positive_action_parts(sentence, merge_objects=False)
             for part in re.split(r"\band\b", part)
             if not _NEGATED_SOURCE_ACTION.search(part)
         )
@@ -502,13 +504,7 @@ def requested_web_urls(task: str, *, source_reads_only: bool = False) -> tuple[s
         if source_reads_only
         else _positive_action_parts(lower_tr_aware(protected))
     )
-    positive = " ".join(
-        clause
-        for clause in parts
-        if not re.search(
-            r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse)\b", clause
-        )
-    )
+    positive = " ".join(clause for clause in parts if not _NEGATED_SOURCE_ACTION.search(clause))
     return tuple(dict.fromkeys(url for token, url in references if token in positive))
 
 
@@ -643,7 +639,7 @@ def _is_negated_clause(clause: str) -> bool:
     )
 
 
-def _positive_action_parts(text: str) -> tuple[str, ...]:
+def _positive_action_parts(text: str, *, merge_objects: bool = True) -> tuple[str, ...]:
     """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
     ``repoyu pushla ama araç kullanma`` gerçek bir push isteği olarak KALIR: kullanıcı
@@ -667,7 +663,8 @@ def _positive_action_parts(text: str) -> tuple[str, ...]:
             # A completed predicate ("uygulamayı aç ve ... yap") cannot lend its
             # object to the next predicate. Sentence boundaries never merge.
             if (
-                previous_positive
+                merge_objects
+                and previous_positive
                 and previous_separator in {"ve", "veya", ","}
                 and _ends_with_build_object(positive[-1])
             ):

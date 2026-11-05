@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 
 from ...core.text_fold import fold_tr
-from ..effects.detect import required_effect_for
+from ..effects.detect import requested_web_urls, required_effect_for
 from ..effects.model import EffectKind
 
 
@@ -71,11 +71,6 @@ _QUOTED_SCOPE = re.compile(
     r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
     re.S | re.M,
 )
-_SOURCE_READ = re.compile(
-    r"\b(?:oku\w*|incele\w*|doğrula\w*|araştır\w*|başvur\w*|"
-    r"read|consult|verify|check|research|cite)\b"
-)
-_SCOPE_CLAUSE = re.compile(r"[;!?\n]|\.(?=\s|$)")
 _REJECTED_DEPENDENCY_SCOPE = re.compile(r"\s+(?:demiyorum|demedim|istemi(?:yorum|yoruz)|değil)\b")
 
 
@@ -92,12 +87,11 @@ def _scope_text(task: str) -> str:
 
 
 def _source_urls_are_read_only(scope: str) -> bool:
-    for match in _SOURCE_URL.finditer(scope):
-        before = _SCOPE_CLAUSE.split(scope[: match.start()])[-1][-160:]
-        after = _SCOPE_CLAUSE.split(scope[match.end() :])[0][:160]
-        if not _SOURCE_READ.search(before + " " + after):
-            return False
-    return True
+    # Consultation and completion must agree about which URL is actually read.
+    # Scheme-less WWW references remain ambiguous rather than granting the fast route.
+    if any(match.group().startswith("www.") for match in _SOURCE_URL.finditer(scope)):
+        return False
+    return set(requested_web_urls(scope)) <= set(requested_web_urls(scope, source_reads_only=True))
 
 
 def is_bounded_single_file_task(task: str) -> bool:

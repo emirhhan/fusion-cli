@@ -39,3 +39,19 @@ The teacher classification fix is separate commit `99c7ce2e`. Both changes need
 independent Python/general review and follow-up application build before being
 claimed installed. This is evidence of requested-source access, not a general
 proof that a model's extracted facts or the page itself are current/correct.
+
+## Independent follow-up: shared source-object binding
+
+Three independent review cases failed before the follow-up: English `Research`
+and Turkish `araştır` source requests lost their read obligation, while
+`Read README.md, include a link to URL` incorrectly gained one. Source parsing
+had reused mutation-oriented coordinated-object merging, joining the comma's
+local read and separate link clauses. Source extraction now disables only that
+object merge; mutation detection keeps its existing behavior. The affirmative
+read/research verb family and its negative forms are shared by the teacher scope
+classifier and completion requirement instead of diverging across helpers.
+
+All three independent cases and expanded TR/EN research, negative/local/link
+controls pass. The twelve product regression files plus the three independent
+follow-up source cases passed 327 tests in 31.70 seconds (one unrelated instruction
+measurement case deselected; one upstream Pydantic warning). Ruff and mypy passed.

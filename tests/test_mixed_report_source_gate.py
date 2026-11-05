@@ -188,3 +188,37 @@ async def test_actual_report_engine_requires_artifact_and_named_source(tmp_path,
         assert "kaynak okuması doğrulanmadı" in outcome.final_text
     if case == "recovery":
         assert reads == [{"url": "https://example.org/old"}, {"url": URL}]
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Research https://example.org/news as the source.",
+        "https://example.org/news sayfasını araştır.",
+        "Read README.md, include a link to https://example.org/news.",
+    ],
+)
+def test_research_source_binding_and_separate_local_read_link(instruction):
+    execution = policy("rapor.html oluştur. " + instruction)
+    expected = () if instruction.startswith("Read README") else ("https://example.org/news",)
+    assert execution.required_web_urls == expected
+    if expected:
+        assert not _tool_evidence_satisfied(
+            execution,
+            SimpleNamespace(
+                successful_tool_evidence=[("write_file", {"path": "rapor.html"}, True)]
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Do not research https://example.org/news.",
+        "Never consult https://example.org/news.",
+        "https://example.org/news sayfasını araştırma.",
+        "Research README.md, include a link to https://example.org/news.",
+    ],
+)
+def test_research_scope_respects_rejection_and_local_object_binding(instruction):
+    assert not policy("rapor.html oluştur. " + instruction).required_web_urls
