@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from ...core.desktop_settings import DesktopLevel, DesktopTarget
 from ...core.tools import ToolEffect
-from ...tools.desktop_policy import DesktopAssessment
+from ...tools.desktop_policy import UNVERIFIED_REASON, DesktopAssessment
 
 if TYPE_CHECKING:
     from .approval import ApprovalRequest
@@ -48,6 +48,20 @@ DESKTOP_BLOCKED_RESULT = (
     "Masaüstü eylemi engellendi, kullanıcıya sorulmadı: {reason}. Bu uygulamada bu eylemi "
     "deneme; önerilen yolu kullan ya da kullanıcıya Ayarlar › Bu bilgisayar'ı söyle."
 )
+
+
+def blocked_result(request: ApprovalRequest) -> str:
+    """Yerel hedef doğrulama engelini izin reddinden ayır; hiçbir engeli kaldırma."""
+    if request.desktop_blocked and request.pre_denied == UNVERIFIED_REASON:
+        return (
+            f"Masaüstü eylemi engellendi, kullanıcıya sorulmadı: {request.pre_denied}. "
+            "Pencereleri yeniden incele; güncel gerçek window_id ve pid ile "
+            "desktop_window_focus kullanarak hedefi doğrula. Koordinat gerekiyorsa "
+            "odaklamadan sonra yeni tam desktop_screenshot al. Bu yönlendirme izin "
+            "vermez; tüm izin ve güvenlik denetimleri geçerlidir. Hedef hâlâ "
+            "doğrulanamıyorsa somut başarısızlığı kullanıcıya dürüstçe bildir."
+        )
+    return DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
 
 
 def is_desktop_consent(request: ApprovalRequest) -> bool:
