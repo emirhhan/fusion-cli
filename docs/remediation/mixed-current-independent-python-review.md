@@ -65,3 +65,46 @@ SHA-256 fingerprints:
 This review does not require universal NLU or claim all expressions are covered.
 The findings are finite ordinary variants of the artifact/research contract.
 No original checkout, installed app or package mutation occurred.
+
+## Final bounded re-review: approved follow-up
+
+Reviewed immutable archive: `9b4b8095914ef3d4b79584156ec6bd0d6832a763`.
+**APPROVE** the finite artifact/current/source/negation contracts. Both MEDIUM
+findings above and the separate general-review negative-file-action cases are
+resolved; no HIGH/CRITICAL issues remain in this reviewed scope.
+
+The production follow-up changes only detect.py. Natural save/write-to/as/into
+file destinations now retain artifact mutation as the primary obligation plus
+independent current-research evidence. Output destinations such as README.md do
+not become mistaken local research inputs. Static descriptions of research are
+not imperative research actions; static artifacts containing changing public
+facts still require source activity. One canonical English file-action verb set
+is shared with explicit negation, so all eleven supported verbs respect rejected
+instructions without suppressing a separately requested positive action.
+
+Independent frozen-source verification:
+
+- **269 passed in 32.30 seconds**, including all three preserved Python heldout
+  failures, all six external general negative-file controls, and the repository
+  actual-engine current/named-source/intent regressions.
+- Three additional independent actual-engine controls: **3 passed in 3.90
+  seconds**. Save today's weather to weather.html with write-only evidence fails;
+  source read plus actual file write succeeds; the static research-description
+  artifact succeeds with its file write and no web fetch. The preserved earlier
+  actual-engine heldout also confirms lookup-only cannot complete the save task.
+- Ruff passed for detect.py and the dedicated follow-up test module.
+- Mypy passed for detect.py.
+- Logs under task workspace `work/reliability-v2/`:
+  `python-mixed9b-final-review.log`, `python-mixed9b-actual-controls.log`.
+- Additional independent controls:
+  `test_python_mixed9b_actual_controls.py` in the same directory.
+- Terminal sessions 96709 and 68973 completed exit 0; no reviewer handles remain.
+
+Reviewed detect.py SHA-256:
+`b425325c5c8aa45f3966191aa9a82a92b7ea4878afd440c2379539b33ecb9a58`.
+The execution_policy.py, loop.py and research_scope.py fingerprints recorded
+above remain unchanged from the reviewed 74fcc573 snapshot.
+
+This approval is finite, not a claim of universal language understanding or
+semantic source relevance/currentness. No production source, original checkout,
+installed app or package was changed by the reviewer.
