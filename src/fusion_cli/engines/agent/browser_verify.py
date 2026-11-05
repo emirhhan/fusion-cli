@@ -30,6 +30,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from ...core.delivery_contract import ContactIntent
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
@@ -259,6 +260,7 @@ def browser_verification_result(
     observations: Sequence[PageObservation],
     *,
     source: str,
+    contact_intent: ContactIntent = ContactIntent.UNSPECIFIED,
 ) -> VerificationResult:
     blocking, warnings, advisories = page_findings_by_severity(observations)
     # Sayfalar GERÇEKTEN açıldıysa bu bir davranış kanıtıdır: rapor, komut
@@ -282,8 +284,27 @@ def browser_verification_result(
             kind=VerificationCheckKind.TOOL,
             status=EvidenceStatus.FAILED
             if contact.status == "false_receipt"
+            else EvidenceStatus.PASSED
+            if (
+                contact_intent is ContactIntent.DEMO_NO_SEND
+                and contact.status == "observed_no_false_receipt"
+                and contact.transport_attempts == 0
+                and contact.visible_demo_disclosure
+                and contact.visible_no_send_outcome
+            )
             else EvidenceStatus.UNVERIFIED,
-            summary=f"{page.name}: {contact.status}; bounded offline probe, delivery not verified",
+            summary=(
+                f"{page.name}: açık demo açıklaması ve gönderilmedi sonucu gözlendi; "
+                "gerçek mesaj teslimatı denenmedi"
+                if (
+                    contact_intent is ContactIntent.DEMO_NO_SEND
+                    and contact.status == "observed_no_false_receipt"
+                    and contact.transport_attempts == 0
+                    and contact.visible_demo_disclosure
+                    and contact.visible_no_send_outcome
+                )
+                else f"{page.name}: {contact.status}; bounded offline probe, delivery not verified"
+            ),
             artifact=page.name,
             output=json.dumps(
                 {
@@ -461,6 +482,12 @@ class BrowserVerifier:
         #: ortasında değişebildiği için değer değil, çağrı alır.
         self._dev_server_allowed = dev_server_allowed
 
+    def _contact_intent(self) -> ContactIntent:
+        contract = self._context.delivery_contract.for_owner(
+            self._context.root, self._context.job_scope
+        )
+        return contract.contact if contract is not None else ContactIntent.UNSPECIFIED
+
     async def verify(self) -> VerificationResult:
         pages = [
             path
@@ -489,7 +516,9 @@ class BrowserVerifier:
                 f"sayfalar açılıp ölçülemedi ({type(exc).__name__}); düzen doğrulanmadı."
             )
 
-        return browser_verification_result(observations, source="tarayıcıda")
+        return browser_verification_result(
+            observations, source="tarayıcıda", contact_intent=self._contact_intent()
+        )
 
     async def _verify_dev_server(self) -> VerificationResult:
         """Dev sunucusunu ayağa kaldırıp kök sayfayı ölç; koşullar tutmazsa sessizce geç.
@@ -545,6 +574,7 @@ class BrowserVerifier:
         return browser_verification_result(
             observations,
             source="çalışan sayfada",
+            contact_intent=self._contact_intent(),
         )
 
     def _model_wrote(self, path: Path) -> bool:

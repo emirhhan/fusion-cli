@@ -23,6 +23,7 @@ from ...core.constants import (
     TOOL_CALL_DUPLICATE_PREFIX,
 )
 from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse, summarize_criteria
+from ...core.execution_plan import VerificationCheckKind
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
@@ -327,13 +328,67 @@ class TurnReport:
                 report + "⚠ Ajanın dosya değişikliği beyanı araç kaydıyla çeliştiği için "
                 "açıklaması gösterilmedi."
             )
-        if self.is_verified is False and model_text.strip():
-            uyari = f"{self._claim_warning()}\n\n" if claims_verification(model_text) else ""
+        if (self.is_verified is False or self.false_claim) and model_text.strip():
+            if self.false_claim and self.unsupported_contact_delivery_claim(model_text):
+                uyari = (
+                    "⚠ Mesaj teslimatı doğrulanmadı; alındı/gönderildi beyanı desteklenmiyor.\n\n"
+                )
+            else:
+                uyari = f"{self._claim_warning()}\n\n" if claims_verification(model_text) else ""
             return report + uyari + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
 
+    @property
+    def _passed_behavioral_criteria(self) -> tuple[CriterionEvidence, ...]:
+        return tuple(
+            item
+            for item in summarize_criteria(self.criteria)
+            if item.status is EvidenceStatus.PASSED and item.behavioral
+        )
+
+    def unsupported_contact_delivery_claim(self, text: str) -> bool:
+        """Çevrimdışı form ölçümü gerçek mesajın teslim edildiğini kanıtlamaz."""
+        from .contact_form_probe import _claims_receipt
+
+        if not any(item.criterion_id == "contact_receipt_truth" for item in self.criteria):
+            return False
+        prose = re.sub(r'```.*?```|`[^`]*`|["“][^"”\n]*["”]', " ", text, flags=re.S)
+        return _claims_receipt(prose)
+
+    def unsupported_command_claim(self, text: str) -> bool:
+        """Geçen tarayıcı kontrolü, yalnız o kapsamdaki test beyanını destekler."""
+        browser_passed = any(
+            item.criterion_id == "tarayici_sayfalari" for item in self._passed_behavioral_criteria
+        )
+        if browser_passed:
+            text = re.sub(
+                r"(?:tarayıcıda|browser|website|web sitesi|site|sayfa)"
+                r"[^.!?;\n]{0,60}?\btest (?:edildi|ettim|edilmiştir)\b",
+                lambda match: re.sub(
+                    r"\btest (?:edildi|ettim|edilmiştir)\b", "", match.group(), flags=re.I
+                ),
+                text,
+                flags=re.IGNORECASE,
+            )
+        if not self.changed_paths or not claims_command_success(text):
+            return False
+        if self.is_verified is False:
+            return True
+        command_proven = any(run.exit_code == 0 for run in self._unresolved_evidence) or any(
+            item.kind is VerificationCheckKind.COMMAND and item.status is EvidenceStatus.PASSED
+            for item in self.criteria
+        )
+        return not command_proven
+
     def _claim_warning(self) -> str:
         """Kanıt hiç yoksa sert uyarı; yalnız bayatladıysa (önceden geçmişti) doğru olanı."""
+        if self._passed_behavioral_criteria or any(
+            run.exit_code == 0 for run in self._unresolved_evidence
+        ):
+            return (
+                "ⓘ Bazı kontroller geçti; doğrulanmayan ölçütler için "
+                "genel başarı beyanı desteklenmiyor."
+            )
         if self._passed_before_last_mutation and not self._unresolved_evidence:
             return stale_claim_warning(self.last_shell_mutation, self.last_shell_changes)
         return UNVERIFIED_CLAIM_WARNING
@@ -390,6 +445,18 @@ class TurnReport:
             return (
                 f"ⓘ Yalnız sözdizimi denetlendi: {bicim}.\nDeğişen dosyalar: {dosyalar}\n"
                 "Site çalıştırılıp açılmadı; çalıştığı DOĞRULANMADI (start_preview ile görülür)."
+            )
+        if not evidence and self._passed_behavioral_criteria:
+            passed = "; ".join(item.summary for item in self._passed_behavioral_criteria)
+            pending = "; ".join(
+                item.summary
+                for item in summarize_criteria(self.criteria)
+                if item.status is not EvidenceStatus.PASSED
+            )
+            return (
+                f"ⓘ Geçen alt kontroller: {passed}.\n"
+                f"Diğer ölçütler: {pending or 'toplam doğrulama tamamlanmadı'}.\n"
+                f"Değişen dosyalar: {dosyalar}"
             )
         if not evidence and artifact_only(self.changed_paths):
             return (
