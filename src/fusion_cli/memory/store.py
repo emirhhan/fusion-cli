@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import IO, Any
 
@@ -60,6 +61,18 @@ _logger = logging.getLogger(__name__)
 
 _clients: dict[Path, Any] = {}
 _lock = threading.Lock()
+
+_automatic_read: ContextVar[bool] = ContextVar("automatic_lesson_read", default=False)
+
+
+@contextmanager
+def _automatic_read_scope() -> Iterator[None]:
+    """Only automatic hints already own a daemon worker; do not spawn nested pools."""
+    token = _automatic_read.set(True)
+    try:
+        yield
+    finally:
+        _automatic_read.reset(token)
 
 
 class MemoryUnavailableError(FusionError):
@@ -203,6 +216,16 @@ class GuardedCollection:
             def _calistir() -> tuple[bool, Any]:
                 with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
                     return (True, hedef(*args, **kwargs)) if alindi else (False, None)
+
+            if _automatic_read.get() and name in _EMPTY_RESULTS:
+                # Actual backend lifetime stays inside the single admitted hint worker.
+                # Keep the same process lock/disabled/error contract; manual paths unchanged.
+                try:
+                    tamam, sonuc = _calistir()
+                except Exception as exc:
+                    _logger.debug("Otomatik bellek okuması atlandı (%s).", type(exc).__name__)
+                    return basarisiz
+                return sonuc if tamam else basarisiz
 
             havuz = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-memory-call")
             gelecek = havuz.submit(_calistir)
