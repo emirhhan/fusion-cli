@@ -7,6 +7,7 @@ import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
 import { canApplySuggestedTitle } from "./title";
+import { closeUnfinishedTools } from "./unfinishedTools";
 
 // Opak eski olaylarda pencere belleği sınırlıdır; wire v1 sequence kalıcı high-water kullanır.
 export const EVENT_REPLAY_WINDOW = 256;
@@ -237,7 +238,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         running: action.running,
-        ...(action.running ? {} : { messages: akanBalonuKalicilastir(session.messages) }),
+        ...(action.running ? {} : { messages: akanBalonuKalicilastir(closeUnfinishedTools(session)) }),
         stopping: action.running ? session.stopping : false,
         stopError: action.running ? session.stopError : null,
         // Tur bitti: turun beklettiği sorular artık yanıtlanamaz. SoruKapandi olayı kaybolsa da
