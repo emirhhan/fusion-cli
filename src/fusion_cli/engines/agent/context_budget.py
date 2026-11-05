@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ...config.models import Config
-from ...core.types import ModelSpec
+from ...core.errors import ConfigError
+from ...core.types import Message, ModelSpec
 from ...providers.context_window import input_window_tokens
 from .execution_policy import uses_web_context
-from .history import COMPRESS_THRESHOLD_CHARS, WEB_COMPRESS_THRESHOLD_CHARS
+from .history import (
+    COMPRESS_THRESHOLD_CHARS,
+    WEB_COMPRESS_THRESHOLD_CHARS,
+    history_chars,
+    task_anchor_length,
+    total_chars,
+)
 from .tool_surface import is_weak_model
 
 # Tarihsel 177.000 karakter eşiğinin hesabı: 131.072 token pencereden
@@ -121,11 +129,49 @@ def fixed_prefix_cap(threshold: int, window_tokens: int | None, system_chars: in
     """
     if window_tokens is None:
         return threshold
-    room = (
+    return max(
+        LEARNED_FLOOR_CHARS, min(threshold, _window_history_room(window_tokens, system_chars))
+    )
+
+
+def _window_history_room(window_tokens: int, system_chars: int) -> int:
+    """Çıktı/araç payı ve gerçek sistem mesajından sonra kalan geçmiş kapasitesi."""
+    return (
         (window_tokens - OUTPUT_RESERVE_TOKENS - SYSTEM_AND_TOOLS_RESERVE_TOKENS)
         * CHARS_PER_TOKEN_ESTIMATE
     ) - system_chars
-    return max(LEARNED_FLOOR_CHARS, min(threshold, room))
+
+
+def compression_threshold(
+    budget: ContextBudget,
+    messages: Sequence[Message],
+    *,
+    learned_chars: int | None = None,
+) -> int:
+    """Özetlenebilir geçmiş payını tam geçmiş eşiğine çevir; katı sınırları koru.
+
+    Başlangıç talimatları sistem dışında kullanıcı notunda da gelebilir. Compactor'ın
+    aynen koruduğu görev başı yumuşak özet payını tüketmez; yeni bir işaret listesi
+    tutulmaz. Sağlayıcı taşmasından öğrenilen eşik ise eskisi gibi TÜM sistem dışı
+    geçmişi sınırlar. Bilinen pencerenin sistem/çıktı/araç payı ayrıca korunur.
+    """
+    anchor = messages[: task_anchor_length(messages)]
+    protected_chars = history_chars(anchor)
+    threshold = budget.compression_chars + protected_chars
+    hard_cap = learned_chars
+    if budget.window_tokens is not None:
+        system_chars = total_chars(messages[:1]) if messages and messages[0].role == "system" else 0
+        room = _window_history_room(budget.window_tokens, system_chars)
+        hard_cap = room if hard_cap is None else min(hard_cap, room)
+    if hard_cap is not None:
+        if protected_chars >= hard_cap:
+            raise ConfigError(
+                f"{budget.model}: korunan başlangıç talimatları/görev ({protected_chars} karakter) "
+                f"kullanılabilir bağlam sınırına ({hard_cap} karakter) sığmıyor; "
+                "talimatları koruyarak özetleme bu yapılandırmayı küçültemez."
+            )
+        threshold = min(threshold, hard_cap)
+    return threshold
 
 
 def is_context_overflow(error: str | None) -> bool:

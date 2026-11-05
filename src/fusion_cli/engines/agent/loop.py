@@ -5252,12 +5252,6 @@ def _context_spec(deps: AgentDeps) -> ModelSpec:
     )
 
 
-def _effective_threshold(configured: int, deps: AgentDeps) -> int:
-    """Yapılandırılmış eşik ile hatadan öğrenilen eşiğin küçüğü."""
-    learned = deps.learned_compression_chars
-    return configured if learned is None else min(configured, learned)
-
-
 def _is_context_overflow(error: str | None) -> bool:
     from .context_budget import is_context_overflow
 
@@ -5301,13 +5295,11 @@ async def _compact_before_call(
     if deps.agent_transcript is not None:
         deps.agent_transcript.reset(messages)
     selected = _context_spec(deps)
-    from .context_budget import context_budget, fixed_prefix_cap
+    from .context_budget import compression_threshold, context_budget
 
     budget_spec = context_budget(deps.config, selected)
-    threshold = fixed_prefix_cap(
-        _effective_threshold(budget_spec.compression_chars, deps),
-        budget_spec.window_tokens,
-        len(messages[0].content) if messages and messages[0].role == "system" else 0,
+    threshold = compression_threshold(
+        budget_spec, messages, learned_chars=deps.learned_compression_chars
     )
     # Eşik, modelin GERÇEKTE göreceği (maskeli) görünüme göre ölçülür: maskeleme zaten
     # küçülttüyse geçmişi özetleyip bilgi kaybetmek gereksiz.
@@ -5349,9 +5341,13 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     before = len(messages)
     await prepare_context(messages, deps)
     selected = _context_spec(deps)
-    from .context_budget import context_budget
+    from .context_budget import compression_threshold, context_budget
 
-    threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
+    threshold = compression_threshold(
+        context_budget(deps.config, selected),
+        messages,
+        learned_chars=deps.learned_compression_chars,
+    )
     compressed = await compact_context(messages, deps, threshold, between_turns=True)
     if deps.agent_transcript is not None:
         deps.agent_transcript.reset(compressed)
