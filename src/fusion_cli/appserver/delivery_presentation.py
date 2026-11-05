@@ -28,6 +28,7 @@ _BOOLS = (
     "degisen_kisaltildi",
     "sorunlar_kisaltildi",
     "criteria_truncated",
+    "ayrintilar_kisaltildi",
 )
 _COUNTS = ("degisen_sayisi", "sorun_sayisi", "criteria_count")
 _EXPLICIT_DETAILS = re.compile(
@@ -82,6 +83,8 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
             if type(version) is int and 0 <= version <= 2**53 - 1
             else _invalid(value)
         )
+    if any(key not in value for key in ("dogrulandi", "degisen", "sorunlar")):
+        return _invalid(value)
     if value.get("dogrulandi") is not None and type(value.get("dogrulandi")) is not bool:
         return _invalid(value)
     if any(type(value.get(key)) is not bool for key in ("engelliyor", "yanlis_iddia")):
@@ -126,10 +129,10 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
     kind = value.get("teslim_turu")
     if isinstance(kind, str) and kind in {"code", "artifact"}:
         result["teslim_turu"] = kind
-    elif kind is not None:
+    elif "teslim_turu" in value:
         return _invalid(value)
     criteria = value.get("criteria")
-    if criteria is not None:
+    if "criteria" in value:
         if not isinstance(criteria, list):
             return _invalid(value)
         if any(
@@ -167,7 +170,7 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
             projected.append(safe)
         result["criteria"] = projected
     counts = value.get("criteria_status_counts")
-    if counts is not None:
+    if "criteria_status_counts" in value:
         if not isinstance(counts, dict) or not all(
             type(counts.get(key)) is int and 0 <= counts[key] <= 2**53 - 1
             for key in ("passed", "failed", "unverified")
@@ -189,7 +192,12 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
         if isinstance(counts, dict)
         else len(criteria or [])
     )
-    criteria_total = result.get("criteria_count", 0)
+    criteria_total = result.get("criteria_count")
+    if represented > 2**53 - 1 or (
+        isinstance(criteria_total, int)
+        and (criteria_total < represented or criteria_total < len(criteria or []))
+    ):
+        return _invalid(value)
     if (
         isinstance(criteria_total, int)
         and criteria_total > represented
@@ -197,10 +205,13 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
     ):
         result["dogrulandi"] = None
     tamper = value.get("supheli_test_degisikligi")
-    if tamper is not None:
+    if "supheli_test_degisikligi" in value:
         if not isinstance(tamper, dict) or any(
-            type(tamper.get(k)) is not int or tamper[k] < 0 for k in ("adet", "zayiflatan")
+            type(tamper.get(k)) is not int or not 0 <= tamper[k] <= 2**53 - 1
+            for k in ("adet", "zayiflatan")
         ):
+            return _invalid(value)
+        if tamper["zayiflatan"] > tamper["adet"]:
             return _invalid(value)
         safe_tamper: dict[str, object] = {k: tamper[k] for k in ("adet", "zayiflatan")}
         for key in ("turler", "yollar"):
@@ -209,8 +220,10 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
                 return _invalid(value)
             safe_tamper[key] = [redact(item)[:MAX_TEXT] for item in items[:50]]
         result["supheli_test_degisikligi"] = safe_tamper
-        if tamper["zayiflatan"] and result.get("dogrulandi") is True:
+        if tamper["zayiflatan"] and value.get("dogrulandi") is True:
             return _invalid(value)
+        if tamper["adet"] and result.get("dogrulandi") is True:
+            result["dogrulandi"] = None
     changed_paths = result.get("degisen")
     if not isinstance(changed_paths, list):
         return _invalid(value)

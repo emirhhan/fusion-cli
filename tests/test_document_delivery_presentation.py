@@ -344,6 +344,7 @@ def test_critical_totals_survive_missing_detail_lists(critical):
         value.pop("criteria", None)
         value["criteria_status_counts"] = {"passed": 0, "failed": 0, "unverified": 0}
         value["criteria_status_counts"][critical] = 1
+        value["criteria_count"] = 1
     projected = public_delivery_evidence(value)
     assert projected.get("sunum") is None and projected["dogrulandi"] is not True
     if critical == "problems":
@@ -409,7 +410,17 @@ def test_explicit_null_detail_list_cannot_become_healthy_document(field):
     assert projected["dogrulandi"] is not True and projected.get("sunum") is None
 
 
-@pytest.mark.parametrize("field", ["uyarilar", "olculmeyen"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "uyarilar",
+        "olculmeyen",
+        "criteria",
+        "criteria_status_counts",
+        "supheli_test_degisikligi",
+        "ayrintilar_kisaltildi",
+    ],
+)
 def test_durable_replay_rejects_explicit_null_warning_lists(tmp_path, field):
     from fusion_cli.appserver.visible_transcript import load_visible_transcript
     from fusion_cli.cli.repl.transcript_store import TranscriptStore
@@ -422,3 +433,139 @@ def test_durable_replay_rejects_explicit_null_warning_lists(tmp_path, field):
     proof = load_visible_transcript(store, []).rows[-1]["kanit"]
     assert proof["engelliyor"] is True and proof["dogrulandi"] is not True
     assert proof.get("sunum") is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "ayrintilar_kisaltildi",
+        "criteria",
+        "criteria_status_counts",
+        "supheli_test_degisikligi",
+        "teslim_turu",
+        "degisen_kisaltildi",
+        "sorunlar_kisaltildi",
+        "criteria_truncated",
+        "degisen_sayisi",
+        "sorun_sayisi",
+        "criteria_count",
+        "degisen",
+        "sorunlar",
+    ],
+)
+def test_known_typed_metadata_distinguishes_null_from_absence(field):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    base = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    projected = public_delivery_evidence({**base, field: None})
+    assert projected["engelliyor"] is True and projected["dogrulandi"] is not True
+    assert projected.get("sunum") is None
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        {"adet": 2**53, "zayiflatan": 0},
+        {"adet": 1, "zayiflatan": 2},
+        {"adet": True, "zayiflatan": 0},
+    ],
+)
+def test_tamper_counts_are_safe_and_consistent_even_when_unverified(tamper):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {
+        **evidence_payload(outcome.completion_report),
+        "dogrulandi": None,
+        "supheli_test_degisikligi": tamper,
+        "sunum": "document",
+    }
+    projected = public_delivery_evidence(value)
+    assert projected["engelliyor"] is True and projected.get("sunum") is None
+
+
+def test_positive_nonweakening_tamper_downgrades_verified_to_unknown():
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {
+        **evidence_payload(outcome.completion_report),
+        "sunum": "document",
+        "supheli_test_degisikligi": {"adet": 1, "zayiflatan": 0},
+    }
+    projected = public_delivery_evidence(value)
+    assert projected["dogrulandi"] is None and projected.get("sunum") is None
+    assert projected["supheli_test_degisikligi"]["adet"] == 1
+
+
+@pytest.mark.parametrize("case", ["statuses_exceed_total", "retained_exceed_total", "unsafe_sum"])
+def test_criterion_totals_cannot_contradict_retained_or_known_status_counts(case):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    if case == "statuses_exceed_total":
+        value.update(
+            criteria_count=1, criteria_status_counts={"passed": 2, "failed": 0, "unverified": 0}
+        )
+    elif case == "retained_exceed_total":
+        value.update(criteria_count=1, criteria=[{"status": "passed"}] * 2)
+    else:
+        value.pop("criteria_count")
+        value["criteria_status_counts"] = {"passed": 2**53 - 1, "failed": 0, "unverified": 1}
+    projected = public_delivery_evidence(value)
+    assert projected["engelliyor"] is True and projected.get("sunum") is None
+
+
+@pytest.mark.parametrize("field", ["dogrulandi", "degisen", "sorunlar"])
+def test_missing_required_evidence_fields_fail_closed(field):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    value.pop(field)
+    projected = public_delivery_evidence(value)
+    assert projected["engelliyor"] is True and projected.get("sunum") is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "criteria",
+        "criteria_status_counts",
+        "supheli_test_degisikligi",
+        "ayrintilar_kisaltildi",
+        "teslim_turu",
+    ],
+)
+def test_absent_optional_typed_metadata_keeps_legacy_document(field):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    value.pop(field, None)
+    projected = public_delivery_evidence(value)
+    assert projected["dogrulandi"] is True and projected["sunum"] == "document"
+
+
+def test_valid_zero_tamper_and_false_truncation_keep_typed_semantics():
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {
+        **evidence_payload(outcome.completion_report),
+        "sunum": "document",
+        "ayrintilar_kisaltildi": False,
+        "supheli_test_degisikligi": {"adet": 0, "zayiflatan": 0},
+    }
+    projected = public_delivery_evidence(value)
+    assert projected["dogrulandi"] is True and projected.get("sunum") is None
+    assert projected["ayrintilar_kisaltildi"] is False
