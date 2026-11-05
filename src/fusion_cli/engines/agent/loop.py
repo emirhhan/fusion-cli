@@ -1481,6 +1481,7 @@ async def _run_agent(
             outcome,
             deps,
             registry,
+            verification=verification,
             ordinary_self_review_enabled=ordinary_self_review_enabled(
                 outcome,
                 budget,
@@ -1508,7 +1509,9 @@ async def _run_agent(
                     "\n\nÖğretmen bulgusu için doğrulanmış bir düzeltme yapılmadı."
                 )
             else:
-                remaining = await review_teacher_changes(task, outcome, deps, registry)
+                remaining = await review_teacher_changes(
+                    task, outcome, deps, registry, verification=verification
+                )
                 if remaining is None or remaining:
                     outcome.ok = False
                     outcome.final_text += "\n\nÖğretmen bulgularının giderildiği doğrulanamadı."
