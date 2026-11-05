@@ -41,3 +41,7 @@ could consume the 70ms synthetic retry/repair budget before its second request.
 That timing test now stubs only project-context discovery, leaving real advisory
 waits, shared deadlines and cancellation intact. Production budgets are unchanged.
 Five isolated process runs of the two retry/repair cases passed (10/10 cases).
+
+A separate slow-context test retains the production boundary: context discovery
+that consumes the deadline prevents any teacher request or late plan/todo
+application. The full automatic-phase test file now passes all 18 cases.

@@ -221,3 +221,28 @@ async def test_cancel_converted_to_timeout_error_is_not_retried(monkeypatch, tmp
         await task
     assert registry.calls == 1 and registry.cleaned
     assert not deps.tool_context.todos.items
+
+
+async def test_slow_project_context_consumes_same_phase_budget(monkeypatch, tmp_path):
+    import time
+
+    deps, sink = deps_for_phase(monkeypatch, tmp_path, phase=0.02)
+    built = []
+
+    def slow_context(*args):
+        time.sleep(0.04)
+        built.append(True)
+        return "Slow bounded project context"
+
+    monkeypatch.setattr(teacher_flow, "_project_context", slow_context)
+    registry = Registry([ToolResult(PLAN)])
+    await teacher_flow.prepare_teacher_plan("src/app.py hatasını düzelt", [], deps, registry)
+    assert built and registry.calls == 0
+    assert deps.pending_teacher_plan is None
+    assert not deps.tool_context.todos.items
+    assert not deps.teacher_unavailable_notified
+    assert any(
+        "süre bütçesi doldu" in event.message
+        for event in sink.events
+        if isinstance(event, StatusChanged)
+    )
