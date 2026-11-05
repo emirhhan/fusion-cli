@@ -145,16 +145,24 @@ def _is_webp(ham: bytes, mime: str) -> bool:
 
 async def describe_image(config: Config, path: Path, question: str) -> tuple[str, str | None]:
     """Görseli yapılandırılmış görsel modeline sor. (açıklama, hata) döndürür."""
+    if config.vision is None:
+        return "", "Görsel modeli yapılandırılmamış."
+    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
+    if sorun is not None:
+        return "", sorun
+    return await describe_image_data(config, data_uri, question)
+
+
+async def describe_image_data(
+    config: Config, data_uri: str, question: str
+) -> tuple[str, str | None]:
+    """Describe the already-authorized immutable image snapshot."""
     from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
         return "", "Görsel modeli yapılandırılmamış."
-    # Dosya okuma olay döngüsünü bloklamasın (A2-39): 5 MB'a kadar senkron okuma.
-    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
-    if sorun is not None:
-        return "", sorun
     try:
         provider = build_provider(
             spec,

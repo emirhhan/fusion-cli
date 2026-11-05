@@ -253,7 +253,7 @@ def _focus_diagnostics(
 def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulama ve varsa pencere adına göre pencereyi öne getir."""
     # A failed focus attempt makes the previous screenshot unusable too.
-    context.desktop.frame = None
+    context.desktop.invalidate_capture(clear_frame=True)
     context.desktop.focus_required = True
     context.desktop.focused_window = None
     context.desktop.focused_window_id = 0
@@ -308,7 +308,7 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.desktop.focus_required = False
     context.desktop.focused_window_id = observed["id"]
     context.desktop.focused_window_title = observed_window
-    context.desktop.frame = None
+    context.desktop.invalidate_capture(clear_frame=True)
     return ToolResult(
         f"Öne getirildi ve doğrulandı: {observed_app} — {observed_window}; "
         f"window_id={observed['id']}, pid={pid}, "

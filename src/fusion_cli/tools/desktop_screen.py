@@ -371,6 +371,7 @@ def _fallback_refusal(settings: DesktopSettings) -> str | None:
 
 def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Ekranı (ya da bölgesini) çalışma alanına kaydet, küçült ve çerçeveyle modele aktar."""
+    capture_token = context.desktop.begin_capture()
     error = desktop_win32.gate(_mac_only())
     if error:
         return ToolResult.failure(error)
@@ -443,10 +444,17 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     size = png_size(data)
     if size is None or len(data) > SCREENSHOT_MAX_BYTES:
         return ToolResult.failure("Ekran görüntüsü sınırı aştı ya da PNG değil.")
+    if context.cancelled.is_set() or not context.desktop.capture_is_current(capture_token):
+        return ToolResult.failure(
+            "Yakalama sırasında ekran hedefi veya görüntü nesli değişti; yeni ekran görüntüsü al."
+        )
     context.touched.add(target)
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
     if region is not None:
         x, y, width, height = region
+        context.desktop.record_capture(
+            target, image.data_uri, data, (x, y, width, height), token=capture_token
+        )
         # Ölçüldü (31 Ekim): not "büyütülmüş" diyordu; bölge ham ekran pikseliyle yakalanır,
         # `_shrink` yalnız küçültür. Bölge de ScreenCaptureKit ile dışlamalı yakalanır (P-007).
         note = (
@@ -458,6 +466,13 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult(f"{note} Dosya: {target}", content=(image,))
     frame = _display_frame(display, size)
     context.desktop.frame = frame
+    context.desktop.record_capture(
+        target,
+        image.data_uri,
+        data,
+        (0, 0, frame.image_width, frame.image_height),
+        token=capture_token,
+    )
     return ToolResult(
         f"Ekran görüntüsü: {target}. {frame.describe()} desktop_mouse/desktop_click x,y = bu "
         "görüntünün pikseli; ayrıntı için region='x,y,w,h'.",

@@ -28,7 +28,13 @@ from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
-from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
+from .desktop_frame import (
+    DESKTOP_SCREENSHOT_MAX_WIDTH,
+    DesktopCapture,
+    DesktopFrame,
+    DesktopMouseAction,
+    DesktopView,
+)
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .localization import LocalizationState
@@ -236,6 +242,8 @@ class ToolResult:
     workspace_effect: WorkspaceEffect | None = None
     #: Araç çıktıyı kendi (Claude Code) sınırına göre biçimledi; genel diske alma atlanır.
     output_shaped: bool = False
+    #: Internal successful image-helper observation; never decoded from MCP data.
+    visual_observation: DesktopCapture | None = None
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -471,6 +479,17 @@ class ToolContext:
     #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
     #: (`runtime.desktop_screenshot_max_width`).
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
+    #: Private invocation callback; never shared as an actor observation/permission.
+    desktop_mouse_observer: Callable[[DesktopMouseAction], None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_guard: Callable[[str, ToolArgs], str | None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_owner: object | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_coordinate_frame: DesktopFrame | None = field(default=None, kw_only=True, repr=False)
     #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
     desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
     #: Bilgisayar kullanımı ayarları (`desktop:`; kademe, reddedilen uygulamalar, tur davranışı).

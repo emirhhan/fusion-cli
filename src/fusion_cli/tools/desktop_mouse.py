@@ -12,9 +12,14 @@ sağ/çift/üçlü tık, sürükle, hover, basılı tutma ve yatay/koordinatlı 
 from __future__ import annotations
 
 import ctypes
+import math
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from threading import Lock, RLock, Thread
 
+from ..core.desktop_frame import DesktopMouseAction
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from . import desktop_turn, desktop_win32
 from .desktop import DESKTOP_SCROLL_MAX_LINES, _framework, _mac_only, _trusted, modifier_flags
@@ -40,6 +45,108 @@ _UP = {0: 2, 1: 4, 2: 26}
 _DRAGGED = {0: 6, 1: 7, 2: 27}
 #: kCGMouseEventClickState: çift/üçlü tık için 2 ve 3.
 _CLICK_STATE_FIELD = 1
+# Serialization of physical events only; observation/ownership stays per actor.
+_PHYSICAL_MOUSE_LOCK = RLock()
+_PHYSICAL_BUTTON_OWNERS: dict[int, object | None] = {}
+_FAILED_RELEASES: dict[int, object] = {}
+_PENDING_RELEASE_LOCK = Lock()
+_PENDING_RELEASES: dict[tuple[int, object], tuple[ToolContext, Callable[[ToolResult], None]]] = {}
+_CLEANUP_WORKER_ACTIVE = False
+
+
+def _drain_owned_releases(
+    attempted: set[tuple[int, object]] | None = None,
+) -> set[tuple[int, object]]:
+    # Caller holds the physical mutex. No State lock is held while waiting for it.
+    with _PENDING_RELEASE_LOCK:
+        pending = tuple(
+            (key, value)
+            for key, value in _PENDING_RELEASES.items()
+            if attempted is None or key not in attempted
+        )
+        for key, _ in pending:
+            del _PENDING_RELEASES[key]
+    for (button, token), (context, completed) in pending:
+        result = _release_if_owned(button, token, context)
+        completed(result)
+        if not result.ok:
+            with _PENDING_RELEASE_LOCK:
+                _PENDING_RELEASES.setdefault((button, token), (context, completed))
+    return {key for key, _ in pending}
+
+
+@contextmanager
+def _physical_mouse(context: ToolContext) -> Iterator[bool]:
+    while not _PHYSICAL_MOUSE_LOCK.acquire(timeout=0.02):
+        if context.cancelled.is_set() or (
+            context.desktop_mouse_guard is not None
+            and context.desktop_mouse_guard("", {}) is not None
+        ):
+            yield False
+            return
+    try:
+        _drain_owned_releases()
+        yield True
+    finally:
+        try:
+            _drain_owned_releases()
+        finally:
+            _PHYSICAL_MOUSE_LOCK.release()
+
+
+def request_owned_release(
+    button: int, token: object, context: ToolContext, completed: Callable[[ToolResult], None]
+) -> None:
+    """Queue cleanup without waiting for an in-flight or hung physical OS call."""
+    global _CLEANUP_WORKER_ACTIVE
+    with _PENDING_RELEASE_LOCK:
+        _PENDING_RELEASES[(button, token)] = (context, completed)
+        if _CLEANUP_WORKER_ACTIVE:
+            return
+        _CLEANUP_WORKER_ACTIVE = True
+    # Even an uncontended mutex may enter a hung native call. Closing a drive
+    # only enqueues; no OS cleanup may execute on its event-loop thread.
+    Thread(target=_cleanup_owned_releases, daemon=True, name="fusion-mouse-cleanup").start()
+
+
+def _cleanup_owned_releases() -> None:
+    global _CLEANUP_WORKER_ACTIVE
+    # A single daemon retains cleanup responsibility behind an in-flight native
+    # post. Model-action waiters remain cancellation-aware; Stop never joins this.
+    attempted: set[tuple[int, object]] = set()
+    with _PHYSICAL_MOUSE_LOCK:
+        while True:
+            attempted.update(_drain_owned_releases(attempted))
+            with _PENDING_RELEASE_LOCK:
+                if not any(key not in attempted for key in _PENDING_RELEASES):
+                    _CLEANUP_WORKER_ACTIVE = False
+                    return
+
+
+def _record_physical(plan: tuple[MouseEvent, ...], context: ToolContext) -> None:
+    for event in plan:
+        if event.kind == _DOWN[event.button]:
+            _PHYSICAL_BUTTON_OWNERS[event.button] = context.desktop_mouse_owner
+        elif event.kind == _UP[event.button]:
+            _PHYSICAL_BUTTON_OWNERS.pop(event.button, None)
+
+
+def _physical_conflict(plan: tuple[MouseEvent, ...], context: ToolContext) -> str | None:
+    for event in plan:
+        if event.kind == _DOWN[event.button]:
+            if event.button in _FAILED_RELEASES:
+                return "Önceki basılı fare düğmesi bırakılamadı; yeni basma işlemi başlatılmadı."
+            if event.button in _PHYSICAL_BUTTON_OWNERS and (
+                _PHYSICAL_BUTTON_OWNERS[event.button] is not context.desktop_mouse_owner
+            ):
+                return "Fare düğmesini başka bir aktör basılı tutuyor; yeni basma başlatılmadı."
+        elif (
+            event.kind == _UP[event.button]
+            and event.button in _PHYSICAL_BUTTON_OWNERS
+            and (_PHYSICAL_BUTTON_OWNERS[event.button] is not context.desktop_mouse_owner)
+        ):
+            return "Başka aktörün basılı fare düğmesi bu işlemle bırakılamaz."
+    return None
 
 
 class _Point(ctypes.Structure):
@@ -148,6 +255,69 @@ def _post_mouse(framework: ctypes.CDLL, plan: tuple[MouseEvent, ...]) -> None:
             time.sleep(event.gap_s)
 
 
+def release_owned_mouse(button: int, token: object, context: ToolContext) -> ToolResult:
+    """Cleanup a previously authorized owned down; no model coordinate is used."""
+    with _physical_mouse(context) as acquired:
+        if not acquired:
+            return ToolResult.failure(
+                "Fare bırakma bekleyişi iptal edildi; sahipli temizlik sıraya alınacak."
+            )
+        return _release_if_owned(button, token, context)
+
+
+def _release_if_owned(button: int, token: object, context: ToolContext) -> ToolResult:
+    if _PHYSICAL_BUTTON_OWNERS.get(button) is not token:
+        if _FAILED_RELEASES.get(button) is token:
+            _FAILED_RELEASES.pop(button, None)
+        return ToolResult("Bu aktöre ait basılı fare düğmesi kalmadı; yeni olay gönderilmedi.")
+    try:
+        result = _release_owned_mouse(button, context)
+    except Exception as exc:
+        result = ToolResult.failure(
+            f"Fare bırakma temizliği başarısız ({type(exc).__name__}): {exc}"
+        )
+    if result.ok:
+        _PHYSICAL_BUTTON_OWNERS.pop(button, None)
+        _FAILED_RELEASES.pop(button, None)
+    else:
+        _FAILED_RELEASES[button] = token
+    return result
+
+
+def _release_owned_mouse(button: int, context: ToolContext) -> ToolResult:
+    error = desktop_win32.gate(_mac_only())
+    if error:
+        return ToolResult.failure(error)
+    if button not in _UP:
+        return ToolResult.failure("Sahip olunan fare düğmesi tanınmadı.")
+    try:
+        if desktop_win32.active():
+            desktop_win32.release_mouse_button(button)
+        else:
+            framework = _framework()
+            if not _trusted(framework):
+                return permission_failure(ACCESSIBILITY)
+            framework.CGEventCreate.argtypes = [ctypes.c_void_p]
+            framework.CGEventCreate.restype = ctypes.c_void_p
+            framework.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+            framework.CGEventGetLocation.restype = _Point
+            framework.CFRelease.argtypes = [ctypes.c_void_p]
+            event = framework.CGEventCreate(None)
+            if not event:
+                return ToolResult.failure("Fare bırakılmadan önce geçerli imleç konumu okunamadı.")
+            try:
+                point = framework.CGEventGetLocation(event)
+                x, y = float(point.x), float(point.y)
+                if not (math.isfinite(x) and math.isfinite(y)):
+                    return ToolResult.failure("Geçerli imleç konumu okunamadı.")
+            finally:
+                framework.CFRelease(event)
+            _post_mouse(framework, (MouseEvent(_UP[button], x, y, button),))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return ToolResult.failure(f"Sahip olunan fare düğmesi bırakılamadı: {exc}")
+    return ToolResult("Önceden basılan fare düğmesi için yalnız bırakma olayı gönderildi.")
+
+
 def _coordinate(args: ToolArgs, name_x: str, name_y: str) -> tuple[float, float] | None:
     x, y = args.get(name_x), args.get(name_y)
     values = []
@@ -191,7 +361,7 @@ def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, 
             "Önce desktop_window_focus ile hedef kimliğini yeniden doğrula "
             "ve yeni ekran görüntüsü al."
         )
-    frame = context.desktop.frame
+    frame = context.desktop_coordinate_frame or context.desktop.frame
     if frame is None:
         return NO_FRAME_MESSAGE
     if not frame.contains_pixel(*pixel):
@@ -199,7 +369,7 @@ def _to_point(context: ToolContext, pixel: tuple[float, float]) -> tuple[float, 
             f"Koordinat görüntünün dışında: son ekran görüntüsü {frame.image_width}x"
             f"{frame.image_height} px. x,y bu görüntünün pikseli olmalı."
         )
-    point = context.desktop.to_point(*pixel)
+    point = frame.to_point(*pixel)
     target = context.desktop.focused_window
     if target is not None:
         _pid, x, y, width, height = target
@@ -244,15 +414,44 @@ def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
     if busy:
         return ToolResult.failure(busy)
     desktop_turn.foreground_action(context)
-    plan = mouse_plan(action, start_point, end_point, button=button, flags=flags)
     try:
-        if desktop_win32.active():
-            desktop_win32.send_mouse(plan)
-        else:
-            framework = _framework()
-            if not _trusted(framework):
-                return permission_failure(ACCESSIBILITY)
-            _post_mouse(framework, plan)
+        with _physical_mouse(context) as acquired:
+            if not acquired:
+                return ToolResult.failure("Fare eylemi bekleyişi iptal edildi.")
+            if context.cancelled.is_set():
+                return ToolResult.failure("Fare eylemi iptal edildi.")
+            if context.desktop_mouse_guard is not None:
+                blocked = context.desktop_mouse_guard("desktop_mouse", args)
+                if blocked is not None:
+                    return ToolResult.failure(blocked)
+            # Recompute after waiting for another actor's physical event sequence.
+            start_point = _to_point(context, start)
+            if isinstance(start_point, str):
+                return ToolResult.failure(start_point)
+            converted_end = _to_point(context, end) if end is not None else None
+            if isinstance(converted_end, str):
+                return ToolResult.failure(converted_end)
+            end_point = converted_end
+            plan = mouse_plan(action, start_point, end_point, button=button, flags=flags)
+            conflict = _physical_conflict(plan, context)
+            if conflict is not None:
+                return ToolResult.failure(conflict)
+            if desktop_win32.active():
+                desktop_win32.send_mouse(plan)
+            else:
+                framework = _framework()
+                if not _trusted(framework):
+                    return permission_failure(ACCESSIBILITY)
+                _post_mouse(framework, plan)
+            _record_physical(plan, context)
+            if context.desktop_mouse_observer is not None:
+                context.desktop_mouse_observer(
+                    DesktopMouseAction(
+                        end_point or start_point,
+                        button if action == "down" else None,
+                        tuple(event.button for event in plan if event.kind == _UP[event.button]),
+                    )
+                )
     except (OSError, RuntimeError, ValueError) as exc:
         return ToolResult.failure(f"Fare eylemi gönderilemedi: {exc}")
     where = f"({start[0]:g}, {start[1]:g})"
@@ -339,17 +538,33 @@ def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     if isinstance(point, str):
         return ToolResult.failure(point)
     try:
-        if desktop_win32.active():
-            if point is not None:
-                desktop_win32.send_mouse(mouse_plan("hover", point))
-            desktop_win32.send_scroll(lines, delta_x)
-        else:
-            framework = _framework()
-            if not _trusted(framework):
-                return permission_failure(ACCESSIBILITY)
-            if point is not None:
-                _post_mouse(framework, mouse_plan("hover", point))
-            _post_scroll(framework, lines, delta_x) if delta_x else _post_scroll(framework, lines)
+        with _physical_mouse(context) as acquired:
+            if not acquired:
+                return ToolResult.failure("Kaydırma bekleyişi iptal edildi.")
+            if context.cancelled.is_set():
+                return ToolResult.failure("Kaydırma iptal edildi.")
+            if context.desktop_mouse_guard is not None:
+                blocked = context.desktop_mouse_guard("desktop_scroll", args)
+                if blocked is not None:
+                    return ToolResult.failure(blocked)
+            point = _to_point(context, pixel) if pixel is not None else None
+            if isinstance(point, str):
+                return ToolResult.failure(point)
+            if desktop_win32.active():
+                if point is not None:
+                    desktop_win32.send_mouse(mouse_plan("hover", point))
+                desktop_win32.send_scroll(lines, delta_x)
+            else:
+                framework = _framework()
+                if not _trusted(framework):
+                    return permission_failure(ACCESSIBILITY)
+                if point is not None:
+                    _post_mouse(framework, mouse_plan("hover", point))
+                _post_scroll(framework, lines, delta_x) if delta_x else _post_scroll(
+                    framework, lines
+                )
+            if point is not None and context.desktop_mouse_observer is not None:
+                context.desktop_mouse_observer(DesktopMouseAction(point))
     except (OSError, RuntimeError) as exc:
         return ToolResult.failure(f"Kaydırma gönderilemedi: {exc}")
     parts = []

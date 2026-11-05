@@ -18,6 +18,7 @@ from time import monotonic as _monotonic
 from typing import TYPE_CHECKING, Protocol
 
 from ...config.models import Config
+from ...core.desktop_frame import image_payload_digest
 from ...core.errors import FusionError
 from ...core.events import (
     CouncilConsulted,
@@ -49,9 +50,10 @@ from . import learning_steps
 from .agent_task_tools import agent_task_tools
 from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
+from .desktop_grounding import capture_file_matches
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
-from .image_view import DEFAULT_QUESTION, describe_image
+from .image_view import DEFAULT_QUESTION, describe_image_data, load_image_data_uri
 from .memory_tools import memory_read_tool, remember_tool
 from .orchestration_tools import register_orchestration_tools
 from .preview_log_tools import preview_log_tools
@@ -744,10 +746,33 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         soru = args.get("question")
         question = soru.strip() if isinstance(soru, str) and soru.strip() else DEFAULT_QUESTION
         path = resolve_path(context, raw_path)
-        aciklama, sorun = await describe_image(deps.config, path, question)
+        data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
-        return ToolResult(f"{display_path(context, path)} — {aciklama}")
+        capture = context.desktop.current_capture
+        observation = (
+            capture
+            if capture is not None
+            and capture.path == path
+            and capture.payload_digest == image_payload_digest(data_uri)
+            and capture.focus == context.desktop.focus_identity()
+            else None
+        )
+        aciklama, sorun = await describe_image_data(deps.config, data_uri, question)
+        if sorun is not None:
+            return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
+        if not aciklama.strip():
+            return ToolResult.failure("Görsel modeli boş gözlem döndürdü.")
+        if observation is not None and not await asyncio.to_thread(
+            capture_file_matches, observation, context
+        ):
+            observation = None
+        return ToolResult(
+            f"{display_path(context, path)} — {aciklama}",
+            visual_observation=observation
+            if context.desktop.current_capture is observation and not context.cancelled.is_set()
+            else None,
+        )
 
     return Tool(
         name="view_image",

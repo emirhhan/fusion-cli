@@ -190,6 +190,14 @@ def send_mouse(plan: Iterable[Any]) -> None:
     sender.send(mouse_inputs(plan, sender.virtual_screen()))
 
 
+def release_mouse_button(button: int) -> None:
+    """Cleanup UP only; ordinary mouse_inputs intentionally also requests MOVE."""
+    flags = {0: _LEFT_UP, 1: _RIGHT_UP, 2: _MIDDLE_UP}
+    if button not in flags:
+        raise ValueError("Bilinmeyen fare düğmesi.")
+    api().send([InputSpec(INPUT_MOUSE, flags=flags[button])])
+
+
 def send_scroll(lines: int, delta_x: int = 0) -> None:
     api().send(scroll_inputs(lines, delta_x))
 

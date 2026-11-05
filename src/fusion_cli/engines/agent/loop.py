@@ -26,7 +26,7 @@ import json
 import re
 import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
-from contextlib import AbstractAsyncContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, nullcontext, suppress
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from functools import partial
@@ -53,7 +53,7 @@ from ...core.constants import (
     UNREACHABLE_RESOURCE_PREFIX,
 )
 from ...core.effects import EffectRecorder
-from ...core.errors import ConfigError, FusionError
+from ...core.errors import CleanupFailedError, ConfigError, FusionError
 from ...core.event_scope import TurnPublisher, new_trace_id
 from ...core.events import (
     ApprenticeHandoff,
@@ -198,6 +198,7 @@ from .claude_chrome_call import claude_chrome_call
 from .computer_use_hint import computer_use_off_hint
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
 from .deferred_resume import take_deferred
+from .desktop_grounding import DesktopGrounding
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -1775,6 +1776,7 @@ class _State:
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
+    desktop_grounding: DesktopGrounding = field(default_factory=DesktopGrounding)
     #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
     max_tokens_scale: int = 1
     #: Çıktı bütçesi düşünmeye gittiyse turun kalanında düşünme yoğunluğu düşürülür.
@@ -1882,6 +1884,51 @@ async def _drive(
         internal=internal,
         require_local_mutation=require_local_mutation,
     )
+    event_loop = asyncio.get_running_loop()
+
+    def cleanup_failed(message: str) -> None:
+        if not event_loop.is_closed():
+            # Failure is already logged/retained; a closed transport cannot
+            # receive a late status event.
+            with suppress(RuntimeError):
+                event_loop.call_soon_threadsafe(
+                    deps.publisher.publish,
+                    StatusChanged(f"Fare temizliği tamamlanamadı: {message}"),
+                )
+
+    state.desktop_grounding.failure_reporter = cleanup_failed
+    try:
+        return await _drive_loop(
+            messages,
+            deps,
+            registry,
+            state=state,
+            plan_mode=plan_mode,
+            allowed_tools=allowed_tools,
+            step_limit=step_limit,
+            execution=execution,
+            internal=internal,
+            auto_teacher=auto_teacher,
+        )
+    finally:
+        state.desktop_grounding.close()
+        if state.desktop_grounding.cleanup_error:
+            raise CleanupFailedError(state.desktop_grounding.cleanup_error)
+
+
+async def _drive_loop(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    state: _State,
+    plan_mode: bool,
+    allowed_tools: set[str] | None,
+    step_limit: int | None,
+    execution: ExecutionPolicy,
+    internal: bool,
+    auto_teacher: bool,
+) -> AgentOutcome:
     budget = deps.require_budget()
     recovery_context = reflexion.recovery_context(
         required_effect=execution.required_effect,
@@ -3163,6 +3210,9 @@ async def _call_model(
         ),
         prompt_cache_ttl=getattr(deps, "prompt_cache_ttl", "") or "",
     )
+    desktop_observation = state.desktop_grounding.for_request(
+        request.messages, deps.tool_context, deps.conversation_id, deps.attempt_id
+    )
     provider = build_provider(
         spec,
         model_specs=configured_model_specs(deps.config),
@@ -3215,6 +3265,26 @@ async def _call_model(
             if outcome.model == spec.model
             else None,
         )
+    from ...config.model_lookup import model_spec_for
+
+    served_spec = (
+        spec
+        if outcome.model == spec.model
+        else model_spec_for(outcome.model, configured_model_specs(deps.config))
+    )
+    observed_spec = model_spec_for(outcome.served_by, configured_model_specs(deps.config))
+    if observed_spec is not None:
+        served_spec = observed_spec
+    state.desktop_grounding.acknowledge(
+        desktop_observation,
+        usable=outcome.ok and outcome.is_usable,
+        images_supported=desktop_observation is not None
+        and served_spec is not None
+        and capabilities_for(served_spec, deps.config.web_sessions).images,
+        context=deps.tool_context,
+        conversation_id=deps.conversation_id,
+        attempt_id=deps.attempt_id,
+    )
     return outcome
 
 
@@ -4281,7 +4351,9 @@ async def _run_tools(
         # (including after a rejected stale-element action). Re-read the live state;
         # neither a cached fingerprint nor a cached screenshot is fresh evidence.
         live_desktop_read = (
-            tool is not None and not tool.mutating and tool_family(call.name) is ToolFamily.DESKTOP
+            tool is not None
+            and not tool.mutating
+            and (tool_family(call.name) is ToolFamily.DESKTOP or call.name == "view_image")
         )
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
@@ -4569,17 +4641,30 @@ async def _run_tools(
         if gorseller and not _agent_reads_images(deps):
             gorseller = ()
             govde = f"{govde}\n\n{IMAGES_NOT_SENT_NOTE}"
-        messages.append(
-            Message(
-                "tool",
-                govde,
-                tool_call_id=call.id,
-                name=call.name,
-                ok=result.ok,
-                images=gorseller,
-                tool_diff=diff,
-            )
+        message = Message(
+            "tool",
+            govde,
+            tool_call_id=call.id,
+            name=call.name,
+            ok=result.ok,
+            images=gorseller,
+            tool_diff=diff,
         )
+        messages.append(message)
+        if (
+            result.visual_observation is not None
+            and outcome is ToolOutcome.OK
+            and post_hook.replaced_output is None
+            and result.output
+            and result.output in govde
+        ):
+            state.desktop_grounding.note_helper(
+                result.visual_observation,
+                message,
+                deps.tool_context,
+                deps.conversation_id,
+                deps.attempt_id,
+            )
     return errored
 
 
@@ -4786,8 +4871,39 @@ async def _execute(
                 ToolResult.failure("Dış işlem başlamadan süre sınırı doldu."),
                 ToolOutcome.BLOCKED,
             )
+    owned_release = (
+        state.desktop_grounding.matching_release(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        if state is not None
+        else None
+    )
+    if state is not None and owned_release is None:
+        grounding_error = state.desktop_grounding.preflight(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        if grounding_error is not None:
+            return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
     deps.publisher.publish(ToolStarted(name=call.name, args=args, call_id=call.id))
-    result = await _execute_registered_tool(call, args, deps, registry, tool, state)
+    if state is not None and owned_release is not None:
+        from ...core.owned_thread import await_cancellable_thread
+
+        tool_running(deps, call.name, args, call.id)
+        result = await await_cancellable_thread(
+            state.desktop_grounding.release, owned_release.context.cancelled.set, owned_release
+        )
+        await localization.record_result(call, result, deps.tool_context)
+        _note_tool_use(
+            state,
+            call.name,
+            tool,
+            ok=result.ok,
+            arguments=args,
+            output=result.output,
+            call_id=call.id,
+        )
+    else:
+        result = await _execute_registered_tool(call, args, deps, registry, tool, state)
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
@@ -4815,7 +4931,12 @@ async def _execute_registered_tool(
         else None
     )
     tool_running(deps, call.name, args, call.id)  # `duration_ms` onaydan sonra başlar
-    result = await registry.execute(call.name, args, deps.tool_context)
+    context = deps.tool_context
+    if state is not None and call.name in {"desktop_click", "desktop_mouse", "desktop_scroll"}:
+        context = state.desktop_grounding.mouse_context(
+            context, deps.conversation_id, deps.attempt_id
+        )
+    result = await registry.execute(call.name, args, context)
     await localization.record_result(call, result, deps.tool_context)
     if state is not None:
         after = await asyncio.to_thread(source_digest, deps.tool_context.root) if is_shell else ""

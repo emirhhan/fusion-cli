@@ -11,8 +11,10 @@ Retina pikseli veriyordu; model 2x kaymış noktaya tıklıyordu.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 #: Eski `runtime.desktop_screenshot_max_width` varsayılanı (kullanımdan kalktı, #448).
@@ -78,6 +80,31 @@ class DesktopTurnHooks(Protocol):
     def foreground_action(self, keep: Sequence[int] = ()) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class DesktopCapture:
+    """Trusted captured bytes and their full-screen coordinate rectangle."""
+
+    generation: int
+    path: Path
+    payload_digest: str
+    file_digest: str
+    byte_size: int
+    frame: DesktopFrame | None
+    bounds: tuple[float, float, float, float]
+    focus: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopMouseAction:
+    point: tuple[float, float]
+    pressed: int | None = None
+    released: tuple[int, ...] = ()
+
+
+def image_payload_digest(data_uri: str) -> str:
+    return hashlib.sha256(data_uri.encode("ascii")).hexdigest()
+
+
 class DesktopView:
     """Turun son tam ekran çerçevesi; fare araçları koordinatı buna göre çevirir.
 
@@ -95,6 +122,56 @@ class DesktopView:
         self.focus_required = False
         self.focused_window_id = 0
         self.focused_window_title = ""
+        self.current_capture: DesktopCapture | None = None
+        self._capture_generation = 0
+
+    def focus_identity(self) -> tuple[object, ...]:
+        return (
+            self.focused_window,
+            self.focused_window_id,
+            self.focused_window_title,
+            self.focus_required,
+        )
+
+    def invalidate_capture(self, *, clear_frame: bool = False) -> None:
+        """Advance the epoch even if a focus attempt later returns to the same target."""
+        self._capture_generation += 1
+        self.current_capture = None
+        if clear_frame:
+            self.frame = None
+
+    def begin_capture(self) -> tuple[int, tuple[object, ...]]:
+        """Invalidate old authority and snapshot the focus before acquiring pixels."""
+        self.invalidate_capture()
+        return self._capture_generation, self.focus_identity()
+
+    def capture_is_current(self, token: tuple[int, tuple[object, ...]]) -> bool:
+        return token == (self._capture_generation, self.focus_identity())
+
+    def record_capture(
+        self,
+        path: Path,
+        data_uri: str,
+        data: bytes,
+        bounds: tuple[float, float, float, float],
+        *,
+        token: tuple[int, tuple[object, ...]] | None = None,
+    ) -> DesktopCapture:
+        if token is None:
+            self._capture_generation += 1
+            token = self._capture_generation, self.focus_identity()
+        capture = DesktopCapture(
+            token[0],
+            path,
+            image_payload_digest(data_uri),
+            hashlib.sha256(data).hexdigest(),
+            len(data),
+            self.frame,
+            bounds,
+            token[1],
+        )
+        self.current_capture = capture
+        return capture
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""
