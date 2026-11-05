@@ -41,3 +41,29 @@ gerileme olarak sunulmadı. Tam CSS/ARIA motoru talep edilmedi.
 
 Gömülü JavaScript istisna ispatının bağımsız TypeScript incelemesi ayrı yürütülür.
 Bu belge bir düzeltme sonrası onay veya tam WCAG uygunluk değerlendirmesi değildir.
+
+## `54e1661f` üzerinde yeniden inceleme
+
+Bu bölüm önceki yedi landmark bulgusunun son durumunu günceller: yedisi de
+düzeltilmiştir. İlgisiz çalışma ağacı değişiklikleri incelenen sürüme karışmasın
+diye `git archive 54e1661f` ile ayrı kaynak/test görüntüsü oluşturuldu.
+
+- Önceki 12 bağımsız kontrol dahil ilgili beş modülde 161 test başarılı,
+  8,03 saniye.
+- Temas formu ve tarayıcı istek korumasında 58 test başarılı, 69,47 saniye.
+- Dört dosyada Ruff ve biçim denetimi, iki kaynak dosyada dar mypy temiz.
+- Kaynaklar: browser `2a095d6b39977e6e732aac42bdf82c95a8f705a8465b445e9a8e7a8c2c31e024`,
+  web `8c3e014443aa8b1ee4697f3de32dce0cee71bafd2616c2fc24bcc7cb37b1d3d2`.
+
+**Kalan bulgu — Yeni atalar yığını eşleşmeyen kapanış etiketlerinde karesel iş yapıyor.**
+`handle_endtag`, açılmamış bir etiketi her gördüğünde tüm yığını geriye doğru
+tarıyor. Ölçümde 100 açık `div` ve 100 eşleşmeyen kapanış 10.000 yığın okuması;
+500 ve 500 ise 250.000 okuma üretti. Aynı kontrollü girdinin 9.026/36.026/108.026
+karakterlik sürümleri 0,0068/0,0866/0,7279 saniye sürdü. Bu süreler tek makinedeki
+gözlemdir; daha büyük dosya süresi ölçülmüş gibi sunulmaz.
+
+Dokunulan HTML dosyaları boyut sınırı olmadan okunur ve statik inceleme event loop
+üzerinde eşzamanlı yürür. Bu nedenle yalnız yeni yığın hesabının eşleşmeyen
+etiketlerde doğrusal tutulması veya açık sınırlı bir geri dönüş kullanılması
+önerildi. Bu, tam CSS/ARIA motoru istemi değildir. Dar düzeltme/karar beklenirken
+son onay verilmedi; önceki landmark kusurları açıkmış gibi raporlanmadı.
