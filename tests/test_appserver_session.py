@@ -776,7 +776,8 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "ikinci iş"}))
 
     # C2: ikinci tur BİRİNCİ turun ürettiği geçmişi gördü — sıfırdan başlamadı.
-    assert gorulen_gecmisler[1] is ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] == ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] is not ilk_turun_ciktisi
 
 
 async def test_model_olayi_oturum_kullanimina_yansir(tmp_path, monkeypatch):

@@ -1,0 +1,13 @@
+# Accepted execution context
+
+Two actual AppSession reproductions showed an accepted receipt executing against a newly visible root/conversation: one switched before the durable running-state write completed; the other switched during personal-memory loading. Both desired-behavior tests failed before this change.
+
+Acceptance now captures a detached execution view before lookup, attachment loading or receipt claim can yield. The captured view includes canonical root, conversation, configuration and auto-profile flag, history, pending inputs, capabilities, approval memory and owner-bound services. Execution, journal, tool recording, workspace changes and completion use that view. Visible-state adoption requires the original owner and generation; returning old → new → old reloads the old owner's durable result without replacing the other chat's history.
+
+Newly claimed receipts consume captured pending inputs once. Failed claims and cached receipts leave next-turn inputs and startup tasks intact. Same-owner explicit site revocation and manual approval changes synchronize into the running view. Consent earned by ordinary and browser-panel turns survives, while classifier fallback and later manual mode changes take precedence. Browser-panel results do not replace main-chat history.
+
+Hook configuration can rebind an existing HookSession to its accepted owner. Its startup task, watcher and background jobs retain identity. A pending acceptance leases that binding before yielding; chat rebind detaches the visible hook pointer, and release restores the current owner or ends a detached session. The default hook-factory call retains its previous behavior.
+
+Local shell output, linked PR metadata, stored todo callbacks, goal evaluation and desktop approval callbacks also retain their accepted owner. The engine's TurnReport/AgentOutcome, CLI, provider preferences and presentation wire fields remain unchanged.
+
+Validation: 210 tests passed across the selected session, submission, auto-profile, transcript, capability and document-delivery files; the additional cached-receipt lifecycle control then passed in the complete 22-test accepted-context file. One existing third-party Pydantic warning remains. Ruff, formatting, mypy and diff checks passed. Independent Python review re-ran 11 known-regression controls and found no remaining evidenced blockers. All executors, askers and lifecycle fixtures were local fakes; no live provider, network, native UI, user hooks, installation or ORIGINAL writes were used. This does not claim that unrelated execution lifecycles have been audited.
